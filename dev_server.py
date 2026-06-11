@@ -66,6 +66,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         super().log_message(prefix + fmt, *args)
 
 
+class Server(socketserver.ThreadingTCPServer):
+    # Must be a class attribute: it is consulted while binding, so quick
+    # online → --offline restarts don't fail with "Address already in use".
+    allow_reuse_address = True
+    daemon_threads = True
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--port', type=int, default=8765)
@@ -75,8 +82,7 @@ def main() -> None:
     args = parser.parse_args()
     Handler.offline = args.offline
 
-    with socketserver.ThreadingTCPServer((args.bind, args.port), Handler) as httpd:
-        httpd.allow_reuse_address = True
+    with Server((args.bind, args.port), Handler) as httpd:
         mode = 'OFFLINE SIMULATION' if args.offline else 'online'
         print(f'FlexText dev server ({mode}) → http://{args.bind}:{args.port}/')
         if not args.offline:

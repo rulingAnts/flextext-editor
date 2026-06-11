@@ -8,7 +8,7 @@ import {
 } from './flextext.js';
 import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS } from './i18n.js';
-import { Player, downloadAudioForDoc, driveFileId, isProbablyUrl } from './audio.js';
+import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl } from './audio.js';
 import { esc, newGuid as mkGuid } from './flextext.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -310,6 +310,7 @@ async function refreshPlayer() {
   if (current.id !== playerDocId || activeTab !== 'baseline') return;
   p.el.remove.hidden = isAudioLocked(current);
   if (media) {
+    updateDlControls('done');
     // Re-load only when switching docs (avoid resetting playback position).
     if (p.loadedFor !== current.id) {
       p.loadedFor = current.id;
@@ -319,9 +320,27 @@ async function refreshPlayer() {
     }
   } else if (current.pendingAudio) {
     p.loadedFor = null;
-    p.showPending(t('player.pending'));
+    const dl = getDownload(current.id);
+    if (dl && dl.status === 'downloading') {
+      updateDlControls('downloading');
+      if (dl.total) {
+        const pct = Math.min(99, Math.round((dl.received / dl.total) * 100));
+        p.showProgress(t('player.downloading', { pct, got: mbFmt(dl.received), size: mbFmt(dl.total) }), pct / 100);
+      } else {
+        p.showProgress(t('player.downloadingBytes', { got: mbFmt(dl.received) }), null);
+      }
+    } else if (dl && dl.status === 'paused') {
+      updateDlControls('paused');
+      p.showProgress(
+        t('player.pausedAt', { got: mbFmt(dl.received), size: dl.total ? mbFmt(dl.total) : '?' }),
+        dl.total ? dl.received / dl.total : 0);
+    } else {
+      updateDlControls('idle-pending');
+      p.showPending(t('player.pending'));
+    }
   } else {
     p.loadedFor = null;
+    updateDlControls('done');
     p.hide();
     $('#btn-attach-audio').hidden = false;
   }
@@ -369,19 +388,59 @@ async function attachAudioFile(file) {
   refreshPlayer();
 }
 
+// Mark a finished download on the doc record (idempotent). Runs from the
+// download's state callback so it also fires for resumed/background loads.
+async function finalizeAudioDownload(rec) {
+  const url = rec.pendingAudio;
+  if (!url) return;
+  delete rec.pendingAudio;
+  const media = await db.getMedia(rec.id).catch(() => null);
+  rec.audioSource = url;
+  ensureMediaRef(rec, media?.name, media?.sourceUrl);
+  rec.modified = Date.now();
+  await db.putDoc(rec);
+  if (current && current.id === rec.id) {
+    current = rec;
+    if (player) player.loadedFor = null;
+    if (activeTab === 'baseline') refreshPlayer();
+    toast(t('player.downloaded'));
+  }
+}
+
+const mbFmt = (b) => (b / 1048576).toFixed(1);
+
+function updateDlControls(status) {
+  const box = $('#audio-player .player-dl-controls');
+  const pauseBtn = box.querySelector('.player-dl-pause');
+  const showing = status === 'downloading' || status === 'paused' || status === 'error' || status === 'idle-pending';
+  box.hidden = !showing;
+  if (showing) {
+    pauseBtn.textContent = status === 'downloading' ? t('player.pauseDl') : t('player.resumeDl');
+  }
+}
+
 // Live download feedback in the player area (only when the user is looking
 // at the doc being downloaded).
-function audioProgress(rec) {
-  const mb = (b) => (b / 1048576).toFixed(1);
-  return (loaded, total) => {
+function downloadStateHandler(rec) {
+  return ({ status, received, total }) => {
+    if (status === 'done') finalizeAudioDownload(rec).catch(() => {});
     if (!current || rec.id !== current.id || activeTab !== 'baseline') return;
     const p = getPlayer();
-    if (total) {
-      // gzip can make loaded exceed the transfer size — never show >99%.
-      const pct = Math.min(99, Math.round((loaded / total) * 100));
-      p.showProgress(t('player.downloading', { pct, got: mb(loaded), size: mb(total) }), pct / 100);
-    } else {
-      p.showProgress(t('player.downloadingBytes', { got: mb(loaded) }), null);
+    if (status === 'done') { updateDlControls('done'); return; }
+    updateDlControls(status);
+    if (status === 'downloading') {
+      if (total) {
+        const pct = Math.min(99, Math.round((received / total) * 100));
+        p.showProgress(t('player.downloading', { pct, got: mbFmt(received), size: mbFmt(total) }), pct / 100);
+      } else {
+        p.showProgress(t('player.downloadingBytes', { got: mbFmt(received) }), null);
+      }
+    } else if (status === 'paused') {
+      p.showProgress(
+        t('player.pausedAt', { got: mbFmt(received), size: total ? mbFmt(total) : '?' }),
+        total ? received / total : 0);
+    } else if (status === 'error') {
+      p.showPending(t('player.pending'));
     }
   };
 }
@@ -389,40 +448,27 @@ function audioProgress(rec) {
 // Download pending audio for a doc; on failure keep it pending for retry.
 async function tryDownloadAudio(rec) {
   if (!rec.pendingAudio) return false;
+  if (getDownload(rec.id)?.status === 'paused') return false; // user's pause stands
   try {
-    const media = await downloadAudioForDoc(rec, rec.pendingAudio, audioProgress(rec));
-    rec.audioSource = rec.pendingAudio;
-    delete rec.pendingAudio;
-    ensureMediaRef(rec, media.name, media.sourceUrl);
-    rec.modified = Date.now();
-    await db.putDoc(rec);
-    return true;
+    const media = await downloadAudioForDoc(rec, rec.pendingAudio, downloadStateHandler(rec));
+    return !!media; // finalization happens in the state handler
   } catch (e) {
     if (e.storageFull || e.name === 'QuotaExceededError') {
       toast(t('toast.storageFull'), 8000);
-    }
-    if (current && rec.id === current.id && activeTab === 'baseline') {
-      getPlayer().showPending(t('player.pending'));
     }
     return false;
   }
 }
 
 // Retry pending downloads for all docs (app start / back online).
+// User-paused downloads stay paused — resuming is their choice.
 async function retryPendingAudio() {
   if (!navigator.onLine) return;
   const docs = await db.listDocs().catch(() => []);
   for (const d of docs) {
+    if (getDownload(d.id)) continue; // already downloading or paused
     const rec = await db.getDoc(d.id);
-    if (rec?.pendingAudio) {
-      const ok = await tryDownloadAudio(rec);
-      if (ok && current && rec.id === current.id) {
-        current = rec;
-        if (player) player.loadedFor = null;
-        if (activeTab === 'baseline') refreshPlayer();
-        toast(t('player.downloaded'));
-      }
-    }
+    if (rec?.pendingAudio) await tryDownloadAudio(rec);
   }
 }
 
@@ -462,12 +508,10 @@ async function openUrlTask(task) {
   toast(t('task.received'), 5000);
   if (task.audioUrl) {
     const ok = await tryDownloadAudio(current);
-    if (ok) {
-      if (player) player.loadedFor = null;
-      if (activeTab === 'baseline') refreshPlayer();
-    } else {
+    // Success and pause/error UI are painted by the download state handler;
+    // only announce a failure the user didn't cause themselves.
+    if (!ok && getDownload(current.id)?.status !== 'paused') {
       toast(t('player.downloadFailed'), 6000);
-      refreshPlayer();
     }
   }
 }
@@ -1055,6 +1099,23 @@ function setup() {
   $('#baseline-text').addEventListener('blur', () => { applyBaseline(); });
   $('#btn-share').addEventListener('click', openShareMenu);
   $('#share-menu').addEventListener('click', (e) => { if (e.target === $('#share-menu')) closeShareMenu(); });
+
+  $('#audio-player .player-dl-pause').addEventListener('click', () => {
+    if (!current) return;
+    const dl = getDownload(current.id);
+    if (dl && dl.status === 'downloading') dl.pause();
+    else if (dl) dl.resume();
+    else if (current.pendingAudio) tryDownloadAudio(current);
+  });
+  $('#audio-player .player-dl-reset').addEventListener('click', async () => {
+    if (!current) return;
+    const dl = getDownload(current.id);
+    if (dl) dl.reset();
+    else if (current.pendingAudio) {
+      await clearPartial(current.id);
+      tryDownloadAudio(current);
+    }
+  });
 
   $('#btn-attach-audio').addEventListener('click', () => $('#attach-audio-file').click());
   $('#attach-audio-file').addEventListener('change', (e) => {

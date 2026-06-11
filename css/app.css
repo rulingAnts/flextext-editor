@@ -259,6 +259,13 @@ main {
   to   { margin-left: 100%; }
 }
 
+.player-dl-controls {
+  display: flex;
+  gap: 8px;
+  margin: 0 2px 8px;
+}
+.player-dl-controls button { padding: 5px 14px; font-size: 14px; }
+
 .player-controls {
   display: flex;
   align-items: center;

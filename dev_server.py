@@ -54,8 +54,52 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         return False
 
     def do_GET(self):
-        if not self._maybe_offline():
-            super().do_GET()
+        if self._maybe_offline():
+            return
+        # Byte-range support (Range: bytes=N-[M]) plus a "?slow" query that
+        # throttles to ~64 KB / 200 ms — lets us test the app's resumable,
+        # pausable download UI against realistic slow connections.
+        import os, re, time, urllib.parse
+        slow = 'slow' in urllib.parse.urlparse(self.path).query
+        rng = self.headers.get('Range')
+        path = self.translate_path(self.path)
+        if (rng or slow) and os.path.isfile(path):
+            size = os.path.getsize(path)
+            start, end = 0, size - 1
+            status = 200
+            m = re.match(r'bytes=(\d+)-(\d*)$', rng or '')
+            if m:
+                start = int(m.group(1))
+                if m.group(2):
+                    end = min(int(m.group(2)), size - 1)
+                if start >= size:
+                    self.send_error(416, 'Range not satisfiable')
+                    return
+                status = 206
+            length = end - start + 1
+            self.send_response(status)
+            self.send_header('Content-Type', self.guess_type(path))
+            self.send_header('Accept-Ranges', 'bytes')
+            self.send_header('Content-Length', str(length))
+            if status == 206:
+                self.send_header('Content-Range', f'bytes {start}-{end}/{size}')
+            self.end_headers()
+            with open(path, 'rb') as f:
+                f.seek(start)
+                remaining = length
+                while remaining > 0:
+                    chunk = f.read(min(65536, remaining))
+                    if not chunk:
+                        break
+                    try:
+                        self.wfile.write(chunk)
+                    except (BrokenPipeError, ConnectionResetError):
+                        return
+                    remaining -= len(chunk)
+                    if slow:
+                        time.sleep(0.2)
+            return
+        super().do_GET()
 
     def do_HEAD(self):
         if not self._maybe_offline():

@@ -102,12 +102,258 @@ export async function fetchAudio(url, onProgress) {
   return { blob: new Blob([bodyBlob], { type: mimeType }), name, mimeType };
 }
 
-// Download audio for a doc record and store it. Returns the media record.
-export async function downloadAudioForDoc(rec, url, onProgress) {
-  const { blob, name, mimeType } = await fetchAudio(url, onProgress);
-  const media = { blob, name, mimeType, sourceUrl: url, peaks: null, duration: null };
-  await db.putMedia(rec.id, media);
-  return media;
+/* ---------------- Resumable, pausable downloads ----------------
+ * Bytes are persisted to IndexedDB chunk by chunk, so a connection glitch —
+ * or even closing the app — never loses what was already received. Relay
+ * URLs are fetched in small ranged chunks (each one independently
+ * retryable); direct URLs resume with HTTP Range where the server supports
+ * it. Pause aborts the network cleanly; resume continues from the saved
+ * offset; reset starts over.
+ */
+
+const RELAY_CHUNK = 512 * 1024;     // bytes per relay request
+const SAVE_EVERY = 256 * 1024;      // persist partial progress this often
+const RETRIES = 3;                  // per-chunk attempts before giving up
+
+const partialKey = (docId) => 'partial:' + docId;
+const activeDownloads = new Map();  // docId -> AudioDownload
+
+export function getDownload(docId) { return activeDownloads.get(docId) || null; }
+
+export class AudioDownload {
+  // onState({ status: 'downloading'|'paused'|'error'|'done', received, total })
+  constructor(docId, url, onState) {
+    this.docId = docId;
+    this.url = url;
+    this.onState = onState;
+    this.status = 'downloading';
+    this.received = 0;
+    this.total = 0;
+    this.abortCtl = null;
+    this.donePromise = null;
+    this._gen = 0; // run generation: invalidates loops superseded by reset/resume
+  }
+
+  emit() {
+    this.onState({ status: this.status, received: this.received, total: this.total });
+  }
+
+  pause() {
+    if (this.status !== 'downloading') return;
+    this.status = 'paused';
+    this.abortCtl?.abort();
+    this.emit();
+  }
+
+  resume() {
+    if (this.status === 'downloading') return;
+    this.start();
+  }
+
+  async reset() {
+    this.status = 'paused';
+    this.abortCtl?.abort();
+    await db.deleteMedia(partialKey(this.docId)).catch(() => {});
+    this.received = 0;
+    this.total = 0;
+    this.start();
+  }
+
+  // Begin/continue downloading. Resolves with the media record on success,
+  // or null when paused / out of attempts (partial progress is kept).
+  start() {
+    this.status = 'downloading';
+    const run = ++this._gen;
+    activeDownloads.set(this.docId, this);
+    this.donePromise = this._runWithRetries(run)
+      .finally(() => {
+        if (this._gen === run && (this.status === 'done' || this.status === 'error')) {
+          activeDownloads.delete(this.docId);
+        }
+      });
+    return this.donePromise;
+  }
+
+  async _runWithRetries(run) {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this._run(run);
+      } catch (e) {
+        if (this._gen !== run) return null;                  // superseded by reset/resume
+        if (this.status === 'paused') return null;           // user pause
+        if (e.storageFull || e.name === 'QuotaExceededError' || e.fatal) {
+          this.status = 'error';
+          this.emit();
+          throw e;
+        }
+        if (attempt + 1 >= RETRIES) {
+          this.status = 'error';                             // keep partial
+          this.emit();
+          return null;
+        }
+        await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+        if (this._gen !== run || this.status !== 'downloading') return null;
+      }
+    }
+  }
+
+  async _loadPartial() {
+    const part = await db.getMedia(partialKey(this.docId)).catch(() => null);
+    if (part && part.sourceUrl === this.url) return part;
+    return { blobs: [], received: 0, total: 0, name: '', mimeType: '', sourceUrl: this.url };
+  }
+
+  async _savePartial(part) {
+    await db.putMedia(partialKey(this.docId), part);
+  }
+
+  async _complete(blob, name, mimeType) {
+    const media = { blob, name, mimeType, sourceUrl: this.url, peaks: null, duration: null };
+    await db.putMedia(this.docId, media);
+    await db.deleteMedia(partialKey(this.docId)).catch(() => {});
+    this.status = 'done';
+    this.received = blob.size;
+    this.total = blob.size;
+    this.emit();
+    return media;
+  }
+
+  _isRelayUrl() {
+    return /script\.google(?:usercontent)?\.com\/macros\//.test(this.url) ||
+      /\/exec(\?|$)/.test(this.url);
+  }
+
+  async _run(run) {
+    const part = await this._loadPartial();
+    if (this._gen !== run) return null;
+    this.received = part.received;
+    this.total = part.total;
+    this.emit();
+    return this._isRelayUrl() ? this._runRelay(part, run) : this._runDirect(part, run);
+  }
+
+  /* Relay: fetch base64 JSON chunks (?start=&len=). An old (v1) relay
+   * ignores those params and returns the whole file — detected by the
+   * missing `total` field. */
+  async _runRelay(part, run) {
+    for (;;) {
+      if (this._gen !== run || this.status !== 'downloading') return null;
+      this.abortCtl = new AbortController();
+      const sep = this.url.includes('?') ? '&' : '?';
+      const resp = await fetch(
+        `${this.url}${sep}start=${part.received}&len=${RELAY_CHUNK}`,
+        { signal: this.abortCtl.signal });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const body = await resp.json();
+      if (body.error) { const e = new Error(body.error); e.fatal = true; throw e; }
+      if (!body.data) { const e = new Error('Unexpected relay response'); e.fatal = true; throw e; }
+      const chunk = base64ToBlob(body.data, body.mimeType);
+
+      if (body.total == null) {
+        // v1 relay: the whole file arrived in one response.
+        await checkSpace(chunk.size);
+        return this._complete(chunk, body.name || 'audio', body.mimeType || 'audio/mpeg');
+      }
+
+      if (this._gen !== run) return null;
+      if (part.received === 0) await checkSpace(body.total);
+      part.blobs.push(chunk);
+      part.received += chunk.size;
+      part.total = body.total;
+      part.name = body.name || part.name || 'audio';
+      part.mimeType = body.mimeType || part.mimeType || 'audio/mpeg';
+      await this._savePartial(part);
+      this.received = part.received;
+      this.total = part.total;
+      this.emit();
+
+      if (body.eof || part.received >= part.total) {
+        return this._complete(new Blob(part.blobs, { type: part.mimeType }),
+          part.name, part.mimeType);
+      }
+    }
+  }
+
+  /* Direct URL: stream, persisting progress; resume via HTTP Range when the
+   * server supports it (206), otherwise start over transparently. */
+  async _runDirect(part, run) {
+    this.abortCtl = new AbortController();
+    const headers = part.received > 0 ? { Range: `bytes=${part.received}-` } : {};
+    let resp;
+    try {
+      resp = await fetch(this.url, { headers, signal: this.abortCtl.signal });
+    } catch (e) {
+      if (part.received > 0 && this.status === 'downloading') {
+        // Possibly a CORS preflight rejection of the Range header — retry full.
+        part = { ...part, blobs: [], received: 0 };
+        await this._savePartial(part);
+        this.abortCtl = new AbortController();
+        resp = await fetch(this.url, { signal: this.abortCtl.signal });
+      } else throw e;
+    }
+    if (!resp.ok && resp.status !== 206) throw new Error('HTTP ' + resp.status);
+
+    if (part.received > 0 && resp.status !== 206) {
+      // Server doesn't do ranges — it's sending the whole file again.
+      part.blobs = [];
+      part.received = 0;
+    }
+    const ctype = (resp.headers.get('content-type') || '').toLowerCase();
+    if (resp.status === 206) {
+      const cr = resp.headers.get('content-range') || '';
+      const m = cr.match(/\/(\d+)\s*$/);
+      if (m) part.total = parseInt(m[1], 10);
+    } else {
+      part.total = parseInt(resp.headers.get('content-length') || '0', 10) || 0;
+    }
+    if (part.received === 0 && part.total) await checkSpace(part.total);
+
+    // JSON envelope from a non-relay URL (rare) — no resumability, one shot.
+    if (ctype.includes('json')) {
+      const body = await resp.json();
+      if (body.error) { const e = new Error(body.error); e.fatal = true; throw e; }
+      return this._complete(base64ToBlob(body.data, body.mimeType),
+        body.name || 'audio', body.mimeType || 'audio/mpeg');
+    }
+
+    part.mimeType = part.mimeType || ctype.split(';')[0] || 'audio/mpeg';
+    part.name = part.name ||
+      (decodeURIComponent((this.url.split('/').pop() || 'audio').split('?')[0]) || 'audio');
+
+    const reader = resp.body.getReader();
+    let sinceSave = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (this._gen !== run || this.status !== 'downloading') return null;
+      if (done) break;
+      part.blobs.push(value);
+      part.received += value.byteLength;
+      sinceSave += value.byteLength;
+      this.received = part.received;
+      this.total = Math.max(part.total, 0);
+      if (sinceSave >= SAVE_EVERY) {
+        sinceSave = 0;
+        await this._savePartial(part);
+      }
+      this.emit();
+    }
+    return this._complete(new Blob(part.blobs, { type: part.mimeType }),
+      part.name, part.mimeType);
+  }
+}
+
+// Start (or resume) the download for a doc. Resolves to the media record on
+// success, null if paused or temporarily failed (partial progress retained).
+export function downloadAudioForDoc(rec, url, onState) {
+  const existing = activeDownloads.get(rec.id);
+  if (existing && existing.status === 'downloading') return existing.donePromise;
+  const dl = new AudioDownload(rec.id, url, onState);
+  return dl.start();
+}
+
+// Discard saved partial progress for a doc (used by "start over").
+export function clearPartial(docId) {
+  return db.deleteMedia(partialKey(docId)).catch(() => {});
 }
 
 /* ---------------- Player ---------------- */

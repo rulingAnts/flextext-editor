@@ -73,6 +73,7 @@ export async function putDoc(record) {
 export async function deleteDoc(id) {
   const db = await getDB();
   await deleteMedia(id).catch(() => {});
+  await deleteMedia('partial:' + id).catch(() => {}); // any in-progress download
   return new Promise((resolve, reject) => {
     const req = tx(db, 'readwrite').delete(id);
     req.onsuccess = () => resolve();

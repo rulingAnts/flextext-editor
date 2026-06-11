@@ -57,7 +57,28 @@
 
 <!-- ===== Editor: Baseline tab ===== -->
 <section id="view-baseline" class="view" hidden>
-  <p class="tab-hint" data-i18n-html="baseline.hint"></p>
+  <div id="audio-player" class="player" hidden>
+    <div class="player-wave"></div>
+    <p class="player-status" hidden></p>
+    <div class="player-controls">
+      <button class="player-play icon-btn2" data-i18n-title="player.play">▶</button>
+      <button class="player-back icon-btn2" data-i18n-title="player.back3">↺3s</button>
+      <select class="player-speed" data-i18n-title="player.speed">
+        <option value="0.5">0.5×</option>
+        <option value="0.75">0.75×</option>
+        <option value="1" selected>1×</option>
+      </select>
+      <span class="player-time"></span>
+      <label class="player-zoom-wrap"><span data-i18n="player.zoom">Zoom</span>
+        <input type="range" class="player-zoom" min="1" max="300" value="1" step="1">
+      </label>
+      <button class="player-remove icon-btn2" data-i18n-title="player.remove">✕</button>
+    </div>
+  </div>
+  <p class="tab-hint"><span data-i18n-html="baseline.hint"></span>
+    <button id="btn-attach-audio" class="link-btn" data-i18n="player.attach">Attach audio&hellip;</button>
+    <input type="file" id="attach-audio-file" accept="audio/*,.mp3,.wav,.m4a,.flac,.ogg" hidden>
+  </p>
   <textarea id="baseline-text" class="baseline-area" spellcheck="false" data-i18n-ph="baseline.placeholder"></textarea>
 </section>
 
@@ -90,6 +111,25 @@
       <button type="button" id="btn-copy-link" class="secondary-btn" data-i18n="research.copyLink">Copy setup link for coworker</button>
     </div>
     <p id="share-link-out" class="share-link" hidden></p>
+  </form>
+
+  <hr>
+
+  <h2 data-i18n="task.h">Task link (text + audio)</h2>
+  <p class="note" data-i18n-html="task.note"></p>
+  <form id="task-form" class="ws-form">
+    <fieldset>
+      <label><span data-i18n="task.title">Text title</span>
+        <input name="taskTitle" spellcheck="false"></label>
+      <label class="wide"><span data-i18n="task.audio">Audio (Drive share link, file ID, or direct URL)</span>
+        <input name="taskAudio" spellcheck="false"></label>
+      <label class="wide"><span data-i18n="task.relay">Drive relay URL (saved; needed for Drive links)</span>
+        <input name="relayUrl" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec"></label>
+    </fieldset>
+    <div class="toolbar">
+      <button type="submit" class="primary-btn" data-i18n="task.copy">Copy task link</button>
+    </div>
+    <p id="task-link-out" class="share-link" hidden></p>
   </form>
 
   <hr>

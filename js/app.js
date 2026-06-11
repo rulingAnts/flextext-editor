@@ -8,6 +8,8 @@ import {
 } from './flextext.js';
 import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS } from './i18n.js';
+import { Player, downloadAudioForDoc, driveFileId, isProbablyUrl } from './audio.js';
+import { esc, newGuid as mkGuid } from './flextext.js';
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
@@ -24,23 +26,29 @@ function saveSettings(s) {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
 }
 
-// Apply settings arriving via shared setup URL (?vern=fau&vernName=Fayu...&lang=id)
+// Apply settings arriving via shared setup URL (?vern=fau&vernName=Fayu...&lang=id),
+// and consume task parameters (?title=...&audio=...). Returns
+// { gotSettings, task: {title, audioUrl} | null }.
 function applyUrlSettings() {
   const p = new URLSearchParams(location.search);
   if (p.has('lang')) setLang(p.get('lang'));
-  if (!p.has('vern') && !p.has('anal')) {
-    if (p.has('lang')) history.replaceState(null, '', location.pathname);
-    return false;
+  const gotSettings = p.has('vern') || p.has('anal');
+  if (gotSettings) {
+    const s = loadSettings();
+    const map = { vern: 'vernLang', vernName: 'vernName', vernFont: 'vernFont',
+                  anal: 'analLang', analName: 'analName', analFont: 'analFont' };
+    for (const [qp, key] of Object.entries(map)) {
+      if (p.has(qp)) s[key] = p.get(qp);
+    }
+    saveSettings(s);
   }
-  const s = loadSettings();
-  const map = { vern: 'vernLang', vernName: 'vernName', vernFont: 'vernFont',
-                anal: 'analLang', analName: 'analName', analFont: 'analFont' };
-  for (const [qp, key] of Object.entries(map)) {
-    if (p.has(qp)) s[key] = p.get(qp);
+  const task = (p.has('audio') || p.has('title'))
+    ? { title: p.get('title') || '', audioUrl: p.get('audio') || '' }
+    : null;
+  if (gotSettings || task || p.has('lang')) {
+    history.replaceState(null, '', location.pathname);
   }
-  saveSettings(s);
-  history.replaceState(null, '', location.pathname);
-  return true;
+  return { gotSettings, task };
 }
 
 /* ---------------- App state ---------------- */
@@ -238,9 +246,165 @@ function switchTab(tab) {
     $('#baseline-text').value = getBaselineParagraphs(current.doc).join('\n');
     show('baseline');
     if (settings.vernFont) $('#baseline-text').style.fontFamily = quoteFont(settings.vernFont);
+    refreshPlayer();
   } else {
     renderGloss();
     show('gloss');
+  }
+}
+
+/* ---------------- Audio player (Baseline tab) ---------------- */
+
+let player = null;
+let playerDocId = null;
+
+function getPlayer() {
+  if (!player) {
+    player = new Player($('#audio-player'), {
+      labels: {
+        get preparing() { return t('player.preparing'); },
+        get error() { return t('player.error'); },
+      },
+      onPeaks: (media) => { db.putMedia(playerDocId, media).catch(() => {}); },
+      onRemove: async () => {
+        if (!current) return;
+        if (!confirm(t('player.confirmRemove'))) return;
+        await db.deleteMedia(current.id);
+        delete current.pendingAudio;
+        delete current.audioSource;
+        delete current.mediaGuid;
+        current.doc.mediaXML = [];
+        await persist();
+        refreshPlayer();
+      },
+    });
+  }
+  return player;
+}
+
+// Show/refresh the player for the current doc on the Baseline tab.
+async function refreshPlayer() {
+  const p = getPlayer();
+  $('#btn-attach-audio').hidden = true;
+  if (!current) { p.hide(); return; }
+  playerDocId = current.id;
+  const media = await db.getMedia(current.id).catch(() => null);
+  if (current.id !== playerDocId || activeTab !== 'baseline') return;
+  if (media) {
+    // Re-load only when switching docs (avoid resetting playback position).
+    if (p.loadedFor !== current.id) {
+      p.loadedFor = current.id;
+      await p.load(media);
+    } else {
+      p.root.hidden = false;
+    }
+  } else if (current.pendingAudio) {
+    p.loadedFor = null;
+    p.showPending(t('player.pending'));
+  } else {
+    p.loadedFor = null;
+    p.hide();
+    $('#btn-attach-audio').hidden = false;
+  }
+}
+
+// Ensure the exported flextext references the attached audio.
+function ensureMediaRef(rec, name, sourceUrl) {
+  if (!rec.mediaGuid) rec.mediaGuid = mkGuid();
+  const location = sourceUrl && isProbablyUrl(sourceUrl) ? sourceUrl : (name || 'audio');
+  rec.doc.mediaXML = [
+    `<media-files offset-type="milliseconds">\n  <media guid="${esc(rec.mediaGuid)}" location="${esc(location)}" />\n</media-files>`,
+  ];
+}
+
+async function attachAudioFile(file) {
+  if (!current) return;
+  const media = {
+    blob: file, name: file.name, mimeType: file.type || 'audio/mpeg',
+    sourceUrl: '', peaks: null, duration: null,
+  };
+  await db.putMedia(current.id, media);
+  current.audioSource = 'local:' + file.name;
+  delete current.pendingAudio;
+  ensureMediaRef(current, file.name, '');
+  await persist();
+  if (player) player.loadedFor = null;
+  refreshPlayer();
+}
+
+// Download pending audio for a doc; on failure keep it pending for retry.
+async function tryDownloadAudio(rec) {
+  if (!rec.pendingAudio) return false;
+  try {
+    const media = await downloadAudioForDoc(rec, rec.pendingAudio);
+    rec.audioSource = rec.pendingAudio;
+    delete rec.pendingAudio;
+    ensureMediaRef(rec, media.name, media.sourceUrl);
+    rec.modified = Date.now();
+    await db.putDoc(rec);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+// Retry pending downloads for all docs (app start / back online).
+async function retryPendingAudio() {
+  if (!navigator.onLine) return;
+  const docs = await db.listDocs().catch(() => []);
+  for (const d of docs) {
+    const rec = await db.getDoc(d.id);
+    if (rec?.pendingAudio) {
+      const ok = await tryDownloadAudio(rec);
+      if (ok && current && rec.id === current.id) {
+        current = rec;
+        if (player) player.loadedFor = null;
+        if (activeTab === 'baseline') refreshPlayer();
+        toast(t('player.downloaded'));
+      }
+    }
+  }
+}
+
+/* ---------------- Task links (?title=...&audio=...) ---------------- */
+
+async function openUrlTask(task) {
+  // Re-opening the same task link must not duplicate the text.
+  if (task.audioUrl) {
+    const docs = await db.listDocs();
+    for (const d of docs) {
+      const rec = await db.getDoc(d.id);
+      if (rec && (rec.audioSource === task.audioUrl || rec.pendingAudio === task.audioUrl)) {
+        current = rec;
+        enterEditor('baseline');
+        toast(t('task.alreadyHere'), 4000);
+        return;
+      }
+    }
+  }
+  const doc = makeDoc(settings, task.title);
+  current = {
+    id: newGuid(),
+    title: task.title || '',
+    created: Date.now(),
+    modified: Date.now(),
+    doc,
+  };
+  if (task.audioUrl) current.pendingAudio = task.audioUrl;
+  Object.assign(current, docStats(doc));
+  current.doc.title = current.title;
+  await db.putDoc(current);
+  enterEditor('baseline');
+  toast(t('task.received'), 5000);
+  if (task.audioUrl) {
+    const ok = await tryDownloadAudio(current);
+    if (ok) {
+      if (player) player.loadedFor = null;
+      if (activeTab === 'baseline') refreshPlayer();
+    } else {
+      toast(t('player.downloadFailed'), 6000);
+      refreshPlayer();
+    }
   }
 }
 
@@ -516,6 +680,58 @@ function setupResearch() {
     }
   });
 
+  // Task link builder (text + audio)
+  const tf = $('#task-form');
+  tf.elements.relayUrl.value = settings.relayUrl || '';
+  tf.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    settings.relayUrl = tf.elements.relayUrl.value.trim();
+    saveSettings(settings);
+    const f2 = $('#ws-form');
+    if (!f2.elements.vernLang.value.trim()) { toast(t('toast.needVern')); return; }
+
+    let audioUrl = '';
+    const audioIn = tf.elements.taskAudio.value.trim();
+    if (audioIn) {
+      const fileId = driveFileId(audioIn);
+      if (fileId && !isProbablyUrl(audioIn)) {
+        // bare id or something id-like
+        if (!settings.relayUrl) { toast(t('task.needRelay'), 6000); return; }
+        audioUrl = settings.relayUrl + '?id=' + fileId;
+      } else if (fileId && /drive\.google\.com/.test(audioIn)) {
+        if (!settings.relayUrl) { toast(t('task.needRelay'), 6000); return; }
+        audioUrl = settings.relayUrl + '?id=' + fileId;
+      } else if (isProbablyUrl(audioIn)) {
+        audioUrl = audioIn;
+      } else {
+        toast(t('task.badAudio'), 6000);
+        return;
+      }
+    }
+
+    const p = new URLSearchParams();
+    const map = { vernLang: 'vern', vernName: 'vernName', vernFont: 'vernFont',
+                  analLang: 'anal', analName: 'analName', analFont: 'analFont' };
+    for (const [key, qp] of Object.entries(map)) {
+      const v = f2.elements[key].value.trim();
+      if (v) p.set(qp, v);
+    }
+    p.set('lang', getLang());
+    const title = tf.elements.taskTitle.value.trim();
+    if (title) p.set('title', title);
+    if (audioUrl) p.set('audio', audioUrl);
+    const url = location.origin + location.pathname + '?' + p.toString();
+    const out = $('#task-link-out');
+    out.hidden = false;
+    out.textContent = url;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast(t('toast.linkCopied'));
+    } catch {
+      toast(t('toast.linkCopyManual'));
+    }
+  });
+
   // Writing system checker
   let wsState = null; // { dom, rows, filename }
   $('#btn-wscheck').addEventListener('click', () => $('#wscheck-file').click());
@@ -624,7 +840,7 @@ function promptUpdate(waitingWorker) {
 /* ---------------- Wire-up ---------------- */
 
 function setup() {
-  const gotSetup = applyUrlSettings();
+  const { gotSettings, task } = applyUrlSettings();
   settings = loadSettings();
   applyI18n();
 
@@ -667,12 +883,27 @@ function setup() {
   $('#btn-share').addEventListener('click', openShareMenu);
   $('#share-menu').addEventListener('click', (e) => { if (e.target === $('#share-menu')) closeShareMenu(); });
 
+  $('#btn-attach-audio').addEventListener('click', () => $('#attach-audio-file').click());
+  $('#attach-audio-file').addEventListener('change', (e) => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (f) attachAudioFile(f).catch(err => toast(t('toast.importFailed', { msg: err.message }), 6000));
+  });
+  window.addEventListener('online', () => retryPendingAudio());
+
   setupResearch();
-  renderDocList();
-  show('texts');
-  if (gotSetup) {
-    toast(t('toast.setupReceived'), 5000);
+  if (task) {
+    openUrlTask(task).catch(err => {
+      toast(t('toast.importFailed', { msg: err.message }), 6000);
+      renderDocList();
+      show('texts');
+    });
+  } else {
+    renderDocList();
+    show('texts');
+    if (gotSettings) toast(t('toast.setupReceived'), 5000);
   }
+  retryPendingAudio();
 
   setupServiceWorker();
 }

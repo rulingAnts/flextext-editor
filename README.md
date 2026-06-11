@@ -35,6 +35,29 @@ of all texts on the device; texts can also be re-opened from `.flextext` files.
 Files containing multiple `<interlinear-text>` elements (FLEx can export a
 whole corpus into one file) import as separate texts in the library.
 
+## Audio task links
+
+The Research tab's **Task link** form builds a URL that configures the
+coworker's device, creates a titled text, and auto-downloads a recording into
+a waveform player (wavesurfer.js, BSD-3-Clause, vendored) pinned above the
+typing area — play/pause, jump-back-3s, playback speed, and a scrollable,
+zoomable waveform. The audio blob and decoded peaks are stored in IndexedDB,
+so after the first download the whole task works offline; if the link is
+opened offline, the download retries automatically when a connection returns.
+Re-opening the same task link never duplicates the text. Audio can also be
+attached manually from a local file on the Baseline tab.
+
+Audio sources can be any CORS-friendly direct URL, **or a researcher's own
+Google Drive** via a tiny relay ([docs/drive-relay.gs](docs/drive-relay.gs)):
+one person deploys it once as an Apps Script web app ("Execute as: me",
+access "Anyone"), and every researcher just shares recordings as
+"Anyone with the link" and pastes the Drive share link into the form — no
+Apps Script console needed for them. The relay requests no Drive permissions
+at all (it proxies only Drive's public download endpoint), so it can never
+expose private files. Recommended format: mono 64 kbps MP3 (≈0.5 MB/min).
+Exports reference the recording via a `<media-files>` element so FLEx can
+re-link it.
+
 ## Localization & help
 
 The interface is available in **English and Indonesian** — auto-detected from

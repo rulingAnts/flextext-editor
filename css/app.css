@@ -180,6 +180,80 @@ main {
 }
 .baseline-area:focus { outline: 2px solid var(--blue); }
 
+/* ---------- Audio player ---------- */
+
+.player {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  padding: 8px 10px 6px;
+  margin: 8px 0 4px;
+}
+
+.player-wave { min-height: 72px; }
+
+.player-status {
+  color: var(--muted);
+  font-size: 14px;
+  margin: 6px 2px;
+}
+
+.player-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.icon-btn2 {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 7px;
+  padding: 5px 12px;
+  font-size: 15px;
+  cursor: pointer;
+  min-width: 44px;
+}
+.icon-btn2:hover { background: #eef2f7; }
+
+.player-play { font-size: 17px; }
+
+.player-speed {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 5px 6px;
+  font-size: 14px;
+  background: #fff;
+}
+
+.player-time {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  font-size: 14px;
+  min-width: 7.5em;
+}
+
+.player-zoom-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  flex: 1;
+  min-width: 140px;
+}
+.player-zoom { flex: 1; max-width: 220px; }
+
+.player-remove {
+  margin-left: auto;
+  color: var(--muted);
+  min-width: 34px;
+}
+
+.ws-form label.wide input { width: min(34em, 80vw); }
+
 /* ---------- Gloss tab ---------- */
 
 .segment {

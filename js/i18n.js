@@ -99,6 +99,30 @@ en: {
   'toast.corrected': 'Corrected file downloaded.',
   'toast.noChanges': 'No changes entered — downloaded as-is.',
 
+  'player.play': 'Play / pause',
+  'player.back3': 'Back 3 seconds',
+  'player.speed': 'Playback speed',
+  'player.zoom': 'Zoom',
+  'player.remove': 'Remove audio from this text',
+  'player.attach': 'Attach audio…',
+  'player.preparing': 'Preparing waveform…',
+  'player.error': 'Could not play this audio file.',
+  'player.pending': 'Audio not downloaded yet — it will download automatically when there is a connection.',
+  'player.downloaded': 'Audio downloaded — ready to transcribe.',
+  'player.downloadFailed': 'Audio could not be downloaded now — the app will keep trying when online.',
+  'player.confirmRemove': 'Remove the audio recording from this text?',
+
+  'task.h': 'Task link (text + audio)',
+  'task.note': 'Create a link that sets up your coworker\'s device <em>and</em> opens a new text for them — with an audio recording that downloads automatically and plays right above the typing area. For audio in Google Drive, share the file ("Anyone with the link"), paste the share link here, and set the relay URL once (see Help for the one-time relay setup).',
+  'task.title': 'Text title',
+  'task.audio': 'Audio (Drive share link, file ID, or direct URL)',
+  'task.relay': 'Drive relay URL (saved; needed for Drive links)',
+  'task.copy': 'Copy task link',
+  'task.needRelay': 'A Drive link needs the relay URL — set it once below (see Help → For researchers).',
+  'task.badAudio': 'Could not understand the audio link. Paste a Google Drive share link or a direct https:// audio URL.',
+  'task.received': 'New task received — listen and type. The audio is downloading…',
+  'task.alreadyHere': 'This task is already on this device — opening it.',
+
   'update.available': 'A new version of the app is available.',
   'update.now': 'Update',
 
@@ -114,6 +138,11 @@ en: {
   <li><b>Translate the sentence:</b> on the <b>Free</b> line, write the meaning of the whole sentence.</li>
   <li><b>Send your work:</b> tap <b>Save and send…</b> and choose WhatsApp, email, or another app.</li>
 </ol>
+<p><b>Audio:</b> if your researcher sent you a link with a recording, a player appears above the
+typing area: ▶ plays and pauses, <b>↺3s</b> jumps back three seconds, and the speed menu slows
+the voice down. The picture of the sound (waveform) shows where you are — tap it to jump, and
+use <b>Zoom</b> to see more detail. The recording is saved on your device, so it works without
+internet after the first time.</p>
 <p>Your work is saved automatically on this device — you can close the app and continue later from the <b>Texts</b> list. If you change the story text afterwards, the word meanings of changed sentences may need to be typed again.</p>
 
 <h3>For researchers</h3>
@@ -123,6 +152,22 @@ en: {
   <li><b>Back into FLEx:</b> in FieldWorks use <i>Texts &amp; Words → Import → FLExText interlinear document</i>.</li>
   <li><b>Wrong writing-system codes?</b> Use the <b>Writing system checker</b> (Research tab) to see which codes each interlinear line uses and remap them without touching anything else.</li>
   <li><b>Updates:</b> when online, the app checks for new versions and shows an <b>Update</b> button when one is ready.</li>
+  <li><b>Audio task links:</b> the <b>Task link</b> section creates a link that configures the
+  coworker's device, creates a titled text, and auto-downloads a recording into a player on the
+  typing tab. Use mono 64&nbsp;kbps MP3 (≈0.5&nbsp;MB per minute). The audio can live on any
+  CORS-friendly host, or in <b>your own Google Drive</b> via a small relay:
+  <ol>
+    <li>One person (once, for the whole team) deploys the relay script from
+    <code>docs/drive-relay.gs</code> in the app repository: open
+    <a href="https://script.google.com" target="_blank" rel="noopener">script.google.com</a>,
+    paste the script, <i>Deploy → New deployment → Web app</i>, "Execute as: me",
+    "Who has access: Anyone", and copy the <code>…/exec</code> URL.</li>
+    <li>Every researcher then just pastes that relay URL into the Task link form (saved on
+    their device) — no Apps Script needed for them.</li>
+    <li>Per recording: upload the MP3 to Drive, share it as "Anyone with the link", and paste
+    the share link into the form. The relay only fetches link-shared files; it has no access
+    to anyone's private Drive contents.</li>
+  </ol></li>
 </ul>`,
 },
 
@@ -218,6 +263,30 @@ id: {
   'toast.corrected': 'File yang sudah diperbaiki telah diunduh.',
   'toast.noChanges': 'Tidak ada perubahan — file diunduh apa adanya.',
 
+  'player.play': 'Putar / jeda',
+  'player.back3': 'Mundur 3 detik',
+  'player.speed': 'Kecepatan putar',
+  'player.zoom': 'Perbesar',
+  'player.remove': 'Hapus audio dari teks ini',
+  'player.attach': 'Lampirkan audio…',
+  'player.preparing': 'Menyiapkan gambar gelombang…',
+  'player.error': 'File audio ini tidak bisa diputar.',
+  'player.pending': 'Audio belum terunduh — akan diunduh otomatis saat ada koneksi.',
+  'player.downloaded': 'Audio sudah terunduh — siap diketik.',
+  'player.downloadFailed': 'Audio belum bisa diunduh sekarang — aplikasi akan terus mencoba saat online.',
+  'player.confirmRemove': 'Hapus rekaman audio dari teks ini?',
+
+  'task.h': 'Tautan tugas (teks + audio)',
+  'task.note': 'Buat tautan yang mengatur perangkat rekan kerja Anda <em>dan</em> langsung membuka teks baru — dengan rekaman audio yang terunduh otomatis dan bisa diputar tepat di atas tempat mengetik. Untuk audio di Google Drive: bagikan filenya ("Siapa saja yang memiliki link"), tempel tautannya di sini, dan isi URL relay sekali saja (lihat Bantuan untuk penyiapan relay).',
+  'task.title': 'Judul teks',
+  'task.audio': 'Audio (tautan berbagi Drive, ID file, atau URL langsung)',
+  'task.relay': 'URL relay Drive (tersimpan; diperlukan untuk tautan Drive)',
+  'task.copy': 'Salin tautan tugas',
+  'task.needRelay': 'Tautan Drive memerlukan URL relay — isi sekali di bawah (lihat Bantuan → Untuk peneliti).',
+  'task.badAudio': 'Tautan audio tidak dikenali. Tempel tautan berbagi Google Drive atau URL audio https:// langsung.',
+  'task.received': 'Tugas baru diterima — dengarkan dan ketik. Audio sedang diunduh…',
+  'task.alreadyHere': 'Tugas ini sudah ada di perangkat ini — sedang dibuka.',
+
   'update.available': 'Versi baru aplikasi ini tersedia.',
   'update.now': 'Perbarui',
 
@@ -233,6 +302,11 @@ id: {
   <li><b>Terjemahkan kalimat:</b> di baris <b>Bebas</b>, tulis arti seluruh kalimat.</li>
   <li><b>Kirim hasil kerja:</b> tekan <b>Simpan & kirim…</b> lalu pilih WhatsApp, email, atau aplikasi lain.</li>
 </ol>
+<p><b>Audio:</b> kalau peneliti mengirim tautan dengan rekaman, pemutar audio muncul di atas
+tempat mengetik: ▶ untuk putar dan jeda, <b>↺3s</b> untuk mundur tiga detik, dan menu kecepatan
+untuk memperlambat suara. Gambar gelombang suara menunjukkan posisi Anda — ketuk untuk melompat,
+dan pakai <b>Perbesar</b> untuk melihat lebih rinci. Rekaman tersimpan di perangkat Anda, jadi
+tetap bisa dipakai tanpa internet setelah pertama kali.</p>
 <p>Hasil kerja Anda tersimpan otomatis di perangkat ini — aplikasi boleh ditutup dan dilanjutkan nanti dari daftar <b>Teks</b>. Kalau teks cerita diubah setelah diglos, arti kata pada kalimat yang berubah mungkin perlu diketik ulang.</p>
 
 <h3>Untuk peneliti</h3>
@@ -242,6 +316,22 @@ id: {
   <li><b>Kembali ke FLEx:</b> di FieldWorks gunakan <i>Texts &amp; Words → Import → FLExText interlinear document</i>.</li>
   <li><b>Kode sistem tulisan salah?</b> Gunakan <b>Pemeriksa sistem tulisan</b> (tab Penelitian) untuk melihat kode pada setiap baris interlinear dan menggantinya tanpa mengubah isi lain.</li>
   <li><b>Pembaruan:</b> saat online, aplikasi memeriksa versi baru dan menampilkan tombol <b>Perbarui</b> bila tersedia.</li>
+  <li><b>Tautan tugas dengan audio:</b> bagian <b>Tautan tugas</b> membuat tautan yang mengatur
+  perangkat rekan kerja, membuat teks berjudul, dan otomatis mengunduh rekaman ke pemutar di tab
+  Ketik. Gunakan MP3 mono 64&nbsp;kbps (≈0,5&nbsp;MB per menit). Audio bisa di host mana pun yang
+  mendukung CORS, atau di <b>Google Drive Anda sendiri</b> lewat relay kecil:
+  <ol>
+    <li>Satu orang (sekali saja, untuk seluruh tim) memasang skrip relay dari
+    <code>docs/drive-relay.gs</code> di repositori aplikasi: buka
+    <a href="https://script.google.com" target="_blank" rel="noopener">script.google.com</a>,
+    tempel skripnya, <i>Deploy → New deployment → Web app</i>, "Execute as: me",
+    "Who has access: Anyone", lalu salin URL <code>…/exec</code>-nya.</li>
+    <li>Setiap peneliti cukup menempel URL relay itu di formulir Tautan tugas (tersimpan di
+    perangkatnya) — tidak perlu Apps Script sama sekali.</li>
+    <li>Untuk tiap rekaman: unggah MP3 ke Drive, bagikan sebagai "Siapa saja yang memiliki
+    link", lalu tempel tautan berbaginya di formulir. Relay hanya bisa mengambil file yang
+    dibagikan dengan tautan; relay tidak punya akses ke isi Drive pribadi siapa pun.</li>
+  </ol></li>
 </ul>`,
 },
 };

@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>FlexText Interlinear</title>
+<meta name="description" content="Offline interlinear text editor for FLEx flextext files: baseline transcription, word glossing, and free translation.">
+<meta name="theme-color" content="#1f4f8f">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="FlexText">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<header id="topbar">
+  <div id="topbar-home" class="topbar-row">
+    <span class="app-title"><img src="icons/icon.svg" alt="" class="app-logo">FlexText Interlinear</span>
+    <select id="lang-select" data-i18n-title="research.lang">
+      <option value="en">English</option>
+      <option value="id">Indonesia</option>
+    </select>
+    <button id="btn-help-home" class="icon-btn help-btn" data-i18n-title="btn.help">?</button>
+    <nav class="top-tabs" role="tablist">
+      <button class="top-tab" data-view="texts" data-i18n="tabs.texts" aria-selected="true">Texts</button>
+      <button class="top-tab" data-view="research" data-i18n="tabs.research" aria-selected="false">Research</button>
+    </nav>
+  </div>
+  <div id="topbar-editor" class="topbar-row" hidden>
+    <button id="btn-back" class="icon-btn" data-i18n-title="btn.back">&#8592;</button>
+    <input id="doc-title" class="doc-title" data-i18n-ph="untitled" placeholder="Untitled text" spellcheck="false">
+    <button id="btn-help-editor" class="icon-btn help-btn" data-i18n-title="btn.help">?</button>
+    <nav class="top-tabs" role="tablist">
+      <button class="top-tab" data-tab="baseline" data-i18n="tabs.baseline" aria-selected="true">Baseline</button>
+      <button class="top-tab" data-tab="gloss" data-i18n="tabs.gloss" aria-selected="false">Gloss</button>
+    </nav>
+    <button id="btn-share" class="primary-btn" data-i18n="btn.saveSend">Save and send&hellip;</button>
+  </div>
+</header>
+
+<main>
+
+<!-- ===== Texts (document library) ===== -->
+<section id="view-texts" class="view">
+  <div class="toolbar">
+    <button id="btn-new" class="primary-btn" data-i18n="texts.new">+ New text</button>
+    <button id="btn-import" class="secondary-btn" data-i18n="texts.open">Open .flextext file&hellip;</button>
+    <input type="file" id="import-file" accept=".flextext,.xml,text/xml,application/xml" hidden>
+  </div>
+  <div id="ws-banner" class="banner" hidden></div>
+  <ul id="doc-list" class="doc-list"></ul>
+  <p id="doc-list-empty" class="empty-note" data-i18n-html="texts.empty" hidden></p>
+</section>
+
+<!-- ===== Editor: Baseline tab ===== -->
+<section id="view-baseline" class="view" hidden>
+  <p class="tab-hint" data-i18n-html="baseline.hint"></p>
+  <textarea id="baseline-text" class="baseline-area" spellcheck="false" data-i18n-ph="baseline.placeholder"></textarea>
+</section>
+
+<!-- ===== Editor: Gloss tab ===== -->
+<section id="view-gloss" class="view" hidden>
+  <div id="gloss-body"></div>
+  <p id="gloss-empty" class="empty-note" data-i18n-html="gloss.empty" hidden></p>
+</section>
+
+<!-- ===== Research tab ===== -->
+<section id="view-research" class="view" hidden>
+  <h2 data-i18n="research.h1">Language &amp; writing system setup</h2>
+  <p class="note" data-i18n-html="research.note"></p>
+
+  <form id="ws-form" class="ws-form">
+    <fieldset>
+      <legend data-i18n="research.vernLegend">Vernacular (text language)</legend>
+      <label><span data-i18n="research.code">Code</span> <input name="vernLang" placeholder="fau" required spellcheck="false"></label>
+      <label><span data-i18n="research.name">Name</span> <input name="vernName" placeholder="Fayu" spellcheck="false"></label>
+      <label><span data-i18n="research.font">Font</span> <input name="vernFont" placeholder="Charis SIL" spellcheck="false"></label>
+    </fieldset>
+    <fieldset>
+      <legend data-i18n="research.analLegend">Analysis (gloss / translation language)</legend>
+      <label><span data-i18n="research.code">Code</span> <input name="analLang" placeholder="en" required spellcheck="false"></label>
+      <label><span data-i18n="research.name">Name</span> <input name="analName" placeholder="English" spellcheck="false"></label>
+      <label><span data-i18n="research.font">Font</span> <input name="analFont" spellcheck="false"></label>
+    </fieldset>
+    <div class="toolbar">
+      <button type="submit" class="primary-btn" data-i18n="research.save">Save settings</button>
+      <button type="button" id="btn-copy-link" class="secondary-btn" data-i18n="research.copyLink">Copy setup link for coworker</button>
+    </div>
+    <p id="share-link-out" class="share-link" hidden></p>
+  </form>
+
+  <hr>
+
+  <h2 data-i18n="research.checkerH">Writing system checker</h2>
+  <p class="note" data-i18n-html="research.checkerNote"></p>
+  <div class="toolbar">
+    <button id="btn-wscheck" class="secondary-btn" data-i18n="research.checkBtn">Check a .flextext file&hellip;</button>
+    <input type="file" id="wscheck-file" accept=".flextext,.xml,text/xml,application/xml" hidden>
+  </div>
+  <div id="wscheck-result" hidden>
+    <p id="wscheck-name" class="note"></p>
+    <table class="ws-table">
+      <thead><tr>
+        <th data-i18n="ws.line">Interlinear line</th>
+        <th data-i18n="ws.code">Code in file</th>
+        <th data-i18n="ws.count">Uses</th>
+        <th data-i18n="ws.changeTo">Change to</th>
+      </tr></thead>
+      <tbody id="wscheck-rows"></tbody>
+    </table>
+    <div class="toolbar">
+      <button id="btn-wsapply" class="primary-btn" data-i18n="research.downloadCorrected">Download corrected file</button>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Help ===== -->
+<section id="view-help" class="view help" hidden>
+  <div class="toolbar">
+    <button id="btn-help-close" class="secondary-btn" data-i18n="help.close">&#8592; Back</button>
+  </div>
+  <h2 data-i18n="help.title">Help</h2>
+  <div id="help-body" data-i18n-html="help.html"></div>
+</section>
+
+</main>
+
+<div id="toast" hidden></div>
+
+<!-- Share/save menu -->
+<div id="share-menu" class="modal" hidden>
+  <div class="modal-card">
+    <h3 data-i18n="share.title">Save and send</h3>
+    <p class="note" id="share-filename"></p>
+    <button id="share-share" class="primary-btn" data-i18n="share.share">Share&hellip;</button>
+    <button id="share-saveas" class="secondary-btn" data-i18n="share.saveas">Save to file&hellip;</button>
+    <button id="share-download" class="secondary-btn" data-i18n="share.download">Download</button>
+    <button id="share-cancel" class="link-btn" data-i18n="share.cancel">Cancel</button>
+  </div>
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

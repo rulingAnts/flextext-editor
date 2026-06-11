@@ -204,7 +204,11 @@ async function persist() {
 function schedulePersist() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(
-    () => persist().catch(e => toast(t('toast.autosaveFailed', { msg: e.message }))),
+    () => persist().catch(e => toast(
+      e && e.name === 'QuotaExceededError'
+        ? t('toast.storageFull')
+        : t('toast.autosaveFailed', { msg: e.message }),
+      8000)),
     400);
 }
 
@@ -365,11 +369,28 @@ async function attachAudioFile(file) {
   refreshPlayer();
 }
 
+// Live download feedback in the player area (only when the user is looking
+// at the doc being downloaded).
+function audioProgress(rec) {
+  const mb = (b) => (b / 1048576).toFixed(1);
+  return (loaded, total) => {
+    if (!current || rec.id !== current.id || activeTab !== 'baseline') return;
+    const p = getPlayer();
+    if (total) {
+      // gzip can make loaded exceed the transfer size — never show >99%.
+      const pct = Math.min(99, Math.round((loaded / total) * 100));
+      p.showProgress(t('player.downloading', { pct, got: mb(loaded), size: mb(total) }), pct / 100);
+    } else {
+      p.showProgress(t('player.downloadingBytes', { got: mb(loaded) }), null);
+    }
+  };
+}
+
 // Download pending audio for a doc; on failure keep it pending for retry.
 async function tryDownloadAudio(rec) {
   if (!rec.pendingAudio) return false;
   try {
-    const media = await downloadAudioForDoc(rec, rec.pendingAudio);
+    const media = await downloadAudioForDoc(rec, rec.pendingAudio, audioProgress(rec));
     rec.audioSource = rec.pendingAudio;
     delete rec.pendingAudio;
     ensureMediaRef(rec, media.name, media.sourceUrl);
@@ -377,6 +398,12 @@ async function tryDownloadAudio(rec) {
     await db.putDoc(rec);
     return true;
   } catch (e) {
+    if (e.storageFull || e.name === 'QuotaExceededError') {
+      toast(t('toast.storageFull'), 8000);
+    }
+    if (current && rec.id === current.id && activeTab === 'baseline') {
+      getPlayer().showPending(t('player.pending'));
+    }
     return false;
   }
 }
@@ -1059,6 +1086,10 @@ function setup() {
     if (gotSettings) toast(t('toast.setupReceived'), 5000);
   }
   retryPendingAudio();
+
+  // Ask the browser to protect our storage (texts + recordings) from
+  // being silently evicted when the device runs low on space.
+  navigator.storage?.persist?.().catch(() => {});
 
   setupServiceWorker();
 }

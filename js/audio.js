@@ -41,14 +41,54 @@ function base64ToBlob(b64, mimeType) {
   return new Blob([bytes], { type: mimeType || 'application/octet-stream' });
 }
 
+// Refuse a download that clearly won't fit on the device (blob + decoded
+// peaks + IndexedDB overhead ≈ 2.5× the transfer size, conservatively).
+async function checkSpace(bytesNeeded) {
+  if (!bytesNeeded || !navigator.storage?.estimate) return;
+  try {
+    const { usage = 0, quota = 0 } = await navigator.storage.estimate();
+    if (quota && quota - usage < bytesNeeded * 2.5) {
+      const e = new Error('Not enough storage space on this device');
+      e.storageFull = true;
+      throw e;
+    }
+  } catch (e) {
+    if (e.storageFull) throw e; // estimate() itself failing is non-fatal
+  }
+}
+
 // Fetch audio from a URL. Understands both raw audio responses and the
-// relay's JSON-base64 envelope. Returns { blob, name, mimeType }.
-export async function fetchAudio(url) {
+// relay's JSON-base64 envelope. Streams the body so the caller can show
+// progress: onProgress(loadedBytes, totalBytes|0). Returns
+// { blob, name, mimeType }.
+export async function fetchAudio(url, onProgress) {
   const resp = await fetch(url);
   if (!resp.ok) throw new Error('HTTP ' + resp.status);
   const ctype = (resp.headers.get('content-type') || '').toLowerCase();
+  // Content-Length is CORS-safelisted, so this works cross-origin. It may be
+  // absent (chunked) or smaller than what we read (gzip) — callers clamp.
+  const total = parseInt(resp.headers.get('content-length') || '0', 10) || 0;
+  await checkSpace(total);
+
+  let bodyBlob;
+  if (resp.body?.getReader) {
+    const reader = resp.body.getReader();
+    const chunks = [];
+    let loaded = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      loaded += value.byteLength;
+      if (onProgress) onProgress(loaded, total);
+    }
+    bodyBlob = new Blob(chunks);
+  } else {
+    bodyBlob = await resp.blob();
+  }
+
   if (ctype.includes('json') || ctype.startsWith('text/plain')) {
-    const body = await resp.json();
+    const body = JSON.parse(await bodyBlob.text());
     if (body.error) throw new Error(body.error);
     if (!body.data) throw new Error('Unexpected response (no audio data)');
     return {
@@ -57,14 +97,14 @@ export async function fetchAudio(url) {
       mimeType: body.mimeType || 'application/octet-stream',
     };
   }
-  const blob = await resp.blob();
   const name = decodeURIComponent((url.split('/').pop() || 'audio').split('?')[0]) || 'audio';
-  return { blob, name, mimeType: blob.type || 'audio/mpeg' };
+  const mimeType = ctype.split(';')[0] || 'audio/mpeg';
+  return { blob: new Blob([bodyBlob], { type: mimeType }), name, mimeType };
 }
 
 // Download audio for a doc record and store it. Returns the media record.
-export async function downloadAudioForDoc(rec, url) {
-  const { blob, name, mimeType } = await fetchAudio(url);
+export async function downloadAudioForDoc(rec, url, onProgress) {
+  const { blob, name, mimeType } = await fetchAudio(url, onProgress);
   const media = { blob, name, mimeType, sourceUrl: url, peaks: null, duration: null };
   await db.putMedia(rec.id, media);
   return media;
@@ -97,6 +137,8 @@ export class Player {
       time: root.querySelector('.player-time'),
       status: root.querySelector('.player-status'),
       remove: root.querySelector('.player-remove'),
+      progress: root.querySelector('.player-progress'),
+      fill: root.querySelector('.player-progress-fill'),
     };
 
     this.el.play.addEventListener('click', () => this.ws?.playPause());
@@ -113,8 +155,31 @@ export class Player {
     this.el.remove.addEventListener('click', () => onRemove && onRemove());
   }
 
+  // Download feedback: a bar with percentage when the size is known,
+  // an animated indeterminate bar otherwise.
+  showProgress(text, fraction) {
+    this.root.hidden = false;
+    this.el.status.textContent = text;
+    this.el.status.hidden = false;
+    this.el.progress.hidden = false;
+    if (fraction == null) {
+      this.el.progress.classList.add('indeterminate');
+      this.el.fill.style.width = '30%';
+    } else {
+      this.el.progress.classList.remove('indeterminate');
+      this.el.fill.style.width = Math.round(fraction * 100) + '%';
+    }
+  }
+
+  hideProgress() {
+    this.el.progress.hidden = true;
+    this.el.progress.classList.remove('indeterminate');
+    this.el.fill.style.width = '0%';
+  }
+
   async load(media) {
     this.destroyWs();
+    this.hideProgress();
     this.root.hidden = false;
     this.el.status.textContent = this.labels.preparing;
     this.el.status.hidden = false;
@@ -171,6 +236,7 @@ export class Player {
 
   showPending(message) {
     this.destroyWs();
+    this.hideProgress();
     this.root.hidden = false;
     this.el.status.textContent = message;
     this.el.status.hidden = false;
@@ -195,6 +261,7 @@ export class Player {
 
   hide() {
     this.destroyWs();
+    this.hideProgress();
     this.root.hidden = true;
   }
 }

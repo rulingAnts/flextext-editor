@@ -100,6 +100,7 @@ en: {
   'toast.saved': 'Saved.',
   'toast.shareFailed': 'Share failed: {msg}',
   'toast.saveFailed': 'Save failed: {msg}',
+  'toast.storageFull': 'This device is running out of storage space, so the recording or text could not be saved. Delete some photos/videos or unused apps to free up space — the app will try again.',
   'toast.corrected': 'Corrected file downloaded.',
   'toast.noChanges': 'No changes entered — downloaded as-is.',
 
@@ -112,6 +113,8 @@ en: {
   'player.preparing': 'Preparing waveform…',
   'player.error': 'Could not play this audio file.',
   'player.pending': 'Audio not downloaded yet — it will download automatically when there is a connection.',
+  'player.downloading': 'Downloading audio… {pct}% ({got} of {size} MB)',
+  'player.downloadingBytes': 'Downloading audio… {got} MB so far',
   'player.downloaded': 'Audio downloaded — ready to transcribe.',
   'player.downloadFailed': 'Audio could not be downloaded now — the app will keep trying when online.',
   'player.confirmRemove': 'Remove the audio recording from this text?',
@@ -276,6 +279,7 @@ id: {
   'toast.saved': 'Tersimpan.',
   'toast.shareFailed': 'Gagal membagikan: {msg}',
   'toast.saveFailed': 'Gagal menyimpan: {msg}',
+  'toast.storageFull': 'Ruang penyimpanan perangkat ini hampir habis, jadi rekaman atau teks tidak bisa disimpan. Hapus beberapa foto/video atau aplikasi yang tidak dipakai — aplikasi ini akan mencoba lagi.',
   'toast.corrected': 'File yang sudah diperbaiki telah diunduh.',
   'toast.noChanges': 'Tidak ada perubahan — file diunduh apa adanya.',
 
@@ -288,6 +292,8 @@ id: {
   'player.preparing': 'Menyiapkan gambar gelombang…',
   'player.error': 'File audio ini tidak bisa diputar.',
   'player.pending': 'Audio belum terunduh — akan diunduh otomatis saat ada koneksi.',
+  'player.downloading': 'Mengunduh audio… {pct}% ({got} dari {size} MB)',
+  'player.downloadingBytes': 'Mengunduh audio… sudah {got} MB',
   'player.downloaded': 'Audio sudah terunduh — siap diketik.',
   'player.downloadFailed': 'Audio belum bisa diunduh sekarang — aplikasi akan terus mencoba saat online.',
   'player.confirmRemove': 'Hapus rekaman audio dari teks ini?',

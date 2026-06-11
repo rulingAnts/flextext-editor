@@ -1,5 +1,16 @@
 # FlexText Interlinear
 
+Copyright © 2026 Seth Johnston. Licensed under the
+[GNU AGPL v3.0](LICENSE) — you may use, modify, and redeploy this app
+(e.g. for your own language project), provided derivative deployments also
+share their source under the same license.
+
+Developed collaboratively with [Claude Code](https://claude.com/claude-code)
+(Anthropic's AI coding agent), which implemented the application from the
+FLEx flextext schema and real interlinear exports under Seth's direction.
+Bundles [wavesurfer.js](https://wavesurfer.xyz/) (BSD-3-Clause, see
+`js/vendor/wavesurfer.LICENSE`).
+
 An offline-capable web app (PWA) that duplicates FieldWorks Language Explorer's
 interlinear **Baseline** and **Gloss** tabs, editing
 [`.flextext`](docs/FlexInterlinear.xsd) files directly — no FLEx, no lexicon, no

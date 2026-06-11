@@ -272,7 +272,7 @@ function getPlayer() {
       },
       onPeaks: (media) => { db.putMedia(playerDocId, media).catch(() => {}); },
       onRemove: async () => {
-        if (!current) return;
+        if (!current || isAudioLocked(current)) return;
         if (!confirm(t('player.confirmRemove'))) return;
         await db.deleteMedia(current.id);
         delete current.pendingAudio;
@@ -287,6 +287,13 @@ function getPlayer() {
   return player;
 }
 
+// Audio that arrived via a researcher's task link can't be removed by the
+// coworker. (The audioSource check covers texts created before this flag.)
+function isAudioLocked(rec) {
+  return !!rec.audioLocked ||
+    !!(rec.audioSource && /^https?:/i.test(rec.audioSource));
+}
+
 // Show/refresh the player for the current doc on the Baseline tab.
 async function refreshPlayer() {
   const p = getPlayer();
@@ -295,6 +302,7 @@ async function refreshPlayer() {
   playerDocId = current.id;
   const media = await db.getMedia(current.id).catch(() => null);
   if (current.id !== playerDocId || activeTab !== 'baseline') return;
+  p.el.remove.hidden = isAudioLocked(current);
   if (media) {
     // Re-load only when switching docs (avoid resetting playback position).
     if (p.loadedFor !== current.id) {
@@ -347,6 +355,7 @@ async function attachAudioFile(file) {
   };
   await db.putMedia(current.id, media);
   current.audioSource = 'local:' + file.name;
+  current.audioLocked = false; // user attached it themselves; they may remove it
   delete current.pendingAudio;
   ensureMediaRef(current, file.name, '');
   await persist();
@@ -412,7 +421,11 @@ async function openUrlTask(task) {
     modified: Date.now(),
     doc,
   };
-  if (task.audioUrl) current.pendingAudio = task.audioUrl;
+  if (task.audioUrl) {
+    current.pendingAudio = task.audioUrl;
+    // Task-delivered audio is part of the assignment: the coworker can't remove it.
+    current.audioLocked = true;
+  }
   Object.assign(current, docStats(doc));
   current.doc.title = current.title;
   await db.putDoc(current);

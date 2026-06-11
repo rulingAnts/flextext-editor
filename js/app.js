@@ -631,8 +631,13 @@ function openShareMenu() {
   const name = exportFilename();
   $('#share-filename').textContent = name;
   const blob = exportBlob();
-  const file = new File([blob], name, { type: 'application/xml' });
-  const canShare = !!(navigator.canShare && navigator.canShare({ files: [file] }));
+  // Chromium only lets navigator.share() send an allowlisted set of file
+  // types (images, audio, pdf, .txt, ...). XML/.flextext is excluded and
+  // fails with "Permission denied", so the share copy travels as
+  // "<name>.flextext.txt" (text/plain) — same bytes; FLEx and this app
+  // both open it fine.
+  const shareFile = new File([blob], name + '.txt', { type: 'text/plain' });
+  const canShare = !!(navigator.canShare && navigator.canShare({ files: [shareFile] }));
   const canPick = !!window.showSaveFilePicker;
   $('#share-share').hidden = !canShare;
   $('#share-saveas').hidden = !canPick;
@@ -645,10 +650,10 @@ function openShareMenu() {
 
   $('#share-share').onclick = async () => {
     try {
-      await navigator.share({ files: [file], title: name });
+      await navigator.share({ files: [shareFile], title: name });
       closeShareMenu();
     } catch (e) {
-      if (e.name !== 'AbortError') toast(t('toast.shareFailed', { msg: e.message }));
+      if (e.name !== 'AbortError') toast(t('toast.shareFailed', { msg: e.message }), 5000);
     }
   };
   $('#share-saveas').onclick = async () => {

@@ -162,7 +162,10 @@ internet after the first time.</p>
 <ul>
   <li><b>Set up a project:</b> on the <b>Research</b> tab, enter the vernacular and analysis writing systems (code, e.g. <code>fau</code> / <code>en</code>, plus name and font). Click <b>Copy setup link for coworker</b> and send the link. Opening it configures their device — including the interface language you are currently using.</li>
   <li><b>Files:</b> the app reads and writes FLEx <code>.flextext</code> files. Existing analyses it does not edit (morphemes, word categories, notes) are preserved on export, except in sentences whose baseline was changed — same behavior as FLEx. Files containing several texts are imported as separate texts in the list.</li>
-  <li><b>Back into FLEx:</b> in FieldWorks use <i>Texts &amp; Words → Import → FLExText interlinear document</i>.</li>
+  <li><b>Back into FLEx:</b> in FieldWorks use <i>Texts &amp; Words → Import → FLExText interlinear document</i>.
+  Files sent with <b>Share</b> arrive named <code>….flextext.txt</code> (messaging apps only accept
+  certain file types) — FLEx's import dialog opens them as-is, or simply delete the
+  <code>.txt</code> from the filename. This app also opens them directly.</li>
   <li><b>Wrong writing-system codes?</b> Use the <b>Writing system checker</b> (Research tab) to see which codes each interlinear line uses and remap them without touching anything else.</li>
   <li><b>Hiding the Research tab:</b> check the box under the copy-link buttons before copying a
   setup or task link, and the coworker's device hides the Research tab when they open it. To get
@@ -335,7 +338,10 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
 <ul>
   <li><b>Menyiapkan proyek:</b> di tab <b>Penelitian</b>, isi sistem tulisan bahasa daerah dan bahasa analisis (kode, mis. <code>fau</code> / <code>en</code>, beserta nama dan fon). Klik <b>Salin tautan pengaturan untuk rekan kerja</b> lalu kirim tautannya. Saat dibuka, tautan itu mengatur perangkat mereka — termasuk bahasa tampilan yang sedang Anda pakai.</li>
   <li><b>File:</b> aplikasi ini membaca dan menulis file <code>.flextext</code> FLEx. Analisis yang tidak diubah (morfem, kategori kata, catatan) tetap dipertahankan saat ekspor, kecuali pada kalimat yang teks dasarnya diubah — sama seperti perilaku FLEx. File yang berisi beberapa teks akan diimpor sebagai teks-teks terpisah.</li>
-  <li><b>Kembali ke FLEx:</b> di FieldWorks gunakan <i>Texts &amp; Words → Import → FLExText interlinear document</i>.</li>
+  <li><b>Kembali ke FLEx:</b> di FieldWorks gunakan <i>Texts &amp; Words → Import → FLExText interlinear document</i>.
+  File yang dikirim lewat <b>Bagikan</b> bernama <code>….flextext.txt</code> (aplikasi pesan hanya
+  menerima jenis file tertentu) — dialog impor FLEx bisa membukanya langsung, atau hapus saja
+  <code>.txt</code> dari nama filenya. Aplikasi ini juga bisa membukanya langsung.</li>
   <li><b>Kode sistem tulisan salah?</b> Gunakan <b>Pemeriksa sistem tulisan</b> (tab Penelitian) untuk melihat kode pada setiap baris interlinear dan menggantinya tanpa mengubah isi lain.</li>
   <li><b>Menyembunyikan tab Penelitian:</b> centang kotak di bawah tombol salin tautan sebelum
   menyalin tautan pengaturan atau tugas; saat dibuka, tab Penelitian disembunyikan di perangkat

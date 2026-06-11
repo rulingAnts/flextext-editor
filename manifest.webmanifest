@@ -1,6 +1,6 @@
 {
-  "name": "FlexText Interlinear",
-  "short_name": "FlexText",
+  "name": "Flextext Editor",
+  "short_name": "Flextext",
   "description": "Offline interlinear text editor for FLEx flextext files: baseline transcription, word glossing, and free translation.",
   "start_url": "./",
   "scope": "./",

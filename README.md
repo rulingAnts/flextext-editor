@@ -1,4 +1,4 @@
-# FlexText Interlinear
+# Flextext Editor
 
 Copyright © 2026 Seth Johnston. Licensed under the
 [GNU AGPL v3.0](LICENSE) — you may use, modify, and redeploy this app

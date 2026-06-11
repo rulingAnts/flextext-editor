@@ -1,4 +1,4 @@
-/* app.js — UI controller for the FlexText interlinear editor PWA. */
+/* app.js — UI controller for the Flextext Editor PWA. */
 
 import {
   parseFlextext, serializeFlextext, makeDoc, makeWord, makeSegment,
@@ -990,6 +990,8 @@ function setup() {
     if (activeTab === 'baseline') applyBaseline();
     await persist();
     current = null;
+    // Stop any playing audio when leaving the text.
+    if (player) { player.hide(); player.loadedFor = null; }
     renderDocList();
     show('texts');
   });

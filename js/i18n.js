@@ -62,6 +62,9 @@ en: {
   'research.declared': '{name} — declared writing systems: {list}',
   'research.noneDeclared': '(none declared)',
   'research.lang': 'Language / Bahasa',
+  'research.disableBox': 'Disable the Research tab on the coworker\'s device (Ctrl+Alt+R re-enables it)',
+  'research.enabled': 'Research tab enabled.',
+  'research.disabled': 'Research tab disabled. Press Ctrl+Alt+R to bring it back.',
   'ws.line': 'Interlinear line',
   'ws.code': 'Code in file',
   'ws.count': 'Uses',
@@ -161,6 +164,10 @@ internet after the first time.</p>
   <li><b>Files:</b> the app reads and writes FLEx <code>.flextext</code> files. Existing analyses it does not edit (morphemes, word categories, notes) are preserved on export, except in sentences whose baseline was changed — same behavior as FLEx. Files containing several texts are imported as separate texts in the list.</li>
   <li><b>Back into FLEx:</b> in FieldWorks use <i>Texts &amp; Words → Import → FLExText interlinear document</i>.</li>
   <li><b>Wrong writing-system codes?</b> Use the <b>Writing system checker</b> (Research tab) to see which codes each interlinear line uses and remap them without touching anything else.</li>
+  <li><b>Hiding the Research tab:</b> check the box under the copy-link buttons before copying a
+  setup or task link, and the coworker's device hides the Research tab when they open it. To get
+  it back: press <b>Ctrl+Alt+R</b> on that device, or open a link ending in
+  <code>?research=on</code> (copy the app address and add it).</li>
   <li><b>Updates:</b> when online, the app checks for new versions and shows an <b>Update</b> button when one is ready.</li>
   <li><b>Audio task links:</b> the <b>Task link</b> section creates a link that configures the
   coworker's device, creates a titled text, and auto-downloads a recording into a player on the
@@ -228,6 +235,9 @@ id: {
   'research.declared': '{name} — sistem tulisan yang terdaftar: {list}',
   'research.noneDeclared': '(tidak ada yang terdaftar)',
   'research.lang': 'Bahasa / Language',
+  'research.disableBox': 'Nonaktifkan tab Penelitian di perangkat rekan kerja (Ctrl+Alt+R untuk mengaktifkan lagi)',
+  'research.enabled': 'Tab Penelitian diaktifkan.',
+  'research.disabled': 'Tab Penelitian dinonaktifkan. Tekan Ctrl+Alt+R untuk memunculkannya lagi.',
   'ws.line': 'Baris interlinear',
   'ws.code': 'Kode di file',
   'ws.count': 'Jumlah',
@@ -327,6 +337,10 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   <li><b>File:</b> aplikasi ini membaca dan menulis file <code>.flextext</code> FLEx. Analisis yang tidak diubah (morfem, kategori kata, catatan) tetap dipertahankan saat ekspor, kecuali pada kalimat yang teks dasarnya diubah — sama seperti perilaku FLEx. File yang berisi beberapa teks akan diimpor sebagai teks-teks terpisah.</li>
   <li><b>Kembali ke FLEx:</b> di FieldWorks gunakan <i>Texts &amp; Words → Import → FLExText interlinear document</i>.</li>
   <li><b>Kode sistem tulisan salah?</b> Gunakan <b>Pemeriksa sistem tulisan</b> (tab Penelitian) untuk melihat kode pada setiap baris interlinear dan menggantinya tanpa mengubah isi lain.</li>
+  <li><b>Menyembunyikan tab Penelitian:</b> centang kotak di bawah tombol salin tautan sebelum
+  menyalin tautan pengaturan atau tugas; saat dibuka, tab Penelitian disembunyikan di perangkat
+  rekan kerja. Untuk memunculkannya lagi: tekan <b>Ctrl+Alt+R</b> di perangkat itu, atau buka
+  tautan yang diakhiri <code>?research=on</code> (salin alamat aplikasi lalu tambahkan).</li>
   <li><b>Pembaruan:</b> saat online, aplikasi memeriksa versi baru dan menampilkan tombol <b>Perbarui</b> bila tersedia.</li>
   <li><b>Tautan tugas dengan audio:</b> bagian <b>Tautan tugas</b> membuat tautan yang mengatur
   perangkat rekan kerja, membuat teks berjudul, dan otomatis mengunduh rekaman ke pemutar di tab

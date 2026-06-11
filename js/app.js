@@ -37,6 +37,8 @@ function saveSettings(s) {
 function applyUrlSettings() {
   const p = new URLSearchParams(location.search);
   if (p.has('lang')) setLang(p.get('lang'));
+  if (p.get('research') === 'off') localStorage.setItem(RESEARCH_HIDDEN_KEY, '1');
+  if (p.get('research') === 'on') localStorage.removeItem(RESEARCH_HIDDEN_KEY);
   const gotSettings = p.has('vern') || p.has('anal');
   if (gotSettings) {
     const s = loadSettings();
@@ -50,7 +52,7 @@ function applyUrlSettings() {
   const task = (p.has('audio') || p.has('title'))
     ? { title: p.get('title') || '', audioUrl: p.get('audio') || '' }
     : null;
-  if (gotSettings || task || p.has('lang')) {
+  if (gotSettings || task || p.has('lang') || p.has('research')) {
     history.replaceState(null, '', location.pathname);
   }
   return { gotSettings, task };
@@ -703,6 +705,7 @@ function setupResearch() {
     }
     if (!p.has('vern')) { toast(t('toast.needVern')); return; }
     p.set('lang', getLang());
+    if ($('#research-off-box').checked) p.set('research', 'off');
     const url = location.origin + location.pathname + '?' + p.toString();
     const out = $('#share-link-out');
     out.hidden = false;
@@ -747,6 +750,7 @@ function setupResearch() {
       if (v) p.set(qp, v);
     }
     p.set('lang', getLang());
+    if ($('#research-off-box').checked) p.set('research', 'off');
     const title = tf.elements.taskTitle.value.trim();
     if (title) p.set('title', title);
     if (audioUrl) p.set('audio', audioUrl);
@@ -811,6 +815,43 @@ function setupResearch() {
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 30000);
     toast(mappings.length ? t('toast.corrected') : t('toast.noChanges'));
+  });
+}
+
+/* ---------------- Research tab visibility ----------------
+ * A researcher can hide the Research tab on a coworker's device by checking
+ * the box next to the copy-link buttons (adds &research=off to the link).
+ * Re-enable: Ctrl+Alt+R, or a link with ?research=on.
+ */
+
+const RESEARCH_HIDDEN_KEY = 'flextext-research-hidden';
+
+function isResearchHidden() {
+  return !!localStorage.getItem(RESEARCH_HIDDEN_KEY);
+}
+
+function applyResearchVisibility() {
+  const hidden = isResearchHidden();
+  $$('#topbar-home .top-tab[data-view="research"]').forEach(b => { b.hidden = hidden; });
+  if (hidden && !$('#view-research').hidden) {
+    renderDocList();
+    show('texts');
+  }
+}
+
+function setupResearchToggle() {
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.altKey && !e.shiftKey && (e.key === 'r' || e.key === 'R')) {
+      e.preventDefault();
+      if (isResearchHidden()) {
+        localStorage.removeItem(RESEARCH_HIDDEN_KEY);
+        toast(t('research.enabled'));
+      } else {
+        localStorage.setItem(RESEARCH_HIDDEN_KEY, '1');
+        toast(t('research.disabled'));
+      }
+      applyResearchVisibility();
+    }
   });
 }
 
@@ -985,6 +1026,14 @@ function setup() {
 
   setupBanners();
   setupResearch();
+  setupResearchToggle();
+  applyResearchVisibility();
+  const offBox = $('#research-off-box');
+  offBox.checked = !!settings.researchOffChecked;
+  offBox.addEventListener('change', () => {
+    settings.researchOffChecked = offBox.checked;
+    saveSettings(settings);
+  });
   if (task) {
     openUrlTask(task).catch(err => {
       toast(t('toast.importFailed', { msg: err.message }), 6000);

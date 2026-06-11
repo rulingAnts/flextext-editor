@@ -135,7 +135,12 @@ export class AudioDownload {
   }
 
   emit() {
-    this.onState({ status: this.status, received: this.received, total: this.total });
+    this.onState({
+      status: this.status,
+      received: this.received,
+      total: this.total,
+      storage: !!this.storageIssue,
+    });
   }
 
   pause() {
@@ -163,6 +168,7 @@ export class AudioDownload {
   // or null when paused / out of attempts (partial progress is kept).
   start() {
     this.status = 'downloading';
+    this.storageIssue = false;
     const run = ++this._gen;
     activeDownloads.set(this.docId, this);
     this.donePromise = this._runWithRetries(run)
@@ -181,7 +187,15 @@ export class AudioDownload {
       } catch (e) {
         if (this._gen !== run) return null;                  // superseded by reset/resume
         if (this.status === 'paused') return null;           // user pause
-        if (e.storageFull || e.name === 'QuotaExceededError' || e.fatal) {
+        if (e.storageFull || e.name === 'QuotaExceededError') {
+          // Device is full: pause (keeping the partial), tell the user to
+          // free up space, and let them resume once they have.
+          this.status = 'paused';
+          this.storageIssue = true;
+          this.emit();
+          return null;
+        }
+        if (e.fatal) {
           this.status = 'error';
           this.emit();
           throw e;

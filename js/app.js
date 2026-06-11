@@ -332,7 +332,9 @@ async function refreshPlayer() {
     } else if (dl && dl.status === 'paused') {
       updateDlControls('paused');
       p.showProgress(
-        t('player.pausedAt', { got: mbFmt(dl.received), size: dl.total ? mbFmt(dl.total) : '?' }),
+        dl.storageIssue
+          ? t('player.storagePaused')
+          : t('player.pausedAt', { got: mbFmt(dl.received), size: dl.total ? mbFmt(dl.total) : '?' }),
         dl.total ? dl.received / dl.total : 0);
     } else {
       updateDlControls('idle-pending');
@@ -422,8 +424,14 @@ function updateDlControls(status) {
 // Live download feedback in the player area (only when the user is looking
 // at the doc being downloaded).
 function downloadStateHandler(rec) {
-  return ({ status, received, total }) => {
+  let toastedStorage = false;
+  return ({ status, received, total, storage }) => {
     if (status === 'done') finalizeAudioDownload(rec).catch(() => {});
+    if (storage && !toastedStorage) {
+      toastedStorage = true;
+      toast(t('toast.storageFull'), 9000);
+    }
+    if (!storage) toastedStorage = false;
     if (!current || rec.id !== current.id || activeTab !== 'baseline') return;
     const p = getPlayer();
     if (status === 'done') { updateDlControls('done'); return; }
@@ -437,7 +445,9 @@ function downloadStateHandler(rec) {
       }
     } else if (status === 'paused') {
       p.showProgress(
-        t('player.pausedAt', { got: mbFmt(received), size: total ? mbFmt(total) : '?' }),
+        storage
+          ? t('player.storagePaused')
+          : t('player.pausedAt', { got: mbFmt(received), size: total ? mbFmt(total) : '?' }),
         total ? received / total : 0);
     } else if (status === 'error') {
       p.showPending(t('player.pending'));

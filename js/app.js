@@ -633,8 +633,14 @@ function openShareMenu() {
   const blob = exportBlob();
   const file = new File([blob], name, { type: 'application/xml' });
   const canShare = !!(navigator.canShare && navigator.canShare({ files: [file] }));
+  const canPick = !!window.showSaveFilePicker;
   $('#share-share').hidden = !canShare;
-  $('#share-saveas').hidden = !window.showSaveFilePicker;
+  $('#share-saveas').hidden = !canPick;
+  // Prefer an explicit "where do you want to save it" picker on desktop;
+  // only fall back to a blind download when no picker API exists (Firefox).
+  $('#share-download').hidden = canPick;
+  $('#share-saveas').className = canShare ? 'secondary-btn' : 'primary-btn';
+  $('#share-download').className = (canShare || canPick) ? 'secondary-btn' : 'primary-btn';
   $('#share-menu').hidden = false;
 
   $('#share-share').onclick = async () => {

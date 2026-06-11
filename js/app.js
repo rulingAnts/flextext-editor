@@ -15,9 +15,9 @@ const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
 // Default Google Drive relay (docs/drive-relay.gs) used for Drive share links
-// when the researcher hasn't configured their own. Empty until a team relay
-// is deployed and its /exec URL is pasted here.
-const DEFAULT_RELAY = '';
+// when the researcher hasn't configured their own. The relay is permissionless
+// (it can only fetch link-shared files), so sharing one deployment is safe.
+const DEFAULT_RELAY = 'https://script.google.com/macros/s/AKfycbwExfkP23RevAoztQoN5dC1mBN17YvKjZtwcLzgorYKWJFIxW3dyxbbUJ2EglGJMpXttw/exec';
 
 /* ---------------- Settings (writing systems) ---------------- */
 

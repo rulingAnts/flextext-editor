@@ -114,10 +114,10 @@ en: {
   'player.confirmRemove': 'Remove the audio recording from this text?',
 
   'task.h': 'Task link (text + audio)',
-  'task.note': 'Create a link that sets up your coworker\'s device <em>and</em> opens a new text for them — with an audio recording that downloads automatically and plays right above the typing area. For audio in Google Drive, share the file ("Anyone with the link"), paste the share link here, and set the relay URL once (see Help for the one-time relay setup).',
+  'task.note': 'Create a link that sets up your coworker\'s device <em>and</em> opens a new text for them — with an audio recording that downloads automatically and plays right above the typing area. For audio in Google Drive: share the file as "Anyone with the link" and paste the share link here — nothing else to set up.',
   'task.title': 'Text title',
   'task.audio': 'Audio (Drive share link, file ID, or direct URL)',
-  'task.relay': 'Drive relay URL (saved; needed for Drive links)',
+  'task.relay': 'Drive relay URL (optional — the app has a built-in default)',
   'task.copy': 'Copy task link',
   'task.needRelay': 'A Drive link needs the relay URL — set it once below (see Help → For researchers).',
   'task.badAudio': 'Could not understand the audio link. Paste a Google Drive share link or a direct https:// audio URL.',
@@ -166,19 +166,12 @@ internet after the first time.</p>
   <li><b>Audio task links:</b> the <b>Task link</b> section creates a link that configures the
   coworker's device, creates a titled text, and auto-downloads a recording into a player on the
   typing tab. Use mono 64&nbsp;kbps MP3 (≈0.5&nbsp;MB per minute). The audio can live on any
-  CORS-friendly host, or in <b>your own Google Drive</b> via a small relay:
-  <ol>
-    <li>One person (once, for the whole team) deploys the relay script from
-    <code>docs/drive-relay.gs</code> in the app repository: open
-    <a href="https://script.google.com" target="_blank" rel="noopener">script.google.com</a>,
-    paste the script, <i>Deploy → New deployment → Web app</i>, "Execute as: me",
-    "Who has access: Anyone", and copy the <code>…/exec</code> URL.</li>
-    <li>Every researcher then just pastes that relay URL into the Task link form (saved on
-    their device) — no Apps Script needed for them.</li>
-    <li>Per recording: upload the MP3 to Drive, share it as "Anyone with the link", and paste
-    the share link into the form. The relay only fetches link-shared files; it has no access
-    to anyone's private Drive contents.</li>
-  </ol></li>
+  CORS-friendly host, or simply in <b>your own Google Drive</b>: upload the MP3, share it as
+  "Anyone with the link", and paste the share link into the form — a built-in relay does the
+  rest. (The relay only fetches link-shared files and has no access to anyone's private Drive
+  contents. Teams that prefer their own relay can deploy <code>docs/drive-relay.gs</code> from
+  the app repository as an Apps Script web app and paste its <code>…/exec</code> URL into the
+  form's relay field.)</li>
 </ul>`,
 },
 
@@ -288,10 +281,10 @@ id: {
   'player.confirmRemove': 'Hapus rekaman audio dari teks ini?',
 
   'task.h': 'Tautan tugas (teks + audio)',
-  'task.note': 'Buat tautan yang mengatur perangkat rekan kerja Anda <em>dan</em> langsung membuka teks baru — dengan rekaman audio yang terunduh otomatis dan bisa diputar tepat di atas tempat mengetik. Untuk audio di Google Drive: bagikan filenya ("Siapa saja yang memiliki link"), tempel tautannya di sini, dan isi URL relay sekali saja (lihat Bantuan untuk penyiapan relay).',
+  'task.note': 'Buat tautan yang mengatur perangkat rekan kerja Anda <em>dan</em> langsung membuka teks baru — dengan rekaman audio yang terunduh otomatis dan bisa diputar tepat di atas tempat mengetik. Untuk audio di Google Drive: bagikan filenya sebagai "Siapa saja yang memiliki link" lalu tempel tautannya di sini — tidak ada penyiapan lain.',
   'task.title': 'Judul teks',
   'task.audio': 'Audio (tautan berbagi Drive, ID file, atau URL langsung)',
-  'task.relay': 'URL relay Drive (tersimpan; diperlukan untuk tautan Drive)',
+  'task.relay': 'URL relay Drive (opsional — aplikasi sudah punya bawaan)',
   'task.copy': 'Salin tautan tugas',
   'task.needRelay': 'Tautan Drive memerlukan URL relay — isi sekali di bawah (lihat Bantuan → Untuk peneliti).',
   'task.badAudio': 'Tautan audio tidak dikenali. Tempel tautan berbagi Google Drive atau URL audio https:// langsung.',
@@ -340,19 +333,12 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   <li><b>Tautan tugas dengan audio:</b> bagian <b>Tautan tugas</b> membuat tautan yang mengatur
   perangkat rekan kerja, membuat teks berjudul, dan otomatis mengunduh rekaman ke pemutar di tab
   Ketik. Gunakan MP3 mono 64&nbsp;kbps (≈0,5&nbsp;MB per menit). Audio bisa di host mana pun yang
-  mendukung CORS, atau di <b>Google Drive Anda sendiri</b> lewat relay kecil:
-  <ol>
-    <li>Satu orang (sekali saja, untuk seluruh tim) memasang skrip relay dari
-    <code>docs/drive-relay.gs</code> di repositori aplikasi: buka
-    <a href="https://script.google.com" target="_blank" rel="noopener">script.google.com</a>,
-    tempel skripnya, <i>Deploy → New deployment → Web app</i>, "Execute as: me",
-    "Who has access: Anyone", lalu salin URL <code>…/exec</code>-nya.</li>
-    <li>Setiap peneliti cukup menempel URL relay itu di formulir Tautan tugas (tersimpan di
-    perangkatnya) — tidak perlu Apps Script sama sekali.</li>
-    <li>Untuk tiap rekaman: unggah MP3 ke Drive, bagikan sebagai "Siapa saja yang memiliki
-    link", lalu tempel tautan berbaginya di formulir. Relay hanya bisa mengambil file yang
-    dibagikan dengan tautan; relay tidak punya akses ke isi Drive pribadi siapa pun.</li>
-  </ol></li>
+  mendukung CORS, atau cukup di <b>Google Drive Anda sendiri</b>: unggah MP3, bagikan sebagai
+  "Siapa saja yang memiliki link", lalu tempel tautan berbaginya di formulir — relay bawaan
+  aplikasi yang mengurus sisanya. (Relay hanya bisa mengambil file yang dibagikan dengan
+  tautan; relay tidak punya akses ke isi Drive pribadi siapa pun. Tim yang ingin relay sendiri
+  bisa memasang <code>docs/drive-relay.gs</code> dari repositori aplikasi sebagai web app
+  Apps Script lalu menempel URL <code>…/exec</code>-nya di kolom relay formulir.)</li>
 </ul>`,
 },
 };

@@ -14,6 +14,11 @@ import { esc, newGuid as mkGuid } from './flextext.js';
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
+// Default Google Drive relay (docs/drive-relay.gs) used for Drive share links
+// when the researcher hasn't configured their own. Empty until a team relay
+// is deployed and its /exec URL is pasted here.
+const DEFAULT_RELAY = '';
+
 /* ---------------- Settings (writing systems) ---------------- */
 
 const SETTINGS_KEY = 'flextext-ws-settings';
@@ -315,6 +320,23 @@ function ensureMediaRef(rec, name, sourceUrl) {
   rec.doc.mediaXML = [
     `<media-files offset-type="milliseconds">\n  <media guid="${esc(rec.mediaGuid)}" location="${esc(location)}" />\n</media-files>`,
   ];
+}
+
+// Transcriber-initiated: pick an audio file, get a new text with the
+// recording loaded in the player, ready to title and type.
+async function newDocFromAudio(file) {
+  const doc = makeDoc(settings, file.name.replace(/\.[^.]+$/, ''));
+  current = {
+    id: newGuid(),
+    title: doc.title,
+    created: Date.now(),
+    modified: Date.now(),
+    doc,
+  };
+  enterEditor('baseline');
+  await attachAudioFile(file);
+  $('#doc-title').focus();
+  $('#doc-title').select();
 }
 
 async function attachAudioFile(file) {
@@ -692,15 +714,13 @@ function setupResearch() {
 
     let audioUrl = '';
     const audioIn = tf.elements.taskAudio.value.trim();
+    const relay = settings.relayUrl || DEFAULT_RELAY;
     if (audioIn) {
       const fileId = driveFileId(audioIn);
-      if (fileId && !isProbablyUrl(audioIn)) {
-        // bare id or something id-like
-        if (!settings.relayUrl) { toast(t('task.needRelay'), 6000); return; }
-        audioUrl = settings.relayUrl + '?id=' + fileId;
-      } else if (fileId && /drive\.google\.com/.test(audioIn)) {
-        if (!settings.relayUrl) { toast(t('task.needRelay'), 6000); return; }
-        audioUrl = settings.relayUrl + '?id=' + fileId;
+      const isDrive = fileId && (/drive\.google\.com/.test(audioIn) || !isProbablyUrl(audioIn));
+      if (isDrive) {
+        if (!relay) { toast(t('task.needRelay'), 6000); return; }
+        audioUrl = relay + '?id=' + fileId;
       } else if (isProbablyUrl(audioIn)) {
         audioUrl = audioIn;
       } else {
@@ -781,6 +801,62 @@ function setupResearch() {
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 30000);
     toast(mappings.length ? t('toast.corrected') : t('toast.noChanges'));
+  });
+}
+
+/* ---------------- Install & platform banners ---------------- */
+
+// True on Safari and on any iPhone/iPad browser (they are all WebKit).
+// Pure function for testability.
+export function isUnsupportedWebKit(ua, maxTouchPoints) {
+  if (/iPhone|iPad|iPod/i.test(ua)) return true;
+  if (/Macintosh/.test(ua) && maxTouchPoints > 1) return true; // iPadOS desktop-mode UA
+  return /AppleWebKit/.test(ua) && !/Chrome|Chromium|CriOS|Edg|OPR|SamsungBrowser|Firefox|FxiOS/.test(ua);
+}
+
+function isStandalone() {
+  return matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+}
+
+let installPrompt = null;
+
+function updateInstallBanner() {
+  const dismissed = localStorage.getItem('flextext-dismiss-install-banner');
+  $('#install-banner').hidden = !installPrompt || isStandalone() || !!dismissed;
+}
+
+function setupBanners() {
+  // Dismiss buttons (persisted per banner).
+  $$('.banner-dismiss').forEach(b => b.addEventListener('click', () => {
+    const id = b.dataset.dismiss;
+    localStorage.setItem('flextext-dismiss-' + id, '1');
+    $('#' + id).hidden = true;
+  }));
+
+  if (isUnsupportedWebKit(navigator.userAgent, navigator.maxTouchPoints || 0) &&
+      !localStorage.getItem('flextext-dismiss-webkit-warning')) {
+    $('#webkit-warning').hidden = false;
+  }
+
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    installPrompt = e;
+    updateInstallBanner();
+  });
+  window.addEventListener('appinstalled', () => {
+    installPrompt = null;
+    updateInstallBanner();
+    toast(t('install.done'), 5000);
+  });
+  $('#btn-install').addEventListener('click', async () => {
+    if (!installPrompt) return;
+    const p = installPrompt;
+    installPrompt = null; // a prompt event can only be used once
+    try {
+      p.prompt();
+      await p.userChoice;
+    } catch { /* user dismissed */ }
+    updateInstallBanner();
   });
 }
 
@@ -873,6 +949,12 @@ function setup() {
 
   $('#doc-title').addEventListener('input', schedulePersist);
   $('#btn-new').addEventListener('click', () => newDoc());
+  $('#btn-new-audio').addEventListener('click', () => $('#new-audio-file').click());
+  $('#new-audio-file').addEventListener('change', (e) => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (f) newDocFromAudio(f).catch(err => toast(t('toast.importFailed', { msg: err.message }), 6000));
+  });
   $('#btn-import').addEventListener('click', () => $('#import-file').click());
   $('#import-file').addEventListener('change', (e) => {
     const f = e.target.files[0];
@@ -891,6 +973,7 @@ function setup() {
   });
   window.addEventListener('online', () => retryPendingAudio());
 
+  setupBanners();
   setupResearch();
   if (task) {
     openUrlTask(task).catch(err => {

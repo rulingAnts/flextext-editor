@@ -2,7 +2,7 @@
 
 // Bump VERSION on every deploy: clients check for a changed sw.js whenever
 // they load / regain focus / come online, and offer the user an update.
-const VERSION = 'v4';
+const VERSION = 'v5';
 const CACHE = 'flextext-' + VERSION;
 const SHELL = [
   './',

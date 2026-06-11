@@ -58,6 +58,10 @@ opened offline, the download retries automatically when a connection returns.
 Re-opening the same task link never duplicates the text. Audio can also be
 attached manually from a local file on the Baseline tab.
 
+Transcribers can also start from a recording themselves: **New text from
+audio…** on the Texts screen creates a titled text with the file loaded in
+the player.
+
 Audio sources can be any CORS-friendly direct URL, **or a researcher's own
 Google Drive** via a tiny relay ([docs/drive-relay.gs](docs/drive-relay.gs)):
 one person deploys it once as an Apps Script web app ("Execute as: me",
@@ -68,6 +72,18 @@ at all (it proxies only Drive's public download endpoint), so it can never
 expose private files. Recommended format: mono 64 kbps MP3 (≈0.5 MB/min).
 Exports reference the recording via a `<media-files>` element so FLEx can
 re-link it.
+
+## Platform support & install
+
+Supported: **Firefox and Chromium browsers (Chrome/Edge) on Windows, Mac,
+Linux, and Android** — Android and Windows first. Safari/WebKit (including
+all iPhone/iPad browsers) is not supported; those users see a dismissible
+warning suggesting Firefox or Chrome.
+
+On Chromium browsers the app offers a one-tap **Install app** banner
+(`beforeinstallprompt`), so transcribers get a home-screen/desktop app
+without hunting through browser menus; Firefox users get instructions in the
+built-in help.
 
 ## Localization & help
 

@@ -18,6 +18,7 @@ en: {
   'help.close': '← Back',
 
   'texts.new': '+ New text',
+  'texts.newAudio': '+ New text from audio…',
   'texts.open': 'Open .flextext file…',
   'texts.empty': 'No texts yet. Tap <b>New text</b> to start transcribing, or open an existing <code>.flextext</code> file.',
   'texts.deleteTitle': 'Delete',
@@ -126,11 +127,21 @@ en: {
   'update.available': 'A new version of the app is available.',
   'update.now': 'Update',
 
+  'install.text': 'You can install this app on your device — it then works without internet, like a normal app.',
+  'install.btn': 'Install app',
+  'install.done': 'App installed — find it on your home screen or desktop.',
+  'webkit.warning': 'This app does not fully work in Safari or on iPhone/iPad. Please use Firefox or Chrome on Android, Windows, Mac, or Linux.',
+
   'help.title': 'Help',
   'help.html': `
 <h3>For transcribers</h3>
 <ol>
-  <li><b>Keep this app:</b> bookmark this page, or choose <b>Add to Home Screen</b> in your browser menu. After that it also works without internet.</li>
+  <li><b>Keep this app:</b> when a blue bar offers <b>Install app</b>, tap it — one tap puts the
+  app on your home screen or desktop, and it then works without internet. (In Chrome or Edge you
+  can also use the browser menu → <i>Install app</i> / <i>Add to Home screen</i>. In Firefox on
+  Android: menu → <i>Add to Home screen</i>. Firefox on a computer cannot install apps — the
+  page still works there, or use Chrome/Edge for a desktop app. Not supported in Safari or on
+  iPhone/iPad.)</li>
   <li><b>Start:</b> tap <b>New text</b> and give it a name at the top.</li>
   <li><b>Type the story</b> on the <b>Baseline</b> tab, in your own language. Press Enter to start a new paragraph.</li>
   <li><b>Give word meanings:</b> open the <b>Gloss</b> tab. Under each blue word, type what it means. Press Enter to jump to the next word.</li>
@@ -290,11 +301,21 @@ id: {
   'update.available': 'Versi baru aplikasi ini tersedia.',
   'update.now': 'Perbarui',
 
+  'install.text': 'Aplikasi ini bisa dipasang di perangkat Anda — setelah itu bisa dipakai tanpa internet, seperti aplikasi biasa.',
+  'install.btn': 'Pasang aplikasi',
+  'install.done': 'Aplikasi terpasang — cari di layar utama atau desktop.',
+  'webkit.warning': 'Aplikasi ini tidak berfungsi penuh di Safari atau di iPhone/iPad. Silakan pakai Firefox atau Chrome di Android, Windows, Mac, atau Linux.',
+
   'help.title': 'Bantuan',
   'help.html': `
 <h3>Untuk pengetik teks</h3>
 <ol>
-  <li><b>Simpan aplikasi ini:</b> tandai halaman ini (bookmark), atau pilih <b>Tambahkan ke Layar Utama</b> di menu browser. Setelah itu aplikasi tetap bisa dipakai tanpa internet.</li>
+  <li><b>Simpan aplikasi ini:</b> kalau muncul bilah biru dengan tombol <b>Pasang aplikasi</b>,
+  tekan tombol itu — sekali tekan, aplikasi terpasang di layar utama atau desktop dan bisa
+  dipakai tanpa internet. (Di Chrome atau Edge bisa juga lewat menu browser → <i>Instal
+  aplikasi</i> / <i>Tambahkan ke Layar Utama</i>. Di Firefox Android: menu → <i>Tambahkan ke
+  Layar Utama</i>. Firefox di komputer tidak bisa memasang aplikasi — halamannya tetap bisa
+  dipakai, atau gunakan Chrome/Edge. Tidak didukung di Safari atau iPhone/iPad.)</li>
   <li><b>Mulai:</b> tekan <b>Teks baru</b> dan beri nama di bagian atas.</li>
   <li><b>Ketik cerita</b> di tab <b>Ketik</b>, dalam bahasa daerah Anda. Tekan Enter untuk paragraf baru.</li>
   <li><b>Isi arti kata:</b> buka tab <b>Terjemahan Balik</b>. Di baris <b>Harfiah</b>, di bawah setiap kata <b>Asli</b> yang biru, ketik artinya. Tekan Enter untuk pindah ke kata berikutnya.</li>

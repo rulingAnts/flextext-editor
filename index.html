@@ -43,12 +43,24 @@
 
 <main>
 
+<div id="webkit-warning" class="banner warn-banner" hidden>
+  <span data-i18n="webkit.warning"></span>
+  <button class="banner-dismiss" data-dismiss="webkit-warning" title="✕">✕</button>
+</div>
+<div id="install-banner" class="banner install-banner" hidden>
+  <span data-i18n="install.text"></span>
+  <button id="btn-install" class="primary-btn" data-i18n="install.btn">Install app</button>
+  <button class="banner-dismiss" data-dismiss="install-banner" title="✕">✕</button>
+</div>
+
 <!-- ===== Texts (document library) ===== -->
 <section id="view-texts" class="view">
   <div class="toolbar">
     <button id="btn-new" class="primary-btn" data-i18n="texts.new">+ New text</button>
+    <button id="btn-new-audio" class="secondary-btn" data-i18n="texts.newAudio">+ New text from audio&hellip;</button>
     <button id="btn-import" class="secondary-btn" data-i18n="texts.open">Open .flextext file&hellip;</button>
     <input type="file" id="import-file" accept=".flextext,.xml,text/xml,application/xml" hidden>
+    <input type="file" id="new-audio-file" accept="audio/*,.mp3,.wav,.m4a,.flac,.ogg" hidden>
   </div>
   <div id="ws-banner" class="banner" hidden></div>
   <ul id="doc-list" class="doc-list"></ul>

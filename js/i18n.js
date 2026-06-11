@@ -32,6 +32,8 @@ en: {
   'baseline.placeholder': 'Type the text here in the vernacular language…',
 
   'gloss.empty': 'Nothing to gloss yet — enter the text on the <b>Baseline</b> tab first.',
+  'gloss.wordLabel': 'Word',
+  'gloss.glossLabel': 'Gloss',
   'gloss.freeLabel': 'Free',
   'gloss.freePlaceholder': 'Free translation…',
   'gloss.chainTitle': 'Merge these two words into one phrase',
@@ -127,8 +129,8 @@ en: {
 id: {
   'tabs.texts': 'Teks',
   'tabs.research': 'Penelitian',
-  'tabs.baseline': 'Teks Dasar',
-  'tabs.gloss': 'Glos',
+  'tabs.baseline': 'Ketik',
+  'tabs.gloss': 'Terjemahan Balik',
   'btn.saveSend': 'Simpan & kirim…',
   'btn.back': 'Kembali ke daftar teks',
   'btn.help': 'Bantuan',
@@ -148,7 +150,9 @@ id: {
   'baseline.hint': 'Ketik atau tempel teks di sini. Tekan <b>Enter</b> untuk paragraf baru. Kalimat dipisah otomatis pada <code>. ! ?</code>',
   'baseline.placeholder': 'Ketik teks bahasa daerah di sini…',
 
-  'gloss.empty': 'Belum ada yang bisa diglos — isi teks di tab <b>Teks Dasar</b> dulu.',
+  'gloss.empty': 'Belum ada yang bisa dikerjakan — ketik teksnya di tab <b>Ketik</b> dulu.',
+  'gloss.wordLabel': 'Asli',
+  'gloss.glossLabel': 'Harfiah',
   'gloss.freeLabel': 'Bebas',
   'gloss.freePlaceholder': 'Terjemahan bebas…',
   'gloss.chainTitle': 'Gabungkan dua kata ini menjadi satu frasa',
@@ -183,16 +187,16 @@ id: {
   'ws.keepPh': '(biarkan)',
   'research.downloadCorrected': 'Unduh file yang sudah diperbaiki',
 
-  'wsline.baseline': 'Teks dasar (kalimat)',
-  'wsline.word': 'Kata',
+  'wsline.baseline': 'Asli (teks kalimat)',
+  'wsline.word': 'Asli (kata)',
   'wsline.punct': 'Tanda baca',
-  'wsline.wordgloss': 'Glos kata',
+  'wsline.wordgloss': 'Harfiah (glos kata)',
   'wsline.pos': 'Kategori kata',
   'wsline.morph': 'Morfem',
   'wsline.morphgloss': 'Glos morfem',
   'wsline.cf': 'Entri leksikal (bentuk sitasi)',
   'wsline.msa': 'Info gramatikal leksikal',
-  'wsline.free': 'Terjemahan bebas',
+  'wsline.free': 'Bebas (terjemahan bebas)',
   'wsline.lit': 'Terjemahan harfiah',
   'wsline.note': 'Catatan',
   'wsline.segnum': 'Nomor kalimat',
@@ -223,8 +227,8 @@ id: {
 <ol>
   <li><b>Simpan aplikasi ini:</b> tandai halaman ini (bookmark), atau pilih <b>Tambahkan ke Layar Utama</b> di menu browser. Setelah itu aplikasi tetap bisa dipakai tanpa internet.</li>
   <li><b>Mulai:</b> tekan <b>Teks baru</b> dan beri nama di bagian atas.</li>
-  <li><b>Ketik cerita</b> di tab <b>Teks Dasar</b>, dalam bahasa daerah Anda. Tekan Enter untuk paragraf baru.</li>
-  <li><b>Isi arti kata:</b> buka tab <b>Glos</b>. Di bawah setiap kata biru, ketik artinya. Tekan Enter untuk pindah ke kata berikutnya.</li>
+  <li><b>Ketik cerita</b> di tab <b>Ketik</b>, dalam bahasa daerah Anda. Tekan Enter untuk paragraf baru.</li>
+  <li><b>Isi arti kata:</b> buka tab <b>Terjemahan Balik</b>. Di baris <b>Harfiah</b>, di bawah setiap kata <b>Asli</b> yang biru, ketik artinya. Tekan Enter untuk pindah ke kata berikutnya.</li>
   <li><b>Gabungkan kata:</b> kalau dua kata merupakan satu kesatuan, tekan tanda 🔗 kecil di antaranya. Tekan <b>✂ pisah</b> untuk memisahkannya lagi.</li>
   <li><b>Terjemahkan kalimat:</b> di baris <b>Bebas</b>, tulis arti seluruh kalimat.</li>
   <li><b>Kirim hasil kerja:</b> tekan <b>Simpan & kirim…</b> lalu pilih WhatsApp, email, atau aplikasi lain.</li>

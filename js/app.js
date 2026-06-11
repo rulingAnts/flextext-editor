@@ -296,6 +296,19 @@ function renderSegment(seg, segnum, vernFont, analFont) {
   num.textContent = segnum;
   row.appendChild(num);
 
+  // Line-label gutter (Word/Gloss — Asli/Harfiah), aligned with the two
+  // lines of the first word cell. Labels appear once per sentence.
+  const labels = document.createElement('div');
+  labels.className = 'line-labels';
+  const lw = document.createElement('span');
+  lw.className = 'line-label line-label-word';
+  lw.textContent = t('gloss.wordLabel');
+  const lg = document.createElement('span');
+  lg.className = 'line-label line-label-gloss';
+  lg.textContent = t('gloss.glossLabel');
+  labels.append(lw, lg);
+  row.appendChild(labels);
+
   seg.words.forEach((w, i) => {
     if (w.punct) {
       const cell = document.createElement('div');

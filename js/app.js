@@ -704,11 +704,8 @@ function setupResearch() {
 
   // Task link builder (text + audio)
   const tf = $('#task-form');
-  tf.elements.relayUrl.value = settings.relayUrl || '';
   tf.addEventListener('submit', async (e) => {
     e.preventDefault();
-    settings.relayUrl = tf.elements.relayUrl.value.trim();
-    saveSettings(settings);
     const f2 = $('#ws-form');
     if (!f2.elements.vernLang.value.trim()) { toast(t('toast.needVern')); return; }
 

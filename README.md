@@ -67,8 +67,8 @@ Google Drive** via a tiny relay ([docs/drive-relay.gs](docs/drive-relay.gs))
 deployed as an Apps Script web app ("Execute as: me", access "Anyone").
 **A default relay is baked into the app** (`DEFAULT_RELAY` in
 [js/app.js](js/app.js)), so researchers just share recordings as "Anyone with
-the link" and paste the Drive share link into the form — zero setup. Forks
-can swap the constant or override it per-device in the form's relay field. The relay requests no Drive permissions
+the link" and paste the Drive share link into the form — zero setup, nothing
+to configure. Forks running their own relay swap that one constant. The relay requests no Drive permissions
 at all (it proxies only Drive's public download endpoint), so it can never
 expose private files. Recommended format: mono 64 kbps MP3 (≈0.5 MB/min).
 Exports reference the recording via a `<media-files>` element so FLEx can

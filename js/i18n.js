@@ -135,6 +135,16 @@ en: {
   'task.received': 'New task received — listen and type. The audio is downloading…',
   'task.alreadyHere': 'This task is already on this device — opening it.',
 
+  'convert.h': 'Audio converter',
+  'convert.note': 'Recorders often produce huge WAV files (a 2-minute 32-bit stereo WAV is ~40 MB) that are far too heavy to send. Convert any recording here to a small task-ready MP3 (~0.5 MB per minute at the default settings), then upload the MP3 to Google Drive for your task link. Works offline.',
+  'convert.kbps': 'Quality (bitrate)',
+  'convert.rate': 'Sample rate',
+  'convert.mono': 'Convert to mono (one channel — recommended for speech)',
+  'convert.pick': 'Choose audio file & convert…',
+  'convert.working': 'Converting… {pct}%',
+  'convert.done': 'Done: {name} — {out} MB (was {in} MB). The file has been downloaded; upload it to Google Drive.',
+  'convert.failed': 'Conversion failed: {msg}',
+
   'update.available': 'A new version of the app is available.',
   'update.now': 'Update',
 
@@ -319,6 +329,16 @@ id: {
   'task.badAudio': 'Tautan audio tidak dikenali. Tempel tautan berbagi Google Drive atau URL audio https:// langsung.',
   'task.received': 'Tugas baru diterima — dengarkan dan ketik. Audio sedang diunduh…',
   'task.alreadyHere': 'Tugas ini sudah ada di perangkat ini — sedang dibuka.',
+
+  'convert.h': 'Pengubah audio',
+  'convert.note': 'Alat perekam sering menghasilkan file WAV yang sangat besar (WAV stereo 32-bit 2 menit ≈ 40 MB) — terlalu berat untuk dikirim. Ubah rekaman apa pun di sini menjadi MP3 kecil yang siap untuk tugas (≈0,5 MB per menit dengan pengaturan bawaan), lalu unggah MP3-nya ke Google Drive untuk tautan tugas. Bisa dipakai tanpa internet.',
+  'convert.kbps': 'Kualitas (bitrate)',
+  'convert.rate': 'Laju sampel',
+  'convert.mono': 'Ubah ke mono (satu kanal — disarankan untuk suara/ucapan)',
+  'convert.pick': 'Pilih file audio & ubah…',
+  'convert.working': 'Mengubah… {pct}%',
+  'convert.done': 'Selesai: {name} — {out} MB (sebelumnya {in} MB). File sudah diunduh; unggah ke Google Drive.',
+  'convert.failed': 'Pengubahan gagal: {msg}',
 
   'update.available': 'Versi baru aplikasi ini tersedia.',
   'update.now': 'Perbarui',

@@ -339,7 +339,7 @@ async function refreshPlayer() {
         dl.total ? dl.received / dl.total : 0);
     } else {
       updateDlControls('idle-pending');
-      p.showPending(t('player.pending'));
+      p.showPending(current.audioError || t('player.pending'));
     }
   } else {
     p.loadedFor = null;
@@ -397,6 +397,7 @@ async function finalizeAudioDownload(rec) {
   const url = rec.pendingAudio;
   if (!url) return;
   delete rec.pendingAudio;
+  delete rec.audioError;
   const media = await db.getMedia(rec.id).catch(() => null);
   rec.audioSource = url;
   ensureMediaRef(rec, media?.name, media?.sourceUrl);
@@ -426,8 +427,13 @@ function updateDlControls(status) {
 // at the doc being downloaded).
 function downloadStateHandler(rec) {
   let toastedStorage = false;
-  return ({ status, received, total, storage }) => {
+  return ({ status, received, total, storage, error }) => {
     if (status === 'done') finalizeAudioDownload(rec).catch(() => {});
+    if (status === 'error' && error && rec.audioError !== error) {
+      // Remember the reason so reopening the text still explains it.
+      rec.audioError = error;
+      db.putDoc(rec).catch(() => {});
+    }
     if (storage && !toastedStorage) {
       toastedStorage = true;
       toast(t('toast.storageFull'), 9000);
@@ -451,7 +457,9 @@ function downloadStateHandler(rec) {
           : t('player.pausedAt', { got: mbFmt(received), size: total ? mbFmt(total) : '?' }),
         total ? received / total : 0);
     } else if (status === 'error') {
-      p.showPending(t('player.pending'));
+      // Show the real reason (e.g. "this is a WAV file…"), not a vague
+      // "not downloaded yet".
+      p.showPending(error || t('player.pending'));
     }
   };
 }
@@ -460,6 +468,7 @@ function downloadStateHandler(rec) {
 async function tryDownloadAudio(rec) {
   if (!rec.pendingAudio) return false;
   if (getDownload(rec.id)?.status === 'paused') return false; // user's pause stands
+  delete rec.audioError; // fresh attempt, fresh verdict
   try {
     const media = await downloadAudioForDoc(rec, rec.pendingAudio, downloadStateHandler(rec));
     return !!media; // finalization happens in the state handler

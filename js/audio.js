@@ -111,7 +111,11 @@ export async function fetchAudio(url, onProgress) {
  * offset; reset starts over.
  */
 
-const RELAY_CHUNK = 512 * 1024;     // bytes per relay request
+// Each relay chunk is a separate Apps Script invocation (~2-4 s of overhead
+// per call), so chunks must be few: a small first chunk gives a fast start
+// and lets the relay sniff the format, then big chunks carry the rest.
+const RELAY_CHUNK_FIRST = 512 * 1024;
+const RELAY_CHUNK = 2 * 1024 * 1024;
 const SAVE_EVERY = 256 * 1024;      // persist partial progress this often
 const RETRIES = 3;                  // per-chunk attempts before giving up
 
@@ -140,6 +144,7 @@ export class AudioDownload {
       received: this.received,
       total: this.total,
       storage: !!this.storageIssue,
+      error: this.errorMessage || '',
     });
   }
 
@@ -197,6 +202,7 @@ export class AudioDownload {
         }
         if (e.fatal) {
           this.status = 'error';
+          this.errorMessage = e.message; // e.g. relay refusing a WAV
           this.emit();
           throw e;
         }
@@ -254,8 +260,9 @@ export class AudioDownload {
       if (this._gen !== run || this.status !== 'downloading') return null;
       this.abortCtl = new AbortController();
       const sep = this.url.includes('?') ? '&' : '?';
+      const len = part.received === 0 ? RELAY_CHUNK_FIRST : RELAY_CHUNK;
       const resp = await fetch(
-        `${this.url}${sep}start=${part.received}&len=${RELAY_CHUNK}`,
+        `${this.url}${sep}start=${part.received}&len=${len}`,
         { signal: this.abortCtl.signal });
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       const body = await resp.json();

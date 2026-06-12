@@ -112,10 +112,14 @@ export async function fetchAudio(url, onProgress) {
  */
 
 // Each relay chunk is a separate Apps Script invocation (~2-4 s of overhead
-// per call), so chunks must be few: a small first chunk gives a fast start
-// and lets the relay sniff the format, then big chunks carry the rest.
+// per call), so chunks should be as big as the connection can survive.
+// Chunk size adapts AIMD-style: every successful chunk doubles it (up to
+// MAX), every failure halves it (down to MIN) — smooth connections converge
+// on few big requests, flaky ones on small cheap-to-retry ones. The first
+// chunk stays small for a fast start and the relay's format sniff.
 const RELAY_CHUNK_FIRST = 512 * 1024;
-const RELAY_CHUNK = 2 * 1024 * 1024;
+const RELAY_CHUNK_MIN = 128 * 1024;
+const RELAY_CHUNK_MAX = 3 * 1024 * 1024; // base64 reply ≈ 4 MB, safe for Apps Script
 const SAVE_EVERY = 256 * 1024;      // persist partial progress this often
 const RETRIES = 3;                  // per-chunk attempts before giving up
 
@@ -136,6 +140,7 @@ export class AudioDownload {
     this.abortCtl = null;
     this.donePromise = null;
     this._gen = 0; // run generation: invalidates loops superseded by reset/resume
+    this.chunkSize = RELAY_CHUNK_FIRST;
   }
 
   emit() {
@@ -206,6 +211,9 @@ export class AudioDownload {
           this.emit();
           throw e;
         }
+        // Transient failure: assume a shaky connection and shrink chunks so
+        // each retry risks less.
+        this.chunkSize = Math.max(RELAY_CHUNK_MIN, Math.floor(this.chunkSize / 2));
         if (attempt + 1 >= RETRIES) {
           this.status = 'error';                             // keep partial
           this.emit();
@@ -260,7 +268,9 @@ export class AudioDownload {
       if (this._gen !== run || this.status !== 'downloading') return null;
       this.abortCtl = new AbortController();
       const sep = this.url.includes('?') ? '&' : '?';
-      const len = part.received === 0 ? RELAY_CHUNK_FIRST : RELAY_CHUNK;
+      const len = part.received === 0
+        ? Math.min(this.chunkSize, RELAY_CHUNK_FIRST)
+        : this.chunkSize;
       const resp = await fetch(
         `${this.url}${sep}start=${part.received}&len=${len}`,
         { signal: this.abortCtl.signal });
@@ -281,6 +291,8 @@ export class AudioDownload {
       part.blobs.push(chunk);
       part.received += chunk.size;
       part.total = body.total;
+      // Chunk arrived intact: trust the connection with a bigger one.
+      this.chunkSize = Math.min(RELAY_CHUNK_MAX, this.chunkSize * 2);
       part.name = body.name || part.name || 'audio';
       part.mimeType = body.mimeType || part.mimeType || 'audio/mpeg';
       await this._savePartial(part);
@@ -375,6 +387,68 @@ export function downloadAudioForDoc(rec, url, onState) {
 // Discard saved partial progress for a doc (used by "start over").
 export function clearPartial(docId) {
   return db.deleteMedia(partialKey(docId)).catch(() => {});
+}
+
+/* ---------------- Pre-flight probe (researcher side) ----------------
+ * Before a task link is generated, fetch just the head of the audio and
+ * validate it, so the researcher sees "this is a WAV" / "too big" / "not
+ * shared" immediately — instead of the coworker discovering it later.
+ */
+
+const PROBE_MAX = 15 * 1024 * 1024; // matches the relay cap
+
+function headLooksUncompressed(bytes, mime) {
+  if (/wav|aiff|x-aiff/i.test(String(mime || ''))) return true;
+  if (bytes && bytes.length >= 12) {
+    const tag = (off) => String.fromCharCode(bytes[off], bytes[off + 1], bytes[off + 2], bytes[off + 3]);
+    if (tag(0) === 'RIFF' && tag(8) === 'WAVE') return true;
+    if (tag(0) === 'FORM' && (tag(8) === 'AIFF' || tag(8) === 'AIFC')) return true;
+  }
+  return false;
+}
+
+function probeError(code, extra) {
+  const e = new Error(code);
+  e.code = code;
+  Object.assign(e, extra);
+  return e;
+}
+
+// Returns { name, size, mime }. Throws Error with .code in
+// {'wav','big'} for policy failures, or a plain Error (relay/server message).
+export async function probeAudioUrl(url) {
+  const isRelay = /script\.google(?:usercontent)?\.com\/macros\//.test(url) || /\/exec(\?|$)/.test(url);
+  if (isRelay) {
+    const sep = url.includes('?') ? '&' : '?';
+    const resp = await fetch(`${url}${sep}start=0&len=16384`);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const body = await resp.json();
+    if (body.error) throw new Error(body.error);
+    if (!body.data) throw new Error('Unexpected relay response');
+    const blob = base64ToBlob(body.data, body.mimeType);
+    const head = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
+    if (headLooksUncompressed(head, body.mimeType)) throw probeError('wav');
+    const size = body.total != null ? body.total : blob.size; // v1 relay: whole file came back
+    if (size > PROBE_MAX) throw probeError('big', { mb: Math.round(size / 1048576) });
+    return { name: body.name || '', size, mime: body.mimeType || '' };
+  }
+  // Direct URL: stream the first chunk, then abort.
+  const ctl = new AbortController();
+  const resp = await fetch(url, { signal: ctl.signal });
+  if (!resp.ok) throw new Error('HTTP ' + resp.status);
+  const mime = (resp.headers.get('content-type') || '').split(';')[0];
+  const size = parseInt(resp.headers.get('content-length') || '0', 10) || 0;
+  let head = new Uint8Array(0);
+  try {
+    const { value } = await resp.body.getReader().read();
+    if (value) head = value.subarray(0, 12);
+  } finally {
+    ctl.abort();
+  }
+  if (headLooksUncompressed(head, mime)) throw probeError('wav');
+  if (size > PROBE_MAX) throw probeError('big', { mb: Math.round(size / 1048576) });
+  const name = decodeURIComponent((url.split('/').pop() || '').split('?')[0]) || '';
+  return { name, size, mime };
 }
 
 /* ---------------- Player ---------------- */

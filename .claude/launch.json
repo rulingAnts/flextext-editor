@@ -6,6 +6,12 @@
       "runtimeExecutable": "python3",
       "runtimeArgs": ["dev_server.py", "--port", "8765"],
       "port": 8765
+    },
+    {
+      "name": "flextext-editor-alt",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["dev_server.py", "--port", "8766"],
+      "port": 8766
     }
   ]
 }

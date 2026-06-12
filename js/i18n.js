@@ -132,6 +132,11 @@ en: {
   'task.copy': 'Copy task link',
   'task.needRelay': 'This build has no Drive relay configured — see the README to set DEFAULT_RELAY.',
   'task.badAudio': 'Could not understand the audio link. Paste a Google Drive share link or a direct https:// audio URL.',
+  'task.checking': 'Checking the audio file…',
+  'task.checkOk': 'Audio OK: {name} ({size})',
+  'task.checkFailed': 'Cannot use this audio: {msg}',
+  'task.wavFile': 'This is an uncompressed WAV/AIFF recording — too heavy to send. Use the audio converter below to make a small MP3, upload that to Drive, and link it instead.',
+  'task.tooBig': 'This file is {mb} MB — over the 15 MB limit. Convert it to mono 64 kbps MP3 with the converter below.',
   'task.received': 'New task received — listen and type. The audio is downloading…',
   'task.alreadyHere': 'This task is already on this device — opening it.',
 
@@ -142,7 +147,7 @@ en: {
   'convert.mono': 'Convert to mono (one channel — recommended for speech)',
   'convert.pick': 'Choose audio file & convert…',
   'convert.working': 'Converting… {pct}%',
-  'convert.done': 'Done: {name} — {out} MB (was {in} MB). The file has been downloaded; upload it to Google Drive.',
+  'convert.done': 'Done: {name} — {out} (was {in}). The file has been downloaded; upload it to Google Drive.',
   'convert.failed': 'Conversion failed: {msg}',
 
   'update.available': 'A new version of the app is available.',
@@ -327,6 +332,11 @@ id: {
   'task.copy': 'Salin tautan tugas',
   'task.needRelay': 'Versi aplikasi ini belum punya relay Drive — lihat README untuk mengatur DEFAULT_RELAY.',
   'task.badAudio': 'Tautan audio tidak dikenali. Tempel tautan berbagi Google Drive atau URL audio https:// langsung.',
+  'task.checking': 'Memeriksa file audio…',
+  'task.checkOk': 'Audio OK: {name} ({size})',
+  'task.checkFailed': 'Audio ini tidak bisa dipakai: {msg}',
+  'task.wavFile': 'Ini rekaman WAV/AIFF yang tidak terkompresi — terlalu berat untuk dikirim. Gunakan pengubah audio di bawah untuk membuat MP3 kecil, unggah MP3 itu ke Drive, lalu tautkan itu.',
+  'task.tooBig': 'File ini {mb} MB — melebihi batas 15 MB. Ubah ke MP3 mono 64 kbps dengan pengubah di bawah.',
   'task.received': 'Tugas baru diterima — dengarkan dan ketik. Audio sedang diunduh…',
   'task.alreadyHere': 'Tugas ini sudah ada di perangkat ini — sedang dibuka.',
 
@@ -337,7 +347,7 @@ id: {
   'convert.mono': 'Ubah ke mono (satu kanal — disarankan untuk suara/ucapan)',
   'convert.pick': 'Pilih file audio & ubah…',
   'convert.working': 'Mengubah… {pct}%',
-  'convert.done': 'Selesai: {name} — {out} MB (sebelumnya {in} MB). File sudah diunduh; unggah ke Google Drive.',
+  'convert.done': 'Selesai: {name} — {out} (sebelumnya {in}). File sudah diunduh; unggah ke Google Drive.',
   'convert.failed': 'Pengubahan gagal: {msg}',
 
   'update.available': 'Versi baru aplikasi ini tersedia.',

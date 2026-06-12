@@ -8,7 +8,7 @@ import {
 } from './flextext.js';
 import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS } from './i18n.js';
-import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl } from './audio.js';
+import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl } from './audio.js';
 import { convertToMp3 } from './convert.js';
 import { esc, newGuid as mkGuid } from './flextext.js';
 
@@ -412,6 +412,7 @@ async function finalizeAudioDownload(rec) {
 }
 
 const mbFmt = (b) => (b / 1048576).toFixed(1);
+const sizeFmt = (b) => b < 1048576 ? Math.max(1, Math.round(b / 1024)) + ' KB' : mbFmt(b) + ' MB';
 
 function updateDlControls(status) {
   const box = $('#audio-player .player-dl-controls');
@@ -869,6 +870,31 @@ function setupResearch() {
       }
     }
 
+    // Validate the audio BEFORE producing a link, so the researcher — not
+    // the coworker — finds out about WAVs, oversized files, or unshared
+    // Drive links. Costs only the first ~16 KB.
+    const check = $('#task-check');
+    if (audioUrl) {
+      check.hidden = false;
+      check.textContent = t('task.checking');
+      $('#task-link-out').hidden = true;
+      try {
+        const info = await probeAudioUrl(audioUrl);
+        check.textContent = '✓ ' + t('task.checkOk', {
+          name: info.name || '?',
+          size: info.size ? sizeFmt(info.size) : '?',
+        });
+      } catch (err) {
+        const msg = err.code === 'wav' ? t('task.wavFile')
+          : err.code === 'big' ? t('task.tooBig', { mb: err.mb })
+          : t('task.checkFailed', { msg: err.message });
+        check.textContent = '⚠ ' + msg;
+        return; // no link for a bad file
+      }
+    } else {
+      check.hidden = true;
+    }
+
     const p = new URLSearchParams();
     const map = { vernLang: 'vern', vernName: 'vernName', vernFont: 'vernFont',
                   analLang: 'anal', analName: 'analName', analFont: 'analFont' };
@@ -932,8 +958,8 @@ function setupResearch() {
       setTimeout(() => URL.revokeObjectURL(a.href), 30000);
       status.textContent = t('convert.done', {
         name: outName,
-        out: mbFmt(res.blob.size),
-        in: mbFmt(file.size),
+        out: sizeFmt(res.blob.size),
+        in: sizeFmt(file.size),
       });
       window.__lastConvert = { size: res.blob.size, duration: res.duration, channels: res.channels };
     } catch (err) {

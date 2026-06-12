@@ -611,6 +611,8 @@ function renderSegment(seg, segnum, vernFont, analFont) {
       link.title = t('gloss.chainTitle');
       link.textContent = '🔗';
       link.addEventListener('click', () => {
+        const a = seg.words[i], b = seg.words[i + 1];
+        if (!confirm(t('gloss.confirmMerge', { a: a.txt, b: b.txt }))) return;
         mergeWords(seg, i);
         schedulePersist();
         renderGloss();
@@ -661,6 +663,16 @@ function renderWordCell(seg, w, i, vernFont, analFont) {
     if (e.key === 'Enter') {
       e.preventDefault();
       focusNextGloss(g, e.shiftKey ? -1 : 1);
+    } else if (e.key === 'Tab') {
+      // Tab / Shift+Tab move between word glosses (skipping free-translation
+      // lines), like FLEx.
+      e.preventDefault();
+      focusNextWordGloss(g, e.shiftKey ? -1 : 1);
+    } else if (e.key === ' ') {
+      // Space advances to the next word's gloss; multi-word glosses use
+      // the FLEx dot convention (am.talking.about).
+      e.preventDefault();
+      focusNextWordGloss(g, 1);
     }
   });
   cell.appendChild(g);
@@ -687,6 +699,15 @@ function sizeInput(input) {
 
 function focusNextGloss(fromInput, dir) {
   const all = $$('#gloss-body .gloss-input, #gloss-body .free-input');
+  const idx = all.indexOf(fromInput);
+  const next = all[idx + dir];
+  if (next) { next.focus(); next.select?.(); }
+}
+
+// Word-gloss-only navigation (Tab / Space): crosses sentence boundaries but
+// skips the free-translation lines.
+function focusNextWordGloss(fromInput, dir) {
+  const all = $$('#gloss-body .gloss-input');
   const idx = all.indexOf(fromInput);
   const next = all[idx + dir];
   if (next) { next.focus(); next.select?.(); }

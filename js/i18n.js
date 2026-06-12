@@ -38,6 +38,7 @@ en: {
   'gloss.freeLabel': 'Free',
   'gloss.freePlaceholder': 'Free translation…',
   'gloss.chainTitle': 'Merge these two words into one phrase',
+  'gloss.confirmMerge': 'Join "{a}" and "{b}" together into one unit (phrase)?\nThey will share a single meaning. You can separate them again with "✂ break".',
   'gloss.breakLabel': '✂ break',
   'gloss.breakTitle': 'Break this phrase back into separate words',
 
@@ -222,6 +223,7 @@ id: {
   'gloss.freeLabel': 'Bebas',
   'gloss.freePlaceholder': 'Terjemahan bebas…',
   'gloss.chainTitle': 'Gabungkan dua kata ini menjadi satu frasa',
+  'gloss.confirmMerge': 'Gabungkan "{a}" dan "{b}" menjadi satu kesatuan (frasa)?\nKeduanya akan punya satu arti bersama. Bisa dipisahkan lagi dengan "✂ pisah".',
   'gloss.breakLabel': '✂ pisah',
   'gloss.breakTitle': 'Pisahkan frasa ini menjadi kata-kata lagi',
 

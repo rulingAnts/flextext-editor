@@ -9,6 +9,7 @@ import {
 import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS } from './i18n.js';
 import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl } from './audio.js';
+import { convertToMp3 } from './convert.js';
 import { esc, newGuid as mkGuid } from './flextext.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -17,7 +18,7 @@ const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 // Default Google Drive relay (docs/drive-relay.gs) used for Drive share links
 // when the researcher hasn't configured their own. The relay is permissionless
 // (it can only fetch link-shared files), so sharing one deployment is safe.
-const DEFAULT_RELAY = 'https://script.google.com/macros/s/AKfycbzIFrqccDnkI-Kesg_39CA1ywcSt87h2vI1NKlw-TQt9kd-I3qtji3_quJrk68b7iIq1w/exec';
+const DEFAULT_RELAY = 'https://script.google.com/macros/s/AKfycbxVmNznmk7mP94TkE2PucUCoanxxrCgnT_CcAzKhVsndyXCxtBWTP8wiz0w1pBwClyW6A/exec';
 
 /* ---------------- Settings (writing systems) ---------------- */
 
@@ -465,6 +466,10 @@ async function tryDownloadAudio(rec) {
   } catch (e) {
     if (e.storageFull || e.name === 'QuotaExceededError') {
       toast(t('toast.storageFull'), 8000);
+    } else if (e.fatal && e.message) {
+      // Surface the real reason (e.g. the relay refusing a WAV or an
+      // oversized file) instead of a silent generic pending state.
+      toast(e.message, 10000);
     }
     return false;
   }
@@ -876,6 +881,54 @@ function setupResearch() {
       toast(t('toast.linkCopied'));
     } catch {
       toast(t('toast.linkCopyManual'));
+    }
+  });
+
+  // Audio converter (any recording → small task-ready MP3)
+  const cf = $('#convert-form');
+  const convPrefs = settings.convert || {};
+  if (convPrefs.kbps) cf.elements.convKbps.value = String(convPrefs.kbps);
+  if (convPrefs.rate) cf.elements.convRate.value = String(convPrefs.rate);
+  if (convPrefs.mono === false) cf.elements.convMono.checked = false;
+  cf.addEventListener('change', () => {
+    settings.convert = {
+      kbps: parseInt(cf.elements.convKbps.value, 10),
+      rate: parseInt(cf.elements.convRate.value, 10),
+      mono: cf.elements.convMono.checked,
+    };
+    saveSettings(settings);
+  });
+  $('#btn-convert').addEventListener('click', () => $('#convert-file').click());
+  $('#convert-file').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    const status = $('#convert-status');
+    status.hidden = false;
+    status.textContent = t('convert.working', { pct: 0 });
+    try {
+      const opts = {
+        kbps: parseInt(cf.elements.convKbps.value, 10),
+        sampleRate: parseInt(cf.elements.convRate.value, 10),
+        mono: cf.elements.convMono.checked,
+      };
+      const res = await convertToMp3(file, opts, (f) => {
+        status.textContent = t('convert.working', { pct: Math.round(f * 100) });
+      });
+      const outName = file.name.replace(/\.[^.]+$/, '') + '.mp3';
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(res.blob);
+      a.download = outName;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+      status.textContent = t('convert.done', {
+        name: outName,
+        out: mbFmt(res.blob.size),
+        in: mbFmt(file.size),
+      });
+      window.__lastConvert = { size: res.blob.size, duration: res.duration, channels: res.channels };
+    } catch (err) {
+      status.textContent = t('convert.failed', { msg: err.message });
     }
   });
 

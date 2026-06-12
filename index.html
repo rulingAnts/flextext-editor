@@ -153,6 +153,36 @@
 
   <hr>
 
+  <h2 data-i18n="convert.h">Audio converter</h2>
+  <p class="note" data-i18n-html="convert.note"></p>
+  <form id="convert-form" class="ws-form">
+    <fieldset>
+      <label><span data-i18n="convert.kbps">Quality (bitrate)</span>
+        <select name="convKbps">
+          <option value="32">32 kbps</option>
+          <option value="48">48 kbps</option>
+          <option value="64" selected>64 kbps</option>
+          <option value="96">96 kbps</option>
+          <option value="128">128 kbps</option>
+        </select></label>
+      <label><span data-i18n="convert.rate">Sample rate</span>
+        <select name="convRate">
+          <option value="16000">16 kHz</option>
+          <option value="22050" selected>22.05 kHz</option>
+          <option value="44100">44.1 kHz</option>
+        </select></label>
+      <label class="check-label conv-mono"><input type="checkbox" name="convMono" checked>
+        <span data-i18n="convert.mono">Convert to mono (one channel)</span></label>
+    </fieldset>
+    <div class="toolbar">
+      <button type="button" id="btn-convert" class="primary-btn" data-i18n="convert.pick">Choose audio file &amp; convert&hellip;</button>
+      <input type="file" id="convert-file" accept="audio/*,.wav,.aif,.aiff,.mp3,.m4a,.flac,.ogg" hidden>
+    </div>
+    <p id="convert-status" class="note" hidden></p>
+  </form>
+
+  <hr>
+
   <h2 data-i18n="research.checkerH">Writing system checker</h2>
   <p class="note" data-i18n-html="research.checkerNote"></p>
   <div class="toolbar">

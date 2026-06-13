@@ -426,8 +426,53 @@ async function newDocFromAudio(file, titleOverride) {
 
 let pendingAssent = null; // { blob, name } captured assent, consumed on doc create
 let pendingReceipt = null; // consent audit record, consumed on doc create
-let consentCapture = null; // { receipt, promise } in-flight IP capture
+let consentCapture = null; // { receipt, promise } in-flight IP/location capture
+let lastGeo = null;       // cached approx location, only set once permission is granted
 let crec = null;          // consent-assent recorder state
+
+// Geolocation, asked ONCE and never again. The location permission popup is too
+// disruptive to fire mid-consent, so on the first user tap we make the single
+// request at a calm moment; the browser then remembers the choice forever. If
+// the speaker allowed it we read silently thereafter; if they blocked it (or
+// dismissed and the browser auto-blocked) we never ask again.
+function primeGeolocationOnce() {
+  const ask = async () => {
+    document.removeEventListener('pointerdown', ask, true);
+    if (!navigator.geolocation) return;
+    try {
+      // Don't even call getCurrentPosition if it's already been blocked.
+      if (navigator.permissions) {
+        const st = await navigator.permissions.query({ name: 'geolocation' });
+        if (st.state === 'denied') return;
+      }
+      navigator.geolocation.getCurrentPosition(rememberGeo, () => {},
+        { timeout: 15000, maximumAge: 300000, enableHighAccuracy: false });
+    } catch { /* unsupported / insecure context */ }
+  };
+  document.addEventListener('pointerdown', ask, true);
+}
+
+function rememberGeo(pos) {
+  lastGeo = {
+    lat: pos.coords.latitude, lon: pos.coords.longitude,
+    accuracyMeters: Math.round(pos.coords.accuracy),
+    at: new Date(pos.timestamp).toISOString(),
+  };
+}
+
+// Refresh the cached location WITHOUT ever prompting: only read when the
+// permission is already 'granted' (so this can run during the consent flow).
+async function readGeoIfGranted() {
+  try {
+    if (!navigator.geolocation || !navigator.permissions) return;
+    const st = await navigator.permissions.query({ name: 'geolocation' });
+    if (st.state !== 'granted') return;
+    const pos = await new Promise((res, rej) =>
+      navigator.geolocation.getCurrentPosition(res, rej,
+        { timeout: 15000, maximumAge: 300000, enableHighAccuracy: false }));
+    rememberGeo(pos);
+  } catch { /* no fix / unsupported */ }
+}
 
 // Stable per-device id so a researcher can correlate a coworker's submissions.
 function deviceId() {
@@ -439,9 +484,10 @@ function deviceId() {
   return id;
 }
 
-// Build the consent audit record at the moment permission is given. The IP is
-// filled in asynchronously (best effort) by captureConsentContext — it stays
-// "unavailable" when offline. We deliberately do NOT capture location.
+// Build the consent audit record at the moment permission is given. The IP and
+// (if the speaker allowed location once) approxLocation are filled in best
+// effort by captureConsentContext; both stay "unavailable" when offline or when
+// location was never granted. Location NEVER prompts here — see readGeoIfGranted.
 function buildConsentReceipt(assent, signatureName) {
   const now = new Date();
   return {
@@ -461,18 +507,25 @@ function buildConsentReceipt(assent, signatureName) {
     deviceId: deviceId(),
     userAgent: navigator.userAgent,
     ipAddress: 'unavailable',
+    approxLocation: lastGeo || 'unavailable',
   };
 }
 
-// Best effort: fill in the public IP (needs internet; no user prompt). Failures
-// leave the "unavailable" placeholder. We deliberately do NOT request location —
-// it triggers an OS permission popup that confuses field users and rarely
-// succeeds. Re-persists the owning doc once the IP arrives.
+// Best effort, no prompt: fill in the public IP (needs internet) and a fresh
+// location reading — but ONLY if the speaker already granted location at the
+// one-time first-tap request (readGeoIfGranted never prompts). Failures leave
+// the "unavailable" placeholders. Re-persists the owning doc once values arrive.
 async function captureConsentContext(receipt) {
-  try {
-    const r = await fetch('https://api.ipify.org?format=json', { cache: 'no-store', signal: AbortSignal.timeout(10000) });
-    if (r.ok) receipt.ipAddress = (await r.json()).ip || 'unavailable';
-  } catch { /* offline / blocked */ }
+  await Promise.allSettled([
+    (async () => {
+      try {
+        const r = await fetch('https://api.ipify.org?format=json', { cache: 'no-store', signal: AbortSignal.timeout(10000) });
+        if (r.ok) receipt.ipAddress = (await r.json()).ip || 'unavailable';
+      } catch { /* offline / blocked */ }
+    })(),
+    readGeoIfGranted(),
+  ]);
+  if (lastGeo) receipt.approxLocation = lastGeo;
   if (current && current.consentReceipt === receipt) { try { await persist(); } catch { /* noop */ } }
 }
 
@@ -494,6 +547,9 @@ function consentReceiptText(r) {
     'Device id: ' + r.deviceId,
     'Interface language: ' + r.interfaceLang,
     'IP address: ' + r.ipAddress,
+    'Approximate location: ' + (r.approxLocation && typeof r.approxLocation === 'object'
+      ? `${r.approxLocation.lat}, ${r.approxLocation.lon} (±${r.approxLocation.accuracyMeters} m)`
+      : 'unavailable'),
     'Browser: ' + r.userAgent,
   ].join('\n');
 }
@@ -573,11 +629,11 @@ async function requestConsentThen(onApproved) {
 
   $('#consent-modal').hidden = false;
 
-  // On consent, capture the audit record and (best effort) the public IP.
+  // On consent, capture the audit record and (best effort, no prompt) IP + location.
   const proceed = (assent, signatureName) => {
     pendingAssent = assent;
     pendingReceipt = buildConsentReceipt(assent, signatureName);
-    // Fire-and-forget IP fill; keep the handle so buildBundle can
+    // Fire-and-forget IP/location fill; keep the handle so buildBundle can
     // briefly await it before zipping the receipt.
     consentCapture = { receipt: pendingReceipt, promise: captureConsentContext(pendingReceipt) };
     closeConsentModal();
@@ -1187,8 +1243,8 @@ async function buildBundle(withTimestamp) {
     ? await db.getMedia('consent:' + current.id).catch(() => null)
     : null;
   const receipt = current.consentReceipt || null;
-  // If this receipt's best-effort IP capture is still in flight, give it a
-  // short window so the bundled record isn't needlessly "unavailable".
+  // If this receipt's best-effort IP/location capture is still in flight, give
+  // it a short window so the bundled record isn't needlessly "unavailable".
   if (receipt && consentCapture && consentCapture.receipt === receipt) {
     await Promise.race([consentCapture.promise, new Promise((r) => setTimeout(r, 5000))]);
   }
@@ -1992,6 +2048,7 @@ function setup() {
   navigator.storage?.persist?.().catch(() => {});
 
   setupServiceWorker();
+  primeGeolocationOnce();
 }
 
 setup();

@@ -152,6 +152,7 @@
         <select name="consentResp">
           <option value="yesno" data-i18n="consent.respYesNo">Tap Yes / No</option>
           <option value="record" data-i18n="consent.respRecord">Record the speaker saying yes (kept in the bundle)</option>
+          <option value="signature" data-i18n="consent.respSignature">Type the speaker's name as a signature</option>
         </select></label>
       <p class="note" data-i18n="consent.note">This reminder appears on the coworker's device before each new recording. A recorded "yes" is saved alongside the text (in the zip), never inside the transcription audio.</p>
     </fieldset>
@@ -280,6 +281,12 @@
       <button id="consent-assent-toggle" class="primary-btn">&#9679; <span data-i18n="consent.recYes">Record the "yes"</span></button>
       <button id="consent-assent-continue" class="primary-btn" data-i18n="consent.continue" hidden>Continue</button>
       <button id="consent-assent-redo" class="secondary-btn" data-i18n="record.redo" hidden>Re-record</button>
+    </div>
+    <!-- typed-name signature -->
+    <div id="consent-sign" hidden>
+      <label class="wide"><span data-i18n="consent.signLabel">Type your name to give permission</span>
+        <input id="consent-name" type="text" spellcheck="false" autocomplete="name"></label>
+      <button id="consent-sign-continue" class="primary-btn" data-i18n="consent.signBtn">Sign &amp; continue</button>
     </div>
     <button id="consent-cancel" class="link-btn" data-i18n="share.cancel">Cancel</button>
   </div>

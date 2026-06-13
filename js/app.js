@@ -75,7 +75,7 @@ function applyUrlSettings() {
     }
     if (p.has('consentMsg')) s.consentMsg = p.get('consentMsg');
     if (p.has('consentAudio')) s.consentAudio = p.get('consentAudio');
-    if (p.has('consentResp')) s.consentResp = p.get('consentResp') === 'record' ? 'record' : 'yesno';
+    if (p.has('consentResp')) s.consentResp = ['record', 'signature'].includes(p.get('consentResp')) ? p.get('consentResp') : 'yesno';
     saveSettings(s);
   }
   const task = (p.has('audio') || p.has('title'))
@@ -403,12 +403,16 @@ async function newDocFromAudio(file, titleOverride) {
   await attachAudioFile(file);
   // If a recorded verbal assent was captured in the consent gate, store it
   // with this doc so it travels in the upload/save zip bundle.
+  if (pendingReceipt) {
+    current.consentReceipt = pendingReceipt; // same object captureConsentContext fills
+    pendingReceipt = null;
+  }
   if (pendingAssent) {
     current.consentClip = pendingAssent.name;
     await db.putMedia('consent:' + current.id, pendingAssent).catch(() => {});
-    await persist();
     pendingAssent = null;
   }
+  if (current.consentReceipt || current.consentClip) await persist();
   $('#doc-title').focus();
   $('#doc-title').select();
 }
@@ -421,7 +425,100 @@ async function newDocFromAudio(file, titleOverride) {
  */
 
 let pendingAssent = null; // { blob, name } captured assent, consumed on doc create
+let pendingReceipt = null; // consent audit record, consumed on doc create
+let consentCapture = null; // { receipt, promise } in-flight IP/location capture
 let crec = null;          // consent-assent recorder state
+
+// Stable per-device id so a researcher can correlate a coworker's submissions.
+function deviceId() {
+  let id = localStorage.getItem('flextext-device-id');
+  if (!id) {
+    id = 'dev-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+    localStorage.setItem('flextext-device-id', id);
+  }
+  return id;
+}
+
+// Build the consent audit record at the moment permission is given. The IP and
+// approximate location are filled in asynchronously (best effort) by
+// captureConsentContext — they may stay "unavailable" offline or if denied.
+function buildConsentReceipt(assent, signatureName) {
+  const now = new Date();
+  return {
+    app: 'Flextext Editor',
+    consentGiven: true,
+    responseType: settings.consentResp === 'record' ? 'recorded'
+      : settings.consentResp === 'signature' ? 'signature' : 'yesno',
+    signatureName: signatureName || '',
+    recordedAssentFile: assent?.name || '',
+    promptMode: settings.consentMode || 'off',
+    promptMessage: settings.consentMsg || '',
+    promptAudioUrl: settings.consentMode === 'audio' ? (settings.consentAudio || '') : '',
+    timestamp: now.toISOString(),
+    localTime: now.toString(),
+    timezone: (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch { return ''; } })(),
+    interfaceLang: getLang(),
+    deviceId: deviceId(),
+    userAgent: navigator.userAgent,
+    ipAddress: 'unavailable',
+    approxLocation: 'unavailable',
+  };
+}
+
+// Always attempt the public IP and approximate location (Seth's choice). Both
+// are best effort: the IP needs internet, the location needs the OS permission
+// prompt and a fix. Failures leave the "unavailable" placeholders. Re-persists
+// the owning doc once the values arrive (recording/typing usually outlasts it).
+async function captureConsentContext(receipt) {
+  await Promise.allSettled([
+    (async () => {
+      try {
+        const r = await fetch('https://api.ipify.org?format=json', { cache: 'no-store', signal: AbortSignal.timeout(10000) });
+        if (r.ok) receipt.ipAddress = (await r.json()).ip || 'unavailable';
+      } catch { /* offline / blocked */ }
+    })(),
+    (async () => {
+      try {
+        const pos = await new Promise((res, rej) => {
+          if (!navigator.geolocation) return rej(new Error('no geolocation'));
+          navigator.geolocation.getCurrentPosition(res, rej, { timeout: 20000, maximumAge: 60000, enableHighAccuracy: false });
+        });
+        receipt.approxLocation = {
+          lat: pos.coords.latitude, lon: pos.coords.longitude,
+          accuracyMeters: Math.round(pos.coords.accuracy),
+          at: new Date(pos.timestamp).toISOString(),
+        };
+      } catch { /* denied / no fix */ }
+    })(),
+  ]);
+  if (current && current.consentReceipt === receipt) { try { await persist(); } catch { /* noop */ } }
+}
+
+// Human-readable companion to consent-receipt.json.
+function consentReceiptText(r) {
+  const loc = r.approxLocation && typeof r.approxLocation === 'object'
+    ? `${r.approxLocation.lat}, ${r.approxLocation.lon} (±${r.approxLocation.accuracyMeters} m)`
+    : 'unavailable';
+  return [
+    'SPEAKER PERMISSION / CONSENT RECORD',
+    '',
+    'Text: ' + (r.textTitle || '(untitled)'),
+    'Consent given: yes',
+    'Form of consent: ' + r.responseType +
+      (r.responseType === 'signature' ? ' — signed: "' + r.signatureName + '"'
+        : r.responseType === 'recorded' ? ' — audio: ' + (r.recordedAssentFile || '(in this bundle)') : ''),
+    'Date/time: ' + r.localTime + '  (' + r.timestamp + ', ' + r.timezone + ')',
+    '',
+    'Prompt shown to the speaker (' + r.promptMode + '):',
+    (r.promptMessage || (r.promptAudioUrl ? '[spoken audio: ' + r.promptAudioUrl + ']' : '(none)')),
+    '',
+    'Device id: ' + r.deviceId,
+    'Interface language: ' + r.interfaceLang,
+    'IP address: ' + r.ipAddress,
+    'Approximate location: ' + loc,
+    'Browser: ' + r.userAgent,
+  ].join('\n');
+}
 
 // Keep the cached consent-prompt audio in sync with the researcher's URL.
 async function syncConsentAudio() {
@@ -452,9 +549,13 @@ function closeConsentModal() {
 // Run `onApproved(assent)` once permission is satisfied. assent is a
 // { blob, name } when recorded, else null.
 async function requestConsentThen(onApproved) {
+  // Clear any leftover capture from a prior attempt FIRST — before the off
+  // check returns — so a stale receipt can never ride along on a later
+  // recording made while consent is switched off.
+  pendingAssent = null;
+  pendingReceipt = null;
   const mode = settings.consentMode || 'off';
   if (mode === 'off') { onApproved(null); return; }
-  pendingAssent = null;
 
   const msgEl = $('#consent-message');
   const audioEl = $('#consent-audio');
@@ -485,16 +586,33 @@ async function requestConsentThen(onApproved) {
   }
 
   const respRecord = settings.consentResp === 'record';
-  $('#consent-yesno').hidden = respRecord;
+  const respSign = settings.consentResp === 'signature';
+  $('#consent-yesno').hidden = respRecord || respSign;
   $('#consent-record').hidden = !respRecord;
+  $('#consent-sign').hidden = !respSign;
+  if (respSign) $('#consent-name').value = '';
   resetConsentRecordUI();
 
   $('#consent-modal').hidden = false;
 
-  const proceed = (assent) => { pendingAssent = assent; closeConsentModal(); onApproved(assent); };
+  // On consent, capture the audit record and (best effort) IP + location.
+  const proceed = (assent, signatureName) => {
+    pendingAssent = assent;
+    pendingReceipt = buildConsentReceipt(assent, signatureName);
+    // Fire-and-forget IP/location fill; keep the handle so buildBundle can
+    // briefly await it before zipping the receipt.
+    consentCapture = { receipt: pendingReceipt, promise: captureConsentContext(pendingReceipt) };
+    closeConsentModal();
+    onApproved(assent);
+  };
 
   $('#consent-yes').onclick = () => proceed(null);
   $('#consent-no').onclick = () => { closeConsentModal(); toast(t('consent.declined'), 5000); };
+  $('#consent-sign-continue').onclick = () => {
+    const nm = $('#consent-name').value.trim();
+    if (!nm) { $('#consent-name').focus(); toast(t('consent.needName'), 5000); return; }
+    proceed(null, nm);
+  };
   $('#consent-cancel').onclick = () => closeConsentModal();
   $('#consent-modal').onclick = (e) => { if (e.target === $('#consent-modal')) closeConsentModal(); };
   $('#consent-assent-continue').onclick = async () => {
@@ -615,7 +733,8 @@ function openRecordModal() {
 
 function closeRecordModal() {
   discardRecording();
-  pendingAssent = null; // abandon any consent clip if the recording is cancelled
+  pendingAssent = null;  // abandon any consent clip if the recording is cancelled
+  pendingReceipt = null; // and its audit record
   $('#record-modal').hidden = true;
 }
 
@@ -660,9 +779,11 @@ async function saveRecording() {
       (f) => recordUI('saving', { pct: Math.round(f * 100) }));
     const stamp = fileStamp();
     const file = new File([res.blob], `recording-${stamp}.mp3`, { type: 'audio/mpeg' });
-    const assent = pendingAssent;   // closeRecordModal clears it; preserve for the new doc
+    const assent = pendingAssent;     // closeRecordModal clears these; preserve
+    const receipt = pendingReceipt;   // them for the new doc
     closeRecordModal();
     pendingAssent = assent;
+    pendingReceipt = receipt;
     await newDocFromAudio(file, title);
   } catch (e) {
     recordUI('review');
@@ -1087,11 +1208,22 @@ async function buildBundle(withTimestamp) {
   const consent = current.consentClip
     ? await db.getMedia('consent:' + current.id).catch(() => null)
     : null;
+  const receipt = current.consentReceipt || null;
+  // If this receipt's best-effort IP/location capture is still in flight, give
+  // it a short window so the bundled record isn't needlessly "unavailable".
+  if (receipt && consentCapture && consentCapture.receipt === receipt) {
+    await Promise.race([consentCapture.promise, new Promise((r) => setTimeout(r, 5000))]);
+  }
   const stamp = withTimestamp ? ' ' + fileStamp() : '';
-  if (userAudio || consent) {
+  if (userAudio || consent || receipt) {
     const entries = [{ name, data: xmlBlob }];
     if (userAudio) entries.push({ name: media.name || 'audio.mp3', data: media.blob });
     if (consent?.blob) entries.push({ name: consent.name || current.consentClip, data: consent.blob });
+    if (receipt) {
+      const full = { ...receipt, textTitle: current.title || '' };
+      entries.push({ name: 'consent-receipt.json', data: new Blob([JSON.stringify(full, null, 2)], { type: 'application/json' }) });
+      entries.push({ name: 'consent-receipt.txt', data: new Blob([consentReceiptText(full)], { type: 'text/plain' }) });
+    }
     const blob = await makeZip(entries);
     return { blob, filename: `${base}${stamp}.zip`, mime: 'application/zip',
       xmlBlob, xmlName: name, zipped: true };
@@ -1299,7 +1431,7 @@ function applyResearchFormToSettings(f) {
   settings.linkSendOptions = sendOptionsFromForm(f); // template for links, not this device
   settings.consentMode = f.elements.consentMode.value;
   settings.consentMsg = f.elements.consentMsg.value.trim();
-  settings.consentResp = f.elements.consentResp.value === 'record' ? 'record' : 'yesno';
+  settings.consentResp = ['record', 'signature'].includes(f.elements.consentResp.value) ? f.elements.consentResp.value : 'yesno';
   const rawConsentAudio = f.elements.consentAudioUrl.value.trim();
   settings.consentAudioUrl = rawConsentAudio;
   settings.consentAudio = resolveAudioInput(rawConsentAudio);

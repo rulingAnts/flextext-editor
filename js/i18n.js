@@ -42,7 +42,11 @@ en: {
   'consent.resp': 'How the coworker confirms',
   'consent.respYesNo': 'Tap Yes / No',
   'consent.respRecord': 'Record the speaker saying yes (kept in the bundle)',
-  'consent.note': 'This reminder appears on the coworker\'s device before each new recording. A recorded "yes" is saved alongside the text (in the zip), never inside the transcription audio.',
+  'consent.respSignature': 'Type the speaker\'s name as a signature',
+  'consent.signLabel': 'Type your name to give permission',
+  'consent.signBtn': 'Sign & continue',
+  'consent.needName': 'Please type your name first.',
+  'consent.note': 'This reminder appears on the coworker\'s device before each new recording. Every consent is logged in a consent-receipt file (with the date, the exact prompt shown, and — best effort — IP and location) bundled with the text; a recorded "yes" or typed signature is saved alongside it.',
   'consent.title': 'Speaker permission',
   'consent.yes': 'Yes — I have permission',
   'consent.no': 'No',
@@ -277,9 +281,13 @@ internet after the first time.</p>
   <li><b>Ask for the speaker's permission:</b> under <b>Speaker permission</b> on the Research tab
   you can require a permission step before a coworker records. Write the message (in the local
   language and/or a language of wider communication), optionally give a spoken version (a Drive
-  audio link, cached on the device for offline use), and choose whether the coworker taps
-  <b>Yes/No</b> or <b>records the speaker's spoken consent</b>. The answer — and any consent
-  recording — is bundled into the uploaded file.</li>
+  audio link, cached on the device for offline use), and choose how the coworker confirms:
+  <b>tap Yes/No</b>, <b>record the speaker saying yes</b>, or <b>type the speaker's name as a
+  signature</b>. Every consent writes a <code>consent-receipt.json</code> (+ a readable
+  <code>consent-receipt.txt</code>) into the upload, logging that consent was given, the exact
+  prompt shown, the date/time, the signature or recording, and — best effort — the device's IP
+  and approximate location (these need internet and the location permission, so they may read
+  "unavailable").</li>
   <li><b>What the coworker sees:</b> the send-option checkboxes are a template for the links you
   hand out — they decide which "Save and send…" buttons the coworker gets, and never restrict
   your own device. Likewise, restrictions only ever reach a device through a link it opens.</li>
@@ -340,7 +348,11 @@ id: {
   'consent.resp': 'Bagaimana rekan kerja menyetujui',
   'consent.respYesNo': 'Ketuk Ya / Tidak',
   'consent.respRecord': 'Rekam penutur mengatakan ya (disimpan dalam bundel)',
-  'consent.note': 'Pengingat ini muncul di perangkat rekan kerja sebelum tiap rekaman baru. Rekaman "ya" disimpan bersama teks (dalam zip), tidak pernah di dalam audio transkripsi.',
+  'consent.respSignature': 'Ketik nama penutur sebagai tanda tangan',
+  'consent.signLabel': 'Ketik nama Anda untuk memberi izin',
+  'consent.signBtn': 'Tanda tangan & lanjutkan',
+  'consent.needName': 'Silakan ketik nama Anda dulu.',
+  'consent.note': 'Pengingat ini muncul di perangkat rekan kerja sebelum tiap rekaman baru. Setiap persetujuan dicatat dalam berkas consent-receipt (berisi tanggal, pesan persis yang ditampilkan, dan — sebisanya — IP dan lokasi) yang dibungkus bersama teks; rekaman "ya" atau tanda tangan yang diketik disimpan bersamanya.',
   'consent.title': 'Izin penutur',
   'consent.yes': 'Ya — saya punya izin',
   'consent.no': 'Tidak',
@@ -576,9 +588,13 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   <li><b>Minta izin penutur:</b> di bagian <b>Izin penutur</b> pada tab Penelitian, Anda bisa
   mewajibkan langkah izin sebelum rekan kerja merekam. Tulis pesannya (dalam bahasa daerah dan/atau
   bahasa pengantar yang lebih luas), boleh juga sertakan versi suaranya (tautan audio Drive, yang
-  disimpan di perangkat untuk dipakai tanpa internet), dan pilih apakah rekan kerja menekan
-  <b>Ya/Tidak</b> atau <b>merekam persetujuan lisan penutur</b>. Jawabannya — dan rekaman izin apa
-  pun — ikut dibungkus dalam file yang diunggah.</li>
+  disimpan di perangkat untuk dipakai tanpa internet), dan pilih cara rekan kerja mengonfirmasi:
+  <b>ketuk Ya/Tidak</b>, <b>rekam penutur mengatakan ya</b>, atau <b>ketik nama penutur sebagai
+  tanda tangan</b>. Setiap persetujuan menulis berkas <code>consent-receipt.json</code> (+ berkas
+  <code>consent-receipt.txt</code> yang mudah dibaca) ke dalam unggahan: mencatat bahwa izin
+  diberikan, pesan persis yang ditampilkan, tanggal/waktu, tanda tangan atau rekaman, dan —
+  sebisanya — IP dan lokasi perkiraan perangkat (ini perlu internet dan izin lokasi, jadi bisa
+  tertulis "unavailable").</li>
   <li><b>Apa yang dilihat rekan kerja:</b> kotak centang opsi kirim adalah templat untuk tautan
   yang Anda bagikan — menentukan tombol "Simpan & kirim…" mana yang didapat rekan kerja, dan tidak
   pernah membatasi perangkat Anda sendiri. Pembatasan hanya sampai ke sebuah perangkat lewat

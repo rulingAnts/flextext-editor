@@ -1264,32 +1264,36 @@ function sendOptionsFromForm(f) {
   return opts;
 }
 
+// Read the whole Research form into `settings` and persist it. NO validation
+// gate (unlike the Save submit, which the browser blocks when a required field
+// is empty). Returns the raw upload / consent-audio inputs so callers can warn
+// on bad values. Used by Save AND by the copy-link buttons — so a generated
+// link always reflects the CURRENT form, not just whatever was last saved.
+function applyResearchFormToSettings(f) {
+  for (const key of ['vernLang', 'vernName', 'vernFont', 'analLang', 'analName', 'analFont']) {
+    settings[key] = f.elements[key].value.trim();
+  }
+  const rawUpload = f.elements.uploadUrl.value.trim();
+  settings.uploadUrl = rawUpload;
+  settings.uploadFolder = rawUpload ? (parseDriveFolder(rawUpload) || '') : '';
+  settings.sendOptions = sendOptionsFromForm(f);
+  settings.consentMode = f.elements.consentMode.value;
+  settings.consentMsg = f.elements.consentMsg.value.trim();
+  settings.consentResp = f.elements.consentResp.value === 'record' ? 'record' : 'yesno';
+  const rawConsentAudio = f.elements.consentAudioUrl.value.trim();
+  settings.consentAudioUrl = rawConsentAudio;
+  settings.consentAudio = resolveAudioInput(rawConsentAudio);
+  saveSettings(settings);
+  return { rawUpload, rawConsentAudio };
+}
+
 function setupResearch() {
   const f = $('#ws-form');
   f.addEventListener('submit', (e) => {
     e.preventDefault();
-    for (const key of ['vernLang', 'vernName', 'vernFont', 'analLang', 'analName', 'analFont']) {
-      settings[key] = f.elements[key].value.trim();
-    }
-    const rawUpload = f.elements.uploadUrl.value.trim();
-    settings.uploadUrl = rawUpload;
-    settings.uploadFolder = rawUpload ? (parseDriveFolder(rawUpload) || '') : '';
-    if (rawUpload && !settings.uploadFolder) {
-      toast(t('research.badFolder'), 7000);
-    }
-    settings.sendOptions = sendOptionsFromForm(f);
-    // Consent (app-wide). Resolve the prompt-audio Drive link to a fetchable
-    // URL (same as task audio), then cache/overwrite the clip locally.
-    settings.consentMode = f.elements.consentMode.value;
-    settings.consentMsg = f.elements.consentMsg.value.trim();
-    settings.consentResp = f.elements.consentResp.value === 'record' ? 'record' : 'yesno';
-    const rawConsentAudio = f.elements.consentAudioUrl.value.trim();
-    settings.consentAudioUrl = rawConsentAudio;
-    settings.consentAudio = resolveAudioInput(rawConsentAudio);
-    if (rawConsentAudio && !settings.consentAudio) {
-      toast(t('task.badAudio'), 6000);
-    }
-    saveSettings(settings);
+    const { rawUpload, rawConsentAudio } = applyResearchFormToSettings(f);
+    if (rawUpload && !settings.uploadFolder) toast(t('research.badFolder'), 7000);
+    if (rawConsentAudio && !settings.consentAudio) toast(t('task.badAudio'), 6000);
     renderWsBanner();
     syncConsentAudio();
     toast(t('toast.settingsSaved'));
@@ -1299,6 +1303,7 @@ function setupResearch() {
 
   $('#btn-copy-link').addEventListener('click', async () => {
     const f2 = $('#ws-form');
+    applyResearchFormToSettings(f2); // link must reflect the CURRENT form, not the last Save
     const p = new URLSearchParams();
     const map = { vernLang: 'vern', vernName: 'vernName', vernFont: 'vernFont',
                   analLang: 'anal', analName: 'analName', analFont: 'analFont' };
@@ -1340,6 +1345,7 @@ function setupResearch() {
     e.preventDefault();
     const f2 = $('#ws-form');
     if (!f2.elements.vernLang.value.trim()) { toast(t('toast.needVern')); return; }
+    applyResearchFormToSettings(f2); // link must reflect the CURRENT form, not the last Save
 
     const audioIn = tf.elements.taskAudio.value.trim();
     let audioUrl = '';

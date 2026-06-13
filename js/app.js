@@ -426,7 +426,7 @@ async function newDocFromAudio(file, titleOverride) {
 
 let pendingAssent = null; // { blob, name } captured assent, consumed on doc create
 let pendingReceipt = null; // consent audit record, consumed on doc create
-let consentCapture = null; // { receipt, promise } in-flight IP/location capture
+let consentCapture = null; // { receipt, promise } in-flight IP capture
 let crec = null;          // consent-assent recorder state
 
 // Stable per-device id so a researcher can correlate a coworker's submissions.
@@ -439,9 +439,9 @@ function deviceId() {
   return id;
 }
 
-// Build the consent audit record at the moment permission is given. The IP and
-// approximate location are filled in asynchronously (best effort) by
-// captureConsentContext — they may stay "unavailable" offline or if denied.
+// Build the consent audit record at the moment permission is given. The IP is
+// filled in asynchronously (best effort) by captureConsentContext — it stays
+// "unavailable" when offline. We deliberately do NOT capture location.
 function buildConsentReceipt(assent, signatureName) {
   const now = new Date();
   return {
@@ -461,44 +461,23 @@ function buildConsentReceipt(assent, signatureName) {
     deviceId: deviceId(),
     userAgent: navigator.userAgent,
     ipAddress: 'unavailable',
-    approxLocation: 'unavailable',
   };
 }
 
-// Always attempt the public IP and approximate location (Seth's choice). Both
-// are best effort: the IP needs internet, the location needs the OS permission
-// prompt and a fix. Failures leave the "unavailable" placeholders. Re-persists
-// the owning doc once the values arrive (recording/typing usually outlasts it).
+// Best effort: fill in the public IP (needs internet; no user prompt). Failures
+// leave the "unavailable" placeholder. We deliberately do NOT request location —
+// it triggers an OS permission popup that confuses field users and rarely
+// succeeds. Re-persists the owning doc once the IP arrives.
 async function captureConsentContext(receipt) {
-  await Promise.allSettled([
-    (async () => {
-      try {
-        const r = await fetch('https://api.ipify.org?format=json', { cache: 'no-store', signal: AbortSignal.timeout(10000) });
-        if (r.ok) receipt.ipAddress = (await r.json()).ip || 'unavailable';
-      } catch { /* offline / blocked */ }
-    })(),
-    (async () => {
-      try {
-        const pos = await new Promise((res, rej) => {
-          if (!navigator.geolocation) return rej(new Error('no geolocation'));
-          navigator.geolocation.getCurrentPosition(res, rej, { timeout: 20000, maximumAge: 60000, enableHighAccuracy: false });
-        });
-        receipt.approxLocation = {
-          lat: pos.coords.latitude, lon: pos.coords.longitude,
-          accuracyMeters: Math.round(pos.coords.accuracy),
-          at: new Date(pos.timestamp).toISOString(),
-        };
-      } catch { /* denied / no fix */ }
-    })(),
-  ]);
+  try {
+    const r = await fetch('https://api.ipify.org?format=json', { cache: 'no-store', signal: AbortSignal.timeout(10000) });
+    if (r.ok) receipt.ipAddress = (await r.json()).ip || 'unavailable';
+  } catch { /* offline / blocked */ }
   if (current && current.consentReceipt === receipt) { try { await persist(); } catch { /* noop */ } }
 }
 
 // Human-readable companion to consent-receipt.json.
 function consentReceiptText(r) {
-  const loc = r.approxLocation && typeof r.approxLocation === 'object'
-    ? `${r.approxLocation.lat}, ${r.approxLocation.lon} (±${r.approxLocation.accuracyMeters} m)`
-    : 'unavailable';
   return [
     'SPEAKER PERMISSION / CONSENT RECORD',
     '',
@@ -515,7 +494,6 @@ function consentReceiptText(r) {
     'Device id: ' + r.deviceId,
     'Interface language: ' + r.interfaceLang,
     'IP address: ' + r.ipAddress,
-    'Approximate location: ' + loc,
     'Browser: ' + r.userAgent,
   ].join('\n');
 }
@@ -595,11 +573,11 @@ async function requestConsentThen(onApproved) {
 
   $('#consent-modal').hidden = false;
 
-  // On consent, capture the audit record and (best effort) IP + location.
+  // On consent, capture the audit record and (best effort) the public IP.
   const proceed = (assent, signatureName) => {
     pendingAssent = assent;
     pendingReceipt = buildConsentReceipt(assent, signatureName);
-    // Fire-and-forget IP/location fill; keep the handle so buildBundle can
+    // Fire-and-forget IP fill; keep the handle so buildBundle can
     // briefly await it before zipping the receipt.
     consentCapture = { receipt: pendingReceipt, promise: captureConsentContext(pendingReceipt) };
     closeConsentModal();
@@ -1209,8 +1187,8 @@ async function buildBundle(withTimestamp) {
     ? await db.getMedia('consent:' + current.id).catch(() => null)
     : null;
   const receipt = current.consentReceipt || null;
-  // If this receipt's best-effort IP/location capture is still in flight, give
-  // it a short window so the bundled record isn't needlessly "unavailable".
+  // If this receipt's best-effort IP capture is still in flight, give it a
+  // short window so the bundled record isn't needlessly "unavailable".
   if (receipt && consentCapture && consentCapture.receipt === receipt) {
     await Promise.race([consentCapture.promise, new Promise((r) => setTimeout(r, 5000))]);
   }

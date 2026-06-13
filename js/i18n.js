@@ -46,7 +46,7 @@ en: {
   'consent.signLabel': 'Type your name to give permission',
   'consent.signBtn': 'Sign & continue',
   'consent.needName': 'Please type your name first.',
-  'consent.note': 'This reminder appears on the coworker\'s device before each new recording. Every consent is logged in a consent-receipt file (with the date, the exact prompt shown, and — best effort — IP and location) bundled with the text; a recorded "yes" or typed signature is saved alongside it.',
+  'consent.note': 'This reminder appears on the coworker\'s device before each new recording. Every consent is logged in a consent-receipt file (with the date, the exact prompt shown, and — when online — the device\'s IP) bundled with the text; a recorded "yes" or typed signature is saved alongside it.',
   'consent.title': 'Speaker permission',
   'consent.yes': 'Yes — I have permission',
   'consent.no': 'No',
@@ -285,9 +285,8 @@ internet after the first time.</p>
   <b>tap Yes/No</b>, <b>record the speaker saying yes</b>, or <b>type the speaker's name as a
   signature</b>. Every consent writes a <code>consent-receipt.json</code> (+ a readable
   <code>consent-receipt.txt</code>) into the upload, logging that consent was given, the exact
-  prompt shown, the date/time, the signature or recording, and — best effort — the device's IP
-  and approximate location (these need internet and the location permission, so they may read
-  "unavailable").</li>
+  prompt shown, the date/time, the signature or recording, and — best effort, when online — the
+  device's IP address (it reads "unavailable" offline).</li>
   <li><b>What the coworker sees:</b> the send-option checkboxes are a template for the links you
   hand out — they decide which "Save and send…" buttons the coworker gets, and never restrict
   your own device. Likewise, restrictions only ever reach a device through a link it opens.</li>
@@ -352,7 +351,7 @@ id: {
   'consent.signLabel': 'Ketik nama Anda untuk memberi izin',
   'consent.signBtn': 'Tanda tangan & lanjutkan',
   'consent.needName': 'Silakan ketik nama Anda dulu.',
-  'consent.note': 'Pengingat ini muncul di perangkat rekan kerja sebelum tiap rekaman baru. Setiap persetujuan dicatat dalam berkas consent-receipt (berisi tanggal, pesan persis yang ditampilkan, dan — sebisanya — IP dan lokasi) yang dibungkus bersama teks; rekaman "ya" atau tanda tangan yang diketik disimpan bersamanya.',
+  'consent.note': 'Pengingat ini muncul di perangkat rekan kerja sebelum tiap rekaman baru. Setiap persetujuan dicatat dalam berkas consent-receipt (berisi tanggal, pesan persis yang ditampilkan, dan — saat online — alamat IP perangkat) yang dibungkus bersama teks; rekaman "ya" atau tanda tangan yang diketik disimpan bersamanya.',
   'consent.title': 'Izin penutur',
   'consent.yes': 'Ya — saya punya izin',
   'consent.no': 'Tidak',
@@ -593,8 +592,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   tanda tangan</b>. Setiap persetujuan menulis berkas <code>consent-receipt.json</code> (+ berkas
   <code>consent-receipt.txt</code> yang mudah dibaca) ke dalam unggahan: mencatat bahwa izin
   diberikan, pesan persis yang ditampilkan, tanggal/waktu, tanda tangan atau rekaman, dan —
-  sebisanya — IP dan lokasi perkiraan perangkat (ini perlu internet dan izin lokasi, jadi bisa
-  tertulis "unavailable").</li>
+  sebisanya, saat online — alamat IP perangkat (tertulis "unavailable" saat offline).</li>
   <li><b>Apa yang dilihat rekan kerja:</b> kotak centang opsi kirim adalah templat untuk tautan
   yang Anda bagikan — menentukan tombol "Simpan & kirim…" mana yang didapat rekan kerja, dan tidak
   pernah membatasi perangkat Anda sendiri. Pembatasan hanya sampai ke sebuah perangkat lewat

@@ -599,7 +599,12 @@ main {
 }
 .modal-card h3 { margin: 0 0 2px; }
 
-#record-preview { width: 100%; }
+#record-preview, #consent-audio, #consent-assent-preview { width: 100%; }
+
+/* consent modal button groups stack like the rest of the modal card */
+#consent-yesno, #consent-record { display: flex; flex-direction: column; gap: 10px; }
+#consent-yesno button, #consent-record button { width: 100%; padding: 11px; }
+#consent-message { white-space: pre-wrap; }
 
 .rec-dot {
   display: inline-block;

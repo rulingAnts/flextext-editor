@@ -8,7 +8,7 @@ import {
 } from './flextext.js';
 import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS } from './i18n.js';
-import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl } from './audio.js';
+import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl, ensureAsset, getAsset } from './audio.js';
 import { convertToMp3 } from './convert.js';
 import { makeZip } from './zip.js';
 import { DriveUpload, initiateUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads } from './upload.js';
@@ -55,6 +55,13 @@ function applyUrlSettings() {
       s.sendOptions = p.get('send').split(',')
         .filter(o => ['share', 'upload', 'save', 'download'].includes(o));
     }
+    if (p.has('consentMode')) {
+      const m = p.get('consentMode');
+      s.consentMode = ['off', 'text', 'audio'].includes(m) ? m : 'off';
+    }
+    if (p.has('consentMsg')) s.consentMsg = p.get('consentMsg');
+    if (p.has('consentAudio')) s.consentAudio = p.get('consentAudio');
+    if (p.has('consentResp')) s.consentResp = p.get('consentResp') === 'record' ? 'record' : 'yesno';
     saveSettings(s);
   }
   const task = (p.has('audio') || p.has('title'))
@@ -379,8 +386,156 @@ async function newDocFromAudio(file, titleOverride) {
   };
   enterEditor('baseline');
   await attachAudioFile(file);
+  // If a recorded verbal assent was captured in the consent gate, store it
+  // with this doc so it travels in the upload/save zip bundle.
+  if (pendingAssent) {
+    current.consentClip = pendingAssent.name;
+    await db.putMedia('consent:' + current.id, pendingAssent).catch(() => {});
+    await persist();
+    pendingAssent = null;
+  }
   $('#doc-title').focus();
   $('#doc-title').select();
+}
+
+/* ---------------- Speaker-permission (consent) gate ----------------
+ * App-wide Research setting. Before recording a new text, optionally show a
+ * written or spoken reminder and collect either a Yes/No tap or a recorded
+ * verbal "yes". A recorded assent is bundled with the text (separate from
+ * the transcription audio) at save time.
+ */
+
+let pendingAssent = null; // { blob, name } captured assent, consumed on doc create
+let crec = null;          // consent-assent recorder state
+
+// Keep the cached consent-prompt audio in sync with the researcher's URL.
+async function syncConsentAudio() {
+  if (settings.consentMode === 'audio' && settings.consentAudio) {
+    try { await ensureAsset('asset:consent-prompt', settings.consentAudio); }
+    catch { /* will retry next time; consent can still show text fallback */ }
+  }
+}
+
+function discardConsentRec() {
+  if (crec) {
+    try { if (crec.recorder && crec.recorder.state !== 'inactive') crec.recorder.stop(); } catch { /* noop */ }
+    crec.stream?.getTracks().forEach(tr => tr.stop());
+    if (crec.url) URL.revokeObjectURL(crec.url);
+  }
+  crec = null;
+  const pv = $('#consent-assent-preview');
+  pv.pause?.(); pv.removeAttribute('src'); pv.hidden = true;
+}
+
+function closeConsentModal() {
+  discardConsentRec();
+  const ca = $('#consent-audio');
+  ca.pause?.(); ca.removeAttribute('src');
+  $('#consent-modal').hidden = true;
+}
+
+// Run `onApproved(assent)` once permission is satisfied. assent is a
+// { blob, name } when recorded, else null.
+async function requestConsentThen(onApproved) {
+  const mode = settings.consentMode || 'off';
+  if (mode === 'off') { onApproved(null); return; }
+  pendingAssent = null;
+
+  const msgEl = $('#consent-message');
+  const audioEl = $('#consent-audio');
+  const status = $('#consent-status');
+  status.hidden = true;
+  msgEl.hidden = mode !== 'text' && !settings.consentMsg;
+  msgEl.textContent = settings.consentMsg || '';
+  audioEl.hidden = true;
+
+  if (mode === 'audio') {
+    status.hidden = false;
+    status.textContent = t('consent.loadingAudio');
+    try {
+      const asset = await ensureAsset('asset:consent-prompt', settings.consentAudio)
+        || await getAsset('asset:consent-prompt');
+      if (asset?.blob) {
+        audioEl.src = URL.createObjectURL(asset.blob);
+        audioEl.hidden = false;
+        status.hidden = true;
+        audioEl.play?.().catch(() => {});
+      } else {
+        status.textContent = t('consent.audioFailed');
+      }
+    } catch {
+      status.textContent = t('consent.audioFailed');
+    }
+    if (settings.consentMsg) { msgEl.hidden = false; }
+  }
+
+  const respRecord = settings.consentResp === 'record';
+  $('#consent-yesno').hidden = respRecord;
+  $('#consent-record').hidden = !respRecord;
+  resetConsentRecordUI();
+
+  $('#consent-modal').hidden = false;
+
+  const proceed = (assent) => { pendingAssent = assent; closeConsentModal(); onApproved(assent); };
+
+  $('#consent-yes').onclick = () => proceed(null);
+  $('#consent-no').onclick = () => { closeConsentModal(); toast(t('consent.declined'), 5000); };
+  $('#consent-cancel').onclick = () => closeConsentModal();
+  $('#consent-modal').onclick = (e) => { if (e.target === $('#consent-modal')) closeConsentModal(); };
+  $('#consent-assent-continue').onclick = async () => {
+    if (!crec?.blob) return;
+    try {
+      const conv = settings.convert || {};
+      const res = await convertToMp3(crec.blob,
+        { kbps: conv.kbps || 64, sampleRate: conv.rate || 22050, mono: conv.mono !== false });
+      proceed({ blob: res.blob, name: 'consent-' + fileStamp() + '.mp3' });
+    } catch {
+      proceed({ blob: crec.blob, name: 'consent-' + fileStamp() + '.webm' });
+    }
+  };
+  $('#consent-assent-redo').onclick = () => { discardConsentRec(); resetConsentRecordUI(); };
+  $('#consent-assent-toggle').onclick = () => {
+    if (crec?.recorder && crec.recorder.state === 'recording') crec.recorder.stop();
+    else startConsentAssent();
+  };
+}
+
+function resetConsentRecordUI() {
+  $('#consent-assent-toggle').hidden = false;
+  $('#consent-assent-toggle').innerHTML = '&#9679; ' +
+    `<span>${t('consent.recYes')}</span>`;
+  $('#consent-assent-continue').hidden = true;
+  $('#consent-assent-redo').hidden = true;
+  $('#consent-assent-preview').hidden = true;
+}
+
+async function startConsentAssent() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
+      : MediaRecorder.isTypeSupported('audio/ogg') ? 'audio/ogg' : '';
+    const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    crec = { stream, recorder, chunks: [], blob: null, url: null };
+    recorder.addEventListener('dataavailable', (e) => { if (e.data.size) crec?.chunks.push(e.data); });
+    recorder.addEventListener('stop', () => {
+      if (!crec) return;
+      crec.stream.getTracks().forEach(tr => tr.stop());
+      crec.blob = new Blob(crec.chunks, { type: recorder.mimeType || 'audio/webm' });
+      crec.url = URL.createObjectURL(crec.blob);
+      const pv = $('#consent-assent-preview');
+      pv.src = crec.url; pv.hidden = false;
+      $('#consent-assent-toggle').hidden = true;
+      $('#consent-assent-continue').hidden = false;
+      $('#consent-assent-redo').hidden = false;
+      $('#consent-status').hidden = false;
+      $('#consent-status').textContent = t('consent.assentReview');
+    });
+    recorder.start();
+    $('#consent-assent-toggle').innerHTML = '&#9632; ' + `<span>${t('consent.recStop')}</span>`;
+  } catch (e) {
+    $('#consent-status').hidden = false;
+    $('#consent-status').textContent = t('record.micError', { msg: e.message });
+  }
 }
 
 /* ---------------- Record new text (microphone modal) ----------------
@@ -435,6 +590,7 @@ function openRecordModal() {
 
 function closeRecordModal() {
   discardRecording();
+  pendingAssent = null; // abandon any consent clip if the recording is cancelled
   $('#record-modal').hidden = true;
 }
 
@@ -479,7 +635,9 @@ async function saveRecording() {
     const pad = (n) => String(n).padStart(2, '0');
     const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
     const file = new File([res.blob], `recording-${stamp.replace(/[: ]/g, '-')}.mp3`, { type: 'audio/mpeg' });
+    const assent = pendingAssent;   // closeRecordModal clears it; preserve for the new doc
     closeRecordModal();
+    pendingAssent = assent;
     await newDocFromAudio(file, t('record.defaultTitle', { date: stamp }));
   } catch (e) {
     recordUI('review');
@@ -849,6 +1007,20 @@ function allowedSend() {
     : ['share', 'upload', 'save', 'download']);
 }
 
+// Turn a researcher's audio input (Drive share link, bare file id, or direct
+// URL) into a fetchable URL: Drive references route through the relay, direct
+// https URLs pass through. Returns '' if it can't be understood.
+function resolveAudioInput(input) {
+  const s = String(input || '').trim();
+  if (!s) return '';
+  const relay = settings.relayUrl || DEFAULT_RELAY;
+  const fileId = driveFileId(s);
+  const isDrive = fileId && (/drive\.google\.com/.test(s) || !isProbablyUrl(s));
+  if (isDrive) return relay ? relay + '?id=' + fileId : '';
+  if (isProbablyUrl(s)) return s;
+  return '';
+}
+
 function fileStamp(d = new Date()) {
   const pad = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
@@ -885,12 +1057,15 @@ async function buildBundle(withTimestamp) {
   const base = name.replace(/\.flextext$/, '');
   const media = await db.getMedia(current.id).catch(() => null);
   const userAudio = !!(media && !isAudioLocked(current));
+  const consent = current.consentClip
+    ? await db.getMedia('consent:' + current.id).catch(() => null)
+    : null;
   const stamp = withTimestamp ? ' ' + fileStamp() : '';
-  if (userAudio) {
-    const blob = await makeZip([
-      { name, data: xmlBlob },
-      { name: media.name || 'audio.mp3', data: media.blob },
-    ]);
+  if (userAudio || consent) {
+    const entries = [{ name, data: xmlBlob }];
+    if (userAudio) entries.push({ name: media.name || 'audio.mp3', data: media.blob });
+    if (consent?.blob) entries.push({ name: consent.name || current.consentClip, data: consent.blob });
+    const blob = await makeZip(entries);
     return { blob, filename: `${base}${stamp}.zip`, mime: 'application/zip',
       xmlBlob, xmlName: name, zipped: true };
   }
@@ -1033,6 +1208,19 @@ function fillWsForm() {
   f.elements.sendUpload.checked = allow.has('upload');
   f.elements.sendSave.checked = allow.has('save');
   f.elements.sendDownload.checked = allow.has('download');
+  f.elements.consentMode.value = settings.consentMode || 'off';
+  f.elements.consentMsg.value = settings.consentMsg || '';
+  f.elements.consentAudioUrl.value = settings.consentAudioUrl || '';
+  f.elements.consentResp.value = settings.consentResp || 'yesno';
+  updateConsentFields(f);
+}
+
+// Show only the message/audio field relevant to the chosen consent mode.
+function updateConsentFields(f) {
+  const mode = f.elements.consentMode.value;
+  f.querySelector('.consent-text-field').hidden = mode === 'off';
+  f.querySelector('.consent-audio-field').hidden = mode !== 'audio';
+  f.elements.consentResp.closest('label').hidden = mode === 'off';
 }
 
 function sendOptionsFromForm(f) {
@@ -1058,10 +1246,24 @@ function setupResearch() {
       toast(t('research.badFolder'), 7000);
     }
     settings.sendOptions = sendOptionsFromForm(f);
+    // Consent (app-wide). Resolve the prompt-audio Drive link to a fetchable
+    // URL (same as task audio), then cache/overwrite the clip locally.
+    settings.consentMode = f.elements.consentMode.value;
+    settings.consentMsg = f.elements.consentMsg.value.trim();
+    settings.consentResp = f.elements.consentResp.value === 'record' ? 'record' : 'yesno';
+    const rawConsentAudio = f.elements.consentAudioUrl.value.trim();
+    settings.consentAudioUrl = rawConsentAudio;
+    settings.consentAudio = resolveAudioInput(rawConsentAudio);
+    if (rawConsentAudio && !settings.consentAudio) {
+      toast(t('task.badAudio'), 6000);
+    }
     saveSettings(settings);
     renderWsBanner();
+    syncConsentAudio();
     toast(t('toast.settingsSaved'));
   });
+
+  $('#ws-form').elements.consentMode.addEventListener('change', () => updateConsentFields($('#ws-form')));
 
   $('#btn-copy-link').addEventListener('click', async () => {
     const f2 = $('#ws-form');
@@ -1081,6 +1283,13 @@ function setupResearch() {
     p.set('send', (settings.sendOptions?.length
       ? settings.sendOptions
       : ['share', 'upload', 'save', 'download']).join(','));
+    // Consent (app-wide) travels with every link.
+    if (settings.consentMode && settings.consentMode !== 'off') {
+      p.set('consentMode', settings.consentMode);
+      if (settings.consentMsg) p.set('consentMsg', settings.consentMsg);
+      if (settings.consentAudio) p.set('consentAudio', settings.consentAudio);
+      p.set('consentResp', settings.consentResp || 'yesno');
+    }
     const url = location.origin + location.pathname + '?' + p.toString();
     const out = $('#share-link-out');
     out.hidden = false;
@@ -1100,21 +1309,11 @@ function setupResearch() {
     const f2 = $('#ws-form');
     if (!f2.elements.vernLang.value.trim()) { toast(t('toast.needVern')); return; }
 
-    let audioUrl = '';
     const audioIn = tf.elements.taskAudio.value.trim();
-    const relay = settings.relayUrl || DEFAULT_RELAY;
+    let audioUrl = '';
     if (audioIn) {
-      const fileId = driveFileId(audioIn);
-      const isDrive = fileId && (/drive\.google\.com/.test(audioIn) || !isProbablyUrl(audioIn));
-      if (isDrive) {
-        if (!relay) { toast(t('task.needRelay'), 6000); return; }
-        audioUrl = relay + '?id=' + fileId;
-      } else if (isProbablyUrl(audioIn)) {
-        audioUrl = audioIn;
-      } else {
-        toast(t('task.badAudio'), 6000);
-        return;
-      }
+      audioUrl = resolveAudioInput(audioIn);
+      if (!audioUrl) { toast(t('task.badAudio'), 6000); return; }
     }
 
     // Validate the audio BEFORE producing a link, so the researcher — not
@@ -1157,6 +1356,13 @@ function setupResearch() {
     p.set('send', (settings.sendOptions?.length
       ? settings.sendOptions
       : ['share', 'upload', 'save', 'download']).join(','));
+    // Consent (app-wide) travels with every link.
+    if (settings.consentMode && settings.consentMode !== 'off') {
+      p.set('consentMode', settings.consentMode);
+      if (settings.consentMsg) p.set('consentMsg', settings.consentMsg);
+      if (settings.consentAudio) p.set('consentAudio', settings.consentAudio);
+      p.set('consentResp', settings.consentResp || 'yesno');
+    }
     const title = tf.elements.taskTitle.value.trim();
     if (title) p.set('title', title);
     if (audioUrl) p.set('audio', audioUrl);
@@ -1457,7 +1663,7 @@ function setup() {
   $('#doc-title').addEventListener('input', schedulePersist);
   $('#btn-new').addEventListener('click', () => newDoc());
   $('#btn-new-audio').addEventListener('click', () => $('#new-audio-file').click());
-  $('#btn-record').addEventListener('click', openRecordModal);
+  $('#btn-record').addEventListener('click', () => requestConsentThen(() => openRecordModal()));
   $('#record-toggle').addEventListener('click', () => {
     if (rec?.recorder && rec.recorder.state === 'recording') rec.recorder.stop();
     else startRecording();
@@ -1545,6 +1751,7 @@ function setup() {
   }
   retryPendingAudio();
   resumePendingUploads();
+  syncConsentAudio(); // fetch/cache the consent prompt audio if configured
 
   // Ask the browser to protect our storage (texts + recordings) from
   // being silently evicted when the device runs low on space.

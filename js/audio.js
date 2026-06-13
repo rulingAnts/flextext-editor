@@ -389,6 +389,25 @@ export function clearPartial(docId) {
   return db.deleteMedia(partialKey(docId)).catch(() => {});
 }
 
+/* ---------------- Cached global asset (consent prompt audio) ----------------
+ * A single app-wide audio clip stored under a fixed key. Re-downloaded and
+ * OVERWRITTEN whenever the researcher's URL changes; otherwise served from
+ * the cached blob forever (offline). Returns the stored media record.
+ */
+export async function ensureAsset(key, url) {
+  if (!url) return null;
+  const existing = await db.getMedia(key).catch(() => null);
+  if (existing && existing.sourceUrl === url && existing.blob) return existing;
+  const { blob, name, mimeType } = await fetchAudio(url);
+  const rec = { blob, name, mimeType, sourceUrl: url };
+  await db.putMedia(key, rec);
+  return rec;
+}
+
+export function getAsset(key) {
+  return db.getMedia(key).catch(() => null);
+}
+
 /* ---------------- Pre-flight probe (researcher side) ----------------
  * Before a task link is generated, fetch just the head of the audio and
  * validate it, so the researcher sees "this is a WAV" / "too big" / "not

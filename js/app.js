@@ -556,6 +556,8 @@ function recordUI(state, extra = {}) {
   $('#record-save').hidden = !inReview;
   $('#record-redo').hidden = !inReview;
   $('#record-preview').hidden = !inReview;
+  // A title is required before the recording can be saved.
+  $('#record-title-row').hidden = !inReview;
   if (state === 'idle') {
     toggle.textContent = t('record.start');
     status.textContent = t('record.idle');
@@ -564,9 +566,16 @@ function recordUI(state, extra = {}) {
     status.textContent = t('record.recording', { time: extra.time || '0:00' });
   } else if (state === 'review') {
     status.textContent = t('record.review');
+    syncRecordSaveEnabled();
+    setTimeout(() => $('#record-title').focus(), 0);
   } else if (state === 'saving') {
     status.textContent = t('record.converting', { pct: extra.pct ?? 0 });
   }
+}
+
+// Save stays disabled until the user names the text.
+function syncRecordSaveEnabled() {
+  $('#record-save').disabled = !$('#record-title').value.trim();
 }
 
 function discardRecording() {
@@ -584,6 +593,7 @@ function discardRecording() {
 
 function openRecordModal() {
   discardRecording();
+  $('#record-title').value = '';
   recordUI('idle');
   $('#record-modal').hidden = false;
 }
@@ -624,6 +634,8 @@ async function startRecording() {
 
 async function saveRecording() {
   if (!rec?.blob) return;
+  const title = $('#record-title').value.trim();
+  if (!title) { syncRecordSaveEnabled(); $('#record-title').focus(); return; } // title required
   const blob = rec.blob;
   recordUI('saving', { pct: 0 });
   try {
@@ -631,14 +643,12 @@ async function saveRecording() {
     const res = await convertToMp3(blob,
       { kbps: conv.kbps || 64, sampleRate: conv.rate || 22050, mono: conv.mono !== false },
       (f) => recordUI('saving', { pct: Math.round(f * 100) }));
-    const now = new Date();
-    const pad = (n) => String(n).padStart(2, '0');
-    const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
-    const file = new File([res.blob], `recording-${stamp.replace(/[: ]/g, '-')}.mp3`, { type: 'audio/mpeg' });
+    const stamp = fileStamp();
+    const file = new File([res.blob], `recording-${stamp}.mp3`, { type: 'audio/mpeg' });
     const assent = pendingAssent;   // closeRecordModal clears it; preserve for the new doc
     closeRecordModal();
     pendingAssent = assent;
-    await newDocFromAudio(file, t('record.defaultTitle', { date: stamp }));
+    await newDocFromAudio(file, title);
   } catch (e) {
     recordUI('review');
     $('#record-status').textContent = t('convert.failed', { msg: e.message });
@@ -1669,6 +1679,13 @@ function setup() {
     else startRecording();
   });
   $('#record-redo').addEventListener('click', () => { discardRecording(); recordUI('idle'); });
+  $('#record-title').addEventListener('input', syncRecordSaveEnabled);
+  $('#record-title').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && $('#record-title').value.trim()) {
+      e.preventDefault();
+      saveRecording().catch(err => toast(t('convert.failed', { msg: err.message }), 6000));
+    }
+  });
   $('#record-save').addEventListener('click', () => {
     saveRecording().catch(err => toast(t('convert.failed', { msg: err.message }), 6000));
   });

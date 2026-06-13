@@ -601,6 +601,17 @@ main {
 
 #record-preview, #consent-audio, #consent-assent-preview { width: 100%; }
 
+#record-title-row { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+#record-title {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 9px 11px;
+  font-size: 16px;
+  color: var(--text);
+}
+#record-title:focus { outline: 2px solid var(--blue); }
+.primary-btn:disabled { background: #9bb0cc; cursor: not-allowed; }
+
 /* consent modal button groups stack like the rest of the modal card */
 #consent-yesno, #consent-record { display: flex; flex-direction: column; gap: 10px; }
 #consent-yesno button, #consent-record button { width: 100%; padding: 11px; }

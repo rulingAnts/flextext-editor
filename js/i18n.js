@@ -114,11 +114,11 @@ en: {
   'research.lang': 'Language / Bahasa',
   'research.disableBox': 'Hide the Research tab on the coworker\'s device (included in the link above)',
   'research.hideHere': 'Hide the Research tab on THIS device now',
-  'research.hideHereNote': 'Use this when you set up a coworker\'s own phone in person. To bring the Research tab back: tap the app title 7 times (or press Ctrl+Alt+R on a keyboard).',
-  'research.hideHereConfirm': 'Hide the Research tab on THIS device? To bring it back, tap the app title 7 times (or press Ctrl+Alt+R on a keyboard).',
+  'research.hideHereNote': 'Use this when you set up a coworker\'s own phone in person. To bring the Research tab back: tap the ? (Help) button 7 times (or press Ctrl+Alt+R on a keyboard).',
+  'research.hideHereConfirm': 'Hide the Research tab on THIS device? To bring it back, tap the ? (Help) button 7 times (or press Ctrl+Alt+R on a keyboard).',
   'research.analBlankConfirm': 'The analysis writing-system code is blank — coworkers won\'t have a language for word glosses and free translations. Create the link anyway?',
   'research.enabled': 'Research tab enabled.',
-  'research.disabled': 'Research tab hidden. To bring it back, tap the app title 7 times (or press Ctrl+Alt+R).',
+  'research.disabled': 'Research tab hidden. To bring it back, tap the ? (Help) button 7 times (or press Ctrl+Alt+R).',
   'ws.line': 'Interlinear line',
   'ws.code': 'Code in file',
   'ws.count': 'Uses',
@@ -251,7 +251,7 @@ internet after the first time.</p>
 <p>Your work is saved automatically on this device — you can close the app and continue later from the <b>Texts</b> list. If you change the story text afterwards, the word meanings of changed sentences may need to be typed again.</p>
 
 <div id="help-research-hidden" hidden>
-<p><i>The researcher setup guide is hidden on this device. If you are the researcher, tap the app title 7 times — or press <b>Ctrl+Alt+R</b> on a keyboard — to show the Research tab and this guide.</i></p>
+<p><i>The researcher setup guide is hidden on this device. If you are the researcher, tap the ? (Help) button 7 times — or press <b>Ctrl+Alt+R</b> on a keyboard — to show the Research tab and this guide.</i></p>
 </div>
 <div id="help-researchers">
 <h3>For researchers</h3>
@@ -286,7 +286,7 @@ internet after the first time.</p>
   <li><b>Hiding the Research tab:</b> two ways. For a <i>remote</i> coworker, tick the box under
   the copy-link buttons before copying — their device hides the tab when they open the link. To
   hide it on a phone you are setting up <i>in person</i>, use <b>Hide the Research tab on THIS
-  device now</b>. Either way, to bring it back: <b>tap the app title 7 times</b> (works on a
+  device now</b>. Either way, to bring it back: <b>tap the ? (Help) button 7 times</b> (works on a
   touchscreen) or press <b>Ctrl+Alt+R</b> on a keyboard — or open a link ending in
   <code>?research=on</code>.</li>
   <li><b>Updates:</b> when online, the app checks for new versions and shows an <b>Update</b> button when one is ready.</li>
@@ -412,11 +412,11 @@ id: {
   'research.lang': 'Bahasa / Language',
   'research.disableBox': 'Sembunyikan tab Penelitian di perangkat rekan kerja (disertakan dalam tautan di atas)',
   'research.hideHere': 'Sembunyikan tab Penelitian di perangkat INI sekarang',
-  'research.hideHereNote': 'Gunakan ini saat Anda menyiapkan HP milik rekan kerja secara langsung. Untuk memunculkan tab Penelitian lagi: ketuk judul aplikasi 7 kali (atau tekan Ctrl+Alt+R di papan ketik).',
-  'research.hideHereConfirm': 'Sembunyikan tab Penelitian di perangkat INI? Untuk memunculkannya lagi, ketuk judul aplikasi 7 kali (atau tekan Ctrl+Alt+R di papan ketik).',
+  'research.hideHereNote': 'Gunakan ini saat Anda menyiapkan HP milik rekan kerja secara langsung. Untuk memunculkan tab Penelitian lagi: ketuk tombol ? (Bantuan) 7 kali (atau tekan Ctrl+Alt+R di papan ketik).',
+  'research.hideHereConfirm': 'Sembunyikan tab Penelitian di perangkat INI? Untuk memunculkannya lagi, ketuk tombol ? (Bantuan) 7 kali (atau tekan Ctrl+Alt+R di papan ketik).',
   'research.analBlankConfirm': 'Kode sistem tulisan analisis kosong — rekan kerja tidak akan punya bahasa untuk arti kata dan terjemahan bebas. Tetap buat tautannya?',
   'research.enabled': 'Tab Penelitian diaktifkan.',
-  'research.disabled': 'Tab Penelitian disembunyikan. Untuk memunculkannya lagi, ketuk judul aplikasi 7 kali (atau tekan Ctrl+Alt+R).',
+  'research.disabled': 'Tab Penelitian disembunyikan. Untuk memunculkannya lagi, ketuk tombol ? (Bantuan) 7 kali (atau tekan Ctrl+Alt+R).',
   'ws.line': 'Baris interlinear',
   'ws.code': 'Kode di file',
   'ws.count': 'Jumlah',
@@ -550,7 +550,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
 <p>Hasil kerja Anda tersimpan otomatis di perangkat ini — aplikasi boleh ditutup dan dilanjutkan nanti dari daftar <b>Teks</b>. Kalau teks cerita diubah setelah diglos, arti kata pada kalimat yang berubah mungkin perlu diketik ulang.</p>
 
 <div id="help-research-hidden" hidden>
-<p><i>Panduan untuk peneliti disembunyikan di perangkat ini. Kalau Anda peneliti, ketuk judul aplikasi 7 kali — atau tekan <b>Ctrl+Alt+R</b> di papan ketik — untuk menampilkan tab Penelitian dan panduan ini.</i></p>
+<p><i>Panduan untuk peneliti disembunyikan di perangkat ini. Kalau Anda peneliti, ketuk tombol ? (Bantuan) 7 kali — atau tekan <b>Ctrl+Alt+R</b> di papan ketik — untuk menampilkan tab Penelitian dan panduan ini.</i></p>
 </div>
 <div id="help-researchers">
 <h3>Untuk peneliti</h3>
@@ -587,7 +587,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   kotak di bawah tombol salin tautan sebelum menyalin — tab disembunyikan saat mereka membuka
   tautannya. Untuk menyembunyikannya di HP yang Anda siapkan <i>secara langsung</i>, pakai
   <b>Sembunyikan tab Penelitian di perangkat INI sekarang</b>. Untuk memunculkannya lagi:
-  <b>ketuk judul aplikasi 7 kali</b> (bisa di layar sentuh) atau tekan <b>Ctrl+Alt+R</b> di papan
+  <b>ketuk tombol ? (Bantuan) 7 kali</b> (bisa di layar sentuh) atau tekan <b>Ctrl+Alt+R</b> di papan
   ketik — atau buka tautan yang diakhiri <code>?research=on</code>.</li>
   <li><b>Pembaruan:</b> saat online, aplikasi memeriksa versi baru dan menampilkan tombol <b>Perbarui</b> bila tersedia.</li>
   <li><b>Tautan tugas dengan audio:</b> bagian <b>Tautan tugas</b> membuat tautan yang mengatur

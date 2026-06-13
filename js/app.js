@@ -1601,11 +1601,12 @@ function setupResearchToggle() {
       toggleResearchHidden();
     }
   });
-  // Touch devices have no keyboard: tap the app title 7× in quick succession
-  // to toggle the Research tab. Obscure enough that a coworker won't hit it by
-  // accident, but recoverable on a phone with no Ctrl+Alt+R.
+  // Touch devices have no keyboard: tap the small ? (Help) button 7× in quick
+  // succession to toggle the Research tab. Targeting the Help button — not the
+  // whole title bar — avoids accidental triggers from stray taps (barely
+  // literate users, wet screens), while staying recoverable without Ctrl+Alt+R.
   let taps = 0, last = 0;
-  $$('.app-title').forEach((el) => {
+  $$('.help-btn').forEach((el) => {
     el.addEventListener('click', () => {
       const now = Date.now();
       taps = now - last < 1500 ? taps + 1 : 1;

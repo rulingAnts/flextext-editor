@@ -35,19 +35,26 @@ export function driveFolderId(text) {
   return null;
 }
 
-// Ask the relay to open a resumable session. Throws with a readable message.
+// Ask the relay to open a resumable session. Uses GET (not POST): Apps Script
+// only attaches CORS headers to its GET responses (via the googleusercontent
+// redirect) — a cross-origin POST comes back as an HTML page with no
+// Access-Control-Allow-Origin and is blocked by the browser.
 export async function initiateUpload(relayUrl, folderId, name, mimeType, size) {
-  // text/plain keeps this a CORS "simple request" (Apps Script cannot answer
-  // preflights).
-  const resp = await fetch(relayUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain' },
-    body: JSON.stringify({ action: 'initiate-upload', folder: folderId || '', name, mimeType, size }),
-  });
+  const sep = relayUrl.includes('?') ? '&' : '?';
+  const url = relayUrl + sep + new URLSearchParams({
+    action: 'initiate-upload',
+    folder: folderId || '',
+    name: name || 'upload.bin',
+    mimeType: mimeType || 'application/octet-stream',
+    size: String(size || 0),
+  }).toString();
+  const resp = await fetch(url);
   if (!resp.ok) throw new Error('HTTP ' + resp.status);
   const body = await resp.json();
   if (body.error) throw new Error(body.error);
-  if (!body.sessionUri) throw new Error('No upload session returned — is the relay up to date?');
+  if (!body.sessionUri) {
+    throw new Error('No upload session returned — update the relay (docs/drive-relay.gs) and re-deploy it.');
+  }
   return body.sessionUri;
 }
 

@@ -246,6 +246,10 @@ use <b>Zoom</b> to see more detail. The recording is saved on your device, so it
 internet after the first time.</p>
 <p>Your work is saved automatically on this device — you can close the app and continue later from the <b>Texts</b> list. If you change the story text afterwards, the word meanings of changed sentences may need to be typed again.</p>
 
+<div id="help-research-hidden" hidden>
+<p><i>The researcher setup guide is hidden on this device. If you are the researcher, press <b>Ctrl+Alt+R</b> to show the Research tab and this guide.</i></p>
+</div>
+<div id="help-researchers">
 <h3>For researchers</h3>
 <ul>
   <li><b>Set up a project:</b> on the <b>Research</b> tab, enter the vernacular and analysis writing systems (code, e.g. <code>fau</code> / <code>en</code>, plus name and font). Click <b>Copy setup link for coworker</b> and send the link. Opening it configures their device — including the interface language you are currently using.</li>
@@ -288,7 +292,8 @@ internet after the first time.</p>
   contents. Teams that fork the app can run their own relay by deploying
   <code>docs/drive-relay.gs</code> and setting <code>DEFAULT_RELAY</code> in
   <code>js/app.js</code>.)</li>
-</ul>`,
+</ul>
+</div>`,
 },
 
 id: {
@@ -531,6 +536,10 @@ dan pakai <b>Perbesar</b> untuk melihat lebih rinci. Rekaman tersimpan di perang
 tetap bisa dipakai tanpa internet setelah pertama kali.</p>
 <p>Hasil kerja Anda tersimpan otomatis di perangkat ini — aplikasi boleh ditutup dan dilanjutkan nanti dari daftar <b>Teks</b>. Kalau teks cerita diubah setelah diglos, arti kata pada kalimat yang berubah mungkin perlu diketik ulang.</p>
 
+<div id="help-research-hidden" hidden>
+<p><i>Panduan untuk peneliti disembunyikan di perangkat ini. Kalau Anda peneliti, tekan <b>Ctrl+Alt+R</b> untuk menampilkan tab Penelitian dan panduan ini.</i></p>
+</div>
+<div id="help-researchers">
 <h3>Untuk peneliti</h3>
 <ul>
   <li><b>Menyiapkan proyek:</b> di tab <b>Penelitian</b>, isi sistem tulisan bahasa daerah dan bahasa analisis (kode, mis. <code>fau</code> / <code>en</code>, beserta nama dan fon). Klik <b>Salin tautan pengaturan untuk rekan kerja</b> lalu kirim tautannya. Saat dibuka, tautan itu mengatur perangkat mereka — termasuk bahasa tampilan yang sedang Anda pakai.</li>
@@ -573,7 +582,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   tautan; relay tidak punya akses ke isi Drive pribadi siapa pun. Tim yang mem-fork aplikasi
   bisa memakai relay sendiri dengan memasang <code>docs/drive-relay.gs</code> dan mengatur
   <code>DEFAULT_RELAY</code> di <code>js/app.js</code>.)</li>
-</ul>`,
+</ul>
+</div>`,
 },
 };
 

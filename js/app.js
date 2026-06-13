@@ -118,6 +118,7 @@ function show(view) {
 function openHelp() {
   helpReturnView = currentView();
   if (helpReturnView === 'help') helpReturnView = 'texts';
+  applyHelpResearchVisibility();
   show('help');
 }
 
@@ -1528,6 +1529,19 @@ function applyResearchVisibility() {
     renderDocList();
     show('texts');
   }
+  applyHelpResearchVisibility();
+}
+
+// In the Help view, hide the "For researchers" guide on devices where the
+// Research tab is hidden, leaving only a short note about the Ctrl+Alt+R
+// shortcut. The two elements live inside the i18n-rendered help body, so this
+// re-runs whenever help opens, the language changes, or the tab is toggled.
+function applyHelpResearchVisibility() {
+  const hidden = isResearchHidden();
+  const sec = $('#help-researchers');
+  const note = $('#help-research-hidden');
+  if (sec) sec.hidden = hidden;
+  if (note) note.hidden = !hidden;
 }
 
 function setupResearchToggle() {
@@ -1667,6 +1681,7 @@ function setup() {
   langSel.addEventListener('change', () => {
     setLang(langSel.value);
     applyI18n();
+    applyHelpResearchVisibility();
     renderDocList();
     if (!$('#view-gloss').hidden) renderGloss();
   });

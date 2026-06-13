@@ -219,6 +219,7 @@ id: {
   'help.close': '← Kembali',
 
   'texts.new': '+ Teks baru',
+  'texts.newAudio': '+ Teks baru dari audio…',
   'texts.open': 'Buka file .flextext…',
   'texts.empty': 'Belum ada teks. Tekan <b>Teks baru</b> untuk mulai mengetik, atau buka file <code>.flextext</code> yang sudah ada.',
   'texts.deleteTitle': 'Hapus',

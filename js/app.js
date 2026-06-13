@@ -1157,20 +1157,36 @@ function uploadState(docId) {
       return;
     }
     bar.hidden = false;
-    const pct = st.total ? Math.round((st.sent / st.total) * 100) : 0;
-    $('#upload-fill').style.width = pct + '%';
+    const fill = $('#upload-fill');
     const label = $('#upload-label');
-    if (st.status === 'uploading') {
-      label.textContent = t('upload.progress', { name: st.name, pct, got: mbFmt(st.sent), size: mbFmt(st.total) });
-    } else if (st.status === 'paused') {
-      label.textContent = t('upload.paused', { name: st.name, pct });
-    } else if (st.status === 'error') {
-      label.textContent = t('upload.error', { msg: st.error || '?' });
+    // The proxy upload can't report byte progress (an upload listener would
+    // force a CORS preflight the relay can't answer), so show an indeterminate
+    // "working" bar while sending.
+    const busy = st.status === 'uploading' && st.indeterminate;
+    fill.classList.toggle('indeterminate', busy);
+    if (busy) {
+      fill.style.width = '100%';
+      label.textContent = t('upload.working', { name: st.name });
+    } else {
+      const pct = st.total ? Math.round((st.sent / st.total) * 100) : 0;
+      fill.style.width = pct + '%';
+      if (st.status === 'uploading') {
+        label.textContent = t('upload.progress', { name: st.name, pct, got: mbFmt(st.sent), size: mbFmt(st.total) });
+      } else if (st.status === 'paused') {
+        label.textContent = t('upload.paused', { name: st.name, pct });
+      } else if (st.status === 'error') {
+        label.textContent = t('upload.error', { msg: st.error || '?' });
+      }
     }
+    // One-shot upload: offer Retry on error, Cancel otherwise (no pause/resume).
     const pb = $('#upload-pause');
-    pb.textContent = st.status === 'uploading' ? t('player.pauseDl')
-      : st.status === 'error' ? t('upload.retry') : t('player.resumeDl');
-    pb.dataset.docId = docId;
+    if (st.status === 'error') {
+      pb.hidden = false;
+      pb.textContent = t('upload.retry');
+      pb.dataset.docId = docId;
+    } else {
+      pb.hidden = true;
+    }
     $('#upload-cancel').dataset.docId = docId;
   };
 }

@@ -85,6 +85,7 @@ en: {
 
   'upload.starting': 'Preparing the upload…',
   'upload.progress': 'Uploading {name}… {pct}% ({got} of {size} MB)',
+  'upload.working': 'Uploading {name}… please wait.',
   'upload.paused': 'Upload paused — {pct}% sent. It will continue from here.',
   'upload.error': 'Upload problem: {msg}',
   'upload.done': 'Uploaded to Google Drive: {name}',
@@ -348,6 +349,7 @@ id: {
 
   'upload.starting': 'Menyiapkan pengiriman…',
   'upload.progress': 'Mengirim {name}… {pct}% ({got} dari {size} MB)',
+  'upload.working': 'Mengirim {name}… mohon tunggu.',
   'upload.paused': 'Pengiriman dijeda — {pct}% sudah terkirim. Nanti dilanjutkan dari sini.',
   'upload.error': 'Masalah pengiriman: {msg}',
   'upload.done': 'Terkirim ke Google Drive: {name}',

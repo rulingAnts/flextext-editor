@@ -2,7 +2,7 @@
 
 // Bump VERSION on every deploy: clients check for a changed sw.js whenever
 // they load / regain focus / come online, and offer the user an update.
-const VERSION = 'v16';
+const VERSION = 'v17';
 const CACHE = 'flextext-' + VERSION;
 const SHELL = [
   './',
@@ -14,6 +14,8 @@ const SHELL = [
   'js/i18n.js',
   'js/audio.js',
   'js/convert.js',
+  'js/zip.js',
+  'js/upload.js',
   'js/vendor/wavesurfer.esm.js',
   'js/vendor/lame.min.js',
   'manifest.webmanifest',

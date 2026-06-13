@@ -58,7 +58,7 @@
   <div class="toolbar">
     <button id="btn-new" class="primary-btn" data-i18n="texts.new">+ New text</button>
     <button id="btn-new-audio" class="secondary-btn" data-i18n="texts.newAudio">+ New text from audio&hellip;</button>
-    <button id="btn-record" class="secondary-btn" data-i18n="record.btn">&#127908; Record new text&hellip;</button>
+    <button id="btn-record" class="secondary-btn"><span class="rec-dot"></span><span data-i18n="record.btn">Record new text&hellip;</span></button>
     <button id="btn-import" class="secondary-btn" data-i18n="texts.open">Open .flextext file&hellip;</button>
     <input type="file" id="import-file" accept=".flextext,.xml,.txt,text/plain,text/xml,application/xml" hidden>
     <input type="file" id="new-audio-file" accept="audio/*,.mp3,.wav,.m4a,.flac,.ogg" hidden>
@@ -123,6 +123,18 @@
       <label><span data-i18n="research.code">Code</span> <input name="analLang" placeholder="en" required spellcheck="false"></label>
       <label><span data-i18n="research.name">Name</span> <input name="analName" placeholder="English" spellcheck="false"></label>
       <label><span data-i18n="research.font">Font</span> <input name="analFont" spellcheck="false"></label>
+    </fieldset>
+    <fieldset>
+      <legend data-i18n="research.sendLegend">Saving &amp; sending on the coworker's device</legend>
+      <label class="wide"><span data-i18n="research.uploadUrl">Google Drive upload folder (share it as "Anyone with the link can edit")</span>
+        <input name="uploadUrl" spellcheck="false" placeholder="https://drive.google.com/drive/folders/…"></label>
+      <div class="send-options">
+        <label class="check-label"><input type="checkbox" name="sendShare" checked> <span data-i18n="share.share">Share…</span></label>
+        <label class="check-label"><input type="checkbox" name="sendUpload" checked> <span data-i18n="share.upload">Upload</span></label>
+        <label class="check-label"><input type="checkbox" name="sendSave" checked> <span data-i18n="share.saveas">Save to file…</span></label>
+        <label class="check-label"><input type="checkbox" name="sendDownload" checked> <span data-i18n="share.download">Download</span></label>
+      </div>
+      <p class="note" data-i18n="research.sendNote">These choices travel with your setup/task links and decide which buttons the coworker sees under "Save and send…".</p>
     </fieldset>
     <div class="toolbar">
       <button type="submit" class="primary-btn" data-i18n="research.save">Save settings</button>
@@ -219,6 +231,14 @@
 
 </main>
 
+<!-- Non-blocking upload status bar -->
+<div id="upload-bar" hidden>
+  <span id="upload-label"></span>
+  <div class="upload-progress"><div id="upload-fill"></div></div>
+  <button id="upload-pause" class="icon-btn2"></button>
+  <button id="upload-cancel" class="icon-btn2" data-i18n-title="upload.cancel">✕</button>
+</div>
+
 <div id="toast" hidden></div>
 
 <!-- Recording modal -->
@@ -240,12 +260,16 @@
     <h3 data-i18n="share.title">Save and send</h3>
     <p class="note" id="share-filename"></p>
     <button id="share-share" class="primary-btn" data-i18n="share.share">Share&hellip;</button>
+    <button id="share-upload" class="primary-btn" data-i18n="share.upload">Upload</button>
     <button id="share-saveas" class="secondary-btn" data-i18n="share.saveas">Save to file&hellip;</button>
     <button id="share-download" class="secondary-btn" data-i18n="share.download">Download</button>
     <button id="share-cancel" class="link-btn" data-i18n="share.cancel">Cancel</button>
   </div>
 </div>
 
+<!-- MP3 encoder loads with the app shell (defer runs before modules), so
+     recording/conversion can never hit a missing dependency offline. -->
+<script src="js/vendor/lame.min.js" defer></script>
 <script type="module" src="js/app.js"></script>
 </body>
 </html>

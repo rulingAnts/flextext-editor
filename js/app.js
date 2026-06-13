@@ -10,6 +10,8 @@ import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS } from './i18n.js';
 import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl } from './audio.js';
 import { convertToMp3 } from './convert.js';
+import { makeZip } from './zip.js';
+import { DriveUpload, initiateUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads } from './upload.js';
 import { esc, newGuid as mkGuid } from './flextext.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -47,6 +49,11 @@ function applyUrlSettings() {
                   anal: 'analLang', analName: 'analName', analFont: 'analFont' };
     for (const [qp, key] of Object.entries(map)) {
       if (p.has(qp)) s[key] = p.get(qp);
+    }
+    if (p.has('upload')) s.uploadFolder = p.get('upload').replace(/[^\w-]/g, '');
+    if (p.has('send')) {
+      s.sendOptions = p.get('send').split(',')
+        .filter(o => ['share', 'upload', 'save', 'download'].includes(o));
     }
     saveSettings(s);
   }
@@ -245,6 +252,7 @@ async function importFile(file) {
 
 function enterEditor(tab) {
   $('#doc-title').value = current.title || '';
+  updateShareButton();
   switchTab(tab);
 }
 
@@ -834,6 +842,27 @@ function focusNextWordGloss(fromInput, dir) {
 
 /* ---------------- Save and send ---------------- */
 
+// Which save/send options the researcher allows on this device.
+function allowedSend() {
+  return new Set(settings.sendOptions?.length
+    ? settings.sendOptions
+    : ['share', 'upload', 'save', 'download']);
+}
+
+function fileStamp(d = new Date()) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
+}
+
+// Hide the whole "Save and send…" button if the researcher disabled
+// every option this device could offer.
+function updateShareButton() {
+  const allow = allowedSend();
+  const any = allow.has('share') || allow.has('save') || allow.has('download') ||
+    (allow.has('upload') && !!settings.uploadFolder);
+  $('#btn-share').hidden = !any;
+}
+
 function exportBlob() {
   if (activeTab === 'baseline') applyBaseline();
   current.doc.title = $('#doc-title').value.trim() || current.title || 'Untitled';
@@ -847,44 +876,72 @@ function exportFilename() {
   return t2 + '.flextext';
 }
 
-function openShareMenu() {
+// Build what gets saved/uploaded: when the text's audio came from the USER
+// (recorded, "new text from audio", or attached) it travels along in a zip;
+// task audio from the researcher does not (they already have it).
+async function buildBundle(withTimestamp) {
+  const xmlBlob = exportBlob();
+  const name = exportFilename();                  // Title.flextext
+  const base = name.replace(/\.flextext$/, '');
+  const media = await db.getMedia(current.id).catch(() => null);
+  const userAudio = !!(media && !isAudioLocked(current));
+  const stamp = withTimestamp ? ' ' + fileStamp() : '';
+  if (userAudio) {
+    const blob = await makeZip([
+      { name, data: xmlBlob },
+      { name: media.name || 'audio.mp3', data: media.blob },
+    ]);
+    return { blob, filename: `${base}${stamp}.zip`, mime: 'application/zip',
+      xmlBlob, xmlName: name, zipped: true };
+  }
+  return { blob: xmlBlob, filename: `${base}${stamp}.flextext`, mime: 'application/xml',
+    xmlBlob, xmlName: name, zipped: false };
+}
+
+async function openShareMenu() {
   persist();
-  const name = exportFilename();
-  $('#share-filename').textContent = name;
-  const blob = exportBlob();
+  const bundle = await buildBundle(false);
+  $('#share-filename').textContent = bundle.filename;
   // Chromium only lets navigator.share() send an allowlisted set of file
-  // types (images, audio, pdf, .txt, ...). XML/.flextext is excluded and
-  // fails with "Permission denied", so the share copy travels as
-  // "<name>.flextext.txt" (text/plain) — same bytes; FLEx and this app
-  // both open it fine.
-  const shareFile = new File([blob], name + '.txt', { type: 'text/plain' });
+  // types (images, audio, pdf, .txt, ...) — neither XML nor ZIP qualifies —
+  // so Share always sends just the flextext as "<name>.flextext.txt".
+  const shareFile = new File([bundle.xmlBlob], bundle.xmlName + '.txt', { type: 'text/plain' });
   const canShare = !!(navigator.canShare && navigator.canShare({ files: [shareFile] }));
   const canPick = !!window.showSaveFilePicker;
-  $('#share-share').hidden = !canShare;
-  $('#share-saveas').hidden = !canPick;
-  // Prefer an explicit "where do you want to save it" picker on desktop;
-  // only fall back to a blind download when no picker API exists (Firefox).
-  $('#share-download').hidden = canPick;
-  $('#share-saveas').className = canShare ? 'secondary-btn' : 'primary-btn';
-  $('#share-download').className = (canShare || canPick) ? 'secondary-btn' : 'primary-btn';
+  const allow = allowedSend();
+  const showShare = canShare && allow.has('share');
+  const showUpload = allow.has('upload') && !!settings.uploadFolder;
+  const showSave = canPick && allow.has('save');
+  // Blind download only when no picker is offered (Firefox) or save is off.
+  const showDownload = allow.has('download') && !showSave;
+  $('#share-share').hidden = !showShare;
+  $('#share-upload').hidden = !showUpload;
+  $('#share-saveas').hidden = !showSave;
+  $('#share-download').hidden = !showDownload;
+  $('#share-upload').className = showShare ? 'secondary-btn' : 'primary-btn';
+  $('#share-saveas').className = (showShare || showUpload) ? 'secondary-btn' : 'primary-btn';
+  $('#share-download').className = (showShare || showUpload || showSave) ? 'secondary-btn' : 'primary-btn';
   $('#share-menu').hidden = false;
 
   $('#share-share').onclick = async () => {
     try {
-      await navigator.share({ files: [shareFile], title: name });
+      await navigator.share({ files: [shareFile], title: bundle.xmlName });
       closeShareMenu();
     } catch (e) {
       if (e.name !== 'AbortError') toast(t('toast.shareFailed', { msg: e.message }), 5000);
     }
   };
+  $('#share-upload').onclick = () => { closeShareMenu(); doUpload(); };
   $('#share-saveas').onclick = async () => {
     try {
       const handle = await window.showSaveFilePicker({
-        suggestedName: name,
-        types: [{ description: 'FLEx interlinear text', accept: { 'application/xml': ['.flextext'] } }],
+        suggestedName: bundle.filename,
+        types: [bundle.zipped
+          ? { description: 'Flextext + audio bundle', accept: { 'application/zip': ['.zip'] } }
+          : { description: 'FLEx interlinear text', accept: { 'application/xml': ['.flextext'] } }],
       });
       const w = await handle.createWritable();
-      await w.write(blob);
+      await w.write(bundle.blob);
       await w.close();
       closeShareMenu();
       toast(t('toast.saved'));
@@ -894,13 +951,71 @@ function openShareMenu() {
   };
   $('#share-download').onclick = () => {
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = name;
+    a.href = URL.createObjectURL(bundle.blob);
+    a.download = bundle.filename;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 30000);
     closeShareMenu();
   };
   $('#share-cancel').onclick = closeShareMenu;
+}
+
+/* ---------------- Upload to Google Drive (non-blocking) ---------------- */
+
+function uploadState(docId) {
+  return (st) => {
+    const bar = $('#upload-bar');
+    if (st.status === 'cancelled') { bar.hidden = true; return; }
+    if (st.status === 'done') {
+      bar.hidden = true;
+      toast(t('upload.done', { name: st.name }), 7000);
+      return;
+    }
+    bar.hidden = false;
+    const pct = st.total ? Math.round((st.sent / st.total) * 100) : 0;
+    $('#upload-fill').style.width = pct + '%';
+    const label = $('#upload-label');
+    if (st.status === 'uploading') {
+      label.textContent = t('upload.progress', { name: st.name, pct, got: mbFmt(st.sent), size: mbFmt(st.total) });
+    } else if (st.status === 'paused') {
+      label.textContent = t('upload.paused', { name: st.name, pct });
+    } else if (st.status === 'error') {
+      label.textContent = t('upload.error', { msg: st.error || '?' });
+    }
+    const pb = $('#upload-pause');
+    pb.textContent = st.status === 'uploading' ? t('player.pauseDl')
+      : st.status === 'error' ? t('upload.retry') : t('player.resumeDl');
+    pb.dataset.docId = docId;
+    $('#upload-cancel').dataset.docId = docId;
+  };
+}
+
+async function doUpload() {
+  if (!current) return;
+  const docId = current.id;
+  try {
+    toast(t('upload.starting'));
+    persist();
+    const bundle = await buildBundle(true); // timestamped name: Drive never overwrites
+    const relay = settings.relayUrl || DEFAULT_RELAY;
+    const sessionUri = await initiateUpload(relay, settings.uploadFolder,
+      bundle.filename, bundle.mime, bundle.blob.size);
+    const rec = { sessionUri, blob: bundle.blob, name: bundle.filename, sent: 0, total: bundle.blob.size };
+    await db.putMedia('upload:' + docId, rec);
+    new DriveUpload(docId, rec, uploadState(docId)).start();
+  } catch (e) {
+    toast(t('upload.error', { msg: e.message }), 9000);
+  }
+}
+
+// Uploads persisted from a previous session continue automatically.
+async function resumePendingUploads() {
+  if (!navigator.onLine) return;
+  try {
+    for (const { docId, rec } of await listPendingUploads()) {
+      if (!getUpload(docId)) new DriveUpload(docId, rec, uploadState(docId)).start();
+    }
+  } catch { /* best effort */ }
 }
 
 function closeShareMenu() { $('#share-menu').hidden = true; }
@@ -912,6 +1027,21 @@ function fillWsForm() {
   for (const key of ['vernLang', 'vernName', 'vernFont', 'analLang', 'analName', 'analFont']) {
     if (f.elements[key]) f.elements[key].value = settings[key] || '';
   }
+  f.elements.uploadUrl.value = settings.uploadUrl || '';
+  const allow = allowedSend();
+  f.elements.sendShare.checked = allow.has('share');
+  f.elements.sendUpload.checked = allow.has('upload');
+  f.elements.sendSave.checked = allow.has('save');
+  f.elements.sendDownload.checked = allow.has('download');
+}
+
+function sendOptionsFromForm(f) {
+  const opts = [];
+  if (f.elements.sendShare.checked) opts.push('share');
+  if (f.elements.sendUpload.checked) opts.push('upload');
+  if (f.elements.sendSave.checked) opts.push('save');
+  if (f.elements.sendDownload.checked) opts.push('download');
+  return opts;
 }
 
 function setupResearch() {
@@ -921,6 +1051,13 @@ function setupResearch() {
     for (const key of ['vernLang', 'vernName', 'vernFont', 'analLang', 'analName', 'analFont']) {
       settings[key] = f.elements[key].value.trim();
     }
+    const rawUpload = f.elements.uploadUrl.value.trim();
+    settings.uploadUrl = rawUpload;
+    settings.uploadFolder = rawUpload ? (parseDriveFolder(rawUpload) || '') : '';
+    if (rawUpload && !settings.uploadFolder) {
+      toast(t('research.badFolder'), 7000);
+    }
+    settings.sendOptions = sendOptionsFromForm(f);
     saveSettings(settings);
     renderWsBanner();
     toast(t('toast.settingsSaved'));
@@ -938,6 +1075,12 @@ function setupResearch() {
     if (!p.has('vern')) { toast(t('toast.needVern')); return; }
     p.set('lang', getLang());
     if ($('#research-off-box').checked) p.set('research', 'off');
+    // Upload target + allowed save/send options always travel with the link
+    // so the researcher's latest choices overwrite older ones.
+    p.set('upload', settings.uploadFolder || '');
+    p.set('send', (settings.sendOptions?.length
+      ? settings.sendOptions
+      : ['share', 'upload', 'save', 'download']).join(','));
     const url = location.origin + location.pathname + '?' + p.toString();
     const out = $('#share-link-out');
     out.hidden = false;
@@ -1008,6 +1151,12 @@ function setupResearch() {
     }
     p.set('lang', getLang());
     if ($('#research-off-box').checked) p.set('research', 'off');
+    // Upload target + allowed save/send options always travel with the link
+    // so the researcher's latest choices overwrite older ones.
+    p.set('upload', settings.uploadFolder || '');
+    p.set('send', (settings.sendOptions?.length
+      ? settings.sendOptions
+      : ['share', 'upload', 'save', 'download']).join(','));
     const title = tf.elements.taskTitle.value.trim();
     if (title) p.set('title', title);
     if (audioUrl) p.set('audio', audioUrl);
@@ -1359,7 +1508,19 @@ function setup() {
     e.target.value = '';
     if (f) attachAudioFile(f).catch(err => toast(t('toast.importFailed', { msg: err.message }), 6000));
   });
-  window.addEventListener('online', () => retryPendingAudio());
+  window.addEventListener('online', () => { retryPendingAudio(); resumePendingUploads(); });
+
+  $('#upload-pause').addEventListener('click', () => {
+    const up = getUpload($('#upload-pause').dataset.docId || '');
+    if (!up) return;
+    if (up.status === 'uploading') up.pause();
+    else up.resume();
+  });
+  $('#upload-cancel').addEventListener('click', () => {
+    const up = getUpload($('#upload-cancel').dataset.docId || '');
+    if (up) up.cancel();
+    else $('#upload-bar').hidden = true;
+  });
 
   setupBanners();
   setupResearch();
@@ -1383,6 +1544,7 @@ function setup() {
     if (gotSettings) toast(t('toast.setupReceived'), 5000);
   }
   retryPendingAudio();
+  resumePendingUploads();
 
   // Ask the browser to protect our storage (texts + recordings) from
   // being silently evicted when the device runs low on space.

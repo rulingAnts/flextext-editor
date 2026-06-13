@@ -114,3 +114,12 @@ export async function deleteMedia(docId) {
     req.onerror = () => reject(req.error);
   });
 }
+
+export async function listMediaKeys() {
+  const db = await getDB();
+  return new Promise((resolve, reject) => {
+    const req = mediaTx(db, 'readonly').getAllKeys();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}

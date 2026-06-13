@@ -19,7 +19,7 @@ en: {
 
   'texts.new': '+ New text',
   'texts.newAudio': '+ New text from audio…',
-  'record.btn': '🎙 Record new text…',
+  'record.btn': 'Record new text…',
   'record.title': 'Record new text',
   'record.start': '● Record',
   'record.stop': '■ Stop',
@@ -56,9 +56,23 @@ en: {
 
   'share.title': 'Save and send',
   'share.share': 'Share…',
+  'share.upload': 'Upload',
   'share.saveas': 'Save to file…',
   'share.download': 'Download',
   'share.cancel': 'Cancel',
+
+  'upload.starting': 'Preparing the upload…',
+  'upload.progress': 'Uploading {name}… {pct}% ({got} of {size} MB)',
+  'upload.paused': 'Upload paused — {pct}% sent. It will continue from here.',
+  'upload.error': 'Upload problem: {msg}',
+  'upload.done': 'Uploaded to Google Drive: {name}',
+  'upload.retry': 'Retry',
+  'upload.cancel': 'Cancel the upload',
+
+  'research.sendLegend': 'Saving & sending on the coworker\'s device',
+  'research.uploadUrl': 'Google Drive upload folder (share it as "Anyone with the link can edit")',
+  'research.sendNote': 'These choices travel with your setup/task links and decide which buttons the coworker sees under "Save and send…".',
+  'research.badFolder': 'That does not look like a Google Drive folder link — paste the folder\'s share link (…drive.google.com/drive/folders/…).',
 
   'research.h1': 'Language & writing system setup',
   'research.note': 'Set the writing systems this device will use for <em>new</em> texts. Files that are opened keep the writing systems declared inside them.',
@@ -185,8 +199,15 @@ en: {
   <li><b>Give word meanings:</b> open the <b>Gloss</b> tab. Under each blue word, type what it means. Press Enter to jump to the next word.</li>
   <li><b>Join words:</b> if two words belong together as one unit, tap the small 🔗 between them. Tap <b>✂ break</b> to separate them again.</li>
   <li><b>Translate the sentence:</b> on the <b>Free</b> line, write the meaning of the whole sentence.</li>
-  <li><b>Send your work:</b> tap <b>Save and send…</b> and choose WhatsApp, email, or another app.</li>
+  <li><b>Send your work:</b> tap <b>Save and send…</b> and choose WhatsApp, email, another app —
+  or <b>Upload</b>, which sends it straight to the researcher's Google Drive folder (a progress
+  bar appears at the bottom; you can keep working, pause it, or cancel it, and it continues by
+  itself if the connection drops). If your text has a recording you made, it travels along
+  automatically.</li>
 </ol>
+<p><b>Recording:</b> <b>Record new text…</b> lets you record straight into the app — record,
+listen, re-record until you are happy, then Save. The recording appears in the player above
+the typing area.</p>
 <p><b>Audio:</b> if your researcher sent you a link with a recording, a player appears above the
 typing area: ▶ plays and pauses, <b>↺3s</b> jumps back three seconds, and the speed menu slows
 the voice down. The picture of the sound (waveform) shows where you are — tap it to jump, and
@@ -203,6 +224,13 @@ internet after the first time.</p>
   certain file types) — FLEx's import dialog opens them as-is, or simply delete the
   <code>.txt</code> from the filename. This app also opens them directly.</li>
   <li><b>Wrong writing-system codes?</b> Use the <b>Writing system checker</b> (Research tab) to see which codes each interlinear line uses and remap them without touching anything else.</li>
+  <li><b>Uploads to your Drive:</b> set a <b>Google Drive upload folder</b> (shared as "Anyone
+  with the link can edit") in the settings — your links then give coworkers an <b>Upload</b>
+  button that sends finished work (zipped with any recording they made themselves) straight to
+  that folder, never overwriting anything (filenames carry a timestamp). The relay needs its
+  v3 update with the drive.file scope — see <code>docs/drive-relay.gs</code>. You can also
+  choose exactly which save/send buttons coworkers see, via the checkboxes; the choices travel
+  with your links.</li>
   <li><b>Hiding the Research tab:</b> check the box under the copy-link buttons before copying a
   setup or task link, and the coworker's device hides the Research tab when they open it. To get
   it back: press <b>Ctrl+Alt+R</b> on that device, or open a link ending in
@@ -232,7 +260,7 @@ id: {
 
   'texts.new': '+ Teks baru',
   'texts.newAudio': '+ Teks baru dari audio…',
-  'record.btn': '🎙 Rekam teks baru…',
+  'record.btn': 'Rekam teks baru…',
   'record.title': 'Rekam teks baru',
   'record.start': '● Rekam',
   'record.stop': '■ Berhenti',
@@ -269,9 +297,23 @@ id: {
 
   'share.title': 'Simpan dan kirim',
   'share.share': 'Bagikan…',
+  'share.upload': 'Kirim Langsung',
   'share.saveas': 'Simpan ke file…',
   'share.download': 'Unduh',
   'share.cancel': 'Batal',
+
+  'upload.starting': 'Menyiapkan pengiriman…',
+  'upload.progress': 'Mengirim {name}… {pct}% ({got} dari {size} MB)',
+  'upload.paused': 'Pengiriman dijeda — {pct}% sudah terkirim. Nanti dilanjutkan dari sini.',
+  'upload.error': 'Masalah pengiriman: {msg}',
+  'upload.done': 'Terkirim ke Google Drive: {name}',
+  'upload.retry': 'Coba lagi',
+  'upload.cancel': 'Batalkan pengiriman',
+
+  'research.sendLegend': 'Penyimpanan & pengiriman di perangkat rekan kerja',
+  'research.uploadUrl': 'Folder unggahan Google Drive (bagikan sebagai "Siapa saja yang memiliki link dapat mengedit")',
+  'research.sendNote': 'Pilihan ini ikut dalam tautan pengaturan/tugas Anda dan menentukan tombol mana yang dilihat rekan kerja di "Simpan dan kirim…".',
+  'research.badFolder': 'Itu sepertinya bukan tautan folder Google Drive — tempel tautan berbagi foldernya (…drive.google.com/drive/folders/…).',
 
   'research.h1': 'Pengaturan bahasa & sistem tulisan',
   'research.note': 'Atur sistem tulisan yang dipakai perangkat ini untuk teks <em>baru</em>. File yang dibuka tetap memakai sistem tulisan yang tercantum di dalam file itu.',
@@ -398,8 +440,15 @@ id: {
   <li><b>Isi arti kata:</b> buka tab <b>Terjemahan Balik</b>. Di baris <b>Harfiah</b>, di bawah setiap kata <b>Asli</b> yang biru, ketik artinya. Tekan Enter untuk pindah ke kata berikutnya.</li>
   <li><b>Gabungkan kata:</b> kalau dua kata merupakan satu kesatuan, tekan tanda 🔗 kecil di antaranya. Tekan <b>✂ pisah</b> untuk memisahkannya lagi.</li>
   <li><b>Terjemahkan kalimat:</b> di baris <b>Bebas</b>, tulis arti seluruh kalimat.</li>
-  <li><b>Kirim hasil kerja:</b> tekan <b>Simpan & kirim…</b> lalu pilih WhatsApp, email, atau aplikasi lain.</li>
+  <li><b>Kirim hasil kerja:</b> tekan <b>Simpan & kirim…</b> lalu pilih WhatsApp, email, aplikasi
+  lain — atau <b>Kirim Langsung</b>, yang mengirimnya langsung ke folder Google Drive peneliti
+  (bilah kemajuan muncul di bawah; Anda bisa terus bekerja, menjedanya, atau membatalkannya,
+  dan pengiriman lanjut sendiri kalau koneksi putus). Kalau teks Anda punya rekaman buatan
+  sendiri, rekaman itu ikut terkirim otomatis.</li>
 </ol>
+<p><b>Merekam:</b> <b>Rekam teks baru…</b> memungkinkan Anda merekam langsung di aplikasi —
+rekam, dengarkan, rekam ulang sampai puas, lalu Simpan. Rekamannya muncul di pemutar di atas
+tempat mengetik.</p>
 <p><b>Audio:</b> kalau peneliti mengirim tautan dengan rekaman, pemutar audio muncul di atas
 tempat mengetik: ▶ untuk putar dan jeda, <b>↺3s</b> untuk mundur tiga detik, dan menu kecepatan
 untuk memperlambat suara. Gambar gelombang suara menunjukkan posisi Anda — ketuk untuk melompat,
@@ -416,6 +465,13 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   menerima jenis file tertentu) — dialog impor FLEx bisa membukanya langsung, atau hapus saja
   <code>.txt</code> dari nama filenya. Aplikasi ini juga bisa membukanya langsung.</li>
   <li><b>Kode sistem tulisan salah?</b> Gunakan <b>Pemeriksa sistem tulisan</b> (tab Penelitian) untuk melihat kode pada setiap baris interlinear dan menggantinya tanpa mengubah isi lain.</li>
+  <li><b>Unggahan ke Drive Anda:</b> atur <b>folder unggahan Google Drive</b> (dibagikan sebagai
+  "Siapa saja yang memiliki link dapat mengedit") di pengaturan — tautan Anda lalu memberi rekan
+  kerja tombol <b>Kirim Langsung</b> yang mengirim hasil kerja (di-zip bersama rekaman buatan
+  mereka sendiri) langsung ke folder itu, tanpa pernah menimpa apa pun (nama file diberi cap
+  waktu). Relay perlu pembaruan v3 dengan cakupan drive.file — lihat
+  <code>docs/drive-relay.gs</code>. Anda juga bisa memilih tombol simpan/kirim mana saja yang
+  dilihat rekan kerja lewat kotak centang; pilihan itu ikut dalam tautan Anda.</li>
   <li><b>Menyembunyikan tab Penelitian:</b> centang kotak di bawah tombol salin tautan sebelum
   menyalin tautan pengaturan atau tugas; saat dibuka, tab Penelitian disembunyikan di perangkat
   rekan kerja. Untuk memunculkannya lagi: tekan <b>Ctrl+Alt+R</b> di perangkat itu, atau buka

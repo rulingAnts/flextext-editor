@@ -223,14 +223,22 @@ en: {
   <li><b>Join words:</b> if two words belong together as one unit, tap the small 🔗 between them. Tap <b>✂ break</b> to separate them again.</li>
   <li><b>Translate the sentence:</b> on the <b>Free</b> line, write the meaning of the whole sentence.</li>
   <li><b>Send your work:</b> tap <b>Save and send…</b> and choose WhatsApp, email, another app —
-  or <b>Upload</b>, which sends it straight to the researcher's Google Drive folder (a progress
-  bar appears at the bottom; you can keep working, pause it, or cancel it, and it continues by
-  itself if the connection drops). If your text has a recording you made, it travels along
-  automatically.</li>
+  or <b>Upload</b>, which sends it straight to the researcher's Google Drive folder. A bar at the
+  bottom shows <i>Uploading… please wait</i>; you can keep working, or cancel it. If it does not go
+  through — for example the connection dropped — just tap <b>Upload</b> again; nothing is ever
+  overwritten. If your text has a recording you made, it travels along automatically.</li>
 </ol>
-<p><b>Recording:</b> <b>Record new text…</b> lets you record straight into the app — record,
-listen, re-record until you are happy, then Save. The recording appears in the player above
-the typing area.</p>
+<p><b>Other ways to start a text:</b> <b>New text from audio…</b> turns a sound file already on
+your device into a new text with the recording in the player; <b>Open .flextext file…</b>
+continues from a file someone sent you; and a <b>link from your researcher</b> sets everything up
+for you — sometimes with a recording already waiting to be transcribed.</p>
+<p><b>Permission to record</b> (if your researcher turned this on): the first time you record, the
+app asks for the speaker's permission. Read the message — or tap ▶ to play it aloud — then either
+tap <b>Yes</b> / <b>No</b>, or <b>record the speaker giving permission</b> out loud, whichever
+your researcher chose. Your answer is sent together with the work.</p>
+<p><b>Recording:</b> <b>Record new text…</b> lets you record straight into the app — give the text
+a name first, then record, listen, and re-record until you are happy, then Save. The recording
+appears in the player above the typing area.</p>
 <p><b>Audio:</b> if your researcher sent you a link with a recording, a player appears above the
 typing area: ▶ plays and pauses, <b>↺3s</b> jumps back three seconds, and the speed menu slows
 the voice down. The picture of the sound (waveform) shows where you are — tap it to jump, and
@@ -249,11 +257,21 @@ internet after the first time.</p>
   <li><b>Wrong writing-system codes?</b> Use the <b>Writing system checker</b> (Research tab) to see which codes each interlinear line uses and remap them without touching anything else.</li>
   <li><b>Uploads to your Drive:</b> set a <b>Google Drive upload folder</b> (shared as "Anyone
   with the link can edit") in the settings — your links then give coworkers an <b>Upload</b>
-  button that sends finished work (zipped with any recording they made themselves) straight to
-  that folder, never overwriting anything (filenames carry a timestamp). The relay needs its
-  v3 update with the drive.file scope — see <code>docs/drive-relay.gs</code>. You can also
-  choose exactly which save/send buttons coworkers see, via the checkboxes; the choices travel
-  with your links.</li>
+  button that sends finished work straight to that folder, zipped together with any recording they
+  made and any recorded permission, never overwriting anything (filenames carry a timestamp).
+  Uploads pass through the relay but count against your Drive <i>storage</i>, not its daily
+  transfer quota. You can also choose exactly which save/send buttons coworkers see, via the
+  checkboxes; the choices travel with your links.</li>
+  <li><b>Audio converter:</b> recorders often produce huge WAV files (a 2-minute 32-bit stereo WAV
+  is ~40&nbsp;MB) that are far too heavy to send. The <b>Audio converter</b> on the Research tab
+  turns any recording into a small mono 64&nbsp;kbps MP3 (~0.5&nbsp;MB per minute), on your device
+  and offline; then upload that MP3 to Drive for your task link.</li>
+  <li><b>Ask for the speaker's permission:</b> under <b>Speaker permission</b> on the Research tab
+  you can require a permission step before a coworker records. Write the message (in the local
+  language and/or a language of wider communication), optionally give a spoken version (a Drive
+  audio link, cached on the device for offline use), and choose whether the coworker taps
+  <b>Yes/No</b> or <b>records the speaker's spoken consent</b>. The answer — and any consent
+  recording — is bundled into the uploaded file.</li>
   <li><b>Hiding the Research tab:</b> check the box under the copy-link buttons before copying a
   setup or task link, and the coworker's device hides the Research tab when they open it. To get
   it back: press <b>Ctrl+Alt+R</b> on that device, or open a link ending in
@@ -261,8 +279,10 @@ internet after the first time.</p>
   <li><b>Updates:</b> when online, the app checks for new versions and shows an <b>Update</b> button when one is ready.</li>
   <li><b>Audio task links:</b> the <b>Task link</b> section creates a link that configures the
   coworker's device, creates a titled text, and auto-downloads a recording into a player on the
-  typing tab. Use mono 64&nbsp;kbps MP3 (≈0.5&nbsp;MB per minute). The audio can live on any
-  CORS-friendly host, or simply in <b>your own Google Drive</b>: upload the MP3, share it as
+  typing tab. Use mono 64&nbsp;kbps MP3 (≈0.5&nbsp;MB per minute). Before the link is made the app
+  checks the recording and warns you if it is an uncompressed WAV, too large, or not shared. The
+  audio can live on any CORS-friendly host, or simply in <b>your own Google Drive</b>: upload the
+  MP3, share it as
   "Anyone with the link", and paste the share link into the form — a built-in relay does the
   rest. (The relay only fetches link-shared files and has no access to anyone's private Drive
   contents. Teams that fork the app can run their own relay by deploying
@@ -487,14 +507,23 @@ id: {
   <li><b>Gabungkan kata:</b> kalau dua kata merupakan satu kesatuan, tekan tanda 🔗 kecil di antaranya. Tekan <b>✂ pisah</b> untuk memisahkannya lagi.</li>
   <li><b>Terjemahkan kalimat:</b> di baris <b>Bebas</b>, tulis arti seluruh kalimat.</li>
   <li><b>Kirim hasil kerja:</b> tekan <b>Simpan & kirim…</b> lalu pilih WhatsApp, email, aplikasi
-  lain — atau <b>Kirim Langsung</b>, yang mengirimnya langsung ke folder Google Drive peneliti
-  (bilah kemajuan muncul di bawah; Anda bisa terus bekerja, menjedanya, atau membatalkannya,
-  dan pengiriman lanjut sendiri kalau koneksi putus). Kalau teks Anda punya rekaman buatan
-  sendiri, rekaman itu ikut terkirim otomatis.</li>
+  lain — atau <b>Kirim Langsung</b>, yang mengirimnya langsung ke folder Google Drive peneliti.
+  Bilah di bawah menampilkan <i>Mengirim… mohon tunggu</i>; Anda bisa terus bekerja atau
+  membatalkannya. Kalau tidak terkirim — misalnya koneksi putus — cukup tekan <b>Kirim
+  Langsung</b> lagi; tidak ada yang pernah ditimpa. Kalau teks Anda punya rekaman buatan sendiri,
+  rekaman itu ikut terkirim otomatis.</li>
 </ol>
-<p><b>Merekam:</b> <b>Rekam teks baru…</b> memungkinkan Anda merekam langsung di aplikasi —
-rekam, dengarkan, rekam ulang sampai puas, lalu Simpan. Rekamannya muncul di pemutar di atas
-tempat mengetik.</p>
+<p><b>Cara lain memulai teks:</b> <b>Teks baru dari audio…</b> mengubah file suara yang sudah ada
+di perangkat Anda menjadi teks baru dengan rekamannya di pemutar; <b>Buka file .flextext…</b>
+melanjutkan file yang dikirim seseorang; dan <b>tautan dari peneliti</b> mengatur semuanya untuk
+Anda — kadang sudah disertai rekaman yang menunggu untuk ditranskripsi.</p>
+<p><b>Izin merekam</b> (kalau diaktifkan peneliti): saat pertama kali Anda merekam, aplikasi
+meminta izin penutur. Baca pesannya — atau tekan ▶ untuk memutarnya — lalu tekan <b>Ya</b> /
+<b>Tidak</b>, atau <b>rekam penutur memberi izin</b> dengan suara, sesuai pilihan peneliti Anda.
+Jawaban Anda ikut terkirim bersama hasil kerja.</p>
+<p><b>Merekam:</b> <b>Rekam teks baru…</b> memungkinkan Anda merekam langsung di aplikasi — beri
+nama teksnya dulu, lalu rekam, dengarkan, dan rekam ulang sampai puas, lalu Simpan. Rekamannya
+muncul di pemutar di atas tempat mengetik.</p>
 <p><b>Audio:</b> kalau peneliti mengirim tautan dengan rekaman, pemutar audio muncul di atas
 tempat mengetik: ▶ untuk putar dan jeda, <b>↺3s</b> untuk mundur tiga detik, dan menu kecepatan
 untuk memperlambat suara. Gambar gelombang suara menunjukkan posisi Anda — ketuk untuk melompat,
@@ -513,11 +542,21 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   <li><b>Kode sistem tulisan salah?</b> Gunakan <b>Pemeriksa sistem tulisan</b> (tab Penelitian) untuk melihat kode pada setiap baris interlinear dan menggantinya tanpa mengubah isi lain.</li>
   <li><b>Unggahan ke Drive Anda:</b> atur <b>folder unggahan Google Drive</b> (dibagikan sebagai
   "Siapa saja yang memiliki link dapat mengedit") di pengaturan — tautan Anda lalu memberi rekan
-  kerja tombol <b>Kirim Langsung</b> yang mengirim hasil kerja (di-zip bersama rekaman buatan
-  mereka sendiri) langsung ke folder itu, tanpa pernah menimpa apa pun (nama file diberi cap
-  waktu). Relay perlu pembaruan v3 dengan cakupan drive.file — lihat
-  <code>docs/drive-relay.gs</code>. Anda juga bisa memilih tombol simpan/kirim mana saja yang
+  kerja tombol <b>Kirim Langsung</b> yang mengirim hasil kerja langsung ke folder itu, di-zip
+  bersama rekaman buatan mereka sendiri dan izin yang terekam, tanpa pernah menimpa apa pun (nama
+  file diberi cap waktu). Unggahan melewati relay tetapi terhitung pada <i>penyimpanan</i> Drive
+  Anda, bukan kuota transfer hariannya. Anda juga bisa memilih tombol simpan/kirim mana saja yang
   dilihat rekan kerja lewat kotak centang; pilihan itu ikut dalam tautan Anda.</li>
+  <li><b>Pengubah audio:</b> alat perekam sering menghasilkan file WAV yang sangat besar (WAV
+  stereo 32-bit 2 menit ≈ 40&nbsp;MB) — terlalu berat untuk dikirim. <b>Pengubah audio</b> di tab
+  Penelitian mengubah rekaman apa pun menjadi MP3 mono 64&nbsp;kbps yang kecil (≈0,5&nbsp;MB per
+  menit), di perangkat Anda dan tanpa internet; lalu unggah MP3-nya ke Drive untuk tautan tugas.</li>
+  <li><b>Minta izin penutur:</b> di bagian <b>Izin penutur</b> pada tab Penelitian, Anda bisa
+  mewajibkan langkah izin sebelum rekan kerja merekam. Tulis pesannya (dalam bahasa daerah dan/atau
+  bahasa pengantar yang lebih luas), boleh juga sertakan versi suaranya (tautan audio Drive, yang
+  disimpan di perangkat untuk dipakai tanpa internet), dan pilih apakah rekan kerja menekan
+  <b>Ya/Tidak</b> atau <b>merekam persetujuan lisan penutur</b>. Jawabannya — dan rekaman izin apa
+  pun — ikut dibungkus dalam file yang diunggah.</li>
   <li><b>Menyembunyikan tab Penelitian:</b> centang kotak di bawah tombol salin tautan sebelum
   menyalin tautan pengaturan atau tugas; saat dibuka, tab Penelitian disembunyikan di perangkat
   rekan kerja. Untuk memunculkannya lagi: tekan <b>Ctrl+Alt+R</b> di perangkat itu, atau buka
@@ -525,8 +564,10 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   <li><b>Pembaruan:</b> saat online, aplikasi memeriksa versi baru dan menampilkan tombol <b>Perbarui</b> bila tersedia.</li>
   <li><b>Tautan tugas dengan audio:</b> bagian <b>Tautan tugas</b> membuat tautan yang mengatur
   perangkat rekan kerja, membuat teks berjudul, dan otomatis mengunduh rekaman ke pemutar di tab
-  Ketik. Gunakan MP3 mono 64&nbsp;kbps (≈0,5&nbsp;MB per menit). Audio bisa di host mana pun yang
-  mendukung CORS, atau cukup di <b>Google Drive Anda sendiri</b>: unggah MP3, bagikan sebagai
+  Ketik. Gunakan MP3 mono 64&nbsp;kbps (≈0,5&nbsp;MB per menit). Sebelum tautan dibuat, aplikasi
+  memeriksa rekaman dan memperingatkan kalau berupa WAV tak terkompresi, terlalu besar, atau belum
+  dibagikan. Audio bisa di host mana pun yang mendukung CORS, atau cukup di <b>Google Drive Anda
+  sendiri</b>: unggah MP3, bagikan sebagai
   "Siapa saja yang memiliki link", lalu tempel tautan berbaginya di formulir — relay bawaan
   aplikasi yang mengurus sisanya. (Relay hanya bisa mengambil file yang dibagikan dengan
   tautan; relay tidak punya akses ke isi Drive pribadi siapa pun. Tim yang mem-fork aplikasi

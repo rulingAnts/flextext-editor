@@ -47,6 +47,9 @@ export async function initiateUpload(relayUrl, folderId, name, mimeType, size) {
     name: name || 'upload.bin',
     mimeType: mimeType || 'application/octet-stream',
     size: String(size || 0),
+    // Google binds the chunk-PUT CORS header to the origin seen when the
+    // session is created (relay-side), so the relay must forward this.
+    origin: (typeof location !== 'undefined' && location.origin) || '',
   }).toString();
   const resp = await fetch(url);
   if (!resp.ok) throw new Error('HTTP ' + resp.status);

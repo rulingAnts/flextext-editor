@@ -20,7 +20,7 @@ const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 // Default Google Drive relay (docs/drive-relay.gs) used for Drive share links
 // when the researcher hasn't configured their own. The relay is permissionless
 // (it can only fetch link-shared files), so sharing one deployment is safe.
-const DEFAULT_RELAY = 'https://script.google.com/macros/s/AKfycbxVmNznmk7mP94TkE2PucUCoanxxrCgnT_CcAzKhVsndyXCxtBWTP8wiz0w1pBwClyW6A/exec';
+const DEFAULT_RELAY = 'https://script.google.com/macros/s/AKfycbzPH6yNtmKpNSr3lcvAhTDdX7tP0_u5AxiauwqjsIiPYR3RkPM02gc2H5Iu3wq10zYzhw/exec';
 
 /* ---------------- Settings (writing systems) ---------------- */
 

@@ -11,7 +11,7 @@ import { t, getLang, setLang, applyI18n, LANGS } from './i18n.js';
 import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl, ensureAsset, getAsset } from './audio.js';
 import { convertToMp3 } from './convert.js';
 import { makeZip } from './zip.js';
-import { DriveUpload, initiateUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads } from './upload.js';
+import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads } from './upload.js';
 import { esc, newGuid as mkGuid } from './flextext.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -1182,10 +1182,15 @@ async function doUpload() {
     toast(t('upload.starting'));
     persist();
     const bundle = await buildBundle(true); // timestamped name: Drive never overwrites
-    const relay = DEFAULT_RELAY;
-    const sessionUri = await initiateUpload(relay, settings.uploadFolder,
-      bundle.filename, bundle.mime, bundle.blob.size);
-    const rec = { sessionUri, blob: bundle.blob, name: bundle.filename, sent: 0, total: bundle.blob.size };
+    const rec = {
+      relayUrl: DEFAULT_RELAY,
+      folder: settings.uploadFolder || '',
+      blob: bundle.blob,
+      name: bundle.filename,
+      mime: bundle.mime,
+      total: bundle.blob.size,
+      sent: 0,
+    };
     await db.putMedia('upload:' + docId, rec);
     new DriveUpload(docId, rec, uploadState(docId)).start();
   } catch (e) {

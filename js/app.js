@@ -1023,7 +1023,7 @@ function allowedSend() {
 function resolveAudioInput(input) {
   const s = String(input || '').trim();
   if (!s) return '';
-  const relay = settings.relayUrl || DEFAULT_RELAY;
+  const relay = DEFAULT_RELAY;
   const fileId = driveFileId(s);
   const isDrive = fileId && (/drive\.google\.com/.test(s) || !isProbablyUrl(s));
   if (isDrive) return relay ? relay + '?id=' + fileId : '';
@@ -1182,7 +1182,7 @@ async function doUpload() {
     toast(t('upload.starting'));
     persist();
     const bundle = await buildBundle(true); // timestamped name: Drive never overwrites
-    const relay = settings.relayUrl || DEFAULT_RELAY;
+    const relay = DEFAULT_RELAY;
     const sessionUri = await initiateUpload(relay, settings.uploadFolder,
       bundle.filename, bundle.mime, bundle.blob.size);
     const rec = { sessionUri, blob: bundle.blob, name: bundle.filename, sent: 0, total: bundle.blob.size };

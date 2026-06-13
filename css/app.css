@@ -598,6 +598,10 @@ main {
   box-shadow: 0 10px 40px rgba(0,0,0,.35);
 }
 .modal-card h3 { margin: 0 0 2px; }
+
+#record-preview { width: 100%; }
+#record-toggle.recording { background: #b3261e; }
+#record-toggle.recording:hover { background: #921d17; }
 .modal-card .primary-btn, .modal-card .secondary-btn { width: 100%; padding: 11px; }
 
 @media (max-width: 560px) {

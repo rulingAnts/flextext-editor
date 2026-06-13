@@ -360,8 +360,8 @@ function ensureMediaRef(rec, name, sourceUrl) {
 
 // Transcriber-initiated: pick an audio file, get a new text with the
 // recording loaded in the player, ready to title and type.
-async function newDocFromAudio(file) {
-  const doc = makeDoc(settings, file.name.replace(/\.[^.]+$/, ''));
+async function newDocFromAudio(file, titleOverride) {
+  const doc = makeDoc(settings, titleOverride ?? file.name.replace(/\.[^.]+$/, ''));
   current = {
     id: newGuid(),
     title: doc.title,
@@ -373,6 +373,110 @@ async function newDocFromAudio(file) {
   await attachAudioFile(file);
   $('#doc-title').focus();
   $('#doc-title').select();
+}
+
+/* ---------------- Record new text (microphone modal) ----------------
+ * Record → review (listen, re-record as often as needed) → Save converts
+ * the take to a small MP3 (using the converter preferences) and creates a
+ * new text with it loaded in the player. Cancel/backdrop always cleans up
+ * the microphone.
+ */
+
+let rec = null; // { stream, recorder, chunks, blob, url, timer, t0 }
+
+function recordUI(state, extra = {}) {
+  const status = $('#record-status');
+  const toggle = $('#record-toggle');
+  const inReview = state === 'review';
+  toggle.hidden = inReview || state === 'saving';
+  toggle.classList.toggle('recording', state === 'recording');
+  $('#record-save').hidden = !inReview;
+  $('#record-redo').hidden = !inReview;
+  $('#record-preview').hidden = !inReview;
+  if (state === 'idle') {
+    toggle.textContent = t('record.start');
+    status.textContent = t('record.idle');
+  } else if (state === 'recording') {
+    toggle.textContent = t('record.stop');
+    status.textContent = t('record.recording', { time: extra.time || '0:00' });
+  } else if (state === 'review') {
+    status.textContent = t('record.review');
+  } else if (state === 'saving') {
+    status.textContent = t('record.converting', { pct: extra.pct ?? 0 });
+  }
+}
+
+function discardRecording() {
+  if (rec) {
+    try { if (rec.recorder && rec.recorder.state !== 'inactive') rec.recorder.stop(); } catch { /* noop */ }
+    rec.stream?.getTracks().forEach(tr => tr.stop());
+    clearInterval(rec.timer);
+    if (rec.url) URL.revokeObjectURL(rec.url);
+  }
+  rec = null;
+  const pv = $('#record-preview');
+  pv.pause?.();
+  pv.removeAttribute('src');
+}
+
+function openRecordModal() {
+  discardRecording();
+  recordUI('idle');
+  $('#record-modal').hidden = false;
+}
+
+function closeRecordModal() {
+  discardRecording();
+  $('#record-modal').hidden = true;
+}
+
+async function startRecording() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
+      : MediaRecorder.isTypeSupported('audio/ogg') ? 'audio/ogg' : '';
+    const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    rec = { stream, recorder, chunks: [], t0: Date.now(), timer: null, blob: null, url: null };
+    recorder.addEventListener('dataavailable', (e) => { if (e.data.size) rec?.chunks.push(e.data); });
+    recorder.addEventListener('stop', () => {
+      if (!rec) return; // cancelled
+      rec.stream.getTracks().forEach(tr => tr.stop());
+      clearInterval(rec.timer);
+      rec.blob = new Blob(rec.chunks, { type: recorder.mimeType || 'audio/webm' });
+      rec.url = URL.createObjectURL(rec.blob);
+      $('#record-preview').src = rec.url;
+      recordUI('review');
+    });
+    recorder.start();
+    const fmtT = (s) => Math.floor(s / 60) + ':' + String(Math.floor(s) % 60).padStart(2, '0');
+    rec.timer = setInterval(
+      () => recordUI('recording', { time: fmtT((Date.now() - rec.t0) / 1000) }), 250);
+    recordUI('recording');
+  } catch (e) {
+    recordUI('idle');
+    $('#record-status').textContent = t('record.micError', { msg: e.message });
+  }
+}
+
+async function saveRecording() {
+  if (!rec?.blob) return;
+  const blob = rec.blob;
+  recordUI('saving', { pct: 0 });
+  try {
+    const conv = settings.convert || {};
+    const res = await convertToMp3(blob,
+      { kbps: conv.kbps || 64, sampleRate: conv.rate || 22050, mono: conv.mono !== false },
+      (f) => recordUI('saving', { pct: Math.round(f * 100) }));
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    const file = new File([res.blob], `recording-${stamp.replace(/[: ]/g, '-')}.mp3`, { type: 'audio/mpeg' });
+    closeRecordModal();
+    await newDocFromAudio(file, t('record.defaultTitle', { date: stamp }));
+  } catch (e) {
+    recordUI('review');
+    $('#record-status').textContent = t('convert.failed', { msg: e.message });
+  }
 }
 
 async function attachAudioFile(file) {
@@ -1204,6 +1308,19 @@ function setup() {
   $('#doc-title').addEventListener('input', schedulePersist);
   $('#btn-new').addEventListener('click', () => newDoc());
   $('#btn-new-audio').addEventListener('click', () => $('#new-audio-file').click());
+  $('#btn-record').addEventListener('click', openRecordModal);
+  $('#record-toggle').addEventListener('click', () => {
+    if (rec?.recorder && rec.recorder.state === 'recording') rec.recorder.stop();
+    else startRecording();
+  });
+  $('#record-redo').addEventListener('click', () => { discardRecording(); recordUI('idle'); });
+  $('#record-save').addEventListener('click', () => {
+    saveRecording().catch(err => toast(t('convert.failed', { msg: err.message }), 6000));
+  });
+  $('#record-cancel').addEventListener('click', closeRecordModal);
+  $('#record-modal').addEventListener('click', (e) => {
+    if (e.target === $('#record-modal')) closeRecordModal();
+  });
   $('#new-audio-file').addEventListener('change', (e) => {
     const f = e.target.files[0];
     e.target.value = '';

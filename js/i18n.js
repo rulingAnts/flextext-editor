@@ -112,9 +112,13 @@ en: {
   'research.declared': '{name} — declared writing systems: {list}',
   'research.noneDeclared': '(none declared)',
   'research.lang': 'Language / Bahasa',
-  'research.disableBox': 'Disable the Research tab on the coworker\'s device (Ctrl+Alt+R re-enables it)',
+  'research.disableBox': 'Hide the Research tab on the coworker\'s device (included in the link above)',
+  'research.hideHere': 'Hide the Research tab on THIS device now',
+  'research.hideHereNote': 'Use this when you set up a coworker\'s own phone in person. To bring the Research tab back: tap the app title 7 times (or press Ctrl+Alt+R on a keyboard).',
+  'research.hideHereConfirm': 'Hide the Research tab on THIS device? To bring it back, tap the app title 7 times (or press Ctrl+Alt+R on a keyboard).',
+  'research.analBlankConfirm': 'The analysis writing-system code is blank — coworkers won\'t have a language for word glosses and free translations. Create the link anyway?',
   'research.enabled': 'Research tab enabled.',
-  'research.disabled': 'Research tab disabled. Press Ctrl+Alt+R to bring it back.',
+  'research.disabled': 'Research tab hidden. To bring it back, tap the app title 7 times (or press Ctrl+Alt+R).',
   'ws.line': 'Interlinear line',
   'ws.code': 'Code in file',
   'ws.count': 'Uses',
@@ -247,7 +251,7 @@ internet after the first time.</p>
 <p>Your work is saved automatically on this device — you can close the app and continue later from the <b>Texts</b> list. If you change the story text afterwards, the word meanings of changed sentences may need to be typed again.</p>
 
 <div id="help-research-hidden" hidden>
-<p><i>The researcher setup guide is hidden on this device. If you are the researcher, press <b>Ctrl+Alt+R</b> to show the Research tab and this guide.</i></p>
+<p><i>The researcher setup guide is hidden on this device. If you are the researcher, tap the app title 7 times — or press <b>Ctrl+Alt+R</b> on a keyboard — to show the Research tab and this guide.</i></p>
 </div>
 <div id="help-researchers">
 <h3>For researchers</h3>
@@ -276,10 +280,15 @@ internet after the first time.</p>
   audio link, cached on the device for offline use), and choose whether the coworker taps
   <b>Yes/No</b> or <b>records the speaker's spoken consent</b>. The answer — and any consent
   recording — is bundled into the uploaded file.</li>
-  <li><b>Hiding the Research tab:</b> check the box under the copy-link buttons before copying a
-  setup or task link, and the coworker's device hides the Research tab when they open it. To get
-  it back: press <b>Ctrl+Alt+R</b> on that device, or open a link ending in
-  <code>?research=on</code> (copy the app address and add it).</li>
+  <li><b>What the coworker sees:</b> the send-option checkboxes are a template for the links you
+  hand out — they decide which "Save and send…" buttons the coworker gets, and never restrict
+  your own device. Likewise, restrictions only ever reach a device through a link it opens.</li>
+  <li><b>Hiding the Research tab:</b> two ways. For a <i>remote</i> coworker, tick the box under
+  the copy-link buttons before copying — their device hides the tab when they open the link. To
+  hide it on a phone you are setting up <i>in person</i>, use <b>Hide the Research tab on THIS
+  device now</b>. Either way, to bring it back: <b>tap the app title 7 times</b> (works on a
+  touchscreen) or press <b>Ctrl+Alt+R</b> on a keyboard — or open a link ending in
+  <code>?research=on</code>.</li>
   <li><b>Updates:</b> when online, the app checks for new versions and shows an <b>Update</b> button when one is ready.</li>
   <li><b>Audio task links:</b> the <b>Task link</b> section creates a link that configures the
   coworker's device, creates a titled text, and auto-downloads a recording into a player on the
@@ -401,9 +410,13 @@ id: {
   'research.declared': '{name} — sistem tulisan yang terdaftar: {list}',
   'research.noneDeclared': '(tidak ada yang terdaftar)',
   'research.lang': 'Bahasa / Language',
-  'research.disableBox': 'Nonaktifkan tab Penelitian di perangkat rekan kerja (Ctrl+Alt+R untuk mengaktifkan lagi)',
+  'research.disableBox': 'Sembunyikan tab Penelitian di perangkat rekan kerja (disertakan dalam tautan di atas)',
+  'research.hideHere': 'Sembunyikan tab Penelitian di perangkat INI sekarang',
+  'research.hideHereNote': 'Gunakan ini saat Anda menyiapkan HP milik rekan kerja secara langsung. Untuk memunculkan tab Penelitian lagi: ketuk judul aplikasi 7 kali (atau tekan Ctrl+Alt+R di papan ketik).',
+  'research.hideHereConfirm': 'Sembunyikan tab Penelitian di perangkat INI? Untuk memunculkannya lagi, ketuk judul aplikasi 7 kali (atau tekan Ctrl+Alt+R di papan ketik).',
+  'research.analBlankConfirm': 'Kode sistem tulisan analisis kosong — rekan kerja tidak akan punya bahasa untuk arti kata dan terjemahan bebas. Tetap buat tautannya?',
   'research.enabled': 'Tab Penelitian diaktifkan.',
-  'research.disabled': 'Tab Penelitian dinonaktifkan. Tekan Ctrl+Alt+R untuk memunculkannya lagi.',
+  'research.disabled': 'Tab Penelitian disembunyikan. Untuk memunculkannya lagi, ketuk judul aplikasi 7 kali (atau tekan Ctrl+Alt+R).',
   'ws.line': 'Baris interlinear',
   'ws.code': 'Kode di file',
   'ws.count': 'Jumlah',
@@ -537,7 +550,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
 <p>Hasil kerja Anda tersimpan otomatis di perangkat ini — aplikasi boleh ditutup dan dilanjutkan nanti dari daftar <b>Teks</b>. Kalau teks cerita diubah setelah diglos, arti kata pada kalimat yang berubah mungkin perlu diketik ulang.</p>
 
 <div id="help-research-hidden" hidden>
-<p><i>Panduan untuk peneliti disembunyikan di perangkat ini. Kalau Anda peneliti, tekan <b>Ctrl+Alt+R</b> untuk menampilkan tab Penelitian dan panduan ini.</i></p>
+<p><i>Panduan untuk peneliti disembunyikan di perangkat ini. Kalau Anda peneliti, ketuk judul aplikasi 7 kali — atau tekan <b>Ctrl+Alt+R</b> di papan ketik — untuk menampilkan tab Penelitian dan panduan ini.</i></p>
 </div>
 <div id="help-researchers">
 <h3>Untuk peneliti</h3>
@@ -566,10 +579,16 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   disimpan di perangkat untuk dipakai tanpa internet), dan pilih apakah rekan kerja menekan
   <b>Ya/Tidak</b> atau <b>merekam persetujuan lisan penutur</b>. Jawabannya — dan rekaman izin apa
   pun — ikut dibungkus dalam file yang diunggah.</li>
-  <li><b>Menyembunyikan tab Penelitian:</b> centang kotak di bawah tombol salin tautan sebelum
-  menyalin tautan pengaturan atau tugas; saat dibuka, tab Penelitian disembunyikan di perangkat
-  rekan kerja. Untuk memunculkannya lagi: tekan <b>Ctrl+Alt+R</b> di perangkat itu, atau buka
-  tautan yang diakhiri <code>?research=on</code> (salin alamat aplikasi lalu tambahkan).</li>
+  <li><b>Apa yang dilihat rekan kerja:</b> kotak centang opsi kirim adalah templat untuk tautan
+  yang Anda bagikan — menentukan tombol "Simpan & kirim…" mana yang didapat rekan kerja, dan tidak
+  pernah membatasi perangkat Anda sendiri. Pembatasan hanya sampai ke sebuah perangkat lewat
+  tautan yang dibukanya.</li>
+  <li><b>Menyembunyikan tab Penelitian:</b> dua cara. Untuk rekan kerja <i>jarak jauh</i>, centang
+  kotak di bawah tombol salin tautan sebelum menyalin — tab disembunyikan saat mereka membuka
+  tautannya. Untuk menyembunyikannya di HP yang Anda siapkan <i>secara langsung</i>, pakai
+  <b>Sembunyikan tab Penelitian di perangkat INI sekarang</b>. Untuk memunculkannya lagi:
+  <b>ketuk judul aplikasi 7 kali</b> (bisa di layar sentuh) atau tekan <b>Ctrl+Alt+R</b> di papan
+  ketik — atau buka tautan yang diakhiri <code>?research=on</code>.</li>
   <li><b>Pembaruan:</b> saat online, aplikasi memeriksa versi baru dan menampilkan tombol <b>Perbarui</b> bila tersedia.</li>
   <li><b>Tautan tugas dengan audio:</b> bagian <b>Tautan tugas</b> membuat tautan yang mengatur
   perangkat rekan kerja, membuat teks berjudul, dan otomatis mengunduh rekaman ke pemutar di tab

@@ -34,6 +34,20 @@ function saveSettings(s) {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
 }
 
+// One-time normalization. Older builds stored the researcher's send-option
+// checkboxes in `sendOptions`, which doubled as a restriction on THIS device.
+// Now the checkboxes are a link TEMPLATE (`linkSendOptions`) and a device is
+// only restricted by a limit it RECEIVED via a link. Move the old value to the
+// template and clear the self-restriction. Runs before any link is processed.
+function migrateSettings() {
+  const s = loadSettings();
+  if (s.linkSendOptions === undefined) {
+    if (s.sendOptions?.length) s.linkSendOptions = s.sendOptions;
+    delete s.sendOptions;
+    saveSettings(s);
+  }
+}
+
 // Apply settings arriving via shared setup URL (?vern=fau&vernName=Fayu...&lang=id),
 // and consume task parameters (?title=...&audio=...). Returns
 // { gotSettings, task: {title, audioUrl} | null }.
@@ -1011,7 +1025,9 @@ function focusNextWordGloss(fromInput, dir) {
 
 /* ---------------- Save and send ---------------- */
 
-// Which save/send options the researcher allows on this device.
+// Which save/send buttons THIS device shows. Restricted only by a limit the
+// device RECEIVED through a link (settings.sendOptions); a researcher composing
+// links is never restricted by their own checkboxes (those are linkSendOptions).
 function allowedSend() {
   return new Set(settings.sendOptions?.length
     ? settings.sendOptions
@@ -1235,11 +1251,15 @@ function fillWsForm() {
     if (f.elements[key]) f.elements[key].value = settings[key] || '';
   }
   f.elements.uploadUrl.value = settings.uploadUrl || '';
-  const allow = allowedSend();
-  f.elements.sendShare.checked = allow.has('share');
-  f.elements.sendUpload.checked = allow.has('upload');
-  f.elements.sendSave.checked = allow.has('save');
-  f.elements.sendDownload.checked = allow.has('download');
+  // The checkboxes are a TEMPLATE for the links you hand out — what the
+  // coworker sees. They never restrict this device (allowedSend, below, only
+  // honors a restriction this device RECEIVED via a link). Default: all on.
+  const link = new Set(settings.linkSendOptions?.length
+    ? settings.linkSendOptions : ['share', 'upload', 'save', 'download']);
+  f.elements.sendShare.checked = link.has('share');
+  f.elements.sendUpload.checked = link.has('upload');
+  f.elements.sendSave.checked = link.has('save');
+  f.elements.sendDownload.checked = link.has('download');
   f.elements.consentMode.value = settings.consentMode || 'off';
   f.elements.consentMsg.value = settings.consentMsg || '';
   f.elements.consentAudioUrl.value = settings.consentAudioUrl || '';
@@ -1276,7 +1296,7 @@ function applyResearchFormToSettings(f) {
   const rawUpload = f.elements.uploadUrl.value.trim();
   settings.uploadUrl = rawUpload;
   settings.uploadFolder = rawUpload ? (parseDriveFolder(rawUpload) || '') : '';
-  settings.sendOptions = sendOptionsFromForm(f);
+  settings.linkSendOptions = sendOptionsFromForm(f); // template for links, not this device
   settings.consentMode = f.elements.consentMode.value;
   settings.consentMsg = f.elements.consentMsg.value.trim();
   settings.consentResp = f.elements.consentResp.value === 'record' ? 'record' : 'yesno';
@@ -1301,6 +1321,16 @@ function setupResearch() {
 
   $('#ws-form').elements.consentMode.addEventListener('change', () => updateConsentFields($('#ws-form')));
 
+  // Lock down the coworker's interface in person: hide the Research tab on THIS
+  // device. The confirm spells out the touch-friendly recovery so nobody gets
+  // stranded on a phone with no keyboard.
+  $('#btn-hide-research').addEventListener('click', () => {
+    if (!confirm(t('research.hideHereConfirm'))) return;
+    localStorage.setItem(RESEARCH_HIDDEN_KEY, '1');
+    applyResearchVisibility();
+    toast(t('research.disabled'));
+  });
+
   $('#btn-copy-link').addEventListener('click', async () => {
     const f2 = $('#ws-form');
     applyResearchFormToSettings(f2); // link must reflect the CURRENT form, not the last Save
@@ -1312,13 +1342,14 @@ function setupResearch() {
       if (v) p.set(qp, v);
     }
     if (!p.has('vern')) { toast(t('toast.needVern')); return; }
+    if (!p.has('anal') && !confirm(t('research.analBlankConfirm'))) return;
     p.set('lang', getLang());
     if ($('#research-off-box').checked) p.set('research', 'off');
     // Upload target + allowed save/send options always travel with the link
     // so the researcher's latest choices overwrite older ones.
     p.set('upload', settings.uploadFolder || '');
-    p.set('send', (settings.sendOptions?.length
-      ? settings.sendOptions
+    p.set('send', (settings.linkSendOptions?.length
+      ? settings.linkSendOptions
       : ['share', 'upload', 'save', 'download']).join(','));
     // Consent (app-wide) travels with every link.
     if (settings.consentMode && settings.consentMode !== 'off') {
@@ -1345,6 +1376,7 @@ function setupResearch() {
     e.preventDefault();
     const f2 = $('#ws-form');
     if (!f2.elements.vernLang.value.trim()) { toast(t('toast.needVern')); return; }
+    if (!f2.elements.analLang.value.trim() && !confirm(t('research.analBlankConfirm'))) return;
     applyResearchFormToSettings(f2); // link must reflect the CURRENT form, not the last Save
 
     const audioIn = tf.elements.taskAudio.value.trim();
@@ -1391,8 +1423,8 @@ function setupResearch() {
     // Upload target + allowed save/send options always travel with the link
     // so the researcher's latest choices overwrite older ones.
     p.set('upload', settings.uploadFolder || '');
-    p.set('send', (settings.sendOptions?.length
-      ? settings.sendOptions
+    p.set('send', (settings.linkSendOptions?.length
+      ? settings.linkSendOptions
       : ['share', 'upload', 'save', 'download']).join(','));
     // Consent (app-wide) travels with every link.
     if (settings.consentMode && settings.consentMode !== 'off') {
@@ -1550,19 +1582,36 @@ function applyHelpResearchVisibility() {
   if (note) note.hidden = !hidden;
 }
 
+function toggleResearchHidden() {
+  if (isResearchHidden()) {
+    localStorage.removeItem(RESEARCH_HIDDEN_KEY);
+    toast(t('research.enabled'));
+  } else {
+    localStorage.setItem(RESEARCH_HIDDEN_KEY, '1');
+    toast(t('research.disabled'));
+  }
+  applyResearchVisibility();
+}
+
 function setupResearchToggle() {
+  // Desktop: Ctrl+Alt+R.
   document.addEventListener('keydown', (e) => {
     if (e.ctrlKey && e.altKey && !e.shiftKey && (e.key === 'r' || e.key === 'R')) {
       e.preventDefault();
-      if (isResearchHidden()) {
-        localStorage.removeItem(RESEARCH_HIDDEN_KEY);
-        toast(t('research.enabled'));
-      } else {
-        localStorage.setItem(RESEARCH_HIDDEN_KEY, '1');
-        toast(t('research.disabled'));
-      }
-      applyResearchVisibility();
+      toggleResearchHidden();
     }
+  });
+  // Touch devices have no keyboard: tap the app title 7× in quick succession
+  // to toggle the Research tab. Obscure enough that a coworker won't hit it by
+  // accident, but recoverable on a phone with no Ctrl+Alt+R.
+  let taps = 0, last = 0;
+  $$('.app-title').forEach((el) => {
+    el.addEventListener('click', () => {
+      const now = Date.now();
+      taps = now - last < 1500 ? taps + 1 : 1;
+      last = now;
+      if (taps >= 7) { taps = 0; toggleResearchHidden(); }
+    });
   });
 }
 
@@ -1692,6 +1741,7 @@ function promptUpdate(waitingWorker) {
 /* ---------------- Wire-up ---------------- */
 
 function setup() {
+  migrateSettings();
   const { gotSettings, task } = applyUrlSettings();
   settings = loadSettings();
   applyI18n();

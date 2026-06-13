@@ -1624,9 +1624,23 @@ function setupBanners() {
  */
 
 function setupServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
   const isDev = ['localhost', '127.0.0.1'].includes(location.hostname) &&
     !new URLSearchParams(location.search).has('sw');
-  if (!('serviceWorker' in navigator) || isDev) return;
+  if (isDev) {
+    // Dev: never let a stale service worker shadow fresh files. A SW left over
+    // from a ?sw=1 session (or an older build) would otherwise keep serving old
+    // JS from its cache-first store forever — we skip SW *updates* on localhost,
+    // so nothing would ever replace it. Unregister any such SW, drop its caches,
+    // and reload once so localhost always runs exactly what the dev server sends.
+    navigator.serviceWorker.getRegistrations().then((regs) => {
+      if (!regs.length) return;
+      Promise.all(regs.map((r) => r.unregister()))
+        .then(() => (window.caches ? caches.keys().then((ks) => Promise.all(ks.map((k) => caches.delete(k)))) : null))
+        .then(() => location.reload());
+    }).catch(() => {});
+    return;
+  }
 
   let reloading = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {

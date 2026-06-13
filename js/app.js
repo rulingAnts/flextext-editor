@@ -1870,9 +1870,20 @@ function setupBanners() {
  * an Update button when a new version is waiting.
  */
 
+// A dev/LAN host (localhost, the Android-emulator host alias, *.local, or any
+// private-network IP) — i.e. the dev server, never the GitHub Pages production
+// host. Used to skip the service worker so dev testing always runs fresh files,
+// now that the HTTPS dev server makes a LAN origin a secure context where a SW
+// would otherwise register and cache.
+function isDevHost(h) {
+  return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h === '10.0.2.2' ||
+    h.endsWith('.local') ||
+    /^10\./.test(h) || /^192\.168\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h);
+}
+
 function setupServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
-  const isDev = ['localhost', '127.0.0.1'].includes(location.hostname) &&
+  const isDev = isDevHost(location.hostname) &&
     !new URLSearchParams(location.search).has('sw');
   if (isDev) {
     // Dev: never let a stale service worker shadow fresh files. A SW left over

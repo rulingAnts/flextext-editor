@@ -123,14 +123,26 @@ def main() -> None:
     parser.add_argument('--bind', default='127.0.0.1')
     parser.add_argument('--offline', action='store_true',
                         help='answer every request with 503 to simulate no connection')
+    parser.add_argument('--cert', help='TLS certificate (PEM) — serve HTTPS (e.g. an mkcert cert)')
+    parser.add_argument('--key', help='TLS private key (PEM) — serve HTTPS')
     args = parser.parse_args()
     Handler.offline = args.offline
 
     with Server((args.bind, args.port), Handler) as httpd:
+        scheme = 'http'
+        if args.cert and args.key:
+            # HTTPS so LAN clients (Android AVD, Parallels VM) get a secure
+            # context — geolocation and service workers require one. Pair with an
+            # mkcert cert + the mkcert root CA installed on each client to be trusted.
+            import ssl
+            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ctx.load_cert_chain(args.cert, args.key)
+            httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
+            scheme = 'https'
         mode = 'OFFLINE SIMULATION' if args.offline else 'online'
-        print(f'FlexText dev server ({mode}) → http://{args.bind}:{args.port}/')
+        print(f'FlexText dev server ({mode}) → {scheme}://{args.bind}:{args.port}/')
         if not args.offline:
-            print(f'Service-worker test URL    → http://{args.bind}:{args.port}/?sw=1')
+            print(f'Service-worker test URL    → {scheme}://{args.bind}:{args.port}/?sw=1')
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:

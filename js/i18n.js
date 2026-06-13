@@ -9,7 +9,7 @@ export const LANGS = ['en', 'id'];
 const S = {
 en: {
   'tabs.texts': 'Texts',
-  'tabs.research': 'Research',
+  'tabs.research': 'Settings',
   'tabs.baseline': 'Baseline',
   'tabs.gloss': 'Gloss',
   'btn.saveSend': 'Save and send…',
@@ -65,7 +65,7 @@ en: {
   'untitled': 'Untitled text',
 
   'banner.set': 'Writing systems: {vern} → {anal}',
-  'banner.unset': 'No writing systems set yet — new texts will use placeholder codes. Ask your researcher for a setup link, or use the <b>Research</b> tab.',
+  'banner.unset': 'No writing systems set yet — new texts will use placeholder codes. Ask your researcher for a setup link, or use the <b>Settings</b> tab.',
 
   'baseline.hint': 'Type or paste the text. Press <b>Enter</b> for a new paragraph. Sentences are split automatically at <code>. ! ?</code>',
   'baseline.placeholder': 'Type the text here in the vernacular language…',
@@ -116,13 +116,13 @@ en: {
   'research.declared': '{name} — declared writing systems: {list}',
   'research.noneDeclared': '(none declared)',
   'research.lang': 'Language / Bahasa',
-  'research.disableBox': 'Hide the Research tab on the coworker\'s device (included in the link above)',
-  'research.hideHere': 'Hide the Research tab on THIS device now',
-  'research.hideHereNote': 'Use this when you set up a coworker\'s own phone in person. To bring the Research tab back: tap the ? (Help) button 7 times (or press Ctrl+Alt+R on a keyboard).',
-  'research.hideHereConfirm': 'Hide the Research tab on THIS device? To bring it back, tap the ? (Help) button 7 times (or press Ctrl+Alt+R on a keyboard).',
+  'research.disableBox': 'Hide the Settings tab on the coworker\'s device (included in the link above)',
+  'research.hideHere': 'Hide the Settings tab on THIS device now',
+  'research.hideHereNote': 'Use this when you set up a coworker\'s own phone in person. To bring the Settings tab back: tap the ? (Help) button 7 times (or press Ctrl+Alt+R on a keyboard).',
+  'research.hideHereConfirm': 'Hide the Settings tab on THIS device? To bring it back, tap the ? (Help) button 7 times (or press Ctrl+Alt+R on a keyboard).',
   'research.analBlankConfirm': 'The analysis writing-system code is blank — coworkers won\'t have a language for word glosses and free translations. Create the link anyway?',
-  'research.enabled': 'Research tab enabled.',
-  'research.disabled': 'Research tab hidden. To bring it back, tap the ? (Help) button 7 times (or press Ctrl+Alt+R).',
+  'research.enabled': 'Settings tab enabled.',
+  'research.disabled': 'Settings tab hidden. To bring it back, tap the ? (Help) button 7 times (or press Ctrl+Alt+R).',
   'ws.line': 'Interlinear line',
   'ws.code': 'Code in file',
   'ws.count': 'Uses',
@@ -255,18 +255,18 @@ internet after the first time.</p>
 <p>Your work is saved automatically on this device — you can close the app and continue later from the <b>Texts</b> list. If you change the story text afterwards, the word meanings of changed sentences may need to be typed again.</p>
 
 <div id="help-research-hidden" hidden>
-<p><i>The researcher setup guide is hidden on this device. If you are the researcher, tap the ? (Help) button 7 times — or press <b>Ctrl+Alt+R</b> on a keyboard — to show the Research tab and this guide.</i></p>
+<p><i>The researcher setup guide is hidden on this device. If you are the researcher, tap the ? (Help) button 7 times — or press <b>Ctrl+Alt+R</b> on a keyboard — to show the Settings tab and this guide.</i></p>
 </div>
 <div id="help-researchers">
 <h3>For researchers</h3>
 <ul>
-  <li><b>Set up a project:</b> on the <b>Research</b> tab, enter the vernacular and analysis writing systems (code, e.g. <code>fau</code> / <code>en</code>, plus name and font). Click <b>Copy setup link for coworker</b> and send the link. Opening it configures their device — including the interface language you are currently using.</li>
+  <li><b>Set up a project:</b> on the <b>Settings</b> tab, enter the vernacular and analysis writing systems (code, e.g. <code>fau</code> / <code>en</code>, plus name and font). Click <b>Copy setup link for coworker</b> and send the link. Opening it configures their device — including the interface language you are currently using.</li>
   <li><b>Files:</b> the app reads and writes FLEx <code>.flextext</code> files. Existing analyses it does not edit (morphemes, word categories, notes) are preserved on export, except in sentences whose baseline was changed — same behavior as FLEx. Files containing several texts are imported as separate texts in the list.</li>
   <li><b>Back into FLEx:</b> in FieldWorks use <i>Texts &amp; Words → Import → FLExText interlinear document</i>.
   Files sent with <b>Share</b> arrive named <code>….flextext.txt</code> (messaging apps only accept
   certain file types) — FLEx's import dialog opens them as-is, or simply delete the
   <code>.txt</code> from the filename. This app also opens them directly.</li>
-  <li><b>Wrong writing-system codes?</b> Use the <b>Writing system checker</b> (Research tab) to see which codes each interlinear line uses and remap them without touching anything else.</li>
+  <li><b>Wrong writing-system codes?</b> Use the <b>Writing system checker</b> (Settings tab) to see which codes each interlinear line uses and remap them without touching anything else.</li>
   <li><b>Uploads to your Drive:</b> set a <b>Google Drive upload folder</b> (shared as "Anyone
   with the link can edit") in the settings — your links then give coworkers an <b>Upload</b>
   button that sends finished work straight to that folder, zipped together with any recording they
@@ -275,10 +275,10 @@ internet after the first time.</p>
   transfer quota. You can also choose exactly which save/send buttons coworkers see, via the
   checkboxes; the choices travel with your links.</li>
   <li><b>Audio converter:</b> recorders often produce huge WAV files (a 2-minute 32-bit stereo WAV
-  is ~40&nbsp;MB) that are far too heavy to send. The <b>Audio converter</b> on the Research tab
+  is ~40&nbsp;MB) that are far too heavy to send. The <b>Audio converter</b> on the Settings tab
   turns any recording into a small mono 64&nbsp;kbps MP3 (~0.5&nbsp;MB per minute), on your device
   and offline; then upload that MP3 to Drive for your task link.</li>
-  <li><b>Ask for the speaker's permission:</b> under <b>Speaker permission</b> on the Research tab
+  <li><b>Ask for the speaker's permission:</b> under <b>Speaker permission</b> on the Settings tab
   you can require a permission step before a coworker records. Write the message (in the local
   language and/or a language of wider communication), optionally give a spoken version (a Drive
   audio link, cached on the device for offline use), and choose how the coworker confirms:
@@ -293,9 +293,9 @@ internet after the first time.</p>
   <li><b>What the coworker sees:</b> the send-option checkboxes are a template for the links you
   hand out — they decide which "Save and send…" buttons the coworker gets, and never restrict
   your own device. Likewise, restrictions only ever reach a device through a link it opens.</li>
-  <li><b>Hiding the Research tab:</b> two ways. For a <i>remote</i> coworker, tick the box under
+  <li><b>Hiding the Settings tab:</b> two ways. For a <i>remote</i> coworker, tick the box under
   the copy-link buttons before copying — their device hides the tab when they open the link. To
-  hide it on a phone you are setting up <i>in person</i>, use <b>Hide the Research tab on THIS
+  hide it on a phone you are setting up <i>in person</i>, use <b>Hide the Settings tab on THIS
   device now</b>. Either way, to bring it back: <b>tap the ? (Help) button 7 times</b> (works on a
   touchscreen) or press <b>Ctrl+Alt+R</b> on a keyboard — or open a link ending in
   <code>?research=on</code>.</li>
@@ -317,7 +317,7 @@ internet after the first time.</p>
 
 id: {
   'tabs.texts': 'Teks',
-  'tabs.research': 'Penelitian',
+  'tabs.research': 'Pengaturan',
   'tabs.baseline': 'Ketik',
   'tabs.gloss': 'Terjemahan Balik',
   'btn.saveSend': 'Simpan & kirim…',
@@ -373,7 +373,7 @@ id: {
   'untitled': 'Teks tanpa judul',
 
   'banner.set': 'Sistem tulisan: {vern} → {anal}',
-  'banner.unset': 'Sistem tulisan belum diatur — teks baru akan memakai kode sementara. Minta tautan pengaturan dari peneliti, atau buka tab <b>Penelitian</b>.',
+  'banner.unset': 'Sistem tulisan belum diatur — teks baru akan memakai kode sementara. Minta tautan pengaturan dari peneliti, atau buka tab <b>Pengaturan</b>.',
 
   'baseline.hint': 'Ketik atau tempel teks di sini. Tekan <b>Enter</b> untuk paragraf baru. Kalimat dipisah otomatis pada <code>. ! ?</code>',
   'baseline.placeholder': 'Ketik teks bahasa daerah di sini…',
@@ -424,13 +424,13 @@ id: {
   'research.declared': '{name} — sistem tulisan yang terdaftar: {list}',
   'research.noneDeclared': '(tidak ada yang terdaftar)',
   'research.lang': 'Bahasa / Language',
-  'research.disableBox': 'Sembunyikan tab Penelitian di perangkat rekan kerja (disertakan dalam tautan di atas)',
-  'research.hideHere': 'Sembunyikan tab Penelitian di perangkat INI sekarang',
-  'research.hideHereNote': 'Gunakan ini saat Anda menyiapkan HP milik rekan kerja secara langsung. Untuk memunculkan tab Penelitian lagi: ketuk tombol ? (Bantuan) 7 kali (atau tekan Ctrl+Alt+R di papan ketik).',
-  'research.hideHereConfirm': 'Sembunyikan tab Penelitian di perangkat INI? Untuk memunculkannya lagi, ketuk tombol ? (Bantuan) 7 kali (atau tekan Ctrl+Alt+R di papan ketik).',
+  'research.disableBox': 'Sembunyikan tab Pengaturan di perangkat rekan kerja (disertakan dalam tautan di atas)',
+  'research.hideHere': 'Sembunyikan tab Pengaturan di perangkat INI sekarang',
+  'research.hideHereNote': 'Gunakan ini saat Anda menyiapkan HP milik rekan kerja secara langsung. Untuk memunculkan tab Pengaturan lagi: ketuk tombol ? (Bantuan) 7 kali (atau tekan Ctrl+Alt+R di papan ketik).',
+  'research.hideHereConfirm': 'Sembunyikan tab Pengaturan di perangkat INI? Untuk memunculkannya lagi, ketuk tombol ? (Bantuan) 7 kali (atau tekan Ctrl+Alt+R di papan ketik).',
   'research.analBlankConfirm': 'Kode sistem tulisan analisis kosong — rekan kerja tidak akan punya bahasa untuk arti kata dan terjemahan bebas. Tetap buat tautannya?',
-  'research.enabled': 'Tab Penelitian diaktifkan.',
-  'research.disabled': 'Tab Penelitian disembunyikan. Untuk memunculkannya lagi, ketuk tombol ? (Bantuan) 7 kali (atau tekan Ctrl+Alt+R).',
+  'research.enabled': 'Tab Pengaturan diaktifkan.',
+  'research.disabled': 'Tab Pengaturan disembunyikan. Untuk memunculkannya lagi, ketuk tombol ? (Bantuan) 7 kali (atau tekan Ctrl+Alt+R).',
   'ws.line': 'Baris interlinear',
   'ws.code': 'Kode di file',
   'ws.count': 'Jumlah',
@@ -564,18 +564,18 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
 <p>Hasil kerja Anda tersimpan otomatis di perangkat ini — aplikasi boleh ditutup dan dilanjutkan nanti dari daftar <b>Teks</b>. Kalau teks cerita diubah setelah diglos, arti kata pada kalimat yang berubah mungkin perlu diketik ulang.</p>
 
 <div id="help-research-hidden" hidden>
-<p><i>Panduan untuk peneliti disembunyikan di perangkat ini. Kalau Anda peneliti, ketuk tombol ? (Bantuan) 7 kali — atau tekan <b>Ctrl+Alt+R</b> di papan ketik — untuk menampilkan tab Penelitian dan panduan ini.</i></p>
+<p><i>Panduan untuk peneliti disembunyikan di perangkat ini. Kalau Anda peneliti, ketuk tombol ? (Bantuan) 7 kali — atau tekan <b>Ctrl+Alt+R</b> di papan ketik — untuk menampilkan tab Pengaturan dan panduan ini.</i></p>
 </div>
 <div id="help-researchers">
 <h3>Untuk peneliti</h3>
 <ul>
-  <li><b>Menyiapkan proyek:</b> di tab <b>Penelitian</b>, isi sistem tulisan bahasa daerah dan bahasa analisis (kode, mis. <code>fau</code> / <code>en</code>, beserta nama dan fon). Klik <b>Salin tautan pengaturan untuk rekan kerja</b> lalu kirim tautannya. Saat dibuka, tautan itu mengatur perangkat mereka — termasuk bahasa tampilan yang sedang Anda pakai.</li>
+  <li><b>Menyiapkan proyek:</b> di tab <b>Pengaturan</b>, isi sistem tulisan bahasa daerah dan bahasa analisis (kode, mis. <code>fau</code> / <code>en</code>, beserta nama dan fon). Klik <b>Salin tautan pengaturan untuk rekan kerja</b> lalu kirim tautannya. Saat dibuka, tautan itu mengatur perangkat mereka — termasuk bahasa tampilan yang sedang Anda pakai.</li>
   <li><b>File:</b> aplikasi ini membaca dan menulis file <code>.flextext</code> FLEx. Analisis yang tidak diubah (morfem, kategori kata, catatan) tetap dipertahankan saat ekspor, kecuali pada kalimat yang teks dasarnya diubah — sama seperti perilaku FLEx. File yang berisi beberapa teks akan diimpor sebagai teks-teks terpisah.</li>
   <li><b>Kembali ke FLEx:</b> di FieldWorks gunakan <i>Texts &amp; Words → Import → FLExText interlinear document</i>.
   File yang dikirim lewat <b>Bagikan</b> bernama <code>….flextext.txt</code> (aplikasi pesan hanya
   menerima jenis file tertentu) — dialog impor FLEx bisa membukanya langsung, atau hapus saja
   <code>.txt</code> dari nama filenya. Aplikasi ini juga bisa membukanya langsung.</li>
-  <li><b>Kode sistem tulisan salah?</b> Gunakan <b>Pemeriksa sistem tulisan</b> (tab Penelitian) untuk melihat kode pada setiap baris interlinear dan menggantinya tanpa mengubah isi lain.</li>
+  <li><b>Kode sistem tulisan salah?</b> Gunakan <b>Pemeriksa sistem tulisan</b> (tab Pengaturan) untuk melihat kode pada setiap baris interlinear dan menggantinya tanpa mengubah isi lain.</li>
   <li><b>Unggahan ke Drive Anda:</b> atur <b>folder unggahan Google Drive</b> (dibagikan sebagai
   "Siapa saja yang memiliki link dapat mengedit") di pengaturan — tautan Anda lalu memberi rekan
   kerja tombol <b>Kirim Langsung</b> yang mengirim hasil kerja langsung ke folder itu, di-zip
@@ -585,9 +585,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   dilihat rekan kerja lewat kotak centang; pilihan itu ikut dalam tautan Anda.</li>
   <li><b>Pengubah audio:</b> alat perekam sering menghasilkan file WAV yang sangat besar (WAV
   stereo 32-bit 2 menit ≈ 40&nbsp;MB) — terlalu berat untuk dikirim. <b>Pengubah audio</b> di tab
-  Penelitian mengubah rekaman apa pun menjadi MP3 mono 64&nbsp;kbps yang kecil (≈0,5&nbsp;MB per
+  Pengaturan mengubah rekaman apa pun menjadi MP3 mono 64&nbsp;kbps yang kecil (≈0,5&nbsp;MB per
   menit), di perangkat Anda dan tanpa internet; lalu unggah MP3-nya ke Drive untuk tautan tugas.</li>
-  <li><b>Minta izin penutur:</b> di bagian <b>Izin penutur</b> pada tab Penelitian, Anda bisa
+  <li><b>Minta izin penutur:</b> di bagian <b>Izin penutur</b> pada tab Pengaturan, Anda bisa
   mewajibkan langkah izin sebelum rekan kerja merekam. Tulis pesannya (dalam bahasa daerah dan/atau
   bahasa pengantar yang lebih luas), boleh juga sertakan versi suaranya (tautan audio Drive, yang
   disimpan di perangkat untuk dipakai tanpa internet), dan pilih cara rekan kerja mengonfirmasi:
@@ -604,10 +604,10 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   yang Anda bagikan — menentukan tombol "Simpan & kirim…" mana yang didapat rekan kerja, dan tidak
   pernah membatasi perangkat Anda sendiri. Pembatasan hanya sampai ke sebuah perangkat lewat
   tautan yang dibukanya.</li>
-  <li><b>Menyembunyikan tab Penelitian:</b> dua cara. Untuk rekan kerja <i>jarak jauh</i>, centang
+  <li><b>Menyembunyikan tab Pengaturan:</b> dua cara. Untuk rekan kerja <i>jarak jauh</i>, centang
   kotak di bawah tombol salin tautan sebelum menyalin — tab disembunyikan saat mereka membuka
   tautannya. Untuk menyembunyikannya di HP yang Anda siapkan <i>secara langsung</i>, pakai
-  <b>Sembunyikan tab Penelitian di perangkat INI sekarang</b>. Untuk memunculkannya lagi:
+  <b>Sembunyikan tab Pengaturan di perangkat INI sekarang</b>. Untuk memunculkannya lagi:
   <b>ketuk tombol ? (Bantuan) 7 kali</b> (bisa di layar sentuh) atau tekan <b>Ctrl+Alt+R</b> di papan
   ketik — atau buka tautan yang diakhiri <code>?research=on</code>.</li>
   <li><b>Pembaruan:</b> saat online, aplikasi memeriksa versi baru dan menampilkan tombol <b>Perbarui</b> bila tersedia.</li>

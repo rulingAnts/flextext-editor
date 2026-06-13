@@ -412,7 +412,12 @@ async function newDocFromAudio(file, titleOverride) {
     await db.putMedia('consent:' + current.id, pendingAssent).catch(() => {});
     pendingAssent = null;
   }
-  if (current.consentReceipt || current.consentClip) await persist();
+  if (pendingPromptAudio) {
+    current.consentPromptClip = pendingPromptAudio.name;
+    await db.putMedia('consent-prompt:' + current.id, pendingPromptAudio).catch(() => {});
+    pendingPromptAudio = null;
+  }
+  if (current.consentReceipt || current.consentClip || current.consentPromptClip) await persist();
   $('#doc-title').focus();
   $('#doc-title').select();
 }
@@ -426,6 +431,7 @@ async function newDocFromAudio(file, titleOverride) {
 
 let pendingAssent = null; // { blob, name } captured assent, consumed on doc create
 let pendingReceipt = null; // consent audit record, consumed on doc create
+let pendingPromptAudio = null; // frozen copy of the spoken prompt, consumed on doc create
 let consentCapture = null; // { receipt, promise } in-flight IP/location capture
 let lastGeo = null;       // cached approx location, only set once permission is granted
 let crec = null;          // consent-assent recorder state
@@ -500,6 +506,7 @@ function buildConsentReceipt(assent, signatureName) {
     promptMode: settings.consentMode || 'off',
     promptMessage: settings.consentMsg || '',
     promptAudioUrl: settings.consentMode === 'audio' ? (settings.consentAudio || '') : '',
+    promptAudioFile: (settings.consentMode === 'audio' && pendingPromptAudio) ? pendingPromptAudio.name : '',
     timestamp: now.toISOString(),
     localTime: now.toString(),
     timezone: (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch { return ''; } })(),
@@ -542,7 +549,9 @@ function consentReceiptText(r) {
     'Date/time: ' + r.localTime + '  (' + r.timestamp + ', ' + r.timezone + ')',
     '',
     'Prompt shown to the speaker (' + r.promptMode + '):',
-    (r.promptMessage || (r.promptAudioUrl ? '[spoken audio: ' + r.promptAudioUrl + ']' : '(none)')),
+    (r.promptMessage || (r.promptMode === 'audio' ? '(spoken — see prompt audio file below)' : '(none)')),
+    ...(r.promptAudioFile ? ['Spoken prompt audio (included in this bundle): ' + r.promptAudioFile
+      + (r.promptAudioUrl ? '   [source: ' + r.promptAudioUrl + ']' : '')] : []),
     '',
     'Device id: ' + r.deviceId,
     'Interface language: ' + r.interfaceLang,
@@ -588,6 +597,7 @@ async function requestConsentThen(onApproved) {
   // recording made while consent is switched off.
   pendingAssent = null;
   pendingReceipt = null;
+  pendingPromptAudio = null;
   const mode = settings.consentMode || 'off';
   if (mode === 'off') { onApproved(null); return; }
 
@@ -610,6 +620,12 @@ async function requestConsentThen(onApproved) {
         audioEl.hidden = false;
         status.hidden = true;
         audioEl.play?.().catch(() => {});
+        // Freeze a copy of the EXACT prompt that was played, to bundle beside
+        // the response — the prompt may be refined later, so the record must
+        // show what THIS speaker was actually asked (IRB verification).
+        const m = asset.name && asset.name.match(/\.[a-z0-9]+$/i);
+        const ext = m ? m[0] : (asset.mimeType === 'audio/mpeg' ? '.mp3' : '.audio');
+        pendingPromptAudio = { blob: asset.blob, name: 'consent-prompt' + ext, mimeType: asset.mimeType };
       } else {
         status.textContent = t('consent.audioFailed');
       }
@@ -767,8 +783,9 @@ function openRecordModal() {
 
 function closeRecordModal() {
   discardRecording();
-  pendingAssent = null;  // abandon any consent clip if the recording is cancelled
-  pendingReceipt = null; // and its audit record
+  pendingAssent = null;       // abandon any consent clip if the recording is cancelled
+  pendingReceipt = null;      // and its audit record
+  pendingPromptAudio = null;  // and the frozen prompt copy
   $('#record-modal').hidden = true;
 }
 
@@ -815,9 +832,11 @@ async function saveRecording() {
     const file = new File([res.blob], `recording-${stamp}.mp3`, { type: 'audio/mpeg' });
     const assent = pendingAssent;     // closeRecordModal clears these; preserve
     const receipt = pendingReceipt;   // them for the new doc
+    const promptAudio = pendingPromptAudio;
     closeRecordModal();
     pendingAssent = assent;
     pendingReceipt = receipt;
+    pendingPromptAudio = promptAudio;
     await newDocFromAudio(file, title);
   } catch (e) {
     recordUI('review');
@@ -1242,6 +1261,11 @@ async function buildBundle(withTimestamp) {
   const consent = current.consentClip
     ? await db.getMedia('consent:' + current.id).catch(() => null)
     : null;
+  // The exact spoken prompt that was played, frozen at consent time, so the
+  // question and the answer travel together for IRB verification.
+  const promptAudio = current.consentPromptClip
+    ? await db.getMedia('consent-prompt:' + current.id).catch(() => null)
+    : null;
   const receipt = current.consentReceipt || null;
   // If this receipt's best-effort IP/location capture is still in flight, give
   // it a short window so the bundled record isn't needlessly "unavailable".
@@ -1249,10 +1273,11 @@ async function buildBundle(withTimestamp) {
     await Promise.race([consentCapture.promise, new Promise((r) => setTimeout(r, 5000))]);
   }
   const stamp = withTimestamp ? ' ' + fileStamp() : '';
-  if (userAudio || consent || receipt) {
+  if (userAudio || consent || promptAudio || receipt) {
     const entries = [{ name, data: xmlBlob }];
     if (userAudio) entries.push({ name: media.name || 'audio.mp3', data: media.blob });
     if (consent?.blob) entries.push({ name: consent.name || current.consentClip, data: consent.blob });
+    if (promptAudio?.blob) entries.push({ name: promptAudio.name || current.consentPromptClip, data: promptAudio.blob });
     if (receipt) {
       const full = { ...receipt, textTitle: current.title || '' };
       entries.push({ name: 'consent-receipt.json', data: new Blob([JSON.stringify(full, null, 2)], { type: 'application/json' }) });

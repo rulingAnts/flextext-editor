@@ -46,7 +46,7 @@ en: {
   'consent.signLabel': 'Type your name to give permission',
   'consent.signBtn': 'Sign & continue',
   'consent.needName': 'Please type your name first.',
-  'consent.note': 'This reminder appears on the coworker\'s device before each new recording. Every consent is logged in a consent-receipt file (with the date, the exact prompt shown, the device\'s IP when online, and an approximate location if the speaker allows it — asked just once at first use) bundled with the text; a recorded "yes" or typed signature is saved alongside it.',
+  'consent.note': 'This reminder appears on the coworker\'s device before each new recording. Every consent is logged in a consent-receipt file (with the date, the exact prompt shown, the device\'s IP when online, and an approximate location if the speaker allows it — asked just once at first use) bundled with the text. A recorded "yes" or typed signature is saved alongside it, and for a spoken prompt a copy of the exact recording the speaker heard is bundled too — so the question and the answer can be verified side by side even after you later refine the prompt.',
   'consent.title': 'Speaker permission',
   'consent.yes': 'Yes — I have permission',
   'consent.no': 'No',
@@ -287,7 +287,9 @@ internet after the first time.</p>
   <code>consent-receipt.txt</code>) into the upload, logging that consent was given, the exact
   prompt shown, the date/time, the signature or recording, and — best effort — the device's IP
   (when online) plus an approximate location if the speaker allows it (the app asks once, on the
-  first tap; both read "unavailable" otherwise).</li>
+  first tap; both read "unavailable" otherwise). When the prompt itself is a recording, a copy of
+  the exact audio the speaker heard is bundled too — so the question and the answer stay paired
+  even after you refine the prompt later.</li>
   <li><b>What the coworker sees:</b> the send-option checkboxes are a template for the links you
   hand out — they decide which "Save and send…" buttons the coworker gets, and never restrict
   your own device. Likewise, restrictions only ever reach a device through a link it opens.</li>
@@ -352,7 +354,7 @@ id: {
   'consent.signLabel': 'Ketik nama Anda untuk memberi izin',
   'consent.signBtn': 'Tanda tangan & lanjutkan',
   'consent.needName': 'Silakan ketik nama Anda dulu.',
-  'consent.note': 'Pengingat ini muncul di perangkat rekan kerja sebelum tiap rekaman baru. Setiap persetujuan dicatat dalam berkas consent-receipt (berisi tanggal, pesan persis yang ditampilkan, alamat IP perangkat saat online, dan lokasi perkiraan bila penutur mengizinkannya — ditanyakan sekali saja saat pertama dipakai) yang dibungkus bersama teks; rekaman "ya" atau tanda tangan yang diketik disimpan bersamanya.',
+  'consent.note': 'Pengingat ini muncul di perangkat rekan kerja sebelum tiap rekaman baru. Setiap persetujuan dicatat dalam berkas consent-receipt (berisi tanggal, pesan persis yang ditampilkan, alamat IP perangkat saat online, dan lokasi perkiraan bila penutur mengizinkannya — ditanyakan sekali saja saat pertama dipakai) yang dibungkus bersama teks. Rekaman "ya" atau tanda tangan yang diketik disimpan bersamanya, dan untuk pengingat lisan, salinan persis rekaman yang didengar penutur ikut dibungkus juga — sehingga pertanyaan dan jawaban bisa diverifikasi berdampingan walau nanti Anda memperbaiki pengingatnya.',
   'consent.title': 'Izin penutur',
   'consent.yes': 'Ya — saya punya izin',
   'consent.no': 'Tidak',
@@ -595,7 +597,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   diberikan, pesan persis yang ditampilkan, tanggal/waktu, tanda tangan atau rekaman, dan —
   sebisanya — alamat IP perangkat (saat online) serta lokasi perkiraan bila penutur mengizinkan
   (aplikasi menanyakannya sekali, saat ketukan pertama; keduanya tertulis "unavailable" jika
-  tidak tersedia).</li>
+  tidak tersedia). Bila pengingatnya berupa rekaman, salinan persis audio yang didengar penutur
+  ikut dibungkus juga — sehingga pertanyaan dan jawaban tetap berpasangan walau nanti Anda
+  memperbaiki pengingatnya.</li>
   <li><b>Apa yang dilihat rekan kerja:</b> kotak centang opsi kirim adalah templat untuk tautan
   yang Anda bagikan — menentukan tombol "Simpan & kirim…" mana yang didapat rekan kerja, dan tidak
   pernah membatasi perangkat Anda sendiri. Pembatasan hanya sampai ke sebuah perangkat lewat

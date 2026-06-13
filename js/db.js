@@ -76,6 +76,7 @@ export async function deleteDoc(id) {
   await deleteMedia('partial:' + id).catch(() => {}); // any in-progress download
   await deleteMedia('upload:' + id).catch(() => {});  // any in-progress upload
   await deleteMedia('consent:' + id).catch(() => {}); // recorded verbal assent
+  await deleteMedia('consent-prompt:' + id).catch(() => {}); // frozen consent-prompt copy
   return new Promise((resolve, reject) => {
     const req = tx(db, 'readwrite').delete(id);
     req.onsuccess = () => resolve();

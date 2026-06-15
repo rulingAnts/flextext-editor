@@ -57,8 +57,10 @@ function applyUrlSettings() {
   if (p.get('research') === 'off') localStorage.setItem(RESEARCH_HIDDEN_KEY, '1');
   if (p.get('research') === 'on') localStorage.removeItem(RESEARCH_HIDDEN_KEY);
   const gotSettings = p.has('vern') || p.has('anal');
+  let settingsChanged = false;
   if (gotSettings) {
     const s = loadSettings();
+    const before = JSON.stringify(s);
     const map = { vern: 'vernLang', vernName: 'vernName', vernFont: 'vernFont',
                   anal: 'analLang', analName: 'analName', analFont: 'analFont' };
     for (const [qp, key] of Object.entries(map)) {
@@ -76,6 +78,7 @@ function applyUrlSettings() {
     if (p.has('consentMsg')) s.consentMsg = p.get('consentMsg');
     if (p.has('consentAudio')) s.consentAudio = p.get('consentAudio');
     if (p.has('consentResp')) s.consentResp = ['record', 'signature'].includes(p.get('consentResp')) ? p.get('consentResp') : 'yesno';
+    settingsChanged = JSON.stringify(s) !== before;
     saveSettings(s);
   }
   const task = (p.has('audio') || p.has('title'))
@@ -84,7 +87,7 @@ function applyUrlSettings() {
   if (gotSettings || task || p.has('lang') || p.has('research')) {
     history.replaceState(null, '', location.pathname);
   }
-  return { gotSettings, task };
+  return { gotSettings, settingsChanged, task };
 }
 
 /* ---------------- App state ---------------- */
@@ -1945,7 +1948,7 @@ function promptUpdate(waitingWorker) {
 
 function setup() {
   migrateSettings();
-  const { gotSettings, task } = applyUrlSettings();
+  const { settingsChanged, task } = applyUrlSettings();
   settings = loadSettings();
   applyI18n();
 
@@ -2073,7 +2076,7 @@ function setup() {
   } else {
     renderDocList();
     show('texts');
-    if (gotSettings) toast(t('toast.setupReceived'), 5000);
+    if (settingsChanged) toast(t('toast.setupReceived'), 5000);
   }
   retryPendingAudio();
   resumePendingUploads();

@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex">
+  <title>Tugas Baru — FlexText</title>
+  <link rel="icon" href="icons/icon.svg">
+  <style>
+    :root { --blue:#1f4f8f; --blue-d:#163a69; --bg:#f4f6f9; --card:#fff; --ink:#1a2230; --muted:#5b6b80; }
+    * { box-sizing: border-box; }
+    html, body { margin:0; height:100%; }
+    body {
+      background:var(--bg); color:var(--ink);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      display:flex; align-items:center; justify-content:center; padding:24px;
+    }
+    .card {
+      background:var(--card); border-radius:18px; box-shadow:0 8px 30px rgba(0,0,0,.12);
+      max-width:420px; width:100%; padding:30px 26px; text-align:center;
+    }
+    .logo { width:64px; height:64px; margin:0 auto 14px; display:block; }
+    h1 { font-size:1.45rem; margin:.2em 0 .05em; color:var(--blue); }
+    .sub { color:var(--muted); font-size:.95rem; margin:0 0 22px; }
+    .assignment {
+      background:#eef3fa; border-radius:12px; padding:12px 14px; margin:0 0 22px; font-size:1.05rem;
+    }
+    .assignment b { color:var(--blue-d); }
+    button {
+      -webkit-appearance:none; appearance:none; border:0; cursor:pointer;
+      background:var(--blue); color:#fff; font-size:1.3rem; font-weight:600; line-height:1.25;
+      padding:18px 22px; width:100%; border-radius:14px;
+    }
+    button:active { background:var(--blue-d); }
+    button .en { display:block; font-size:.85rem; font-weight:400; opacity:.85; margin-top:2px; }
+    .hint { color:var(--muted); font-size:.92rem; margin:16px 0 0; min-height:1.3em; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <img class="logo" src="icons/icon.svg" alt="">
+    <h1>Tugas Baru</h1>
+    <p class="sub">New assignment from your supervisor</p>
+    <div class="assignment" id="summary" hidden></div>
+    <button id="open" type="button">Buka di FlexText<span class="en">Open in FlexText</span></button>
+    <p class="hint" id="hint"></p>
+  </main>
+  <script>
+    (function () {
+      // This page only ever loads from a pushed link. It never touches FlexText's
+      // settings/storage itself (it may be in the wrong Chromium profile). Its only
+      // job: forward the assignment params to the flextext:// handler on a user tap,
+      // which re-launches FlexText in its own profile. The tap is the required user
+      // gesture for Chromium to invoke the external-protocol handler.
+      var pairs = (location.search || '').replace(/^\?/, '').split('&')
+        .filter(function (kv) { return kv && kv.indexOf('relay=') !== 0; });
+      var target = 'flextext://assign' + (pairs.length ? '?' + pairs.join('&') : '');
+
+      try {
+        var p = new URLSearchParams(location.search);
+        var v = p.get('vernName'), a = p.get('analName');
+        if (v || a) {
+          var s = document.getElementById('summary');
+          s.innerHTML = 'Bahasa: <b>' + (v || '?') + '</b> &rarr; <b>' + (a || '?') + '</b>';
+          s.hidden = false;
+        }
+      } catch (e) {}
+
+      var btn = document.getElementById('open');
+      var hint = document.getElementById('hint');
+      btn.addEventListener('click', function () {
+        hint.textContent = 'Membuka… / Opening…';
+        window.location.href = target;
+        setTimeout(function () {
+          hint.textContent = 'Jika belum terbuka, ketuk sekali lagi. / If it didn’t open, tap again.';
+        }, 1500);
+      });
+    })();
+  </script>
+</body>
+</html>

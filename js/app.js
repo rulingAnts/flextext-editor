@@ -1791,8 +1791,12 @@ function setupResearch() {
       if (settings.consentAudio) p.set('consentAudio', settings.consentAudio);
       p.set('consentResp', settings.consentResp || 'yesno');
     }
-    const dir = location.pathname.replace(/[^/]*$/, ''); // strip index.html / filename
-    const url = location.origin + dir + 'record.html?' + p.toString();
+    // The recorder is its OWN app at the sibling path /text-recorder/ (a disjoint
+    // PWA scope, so it installs separately from the editor). Build that URL from
+    // the editor's location: strip the editor's own directory, append the sibling.
+    const dir = location.pathname.replace(/[^/]*$/, '');   // /flextext-editor/  (or / in dev)
+    const parent = dir.replace(/[^/]+\/$/, '/');           // /flextext-editor/ -> /
+    const url = location.origin + parent + 'text-recorder/?' + p.toString();
     const out = $('#record-link-out');
     out.hidden = false;
     out.textContent = url;

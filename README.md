@@ -86,12 +86,12 @@ On Chromium browsers the app offers a one-tap **Install app** banner
 without hunting through browser menus; Firefox users get instructions in the
 built-in help.
 
-## Companion app: the Text Recorder
+## Companion app: the Flextext Recorder
 
 A second, **independent repository**
 ([`rulingAnts/text-recorder`](https://github.com/rulingAnts/text-recorder), live
 at <https://rulingants.github.io/text-recorder/>) ships a stripped-down,
-**recording-only** sibling PWA — "Text Recorder" — for native-speaker coworkers
+**recording-only** sibling PWA — "Flextext Recorder" — for native-speaker coworkers
 gathering audio on a phone (record → send). **This editor is the main project;**
 the recorder is the *same engine* running in record mode, not a fork: its page is
 a thin shell that loads this repo's `js/app.js` + `css/app.css` cross-path over

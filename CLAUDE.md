@@ -25,10 +25,10 @@ git push origin productionWeb # GitHub Pages rebuilds (~1 min)
 git checkout main             # go back to dev
 ```
 
-## Companion repo: the Text Recorder (`rulingAnts/text-recorder`) — READ THIS
+## Companion repo: the Flextext Recorder (`rulingAnts/text-recorder`) — READ THIS
 
 There is a **second, independent Git repo** that ships a sibling PWA, the
-**Text Recorder**, live at https://rulingants.github.io/text-recorder/ .
+**Flextext Recorder**, live at https://rulingants.github.io/text-recorder/ .
 Local path: `/Users/Seth/GIT/text-recorder/`. This editor is the **main
 project**; the recorder is a thin companion.
 

@@ -1795,7 +1795,7 @@ function setupResearch() {
     // PWA scope, so it installs separately from the editor). Build that URL from
     // the editor's location: strip the editor's own directory, append the sibling.
     const dir = location.pathname.replace(/[^/]*$/, '');   // /flextext-editor/  (or / in dev)
-    const parent = dir.replace(/[^/]+\/$/, '/');           // /flextext-editor/ -> /
+    const parent = dir.replace(/[^/]+\/$/, '');            // /flextext-editor/ -> /  (dir keeps its own leading slash)
     const url = location.origin + parent + 'text-recorder/?' + p.toString();
     const out = $('#record-link-out');
     out.hidden = false;

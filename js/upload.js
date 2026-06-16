@@ -95,11 +95,15 @@ export class DriveUpload {
     if (this.status !== 'uploading') return;
     this.status = 'paused';
     this.abortCtl?.abort();
+    this.rec.paused = true; // persist so a deliberate pause survives a restart
+    db.putMedia(upKey(this.docId), this.rec).catch(() => {});
     this.emit();
   }
 
   resume() {
     if (this.status === 'uploading') return;
+    this.rec.paused = false;
+    db.putMedia(upKey(this.docId), this.rec).catch(() => {});
     this.start(); // proxy upload can't resume mid-stream — restart from 0
   }
 

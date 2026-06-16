@@ -25,6 +25,9 @@ const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 const RECORD_MODE = (typeof window !== 'undefined' && window.__MODE === 'record') ||
   new URLSearchParams(location.search).get('mode') === 'record';
 
+// The Texts-screen "new text" buttons a researcher can show/hide per link.
+const ALL_BUTTONS = ['new', 'audio', 'record', 'open'];
+
 // Default Google Drive relay (docs/drive-relay.gs) used for Drive share links
 // when the researcher hasn't configured their own. The relay is permissionless
 // (it can only fetch link-shared files), so sharing one deployment is safe.
@@ -64,7 +67,7 @@ function applyUrlSettings() {
   if (p.has('lang')) setLang(p.get('lang'));
   if (p.get('research') === 'off') localStorage.setItem(RESEARCH_HIDDEN_KEY, '1');
   if (p.get('research') === 'on') localStorage.removeItem(RESEARCH_HIDDEN_KEY);
-  const gotSettings = p.has('vern') || p.has('anal') || p.has('welcome') || p.has('editorRec');
+  const gotSettings = p.has('vern') || p.has('anal') || p.has('welcome') || p.has('btns') || p.has('editorRec');
   let settingsChanged = false;
   if (gotSettings) {
     const s = loadSettings();
@@ -76,8 +79,16 @@ function applyUrlSettings() {
     }
     // Custom welcome heading for Phone Recording Mode (includes the language name).
     if (p.has('welcome')) s.recordWelcome = p.get('welcome');
-    // Whether the editor device shows its "Record new text" button.
-    if (p.has('editorRec')) s.editorRecord = p.get('editorRec') !== 'off';
+    // Which Texts-screen buttons the coworker sees (empty = none; absent = all).
+    if (p.has('btns')) {
+      s.toolbarButtons = p.get('btns').split(',').filter(o => ALL_BUTTONS.includes(o));
+    } else if (p.has('editorRec')) {
+      // Legacy: editorRec=off hid only the Record button.
+      const cur = Array.isArray(s.toolbarButtons) ? s.toolbarButtons : ALL_BUTTONS.slice();
+      s.toolbarButtons = p.get('editorRec') === 'off'
+        ? cur.filter(b => b !== 'record')
+        : Array.from(new Set([...cur, 'record']));
+    }
     if (p.has('upload')) s.uploadFolder = p.get('upload').replace(/[^\w-]/g, '');
     if (p.has('send')) {
       s.sendOptions = p.get('send').split(',')
@@ -189,7 +200,11 @@ async function renderDocList() {
     li.querySelector('.doc-open').addEventListener('click', () => openDoc(d.id));
     del.addEventListener('click', async () => {
       if (confirm(t('texts.confirmDelete', { title: d.title || t('untitled') }))) {
+        // Stop any queued/in-flight upload so a deleted text never reaches Drive.
+        const up = getUpload(d.id);
+        if (up) up.cancel(); else uploadView.delete(d.id);
         await db.deleteDoc(d.id);
+        renderUploadQueue();
         renderDocList();
       }
     });
@@ -1250,6 +1265,12 @@ function allowedSend() {
     : ['share', 'upload', 'save', 'download']);
 }
 
+// Which Texts-screen "new text" buttons THIS device shows. A received link sets
+// settings.toolbarButtons (an array — empty means hide them all); absent = all.
+function allowedButtons() {
+  return new Set(Array.isArray(settings.toolbarButtons) ? settings.toolbarButtons : ALL_BUTTONS);
+}
+
 // Turn a researcher's audio input (Drive share link, bare file id, or direct
 // URL) into a fetchable URL: Drive references route through the relay, direct
 // https URLs pass through. Returns '' if it can't be understood.
@@ -1395,57 +1416,178 @@ async function openShareMenu() {
   $('#share-cancel').onclick = closeShareMenu;
 }
 
-/* ---------------- Upload to Google Drive (non-blocking) ---------------- */
+/* ---------------- Upload to Google Drive (queued, non-blocking) ----------------
+ * Many texts/recordings can sit pending indefinitely: each is persisted in
+ * IndexedDB ('upload:'+docId, with its blob) and survives restarts. Uploads run
+ * ONE AT A TIME (gentle on weak field connections, and a single clear progress
+ * bar). When a connection returns — or on a periodic timer — pending and
+ * previously-failed uploads auto-retry forever, so the user can record now and
+ * the work leaves the device days/weeks later when there's signal.
+ *
+ * No byte-level RESUME (the relay takes the whole file as one base64 POST), so a
+ * dropped upload retries the whole file — but it is never lost, and Drive never
+ * overwrites (timestamped names). True resume would need the Drive REST API.
+ */
+
+// In-memory view of the queue (docId -> { name, status, error, indeterminate,
+// sent, total }); the blobs themselves stay in IndexedDB. status is one of
+// 'waiting' | 'uploading' | 'paused' | 'error'.
+const uploadView = new Map();
+let uploadListOpen = false;
+const RETRY_EVERY_MS = 90000;
 
 function uploadState(docId) {
   return (st) => {
-    const bar = $('#upload-bar');
-    if (st.status === 'cancelled') { bar.hidden = true; return; }
-    if (st.status === 'done') {
-      bar.hidden = true;
-      toast(t('upload.done', { name: st.name }), 7000);
+    if (st.status === 'cancelled' || st.status === 'done') {
+      uploadView.delete(docId);
+      if (st.status === 'done') toast(t('upload.done', { name: st.name }), 6000);
+      renderUploadQueue();
+      pumpUploads();
       return;
     }
-    bar.hidden = false;
-    const fill = $('#upload-fill');
-    const label = $('#upload-label');
-    // The proxy upload can't report byte progress (an upload listener would
-    // force a CORS preflight the relay can't answer), so show an indeterminate
-    // "working" bar while sending.
-    const busy = st.status === 'uploading' && st.indeterminate;
-    fill.classList.toggle('indeterminate', busy);
-    if (busy) {
-      fill.style.width = '100%';
-      label.textContent = t('upload.working', { name: st.name });
-    } else {
-      const pct = st.total ? Math.round((st.sent / st.total) * 100) : 0;
-      fill.style.width = pct + '%';
-      if (st.status === 'uploading') {
-        label.textContent = t('upload.progress', { name: st.name, pct, got: mbFmt(st.sent), size: mbFmt(st.total) });
-      } else if (st.status === 'paused') {
-        label.textContent = t('upload.paused', { name: st.name, pct });
-      } else if (st.status === 'error') {
-        label.textContent = t('upload.error', { msg: st.error || '?' });
+    uploadView.set(docId, {
+      name: st.name, status: st.status, error: st.error,
+      indeterminate: st.indeterminate, sent: st.sent, total: st.total,
+    });
+    renderUploadQueue();
+    if (st.status === 'error') pumpUploads(); // don't let one failure block the rest
+  };
+}
+
+// Start the next waiting upload if nothing is currently uploading or paused.
+// Claims the slot synchronously (status -> 'uploading') so re-entrant calls
+// can't double-start, then fetches the blob and launches.
+function pumpUploads() {
+  if (!navigator.onLine) { renderUploadQueue(); return; }
+  const entries = [...uploadView.entries()];
+  // Only one upload runs at a time. A user-PAUSED item is skipped (it doesn't
+  // hold the slot), so the rest of the queue keeps moving past it.
+  if (entries.some(([, v]) => v.status === 'uploading')) {
+    renderUploadQueue();
+    return;
+  }
+  const next = entries.find(([, v]) => v.status === 'waiting');
+  if (!next) { renderUploadQueue(); return; }
+  const [docId, v] = next;
+  uploadView.set(docId, { ...v, status: 'uploading', indeterminate: true });
+  renderUploadQueue();
+  db.getMedia('upload:' + docId).then((rec) => {
+    // The slot may have been cancelled/deleted during this async read — only
+    // proceed if the entry is still present and still ours to upload.
+    const cur = uploadView.get(docId);
+    if (!cur || cur.status !== 'uploading') return;
+    if (!rec || !rec.relayUrl || !rec.blob) { // record vanished — drop it
+      uploadView.delete(docId); renderUploadQueue(); pumpUploads(); return;
+    }
+    new DriveUpload(docId, rec, uploadState(docId)).start();
+  }).catch(() => {
+    const cur = uploadView.get(docId);
+    if (cur) uploadView.set(docId, { ...cur, status: 'error' });
+    renderUploadQueue();
+  });
+}
+
+// Reconcile the view with what's persisted, reset failures to retry, then pump.
+// Runs at startup, when the network returns, and on a periodic timer.
+async function retryPendingUploads() {
+  let pending = [];
+  try { pending = await listPendingUploads(); } catch { /* best effort */ }
+  const ids = new Set(pending.map((p) => p.docId));
+  for (const { docId, rec } of pending) {
+    const v = uploadView.get(docId);
+    if (!v) uploadView.set(docId, { name: rec.name, status: rec.paused ? 'paused' : 'waiting' });
+    else if (v.status === 'error') uploadView.set(docId, { ...v, status: 'waiting' });
+  }
+  // Drop view entries whose persisted record is gone (done/cancelled), unless
+  // one is mid-flight.
+  for (const id of [...uploadView.keys()]) {
+    if (!ids.has(id) && uploadView.get(id)?.status !== 'uploading') uploadView.delete(id);
+  }
+  renderUploadQueue();
+  pumpUploads();
+}
+
+function renderUploadQueue() {
+  const bar = $('#upload-bar');
+  if (!bar) return;
+  const items = [...uploadView.entries()].map(([docId, v]) => ({ docId, ...v }));
+  if (!items.length) { bar.hidden = true; return; }
+  bar.hidden = false;
+  const label = $('#upload-label');
+  const fill = $('#upload-fill');
+  const pauseBtn = $('#upload-pause');
+  const cancelBtn = $('#upload-cancel');
+  const toggle = $('#upload-toggle');
+  const active = items.find((i) => i.status === 'uploading') || items.find((i) => i.status === 'paused');
+  const total = items.length;
+  const others = total - (active ? 1 : 0);
+
+  fill.classList.toggle('indeterminate', !!(active && active.status === 'uploading'));
+  fill.style.width = active && active.status === 'uploading' ? '100%'
+    : (active && active.total ? Math.round((active.sent / active.total) * 100) + '%' : '0%');
+
+  if (active && active.status === 'uploading') {
+    label.textContent = t('upload.working', { name: active.name }) +
+      (others ? ' · ' + t('upload.more', { n: others }) : '');
+  } else if (active && active.status === 'paused') {
+    label.textContent = t('upload.pausedSummary', { name: active.name }) +
+      (others ? ' · ' + t('upload.more', { n: others }) : '');
+  } else {
+    label.textContent = navigator.onLine ? t('upload.retrying', { n: total }) : t('upload.waiting', { n: total });
+  }
+
+  pauseBtn.hidden = false;
+  if (active && active.status === 'uploading') { pauseBtn.textContent = t('upload.pause'); pauseBtn.dataset.docId = active.docId; pauseBtn.dataset.act = 'pause'; }
+  else if (active && active.status === 'paused') { pauseBtn.textContent = t('upload.resume'); pauseBtn.dataset.docId = active.docId; pauseBtn.dataset.act = 'resume'; }
+  else { pauseBtn.textContent = t('upload.sendNow'); pauseBtn.dataset.docId = ''; pauseBtn.dataset.act = 'retry'; }
+
+  // Always offer to dismiss the lead item — even a single failed/waiting upload
+  // (otherwise a stuck single upload would have no escape hatch).
+  const lead = active || items[0];
+  cancelBtn.hidden = false;
+  cancelBtn.dataset.docId = lead.docId;
+
+  if (toggle) {
+    if (total > 1) { toggle.hidden = false; toggle.textContent = (uploadListOpen ? '▾ ' : '▸ ') + total; }
+    else { toggle.hidden = true; uploadListOpen = false; }
+  }
+
+  const list = $('#upload-list');
+  if (list) {
+    list.hidden = !(uploadListOpen && total > 1);
+    if (!list.hidden) {
+      list.innerHTML = '';
+      for (const it of items) {
+        const status = it.status === 'uploading' ? t('upload.uploadingShort')
+          : it.status === 'paused' ? t('upload.pausedItem')
+          : it.status === 'error' ? t('upload.errorShort')
+          : t('upload.queuedShort');
+        const li = document.createElement('li');
+        li.innerHTML = '<span class="up-name"></span><span class="up-state"></span>' +
+          '<button class="up-cancel icon-btn2">✕</button>';
+        li.querySelector('.up-name').textContent = it.name;
+        li.querySelector('.up-state').textContent = status;
+        li.querySelector('.up-cancel').title = t('upload.cancel');
+        li.querySelector('.up-cancel').addEventListener('click', async () => {
+          const up = getUpload(it.docId);
+          if (up) { up.cancel(); }
+          else {
+            await db.deleteMedia('upload:' + it.docId).catch(() => {});
+            uploadView.delete(it.docId);
+            renderUploadQueue();
+            pumpUploads();
+          }
+        });
+        list.appendChild(li);
       }
     }
-    // One-shot upload: offer Retry on error, Cancel otherwise (no pause/resume).
-    const pb = $('#upload-pause');
-    if (st.status === 'error') {
-      pb.hidden = false;
-      pb.textContent = t('upload.retry');
-      pb.dataset.docId = docId;
-    } else {
-      pb.hidden = true;
-    }
-    $('#upload-cancel').dataset.docId = docId;
-  };
+  }
 }
 
 async function doUpload() {
   if (!current) return;
   const docId = current.id;
   try {
-    toast(t('upload.starting'));
     persist();
     const bundle = await buildBundle(true); // timestamped name: Drive never overwrites
     const rec = {
@@ -1458,20 +1600,13 @@ async function doUpload() {
       sent: 0,
     };
     await db.putMedia('upload:' + docId, rec);
-    new DriveUpload(docId, rec, uploadState(docId)).start();
+    uploadView.set(docId, { name: rec.name, status: 'waiting' });
+    toast(t('upload.queuedToast'));
+    renderUploadQueue();
+    pumpUploads();
   } catch (e) {
     toast(t('upload.error', { msg: e.message }), 9000);
   }
-}
-
-// Uploads persisted from a previous session continue automatically.
-async function resumePendingUploads() {
-  if (!navigator.onLine) return;
-  try {
-    for (const { docId, rec } of await listPendingUploads()) {
-      if (!getUpload(docId)) new DriveUpload(docId, rec, uploadState(docId)).start();
-    }
-  } catch { /* best effort */ }
 }
 
 function closeShareMenu() { $('#share-menu').hidden = true; }
@@ -1497,9 +1632,13 @@ function fillWsForm() {
   f.elements.consentMsg.value = settings.consentMsg || '';
   f.elements.consentAudioUrl.value = settings.consentAudioUrl || '';
   f.elements.consentResp.value = settings.consentResp || 'yesno';
-  // Editor Record-button template (default on) + the Phone-Recording welcome
+  // Texts-screen button template (default all on) + the Phone-Recording welcome
   // heading (prefilled from the language name until the researcher edits it).
-  if ($('#editor-rec-box')) $('#editor-rec-box').checked = settings.linkEditorRecord !== false;
+  const lb = new Set(Array.isArray(settings.linkButtons) ? settings.linkButtons : ALL_BUTTONS);
+  f.elements.btnNew.checked = lb.has('new');
+  f.elements.btnAudio.checked = lb.has('audio');
+  f.elements.btnRecord.checked = lb.has('record');
+  f.elements.btnOpen.checked = lb.has('open');
   const welcomeEl = $('#record-welcome');
   if (welcomeEl) welcomeEl.value = settings.recordWelcome
     || t('record.welcomeDefault', { lang: settings.vernName || settings.vernLang || '' });
@@ -1542,9 +1681,14 @@ function applyResearchFormToSettings(f) {
   const rawConsentAudio = f.elements.consentAudioUrl.value.trim();
   settings.consentAudioUrl = rawConsentAudio;
   settings.consentAudio = resolveAudioInput(rawConsentAudio);
-  // Link templates (decoupled from this device, like linkSendOptions): the
-  // editor Record-button toggle and the Phone-Recording welcome heading.
-  settings.linkEditorRecord = !$('#editor-rec-box') || $('#editor-rec-box').checked;
+  // Link templates (decoupled from this device, like linkSendOptions): which
+  // Texts-screen buttons to show + the Phone-Recording welcome heading.
+  const lb = [];
+  if (f.elements.btnNew.checked) lb.push('new');
+  if (f.elements.btnAudio.checked) lb.push('audio');
+  if (f.elements.btnRecord.checked) lb.push('record');
+  if (f.elements.btnOpen.checked) lb.push('open');
+  settings.linkButtons = lb;
   const welcomeEl = $('#record-welcome');
   if (welcomeEl) settings.recordWelcome = welcomeEl.value.trim();
   saveSettings(settings);
@@ -1595,9 +1739,9 @@ function setupResearch() {
     p.set('send', (settings.linkSendOptions?.length
       ? settings.linkSendOptions
       : ['share', 'upload', 'save', 'download']).join(','));
-    // The editor's Record button (always travels, like the send options, so the
-    // researcher's current choice overwrites any older one on the device).
-    p.set('editorRec', settings.linkEditorRecord === false ? 'off' : 'on');
+    // Which Texts-screen buttons the coworker sees (always travels, like the
+    // send options, so the researcher's current choice overwrites older ones).
+    p.set('btns', (Array.isArray(settings.linkButtons) ? settings.linkButtons : ALL_BUTTONS).join(','));
     // Consent (app-wide) travels with every link.
     if (settings.consentMode && settings.consentMode !== 'off') {
       p.set('consentMode', settings.consentMode);
@@ -1716,9 +1860,9 @@ function setupResearch() {
     p.set('send', (settings.linkSendOptions?.length
       ? settings.linkSendOptions
       : ['share', 'upload', 'save', 'download']).join(','));
-    // The editor's Record button (always travels, like the send options, so the
-    // researcher's current choice overwrites any older one on the device).
-    p.set('editorRec', settings.linkEditorRecord === false ? 'off' : 'on');
+    // Which Texts-screen buttons the coworker sees (always travels, like the
+    // send options, so the researcher's current choice overwrites older ones).
+    p.set('btns', (Array.isArray(settings.linkButtons) ? settings.linkButtons : ALL_BUTTONS).join(','));
     // Consent (app-wide) travels with every link.
     if (settings.consentMode && settings.consentMode !== 'off') {
       p.set('consentMode', settings.consentMode);
@@ -1987,8 +2131,11 @@ async function renderRecordList() {
     });
     del.addEventListener('click', async () => {
       if (confirm(t('texts.confirmDelete', { title: d.title || t('untitled') }))) {
+        const up = getUpload(d.id);
+        if (up) up.cancel(); else uploadView.delete(d.id);
         await db.deleteDoc(d.id);
         if (current && current.id === d.id) current = null;
+        renderUploadQueue();
         renderRecordList();
       }
     });
@@ -2163,16 +2310,25 @@ function wireSharedModals() {
   });
   $('#share-menu')?.addEventListener('click', (e) => { if (e.target === $('#share-menu')) closeShareMenu(); });
   $('#upload-pause')?.addEventListener('click', () => {
-    const up = getUpload($('#upload-pause').dataset.docId || '');
-    if (!up) return;
-    if (up.status === 'uploading') up.pause();
-    else up.resume();
+    const btn = $('#upload-pause');
+    const act = btn.dataset.act;
+    const up = getUpload(btn.dataset.docId || '');
+    if (act === 'pause') up?.pause();
+    else if (act === 'resume') up?.resume();
+    else retryPendingUploads(); // "Send now": kick the whole queue
   });
-  $('#upload-cancel')?.addEventListener('click', () => {
-    const up = getUpload($('#upload-cancel').dataset.docId || '');
+  $('#upload-cancel')?.addEventListener('click', async () => {
+    const id = $('#upload-cancel').dataset.docId || '';
+    const up = getUpload(id);
     if (up) up.cancel();
-    else $('#upload-bar').hidden = true;
+    else if (id) {
+      await db.deleteMedia('upload:' + id).catch(() => {});
+      uploadView.delete(id);
+      renderUploadQueue();
+      pumpUploads();
+    }
   });
+  $('#upload-toggle')?.addEventListener('click', () => { uploadListOpen = !uploadListOpen; renderUploadQueue(); });
 }
 
 function setup() {
@@ -2198,9 +2354,13 @@ function setup() {
   // Shared engine wiring + housekeeping (runs in both modes).
   wireSharedModals();
   setupBanners();
-  window.addEventListener('online', () => { retryPendingAudio(); resumePendingUploads(); });
+  window.addEventListener('online', () => { retryPendingAudio(); retryPendingUploads(); });
+  window.addEventListener('offline', () => { renderUploadQueue(); });
+  // Pending uploads keep retrying forever while the app is open (a flaky/return
+  // connection eventually gets the work off the device).
+  setInterval(() => { if (navigator.onLine && uploadView.size) retryPendingUploads(); }, RETRY_EVERY_MS);
   retryPendingAudio();
-  resumePendingUploads();
+  retryPendingUploads();
   syncConsentAudio(); // fetch/cache the consent prompt audio if configured
   // Ask the browser to protect our storage (texts + recordings) from being
   // silently evicted when the device runs low on space.
@@ -2239,8 +2399,12 @@ function setup() {
   $('#btn-new').addEventListener('click', () => newDoc());
   $('#btn-new-audio').addEventListener('click', () => $('#new-audio-file').click());
   $('#btn-record').addEventListener('click', () => requestConsentThen(() => openRecordModal()));
-  // The researcher can hide the editor's Record button via a link (editorRec=off).
-  $('#btn-record').hidden = settings.editorRecord === false;
+  // The researcher can show/hide each Texts-screen button via a link (btns=…).
+  const shownButtons = allowedButtons();
+  $('#btn-new').hidden = !shownButtons.has('new');
+  $('#btn-new-audio').hidden = !shownButtons.has('audio');
+  $('#btn-record').hidden = !shownButtons.has('record');
+  $('#btn-import').hidden = !shownButtons.has('open');
   $('#new-audio-file').addEventListener('change', (e) => {
     const f = e.target.files[0];
     e.target.value = '';
@@ -2311,3 +2475,7 @@ window.__app = {
   exportXml() { return serializeFlextext(current.doc, settings); },
   applyBaseline,
 };
+// Dev-only queue inspection hooks — never exposed on the production host.
+if (isDevHost(location.hostname)) {
+  Object.assign(window.__app, { uploadView, renderUploadQueue, allowedButtons });
+}

@@ -49,10 +49,14 @@
 
 <!-- Non-blocking upload status bar -->
 <div id="upload-bar" hidden>
-  <span id="upload-label"></span>
-  <div class="upload-progress"><div id="upload-fill"></div></div>
-  <button id="upload-pause" class="icon-btn2"></button>
-  <button id="upload-cancel" class="icon-btn2" data-i18n-title="upload.cancel">✕</button>
+  <div class="upload-row">
+    <span id="upload-label"></span>
+    <div class="upload-progress"><div id="upload-fill"></div></div>
+    <button id="upload-toggle" class="icon-btn2" hidden></button>
+    <button id="upload-pause" class="icon-btn2"></button>
+    <button id="upload-cancel" class="icon-btn2" data-i18n-title="upload.cancel">✕</button>
+  </div>
+  <ul id="upload-list" class="upload-list" hidden></ul>
 </div>
 
 <div id="toast" hidden></div>

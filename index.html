@@ -141,8 +141,16 @@
         <label class="check-label"><input type="checkbox" name="sendDownload" checked> <span data-i18n="share.download">Download</span></label>
       </div>
       <p class="note" data-i18n="research.sendNote">These choices travel with your setup/task links and decide which buttons the coworker sees under "Save and send…".</p>
-      <label class="check-label"><input type="checkbox" id="editor-rec-box" checked>
-        <span data-i18n="recordlink.editorRec">Show the "Record new text" button in the editor</span></label>
+    </fieldset>
+    <fieldset>
+      <legend data-i18n="buttons.legend">Buttons on the coworker's Texts screen</legend>
+      <div class="send-options">
+        <label class="check-label"><input type="checkbox" name="btnNew" checked> <span data-i18n="texts.new">+ New text</span></label>
+        <label class="check-label"><input type="checkbox" name="btnAudio" checked> <span data-i18n="texts.newAudio">+ New text from audio…</span></label>
+        <label class="check-label"><input type="checkbox" name="btnRecord" checked> <span data-i18n="record.btn">Record new text…</span></label>
+        <label class="check-label"><input type="checkbox" name="btnOpen" checked> <span data-i18n="texts.open">Open .flextext file…</span></label>
+      </div>
+      <p class="note" data-i18n="buttons.note">These travel with your setup/task links and decide which "new text" buttons the coworker sees on their Texts screen.</p>
     </fieldset>
     <fieldset>
       <legend data-i18n="consent.legend">Speaker permission before recording</legend>
@@ -279,10 +287,14 @@
 
 <!-- Non-blocking upload status bar -->
 <div id="upload-bar" hidden>
-  <span id="upload-label"></span>
-  <div class="upload-progress"><div id="upload-fill"></div></div>
-  <button id="upload-pause" class="icon-btn2"></button>
-  <button id="upload-cancel" class="icon-btn2" data-i18n-title="upload.cancel">✕</button>
+  <div class="upload-row">
+    <span id="upload-label"></span>
+    <div class="upload-progress"><div id="upload-fill"></div></div>
+    <button id="upload-toggle" class="icon-btn2" hidden></button>
+    <button id="upload-pause" class="icon-btn2"></button>
+    <button id="upload-cancel" class="icon-btn2" data-i18n-title="upload.cancel">✕</button>
+  </div>
+  <ul id="upload-list" class="upload-list" hidden></ul>
 </div>
 
 <div id="toast" hidden></div>

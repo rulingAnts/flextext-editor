@@ -17,7 +17,7 @@ import { esc, newGuid as mkGuid } from './flextext.js';
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
-// Record-only mode: the "Text Recorder" app (record.html sets window.__MODE), or
+// Record-only mode: the "Text Recorder" app (text-recorder/index.html sets window.__MODE), or
 // a record link opened in the editor app (?mode=record). Deliberately NOT
 // persisted — the editor must never get stuck in record mode because a shared
 // link was opened once on the same origin. The recording/consent/upload engine
@@ -140,8 +140,8 @@ function currentView() {
   return VIEWS.find(v => { const el = $('#view-' + v); return el && !el.hidden; }) || 'texts';
 }
 
-// Tolerant of missing elements: record.html only contains a subset of the views
-// and topbars, so every lookup is guarded.
+// Tolerant of missing elements: the Text Recorder shell (text-recorder/index.html)
+// only contains a subset of the views and topbars, so every lookup is guarded.
 function show(view) {
   for (const v of VIEWS) { const el = $('#view-' + v); if (el) el.hidden = v !== view; }
   const inEditor = view === 'baseline' || view === 'gloss' ||
@@ -1761,8 +1761,8 @@ function setupResearch() {
     }
   });
 
-  // Phone Recording link builder → record.html (the installable "Text Recorder").
-  // Refuses to produce a link until the welcome heading is filled in.
+  // Phone Recording link builder → the sibling /text-recorder/ app (the installable
+  // "Text Recorder"). Refuses to produce a link until the welcome heading is filled in.
   $('#btn-copy-record-link').addEventListener('click', async () => {
     const f2 = $('#ws-form');
     applyResearchFormToSettings(f2); // link reflects the CURRENT form (+ persists welcome)
@@ -2062,7 +2062,7 @@ function setupResearchToggle() {
  * It reuses the editor's recording / consent / storage / upload engine wholesale
  * (requestConsentThen → openRecordModal → saveRecording → newDocFromAudio →
  * openShareMenu / doUpload); only the surrounding UI differs. Reachable as the
- * installable "Text Recorder" app (record.html) or via a ?mode=record link.
+ * installable "Text Recorder" app (the sibling /text-recorder/) or via a ?mode=record link.
  */
 
 // The researcher-set welcome heading (includes the language name). Falls back to
@@ -2075,9 +2075,9 @@ function recordWelcomeText() {
     .replace(/\s{2,}/g, ' ').trim();
 }
 
-// Build the record-only screen. #view-record is static in record.html and
-// created on demand when a ?mode=record link is opened in the editor app — so
-// the record markup has a single source here.
+// Build the record-only screen. #view-record is static in the Text Recorder shell
+// (text-recorder/index.html) and created on demand when a ?mode=record link is opened
+// in the editor app — so the record markup has a single source here.
 function renderRecordView() {
   let v = $('#view-record');
   if (!v) {

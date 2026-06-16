@@ -697,7 +697,12 @@ function resetConsentRecordUI() {
 
 async function startConsentAssent() {
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // Raw signal for faithful capture: auto-gain makes a loud recording fade out
+    // over its length; echo-cancellation + noise-suppression also color the audio.
+    // All off — fidelity matters more than call-style cleanup for these recordings.
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, autoGainControl: false, noiseSuppression: false },
+    });
     const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
       : MediaRecorder.isTypeSupported('audio/ogg') ? 'audio/ogg' : '';
     const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
@@ -794,7 +799,12 @@ function closeRecordModal() {
 
 async function startRecording() {
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // Raw signal for faithful capture: auto-gain makes a loud recording fade out
+    // over its length; echo-cancellation + noise-suppression also color the audio.
+    // All off — fidelity matters more than call-style cleanup for these recordings.
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, autoGainControl: false, noiseSuppression: false },
+    });
     const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
       : MediaRecorder.isTypeSupported('audio/ogg') ? 'audio/ogg' : '';
     const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);

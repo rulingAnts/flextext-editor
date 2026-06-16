@@ -213,7 +213,7 @@ en: {
   'install.text': 'You can install this app on your device — it then works without internet, like a normal app.',
   'install.btn': 'Install app',
   'install.done': 'App installed — find it on your home screen or desktop.',
-  'webkit.warning': 'This app does not fully work in Safari or on iPhone/iPad. Please use Firefox or Chrome on Android, Windows, Mac, or Linux.',
+  'webkit.warning': 'This app does not fully work in Safari, or in any browser on an iPhone or iPad. On Apple phones and tablets, even Chrome and Firefox secretly use Safari underneath, so switching browsers there will not help. On a Mac, use Chrome or Firefox instead of Safari. On an iPhone or iPad, switch to a computer (Windows, Mac, or Linux) or an Android device.',
 
   'help.title': 'Help',
   'help.html': `
@@ -521,7 +521,7 @@ id: {
   'install.text': 'Aplikasi ini bisa dipasang di perangkat Anda — setelah itu bisa dipakai tanpa internet, seperti aplikasi biasa.',
   'install.btn': 'Pasang aplikasi',
   'install.done': 'Aplikasi terpasang — cari di layar utama atau desktop.',
-  'webkit.warning': 'Aplikasi ini tidak berfungsi penuh di Safari atau di iPhone/iPad. Silakan pakai Firefox atau Chrome di Android, Windows, Mac, atau Linux.',
+  'webkit.warning': 'Aplikasi ini tidak berfungsi penuh di Safari, atau di browser apa pun pada iPhone atau iPad. Di ponsel dan tablet Apple, bahkan Chrome dan Firefox memakai Safari di belakang layar, jadi berganti browser di sana tidak akan membantu. Di Mac, pakai Chrome atau Firefox, bukan Safari. Di iPhone atau iPad, gunakan komputer (Windows, Mac, atau Linux) atau perangkat Android.',
 
   'help.title': 'Bantuan',
   'help.html': `

@@ -86,6 +86,32 @@ On Chromium browsers the app offers a one-tap **Install app** banner
 without hunting through browser menus; Firefox users get instructions in the
 built-in help.
 
+## Companion app: the Text Recorder
+
+A second, **independent repository**
+([`rulingAnts/text-recorder`](https://github.com/rulingAnts/text-recorder), live
+at <https://rulingants.github.io/text-recorder/>) ships a stripped-down,
+**recording-only** sibling PWA — "Text Recorder" — for native-speaker coworkers
+gathering audio on a phone (record → send). **This editor is the main project;**
+the recorder is the *same engine* running in record mode, not a fork: its page is
+a thin shell that loads this repo's `js/app.js` + `css/app.css` cross-path over
+the same GitHub Pages origin and sets `window.__MODE='record'`.
+
+It's a separate repo on purpose: two PWAs on one origin need **non-overlapping
+scopes** to install as distinct apps, and keeping the recorder at the sibling
+path `/text-recorder/` lets this editor stay at `/flextext-editor/` untouched
+(moving it would change its PWA identity and orphan every installed copy).
+
+**Maintainers — two coupling rules (full detail in [CLAUDE.md](CLAUDE.md)):**
+
+1. **Change the engine here, not there.** All recording/consent/upload logic
+   lives in this repo; never copy engine code into the recorder repo.
+2. **Version + order.** The recorder caches this engine *by path*, so (a) bump
+   `text-recorder/sw.js`'s `VERSION` whenever an engine change should reach the
+   recorder, and (b) when a change spans both repos, **deploy this repo's
+   `productionWeb` first**, confirm it's live, then push the recorder — its
+   service worker precaches whatever editor engine is live at install time.
+
 ## Localization & help
 
 The interface is available in **English and Indonesian** — auto-detected from

@@ -1066,8 +1066,9 @@ async function openUrlTask(task) {
   };
   current.doc.title = current.title;
   if (task.flextextUrl) {
-    // Task-delivered content is part of the assignment: the coworker can't remove it.
-    current.flextextLocked = true;
+    // Track the source so re-opening the link doesn't duplicate the text. (Unlike
+    // task audio, the delivered text is NOT locked — editing it IS the checking
+    // task; the coworker is meant to correct it.)
     if (gotFlextext) current.flextextSource = task.flextextUrl;
     else current.pendingFlextext = task.flextextUrl;
   }
@@ -1097,9 +1098,29 @@ async function openUrlTask(task) {
 // if the coworker hasn't started transcribing into it, so we never clobber work.
 async function tryDownloadFlextext(rec) {
   if (!rec.pendingFlextext || !navigator.onLine) return false;
+  // If this is the doc the user is actively editing, flush the live textarea into
+  // current.doc and use that live copy for the untouched check — the DB snapshot
+  // lags the debounced persist by ~400ms, so checking it could clobber edits the
+  // coworker just typed into the placeholder.
+  if (current && current.id === rec.id) {
+    if (activeTab === 'baseline' && $('#baseline-text') && !$('#view-baseline').hidden) applyBaseline();
+    rec = current;
+  }
   let newDoc;
   try { newDoc = await buildDocFromFlextextUrl(rec.pendingFlextext, rec.title); }
-  catch { return false; } // keep pending for the next retry
+  catch (e) {
+    // Permanent failure (relay refused, or not a usable flextext) → stop retrying
+    // and tell the worker, instead of a silent empty placeholder forever. A plain
+    // network/HTTP error stays pending for the next retry.
+    if (e.fatal || e.parseError) {
+      rec.flextextError = e.message;
+      delete rec.pendingFlextext;
+      await db.putDoc(rec).catch(() => {});
+      toast(t('task.ftFailed', { msg: e.message }), 10000);
+      return false;
+    }
+    return false; // transient: keep pending for the next retry
+  }
   const untouched = getBaselineParagraphs(rec.doc).every(p => !p.trim());
   if (untouched) {
     rec.doc = newDoc;
@@ -1108,7 +1129,16 @@ async function tryDownloadFlextext(rec) {
     delete rec.pendingFlextext;
     Object.assign(rec, docStats(rec.doc));
     await db.putDoc(rec);
-    if (current && current.id === rec.id) { current = rec; enterEditor('baseline'); }
+    if (current && current.id === rec.id) {
+      current = rec;
+      // We may already be sitting on the placeholder's (empty) baseline view.
+      // Sync the textarea to the arrived doc BEFORE re-entering, so switchTab's
+      // "leaving baseline" applyBaseline() doesn't reconcile the stale empty
+      // textarea over the freshly-downloaded content and wipe it.
+      const bt = $('#baseline-text');
+      if (bt) bt.value = getBaselineParagraphs(rec.doc).join('\n');
+      enterEditor('baseline');
+    }
     toast(t('task.ftArrived'), 5000);
   } else {
     // The coworker already started typing — keep their work, drop the assignment.
@@ -1393,7 +1423,10 @@ async function buildDocFromFlextextUrl(url, title) {
   const file = await fetchFileViaUrl(url);
   const xml = await file.blob.text();
   const { texts, error } = parseFlextext(xml);
-  if (error || !texts.length) throw new Error(error || 'No text found in the file.');
+  // A successful fetch of a non-flextext body (Drive 404 HTML page, wrong file,
+  // corrupt export) is a PERMANENT failure — tag it so the retry loop stops and
+  // surfaces it rather than spinning behind a silent empty placeholder.
+  if (error || !texts.length) { const e = new Error(error || 'No readable text in the file.'); e.parseError = true; throw e; }
   const doc = texts[0];
   if (title) doc.title = title;
   return doc;
@@ -1995,6 +2028,12 @@ function setupResearch() {
       let xml;
       try { xml = await (await fetchFileViaUrl(flextextUrl)).blob.text(); }
       catch (err) { wsOut.textContent = '⚠ ' + t('task.ftFetchFailed', { msg: err.message }); return; }
+      // Only the first <interlinear-text> is delivered to the coworker, so refuse a
+      // multi-text export — otherwise the WS survey's union of codes gives a false
+      // pass/fail and the other texts are silently dropped.
+      const parsed = parseFlextext(xml);
+      if (parsed.error || !parsed.texts.length) { wsOut.textContent = '⚠ ' + t('task.ftParseFailed', { msg: parsed.error || t('task.ftNone') }); return; }
+      if (parsed.texts.length > 1) { wsOut.textContent = '⚠ ' + t('task.ftMultiText', { n: parsed.texts.length }); return; }
       const a = analyzeFlextextWs(xml);
       if (a.error) { wsOut.textContent = '⚠ ' + t('task.ftParseFailed', { msg: a.error }); return; }
       const vernLang = f2.elements.vernLang.value.trim();
@@ -2012,6 +2051,8 @@ function setupResearch() {
         });
         return; // no link until the file's codes match
       }
+    } else {
+      wsOut.hidden = true; // clear any stale ⚠ from a previous flextext attempt
     }
 
     const p = new URLSearchParams();
@@ -2530,9 +2571,14 @@ function setup() {
   setupBanners();
   window.addEventListener('online', () => { retryPendingAudio(); retryPendingUploads(); });
   window.addEventListener('offline', () => { renderUploadQueue(); });
-  // Pending uploads keep retrying forever while the app is open (a flaky/return
-  // connection eventually gets the work off the device).
-  setInterval(() => { if (navigator.onLine && uploadView.size) retryPendingUploads(); }, RETRY_EVERY_MS);
+  // Pending uploads AND pending downloads (task audio + attached flextext) keep
+  // retrying forever while the app is open — a flaky village link that never
+  // fires a clean offline→online edge still gets the work moved eventually.
+  setInterval(() => {
+    if (!navigator.onLine) return;
+    retryPendingAudio(); // also sweeps pending task flextexts
+    if (uploadView.size) retryPendingUploads();
+  }, RETRY_EVERY_MS);
   retryPendingAudio();
   retryPendingUploads();
   syncConsentAudio(); // fetch/cache the consent prompt audio if configured

@@ -235,8 +235,10 @@ en: {
   'task.ftNone': '(none)',
   'task.ftDetected': 'Transcription OK — vernacular: {vern}; analysis: {anal}',
   'task.ftMismatch': 'Writing-system codes don\'t match your setup — vernacular: {vern} (your setup uses {vernWant}); analysis: {anal} (your setup uses {analWant}). Fix the file\'s codes (e.g. with the Writing System checker below) so they match, then try again.',
+  'task.ftMultiText': 'This file has {n} texts in it. Please attach a file with a single text (export just one interlinear text from FLEx).',
   'task.ftReceiving': 'The assigned text will appear once it finishes downloading…',
   'task.ftArrived': 'The assigned text has arrived.',
+  'task.ftFailed': 'The assigned text could not be loaded: {msg}. Ask your researcher to re-share it.',
   'task.ftSkipped': 'The assigned text could not replace what you already started typing, so it was skipped.',
 
   'convert.h': 'Audio converter',
@@ -585,8 +587,10 @@ id: {
   'task.ftNone': '(tidak ada)',
   'task.ftDetected': 'Transkripsi OK — vernakular: {vern}; analisis: {anal}',
   'task.ftMismatch': 'Kode sistem penulisan tidak cocok dengan pengaturan Anda — vernakular: {vern} (pengaturan Anda memakai {vernWant}); analisis: {anal} (pengaturan Anda memakai {analWant}). Perbaiki kode file itu (mis. dengan Pemeriksa Sistem Penulisan di bawah) agar cocok, lalu coba lagi.',
+  'task.ftMultiText': 'File ini berisi {n} teks. Lampirkan file dengan satu teks saja (ekspor satu teks interlinear dari FLEx).',
   'task.ftReceiving': 'Teks tugas akan muncul setelah selesai diunduh…',
   'task.ftArrived': 'Teks tugas sudah tiba.',
+  'task.ftFailed': 'Teks tugas tidak dapat dimuat: {msg}. Minta peneliti membagikannya ulang.',
   'task.ftSkipped': 'Teks tugas tidak dapat menggantikan apa yang sudah mulai Anda ketik, jadi dilewati.',
 
   'convert.h': 'Pengubah audio',

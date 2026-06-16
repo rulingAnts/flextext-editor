@@ -8,7 +8,7 @@ import {
 } from './flextext.js';
 import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS } from './i18n.js';
-import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl, ensureAsset, getAsset } from './audio.js';
+import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl, ensureAsset, getAsset, fetchFileViaUrl } from './audio.js';
 import { convertToMp3 } from './convert.js';
 import { makeZip } from './zip.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads } from './upload.js';
@@ -107,8 +107,9 @@ function applyUrlSettings() {
     settingsChanged = JSON.stringify(s) !== before;
     saveSettings(s);
   }
-  const task = (p.has('audio') || p.has('title'))
-    ? { title: p.get('title') || '', audioUrl: p.get('audio') || '' }
+  const task = (p.has('audio') || p.has('title') || p.has('flextext'))
+    ? { title: p.get('title') || '', audioUrl: p.get('audio') || '',
+        flextextUrl: p.get('flextext') || '' }
     : null;
   if (gotSettings || task || p.has('lang') || p.has('research') || p.has('mode')) {
     history.replaceState(null, '', location.pathname);
@@ -1020,8 +1021,9 @@ async function retryPendingAudio() {
   if (!navigator.onLine) return;
   const docs = await db.listDocs().catch(() => []);
   for (const d of docs) {
-    if (getDownload(d.id)) continue; // already downloading or paused
     const rec = await db.getDoc(d.id);
+    if (rec?.pendingFlextext) await tryDownloadFlextext(rec);
+    if (getDownload(d.id)) continue; // already downloading or paused
     if (rec?.pendingAudio) await tryDownloadAudio(rec);
   }
 }
@@ -1029,12 +1031,16 @@ async function retryPendingAudio() {
 /* ---------------- Task links (?title=...&audio=...) ---------------- */
 
 async function openUrlTask(task) {
-  // Re-opening the same task link must not duplicate the text.
-  if (task.audioUrl) {
+  // Re-opening the same task link must not duplicate the text (match either the
+  // audio or the attached flextext as the assignment's identity).
+  if (task.audioUrl || task.flextextUrl) {
     const docs = await db.listDocs();
     for (const d of docs) {
       const rec = await db.getDoc(d.id);
-      if (rec && (rec.audioSource === task.audioUrl || rec.pendingAudio === task.audioUrl)) {
+      if (!rec) continue;
+      const sameAudio = task.audioUrl && (rec.audioSource === task.audioUrl || rec.pendingAudio === task.audioUrl);
+      const sameFt = task.flextextUrl && (rec.flextextSource === task.flextextUrl || rec.pendingFlextext === task.flextextUrl);
+      if (sameAudio || sameFt) {
         current = rec;
         enterEditor('baseline');
         toast(t('task.alreadyHere'), 4000);
@@ -1042,24 +1048,41 @@ async function openUrlTask(task) {
       }
     }
   }
-  const doc = makeDoc(settings, task.title);
+  // If a flextext is attached, its parsed content IS the doc; otherwise an empty
+  // doc to transcribe into. When we can't fetch it now (offline), fall back to a
+  // placeholder and let the retry sweep populate it later.
+  let doc = makeDoc(settings, task.title);
+  let gotFlextext = false;
+  if (task.flextextUrl && navigator.onLine) {
+    try { doc = await buildDocFromFlextextUrl(task.flextextUrl, task.title); gotFlextext = true; }
+    catch { /* fall through to placeholder + pending retry */ }
+  }
   current = {
     id: newGuid(),
-    title: task.title || '',
+    title: task.title || doc.title || '',
     created: Date.now(),
     modified: Date.now(),
     doc,
   };
+  current.doc.title = current.title;
+  if (task.flextextUrl) {
+    // Task-delivered content is part of the assignment: the coworker can't remove it.
+    current.flextextLocked = true;
+    if (gotFlextext) current.flextextSource = task.flextextUrl;
+    else current.pendingFlextext = task.flextextUrl;
+  }
   if (task.audioUrl) {
     current.pendingAudio = task.audioUrl;
-    // Task-delivered audio is part of the assignment: the coworker can't remove it.
     current.audioLocked = true;
   }
-  Object.assign(current, docStats(doc));
-  current.doc.title = current.title;
+  Object.assign(current, docStats(current.doc));
   await db.putDoc(current);
   enterEditor('baseline');
   toast(t('task.received'), 5000);
+  if (task.flextextUrl && !gotFlextext) {
+    toast(t('task.ftReceiving'), 6000);
+    tryDownloadFlextext(current);
+  }
   if (task.audioUrl) {
     const ok = await tryDownloadAudio(current);
     // Success and pause/error UI are painted by the download state handler;
@@ -1068,6 +1091,32 @@ async function openUrlTask(task) {
       toast(t('player.downloadFailed'), 6000);
     }
   }
+}
+
+// Download a pending task flextext and populate the placeholder doc — but only
+// if the coworker hasn't started transcribing into it, so we never clobber work.
+async function tryDownloadFlextext(rec) {
+  if (!rec.pendingFlextext || !navigator.onLine) return false;
+  let newDoc;
+  try { newDoc = await buildDocFromFlextextUrl(rec.pendingFlextext, rec.title); }
+  catch { return false; } // keep pending for the next retry
+  const untouched = getBaselineParagraphs(rec.doc).every(p => !p.trim());
+  if (untouched) {
+    rec.doc = newDoc;
+    rec.doc.title = rec.title || newDoc.title || '';
+    rec.flextextSource = rec.pendingFlextext;
+    delete rec.pendingFlextext;
+    Object.assign(rec, docStats(rec.doc));
+    await db.putDoc(rec);
+    if (current && current.id === rec.id) { current = rec; enterEditor('baseline'); }
+    toast(t('task.ftArrived'), 5000);
+  } else {
+    // The coworker already started typing — keep their work, drop the assignment.
+    delete rec.pendingFlextext;
+    await db.putDoc(rec);
+    toast(t('task.ftSkipped'), 9000);
+  }
+  return true;
 }
 
 function applyBaseline() {
@@ -1313,6 +1362,41 @@ function resolveAudioInput(input) {
 function fileStamp(d = new Date()) {
   const pad = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
+}
+
+/* ---- Task-attached flextext: writing-system validation ----
+ * A researcher can attach an already-transcribed/glossed flextext to a task
+ * link. We survey its writing-system codes (reusing surveyWritingSystems) and
+ * split them into vernacular vs analysis, then HARD-REFUSE the link if they
+ * don't match the setup. segnum/meta lines are neutral — a number or metadata
+ * WS must not trigger a vern/anal mismatch.
+ * (An auto-remap-to-setup option was considered but deferred: a researcher may
+ * use several writing systems for several purposes, so a correct remap needs
+ * more design. For now the file's codes must already match.) */
+const WS_VERN_LABELS = new Set(['wsline.baseline', 'wsline.word', 'wsline.punct', 'wsline.morph', 'wsline.cf']);
+const WS_ANAL_LABELS = new Set(['wsline.wordgloss', 'wsline.pos', 'wsline.morphgloss', 'wsline.msa', 'wsline.free', 'wsline.lit', 'wsline.note']);
+
+function analyzeFlextextWs(xmlText) {
+  const survey = surveyWritingSystems(xmlText);
+  if (survey.error) return { error: survey.error };
+  const pick = (labels) => {
+    const set = new Set();
+    for (const r of survey.rows) if (labels.has(r.label) && r.lang && r.lang !== '(none)') set.add(r.lang);
+    return [...set];
+  };
+  return { error: null, survey, vernCodes: pick(WS_VERN_LABELS), analCodes: pick(WS_ANAL_LABELS) };
+}
+
+// Download a task-attached flextext, parse it, and return the first
+// interlinear-text doc.
+async function buildDocFromFlextextUrl(url, title) {
+  const file = await fetchFileViaUrl(url);
+  const xml = await file.blob.text();
+  const { texts, error } = parseFlextext(xml);
+  if (error || !texts.length) throw new Error(error || 'No text found in the file.');
+  const doc = texts[0];
+  if (title) doc.title = title;
+  return doc;
 }
 
 // Hide the whole "Save and send…" button if the researcher disabled
@@ -1855,7 +1939,7 @@ function setupResearch() {
     }
   });
 
-  // Task link builder (text + audio)
+  // Task link builder (text + audio + optional existing transcription)
   const tf = $('#task-form');
   tf.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -1870,6 +1954,7 @@ function setupResearch() {
       audioUrl = resolveAudioInput(audioIn);
       if (!audioUrl) { toast(t('task.badAudio'), 6000); return; }
     }
+    let flextextUrl = '';
 
     // Validate the audio BEFORE producing a link, so the researcher — not
     // the coworker — finds out about WAVs, oversized files, or unshared
@@ -1894,6 +1979,39 @@ function setupResearch() {
       }
     } else {
       check.hidden = true;
+    }
+
+    // Validate an optional attached flextext: show its writing-system codes and
+    // HARD-REFUSE the link if vern/anal don't match the setup, so a mismatched
+    // file is never sent to a coworker. (Reuses the WS checker's survey.)
+    const ftIn = tf.elements.taskFlextext.value.trim();
+    const wsOut = $('#task-ws');
+    if (ftIn) {
+      flextextUrl = resolveAudioInput(ftIn); // same Drive/direct resolution as audio
+      if (!flextextUrl) { wsOut.hidden = false; wsOut.textContent = '⚠ ' + t('task.badFlextext'); return; }
+      wsOut.hidden = false;
+      wsOut.textContent = t('task.ftChecking');
+      $('#task-link-out').hidden = true;
+      let xml;
+      try { xml = await (await fetchFileViaUrl(flextextUrl)).blob.text(); }
+      catch (err) { wsOut.textContent = '⚠ ' + t('task.ftFetchFailed', { msg: err.message }); return; }
+      const a = analyzeFlextextWs(xml);
+      if (a.error) { wsOut.textContent = '⚠ ' + t('task.ftParseFailed', { msg: a.error }); return; }
+      const vernLang = f2.elements.vernLang.value.trim();
+      const analLang = f2.elements.analLang.value.trim();
+      const vernOk = a.vernCodes.length > 0 && a.vernCodes.every(c => c === vernLang);
+      const analOk = !analLang || a.analCodes.length === 0 || a.analCodes.every(c => c === analLang);
+      const fmt = (codes) => codes.length ? codes.join(', ') : t('task.ftNone');
+      if (vernOk && analOk) {
+        wsOut.textContent = '✓ ' + t('task.ftDetected', { vern: fmt(a.vernCodes), anal: fmt(a.analCodes) });
+      } else {
+        // Hard refuse: the file's writing-system codes must match the setup.
+        wsOut.textContent = '⚠ ' + t('task.ftMismatch', {
+          vern: fmt(a.vernCodes), vernWant: vernLang || '—',
+          anal: fmt(a.analCodes), analWant: analLang || '—',
+        });
+        return; // no link until the file's codes match
+      }
     }
 
     const p = new URLSearchParams();
@@ -1926,6 +2044,7 @@ function setupResearch() {
     const title = tf.elements.taskTitle.value.trim();
     if (title) p.set('title', title);
     if (audioUrl) p.set('audio', audioUrl);
+    if (flextextUrl) p.set('flextext', flextextUrl);
     const url = location.origin + location.pathname + '?' + p.toString();
     const out = $('#task-link-out');
     out.hidden = false;

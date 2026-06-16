@@ -470,6 +470,40 @@ export async function probeAudioUrl(url) {
   return { name, size, mime };
 }
 
+// Fetch a whole (small) file via the relay's chunk protocol, or directly for a
+// non-relay URL. Used for task-attached flextext files (XML, tens of KB), so we
+// keep it simple: no persistence/resume (cf. the audio downloader above, which
+// needs both for large media). Returns { name, mime, blob }.
+export async function fetchFileViaUrl(url) {
+  const isRelay = /script\.google(?:usercontent)?\.com\/macros\//.test(url) || /\/exec(\?|$)/.test(url);
+  if (!isRelay) {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const blob = await resp.blob();
+    const name = decodeURIComponent((url.split('/').pop() || '').split('?')[0]) || '';
+    return { name, mime: (resp.headers.get('content-type') || '').split(';')[0], blob };
+  }
+  const sep = url.includes('?') ? '&' : '?';
+  const parts = [];
+  let received = 0, total = null, name = '', mime = '';
+  for (let guard = 0; guard < 200; guard++) {
+    const resp = await fetch(`${url}${sep}start=${received}&len=1048576`);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const body = await resp.json();
+    if (body.error) { const e = new Error(body.error); e.fatal = true; throw e; }
+    if (!body.data) { const e = new Error('Unexpected relay response'); e.fatal = true; throw e; }
+    const chunk = base64ToBlob(body.data, body.mimeType);
+    parts.push(chunk);
+    received += chunk.size;
+    name = body.name || name;
+    mime = body.mimeType || mime;
+    if (body.total == null) break;                 // v1 relay: whole file in one response
+    total = body.total;
+    if (body.eof || received >= total) break;
+  }
+  return { name, mime, blob: new Blob(parts, { type: mime }) };
+}
+
 /* ---------------- Player ---------------- */
 
 const ZOOM_MIN = 1;     // px per second (fit-ish)

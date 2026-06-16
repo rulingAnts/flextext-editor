@@ -197,11 +197,15 @@
         <input name="taskTitle" spellcheck="false"></label>
       <label class="wide"><span data-i18n="task.audio">Audio (Drive share link, file ID, or direct URL)</span>
         <input name="taskAudio" spellcheck="false"></label>
+      <label class="wide"><span data-i18n="task.flextext">Existing transcription (optional — a .flextext file's Drive share link, file ID, or direct URL)</span>
+        <input name="taskFlextext" spellcheck="false"></label>
     </fieldset>
+    <p class="note" data-i18n="task.flextextNote">Optional: send an already-transcribed (or fully glossed) FLEx text for checking/editing. The app reads its writing-system codes and will not build a link unless they match your vern/anal setup above.</p>
     <div class="toolbar">
       <button type="submit" class="primary-btn" data-i18n="task.copy">Copy task link</button>
     </div>
     <p id="task-check" class="note" hidden></p>
+    <p id="task-ws" class="note" hidden></p>
     <p id="task-link-out" class="share-link" hidden></p>
   </form>
 

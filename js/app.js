@@ -67,7 +67,7 @@ function applyUrlSettings() {
   if (p.has('lang')) setLang(p.get('lang'));
   if (p.get('research') === 'off') localStorage.setItem(RESEARCH_HIDDEN_KEY, '1');
   if (p.get('research') === 'on') localStorage.removeItem(RESEARCH_HIDDEN_KEY);
-  const gotSettings = p.has('vern') || p.has('anal') || p.has('welcome') || p.has('btns') || p.has('editorRec');
+  const gotSettings = p.has('vern') || p.has('anal') || p.has('welcome') || p.has('btns') || p.has('editorRec') || p.has('autoDel');
   let settingsChanged = false;
   if (gotSettings) {
     const s = loadSettings();
@@ -101,6 +101,9 @@ function applyUrlSettings() {
     if (p.has('consentMsg')) s.consentMsg = p.get('consentMsg');
     if (p.has('consentAudio')) s.consentAudio = p.get('consentAudio');
     if (p.has('consentResp')) s.consentResp = ['record', 'signature'].includes(p.get('consentResp')) ? p.get('consentResp') : 'yesno';
+    // Whether a text is deleted from the device after it uploads to Drive
+    // (researcher's explicit choice; overrides the per-app default below).
+    if (p.has('autoDel')) s.autoDelUploaded = p.get('autoDel') === 'on';
     settingsChanged = JSON.stringify(s) !== before;
     saveSettings(s);
   }
@@ -1271,6 +1274,28 @@ function allowedButtons() {
   return new Set(Array.isArray(settings.toolbarButtons) ? settings.toolbarButtons : ALL_BUTTONS);
 }
 
+// Whether a text/recording should be deleted from THIS device once it has
+// uploaded to Drive. Researcher-controlled via the link (autoDel=on|off →
+// settings.autoDelUploaded). When the link said nothing, default per app: the
+// Text Recorder clears sent recordings (gather-and-send, frees phone storage),
+// the editor keeps texts (a transcriber may edit them over several sessions).
+function deleteAfterUpload() {
+  return settings.autoDelUploaded === undefined ? RECORD_MODE : !!settings.autoDelUploaded;
+}
+
+// Delete a just-uploaded doc + all its media, then refresh whichever list is
+// showing. If the doc is open in the editor, leave it first so the user isn't
+// stranded on an editor for a text that no longer exists.
+function deleteUploadedDoc(docId) {
+  if (current && current.id === docId) {
+    current = null;
+    if (!RECORD_MODE) show('texts');
+  }
+  return db.deleteDoc(docId).catch(() => {}).then(() => {
+    if (RECORD_MODE) renderRecordList(); else renderDocList();
+  });
+}
+
 // Turn a researcher's audio input (Drive share link, bare file id, or direct
 // URL) into a fetchable URL: Drive references route through the relay, direct
 // https URLs pass through. Returns '' if it can't be understood.
@@ -1441,15 +1466,13 @@ function uploadState(docId) {
     if (st.status === 'cancelled' || st.status === 'done') {
       uploadView.delete(docId);
       if (st.status === 'done') {
-        // In the recorder app a recording's job is finished once it is safely on
-        // Drive (status 'done' = confirmed by the relay poll), so delete it: the
-        // saved list stays the "still to send" list and the phone's storage is
-        // freed. Editor texts are kept — the user is still working on those.
-        // This fires at the single upload-completion point, so it also covers
+        // Once a text is safely on Drive (status 'done' = confirmed by the relay
+        // poll), optionally delete it from the device — see deleteAfterUpload()
+        // for who decides (researcher link param, else per-app default). This
+        // fires at the single upload-completion point, so it also covers
         // background-retry uploads that finish long after the user tapped Send.
-        if (RECORD_MODE) {
-          if (current && current.id === docId) current = null;
-          db.deleteDoc(docId).catch(() => {}).then(() => renderRecordList());
+        if (deleteAfterUpload()) {
+          deleteUploadedDoc(docId);
           toast(t('record.sentRemoved', { name: st.name }), 6000);
         } else {
           toast(t('upload.done', { name: st.name }), 6000);
@@ -1653,6 +1676,7 @@ function fillWsForm() {
   f.elements.btnAudio.checked = lb.has('audio');
   f.elements.btnRecord.checked = lb.has('record');
   f.elements.btnOpen.checked = lb.has('open');
+  f.elements.autoDel.checked = !!settings.autoDelUploaded;
   const welcomeEl = $('#record-welcome');
   if (welcomeEl) welcomeEl.value = settings.recordWelcome
     || t('record.welcomeDefault', { lang: settings.vernName || settings.vernLang || '' });
@@ -1703,6 +1727,9 @@ function applyResearchFormToSettings(f) {
   if (f.elements.btnRecord.checked) lb.push('record');
   if (f.elements.btnOpen.checked) lb.push('open');
   settings.linkButtons = lb;
+  // Auto-delete-after-upload travels with the link as an explicit on/off, so the
+  // researcher's current choice always overwrites whatever the device had.
+  settings.autoDelUploaded = !!f.elements.autoDel.checked;
   const welcomeEl = $('#record-welcome');
   if (welcomeEl) settings.recordWelcome = welcomeEl.value.trim();
   saveSettings(settings);
@@ -1753,6 +1780,8 @@ function setupResearch() {
     p.set('send', (settings.linkSendOptions?.length
       ? settings.linkSendOptions
       : ['share', 'upload', 'save', 'download']).join(','));
+    // Delete-after-upload (always travels as explicit on/off).
+    p.set('autoDel', settings.autoDelUploaded ? 'on' : 'off');
     // Which Texts-screen buttons the coworker sees (always travels, like the
     // send options, so the researcher's current choice overwrites older ones).
     p.set('btns', (Array.isArray(settings.linkButtons) ? settings.linkButtons : ALL_BUTTONS).join(','));
@@ -1799,6 +1828,10 @@ function setupResearch() {
     p.set('send', (settings.linkSendOptions?.length
       ? settings.linkSendOptions
       : ['share', 'upload', 'save', 'download']).join(','));
+    // Delete-after-upload (always travels as explicit on/off). The recorder
+    // also defaults to deleting when no link param is present (see
+    // deleteAfterUpload()), but an explicit value lets a researcher turn it off.
+    p.set('autoDel', settings.autoDelUploaded ? 'on' : 'off');
     if (settings.consentMode && settings.consentMode !== 'off') {
       p.set('consentMode', settings.consentMode);
       if (settings.consentMsg) p.set('consentMsg', settings.consentMsg);
@@ -1878,6 +1911,8 @@ function setupResearch() {
     p.set('send', (settings.linkSendOptions?.length
       ? settings.linkSendOptions
       : ['share', 'upload', 'save', 'download']).join(','));
+    // Delete-after-upload (always travels as explicit on/off).
+    p.set('autoDel', settings.autoDelUploaded ? 'on' : 'off');
     // Which Texts-screen buttons the coworker sees (always travels, like the
     // send options, so the researcher's current choice overwrites older ones).
     p.set('btns', (Array.isArray(settings.linkButtons) ? settings.linkButtons : ALL_BUTTONS).join(','));

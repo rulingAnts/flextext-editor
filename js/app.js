@@ -1440,7 +1440,21 @@ function uploadState(docId) {
   return (st) => {
     if (st.status === 'cancelled' || st.status === 'done') {
       uploadView.delete(docId);
-      if (st.status === 'done') toast(t('upload.done', { name: st.name }), 6000);
+      if (st.status === 'done') {
+        // In the recorder app a recording's job is finished once it is safely on
+        // Drive (status 'done' = confirmed by the relay poll), so delete it: the
+        // saved list stays the "still to send" list and the phone's storage is
+        // freed. Editor texts are kept — the user is still working on those.
+        // This fires at the single upload-completion point, so it also covers
+        // background-retry uploads that finish long after the user tapped Send.
+        if (RECORD_MODE) {
+          if (current && current.id === docId) current = null;
+          db.deleteDoc(docId).catch(() => {}).then(() => renderRecordList());
+          toast(t('record.sentRemoved', { name: st.name }), 6000);
+        } else {
+          toast(t('upload.done', { name: st.name }), 6000);
+        }
+      }
       renderUploadQueue();
       pumpUploads();
       return;

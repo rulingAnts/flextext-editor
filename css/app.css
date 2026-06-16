@@ -668,3 +668,18 @@ main {
   #btn-share { font-size: 13px; padding: 7px 9px; }
   .baseline-area { font-size: 17px; }
 }
+
+/* Subtle credit/source line on the home screen — muted so it doesn't distract
+   everyday users, but discoverable for a developer who might fork/adopt it. */
+.site-credit {
+  margin: 40px auto 14px;
+  padding: 0 16px;
+  max-width: 600px;
+  text-align: center;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--muted);
+  opacity: 0.85;
+}
+.site-credit a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.site-credit a:hover { color: var(--blue-dark); }

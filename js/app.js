@@ -17,6 +17,14 @@ import { esc, newGuid as mkGuid } from './flextext.js';
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
+// Record-only mode: the "Text Recorder" app (record.html sets window.__MODE), or
+// a record link opened in the editor app (?mode=record). Deliberately NOT
+// persisted — the editor must never get stuck in record mode because a shared
+// link was opened once on the same origin. The recording/consent/upload engine
+// is shared; only the UI differs.
+const RECORD_MODE = (typeof window !== 'undefined' && window.__MODE === 'record') ||
+  new URLSearchParams(location.search).get('mode') === 'record';
+
 // Default Google Drive relay (docs/drive-relay.gs) used for Drive share links
 // when the researcher hasn't configured their own. The relay is permissionless
 // (it can only fetch link-shared files), so sharing one deployment is safe.
@@ -56,7 +64,7 @@ function applyUrlSettings() {
   if (p.has('lang')) setLang(p.get('lang'));
   if (p.get('research') === 'off') localStorage.setItem(RESEARCH_HIDDEN_KEY, '1');
   if (p.get('research') === 'on') localStorage.removeItem(RESEARCH_HIDDEN_KEY);
-  const gotSettings = p.has('vern') || p.has('anal');
+  const gotSettings = p.has('vern') || p.has('anal') || p.has('welcome') || p.has('editorRec');
   let settingsChanged = false;
   if (gotSettings) {
     const s = loadSettings();
@@ -66,6 +74,10 @@ function applyUrlSettings() {
     for (const [qp, key] of Object.entries(map)) {
       if (p.has(qp)) s[key] = p.get(qp);
     }
+    // Custom welcome heading for Phone Recording Mode (includes the language name).
+    if (p.has('welcome')) s.recordWelcome = p.get('welcome');
+    // Whether the editor device shows its "Record new text" button.
+    if (p.has('editorRec')) s.editorRecord = p.get('editorRec') !== 'off';
     if (p.has('upload')) s.uploadFolder = p.get('upload').replace(/[^\w-]/g, '');
     if (p.has('send')) {
       s.sendOptions = p.get('send').split(',')
@@ -84,7 +96,7 @@ function applyUrlSettings() {
   const task = (p.has('audio') || p.has('title'))
     ? { title: p.get('title') || '', audioUrl: p.get('audio') || '' }
     : null;
-  if (gotSettings || task || p.has('lang') || p.has('research')) {
+  if (gotSettings || task || p.has('lang') || p.has('research') || p.has('mode')) {
     history.replaceState(null, '', location.pathname);
   }
   return { gotSettings, settingsChanged, task };
@@ -111,18 +123,22 @@ function toast(msg, ms = 2600) {
 
 /* ---------------- View switching ---------------- */
 
-const VIEWS = ['texts', 'baseline', 'gloss', 'research', 'help'];
+const VIEWS = ['texts', 'baseline', 'gloss', 'research', 'help', 'record'];
 
 function currentView() {
-  return VIEWS.find(v => !$('#view-' + v).hidden) || 'texts';
+  return VIEWS.find(v => { const el = $('#view-' + v); return el && !el.hidden; }) || 'texts';
 }
 
+// Tolerant of missing elements: record.html only contains a subset of the views
+// and topbars, so every lookup is guarded.
 function show(view) {
-  for (const v of VIEWS) $('#view-' + v).hidden = v !== view;
+  for (const v of VIEWS) { const el = $('#view-' + v); if (el) el.hidden = v !== view; }
   const inEditor = view === 'baseline' || view === 'gloss' ||
     (view === 'help' && (helpReturnView === 'baseline' || helpReturnView === 'gloss'));
-  $('#topbar-home').hidden = inEditor;
-  $('#topbar-editor').hidden = !inEditor;
+  const home = $('#topbar-home');
+  const editor = $('#topbar-editor');
+  if (home) home.hidden = inEditor;
+  if (editor) editor.hidden = !inEditor;
   if (!inEditor) {
     $$('#topbar-home .top-tab').forEach(b =>
       b.setAttribute('aria-selected', String(b.dataset.view === view)));
@@ -227,8 +243,12 @@ function docStats(doc) {
 async function persist() {
   if (!current) return;
   current.modified = Date.now();
-  current.title = $('#doc-title').value.trim() || current.title || '';
-  if (!$('#view-texts').hidden) return;
+  const titleEl = $('#doc-title');
+  if (titleEl) current.title = titleEl.value.trim() || current.title || '';
+  // In the editor, skip the full doc write while sitting on the library view.
+  // Record mode has no library view (and no #doc-title), so it always saves.
+  const textsView = $('#view-texts');
+  if (textsView && !textsView.hidden) return;
   Object.assign(current, docStats(current.doc));
   current.doc.title = current.title;
   await db.putDoc(current);
@@ -336,6 +356,7 @@ function isAudioLocked(rec) {
 
 // Show/refresh the player for the current doc on the Baseline tab.
 async function refreshPlayer() {
+  if (!$('#audio-player')) return; // record mode has no player UI
   const p = getPlayer();
   $('#btn-attach-audio').hidden = true;
   if (!current) { p.hide(); return; }
@@ -402,7 +423,7 @@ async function newDocFromAudio(file, titleOverride) {
     modified: Date.now(),
     doc,
   };
-  enterEditor('baseline');
+  if (!RECORD_MODE) enterEditor('baseline');
   await attachAudioFile(file);
   // If a recorded verbal assent was captured in the consent gate, store it
   // with this doc so it travels in the upload/save zip bundle.
@@ -421,6 +442,14 @@ async function newDocFromAudio(file, titleOverride) {
     pendingPromptAudio = null;
   }
   if (current.consentReceipt || current.consentClip || current.consentPromptClip) await persist();
+  if (RECORD_MODE) {
+    // No editor in record mode: the recording is saved; return to the list.
+    current = null;
+    show('record');
+    renderRecordList();
+    toast(t('record.saved'), 4000);
+    return;
+  }
   $('#doc-title').focus();
   $('#doc-title').select();
 }
@@ -1250,14 +1279,14 @@ function updateShareButton() {
 }
 
 function exportBlob() {
-  if (activeTab === 'baseline') applyBaseline();
-  current.doc.title = $('#doc-title').value.trim() || current.title || 'Untitled';
+  if (activeTab === 'baseline' && $('#baseline-text')) applyBaseline();
+  current.doc.title = ($('#doc-title')?.value.trim()) || current.title || 'Untitled';
   const xml = serializeFlextext(current.doc, settings);
   return new Blob([xml], { type: 'application/xml' });
 }
 
 function exportFilename() {
-  const t2 = ($('#doc-title').value.trim() || current.title || 'text')
+  const t2 = (($('#doc-title')?.value.trim()) || current.title || 'text')
     .replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80);
   return t2 + '.flextext';
 }
@@ -1468,6 +1497,12 @@ function fillWsForm() {
   f.elements.consentMsg.value = settings.consentMsg || '';
   f.elements.consentAudioUrl.value = settings.consentAudioUrl || '';
   f.elements.consentResp.value = settings.consentResp || 'yesno';
+  // Editor Record-button template (default on) + the Phone-Recording welcome
+  // heading (prefilled from the language name until the researcher edits it).
+  if ($('#editor-rec-box')) $('#editor-rec-box').checked = settings.linkEditorRecord !== false;
+  const welcomeEl = $('#record-welcome');
+  if (welcomeEl) welcomeEl.value = settings.recordWelcome
+    || t('record.welcomeDefault', { lang: settings.vernName || settings.vernLang || '' });
   updateConsentFields(f);
 }
 
@@ -1507,6 +1542,11 @@ function applyResearchFormToSettings(f) {
   const rawConsentAudio = f.elements.consentAudioUrl.value.trim();
   settings.consentAudioUrl = rawConsentAudio;
   settings.consentAudio = resolveAudioInput(rawConsentAudio);
+  // Link templates (decoupled from this device, like linkSendOptions): the
+  // editor Record-button toggle and the Phone-Recording welcome heading.
+  settings.linkEditorRecord = !$('#editor-rec-box') || $('#editor-rec-box').checked;
+  const welcomeEl = $('#record-welcome');
+  if (welcomeEl) settings.recordWelcome = welcomeEl.value.trim();
   saveSettings(settings);
   return { rawUpload, rawConsentAudio };
 }
@@ -1555,6 +1595,9 @@ function setupResearch() {
     p.set('send', (settings.linkSendOptions?.length
       ? settings.linkSendOptions
       : ['share', 'upload', 'save', 'download']).join(','));
+    // The editor's Record button (always travels, like the send options, so the
+    // researcher's current choice overwrites any older one on the device).
+    p.set('editorRec', settings.linkEditorRecord === false ? 'off' : 'on');
     // Consent (app-wide) travels with every link.
     if (settings.consentMode && settings.consentMode !== 'off') {
       p.set('consentMode', settings.consentMode);
@@ -1564,6 +1607,49 @@ function setupResearch() {
     }
     const url = location.origin + location.pathname + '?' + p.toString();
     const out = $('#share-link-out');
+    out.hidden = false;
+    out.textContent = url;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast(t('toast.linkCopied'));
+    } catch {
+      toast(t('toast.linkCopyManual'));
+    }
+  });
+
+  // Phone Recording link builder → record.html (the installable "Text Recorder").
+  // Refuses to produce a link until the welcome heading is filled in.
+  $('#btn-copy-record-link').addEventListener('click', async () => {
+    const f2 = $('#ws-form');
+    applyResearchFormToSettings(f2); // link reflects the CURRENT form (+ persists welcome)
+    const welcome = ($('#record-welcome').value || '').trim();
+    if (!welcome) { $('#record-welcome').focus(); toast(t('recordlink.needWelcome'), 7000); return; }
+    if (!f2.elements.vernLang.value.trim()) { toast(t('toast.needVern')); return; }
+    if (!f2.elements.analLang.value.trim() && !confirm(t('research.analBlankConfirm'))) return;
+    settings.recordWelcome = welcome;
+    saveSettings(settings);
+    const p = new URLSearchParams();
+    const map = { vernLang: 'vern', vernName: 'vernName', vernFont: 'vernFont',
+                  analLang: 'anal', analName: 'analName', analFont: 'analFont' };
+    for (const [key, qp] of Object.entries(map)) {
+      const v = f2.elements[key].value.trim();
+      if (v) p.set(qp, v);
+    }
+    p.set('lang', getLang());
+    p.set('welcome', welcome);
+    p.set('upload', settings.uploadFolder || '');
+    p.set('send', (settings.linkSendOptions?.length
+      ? settings.linkSendOptions
+      : ['share', 'upload', 'save', 'download']).join(','));
+    if (settings.consentMode && settings.consentMode !== 'off') {
+      p.set('consentMode', settings.consentMode);
+      if (settings.consentMsg) p.set('consentMsg', settings.consentMsg);
+      if (settings.consentAudio) p.set('consentAudio', settings.consentAudio);
+      p.set('consentResp', settings.consentResp || 'yesno');
+    }
+    const dir = location.pathname.replace(/[^/]*$/, ''); // strip index.html / filename
+    const url = location.origin + dir + 'record.html?' + p.toString();
+    const out = $('#record-link-out');
     out.hidden = false;
     out.textContent = url;
     try {
@@ -1630,6 +1716,9 @@ function setupResearch() {
     p.set('send', (settings.linkSendOptions?.length
       ? settings.linkSendOptions
       : ['share', 'upload', 'save', 'download']).join(','));
+    // The editor's Record button (always travels, like the send options, so the
+    // researcher's current choice overwrites any older one on the device).
+    p.set('editorRec', settings.linkEditorRecord === false ? 'off' : 'on');
     // Consent (app-wide) travels with every link.
     if (settings.consentMode && settings.consentMode !== 'off') {
       p.set('consentMode', settings.consentMode);
@@ -1820,6 +1909,99 @@ function setupResearchToggle() {
   });
 }
 
+/* ---------------- Record-only mode (Phone Recording) ----------------
+ * A stripped-down UI for native-speaker coworkers to gather audio on a phone.
+ * It reuses the editor's recording / consent / storage / upload engine wholesale
+ * (requestConsentThen → openRecordModal → saveRecording → newDocFromAudio →
+ * openShareMenu / doUpload); only the surrounding UI differs. Reachable as the
+ * installable "Text Recorder" app (record.html) or via a ?mode=record link.
+ */
+
+// The researcher-set welcome heading (includes the language name). Falls back to
+// a localized default if a link/device somehow has none.
+function recordWelcomeText() {
+  const custom = (settings.recordWelcome || '').trim();
+  if (custom) return custom;
+  return t('record.welcomeDefault', { lang: settings.vernName || settings.vernLang || '' }).trim();
+}
+
+// Build the record-only screen. #view-record is static in record.html and
+// created on demand when a ?mode=record link is opened in the editor app — so
+// the record markup has a single source here.
+function renderRecordView() {
+  let v = $('#view-record');
+  if (!v) {
+    v = document.createElement('section');
+    v.id = 'view-record';
+    v.className = 'view';
+    ($('main') || document.body).appendChild(v);
+  }
+  v.innerHTML = `
+    <div class="record-screen">
+      <p class="record-welcome"></p>
+      <button id="btn-record-big" class="primary-btn record-big">
+        <span class="rec-dot"></span><span class="record-big-label"></span></button>
+      <h3 class="record-list-h"></h3>
+      <ul id="record-list" class="doc-list rec-list"></ul>
+      <p id="record-empty" class="empty-note" hidden></p>
+    </div>`;
+  v.querySelector('.record-welcome').textContent = recordWelcomeText();
+  v.querySelector('.record-big-label').textContent = t('record.btn');
+  v.querySelector('.record-list-h').textContent = t('record.savedH');
+  v.querySelector('#record-empty').textContent = t('record.empty');
+  $('#btn-record-big').addEventListener('click', () => requestConsentThen(() => openRecordModal()));
+}
+
+async function renderRecordList() {
+  const ul = $('#record-list');
+  if (!ul) return;
+  const docs = await db.listDocs();
+  ul.innerHTML = '';
+  const empty = $('#record-empty');
+  if (empty) empty.hidden = docs.length > 0;
+  for (const d of docs) {
+    const li = document.createElement('li');
+    li.className = 'rec-item';
+    const date = d.modified ? new Date(d.modified).toLocaleString() : '';
+    li.innerHTML = `
+      <div class="rec-item-main">
+        <span class="doc-name"></span>
+        <span class="doc-meta"></span>
+      </div>
+      <div class="rec-item-actions">
+        <button class="rec-send secondary-btn"></button>
+        <button class="doc-delete icon-btn"></button>
+      </div>`;
+    li.querySelector('.doc-name').textContent = d.title || t('untitled');
+    li.querySelector('.doc-meta').textContent = date;
+    const send = li.querySelector('.rec-send');
+    send.textContent = t('record.send');
+    const del = li.querySelector('.doc-delete');
+    del.title = t('texts.deleteTitle');
+    del.innerHTML = '&#128465;';
+    send.addEventListener('click', async () => {
+      const rec = await db.getDoc(d.id);
+      if (!rec) { toast(t('toast.cantOpen')); return; }
+      current = rec;
+      openShareMenu();
+    });
+    del.addEventListener('click', async () => {
+      if (confirm(t('texts.confirmDelete', { title: d.title || t('untitled') }))) {
+        await db.deleteDoc(d.id);
+        if (current && current.id === d.id) current = null;
+        renderRecordList();
+      }
+    });
+    ul.appendChild(li);
+  }
+}
+
+function setupRecordMode() {
+  renderRecordView();
+  renderRecordList();
+  show('record');
+}
+
 /* ---------------- Install & platform banners ---------------- */
 
 // True on Safari and on any iPhone/iPad browser (they are all WebKit).
@@ -1956,22 +2138,83 @@ function promptUpdate(waitingWorker) {
 
 /* ---------------- Wire-up ---------------- */
 
+// Controls present in BOTH the editor and the record-only app: the recording
+// modal, the share/save-menu backdrop, and the upload status bar. Every lookup
+// is optional so it is safe to call from the minimal record.html page.
+function wireSharedModals() {
+  $('#record-toggle')?.addEventListener('click', () => {
+    if (rec?.recorder && rec.recorder.state === 'recording') rec.recorder.stop();
+    else startRecording();
+  });
+  $('#record-redo')?.addEventListener('click', () => { discardRecording(); recordUI('idle'); });
+  $('#record-title')?.addEventListener('input', syncRecordSaveEnabled);
+  $('#record-title')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && $('#record-title').value.trim()) {
+      e.preventDefault();
+      saveRecording().catch(err => toast(t('convert.failed', { msg: err.message }), 6000));
+    }
+  });
+  $('#record-save')?.addEventListener('click', () => {
+    saveRecording().catch(err => toast(t('convert.failed', { msg: err.message }), 6000));
+  });
+  $('#record-cancel')?.addEventListener('click', closeRecordModal);
+  $('#record-modal')?.addEventListener('click', (e) => {
+    if (e.target === $('#record-modal')) closeRecordModal();
+  });
+  $('#share-menu')?.addEventListener('click', (e) => { if (e.target === $('#share-menu')) closeShareMenu(); });
+  $('#upload-pause')?.addEventListener('click', () => {
+    const up = getUpload($('#upload-pause').dataset.docId || '');
+    if (!up) return;
+    if (up.status === 'uploading') up.pause();
+    else up.resume();
+  });
+  $('#upload-cancel')?.addEventListener('click', () => {
+    const up = getUpload($('#upload-cancel').dataset.docId || '');
+    if (up) up.cancel();
+    else $('#upload-bar').hidden = true;
+  });
+}
+
 function setup() {
   migrateSettings();
   const { settingsChanged, task } = applyUrlSettings();
   settings = loadSettings();
   applyI18n();
 
+  // Language selector — present in both the editor and the recorder.
   const langSel = $('#lang-select');
-  langSel.value = getLang();
-  langSel.addEventListener('change', () => {
-    setLang(langSel.value);
-    applyI18n();
-    applyHelpResearchVisibility();
-    renderDocList();
-    if (!$('#view-gloss').hidden) renderGloss();
-  });
+  if (langSel) {
+    langSel.value = getLang();
+    langSel.addEventListener('change', () => {
+      setLang(langSel.value);
+      applyI18n();
+      if (RECORD_MODE) { renderRecordView(); renderRecordList(); return; }
+      applyHelpResearchVisibility();
+      renderDocList();
+      if (!$('#view-gloss').hidden) renderGloss();
+    });
+  }
 
+  // Shared engine wiring + housekeeping (runs in both modes).
+  wireSharedModals();
+  setupBanners();
+  window.addEventListener('online', () => { retryPendingAudio(); resumePendingUploads(); });
+  retryPendingAudio();
+  resumePendingUploads();
+  syncConsentAudio(); // fetch/cache the consent prompt audio if configured
+  // Ask the browser to protect our storage (texts + recordings) from being
+  // silently evicted when the device runs low on space.
+  navigator.storage?.persist?.().catch(() => {});
+  setupServiceWorker();
+  primeGeolocationOnce();
+
+  // ----- Record-only mode: show just the recorder UI and stop here. -----
+  if (RECORD_MODE) {
+    setupRecordMode();
+    return;
+  }
+
+  // ----- Full editor wiring -----
   $$('#topbar-home .top-tab').forEach(b => b.addEventListener('click', () => {
     if (b.dataset.view === 'research') { fillWsForm(); show('research'); }
     else { renderDocList(); show('texts'); }
@@ -1996,25 +2239,8 @@ function setup() {
   $('#btn-new').addEventListener('click', () => newDoc());
   $('#btn-new-audio').addEventListener('click', () => $('#new-audio-file').click());
   $('#btn-record').addEventListener('click', () => requestConsentThen(() => openRecordModal()));
-  $('#record-toggle').addEventListener('click', () => {
-    if (rec?.recorder && rec.recorder.state === 'recording') rec.recorder.stop();
-    else startRecording();
-  });
-  $('#record-redo').addEventListener('click', () => { discardRecording(); recordUI('idle'); });
-  $('#record-title').addEventListener('input', syncRecordSaveEnabled);
-  $('#record-title').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && $('#record-title').value.trim()) {
-      e.preventDefault();
-      saveRecording().catch(err => toast(t('convert.failed', { msg: err.message }), 6000));
-    }
-  });
-  $('#record-save').addEventListener('click', () => {
-    saveRecording().catch(err => toast(t('convert.failed', { msg: err.message }), 6000));
-  });
-  $('#record-cancel').addEventListener('click', closeRecordModal);
-  $('#record-modal').addEventListener('click', (e) => {
-    if (e.target === $('#record-modal')) closeRecordModal();
-  });
+  // The researcher can hide the editor's Record button via a link (editorRec=off).
+  $('#btn-record').hidden = settings.editorRecord === false;
   $('#new-audio-file').addEventListener('change', (e) => {
     const f = e.target.files[0];
     e.target.value = '';
@@ -2028,7 +2254,6 @@ function setup() {
   });
   $('#baseline-text').addEventListener('blur', () => { applyBaseline(); });
   $('#btn-share').addEventListener('click', openShareMenu);
-  $('#share-menu').addEventListener('click', (e) => { if (e.target === $('#share-menu')) closeShareMenu(); });
 
   $('#audio-player .player-dl-pause').addEventListener('click', () => {
     if (!current) return;
@@ -2053,21 +2278,7 @@ function setup() {
     e.target.value = '';
     if (f) attachAudioFile(f).catch(err => toast(t('toast.importFailed', { msg: err.message }), 6000));
   });
-  window.addEventListener('online', () => { retryPendingAudio(); resumePendingUploads(); });
 
-  $('#upload-pause').addEventListener('click', () => {
-    const up = getUpload($('#upload-pause').dataset.docId || '');
-    if (!up) return;
-    if (up.status === 'uploading') up.pause();
-    else up.resume();
-  });
-  $('#upload-cancel').addEventListener('click', () => {
-    const up = getUpload($('#upload-cancel').dataset.docId || '');
-    if (up) up.cancel();
-    else $('#upload-bar').hidden = true;
-  });
-
-  setupBanners();
   setupResearch();
   setupResearchToggle();
   applyResearchVisibility();
@@ -2088,16 +2299,6 @@ function setup() {
     show('texts');
     if (settingsChanged) toast(t('toast.setupReceived'), 5000);
   }
-  retryPendingAudio();
-  resumePendingUploads();
-  syncConsentAudio(); // fetch/cache the consent prompt audio if configured
-
-  // Ask the browser to protect our storage (texts + recordings) from
-  // being silently evicted when the device runs low on space.
-  navigator.storage?.persist?.().catch(() => {});
-
-  setupServiceWorker();
-  primeGeolocationOnce();
 }
 
 setup();

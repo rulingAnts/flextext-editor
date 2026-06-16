@@ -141,6 +141,8 @@
         <label class="check-label"><input type="checkbox" name="sendDownload" checked> <span data-i18n="share.download">Download</span></label>
       </div>
       <p class="note" data-i18n="research.sendNote">These choices travel with your setup/task links and decide which buttons the coworker sees under "Save and send…".</p>
+      <label class="check-label"><input type="checkbox" id="editor-rec-box" checked>
+        <span data-i18n="recordlink.editorRec">Show the "Record new text" button in the editor</span></label>
     </fieldset>
     <fieldset>
       <legend data-i18n="consent.legend">Speaker permission before recording</legend>
@@ -191,6 +193,22 @@
     </div>
     <p id="task-check" class="note" hidden></p>
     <p id="task-link-out" class="share-link" hidden></p>
+  </form>
+
+  <hr>
+
+  <h2 data-i18n="recordlink.h">Phone Recording link</h2>
+  <p class="note" data-i18n-html="recordlink.note"></p>
+  <form id="record-link-form" class="ws-form">
+    <fieldset>
+      <label class="wide"><span data-i18n="recordlink.welcome">Welcome message / heading (shown on the phone — include the language name)</span>
+        <textarea id="record-welcome" rows="2" data-i18n-ph="recordlink.welcomePh"></textarea></label>
+    </fieldset>
+    <p class="note" data-i18n="recordlink.whatsapp">Audio sent through WhatsApp is recompressed and loses quality, even inside a zip. Prefer Upload to Google Drive.</p>
+    <div class="toolbar">
+      <button type="button" id="btn-copy-record-link" class="primary-btn" data-i18n="recordlink.copy">Copy Phone Recording link</button>
+    </div>
+    <p id="record-link-out" class="share-link" hidden></p>
   </form>
 
   <hr>

@@ -2,7 +2,7 @@
 
 // Bump VERSION on every deploy: clients check for a changed sw.js whenever
 // they load / regain focus / come online, and offer the user an update.
-const VERSION = 'v38';
+const VERSION = 'v39';
 const CACHE = 'flextext-' + VERSION;
 const SHELL = [
   './',
@@ -26,6 +26,10 @@ const SHELL = [
   'icons/icon-192.png',
   'icons/icon-512.png',
   'icons/apple-touch-icon.png',
+  'icons/recorder.svg',
+  'icons/recorder-192.png',
+  'icons/recorder-512.png',
+  'icons/recorder-apple-touch.png',
 ];
 
 self.addEventListener('install', (e) => {

@@ -2066,7 +2066,9 @@ function setupResearchToggle() {
 function recordWelcomeText() {
   const custom = (settings.recordWelcome || '').trim();
   if (custom) return custom;
-  return t('record.welcomeDefault', { lang: settings.vernName || settings.vernLang || '' }).trim();
+  // Collapse the gap left when no language name is set (e.g. "Record  texts here").
+  return t('record.welcomeDefault', { lang: settings.vernName || settings.vernLang || '' })
+    .replace(/\s{2,}/g, ' ').trim();
 }
 
 // Build the record-only screen. #view-record is static in record.html and

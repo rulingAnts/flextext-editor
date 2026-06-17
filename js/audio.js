@@ -414,7 +414,11 @@ export function getAsset(key) {
  * shared" immediately — instead of the coworker discovering it later.
  */
 
-const PROBE_MAX = 15 * 1024 * 1024; // matches the relay cap
+// The Worker's /drive proxy caches and serves up to 512 MB per file (with HTTP
+// Range, so downloads stream + resume). The old 15 MB ceiling was an Apps Script
+// relay limit and no longer applies. Bigger than this → host on your own R2 and
+// paste a direct link (see the "larger than ~500 MB" note in Settings).
+const PROBE_MAX = 512 * 1024 * 1024;
 
 function headLooksUncompressed(bytes, mime) {
   if (/wav|aiff|x-aiff/i.test(String(mime || ''))) return true;

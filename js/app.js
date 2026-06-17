@@ -34,12 +34,18 @@ const ALL_BUTTONS = ['new', 'audio', 'record', 'open'];
 const DEFAULT_RELAY = 'https://script.google.com/macros/s/AKfycbxMQbP4Qij5dCWwQd-FoQJstVYEnjyG1ONwcaQ5CUccd-pUmXGGTCpQ9rZieJY0PE5GUg/exec';
 
 // Cloudflare Worker relay (FREE egress → no 150 MB/day cap, unlike Apps Script).
-// When the researcher has set a relay token (settings.relayToken), Drive
-// downloads route through this Worker's /drive proxy instead of DEFAULT_RELAY.
-// The token is REQUIRED (the Worker rejects untoken'd requests) and travels
-// baked into the per-file URL — never in the app source. Researchers running
-// their own Worker override the base via settings.relayWorker.
+// Every Drive download routes through this Worker's /drive proxy automatically —
+// researchers configure NOTHING; they paste plain Google Drive links exactly as
+// before and just stop hitting Google's old daily cap.
+//
+// DEFAULT_RELAY_TOKEN is deliberately public. It only unlocks reads: proxying
+// link-shared (public) Drive files and reading the Worker's R2 store. It can NOT
+// upload — writes are gated by a separate owner-only secret (?w=) that lives only
+// as a Wrangler secret, never here. And Cloudflare Worker egress is free and
+// *throttles* (never bills) past the free quota, so a leaked read token costs
+// nothing. Rotate it by changing the Worker's RELAY_SECRET + this constant.
 const DEFAULT_WORKER = 'https://flextext-r2-worker.68mh29kgsd.workers.dev';
+const DEFAULT_RELAY_TOKEN = '7a93cb82d8ad2bd533a75ddf03bebc92501494ca57dab46c5b9f0c5aef00db34';
 
 /* ---------------- Settings (writing systems) ---------------- */
 
@@ -1465,22 +1471,26 @@ function deleteUploadedDoc(docId) {
 // direct https URL (incl. an R2 CDN link) passes through unchanged. Returns ''
 // if it can't be understood.
 //
-// Drive relay selection: if the researcher has configured a Cloudflare relay
-// token, Drive downloads go through the Worker's /drive proxy (FREE egress → no
-// 150 MB/day cap). The token is baked into this per-file URL so the coworker's
-// device can fetch it. Without a token we fall back to the Apps Script relay
-// (the old, capped path) so existing setups keep working.
+// Drive relay selection: every Drive link routes through the Worker's /drive
+// proxy (FREE egress → no 150 MB/day cap), automatically and invisibly. The
+// (public, read-only) token is baked into the per-file URL so any device can
+// fetch it with zero setup. A direct non-Drive URL (e.g. a power user's own R2
+// public link) is served as-is, bypassing the Worker entirely.
 function resolveAudioInput(input) {
-  const s = String(input || '').trim();
+  let s = String(input || '').trim();
   if (!s) return '';
+  // Upgrade a legacy Apps Script relay URL back to a Drive link, so links built
+  // before the Worker existed also escape the old ~150 MB/day cap on re-resolve.
+  if (DEFAULT_RELAY && s.startsWith(DEFAULT_RELAY)) {
+    const oldId = new URLSearchParams(s.slice(s.indexOf('?') + 1)).get('id');
+    if (oldId) s = 'https://drive.google.com/file/d/' + oldId + '/view';
+  }
   const fileId = driveFileId(s);
   const isDrive = fileId && (/drive\.google\.com/.test(s) || !isProbablyUrl(s));
   if (isDrive) {
-    const token = (settings.relayToken || '').trim();
-    if (token) {
-      const base = (settings.relayWorker || DEFAULT_WORKER).trim().replace(/\/+$/, '');
-      return `${base}/drive?src=${fileId}&t=${encodeURIComponent(token)}`;
-    }
+    const base = (settings.relayWorker || DEFAULT_WORKER).trim().replace(/\/+$/, '');
+    const token = (settings.relayToken || DEFAULT_RELAY_TOKEN).trim();
+    if (base && token) return `${base}/drive?src=${fileId}&t=${encodeURIComponent(token)}`;
     return DEFAULT_RELAY ? DEFAULT_RELAY + '?id=' + fileId : '';
   }
   if (isProbablyUrl(s)) return s;
@@ -1871,8 +1881,6 @@ function fillWsForm() {
     if (f.elements[key]) f.elements[key].value = settings[key] || '';
   }
   f.elements.uploadUrl.value = settings.uploadUrl || '';
-  f.elements.relayWorker.value = settings.relayWorker || '';
-  f.elements.relayToken.value = settings.relayToken || '';
   // The checkboxes are a TEMPLATE for the links you hand out — what the
   // coworker sees. They never restrict this device (allowedSend, below, only
   // honors a restriction this device RECEIVED via a link). Default: all on.
@@ -1929,10 +1937,6 @@ function applyResearchFormToSettings(f) {
   const rawUpload = f.elements.uploadUrl.value.trim();
   settings.uploadUrl = rawUpload;
   settings.uploadFolder = rawUpload ? (parseDriveFolder(rawUpload) || '') : '';
-  // Cloudflare relay (advanced). Set BEFORE resolveAudioInput() below so the
-  // consent-audio URL it builds also routes through the Worker when a token is set.
-  settings.relayWorker = f.elements.relayWorker.value.trim();
-  settings.relayToken = f.elements.relayToken.value.trim();
   settings.linkSendOptions = sendOptionsFromForm(f); // template for links, not this device
   settings.consentMode = f.elements.consentMode.value;
   settings.consentMsg = f.elements.consentMsg.value.trim();

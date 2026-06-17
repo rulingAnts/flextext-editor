@@ -239,6 +239,9 @@ en: {
   'task.ftReceiving': 'The assigned text will appear once it finishes downloading…',
   'task.ftArrived': 'The assigned text has arrived.',
   'task.ftFailed': 'The assigned text could not be loaded: {msg}. Ask your researcher to re-share it.',
+  'task.replacing': 'Updating this text with the newer version from your researcher…',
+  'task.cleanupConfirm': 'This link will delete {n} text(s) already on this device. Continue?',
+  'task.cleanupDone': 'Removed {n} text(s) as requested.',
   'task.ftSkipped': 'The assigned text could not replace what you already started typing, so it was skipped.',
 
   'convert.h': 'Audio converter',
@@ -591,6 +594,9 @@ id: {
   'task.ftReceiving': 'Teks tugas akan muncul setelah selesai diunduh…',
   'task.ftArrived': 'Teks tugas sudah tiba.',
   'task.ftFailed': 'Teks tugas tidak dapat dimuat: {msg}. Minta peneliti membagikannya ulang.',
+  'task.replacing': 'Memperbarui teks ini dengan versi terbaru dari peneliti Anda…',
+  'task.cleanupConfirm': 'Tautan ini akan menghapus {n} teks yang sudah ada di perangkat ini. Lanjutkan?',
+  'task.cleanupDone': 'Menghapus {n} teks sesuai permintaan.',
   'task.ftSkipped': 'Teks tugas tidak dapat menggantikan apa yang sudah mulai Anda ketik, jadi dilewati.',
 
   'convert.h': 'Pengubah audio',

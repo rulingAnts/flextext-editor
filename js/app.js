@@ -107,9 +107,14 @@ function applyUrlSettings() {
     settingsChanged = JSON.stringify(s) !== before;
     saveSettings(s);
   }
-  const task = (p.has('audio') || p.has('title') || p.has('flextext'))
+  const task = (p.has('audio') || p.has('title') || p.has('flextext') || p.has('replace') || p.has('cleanup'))
     ? { title: p.get('title') || '', audioUrl: p.get('audio') || '',
-        flextextUrl: p.get('flextext') || '' }
+        flextextUrl: p.get('flextext') || '',
+        // Stable file ids (only needed for presigned URLs that change/expire;
+        // Drive/direct links derive their id from the URL — see fileIdentity()).
+        audioId: p.get('audioId') || '', flextextId: p.get('flextextId') || '',
+        // Researcher-controlled overrides of the safe default.
+        replace: p.get('replace') || '', cleanup: p.get('cleanup') || '' }
     : null;
   if (gotSettings || task || p.has('lang') || p.has('research') || p.has('mode')) {
     history.replaceState(null, '', location.pathname);
@@ -1030,49 +1035,116 @@ async function retryPendingAudio() {
 
 /* ---------------- Task links (?title=...&audio=...) ---------------- */
 
+// Stable identity of a task-delivered file, for dedup + the "already downloaded"
+// marker. Order: an explicit id (REQUIRED for presigned URLs that change/expire)
+// → the Drive file-id (stable across raw-link / relay / worker URLs that carry
+// the id) → the URL itself (stable for direct/Firebase URLs). Backward-compatible:
+// docs saved before this change stored a relay URL in audioSource/flextextSource,
+// which still resolves to the same drive:<id>, so existing field links keep
+// deduping correctly.
+function fileIdentity(url, explicitId) {
+  const id = (explicitId || '').trim();
+  if (id) return 'id:' + id;
+  const drive = driveFileId(url);
+  if (drive) return 'drive:' + drive;
+  const m = String(url || '').match(/[?&](?:id|src)=([\w-]{10,})/);
+  if (m) return 'drive:' + m[1];
+  return url ? 'url:' + url : '';
+}
+// A doc's file identity (new docs store *Id; older docs derive it from their
+// stored source/pending URL so dedup still works after this change).
+function docAudioId(rec) { return rec.audioId || fileIdentity(rec.audioSource || rec.pendingAudio || '', ''); }
+function docFlextextId(rec) { return rec.flextextId || fileIdentity(rec.flextextSource || rec.pendingFlextext || '', ''); }
+
+// Researcher-controlled cleanup directive (cleanup=all | comma-separated titles)
+// for back-and-forth checking. Destructive, so it ALWAYS confirms on the device
+// first, showing how many texts it will delete — a stray link can't silently wipe.
+async function runTaskCleanup(spec) {
+  const docs = await db.listDocs();
+  let targets;
+  if (spec === 'all') targets = docs;
+  else {
+    const titles = spec.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+    targets = docs.filter(d => titles.includes((d.title || '').toLowerCase()));
+  }
+  if (!targets.length) return;
+  if (!confirm(t('task.cleanupConfirm', { n: targets.length }))) return;
+  for (const d of targets) {
+    const up = getUpload(d.id);
+    if (up) up.cancel(); else uploadView.delete(d.id);
+    if (current && current.id === d.id) current = null;
+    await db.deleteDoc(d.id);
+  }
+  renderUploadQueue();
+  toast(t('task.cleanupDone', { n: targets.length }), 5000);
+}
+
 async function openUrlTask(task) {
-  // Re-opening the same task link must not duplicate the text (match either the
-  // audio or the attached flextext as the assignment's identity).
-  if (task.audioUrl || task.flextextUrl) {
-    const docs = await db.listDocs();
-    for (const d of docs) {
+  // Deliberate cleanup first (e.g. clearing old versions in a back-and-forth check).
+  if (task.cleanup) {
+    await runTaskCleanup(task.cleanup);
+    if (!task.audioUrl && !task.flextextUrl && !task.title) { renderDocList(); show('texts'); return; }
+  }
+
+  const audioId = task.audioUrl ? fileIdentity(task.audioUrl, task.audioId) : '';
+  const flextextId = task.flextextUrl ? fileIdentity(task.flextextUrl, task.flextextId) : '';
+
+  // Find an existing text with the same file identity, so re-opening a link — even
+  // one whose (presigned) URL changed or expired — never duplicates or re-fetches.
+  let existing = null;
+  if (audioId || flextextId) {
+    for (const d of await db.listDocs()) {
       const rec = await db.getDoc(d.id);
       if (!rec) continue;
-      const sameAudio = task.audioUrl && (rec.audioSource === task.audioUrl || rec.pendingAudio === task.audioUrl);
-      const sameFt = task.flextextUrl && (rec.flextextSource === task.flextextUrl || rec.pendingFlextext === task.flextextUrl);
-      if (sameAudio || sameFt) {
-        current = rec;
-        enterEditor('baseline');
-        toast(t('task.alreadyHere'), 4000);
-        return;
-      }
+      if ((audioId && docAudioId(rec) === audioId) || (flextextId && docFlextextId(rec) === flextextId)) { existing = rec; break; }
     }
   }
-  // If a flextext is attached, its parsed content IS the doc; otherwise an empty
-  // doc to transcribe into. When we can't fetch it now (offline), fall back to a
-  // placeholder and let the retry sweep populate it later.
+
+  // Default: it's already here → open it, NEVER re-fetch (protects loaded content
+  // against a failed/expired re-download).
+  if (existing && !task.replace) {
+    current = existing;
+    enterEditor('baseline');
+    toast(t('task.alreadyHere'), 4000);
+    return;
+  }
+
+  // replace=on with a match → deliberately overwrite the existing copy, but ONLY
+  // after a successful fetch (a failed/expired download leaves the old intact).
+  if (existing && task.replace) {
+    current = existing;
+    if (task.title) { current.title = task.title; current.doc.title = task.title; }
+    if (task.flextextUrl) { current.flextextId = flextextId; current.pendingFlextext = task.flextextUrl; current.flextextForce = true; }
+    if (task.audioUrl) { current.audioId = audioId; current.pendingAudio = task.audioUrl; current.audioLocked = true; }
+    await db.putDoc(current);
+    enterEditor('baseline');
+    toast(t('task.replacing'), 5000);
+    if (task.flextextUrl) tryDownloadFlextext(current);
+    if (task.audioUrl) {
+      const ok = await tryDownloadAudio(current);
+      if (!ok && getDownload(current.id)?.status !== 'paused') toast(t('player.downloadFailed'), 6000);
+    }
+    return;
+  }
+
+  // No match → create a new text. If a flextext is attached, its parsed content IS
+  // the doc; otherwise an empty doc to transcribe into. When we can't fetch it now
+  // (offline), fall back to a placeholder the retry sweep populates later.
   let doc = makeDoc(settings, task.title);
   let gotFlextext = false;
   if (task.flextextUrl && navigator.onLine) {
     try { doc = await buildDocFromFlextextUrl(task.flextextUrl, task.title); gotFlextext = true; }
     catch { /* fall through to placeholder + pending retry */ }
   }
-  current = {
-    id: newGuid(),
-    title: task.title || doc.title || '',
-    created: Date.now(),
-    modified: Date.now(),
-    doc,
-  };
+  current = { id: newGuid(), title: task.title || doc.title || '', created: Date.now(), modified: Date.now(), doc };
   current.doc.title = current.title;
   if (task.flextextUrl) {
-    // Track the source so re-opening the link doesn't duplicate the text. (Unlike
-    // task audio, the delivered text is NOT locked — editing it IS the checking
-    // task; the coworker is meant to correct it.)
+    current.flextextId = flextextId;
     if (gotFlextext) current.flextextSource = task.flextextUrl;
     else current.pendingFlextext = task.flextextUrl;
   }
   if (task.audioUrl) {
+    current.audioId = audioId;
     current.pendingAudio = task.audioUrl;
     current.audioLocked = true;
   }
@@ -1121,12 +1193,17 @@ async function tryDownloadFlextext(rec) {
     }
     return false; // transient: keep pending for the next retry
   }
+  // Populate the placeholder — unless the coworker already started transcribing,
+  // in which case we keep their work (never clobber). flextextForce overrides that
+  // for a researcher's deliberate replace=on, but still only AFTER this successful
+  // fetch (a failed fetch returned above, leaving the old content untouched).
   const untouched = getBaselineParagraphs(rec.doc).every(p => !p.trim());
-  if (untouched) {
+  if (untouched || rec.flextextForce) {
     rec.doc = newDoc;
     rec.doc.title = rec.title || newDoc.title || '';
     rec.flextextSource = rec.pendingFlextext;
     delete rec.pendingFlextext;
+    delete rec.flextextForce;
     Object.assign(rec, docStats(rec.doc));
     await db.putDoc(rec);
     if (current && current.id === rec.id) {

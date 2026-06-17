@@ -129,6 +129,10 @@ en: {
   'research.sendNote': 'These choices travel with your setup/task links and decide which buttons the coworker sees under "Save and send…".',
   'research.autoDel': 'Delete each text from the device after it uploads to Drive',
   'research.autoDelNote': 'Best for collecting recordings on a phone — frees storage and keeps the list to what still needs sending. Leave OFF if coworkers edit texts over several sessions. (The Flextext Recorder app deletes after upload by default.)',
+  'relay.summary': 'Advanced: faster Drive downloads (Cloudflare relay) — optional',
+  'relay.note': 'Optional, and only for advanced users — a plain Google Drive link works perfectly without any of this. If you run a Cloudflare relay worker, paste its token here to route Drive downloads through it and avoid Google\'s ~150 MB/day download limit. Leave blank to use the standard relay.',
+  'relay.token': 'Relay token',
+  'relay.worker': 'Relay worker URL (optional — defaults to the shared one)',
   'research.badFolder': 'That does not look like a Google Drive folder link — paste the folder\'s share link (…drive.google.com/drive/folders/…).',
 
   'research.h1': 'Language & writing system setup',
@@ -484,6 +488,10 @@ id: {
   'research.sendNote': 'Pilihan ini ikut dalam tautan pengaturan/tugas Anda dan menentukan tombol mana yang dilihat rekan kerja di "Simpan dan kirim…".',
   'research.autoDel': 'Hapus tiap teks dari perangkat setelah berhasil diunggah ke Drive',
   'research.autoDelNote': 'Cocok untuk mengumpulkan rekaman di HP — menghemat penyimpanan dan menjaga daftar hanya berisi yang belum terkirim. Biarkan MATI jika rekan kerja menyunting teks selama beberapa sesi. (Aplikasi Perekam Flextext menghapus otomatis setelah unggah.)',
+  'relay.summary': 'Lanjutan: unduhan Drive lebih cepat (relay Cloudflare) — opsional',
+  'relay.note': 'Opsional, hanya untuk pengguna mahir — tautan Google Drive biasa berfungsi sempurna tanpa ini. Jika Anda menjalankan worker relay Cloudflare, tempel tokennya di sini untuk mengarahkan unduhan Drive melaluinya dan menghindari batas unduhan ~150 MB/hari dari Google. Biarkan kosong untuk memakai relay standar.',
+  'relay.token': 'Token relay',
+  'relay.worker': 'URL worker relay (opsional — default ke yang dibagikan)',
   'research.badFolder': 'Itu sepertinya bukan tautan folder Google Drive — tempel tautan berbagi foldernya (…drive.google.com/drive/folders/…).',
 
   'research.h1': 'Pengaturan bahasa & sistem tulisan',

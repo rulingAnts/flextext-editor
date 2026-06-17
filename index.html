@@ -143,6 +143,14 @@
       <p class="note" data-i18n="research.sendNote">These choices travel with your setup/task links and decide which buttons the coworker sees under "Save and send…".</p>
       <label class="check-label wide"><input type="checkbox" name="autoDel"> <span data-i18n="research.autoDel">Delete each text from the device after it uploads to Drive</span></label>
       <p class="note" data-i18n="research.autoDelNote">Best for collecting recordings on a phone — frees storage and keeps the list to what still needs sending. Leave OFF if coworkers edit texts over several sessions. (The Flextext Recorder app deletes after upload by default.)</p>
+      <details class="advanced">
+        <summary data-i18n="relay.summary">Advanced: faster Drive downloads (Cloudflare relay) — optional</summary>
+        <p class="note" data-i18n="relay.note">Optional, and only for advanced users — a plain Google Drive link works perfectly without any of this. If you run a Cloudflare relay worker, paste its token here to route Drive downloads through it and avoid Google's ~150 MB/day download limit. Leave blank to use the standard relay.</p>
+        <label class="wide"><span data-i18n="relay.token">Relay token</span>
+          <input name="relayToken" spellcheck="false" autocomplete="off"></label>
+        <label class="wide"><span data-i18n="relay.worker">Relay worker URL (optional — defaults to the shared one)</span>
+          <input name="relayWorker" spellcheck="false" placeholder="https://flextext-r2-worker.…workers.dev"></label>
+      </details>
     </fieldset>
     <fieldset>
       <legend data-i18n="buttons.legend">Buttons on the coworker's Texts screen</legend>

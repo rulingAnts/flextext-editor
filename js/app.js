@@ -431,7 +431,7 @@ async function refreshPlayer() {
         dl.total ? dl.received / dl.total : 0);
     } else {
       updateDlControls('idle-pending');
-      p.showPending(current.audioError || t('player.pending'));
+      p.showPending(current.audioError ? audioErrorText(current.audioError) : t('player.pending'));
     }
   } else {
     p.loadedFor = null;
@@ -963,6 +963,20 @@ async function finalizeAudioDownload(rec) {
 const mbFmt = (b) => (b / 1048576).toFixed(1);
 const sizeFmt = (b) => b < 1048576 ? Math.max(1, Math.round(b / 1024)) + ' KB' : mbFmt(b) + ' MB';
 
+// Map a download failure (a Worker/relay error code, an HTTP/network string, or
+// an already-human sentence) to a friendly, translated line for the player —
+// never a bare code or the misleading "not downloaded yet" (reads as in-progress).
+function audioErrorText(error) {
+  const e = String(error || '');
+  if (e === 'too_large') return t('player.tooLarge');
+  if (!e || e === 'download_failed' || /^HTTP \d/.test(e)
+      || /Failed to fetch|NetworkError|aborted/i.test(e)
+      || ['unauthorized', 'origin_not_allowed', 'bad_src', 'not_found', 'drive_unavailable', 'drive interstitial'].includes(e)) {
+    return t('player.downloadFailed');
+  }
+  return e; // already a human sentence (e.g. a relay's WAV refusal)
+}
+
 function updateDlControls(status) {
   const box = $('#audio-player .player-dl-controls');
   const pauseBtn = box.querySelector('.player-dl-pause');
@@ -1007,9 +1021,9 @@ function downloadStateHandler(rec) {
           : t('player.pausedAt', { got: mbFmt(received), size: total ? mbFmt(total) : '?' }),
         total ? received / total : 0);
     } else if (status === 'error') {
-      // Show the real reason (e.g. "this is a WAV file…"), not a vague
-      // "not downloaded yet".
-      p.showPending(error || t('player.pending'));
+      // Show a friendly reason ("couldn't download — will retry", or "file too
+      // large"), never a bare code or the misleading "not downloaded yet".
+      p.showPending(error ? audioErrorText(error) : t('player.downloadFailed'));
     }
   };
 }
@@ -2114,6 +2128,7 @@ function setupResearch() {
       } catch (err) {
         const msg = err.code === 'wav' ? t('task.wavFile')
           : err.code === 'big' ? t('task.tooBig', { mb: err.mb })
+          : err.code === 'notAudio' ? t('task.notAudio', { mime: err.mime || '?' })
           : t('task.checkFailed', { msg: err.message });
         check.textContent = '⚠ ' + msg;
         return; // no link for a bad file

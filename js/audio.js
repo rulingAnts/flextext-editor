@@ -216,6 +216,9 @@ export class AudioDownload {
         this.chunkSize = Math.max(RELAY_CHUNK_MIN, Math.floor(this.chunkSize / 2));
         if (attempt + 1 >= RETRIES) {
           this.status = 'error';                             // keep partial
+          // Carry a reason so the UI shows "couldn't download — will retry",
+          // never the misleading "not downloaded yet" (which reads as in-progress).
+          this.errorMessage = e.message || 'download_failed';
           this.emit();
           return null;
         }
@@ -324,7 +327,18 @@ export class AudioDownload {
         resp = await fetch(this.url, { signal: this.abortCtl.signal });
       } else throw e;
     }
-    if (!resp.ok && resp.status !== 206) throw new Error('HTTP ' + resp.status);
+    if (!resp.ok && resp.status !== 206) {
+      // Surface the relay/Worker's own error code (too_large, origin_not_allowed,
+      // unauthorized, …) instead of a bare status, and treat 4xx as PERMANENT —
+      // retrying a 401/403/404/413 just wastes ~13s and still ends in failure.
+      let msg = 'HTTP ' + resp.status;
+      if ((resp.headers.get('content-type') || '').toLowerCase().includes('json')) {
+        try { const b = await resp.json(); if (b && b.error) msg = b.error; } catch { /* keep status */ }
+      }
+      const e = new Error(msg);
+      if (resp.status >= 400 && resp.status < 500) e.fatal = true;
+      throw e;
+    }
 
     if (part.received > 0 && resp.status !== 206) {
       // Server doesn't do ranges — it's sending the whole file again.
@@ -455,10 +469,34 @@ export async function probeAudioUrl(url) {
     if (size > PROBE_MAX) throw probeError('big', { mb: Math.round(size / 1048576) });
     return { name: body.name || '', size, mime: body.mimeType || '' };
   }
-  // Direct URL: stream the first chunk, then abort.
+  // Direct URL (incl. the Worker's /drive proxy): read just the first chunk,
+  // then abort. A timeout guards against a connection that accepts but never
+  // responds (DNS black-hole / packet loss on a field network) — otherwise the
+  // researcher's "Checking…" could hang for the browser's multi-minute default.
   const ctl = new AbortController();
-  const resp = await fetch(url, { signal: ctl.signal });
-  if (!resp.ok) throw new Error('HTTP ' + resp.status);
+  const timer = setTimeout(() => ctl.abort(), 20000);
+  let resp;
+  try {
+    resp = await fetch(url, { signal: ctl.signal });
+  } catch (e) {
+    clearTimeout(timer);
+    throw ctl.signal.aborted ? new Error('Timed out — check the connection and try again.') : e;
+  }
+  if (!resp.ok) {
+    clearTimeout(timer);
+    // The Worker rejects oversize files with 413 {error:'too_large', size}.
+    // Map that to the friendly "too big" message, not a bare "HTTP 413".
+    if (resp.status === 413) {
+      let mb = Math.round(PROBE_MAX / 1048576);
+      try { const b = await resp.json(); if (b && b.size) mb = Math.round(b.size / 1048576); } catch { /* keep estimate */ }
+      throw probeError('big', { mb });
+    }
+    let msg = 'HTTP ' + resp.status;
+    if ((resp.headers.get('content-type') || '').toLowerCase().includes('json')) {
+      try { const b = await resp.json(); if (b && b.error) msg = b.error; } catch { /* keep status */ }
+    }
+    throw new Error(msg);
+  }
   const mime = (resp.headers.get('content-type') || '').split(';')[0];
   const size = parseInt(resp.headers.get('content-length') || '0', 10) || 0;
   let head = new Uint8Array(0);
@@ -466,9 +504,15 @@ export async function probeAudioUrl(url) {
     const { value } = await resp.body.getReader().read();
     if (value) head = value.subarray(0, 12);
   } finally {
+    clearTimeout(timer);
     ctl.abort();
   }
   if (headLooksUncompressed(head, mime)) throw probeError('wav');
+  // A folder share link (HTML page) or a wrong file (XML/JSON/text) comes back
+  // as a document, not audio — reject it now so the researcher fixes the link,
+  // not the coworker at playback. (octet-stream is left alone: many CDNs serve
+  // real audio that way.)
+  if (/^(text\/|application\/(json|xml|xhtml))/i.test(mime)) throw probeError('notAudio', { mime });
   if (size > PROBE_MAX) throw probeError('big', { mb: Math.round(size / 1048576) });
   const name = decodeURIComponent((url.split('/').pop() || '').split('?')[0]) || '';
   return { name, size, mime };
@@ -623,7 +667,12 @@ export class Player {
       this.el.zoom.value = String(Math.floor(fit));
     });
     this.ws.on('error', (err) => {
-      this.el.status.textContent = this.labels.error + ' ' + (err?.message || err || '');
+      // Never surface the browser's raw demuxer/decoder text (e.g.
+      // "DEMUXER_ERROR_COULD_NOT_OPEN"). The blob couldn't be decoded — an
+      // incomplete/failed download or an unsupported codec. Show a plain,
+      // friendly line and keep the technical detail in the console.
+      console.warn('Audio could not be played:', err);
+      this.el.status.textContent = this.labels.error;
       this.el.status.hidden = false;
     });
     this.ws.on('play', () => { this.el.play.textContent = '⏸'; });

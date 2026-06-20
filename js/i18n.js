@@ -212,6 +212,7 @@ en: {
   'player.storagePaused': 'Download paused — this device is out of storage space. Delete some photos, videos, or unused apps, then press Resume. What was already downloaded is saved.',
   'player.downloaded': 'Audio downloaded — ready to transcribe.',
   'player.downloadFailed': 'Audio could not be downloaded now — the app will keep trying when online.',
+  'player.tooLarge': 'This audio is too large to download here. Please ask the researcher for a smaller version.',
   'player.confirmRemove': 'Remove the audio recording from this text?',
 
   'task.h': 'Task link (text + audio)',
@@ -226,6 +227,7 @@ en: {
   'task.checkFailed': 'Cannot use this audio: {msg}',
   'task.wavFile': 'This is an uncompressed WAV/AIFF recording — too heavy to send. Use the audio converter below to make a small MP3, upload that to Drive, and link it instead.',
   'task.tooBig': 'This file is {mb} MB — over the ~500 MB limit. Convert it to a smaller mono MP3 with the converter below, or host the original on your own R2 bucket (see "audio files larger than ~500 MB" under the setup form) and paste its direct link.',
+  'task.notAudio': 'This link is not an audio file (it returned a {mime} page) — it may be a Drive FOLDER link, not a file. Open the audio file in Drive and use its share link, or paste a direct audio URL.',
   'task.received': 'New task received — listen and type. The audio is downloading…',
   'task.alreadyHere': 'This task is already on this device — opening it.',
   'task.flextext': 'Existing transcription (optional — a .flextext file\'s Drive share link, file ID, or direct URL)',
@@ -569,6 +571,7 @@ id: {
   'player.storagePaused': 'Unduhan dijeda — ruang penyimpanan perangkat ini penuh. Hapus beberapa foto, video, atau aplikasi yang tidak dipakai, lalu tekan Lanjutkan. Bagian yang sudah terunduh tetap tersimpan.',
   'player.downloaded': 'Audio sudah terunduh — siap diketik.',
   'player.downloadFailed': 'Audio belum bisa diunduh sekarang — aplikasi akan terus mencoba saat online.',
+  'player.tooLarge': 'Audio ini terlalu besar untuk diunduh di sini. Mohon minta versi yang lebih kecil dari peneliti.',
   'player.confirmRemove': 'Hapus rekaman audio dari teks ini?',
 
   'task.h': 'Tautan tugas (teks + audio)',
@@ -583,6 +586,7 @@ id: {
   'task.checkFailed': 'Audio ini tidak bisa dipakai: {msg}',
   'task.wavFile': 'Ini rekaman WAV/AIFF yang tidak terkompresi — terlalu berat untuk dikirim. Gunakan pengubah audio di bawah untuk membuat MP3 kecil, unggah MP3 itu ke Drive, lalu tautkan itu.',
   'task.tooBig': 'File ini {mb} MB — melebihi batas ~500 MB. Ubah ke MP3 mono lebih kecil dengan pengubah di bawah, atau simpan aslinya di bucket R2 milik Anda sendiri (lihat "berkas audio lebih besar dari ~500 MB" di bawah formulir penyiapan) lalu tempel tautan langsungnya.',
+  'task.notAudio': 'Tautan ini bukan berkas audio (mengembalikan halaman {mime}) — mungkin tautan FOLDER Drive, bukan berkas. Buka berkas audionya di Drive lalu gunakan tautan bagikannya, atau tempel URL audio langsung.',
   'task.received': 'Tugas baru diterima — dengarkan dan ketik. Audio sedang diunduh…',
   'task.alreadyHere': 'Tugas ini sudah ada di perangkat ini — sedang dibuka.',
   'task.flextext': 'Transkripsi yang sudah ada (opsional — tautan berbagi Drive, ID file, atau URL langsung sebuah file .flextext)',

@@ -88,6 +88,10 @@ export class DriveUpload {
       indeterminate: this.indeterminate,
       error: this.errorMessage,
       name: this.rec.name,
+      // On 'done', the Drive file id + the send-time doc-modified stamp, so the
+      // doc can record proof-of-backup (delete-safety). Undefined until done.
+      fileId: this.uploadedFileId,
+      docModified: this.rec.docModified,
     });
   }
 
@@ -163,6 +167,7 @@ export class DriveUpload {
     }
     this.indeterminate = false;
     rec.sent = rec.total;
+    this.uploadedFileId = fileId;   // proof-of-backup, carried out via emit()
     this.status = 'done';
     await db.deleteMedia(upKey(this.docId)).catch(() => {});
     this.emit();

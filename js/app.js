@@ -1714,6 +1714,19 @@ function uploadState(docId) {
           deleteUploadedDoc(docId);
           toast(t('record.sentRemoved', { name: st.name }), 6000);
         } else {
+          // Record proof-of-backup on the kept doc so a later remote delete can
+          // verify the content is safely on Drive (delete-safety, Phase 1).
+          // uploadedModified is the SEND-time stamp; a later edit moves modified
+          // past it, so it reads as "changed since backup". Stamp the LIVE copy
+          // too (if this doc is open) — else the next persist() would write
+          // `current` back and silently drop these markers.
+          const stamp = (d) => {
+            if (st.fileId) d.uploadedFileId = st.fileId;
+            d.uploadedModified = (st.docModified != null) ? st.docModified : d.modified;
+            d.uploadedAt = Date.now();
+          };
+          if (current && current.id === docId) stamp(current);
+          db.getDoc(docId).then((d) => { if (d) { stamp(d); return db.putDoc(d); } }).catch(() => {});
           toast(t('upload.done', { name: st.name }), 6000);
         }
       }
@@ -1874,6 +1887,10 @@ async function doUpload() {
       mime: bundle.mime,
       total: bundle.blob.size,
       sent: 0,
+      // Content stamp at SEND time (persist() above just set current.modified).
+      // Recorded on the doc when the upload completes; a later edit moves
+      // modified, so it reads as "changed since this backup" (delete-safety).
+      docModified: current.modified,
     };
     await db.putMedia('upload:' + docId, rec);
     uploadView.set(docId, { name: rec.name, status: 'waiting' });

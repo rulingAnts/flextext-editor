@@ -83,7 +83,7 @@ function applyUrlSettings() {
   if (p.has('lang')) setLang(p.get('lang'));
   if (p.get('research') === 'off') localStorage.setItem(RESEARCH_HIDDEN_KEY, '1');
   if (p.get('research') === 'on') localStorage.removeItem(RESEARCH_HIDDEN_KEY);
-  const gotSettings = p.has('vern') || p.has('anal') || p.has('welcome') || p.has('btns') || p.has('editorRec') || p.has('autoDel') || p.has('recFormat');
+  const gotSettings = p.has('vern') || p.has('anal') || p.has('welcome') || p.has('btns') || p.has('editorRec') || p.has('autoDel') || p.has('recFormat') || p.has('gain');
   let settingsChanged = false;
   if (gotSettings) {
     const s = loadSettings();
@@ -122,6 +122,8 @@ function applyUrlSettings() {
     if (p.has('autoDel')) s.autoDelUploaded = p.get('autoDel') === 'on';
     // Capture (recording) format the device should use; default 32-bit WAV.
     if (p.has('recFormat')) s.recordFormat = normRecFormat(p.get('recFormat'));
+    // Whether the recording-level (gain) slider is offered on this device.
+    if (p.has('gain')) s.gainEnabled = p.get('gain') === 'on';
     settingsChanged = JSON.stringify(s) !== before;
     saveSettings(s);
   }
@@ -817,6 +819,54 @@ let rec = null;
 // The researcher-chosen capture format (default 32-bit WAV). Travels with links.
 function recordFormatPref() { return normRecFormat(settings.recordFormat); }
 
+// Manual recording-level (gain) — OFF by default (raw capture). The researcher
+// enables the slider in Settings; the toggle travels with links, the dB is local.
+function gainPref() {
+  return { enabled: !!settings.gainEnabled, db: Number.isFinite(settings.gainDb) ? settings.gainDb : 0 };
+}
+const dbToLinear = (db) => Math.pow(10, db / 20);
+
+// Live level meter: drives the bar + clip indicator from the PCM recorder's
+// analyser while recording (lossless path only). The rAF loop self-stops when
+// recording ends.
+let meterRAF = null;
+function startMeter() {
+  stopMeter();
+  const meter = $('#record-meter');
+  const fill = $('#record-meter-fill');
+  const warn = $('#record-clip-warn');
+  if (!meter || !fill || !rec || rec.mode !== 'pcm' || !rec.pcmRec) return;
+  let clipHold = 0;
+  const tick = () => {
+    if (!rec || !rec.recording || rec.mode !== 'pcm' || !rec.pcmRec) { meterRAF = null; return; }
+    const p = rec.pcmRec.peak(); // 0..1 linear peak
+    // sqrt curve so normal speech sits mid-bar and quiet input is still visible.
+    fill.style.width = Math.min(100, Math.round(Math.sqrt(p) * 100)) + '%';
+    // Colour reflects the absolute level: green → amber → red near full scale.
+    fill.style.background = p >= 0.99 ? '#f44336' : p >= 0.9 ? '#ff9800' : p >= 0.7 ? '#ffc107' : '#4caf50';
+    if (p >= 0.99) clipHold = 30;        // hold the warning ~0.5s so a brief clip registers
+    const clipping = clipHold > 0;
+    if (clipHold > 0) clipHold--;
+    meter.classList.toggle('clipping', clipping);
+    if (warn) warn.hidden = !clipping;
+    meterRAF = requestAnimationFrame(tick);
+  };
+  meterRAF = requestAnimationFrame(tick);
+}
+function stopMeter() {
+  if (meterRAF) { cancelAnimationFrame(meterRAF); meterRAF = null; }
+  const fill = $('#record-meter-fill'); if (fill) fill.style.width = '0%';
+  $('#record-meter')?.classList.remove('clipping');
+  const warn = $('#record-clip-warn'); if (warn) warn.hidden = true;
+}
+// Reflect the saved gain (dB) into the slider + its label.
+function syncGainSlider() {
+  const slider = $('#record-gain'); if (!slider) return;
+  const db = gainPref().db;
+  slider.value = String(db);
+  const val = $('#record-gain-val'); if (val) val.textContent = (db > 0 ? '+' : '') + db + ' dB';
+}
+
 function recordUI(state, extra = {}) {
   const status = $('#record-status');
   const toggle = $('#record-toggle');
@@ -828,6 +878,13 @@ function recordUI(state, extra = {}) {
   $('#record-preview').hidden = !inReview;
   // A title is required before the recording can be saved.
   $('#record-title-row').hidden = !inReview;
+  // Meter + mic-distance hint show only while recording on the lossless path;
+  // the gain slider only if the researcher enabled it.
+  const recording = state === 'recording';
+  const pcmLive = recording && rec?.mode === 'pcm';
+  const meterEl = $('#record-meter'); if (meterEl) meterEl.hidden = !pcmLive;
+  const hintEl = $('#record-hint'); if (hintEl) hintEl.hidden = !recording;
+  const gainRow = $('#record-gain-row'); if (gainRow) gainRow.hidden = !(pcmLive && gainPref().enabled);
   if (state === 'idle') {
     toggle.textContent = t('record.start');
     status.textContent = t('record.idle');
@@ -853,6 +910,7 @@ function syncRecordSaveEnabled() {
 }
 
 function discardRecording() {
+  stopMeter();
   if (rec) {
     try { if (rec.recorder && rec.recorder.state !== 'inactive') rec.recorder.stop(); } catch { /* noop */ }
     try { rec.pcmRec?.cancel(); } catch { /* noop */ } // lossless path owns its own stream/ctx
@@ -887,12 +945,15 @@ async function startRecording() {
   try {
     if (wantLossless && losslessSupported()) {
       const pcmRec = new PCMRecorder();
+      const gp = gainPref();
       try {
-        await pcmRec.start(); // getUserMedia + AudioWorklet; throws if unsupported
+        await pcmRec.start(gp.enabled ? { gain: dbToLinear(gp.db) } : {}); // getUserMedia + AudioWorklet
         rec = { mode: 'pcm', pcmRec, fmt, fellBack: false, recording: true,
                 t0: Date.now(), timer: null, blob: null, url: null };
+        syncGainSlider();
         startRecTimer();
         recordUI('recording');
+        startMeter();
         return;
       } catch (lossErr) {
         // Browser can't do raw PCM capture (or the user denied the mic on the
@@ -958,6 +1019,7 @@ async function stopRecording() {
   }
   rec.recording = false;
   clearInterval(rec.timer);
+  stopMeter();
   try {
     const { pcm, sampleRate } = await rec.pcmRec.stop();
     if (!pcm.length) throw new Error('empty');
@@ -2125,6 +2187,7 @@ function setupResearch() {
     // Delete-after-upload (always travels as explicit on/off).
     p.set('autoDel', settings.autoDelUploaded ? 'on' : 'off');
     p.set('recFormat', normRecFormat(settings.recordFormat)); // capture format travels with every link
+    p.set('gain', settings.gainEnabled ? 'on' : 'off'); // whether the gain slider is offered
     // Which Texts-screen buttons the coworker sees (always travels, like the
     // send options, so the researcher's current choice overwrites older ones).
     p.set('btns', (Array.isArray(settings.linkButtons) ? settings.linkButtons : ALL_BUTTONS).join(','));
@@ -2176,6 +2239,7 @@ function setupResearch() {
     // deleteAfterUpload()), but an explicit value lets a researcher turn it off.
     p.set('autoDel', settings.autoDelUploaded ? 'on' : 'off');
     p.set('recFormat', normRecFormat(settings.recordFormat)); // capture format travels with every link
+    p.set('gain', settings.gainEnabled ? 'on' : 'off'); // whether the gain slider is offered
     if (settings.consentMode && settings.consentMode !== 'off') {
       p.set('consentMode', settings.consentMode);
       if (settings.consentMsg) p.set('consentMsg', settings.consentMsg);
@@ -2301,6 +2365,7 @@ function setupResearch() {
     // Delete-after-upload (always travels as explicit on/off).
     p.set('autoDel', settings.autoDelUploaded ? 'on' : 'off');
     p.set('recFormat', normRecFormat(settings.recordFormat)); // capture format travels with every link
+    p.set('gain', settings.gainEnabled ? 'on' : 'off'); // whether the gain slider is offered
     // Which Texts-screen buttons the coworker sees (always travels, like the
     // send options, so the researcher's current choice overwrites older ones).
     p.set('btns', (Array.isArray(settings.linkButtons) ? settings.linkButtons : ALL_BUTTONS).join(','));
@@ -2343,6 +2408,15 @@ function setupResearch() {
     $('#recformat-help')?.addEventListener('click', () => { rfHelpModal.hidden = false; });
     $('#recformat-help-close')?.addEventListener('click', () => { rfHelpModal.hidden = true; });
     rfHelpModal.addEventListener('click', (e) => { if (e.target === rfHelpModal) rfHelpModal.hidden = true; });
+  }
+  // "Allow gain adjustment" toggle — off by default; travels with links.
+  const gainToggle = $('#gain-enabled');
+  if (gainToggle) {
+    gainToggle.checked = !!settings.gainEnabled;
+    gainToggle.addEventListener('change', () => {
+      settings.gainEnabled = gainToggle.checked;
+      saveSettings(settings);
+    });
   }
 
   // Audio converter (any recording → small task-ready MP3) — the send-to-assistant
@@ -2756,6 +2830,15 @@ function wireSharedModals() {
     else startRecording();
   });
   $('#record-redo')?.addEventListener('click', () => { discardRecording(); recordUI('idle'); });
+  // Gain slider (shown only when the researcher enabled it) — live-adjusts the
+  // capture gain and remembers the dB per device.
+  $('#record-gain')?.addEventListener('input', (e) => {
+    const db = parseInt(e.target.value, 10) || 0;
+    settings.gainDb = db;
+    saveSettings(settings);
+    const val = $('#record-gain-val'); if (val) val.textContent = (db > 0 ? '+' : '') + db + ' dB';
+    if (rec?.pcmRec) rec.pcmRec.setGain(dbToLinear(db));
+  });
   $('#record-title')?.addEventListener('input', syncRecordSaveEnabled);
   $('#record-title')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && $('#record-title').value.trim()) {

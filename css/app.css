@@ -619,6 +619,28 @@ main {
 .archive-table th { background: #eef3f9; white-space: nowrap; }
 .archive-table a { color: var(--blue, #1f4f8f); }
 
+/* Recording level meter + clip indicator + optional gain slider (record modal). */
+#record-meter {
+  height: 12px;
+  background: var(--border, #d4dbe4);
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 4px 0 2px;
+}
+#record-meter-fill {
+  height: 100%;
+  width: 0%;
+  background: #4caf50;
+  border-radius: 6px;
+  transition: width .05s linear, background-color .1s linear;
+}
+.meter-warn { color: #c62828; font-weight: 600; margin: 2px 0; }
+.record-hint { color: var(--muted); font-style: italic; margin: 2px 0 4px; }
+#record-gain-row { display: flex; align-items: center; gap: 10px; margin: 6px 0 2px; }
+#record-gain-row .gain-label { flex: 1; display: flex; flex-direction: column; gap: 3px; font-size: 13px; color: var(--muted); }
+#record-gain { width: 100%; }
+#record-gain-val { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--muted); }
+
 #record-preview, #consent-audio, #consent-assent-preview { width: 100%; }
 
 #record-title-row { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }

@@ -23,11 +23,12 @@ export function losslessSupported() {
 export class PCMRecorder {
   constructor() {
     this.ctx = null; this.stream = null; this.node = null; this.source = null;
+    this.gainNode = null; this.analyser = null; this._meterBuf = null;
     this.chunks = []; this.total = 0; this.sampleRate = 0;
     this._flushResolve = null;
   }
 
-  async start() {
+  async start(opts = {}) {
     const AC = window.AudioContext || window.webkitAudioContext;
     this.stream = await navigator.mediaDevices.getUserMedia({
       // Mono + raw signal: AGC/echo/noise OFF — they color the audio, and AGC
@@ -48,11 +49,43 @@ export class PCMRecorder {
         const r = this._flushResolve; this._flushResolve = null; r();
       }
     };
-    this.source.connect(this.node);
-    // The processor only runs while it has a path to the destination, so connect
-    // it there. It writes silence to its output (nothing is heard) — routing the
-    // mic straight to the speakers would feed back.
+    // Capture graph: source → [gain] → analyser → worklet → destination.
+    // The analyser is a TRANSPARENT tap that feeds the live level meter (Web
+    // Audio passes its input through unchanged). The gain node is inserted ONLY
+    // when manual gain is enabled (opts.gain given) — so the default path has no
+    // gain node at all and stays literally bit-faithful. A unity GainNode would
+    // be transparent too, but omitting it keeps that guarantee unambiguous.
+    this.analyser = this.ctx.createAnalyser();
+    this.analyser.fftSize = 1024;
+    this._meterBuf = new Float32Array(this.analyser.fftSize);
+    let head = this.source;
+    if (opts.gain != null) {
+      this.gainNode = this.ctx.createGain();
+      this.gainNode.gain.value = opts.gain;
+      head.connect(this.gainNode);
+      head = this.gainNode;
+    }
+    head.connect(this.analyser);
+    this.analyser.connect(this.node);
+    // The worklet only runs while it has a path to the destination; it writes
+    // silence to its output (nothing is heard) — routing the mic to the speakers
+    // would feed back.
     this.node.connect(this.ctx.destination);
+  }
+
+  // Live manual gain (only has effect when the gain node was created at start).
+  setGain(linear) { if (this.gainNode) { try { this.gainNode.gain.value = linear; } catch { /* noop */ } } }
+
+  // Current peak amplitude (0..1) of what's being captured, for the level meter.
+  peak() {
+    if (!this.analyser) return 0;
+    this.analyser.getFloatTimeDomainData(this._meterBuf);
+    let p = 0;
+    for (let i = 0; i < this._meterBuf.length; i++) {
+      const a = this._meterBuf[i] < 0 ? -this._meterBuf[i] : this._meterBuf[i];
+      if (a > p) p = a;
+    }
+    return p;
   }
 
   // Stop, flush the buffered tail deterministically, and return the take.
@@ -75,10 +108,12 @@ export class PCMRecorder {
 
   _teardown() {
     try { this.source && this.source.disconnect(); } catch { /* noop */ }
+    try { this.gainNode && this.gainNode.disconnect(); } catch { /* noop */ }
+    try { this.analyser && this.analyser.disconnect(); } catch { /* noop */ }
     try { this.node && this.node.disconnect(); } catch { /* noop */ }
     try { this.stream && this.stream.getTracks().forEach((tr) => tr.stop()); } catch { /* noop */ }
     try { this.ctx && this.ctx.close(); } catch { /* noop */ }
-    this.source = this.node = this.stream = this.ctx = null;
+    this.source = this.node = this.stream = this.ctx = this.gainNode = this.analyser = null;
   }
 }
 

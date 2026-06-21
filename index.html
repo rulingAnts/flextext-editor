@@ -245,6 +245,8 @@
         </select></label>
     </fieldset>
     <p class="note"><button type="button" id="recformat-help" class="link-btn" data-i18n="recfmt.helpLink">Which format should I choose?</button></p>
+    <label class="check-label"><input type="checkbox" id="gain-enabled"> <span data-i18n="recformat.gainToggle">Show a recording-level (gain) slider while recording</span></label>
+    <p class="note" data-i18n="recformat.gainNote">Off by default — recordings capture the raw microphone level. Turn this on to let a too-quiet or too-loud device be adjusted.</p>
   </form>
 
   <hr>
@@ -360,6 +362,14 @@
   <div class="modal-card">
     <h3 data-i18n="record.title">Record new text</h3>
     <p class="note" id="record-status"></p>
+    <div id="record-meter" hidden><div id="record-meter-fill"></div></div>
+    <p id="record-clip-warn" class="meter-warn" data-i18n="record.clipWarn" hidden>⚠ Too loud — move back a little.</p>
+    <p id="record-hint" class="note record-hint" data-i18n="record.distanceHint" hidden>Hold the phone about a hand's width from your mouth.</p>
+    <div id="record-gain-row" hidden>
+      <label class="gain-label"><span data-i18n="record.gainLabel">Recording level</span>
+        <input type="range" id="record-gain" min="-12" max="24" step="1" value="0"></label>
+      <span id="record-gain-val" class="note">0 dB</span>
+    </div>
     <audio id="record-preview" controls hidden></audio>
     <label id="record-title-row" hidden><span data-i18n="record.titleLabel">Title for this text</span>
       <input id="record-title" data-i18n-ph="record.titlePh" placeholder="Give this recording a name" spellcheck="false"></label>

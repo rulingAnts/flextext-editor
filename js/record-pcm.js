@@ -180,6 +180,15 @@ export function encodeWav(pcm, sampleRate, bitDepth) {
   return new Blob([buf], { type: 'audio/wav' });
 }
 
+// Peak-normalize mono Float32 PCM in place to ~-1 dBFS. This EDITS the signal
+// (post-record), so it's an opt-in, off-by-default, archive-discouraged option.
+export function normalizePeak(pcm, target = 0.89) {
+  let peak = 0;
+  for (let i = 0; i < pcm.length; i++) { const a = pcm[i] < 0 ? -pcm[i] : pcm[i]; if (a > peak) peak = a; }
+  if (peak > 0) { const g = target / peak; for (let i = 0; i < pcm.length; i++) pcm[i] *= g; }
+  return pcm;
+}
+
 /* ---- Format catalogue + dispatch ------------------------------------------
  * Shared by the settings UI and the save path. `mp3` is the compressed
  * distribution/fallback format and is NOT produced here (app.js routes it

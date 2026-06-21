@@ -10,7 +10,7 @@ import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS } from './i18n.js';
 import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl, ensureAsset, getAsset, fetchFileViaUrl } from './audio.js';
 import { convertToMp3 } from './convert.js';
-import { losslessSupported, PCMRecorder, encodeWav, encodeRecording,
+import { losslessSupported, PCMRecorder, encodeWav, encodeRecording, normalizePeak,
          normRecFormat, REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { makeZip } from './zip.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads } from './upload.js';
@@ -127,7 +127,7 @@ function applyUrlSettings() {
     // Optional microphone processing the researcher turned on (comma list).
     if (p.has('dsp')) {
       const on = new Set(p.get('dsp').split(',').filter(Boolean));
-      s.agc = on.has('agc'); s.nr = on.has('nr'); s.echo = on.has('echo');
+      s.agc = on.has('agc'); s.nr = on.has('nr'); s.echo = on.has('echo'); s.norm = on.has('norm');
     }
     settingsChanged = JSON.stringify(s) !== before;
     saveSettings(s);
@@ -1058,6 +1058,8 @@ async function saveRecording() {
     const stamp = fileStamp();
     let file;
     if (rec.mode === 'pcm') {
+      // Optional post-record normalize (off by default; it EDITS the recording).
+      if (settings.norm) normalizePeak(rec.pcm);
       // Lossless: encode the captured PCM to the chosen WAV/FLAC format.
       const { blob, ext, mime } = await encodeRecording(rec.pcm, rec.sampleRate, rec.fmt,
         (f) => recordUI('saving', { pct: Math.round(f * 100) }));
@@ -1066,7 +1068,7 @@ async function saveRecording() {
       // MediaRecorder take → compressed MP3 (explicit mp3 format, or fallback).
       const conv = settings.convert || {};
       const res = await convertToMp3(rec.blob,
-        { kbps: conv.kbps || 64, sampleRate: conv.rate || 22050, mono: conv.mono !== false },
+        { kbps: conv.kbps || 64, sampleRate: conv.rate || 22050, mono: conv.mono !== false, normalize: !!settings.norm },
         (f) => recordUI('saving', { pct: Math.round(f * 100) }));
       file = new File([res.blob], `recording-${stamp}.mp3`, { type: 'audio/mpeg' });
     }
@@ -2200,7 +2202,7 @@ function setupResearch() {
     p.set('autoDel', settings.autoDelUploaded ? 'on' : 'off');
     p.set('recFormat', normRecFormat(settings.recordFormat)); // capture format travels with every link
     p.set('gain', settings.gainEnabled ? 'on' : 'off'); // whether the gain slider is offered
-    p.set('dsp', ['agc', 'nr', 'echo'].filter((k) => settings[k]).join(',')); // optional mic processing (default none)
+    p.set('dsp', ['agc', 'nr', 'echo', 'norm'].filter((k) => settings[k]).join(',')); // optional processing (default none)
     // Which Texts-screen buttons the coworker sees (always travels, like the
     // send options, so the researcher's current choice overwrites older ones).
     p.set('btns', (Array.isArray(settings.linkButtons) ? settings.linkButtons : ALL_BUTTONS).join(','));
@@ -2253,7 +2255,7 @@ function setupResearch() {
     p.set('autoDel', settings.autoDelUploaded ? 'on' : 'off');
     p.set('recFormat', normRecFormat(settings.recordFormat)); // capture format travels with every link
     p.set('gain', settings.gainEnabled ? 'on' : 'off'); // whether the gain slider is offered
-    p.set('dsp', ['agc', 'nr', 'echo'].filter((k) => settings[k]).join(',')); // optional mic processing (default none)
+    p.set('dsp', ['agc', 'nr', 'echo', 'norm'].filter((k) => settings[k]).join(',')); // optional processing (default none)
     if (settings.consentMode && settings.consentMode !== 'off') {
       p.set('consentMode', settings.consentMode);
       if (settings.consentMsg) p.set('consentMsg', settings.consentMsg);
@@ -2380,7 +2382,7 @@ function setupResearch() {
     p.set('autoDel', settings.autoDelUploaded ? 'on' : 'off');
     p.set('recFormat', normRecFormat(settings.recordFormat)); // capture format travels with every link
     p.set('gain', settings.gainEnabled ? 'on' : 'off'); // whether the gain slider is offered
-    p.set('dsp', ['agc', 'nr', 'echo'].filter((k) => settings[k]).join(',')); // optional mic processing (default none)
+    p.set('dsp', ['agc', 'nr', 'echo', 'norm'].filter((k) => settings[k]).join(',')); // optional processing (default none)
     // Which Texts-screen buttons the coworker sees (always travels, like the
     // send options, so the researcher's current choice overwrites older ones).
     p.set('btns', (Array.isArray(settings.linkButtons) ? settings.linkButtons : ALL_BUTTONS).join(','));
@@ -2435,7 +2437,7 @@ function setupResearch() {
   }
   // Optional microphone-processing toggles — all off by default, each flagged
   // not-for-archiving. Travel with links.
-  [['#dsp-agc', 'agc'], ['#dsp-nr', 'nr'], ['#dsp-echo', 'echo']].forEach(([sel, key]) => {
+  [['#dsp-agc', 'agc'], ['#dsp-nr', 'nr'], ['#dsp-echo', 'echo'], ['#dsp-norm', 'norm']].forEach(([sel, key]) => {
     const cb = $(sel);
     if (!cb) return;
     cb.checked = !!settings[key];

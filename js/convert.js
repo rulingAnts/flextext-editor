@@ -69,6 +69,23 @@ export async function convertToMp3(file, opts = {}, onProgress) {
   src.start();
   const rendered = await oac.startRendering();
 
+  // Optional post-record peak normalize (~-1 dBFS). This EDITS the audio; only
+  // used for recordings when the researcher opted in (off by default).
+  if (opts.normalize) {
+    let peak = 0;
+    for (let c = 0; c < channels; c++) {
+      const d = rendered.getChannelData(c);
+      for (let i = 0; i < d.length; i++) { const a = d[i] < 0 ? -d[i] : d[i]; if (a > peak) peak = a; }
+    }
+    if (peak > 0) {
+      const g = 0.89 / peak;
+      for (let c = 0; c < channels; c++) {
+        const d = rendered.getChannelData(c);
+        for (let i = 0; i < d.length; i++) d[i] *= g;
+      }
+    }
+  }
+
   const enc = new lame.Mp3Encoder(channels, sampleRate, kbps);
   const left = floatTo16(rendered.getChannelData(0));
   const right = channels === 2 ? floatTo16(rendered.getChannelData(1)) : null;

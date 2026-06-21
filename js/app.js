@@ -83,7 +83,7 @@ function applyUrlSettings() {
   if (p.has('lang')) setLang(p.get('lang'));
   if (p.get('research') === 'off') localStorage.setItem(RESEARCH_HIDDEN_KEY, '1');
   if (p.get('research') === 'on') localStorage.removeItem(RESEARCH_HIDDEN_KEY);
-  const gotSettings = p.has('vern') || p.has('anal') || p.has('welcome') || p.has('btns') || p.has('editorRec') || p.has('autoDel') || p.has('recFormat') || p.has('gain') || p.has('dsp');
+  const gotSettings = p.has('vern') || p.has('anal') || p.has('welcome') || p.has('btns') || p.has('editorRec') || p.has('autoDel') || p.has('recFormat') || p.has('dsp') || p.has('agc');
   let settingsChanged = false;
   if (gotSettings) {
     const s = loadSettings();
@@ -122,13 +122,13 @@ function applyUrlSettings() {
     if (p.has('autoDel')) s.autoDelUploaded = p.get('autoDel') === 'on';
     // Capture (recording) format the device should use; default 32-bit WAV.
     if (p.has('recFormat')) s.recordFormat = normRecFormat(p.get('recFormat'));
-    // Whether the recording-level (gain) slider is offered on this device.
-    if (p.has('gain')) s.gainEnabled = p.get('gain') === 'on';
     // Optional microphone processing the researcher turned on (comma list).
     if (p.has('dsp')) {
       const on = new Set(p.get('dsp').split(',').filter(Boolean));
-      s.agc = on.has('agc'); s.nr = on.has('nr'); s.echo = on.has('echo'); s.norm = on.has('norm');
+      s.nr = on.has('nr'); s.echo = on.has('echo'); s.norm = on.has('norm');
     }
+    // AGC mode — its own param: 'auto' (Chromium on / Firefox off) | 'on' | 'off'.
+    if (p.has('agc')) s.agc = ['on', 'off', 'auto'].includes(p.get('agc')) ? p.get('agc') : 'auto';
     settingsChanged = JSON.stringify(s) !== before;
     saveSettings(s);
   }
@@ -824,19 +824,26 @@ let rec = null;
 // The researcher-chosen capture format (default 32-bit WAV). Travels with links.
 function recordFormatPref() { return normRecFormat(settings.recordFormat); }
 
-// Manual recording-level (gain) — OFF by default (raw capture). The researcher
-// enables the slider in Settings; the toggle travels with links, the dB is local.
-function gainPref() {
-  // When the slider is disabled/hidden the manual level is NOT used — recordings
-  // use the faithful default capture, never the last-set value.
-  const db = (settings.gainEnabled && Number.isFinite(settings.gainDb)) ? settings.gainDb : 0;
-  return { enabled: !!settings.gainEnabled, db };
+// AGC (automatic gain control) default is BROWSER-CONDITIONAL:
+//   • Chromium → ON. It's the only in-browser clip protection — with AGC off the OS
+//     leaves the mic input volume high (Chrome even drives it up) and a web app has
+//     NO way to lower the analog gain, so loud sources clip and the peaks are lost.
+//   • Firefox → OFF. Firefox honors raw capture (autoGainControl:false → passthrough)
+//     and doesn't push the OS input level up, so it stays faithful without clipping.
+// settings.agc 'on'/'off' is an explicit researcher override; 'auto' (default, also
+// undefined) picks per-browser. Evaluated at RECORD time on the recording device so
+// the right default is used wherever the recording is actually made.
+function isFirefox() { return /Firefox\/|FxiOS/i.test(navigator.userAgent || ''); }
+function effectiveAgc() {
+  if (settings.agc === 'on') return true;
+  if (settings.agc === 'off') return false;
+  return !isFirefox(); // 'auto' / unset
 }
-const dbToLinear = (db) => Math.pow(10, db / 20);
 
-// Optional microphone DSP — all OFF by default (raw capture). The researcher can
-// turn these on in Settings (each flagged not-for-archiving); they travel with
-// links and apply to every capture path.
+// Microphone DSP constraints. Echo cancellation / noise suppression are OFF by
+// default (raw capture; the researcher can turn them on per-link, each flagged
+// not-for-archiving). AGC is the exception — it has its own browser-conditional
+// default (see effectiveAgc) because it's the only in-browser clip protection.
 function dspConstraints() {
   // voiceIsolation is a newer, aggressive denoiser (Chrome / some OS defaults) that
   // can OVERRIDE noiseSuppression:false — pin it off so the standard noiseSuppression
@@ -844,10 +851,10 @@ function dspConstraints() {
   // browsers (no-ops) and are intentionally not set. Plain false → ignored where
   // unsupported (e.g. Firefox), honored where supported. NB: the cross-browser
   // input-LEVEL difference (Chrome drives the OS mic volume up; Firefox doesn't) is
-  // inherent and not controllable here — it's handled downstream (gain / normalize).
+  // inherent and not controllable here — AGC (Chromium default) keeps it from clipping.
   return {
     echoCancellation: !!settings.echo,
-    autoGainControl: !!settings.agc,
+    autoGainControl: effectiveAgc(),
     noiseSuppression: !!settings.nr,
     voiceIsolation: false,
   };
@@ -886,13 +893,6 @@ function stopMeter() {
   $('#record-meter')?.classList.remove('clipping');
   const warn = $('#record-clip-warn'); if (warn) warn.hidden = true;
 }
-// Reflect the saved gain (dB) into the slider + its label.
-function syncGainSlider() {
-  const slider = $('#record-gain'); if (!slider) return;
-  const db = gainPref().db;
-  slider.value = String(db);
-  const val = $('#record-gain-val'); if (val) val.textContent = (db > 0 ? '+' : '') + db + ' dB';
-}
 
 function recordUI(state, extra = {}) {
   const status = $('#record-status');
@@ -905,13 +905,11 @@ function recordUI(state, extra = {}) {
   $('#record-preview').hidden = !inReview;
   // A title is required before the recording can be saved.
   $('#record-title-row').hidden = !inReview;
-  // Meter + mic-distance hint show only while recording on the lossless path;
-  // the gain slider only if the researcher enabled it.
+  // Meter + mic-distance hint show only while recording on the lossless path.
   const recording = state === 'recording';
   const pcmLive = recording && rec?.mode === 'pcm';
   const meterEl = $('#record-meter'); if (meterEl) meterEl.hidden = !pcmLive;
   const hintEl = $('#record-hint'); if (hintEl) hintEl.hidden = !recording;
-  const gainRow = $('#record-gain-row'); if (gainRow) gainRow.hidden = !(pcmLive && gainPref().enabled);
   if (state === 'idle') {
     toggle.textContent = t('record.start');
     status.textContent = t('record.idle');
@@ -972,12 +970,10 @@ async function startRecording() {
   try {
     if (wantLossless && losslessSupported()) {
       const pcmRec = new PCMRecorder();
-      const gp = gainPref();
       try {
-        await pcmRec.start({ audio: dspConstraints(), ...(gp.enabled ? { gain: dbToLinear(gp.db) } : {}) }); // getUserMedia + AudioWorklet
+        await pcmRec.start({ audio: dspConstraints() }); // getUserMedia + AudioWorklet
         rec = { mode: 'pcm', pcmRec, fmt, fellBack: false, recording: true,
                 t0: Date.now(), timer: null, blob: null, url: null };
-        syncGainSlider();
         startRecTimer();
         recordUI('recording');
         startMeter();
@@ -2217,8 +2213,8 @@ function setupResearch() {
     // Delete-after-upload (always travels as explicit on/off).
     p.set('autoDel', settings.autoDelUploaded ? 'on' : 'off');
     p.set('recFormat', normRecFormat(settings.recordFormat)); // capture format travels with every link
-    p.set('gain', settings.gainEnabled ? 'on' : 'off'); // whether the gain slider is offered
-    p.set('dsp', ['agc', 'nr', 'echo', 'norm'].filter((k) => settings[k]).join(',')); // optional processing (default none)
+    p.set('dsp', ['nr', 'echo', 'norm'].filter((k) => settings[k]).join(',')); // optional processing (default none)
+    p.set('agc', settings.agc || 'auto'); // 'auto' (Chromium on / Firefox off) | 'on' | 'off'
     // Which Texts-screen buttons the coworker sees (always travels, like the
     // send options, so the researcher's current choice overwrites older ones).
     p.set('btns', (Array.isArray(settings.linkButtons) ? settings.linkButtons : ALL_BUTTONS).join(','));
@@ -2270,8 +2266,8 @@ function setupResearch() {
     // deleteAfterUpload()), but an explicit value lets a researcher turn it off.
     p.set('autoDel', settings.autoDelUploaded ? 'on' : 'off');
     p.set('recFormat', normRecFormat(settings.recordFormat)); // capture format travels with every link
-    p.set('gain', settings.gainEnabled ? 'on' : 'off'); // whether the gain slider is offered
-    p.set('dsp', ['agc', 'nr', 'echo', 'norm'].filter((k) => settings[k]).join(',')); // optional processing (default none)
+    p.set('dsp', ['nr', 'echo', 'norm'].filter((k) => settings[k]).join(',')); // optional processing (default none)
+    p.set('agc', settings.agc || 'auto'); // 'auto' (Chromium on / Firefox off) | 'on' | 'off'
     if (settings.consentMode && settings.consentMode !== 'off') {
       p.set('consentMode', settings.consentMode);
       if (settings.consentMsg) p.set('consentMsg', settings.consentMsg);
@@ -2397,8 +2393,8 @@ function setupResearch() {
     // Delete-after-upload (always travels as explicit on/off).
     p.set('autoDel', settings.autoDelUploaded ? 'on' : 'off');
     p.set('recFormat', normRecFormat(settings.recordFormat)); // capture format travels with every link
-    p.set('gain', settings.gainEnabled ? 'on' : 'off'); // whether the gain slider is offered
-    p.set('dsp', ['agc', 'nr', 'echo', 'norm'].filter((k) => settings[k]).join(',')); // optional processing (default none)
+    p.set('dsp', ['nr', 'echo', 'norm'].filter((k) => settings[k]).join(',')); // optional processing (default none)
+    p.set('agc', settings.agc || 'auto'); // 'auto' (Chromium on / Firefox off) | 'on' | 'off'
     // Which Texts-screen buttons the coworker sees (always travels, like the
     // send options, so the researcher's current choice overwrites older ones).
     p.set('btns', (Array.isArray(settings.linkButtons) ? settings.linkButtons : ALL_BUTTONS).join(','));
@@ -2442,19 +2438,19 @@ function setupResearch() {
     $('#recformat-help-close')?.addEventListener('click', () => { rfHelpModal.hidden = true; });
     rfHelpModal.addEventListener('click', (e) => { if (e.target === rfHelpModal) rfHelpModal.hidden = true; });
   }
-  // "Allow gain adjustment" toggle — off by default; travels with links.
-  const gainToggle = $('#gain-enabled');
-  if (gainToggle) {
-    gainToggle.checked = !!settings.gainEnabled;
-    gainToggle.addEventListener('change', () => {
-      settings.gainEnabled = gainToggle.checked;
-      if (!gainToggle.checked) settings.gainDb = 0; // hidden → revert to default, not the last value
+  // AGC mode select — 'auto' (Chromium on / Firefox off) by default; travels with
+  // links as its own param so the right clip-protection default follows the device.
+  const agcSel = $('#agc-mode');
+  if (agcSel) {
+    agcSel.value = ['on', 'off', 'auto'].includes(settings.agc) ? settings.agc : 'auto';
+    agcSel.addEventListener('change', () => {
+      settings.agc = ['on', 'off', 'auto'].includes(agcSel.value) ? agcSel.value : 'auto';
       saveSettings(settings);
     });
   }
   // Optional microphone-processing toggles — all off by default, each flagged
   // not-for-archiving. Travel with links.
-  [['#dsp-agc', 'agc'], ['#dsp-nr', 'nr'], ['#dsp-echo', 'echo'], ['#dsp-norm', 'norm']].forEach(([sel, key]) => {
+  [['#dsp-nr', 'nr'], ['#dsp-echo', 'echo'], ['#dsp-norm', 'norm']].forEach(([sel, key]) => {
     const cb = $(sel);
     if (!cb) return;
     cb.checked = !!settings[key];
@@ -2872,15 +2868,6 @@ function wireSharedModals() {
     else startRecording();
   });
   $('#record-redo')?.addEventListener('click', () => { discardRecording(); recordUI('idle'); });
-  // Gain slider (shown only when the researcher enabled it) — live-adjusts the
-  // capture gain and remembers the dB per device.
-  $('#record-gain')?.addEventListener('input', (e) => {
-    const db = parseInt(e.target.value, 10) || 0;
-    settings.gainDb = db;
-    saveSettings(settings);
-    const val = $('#record-gain-val'); if (val) val.textContent = (db > 0 ? '+' : '') + db + ' dB';
-    if (rec?.pcmRec) rec.pcmRec.setGain(dbToLinear(db));
-  });
   $('#record-title')?.addEventListener('input', syncRecordSaveEnabled);
   $('#record-title')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && $('#record-title').value.trim()) {

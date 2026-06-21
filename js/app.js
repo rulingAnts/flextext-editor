@@ -779,7 +779,7 @@ async function startConsentAssent() {
     // over its length; echo-cancellation + noise-suppression also color the audio.
     // All off — fidelity matters more than call-style cleanup for these recordings.
     const stream = await navigator.mediaDevices.getUserMedia({
-      audio: { channelCount: 1, ...dspConstraints() },
+      audio: dspConstraints(),
     });
     const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
       : MediaRecorder.isTypeSupported('audio/ogg') ? 'audio/ogg' : '';
@@ -827,7 +827,10 @@ function recordFormatPref() { return normRecFormat(settings.recordFormat); }
 // Manual recording-level (gain) — OFF by default (raw capture). The researcher
 // enables the slider in Settings; the toggle travels with links, the dB is local.
 function gainPref() {
-  return { enabled: !!settings.gainEnabled, db: Number.isFinite(settings.gainDb) ? settings.gainDb : 0 };
+  // When the slider is disabled/hidden the manual level is NOT used — recordings
+  // use the faithful default capture, never the last-set value.
+  const db = (settings.gainEnabled && Number.isFinite(settings.gainDb)) ? settings.gainDb : 0;
+  return { enabled: !!settings.gainEnabled, db };
 }
 const dbToLinear = (db) => Math.pow(10, db / 20);
 
@@ -835,7 +838,19 @@ const dbToLinear = (db) => Math.pow(10, db / 20);
 // turn these on in Settings (each flagged not-for-archiving); they travel with
 // links and apply to every capture path.
 function dspConstraints() {
-  return { echoCancellation: !!settings.echo, autoGainControl: !!settings.agc, noiseSuppression: !!settings.nr };
+  // voiceIsolation is a newer, aggressive denoiser (Chrome / some OS defaults) that
+  // can OVERRIDE noiseSuppression:false — pin it off so the standard noiseSuppression
+  // flag stays the clean control. Legacy goog*/moz* flags were removed from modern
+  // browsers (no-ops) and are intentionally not set. Plain false → ignored where
+  // unsupported (e.g. Firefox), honored where supported. NB: the cross-browser
+  // input-LEVEL difference (Chrome drives the OS mic volume up; Firefox doesn't) is
+  // inherent and not controllable here — it's handled downstream (gain / normalize).
+  return {
+    echoCancellation: !!settings.echo,
+    autoGainControl: !!settings.agc,
+    noiseSuppression: !!settings.nr,
+    voiceIsolation: false,
+  };
 }
 
 // Live level meter: drives the bar + clip indicator from the PCM recorder's
@@ -991,7 +1006,7 @@ async function startMediaRecorder(fellBack) {
   // Raw signal for faithful capture: auto-gain makes a loud recording fade out
   // over its length; echo-cancellation + noise-suppression also color the audio.
   const stream = await navigator.mediaDevices.getUserMedia({
-    audio: { channelCount: 1, ...dspConstraints() },
+    audio: dspConstraints(),
   });
   const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
     : MediaRecorder.isTypeSupported('audio/ogg') ? 'audio/ogg' : '';
@@ -2433,6 +2448,7 @@ function setupResearch() {
     gainToggle.checked = !!settings.gainEnabled;
     gainToggle.addEventListener('change', () => {
       settings.gainEnabled = gainToggle.checked;
+      if (!gainToggle.checked) settings.gainDb = 0; // hidden → revert to default, not the last value
       saveSettings(settings);
     });
   }

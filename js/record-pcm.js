@@ -5,11 +5,11 @@
  * encodes to uncompressed WAV (32-bit float / 24-bit / 16-bit). FLAC encoding
  * lives in flac.js (lazy-loaded) and consumes the same PCM. Works offline.
  *
- * Channels: we REQUEST mono (channelCount:1). If the browser honors it we get a
- * single channel and store mono. If it ignores it and hands us stereo, we DON'T
- * blindly average (that would halve a one-sided source) — reduceChannels() drops
- * a dead/empty channel (→ mono, full level), collapses a dual-mono pair (→ mono),
- * and keeps genuinely-different channels as real stereo.
+ * Channels: we capture the device's NATIVE channels (we do NOT force mono — that
+ * lets the browser down-mix and can quietly average a dead channel, costing ~6 dB,
+ * differently in Chrome vs Firefox). reduceChannels() then decides from content:
+ * drops a dead/empty channel (→ mono, full level), collapses an identical
+ * dual-mono pair (→ mono), and keeps genuinely-different channels as real stereo.
  *
  * Supported on Chromium + Firefox. Where AudioWorklet/getUserMedia is missing
  * or fails, the caller (app.js) falls back to MediaRecorder→MP3 and warns the
@@ -36,13 +36,15 @@ export class PCMRecorder {
 
   async start(opts = {}) {
     const AC = window.AudioContext || window.webkitAudioContext;
-    // Mono + raw signal by DEFAULT: AGC/echo/noise off (they color the audio, and
-    // AGC makes a loud take fade over its length). opts.audio carries the
-    // researcher's OPTIONAL processing choices, which override these defaults only
-    // when they deliberately turn them on in Settings.
+    // Raw signal by DEFAULT: AGC/echo/noise off (they color the audio). We do NOT
+    // force channelCount:1 — we capture the device's NATIVE channels and decide
+    // mono-vs-stereo from content (reduceChannels). Forcing mono lets the browser
+    // do its own down-mix, which can quietly average a dead channel and cost ~6 dB
+    // (and Chrome/Firefox differ in how they do it). opts.audio carries the
+    // researcher's optional processing + the faithfulness flags from app.js.
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: Object.assign(
-        { channelCount: 1, echoCancellation: false, autoGainControl: false, noiseSuppression: false },
+        { echoCancellation: false, autoGainControl: false, noiseSuppression: false },
         opts.audio || {}),
     });
     this.ctx = new AC();

@@ -241,14 +241,29 @@ export function normalizePeak(channels, target = 0.89) {
  * and link params can name it.
  */
 export const REC_FORMATS = {
-  wav32:  { ext: 'wav',  mime: 'audio/wav',  lossless: true,  wavBits: 32 },
-  wav24:  { ext: 'wav',  mime: 'audio/wav',  lossless: true,  wavBits: 24 },
-  wav16:  { ext: 'wav',  mime: 'audio/wav',  lossless: true,  wavBits: 16 },
-  flac24: { ext: 'flac', mime: 'audio/flac', lossless: true,  flacBits: 24 },
-  mp3:    { ext: 'mp3',  mime: 'audio/mpeg', lossless: false },
+  // capture:'pcm'   → Web Audio AudioWorklet path, encoded by encodeRecording (WAV/FLAC).
+  // capture:'media' → MediaRecorder path. save:'direct' keeps the captured blob as-is
+  //   (.webm); save:'mp3' transcodes via convert.js. mediaMime = the codec requested.
+  wav32:   { ext: 'wav',  mime: 'audio/wav',  lossless: true,  capture: 'pcm',   wavBits: 32 },
+  wav24:   { ext: 'wav',  mime: 'audio/wav',  lossless: true,  capture: 'pcm',   wavBits: 24 },
+  wav16:   { ext: 'wav',  mime: 'audio/wav',  lossless: true,  capture: 'pcm',   wavBits: 16 },
+  flac24:  { ext: 'flac', mime: 'audio/flac', lossless: true,  capture: 'pcm',   flacBits: 24 },
+  webmpcm: { ext: 'webm', mime: 'audio/webm', lossless: true,  capture: 'media', mediaMime: 'audio/webm;codecs=pcm',  save: 'direct' },
+  opus:    { ext: 'webm', mime: 'audio/webm', lossless: false, capture: 'media', mediaMime: 'audio/webm;codecs=opus', save: 'direct' },
+  mp3:     { ext: 'mp3',  mime: 'audio/mpeg', lossless: false, capture: 'media', save: 'mp3' },
 };
 export const DEFAULT_REC_FORMAT = 'wav24'; // 24-bit integer PCM: the archival sweet spot accepted everywhere
 export function normRecFormat(v) { return REC_FORMATS[v] ? v : DEFAULT_REC_FORMAT; }
+
+// Whether THIS browser can actually capture the given format: PCM formats need the
+// Web Audio worklet; media formats need MediaRecorder to support their codec (e.g.
+// webm;codecs=pcm is Chromium-only). Callers fall back when this is false.
+export function recFormatSupported(format) {
+  const f = REC_FORMATS[normRecFormat(format)];
+  if (f.capture === 'pcm') return losslessSupported();
+  if (typeof MediaRecorder === 'undefined') return false;
+  return f.mediaMime ? MediaRecorder.isTypeSupported(f.mediaMime) : true;
+}
 
 // Encode captured channels (mono or stereo) to one of the LOSSLESS formats (WAV
 // inline; FLAC via the lazy-loaded encoder). Returns { blob, ext, mime }.

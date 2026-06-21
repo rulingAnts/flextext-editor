@@ -10,7 +10,7 @@ import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS } from './i18n.js';
 import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl, ensureAsset, getAsset, fetchFileViaUrl } from './audio.js';
 import { convertToMp3 } from './convert.js';
-import { losslessSupported, PCMRecorder, encodeWav, encodeRecording, normalizePeak, reduceChannels,
+import { losslessSupported, recFormatSupported, PCMRecorder, encodeWav, encodeRecording, normalizePeak, reduceChannels,
          normRecFormat, REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { makeZip } from './zip.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads } from './upload.js';
@@ -966,48 +966,69 @@ function closeRecordModal() {
 
 async function startRecording() {
   const fmt = recordFormatPref();
-  const wantLossless = REC_FORMATS[fmt].lossless;
+  const f = REC_FORMATS[fmt];
   try {
-    if (wantLossless && losslessSupported()) {
-      const pcmRec = new PCMRecorder();
-      try {
-        await pcmRec.start({ audio: dspConstraints() }); // getUserMedia + AudioWorklet
-        rec = { mode: 'pcm', pcmRec, fmt, fellBack: false, recording: true,
-                t0: Date.now(), timer: null, blob: null, url: null };
-        startRecTimer();
-        recordUI('recording');
-        startMeter();
-        return;
-      } catch (lossErr) {
-        // Browser can't do raw PCM capture (or the user denied the mic on the
-        // first attempt) — fall back to MediaRecorder and flag the downgrade.
+    // MediaRecorder-native formats (WebM/Opus, WebM/PCM, MP3) capture through
+    // MediaRecorder. webm;codecs=pcm is Chromium-only → if unsupported, a lossless
+    // pick degrades to a lossless WAV via the worklet (same fidelity, no warning);
+    // a lossy pick with no MediaRecorder at all falls back to MP3.
+    if (f.capture === 'media') {
+      if (recFormatSupported(fmt)) { await startMediaRecorder(fmt, false); return; }
+      if (f.lossless && losslessSupported()) { await startPcm('wav32', false); return; }
+      await startMediaRecorder('mp3', f.lossless);
+      return;
+    }
+    // Lossless PCM formats (WAV/FLAC): AudioWorklet path, with MediaRecorder→MP3 fallback.
+    if (losslessSupported()) {
+      try { await startPcm(fmt, false); return; }
+      catch (lossErr) {
+        // Browser can't do raw PCM capture (or the user denied the mic on the first
+        // attempt) — fall back to MediaRecorder and flag the downgrade.
         console.warn('Lossless capture unavailable; recording compressed MP3 instead.', lossErr);
-        try { pcmRec.cancel(); } catch { /* noop */ } // release any half-open mic stream before retrying
         if (lossErr && lossErr.name === 'NotAllowedError') throw lossErr; // mic denied: real error, don't double-prompt
-        await startMediaRecorder(true);
+        await startMediaRecorder('mp3', true);
         return;
       }
     }
-    // Explicit MP3 choice, or lossless not supported on this browser at all.
-    await startMediaRecorder(wantLossless);
+    await startMediaRecorder('mp3', true); // no AudioWorklet at all on this browser
   } catch (e) {
     recordUI('idle');
     $('#record-status').textContent = t('record.micError', { msg: e.message });
   }
 }
 
-// MediaRecorder capture path: the explicit "mp3" recording format, and the
-// fallback when lossless can't run. `fellBack` true → warn at review time.
-async function startMediaRecorder(fellBack) {
+// AudioWorklet lossless capture (WAV/FLAC). Throws if getUserMedia / the worklet
+// fails so startRecording can fall back. fellBack=true flags a downgrade at review.
+async function startPcm(fmt, fellBack) {
+  const pcmRec = new PCMRecorder();
+  try {
+    await pcmRec.start({ audio: dspConstraints() }); // getUserMedia + AudioWorklet
+  } catch (e) {
+    try { pcmRec.cancel(); } catch { /* noop */ } // release any half-open mic stream
+    throw e;
+  }
+  rec = { mode: 'pcm', pcmRec, fmt, fellBack: !!fellBack, recording: true,
+          t0: Date.now(), timer: null, blob: null, url: null };
+  startRecTimer();
+  recordUI('recording');
+  startMeter();
+}
+
+// MediaRecorder capture path: WebM/Opus + WebM/PCM (kept as-is at save) and MP3
+// (the explicit mp3 format, transcoded at save), plus the fallback when lossless
+// can't run. `fellBack` true → warn at review time.
+async function startMediaRecorder(fmt, fellBack) {
+  const f = REC_FORMATS[normRecFormat(fmt)];
   // Raw signal for faithful capture: auto-gain makes a loud recording fade out
   // over its length; echo-cancellation + noise-suppression also color the audio.
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: dspConstraints(),
-  });
-  const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: dspConstraints() });
+  // Prefer the format's own codec; fall back to a generic supported container.
+  const want = f.mediaMime || 'audio/webm';
+  const mime = MediaRecorder.isTypeSupported(want) ? want
+    : MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
     : MediaRecorder.isTypeSupported('audio/ogg') ? 'audio/ogg' : '';
   const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-  rec = { mode: 'mr', stream, recorder, chunks: [], fmt: 'mp3', fellBack: !!fellBack,
+  rec = { mode: 'mr', stream, recorder, chunks: [], fmt: normRecFormat(fmt), fellBack: !!fellBack,
           recording: true, t0: Date.now(), timer: null, blob: null, url: null };
   recorder.addEventListener('dataavailable', (e) => { if (e.data.size) rec?.chunks.push(e.data); });
   recorder.addEventListener('stop', () => {
@@ -1015,12 +1036,12 @@ async function startMediaRecorder(fellBack) {
     rec.stream.getTracks().forEach(tr => tr.stop());
     clearInterval(rec.timer);
     rec.recording = false;
-    rec.blob = new Blob(rec.chunks, { type: recorder.mimeType || 'audio/webm' });
+    rec.blob = new Blob(rec.chunks, { type: recorder.mimeType || mime || 'audio/webm' });
     rec.url = URL.createObjectURL(rec.blob);
     $('#record-preview').src = rec.url;
     recordUI('review');
   });
-  recorder.start();
+  recorder.start(3000); // 3s timeslices: flush chunks incrementally so long takes don't pin RAM
   startRecTimer();
   recordUI('recording');
 }
@@ -1076,6 +1097,11 @@ async function saveRecording() {
       const { blob, ext, mime } = await encodeRecording(chans, rec.sampleRate, rec.fmt,
         (f) => recordUI('saving', { pct: Math.round(f * 100) }));
       file = new File([blob], `recording-${stamp}.${ext}`, { type: mime });
+    } else if (REC_FORMATS[rec.fmt] && REC_FORMATS[rec.fmt].save === 'direct') {
+      // WebM/Opus or WebM/PCM: keep the captured blob as-is, no transcode. (Auto-
+      // normalize can't apply without a decode + re-encode, which defeats the point.)
+      const f = REC_FORMATS[rec.fmt];
+      file = new File([rec.blob], `recording-${stamp}.${f.ext}`, { type: rec.blob.type || f.mime });
     } else {
       // MediaRecorder take → compressed MP3 (explicit mp3 format, or fallback).
       const conv = settings.convert || {};

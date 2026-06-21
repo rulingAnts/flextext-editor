@@ -860,20 +860,38 @@ function dspConstraints() {
   };
 }
 
-// Live level meter: drives the bar + clip indicator from the PCM recorder's
-// analyser while recording (lossless path only). The rAF loop self-stops when
-// recording ends.
+// Live level meter: drives the bar + clip indicator while recording, on BOTH
+// capture paths — the lossless worklet exposes peak() directly; the MediaRecorder
+// (WebM/MP3) path taps the same mic stream with an AnalyserNode (rec.meterAnalyser).
+// The rAF loop self-stops when recording ends.
 let meterRAF = null;
+function recHasMeter() {
+  return !!(rec && ((rec.mode === 'pcm' && rec.pcmRec) || rec.meterAnalyser));
+}
+function recPeak() { // 0..1 linear peak from whichever capture path is live
+  if (!rec) return 0;
+  if (rec.mode === 'pcm' && rec.pcmRec) return rec.pcmRec.peak();
+  if (rec.meterAnalyser && rec.meterBuf) {
+    rec.meterAnalyser.getFloatTimeDomainData(rec.meterBuf);
+    let p = 0;
+    for (let i = 0; i < rec.meterBuf.length; i++) {
+      const a = rec.meterBuf[i] < 0 ? -rec.meterBuf[i] : rec.meterBuf[i];
+      if (a > p) p = a;
+    }
+    return p;
+  }
+  return 0;
+}
 function startMeter() {
   stopMeter();
   const meter = $('#record-meter');
   const fill = $('#record-meter-fill');
   const warn = $('#record-clip-warn');
-  if (!meter || !fill || !rec || rec.mode !== 'pcm' || !rec.pcmRec) return;
+  if (!meter || !fill || !recHasMeter()) return;
   let clipHold = 0;
   const tick = () => {
-    if (!rec || !rec.recording || rec.mode !== 'pcm' || !rec.pcmRec) { meterRAF = null; return; }
-    const p = rec.pcmRec.peak(); // 0..1 linear peak
+    if (!rec || !rec.recording || !recHasMeter()) { meterRAF = null; return; }
+    const p = recPeak(); // 0..1 linear peak
     // sqrt curve so normal speech sits mid-bar and quiet input is still visible.
     fill.style.width = Math.min(100, Math.round(Math.sqrt(p) * 100)) + '%';
     // Colour reflects the absolute level: green → amber → red near full scale.
@@ -905,10 +923,10 @@ function recordUI(state, extra = {}) {
   $('#record-preview').hidden = !inReview;
   // A title is required before the recording can be saved.
   $('#record-title-row').hidden = !inReview;
-  // Meter + mic-distance hint show only while recording on the lossless path.
+  // Meter + mic-distance hint show while recording on ANY path (the meter reads the
+  // worklet on the lossless path, an AnalyserNode tap on the MediaRecorder path).
   const recording = state === 'recording';
-  const pcmLive = recording && rec?.mode === 'pcm';
-  const meterEl = $('#record-meter'); if (meterEl) meterEl.hidden = !pcmLive;
+  const meterEl = $('#record-meter'); if (meterEl) meterEl.hidden = !(recording && recHasMeter());
   const hintEl = $('#record-hint'); if (hintEl) hintEl.hidden = !recording;
   if (state === 'idle') {
     toggle.textContent = t('record.start');
@@ -939,6 +957,7 @@ function discardRecording() {
   if (rec) {
     try { if (rec.recorder && rec.recorder.state !== 'inactive') rec.recorder.stop(); } catch { /* noop */ }
     try { rec.pcmRec?.cancel(); } catch { /* noop */ } // lossless path owns its own stream/ctx
+    try { rec.meterCtx && rec.meterCtx.close(); } catch { /* noop */ } // MediaRecorder-path meter tap
     rec.stream?.getTracks().forEach(tr => tr.stop());
     clearInterval(rec.timer);
     if (rec.url) URL.revokeObjectURL(rec.url);
@@ -1029,11 +1048,28 @@ async function startMediaRecorder(fmt, fellBack) {
     : MediaRecorder.isTypeSupported('audio/ogg') ? 'audio/ogg' : '';
   const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
   rec = { mode: 'mr', stream, recorder, chunks: [], fmt: normRecFormat(fmt), fellBack: !!fellBack,
-          recording: true, t0: Date.now(), timer: null, blob: null, url: null };
+          recording: true, t0: Date.now(), timer: null, blob: null, url: null,
+          meterCtx: null, meterAnalyser: null, meterBuf: null };
+  // Tap the same mic stream with an AnalyserNode so the level/clip meter works on
+  // this path too (MediaRecorder exposes no level data). Not connected to output.
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (AC) {
+      const mctx = new AC();
+      if (mctx.state === 'suspended') { try { await mctx.resume(); } catch { /* noop */ } }
+      const an = mctx.createAnalyser();
+      an.fftSize = 1024;
+      mctx.createMediaStreamSource(stream).connect(an);
+      rec.meterCtx = mctx; rec.meterAnalyser = an; rec.meterBuf = new Float32Array(an.fftSize);
+    }
+  } catch { /* no meter on this browser; recording still works */ }
   recorder.addEventListener('dataavailable', (e) => { if (e.data.size) rec?.chunks.push(e.data); });
   recorder.addEventListener('stop', () => {
     if (!rec) return; // cancelled
     rec.stream.getTracks().forEach(tr => tr.stop());
+    stopMeter();
+    try { rec.meterCtx && rec.meterCtx.close(); } catch { /* noop */ }
+    rec.meterCtx = rec.meterAnalyser = rec.meterBuf = null;
     clearInterval(rec.timer);
     rec.recording = false;
     rec.blob = new Blob(rec.chunks, { type: recorder.mimeType || mime || 'audio/webm' });
@@ -1044,6 +1080,7 @@ async function startMediaRecorder(fmt, fellBack) {
   recorder.start(3000); // 3s timeslices: flush chunks incrementally so long takes don't pin RAM
   startRecTimer();
   recordUI('recording');
+  startMeter();
 }
 
 function startRecTimer() {

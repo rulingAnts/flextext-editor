@@ -10,6 +10,8 @@ import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS } from './i18n.js';
 import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl, ensureAsset, getAsset, fetchFileViaUrl } from './audio.js';
 import { convertToMp3 } from './convert.js';
+import { losslessSupported, PCMRecorder, encodeWav, encodeRecording,
+         normRecFormat, REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { makeZip } from './zip.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads } from './upload.js';
 import { esc, newGuid as mkGuid } from './flextext.js';
@@ -81,7 +83,7 @@ function applyUrlSettings() {
   if (p.has('lang')) setLang(p.get('lang'));
   if (p.get('research') === 'off') localStorage.setItem(RESEARCH_HIDDEN_KEY, '1');
   if (p.get('research') === 'on') localStorage.removeItem(RESEARCH_HIDDEN_KEY);
-  const gotSettings = p.has('vern') || p.has('anal') || p.has('welcome') || p.has('btns') || p.has('editorRec') || p.has('autoDel');
+  const gotSettings = p.has('vern') || p.has('anal') || p.has('welcome') || p.has('btns') || p.has('editorRec') || p.has('autoDel') || p.has('recFormat');
   let settingsChanged = false;
   if (gotSettings) {
     const s = loadSettings();
@@ -118,6 +120,8 @@ function applyUrlSettings() {
     // Whether a text is deleted from the device after it uploads to Drive
     // (researcher's explicit choice; overrides the per-app default below).
     if (p.has('autoDel')) s.autoDelUploaded = p.get('autoDel') === 'on';
+    // Capture (recording) format the device should use; default 32-bit WAV.
+    if (p.has('recFormat')) s.recordFormat = normRecFormat(p.get('recFormat'));
     settingsChanged = JSON.stringify(s) !== before;
     saveSettings(s);
   }
@@ -803,7 +807,15 @@ async function startConsentAssent() {
  * the microphone.
  */
 
-let rec = null; // { stream, recorder, chunks, blob, url, timer, t0 }
+// Recording state. Two capture modes share this slot:
+//   pcm — lossless: { mode:'pcm', pcmRec, fmt, pcm, sampleRate, ... }
+//   mr  — MediaRecorder→MP3 (explicit mp3 choice OR lossless fallback):
+//         { mode:'mr', stream, recorder, chunks, fmt:'mp3', fellBack, ... }
+// Common: { recording, fmt, t0, timer, blob (preview), url }.
+let rec = null;
+
+// The researcher-chosen capture format (default 32-bit WAV). Travels with links.
+function recordFormatPref() { return normRecFormat(settings.recordFormat); }
 
 function recordUI(state, extra = {}) {
   const status = $('#record-status');
@@ -824,6 +836,10 @@ function recordUI(state, extra = {}) {
     status.textContent = t('record.recording', { time: extra.time || '0:00' });
   } else if (state === 'review') {
     status.textContent = t('record.review');
+    // If a lossless choice couldn't be honored on this browser, the take was
+    // captured as compressed MP3 — say so once, plainly, so nobody assumes they
+    // archived a lossless recording.
+    if (rec?.fellBack && !rec._warned) { rec._warned = true; toast(t('record.fellBack'), 8000); }
     syncRecordSaveEnabled();
     setTimeout(() => $('#record-title').focus(), 0);
   } else if (state === 'saving') {
@@ -839,6 +855,7 @@ function syncRecordSaveEnabled() {
 function discardRecording() {
   if (rec) {
     try { if (rec.recorder && rec.recorder.state !== 'inactive') rec.recorder.stop(); } catch { /* noop */ }
+    try { rec.pcmRec?.cancel(); } catch { /* noop */ } // lossless path owns its own stream/ctx
     rec.stream?.getTracks().forEach(tr => tr.stop());
     clearInterval(rec.timer);
     if (rec.url) URL.revokeObjectURL(rec.url);
@@ -865,51 +882,120 @@ function closeRecordModal() {
 }
 
 async function startRecording() {
+  const fmt = recordFormatPref();
+  const wantLossless = REC_FORMATS[fmt].lossless;
   try {
-    // Raw signal for faithful capture: auto-gain makes a loud recording fade out
-    // over its length; echo-cancellation + noise-suppression also color the audio.
-    // All off — fidelity matters more than call-style cleanup for these recordings.
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: false, autoGainControl: false, noiseSuppression: false },
-    });
-    const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
-      : MediaRecorder.isTypeSupported('audio/ogg') ? 'audio/ogg' : '';
-    const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-    rec = { stream, recorder, chunks: [], t0: Date.now(), timer: null, blob: null, url: null };
-    recorder.addEventListener('dataavailable', (e) => { if (e.data.size) rec?.chunks.push(e.data); });
-    recorder.addEventListener('stop', () => {
-      if (!rec) return; // cancelled
-      rec.stream.getTracks().forEach(tr => tr.stop());
-      clearInterval(rec.timer);
-      rec.blob = new Blob(rec.chunks, { type: recorder.mimeType || 'audio/webm' });
-      rec.url = URL.createObjectURL(rec.blob);
-      $('#record-preview').src = rec.url;
-      recordUI('review');
-    });
-    recorder.start();
-    const fmtT = (s) => Math.floor(s / 60) + ':' + String(Math.floor(s) % 60).padStart(2, '0');
-    rec.timer = setInterval(
-      () => recordUI('recording', { time: fmtT((Date.now() - rec.t0) / 1000) }), 250);
-    recordUI('recording');
+    if (wantLossless && losslessSupported()) {
+      const pcmRec = new PCMRecorder();
+      try {
+        await pcmRec.start(); // getUserMedia + AudioWorklet; throws if unsupported
+        rec = { mode: 'pcm', pcmRec, fmt, fellBack: false, recording: true,
+                t0: Date.now(), timer: null, blob: null, url: null };
+        startRecTimer();
+        recordUI('recording');
+        return;
+      } catch (lossErr) {
+        // Browser can't do raw PCM capture (or the user denied the mic on the
+        // first attempt) — fall back to MediaRecorder and flag the downgrade.
+        console.warn('Lossless capture unavailable; recording compressed MP3 instead.', lossErr);
+        try { pcmRec.cancel(); } catch { /* noop */ } // release any half-open mic stream before retrying
+        if (lossErr && lossErr.name === 'NotAllowedError') throw lossErr; // mic denied: real error, don't double-prompt
+        await startMediaRecorder(true);
+        return;
+      }
+    }
+    // Explicit MP3 choice, or lossless not supported on this browser at all.
+    await startMediaRecorder(wantLossless);
   } catch (e) {
     recordUI('idle');
     $('#record-status').textContent = t('record.micError', { msg: e.message });
   }
 }
 
+// MediaRecorder capture path: the explicit "mp3" recording format, and the
+// fallback when lossless can't run. `fellBack` true → warn at review time.
+async function startMediaRecorder(fellBack) {
+  // Raw signal for faithful capture: auto-gain makes a loud recording fade out
+  // over its length; echo-cancellation + noise-suppression also color the audio.
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: false, autoGainControl: false, noiseSuppression: false },
+  });
+  const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
+    : MediaRecorder.isTypeSupported('audio/ogg') ? 'audio/ogg' : '';
+  const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+  rec = { mode: 'mr', stream, recorder, chunks: [], fmt: 'mp3', fellBack: !!fellBack,
+          recording: true, t0: Date.now(), timer: null, blob: null, url: null };
+  recorder.addEventListener('dataavailable', (e) => { if (e.data.size) rec?.chunks.push(e.data); });
+  recorder.addEventListener('stop', () => {
+    if (!rec) return; // cancelled
+    rec.stream.getTracks().forEach(tr => tr.stop());
+    clearInterval(rec.timer);
+    rec.recording = false;
+    rec.blob = new Blob(rec.chunks, { type: recorder.mimeType || 'audio/webm' });
+    rec.url = URL.createObjectURL(rec.blob);
+    $('#record-preview').src = rec.url;
+    recordUI('review');
+  });
+  recorder.start();
+  startRecTimer();
+  recordUI('recording');
+}
+
+function startRecTimer() {
+  const fmtT = (s) => Math.floor(s / 60) + ':' + String(Math.floor(s) % 60).padStart(2, '0');
+  rec.timer = setInterval(
+    () => recordUI('recording', { time: fmtT((Date.now() - rec.t0) / 1000) }), 250);
+}
+
+// Stop either capture mode and move to review. MediaRecorder finishes in its
+// own 'stop' listener; the PCM path flushes its tail and builds a fast
+// 32-bit-float WAV preview (native, instant) from the captured samples.
+async function stopRecording() {
+  if (!rec || !rec.recording) return;
+  if (rec.mode === 'mr') {
+    if (rec.recorder && rec.recorder.state !== 'inactive') rec.recorder.stop();
+    return;
+  }
+  rec.recording = false;
+  clearInterval(rec.timer);
+  try {
+    const { pcm, sampleRate } = await rec.pcmRec.stop();
+    if (!pcm.length) throw new Error('empty');
+    rec.pcm = pcm;
+    rec.sampleRate = sampleRate;
+    rec.blob = encodeWav(pcm, sampleRate, 32); // preview only; final format chosen on save
+    rec.url = URL.createObjectURL(rec.blob);
+    $('#record-preview').src = rec.url;
+    recordUI('review');
+  } catch (e) {
+    discardRecording();
+    recordUI('idle');
+    $('#record-status').textContent = t('record.micError',
+      { msg: e.message === 'empty' ? t('record.noAudio') : e.message });
+  }
+}
+
 async function saveRecording() {
-  if (!rec?.blob) return;
+  if (!rec || (!rec.blob && !rec.pcm)) return;
   const title = $('#record-title').value.trim();
   if (!title) { syncRecordSaveEnabled(); $('#record-title').focus(); return; } // title required
-  const blob = rec.blob;
   recordUI('saving', { pct: 0 });
   try {
-    const conv = settings.convert || {};
-    const res = await convertToMp3(blob,
-      { kbps: conv.kbps || 64, sampleRate: conv.rate || 22050, mono: conv.mono !== false },
-      (f) => recordUI('saving', { pct: Math.round(f * 100) }));
     const stamp = fileStamp();
-    const file = new File([res.blob], `recording-${stamp}.mp3`, { type: 'audio/mpeg' });
+    let file;
+    if (rec.mode === 'pcm') {
+      // Lossless: encode the captured PCM to the chosen WAV/FLAC format.
+      const { blob, ext, mime } = await encodeRecording(rec.pcm, rec.sampleRate, rec.fmt,
+        (f) => recordUI('saving', { pct: Math.round(f * 100) }));
+      file = new File([blob], `recording-${stamp}.${ext}`, { type: mime });
+    } else {
+      // MediaRecorder take → compressed MP3 (explicit mp3 format, or fallback).
+      const conv = settings.convert || {};
+      const res = await convertToMp3(rec.blob,
+        { kbps: conv.kbps || 64, sampleRate: conv.rate || 22050, mono: conv.mono !== false },
+        (f) => recordUI('saving', { pct: Math.round(f * 100) }));
+      file = new File([res.blob], `recording-${stamp}.mp3`, { type: 'audio/mpeg' });
+    }
     const assent = pendingAssent;     // closeRecordModal clears these; preserve
     const receipt = pendingReceipt;   // them for the new doc
     const promptAudio = pendingPromptAudio;
@@ -2038,6 +2124,7 @@ function setupResearch() {
       : ['share', 'upload', 'save', 'download']).join(','));
     // Delete-after-upload (always travels as explicit on/off).
     p.set('autoDel', settings.autoDelUploaded ? 'on' : 'off');
+    p.set('recFormat', normRecFormat(settings.recordFormat)); // capture format travels with every link
     // Which Texts-screen buttons the coworker sees (always travels, like the
     // send options, so the researcher's current choice overwrites older ones).
     p.set('btns', (Array.isArray(settings.linkButtons) ? settings.linkButtons : ALL_BUTTONS).join(','));
@@ -2088,6 +2175,7 @@ function setupResearch() {
     // also defaults to deleting when no link param is present (see
     // deleteAfterUpload()), but an explicit value lets a researcher turn it off.
     p.set('autoDel', settings.autoDelUploaded ? 'on' : 'off');
+    p.set('recFormat', normRecFormat(settings.recordFormat)); // capture format travels with every link
     if (settings.consentMode && settings.consentMode !== 'off') {
       p.set('consentMode', settings.consentMode);
       if (settings.consentMsg) p.set('consentMsg', settings.consentMsg);
@@ -2212,6 +2300,7 @@ function setupResearch() {
       : ['share', 'upload', 'save', 'download']).join(','));
     // Delete-after-upload (always travels as explicit on/off).
     p.set('autoDel', settings.autoDelUploaded ? 'on' : 'off');
+    p.set('recFormat', normRecFormat(settings.recordFormat)); // capture format travels with every link
     // Which Texts-screen buttons the coworker sees (always travels, like the
     // send options, so the researcher's current choice overwrites older ones).
     p.set('btns', (Array.isArray(settings.linkButtons) ? settings.linkButtons : ALL_BUTTONS).join(','));
@@ -2238,7 +2327,19 @@ function setupResearch() {
     }
   });
 
-  // Audio converter (any recording → small task-ready MP3)
+  // Recording format (archival capture) — default 32-bit WAV. Travels with links;
+  // the recorder app reads it from the link (applyUrlSettings), not this control.
+  const rfSel = $('#recformat-select');
+  if (rfSel) {
+    rfSel.value = recordFormatPref();
+    rfSel.addEventListener('change', () => {
+      settings.recordFormat = normRecFormat(rfSel.value);
+      saveSettings(settings);
+    });
+  }
+
+  // Audio converter (any recording → small task-ready MP3) — the send-to-assistant
+  // distribution format, separate from the recording (capture) format above.
   const cf = $('#convert-form');
   const convPrefs = settings.convert || {};
   if (convPrefs.kbps) cf.elements.convKbps.value = String(convPrefs.kbps);
@@ -2645,7 +2746,7 @@ function promptUpdate(waitingWorker) {
 // is optional so it is safe to call from the minimal record.html page.
 function wireSharedModals() {
   $('#record-toggle')?.addEventListener('click', () => {
-    if (rec?.recorder && rec.recorder.state === 'recording') rec.recorder.stop();
+    if (rec?.recording) stopRecording().catch(() => {});
     else startRecording();
   });
   $('#record-redo')?.addEventListener('click', () => { discardRecording(); recordUI('idle'); });

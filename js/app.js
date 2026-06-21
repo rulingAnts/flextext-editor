@@ -14,6 +14,7 @@ import { losslessSupported, recFormatSupported, PCMRecorder, encodeWav, encodeRe
          normRecFormat, REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { makeZip } from './zip.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads } from './upload.js';
+import * as Sync from './sync.js';
 import { esc, newGuid as mkGuid } from './flextext.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -1341,9 +1342,14 @@ async function runTaskCleanup(spec) {
   toast(t('task.cleanupDone', { n: targets.length }), 5000);
 }
 
-async function openUrlTask(task) {
+async function openUrlTask(task, mode = 'interactive') {
+  const interactive = mode !== 'background';
+  // Background commands (a remote 'assign') take the never-clobber allowlist ONLY
+  // (plan §A.3): no cleanup, no replace, no UI — just {id, url, title}.
+  if (!interactive) task = { title: task.title, audioUrl: task.audioUrl, flextextUrl: task.flextextUrl, audioId: task.audioId, flextextId: task.flextextId };
+
   // Deliberate cleanup first (e.g. clearing old versions in a back-and-forth check).
-  if (task.cleanup) {
+  if (interactive && task.cleanup) {
     await runTaskCleanup(task.cleanup);
     if (!task.audioUrl && !task.flextextUrl && !task.title) { renderDocList(); show('texts'); return; }
   }
@@ -1365,9 +1371,8 @@ async function openUrlTask(task) {
   // Default: it's already here → open it, NEVER re-fetch (protects loaded content
   // against a failed/expired re-download).
   if (existing && !task.replace) {
-    current = existing;
-    enterEditor('baseline');
-    toast(t('task.alreadyHere'), 4000);
+    // Already here → open it (interactive) or quietly no-op (background); NEVER re-fetch.
+    if (interactive) { current = existing; enterEditor('baseline'); toast(t('task.alreadyHere'), 4000); }
     return;
   }
 
@@ -1398,34 +1403,36 @@ async function openUrlTask(task) {
     try { doc = await buildDocFromFlextextUrl(task.flextextUrl, task.title); gotFlextext = true; }
     catch { /* fall through to placeholder + pending retry */ }
   }
-  current = { id: newGuid(), title: task.title || doc.title || '', created: Date.now(), modified: Date.now(), doc };
-  current.doc.title = current.title;
+  const rec = { id: newGuid(), title: task.title || doc.title || '', created: Date.now(), modified: Date.now(), doc };
+  rec.doc.title = rec.title;
   if (task.flextextUrl) {
-    current.flextextId = flextextId;
-    if (gotFlextext) current.flextextSource = task.flextextUrl;
-    else current.pendingFlextext = task.flextextUrl;
+    rec.flextextId = flextextId;
+    if (gotFlextext) rec.flextextSource = task.flextextUrl;
+    else rec.pendingFlextext = task.flextextUrl;
   }
   if (task.audioUrl) {
-    current.audioId = audioId;
-    current.pendingAudio = task.audioUrl;
-    current.audioLocked = true;
+    rec.audioId = audioId;
+    rec.pendingAudio = task.audioUrl;
+    rec.audioLocked = true;
   }
-  Object.assign(current, docStats(current.doc));
-  await db.putDoc(current);
-  enterEditor('baseline');
-  toast(t('task.received'), 5000);
+  Object.assign(rec, docStats(rec.doc));
+  await db.putDoc(rec);
+  // Background ('assign') must NOT hijack the user's open editor — only adopt
+  // `current` + open the editor in interactive mode. Downloads run either way.
+  if (interactive) { current = rec; enterEditor('baseline'); toast(t('task.received'), 5000); }
   if (task.flextextUrl && !gotFlextext) {
-    toast(t('task.ftReceiving'), 6000);
-    tryDownloadFlextext(current);
+    if (interactive) toast(t('task.ftReceiving'), 6000);
+    tryDownloadFlextext(rec);
   }
   if (task.audioUrl) {
-    const ok = await tryDownloadAudio(current);
+    const ok = await tryDownloadAudio(rec);
     // Success and pause/error UI are painted by the download state handler;
     // only announce a failure the user didn't cause themselves.
-    if (!ok && getDownload(current.id)?.status !== 'paused') {
+    if (interactive && !ok && getDownload(rec.id)?.status !== 'paused') {
       toast(t('player.downloadFailed'), 6000);
     }
   }
+  if (!interactive) Sync.reportNow(); // a background-created text changes the inventory
 }
 
 // Download a pending task flextext and populate the placeholder doc — but only
@@ -1712,6 +1719,105 @@ function deleteUploadedDoc(docId) {
   return db.deleteDoc(docId).catch(() => {}).then(() => {
     if (RECORD_MODE) renderRecordList(); else renderDocList();
   });
+}
+
+// ---- Connectivity sync (Phase 1) — all inert unless an invite has been claimed ----
+
+// Remote-delete (a sync 'delete' command). Delete-safety as a MECHANISM (plan §A):
+// refuse unless the doc is provably, currently on Drive — uploadedFileId present AND
+// content unchanged since that backup (uploadedModified === modified). NEVER deletes
+// un-uploaded or edited-since work, whatever the researcher sent. Returns true if deleted.
+async function deleteConfirmedDoc(docId) {
+  const d = await db.getDoc(docId);
+  if (!d) return false;
+  if (!d.uploadedFileId || d.uploadedModified !== d.modified) {
+    console.warn('sync: refusing remote delete — not safely on Drive (un-uploaded or edited since backup):', docId);
+    return false;
+  }
+  await deleteUploadedDoc(docId); // reuse the existing teardown (open-doc + both app modes)
+  Sync.reportNow();
+  return true;
+}
+
+// Short, stable title hash for the report — no plaintext titles leave the device (plan §F.2).
+async function syncTitleHash(title) {
+  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(title || '')));
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
+}
+
+// Apply ONE researcher command through the existing idempotent, never-clobber handlers.
+async function syncDispatch(cmd) {
+  switch (cmd && cmd.type) {
+    case 'assign': {
+      const task = { title: cmd.title || '' };
+      if (cmd.audioUrl) { task.audioUrl = resolveAudioInput(cmd.audioUrl); task.audioId = cmd.id; }
+      if (cmd.flextextUrl) { task.flextextUrl = resolveAudioInput(cmd.flextextUrl); task.flextextId = cmd.id; }
+      if (task.audioUrl || task.flextextUrl) await openUrlTask(task, 'background');
+      break;
+    }
+    case 'delete':
+      await deleteConfirmedDoc(cmd.docId || cmd.id);
+      break;
+    case 'changeSettings': {
+      // MERGE only the researcher-supplied keys; never a whole-object overwrite that
+      // would wipe a power-user's relayWorker / uploadFolder (plan §F.1).
+      const s = loadSettings();
+      Object.assign(s, cmd.settings || {});
+      saveSettings(s);
+      settings = loadSettings();
+      break;
+    }
+    case 'triggerUpload': {
+      const docId = cmd.docId || cmd.id;
+      if (current && current.id === docId) await doUpload();
+      else console.warn('sync: triggerUpload of a non-open doc needs a doUpload(docId) refactor — deferred (P1.x)');
+      break;
+    }
+    default:
+      console.warn('sync: unknown command', cmd && cmd.type);
+  }
+}
+
+// Metadata-ONLY inventory for the report (plan §4): titleHash (never plaintext), no
+// audio bytes; stable fields only so an unchanged list never writes.
+async function syncGatherInventory() {
+  const metas = await db.listDocs();
+  const items = [];
+  for (const meta of metas) {
+    const d = await db.getDoc(meta.id);
+    if (!d) continue;
+    const backed = !!d.uploadedFileId;
+    items.push({
+      id: d.id,
+      titleHash: await syncTitleHash(d.title),
+      hasAudio: !!(d.audioSource || d.pendingAudio || d.audioId),
+      modified: d.modified,
+      uploadState: backed ? (d.uploadedModified === d.modified ? 'uploaded' : 'changed') : 'local',
+      uploadedFileId: d.uploadedFileId || null,
+    });
+  }
+  return { type: RECORD_MODE ? 'recorder' : 'editor', items };
+}
+
+// One-time invite link (?invite=<id>#k=<secret>) → bind this install to the
+// researcher's instance for async remote management. Quiet background bind; the
+// secret rides the URL fragment (out of server logs) and is stripped immediately.
+function handleInviteParam() {
+  try {
+    const p = new URLSearchParams(location.search);
+    const inviteId = p.get('invite');
+    if (!inviteId) return;
+    const frag = new URLSearchParams((location.hash || '').replace(/^#/, ''));
+    const secret = frag.get('k') || p.get('k') || '';
+    p.delete('invite'); p.delete('k');
+    const qs = p.toString();
+    history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '')); // strip secret from URL/history
+    if (!secret) return;
+    Sync.claim(inviteId, secret).then((r) => {
+      if (r.ok) toast('Linked for remote management', 5000);
+      else if (r.error === 'type_mismatch') toast('That invite is for the other app', 6000);
+    }).catch(() => { /* offline; the persisted identity lets a later retry resume */ });
+  } catch { /* never block startup */ }
 }
 
 // Turn a researcher's audio/flextext input (Drive share link, bare file id, or
@@ -2970,6 +3076,16 @@ function setup() {
   const { settingsChanged, task } = applyUrlSettings();
   settings = loadSettings();
   applyI18n();
+
+  // Connectivity sync engine — inert unless an invite is/was claimed (plan P1).
+  Sync.start({
+    workerBase: () => (settings.relayWorker || DEFAULT_WORKER),
+    appType: () => RECORD_MODE ? 'recorder' : 'editor',
+    dispatch: syncDispatch,
+    gatherInventory: syncGatherInventory,
+    onStatus: () => {},
+  });
+  handleInviteParam();
 
   // Language selector — present in both the editor and the recorder.
   const langSel = $('#lang-select');

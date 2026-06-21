@@ -40,32 +40,40 @@ function loadFlac() {
 }
 
 // Float32 [-1,1] mono → Int32 samples scaled to `bps` (libFLAC takes Int32).
-function floatToInt(pcm, bps) {
-  const out = new Int32Array(pcm.length);
+// Interleave mono/stereo Float32 channels into one Int32Array at `bps` (what
+// libFLAC's process_interleaved expects).
+function interleaveToInt32(chans, bps) {
+  const nch = chans.length;
+  const n = chans[0].length;
+  const out = new Int32Array(n * nch);
   const peak = (1 << (bps - 1)) - 1; // 0x7FFFFF for 24-bit
   const min = -(1 << (bps - 1));
-  for (let i = 0; i < pcm.length; i++) {
-    const s = pcm[i];
-    let v = Math.round(s < 0 ? s * (peak + 1) : s * peak);
-    if (v > peak) v = peak; else if (v < min) v = min;
-    out[i] = v;
+  for (let i = 0; i < n; i++) {
+    for (let c = 0; c < nch; c++) {
+      const s = chans[c][i];
+      let v = Math.round(s < 0 ? s * (peak + 1) : s * peak);
+      if (v > peak) v = peak; else if (v < min) v = min;
+      out[i * nch + c] = v;
+    }
   }
   return out;
 }
 
 /**
- * Encode mono Float32 PCM to a FLAC blob.
- * @param {Float32Array} pcm
+ * Encode mono OR stereo Float32 PCM to a FLAC blob.
+ * @param {Float32Array|Float32Array[]} channels  one array (mono) or per-channel arrays
  * @param {number} sampleRate
  * @param {number} [bps=24] bits per sample (FLAC is integer)
  * @param {(fraction:number)=>void} [onProgress]
  * @returns {Promise<Blob>}
  */
-export async function encodeFlac(pcm, sampleRate, bps = 24, onProgress) {
+export async function encodeFlac(channels, sampleRate, bps = 24, onProgress) {
+  const chans = (channels instanceof Float32Array) ? [channels] : channels;
+  const nch = chans.length;
+  const n = chans[0].length;
   const Flac = await loadFlac();
-  const channels = 1;
   const compression = 5;
-  const enc = Flac.create_libflac_encoder(sampleRate, channels, bps, compression, pcm.length, false);
+  const enc = Flac.create_libflac_encoder(sampleRate, nch, bps, compression, n, false);
   if (!enc) throw new Error('FLAC encoder could not be created');
 
   const parts = [];
@@ -77,14 +85,16 @@ export async function encodeFlac(pcm, sampleRate, bps = 24, onProgress) {
   const initRes = Flac.init_encoder_stream(enc, writeCb, () => {});
   if (initRes !== 0) { Flac.FLAC__stream_encoder_delete(enc); throw new Error('FLAC init failed (' + initRes + ')'); }
 
-  // Encode in blocks so a long take reports progress and never blocks the UI.
-  const i32 = floatToInt(pcm, bps);
-  const BLOCK = 1 << 16; // ~1.3s @ 48kHz
-  for (let off = 0; off < i32.length; off += BLOCK) {
-    const slice = i32.subarray(off, Math.min(off + BLOCK, i32.length));
-    const ok = Flac.FLAC__stream_encoder_process_interleaved(enc, slice, slice.length / channels);
+  // Encode in blocks (samples-per-channel) so a long take reports progress and
+  // never blocks the UI. libFLAC takes interleaved Int32 samples.
+  const i32 = interleaveToInt32(chans, bps);
+  const BLOCK = 1 << 16; // samples per channel per block
+  for (let off = 0; off < n; off += BLOCK) {
+    const cnt = Math.min(BLOCK, n - off);
+    const slice = i32.subarray(off * nch, (off + cnt) * nch);
+    const ok = Flac.FLAC__stream_encoder_process_interleaved(enc, slice, cnt);
     if (!ok) { Flac.FLAC__stream_encoder_delete(enc); throw new Error('FLAC encoding failed mid-stream'); }
-    if (onProgress) onProgress(Math.min(0.99, off / i32.length));
+    if (onProgress) onProgress(Math.min(0.99, off / n));
     await new Promise((r) => setTimeout(r, 0));
   }
   Flac.FLAC__stream_encoder_finish(enc);

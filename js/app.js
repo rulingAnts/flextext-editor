@@ -10,7 +10,7 @@ import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS } from './i18n.js';
 import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl, ensureAsset, getAsset, fetchFileViaUrl } from './audio.js';
 import { convertToMp3 } from './convert.js';
-import { losslessSupported, PCMRecorder, encodeWav, encodeRecording, normalizePeak,
+import { losslessSupported, PCMRecorder, encodeWav, encodeRecording, normalizePeak, reduceChannels,
          normRecFormat, REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { makeZip } from './zip.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads } from './upload.js';
@@ -1033,11 +1033,11 @@ async function stopRecording() {
   clearInterval(rec.timer);
   stopMeter();
   try {
-    const { pcm, sampleRate } = await rec.pcmRec.stop();
-    if (!pcm.length) throw new Error('empty');
-    rec.pcm = pcm;
+    const { channels, sampleRate } = await rec.pcmRec.stop();
+    if (!channels.length || !channels[0].length) throw new Error('empty');
+    rec.channels = channels;
     rec.sampleRate = sampleRate;
-    rec.blob = encodeWav(pcm, sampleRate, 32); // preview only; final format chosen on save
+    rec.blob = encodeWav(reduceChannels(channels), sampleRate, 32); // preview reflects what we'll save (mono/stereo)
     rec.url = URL.createObjectURL(rec.blob);
     $('#record-preview').src = rec.url;
     recordUI('review');
@@ -1050,7 +1050,7 @@ async function stopRecording() {
 }
 
 async function saveRecording() {
-  if (!rec || (!rec.blob && !rec.pcm)) return;
+  if (!rec || (!rec.blob && !rec.channels)) return;
   const title = $('#record-title').value.trim();
   if (!title) { syncRecordSaveEnabled(); $('#record-title').focus(); return; } // title required
   recordUI('saving', { pct: 0 });
@@ -1058,10 +1058,11 @@ async function saveRecording() {
     const stamp = fileStamp();
     let file;
     if (rec.mode === 'pcm') {
-      // Optional post-record normalize (off by default; it EDITS the recording).
-      if (settings.norm) normalizePeak(rec.pcm);
-      // Lossless: encode the captured PCM to the chosen WAV/FLAC format.
-      const { blob, ext, mime } = await encodeRecording(rec.pcm, rec.sampleRate, rec.fmt,
+      // Decide mono-vs-stereo (drop a dead channel; keep real stereo) — never
+      // averaging a live channel with an empty one. Then optional normalize.
+      const chans = reduceChannels(rec.channels);
+      if (settings.norm) normalizePeak(chans);
+      const { blob, ext, mime } = await encodeRecording(chans, rec.sampleRate, rec.fmt,
         (f) => recordUI('saving', { pct: Math.round(f * 100) }));
       file = new File([blob], `recording-${stamp}.${ext}`, { type: mime });
     } else {

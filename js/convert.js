@@ -60,11 +60,36 @@ export async function convertToMp3(file, opts = {}, onProgress) {
   }
 
   const channels = mono ? 1 : Math.min(2, decoded.numberOfChannels);
-  // OfflineAudioContext both resamples and (for channels=1) downmixes.
   const oac = new OfflineAudioContext(
     channels, Math.max(1, Math.ceil(decoded.duration * sampleRate)), sampleRate);
+
+  // For mono output, do the downmix OURSELVES so a live channel is never averaged
+  // with a dead/empty one. Web Audio's default mono downmix is (L+R)/2, which
+  // costs ~6 dB on a one-sided stereo file (mic on one channel, silence on the
+  // other). We average only the channels that actually carry signal.
+  let srcBuffer = decoded;
+  if (mono && decoded.numberOfChannels > 1) {
+    const len = decoded.length;
+    const live = [];
+    for (let c = 0; c < decoded.numberOfChannels; c++) {
+      const d = decoded.getChannelData(c);
+      let peak = 0;
+      for (let i = 0; i < len; i++) { const a = d[i] < 0 ? -d[i] : d[i]; if (a > peak) peak = a; }
+      if (peak > 0.001) live.push(d); // > ~-60 dBFS = real signal, not a dead channel
+    }
+    const use = live.length ? live : [decoded.getChannelData(0)]; // all silent → take ch 0
+    const monoData = new Float32Array(len);
+    for (let i = 0; i < len; i++) {
+      let s = 0;
+      for (let k = 0; k < use.length; k++) s += use[k][i];
+      monoData[i] = s / use.length;
+    }
+    srcBuffer = oac.createBuffer(1, len, decoded.sampleRate);
+    srcBuffer.copyToChannel(monoData, 0);
+  }
+  // The OfflineAudioContext now only RESAMPLES (the source is already mono).
   const src = oac.createBufferSource();
-  src.buffer = decoded;
+  src.buffer = srcBuffer;
   src.connect(oac.destination);
   src.start();
   const rendered = await oac.startRendering();

@@ -779,7 +779,7 @@ async function startConsentAssent() {
     // over its length; echo-cancellation + noise-suppression also color the audio.
     // All off — fidelity matters more than call-style cleanup for these recordings.
     const stream = await navigator.mediaDevices.getUserMedia({
-      audio: dspConstraints(),
+      audio: { channelCount: 1, ...dspConstraints() },
     });
     const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
       : MediaRecorder.isTypeSupported('audio/ogg') ? 'audio/ogg' : '';
@@ -991,7 +991,7 @@ async function startMediaRecorder(fellBack) {
   // Raw signal for faithful capture: auto-gain makes a loud recording fade out
   // over its length; echo-cancellation + noise-suppression also color the audio.
   const stream = await navigator.mediaDevices.getUserMedia({
-    audio: dspConstraints(),
+    audio: { channelCount: 1, ...dspConstraints() },
   });
   const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
     : MediaRecorder.isTypeSupported('audio/ogg') ? 'audio/ogg' : '';

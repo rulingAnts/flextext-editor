@@ -237,13 +237,14 @@
     <fieldset>
       <label><span data-i18n="recformat.label">Format for new recordings</span>
         <select name="recFormat" id="recformat-select">
-          <option value="wav32" data-i18n="recformat.wav32">WAV · 32-bit float (maximum fidelity — default)</option>
-          <option value="wav24" data-i18n="recformat.wav24">WAV · 24-bit</option>
+          <option value="wav24" data-i18n="recformat.wav24">WAV · 24-bit (recommended)</option>
           <option value="wav16" data-i18n="recformat.wav16">WAV · 16-bit (smaller)</option>
-          <option value="flac24" data-i18n="recformat.flac24">FLAC · 24-bit (lossless, about half the size of WAV)</option>
-          <option value="mp3" data-i18n="recformat.mp3">MP3 (compressed — smallest, not archival)</option>
+          <option value="wav32" data-i18n="recformat.wav32">WAV · 32-bit float (expert — pro hardware)</option>
+          <option value="flac24" data-i18n="recformat.flac24">FLAC · 24-bit (lossless, smaller — for limited bandwidth)</option>
+          <option value="mp3" data-i18n="recformat.mp3">MP3 (compressed — not for archiving)</option>
         </select></label>
     </fieldset>
+    <p class="note"><button type="button" id="recformat-help" class="link-btn" data-i18n="recfmt.helpLink">Which format should I choose?</button></p>
   </form>
 
   <hr>
@@ -366,6 +367,26 @@
     <button id="record-save" class="primary-btn" data-i18n="record.save" hidden>Save</button>
     <button id="record-redo" class="secondary-btn" data-i18n="record.redo" hidden>Re-record</button>
     <button id="record-cancel" class="link-btn" data-i18n="share.cancel">Cancel</button>
+  </div>
+</div>
+
+<!-- Recording-format help (researcher-facing archival guidance) -->
+<div id="recformat-help-modal" class="modal" hidden>
+  <div class="modal-card help-modal">
+    <h3 data-i18n="recfmt.helpTitle">Choosing a recording format</h3>
+    <div class="help-body">
+      <p data-i18n-html="recfmt.helpKeep"></p>
+      <p data-i18n-html="recfmt.helpRaw"></p>
+      <p data-i18n-html="recfmt.helpBits"></p>
+      <p data-i18n-html="recfmt.helpWavFlac"></p>
+      <p data-i18n-html="recfmt.helpMono"></p>
+      <p data-i18n-html="recfmt.helpRate"></p>
+      <p data-i18n-html="recfmt.helpMp3"></p>
+      <p data-i18n-html="recfmt.helpArchives"></p>
+      <div data-i18n-html="recfmt.helpTable"></div>
+      <p class="note" data-i18n-html="recfmt.helpCourse"></p>
+    </div>
+    <button id="recformat-help-close" class="primary-btn" data-i18n="recfmt.helpClose">Close</button>
   </div>
 </div>
 

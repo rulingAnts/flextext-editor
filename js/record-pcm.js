@@ -154,7 +154,7 @@ export const REC_FORMATS = {
   flac24: { ext: 'flac', mime: 'audio/flac', lossless: true,  flacBits: 24 },
   mp3:    { ext: 'mp3',  mime: 'audio/mpeg', lossless: false },
 };
-export const DEFAULT_REC_FORMAT = 'wav32';
+export const DEFAULT_REC_FORMAT = 'wav24'; // 24-bit integer PCM: the archival sweet spot accepted everywhere
 export function normRecFormat(v) { return REC_FORMATS[v] ? v : DEFAULT_REC_FORMAT; }
 
 // Encode captured PCM to one of the LOSSLESS formats (WAV inline; FLAC via the

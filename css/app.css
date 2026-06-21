@@ -599,6 +599,26 @@ main {
 }
 .modal-card h3 { margin: 0 0 2px; }
 
+/* Recording-format help modal: wider, scrollable, left-aligned, with the
+   archive comparison table (horizontally scrollable on narrow screens). */
+.modal-card.help-modal {
+  width: min(94vw, 680px);
+  max-height: 86vh;
+  overflow-y: auto;
+  text-align: left;
+}
+.help-modal .help-body p { margin: 0 0 11px; line-height: 1.5; }
+.help-modal .help-scroll { overflow-x: auto; margin: 4px 0 12px; }
+.archive-table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+.archive-table th, .archive-table td {
+  border: 1px solid var(--border);
+  padding: 5px 7px;
+  text-align: left;
+  vertical-align: top;
+}
+.archive-table th { background: #eef3f9; white-space: nowrap; }
+.archive-table a { color: var(--blue, #1f4f8f); }
+
 #record-preview, #consent-audio, #consent-assent-preview { width: 100%; }
 
 #record-title-row { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }

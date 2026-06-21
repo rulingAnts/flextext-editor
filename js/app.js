@@ -2337,6 +2337,13 @@ function setupResearch() {
       saveSettings(settings);
     });
   }
+  // Recording-format help modal (researcher-facing archival guidance).
+  const rfHelpModal = $('#recformat-help-modal');
+  if (rfHelpModal) {
+    $('#recformat-help')?.addEventListener('click', () => { rfHelpModal.hidden = false; });
+    $('#recformat-help-close')?.addEventListener('click', () => { rfHelpModal.hidden = true; });
+    rfHelpModal.addEventListener('click', (e) => { if (e.target === rfHelpModal) rfHelpModal.hidden = true; });
+  }
 
   // Audio converter (any recording → small task-ready MP3) — the send-to-assistant
   // distribution format, separate from the recording (capture) format above.

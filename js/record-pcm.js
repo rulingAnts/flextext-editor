@@ -30,10 +30,14 @@ export class PCMRecorder {
 
   async start(opts = {}) {
     const AC = window.AudioContext || window.webkitAudioContext;
+    // Mono + raw signal by DEFAULT: AGC/echo/noise off (they color the audio, and
+    // AGC makes a loud take fade over its length). opts.audio carries the
+    // researcher's OPTIONAL processing choices, which override these defaults only
+    // when they deliberately turn them on in Settings.
     this.stream = await navigator.mediaDevices.getUserMedia({
-      // Mono + raw signal: AGC/echo/noise OFF — they color the audio, and AGC
-      // makes a loud take fade over its length. Fidelity over call-style cleanup.
-      audio: { channelCount: 1, echoCancellation: false, autoGainControl: false, noiseSuppression: false },
+      audio: Object.assign(
+        { channelCount: 1, echoCancellation: false, autoGainControl: false, noiseSuppression: false },
+        opts.audio || {}),
     });
     this.ctx = new AC();
     this.sampleRate = this.ctx.sampleRate;

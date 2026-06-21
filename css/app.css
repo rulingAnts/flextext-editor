@@ -641,6 +641,12 @@ main {
 #record-gain { width: 100%; }
 #record-gain-val { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--muted); }
 
+/* Optional microphone-processing options (off by default, each warned). */
+.dsp-options { border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px 10px; margin: 10px 0; }
+.dsp-options legend { font-size: 13px; color: var(--muted); padding: 0 4px; }
+.dsp-options .check-label { display: block; margin: 7px 0; }
+.dsp-options em { color: #b0673b; font-style: normal; }
+
 #record-preview, #consent-audio, #consent-assent-preview { width: 100%; }
 
 #record-title-row { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }

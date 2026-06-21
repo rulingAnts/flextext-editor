@@ -247,6 +247,13 @@
     <p class="note"><button type="button" id="recformat-help" class="link-btn" data-i18n="recfmt.helpLink">Which format should I choose?</button></p>
     <label class="check-label"><input type="checkbox" id="gain-enabled"> <span data-i18n="recformat.gainToggle">Show a recording-level (gain) slider while recording</span></label>
     <p class="note" data-i18n="recformat.gainNote">Off by default — recordings capture the raw microphone level. Turn this on to let a too-quiet or too-loud device be adjusted.</p>
+    <fieldset class="dsp-options">
+      <legend data-i18n="recformat.dspLegend">Microphone processing (off by default)</legend>
+      <p class="note" data-i18n-html="recformat.dspNote"></p>
+      <label class="check-label"><input type="checkbox" id="dsp-agc"> <span data-i18n-html="recformat.dspAgc"></span></label>
+      <label class="check-label"><input type="checkbox" id="dsp-nr"> <span data-i18n-html="recformat.dspNr"></span></label>
+      <label class="check-label"><input type="checkbox" id="dsp-echo"> <span data-i18n-html="recformat.dspEcho"></span></label>
+    </fieldset>
   </form>
 
   <hr>
@@ -394,6 +401,7 @@
       <p data-i18n-html="recfmt.helpMp3"></p>
       <p data-i18n-html="recfmt.helpArchives"></p>
       <div data-i18n-html="recfmt.helpTable"></div>
+      <p data-i18n-html="recfmt.helpTech"></p>
       <p class="note" data-i18n-html="recfmt.helpCourse"></p>
     </div>
     <button id="recformat-help-close" class="primary-btn" data-i18n="recfmt.helpClose">Close</button>

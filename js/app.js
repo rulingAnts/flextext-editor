@@ -83,7 +83,7 @@ function applyUrlSettings() {
   if (p.has('lang')) setLang(p.get('lang'));
   if (p.get('research') === 'off') localStorage.setItem(RESEARCH_HIDDEN_KEY, '1');
   if (p.get('research') === 'on') localStorage.removeItem(RESEARCH_HIDDEN_KEY);
-  const gotSettings = p.has('vern') || p.has('anal') || p.has('welcome') || p.has('btns') || p.has('editorRec') || p.has('autoDel') || p.has('recFormat') || p.has('gain');
+  const gotSettings = p.has('vern') || p.has('anal') || p.has('welcome') || p.has('btns') || p.has('editorRec') || p.has('autoDel') || p.has('recFormat') || p.has('gain') || p.has('dsp');
   let settingsChanged = false;
   if (gotSettings) {
     const s = loadSettings();
@@ -124,6 +124,11 @@ function applyUrlSettings() {
     if (p.has('recFormat')) s.recordFormat = normRecFormat(p.get('recFormat'));
     // Whether the recording-level (gain) slider is offered on this device.
     if (p.has('gain')) s.gainEnabled = p.get('gain') === 'on';
+    // Optional microphone processing the researcher turned on (comma list).
+    if (p.has('dsp')) {
+      const on = new Set(p.get('dsp').split(',').filter(Boolean));
+      s.agc = on.has('agc'); s.nr = on.has('nr'); s.echo = on.has('echo');
+    }
     settingsChanged = JSON.stringify(s) !== before;
     saveSettings(s);
   }
@@ -774,7 +779,7 @@ async function startConsentAssent() {
     // over its length; echo-cancellation + noise-suppression also color the audio.
     // All off — fidelity matters more than call-style cleanup for these recordings.
     const stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: false, autoGainControl: false, noiseSuppression: false },
+      audio: dspConstraints(),
     });
     const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
       : MediaRecorder.isTypeSupported('audio/ogg') ? 'audio/ogg' : '';
@@ -825,6 +830,13 @@ function gainPref() {
   return { enabled: !!settings.gainEnabled, db: Number.isFinite(settings.gainDb) ? settings.gainDb : 0 };
 }
 const dbToLinear = (db) => Math.pow(10, db / 20);
+
+// Optional microphone DSP — all OFF by default (raw capture). The researcher can
+// turn these on in Settings (each flagged not-for-archiving); they travel with
+// links and apply to every capture path.
+function dspConstraints() {
+  return { echoCancellation: !!settings.echo, autoGainControl: !!settings.agc, noiseSuppression: !!settings.nr };
+}
 
 // Live level meter: drives the bar + clip indicator from the PCM recorder's
 // analyser while recording (lossless path only). The rAF loop self-stops when
@@ -947,7 +959,7 @@ async function startRecording() {
       const pcmRec = new PCMRecorder();
       const gp = gainPref();
       try {
-        await pcmRec.start(gp.enabled ? { gain: dbToLinear(gp.db) } : {}); // getUserMedia + AudioWorklet
+        await pcmRec.start({ audio: dspConstraints(), ...(gp.enabled ? { gain: dbToLinear(gp.db) } : {}) }); // getUserMedia + AudioWorklet
         rec = { mode: 'pcm', pcmRec, fmt, fellBack: false, recording: true,
                 t0: Date.now(), timer: null, blob: null, url: null };
         syncGainSlider();
@@ -979,7 +991,7 @@ async function startMediaRecorder(fellBack) {
   // Raw signal for faithful capture: auto-gain makes a loud recording fade out
   // over its length; echo-cancellation + noise-suppression also color the audio.
   const stream = await navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: false, autoGainControl: false, noiseSuppression: false },
+    audio: dspConstraints(),
   });
   const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
     : MediaRecorder.isTypeSupported('audio/ogg') ? 'audio/ogg' : '';
@@ -2188,6 +2200,7 @@ function setupResearch() {
     p.set('autoDel', settings.autoDelUploaded ? 'on' : 'off');
     p.set('recFormat', normRecFormat(settings.recordFormat)); // capture format travels with every link
     p.set('gain', settings.gainEnabled ? 'on' : 'off'); // whether the gain slider is offered
+    p.set('dsp', ['agc', 'nr', 'echo'].filter((k) => settings[k]).join(',')); // optional mic processing (default none)
     // Which Texts-screen buttons the coworker sees (always travels, like the
     // send options, so the researcher's current choice overwrites older ones).
     p.set('btns', (Array.isArray(settings.linkButtons) ? settings.linkButtons : ALL_BUTTONS).join(','));
@@ -2240,6 +2253,7 @@ function setupResearch() {
     p.set('autoDel', settings.autoDelUploaded ? 'on' : 'off');
     p.set('recFormat', normRecFormat(settings.recordFormat)); // capture format travels with every link
     p.set('gain', settings.gainEnabled ? 'on' : 'off'); // whether the gain slider is offered
+    p.set('dsp', ['agc', 'nr', 'echo'].filter((k) => settings[k]).join(',')); // optional mic processing (default none)
     if (settings.consentMode && settings.consentMode !== 'off') {
       p.set('consentMode', settings.consentMode);
       if (settings.consentMsg) p.set('consentMsg', settings.consentMsg);
@@ -2366,6 +2380,7 @@ function setupResearch() {
     p.set('autoDel', settings.autoDelUploaded ? 'on' : 'off');
     p.set('recFormat', normRecFormat(settings.recordFormat)); // capture format travels with every link
     p.set('gain', settings.gainEnabled ? 'on' : 'off'); // whether the gain slider is offered
+    p.set('dsp', ['agc', 'nr', 'echo'].filter((k) => settings[k]).join(',')); // optional mic processing (default none)
     // Which Texts-screen buttons the coworker sees (always travels, like the
     // send options, so the researcher's current choice overwrites older ones).
     p.set('btns', (Array.isArray(settings.linkButtons) ? settings.linkButtons : ALL_BUTTONS).join(','));
@@ -2418,6 +2433,14 @@ function setupResearch() {
       saveSettings(settings);
     });
   }
+  // Optional microphone-processing toggles — all off by default, each flagged
+  // not-for-archiving. Travel with links.
+  [['#dsp-agc', 'agc'], ['#dsp-nr', 'nr'], ['#dsp-echo', 'echo']].forEach(([sel, key]) => {
+    const cb = $(sel);
+    if (!cb) return;
+    cb.checked = !!settings[key];
+    cb.addEventListener('change', () => { settings[key] = cb.checked; saveSettings(settings); });
+  });
 
   // Audio converter (any recording → small task-ready MP3) — the send-to-assistant
   // distribution format, separate from the recording (capture) format above.

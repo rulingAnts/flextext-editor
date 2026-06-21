@@ -434,11 +434,15 @@ export function getAsset(key) {
 // paste a direct link (see the "larger than ~500 MB" note in Settings).
 const PROBE_MAX = 512 * 1024 * 1024;
 
-function headLooksUncompressed(bytes, mime) {
-  if (/wav|aiff|x-aiff/i.test(String(mime || ''))) return true;
+// AIFF is the one common audio container our players (Chromium/Firefox) can't
+// open, so we flag it — the researcher converts it now instead of the coworker
+// hitting a dead player later. WAV + FLAC play fine and are NOT rejected: the old
+// "reject any uncompressed WAV" rule was an Apps Script bandwidth holdover (the
+// 150 MB/day relay cap) and no longer applies now the Worker streams files.
+function headLooksAiff(bytes, mime) {
+  if (/aiff|x-aiff/i.test(String(mime || ''))) return true;
   if (bytes && bytes.length >= 12) {
     const tag = (off) => String.fromCharCode(bytes[off], bytes[off + 1], bytes[off + 2], bytes[off + 3]);
-    if (tag(0) === 'RIFF' && tag(8) === 'WAVE') return true;
     if (tag(0) === 'FORM' && (tag(8) === 'AIFF' || tag(8) === 'AIFC')) return true;
   }
   return false;
@@ -452,7 +456,7 @@ function probeError(code, extra) {
 }
 
 // Returns { name, size, mime }. Throws Error with .code in
-// {'wav','big'} for policy failures, or a plain Error (relay/server message).
+// {'cantPlay','big','notAudio'} for playability/size failures, or a plain Error.
 export async function probeAudioUrl(url) {
   const isRelay = /script\.google(?:usercontent)?\.com\/macros\//.test(url) || /\/exec(\?|$)/.test(url);
   if (isRelay) {
@@ -464,7 +468,7 @@ export async function probeAudioUrl(url) {
     if (!body.data) throw new Error('Unexpected relay response');
     const blob = base64ToBlob(body.data, body.mimeType);
     const head = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
-    if (headLooksUncompressed(head, body.mimeType)) throw probeError('wav');
+    if (headLooksAiff(head, body.mimeType)) throw probeError('cantPlay');
     const size = body.total != null ? body.total : blob.size; // v1 relay: whole file came back
     if (size > PROBE_MAX) throw probeError('big', { mb: Math.round(size / 1048576) });
     return { name: body.name || '', size, mime: body.mimeType || '' };
@@ -507,7 +511,7 @@ export async function probeAudioUrl(url) {
     clearTimeout(timer);
     ctl.abort();
   }
-  if (headLooksUncompressed(head, mime)) throw probeError('wav');
+  if (headLooksAiff(head, mime)) throw probeError('cantPlay');
   // A folder share link (HTML page) or a wrong file (XML/JSON/text) comes back
   // as a document, not audio — reject it now so the researcher fixes the link,
   // not the coworker at playback. (octet-stream is left alone: many CDNs serve

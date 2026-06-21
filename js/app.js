@@ -2231,7 +2231,7 @@ function setupResearch() {
           size: info.size ? sizeFmt(info.size) : '?',
         });
       } catch (err) {
-        const msg = err.code === 'wav' ? t('task.wavFile')
+        const msg = err.code === 'cantPlay' ? t('task.cantPlay')
           : err.code === 'big' ? t('task.tooBig', { mb: err.mb })
           : err.code === 'notAudio' ? t('task.notAudio', { mime: err.mime || '?' })
           : t('task.checkFailed', { msg: err.message });
@@ -2344,12 +2344,11 @@ function setupResearch() {
   const convPrefs = settings.convert || {};
   if (convPrefs.kbps) cf.elements.convKbps.value = String(convPrefs.kbps);
   if (convPrefs.rate) cf.elements.convRate.value = String(convPrefs.rate);
-  if (convPrefs.mono === false) cf.elements.convMono.checked = false;
   cf.addEventListener('change', () => {
     settings.convert = {
       kbps: parseInt(cf.elements.convKbps.value, 10),
       rate: parseInt(cf.elements.convRate.value, 10),
-      mono: cf.elements.convMono.checked,
+      mono: true, // always mono — a single voice on one mic gains nothing from stereo
     };
     saveSettings(settings);
   });
@@ -2365,7 +2364,7 @@ function setupResearch() {
       const opts = {
         kbps: parseInt(cf.elements.convKbps.value, 10),
         sampleRate: parseInt(cf.elements.convRate.value, 10),
-        mono: cf.elements.convMono.checked,
+        mono: true, // always mono
       };
       const res = await convertToMp3(file, opts, (f) => {
         status.textContent = t('convert.working', { pct: Math.round(f * 100) });

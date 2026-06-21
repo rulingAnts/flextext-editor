@@ -247,11 +247,11 @@
         </select></label>
     </fieldset>
     <p class="note"><button type="button" id="recformat-help" class="link-btn" data-i18n="recfmt.helpLink">Which format should I choose?</button></p>
-    <label><span data-i18n="recformat.agcLabel">Automatic gain control (clip protection)</span>
+    <label><span data-i18n="recformat.agcLabel">Automatic gain control (AGC)</span>
       <select id="agc-mode">
-        <option value="auto" data-i18n="recformat.agcAuto">Automatic — on for Chrome/Edge, off for Firefox (recommended)</option>
-        <option value="on" data-i18n="recformat.agcOn">Always on — protects against clipping</option>
-        <option value="off" data-i18n="recformat.agcOff">Always off — fully raw level (may clip loud sound)</option>
+        <option value="off" data-i18n="recformat.agcOff">Off — faithful capture; watch the meter (best for archival)</option>
+        <option value="on" data-i18n="recformat.agcOn">On — auto-gain prevents clipping (if archival quality isn't needed)</option>
+        <option value="auto" data-i18n="recformat.agcAuto">Automatic — on for Chrome/Edge, off for Firefox</option>
       </select></label>
     <p class="note" data-i18n-html="recformat.agcNote"></p>
     <fieldset class="dsp-options">

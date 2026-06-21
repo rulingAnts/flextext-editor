@@ -127,8 +127,8 @@ function applyUrlSettings() {
       const on = new Set(p.get('dsp').split(',').filter(Boolean));
       s.nr = on.has('nr'); s.echo = on.has('echo'); s.norm = on.has('norm');
     }
-    // AGC mode — its own param: 'auto' (Chromium on / Firefox off) | 'on' | 'off'.
-    if (p.has('agc')) s.agc = ['on', 'off', 'auto'].includes(p.get('agc')) ? p.get('agc') : 'auto';
+    // AGC mode — its own param: 'off' (default, faithful) | 'on' (auto-gain) | 'auto'.
+    if (p.has('agc')) s.agc = ['on', 'off', 'auto'].includes(p.get('agc')) ? p.get('agc') : 'off';
     settingsChanged = JSON.stringify(s) !== before;
     saveSettings(s);
   }
@@ -824,20 +824,17 @@ let rec = null;
 // The researcher-chosen capture format (default 32-bit WAV). Travels with links.
 function recordFormatPref() { return normRecFormat(settings.recordFormat); }
 
-// AGC (automatic gain control) default is BROWSER-CONDITIONAL:
-//   • Chromium → ON. It's the only in-browser clip protection — with AGC off the OS
-//     leaves the mic input volume high (Chrome even drives it up) and a web app has
-//     NO way to lower the analog gain, so loud sources clip and the peaks are lost.
-//   • Firefox → OFF. Firefox honors raw capture (autoGainControl:false → passthrough)
-//     and doesn't push the OS input level up, so it stays faithful without clipping.
-// settings.agc 'on'/'off' is an explicit researcher override; 'auto' (default, also
-// undefined) picks per-browser. Evaluated at RECORD time on the recording device so
-// the right default is used wherever the recording is actually made.
+// AGC (automatic gain control) is OFF BY DEFAULT — faithful, unmodified capture is
+// the archival-correct default (IASA TC-04 etc.). The tradeoff: Chrome/Android set
+// the mic level higher than ideal and a web app cannot lower it, so a loud source
+// can CLIP there — the human fix is to watch the meter and back off. Researchers who
+// don't need archival quality set agc 'on' (auto-gain) per-link. 'auto' is an explicit
+// browser-conditional choice (on Chromium / off Firefox). Evaluated at RECORD time.
 function isFirefox() { return /Firefox\/|FxiOS/i.test(navigator.userAgent || ''); }
 function effectiveAgc() {
   if (settings.agc === 'on') return true;
-  if (settings.agc === 'off') return false;
-  return !isFirefox(); // 'auto' / unset
+  if (settings.agc === 'auto') return !isFirefox(); // explicit browser-conditional choice
+  return false; // 'off' or unset → faithful capture (the default)
 }
 
 // Microphone DSP constraints. Echo cancellation / noise suppression are OFF by
@@ -2277,7 +2274,7 @@ function setupResearch() {
     p.set('autoDel', settings.autoDelUploaded ? 'on' : 'off');
     p.set('recFormat', normRecFormat(settings.recordFormat)); // capture format travels with every link
     p.set('dsp', ['nr', 'echo', 'norm'].filter((k) => settings[k]).join(',')); // optional processing (default none)
-    p.set('agc', settings.agc || 'auto'); // 'auto' (Chromium on / Firefox off) | 'on' | 'off'
+    p.set('agc', settings.agc || 'off'); // 'off' (default, faithful) | 'on' (auto-gain) | 'auto'
     // Which Texts-screen buttons the coworker sees (always travels, like the
     // send options, so the researcher's current choice overwrites older ones).
     p.set('btns', (Array.isArray(settings.linkButtons) ? settings.linkButtons : ALL_BUTTONS).join(','));
@@ -2330,7 +2327,7 @@ function setupResearch() {
     p.set('autoDel', settings.autoDelUploaded ? 'on' : 'off');
     p.set('recFormat', normRecFormat(settings.recordFormat)); // capture format travels with every link
     p.set('dsp', ['nr', 'echo', 'norm'].filter((k) => settings[k]).join(',')); // optional processing (default none)
-    p.set('agc', settings.agc || 'auto'); // 'auto' (Chromium on / Firefox off) | 'on' | 'off'
+    p.set('agc', settings.agc || 'off'); // 'off' (default, faithful) | 'on' (auto-gain) | 'auto'
     if (settings.consentMode && settings.consentMode !== 'off') {
       p.set('consentMode', settings.consentMode);
       if (settings.consentMsg) p.set('consentMsg', settings.consentMsg);
@@ -2457,7 +2454,7 @@ function setupResearch() {
     p.set('autoDel', settings.autoDelUploaded ? 'on' : 'off');
     p.set('recFormat', normRecFormat(settings.recordFormat)); // capture format travels with every link
     p.set('dsp', ['nr', 'echo', 'norm'].filter((k) => settings[k]).join(',')); // optional processing (default none)
-    p.set('agc', settings.agc || 'auto'); // 'auto' (Chromium on / Firefox off) | 'on' | 'off'
+    p.set('agc', settings.agc || 'off'); // 'off' (default, faithful) | 'on' (auto-gain) | 'auto'
     // Which Texts-screen buttons the coworker sees (always travels, like the
     // send options, so the researcher's current choice overwrites older ones).
     p.set('btns', (Array.isArray(settings.linkButtons) ? settings.linkButtons : ALL_BUTTONS).join(','));
@@ -2501,13 +2498,13 @@ function setupResearch() {
     $('#recformat-help-close')?.addEventListener('click', () => { rfHelpModal.hidden = true; });
     rfHelpModal.addEventListener('click', (e) => { if (e.target === rfHelpModal) rfHelpModal.hidden = true; });
   }
-  // AGC mode select — 'auto' (Chromium on / Firefox off) by default; travels with
+  // AGC mode select — 'off' (faithful) by default; travels with
   // links as its own param so the right clip-protection default follows the device.
   const agcSel = $('#agc-mode');
   if (agcSel) {
-    agcSel.value = ['on', 'off', 'auto'].includes(settings.agc) ? settings.agc : 'auto';
+    agcSel.value = ['on', 'off', 'auto'].includes(settings.agc) ? settings.agc : 'off';
     agcSel.addEventListener('change', () => {
-      settings.agc = ['on', 'off', 'auto'].includes(agcSel.value) ? agcSel.value : 'auto';
+      settings.agc = ['on', 'off', 'auto'].includes(agcSel.value) ? agcSel.value : 'off';
       saveSettings(settings);
     });
   }

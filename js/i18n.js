@@ -336,8 +336,9 @@ app asks for the speaker's permission. Read the message — or tap ▶ to play i
 tap <b>Yes</b> / <b>No</b>, or <b>record the speaker giving permission</b> out loud, whichever
 your researcher chose. Your answer is sent together with the work.</p>
 <p><b>Recording:</b> <b>Record new text…</b> lets you record straight into the app — give the text
-a name first, then record, listen, and re-record until you are happy, then Save. The recording
-appears in the player above the typing area.</p>
+a name first, then record. A <b>level meter</b> shows how loud the sound is and warns when it is too
+loud, so move back a little if it warns. Listen, and re-record until you are happy, then Save. The
+recording appears in the player above the typing area.</p>
 <p><b>Audio:</b> if your researcher sent you a link with a recording, a player appears above the
 typing area: ▶ plays and pauses, <b>↺3s</b> jumps back three seconds, and the speed menu slows
 the voice down. The picture of the sound (waveform) shows where you are — tap it to jump, and
@@ -402,7 +403,46 @@ internet after the first time.</p>
   contents. Teams that fork the app can run their own relay by deploying
   <code>docs/drive-relay.gs</code> and setting <code>DEFAULT_RELAY</code> in
   <code>js/app.js</code>.)</li>
+  <li><b>Recording quality:</b> coworkers can record straight into the app. Pick the
+  <b>recording format</b> in Settings — the default <b>WAV 24-bit</b> is a true lossless,
+  archival-grade master; smaller compressed options (FLAC, WebM/Opus, MP3) trade quality for size.
+  Automatic gain is <b>off by default</b> so the master stays faithful, so train coworkers to watch
+  the on-screen <b>level meter</b> and move back a little if it warns. The <b>Which format should I
+  choose?</b> link by the format setting gives the full archival guidance.</li>
+  <li><b>Remote management — the Researcher panel:</b> instead of (or alongside) setup links, tap
+  the <b>Researcher</b> button to manage all your coworker devices from one screen. Create an
+  account (one quick "are you human?" check — no email, no password) and set an <b>encryption
+  passphrase</b>; then add a <b>device</b> for each coworker and send its one-time <b>invite link</b>
+  (editor or recorder). When they open it you <b>approve</b> the device — check that the short
+  <b>key fingerprint</b> matches what they read back to you, to be sure it is really them — and from
+  then on you can see each device's texts, push per-device settings, and assign tasks, all without
+  the coworker touching any settings. Open the panel any time at <code>?mode=researcher</code>; it
+  never appears on a coworker's device.</li>
 </ul>
+<h4>Security model (researcher panel)</h4>
+<p>The panel is <b>end-to-end encrypted</b>. The only thing that passes through our server (a
+Cloudflare Worker and a small database) is <i>list</i> information — device names, the titles of the
+texts on each device, and the settings you push — and it is <b>encrypted on your own device before
+it leaves</b>. The server, Cloudflare, and anyone who could compel them see only scrambled
+ciphertext, never the titles or settings or who is doing what. The actual texts and recordings never
+pass through here at all — those still go straight to your Google Drive.</p>
+<p><b>The keys.</b> Your <b>passphrase</b> unlocks everything: it derives a master key that never
+leaves your device. Each coworker device has its own random key, stored on the server only in a form
+that <i>your</i> passphrase — on any of your devices — can reopen. When you approve a new device, it
+generates its own key-pair and sends only the public half; you wrap that device's key to it so that
+<b>only that device</b> can read what you send. A leaked invite link therefore cannot expose
+anything, and the short <b>fingerprint</b> at approval lets you confirm out loud that you are
+wrapping the key to the real device, not an impostor.</p>
+<p><b>No recovery.</b> Because we never hold your passphrase, there is <b>no "forgot password"</b> —
+write it down somewhere safe. Your <b>account secret</b> (under <b>Account</b>) plus the passphrase
+let you sign in on another device; without the passphrase, even someone who steals a logged-in device
+or the account secret sees only ciphertext and cannot forge commands.</p>
+<p><b>Lost or seized device:</b> open the panel and <b>Revoke</b> that device (or the whole coworker)
+— it loses all access at once, while everything on your other devices stays protected by your
+passphrase. <b>Still visible to the server</b> (routing only): random device/account identifiers,
+message counters, and whether a device is an editor or a recorder. <b>Not yet hidden:</b> the Google
+Drive folder you set is still sent to the coworker device so it can upload; a later version will hide
+that too by routing all Drive transfers through the Worker.</p>
 </div>`,
   'panel.entry': 'Researcher',
   'panel.title': 'Researcher panel',
@@ -896,8 +936,9 @@ meminta izin penutur. Baca pesannya — atau tekan ▶ untuk memutarnya — lalu
 <b>Tidak</b>, atau <b>rekam penutur memberi izin</b> dengan suara, sesuai pilihan peneliti Anda.
 Jawaban Anda ikut terkirim bersama hasil kerja.</p>
 <p><b>Merekam:</b> <b>Rekam teks baru…</b> memungkinkan Anda merekam langsung di aplikasi — beri
-nama teksnya dulu, lalu rekam, dengarkan, dan rekam ulang sampai puas, lalu Simpan. Rekamannya
-muncul di pemutar di atas tempat mengetik.</p>
+nama teksnya dulu, lalu rekam. <b>Meter level</b> menunjukkan seberapa keras suaranya dan memberi
+peringatan bila terlalu keras, jadi mundur sedikit bila ada peringatan. Dengarkan, dan rekam ulang
+sampai puas, lalu Simpan. Rekamannya muncul di pemutar di atas tempat mengetik.</p>
 <p><b>Audio:</b> kalau peneliti mengirim tautan dengan rekaman, pemutar audio muncul di atas
 tempat mengetik: ▶ untuk putar dan jeda, <b>↺3s</b> untuk mundur tiga detik, dan menu kecepatan
 untuk memperlambat suara. Gambar gelombang suara menunjukkan posisi Anda — ketuk untuk melompat,
@@ -964,7 +1005,50 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   tautan; relay tidak punya akses ke isi Drive pribadi siapa pun. Tim yang mem-fork aplikasi
   bisa memakai relay sendiri dengan memasang <code>docs/drive-relay.gs</code> dan mengatur
   <code>DEFAULT_RELAY</code> di <code>js/app.js</code>.)</li>
+  <li><b>Kualitas rekaman:</b> rekan kerja bisa merekam langsung di aplikasi. Pilih <b>format
+  rekaman</b> di Pengaturan — bawaannya <b>WAV 24-bit</b>, master lossless berkualitas arsip;
+  pilihan terkompresi yang lebih kecil (FLAC, WebM/Opus, MP3) menukar kualitas dengan ukuran.
+  Penguatan otomatis <b>mati secara bawaan</b> agar master tetap setia, jadi latih rekan kerja
+  memperhatikan <b>meter level</b> di layar dan mundur sedikit bila ada peringatan. Tautan
+  <b>Format mana yang harus saya pilih?</b> di sebelah pengaturan format memberi panduan arsip lengkap.</li>
+  <li><b>Pengelolaan jarak jauh — panel Peneliti:</b> alih-alih (atau bersama) tautan pengaturan,
+  ketuk tombol <b>Peneliti</b> untuk mengelola semua perangkat rekan kerja dari satu layar. Buat
+  akun (satu pemeriksaan singkat "apakah Anda manusia?" — tanpa email, tanpa kata sandi) dan
+  tetapkan <b>frasa sandi enkripsi</b>; lalu tambahkan satu <b>perangkat</b> untuk tiap rekan kerja
+  dan kirim <b>tautan undangan</b> sekali-pakainya (editor atau perekam). Saat mereka membukanya,
+  Anda <b>menyetujui</b> perangkat itu — pastikan <b>sidik kunci</b> singkat yang muncul cocok dengan
+  yang mereka bacakan, untuk memastikan benar-benar mereka — dan sejak itu Anda bisa melihat teks
+  tiap perangkat, mengirim pengaturan per-perangkat, dan menugaskan pekerjaan, semua tanpa rekan
+  kerja menyentuh pengaturan apa pun. Buka panel kapan saja di <code>?mode=researcher</code>; panel
+  tidak pernah muncul di perangkat rekan kerja.</li>
 </ul>
+<h4>Model keamanan (panel Peneliti)</h4>
+<p>Panel ini <b>terenkripsi ujung-ke-ujung</b>. Satu-satunya yang melewati server kami (sebuah
+Cloudflare Worker dan basis data kecil) adalah informasi <i>daftar</i> — nama perangkat, judul teks
+di tiap perangkat, dan pengaturan yang Anda kirim — dan itu <b>dienkripsi di perangkat Anda sebelum
+dikirim</b>. Server, Cloudflare, dan siapa pun yang bisa memaksa mereka hanya melihat ciphertext
+teracak, bukan judul, pengaturan, atau siapa melakukan apa. Teks dan rekaman sebenarnya tidak pernah
+melewati sini sama sekali — itu tetap langsung ke Google Drive Anda.</p>
+<p><b>Kuncinya.</b> <b>Frasa sandi</b> Anda membuka segalanya: ia menurunkan kunci induk yang tidak
+pernah meninggalkan perangkat Anda. Tiap perangkat rekan kerja punya kunci acaknya sendiri, yang
+disimpan server hanya dalam bentuk yang bisa dibuka oleh <i>frasa sandi Anda</i> — di perangkat Anda
+mana pun. Saat Anda menyetujui perangkat baru, perangkat itu membuat pasangan kuncinya sendiri dan
+hanya mengirim bagian publiknya; Anda membungkus kunci perangkat itu kepadanya sehingga <b>hanya
+perangkat itu</b> yang bisa membaca kiriman Anda. Maka tautan undangan yang bocor pun tidak
+membongkar apa pun, dan <b>sidik kunci</b> singkat saat persetujuan memungkinkan Anda memastikan
+secara lisan bahwa Anda membungkus kunci untuk perangkat asli, bukan penyusup.</p>
+<p><b>Tidak ada pemulihan.</b> Karena kami tidak pernah menyimpan frasa sandi Anda, <b>tidak ada
+"lupa kata sandi"</b> — catat di tempat aman. <b>Rahasia akun</b> Anda (di bawah <b>Akun</b>) plus
+frasa sandi memungkinkan Anda masuk di perangkat lain; tanpa frasa sandi, bahkan orang yang mencuri
+perangkat yang sudah masuk atau rahasia akun pun hanya melihat ciphertext dan tidak bisa memalsukan
+perintah.</p>
+<p><b>Perangkat hilang atau disita:</b> buka panel dan <b>Cabut</b> perangkat itu (atau seluruh
+rekan kerja) — ia kehilangan semua akses seketika, sementara semua di perangkat Anda yang lain tetap
+terlindungi frasa sandi. <b>Masih terlihat server</b> (hanya untuk perutean): pengenal acak
+perangkat/akun, penghitung pesan, dan apakah perangkat itu editor atau perekam. <b>Belum
+disembunyikan:</b> folder Google Drive yang Anda atur masih dikirim ke perangkat rekan kerja agar
+bisa mengunggah; versi mendatang akan menyembunyikannya juga dengan merutekan semua transfer Drive
+lewat Worker.</p>
 </div>`,
   'panel.entry': 'Peneliti',
   'panel.title': 'Panel peneliti',

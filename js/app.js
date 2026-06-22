@@ -669,10 +669,23 @@ function consentReceiptText(r) {
   ].join('\n');
 }
 
+// Stable identity of the consent prompt = the Drive FILE id (NOT the resolved /drive
+// URL, which also carries the relay token + worker base and differs dev↔prod). This is
+// how the app KNOWS the prompt is unchanged: same file id → keep the cached blob and
+// play it offline forever; a different file id → re-download once. So a token rotation
+// or environment switch no longer forces a needless re-fetch of the same audio.
+function consentAudioIdentity() {
+  const raw = settings.consentAudioUrl || '';
+  const fromRaw = driveFileId(raw);
+  if (fromRaw) return fromRaw;
+  try { const src = new URL(settings.consentAudio || '').searchParams.get('src'); if (src) return src; } catch { /* not a URL */ }
+  return raw || settings.consentAudio || '';
+}
+
 // Keep the cached consent-prompt audio in sync with the researcher's URL.
 async function syncConsentAudio() {
   if (settings.consentMode === 'audio' && settings.consentAudio) {
-    try { await ensureAsset('asset:consent-prompt', settings.consentAudio); }
+    try { await ensureAsset('asset:consent-prompt', settings.consentAudio, consentAudioIdentity()); }
     catch { /* will retry next time; consent can still show text fallback */ }
   }
 }
@@ -719,7 +732,7 @@ async function requestConsentThen(onApproved) {
     status.hidden = false;
     status.textContent = t('consent.loadingAudio');
     try {
-      const asset = await ensureAsset('asset:consent-prompt', settings.consentAudio)
+      const asset = await ensureAsset('asset:consent-prompt', settings.consentAudio, consentAudioIdentity())
         || await getAsset('asset:consent-prompt');
       if (asset?.blob) {
         audioEl.src = URL.createObjectURL(asset.blob);

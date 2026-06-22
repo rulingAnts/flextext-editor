@@ -408,12 +408,17 @@ export function clearPartial(docId) {
  * OVERWRITTEN whenever the researcher's URL changes; otherwise served from
  * the cached blob forever (offline). Returns the stored media record.
  */
-export async function ensureAsset(key, url) {
+export async function ensureAsset(key, url, identity) {
   if (!url) return null;
+  // `identity` is a STABLE marker of "which file is this" (e.g. the Drive file id) —
+  // unlike `url`, which also carries the relay token + worker base and changes dev↔prod
+  // or on token rotation. Same identity → keep the cached blob (no re-download, works
+  // fully offline); a new identity → fetch fresh. Falls back to the URL if no identity.
+  const id = identity || url;
   const existing = await db.getMedia(key).catch(() => null);
-  if (existing && existing.sourceUrl === url && existing.blob) return existing;
+  if (existing && existing.sourceId === id && existing.blob) return existing;
   const { blob, name, mimeType } = await fetchAudio(url);
-  const rec = { blob, name, mimeType, sourceUrl: url };
+  const rec = { blob, name, mimeType, sourceUrl: url, sourceId: id };
   await db.putMedia(key, rec);
   return rec;
 }

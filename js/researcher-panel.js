@@ -41,11 +41,9 @@ const GROUPS = [
     { k: 'analLang', type: 'text' }, { k: 'analName', type: 'text' }, { k: 'analFont', type: 'text' },
   ] },
   { id: 'recording', fields: [
-    { k: 'recordFormat', type: 'select', opts: REC_KEYS, optPrefix: 'panel.opt.fmt.' },
+    { k: 'recordFormat', type: 'select', opts: REC_KEYS, optPrefix: 'panel.opt.fmt.' },  // the permanent recording format
     { k: 'agc', type: 'select', opts: AGC_OPTS, optPrefix: 'panel.opt.agc.' },
     { k: 'nr', type: 'checkbox' }, { k: 'echo', type: 'checkbox' }, { k: 'norm', type: 'checkbox' },
-    { k: 'convertKbps', type: 'select', opts: ['32', '48', '64', '96', '128'] },   // MP3 upload bitrate
-    { k: 'convertRate', type: 'select', opts: ['16000', '22050', '44100', '48000'] }, // MP3 sample rate
   ] },
   { id: 'consent', fields: [
     { k: 'consentMode', type: 'select', opts: CONSENT_MODES, optPrefix: 'panel.opt.consent.' },
@@ -527,8 +525,6 @@ function toFormValues(s, mode) {
     else if (f.k === 'sendOptions') v.sendOptions = (mode === 'local' ? s.linkSendOptions : s.sendOptions) || [];
     else if (f.k === 'buttons') v.buttons = (mode === 'local' ? s.linkButtons : s.toolbarButtons) || [];
     else if (f.k === 'autoDel') v.autoDel = !!s.autoDelUploaded;                                   // stored as autoDelUploaded
-    else if (f.k === 'convertKbps') v.convertKbps = String((s.convert && s.convert.kbps) || 64);   // nested convert.*
-    else if (f.k === 'convertRate') v.convertRate = String((s.convert && s.convert.rate) || 22050);
     else if (f.type === 'checkbox') v[f.k] = !!s[f.k];
     else if (f.type === 'select') v[f.k] = s[f.k] || (f.k === 'recordFormat' ? DEFAULT_REC_FORMAT : f.opts[0]);
     else v[f.k] = s[f.k] || '';
@@ -556,15 +552,13 @@ function readForm(box, mode) {
     else raw[k] = (el.value || '').trim();
   });
   const patch = {};
-  const SPECIAL = ['upload', 'sendOptions', 'buttons', 'autoDel', 'convertKbps', 'convertRate', 'consentAudioUrl'];
+  const SPECIAL = ['upload', 'sendOptions', 'buttons', 'autoDel', 'consentAudioUrl'];
   for (const g of GROUPS) for (const f of g.fields) {
     if (SPECIAL.includes(f.k)) continue;
     patch[f.k] = raw[f.k];
   }
   // autoDel checkbox is stored as autoDelUploaded (the key the field client reads).
   patch.autoDelUploaded = !!raw.autoDel;
-  // MP3 upload-audio format → the nested convert object (kbps/rate; always mono).
-  patch.convert = { kbps: parseInt(raw.convertKbps, 10) || 64, rate: parseInt(raw.convertRate, 10) || 22050, mono: true };
   // Consent audio: store the raw link AND the resolved URL the device actually plays.
   patch.consentAudioUrl = raw.consentAudioUrl || '';
   patch.consentAudio = (raw.consentAudioUrl && deps.resolveAudioInput) ? deps.resolveAudioInput(raw.consentAudioUrl) : '';

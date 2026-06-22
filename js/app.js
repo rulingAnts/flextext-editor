@@ -1842,7 +1842,7 @@ async function syncGatherInventory() {
   // The settings the researcher panel can view/prefill for this device (encrypted in transit).
   const snap = {};
   for (const k of ['vernLang', 'vernName', 'vernFont', 'analLang', 'analName', 'analFont',
-                   'recordFormat', 'agc', 'nr', 'echo', 'norm', 'convert',
+                   'recordFormat', 'agc', 'nr', 'echo', 'norm',
                    'consentMode', 'consentMsg', 'consentResp', 'consentAudioUrl',
                    'uploadFolder', 'toolbarButtons', 'sendOptions', 'autoDelUploaded', 'recordWelcome']) {
     if (settings[k] !== undefined) snap[k] = settings[k];
@@ -3156,7 +3156,19 @@ function wireSharedModals() {
   $('#upload-toggle')?.addEventListener('click', () => { uploadListOpen = !uploadListOpen; renderUploadQueue(); });
 }
 
+// Dev-only hard reset: ?devreset on localhost wipes this origin's settings, docs,
+// sync session, keys, caches, and service worker, then reloads clean — a one-tap way
+// to start a fresh test without digging through DevTools. No-op off localhost.
+async function devReset() {
+  try { localStorage.clear(); } catch { /* noop */ }
+  try { for (const name of ['flextext-editor', 'flextext-sync']) indexedDB.deleteDatabase(name); } catch { /* noop */ }
+  try { if (window.caches) for (const k of await caches.keys()) await caches.delete(k); } catch { /* noop */ }
+  try { for (const r of (await navigator.serviceWorker?.getRegistrations?.()) || []) await r.unregister(); } catch { /* noop */ }
+  location.replace(location.pathname);
+}
+
 function setup() {
+  if (isDevHost(location.hostname) && new URLSearchParams(location.search).has('devreset')) { devReset(); return; }
   migrateSettings();
   const { settingsChanged, task } = applyUrlSettings();
   settings = loadSettings();

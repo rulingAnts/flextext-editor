@@ -50,6 +50,20 @@ const DEFAULT_RELAY = 'https://script.google.com/macros/s/AKfycbxMQbP4Qij5dCWwQd
 const DEFAULT_WORKER = 'https://flextext-r2-worker.68mh29kgsd.workers.dev';
 const DEFAULT_RELAY_TOKEN = '7a93cb82d8ad2bd533a75ddf03bebc92501494ca57dab46c5b9f0c5aef00db34';
 
+// Local-dev environment switch: on localhost the client talks to a LOCAL `wrangler
+// dev` worker (with its own .dev.vars permissive CORS + Turnstile TEST keys), so the
+// PRODUCTION worker never needs localhost in its allowlist. An explicit
+// settings.relayWorker always wins (e.g. a researcher's own R2, or a VM dev URL).
+const LOCAL_WORKER = 'http://localhost:8787';                 // `wrangler dev` default
+const TURNSTILE_SITE_KEY = '0x4AAAAAADo0TdBBVpldATJ6';        // production widget (rulingants.github.io)
+const TURNSTILE_TEST_SITE_KEY = '1x00000000000000000000AA';  // Cloudflare always-pass key (local dev only)
+function isLocalDev() { return /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname); }
+function workerBase() {
+  const explicit = (settings.relayWorker || '').trim();
+  return explicit || (isLocalDev() ? LOCAL_WORKER : DEFAULT_WORKER);
+}
+function turnstileSiteKey() { return isLocalDev() ? TURNSTILE_TEST_SITE_KEY : TURNSTILE_SITE_KEY; }
+
 /* ---------------- Settings (writing systems) ---------------- */
 
 const SETTINGS_KEY = 'flextext-ws-settings';
@@ -1842,7 +1856,7 @@ function resolveAudioInput(input) {
   const fileId = driveFileId(s);
   const isDrive = fileId && (/drive\.google\.com/.test(s) || !isProbablyUrl(s));
   if (isDrive) {
-    const base = (settings.relayWorker || DEFAULT_WORKER).trim().replace(/\/+$/, '');
+    const base = workerBase().replace(/\/+$/, '');
     const token = (settings.relayToken || DEFAULT_RELAY_TOKEN).trim();
     if (base && token) return `${base}/drive?src=${fileId}&t=${encodeURIComponent(token)}`;
     return DEFAULT_RELAY ? DEFAULT_RELAY + '?id=' + fileId : '';
@@ -3079,7 +3093,7 @@ function setup() {
 
   // Connectivity sync engine — inert unless an invite is/was claimed (plan P1).
   Sync.start({
-    workerBase: () => (settings.relayWorker || DEFAULT_WORKER),
+    workerBase: () => workerBase(),
     appType: () => RECORD_MODE ? 'recorder' : 'editor',
     dispatch: syncDispatch,
     gatherInventory: syncGatherInventory,

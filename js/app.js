@@ -1462,6 +1462,10 @@ async function openUrlTask(task, mode = 'interactive') {
   // Background ('assign') must NOT hijack the user's open editor — only adopt
   // `current` + open the editor in interactive mode. Downloads run either way.
   if (interactive) { current = rec; enterEditor('baseline'); toast(t('task.received'), 5000); }
+  // Background (remote 'assign'): show the new task in the visible list right away —
+  // the field worker has no refresh button, so a pushed assignment must appear on its
+  // own. (Audio downloads after this; the doc is listed immediately, pending state and all.)
+  else if (RECORD_MODE) renderRecordList(); else renderDocList();
   if (task.flextextUrl && !gotFlextext) {
     if (interactive) toast(t('task.ftReceiving'), 6000);
     tryDownloadFlextext(rec);
@@ -1818,10 +1822,11 @@ async function syncDispatch(cmd) {
       Object.assign(s, cmd.settings || {});
       saveSettings(s);
       settings = loadSettings();
-      // Reflect pushed changes immediately (button/tab visibility, WS form, doc list)
-      // instead of waiting for the next view change. Editor-mode only — these touch
-      // editor-only DOM; the recorder applies settings on its next render.
-      if (!RECORD_MODE) { applyResearchVisibility(); applyAllowedButtons(); fillWsForm(); renderDocList(); }
+      // Reflect pushed changes immediately so the field worker (no refresh button)
+      // sees them without reopening the app. Editor: visibility/buttons/form/list.
+      // Recorder: rebuild the record screen (welcome heading, buttons) + its list.
+      if (RECORD_MODE) { renderRecordView(); renderRecordList(); }
+      else { applyResearchVisibility(); applyAllowedButtons(); fillWsForm(); renderDocList(); }
       break;
     }
     case 'triggerUpload': {

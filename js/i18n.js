@@ -419,8 +419,12 @@ internet after the first time.</p>
   (editor or recorder). When they open it you <b>approve</b> the device — check that the short
   <b>key fingerprint</b> matches what they read back to you, to be sure it is really them — and from
   then on you can see each device's texts, push per-device settings, and assign tasks, all without
-  the coworker touching any settings. Open the panel any time at <code>?mode=researcher</code>; it
-  never appears on a coworker's device.</li>
+  the coworker touching any settings. You can even <b>pull a finished text in remotely</b> — tap
+  <b>Upload now</b> next to it and the device sends it the next time it is online, no coworker action
+  needed. A coworker device set up from an invite has <b>no Settings tab</b>: it is managed entirely
+  from here, and the only way to change settings on the device itself is to open this panel with your
+  passphrase. Open the panel any time at <code>?mode=researcher</code>; it never appears on a
+  coworker's device.</li>
 </ul>
 <h4>Security model (researcher panel)</h4>
 <p>The panel is <b>end-to-end encrypted</b>. The only thing that passes through our server (a
@@ -1030,8 +1034,12 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   Anda <b>menyetujui</b> perangkat itu — pastikan <b>sidik kunci</b> singkat yang muncul cocok dengan
   yang mereka bacakan, untuk memastikan benar-benar mereka — dan sejak itu Anda bisa melihat teks
   tiap perangkat, mengirim pengaturan per-perangkat, dan menugaskan pekerjaan, semua tanpa rekan
-  kerja menyentuh pengaturan apa pun. Buka panel kapan saja di <code>?mode=researcher</code>; panel
-  tidak pernah muncul di perangkat rekan kerja.</li>
+  kerja menyentuh pengaturan apa pun. Anda bahkan bisa <b>menarik teks yang sudah jadi dari jarak
+  jauh</b> — ketuk <b>Unggah sekarang</b> di sebelahnya dan perangkat akan mengirimnya saat berikutnya
+  online, tanpa tindakan rekan kerja. Perangkat rekan kerja yang disiapkan dari undangan <b>tidak
+  punya tab Pengaturan</b>: semuanya dikelola dari sini, dan satu-satunya cara mengubah pengaturannya
+  di perangkat itu sendiri adalah membuka panel ini dengan frasa sandi Anda. Buka panel kapan saja di
+  <code>?mode=researcher</code>; panel tidak pernah muncul di perangkat rekan kerja.</li>
 </ul>
 <h4>Model keamanan (panel Peneliti)</h4>
 <p>Panel ini <b>terenkripsi ujung-ke-ujung</b>. Satu-satunya yang melewati server kami (sebuah

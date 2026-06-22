@@ -44,13 +44,29 @@ export async function importKeyB64(b64) {
   return crypto.subtle.importKey('raw', b64ToBytes(b64), { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']);
 }
 
-// Derive the researcher master key from a passphrase (+ stored, non-secret salt).
+// Derive a key-encryption key (KEK) from a password (+ stored, non-secret salt). In the
+// email+password model this WRAPS the random data key Kr (so a password change re-wraps Kr
+// without changing it); the old passphrase model used it as Kr directly. Same primitive.
 export async function deriveKeyFromPassphrase(passphrase, saltB64) {
   const base = await crypto.subtle.importKey('raw', enc.encode(String(passphrase)), 'PBKDF2', false, ['deriveKey']);
   return crypto.subtle.deriveKey(
     { name: 'PBKDF2', salt: b64ToBytes(saltB64), iterations: KDF_ITERATIONS, hash: 'SHA-256' },
     base, { name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']
   );
+}
+
+// Derive a server-side AUTH secret from the password — separate from the KEK above (distinct
+// salt context) so the server, which receives authSecret to verify login, learns nothing about
+// the data-key KEK. Server stores only sha256(authSecret). Returns base64url (256-bit).
+export async function deriveAuthSecret(password, saltB64) {
+  const saltBytes = b64ToBytes(saltB64);
+  const authSalt = new Uint8Array(saltBytes.length + 4);
+  authSalt.set(saltBytes); authSalt.set(enc.encode('auth'), saltBytes.length); // domain separation
+  const base = await crypto.subtle.importKey('raw', enc.encode(String(password)), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt: authSalt, iterations: KDF_ITERATIONS, hash: 'SHA-256' }, base, 256
+  );
+  return bytesToB64(bits);
 }
 
 /* ---- blob encryption (the workhorse: any JSON object <-> opaque string) ---- */

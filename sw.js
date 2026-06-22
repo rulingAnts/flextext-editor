@@ -2,7 +2,11 @@
 
 // Bump VERSION on every deploy: clients check for a changed sw.js whenever
 // they load / regain focus / come online, and offer the user an update.
-const VERSION = 'v66';
+const VERSION = 'v67';
+// On localhost the SW serves NETWORK-FIRST so code edits show up immediately during dev
+// (cache-first would keep serving a stale build until every file's VERSION is bumped). The
+// SW stays registered (PWA + localStorage behave normally); production stays offline-first.
+const DEV = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
 const CACHE = 'flextext-' + VERSION;
 const SHELL = [
   './',
@@ -61,6 +65,14 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
+  if (DEV) {
+    // Dev: always try the network so edits appear on reload; fall back to cache offline.
+    e.respondWith(
+      fetch(e.request).catch(() =>
+        caches.match(e.request).then(hit => hit || caches.match('index.html')))
+    );
+    return;
+  }
   e.respondWith(
     caches.match(e.request, { ignoreSearch: e.request.mode === 'navigate' }).then(hit => {
       if (hit) return hit;

@@ -190,6 +190,7 @@ const VIEWS = ['texts', 'baseline', 'gloss', 'research', 'help', 'record', 'rese
 // a researcher's own device boots into it with ?mode=researcher, and once signed up an
 // entry button appears. Field devices (no researcher auth) never show it.
 const PANEL_MODE = new URLSearchParams(location.search).get('mode') === 'researcher';
+let researcherPanelApi = null;   // set in setup(); the research-toggle gesture opens it on managed installs
 
 function currentView() {
   return VIEWS.find(v => { const el = $('#view-' + v); return el && !el.hidden; }) || 'texts';
@@ -1805,8 +1806,11 @@ async function syncDispatch(cmd) {
     }
     case 'triggerUpload': {
       const docId = cmd.docId || cmd.id;
+      if (!docId) break;
+      // Remote-triggered upload — works whether or not the doc is open, so the researcher
+      // can pull a text in without the coworker pressing Upload. Reports back on completion.
       if (current && current.id === docId) await doUpload();
-      else console.warn('sync: triggerUpload of a non-open doc needs a doUpload(docId) refactor — deferred (P1.x)');
+      else await uploadDocById(docId);
       break;
     }
     default:
@@ -1838,9 +1842,9 @@ async function syncGatherInventory() {
   // The settings the researcher panel can view/prefill for this device (encrypted in transit).
   const snap = {};
   for (const k of ['vernLang', 'vernName', 'vernFont', 'analLang', 'analName', 'analFont',
-                   'recordFormat', 'agc', 'nr', 'echo', 'norm',
-                   'consentMode', 'consentMsg', 'consentResp',
-                   'uploadFolder', 'toolbarButtons', 'sendOptions', 'autoDel', 'recordWelcome']) {
+                   'recordFormat', 'agc', 'nr', 'echo', 'norm', 'convert',
+                   'consentMode', 'consentMsg', 'consentResp', 'consentAudioUrl',
+                   'uploadFolder', 'toolbarButtons', 'sendOptions', 'autoDelUploaded', 'recordWelcome']) {
     if (settings[k] !== undefined) snap[k] = settings[k];
   }
   return { type: RECORD_MODE ? 'recorder' : 'editor', items, settings: snap };
@@ -1970,21 +1974,30 @@ function exportFilename() {
 // Build what gets saved/uploaded: when the text's audio came from the USER
 // (recorded, "new text from audio", or attached) it travels along in a zip;
 // task audio from the researcher does not (they already have it).
+// Bundle for the OPEN doc: sync the editor DOM into `current` first, then delegate.
 async function buildBundle(withTimestamp) {
-  const xmlBlob = exportBlob();
-  const name = exportFilename();                  // Title.flextext
+  if (activeTab === 'baseline' && $('#baseline-text')) applyBaseline();
+  if (current && $('#doc-title')) current.title = ($('#doc-title').value.trim()) || current.title || 'Untitled';
+  return buildBundleFor(current, withTimestamp);
+}
+
+// DOM-free bundle builder for ANY doc record — lets a remote-triggered upload bundle a
+// doc that isn't open. Pure: reads only the passed record + IndexedDB media.
+async function buildBundleFor(rec, withTimestamp) {
+  const xmlBlob = serializeDocBlob(rec);
+  const name = docFilename(rec);                  // Title.flextext
   const base = name.replace(/\.flextext$/, '');
-  const media = await db.getMedia(current.id).catch(() => null);
-  const userAudio = !!(media && !isAudioLocked(current));
-  const consent = current.consentClip
-    ? await db.getMedia('consent:' + current.id).catch(() => null)
+  const media = await db.getMedia(rec.id).catch(() => null);
+  const userAudio = !!(media && !isAudioLocked(rec));
+  const consent = rec.consentClip
+    ? await db.getMedia('consent:' + rec.id).catch(() => null)
     : null;
   // The exact spoken prompt that was played, frozen at consent time, so the
   // question and the answer travel together for IRB verification.
-  const promptAudio = current.consentPromptClip
-    ? await db.getMedia('consent-prompt:' + current.id).catch(() => null)
+  const promptAudio = rec.consentPromptClip
+    ? await db.getMedia('consent-prompt:' + rec.id).catch(() => null)
     : null;
-  const receipt = current.consentReceipt || null;
+  const receipt = rec.consentReceipt || null;
   // If this receipt's best-effort IP/location capture is still in flight, give
   // it a short window so the bundled record isn't needlessly "unavailable".
   if (receipt && consentCapture && consentCapture.receipt === receipt) {
@@ -1994,10 +2007,10 @@ async function buildBundle(withTimestamp) {
   if (userAudio || consent || promptAudio || receipt) {
     const entries = [{ name, data: xmlBlob }];
     if (userAudio) entries.push({ name: media.name || 'audio.mp3', data: media.blob });
-    if (consent?.blob) entries.push({ name: consent.name || current.consentClip, data: consent.blob });
-    if (promptAudio?.blob) entries.push({ name: promptAudio.name || current.consentPromptClip, data: promptAudio.blob });
+    if (consent?.blob) entries.push({ name: consent.name || rec.consentClip, data: consent.blob });
+    if (promptAudio?.blob) entries.push({ name: promptAudio.name || rec.consentPromptClip, data: promptAudio.blob });
     if (receipt) {
-      const full = { ...receipt, textTitle: current.title || '' };
+      const full = { ...receipt, textTitle: rec.title || '' };
       entries.push({ name: 'consent-receipt.json', data: new Blob([JSON.stringify(full, null, 2)], { type: 'application/json' }) });
       entries.push({ name: 'consent-receipt.txt', data: new Blob([consentReceiptText(full)], { type: 'text/plain' }) });
     }
@@ -2007,6 +2020,36 @@ async function buildBundle(withTimestamp) {
   }
   return { blob: xmlBlob, filename: `${base}${stamp}.flextext`, mime: 'application/xml',
     xmlBlob, xmlName: name, zipped: false };
+}
+
+// Serialize a doc record to a .flextext XML blob (DOM-free; mirrors exportBlob without the DOM).
+function serializeDocBlob(rec) {
+  const doc = rec.doc;
+  doc.title = rec.title || doc.title || 'Untitled';
+  return new Blob([serializeFlextext(doc, settings)], { type: 'application/xml' });
+}
+function docFilename(rec) {
+  const base = (rec.title || 'text').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80);
+  return base + '.flextext';
+}
+
+// Queue a doc for upload BY ID — works whether or not it is the open doc, so a researcher
+// can trigger an upload remotely (triggerUpload command) without the coworker pressing Upload.
+async function uploadDocById(docId) {
+  const rec = (current && current.id === docId) ? current : await db.getDoc(docId).catch(() => null);
+  if (!rec) return false;
+  const bundle = await buildBundleFor(rec, true); // timestamped: Drive never overwrites
+  await db.putMedia('upload:' + docId, {
+    relayUrl: DEFAULT_RELAY,
+    folder: settings.uploadFolder || '',
+    blob: bundle.blob, name: bundle.filename, mime: bundle.mime,
+    total: bundle.blob.size, sent: 0,
+    docModified: rec.modified,
+  });
+  uploadView.set(docId, { name: bundle.filename, status: 'waiting' });
+  renderUploadQueue();
+  pumpUploads();
+  return true;
 }
 
 async function openShareMenu() {
@@ -2266,28 +2309,13 @@ function renderUploadQueue() {
 
 async function doUpload() {
   if (!current) return;
-  const docId = current.id;
   try {
-    persist();
-    const bundle = await buildBundle(true); // timestamped name: Drive never overwrites
-    const rec = {
-      relayUrl: DEFAULT_RELAY,
-      folder: settings.uploadFolder || '',
-      blob: bundle.blob,
-      name: bundle.filename,
-      mime: bundle.mime,
-      total: bundle.blob.size,
-      sent: 0,
-      // Content stamp at SEND time (persist() above just set current.modified).
-      // Recorded on the doc when the upload completes; a later edit moves
-      // modified, so it reads as "changed since this backup" (delete-safety).
-      docModified: current.modified,
-    };
-    await db.putMedia('upload:' + docId, rec);
-    uploadView.set(docId, { name: rec.name, status: 'waiting' });
+    // Sync the open editor into the record (applyBaseline + title) before persisting +
+    // bundling, so the upload reflects the latest edits.
+    if (activeTab === 'baseline' && $('#baseline-text')) applyBaseline();
+    await persist();
+    await uploadDocById(current.id);
     toast(t('upload.queuedToast'));
-    renderUploadQueue();
-    pumpUploads();
   } catch (e) {
     toast(t('upload.error', { msg: e.message }), 9000);
   }
@@ -2787,7 +2815,10 @@ function isResearchHidden() {
 }
 
 function applyResearchVisibility() {
-  const hidden = isResearchHidden();
+  // Managed installs (claimed via an invite) are remote-managed ONLY: the Settings tab is
+  // always hidden and cannot be revealed — settings change only through the researcher panel
+  // (passphrase-gated). A non-managed device uses the normal hide toggle.
+  const hidden = isResearchHidden() || Sync.hasSession();
   $$('#topbar-home .top-tab[data-view="research"]').forEach(b => { b.hidden = hidden; });
   if (hidden && !$('#view-research').hidden) {
     renderDocList();
@@ -2801,7 +2832,7 @@ function applyResearchVisibility() {
 // shortcut. The two elements live inside the i18n-rendered help body, so this
 // re-runs whenever help opens, the language changes, or the tab is toggled.
 function applyHelpResearchVisibility() {
-  const hidden = isResearchHidden();
+  const hidden = isResearchHidden() || Sync.hasSession();
   const sec = $('#help-researchers');
   const note = $('#help-research-hidden');
   if (sec) sec.hidden = hidden;
@@ -2809,6 +2840,9 @@ function applyHelpResearchVisibility() {
 }
 
 function toggleResearchHidden() {
+  // On a managed install the gesture is the passphrase-gated way IN: open the researcher
+  // panel instead of exposing the local Settings tab (which stays remote-managed only).
+  if (Sync.hasSession()) { if (researcherPanelApi) researcherPanelApi.open(); return; }
   if (isResearchHidden()) {
     localStorage.removeItem(RESEARCH_HIDDEN_KEY);
     toast(t('research.enabled'));
@@ -3256,7 +3290,7 @@ function setup() {
   });
 
   // ----- Researcher panel (separate full-screen view; editor mode only) -----
-  const researcherPanel = initResearcherPanel({
+  researcherPanelApi = initResearcherPanel({
     root: $('#view-researcher'),
     workerBase: () => workerBase(),
     turnstileSiteKey: () => turnstileSiteKey(),
@@ -3264,20 +3298,22 @@ function setup() {
     loadSettings,
     saveSettings,
     parseDriveFolder,
+    resolveAudioInput,
     openView: (v) => show(v),
     goHome: () => { renderDocList(); show('texts'); },
-    onSignedUp: () => { const b = $('#btn-researcher'); if (b) b.hidden = !researcherPanel.isSignedUp(); },
+    onSignedUp: () => { const b = $('#btn-researcher'); if (b) b.hidden = !researcherPanelApi.isSignedUp(); },
     onLocalSettingsSaved: () => {
       settings = loadSettings();
       applyResearchVisibility();
+      applyAllowedButtons();
       fillWsForm();
       renderDocList();
     },
   });
   const researcherBtn = $('#btn-researcher');
   if (researcherBtn) {
-    researcherBtn.hidden = !(researcherPanel.isSignedUp() || PANEL_MODE);
-    researcherBtn.addEventListener('click', () => researcherPanel.open());
+    researcherBtn.hidden = !(researcherPanelApi.isSignedUp() || PANEL_MODE);
+    researcherBtn.addEventListener('click', () => researcherPanelApi.open());
   }
 
   if (task) {
@@ -3288,7 +3324,7 @@ function setup() {
     });
   } else if (PANEL_MODE) {
     renderDocList();              // prep the texts view underneath for when they exit
-    researcherPanel.open();       // …then take over with the panel (hides both app topbars)
+    researcherPanelApi.open();    // …then take over with the panel (hides both app topbars)
   } else {
     renderDocList();
     show('texts');
@@ -3308,5 +3344,5 @@ window.__app = {
 };
 // Dev-only queue inspection hooks — never exposed on the production host.
 if (isDevHost(location.hostname)) {
-  Object.assign(window.__app, { uploadView, renderUploadQueue, allowedButtons });
+  Object.assign(window.__app, { uploadView, renderUploadQueue, allowedButtons, uploadDocById, buildBundleFor });
 }

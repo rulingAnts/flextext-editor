@@ -44,10 +44,13 @@ const GROUPS = [
     { k: 'recordFormat', type: 'select', opts: REC_KEYS, optPrefix: 'panel.opt.fmt.' },
     { k: 'agc', type: 'select', opts: AGC_OPTS, optPrefix: 'panel.opt.agc.' },
     { k: 'nr', type: 'checkbox' }, { k: 'echo', type: 'checkbox' }, { k: 'norm', type: 'checkbox' },
+    { k: 'convertKbps', type: 'select', opts: ['32', '48', '64', '96', '128'] },   // MP3 upload bitrate
+    { k: 'convertRate', type: 'select', opts: ['16000', '22050', '44100', '48000'] }, // MP3 sample rate
   ] },
   { id: 'consent', fields: [
     { k: 'consentMode', type: 'select', opts: CONSENT_MODES, optPrefix: 'panel.opt.consent.' },
     { k: 'consentMsg', type: 'textarea' },
+    { k: 'consentAudioUrl', type: 'text' },
     { k: 'consentResp', type: 'select', opts: CONSENT_RESP, optPrefix: 'panel.opt.resp.' },
   ] },
   { id: 'sending', fields: [
@@ -336,7 +339,11 @@ async function renderInstanceCard(it) {
       // this privileged panel where Kr + the account secret live).
       const rows = inv && inv.length ? inv.map((d) => {
         const us = (d.uploadState === 'uploaded' || d.uploadState === 'changed') ? d.uploadState : 'local';
-        return `<li>${esc(d.title || d.titleHash || '?')} ${d.hasAudio ? `<span class="rp-tag">${esc(t('panel.inst.audio'))}</span>` : ''}<span class="rp-tag rp-tag-${us}">${esc(t('panel.up.' + us))}</span></li>`;
+        // Remote-upload trigger: offer it for anything not already uploaded.
+        const up = us !== 'uploaded'
+          ? ` <button class="link-btn rp-up" data-iact="upload" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}">${esc(t('panel.inst.upload'))}</button>`
+          : '';
+        return `<li>${esc(d.title || d.titleHash || '?')} ${d.hasAudio ? `<span class="rp-tag">${esc(t('panel.inst.audio'))}</span>` : ''}<span class="rp-tag rp-tag-${us}">${esc(t('panel.up.' + us))}</span>${up}</li>`;
       }).join('')
         : `<li class="note">${esc(t('panel.inst.noTexts'))}</li>`;
       installsHtml += `<div class="rp-install">
@@ -386,6 +393,9 @@ async function instanceAction(el) {
       inviteModal(id, type);
     } else if (act === 'assign') {
       assignModal(id);
+    } else if (act === 'upload') {
+      await busy(el, () => Researcher.triggerUpload(id, el.dataset.id));   // data-id is the doc id here
+      deps.toast(t('panel.inst.uploadSent'), 5000);
     } else if (act === 'settings') {
       lastView = await Researcher.listView();
       const inst = lastView.instances.find((x) => x.instance_id === id);
@@ -516,6 +526,9 @@ function toFormValues(s, mode) {
     if (f.k === 'upload') v.upload = mode === 'local' ? (s.uploadUrl || '') : (s.uploadFolder || '');
     else if (f.k === 'sendOptions') v.sendOptions = (mode === 'local' ? s.linkSendOptions : s.sendOptions) || [];
     else if (f.k === 'buttons') v.buttons = (mode === 'local' ? s.linkButtons : s.toolbarButtons) || [];
+    else if (f.k === 'autoDel') v.autoDel = !!s.autoDelUploaded;                                   // stored as autoDelUploaded
+    else if (f.k === 'convertKbps') v.convertKbps = String((s.convert && s.convert.kbps) || 64);   // nested convert.*
+    else if (f.k === 'convertRate') v.convertRate = String((s.convert && s.convert.rate) || 22050);
     else if (f.type === 'checkbox') v[f.k] = !!s[f.k];
     else if (f.type === 'select') v[f.k] = s[f.k] || (f.k === 'recordFormat' ? DEFAULT_REC_FORMAT : f.opts[0]);
     else v[f.k] = s[f.k] || '';
@@ -543,10 +556,18 @@ function readForm(box, mode) {
     else raw[k] = (el.value || '').trim();
   });
   const patch = {};
+  const SPECIAL = ['upload', 'sendOptions', 'buttons', 'autoDel', 'convertKbps', 'convertRate', 'consentAudioUrl'];
   for (const g of GROUPS) for (const f of g.fields) {
-    if (['upload', 'sendOptions', 'buttons'].includes(f.k)) continue;
+    if (SPECIAL.includes(f.k)) continue;
     patch[f.k] = raw[f.k];
   }
+  // autoDel checkbox is stored as autoDelUploaded (the key the field client reads).
+  patch.autoDelUploaded = !!raw.autoDel;
+  // MP3 upload-audio format → the nested convert object (kbps/rate; always mono).
+  patch.convert = { kbps: parseInt(raw.convertKbps, 10) || 64, rate: parseInt(raw.convertRate, 10) || 22050, mono: true };
+  // Consent audio: store the raw link AND the resolved URL the device actually plays.
+  patch.consentAudioUrl = raw.consentAudioUrl || '';
+  patch.consentAudio = (raw.consentAudioUrl && deps.resolveAudioInput) ? deps.resolveAudioInput(raw.consentAudioUrl) : '';
   const folder = deps.parseDriveFolder ? (deps.parseDriveFolder(raw.upload) || '') : '';
   if (mode === 'local') {
     patch.uploadUrl = raw.upload;

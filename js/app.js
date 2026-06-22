@@ -1860,9 +1860,13 @@ function handleInviteParam() {
     const qs = p.toString();
     history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '')); // strip secret from URL/history
     if (!secret) return;
-    Sync.claim(inviteId, secret).then((r) => {
-      if (r.ok) toast('Linked for remote management', 5000);
-      else if (r.error === 'type_mismatch') toast('That invite is for the other app', 6000);
+    Sync.claim(inviteId, secret).then(async (r) => {
+      if (r.ok) {
+        // Show this device's code so the coworker can read it to the researcher, who
+        // confirms it matches the panel before approving (out-of-band MITM check).
+        const fp = await Sync.deviceFingerprint().catch(() => null);
+        toast(fp ? t('toast.linkedFp', { fp }) : t('toast.linked'), 12000);
+      } else if (r.error === 'type_mismatch') toast(t('toast.linkMismatch'), 6000);
     }).catch(() => { /* offline; the persisted identity lets a later retry resume */ });
   } catch { /* never block startup */ }
 }

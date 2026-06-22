@@ -20,7 +20,7 @@
  *   iface.onStatus(state)     -> void      (optional UI hook: 'pending'|'linked'|…)
  */
 
-import { generateInstallKeypair, exportPublicKeyB64, unwrapKeyFromResearcher, encryptJSON, decryptJSON } from './crypto.js';
+import { generateInstallKeypair, exportPublicKeyB64, importPublicKeyB64, publicKeyFingerprint, unwrapKeyFromResearcher, encryptJSON, decryptJSON } from './crypto.js';
 
 const SESSION_KEY = 'flextext-sync-session';
 const REQ_TIMEOUT_MS = 20000;     // bad-connection guard on every /v1/ request
@@ -248,6 +248,18 @@ export async function claim(inviteId, inviteSecret) {
     if (e.status === 401 || e.status === 410 || e.status === 409) { clearSession(); return { ok: false, error: e.message }; }
     return { ok: false, error: 'offline', retryable: true };
   }
+}
+
+// This install's public-key fingerprint (formatted), for OUT-OF-BAND verification at
+// approval: the coworker reads it to the researcher, who confirms it matches what the
+// panel shows — defeating a tampered worker that swapped the pubkey before delivering Ki.
+export async function deviceFingerprint() {
+  const s = loadSession();
+  if (!s || !s.pubkey) return null;
+  try {
+    const fp = await publicKeyFingerprint(await importPublicKeyB64(s.pubkey));
+    return fp.replace(/(.{4})/g, '$1 ').trim();
+  } catch { return null; }
 }
 
 /* ---------------- poll (desired lane → apply commands → report) ---------------- */

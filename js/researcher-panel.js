@@ -85,6 +85,7 @@ function header(titleKey, withLock) {
     <button class="icon-btn rp-exit" data-act="exit" title="${esc(t('panel.exit'))}">&#8592;</button>
     <span class="rp-title">${esc(t(titleKey))}</span>
     <span class="rp-spacer"></span>
+    <button class="icon-btn rp-helpbtn" data-act="help" title="${esc(t('panel.help.btn'))}" aria-label="${esc(t('panel.help.btn'))}">?</button>
     ${withLock ? `<button class="secondary-btn rp-lock" data-act="lock">${esc(t('panel.lock'))}</button>` : ''}
   </div>`;
 }
@@ -92,9 +93,18 @@ function header(titleKey, withLock) {
 function wire(sel, ev, fn) { const el = root.querySelector(sel); if (el) el.addEventListener(ev, fn); }
 function wireActs(handlers) {
   root.querySelectorAll('[data-act]').forEach((el) => {
-    const fn = handlers[el.dataset.act];
+    let fn = handlers[el.dataset.act];
+    if (!fn && el.dataset.act === 'help') fn = showPanelHelp;   // the header help button is universal
     if (fn) el.addEventListener('click', () => fn(el));
   });
+}
+
+// Researcher documentation (incl. the honest Security section) — lives HERE in the panel,
+// not in the field app's help. The help.html string is trusted static i18n markup.
+function showPanelHelp() {
+  const m = modal(`<div class="rp-help">${t('panel.help.html')}</div>
+    <button class="primary-btn" data-m="close">${esc(t('panel.help.close'))}</button>`, true);
+  m.el.querySelector('[data-m="close"]').onclick = m.close;
 }
 async function busy(btn, fn) {
   if (!btn) return fn();

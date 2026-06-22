@@ -780,6 +780,10 @@ main {
 .rp-title { font-weight: 600; font-size: 17px; }
 .rp-spacer { margin-left: auto; }
 .rp-exit { color: #fff; font-size: 20px; }
+.rp-helpbtn { color: #fff; font-size: 18px; font-weight: 600; }
+.rp-help h3 { margin: 16px 0 6px; }
+.rp-help summary { cursor: pointer; color: var(--blue-dark); font-weight: 600; margin: 8px 0; }
+.rp-help details { margin: 8px 0; }
 .rp-lock { background: rgba(255,255,255,.15); border-color: rgba(255,255,255,.35); color: #fff; }
 .rp-lock:hover { background: rgba(255,255,255,.25); }
 

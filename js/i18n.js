@@ -412,50 +412,52 @@ internet after the first time.</p>
   Automatic gain is <b>off by default</b> so the master stays faithful, so train coworkers to watch
   the on-screen <b>level meter</b> and move back a little if it warns. The <b>Which format should I
   choose?</b> link by the format setting gives the full archival guidance.</li>
-  <li><b>Remote management — the Researcher panel:</b> instead of (or alongside) setup links, tap
-  the <b>Researcher</b> button to manage all your coworker devices from one screen. Create an
-  account (one quick "are you human?" check — no email, no password) and set an <b>encryption
-  passphrase</b>; then add a <b>device</b> for each coworker and send its one-time <b>invite link</b>
-  (editor or recorder). When they open it you <b>approve</b> the device — check that the short
-  <b>key fingerprint</b> matches what they read back to you, to be sure it is really them — and from
-  then on you can see each device's texts, push per-device settings, and assign tasks, all without
-  the coworker touching any settings. You can even <b>pull a finished text in remotely</b> — tap
-  <b>Upload now</b> next to it and the device sends it the next time it is online, no coworker action
-  needed. A coworker device set up from an invite has <b>no Settings tab</b>: it is managed entirely
-  from here, and the only way to change settings on the device itself is to open this panel with your
-  passphrase. Open the panel any time at <code>?mode=researcher</code>; it never appears on a
-  coworker's device.</li>
+  <li><b>Remote management:</b> to set up and manage coworker devices from one place — invites,
+  approvals, per-device settings, assigning texts, requesting uploads, and the full <b>security</b>
+  details — open the <b>Researcher</b> panel (the <b>Researcher</b> button, or <code>?mode=researcher</code>).
+  It has its own <b>Help</b> button (?) inside, including how the encryption works.</li>
 </ul>
-<h4>Security model (researcher panel)</h4>
-<p>The panel is <b>end-to-end encrypted</b>. The only thing that passes through our server (a
-Cloudflare Worker and a small database) is <i>list</i> information — device names, the titles of the
-texts on each device, and the settings you push — and it is <b>encrypted on your own device before
-it leaves</b>. The server, Cloudflare, and anyone who could compel them see only scrambled
-ciphertext, never the titles or settings or who is doing what. The actual texts and recordings never
-pass through here at all — those still go straight to your Google Drive.</p>
-<p><b>The keys.</b> Your <b>passphrase</b> unlocks everything: it derives a master key that never
-leaves your device. Each coworker device has its own random key, stored on the server only in a form
-that <i>your</i> passphrase — on any of your devices — can reopen. When you approve a new device, it
-generates its own key-pair and sends only the public half; you wrap that device's key to it so that
-<b>only that device</b> can read what you send. A leaked invite link therefore cannot expose
-anything, and the short <b>fingerprint</b> at approval lets you confirm out loud that you are
-wrapping the key to the real device, not an impostor.</p>
-<p><b>No recovery.</b> Because we never hold your passphrase, there is <b>no "forgot password"</b> —
-write it down somewhere safe. Your <b>account secret</b> (under <b>Account</b>) plus the passphrase
-let you sign in on another device; without the passphrase, even someone who steals a logged-in device
-or the account secret sees only ciphertext and cannot forge commands.</p>
-<p><b>Lost or seized device:</b> open the panel and <b>Revoke</b> that device (or the whole coworker)
-— it loses all access at once, while everything on your other devices stays protected by your
-passphrase. <b>Still visible to the server</b> (routing only): random device/account identifiers,
-message counters, and whether a device is an editor or a recorder. <b>Not yet hidden:</b> the Google
-Drive folder you set is still sent to the coworker device so it can upload; a later version will hide
-that too by routing all Drive transfers through the Worker.</p>
 </div>`,
   'panel.entry': 'Researcher',
   'panel.title': 'Researcher panel',
   'panel.exit': 'Back to editor',
   'panel.lock': 'Lock',
+  'panel.help.btn': 'Help',
+  'panel.help.close': 'Close',
   'panel.err': 'Something went wrong: {msg}',
+  'panel.help.html': `
+<h3>The Researcher panel</h3>
+<p>Set up and manage all your coworkers' devices from one place — send them tasks, see what they've collected, and adjust each device's settings remotely. Coworkers don't touch any settings themselves.</p>
+<h3>Setting up a coworker</h3>
+<ol>
+<li><b>Add a device</b> — choose Editor (transcribe &amp; gloss) or Recorder (record audio only) and give it a name.</li>
+<li><b>Send the invite link</b> — copy it to the coworker (e.g. by WhatsApp). Each link works once.</li>
+<li><b>Approve it</b> — when they open the link the device shows as "pending." Approve it; to be sure it is really their device, check that the short <b>device code</b> it shows them matches the one in your panel.</li>
+<li>From then on you see that device's texts and can manage it.</li>
+</ol>
+<h3>Managing a device</h3>
+<ul>
+<li><b>Settings</b> — change a device's languages, recording format, consent prompt, upload folder, visible buttons, and more. <b>Push to device</b> sends the change; it takes effect next time the device is online.</li>
+<li><b>Assign a text</b> — send a task: a title plus an audio or flextext link for the device to fetch.</li>
+<li><b>Upload now</b> — pull a finished text in without the coworker pressing anything; the device sends it the next time it is online.</li>
+<li><b>Revoke</b> — cut off a device's access (for example, a lost phone).</li>
+</ul>
+<h3>Your account</h3>
+<p>You sign in with your email and a password, and you can reset the password by email if you forget it. For extra protection you can turn on an optional authenticator app (two-step sign-in).</p>
+<h3>Security</h3>
+<p>Your texts and recordings are kept in your own Google Drive. The lists and settings that pass through our service are <b>encrypted</b>, with your password as the key — so normally only you can open them. Because we let you reset a forgotten password by email, our service is also able to unlock your data for that reset. In other words, your information is private and protected, but not in a way where even we could never reach it.</p>
+<p><b>To make your account more secure:</b></p>
+<ul>
+<li>Use a <b>strong, unique password</b>.</li>
+<li>Turn on the <b>authenticator (two-step sign-in)</b> option.</li>
+<li>Keep your <b>email account well protected</b> (ideally with its own two-step sign-in) — it can reset your password.</li>
+<li>Prefer not to tie this account to your name? Sign up with an <b>email address that doesn't identify you</b>.</li>
+</ul>
+<details>
+<summary>More info — how the encryption works</summary>
+<p>When you create your account, a random <b>data key</b> is generated on your device. Everything the panel stores — device lists, settings, and each device's key — is encrypted with that data key. The data key itself is wrapped two ways: once with a key derived from your password (so your password unlocks it), and once with our service's <b>recovery key</b> (so an email password-reset can restore it). During normal use your password and the unwrapped data key never leave your device; the server keeps only encrypted data, the recovery-wrapped key, and a one-way <b>hash</b> of your password — never the password itself. The optional authenticator adds a second code both at sign-in and at password reset.</p>
+<p><b>What the service can do:</b> recover your data key so you can reset a forgotten password. <b>What never passes through the service at all:</b> your actual texts and audio — those go straight to your Google Drive. A few routing details (random account and device IDs, message counters, and whether a device records or transcribes) are not encrypted, because the service needs them to route your data.</p>
+</details>`,
   'panel.signup.title': 'Create researcher account',
   'panel.signup.intro': 'No email, no password. You get an account secret and set an encryption passphrase next. Nobody approves you.',
   'panel.signup.create': 'Create account',
@@ -1024,54 +1026,53 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   Penguatan otomatis <b>mati secara bawaan</b> agar master tetap setia, jadi latih rekan kerja
   memperhatikan <b>meter level</b> di layar dan mundur sedikit bila ada peringatan. Tautan
   <b>Format mana yang harus saya pilih?</b> di sebelah pengaturan format memberi panduan arsip lengkap.</li>
-  <li><b>Pengelolaan jarak jauh — panel Peneliti:</b> alih-alih (atau bersama) tautan pengaturan,
-  ketuk tombol <b>Peneliti</b> untuk mengelola semua perangkat rekan kerja dari satu layar. Buat
-  akun (satu pemeriksaan singkat "apakah Anda manusia?" — tanpa email, tanpa kata sandi) dan
-  tetapkan <b>frasa sandi enkripsi</b>; lalu tambahkan satu <b>perangkat</b> untuk tiap rekan kerja
-  dan kirim <b>tautan undangan</b> sekali-pakainya (editor atau perekam). Saat mereka membukanya,
-  Anda <b>menyetujui</b> perangkat itu — pastikan <b>sidik kunci</b> singkat yang muncul cocok dengan
-  yang mereka bacakan, untuk memastikan benar-benar mereka — dan sejak itu Anda bisa melihat teks
-  tiap perangkat, mengirim pengaturan per-perangkat, dan menugaskan pekerjaan, semua tanpa rekan
-  kerja menyentuh pengaturan apa pun. Anda bahkan bisa <b>menarik teks yang sudah jadi dari jarak
-  jauh</b> — ketuk <b>Unggah sekarang</b> di sebelahnya dan perangkat akan mengirimnya saat berikutnya
-  online, tanpa tindakan rekan kerja. Perangkat rekan kerja yang disiapkan dari undangan <b>tidak
-  punya tab Pengaturan</b>: semuanya dikelola dari sini, dan satu-satunya cara mengubah pengaturannya
-  di perangkat itu sendiri adalah membuka panel ini dengan frasa sandi Anda. Buka panel kapan saja di
-  <code>?mode=researcher</code>; panel tidak pernah muncul di perangkat rekan kerja.</li>
+  <li><b>Pengelolaan jarak jauh:</b> untuk menyiapkan dan mengelola perangkat rekan kerja dari satu
+  tempat — undangan, persetujuan, pengaturan per-perangkat, menugaskan teks, meminta unggahan, dan
+  detail <b>keamanan</b> lengkap — buka panel <b>Peneliti</b> (tombol <b>Peneliti</b>, atau
+  <code>?mode=researcher</code>). Panel punya tombol <b>Bantuan</b> (?) sendiri di dalamnya, termasuk
+  cara kerja enkripsinya.</li>
 </ul>
-<h4>Model keamanan (panel Peneliti)</h4>
-<p>Panel ini <b>terenkripsi ujung-ke-ujung</b>. Satu-satunya yang melewati server kami (sebuah
-Cloudflare Worker dan basis data kecil) adalah informasi <i>daftar</i> — nama perangkat, judul teks
-di tiap perangkat, dan pengaturan yang Anda kirim — dan itu <b>dienkripsi di perangkat Anda sebelum
-dikirim</b>. Server, Cloudflare, dan siapa pun yang bisa memaksa mereka hanya melihat ciphertext
-teracak, bukan judul, pengaturan, atau siapa melakukan apa. Teks dan rekaman sebenarnya tidak pernah
-melewati sini sama sekali — itu tetap langsung ke Google Drive Anda.</p>
-<p><b>Kuncinya.</b> <b>Frasa sandi</b> Anda membuka segalanya: ia menurunkan kunci induk yang tidak
-pernah meninggalkan perangkat Anda. Tiap perangkat rekan kerja punya kunci acaknya sendiri, yang
-disimpan server hanya dalam bentuk yang bisa dibuka oleh <i>frasa sandi Anda</i> — di perangkat Anda
-mana pun. Saat Anda menyetujui perangkat baru, perangkat itu membuat pasangan kuncinya sendiri dan
-hanya mengirim bagian publiknya; Anda membungkus kunci perangkat itu kepadanya sehingga <b>hanya
-perangkat itu</b> yang bisa membaca kiriman Anda. Maka tautan undangan yang bocor pun tidak
-membongkar apa pun, dan <b>sidik kunci</b> singkat saat persetujuan memungkinkan Anda memastikan
-secara lisan bahwa Anda membungkus kunci untuk perangkat asli, bukan penyusup.</p>
-<p><b>Tidak ada pemulihan.</b> Karena kami tidak pernah menyimpan frasa sandi Anda, <b>tidak ada
-"lupa kata sandi"</b> — catat di tempat aman. <b>Rahasia akun</b> Anda (di bawah <b>Akun</b>) plus
-frasa sandi memungkinkan Anda masuk di perangkat lain; tanpa frasa sandi, bahkan orang yang mencuri
-perangkat yang sudah masuk atau rahasia akun pun hanya melihat ciphertext dan tidak bisa memalsukan
-perintah.</p>
-<p><b>Perangkat hilang atau disita:</b> buka panel dan <b>Cabut</b> perangkat itu (atau seluruh
-rekan kerja) — ia kehilangan semua akses seketika, sementara semua di perangkat Anda yang lain tetap
-terlindungi frasa sandi. <b>Masih terlihat server</b> (hanya untuk perutean): pengenal acak
-perangkat/akun, penghitung pesan, dan apakah perangkat itu editor atau perekam. <b>Belum
-disembunyikan:</b> folder Google Drive yang Anda atur masih dikirim ke perangkat rekan kerja agar
-bisa mengunggah; versi mendatang akan menyembunyikannya juga dengan merutekan semua transfer Drive
-lewat Worker.</p>
 </div>`,
   'panel.entry': 'Peneliti',
   'panel.title': 'Panel peneliti',
   'panel.exit': 'Kembali ke editor',
   'panel.lock': 'Kunci',
+  'panel.help.btn': 'Bantuan',
+  'panel.help.close': 'Tutup',
   'panel.err': 'Terjadi kesalahan: {msg}',
+  'panel.help.html': `
+<h3>Panel peneliti</h3>
+<p>Siapkan dan kelola semua perangkat rekan kerja dari satu tempat — kirim tugas, lihat apa yang sudah mereka kumpulkan, dan ubah pengaturan tiap perangkat dari jarak jauh. Rekan kerja tidak menyentuh pengaturan apa pun sendiri.</p>
+<h3>Menyiapkan rekan kerja</h3>
+<ol>
+<li><b>Tambah perangkat</b> — pilih Editor (transkripsi &amp; terjemahan) atau Perekam (rekam audio saja) dan beri nama.</li>
+<li><b>Kirim tautan undangan</b> — salin ke rekan kerja (mis. lewat WhatsApp). Tiap tautan hanya berlaku sekali.</li>
+<li><b>Setujui</b> — saat mereka membuka tautan, perangkat tampil sebagai "menunggu." Setujui; untuk memastikan itu benar-benar perangkat mereka, periksa bahwa <b>kode perangkat</b> singkat yang ditampilkan cocok dengan yang ada di panel Anda.</li>
+<li>Sejak itu Anda bisa melihat teks perangkat itu dan mengelolanya.</li>
+</ol>
+<h3>Mengelola perangkat</h3>
+<ul>
+<li><b>Pengaturan</b> — ubah bahasa, format rekaman, permintaan izin, folder unggah, tombol yang tampak, dan lainnya untuk sebuah perangkat. <b>Kirim ke perangkat</b> mengirim perubahannya; berlaku saat perangkat berikutnya online.</li>
+<li><b>Tugaskan teks</b> — kirim tugas: judul plus tautan audio atau flextext untuk diambil perangkat.</li>
+<li><b>Unggah sekarang</b> — tarik teks yang sudah jadi tanpa rekan kerja menekan apa pun; perangkat mengirimnya saat berikutnya online.</li>
+<li><b>Cabut</b> — putuskan akses sebuah perangkat (misalnya HP yang hilang).</li>
+</ul>
+<h3>Akun Anda</h3>
+<p>Anda masuk dengan email dan kata sandi, dan Anda bisa mengatur ulang kata sandi lewat email jika lupa. Untuk perlindungan tambahan, Anda bisa mengaktifkan aplikasi autentikator opsional (masuk dua langkah).</p>
+<h3>Keamanan</h3>
+<p>Teks dan rekaman Anda disimpan di Google Drive Anda sendiri. Daftar dan pengaturan yang melewati layanan kami <b>dienkripsi</b>, dengan kata sandi Anda sebagai kuncinya — jadi biasanya hanya Anda yang bisa membukanya. Karena kami memungkinkan Anda mengatur ulang kata sandi yang lupa lewat email, layanan kami juga mampu membuka data Anda untuk pengaturan ulang itu. Dengan kata lain, informasi Anda bersifat pribadi dan terlindungi, tetapi tidak dengan cara yang membuat kami pun tak pernah bisa menjangkaunya.</p>
+<p><b>Untuk membuat akun Anda lebih aman:</b></p>
+<ul>
+<li>Gunakan <b>kata sandi yang kuat dan unik</b>.</li>
+<li>Aktifkan opsi <b>autentikator (masuk dua langkah)</b>.</li>
+<li>Jaga <b>akun email Anda</b> tetap terlindungi (idealnya dengan masuk dua langkah sendiri) — email itu bisa mengatur ulang kata sandi Anda.</li>
+<li>Tidak ingin mengaitkan akun ini dengan nama Anda? Daftar dengan <b>alamat email yang tidak mengidentifikasi Anda</b>.</li>
+</ul>
+<details>
+<summary>Info lebih lanjut — cara kerja enkripsinya</summary>
+<p>Saat Anda membuat akun, sebuah <b>kunci data</b> acak dibuat di perangkat Anda. Semua yang disimpan panel — daftar perangkat, pengaturan, dan kunci tiap perangkat — dienkripsi dengan kunci data itu. Kunci data itu sendiri dibungkus dua cara: sekali dengan kunci yang diturunkan dari kata sandi Anda (sehingga kata sandi membukanya), dan sekali dengan <b>kunci pemulihan</b> layanan kami (sehingga pengaturan ulang kata sandi lewat email bisa memulihkannya). Dalam pemakaian normal, kata sandi Anda dan kunci data yang sudah terbuka tidak pernah meninggalkan perangkat Anda; server hanya menyimpan data terenkripsi, kunci yang dibungkus untuk pemulihan, dan <b>hash</b> satu arah dari kata sandi Anda — bukan kata sandinya. Autentikator opsional menambah kode kedua saat masuk dan saat pengaturan ulang kata sandi.</p>
+<p><b>Yang bisa dilakukan layanan:</b> memulihkan kunci data Anda agar Anda bisa mengatur ulang kata sandi yang lupa. <b>Yang tidak pernah melewati layanan sama sekali:</b> teks dan audio Anda yang sebenarnya — itu langsung ke Google Drive Anda. Beberapa detail perutean (ID akun dan perangkat acak, penghitung pesan, dan apakah perangkat merekam atau mentranskripsi) tidak dienkripsi, karena layanan membutuhkannya untuk merutekan data Anda.</p>
+</details>`,
   'panel.signup.title': 'Buat akun peneliti',
   'panel.signup.intro': 'Tanpa email, tanpa kata sandi. Anda mendapat rahasia akun lalu menetapkan frasa sandi enkripsi. Tidak perlu persetujuan siapa pun.',
   'panel.signup.create': 'Buat akun',

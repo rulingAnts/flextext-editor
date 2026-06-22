@@ -840,7 +840,12 @@ main {
 .rp-empty { text-align: center; padding: 20px; }
 .rp-linkbox { width: 100%; box-sizing: border-box; font-family: ui-monospace, Menlo, monospace; font-size: 13px; border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
 
-.rp-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin: 6px 0 12px; overflow-x: auto; }
+.rp-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin: 6px 0 12px; overflow-x: auto; flex: 0 0 auto; }
+/* The settings modal is a flex-column card with a max-height. Keep the tab bar + chrome from being
+   shrunk to nothing (the tab row's overflow-x:auto otherwise lets flexbox collapse it to ~1px when a
+   group is taller than the card); scroll the fields area instead so every tab stays reachable. */
+.rp-set-head, .rp-enc { flex: 0 0 auto; }
+.rp-groups { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .rp-tab { appearance: none; border: none; background: none; padding: 8px 12px; font-size: 14px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; }
 .rp-tab.on { color: var(--blue-dark); border-bottom-color: var(--blue); font-weight: 600; }
 .rp-fieldset { border: 1px solid var(--border); border-radius: 9px; padding: 10px 14px 14px; display: flex; flex-direction: column; gap: 10px; margin: 0; }

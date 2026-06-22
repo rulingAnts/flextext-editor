@@ -68,14 +68,37 @@ export function initResearcherPanel(d) {
   return { open, close, isSignedUp: () => Researcher.isSignedUp() };
 }
 
-function open(resetToken) { deps.openView('researcher'); route(resetToken); }
+function open() { deps.openView('researcher'); route(); }
 function close() { deps.goHome(); }
 
-function route(resetToken) {
-  if (resetToken) return renderReset(resetToken);
-  if (!Researcher.isSignedUp()) return renderSignup();   // create account (with a "log in" link)
-  if (!Researcher.isUnlocked()) return renderUnlock();   // signed-in device → offline password
+async function route() {
+  // Returning from Google? Consume #gauth=<id>.<token>, then strip it from the address bar.
+  if (Researcher.consumeGauth()) { try { history.replaceState(null, '', location.pathname + location.search); } catch { /* noop */ } }
+  if (!Researcher.isSignedUp()) return renderSignIn();
+  if (!Researcher.isUnlocked()) {
+    renderConnecting();
+    try { await Researcher.bootstrap(); }
+    catch (e) { Researcher.signOut(); return renderSignIn(e && e.status === 401 ? t('panel.signin.expired') : null); }
+  }
   renderDashboard();
+}
+
+// Sign-in screen: one "Sign in with Google" button (replaces the email+password + 2FA screens).
+function renderSignIn(note) {
+  root.innerHTML = header('panel.title', false) + `
+    <div class="rp-body rp-narrow"><div class="rp-card rp-signin">
+      <h2>${esc(t('panel.signin.title'))}</h2>
+      <p class="note">${esc(t('panel.signin.intro'))}</p>
+      ${note ? `<p class="banner warn-banner">${esc(note)}</p>` : ''}
+      <button class="primary-btn" data-act="google">${esc(t('panel.signin.btn'))}</button>
+    </div></div>`;
+  wireActs({ google: () => { location.href = Researcher.googleSignInUrl(); }, exit: close });
+}
+
+function renderConnecting() {
+  root.innerHTML = header('panel.title', false) + `
+    <div class="rp-body rp-narrow"><div class="rp-card rp-signin"><p class="note">${esc(t('panel.signin.connecting'))}</p></div></div>`;
+  wireActs({ exit: close });
 }
 
 /* ---------------- small DOM helpers ---------------- */

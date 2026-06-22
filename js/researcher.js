@@ -73,7 +73,41 @@ async function api(method, path, { headers = {}, body, auth = true } = {}) {
   } finally { clearTimeout(timer); }
 }
 
-/* ---------------- email + password auth ---------------- */
+/* ---------------- Google Sign-In (OIDC) — the current auth model ---------------- */
+
+// URL to start "Sign in with Google" (a top-level navigation). `returnTo` is where the worker
+// callback sends the browser back — its ORIGIN must be allow-listed on the worker; the full path
+// (e.g. .../flextext-editor/) is preserved.
+export function googleSignInUrl(returnTo) {
+  const base = (workerBaseFn() || '').replace(/\/+$/, '');
+  return base + '/v1/oauth/google/start?return=' + encodeURIComponent(returnTo || location.href.replace(/[?#].*$/, ''));
+}
+
+// Consume the #gauth=<researcher_id>.<session-token> fragment the worker redirected back with.
+// Persists API creds (does NOT set Kr — call bootstrap() next). Returns true if consumed.
+export function consumeGauth(hash) {
+  const m = /[#&]gauth=([^.&]+)\.([^&]+)/.exec(hash || location.hash || '');
+  if (!m) return false;
+  saveAuth({ researcher_id: decodeURIComponent(m[1]), secret: decodeURIComponent(m[2]), google: true });
+  return true;
+}
+
+// Bring a signed-in session up: GET /v1/researcher returns the server-held data key Kr (+ email +
+// key store). Sets Kr (unlocks) and seeds the cache. Throws on an invalid session (401) → the panel
+// should re-show "Sign in with Google".
+export async function bootstrap() {
+  const v = await api('GET', '/v1/researcher');
+  if (!v.kr) throw new Error('no_kr');
+  Kr = await importKeyB64(v.kr);
+  settingsCache = safeParse(v.settings) || {};
+  if (!settingsCache.wrappedKis) settingsCache.wrappedKis = {};
+  if (typeof v.settings_rev === 'number') settingsRev = v.settings_rev;
+  kiCache = new Map();
+  if (v.email) { const a = loadAuth(); if (a && a.email !== v.email) { a.email = v.email; saveAuth(a); } }
+  return { ok: true, email: v.email };
+}
+
+/* ---------------- email + password auth (legacy — being retired for Google Sign-In) ---------------- */
 
 export function accountEmail() { const a = loadAuth(); return a && a.email; }
 export function totpEnabledLocal() { const a = loadAuth(); return !!(a && a.totp_enabled); }

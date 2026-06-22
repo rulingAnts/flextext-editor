@@ -350,74 +350,9 @@ internet after the first time.</p>
 <p>Your work is saved automatically on this device — you can close the app and continue later from the <b>Texts</b> list. If you change the story text afterwards, the word meanings of changed sentences may need to be typed again.</p>
 
 <div id="help-research-hidden" hidden>
-<p><i>The researcher setup guide is hidden on this device. If you are the researcher, tap the ? (Help) button 7 times — or press <b>Ctrl+Alt+R</b> on a keyboard — to show the Settings tab and this guide.</i></p>
+<p><i>If you are the researcher: tap the ? (Help) button 7 times — or press <b>Ctrl+Alt+R</b> — to reveal the in-app Settings tab. The full researcher guide (setup, device management, uploads, consent, security) lives in <b>Researcher mode</b>.</i></p>
 </div>
-<div id="help-researchers">
-<h3>For researchers</h3>
-<ul>
-  <li><b>Set up a project:</b> on the <b>Settings</b> tab, enter the vernacular and analysis writing systems (code, e.g. <code>fau</code> / <code>en</code>, plus name and font). Click <b>Copy setup link for coworker</b> and send the link. Opening it configures their device — including the interface language you are currently using.</li>
-  <li><b>Files:</b> the app reads and writes FLEx <code>.flextext</code> files. Existing analyses it does not edit (morphemes, word categories, notes) are preserved on export, except in sentences whose baseline was changed — same behavior as FLEx. Files containing several texts are imported as separate texts in the list.</li>
-  <li><b>Back into FLEx:</b> in FieldWorks use <i>Texts &amp; Words → Import → FLExText interlinear document</i>.
-  Files sent with <b>Share</b> arrive named <code>….flextext.txt</code> (messaging apps only accept
-  certain file types) — FLEx's import dialog opens them as-is, or simply delete the
-  <code>.txt</code> from the filename. This app also opens them directly.</li>
-  <li><b>Wrong writing-system codes?</b> Use the <b>Writing system checker</b> (Settings tab) to see which codes each interlinear line uses and remap them without touching anything else.</li>
-  <li><b>Uploads to your Drive:</b> set a <b>Google Drive upload folder</b> (shared as "Anyone
-  with the link can edit") in the settings — your links then give coworkers an <b>Upload</b>
-  button that sends finished work straight to that folder, zipped together with any recording they
-  made and any recorded permission, never overwriting anything (filenames carry a timestamp).
-  Uploads pass through the relay but count against your Drive <i>storage</i>, not its daily
-  transfer quota. You can also choose exactly which save/send buttons coworkers see, via the
-  checkboxes; the choices travel with your links.</li>
-  <li><b>Audio converter:</b> recorders often produce huge WAV files (a 2-minute 32-bit stereo WAV
-  is ~40&nbsp;MB) that are far too heavy to send. The <b>Audio converter</b> on the Settings tab
-  turns any recording into a small mono 64&nbsp;kbps MP3 (~0.5&nbsp;MB per minute), on your device
-  and offline; then upload that MP3 to Drive for your task link.</li>
-  <li><b>Ask for the speaker's permission:</b> under <b>Speaker permission</b> on the Settings tab
-  you can require a permission step before a coworker records. Write the message (in the local
-  language and/or a language of wider communication), optionally give a spoken version (a Drive
-  audio link, cached on the device for offline use), and choose how the coworker confirms:
-  <b>tap Yes/No</b>, <b>record the speaker saying yes</b>, or <b>type the speaker's name as a
-  signature</b>. Every consent writes a <code>consent-receipt.json</code> (+ a readable
-  <code>consent-receipt.txt</code>) into the upload, logging that consent was given, the exact
-  prompt shown, the date/time, the signature or recording, and — best effort — the device's IP
-  (when online) plus an approximate location if the speaker allows it (the app asks once, on the
-  first tap; both read "unavailable" otherwise). When the prompt itself is a recording, a copy of
-  the exact audio the speaker heard is bundled too — so the question and the answer stay paired
-  even after you refine the prompt later.</li>
-  <li><b>What the coworker sees:</b> the send-option checkboxes are a template for the links you
-  hand out — they decide which "Save and send…" buttons the coworker gets, and never restrict
-  your own device. Likewise, restrictions only ever reach a device through a link it opens.</li>
-  <li><b>Hiding the Settings tab:</b> two ways. For a <i>remote</i> coworker, tick the box under
-  the copy-link buttons before copying — their device hides the tab when they open the link. To
-  hide it on a phone you are setting up <i>in person</i>, use <b>Hide the Settings tab on THIS
-  device now</b>. Either way, to bring it back: <b>tap the ? (Help) button 7 times</b> (works on a
-  touchscreen) or press <b>Ctrl+Alt+R</b> on a keyboard — or open a link ending in
-  <code>?research=on</code>.</li>
-  <li><b>Updates:</b> when online, the app checks for new versions and shows an <b>Update</b> button when one is ready.</li>
-  <li><b>Audio task links:</b> the <b>Task link</b> section creates a link that configures the
-  coworker's device, creates a titled text, and auto-downloads a recording into a player on the
-  typing tab. Use mono 64&nbsp;kbps MP3 (≈0.5&nbsp;MB per minute). Before the link is made the app
-  checks the recording and warns you if it is an uncompressed WAV, too large, or not shared. The
-  audio can live on any CORS-friendly host, or simply in <b>your own Google Drive</b>: upload the
-  MP3, share it as
-  "Anyone with the link", and paste the share link into the form — a built-in relay does the
-  rest. (The relay only fetches link-shared files and has no access to anyone's private Drive
-  contents. Teams that fork the app can run their own relay by deploying
-  <code>docs/drive-relay.gs</code> and setting <code>DEFAULT_RELAY</code> in
-  <code>js/app.js</code>.)</li>
-  <li><b>Recording quality:</b> coworkers can record straight into the app. Pick the
-  <b>recording format</b> in Settings — the default <b>WAV 24-bit</b> is a true lossless,
-  archival-grade master; smaller compressed options (FLAC, WebM/Opus, MP3) trade quality for size.
-  Automatic gain is <b>off by default</b> so the master stays faithful, so train coworkers to watch
-  the on-screen <b>level meter</b> and move back a little if it warns. The <b>Which format should I
-  choose?</b> link by the format setting gives the full archival guidance.</li>
-  <li><b>Remote management:</b> to set up and manage coworker devices from one place — invites,
-  approvals, per-device settings, assigning texts, requesting uploads, and the full <b>security</b>
-  details — open the <b>Researcher</b> panel (the <b>Researcher</b> button, or <code>?mode=researcher</code>).
-  It has its own <b>Help</b> button (?) inside, including how the encryption works.</li>
-</ul>
-</div>`,
+<p id="help-researchers"><b>Are you the researcher?</b> Project setup, remote device management, uploads, consent, recording formats, and the full guide now live in <b>Researcher mode</b> — open the <b>Researcher</b> button (or add <code>?mode=researcher</code> to the web address). It has its own <b>?</b> Help button with everything, including how the encryption works.</p>`,
   'panel.entry': 'Researcher',
   'panel.title': 'Researcher panel',
   'panel.exit': 'Back to editor',
@@ -441,6 +376,18 @@ internet after the first time.</p>
 <li><b>Assign a text</b> — send a task: a title plus an audio or flextext link for the device to fetch.</li>
 <li><b>Upload now</b> — pull a finished text in without the coworker pressing anything; the device sends it the next time it is online.</li>
 <li><b>Revoke</b> — cut off a device's access (for example, a lost phone).</li>
+</ul>
+<h3>Files &amp; FLEx</h3>
+<p>The editor reads and writes FLEx <code>.flextext</code> files; analyses it doesn't edit (morphemes, word categories, notes) are preserved on export, except in sentences whose baseline you changed — same behaviour as FLEx. Files containing several texts import as separate texts. Back into FieldWorks: <i>Texts &amp; Words → Import → FLExText interlinear document</i>. A file shared through a messaging app arrives as <code>….flextext.txt</code> (messengers only accept certain types) — FLEx's import opens it as-is, or just drop the <code>.txt</code>; this app opens it directly too.</p>
+<h3>Speaker permission (consent)</h3>
+<p>Per device you can require a consent step before a coworker records: a written and/or spoken prompt, and they confirm by tapping <b>Yes/No</b>, by <b>recording the speaker saying yes</b>, or by <b>typing the speaker's name</b>. Every consent writes a <code>consent-receipt.json</code> (+ a readable <code>.txt</code>) into the upload — the exact prompt shown, date/time, the signature or recording, and best-effort device IP (when online) plus an approximate location if the speaker allows (asked once). When the prompt is audio, the exact clip the speaker heard is bundled too, so question and answer stay paired even if you refine the prompt later. A spoken prompt is cached on the device, so it plays offline.</p>
+<h3>Other tools (the in-app Settings tab)</h3>
+<p>A few setup tools live in the editor's own <b>Settings</b> tab — reveal it with <b>7 taps on ?</b> or <b>Ctrl+Alt+R</b> — separate from this panel:</p>
+<ul>
+<li><b>Writing-system checker</b> — see which code each interlinear line uses and remap them without touching anything else.</li>
+<li><b>Audio converter</b> — turn a huge WAV (a 2-min 32-bit stereo WAV is ~40&nbsp;MB) into a small mono 64&nbsp;kbps MP3 (~0.5&nbsp;MB/min), on-device and offline.</li>
+<li><b>Setup &amp; task links</b> — the older URL way to configure a coworker's device and push an audio task (the link creates a titled text and auto-downloads the recording into the player). Host the MP3 on any CORS-friendly server, or share it from your Drive and paste the link.</li>
+<li><b>Recording format</b> — the default <b>WAV 24-bit</b> is a lossless, archival-grade master; FLAC / WebM&nbsp;Opus / MP3 trade quality for size. Auto-gain is <b>off by default</b> so the master stays faithful — train coworkers to watch the on-screen <b>level meter</b> and move back if it warns. The "Which format should I choose?" link gives the full archival guidance.</li>
 </ul>
 <h3>Your account</h3>
 <p>You sign in with your email and a password, and you can reset the password by email if you forget it. For extra protection you can turn on an optional authenticator app (two-step sign-in).</p>
@@ -989,77 +936,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
 <p>Hasil kerja Anda tersimpan otomatis di perangkat ini — aplikasi boleh ditutup dan dilanjutkan nanti dari daftar <b>Teks</b>. Kalau teks cerita diubah setelah diglos, arti kata pada kalimat yang berubah mungkin perlu diketik ulang.</p>
 
 <div id="help-research-hidden" hidden>
-<p><i>Panduan untuk peneliti disembunyikan di perangkat ini. Kalau Anda peneliti, ketuk tombol ? (Bantuan) 7 kali — atau tekan <b>Ctrl+Alt+R</b> di papan ketik — untuk menampilkan tab Pengaturan dan panduan ini.</i></p>
+<p><i>Kalau Anda peneliti: ketuk tombol ? (Bantuan) 7 kali — atau tekan <b>Ctrl+Alt+R</b> — untuk menampilkan tab Pengaturan di aplikasi. Panduan peneliti lengkap (penyiapan, pengelolaan perangkat, unggahan, izin, keamanan) ada di <b>Mode peneliti</b>.</i></p>
 </div>
-<div id="help-researchers">
-<h3>Untuk peneliti</h3>
-<ul>
-  <li><b>Menyiapkan proyek:</b> di tab <b>Pengaturan</b>, isi sistem tulisan bahasa daerah dan bahasa analisis (kode, mis. <code>fau</code> / <code>en</code>, beserta nama dan fon). Klik <b>Salin tautan pengaturan untuk rekan kerja</b> lalu kirim tautannya. Saat dibuka, tautan itu mengatur perangkat mereka — termasuk bahasa tampilan yang sedang Anda pakai.</li>
-  <li><b>File:</b> aplikasi ini membaca dan menulis file <code>.flextext</code> FLEx. Analisis yang tidak diubah (morfem, kategori kata, catatan) tetap dipertahankan saat ekspor, kecuali pada kalimat yang teks dasarnya diubah — sama seperti perilaku FLEx. File yang berisi beberapa teks akan diimpor sebagai teks-teks terpisah.</li>
-  <li><b>Kembali ke FLEx:</b> di FieldWorks gunakan <i>Texts &amp; Words → Import → FLExText interlinear document</i>.
-  File yang dikirim lewat <b>Bagikan</b> bernama <code>….flextext.txt</code> (aplikasi pesan hanya
-  menerima jenis file tertentu) — dialog impor FLEx bisa membukanya langsung, atau hapus saja
-  <code>.txt</code> dari nama filenya. Aplikasi ini juga bisa membukanya langsung.</li>
-  <li><b>Kode sistem tulisan salah?</b> Gunakan <b>Pemeriksa sistem tulisan</b> (tab Pengaturan) untuk melihat kode pada setiap baris interlinear dan menggantinya tanpa mengubah isi lain.</li>
-  <li><b>Unggahan ke Drive Anda:</b> atur <b>folder unggahan Google Drive</b> (dibagikan sebagai
-  "Siapa saja yang memiliki link dapat mengedit") di pengaturan — tautan Anda lalu memberi rekan
-  kerja tombol <b>Kirim Langsung</b> yang mengirim hasil kerja langsung ke folder itu, di-zip
-  bersama rekaman buatan mereka sendiri dan izin yang terekam, tanpa pernah menimpa apa pun (nama
-  file diberi cap waktu). Unggahan melewati relay tetapi terhitung pada <i>penyimpanan</i> Drive
-  Anda, bukan kuota transfer hariannya. Anda juga bisa memilih tombol simpan/kirim mana saja yang
-  dilihat rekan kerja lewat kotak centang; pilihan itu ikut dalam tautan Anda.</li>
-  <li><b>Pengubah audio:</b> alat perekam sering menghasilkan file WAV yang sangat besar (WAV
-  stereo 32-bit 2 menit ≈ 40&nbsp;MB) — terlalu berat untuk dikirim. <b>Pengubah audio</b> di tab
-  Pengaturan mengubah rekaman apa pun menjadi MP3 mono 64&nbsp;kbps yang kecil (≈0,5&nbsp;MB per
-  menit), di perangkat Anda dan tanpa internet; lalu unggah MP3-nya ke Drive untuk tautan tugas.</li>
-  <li><b>Minta izin penutur:</b> di bagian <b>Izin penutur</b> pada tab Pengaturan, Anda bisa
-  mewajibkan langkah izin sebelum rekan kerja merekam. Tulis pesannya (dalam bahasa daerah dan/atau
-  bahasa pengantar yang lebih luas), boleh juga sertakan versi suaranya (tautan audio Drive, yang
-  disimpan di perangkat untuk dipakai tanpa internet), dan pilih cara rekan kerja mengonfirmasi:
-  <b>ketuk Ya/Tidak</b>, <b>rekam penutur mengatakan ya</b>, atau <b>ketik nama penutur sebagai
-  tanda tangan</b>. Setiap persetujuan menulis berkas <code>consent-receipt.json</code> (+ berkas
-  <code>consent-receipt.txt</code> yang mudah dibaca) ke dalam unggahan: mencatat bahwa izin
-  diberikan, pesan persis yang ditampilkan, tanggal/waktu, tanda tangan atau rekaman, dan —
-  sebisanya — alamat IP perangkat (saat online) serta lokasi perkiraan bila penutur mengizinkan
-  (aplikasi menanyakannya sekali, saat ketukan pertama; keduanya tertulis "unavailable" jika
-  tidak tersedia). Bila pengingatnya berupa rekaman, salinan persis audio yang didengar penutur
-  ikut dibungkus juga — sehingga pertanyaan dan jawaban tetap berpasangan walau nanti Anda
-  memperbaiki pengingatnya.</li>
-  <li><b>Apa yang dilihat rekan kerja:</b> kotak centang opsi kirim adalah templat untuk tautan
-  yang Anda bagikan — menentukan tombol "Simpan & kirim…" mana yang didapat rekan kerja, dan tidak
-  pernah membatasi perangkat Anda sendiri. Pembatasan hanya sampai ke sebuah perangkat lewat
-  tautan yang dibukanya.</li>
-  <li><b>Menyembunyikan tab Pengaturan:</b> dua cara. Untuk rekan kerja <i>jarak jauh</i>, centang
-  kotak di bawah tombol salin tautan sebelum menyalin — tab disembunyikan saat mereka membuka
-  tautannya. Untuk menyembunyikannya di HP yang Anda siapkan <i>secara langsung</i>, pakai
-  <b>Sembunyikan tab Pengaturan di perangkat INI sekarang</b>. Untuk memunculkannya lagi:
-  <b>ketuk tombol ? (Bantuan) 7 kali</b> (bisa di layar sentuh) atau tekan <b>Ctrl+Alt+R</b> di papan
-  ketik — atau buka tautan yang diakhiri <code>?research=on</code>.</li>
-  <li><b>Pembaruan:</b> saat online, aplikasi memeriksa versi baru dan menampilkan tombol <b>Perbarui</b> bila tersedia.</li>
-  <li><b>Tautan tugas dengan audio:</b> bagian <b>Tautan tugas</b> membuat tautan yang mengatur
-  perangkat rekan kerja, membuat teks berjudul, dan otomatis mengunduh rekaman ke pemutar di tab
-  Ketik. Gunakan MP3 mono 64&nbsp;kbps (≈0,5&nbsp;MB per menit). Sebelum tautan dibuat, aplikasi
-  memeriksa rekaman dan memperingatkan kalau berupa WAV tak terkompresi, terlalu besar, atau belum
-  dibagikan. Audio bisa di host mana pun yang mendukung CORS, atau cukup di <b>Google Drive Anda
-  sendiri</b>: unggah MP3, bagikan sebagai
-  "Siapa saja yang memiliki link", lalu tempel tautan berbaginya di formulir — relay bawaan
-  aplikasi yang mengurus sisanya. (Relay hanya bisa mengambil file yang dibagikan dengan
-  tautan; relay tidak punya akses ke isi Drive pribadi siapa pun. Tim yang mem-fork aplikasi
-  bisa memakai relay sendiri dengan memasang <code>docs/drive-relay.gs</code> dan mengatur
-  <code>DEFAULT_RELAY</code> di <code>js/app.js</code>.)</li>
-  <li><b>Kualitas rekaman:</b> rekan kerja bisa merekam langsung di aplikasi. Pilih <b>format
-  rekaman</b> di Pengaturan — bawaannya <b>WAV 24-bit</b>, master lossless berkualitas arsip;
-  pilihan terkompresi yang lebih kecil (FLAC, WebM/Opus, MP3) menukar kualitas dengan ukuran.
-  Penguatan otomatis <b>mati secara bawaan</b> agar master tetap setia, jadi latih rekan kerja
-  memperhatikan <b>meter level</b> di layar dan mundur sedikit bila ada peringatan. Tautan
-  <b>Format mana yang harus saya pilih?</b> di sebelah pengaturan format memberi panduan arsip lengkap.</li>
-  <li><b>Pengelolaan jarak jauh:</b> untuk menyiapkan dan mengelola perangkat rekan kerja dari satu
-  tempat — undangan, persetujuan, pengaturan per-perangkat, menugaskan teks, meminta unggahan, dan
-  detail <b>keamanan</b> lengkap — buka panel <b>Peneliti</b> (tombol <b>Peneliti</b>, atau
-  <code>?mode=researcher</code>). Panel punya tombol <b>Bantuan</b> (?) sendiri di dalamnya, termasuk
-  cara kerja enkripsinya.</li>
-</ul>
-</div>`,
+<p id="help-researchers"><b>Apakah Anda peneliti?</b> Penyiapan proyek, pengelolaan perangkat jarak jauh, unggahan, izin, format rekaman, dan panduan lengkap kini ada di <b>Mode peneliti</b> — buka tombol <b>Peneliti</b> (atau tambahkan <code>?mode=researcher</code> pada alamat web). Panel itu punya tombol <b>?</b> Bantuan sendiri dengan semuanya, termasuk cara kerja enkripsinya.</p>`,
   'panel.entry': 'Peneliti',
   'panel.title': 'Panel peneliti',
   'panel.exit': 'Kembali ke editor',
@@ -1083,6 +962,18 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
 <li><b>Tugaskan teks</b> — kirim tugas: judul plus tautan audio atau flextext untuk diambil perangkat.</li>
 <li><b>Unggah sekarang</b> — tarik teks yang sudah jadi tanpa rekan kerja menekan apa pun; perangkat mengirimnya saat berikutnya online.</li>
 <li><b>Cabut</b> — putuskan akses sebuah perangkat (misalnya HP yang hilang).</li>
+</ul>
+<h3>File &amp; FLEx</h3>
+<p>Editor membaca dan menulis file FLEx <code>.flextext</code>; analisis yang tidak diubah (morfem, kategori kata, catatan) tetap dipertahankan saat ekspor, kecuali pada kalimat yang teks dasarnya Anda ubah — sama seperti FLEx. File berisi beberapa teks diimpor sebagai teks terpisah. Kembali ke FieldWorks: <i>Texts &amp; Words → Import → FLExText interlinear document</i>. File yang dibagikan lewat aplikasi pesan tiba sebagai <code>….flextext.txt</code> (aplikasi pesan hanya menerima jenis tertentu) — impor FLEx membukanya apa adanya, atau hapus saja <code>.txt</code>; aplikasi ini juga membukanya langsung.</p>
+<h3>Izin penutur (consent)</h3>
+<p>Per perangkat Anda bisa mewajibkan langkah izin sebelum rekan kerja merekam: pengingat tertulis dan/atau suara, lalu mereka mengonfirmasi dengan <b>Ya/Tidak</b>, dengan <b>merekam penutur mengatakan ya</b>, atau dengan <b>mengetik nama penutur</b>. Setiap persetujuan menulis <code>consent-receipt.json</code> (+ <code>.txt</code> yang mudah dibaca) ke dalam unggahan — pesan persis yang ditampilkan, tanggal/waktu, tanda tangan atau rekaman, serta sebisanya IP perangkat (saat online) dan lokasi perkiraan bila penutur mengizinkan (ditanya sekali). Bila pengingatnya audio, salinan persis klip yang didengar penutur ikut dibungkus, sehingga pertanyaan dan jawaban tetap berpasangan walau pengingat diperbaiki nanti. Pengingat suara disimpan di perangkat sehingga bisa diputar tanpa internet.</p>
+<h3>Alat lain (tab Pengaturan di aplikasi)</h3>
+<p>Beberapa alat penyiapan ada di tab <b>Pengaturan</b> editor — tampilkan dengan <b>7 ketukan pada ?</b> atau <b>Ctrl+Alt+R</b> — terpisah dari panel ini:</p>
+<ul>
+<li><b>Pemeriksa sistem tulisan</b> — lihat kode pada setiap baris interlinear dan ganti tanpa mengubah isi lain.</li>
+<li><b>Pengubah audio</b> — ubah WAV besar (WAV stereo 32-bit 2 menit ≈ 40&nbsp;MB) menjadi MP3 mono 64&nbsp;kbps kecil (≈0,5&nbsp;MB/menit), di perangkat dan tanpa internet.</li>
+<li><b>Tautan pengaturan &amp; tugas</b> — cara URL lama untuk mengatur perangkat rekan kerja dan mengirim tugas audio (tautan membuat teks berjudul dan otomatis mengunduh rekaman ke pemutar). Host MP3 di server mana pun yang mendukung CORS, atau bagikan dari Drive Anda lalu tempel tautannya.</li>
+<li><b>Format rekaman</b> — bawaan <b>WAV 24-bit</b> adalah master lossless berkualitas arsip; FLAC / WebM&nbsp;Opus / MP3 menukar kualitas dengan ukuran. Penguatan otomatis <b>mati secara bawaan</b> agar master tetap setia — latih rekan kerja memperhatikan <b>meter level</b> di layar dan mundur bila ada peringatan. Tautan "Format mana yang harus saya pilih?" memberi panduan arsip lengkap.</li>
 </ul>
 <h3>Akun Anda</h3>
 <p>Anda masuk dengan email dan kata sandi, dan Anda bisa mengatur ulang kata sandi lewat email jika lupa. Untuk perlindungan tambahan, Anda bisa mengaktifkan aplikasi autentikator opsional (masuk dua langkah).</p>

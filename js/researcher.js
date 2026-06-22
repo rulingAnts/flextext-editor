@@ -5,35 +5,35 @@
  * delivers keys, pushes commands, reads decrypted inventory). Pure engine — NO UI; the
  * panel calls these and renders. Mirrors the E1d harness, which proved every call live.
  *
- * E2EE (model A): a passphrase derives the master key Kr (PBKDF2). Each instance has a
- * random Ki, wrapped under Kr and stored in the researcher's D1 settings_blob (so the
- * researcher's OTHER devices unwrap it; the Worker never can). Ki reaches a field install
- * asymmetrically: the install sends a public key at claim, the researcher wraps Ki to it
- * (deliverKey), the Worker only relays ciphertext. Everything the Worker/D1 hold is
- * ciphertext except routing/auth fields (ids, secret hashes, *_rev, type).
+ * Auth model: EMAIL + PASSWORD (the password never leaves the device). The researcher has a
+ * random data key Kr; from password+salt the client derives a KEK (wraps Kr) and an authSecret
+ * (the API credential — the server stores only its hash). Kr is ALSO escrow-wrapped to the
+ * Worker's public key so a forgotten password can be recovered by email. Each instance has a
+ * random Ki wrapped under Kr in the D1 settings_blob; Ki reaches a field install asymmetrically
+ * (install sends a public key at claim, researcher wraps Ki to it; the Worker only relays
+ * ciphertext). Everything the Worker/D1 hold is ciphertext except routing fields — plus, by
+ * design (operator-recoverable, not zero-knowledge), the escrow copy of Kr.
  *
- * Threat note: the researcher's API auth secret IS persisted (localStorage) — like staying
- * logged in on their own device. Kr is NOT persisted (re-entered each session). So a stolen
- * researcher device grants API access but NOT plaintext: without the passphrase there's no
- * Kr → no Ki → reports stay opaque and no valid encrypted command can be forged.
+ * localStorage holds {researcher_id, secret(=authSecret), email, salt, wrappedKr}: API access and
+ * OFFLINE unlock persist; the PASSWORD is never stored. Optional TOTP adds a second factor.
  */
 
 import {
-  deriveKeyFromPassphrase, generateKey, wrapKey, unwrapKey,
-  encryptJSON, decryptJSON, randomBytesB64,
+  deriveKeyFromPassphrase, deriveAuthSecret, generateKey, wrapKey, unwrapKey,
+  importKeyB64, encryptJSON, decryptJSON, randomBytesB64,
   importPublicKeyB64, wrapKeyForInstall,
 } from './crypto.js';
 
 const AUTH_KEY = 'flextext-researcher-auth';
-const VERIFIER = 'flextext-e2ee-verifier-v1';   // marker proving a passphrase derived the right Kr
 const REQ_TIMEOUT_MS = 20000;
 
 /* ---------------- module state ---------------- */
 
 let workerBaseFn = () => '';
-let Kr = null;                 // researcher master key (memory only; derived from passphrase)
-let settingsCache = null;      // last-known settings_blob: { v, salt, verifier, wrappedKis:{} }
+let Kr = null;                 // the researcher's random DATA key (memory only); wraps every Ki
+let settingsCache = null;      // last-known settings_blob: { wrappedKis:{} }
 let kiCache = new Map();       // instance_id -> Ki CryptoKey (unwrapped under Kr)
+let _resetKr = null;           // Kr recovered during a password reset, held between verify→confirm
 
 export function init({ workerBase } = {}) { if (workerBase) workerBaseFn = workerBase; }
 
@@ -72,28 +72,123 @@ async function api(method, path, { headers = {}, body, auth = true } = {}) {
   } finally { clearTimeout(timer); }
 }
 
-/* ---------------- signup ---------------- */
+/* ---------------- email + password auth ---------------- */
 
-// Self-serve, Turnstile-gated (fail-closed 503 if the Worker has no TURNSTILE_SECRET).
-// Persists the returned auth creds; the caller still needs setupPassphrase()/unlock().
-export async function signup(turnstileToken) {
-  const r = await api('POST', '/v1/researcher', { auth: false, body: { turnstileToken } });
-  saveAuth({ researcher_id: r.researcher_id, secret: r.secret });
-  return { ok: true, researcher_id: r.researcher_id };
+export function accountEmail() { const a = loadAuth(); return a && a.email; }
+export function totpEnabledLocal() { const a = loadAuth(); return !!(a && a.totp_enabled); }
+
+async function escrowPubkey() {
+  const r = await api('GET', '/v1/escrow-pubkey', { auth: false });
+  if (!r.pubkey) throw new Error('no_escrow_pubkey');
+  return importPublicKeyB64(r.pubkey);
+}
+// From password+salt + a chosen Kr: the bits the server stores (wrappedKr, authSecret).
+async function deriveAccount(password, salt, dataKey) {
+  return {
+    wrappedKr: await wrapKey(await deriveKeyFromPassphrase(password, salt), dataKey),
+    authSecret: await deriveAuthSecret(password, salt),
+  };
 }
 
-// The current account creds, for the researcher to back up (there is NO email recovery:
-// the account secret + the passphrase are the only way back in on a new device).
-export function accountInfo() { return loadAuth(); }
+// Sign up: email + password (+ Turnstile). Generates Kr, wraps it under the password and the
+// escrow key, registers, persists creds, leaves the account UNLOCKED.
+export async function signup(email, password, turnstileToken) {
+  const salt = randomBytesB64(16);
+  const newKr = await generateKey();
+  const { wrappedKr, authSecret } = await deriveAccount(password, salt, newKr);
+  const escrowKr = await wrapKeyForInstall(await escrowPubkey(), newKr);
+  const r = await api('POST', '/v1/researcher', { auth: false, body: { email, salt, authSecret, wrappedKr, escrowKr, turnstileToken } });
+  saveAuth({ researcher_id: r.researcher_id, secret: authSecret, email, salt, wrappedKr });
+  Kr = newKr; kiCache = new Map(); settingsCache = { wrappedKis: {} };
+  return { ok: true };
+}
 
-// Restore an existing account on a NEW device from a backed-up secret. The passphrase
-// (→ Kr) is still required afterwards to decrypt anything — this only sets API auth.
-export function restoreAccount(researcher_id, secret) {
-  const id = String(researcher_id || '').trim();
-  const sec = String(secret || '').trim();
-  if (!id || !sec) return { ok: false, error: 'bad_account' };
-  saveAuth({ researcher_id: id, secret: sec });
-  lock();
+// Log in (this or a new device): email + password (+ TOTP if enabled). Proves the password to the
+// server, unwraps Kr locally, persists creds for offline unlock. Returns {ok:false, need:'totp'}
+// when a code is required.
+export async function login(email, password, totpCode) {
+  const { salt } = await api('POST', '/v1/researcher/salt', { auth: false, body: { email } });
+  const KEK = await deriveKeyFromPassphrase(password, salt);
+  const authSecret = await deriveAuthSecret(password, salt);
+  let r;
+  try { r = await api('POST', '/v1/researcher/login', { auth: false, body: { email, authSecret, totpCode } }); }
+  catch (e) {
+    const code = e.data && e.data.error;
+    if (e.status === 401 && code === 'totp_required') return { ok: false, need: 'totp' };
+    if (e.status === 401 && code === 'bad_totp') return { ok: false, error: 'bad_totp' };
+    if (e.status === 401) return { ok: false, error: 'bad_login' };
+    throw e;
+  }
+  let newKr;
+  try { newKr = await unwrapKey(KEK, r.wrapped_kr); } catch { return { ok: false, error: 'bad_login' }; }
+  saveAuth({ researcher_id: r.researcher_id, secret: authSecret, email, salt, wrappedKr: r.wrapped_kr, totp_enabled: !!r.totp_enabled });
+  Kr = newKr; kiCache = new Map(); settingsCache = null;
+  return { ok: true };
+}
+
+// Offline unlock on a signed-in device: password → KEK(stored salt) → unwrap stored wrappedKr.
+// No network; the AES-GCM tag proves the password.
+export async function unlock(password) {
+  const a = loadAuth();
+  if (!a || !a.salt || !a.wrappedKr) return { ok: false, error: 'not_signed_in' };
+  const KEK = await deriveKeyFromPassphrase(password, a.salt);
+  let newKr;
+  try { newKr = await unwrapKey(KEK, a.wrappedKr); } catch { return { ok: false, error: 'bad_password' }; }
+  Kr = newKr; kiCache = new Map(); settingsCache = null;
+  return { ok: true };
+}
+
+/* ---- password recovery (escrow) + TOTP ---- */
+
+export async function requestReset(email, appBase) {
+  await api('POST', '/v1/researcher/reset/request', { auth: false, body: { email, appBase } });
+  return { ok: true };
+}
+// Step 1: token (+ TOTP) → recover Kr from escrow (held for the confirm step).
+export async function verifyReset(token, totpCode) {
+  try {
+    const r = await api('POST', '/v1/researcher/reset/verify', { auth: false, body: { token, totpCode } });
+    _resetKr = await importKeyB64(r.kr);
+    return { ok: true };
+  } catch (e) {
+    const code = e.data && e.data.error;
+    if (e.status === 401 && code === 'totp_required') return { ok: false, need: 'totp' };
+    if (e.status === 401 && code === 'bad_totp') return { ok: false, error: 'bad_totp' };
+    if (e.status === 401) return { ok: false, error: 'bad_token' };
+    throw e;
+  }
+}
+// Step 2: set a new password — re-wrap the recovered Kr (Kr unchanged → all data survives). The
+// caller then logs in with the new password to establish full creds.
+export async function confirmReset(token, newPassword) {
+  if (!_resetKr) return { ok: false, error: 'verify_first' };
+  const salt = randomBytesB64(16);
+  const { wrappedKr, authSecret } = await deriveAccount(newPassword, salt, _resetKr);
+  await api('POST', '/v1/researcher/reset/confirm', { auth: false, body: { token, salt, authSecret, wrappedKr } });
+  _resetKr = null;
+  return { ok: true };
+}
+
+export async function totpSetup() { return api('POST', '/v1/researcher/totp/setup', { body: {} }); }
+export async function totpEnable(code) {
+  const r = await api('POST', '/v1/researcher/totp/enable', { body: { code } });
+  const a = loadAuth(); if (a) { a.totp_enabled = true; saveAuth(a); }
+  return r;
+}
+export async function totpDisable(code) {
+  const r = await api('POST', '/v1/researcher/totp/disable', { body: { code } });
+  const a = loadAuth(); if (a) { a.totp_enabled = false; saveAuth(a); }
+  return r;
+}
+
+// Change password while signed in + unlocked: re-wrap the SAME Kr under the new password (so all
+// data survives + the escrow copy stays valid), push, and update local creds.
+export async function changePassword(newPassword) {
+  requireUnlocked();
+  const salt = randomBytesB64(16);
+  const { wrappedKr, authSecret } = await deriveAccount(newPassword, salt, Kr);
+  await api('POST', '/v1/researcher/password', { body: { salt, authSecret, wrappedKr } });
+  const a = loadAuth(); if (a) { a.salt = salt; a.secret = authSecret; a.wrappedKr = wrappedKr; saveAuth(a); }
   return { ok: true };
 }
 
@@ -109,43 +204,14 @@ async function fetchSettings() {
 }
 async function putSettings() { return api('PUT', '/v1/researcher/settings', { body: { settings: settingsCache } }); }
 
-/* ---------------- passphrase → Kr ---------------- */
-
-// First run on this account: create the salt + verifier under a fresh Kr. If the account
-// is ALREADY initialized (e.g. set up on another device), this transparently unlocks instead.
-export async function setupPassphrase(passphrase) {
-  await fetchSettings();
-  if (settingsCache.salt && settingsCache.verifier) return unlock(passphrase);
-  const salt = randomBytesB64(16);
-  const k = await deriveKeyFromPassphrase(passphrase, salt);
-  settingsCache.v = 1;
-  settingsCache.salt = salt;
-  settingsCache.verifier = await encryptJSON(k, { v: VERIFIER });
-  settingsCache.wrappedKis = settingsCache.wrappedKis || {};
-  await putSettings();
-  Kr = k; kiCache = new Map();
-  return { ok: true };
-}
-
-// Re-derive Kr from the passphrase + stored salt, proving correctness via the verifier.
-export async function unlock(passphrase) {
-  if (!settingsCache) await fetchSettings();
-  if (!settingsCache.salt || !settingsCache.verifier) return { ok: false, error: 'not_initialized' };
-  const k = await deriveKeyFromPassphrase(passphrase, settingsCache.salt);
-  try {
-    const v = await decryptJSON(k, settingsCache.verifier);
-    if (!v || v.v !== VERIFIER) return { ok: false, error: 'bad_passphrase' };
-  } catch { return { ok: false, error: 'bad_passphrase' }; }
-  Kr = k; kiCache = new Map();
-  return { ok: true };
-}
-
 function requireUnlocked() { if (!Kr) throw new Error('locked'); }
 
-// Unwrap an instance's Ki under Kr (cached). Throws 'no_key_for_instance' if absent.
+// Unwrap an instance's Ki under Kr (cached). Loads the key store if needed. Throws
+// 'no_key_for_instance' if absent.
 async function getKi(instanceId) {
   requireUnlocked();
   if (kiCache.has(instanceId)) return kiCache.get(instanceId);
+  if (!settingsCache) await fetchSettings();
   const wrapped = settingsCache && settingsCache.wrappedKis && settingsCache.wrappedKis[instanceId];
   if (!wrapped) throw new Error('no_key_for_instance');
   const ki = await unwrapKey(Kr, wrapped);

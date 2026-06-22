@@ -190,6 +190,8 @@ const VIEWS = ['texts', 'baseline', 'gloss', 'research', 'help', 'record', 'rese
 // a researcher's own device boots into it with ?mode=researcher, and once signed up an
 // entry button appears. Field devices (no researcher auth) never show it.
 const PANEL_MODE = new URLSearchParams(location.search).get('mode') === 'researcher';
+// A password-reset link (emailed) lands as ?reset=<token> → open the panel to the reset screen.
+const RESET_TOKEN = new URLSearchParams(location.search).get('reset');
 let researcherPanelApi = null;   // set in setup(); the research-toggle gesture opens it on managed installs
 
 function currentView() {
@@ -3324,7 +3326,7 @@ function setup() {
   });
   const researcherBtn = $('#btn-researcher');
   if (researcherBtn) {
-    researcherBtn.hidden = !(researcherPanelApi.isSignedUp() || PANEL_MODE);
+    researcherBtn.hidden = !(researcherPanelApi.isSignedUp() || PANEL_MODE || RESET_TOKEN);
     researcherBtn.addEventListener('click', () => researcherPanelApi.open());
   }
 
@@ -3334,9 +3336,10 @@ function setup() {
       renderDocList();
       show('texts');
     });
-  } else if (PANEL_MODE) {
-    renderDocList();              // prep the texts view underneath for when they exit
-    researcherPanelApi.open();    // …then take over with the panel (hides both app topbars)
+  } else if (PANEL_MODE || RESET_TOKEN) {
+    renderDocList();                                  // prep the texts view underneath for when they exit
+    researcherPanelApi.open(RESET_TOKEN || undefined); // …then take over with the panel (reset screen if a token)
+    if (RESET_TOKEN) history.replaceState(null, '', location.pathname); // strip the token from the URL/history
   } else {
     renderDocList();
     show('texts');

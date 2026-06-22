@@ -12,6 +12,12 @@
       "runtimeExecutable": "python3",
       "runtimeArgs": ["dev_server.py", "--port", "8766"],
       "port": 8766
+    },
+    {
+      "name": "flextext-http",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8011"],
+      "port": 8011
     }
   ]
 }

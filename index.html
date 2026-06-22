@@ -24,6 +24,7 @@
       <option value="id">Indonesia</option>
     </select>
     <button id="btn-help-home" class="icon-btn help-btn" data-i18n-title="btn.help">?</button>
+    <button id="btn-researcher" class="secondary-btn" data-i18n="panel.entry" hidden>Researcher</button>
     <nav class="top-tabs" role="tablist">
       <button class="top-tab" data-view="texts" data-i18n="tabs.texts" aria-selected="true">Texts</button>
       <button class="top-tab" data-view="research" data-i18n="tabs.research" aria-selected="false">Settings</button>
@@ -325,6 +326,9 @@
   <h2 data-i18n="help.title">Help</h2>
   <div id="help-body" data-i18n-html="help.html"></div>
 </section>
+
+<!-- ===== Researcher panel (separate full-screen view; rendered by js/researcher-panel.js) ===== -->
+<section id="view-researcher" class="view" hidden></section>
 
 </main>
 

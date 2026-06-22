@@ -82,6 +82,21 @@ export async function signup(turnstileToken) {
   return { ok: true, researcher_id: r.researcher_id };
 }
 
+// The current account creds, for the researcher to back up (there is NO email recovery:
+// the account secret + the passphrase are the only way back in on a new device).
+export function accountInfo() { return loadAuth(); }
+
+// Restore an existing account on a NEW device from a backed-up secret. The passphrase
+// (→ Kr) is still required afterwards to decrypt anything — this only sets API auth.
+export function restoreAccount(researcher_id, secret) {
+  const id = String(researcher_id || '').trim();
+  const sec = String(secret || '').trim();
+  if (!id || !sec) return { ok: false, error: 'bad_account' };
+  saveAuth({ researcher_id: id, secret: sec });
+  lock();
+  return { ok: true };
+}
+
 /* ---------------- settings_blob (the researcher's encrypted key store) ---------------- */
 
 function safeParse(s) { try { return typeof s === 'string' ? JSON.parse(s) : (s || null); } catch { return null; } }

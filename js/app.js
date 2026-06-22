@@ -15,6 +15,7 @@ import { losslessSupported, recFormatSupported, PCMRecorder, encodeWav, encodeRe
 import { makeZip } from './zip.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads } from './upload.js';
 import * as Sync from './sync.js';
+import { initResearcherPanel } from './researcher-panel.js';
 import { esc, newGuid as mkGuid } from './flextext.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -183,7 +184,12 @@ function toast(msg, ms = 2600) {
 
 /* ---------------- View switching ---------------- */
 
-const VIEWS = ['texts', 'baseline', 'gloss', 'research', 'help', 'record'];
+const VIEWS = ['texts', 'baseline', 'gloss', 'research', 'help', 'record', 'researcher'];
+
+// The researcher panel is a SEPARATE view (not the field-worker "research"/Settings tab):
+// a researcher's own device boots into it with ?mode=researcher, and once signed up an
+// entry button appears. Field devices (no researcher auth) never show it.
+const PANEL_MODE = new URLSearchParams(location.search).get('mode') === 'researcher';
 
 function currentView() {
   return VIEWS.find(v => { const el = $('#view-' + v); return el && !el.hidden; }) || 'texts';
@@ -197,8 +203,9 @@ function show(view) {
     (view === 'help' && (helpReturnView === 'baseline' || helpReturnView === 'gloss'));
   const home = $('#topbar-home');
   const editor = $('#topbar-editor');
-  if (home) home.hidden = inEditor;
-  if (editor) editor.hidden = !inEditor;
+  // The researcher panel is a full takeover with its own in-view header — hide both bars.
+  if (home) home.hidden = inEditor || view === 'researcher';
+  if (editor) editor.hidden = !inEditor || view === 'researcher';
   if (!inEditor) {
     $$('#topbar-home .top-tab').forEach(b =>
       b.setAttribute('aria-selected', String(b.dataset.view === view)));
@@ -1713,6 +1720,17 @@ function allowedButtons() {
   return new Set(Array.isArray(settings.toolbarButtons) ? settings.toolbarButtons : ALL_BUTTONS);
 }
 
+// Apply the researcher-controlled Texts-screen button visibility (link btns=… /
+// pushed toolbarButtons). Reusable so a pushed changeSettings re-applies it live.
+function applyAllowedButtons() {
+  const shown = allowedButtons();
+  const set = (sel, key) => { const el = $(sel); if (el) el.hidden = !shown.has(key); };
+  set('#btn-new', 'new');
+  set('#btn-new-audio', 'audio');
+  set('#btn-record', 'record');
+  set('#btn-import', 'open');
+}
+
 // Whether a text/recording should be deleted from THIS device once it has
 // uploaded to Drive. Researcher-controlled via the link (autoDel=on|off →
 // settings.autoDelUploaded). When the link said nothing, default per app: the
@@ -1779,6 +1797,10 @@ async function syncDispatch(cmd) {
       Object.assign(s, cmd.settings || {});
       saveSettings(s);
       settings = loadSettings();
+      // Reflect pushed changes immediately (button/tab visibility, WS form, doc list)
+      // instead of waiting for the next view change. Editor-mode only — these touch
+      // editor-only DOM; the recorder applies settings on its next render.
+      if (!RECORD_MODE) { applyResearchVisibility(); applyAllowedButtons(); fillWsForm(); renderDocList(); }
       break;
     }
     case 'triggerUpload': {
@@ -1792,8 +1814,10 @@ async function syncDispatch(cmd) {
   }
 }
 
-// Metadata-ONLY inventory for the report (plan §4): titleHash (never plaintext), no
-// audio bytes; stable fields only so an unchanged list never writes.
+// Inventory for the report. The whole blob is E2EE-encrypted before it leaves the device
+// (sync.js), so the actual title + a researcher-relevant settings snapshot ride along: only
+// the Ki holder (the researcher) can read them — the Worker/D1 see ciphertext. titleHash is
+// kept too (legacy / change-gate). No audio bytes; stable fields so an unchanged list never writes.
 async function syncGatherInventory() {
   const metas = await db.listDocs();
   const items = [];
@@ -1803,6 +1827,7 @@ async function syncGatherInventory() {
     const backed = !!d.uploadedFileId;
     items.push({
       id: d.id,
+      title: d.title || '',
       titleHash: await syncTitleHash(d.title),
       hasAudio: !!(d.audioSource || d.pendingAudio || d.audioId),
       modified: d.modified,
@@ -1810,7 +1835,15 @@ async function syncGatherInventory() {
       uploadedFileId: d.uploadedFileId || null,
     });
   }
-  return { type: RECORD_MODE ? 'recorder' : 'editor', items };
+  // The settings the researcher panel can view/prefill for this device (encrypted in transit).
+  const snap = {};
+  for (const k of ['vernLang', 'vernName', 'vernFont', 'analLang', 'analName', 'analFont',
+                   'recordFormat', 'agc', 'nr', 'echo', 'norm',
+                   'consentMode', 'consentMsg', 'consentResp',
+                   'uploadFolder', 'toolbarButtons', 'sendOptions', 'autoDel', 'recordWelcome']) {
+    if (settings[k] !== undefined) snap[k] = settings[k];
+  }
+  return { type: RECORD_MODE ? 'recorder' : 'editor', items, settings: snap };
 }
 
 // One-time invite link (?invite=<id>#k=<secret>) → bind this install to the
@@ -3169,11 +3202,7 @@ function setup() {
   $('#btn-new-audio').addEventListener('click', () => $('#new-audio-file').click());
   $('#btn-record').addEventListener('click', () => requestConsentThen(() => openRecordModal()));
   // The researcher can show/hide each Texts-screen button via a link (btns=…).
-  const shownButtons = allowedButtons();
-  $('#btn-new').hidden = !shownButtons.has('new');
-  $('#btn-new-audio').hidden = !shownButtons.has('audio');
-  $('#btn-record').hidden = !shownButtons.has('record');
-  $('#btn-import').hidden = !shownButtons.has('open');
+  applyAllowedButtons();
   $('#new-audio-file').addEventListener('change', (e) => {
     const f = e.target.files[0];
     e.target.value = '';
@@ -3221,12 +3250,41 @@ function setup() {
     settings.researchOffChecked = offBox.checked;
     saveSettings(settings);
   });
+
+  // ----- Researcher panel (separate full-screen view; editor mode only) -----
+  const researcherPanel = initResearcherPanel({
+    root: $('#view-researcher'),
+    workerBase: () => workerBase(),
+    turnstileSiteKey: () => turnstileSiteKey(),
+    toast: (m, ms) => toast(m, ms),
+    loadSettings,
+    saveSettings,
+    parseDriveFolder,
+    openView: (v) => show(v),
+    goHome: () => { renderDocList(); show('texts'); },
+    onSignedUp: () => { const b = $('#btn-researcher'); if (b) b.hidden = !researcherPanel.isSignedUp(); },
+    onLocalSettingsSaved: () => {
+      settings = loadSettings();
+      applyResearchVisibility();
+      fillWsForm();
+      renderDocList();
+    },
+  });
+  const researcherBtn = $('#btn-researcher');
+  if (researcherBtn) {
+    researcherBtn.hidden = !(researcherPanel.isSignedUp() || PANEL_MODE);
+    researcherBtn.addEventListener('click', () => researcherPanel.open());
+  }
+
   if (task) {
     openUrlTask(task).catch(err => {
       toast(t('toast.importFailed', { msg: err.message }), 6000);
       renderDocList();
       show('texts');
     });
+  } else if (PANEL_MODE) {
+    renderDocList();              // prep the texts view underneath for when they exit
+    researcherPanel.open();       // …then take over with the panel (hides both app topbars)
   } else {
     renderDocList();
     show('texts');

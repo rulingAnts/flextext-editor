@@ -78,7 +78,11 @@ async function route() {
   if (!Researcher.isUnlocked()) {
     renderConnecting();
     try { await Researcher.bootstrap(); }
-    catch (e) { Researcher.signOut(); return renderSignIn(e && e.status === 401 ? t('panel.signin.expired') : null); }
+    catch (e) {
+      Researcher.signOut();
+      const why = (e && e.data && e.data.error) || (e && e.message) || (e && e.status && ('HTTP ' + e.status)) || 'unknown';
+      return renderSignIn(e && e.status === 401 ? t('panel.signin.expired') : ('Sign-in could not complete (' + why + '). Please try again.'));
+    }
   }
   renderDashboard();
 }

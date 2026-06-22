@@ -30,7 +30,20 @@ PORT_EDITOR=8012
 PORT_TUNNEL=8787
 VM_KEY="$HOME/.ssh/kde_neon_ed25519"
 VM_HOST="claude@10.211.55.15"
+VM_NAME="KDE neon"        # Parallels VM that runs the worker
 VM_SSH=(ssh -i "$VM_KEY" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10)
+
+# Power the worker's Parallels VM on if it's stopped (the systemd worker then auto-starts
+# on boot). Without this, a suspended/stopped VM silently breaks every /v1 + /drive call.
+ensure_vm() {
+  command -v prlctl >/dev/null 2>&1 || return 0   # not this Mac → assume VM reachable
+  local st; st="$(prlctl list -a 2>/dev/null | awk -v n="$VM_NAME" 'index($0,n){print $2; exit}')"
+  [ "$st" = "running" ] && return 0
+  echo "  VM '$VM_NAME' is ${st:-unknown} — starting it…"
+  prlctl start "$VM_NAME" >/dev/null 2>&1 || true
+  local i; for i in $(seq 1 30); do prlctl exec "$VM_NAME" true >/dev/null 2>&1 && { echo "  VM '$VM_NAME' up"; return 0; }; sleep 4; done
+  echo "  WARNING: VM '$VM_NAME' did not come up in time"
+}
 
 # ---------------- internal: the detached supervisor loop for a Mac unit -----------
 # Re-invoked as `devctl.sh __supervise <name> <cmd...>`; keeps <cmd> alive until killed.
@@ -78,7 +91,7 @@ worker_install() {  # ship the VM-side daemon script (idempotent)
 }
 worker_cmd() { "${VM_SSH[@]}" "$VM_HOST" "bash ~/worker-daemon.sh $1" 2>&1; }
 
-start_worker()  { worker_install && echo "  worker: $(worker_cmd start)"; }
+start_worker()  { ensure_vm; worker_install && echo "  worker: $(worker_cmd start)"; }
 stop_worker()   { echo "  worker: $(worker_cmd stop)"; }
 status_worker() { echo "  worker (VM): $(worker_cmd status)"; }
 

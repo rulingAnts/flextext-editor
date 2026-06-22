@@ -75,3 +75,36 @@ export async function unwrapKey(wrappingKey, wrapped) {
   const { k } = await decryptJSON(wrappingKey, wrapped);
   return importKeyB64(k);
 }
+
+/* ---- asymmetric Ki delivery (model A — hardened) ----
+ * The field install generates an RSA-OAEP keypair, sends only its PUBLIC key with the
+ * claim, and keeps the private key NON-EXTRACTABLE (stored as a CryptoKey in IndexedDB,
+ * never serialized). After approval the researcher wraps Ki to that public key; the
+ * Worker only ever relays the wrapped blob. So a leaked invite never exposes Ki — only
+ * the install's private key (which never leaves it) can unwrap it. */
+export async function generateInstallKeypair() {
+  // extractable=false → private key non-extractable; the public key is always extractable.
+  return crypto.subtle.generateKey(
+    { name: 'RSA-OAEP', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+    false, ['encrypt', 'decrypt']
+  );
+}
+export async function exportPublicKeyB64(publicKey) { return bytesToB64(await crypto.subtle.exportKey('spki', publicKey)); }
+export async function importPublicKeyB64(b64) {
+  return crypto.subtle.importKey('spki', b64ToBytes(b64), { name: 'RSA-OAEP', hash: 'SHA-256' }, true, ['encrypt']);
+}
+// Researcher side: RSA-OAEP-encrypt Ki's raw bytes to the install's public key.
+export async function wrapKeyForInstall(installPublicKey, Ki) {
+  const raw = await crypto.subtle.exportKey('raw', Ki);
+  return bytesToB64(await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, installPublicKey, raw));
+}
+// Install side: RSA-OAEP-decrypt with the private key → Ki as a NON-extractable AES-GCM key.
+export async function unwrapKeyFromResearcher(installPrivateKey, wrappedB64) {
+  const raw = await crypto.subtle.decrypt({ name: 'RSA-OAEP' }, installPrivateKey, b64ToBytes(wrappedB64));
+  return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+}
+// Short fingerprint of a public key (SHA-256 of SPKI) — for out-of-band verification at approval.
+export async function publicKeyFingerprint(publicKey) {
+  const h = await crypto.subtle.digest('SHA-256', await crypto.subtle.exportKey('spki', publicKey));
+  return [...new Uint8Array(h)].slice(0, 8).map((b) => b.toString(16).padStart(2, '0')).join('');
+}

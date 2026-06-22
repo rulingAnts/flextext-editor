@@ -195,7 +195,7 @@ function renderSignup() {
       const email = root.querySelector('#rp-email').value.trim();
       const pass = root.querySelector('#rp-pass').value;
       if (!email || !email.includes('@')) return deps.toast(t('panel.login.badEmail'), 5000);
-      if (!pass || pass.length < 8) return deps.toast(t('panel.setpass.short'), 5000);
+      if (!pass || pass.length < 10) return deps.toast(t('panel.setpass.short'), 5000);
       if (pass !== root.querySelector('#rp-pass2').value) return deps.toast(t('panel.setpass.mismatch'), 5000);
       try {
         await Researcher.signup(email, pass, token);
@@ -305,13 +305,14 @@ function renderReset(token) {
       const pass = root.querySelector('#rp-pass').value;
       const totp = root.querySelector('#rp-totp').value.trim();
       if (!email || !email.includes('@')) return deps.toast(t('panel.login.badEmail'), 5000);
-      if (!pass || pass.length < 8) return deps.toast(t('panel.setpass.short'), 5000);
+      if (!pass || pass.length < 10) return deps.toast(t('panel.setpass.short'), 5000);
       if (pass !== root.querySelector('#rp-pass2').value) return deps.toast(t('panel.setpass.mismatch'), 5000);
       try {
         const v = await Researcher.verifyReset(token, totp || undefined);
         if (v.need === 'totp') { root.querySelector('#rp-totp-row').hidden = false; root.querySelector('#rp-totp').focus(); return deps.toast(t('panel.login.totpPrompt'), 5000); }
         if (!v.ok) return deps.toast(t(v.error === 'bad_totp' ? 'panel.login.badTotp' : 'panel.reset.badToken'), 6000);
-        await Researcher.confirmReset(token, pass);
+        const c = await Researcher.confirmReset(token, pass, totp || undefined);
+        if (!c.ok) return deps.toast(t(c.error === 'bad_totp' ? 'panel.login.badTotp' : 'panel.reset.badToken'), 6000);
         deps.toast(t('panel.reset.done'), 7000);
         renderLogin(email);
       } catch (e) { errToast(e); }
@@ -571,7 +572,7 @@ function accountModal() {
   m.el.querySelector('[data-m="close"]').onclick = m.close;
   m.el.querySelector('[data-m="changepass"]').onclick = (e) => busy(e.target, async () => {
     const np = m.el.querySelector('#rp-np').value, np2 = m.el.querySelector('#rp-np2').value;
-    if (!np || np.length < 8) return deps.toast(t('panel.setpass.short'), 5000);
+    if (!np || np.length < 10) return deps.toast(t('panel.setpass.short'), 5000);
     if (np !== np2) return deps.toast(t('panel.setpass.mismatch'), 5000);
     try { await Researcher.changePassword(np); deps.toast(t('panel.account.passChanged'), 5000); m.el.querySelector('#rp-np').value = ''; m.el.querySelector('#rp-np2').value = ''; }
     catch (err) { errToast(err); }

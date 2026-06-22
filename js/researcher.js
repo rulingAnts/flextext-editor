@@ -32,6 +32,7 @@ const REQ_TIMEOUT_MS = 20000;
 let workerBaseFn = () => '';
 let Kr = null;                 // the researcher's random DATA key (memory only); wraps every Ki
 let settingsCache = null;      // last-known settings_blob: { wrappedKis:{} }
+let settingsRev = null;        // its server rev, for optimistic-locked writes (anti silent clobber)
 let kiCache = new Map();       // instance_id -> Ki CryptoKey (unwrapped under Kr)
 let _resetKr = null;           // Kr recovered during a password reset, held between verify→confirm
 
@@ -44,7 +45,7 @@ function saveAuth(a) { localStorage.setItem(AUTH_KEY, JSON.stringify(a)); }
 
 export function isSignedUp() { return !!loadAuth(); }
 export function isUnlocked() { return !!Kr; }
-export function lock() { Kr = null; settingsCache = null; kiCache = new Map(); }
+export function lock() { Kr = null; settingsCache = null; settingsRev = null; kiCache = new Map(); }
 export function signOut() { lock(); try { localStorage.removeItem(AUTH_KEY); } catch { /* noop */ } }
 
 /* ---------------- low-level request (researcher-authed unless auth:false) ---------------- */
@@ -99,7 +100,7 @@ export async function signup(email, password, turnstileToken) {
   const escrowKr = await wrapKeyForInstall(await escrowPubkey(), newKr);
   const r = await api('POST', '/v1/researcher', { auth: false, body: { email, salt, authSecret, wrappedKr, escrowKr, turnstileToken } });
   saveAuth({ researcher_id: r.researcher_id, secret: authSecret, email, salt, wrappedKr });
-  Kr = newKr; kiCache = new Map(); settingsCache = { wrappedKis: {} };
+  Kr = newKr; kiCache = new Map(); settingsCache = { wrappedKis: {} }; settingsRev = 0;
   return { ok: true };
 }
 
@@ -122,7 +123,7 @@ export async function login(email, password, totpCode) {
   let newKr;
   try { newKr = await unwrapKey(KEK, r.wrapped_kr); } catch { return { ok: false, error: 'bad_login' }; }
   saveAuth({ researcher_id: r.researcher_id, secret: authSecret, email, salt, wrappedKr: r.wrapped_kr, totp_enabled: !!r.totp_enabled });
-  Kr = newKr; kiCache = new Map(); settingsCache = null;
+  Kr = newKr; kiCache = new Map(); settingsCache = null; settingsRev = null;
   return { ok: true };
 }
 
@@ -134,7 +135,7 @@ export async function unlock(password) {
   const KEK = await deriveKeyFromPassphrase(password, a.salt);
   let newKr;
   try { newKr = await unwrapKey(KEK, a.wrappedKr); } catch { return { ok: false, error: 'bad_password' }; }
-  Kr = newKr; kiCache = new Map(); settingsCache = null;
+  Kr = newKr; kiCache = new Map(); settingsCache = null; settingsRev = null;
   return { ok: true };
 }
 
@@ -159,12 +160,20 @@ export async function verifyReset(token, totpCode) {
   }
 }
 // Step 2: set a new password — re-wrap the recovered Kr (Kr unchanged → all data survives). The
-// caller then logs in with the new password to establish full creds.
-export async function confirmReset(token, newPassword) {
+// caller then logs in with the new password to establish full creds. The second factor is re-proven
+// here too (the server re-gates /confirm on TOTP): pass the SAME code used at verify — verify→confirm
+// is immediate, so a live TOTP is still in window and a backup code is still unused.
+export async function confirmReset(token, newPassword, totpCode) {
   if (!_resetKr) return { ok: false, error: 'verify_first' };
   const salt = randomBytesB64(16);
   const { wrappedKr, authSecret } = await deriveAccount(newPassword, salt, _resetKr);
-  await api('POST', '/v1/researcher/reset/confirm', { auth: false, body: { token, salt, authSecret, wrappedKr } });
+  try { await api('POST', '/v1/researcher/reset/confirm', { auth: false, body: { token, salt, authSecret, wrappedKr, totpCode } }); }
+  catch (e) {
+    const code = e.data && e.data.error;
+    if (e.status === 401 && (code === 'totp_required' || code === 'bad_totp')) return { ok: false, error: 'bad_totp' };
+    if (e.status === 401) return { ok: false, error: 'bad_token' };
+    throw e;
+  }
   _resetKr = null;
   return { ok: true };
 }
@@ -200,9 +209,16 @@ async function fetchSettings() {
   const v = await api('GET', '/v1/researcher');
   settingsCache = safeParse(v.settings) || {};
   if (!settingsCache.wrappedKis) settingsCache.wrappedKis = {};
+  if (typeof v.settings_rev === 'number') settingsRev = v.settings_rev;
   return settingsCache;
 }
-async function putSettings() { return api('PUT', '/v1/researcher/settings', { body: { settings: settingsCache } }); }
+// Optimistic-locked write: send the rev we last read so the server rejects (409) if another tab wrote
+// in between, instead of silently clobbering its key store. Callers refetch + retry on 409.
+async function putSettings() {
+  const r = await api('PUT', '/v1/researcher/settings', { body: { settings: settingsCache, settings_rev: settingsRev } });
+  if (typeof r.settings_rev === 'number') settingsRev = r.settings_rev;
+  return r;
+}
 
 function requireUnlocked() { if (!Kr) throw new Error('locked'); }
 
@@ -221,14 +237,27 @@ async function getKi(instanceId) {
 
 /* ---------------- instances + invites ---------------- */
 
-// Create a typed instance and mint its Ki, wrapped under Kr into the key store.
+// Create a typed instance and mint its Ki, wrapped under Kr into the key store. The read-modify-write
+// of the key store is optimistic-locked: on a 409 (a concurrent tab wrote first) we refetch the
+// freshest blob and re-apply, so an instance's wrapped Ki can never be silently lost.
 export async function createInstance(type, nickname) {
   requireUnlocked();
   const r = await api('POST', '/v1/instances', { body: { type, nickname } });
   const Ki = await generateKey();
-  await fetchSettings();                                  // merge into the freshest blob (single-researcher LWW)
-  settingsCache.wrappedKis[r.instance_id] = await wrapKey(Kr, Ki);
-  await putSettings();
+  const wrapped = await wrapKey(Kr, Ki);
+  try {
+    for (let attempt = 0; ; attempt++) {
+      await fetchSettings();                              // refresh blob + rev
+      settingsCache.wrappedKis[r.instance_id] = wrapped;
+      try { await putSettings(); break; }
+      catch (e) { if (e.status === 409 && attempt < 4) continue; throw e; }
+    }
+  } catch (e) {
+    // The instance row exists server-side but we couldn't persist its key (CAS exhaustion or a
+    // transient PUT failure). Don't strand a keyless instance — best-effort revoke, then surface.
+    try { await revokeInstance(r.instance_id); } catch { /* leave for manual cleanup */ }
+    throw e;
+  }
   kiCache.set(r.instance_id, Ki);
   return { instance_id: r.instance_id, type: r.type, nickname: r.nickname };
 }
@@ -303,6 +332,7 @@ export async function listView() {
   requireUnlocked();
   const v = await api('GET', '/v1/researcher');
   if (v.settings) { settingsCache = safeParse(v.settings) || settingsCache; if (settingsCache && !settingsCache.wrappedKis) settingsCache.wrappedKis = {}; }
+  if (typeof v.settings_rev === 'number') settingsRev = v.settings_rev;
   const instances = [];
   for (const inst of (v.instances || [])) {
     let Ki = null;

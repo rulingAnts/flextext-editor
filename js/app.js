@@ -158,7 +158,12 @@ function applyUrlSettings() {
         replace: p.get('replace') || '', cleanup: p.get('cleanup') || '' }
     : null;
   if (gotSettings || task || p.has('lang') || p.has('research') || p.has('mode')) {
-    history.replaceState(null, '', location.pathname);
+    // Preserve a returning Google sign-in fragment (#gauth=<id>.<token>): the
+    // researcher panel's consumeGauth() reads it LATER in setup(), so stripping
+    // it here would silently drop the session and bounce back to the sign-in
+    // screen. route() consumes + strips it once the creds are saved.
+    const keepHash = /[#&]gauth=/.test(location.hash || '') ? location.hash : '';
+    history.replaceState(null, '', location.pathname + keepHash);
   }
   return { gotSettings, settingsChanged, task };
 }

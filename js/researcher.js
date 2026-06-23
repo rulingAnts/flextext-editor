@@ -36,6 +36,8 @@ let Kr = null;                 // the researcher's random DATA key (memory only)
 let settingsCache = null;      // last-known settings_blob: { wrappedKis:{} }
 let settingsRev = null;        // its server rev, for optimistic-locked writes (anti silent clobber)
 let kiCache = new Map();       // instance_id -> Ki CryptoKey (unwrapped under Kr)
+let approvedSelf = false;      // is THIS researcher approved (active)? false = pending (request/approve)
+let ownerSelf = false;         // is THIS researcher an owner (can approve others)?
 
 export function init({ workerBase } = {}) { if (workerBase) workerBaseFn = workerBase; }
 
@@ -58,7 +60,7 @@ function saveAuth(a) { try { (staySignedIn() ? localStorage : sessionStorage).se
 
 export function isSignedUp() { return !!loadAuth(); }
 export function isUnlocked() { return !!Kr; }
-export function lock() { Kr = null; settingsCache = null; settingsRev = null; kiCache = new Map(); }
+export function lock() { Kr = null; settingsCache = null; settingsRev = null; kiCache = new Map(); approvedSelf = false; ownerSelf = false; }
 export function signOut() { lock(); try { localStorage.removeItem(AUTH_KEY); sessionStorage.removeItem(AUTH_KEY); } catch { /* noop */ } }
 
 /* ---------------- low-level request (researcher-authed unless auth:false) ---------------- */
@@ -117,8 +119,18 @@ export async function bootstrap() {
   if (typeof v.settings_rev === 'number') settingsRev = v.settings_rev;
   kiCache = new Map();
   if (v.email) { const a = loadAuth(); if (a && a.email !== v.email) { a.email = v.email; saveAuth(a); } }
-  return { ok: true, email: v.email };
+  approvedSelf = !!v.approved; ownerSelf = !!v.is_owner;
+  return { ok: true, email: v.email, approved: approvedSelf, isOwner: ownerSelf };
 }
+
+// Account status for the panel: approved = active (can manage devices); otherwise pending. owner =
+// may approve other researchers. Set by bootstrap()/listView().
+export function isApprovedSelf() { return approvedSelf; }
+export function isOwnerSelf() { return ownerSelf; }
+
+// Owner-only: approve / decline a pending researcher (request/approve onboarding).
+export async function approveResearcher(researcherId) { return api('POST', '/v1/researcher/approve', { body: { researcher_id: researcherId } }); }
+export async function declineResearcher(researcherId) { return api('POST', '/v1/researcher/decline', { body: { researcher_id: researcherId } }); }
 
 /* ---------------- account ---------------- */
 
@@ -254,6 +266,7 @@ export function triggerUpload(instanceId, docId)  { return pushCommand(instanceI
 export async function listView() {
   requireUnlocked();
   const v = await api('GET', '/v1/researcher');
+  approvedSelf = !!v.approved; ownerSelf = !!v.is_owner;          // keep status fresh for the panel
   if (v.settings) { settingsCache = safeParse(v.settings) || settingsCache; if (settingsCache && !settingsCache.wrappedKis) settingsCache.wrappedKis = {}; }
   if (typeof v.settings_rev === 'number') settingsRev = v.settings_rev;
   const instances = [];
@@ -279,5 +292,5 @@ export async function listView() {
     }
     instances.push({ instance_id: inst.instance_id, type: inst.type, nickname: inst.nickname, desired_rev: inst.desired_rev, installs });
   }
-  return { settings_rev: v.settings_rev, instances };
+  return { settings_rev: v.settings_rev, instances, isOwner: ownerSelf, pending: v.pending || [] };
 }

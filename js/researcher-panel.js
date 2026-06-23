@@ -89,6 +89,7 @@ async function route() {
       return renderSignIn(e && e.status === 401 ? t('panel.signin.expired') : ('Sign-in could not complete (' + why + '). Please try again.'));
     }
   }
+  if (!Researcher.isApprovedSelf()) return renderAwaiting();   // signed in but pending → awaiting-approval screen
   renderDashboard();
 }
 
@@ -113,6 +114,24 @@ function renderConnecting() {
   root.innerHTML = header('panel.title', false) + `
     <div class="rp-body rp-narrow"><div class="rp-card rp-signin"><p class="note">${esc(t('panel.signin.connecting'))}</p></div></div>`;
   wireActs({ exit: close });
+}
+
+// Pending researcher: signed in via Google, but an owner hasn't approved this account yet. They
+// can re-check (re-bootstrap) or sign out. No dashboard until approved.
+function renderAwaiting() {
+  stopDashPoll();
+  root.innerHTML = header('panel.title', false) + `
+    <div class="rp-body rp-narrow"><div class="rp-card rp-signin">
+      <h2>${esc(t('panel.await.title'))}</h2>
+      <p class="note">${esc(t('panel.await.intro', { email: Researcher.accountEmail() || '' }))}</p>
+      <button class="primary-btn" data-act="recheck">${esc(t('panel.await.recheck'))}</button>
+      <button class="link-btn" data-act="signout">${esc(t('panel.account.signout'))}</button>
+    </div></div>`;
+  wireActs({
+    recheck: (btn) => busy(btn, async () => { try { await Researcher.bootstrap(); } catch { /* stay pending */ } route(); }),
+    signout: () => { Researcher.signOut(); route(); },
+    exit: close,
+  });
 }
 
 /* ---------------- small DOM helpers ---------------- */
@@ -208,15 +227,18 @@ function startDashPoll() { if (!dashPoll) dashPoll = setInterval(pollDashboard, 
 // (last_seen_at / ack_seq / *_rev) so a device heartbeat doesn't force a re-render.
 function viewSig(data) {
   try {
-    return JSON.stringify((data.instances || []).map((it) => [
-      it.instance_id, it.nickname, it.type,
-      (it.installs || []).map((ins) => [
-        ins.install_id, ins.status, ins.accepted, ins.has_key,
-        ins.inventory && Array.isArray(ins.inventory.items)
-          ? ins.inventory.items.map((d) => [d.id, d.title, d.uploadState, d.hasAudio])
-          : null,
+    return JSON.stringify([
+      (data.instances || []).map((it) => [
+        it.instance_id, it.nickname, it.type,
+        (it.installs || []).map((ins) => [
+          ins.install_id, ins.status, ins.accepted, ins.has_key,
+          ins.inventory && Array.isArray(ins.inventory.items)
+            ? ins.inventory.items.map((d) => [d.id, d.title, d.uploadState, d.hasAudio])
+            : null,
+        ]),
       ]),
-    ]));
+      (data.pending || []).map((p) => [p.researcher_id, p.email]),   // owner: re-render when a request lands
+    ]);
   } catch { return String(Math.random()); } // unserializable → treat as changed
 }
 
@@ -261,6 +283,18 @@ async function renderDashboard(prefetched) {
       <span class="rp-spacer"></span>
       <button class="link-btn" data-act="account">${esc(t('panel.dash.account'))}</button>
     </div>
+    ${(data.isOwner && (data.pending || []).length) ? `
+    <div class="rp-card rp-pending-res">
+      <div class="rp-inst-name">${esc(t('panel.pending.title', { n: data.pending.length }))}</div>
+      <p class="note">${esc(t('panel.pending.intro'))}</p>
+      ${data.pending.map((p) => `<div class="rp-install">
+        <div class="invite-who">${p.avatar_url ? `<img class="invite-avatar" src="${esc(p.avatar_url)}" alt="" referrerpolicy="no-referrer" width="40" height="40">` : ''}<div><div class="invite-name">${esc(p.display_name || p.email || '?')}</div>${p.email ? `<div class="note">${esc(p.email)}</div>` : ''}</div></div>
+        <div class="rp-inst-actions">
+          <button class="primary-btn" data-ract="approve" data-rid="${esc(p.researcher_id)}">${esc(t('panel.pending.approve'))}</button>
+          <button class="link-btn rp-revoke" data-ract="decline" data-rid="${esc(p.researcher_id)}">${esc(t('panel.pending.decline'))}</button>
+        </div>
+      </div>`).join('')}
+    </div>` : ''}
     <div class="rp-card rp-self">
       <div class="rp-inst-top">
         <span class="rp-inst-name">${esc(t('panel.dash.thisDevice'))} <span class="rp-badge rp-badge-you">${esc(t('panel.dash.you'))}</span></span>
@@ -280,8 +314,25 @@ async function renderDashboard(prefetched) {
   });
   // per-card actions are delegated:
   root.querySelectorAll('[data-iact]').forEach((el) => el.addEventListener('click', () => instanceAction(el)));
+  root.querySelectorAll('[data-ract]').forEach((el) => el.addEventListener('click', () => researcherAction(el)));
   lastSig = viewSig(data);
   startDashPoll();
+}
+
+// Owner: approve / decline a pending researcher request (request/approve onboarding).
+async function researcherAction(el) {
+  const id = el.dataset.rid, act = el.dataset.ract;
+  try {
+    if (act === 'approve') {
+      await busy(el, () => Researcher.approveResearcher(id));
+      deps.toast(t('panel.pending.approved'), 4000);
+      renderDashboard();
+    } else if (act === 'decline') {
+      if (!confirm(t('panel.pending.confirmDecline'))) return;
+      await busy(el, () => Researcher.declineResearcher(id));
+      renderDashboard();
+    }
+  } catch (e) { errToast(e); }
 }
 
 async function renderInstanceCard(it) {

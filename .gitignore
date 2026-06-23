@@ -1,5 +1,7 @@
 .DS_Store
 samples/
+docs/
+CLAUDE.md
 
 # Local TLS dev certificates (mkcert) — never commit private keys
 certs/

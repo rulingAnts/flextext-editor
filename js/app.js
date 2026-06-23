@@ -1812,6 +1812,16 @@ async function syncTitleHash(title) {
   return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
 }
 
+// Data-scoping (enrollment confidentiality): a managed device exposes (reports + allows remote
+// upload of) only docs that belong to the CURRENT enrollment — created after this device was
+// bound (enrolledAt), or ones the user explicitly shared by uploading them. Pre-existing texts
+// stay invisible to a freshly-claimed researcher, so a phished/hijacked enrollment can't
+// auto-exfiltrate the accumulated corpus.
+function docInScope(d, enr) {
+  if (!enr) return true;                                  // unmanaged → no scoping
+  return (d.created || 0) >= (enr.enrolledAt || 0) || d.sharedInstall === enr.installId;
+}
+
 // Apply ONE researcher command through the existing idempotent, never-clobber handlers.
 async function syncDispatch(cmd) {
   switch (cmd && cmd.type) {
@@ -1842,9 +1852,14 @@ async function syncDispatch(cmd) {
     case 'triggerUpload': {
       const docId = cmd.docId || cmd.id;
       if (!docId) break;
+      // Data-scoping: never remote-upload a doc this enrollment isn't entitled to
+      // (pre-existing / unshared). Defense-in-depth — such docs aren't reported either, so a
+      // researcher shouldn't even know their ids.
+      const tgt = (current && current.id === docId) ? current : await db.getDoc(docId).catch(() => null);
+      if (tgt && !docInScope(tgt, Sync.enrollment())) { console.warn('sync: refusing triggerUpload of out-of-scope doc', docId); break; }
       // Remote-triggered upload — works whether or not the doc is open, so the researcher
       // can pull a text in without the coworker pressing Upload. Reports back on completion.
-      if (current && current.id === docId) await doUpload();
+      if (current && current.id === docId) await doUpload(true);   // researcher-initiated: do NOT mark as user-shared
       else await uploadDocById(docId);
       break;
     }
@@ -1859,10 +1874,12 @@ async function syncDispatch(cmd) {
 // kept too (legacy / change-gate). No audio bytes; stable fields so an unchanged list never writes.
 async function syncGatherInventory() {
   const metas = await db.listDocs();
+  const enr = Sync.enrollment();
   const items = [];
   for (const meta of metas) {
     const d = await db.getDoc(meta.id);
     if (!d) continue;
+    if (!docInScope(d, enr)) continue;   // pre-existing / unshared → never reported to this researcher
     const backed = !!d.uploadedFileId;
     items.push({
       id: d.id,
@@ -2342,12 +2359,16 @@ function renderUploadQueue() {
   }
 }
 
-async function doUpload() {
+async function doUpload(researcher = false) {
   if (!current) return;
   try {
     // Sync the open editor into the record (applyBaseline + title) before persisting +
     // bundling, so the upload reflects the latest edits.
     if (activeTab === 'baseline' && $('#baseline-text')) applyBaseline();
+    // A USER-initiated upload = the user consenting to share THIS doc with their researcher
+    // (it then reports + becomes remote-uploadable). Set it on `current` so later edits keep it.
+    // Researcher-triggered uploads (researcher=true) never mark — that's what scoping protects.
+    if (!researcher) { const enr = Sync.enrollment(); if (enr && enr.installId) current.sharedInstall = enr.installId; }
     await persist();
     await uploadDocById(current.id);
     toast(t('upload.queuedToast'));

@@ -37,6 +37,12 @@ function loadSession() {
 function saveSession(s) { localStorage.setItem(SESSION_KEY, JSON.stringify(s)); }
 
 export function hasSession() { return !!loadSession(); }
+// Enrollment facts the app needs for data-scoping (install identity + when this device was
+// bound). null when unmanaged. enrolledAt is 0 for sessions claimed before this existed.
+export function enrollment() {
+  const s = loadSession();
+  return s ? { installId: s.installId, instanceId: s.instanceId, status: s.status, enrolledAt: s.enrolledAt || 0 } : null;
+}
 export function clearSession() { localStorage.removeItem(SESSION_KEY); resetKeys(); }
 
 /* ---------------- crypto helpers (install identity, minted locally) ---------------- */
@@ -209,8 +215,12 @@ export async function claim(inviteId, inviteSecret) {
   let s = loadSession();
   // Reuse a previously-minted-but-unconfirmed identity for THIS invite (idempotent retry).
   if (!s || s.inviteId !== inviteId) {
+    // enrolledAt: when this device was bound to (this) researcher. Data-scoping uses it so a
+    // freshly-claimed researcher only sees/uploads docs created AFTER binding (or ones the user
+    // explicitly shared) — a phished/hijacked enrollment can't grab the pre-existing corpus.
     s = { inviteId, installId: uuid(), installSecret: randTok(24), instanceId: null,
-          type: null, status: 'claiming', desiredRev: -1, ackSeq: 0, pubkey: null, wrappedKey: null };
+          type: null, status: 'claiming', desiredRev: -1, ackSeq: 0, pubkey: null, wrappedKey: null,
+          enrolledAt: Date.now() };
     // E2EE model A: mint an RSA-OAEP keypair ONCE per identity. The private key is
     // stored non-extractable in IndexedDB and never leaves; only the public key is
     // sent (and re-sent identically on idempotent retry, so the worker's first-write

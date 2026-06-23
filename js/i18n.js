@@ -395,60 +395,21 @@ internet after the first time.</p>
 <li><b>Recording format</b> — the default <b>WAV 24-bit</b> is a lossless, archival-grade master; FLAC / WebM&nbsp;Opus / MP3 trade quality for size. Auto-gain is <b>off by default</b> so the master stays faithful — train coworkers to watch the on-screen <b>level meter</b> and move back if it warns. The "Which format should I choose?" link gives the full archival guidance.</li>
 </ul>
 <h3>Your account</h3>
-<p>You sign in with your email and a password, and you can reset the password by email if you forget it. For extra protection you can turn on an optional authenticator app (two-step sign-in).</p>
+<p>You sign in with <b>Google</b> — the same sign-in that lets the app save texts to your Google Drive. There is no separate password to remember or reset. By default the app <b>locks when you close it</b>, so you sign in again next time; turn on "Stay signed in" only on a device that is yours alone.</p>
 <h3>Security</h3>
-<p>Your texts and recordings live in your own Google Drive — the service never stores them long-term, though they do pass through our relay (and are briefly cached) on the way to and from a coworker's device. The device lists and settings the service does keep are <b>encrypted</b>, with your password as the key — so normally only you can open them. Because we let you reset a forgotten password by email, our service is also able to unlock that encrypted data for the reset. In other words, your information is private and protected, but not in a way where even we could never reach it.</p>
-<p><b>To make your account more secure:</b></p>
+<p>Your texts and recordings live in your own Google Drive — the service never stores them long-term, though they do pass through our relay (and are briefly cached) on the way to and from a coworker's device. The device lists and settings the service does keep are <b>encrypted</b> with a data key — so normally only you can open them. Because sign-in is via Google and the data key is held for you (so a new device can recover it after you sign in), the service is technically able to reach that encrypted data. In other words, your information is private and protected, but not in a way where even we could never reach it.</p>
+<p><b>To keep your account secure:</b></p>
 <ul>
-<li>Use a <b>strong, unique password</b>.</li>
-<li>Turn on the <b>authenticator (two-step sign-in)</b> option.</li>
-<li>Keep your <b>email account well protected</b> (ideally with its own two-step sign-in) — it can reset your password.</li>
-<li>Prefer not to tie this account to your name? Sign up with an <b>email address that doesn't identify you</b>.</li>
+<li>Protect your <b>Google account</b> well — ideally with Google's own two-step verification. Whoever can sign into your Google can reach this panel.</li>
+<li>Leave <b>"Stay signed in" off</b> on any shared or at-risk device, so closing the app locks it.</li>
+<li>Use <b>Sign out</b> (or Lock) when you finish on a device that isn't only yours.</li>
 </ul>
 <details>
 <summary>More info — how the encryption works</summary>
-<p>When you create your account, a random <b>data key</b> is generated on your device. Everything the panel stores — device lists, settings, and each device's key — is encrypted with that data key. The data key itself is wrapped two ways: once with a key derived from your password (so your password unlocks it), and once with our service's <b>recovery key</b> (so an email password-reset can restore it). During normal use your password and the unwrapped data key never leave your device; the server keeps only encrypted data, the recovery-wrapped key, and a one-way <b>hash</b> of your password — never the password itself. The optional authenticator adds a second code both at sign-in and at password reset.</p>
-<p><b>What the service can do:</b> recover your data key so you can reset a forgotten password. <b>Where your texts and audio live:</b> in your Google Drive — the service never stores them long-term. But to move between your Drive and a coworker's device they <b>do pass through our relay</b>, and downloads are <b>briefly cached</b> there (up to about a day) before being dropped — so treat the relay as able to see a file's contents in transit, even though it keeps nothing permanently. A few routing details (random account and device IDs, message counters, and whether a device records or transcribes) are not encrypted, because the service needs them to route your data.</p>
+<p>A random <b>data key</b> protects everything the panel stores — device lists, settings, and each device's key. The data key is held for your account on the server (wrapped at rest) and handed back to your device only after you sign in with Google, so a new device recovers your data after sign-in. The key lives in memory only while the app is open; it is never written to the device's storage, so a closed or lost device yields no data key — only a revocable session.</p>
+<p><b>What the service can do:</b> hold your data key so a new device can recover your data after Google sign-in. <b>Where your texts and audio live:</b> in your Google Drive — the service never stores them long-term. But to move between your Drive and a coworker's device they <b>do pass through our relay</b>, and downloads are <b>briefly cached</b> there (up to about a day) before being dropped — so treat the relay as able to see a file's contents in transit, even though it keeps nothing permanently. A few routing details (random account and device IDs, message counters, and whether a device records or transcribes) are not encrypted, because the service needs them to route your data.</p>
 </details>`,
-  'panel.signup.title': 'Create researcher account',
-  'panel.signup.intro': 'Create an account with your email and a password. If you forget the password, you can recover access by email.',
-  'panel.signup.create': 'Create account',
-  'panel.signup.noWidget': 'Could not load the verification widget. Check your connection.',
-  'panel.signup.haveAccount': 'Already have an account? Log in',
-  'panel.signup.emailTaken': 'That email already has an account — try logging in.',
   'panel.f.email': 'Email',
-  'panel.f.password': 'Password',
-  'panel.f.totp': 'Authenticator code',
-  'panel.setpass.confirm': 'Confirm password',
-  'panel.setpass.warn': 'Write your password down somewhere safe. You can also reset it by email if you forget.',
-  'panel.setpass.short': 'Use at least 10 characters.',
-  'panel.setpass.mismatch': 'The two passwords do not match.',
-  'panel.login.title': 'Log in',
-  'panel.login.intro': 'Sign in with your researcher email and password.',
-  'panel.login.btn': 'Log in',
-  'panel.login.forgot': 'Forgot password?',
-  'panel.login.createInstead': 'Create a new account',
-  'panel.login.bad': 'Wrong email or password.',
-  'panel.login.badEmail': 'Enter a valid email address.',
-  'panel.login.badTotp': 'Wrong authenticator code.',
-  'panel.login.totpPrompt': 'Enter the 6-digit code from your authenticator app.',
-  'panel.unlock.title': 'Unlock',
-  'panel.unlock.intro': 'Enter your password to unlock',
-  'panel.unlock.btn': 'Unlock',
-  'panel.unlock.bad': 'Wrong password.',
-  'panel.unlock.switch': 'Sign in as someone else',
-  'panel.forgot.title': 'Reset your password',
-  'panel.forgot.intro': 'Enter your email and we will send you a reset link.',
-  'panel.forgot.send': 'Send reset link',
-  'panel.forgot.back': 'Back',
-  'panel.forgot.sent': 'If that email has an account, a reset link is on its way — check your inbox.',
-  'panel.reset.title': 'Set a new password',
-  'panel.reset.intro': 'Choose a new password for your researcher account.',
-  'panel.reset.newPass': 'New password',
-  'panel.reset.btn': 'Reset password',
-  'panel.reset.cancel': 'Cancel',
-  'panel.reset.badToken': 'This reset link is invalid or has expired. Request a new one.',
-  'panel.reset.done': 'Password reset. Please log in with your new password.',
   'panel.dash.loading': 'Loading…',
   'panel.dash.retry': 'Retry',
   'panel.dash.devices': 'Devices',
@@ -520,22 +481,9 @@ internet after the first time.</p>
   'panel.assign.sent': 'Task sent.',
   'panel.account.title': 'Account',
   'panel.account.signout': 'Sign out of this device',
-  'panel.account.confirmSignout': 'Sign out? You will need your email and password to sign back in.',
-  'panel.account.changePass': 'Change password',
-  'panel.account.newPass': 'New password',
-  'panel.account.changePassBtn': 'Change password',
-  'panel.account.passChanged': 'Password changed.',
-  'panel.account.twofa': 'Two-step sign-in (authenticator)',
-  'panel.account.twofaOn': 'Two-step sign-in is ON.',
-  'panel.account.twofaOff': 'Two-step sign-in is off.',
-  'panel.account.enable2fa': 'Turn on authenticator',
-  'panel.account.disable2fa': 'Turn off',
-  'panel.account.twofaEnabled': 'Authenticator is on.',
-  'panel.account.twofaDisabled': 'Authenticator turned off.',
-  'panel.account.totpScan': 'Add this secret to your authenticator app (Google Authenticator, Authy, etc.):',
-  'panel.account.totpEnterCode': 'Then enter the 6-digit code',
-  'panel.account.confirm2fa': 'Turn on',
-  'panel.account.backupCodesIntro': 'Save these backup codes somewhere safe — each works once if you lose your authenticator:',
+  'panel.account.confirmSignout': 'Sign out? You will need to sign in with Google again.',
+  'panel.account.stay': 'Stay signed in on this device',
+  'panel.account.stayNote': 'Off by default: when you close the app it locks, and you sign in again next time. Turn on only on a device that is yours alone.',
   'panel.set.title': 'Settings — {name}',
   'panel.set.titleLocal': 'Settings — this device',
   'panel.set.cancel': 'Cancel',
@@ -986,60 +934,21 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
 <li><b>Format rekaman</b> — bawaan <b>WAV 24-bit</b> adalah master lossless berkualitas arsip; FLAC / WebM&nbsp;Opus / MP3 menukar kualitas dengan ukuran. Penguatan otomatis <b>mati secara bawaan</b> agar master tetap setia — latih rekan kerja memperhatikan <b>meter level</b> di layar dan mundur bila ada peringatan. Tautan "Format mana yang harus saya pilih?" memberi panduan arsip lengkap.</li>
 </ul>
 <h3>Akun Anda</h3>
-<p>Anda masuk dengan email dan kata sandi, dan Anda bisa mengatur ulang kata sandi lewat email jika lupa. Untuk perlindungan tambahan, Anda bisa mengaktifkan aplikasi autentikator opsional (masuk dua langkah).</p>
+<p>Anda masuk dengan <b>Google</b> — sama dengan yang memungkinkan aplikasi menyimpan teks ke Google Drive Anda. Tidak ada kata sandi terpisah untuk diingat atau diatur ulang. Secara bawaan aplikasi <b>terkunci saat ditutup</b>, jadi Anda masuk lagi berikutnya; aktifkan "Tetap masuk" hanya pada perangkat yang hanya milik Anda.</p>
 <h3>Keamanan</h3>
-<p>Teks dan rekaman Anda berada di Google Drive Anda sendiri — layanan tidak pernah menyimpannya untuk jangka panjang, walau file itu tetap melewati relay kami (dan disinggahkan sebentar) saat menuju dan dari perangkat rekan kerja. Daftar perangkat dan pengaturan yang memang disimpan layanan <b>dienkripsi</b>, dengan kata sandi Anda sebagai kuncinya — jadi biasanya hanya Anda yang bisa membukanya. Karena kami memungkinkan Anda mengatur ulang kata sandi yang lupa lewat email, layanan kami juga mampu membuka data terenkripsi itu untuk pengaturan ulang. Dengan kata lain, informasi Anda bersifat pribadi dan terlindungi, tetapi tidak dengan cara yang membuat kami pun tak pernah bisa menjangkaunya.</p>
-<p><b>Untuk membuat akun Anda lebih aman:</b></p>
+<p>Teks dan rekaman Anda berada di Google Drive Anda sendiri — layanan tidak pernah menyimpannya untuk jangka panjang, walau file itu tetap melewati relay kami (dan disinggahkan sebentar) saat menuju dan dari perangkat rekan kerja. Daftar perangkat dan pengaturan yang memang disimpan layanan <b>dienkripsi</b> dengan kunci data — jadi biasanya hanya Anda yang bisa membukanya. Karena masuk lewat Google dan kunci data itu disimpankan untuk Anda (agar perangkat baru bisa memulihkannya setelah Anda masuk), layanan secara teknis mampu menjangkau data terenkripsi itu. Dengan kata lain, informasi Anda bersifat pribadi dan terlindungi, tetapi tidak dengan cara yang membuat kami pun tak pernah bisa menjangkaunya.</p>
+<p><b>Untuk menjaga keamanan akun Anda:</b></p>
 <ul>
-<li>Gunakan <b>kata sandi yang kuat dan unik</b>.</li>
-<li>Aktifkan opsi <b>autentikator (masuk dua langkah)</b>.</li>
-<li>Jaga <b>akun email Anda</b> tetap terlindungi (idealnya dengan masuk dua langkah sendiri) — email itu bisa mengatur ulang kata sandi Anda.</li>
-<li>Tidak ingin mengaitkan akun ini dengan nama Anda? Daftar dengan <b>alamat email yang tidak mengidentifikasi Anda</b>.</li>
+<li>Lindungi <b>akun Google Anda</b> dengan baik — idealnya dengan verifikasi dua langkah milik Google. Siapa pun yang bisa masuk ke Google Anda bisa menjangkau panel ini.</li>
+<li>Biarkan <b>"Tetap masuk" mati</b> pada perangkat bersama atau berisiko, agar menutup aplikasi menguncinya.</li>
+<li>Gunakan <b>Keluar</b> (atau Kunci) saat selesai pada perangkat yang bukan hanya milik Anda.</li>
 </ul>
 <details>
 <summary>Info lebih lanjut — cara kerja enkripsinya</summary>
-<p>Saat Anda membuat akun, sebuah <b>kunci data</b> acak dibuat di perangkat Anda. Semua yang disimpan panel — daftar perangkat, pengaturan, dan kunci tiap perangkat — dienkripsi dengan kunci data itu. Kunci data itu sendiri dibungkus dua cara: sekali dengan kunci yang diturunkan dari kata sandi Anda (sehingga kata sandi membukanya), dan sekali dengan <b>kunci pemulihan</b> layanan kami (sehingga pengaturan ulang kata sandi lewat email bisa memulihkannya). Dalam pemakaian normal, kata sandi Anda dan kunci data yang sudah terbuka tidak pernah meninggalkan perangkat Anda; server hanya menyimpan data terenkripsi, kunci yang dibungkus untuk pemulihan, dan <b>hash</b> satu arah dari kata sandi Anda — bukan kata sandinya. Autentikator opsional menambah kode kedua saat masuk dan saat pengaturan ulang kata sandi.</p>
-<p><b>Yang bisa dilakukan layanan:</b> memulihkan kunci data Anda agar Anda bisa mengatur ulang kata sandi yang lupa. <b>Di mana teks dan audio Anda berada:</b> di Google Drive Anda — layanan tidak pernah menyimpannya untuk jangka panjang. Namun untuk berpindah antara Drive Anda dan perangkat rekan kerja, file itu <b>tetap melewati relay kami</b>, dan unduhan <b>disinggahkan sebentar</b> di sana (hingga sekitar sehari) sebelum dibuang — jadi anggaplah relay bisa melihat isi file saat transit, walau tidak menyimpan apa pun secara permanen. Beberapa detail perutean (ID akun dan perangkat acak, penghitung pesan, dan apakah perangkat merekam atau mentranskripsi) tidak dienkripsi, karena layanan membutuhkannya untuk merutekan data Anda.</p>
+<p>Sebuah <b>kunci data</b> acak melindungi semua yang disimpan panel — daftar perangkat, pengaturan, dan kunci tiap perangkat. Kunci data itu disimpankan untuk akun Anda di server (terbungkus saat disimpan) dan diserahkan kembali ke perangkat Anda hanya setelah Anda masuk dengan Google, sehingga perangkat baru memulihkan data Anda setelah masuk. Kunci itu hanya ada di memori selama aplikasi terbuka; tidak pernah ditulis ke penyimpanan perangkat, jadi perangkat yang tertutup atau hilang tidak menghasilkan kunci data — hanya sesi yang bisa dicabut.</p>
+<p><b>Yang bisa dilakukan layanan:</b> menyimpankan kunci data Anda agar perangkat baru bisa memulihkan data Anda setelah masuk Google. <b>Di mana teks dan audio Anda berada:</b> di Google Drive Anda — layanan tidak pernah menyimpannya untuk jangka panjang. Namun untuk berpindah antara Drive Anda dan perangkat rekan kerja, file itu <b>tetap melewati relay kami</b>, dan unduhan <b>disinggahkan sebentar</b> di sana (hingga sekitar sehari) sebelum dibuang — jadi anggaplah relay bisa melihat isi file saat transit, walau tidak menyimpan apa pun secara permanen. Beberapa detail perutean (ID akun dan perangkat acak, penghitung pesan, dan apakah perangkat merekam atau mentranskripsi) tidak dienkripsi, karena layanan membutuhkannya untuk merutekan data Anda.</p>
 </details>`,
-  'panel.signup.title': 'Buat akun peneliti',
-  'panel.signup.intro': 'Buat akun dengan email dan kata sandi Anda. Jika lupa kata sandi, Anda bisa memulihkan akses lewat email.',
-  'panel.signup.create': 'Buat akun',
-  'panel.signup.noWidget': 'Tidak dapat memuat widget verifikasi. Periksa koneksi Anda.',
-  'panel.signup.haveAccount': 'Sudah punya akun? Masuk',
-  'panel.signup.emailTaken': 'Email itu sudah punya akun — coba masuk saja.',
   'panel.f.email': 'Email',
-  'panel.f.password': 'Kata sandi',
-  'panel.f.totp': 'Kode autentikator',
-  'panel.setpass.confirm': 'Konfirmasi kata sandi',
-  'panel.setpass.warn': 'Catat kata sandi Anda di tempat aman. Anda juga bisa mengaturnya ulang lewat email jika lupa.',
-  'panel.setpass.short': 'Gunakan minimal 10 karakter.',
-  'panel.setpass.mismatch': 'Kedua kata sandi tidak sama.',
-  'panel.login.title': 'Masuk',
-  'panel.login.intro': 'Masuk dengan email dan kata sandi peneliti Anda.',
-  'panel.login.btn': 'Masuk',
-  'panel.login.forgot': 'Lupa kata sandi?',
-  'panel.login.createInstead': 'Buat akun baru',
-  'panel.login.bad': 'Email atau kata sandi salah.',
-  'panel.login.badEmail': 'Masukkan alamat email yang valid.',
-  'panel.login.badTotp': 'Kode autentikator salah.',
-  'panel.login.totpPrompt': 'Masukkan kode 6 digit dari aplikasi autentikator Anda.',
-  'panel.unlock.title': 'Buka kunci',
-  'panel.unlock.intro': 'Masukkan kata sandi untuk membuka kunci',
-  'panel.unlock.btn': 'Buka kunci',
-  'panel.unlock.bad': 'Kata sandi salah.',
-  'panel.unlock.switch': 'Masuk sebagai orang lain',
-  'panel.forgot.title': 'Atur ulang kata sandi',
-  'panel.forgot.intro': 'Masukkan email Anda dan kami akan mengirimkan tautan pengaturan ulang.',
-  'panel.forgot.send': 'Kirim tautan',
-  'panel.forgot.back': 'Kembali',
-  'panel.forgot.sent': 'Jika email itu punya akun, tautan pengaturan ulang sedang dikirim — periksa kotak masuk Anda.',
-  'panel.reset.title': 'Tetapkan kata sandi baru',
-  'panel.reset.intro': 'Pilih kata sandi baru untuk akun peneliti Anda.',
-  'panel.reset.newPass': 'Kata sandi baru',
-  'panel.reset.btn': 'Atur ulang kata sandi',
-  'panel.reset.cancel': 'Batal',
-  'panel.reset.badToken': 'Tautan pengaturan ulang ini tidak valid atau kedaluwarsa. Minta yang baru.',
-  'panel.reset.done': 'Kata sandi diatur ulang. Silakan masuk dengan kata sandi baru Anda.',
   'panel.dash.loading': 'Memuat…',
   'panel.dash.retry': 'Coba lagi',
   'panel.dash.devices': 'Perangkat',
@@ -1111,22 +1020,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.assign.sent': 'Tugas terkirim.',
   'panel.account.title': 'Akun',
   'panel.account.signout': 'Keluar dari perangkat ini',
-  'panel.account.confirmSignout': 'Keluar? Anda perlu email dan kata sandi untuk masuk kembali.',
-  'panel.account.changePass': 'Ubah kata sandi',
-  'panel.account.newPass': 'Kata sandi baru',
-  'panel.account.changePassBtn': 'Ubah kata sandi',
-  'panel.account.passChanged': 'Kata sandi diubah.',
-  'panel.account.twofa': 'Masuk dua langkah (autentikator)',
-  'panel.account.twofaOn': 'Masuk dua langkah AKTIF.',
-  'panel.account.twofaOff': 'Masuk dua langkah mati.',
-  'panel.account.enable2fa': 'Aktifkan autentikator',
-  'panel.account.disable2fa': 'Matikan',
-  'panel.account.twofaEnabled': 'Autentikator aktif.',
-  'panel.account.twofaDisabled': 'Autentikator dimatikan.',
-  'panel.account.totpScan': 'Tambahkan rahasia ini ke aplikasi autentikator Anda (Google Authenticator, Authy, dll.):',
-  'panel.account.totpEnterCode': 'Lalu masukkan kode 6 digit',
-  'panel.account.confirm2fa': 'Aktifkan',
-  'panel.account.backupCodesIntro': 'Simpan kode cadangan ini di tempat aman — masing-masing berlaku sekali jika Anda kehilangan autentikator:',
+  'panel.account.confirmSignout': 'Keluar? Anda perlu masuk dengan Google lagi.',
+  'panel.account.stay': 'Tetap masuk di perangkat ini',
+  'panel.account.stayNote': 'Mati secara bawaan: saat Anda menutup aplikasi, ia terkunci dan Anda masuk lagi berikutnya. Aktifkan hanya pada perangkat yang hanya milik Anda.',
   'panel.set.title': 'Pengaturan — {name}',
   'panel.set.titleLocal': 'Pengaturan — perangkat ini',
   'panel.set.cancel': 'Batal',

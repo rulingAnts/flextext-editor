@@ -101,7 +101,10 @@ function renderSignIn(note) {
       <p class="note">${esc(t('panel.signin.intro'))}</p>
       ${note ? `<p class="banner warn-banner">${esc(note)}</p>` : ''}
       <button class="primary-btn" data-act="google">${esc(t('panel.signin.btn'))}</button>
+      <label class="check-label rp-stay"><input type="checkbox" id="rp-stay"${Researcher.staySignedIn() ? ' checked' : ''}> ${esc(t('panel.account.stay'))}</label>
     </div></div>`;
+  const stayBox = root.querySelector('#rp-stay');
+  if (stayBox) stayBox.addEventListener('change', () => Researcher.setStaySignedIn(stayBox.checked));
   wireActs({ google: () => { location.href = Researcher.googleSignInUrl(); }, exit: close });
 }
 
@@ -115,8 +118,12 @@ function renderConnecting() {
 /* ---------------- small DOM helpers ---------------- */
 
 function header(titleKey, withLock) {
+  // Standalone Researcher app: no editor to go "back" to, so drop the exit arrow
+  // (the dashboard Lock button is the way out — it signs out → sign-in screen).
+  const exitBtn = deps && deps.standalone ? ''
+    : `<button class="icon-btn rp-exit" data-act="exit" title="${esc(t('panel.exit'))}">&#8592;</button>`;
   return `<div class="rp-head">
-    <button class="icon-btn rp-exit" data-act="exit" title="${esc(t('panel.exit'))}">&#8592;</button>
+    ${exitBtn}
     <span class="rp-title">${esc(t(titleKey))}</span>
     <span class="rp-spacer"></span>
     <button class="icon-btn rp-helpbtn" data-act="help" title="${esc(t('panel.help.btn'))}" aria-label="${esc(t('panel.help.btn'))}">?</button>
@@ -173,191 +180,6 @@ function modal(innerHtml, wide) {
   return { el: wrap, close };
 }
 
-/* ---------------- signup / restore ---------------- */
-
-let turnstileLoading = null;
-function loadTurnstile() {
-  if (window.turnstile) return Promise.resolve(window.turnstile);
-  if (turnstileLoading) return turnstileLoading;
-  turnstileLoading = new Promise((resolve) => {
-    const s = document.createElement('script');
-    s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
-    s.async = true; s.defer = true;
-    s.onload = () => resolve(window.turnstile || null);
-    s.onerror = () => resolve(null);
-    document.head.appendChild(s);
-  });
-  return turnstileLoading;
-}
-
-function withTurnstile(onToken) {
-  let token = null;
-  const createBtn = root.querySelector('[data-act="create"]');
-  loadTurnstile().then((ts) => {
-    if (!ts) { const el = root.querySelector('#rp-turnstile'); if (el) el.textContent = t('panel.signup.noWidget'); return; }
-    ts.render('#rp-turnstile', {
-      sitekey: deps.turnstileSiteKey(),
-      callback: (tk) => { token = tk; if (createBtn) createBtn.disabled = false; },
-      'expired-callback': () => { token = null; if (createBtn) createBtn.disabled = true; },
-      'error-callback': () => { token = null; if (createBtn) createBtn.disabled = true; },
-    });
-  });
-  return () => token;
-}
-function enterSubmits(actSelector) {
-  root.querySelectorAll('input').forEach((el) => el.addEventListener('keydown', (e) => { if (e.key === 'Enter') { const b = root.querySelector(actSelector); if (b) b.click(); } }));
-}
-
-function renderSignup() {
-  root.innerHTML = header('panel.title', false) + `
-    <div class="rp-body rp-narrow"><div class="rp-card">
-      <h2>${esc(t('panel.signup.title'))}</h2>
-      <p class="note">${esc(t('panel.signup.intro'))}</p>
-      <label class="rp-field"><span>${esc(t('panel.f.email'))}</span><input id="rp-email" type="email" autocomplete="username" spellcheck="false"></label>
-      <label class="rp-field"><span>${esc(t('panel.f.password'))}</span><input id="rp-pass" type="password" autocomplete="new-password"></label>
-      <label class="rp-field"><span>${esc(t('panel.setpass.confirm'))}</span><input id="rp-pass2" type="password" autocomplete="new-password"></label>
-      <div id="rp-turnstile" class="rp-turnstile"></div>
-      <button class="primary-btn" data-act="create" disabled>${esc(t('panel.signup.create'))}</button>
-      <p class="banner warn-banner">${esc(t('panel.setpass.warn'))}</p>
-      <button class="link-btn" data-act="login">${esc(t('panel.signup.haveAccount'))}</button>
-    </div></div>`;
-  const getToken = withTurnstile();
-  wireActs({
-    create: (btn) => busy(btn, async () => {
-      const token = getToken();
-      if (!token) return;
-      const email = root.querySelector('#rp-email').value.trim();
-      const pass = root.querySelector('#rp-pass').value;
-      if (!email || !email.includes('@')) return deps.toast(t('panel.login.badEmail'), 5000);
-      if (!pass || pass.length < 10) return deps.toast(t('panel.setpass.short'), 5000);
-      if (pass !== root.querySelector('#rp-pass2').value) return deps.toast(t('panel.setpass.mismatch'), 5000);
-      try {
-        await Researcher.signup(email, pass, token);
-        deps.onSignedUp && deps.onSignedUp();
-        renderDashboard();
-      } catch (e) { if (e.status === 409) return deps.toast(t('panel.signup.emailTaken'), 6000); errToast(e); }
-    }),
-    login: () => renderLogin(),
-    exit: close,
-  });
-}
-
-function renderLogin(prefillEmail) {
-  root.innerHTML = header('panel.title', false) + `
-    <div class="rp-body rp-narrow"><div class="rp-card">
-      <h2>${esc(t('panel.login.title'))}</h2>
-      <p class="note">${esc(t('panel.login.intro'))}</p>
-      <label class="rp-field"><span>${esc(t('panel.f.email'))}</span><input id="rp-email" type="email" autocomplete="username" spellcheck="false" value="${esc(prefillEmail || '')}"></label>
-      <label class="rp-field"><span>${esc(t('panel.f.password'))}</span><input id="rp-pass" type="password" autocomplete="current-password"></label>
-      <label class="rp-field" id="rp-totp-row" hidden><span>${esc(t('panel.f.totp'))}</span><input id="rp-totp" inputmode="numeric" autocomplete="one-time-code"></label>
-      <button class="primary-btn" data-act="go">${esc(t('panel.login.btn'))}</button>
-      <button class="link-btn" data-act="forgot">${esc(t('panel.login.forgot'))}</button>
-      <button class="link-btn" data-act="signup">${esc(t('panel.login.createInstead'))}</button>
-    </div></div>`;
-  const go = (btn) => busy(btn, async () => {
-    const email = root.querySelector('#rp-email').value.trim();
-    const pass = root.querySelector('#rp-pass').value;
-    const totp = root.querySelector('#rp-totp').value.trim();
-    if (!email || !pass) return;
-    try {
-      const r = await Researcher.login(email, pass, totp || undefined);
-      if (r.need === 'totp') { root.querySelector('#rp-totp-row').hidden = false; root.querySelector('#rp-totp').focus(); return deps.toast(t('panel.login.totpPrompt'), 5000); }
-      if (!r.ok) return deps.toast(t(r.error === 'bad_totp' ? 'panel.login.badTotp' : 'panel.login.bad'), 5000);
-      deps.onSignedUp && deps.onSignedUp();
-      renderDashboard();
-    } catch (e) { errToast(e); }
-  });
-  wireActs({ go, forgot: () => renderForgot(root.querySelector('#rp-email').value.trim()), signup: () => renderSignup(), exit: close });
-  enterSubmits('[data-act="go"]');
-}
-
-function renderUnlock() {
-  stopDashPoll();
-  root.innerHTML = header('panel.title', false) + `
-    <div class="rp-body rp-narrow"><div class="rp-card">
-      <h2>${esc(t('panel.unlock.title'))}</h2>
-      <p class="note">${esc(t('panel.unlock.intro'))} <b>${esc(Researcher.accountEmail() || '')}</b></p>
-      <label class="rp-field"><span>${esc(t('panel.f.password'))}</span><input id="rp-pass" type="password" autocomplete="current-password"></label>
-      <button class="primary-btn" data-act="go">${esc(t('panel.unlock.btn'))}</button>
-      <button class="link-btn" data-act="forgot">${esc(t('panel.login.forgot'))}</button>
-      <button class="link-btn" data-act="switch">${esc(t('panel.unlock.switch'))}</button>
-    </div></div>`;
-  const go = (btn) => busy(btn, async () => {
-    const pass = root.querySelector('#rp-pass').value;
-    if (!pass) return;
-    try {
-      const r = await Researcher.unlock(pass);
-      if (!r.ok) return deps.toast(t('panel.unlock.bad'), 5000);
-      renderDashboard();
-    } catch (e) { errToast(e); }
-  });
-  wireActs({
-    go,
-    forgot: () => renderForgot(Researcher.accountEmail()),
-    switch: () => { Researcher.signOut(); deps.onSignedUp && deps.onSignedUp(); renderLogin(); },
-    exit: close,
-  });
-  enterSubmits('[data-act="go"]');
-}
-
-function renderForgot(prefillEmail) {
-  root.innerHTML = header('panel.title', false) + `
-    <div class="rp-body rp-narrow"><div class="rp-card">
-      <h2>${esc(t('panel.forgot.title'))}</h2>
-      <p class="note">${esc(t('panel.forgot.intro'))}</p>
-      <label class="rp-field"><span>${esc(t('panel.f.email'))}</span><input id="rp-email" type="email" spellcheck="false" value="${esc(prefillEmail || '')}"></label>
-      <button class="primary-btn" data-act="send">${esc(t('panel.forgot.send'))}</button>
-      <button class="link-btn" data-act="back">${esc(t('panel.forgot.back'))}</button>
-    </div></div>`;
-  wireActs({
-    send: (btn) => busy(btn, async () => {
-      const email = root.querySelector('#rp-email').value.trim();
-      if (!email) return;
-      try { await Researcher.requestReset(email, EDITOR_BASE); deps.toast(t('panel.forgot.sent'), 8000); renderLogin(email); }
-      catch (e) { errToast(e); }
-    }),
-    back: () => (Researcher.isSignedUp() ? renderUnlock() : renderLogin()),
-    exit: close,
-  });
-  enterSubmits('[data-act="send"]');
-}
-
-function renderReset(token) {
-  root.innerHTML = header('panel.title', false) + `
-    <div class="rp-body rp-narrow"><div class="rp-card">
-      <h2>${esc(t('panel.reset.title'))}</h2>
-      <p class="note">${esc(t('panel.reset.intro'))}</p>
-      <label class="rp-field"><span>${esc(t('panel.f.email'))}</span><input id="rp-email" type="email" autocomplete="username" spellcheck="false"></label>
-      <label class="rp-field"><span>${esc(t('panel.reset.newPass'))}</span><input id="rp-pass" type="password" autocomplete="new-password"></label>
-      <label class="rp-field"><span>${esc(t('panel.setpass.confirm'))}</span><input id="rp-pass2" type="password" autocomplete="new-password"></label>
-      <label class="rp-field" id="rp-totp-row" hidden><span>${esc(t('panel.f.totp'))}</span><input id="rp-totp" inputmode="numeric" autocomplete="one-time-code"></label>
-      <button class="primary-btn" data-act="go">${esc(t('panel.reset.btn'))}</button>
-      <button class="link-btn" data-act="cancel">${esc(t('panel.reset.cancel'))}</button>
-    </div></div>`;
-  wireActs({
-    go: (btn) => busy(btn, async () => {
-      const email = root.querySelector('#rp-email').value.trim();
-      const pass = root.querySelector('#rp-pass').value;
-      const totp = root.querySelector('#rp-totp').value.trim();
-      if (!email || !email.includes('@')) return deps.toast(t('panel.login.badEmail'), 5000);
-      if (!pass || pass.length < 10) return deps.toast(t('panel.setpass.short'), 5000);
-      if (pass !== root.querySelector('#rp-pass2').value) return deps.toast(t('panel.setpass.mismatch'), 5000);
-      try {
-        const v = await Researcher.verifyReset(token, totp || undefined);
-        if (v.need === 'totp') { root.querySelector('#rp-totp-row').hidden = false; root.querySelector('#rp-totp').focus(); return deps.toast(t('panel.login.totpPrompt'), 5000); }
-        if (!v.ok) return deps.toast(t(v.error === 'bad_totp' ? 'panel.login.badTotp' : 'panel.reset.badToken'), 6000);
-        const c = await Researcher.confirmReset(token, pass, totp || undefined);
-        if (!c.ok) return deps.toast(t(c.error === 'bad_totp' ? 'panel.login.badTotp' : 'panel.reset.badToken'), 6000);
-        deps.toast(t('panel.reset.done'), 7000);
-        renderLogin(email);
-      } catch (e) { errToast(e); }
-    }),
-    cancel: () => renderLogin(),
-    exit: close,
-  });
-  enterSubmits('[data-act="go"]');
-}
-
 /* ---------------- dashboard ---------------- */
 
 function fmtFp(hex) { return (hex || '').replace(/(.{4})/g, '$1 ').trim(); }
@@ -410,7 +232,7 @@ async function pollDashboard() {
 async function renderDashboard(prefetched) {
   if (!prefetched) {
     root.innerHTML = header('panel.title', true) + `<div class="rp-body"><p class="note">${esc(t('panel.dash.loading'))}</p></div>`;
-    wireActs({ exit: close, lock: () => { Researcher.lock(); renderUnlock(); } });
+    wireActs({ exit: close, lock: () => { Researcher.signOut(); route(); } });
   }
   let data = prefetched;
   if (!data) {
@@ -450,7 +272,7 @@ async function renderDashboard(prefetched) {
 
   wireActs({
     exit: close,
-    lock: () => { Researcher.lock(); renderUnlock(); },
+    lock: () => { Researcher.signOut(); route(); },
     new: () => newDeviceModal(),
     refresh: () => renderDashboard(),
     account: () => accountModal(),
@@ -631,63 +453,17 @@ function accountModal() {
   const m = modal(`
     <h3>${esc(t('panel.account.title'))}</h3>
     <label class="rp-field"><span>${esc(t('panel.f.email'))}</span><input readonly value="${esc(Researcher.accountEmail() || '')}"></label>
-    <fieldset class="rp-fieldset"><legend>${esc(t('panel.account.changePass'))}</legend>
-      <label class="rp-field"><span>${esc(t('panel.account.newPass'))}</span><input id="rp-np" type="password" autocomplete="new-password"></label>
-      <label class="rp-field"><span>${esc(t('panel.setpass.confirm'))}</span><input id="rp-np2" type="password" autocomplete="new-password"></label>
-      <button class="secondary-btn" data-m="changepass">${esc(t('panel.account.changePassBtn'))}</button>
-    </fieldset>
-    <fieldset class="rp-fieldset"><legend>${esc(t('panel.account.twofa'))}</legend>
-      <p class="note" id="rp-2fa-status"></p>
-      <div id="rp-2fa-body"></div>
-    </fieldset>
+    <label class="check-label"><input type="checkbox" data-m="stay"${Researcher.staySignedIn() ? ' checked' : ''}> ${esc(t('panel.account.stay'))}</label>
+    <p class="note">${esc(t('panel.account.stayNote'))}</p>
     <button class="link-btn" data-m="signout">${esc(t('panel.account.signout'))}</button>
     <button class="link-btn" data-m="close">${esc(t('panel.invite.close'))}</button>`, true);
 
   m.el.querySelector('[data-m="close"]').onclick = m.close;
-  m.el.querySelector('[data-m="changepass"]').onclick = (e) => busy(e.target, async () => {
-    const np = m.el.querySelector('#rp-np').value, np2 = m.el.querySelector('#rp-np2').value;
-    if (!np || np.length < 10) return deps.toast(t('panel.setpass.short'), 5000);
-    if (np !== np2) return deps.toast(t('panel.setpass.mismatch'), 5000);
-    try { await Researcher.changePassword(np); deps.toast(t('panel.account.passChanged'), 5000); m.el.querySelector('#rp-np').value = ''; m.el.querySelector('#rp-np2').value = ''; }
-    catch (err) { errToast(err); }
-  });
+  m.el.querySelector('[data-m="stay"]').onchange = (e) => Researcher.setStaySignedIn(e.target.checked);
   m.el.querySelector('[data-m="signout"]').onclick = () => {
     if (!confirm(t('panel.account.confirmSignout'))) return;
-    Researcher.signOut(); m.close(); deps.onSignedUp && deps.onSignedUp(); renderLogin();
+    Researcher.signOut(); m.close(); deps.onSignedUp && deps.onSignedUp(); route();
   };
-
-  const body2fa = m.el.querySelector('#rp-2fa-body');
-  const status = m.el.querySelector('#rp-2fa-status');
-  function render2fa() {
-    const on = Researcher.totpEnabledLocal();
-    status.textContent = on ? t('panel.account.twofaOn') : t('panel.account.twofaOff');
-    if (on) {
-      body2fa.innerHTML = `<label class="rp-field"><span>${esc(t('panel.f.totp'))}</span><input id="rp-2fc" inputmode="numeric" autocomplete="one-time-code"></label><button class="secondary-btn" data-x="disable">${esc(t('panel.account.disable2fa'))}</button>`;
-      body2fa.querySelector('[data-x="disable"]').onclick = (e) => busy(e.target, async () => {
-        try { await Researcher.totpDisable(body2fa.querySelector('#rp-2fc').value.trim()); deps.toast(t('panel.account.twofaDisabled'), 4000); render2fa(); }
-        catch { deps.toast(t('panel.login.badTotp'), 5000); }
-      });
-    } else {
-      body2fa.innerHTML = `<button class="secondary-btn" data-x="setup">${esc(t('panel.account.enable2fa'))}</button>`;
-      body2fa.querySelector('[data-x="setup"]').onclick = (e) => busy(e.target, async () => {
-        try {
-          const s = await Researcher.totpSetup();
-          body2fa.innerHTML = `<p class="note">${esc(t('panel.account.totpScan'))}</p>
-            <p class="rp-mono" style="word-break:break-all">${esc(s.secret)}</p>
-            <label class="rp-field"><span>${esc(t('panel.account.totpEnterCode'))}</span><input id="rp-2fc" inputmode="numeric" autocomplete="one-time-code"></label>
-            <button class="primary-btn" data-x="enable">${esc(t('panel.account.confirm2fa'))}</button>`;
-          body2fa.querySelector('[data-x="enable"]').onclick = (e2) => busy(e2.target, async () => {
-            try {
-              const r = await Researcher.totpEnable(body2fa.querySelector('#rp-2fc').value.trim());
-              body2fa.innerHTML = `<p class="note">${esc(t('panel.account.twofaEnabled'))}</p><p class="note">${esc(t('panel.account.backupCodesIntro'))}</p><textarea class="rp-linkbox" readonly rows="5">${esc((r.backupCodes || []).join('\n'))}</textarea>`;
-              status.textContent = t('panel.account.twofaOn');
-            } catch { deps.toast(t('panel.login.badTotp'), 5000); }
-          });
-        } catch (err) { errToast(err); }
-      });
-    }
-  }
-  render2fa();
 }
 
 /* ---------------- the reusable tabbed settings modal ---------------- */

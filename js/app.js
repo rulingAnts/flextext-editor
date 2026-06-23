@@ -29,6 +29,13 @@ const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 const RECORD_MODE = (typeof window !== 'undefined' && window.__MODE === 'record') ||
   new URLSearchParams(location.search).get('mode') === 'record';
 
+// Researcher-console mode: the standalone "Flextext Researcher" app (its index.html sets
+// window.__MODE='researcher'), or — LOCAL DEV ONLY — ?mode=researcher on the editor origin.
+// In PRODUCTION the editor redirects ?mode=researcher to the standalone app (see setup());
+// there is no in-editor URL entry anymore.
+const RESEARCHER_MODE = (typeof window !== 'undefined' && window.__MODE === 'researcher') ||
+  (new URLSearchParams(location.search).get('mode') === 'researcher' && isLocalDev());
+
 // The Texts-screen "new text" buttons a researcher can show/hide per link.
 const ALL_BUTTONS = ['new', 'audio', 'record', 'open'];
 
@@ -191,12 +198,10 @@ function toast(msg, ms = 2600) {
 
 const VIEWS = ['texts', 'baseline', 'gloss', 'research', 'help', 'record', 'researcher'];
 
-// The researcher panel is a SEPARATE view (not the field-worker "research"/Settings tab):
-// a researcher's own device boots into it with ?mode=researcher, and once signed up an
-// entry button appears. Field devices (no researcher auth) never show it.
-const PANEL_MODE = new URLSearchParams(location.search).get('mode') === 'researcher';
-// A password-reset link (emailed) lands as ?reset=<token> → open the panel to the reset screen.
-const RESET_TOKEN = new URLSearchParams(location.search).get('reset');
+// The researcher panel is a SEPARATE full-screen view. Its standalone home is the "Flextext
+// Researcher" app (RESEARCHER_MODE); inside the editor it's reachable only via the managed-install
+// gesture (setupResearchToggle) — there is no ?mode=researcher URL entry here (that redirects to
+// the app), and the old emailed ?reset= password-reset flow is gone with Google Sign-In.
 let researcherPanelApi = null;   // set in setup(); the research-toggle gesture opens it on managed installs
 
 function currentView() {
@@ -3192,12 +3197,52 @@ async function devReset() {
   location.replace(location.pathname);
 }
 
+// Standalone "Flextext Researcher" app: wire only what the panel needs and boot straight into it
+// (no editor/field UI). The shell (flextext-researcher/index.html) provides #view-researcher +
+// #toast + an optional language selector. Exit/lock is handled inside the panel (deps.standalone).
+function setupResearcherMode() {
+  setupBanners();   // install button + (no-op) WebKit warning; shell carries #install-banner
+  const langSel = $('#lang-select');
+  if (langSel) {
+    langSel.value = getLang();
+    langSel.addEventListener('change', () => { setLang(langSel.value); applyI18n(); researcherPanelApi.open(); });
+  }
+  researcherPanelApi = initResearcherPanel({
+    root: $('#view-researcher'),
+    standalone: true,
+    workerBase: () => workerBase(),
+    toast: (m, ms) => toast(m, ms),
+    loadSettings,
+    saveSettings,
+    parseDriveFolder,
+    resolveAudioInput,
+    openView: (v) => show(v),
+    goHome: () => {},   // no editor to return to; the panel's Lock button signs out → sign-in
+  });
+  researcherPanelApi.open();
+}
+
 function setup() {
   if (isDevHost(location.hostname) && new URLSearchParams(location.search).has('devreset')) { devReset(); return; }
+  // Editor-origin ?mode=researcher → hand off to the standalone Researcher app (its own install +
+  // service worker). Preserve a returning #gauth fragment so an in-flight Google sign-in still
+  // completes there. The standalone shell (window.__MODE='researcher') and local dev keep the
+  // panel inline (RESEARCHER_MODE), so they never bounce here.
+  if (!RESEARCHER_MODE && new URLSearchParams(location.search).get('mode') === 'researcher') {
+    location.replace('https://rulingants.github.io/flextext-researcher/' + (location.hash || ''));
+    return;
+  }
   migrateSettings();
   const { settingsChanged, task } = applyUrlSettings();
   settings = loadSettings();
   applyI18n();
+
+  // ----- Standalone Researcher console: boot the panel only; skip ALL field/editor wiring. -----
+  if (RESEARCHER_MODE) {
+    setupServiceWorker();
+    setupResearcherMode();
+    return;
+  }
 
   // Connectivity sync engine — inert unless an invite is/was claimed (plan P1).
   Sync.start({
@@ -3349,7 +3394,7 @@ function setup() {
   });
   const researcherBtn = $('#btn-researcher');
   if (researcherBtn) {
-    researcherBtn.hidden = !(researcherPanelApi.isSignedUp() || PANEL_MODE || RESET_TOKEN);
+    researcherBtn.hidden = !researcherPanelApi.isSignedUp();
     researcherBtn.addEventListener('click', () => researcherPanelApi.open());
   }
 
@@ -3359,10 +3404,6 @@ function setup() {
       renderDocList();
       show('texts');
     });
-  } else if (PANEL_MODE || RESET_TOKEN) {
-    renderDocList();                                  // prep the texts view underneath for when they exit
-    researcherPanelApi.open(RESET_TOKEN || undefined); // …then take over with the panel (reset screen if a token)
-    if (RESET_TOKEN) history.replaceState(null, '', location.pathname); // strip the token from the URL/history
   } else {
     renderDocList();
     show('texts');

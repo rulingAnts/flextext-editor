@@ -1,30 +1,32 @@
 /* researcher.js — researcher-panel engine (the control side of the connectivity layer).
  *
  * The twin of sync.js: where sync.js is the FIELD install (polls, applies, reports),
- * this is the RESEARCHER (signs up, creates instances, mints invites, approves installs,
+ * this is the RESEARCHER (signs in, creates instances, mints invites, approves installs,
  * delivers keys, pushes commands, reads decrypted inventory). Pure engine — NO UI; the
- * panel calls these and renders. Mirrors the E1d harness, which proved every call live.
+ * panel calls these and renders.
  *
- * Auth model: EMAIL + PASSWORD (the password never leaves the device). The researcher has a
- * random data key Kr; from password+salt the client derives a KEK (wraps Kr) and an authSecret
- * (the API credential — the server stores only its hash). Kr is ALSO escrow-wrapped to the
- * Worker's public key so a forgotten password can be recovered by email. Each instance has a
- * random Ki wrapped under Kr in the D1 settings_blob; Ki reaches a field install asymmetrically
- * (install sends a public key at claim, researcher wraps Ki to it; the Worker only relays
- * ciphertext). Everything the Worker/D1 hold is ciphertext except routing fields — plus, by
- * design (operator-recoverable, not zero-knowledge), the escrow copy of Kr.
+ * Auth model: GOOGLE SIGN-IN (OIDC), unified with the drive.file Drive OAuth — one Google
+ * consent grants identity + Drive. The worker upserts the researcher by Google `sub`, mints a
+ * session token, and holds the random data key Kr server-wrapped (operator-recoverable). The
+ * client never sees a password: consumeGauth() reads the #gauth=<id>.<token> return fragment,
+ * then bootstrap() fetches Kr (memory only). Each instance has a random Ki wrapped under Kr in
+ * the D1 settings_blob; Ki reaches a field install asymmetrically (install sends a public key
+ * at claim, researcher wraps Ki to it; the Worker only relays ciphertext). Everything the
+ * Worker/D1 hold is ciphertext except routing fields, plus the server-held Kr (by design).
  *
- * localStorage holds {researcher_id, secret(=authSecret), email, salt, wrappedKr}: API access and
- * OFFLINE unlock persist; the PASSWORD is never stored. Optional TOTP adds a second factor.
+ * The session token persists per the "stay signed in" preference: localStorage (survives app
+ * close) when opted in, else sessionStorage (cleared on app exit = lock-on-exit, the default).
+ * Kr is NEVER persisted (memory only); a closed/forensic device yields no data key.
  */
 
 import {
-  deriveKeyFromPassphrase, deriveAuthSecret, generateKey, wrapKey, unwrapKey,
-  importKeyB64, encryptJSON, decryptJSON, randomBytesB64,
+  generateKey, wrapKey, unwrapKey,
+  importKeyB64, encryptJSON, decryptJSON,
   importPublicKeyB64, wrapKeyForInstall,
 } from './crypto.js';
 
 const AUTH_KEY = 'flextext-researcher-auth';
+const STAY_KEY = 'flextext-researcher-stay';   // "1" = persist the session across app exit
 const REQ_TIMEOUT_MS = 20000;
 
 /* ---------------- module state ---------------- */
@@ -34,19 +36,30 @@ let Kr = null;                 // the researcher's random DATA key (memory only)
 let settingsCache = null;      // last-known settings_blob: { wrappedKis:{} }
 let settingsRev = null;        // its server rev, for optimistic-locked writes (anti silent clobber)
 let kiCache = new Map();       // instance_id -> Ki CryptoKey (unwrapped under Kr)
-let _resetKr = null;           // Kr recovered during a password reset, held between verify→confirm
 
 export function init({ workerBase } = {}) { if (workerBase) workerBaseFn = workerBase; }
 
-/* ---------------- auth creds (the researcher's API identity, on their own device) ---------------- */
+/* ---------------- auth creds (the researcher's session token, on their own device) ----------------
+ * Stored in sessionStorage by default (cleared when the app/PWA window closes → "lock on exit"),
+ * or in localStorage when the user opts into "stay signed in". loadAuth() prefers whichever holds
+ * it. Kr is never stored — only this revocable session token is. */
 
-function loadAuth() { try { return JSON.parse(localStorage.getItem(AUTH_KEY)) || null; } catch { return null; } }
-function saveAuth(a) { localStorage.setItem(AUTH_KEY, JSON.stringify(a)); }
+export function staySignedIn() { try { return localStorage.getItem(STAY_KEY) === '1'; } catch { return false; } }
+export function setStaySignedIn(on) {
+  try {
+    localStorage.setItem(STAY_KEY, on ? '1' : '0');
+    const a = loadAuth();                                    // move the live session to the chosen store
+    if (a) { localStorage.removeItem(AUTH_KEY); sessionStorage.removeItem(AUTH_KEY); (on ? localStorage : sessionStorage).setItem(AUTH_KEY, JSON.stringify(a)); }
+  } catch { /* noop */ }
+}
+
+function loadAuth() { try { return JSON.parse(sessionStorage.getItem(AUTH_KEY) || localStorage.getItem(AUTH_KEY)) || null; } catch { return null; } }
+function saveAuth(a) { try { (staySignedIn() ? localStorage : sessionStorage).setItem(AUTH_KEY, JSON.stringify(a)); } catch { /* noop */ } }
 
 export function isSignedUp() { return !!loadAuth(); }
 export function isUnlocked() { return !!Kr; }
 export function lock() { Kr = null; settingsCache = null; settingsRev = null; kiCache = new Map(); }
-export function signOut() { lock(); try { localStorage.removeItem(AUTH_KEY); } catch { /* noop */ } }
+export function signOut() { lock(); try { localStorage.removeItem(AUTH_KEY); sessionStorage.removeItem(AUTH_KEY); } catch { /* noop */ } }
 
 /* ---------------- low-level request (researcher-authed unless auth:false) ---------------- */
 
@@ -107,133 +120,9 @@ export async function bootstrap() {
   return { ok: true, email: v.email };
 }
 
-/* ---------------- email + password auth (legacy — being retired for Google Sign-In) ---------------- */
+/* ---------------- account ---------------- */
 
 export function accountEmail() { const a = loadAuth(); return a && a.email; }
-export function totpEnabledLocal() { const a = loadAuth(); return !!(a && a.totp_enabled); }
-
-async function escrowPubkey() {
-  const r = await api('GET', '/v1/escrow-pubkey', { auth: false });
-  if (!r.pubkey) throw new Error('no_escrow_pubkey');
-  return importPublicKeyB64(r.pubkey);
-}
-// From password+salt + a chosen Kr: the bits the server stores (wrappedKr, authSecret).
-async function deriveAccount(password, salt, dataKey) {
-  return {
-    wrappedKr: await wrapKey(await deriveKeyFromPassphrase(password, salt), dataKey),
-    authSecret: await deriveAuthSecret(password, salt),
-  };
-}
-
-// Sign up: email + password (+ Turnstile). Generates Kr, wraps it under the password and the
-// escrow key, registers, persists creds, leaves the account UNLOCKED.
-export async function signup(email, password, turnstileToken) {
-  const salt = randomBytesB64(16);
-  const newKr = await generateKey();
-  const { wrappedKr, authSecret } = await deriveAccount(password, salt, newKr);
-  const escrowKr = await wrapKeyForInstall(await escrowPubkey(), newKr);
-  const r = await api('POST', '/v1/researcher', { auth: false, body: { email, salt, authSecret, wrappedKr, escrowKr, turnstileToken } });
-  saveAuth({ researcher_id: r.researcher_id, secret: authSecret, email, salt, wrappedKr });
-  Kr = newKr; kiCache = new Map(); settingsCache = { wrappedKis: {} }; settingsRev = 0;
-  return { ok: true };
-}
-
-// Log in (this or a new device): email + password (+ TOTP if enabled). Proves the password to the
-// server, unwraps Kr locally, persists creds for offline unlock. Returns {ok:false, need:'totp'}
-// when a code is required.
-export async function login(email, password, totpCode) {
-  const { salt } = await api('POST', '/v1/researcher/salt', { auth: false, body: { email } });
-  const KEK = await deriveKeyFromPassphrase(password, salt);
-  const authSecret = await deriveAuthSecret(password, salt);
-  let r;
-  try { r = await api('POST', '/v1/researcher/login', { auth: false, body: { email, authSecret, totpCode } }); }
-  catch (e) {
-    const code = e.data && e.data.error;
-    if (e.status === 401 && code === 'totp_required') return { ok: false, need: 'totp' };
-    if (e.status === 401 && code === 'bad_totp') return { ok: false, error: 'bad_totp' };
-    if (e.status === 401) return { ok: false, error: 'bad_login' };
-    throw e;
-  }
-  let newKr;
-  try { newKr = await unwrapKey(KEK, r.wrapped_kr); } catch { return { ok: false, error: 'bad_login' }; }
-  saveAuth({ researcher_id: r.researcher_id, secret: authSecret, email, salt, wrappedKr: r.wrapped_kr, totp_enabled: !!r.totp_enabled });
-  Kr = newKr; kiCache = new Map(); settingsCache = null; settingsRev = null;
-  return { ok: true };
-}
-
-// Offline unlock on a signed-in device: password → KEK(stored salt) → unwrap stored wrappedKr.
-// No network; the AES-GCM tag proves the password.
-export async function unlock(password) {
-  const a = loadAuth();
-  if (!a || !a.salt || !a.wrappedKr) return { ok: false, error: 'not_signed_in' };
-  const KEK = await deriveKeyFromPassphrase(password, a.salt);
-  let newKr;
-  try { newKr = await unwrapKey(KEK, a.wrappedKr); } catch { return { ok: false, error: 'bad_password' }; }
-  Kr = newKr; kiCache = new Map(); settingsCache = null; settingsRev = null;
-  return { ok: true };
-}
-
-/* ---- password recovery (escrow) + TOTP ---- */
-
-export async function requestReset(email, appBase) {
-  await api('POST', '/v1/researcher/reset/request', { auth: false, body: { email, appBase } });
-  return { ok: true };
-}
-// Step 1: token (+ TOTP) → recover Kr from escrow (held for the confirm step).
-export async function verifyReset(token, totpCode) {
-  try {
-    const r = await api('POST', '/v1/researcher/reset/verify', { auth: false, body: { token, totpCode } });
-    _resetKr = await importKeyB64(r.kr);
-    return { ok: true };
-  } catch (e) {
-    const code = e.data && e.data.error;
-    if (e.status === 401 && code === 'totp_required') return { ok: false, need: 'totp' };
-    if (e.status === 401 && code === 'bad_totp') return { ok: false, error: 'bad_totp' };
-    if (e.status === 401) return { ok: false, error: 'bad_token' };
-    throw e;
-  }
-}
-// Step 2: set a new password — re-wrap the recovered Kr (Kr unchanged → all data survives). The
-// caller then logs in with the new password to establish full creds. The second factor is re-proven
-// here too (the server re-gates /confirm on TOTP): pass the SAME code used at verify — verify→confirm
-// is immediate, so a live TOTP is still in window and a backup code is still unused.
-export async function confirmReset(token, newPassword, totpCode) {
-  if (!_resetKr) return { ok: false, error: 'verify_first' };
-  const salt = randomBytesB64(16);
-  const { wrappedKr, authSecret } = await deriveAccount(newPassword, salt, _resetKr);
-  try { await api('POST', '/v1/researcher/reset/confirm', { auth: false, body: { token, salt, authSecret, wrappedKr, totpCode } }); }
-  catch (e) {
-    const code = e.data && e.data.error;
-    if (e.status === 401 && (code === 'totp_required' || code === 'bad_totp')) return { ok: false, error: 'bad_totp' };
-    if (e.status === 401) return { ok: false, error: 'bad_token' };
-    throw e;
-  }
-  _resetKr = null;
-  return { ok: true };
-}
-
-export async function totpSetup() { return api('POST', '/v1/researcher/totp/setup', { body: {} }); }
-export async function totpEnable(code) {
-  const r = await api('POST', '/v1/researcher/totp/enable', { body: { code } });
-  const a = loadAuth(); if (a) { a.totp_enabled = true; saveAuth(a); }
-  return r;
-}
-export async function totpDisable(code) {
-  const r = await api('POST', '/v1/researcher/totp/disable', { body: { code } });
-  const a = loadAuth(); if (a) { a.totp_enabled = false; saveAuth(a); }
-  return r;
-}
-
-// Change password while signed in + unlocked: re-wrap the SAME Kr under the new password (so all
-// data survives + the escrow copy stays valid), push, and update local creds.
-export async function changePassword(newPassword) {
-  requireUnlocked();
-  const salt = randomBytesB64(16);
-  const { wrappedKr, authSecret } = await deriveAccount(newPassword, salt, Kr);
-  await api('POST', '/v1/researcher/password', { body: { salt, authSecret, wrappedKr } });
-  const a = loadAuth(); if (a) { a.salt = salt; a.secret = authSecret; a.wrappedKr = wrappedKr; saveAuth(a); }
-  return { ok: true };
-}
 
 /* ---------------- settings_blob (the researcher's encrypted key store) ---------------- */
 

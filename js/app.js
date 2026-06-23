@@ -55,7 +55,12 @@ const DEFAULT_RELAY = 'https://script.google.com/macros/s/AKfycbxMQbP4Qij5dCWwQd
 // as a Wrangler secret, never here. And Cloudflare Worker egress is free and
 // *throttles* (never bills) past the free quota, so a leaked read token costs
 // nothing. Rotate it by changing the Worker's RELAY_SECRET + this constant.
-const DEFAULT_WORKER = 'https://flextext-r2-worker.68mh29kgsd.workers.dev';
+// Custom domain (the …68mh29kgsd.workers.dev host still answers additively, but the
+// custom domain is what the Google OAuth consent screen shows + doesn't leak the CF
+// account subdomain). REQUIRES: the domain bound on the Worker (wrangler deploy) AND
+// https://connect.flextext.app/v1/oauth/google/callback registered in the Google OAuth
+// client — deploying this client before both = redirect_uri_mismatch on sign-in.
+const DEFAULT_WORKER = 'https://connect.flextext.app';
 const DEFAULT_RELAY_TOKEN = '7a93cb82d8ad2bd533a75ddf03bebc92501494ca57dab46c5b9f0c5aef00db34';
 
 // Local-dev environment switch: on localhost the client talks to a LOCAL `wrangler

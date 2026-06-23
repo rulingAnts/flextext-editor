@@ -21,6 +21,8 @@ import * as db from './db.js';
 
 let deps = null;
 let root = null;
+let dashPoll = null;   // dashboard auto-refresh interval (runs only while the dashboard shows)
+let lastSig = null;    // signature of the last-rendered view, to skip no-op re-renders
 
 const EDITOR_BASE = location.origin + location.pathname.replace(/[^/]*$/, '');
 const RECORDER_BASE = location.origin + '/text-recorder/';
@@ -65,11 +67,14 @@ export function initResearcherPanel(d) {
   deps = d;
   root = d.root;
   Researcher.init({ workerBase: deps.workerBase });
+  // Returning to a backgrounded tab → refresh the dashboard right away rather than
+  // waiting for the next poll tick (only fires while the dashboard is actively polling).
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && dashPoll) pollDashboard(); });
   return { open, close, isSignedUp: () => Researcher.isSignedUp() };
 }
 
 function open() { deps.openView('researcher'); route(); }
-function close() { deps.goHome(); }
+function close() { stopDashPoll(); deps.goHome(); }
 
 async function route() {
   // Returning from Google? Consume #gauth=<id>.<token>, then strip it from the address bar.
@@ -89,6 +94,7 @@ async function route() {
 
 // Sign-in screen: one "Sign in with Google" button (replaces the email+password + 2FA screens).
 function renderSignIn(note) {
+  stopDashPoll();
   root.innerHTML = header('panel.title', false) + `
     <div class="rp-body rp-narrow"><div class="rp-card rp-signin">
       <h2>${esc(t('panel.signin.title'))}</h2>
@@ -100,6 +106,7 @@ function renderSignIn(note) {
 }
 
 function renderConnecting() {
+  stopDashPoll();
   root.innerHTML = header('panel.title', false) + `
     <div class="rp-body rp-narrow"><div class="rp-card rp-signin"><p class="note">${esc(t('panel.signin.connecting'))}</p></div></div>`;
   wireActs({ exit: close });
@@ -265,6 +272,7 @@ function renderLogin(prefillEmail) {
 }
 
 function renderUnlock() {
+  stopDashPoll();
   root.innerHTML = header('panel.title', false) + `
     <div class="rp-body rp-narrow"><div class="rp-card">
       <h2>${esc(t('panel.unlock.title'))}</h2>
@@ -366,12 +374,49 @@ function lastSeen(ts) {
   return t('panel.inst.daysAgo', { n: Math.round(hrs / 24) });
 }
 
-async function renderDashboard() {
-  root.innerHTML = header('panel.title', true) + `<div class="rp-body"><p class="note">${esc(t('panel.dash.loading'))}</p></div>`;
-  wireActs({ exit: close, lock: () => { Researcher.lock(); renderUnlock(); } });
+// Auto-refresh: a researcher with no refresh button (and possibly several windows
+// open) shouldn't have to reload to see a device claim an invite or report back.
+// While the dashboard shows, poll the worker and silently re-render ONLY when the
+// meaningful state changed — never while a dialog is open (don't yank the DOM), and
+// never on heartbeat-only churn (last_seen excluded from the signature).
+function stopDashPoll() { if (dashPoll) { clearInterval(dashPoll); dashPoll = null; } }
+function startDashPoll() { if (!dashPoll) dashPoll = setInterval(pollDashboard, 12000); }
+
+// Stable signature of what the tiles actually show — excludes volatile fields
+// (last_seen_at / ack_seq / *_rev) so a device heartbeat doesn't force a re-render.
+function viewSig(data) {
+  try {
+    return JSON.stringify((data.instances || []).map((it) => [
+      it.instance_id, it.nickname, it.type,
+      (it.installs || []).map((ins) => [
+        ins.install_id, ins.status, ins.has_key,
+        ins.inventory && Array.isArray(ins.inventory.items)
+          ? ins.inventory.items.map((d) => [d.id, d.title, d.uploadState, d.hasAudio])
+          : null,
+      ]),
+    ]));
+  } catch { return String(Math.random()); } // unserializable → treat as changed
+}
+
+async function pollDashboard() {
+  if (!root || root.hidden || !Researcher.isUnlocked()) { stopDashPoll(); return; } // left the dashboard
+  if (document.hidden || document.querySelector('.modal')) return;                   // backgrounded / dialog open
   let data;
-  try { data = await Researcher.listView(); }
-  catch (e) { errToast(e); root.querySelector('.rp-body').innerHTML = `<button class="secondary-btn" data-act="retry">${esc(t('panel.dash.retry'))}</button>`; wire('[data-act="retry"]', 'click', renderDashboard); return; }
+  try { data = await Researcher.listView(); } catch { return; }                      // transient; next tick retries
+  if (root.hidden || document.querySelector('.modal')) return;                       // re-check after the await
+  if (viewSig(data) !== lastSig) renderDashboard(data);
+}
+
+async function renderDashboard(prefetched) {
+  if (!prefetched) {
+    root.innerHTML = header('panel.title', true) + `<div class="rp-body"><p class="note">${esc(t('panel.dash.loading'))}</p></div>`;
+    wireActs({ exit: close, lock: () => { Researcher.lock(); renderUnlock(); } });
+  }
+  let data = prefetched;
+  if (!data) {
+    try { data = await Researcher.listView(); }
+    catch (e) { stopDashPoll(); errToast(e); root.querySelector('.rp-body').innerHTML = `<button class="secondary-btn" data-act="retry">${esc(t('panel.dash.retry'))}</button>`; wire('[data-act="retry"]', 'click', () => renderDashboard()); return; }
+  }
 
   const insts = data.instances || [];
   let pending = 0, texts = 0;
@@ -413,6 +458,8 @@ async function renderDashboard() {
   });
   // per-card actions are delegated:
   root.querySelectorAll('[data-iact]').forEach((el) => el.addEventListener('click', () => instanceAction(el)));
+  lastSig = viewSig(data);
+  startDashPoll();
 }
 
 async function renderInstanceCard(it) {

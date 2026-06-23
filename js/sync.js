@@ -220,7 +220,7 @@ export async function claim(inviteId, inviteSecret) {
     // explicitly shared) — a phished/hijacked enrollment can't grab the pre-existing corpus.
     s = { inviteId, installId: uuid(), installSecret: randTok(24), instanceId: null,
           type: null, status: 'claiming', desiredRev: -1, ackSeq: 0, pubkey: null, wrappedKey: null,
-          enrolledAt: Date.now() };
+          enrolledAt: Date.now(), accepted: false, researcher: null };
     // E2EE model A: mint an RSA-OAEP keypair ONCE per identity. The private key is
     // stored non-extractable in IndexedDB and never leaves; only the public key is
     // sent (and re-sent identically on idempotent retry, so the worker's first-write
@@ -248,16 +248,41 @@ export async function claim(inviteId, inviteSecret) {
     s.instanceId = r.instance_id;
     s.type = r.type;
     s.status = r.status || 'pending';
+    s.researcher = r.researcher || s.researcher || null;   // who is enrolling (shown for the B consent prompt)
     delete s.inviteId; // burned; the binding is now the install identity
     saveSession(s);
     if (iface && iface.onStatus) iface.onStatus(s.status);
-    return { ok: true, type: s.type, status: s.status };
+    return { ok: true, type: s.type, status: s.status, researcher: s.researcher, accepted: !!s.accepted };
   } catch (e) {
     // Network failure on claim is recoverable — the local identity persisted, so a
     // later retry of the same invite reuses it. A definitive rejection clears it.
     if (e.status === 401 || e.status === 410 || e.status === 409) { clearSession(); return { ok: false, error: e.message }; }
     return { ok: false, error: 'offline', retryable: true };
   }
+}
+
+// The field user accepted the enrolling researcher (B): tell the worker (this gates key delivery
+// server-side) and unlock local engagement. {ok} on success; clears the session on a hard reject.
+export async function accept() {
+  const s = loadSession();
+  if (!s || !s.instanceId) return { ok: false, error: 'no_session' };
+  try {
+    await v1('POST', `/v1/instances/${encodeURIComponent(s.instanceId)}/installs/${encodeURIComponent(s.installId)}/accept`,
+      { headers: installHeaders(s) });
+    s.accepted = true; saveSession(s);
+    if (started) poll();                                   // engage now that we're accepted
+    return { ok: true };
+  } catch (e) {
+    if (e.status === 401 || e.status === 410) { clearSession(); return { ok: false, error: e.message }; }
+    return { ok: false, error: 'offline', retryable: true };
+  }
+}
+
+// A claimed-but-not-yet-accepted enrollment (B): the app shows the consent dialog (who's
+// connecting) on claim AND on reload until the user accepts or declines. null otherwise.
+export function pendingConsent() {
+  const s = loadSession();
+  return (s && s.instanceId && !s.accepted) ? { instanceId: s.instanceId, installId: s.installId, researcher: s.researcher || null } : null;
 }
 
 // This install's public-key fingerprint (formatted), for OUT-OF-BAND verification at
@@ -290,6 +315,9 @@ export async function poll() {
       await maybeReport(s);
       return;
     }
+    // B (consent): do not engage — no key, no commands, no report — until the field user has
+    // accepted this enrollment. Defense-in-depth; the worker also refuses key delivery unaccepted.
+    if (!s.accepted) { if (iface.onStatus) iface.onStatus('needs-accept'); return; }
     if (s.status !== 'approved') { s.status = 'approved'; saveSession(s); if (iface.onStatus) iface.onStatus('linked'); }
     // E2EE gate (model A): we can neither decrypt commands nor encrypt a report
     // without Ki. While approved, every GET (since stays -1) carries wrapped_key once

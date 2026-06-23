@@ -1917,14 +1917,48 @@ function handleInviteParam() {
     history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '')); // strip secret from URL/history
     if (!secret) return;
     Sync.claim(inviteId, secret).then(async (r) => {
-      if (r.ok) {
-        // Show this device's code so the coworker can read it to the researcher, who
-        // confirms it matches the panel before approving (out-of-band MITM check).
-        const fp = await Sync.deviceFingerprint().catch(() => null);
-        toast(fp ? t('toast.linkedFp', { fp }) : t('toast.linked'), 12000);
-      } else if (r.error === 'type_mismatch') toast(t('toast.linkMismatch'), 6000);
+      if (r.ok) showInviteConsent(r.researcher);          // B: user must see who's connecting + accept
+      else if (r.error === 'type_mismatch') toast(t('toast.linkMismatch'), 6000);
     }).catch(() => { /* offline; the persisted identity lets a later retry resume */ });
   } catch { /* never block startup */ }
+}
+
+// B (enrollment consent): show WHO is enrolling this device (Google name + avatar) and require the
+// field user to Accept before anything flows — the worker won't deliver the data key until they do,
+// so a phished/hijacked invite is inert without a deliberate human OK. Re-shown on reload until decided.
+function showInviteConsent(researcher) {
+  if (document.querySelector('[data-invite-consent]')) return;   // never stack
+  const r = researcher || {};
+  const wrap = document.createElement('div');
+  wrap.className = 'modal';
+  wrap.dataset.inviteConsent = '1';
+  const av = r.avatar
+    ? `<img class="invite-avatar" src="${esc(r.avatar)}" alt="" referrerpolicy="no-referrer" width="56" height="56">` : '';
+  wrap.innerHTML = `<div class="modal-card" role="dialog" aria-modal="true">
+    <h3>${esc(t('invite.title'))}</h3>
+    <div class="invite-who">${av}<div><div class="invite-name">${esc(r.name || t('invite.unknownName'))}</div>${r.email ? `<div class="note">${esc(r.email)}</div>` : ''}</div></div>
+    <p class="banner warn-banner">${esc(t('invite.warn'))}</p>
+    <button class="primary-btn" data-iv="accept">${esc(t('invite.accept'))}</button>
+    <button class="link-btn" data-iv="decline">${esc(t('invite.decline'))}</button>
+  </div>`;
+  document.body.appendChild(wrap);
+  const close = () => wrap.remove();
+  wrap.querySelector('[data-iv="accept"]').addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    const res = await Sync.accept();
+    close();
+    if (res.ok) {
+      const fp = await Sync.deviceFingerprint().catch(() => null);   // device code for the out-of-band check
+      toast(fp ? t('toast.linkedFp', { fp }) : t('toast.linked'), 12000);
+    } else toast(t('invite.acceptFailed'), 6000);
+    if (RECORD_MODE) renderRecordList(); else renderDocList();
+  });
+  wrap.querySelector('[data-iv="decline"]').addEventListener('click', () => {
+    Sync.clearSession();                                   // abandon the binding entirely
+    close();
+    toast(t('invite.declined'), 6000);
+    if (RECORD_MODE) renderRecordList(); else renderDocList();
+  });
 }
 
 // Turn a researcher's audio/flextext input (Drive share link, bare file id, or
@@ -3279,6 +3313,11 @@ function setup() {
     onStatus: () => {},
   });
   handleInviteParam();
+  // Re-prompt an unfinished invite acceptance on reload (B): a claimed-but-unaccepted enrollment
+  // re-shows the consent dialog. (handleInviteParam shows it for a fresh link; this covers a reload
+  // without the link. The dialog guards against stacking, and a claim still in flight has no
+  // instanceId yet, so pendingConsent() returns null until the claim lands.)
+  { const pend = Sync.pendingConsent(); if (pend) showInviteConsent(pend.researcher); }
 
   // Language selector — present in both the editor and the recorder.
   const langSel = $('#lang-select');

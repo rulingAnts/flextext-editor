@@ -271,6 +271,7 @@ export async function listView() {
       }
       installs.push({
         install_id: ins.install_id, status: ins.status,
+        accepted: Number(ins.accepted) === 1,                      // B: field user accepted this enrollment
         has_key: Number(ins.has_key) === 1, pubkey: ins.pubkey || null,
         ack_seq: ins.ack_seq, reported_rev: ins.reported_rev, last_seen_at: ins.last_seen_at,
         inventory,

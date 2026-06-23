@@ -211,7 +211,7 @@ function viewSig(data) {
     return JSON.stringify((data.instances || []).map((it) => [
       it.instance_id, it.nickname, it.type,
       (it.installs || []).map((ins) => [
-        ins.install_id, ins.status, ins.has_key,
+        ins.install_id, ins.status, ins.accepted, ins.has_key,
         ins.inventory && Array.isArray(ins.inventory.items)
           ? ins.inventory.items.map((d) => [d.id, d.title, d.uploadState, d.hasAudio])
           : null,
@@ -297,11 +297,16 @@ async function renderInstanceCard(it) {
   for (const ins of installs) {
     if (ins.status === 'pending') {
       const fp = ins.pubkey ? await fpOf(ins.pubkey) : '—';
+      // B: no key can be delivered until the field user accepts on their device — so until then
+      // show "waiting for the user" instead of Approve (the worker would 409 the key anyway).
+      const action = ins.accepted
+        ? `<button class="primary-btn" data-iact="approve" data-i="${esc(it.instance_id)}" data-id="${esc(ins.install_id)}">${esc(t('panel.inst.approve'))}</button>`
+        : `<div class="note rp-waiting">${esc(t('panel.inst.waitingAccept'))}</div>`;
       installsHtml += `<div class="rp-install rp-install-pending">
         <div><div>${esc(t('panel.inst.newInstall'))}</div>
           <div class="rp-mono rp-fp">${esc(t('panel.inst.fingerprint'))}: ${esc(fp)}</div>
           <div class="note rp-verify">${esc(t('panel.inst.verifyHint'))}</div></div>
-        <button class="primary-btn" data-iact="approve" data-i="${esc(it.instance_id)}" data-id="${esc(ins.install_id)}">${esc(t('panel.inst.approve'))}</button>
+        ${action}
       </div>`;
     } else {
       const inv = ins.inventory && Array.isArray(ins.inventory.items) ? ins.inventory.items : null;

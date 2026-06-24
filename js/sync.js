@@ -384,7 +384,7 @@ export async function reportNow() {
 function nextDelay() {
   const base = (document.visibilityState === 'visible') ? POLL_FG_MS : POLL_IDLE_MS;
   if (failStreak === 0) return base;
-  return Math.min(base * Math.pow(2, failStreak), 30 * 60 * 1000); // exp backoff, cap 30m
+  return Math.min(base * Math.pow(2, failStreak), 5 * 60 * 1000); // exp backoff, cap 5m (field: reconnect fast; the `online` event also forces an immediate poll)
 }
 function schedule() {
   if (pollTimer) clearTimeout(pollTimer);

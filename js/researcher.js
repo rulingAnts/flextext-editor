@@ -65,7 +65,18 @@ export function signOut() { lock(); try { localStorage.removeItem(AUTH_KEY); ses
 
 /* ---------------- low-level request (researcher-authed unless auth:false) ---------------- */
 
-async function api(method, path, { headers = {}, body, auth = true } = {}) {
+const RETRY_MAX = 4;                                   // bounded inner retries; outer loops (poll, route) add more
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Exponential backoff + jitter: ~1.4s, 2.8s, 5.6s, 11s — absorbs the brief network drops that are
+// the norm in the field, then surfaces so the caller's own retry loop (poll interval / reconnect)
+// takes over for longer outages.
+function backoffMs(attempt) { return Math.min(700 * Math.pow(2, attempt), 15000) + Math.floor(Math.random() * 400); }
+
+// Network-resilient request. Retries TRANSIENT failures (the connection failed, the request timed
+// out, or the server returned 5xx/429) with backoff; a 4xx (401/403/404/409) is DEFINITIVE and
+// never retried. Non-idempotent callers (createInstance, mintInvite) pass retry:false so a lost
+// response can't silently create a duplicate.
+async function api(method, path, { headers = {}, body, auth = true, retry = true, retries = RETRY_MAX } = {}) {
   const base = (workerBaseFn() || '').replace(/\/+$/, '');
   if (!base) throw new Error('no_worker_base');
   const h = Object.assign(body !== undefined ? { 'content-type': 'application/json' } : {}, headers);
@@ -74,18 +85,26 @@ async function api(method, path, { headers = {}, body, auth = true } = {}) {
     if (!a) throw new Error('not_signed_up');
     h['x-fx-researcher'] = a.researcher_id; h['x-fx-secret'] = a.secret;
   }
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), REQ_TIMEOUT_MS);
-  try {
-    const res = await fetch(base + path, {
-      method, headers: h,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-      signal: ctrl.signal, cache: 'no-store',
-    });
+  let attempt = 0;
+  for (;;) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), REQ_TIMEOUT_MS);
+    let res = null, netErr = null;
+    try {
+      res = await fetch(base + path, {
+        method, headers: h,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal: ctrl.signal, cache: 'no-store',
+      });
+    } catch (e) { netErr = e; }                        // network failure or timeout-abort
+    finally { clearTimeout(timer); }
+    const transient = !!netErr || (res && (res.status >= 500 || res.status === 429));
+    if (transient && retry && attempt < retries) { attempt++; await sleep(backoffMs(attempt)); continue; }
+    if (netErr) throw netErr;                           // retries exhausted → surface to the caller's loop
     let data = null; try { data = await res.json(); } catch { /* empty */ }
     if (!res.ok) { const e = new Error((data && data.error) || ('http_' + res.status)); e.status = res.status; e.data = data; throw e; }
     return data || {};
-  } finally { clearTimeout(timer); }
+  }
 }
 
 /* ---------------- Google Sign-In (OIDC) — the current auth model ---------------- */
@@ -179,7 +198,7 @@ async function getKi(instanceId) {
 // freshest blob and re-apply, so an instance's wrapped Ki can never be silently lost.
 export async function createInstance(type, nickname) {
   requireUnlocked();
-  const r = await api('POST', '/v1/instances', { body: { type, nickname } });
+  const r = await api('POST', '/v1/instances', { body: { type, nickname }, retry: false }); // non-idempotent: don't risk a duplicate instance on a lost response
   const Ki = await generateKey();
   const wrapped = await wrapKey(Kr, Ki);
   try {
@@ -204,7 +223,7 @@ export async function renameInstance(instanceId, nickname) {
 }
 
 export async function mintInvite(instanceId, ttlSeconds) {
-  const r = await api('POST', `/v1/instances/${encodeURIComponent(instanceId)}/invite`, { body: ttlSeconds ? { ttlSeconds } : {} });
+  const r = await api('POST', `/v1/instances/${encodeURIComponent(instanceId)}/invite`, { body: ttlSeconds ? { ttlSeconds } : {}, retry: false }); // non-idempotent: avoid minting duplicate invites
   return { invite_id: r.invite_id, secret: r.secret, expires_at: r.expires_at };
 }
 

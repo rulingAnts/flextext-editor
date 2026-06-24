@@ -23,6 +23,7 @@ let deps = null;
 let root = null;
 let dashPoll = null;   // dashboard auto-refresh interval (runs only while the dashboard shows)
 let lastSig = null;    // signature of the last-rendered view, to skip no-op re-renders
+let reconnectTimer = null; // auto-retry timer for the "reconnecting" screen (network blip during bootstrap)
 
 // Absolute paths (NOT derived from location.pathname): invite links must point at the editor /
 // recorder even though this code usually runs inside the researcher app at /flextext-researcher/.
@@ -72,6 +73,9 @@ export function initResearcherPanel(d) {
   // Returning to a backgrounded tab → refresh the dashboard right away rather than
   // waiting for the next poll tick (only fires while the dashboard is actively polling).
   document.addEventListener('visibilitychange', () => { if (!document.hidden && dashPoll) pollDashboard(); });
+  // Regained connectivity → recover immediately instead of waiting for the next timer: refresh the
+  // dashboard if it's up, otherwise re-attempt sign-in/bootstrap (drives the reconnecting screen).
+  window.addEventListener('online', () => { if (!root || root.hidden) return; if (dashPoll) pollDashboard(); else route(); });
   return { open, close, isSignedUp: () => Researcher.isSignedUp() };
 }
 
@@ -79,6 +83,7 @@ function open() { deps.openView('researcher'); route(); }
 function close() { stopDashPoll(); deps.goHome(); }
 
 async function route() {
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   // Returning from Google? Consume #gauth=<id>.<token>, then strip it from the address bar.
   if (Researcher.consumeGauth()) { try { history.replaceState(null, '', location.pathname + location.search); } catch { /* noop */ } }
   if (!Researcher.isSignedUp()) return renderSignIn();
@@ -86,9 +91,11 @@ async function route() {
     renderConnecting();
     try { await Researcher.bootstrap(); }
     catch (e) {
-      Researcher.signOut();
-      const why = (e && e.data && e.data.error) || (e && e.message) || (e && e.status && ('HTTP ' + e.status)) || 'unknown';
-      return renderSignIn(e && e.status === 401 ? t('panel.signin.expired') : ('Sign-in could not complete (' + why + '). Please try again.'));
+      // 401 = the session is genuinely invalid → sign out. Any OTHER failure (network/timeout/5xx —
+      // the field hits these constantly) must NOT sign the researcher out: show "reconnecting" and
+      // keep retrying, so a blip never drops them back to the sign-in screen.
+      if (e && e.status === 401) { Researcher.signOut(); return renderSignIn(t('panel.signin.expired')); }
+      return renderReconnecting();
     }
   }
   if (!Researcher.isApprovedSelf()) return renderAwaiting();   // signed in but pending → awaiting-approval screen
@@ -116,6 +123,23 @@ function renderConnecting() {
   root.innerHTML = header('panel.title', false) + `
     <div class="rp-body rp-narrow"><div class="rp-card rp-signin"><p class="note">${esc(t('panel.signin.connecting'))}</p></div></div>`;
   wireActs({ exit: close });
+}
+
+// Network blip during bootstrap → never sign the researcher out. Show we're retrying, auto-retry on a
+// timer (and the `online` listener re-routes the moment connectivity returns). route() recovers to the
+// dashboard as soon as bootstrap succeeds; the session is never dropped on a transient failure.
+function renderReconnecting() {
+  stopDashPoll();
+  root.innerHTML = header('panel.title', false) + `
+    <div class="rp-body rp-narrow"><div class="rp-card rp-signin">
+      <h2>${esc(t('panel.conn.title'))}</h2>
+      <p class="banner warn-banner">${esc(t('panel.conn.offline'))}</p>
+      <button class="primary-btn" data-act="retry">${esc(t('panel.conn.retry'))}</button>
+      <button class="link-btn" data-act="signout">${esc(t('panel.account.signout'))}</button>
+    </div></div>`;
+  wireActs({ retry: () => route(), signout: () => { Researcher.signOut(); route(); }, exit: close });
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  reconnectTimer = setTimeout(() => route(), 8000);
 }
 
 // Pending researcher: signed in via Google, but an owner hasn't approved this account yet. They
@@ -261,7 +285,15 @@ async function renderDashboard(prefetched) {
   let data = prefetched;
   if (!data) {
     try { data = await Researcher.listView(); }
-    catch (e) { stopDashPoll(); errToast(e); root.querySelector('.rp-body').innerHTML = `<button class="secondary-btn" data-act="retry">${esc(t('panel.dash.retry'))}</button>`; wire('[data-act="retry"]', 'click', () => renderDashboard()); return; }
+    catch (e) {
+      if (e && e.status === 401) { Researcher.signOut(); return renderSignIn(t('panel.signin.expired')); }
+      // Transient: keep the poll running (it recovers on the next good tick) and show "reconnecting"
+      // instead of a dead error screen — a field network drop must not strand the dashboard.
+      startDashPoll();
+      root.querySelector('.rp-body').innerHTML = `<p class="banner warn-banner">${esc(t('panel.conn.reconnecting'))}</p><button class="secondary-btn" data-act="retry">${esc(t('panel.dash.retry'))}</button>`;
+      wire('[data-act="retry"]', 'click', () => renderDashboard());
+      return;
+    }
   }
 
   const insts = data.instances || [];

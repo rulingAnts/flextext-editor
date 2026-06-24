@@ -24,7 +24,9 @@ let root = null;
 let dashPoll = null;   // dashboard auto-refresh interval (runs only while the dashboard shows)
 let lastSig = null;    // signature of the last-rendered view, to skip no-op re-renders
 
-const EDITOR_BASE = location.origin + location.pathname.replace(/[^/]*$/, '');
+// Absolute paths (NOT derived from location.pathname): invite links must point at the editor /
+// recorder even though this code usually runs inside the researcher app at /flextext-researcher/.
+const EDITOR_BASE = location.origin + '/flextext-editor/';
 const RECORDER_BASE = location.origin + '/text-recorder/';
 
 const REC_KEYS = Object.keys(REC_FORMATS);
@@ -650,8 +652,12 @@ function validateDeviceSettings(raw, opts = {}) {
   if (blank(raw.vernLang)) out.push({ group: 'languages', field: 'vernLang', msg: t('panel.val.vernLang') });
   if (blank(raw.analLang)) out.push({ group: 'languages', field: 'analLang', msg: t('panel.val.analLang') });
   const sends = Array.isArray(raw.sendOptions) ? raw.sendOptions : [];
-  if (sends.includes('upload')) {
-    if (blank(raw.upload)) out.push({ group: 'sending', field: 'upload', msg: t('panel.val.uploadMissing') });
+  // A Drive upload folder is required if "Upload" is an enabled send button OR if consent assent is
+  // RECORDED (the recorded "yes" has to be uploaded somewhere, or it's stranded on the device).
+  const needForSend = sends.includes('upload');
+  const needForAssent = raw.consentResp === 'record';
+  if (needForSend || needForAssent) {
+    if (blank(raw.upload)) out.push({ group: 'sending', field: 'upload', msg: (needForAssent && !needForSend) ? t('panel.val.assentUpload') : t('panel.val.uploadMissing') });
     else if (uploadIsUrl && parseFolder && !parseFolder(raw.upload)) out.push({ group: 'sending', field: 'upload', msg: t('panel.val.uploadBad') });
   }
   if (raw.consentMode === 'audio' && blank(raw.consentAudioUrl)) out.push({ group: 'consent', field: 'consentAudioUrl', msg: t('panel.val.consentAudio') });
@@ -666,7 +672,7 @@ function settingsToRaw(s) {
     vernLang: s.vernLang, analLang: s.analLang,
     upload: s.uploadFolder,                       // device mode persists the already-parsed folder
     sendOptions: s.sendOptions || [],
-    consentMode: s.consentMode,
+    consentMode: s.consentMode, consentResp: s.consentResp,
     consentAudioUrl: s.consentAudioUrl, consentMsg: s.consentMsg,
   };
 }

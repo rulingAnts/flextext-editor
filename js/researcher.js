@@ -116,6 +116,7 @@ export async function bootstrap() {
   Kr = await importKeyB64(v.kr);
   settingsCache = safeParse(v.settings) || {};
   if (!settingsCache.wrappedKis) settingsCache.wrappedKis = {};
+  if (!settingsCache.instanceSettings) settingsCache.instanceSettings = {};
   if (typeof v.settings_rev === 'number') settingsRev = v.settings_rev;
   kiCache = new Map();
   if (v.email) { const a = loadAuth(); if (a && a.email !== v.email) { a.email = v.email; saveAuth(a); } }
@@ -144,6 +145,7 @@ async function fetchSettings() {
   const v = await api('GET', '/v1/researcher');
   settingsCache = safeParse(v.settings) || {};
   if (!settingsCache.wrappedKis) settingsCache.wrappedKis = {};
+  if (!settingsCache.instanceSettings) settingsCache.instanceSettings = {};
   if (typeof v.settings_rev === 'number') settingsRev = v.settings_rev;
   return settingsCache;
 }
@@ -256,7 +258,35 @@ export async function pushCommand(instanceId, type, opts = {}) {
 
 export function assign(instanceId, docId, fields) { return pushCommand(instanceId, 'assign', { id: docId, ...(fields || {}) }); }
 export function deleteDoc(instanceId, docId)       { return pushCommand(instanceId, 'delete', { docId }); }
-export function changeSettings(instanceId, settings) { return pushCommand(instanceId, 'changeSettings', { settings }); }
+export async function changeSettings(instanceId, settings) {
+  // Push the encrypted settings command to the device…
+  const r = await pushCommand(instanceId, 'changeSettings', { settings });
+  // …and persist a researcher-side ENCRYPTED snapshot (under Kr) so the panel can prefill the form
+  // and gate invite-link creation on valid settings even before any device has reported back. The
+  // Worker/D1 only ever see ciphertext. Optimistic-locked like createInstance, and best-effort: the
+  // command already shipped, so a snapshot write failure must not surface as an error to the caller.
+  try {
+    const enc = await encryptJSON(Kr, settings);
+    for (let attempt = 0; ; attempt++) {
+      await fetchSettings();
+      settingsCache.instanceSettings[instanceId] = enc;
+      try { await putSettings(); break; }
+      catch (e) { if (e.status === 409 && attempt < 4) continue; throw e; }
+    }
+  } catch { /* snapshot is best-effort */ }
+  return r;
+}
+
+// The researcher-side decrypted settings snapshot for an instance (what was last pushed), or null if
+// none has been pushed yet. Used to prefill the settings form and to validate before minting an
+// invite. Decrypted in memory under Kr.
+export async function getInstanceSettings(instanceId) {
+  requireUnlocked();
+  if (!settingsCache) await fetchSettings();
+  const enc = settingsCache && settingsCache.instanceSettings && settingsCache.instanceSettings[instanceId];
+  if (!enc) return null;
+  try { return await decryptJSON(Kr, enc); } catch { return null; }
+}
 export function triggerUpload(instanceId, docId)  { return pushCommand(instanceId, 'triggerUpload', { docId }); }
 
 /* ---------------- decrypted control-panel view ---------------- */
@@ -267,7 +297,7 @@ export async function listView() {
   requireUnlocked();
   const v = await api('GET', '/v1/researcher');
   approvedSelf = !!v.approved; ownerSelf = !!v.is_owner;          // keep status fresh for the panel
-  if (v.settings) { settingsCache = safeParse(v.settings) || settingsCache; if (settingsCache && !settingsCache.wrappedKis) settingsCache.wrappedKis = {}; }
+  if (v.settings) { settingsCache = safeParse(v.settings) || settingsCache; if (settingsCache && !settingsCache.wrappedKis) settingsCache.wrappedKis = {}; if (settingsCache && !settingsCache.instanceSettings) settingsCache.instanceSettings = {}; }
   if (typeof v.settings_rev === 'number') settingsRev = v.settings_rev;
   const instances = [];
   for (const inst of (v.instances || [])) {

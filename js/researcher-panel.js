@@ -419,6 +419,20 @@ async function instanceAction(el) {
       await busy(el, () => Researcher.revokeInstall(id, installId));
       renderDashboard();
     } else if (act === 'invite') {
+      // Gate: don't mint an invite for a device that lacks minimal usable settings, or the field
+      // worker ends up with a broken device. Validate the researcher-side snapshot, falling back to
+      // whatever the device last reported — so a device configured before this feature (or via the
+      // device itself) isn't forced through a redundant re-save.
+      const snap = await Researcher.getInstanceSettings(id).catch(() => null);
+      lastView = await Researcher.listView();
+      const inst = lastView.instances.find((x) => x.instance_id === id);
+      const effective = snap || (inst && firstInventorySettings(inst));
+      const probs = effective ? validateDeviceSettings(settingsToRaw(effective)) : null;
+      if (!effective || (probs && probs.length)) {
+        deps.toast(t(effective ? 'panel.invite.fixSettings' : 'panel.invite.needSettings'), 6000);
+        if (inst) await openSettingsModal({ kind: 'instance', instance: inst }, { flagOnOpen: true });
+        return;
+      }
       inviteModal(id, type);
     } else if (act === 'assign') {
       assignModal(id);
@@ -448,7 +462,14 @@ function newDeviceModal() {
     const type = m.el.querySelector('#rp-new-type').value;
     const nick = m.el.querySelector('#rp-new-nick').value.trim();
     if (!nick) return deps.toast(t('panel.new.needNick'), 4000);
-    try { await Researcher.createInstance(type, nick); m.close(); renderDashboard(); }
+    try {
+      const inst = await Researcher.createInstance(type, nick);
+      m.close(); renderDashboard();
+      // A new device has no settings yet — open them straight away so it gets configured. Invite-link
+      // creation stays blocked until the required fields are filled in, so this isn't skippable.
+      deps.toast(t('panel.new.configure'), 5000);
+      await openSettingsModal({ kind: 'instance', instance: { instance_id: inst.instance_id, type: inst.type, nickname: inst.nickname, installs: [] } });
+    }
     catch (err) { errToast(err); }
   });
 }
@@ -508,7 +529,7 @@ function assignModal(instanceId) {
 function accountModal() {
   const m = modal(`
     <h3>${esc(t('panel.account.title'))}</h3>
-    <label class="rp-field"><span>${esc(t('panel.f.email'))}</span><input readonly value="${esc(Researcher.accountEmail() || '')}"></label>
+    <div class="rp-field"><span>${esc(t('panel.account.signedInAs'))}</span><div class="rp-readonly">${esc(Researcher.accountEmail() || '')}</div></div>
     <label class="check-label"><input type="checkbox" data-m="stay"${Researcher.staySignedIn() ? ' checked' : ''}> ${esc(t('panel.account.stay'))}</label>
     <p class="note">${esc(t('panel.account.stayNote'))}</p>
     <button class="link-btn" data-m="signout">${esc(t('panel.account.signout'))}</button>
@@ -571,8 +592,9 @@ function fillForm(box, v) {
   });
 }
 
-// Read the form → a settings patch (mode-aware on divergent keys).
-function readForm(box, mode) {
+// Collect the form's raw values keyed by canonical field id (vernLang, upload, sendOptions, …).
+// Shared by readForm (→ settings patch) and validateDeviceSettings (→ required-field check).
+function collectRaw(box) {
   const raw = {};
   box.querySelectorAll('[data-f]').forEach((el) => {
     const k = el.dataset.f;
@@ -580,6 +602,12 @@ function readForm(box, mode) {
     else if (el.type === 'checkbox') raw[k] = el.checked;
     else raw[k] = (el.value || '').trim();
   });
+  return raw;
+}
+
+// Read the form → a settings patch (mode-aware on divergent keys).
+function readForm(box, mode) {
+  const raw = collectRaw(box);
   const patch = {};
   const SPECIAL = ['upload', 'sendOptions', 'buttons', 'autoDel', 'consentAudioUrl'];
   for (const g of GROUPS) for (const f of g.fields) {
@@ -605,7 +633,99 @@ function readForm(box, mode) {
   return patch;
 }
 
-function openSettingsModal(target) {
+/* ---------------- required-settings validation ----------------
+ * Minimal-usable check: flag anything blank that would BREAK a device in the field, so a researcher
+ * can neither push broken settings nor mint an invite for a misconfigured device. Required:
+ *   • vernacular + analysis language CODES — no codes → no writing system (app.js builds the WS only
+ *     when vernLang is set; analLang silently falls back to 'en', i.e. wrong for non-English work);
+ *   • a Google Drive folder IF "Upload" is an enabled send button — else the upload button silently
+ *     never appears (app.js shows it only when uploadFolder is set);
+ *   • the consent AUDIO link IF consent mode is Audio (else the audio consent step has nothing to play);
+ *   • the consent MESSAGE IF consent mode is Text (else the text consent screen is blank).
+ * Everything else has a safe default/fallback. Returns [{ group, field, msg }] (empty = OK). */
+function validateDeviceSettings(raw, opts = {}) {
+  const { parseFolder, uploadIsUrl } = opts;
+  const blank = (v) => !v || !String(v).trim();
+  const out = [];
+  if (blank(raw.vernLang)) out.push({ group: 'languages', field: 'vernLang', msg: t('panel.val.vernLang') });
+  if (blank(raw.analLang)) out.push({ group: 'languages', field: 'analLang', msg: t('panel.val.analLang') });
+  const sends = Array.isArray(raw.sendOptions) ? raw.sendOptions : [];
+  if (sends.includes('upload')) {
+    if (blank(raw.upload)) out.push({ group: 'sending', field: 'upload', msg: t('panel.val.uploadMissing') });
+    else if (uploadIsUrl && parseFolder && !parseFolder(raw.upload)) out.push({ group: 'sending', field: 'upload', msg: t('panel.val.uploadBad') });
+  }
+  if (raw.consentMode === 'audio' && blank(raw.consentAudioUrl)) out.push({ group: 'consent', field: 'consentAudioUrl', msg: t('panel.val.consentAudio') });
+  if (raw.consentMode === 'text' && blank(raw.consentMsg)) out.push({ group: 'consent', field: 'consentMsg', msg: t('panel.val.consentMsg') });
+  return out;
+}
+
+// Map a stored settings snapshot (device keys) → the canonical shape validateDeviceSettings reads.
+function settingsToRaw(s) {
+  s = s || {};
+  return {
+    vernLang: s.vernLang, analLang: s.analLang,
+    upload: s.uploadFolder,                       // device mode persists the already-parsed folder
+    sendOptions: s.sendOptions || [],
+    consentMode: s.consentMode,
+    consentAudioUrl: s.consentAudioUrl, consentMsg: s.consentMsg,
+  };
+}
+
+// Paint validation errors VERY explicitly so the researcher can't miss what's blocking the save:
+//   1. a persistent banner above the tabs listing each blocked field WITH its tab name (each entry
+//      clicks through to that field) — survives tab switches so multi-tab errors are all visible;
+//   2. a red marker dot on every offending tab;
+//   3. a red ring + inline "why" message on each field;
+//   4. jump to + focus the first offending field;
+//   5. a toast naming the first blocker (field + tab).
+// All of it is cleared and recomputed on every save attempt.
+function flagProblems(box, problems, showGroup) {
+  box.querySelectorAll('.rp-invalid').forEach((el) => el.classList.remove('rp-invalid'));
+  box.querySelectorAll('.rp-fielderr').forEach((el) => el.remove());
+  box.querySelectorAll('.rp-tab.rp-tab-err').forEach((el) => el.classList.remove('rp-tab-err'));
+  const oldBanner = box.querySelector('.rp-valbanner'); if (oldBanner) oldBanner.remove();
+
+  const labelFor = (p) => t('panel.val.fieldAtTab', { field: t('panel.f.' + p.field), tab: t('panel.grp.' + p.group) });
+
+  for (const p of problems) {
+    const el = box.querySelector(`[data-f="${p.field}"]`);
+    if (el) {
+      const wrap = el.closest('.rp-field, .check-label') || el;
+      wrap.classList.add('rp-invalid');
+      const err = document.createElement('div');
+      err.className = 'rp-fielderr';
+      err.textContent = p.msg;
+      wrap.appendChild(err);
+    }
+    const tab = box.querySelector(`.rp-tab[data-tab="${p.group}"]`);
+    if (tab) tab.classList.add('rp-tab-err');   // mark the tab so errors on other tabs are visible too
+  }
+
+  // Persistent "what's blocking + which tab" banner, above the tabs; each item jumps to its field.
+  const banner = document.createElement('div');
+  banner.className = 'rp-valbanner';
+  banner.innerHTML = `<strong>${esc(t('panel.val.bannerTitle'))}</strong><ul>${problems.map((p) =>
+    `<li><button type="button" class="rp-valjump" data-grp="${esc(p.group)}" data-fld="${esc(p.field)}">${esc(labelFor(p))}</button></li>`).join('')}</ul>`;
+  const tabs = box.querySelector('.rp-tabs');
+  if (tabs && tabs.parentNode) tabs.parentNode.insertBefore(banner, tabs);
+  else box.appendChild(banner);
+  banner.querySelectorAll('.rp-valjump').forEach((btn) => btn.addEventListener('click', () => {
+    showGroup(btn.dataset.grp);
+    const f = box.querySelector(`[data-f="${btn.dataset.fld}"]`);
+    if (f) { try { f.focus(); } catch { /* noop */ } }
+  }));
+
+  if (showGroup && problems[0]) showGroup(problems[0].group);
+  const first = problems[0] && box.querySelector(`[data-f="${problems[0].field}"]`);
+  if (first) { try { first.focus(); } catch { /* noop */ } }
+
+  const firstLabel = labelFor(problems[0]);
+  deps.toast(problems.length === 1
+    ? t('panel.val.summaryOne', { field: firstLabel })
+    : t('panel.val.summaryMany', { field: firstLabel, more: problems.length - 1 }), 6000);
+}
+
+async function openSettingsModal(target, opts = {}) {
   const mode = target.kind;
   const titleKey = mode === 'local' ? 'panel.set.titleLocal' : 'panel.set.title';
   const m = modal(`
@@ -629,14 +749,26 @@ function openSettingsModal(target) {
   box.querySelectorAll('.rp-tab').forEach((b) => b.addEventListener('click', () => showGroup(b.dataset.tab)));
   showGroup(GROUPS[0].id);
 
-  // prefill
+  // prefill — for a device, prefer the researcher's own last-pushed snapshot (available even before
+  // the device has reported back); fall back to whatever the device last reported.
   let source = {};
   if (mode === 'local') source = deps.loadSettings();
-  else source = (target.instance && firstInventorySettings(target.instance)) || {};
+  else source = (target.instance && await Researcher.getInstanceSettings(target.instance.instance_id).catch(() => null))
+    || (target.instance && firstInventorySettings(target.instance)) || {};
   fillForm(box, toFormValues(source, mode));
+
+  // If opened because validation already blocked the researcher (e.g. the invite gate), show
+  // exactly what's missing right away rather than waiting for them to hit Save.
+  if (opts.flagOnOpen) {
+    const probs = validateDeviceSettings(collectRaw(box), { parseFolder: deps.parseDriveFolder, uploadIsUrl: true });
+    if (probs.length) flagProblems(box, probs, showGroup);
+  }
 
   box.querySelector('[data-m="cancel"]').onclick = m.close;
   box.querySelector('[data-m="save"]').onclick = (e) => busy(e.target, async () => {
+    // Block save/push until minimal usable settings are present (offending fields flagged inline).
+    const problems = validateDeviceSettings(collectRaw(box), { parseFolder: deps.parseDriveFolder, uploadIsUrl: true });
+    if (problems.length) { flagProblems(box, problems, showGroup); return; }
     const patch = readForm(box, mode);
     try {
       if (mode === 'local') {

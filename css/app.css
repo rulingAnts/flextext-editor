@@ -810,6 +810,25 @@ main {
 }
 .rp-field input:focus, .rp-field select:focus, .rp-field textarea:focus { outline: 2px solid var(--blue); border-color: var(--blue); }
 
+/* Required-settings validation: red-ring an offending field + show its inline message. */
+.rp-field.rp-invalid input, .rp-field.rp-invalid select, .rp-field.rp-invalid textarea { border-color: #d92d20; outline: 1px solid #d92d20; }
+.check-label.rp-invalid { color: #d92d20; }
+.rp-fielderr { color: #d92d20; font-size: 12px; font-weight: 500; margin-top: 3px; }
+/* Read-only account value (Google identity) — plain text, not an editable/autofillable input. */
+.rp-readonly { font-size: 15px; color: var(--text); padding: 6px 0; word-break: break-all; }
+
+/* A tab whose panel has a blocked required field gets a red marker dot, so errors on a tab the
+   researcher isn't currently looking at are still visible. */
+.rp-tab.rp-tab-err::after { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #d92d20; margin-left: 6px; vertical-align: middle; }
+/* The persistent "what's blocking + which tab" banner above the tabs. */
+.rp-valbanner { background: #fdecea; border: 1px solid #f5c2c0; color: #8a1c14; border-radius: 8px; padding: 10px 12px; margin: 0 0 12px; font-size: 13px; }
+.rp-valbanner strong { display: block; margin-bottom: 6px; }
+.rp-valbanner ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 5px; }
+.rp-valbanner li { display: flex; gap: 6px; align-items: baseline; }
+.rp-valbanner li::before { content: "•"; color: #8a1c14; }
+.rp-valjump { background: none; border: 0; padding: 0; margin: 0; font: inherit; color: #8a1c14; text-decoration: underline; cursor: pointer; text-align: left; }
+.rp-valjump:hover { color: #d92d20; }
+
 .rp-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 14px; }
 .rp-metric { background: var(--panel); border-radius: 8px; padding: 12px 14px; }
 .rp-metric-l { font-size: 13px; color: var(--muted); }

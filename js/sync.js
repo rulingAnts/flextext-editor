@@ -24,8 +24,8 @@ import { generateInstallKeypair, exportPublicKeyB64, importPublicKeyB64, publicK
 
 const SESSION_KEY = 'flextext-sync-session';
 const REQ_TIMEOUT_MS = 20000;     // bad-connection guard on every /v1/ request
-const POLL_FG_MS = 60000;         // foreground cadence (≈50 devices @ shared cap; see plan §C.4)
-const POLL_IDLE_MS = 180000;      // back off when idle / hidden
+const POLL_FG_MS = 20000;         // foreground cadence — snappy so researcher-pushed commands (upload/settings/assign) land within ~20s; worker-load tradeoff at scale (see plan §C.4)
+const POLL_IDLE_MS = 60000;       // back off when idle / hidden (was 180s)
 const MAX_BACKOFF_STEPS = 5;      // circuit-breaker: exponential backoff cap on repeated failure
 
 /* ---------------- session state (one install ⇄ one instance) ---------------- */

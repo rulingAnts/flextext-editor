@@ -78,7 +78,7 @@ en: {
   'recfmt.helpRaw': '<b>Faithful, unprocessed capture.</b> By default the app records the raw microphone signal — noise reduction, echo cancellation, voice isolation, and automatic gain are all <b>off</b> — so the lossless formats capture exactly what the mic produced, nothing added or removed. The one thing the app can\'t control: <b>Chrome and Android set the input level higher than ideal</b>, and no web app may lower it, so a loud voice can <b>clip</b> there — and clipping permanently destroys the peaks. The fix is human, not automatic: <b>watch the level meter while recording and move the phone back whenever it turns red.</b> (Firefox sets a faithful, lower level and rarely clips.) If archival quality isn\'t your goal, turning AGC <b>on</b> in Settings lets the browser manage the level for you — convenient, but it processes the audio, so it is not for archival masters.',
   'recfmt.helpBits': '<b>Bit depth — 24-bit is the default.</b> 24-bit WAV captures everything a phone microphone can actually produce, and is the depth archives expect. <b>16-bit</b> is smaller and perfectly fine for speech on modest devices. <b>32-bit float</b> is available but <b>not recommended on a phone</b>: its one real advantage — being impossible to clip — needs professional field-recorder hardware that phones don\'t have (and a browser can\'t pass that headroom through anyway), and 32-bit float isn\'t standard archival PCM, so <b>many archives reject it</b>. Use it only when you know a professional audio interface is feeding the recording.',
   'recfmt.helpWavFlac': '<b>WAV vs FLAC.</b> Both are lossless and identical in quality. <b>WAV</b> is the universal archival format, accepted everywhere. <b>FLAC</b> is lossless too and about half the size, which can help when upload bandwidth is very limited — but most archives don\'t accept FLAC for deposit, so you\'d have to convert it back to WAV, against the "record one format and keep it" rule. Prefer WAV; reach for FLAC only when limited data really forces it.',
-  'recfmt.helpMono': '<b>Always mono.</b> A single voice through a single microphone gains nothing from stereo, which would only double the file size. This app always records and sends mono.',
+  'recfmt.helpMono': '<b>Mono by default.</b> A single voice through a single microphone gains nothing from stereo, which would only double the file size. The app captures the device’s native channels and stores mono whenever the input is effectively single-channel; it preserves genuine stereo only if the two channels truly differ.',
   'recfmt.helpRate': '<b>Sample rate.</b> Recordings use the device\'s native rate (usually 48 kHz) — well beyond what speech or tone needs. There is nothing to set.',
   'recfmt.helpMp3': '<b>MP3 — not for archiving.</b> MP3 is lossy: it permanently throws away audio data, and no archive accepts it for preservation. It is only defensible for quick brainstorming, for collecting material you plan to have re-recorded properly later, or when storage and bandwidth are severely limited.',
   'recfmt.helpWebm': '<b>WebM options — handy, but not for deposit.</b> Both record through the browser\'s built-in recorder, which streams to disk — so they are the best choice for <b>very long takes</b> that might otherwise run a phone out of memory. <b>WebM · Opus</b> is compressed (lossy) but noticeably smaller and better-sounding than MP3 at the same size — a good "send it quickly" format. <b>WebM · 32-bit PCM</b> is fully <b>lossless</b> and a faithful capture, but the file is large and, like Opus, <b>no archive accepts WebM for deposit</b> — convert it to WAV before archiving. (WebM · PCM records only on Chrome/Edge; on Firefox the app falls back to a lossless WAV automatically.)',
@@ -117,7 +117,7 @@ en: {
   'texts.empty': 'No texts yet. Tap <b>New text</b> to start transcribing, or open an existing <code>.flextext</code> file.',
   'texts.deleteTitle': 'Delete',
   'texts.confirmDelete': 'Delete "{title}" from this device?\n(Make sure it has been saved/sent if you need it.)',
-  'texts.meta': '{n} sentences · {g} glossed · {date}',
+  'texts.meta': '{n} sentences · {g} words glossed · {date}',
   'untitled': 'Untitled text',
 
   'banner.set': 'Writing systems: {vern} → {anal}',
@@ -341,14 +341,14 @@ en: {
 your device into a new text with the recording in the player; <b>Open .flextext file…</b>
 continues from a file someone sent you; and a <b>link from your researcher</b> sets everything up
 for you — sometimes with a recording already waiting to be transcribed.</p>
-<p><b>Permission to record</b> (if your researcher turned this on): the first time you record, the
-app asks for the speaker's permission. Read the message — or tap ▶ to play it aloud — then either
-tap <b>Yes</b> / <b>No</b>, or <b>record the speaker giving permission</b> out loud, whichever
-your researcher chose. Your answer is sent together with the work.</p>
-<p><b>Recording:</b> <b>Record new text…</b> lets you record straight into the app — give the text
-a name first, then record. A <b>level meter</b> shows how loud the sound is and warns when it is too
-loud, so move back a little if it warns. Listen, and re-record until you are happy, then Save. The
-recording appears in the player above the typing area.</p>
+<p><b>Permission to record</b> (if your researcher turned this on): each time you start a new
+recording, the app asks for the speaker's permission. Read the message — or tap ▶ to play it aloud —
+then tap <b>Yes</b> / <b>No</b>, <b>record the speaker giving permission</b> out loud, or
+<b>type the speaker's name</b>, whichever your researcher chose. Your answer is sent together with the work.</p>
+<p><b>Recording:</b> <b>Record new text…</b> lets you record straight into the app — tap Record;
+when you stop, you can listen, name the text, and re-record until you are happy, then Save. A
+<b>level meter</b> shows how loud the sound is and warns when it is too loud, so move back a little
+if it warns. The recording appears in the player above the typing area.</p>
 <p><b>Audio:</b> if your researcher sent you a link with a recording, a player appears above the
 typing area: ▶ plays and pauses, <b>↺3s</b> jumps back three seconds, and the speed menu slows
 the voice down. The picture of the sound (waveform) shows where you are — tap it to jump, and
@@ -495,7 +495,7 @@ internet after the first time.</p>
   'panel.invite.needSettings': 'Set this device’s settings before creating an invite link.',
   'panel.invite.fixSettings': 'This device is missing required settings. Fix them, then create the invite link.',
   'panel.assign.title': 'Assign a text',
-  'panel.assign.intro': 'Send a task to the device: a title, and optionally a Drive audio or flextext link to fetch.',
+  'panel.assign.intro': 'Send a task to the device: a title plus a Drive audio or flextext link to fetch (a title alone sends nothing).',
   'panel.assign.titleField': 'Title',
   'panel.assign.audio': 'Audio link (optional)',
   'panel.assign.flextext': 'Flextext link (optional)',
@@ -547,7 +547,7 @@ internet after the first time.</p>
   'panel.f.norm': 'Peak normalization',
   'panel.f.consentMode': 'Consent prompt',
   'panel.f.consentMsg': 'Consent message',
-  'panel.f.consentAudioUrl': 'Consent audio link (optional)',
+  'panel.f.consentAudioUrl': 'Consent audio link (required for Audio consent)',
   'panel.f.consentResp': 'Consent response',
   'panel.f.upload': 'Upload folder (Drive link or ID)',
   'panel.f.sendOptions': 'Allowed send buttons',
@@ -652,7 +652,7 @@ id: {
   'recfmt.helpRaw': '<b>Perekaman setia, tanpa pemrosesan.</b> Secara default aplikasi merekam sinyal mikrofon mentah — pengurangan noise, penghapus gema, isolasi suara, dan penguatan otomatis semuanya <b>mati</b> — jadi format lossless menangkap persis apa yang dihasilkan mikrofon, tanpa ada yang ditambahkan atau dihilangkan. Satu hal yang tidak bisa dikendalikan aplikasi: <b>Chrome dan Android mengatur level masukan lebih tinggi dari ideal</b>, dan tidak ada aplikasi web yang boleh menurunkannya, jadi suara keras bisa <b>clipping</b> di sana — dan clipping merusak puncak secara permanen. Solusinya manusia, bukan otomatis: <b>perhatikan meter level saat merekam dan mundurkan HP setiap kali menjadi merah.</b> (Firefox mengatur level lebih rendah yang setia dan jarang clipping.) Jika kualitas arsip bukan tujuan Anda, mengaktifkan AGC di Pengaturan membiarkan peramban mengatur level untuk Anda — praktis, tetapi memproses audio, jadi bukan untuk master arsip.',
   'recfmt.helpBits': '<b>Kedalaman bit — 24-bit adalah default.</b> WAV 24-bit menangkap semua yang benar-benar bisa dihasilkan mikrofon HP, dan merupakan kedalaman yang diharapkan arsip. <b>16-bit</b> lebih kecil dan sangat memadai untuk suara di perangkat sederhana. <b>32-bit float</b> tersedia tetapi <b>tidak disarankan di HP</b>: satu-satunya keunggulan nyatanya — mustahil clipping — memerlukan perangkat perekam lapangan profesional yang tidak dimiliki HP (dan peramban tidak bisa meneruskan headroom itu), serta 32-bit float bukan PCM arsip standar, sehingga <b>banyak arsip menolaknya</b>. Gunakan hanya bila Anda tahu ada antarmuka audio profesional yang memberi masukan rekaman.',
   'recfmt.helpWavFlac': '<b>WAV vs FLAC.</b> Keduanya lossless dan kualitasnya identik. <b>WAV</b> adalah format arsip universal, diterima di mana saja. <b>FLAC</b> juga lossless dan sekitar separuh ukurannya, yang bisa membantu saat bandwidth unggah sangat terbatas — tetapi sebagian besar arsip tidak menerima FLAC untuk penyetoran, jadi Anda harus mengubahnya kembali ke WAV, bertentangan dengan aturan "rekam satu format dan pertahankan". Utamakan WAV; gunakan FLAC hanya bila data terbatas benar-benar memaksa.',
-  'recfmt.helpMono': '<b>Selalu mono.</b> Satu suara melalui satu mikrofon tidak mendapat manfaat dari stereo, yang hanya akan menggandakan ukuran berkas. Aplikasi ini selalu merekam dan mengirim mono.',
+  'recfmt.helpMono': '<b>Mono secara bawaan.</b> Satu suara melalui satu mikrofon tidak mendapat manfaat dari stereo, yang hanya akan menggandakan ukuran berkas. Aplikasi menangkap kanal asli perangkat dan menyimpan mono bila masukan pada dasarnya satu kanal; stereo sejati dipertahankan hanya jika kedua kanal benar-benar berbeda.',
   'recfmt.helpRate': '<b>Laju sampel.</b> Rekaman memakai laju asli perangkat (biasanya 48 kHz) — jauh melebihi kebutuhan suara atau nada. Tidak ada yang perlu diatur.',
   'recfmt.helpMp3': '<b>MP3 — bukan untuk pengarsipan.</b> MP3 bersifat lossy: secara permanen membuang data audio, dan tidak ada arsip yang menerimanya untuk preservasi. Hanya dapat dibenarkan untuk curah gagasan cepat, untuk mengumpulkan materi yang Anda rencanakan untuk direkam ulang dengan benar nanti, atau saat penyimpanan dan bandwidth sangat terbatas.',
   'recfmt.helpWebm': '<b>Opsi WebM — praktis, tetapi bukan untuk penyetoran.</b> Keduanya merekam lewat perekam bawaan peramban, yang mengalir ke disk — jadi paling cocok untuk <b>rekaman yang sangat panjang</b> yang bisa membuat HP kehabisan memori. <b>WebM · Opus</b> terkompresi (lossy) tetapi jauh lebih kecil dan terdengar lebih baik daripada MP3 pada ukuran yang sama — format "kirim cepat" yang bagus. <b>WebM · 32-bit PCM</b> sepenuhnya <b>lossless</b> dan setia, tetapi berkasnya besar dan, seperti Opus, <b>tidak ada arsip yang menerima WebM untuk penyetoran</b> — konversikan ke WAV sebelum mengarsipkan. (WebM · PCM hanya merekam di Chrome/Edge; di Firefox aplikasi otomatis beralih ke WAV lossless.)',
@@ -691,7 +691,7 @@ id: {
   'texts.empty': 'Belum ada teks. Tekan <b>Teks baru</b> untuk mulai mengetik, atau buka file <code>.flextext</code> yang sudah ada.',
   'texts.deleteTitle': 'Hapus',
   'texts.confirmDelete': 'Hapus "{title}" dari perangkat ini?\n(Pastikan sudah disimpan/dikirim kalau masih diperlukan.)',
-  'texts.meta': '{n} kalimat · {g} glos terisi · {date}',
+  'texts.meta': '{n} kalimat · {g} kata diglos · {date}',
   'untitled': 'Teks tanpa judul',
 
   'banner.set': 'Sistem tulisan: {vern} → {anal}',
@@ -916,14 +916,14 @@ id: {
 di perangkat Anda menjadi teks baru dengan rekamannya di pemutar; <b>Buka file .flextext…</b>
 melanjutkan file yang dikirim seseorang; dan <b>tautan dari peneliti</b> mengatur semuanya untuk
 Anda — kadang sudah disertai rekaman yang menunggu untuk ditranskripsi.</p>
-<p><b>Izin merekam</b> (kalau diaktifkan peneliti): saat pertama kali Anda merekam, aplikasi
-meminta izin penutur. Baca pesannya — atau tekan ▶ untuk memutarnya — lalu tekan <b>Ya</b> /
-<b>Tidak</b>, atau <b>rekam penutur memberi izin</b> dengan suara, sesuai pilihan peneliti Anda.
-Jawaban Anda ikut terkirim bersama hasil kerja.</p>
-<p><b>Merekam:</b> <b>Rekam teks baru…</b> memungkinkan Anda merekam langsung di aplikasi — beri
-nama teksnya dulu, lalu rekam. <b>Meter level</b> menunjukkan seberapa keras suaranya dan memberi
-peringatan bila terlalu keras, jadi mundur sedikit bila ada peringatan. Dengarkan, dan rekam ulang
-sampai puas, lalu Simpan. Rekamannya muncul di pemutar di atas tempat mengetik.</p>
+<p><b>Izin merekam</b> (kalau diaktifkan peneliti): setiap kali Anda mulai merekam teks baru,
+aplikasi meminta izin penutur. Baca pesannya — atau tekan ▶ untuk memutarnya — lalu tekan <b>Ya</b> /
+<b>Tidak</b>, <b>rekam penutur memberi izin</b> dengan suara, atau <b>ketik nama penutur</b>, sesuai
+pilihan peneliti Anda. Jawaban Anda ikut terkirim bersama hasil kerja.</p>
+<p><b>Merekam:</b> <b>Rekam teks baru…</b> memungkinkan Anda merekam langsung di aplikasi — tekan
+Rekam; setelah berhenti, Anda bisa mendengarkan, memberi nama teks, dan merekam ulang sampai puas,
+lalu Simpan. <b>Meter level</b> menunjukkan seberapa keras suaranya dan memberi peringatan bila
+terlalu keras, jadi mundur sedikit bila ada peringatan. Rekamannya muncul di pemutar di atas tempat mengetik.</p>
 <p><b>Audio:</b> kalau peneliti mengirim tautan dengan rekaman, pemutar audio muncul di atas
 tempat mengetik: ▶ untuk putar dan jeda, <b>↺3s</b> untuk mundur tiga detik, dan menu kecepatan
 untuk memperlambat suara. Gambar gelombang suara menunjukkan posisi Anda — ketuk untuk melompat,
@@ -1070,7 +1070,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.invite.needSettings': 'Atur pengaturan perangkat ini sebelum membuat tautan undangan.',
   'panel.invite.fixSettings': 'Perangkat ini belum memiliki pengaturan wajib. Perbaiki dulu, lalu buat tautan undangan.',
   'panel.assign.title': 'Tugaskan teks',
-  'panel.assign.intro': 'Kirim tugas ke perangkat: judul, dan opsional tautan audio atau flextext Drive untuk diambil.',
+  'panel.assign.intro': 'Kirim tugas ke perangkat: judul ditambah tautan audio atau flextext Drive untuk diambil (judul saja tidak mengirim apa pun).',
   'panel.assign.titleField': 'Judul',
   'panel.assign.audio': 'Tautan audio (opsional)',
   'panel.assign.flextext': 'Tautan flextext (opsional)',
@@ -1122,7 +1122,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.f.norm': 'Normalisasi puncak',
   'panel.f.consentMode': 'Permintaan izin',
   'panel.f.consentMsg': 'Pesan izin',
-  'panel.f.consentAudioUrl': 'Tautan audio izin (opsional)',
+  'panel.f.consentAudioUrl': 'Tautan audio izin (wajib untuk izin Audio)',
   'panel.f.consentResp': 'Respons izin',
   'panel.f.upload': 'Folder unggah (tautan/ID Drive)',
   'panel.f.sendOptions': 'Tombol kirim yang diizinkan',

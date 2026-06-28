@@ -2263,7 +2263,7 @@ function uploadState(docId) {
         // fires at the single upload-completion point, so it also covers
         // background-retry uploads that finish long after the user tapped Send.
         if (deleteAfterUpload()) {
-          deleteUploadedDoc(docId);
+          deleteUploadedDoc(docId).then(() => Sync.reportNow()); // inventory shrank — tell the panel promptly
           toast(t('record.sentRemoved', { name: st.name }), 6000);
         } else {
           // Record proof-of-backup on the kept doc so a later remote delete can
@@ -2278,7 +2278,12 @@ function uploadState(docId) {
             d.uploadedAt = Date.now();
           };
           if (current && current.id === docId) stamp(current);
-          db.getDoc(docId).then((d) => { if (d) { stamp(d); return db.putDoc(d); } }).catch(() => {});
+          // Persist the new uploadedFileId, THEN report — so the researcher panel sees the (re)upload
+          // land on its very next poll instead of waiting up to a full device-poll cycle (loop-closure:
+          // the panel confirms completion by detecting a CHANGED uploadedFileId in the reported inventory).
+          db.getDoc(docId).then((d) => { if (d) { stamp(d); return db.putDoc(d); } })
+            .then(() => Sync.reportNow())
+            .catch(() => {});
           toast(t('upload.done', { name: st.name }), 6000);
         }
       }

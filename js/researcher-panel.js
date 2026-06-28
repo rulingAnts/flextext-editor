@@ -24,6 +24,13 @@ let root = null;
 let dashPoll = null;   // dashboard auto-refresh interval (runs only while the dashboard shows)
 let lastSig = null;    // signature of the last-rendered view, to skip no-op re-renders
 let reconnectTimer = null; // auto-retry timer for the "reconnecting" screen (network blip during bootstrap)
+let lastData = null;   // last dashboard view, kept so an action (e.g. upload) can re-render instantly w/o a refetch
+// Researcher-side upload-request tracking: docId -> { prevFileId, requestedAt, doneAt }. Lets the panel show
+// "request sent → uploaded just now" with NO server state: a (re)upload writes a new timestamped Drive file,
+// so when the device later reports a DIFFERENT uploadedFileId we know THIS request completed — even a re-send
+// of an otherwise-unchanged doc (uploadState stays 'uploaded'). Swept in renderDashboard; resets on reload.
+const requestedUploads = new Map();
+const UPLOAD_WAIT_MS = 120000;   // no device confirmation after this long → re-offer the button ("awaiting device…")
 
 // Absolute paths (NOT derived from location.pathname): invite links must point at the editor /
 // recorder even though this code usually runs inside the researcher app at /flextext-researcher/.
@@ -259,7 +266,9 @@ function viewSig(data) {
         (it.installs || []).map((ins) => [
           ins.install_id, ins.status, ins.accepted, ins.has_key,
           ins.inventory && Array.isArray(ins.inventory.items)
-            ? ins.inventory.items.map((d) => [d.id, d.title, d.uploadState, d.hasAudio])
+            // uploadedFileId IS part of the signature: a re-send of an unchanged doc keeps uploadState
+            // 'uploaded' but mints a new file id, and that's our only signal the re-upload landed.
+            ? ins.inventory.items.map((d) => [d.id, d.title, d.uploadState, d.hasAudio, d.uploadedFileId])
             : null,
         ]),
       ]),
@@ -296,6 +305,14 @@ async function renderDashboard(prefetched) {
     }
   }
 
+  lastData = data;   // cache for an instant local re-render after an action (no refetch)
+  // Sweep upload-request markers: drop a completed one after it has lingered (~60s of "uploaded just
+  // now"), and give up on one the device never confirmed (~10min, likely offline) so the row reverts
+  // to its real reported state and the action button comes back.
+  const nowTs = Date.now();
+  for (const [k, r] of requestedUploads) {
+    if (r.doneAt ? (nowTs - r.doneAt > 60000) : (nowTs - r.requestedAt > 600000)) requestedUploads.delete(k);
+  }
   const insts = data.instances || [];
   let pending = 0, texts = 0;
   for (const it of insts) for (const ins of it.installs || []) {
@@ -402,11 +419,24 @@ async function renderInstanceCard(it) {
       // this privileged panel where Kr + the account secret live).
       const rows = inv && inv.length ? inv.map((d) => {
         const us = (d.uploadState === 'uploaded' || d.uploadState === 'changed') ? d.uploadState : 'local';
-        // Remote-upload trigger: offer it for anything not already uploaded.
-        const up = us !== 'uploaded'
-          ? ` <button class="link-btn rp-up" data-iact="upload" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}">${esc(t('panel.inst.upload'))}</button>`
-          : '';
-        return `<li>${esc(d.title || d.titleHash || '?')} ${d.hasAudio ? `<span class="rp-tag">${esc(t('panel.inst.audio'))}</span>` : ''}<span class="rp-tag rp-tag-${us}">${esc(t('panel.up.' + us))}</span>${up}</li>`;
+        // Mark a pending request done the first render the device reports a NEW file id (see requestedUploads).
+        const req = requestedUploads.get(d.id);
+        if (req && !req.doneAt && d.uploadedFileId && d.uploadedFileId !== req.prevFileId) req.doneAt = Date.now();
+        let disp = us, pending = false;
+        if (req) {
+          if (req.doneAt) disp = 'justUploaded';                              // ✓ confirmed by the device
+          else if (Date.now() - req.requestedAt < UPLOAD_WAIT_MS) { disp = 'requested'; pending = true; }
+          else disp = 'slow';                                                 // no confirmation yet → re-offer button
+        }
+        // SECURITY: disp must stay within this fixed literal set — it lands in a class attribute in this
+        // privileged panel; never let an attacker-controlled report value reach it (see note above).
+        const DISP = ['local', 'uploaded', 'changed', 'requested', 'slow', 'justUploaded'].includes(disp) ? disp : 'local';
+        // Action label by state — Upload (never sent) / Upload changes (edited since) / Re-upload (re-send).
+        const label = { changed: 'panel.inst.uploadChanges', uploaded: 'panel.inst.reupload',
+                        justUploaded: 'panel.inst.reupload', slow: 'panel.inst.resend' }[DISP] || 'panel.inst.upload';
+        const up = pending ? ''   // request in flight: hide the button so it isn't double-fired
+          : ` <button class="link-btn rp-up" data-iact="upload" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-fileid="${esc(d.uploadedFileId || '')}">${esc(t(label))}</button>`;
+        return `<li>${esc(d.title || d.titleHash || '?')} ${d.hasAudio ? `<span class="rp-tag">${esc(t('panel.inst.audio'))}</span>` : ''}<span class="rp-tag rp-tag-${DISP}">${esc(t('panel.up.' + DISP))}</span>${up}</li>`;
       }).join('')
         : `<li class="note">${esc(t('panel.inst.noTexts'))}</li>`;
       installsHtml += `<div class="rp-install">
@@ -475,8 +505,12 @@ async function instanceAction(el) {
     } else if (act === 'assign') {
       assignModal(id);
     } else if (act === 'upload') {
-      await busy(el, () => Researcher.triggerUpload(id, el.dataset.id));   // data-id is the doc id here
+      const docId = el.dataset.id;                                         // data-id is the doc id here
+      const prevFileId = el.dataset.fileid || '';                          // snapshot: a DIFFERENT id later = this upload landed
+      await busy(el, () => Researcher.triggerUpload(id, docId));           // throws on failure → caught below → no marker set
+      requestedUploads.set(docId, { prevFileId, requestedAt: Date.now(), doneAt: 0 });
       deps.toast(t('panel.inst.uploadSent'), 5000);
+      renderDashboard(lastData || undefined);                             // instant feedback: row flips to "request sent…"
     } else if (act === 'settings') {
       lastView = await Researcher.listView();
       const inst = lastView.instances.find((x) => x.instance_id === id);

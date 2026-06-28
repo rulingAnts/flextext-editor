@@ -87,6 +87,7 @@ function loadSettings() {
 }
 function saveSettings(s) {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+  db.broadcastLive('settings');   // live-sync settings to other same-origin windows/apps
 }
 
 // One-time normalization. Older builds stored the researcher's send-option
@@ -1822,6 +1823,20 @@ function docInScope(d, enr) {
   return (d.created || 0) >= (enr.enrolledAt || 0) || d.sharedInstall === enr.installId;
 }
 
+// Re-render the settings-dependent UI in place (no reload) — used by a pushed changeSettings AND by
+// the local cross-window live-sync, so a setting change appears immediately in every open window.
+function applyLiveSettings() {
+  if (RESEARCHER_MODE) return;   // the researcher panel manages its own views
+  settings = loadSettings();
+  if (RECORD_MODE) { renderRecordView(); renderRecordList(); }
+  else { applyResearchVisibility(); applyAllowedButtons(); fillWsForm(); renderDocList(); }
+}
+// Re-render just the document list (a doc was added/changed/removed in another window).
+function refreshLiveLists() {
+  if (RESEARCHER_MODE) return;
+  if (RECORD_MODE) renderRecordList(); else renderDocList();
+}
+
 // Apply ONE researcher command through the existing idempotent, never-clobber handlers.
 async function syncDispatch(cmd) {
   switch (cmd && cmd.type) {
@@ -1841,12 +1856,11 @@ async function syncDispatch(cmd) {
       const s = loadSettings();
       Object.assign(s, cmd.settings || {});
       saveSettings(s);
-      settings = loadSettings();
-      // Reflect pushed changes immediately so the field worker (no refresh button)
-      // sees them without reopening the app. Editor: visibility/buttons/form/list.
-      // Recorder: rebuild the record screen (welcome heading, buttons) + its list.
-      if (RECORD_MODE) { renderRecordView(); renderRecordList(); }
-      else { applyResearchVisibility(); applyAllowedButtons(); fillWsForm(); renderDocList(); }
+      // Reflect pushed changes immediately so the field worker (no refresh button) sees them without
+      // reopening — and tell them their researcher made the change. applyLiveSettings reloads + re-renders
+      // (editor: visibility/buttons/form/list; recorder: welcome heading + buttons + list).
+      applyLiveSettings();
+      toast(t('sync.settingsUpdated'), 5000);
       break;
     }
     case 'triggerUpload': {
@@ -3296,6 +3310,10 @@ function setup() {
   const { settingsChanged, task } = applyUrlSettings();
   settings = loadSettings();
   applyI18n();
+
+  // Local live-sync: when another same-origin window/app changes settings or the doc list, re-render
+  // here too — no manual refresh. Registered in every mode; the handlers no-op in researcher mode.
+  db.onLive((kind) => { if (kind === 'settings') applyLiveSettings(); else if (kind === 'docs') refreshLiveLists(); });
 
   // ----- Standalone Researcher console: boot the panel only; skip ALL field/editor wiring. -----
   if (RESEARCHER_MODE) {

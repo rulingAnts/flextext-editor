@@ -4,6 +4,14 @@ const DB_NAME = 'flextext-editor';
 const STORE = 'docs';
 const MEDIA = 'media'; // audio blobs + waveform peaks, keyed by doc id
 
+// Cross-window/app live-sync. All same-origin apps (editor, recorder, researcher) share one
+// BroadcastChannel: a storage mutation here notifies the OTHER open windows to re-render, so a new
+// or changed text — or a pushed setting — shows up everywhere with no manual refresh. One shared
+// instance per window means a window never receives its OWN post (no redundant self-re-render).
+const liveBC = (typeof BroadcastChannel !== 'undefined') ? new BroadcastChannel('flextext-live') : null;
+export function broadcastLive(kind) { try { if (liveBC) liveBC.postMessage({ kind }); } catch { /* noop */ } }
+export function onLive(fn) { if (liveBC) liveBC.onmessage = (e) => { try { fn(e.data && e.data.kind); } catch { /* noop */ } }; }
+
 function open() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, 2);
@@ -65,7 +73,7 @@ export async function putDoc(record) {
   const db = await getDB();
   return new Promise((resolve, reject) => {
     const req = tx(db, 'readwrite').put(record);
-    req.onsuccess = () => resolve();
+    req.onsuccess = () => { broadcastLive('docs'); resolve(); };
     req.onerror = () => reject(req.error);
   });
 }
@@ -79,7 +87,7 @@ export async function deleteDoc(id) {
   await deleteMedia('consent-prompt:' + id).catch(() => {}); // frozen consent-prompt copy
   return new Promise((resolve, reject) => {
     const req = tx(db, 'readwrite').delete(id);
-    req.onsuccess = () => resolve();
+    req.onsuccess = () => { broadcastLive('docs'); resolve(); };
     req.onerror = () => reject(req.error);
   });
 }

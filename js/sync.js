@@ -213,6 +213,17 @@ function installHeaders(s) { return { 'x-fx-install': s.installId, 'x-fx-secret'
 export async function claim(inviteId, inviteSecret) {
   if (!inviteId || !inviteSecret) return { ok: false, error: 'bad_invite' };
   let s = loadSession();
+  // Already bound to an instance? One browser profile = ONE install = ONE instance (editor + recorder
+  // share it same-origin), so never clobber an existing binding:
+  if (s && s.instanceId) {
+    // Same invite re-opened — e.g. the OTHER app's link for this same device → REUSE: no re-claim,
+    // no re-consent, no re-approval. The other app just works off the shared session.
+    if (s.inviteId === inviteId) return { ok: true, type: s.type, status: s.status, researcher: s.researcher, accepted: !!s.accepted, reused: true };
+    // A DIFFERENT invite while still linked → REFUSE (claim guard); never silently move a live device
+    // to another instance. If the old binding was revoked, poll() auto-releases first, so a legitimate
+    // re-link still works after a revoke.
+    return { ok: false, error: 'already_linked' };
+  }
   // Reuse a previously-minted-but-unconfirmed identity for THIS invite (idempotent retry).
   if (!s || s.inviteId !== inviteId) {
     // enrolledAt: when this device was bound to (this) researcher. Data-scoping uses it so a
@@ -249,7 +260,8 @@ export async function claim(inviteId, inviteSecret) {
     s.type = r.type;
     s.status = r.status || 'pending';
     s.researcher = r.researcher || s.researcher || null;   // who is enrolling (shown for the B consent prompt)
-    delete s.inviteId; // burned; the binding is now the install identity
+    // KEEP s.inviteId: re-opening this invite (the other app's link for the same device) is then
+    // recognized as already-claimed → reused, instead of minting a new identity that clobbers this one.
     saveSession(s);
     if (iface && iface.onStatus) iface.onStatus(s.status);
     return { ok: true, type: s.type, status: s.status, researcher: s.researcher, accepted: !!s.accepted };
@@ -344,6 +356,15 @@ export async function poll() {
     saveSession(s);
     await maybeReport(s, /*force*/ true); // report (with the advanced ack) right after applying
   } catch (e) {
+    // 410 = the worker says this install/instance was REVOKED → auto-release so the device is never
+    // orphaned-and-stuck: drop the binding + keys, tell the app to scrub the researcher's Drive links,
+    // and stop polling (clearSession makes the finally's schedule() a no-op).
+    if (e && e.status === 410) {
+      clearSession();
+      if (iface && iface.onRevoked) iface.onRevoked();
+      if (iface && iface.onStatus) iface.onStatus('revoked');
+      return;
+    }
     failStreak = Math.min(failStreak + 1, MAX_BACKOFF_STEPS); // circuit-breaker backoff
   } finally {
     inFlight = false;

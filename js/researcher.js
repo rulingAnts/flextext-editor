@@ -196,9 +196,9 @@ async function getKi(instanceId) {
 // Create a typed instance and mint its Ki, wrapped under Kr into the key store. The read-modify-write
 // of the key store is optimistic-locked: on a 409 (a concurrent tab wrote first) we refetch the
 // freshest blob and re-apply, so an instance's wrapped Ki can never be silently lost.
-export async function createInstance(type, nickname) {
+export async function createInstance(nickname) {
   requireUnlocked();
-  const r = await api('POST', '/v1/instances', { body: { type, nickname }, retry: false }); // non-idempotent: don't risk a duplicate instance on a lost response
+  const r = await api('POST', '/v1/instances', { body: { nickname }, retry: false }); // unified (no type); non-idempotent → don't risk a duplicate instance on a lost response
   const Ki = await generateKey();
   const wrapped = await wrapKey(Kr, Ki);
   try {

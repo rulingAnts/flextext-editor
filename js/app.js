@@ -1837,6 +1837,18 @@ function refreshLiveLists() {
   if (RECORD_MODE) renderRecordList(); else renderDocList();
 }
 
+// The researcher revoked this device — the sync engine auto-released the binding (poll saw 410). Scrub
+// the researcher's Google Drive links from local settings (item C: never keep a Drive folder we can no
+// longer use), re-render (the device is standalone again → the Settings tab returns), and tell the user.
+function onSyncRevoked() {
+  const s = loadSettings();
+  for (const k of ['uploadFolder', 'uploadUrl', 'consentAudio', 'consentAudioUrl']) delete s[k];
+  saveSettings(s);
+  settings = loadSettings();
+  applyLiveSettings();
+  toast(t('sync.revoked'), 8000);
+}
+
 // Apply ONE researcher command through the existing idempotent, never-clobber handlers.
 async function syncDispatch(cmd) {
   switch (cmd && cmd.type) {
@@ -1931,8 +1943,14 @@ function handleInviteParam() {
     history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '')); // strip secret from URL/history
     if (!secret) return;
     Sync.claim(inviteId, secret).then(async (r) => {
-      if (r.ok) showInviteConsent(r.researcher);          // B: user must see who's connecting + accept
-      else if (r.error === 'type_mismatch') toast(t('toast.linkMismatch'), 6000);
+      if (r.ok) {
+        if (r.accepted) toast(t('invite.alreadyLinked'), 5000);   // reused (the other app's link): already set up
+        else showInviteConsent(r.researcher);                      // B: user must see who's connecting + accept
+      } else if (r.error === 'already_linked') {
+        toast(t('invite.linkedElsewhere'), 9000);                  // claim guard: bound to a different instance
+      } else if (r.error === 'type_mismatch') {
+        toast(t('toast.linkMismatch'), 6000);
+      }
     }).catch(() => { /* offline; the persisted identity lets a later retry resume */ });
   } catch { /* never block startup */ }
 }
@@ -3329,6 +3347,7 @@ function setup() {
     dispatch: syncDispatch,
     gatherInventory: syncGatherInventory,
     onStatus: () => {},
+    onRevoked: onSyncRevoked,
   });
   handleInviteParam();
   // Re-prompt an unfinished invite acceptance on reload (B): a claimed-but-unaccepted enrollment

@@ -417,9 +417,13 @@ async function renderInstanceCard(it) {
     }
   }
 
+  // Show the app(s) the device actually RUNS (from each install's reported inventory.type), not a
+  // creation-time type — a unified device may run the editor, the recorder, or both.
+  const apps = [...new Set((it.installs || []).map((i) => i.inventory && i.inventory.type).filter(Boolean))];
+  const runs = apps.length ? apps.join(' + ') : (it.type || '');
   return `<div class="rp-card rp-inst">
     <div class="rp-inst-top">
-      <span class="rp-inst-name">${esc(it.nickname || '?')} <span class="rp-badge rp-badge-type">${esc(it.type)}</span> ${status}</span>
+      <span class="rp-inst-name">${esc(it.nickname || '?')} ${runs ? `<span class="rp-badge rp-badge-type">${esc(runs)}</span>` : ''} ${status}</span>
     </div>
     ${installsHtml || `<p class="note">${esc(t('panel.inst.noInstall'))}</p>`}
     <div class="rp-inst-actions">
@@ -467,7 +471,7 @@ async function instanceAction(el) {
         if (inst) await openSettingsModal({ kind: 'instance', instance: inst }, { flagOnOpen: true });
         return;
       }
-      inviteModal(id, type);
+      inviteModal(id);
     } else if (act === 'assign') {
       assignModal(id);
     } else if (act === 'upload') {
@@ -486,52 +490,58 @@ async function instanceAction(el) {
 function newDeviceModal() {
   const m = modal(`
     <h3>${esc(t('panel.new.title'))}</h3>
-    <label class="rp-field"><span>${esc(t('panel.new.type'))}</span>
-      <select id="rp-new-type"><option value="editor">${esc(t('panel.new.editor'))}</option><option value="recorder">${esc(t('panel.new.recorder'))}</option></select></label>
     <label class="rp-field"><span>${esc(t('panel.new.nick'))}</span><input id="rp-new-nick" placeholder="${esc(t('panel.new.nickPh'))}" spellcheck="false"></label>
+    <p class="note">${esc(t('panel.new.unifiedNote'))}</p>
     <button class="primary-btn" data-m="create">${esc(t('panel.new.create'))}</button>
     <button class="link-btn" data-m="cancel">${esc(t('panel.new.cancel'))}</button>`);
   m.el.querySelector('[data-m="cancel"]').onclick = m.close;
   m.el.querySelector('[data-m="create"]').onclick = (e) => busy(e.target, async () => {
-    const type = m.el.querySelector('#rp-new-type').value;
     const nick = m.el.querySelector('#rp-new-nick').value.trim();
     if (!nick) return deps.toast(t('panel.new.needNick'), 4000);
     try {
-      const inst = await Researcher.createInstance(type, nick);
+      const inst = await Researcher.createInstance(nick);
       m.close(); renderDashboard();
       // A new device has no settings yet — open them straight away so it gets configured. Invite-link
       // creation stays blocked until the required fields are filled in, so this isn't skippable.
       deps.toast(t('panel.new.configure'), 5000);
-      await openSettingsModal({ kind: 'instance', instance: { instance_id: inst.instance_id, type: inst.type, nickname: inst.nickname, installs: [] } });
+      await openSettingsModal({ kind: 'instance', instance: { instance_id: inst.instance_id, nickname: inst.nickname, installs: [] } });
     }
     catch (err) { errToast(err); }
   });
 }
 
-async function inviteModal(instanceId, type) {
+async function inviteModal(instanceId) {
   const m = modal(`<h3>${esc(t('panel.invite.title'))}</h3><p class="note">${esc(t('panel.invite.loading'))}</p>`);
   try {
+    // ONE invite, rendered as BOTH app URLs. The coworker opens whichever app(s) they use; same-origin
+    // editor + recorder share one identity, so opening either binds the SAME device — one claim, one
+    // consent, one approval, even if both links are sent.
     const invite = await Researcher.mintInvite(instanceId);
-    const base = type === 'recorder' ? RECORDER_BASE : EDITOR_BASE;
-    const url = Researcher.inviteUrl(base, invite);
+    const urls = { editor: Researcher.inviteUrl(EDITOR_BASE, invite), recorder: Researcher.inviteUrl(RECORDER_BASE, invite) };
     const exp = invite.expires_at ? new Date(invite.expires_at).toLocaleString() : '';
+    const row = (label, key) => `
+      <div class="rp-field"><span>${esc(label)}</span>
+        <textarea class="rp-linkbox" readonly rows="2" data-url="${key}">${esc(urls[key])}</textarea>
+        <div class="rp-inst-actions"><button class="secondary-btn" data-copy="${key}">${esc(t('panel.invite.copy'))}</button>
+        <button class="link-btn" data-share="${key}">${esc(t('panel.invite.share'))}</button></div></div>`;
     m.el.querySelector('.modal-card').innerHTML = `
       <h3>${esc(t('panel.invite.title'))}</h3>
-      <p class="note">${esc(t('panel.invite.intro'))}</p>
-      <textarea class="rp-linkbox" readonly rows="3">${esc(url)}</textarea>
+      <p class="note">${esc(t('panel.invite.introUnified'))}</p>
+      ${row(t('panel.invite.editorLink'), 'editor')}
+      ${row(t('panel.invite.recorderLink'), 'recorder')}
       ${exp ? `<p class="note">${esc(t('panel.invite.expires', { when: exp }))}</p>` : ''}
-      <button class="primary-btn" data-m="copy">${esc(t('panel.invite.copy'))}</button>
-      <button class="secondary-btn" data-m="share">${esc(t('panel.invite.share'))}</button>
       <button class="link-btn" data-m="close">${esc(t('panel.invite.close'))}</button>`;
     m.el.querySelector('[data-m="close"]').onclick = m.close;
-    m.el.querySelector('[data-m="copy"]').onclick = async () => {
-      try { await navigator.clipboard.writeText(url); deps.toast(t('panel.invite.copied'), 3000); }
-      catch { m.el.querySelector('.rp-linkbox').select(); }
-    };
-    m.el.querySelector('[data-m="share"]').onclick = () => {
-      if (navigator.share) navigator.share({ url, text: t('panel.invite.shareText') }).catch(() => {});
-      else window.open('https://wa.me/?text=' + encodeURIComponent(url), '_blank');
-    };
+    m.el.querySelectorAll('[data-copy]').forEach((b) => { b.onclick = async () => {
+      const u = urls[b.dataset.copy];
+      try { await navigator.clipboard.writeText(u); deps.toast(t('panel.invite.copied'), 3000); }
+      catch { const ta = m.el.querySelector(`[data-url="${b.dataset.copy}"]`); if (ta) ta.select(); }
+    }; });
+    m.el.querySelectorAll('[data-share]').forEach((b) => { b.onclick = () => {
+      const u = urls[b.dataset.share];
+      if (navigator.share) navigator.share({ url: u, text: t('panel.invite.shareText') }).catch(() => {});
+      else window.open('https://wa.me/?text=' + encodeURIComponent(u), '_blank');
+    }; });
   } catch (e) { m.close(); errToast(e); }
 }
 

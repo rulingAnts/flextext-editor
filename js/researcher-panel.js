@@ -848,16 +848,12 @@ function eraseDataModal(after) {
     <label class="rp-field"><span>${esc(t('panel.erase.typeLabel', { word: t('panel.erase.word') }))}</span>
       <input id="erase-confirm" spellcheck="false" autocomplete="off" autocapitalize="characters"></label>
     <button class="primary-btn rp-danger" data-m="go" disabled>${esc(t('panel.erase.btn'))}</button>
-    <hr class="rp-sep">
-    <p class="note">${esc(t('panel.delacct.intro'))}</p>
-    <button class="link-btn rp-danger" data-m="delacct">${esc(t('panel.delacct.link'))}</button>
     <button class="link-btn" data-m="close">${esc(t('panel.util.close'))}</button>`, true);
   const input = m.el.querySelector('#erase-confirm');
   const go = m.el.querySelector('[data-m="go"]');
   const word = t('panel.erase.word');
   input.addEventListener('input', () => { go.disabled = input.value.trim().toUpperCase() !== word.toUpperCase(); });
   m.el.querySelector('[data-m="close"]').onclick = m.close;
-  m.el.querySelector('[data-m="delacct"]').onclick = () => { m.close(); deleteAccountModal(); };   // SEPARATE server-side delete
   go.onclick = async () => {
     go.disabled = true; go.textContent = t('panel.erase.working');
     try { if (typeof after === 'function') await after(); } catch (e) { errToast(e); go.disabled = false; go.textContent = t('panel.erase.btn'); return; }
@@ -1111,6 +1107,9 @@ function accountModal() {
     <label class="check-label"><input type="checkbox" data-m="stay"${Researcher.staySignedIn() ? ' checked' : ''}> ${esc(t('panel.account.stay'))}</label>
     <p class="note">${esc(t('panel.account.stayNote'))}</p>
     <button class="link-btn" data-m="signout">${esc(t('panel.account.signout'))}</button>
+    <hr class="rp-sep">
+    <p class="note">${esc(t('panel.delacct.intro'))}</p>
+    <button class="link-btn rp-danger" data-m="delacct">${esc(t('panel.delacct.link'))}</button>
     <button class="link-btn" data-m="close">${esc(t('panel.invite.close'))}</button>`, true);
 
   m.el.querySelector('[data-m="close"]').onclick = m.close;
@@ -1119,6 +1118,7 @@ function accountModal() {
     if (!confirm(t('panel.account.confirmSignout'))) return;
     Researcher.signOut(); m.close(); deps.onSignedUp && deps.onSignedUp(); route();
   };
+  m.el.querySelector('[data-m="delacct"]').onclick = () => { m.close(); deleteAccountModal(); };   // permanent server-side account delete
 }
 
 /* ---------------- the reusable tabbed settings modal ---------------- */

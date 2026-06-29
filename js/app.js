@@ -238,6 +238,8 @@ function show(view) {
     $$('#topbar-editor .top-tab').forEach(b =>
       b.setAttribute('aria-selected', String(b.dataset.tab === view)));
   }
+  // Landing on the texts list (no open text) is a safe moment to apply a pending auto-update.
+  if (view === 'texts') applyUpdateIfSafe();
 }
 
 function openHelp() {
@@ -3009,6 +3011,10 @@ function setupServiceWorker() {
     return;
   }
 
+  // Confirm a just-completed auto-update. The flag is set ONLY right before we activate a ready new
+  // version, so this can never show a false "updated" — it appears only after a real apply + reload.
+  try { if (sessionStorage.getItem('fx-updated')) { sessionStorage.removeItem('fx-updated'); toast(t('update.done'), 4000); } } catch { /* noop */ }
+
   let reloading = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (reloading) return;
@@ -3019,40 +3025,54 @@ function setupServiceWorker() {
   navigator.serviceWorker.register('sw.js').then((reg) => {
     const check = () => reg.update().catch(() => {});
     reg.active?.postMessage({ type: 'CLEANUP' });
-    // A waiting worker means a new version is already downloaded.
-    if (reg.waiting && navigator.serviceWorker.controller) promptUpdate(reg.waiting);
+    // A fully-installed waiting worker = a COMPLETE new cache (install is atomic), ready to apply.
+    if (reg.waiting && navigator.serviceWorker.controller) markUpdateReady(reg.waiting);
     reg.addEventListener('updatefound', () => {
       const nw = reg.installing;
       nw?.addEventListener('statechange', () => {
-        if (nw.state === 'installed' && navigator.serviceWorker.controller) promptUpdate(nw);
+        if (nw.state === 'installed' && navigator.serviceWorker.controller) markUpdateReady(nw);
       });
     });
-    // Check on load, when the app returns to the foreground, when the
-    // network comes back, and hourly while open.
+    // Check for a new version (and apply a ready one, if safe) on load, when the app returns to the
+    // foreground, when the network comes back, and hourly while open. A failed download just leaves the
+    // old version serving and is retried on the next check (the SW install is all-or-nothing).
     check();
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) { check(); applyUpdateIfSafe(); } });
     window.addEventListener('online', check);
     setInterval(check, 60 * 60 * 1000);
   }).catch(() => {});
 }
 
-function promptUpdate(waitingWorker) {
-  // A prominent full-width top BANNER (not the easy-to-miss corner toast) — a field coworker trained to
-  // ignore small notifications was leaving devices on a stale cached version. Stays until tapped/reload.
-  if (document.getElementById('update-banner')) return;   // already showing
-  const bar = document.createElement('div');
-  bar.id = 'update-banner';
-  const span = document.createElement('span');
-  span.textContent = t('update.available');
-  const b = document.createElement('button');
-  b.className = 'update-banner-btn';
-  b.textContent = t('update.now');
-  b.addEventListener('click', () => {
-    b.textContent = t('update.updating'); b.disabled = true;
-    waitingWorker.postMessage({ type: 'SKIP_WAITING' });   // → controllerchange → location.reload()
+// ---- Auto-update (no prompt) ----
+// A fully-installed WAITING worker means a COMPLETE new cache: the SW install precaches the whole shell
+// atomically (per-file fetch with retries; if ANY file ultimately fails the install throws → it never
+// reaches 'installed' → the OLD version keeps serving). So activating a waiting worker can never serve a
+// half-downloaded version. We hold it until a SAFE moment, apply silently, and a post-reload toast
+// ('App updated') confirms — set only right before activation, so it can never claim a false update.
+let pendingWorker = null;
+
+function markUpdateReady(worker) {
+  pendingWorker = worker;
+  applyUpdateIfSafe();
+}
+
+// Safe = no modal/dialog open (recording, consent, share, settings) AND — in the editor — sitting on the
+// texts list (never yank an open text away). Cold start passes (no modal, texts list). Re-checked on
+// foreground-return and whenever the user lands back on the texts list.
+function updateSafeNow() {
+  if (document.querySelector('.modal:not([hidden])')) return false;
+  if (!RECORD_MODE) { const tv = $('#view-texts'); if (tv && tv.hidden) return false; }
+  return true;
+}
+
+function applyUpdateIfSafe() {
+  if (!pendingWorker || !updateSafeNow()) return;   // deferred; re-checked on foreground-return / nav
+  const w = pendingWorker; pendingWorker = null;
+  try { sessionStorage.setItem('fx-updated', '1'); } catch { /* private mode */ }
+  // Flush any debounced save so nothing in flight is lost across the reload, then activate.
+  Promise.resolve(current ? persist() : null).catch(() => {}).finally(() => {
+    w.postMessage({ type: 'SKIP_WAITING' });   // → activate → controllerchange → location.reload()
   });
-  bar.appendChild(span); bar.appendChild(b);
-  document.body.appendChild(bar);
 }
 
 /* ---------------- Wire-up ---------------- */
@@ -3263,6 +3283,14 @@ function setup() {
     if (f) importFile(f).catch(err => toast(t('toast.importFailed', { msg: err.message }), 6000));
   });
   $('#baseline-text').addEventListener('blur', () => { applyBaseline(); });
+  // Dummy "Save" (Office-web style): work is ALREADY auto-saved continuously — this just flushes any
+  // pending save and reassures the coworker, so the obsessive Save reflex never triggers an upload.
+  // The real send is the separate "Sudah selesai (Kirim)" button (#btn-share → the send menu).
+  $('#btn-save')?.addEventListener('click', async () => {
+    if (activeTab === 'baseline' && $('#baseline-text')) applyBaseline();
+    try { await persist(); } catch { /* already saved / nothing to flush */ }
+    toast(t('toast.autoSaved'), 4000);
+  });
   $('#btn-share').addEventListener('click', openShareMenu);
 
   $('#audio-player .player-dl-pause').addEventListener('click', () => {

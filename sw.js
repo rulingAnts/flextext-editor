@@ -40,10 +40,29 @@ const SHELL = [
   'icons/apple-touch-icon.png',
 ];
 
+// Fetch each shell file fresh with retries, then cache.put — far more resilient on a flaky field
+// network than addAll (which is one try, all-or-nothing). STILL atomic: if any file ultimately fails
+// we throw, so install never completes, this version never activates, and the OLD cached version keeps
+// serving. The app retries the whole install on its next update check (load / focus / online / hourly),
+// so a dropped connection mid-download can never leave a half-installed version.
+async function precacheAll(cache, urls) {
+  for (const url of urls) {
+    let cached = false, lastErr;
+    for (let attempt = 0; attempt < 3 && !cached; attempt++) {
+      try {
+        const resp = await fetch(url, { cache: 'reload' });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status + ' ' + url);
+        await cache.put(url, resp);
+        cached = true;
+      } catch (err) { lastErr = err; if (attempt < 2) await new Promise(r => setTimeout(r, 500 * (attempt + 1))); }
+    }
+    if (!cached) throw lastErr || new Error('precache failed: ' + url);
+  }
+}
 self.addEventListener('install', (e) => {
-  // No skipWaiting here: the page shows an "Update" button and tells us when
-  // to take over (so we never swap versions under the user mid-edit).
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)));
+  // No skipWaiting here: the page activates the new version at a SAFE moment (auto-update, see app.js)
+  // — never mid-recording or with a text open.
+  e.waitUntil(caches.open(CACHE).then(c => precacheAll(c, SHELL)));
 });
 
 function cleanupOldCaches() {

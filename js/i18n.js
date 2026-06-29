@@ -13,6 +13,8 @@ en: {
   'tabs.baseline': 'Baseline',
   'tabs.gloss': 'Gloss',
   'btn.saveSend': 'Save and send…',
+  'btn.save': 'Save',
+  'btn.done': 'Done — send…',
   'btn.back': 'Back to texts',
   'btn.help': 'Help',
   'help.close': '← Back',
@@ -248,6 +250,7 @@ en: {
   'invite.declined': 'Declined. This device was not connected.',
   'toast.saved': 'Saved.',
   'toast.shareFailed': 'Share failed: {msg}',
+  'toast.autoSaved': '✓ Saved automatically — your work is safe.',
   'toast.saveFailed': 'Save failed: {msg}',
   'toast.storageFull': 'This device is running out of storage space, so the recording or text could not be saved. Delete some photos/videos or unused apps to free up space — the app will try again.',
   'toast.corrected': 'Corrected file downloaded.',
@@ -318,6 +321,7 @@ en: {
   'convert.failed': 'Conversion failed: {msg}',
 
   'update.available': 'A new version of the app is available.',
+  'update.done': 'App updated.',
   'update.now': 'Update',
   'update.updating': 'Updating…',
 
@@ -629,6 +633,8 @@ id: {
   'tabs.baseline': 'Ketik',
   'tabs.gloss': 'Terjemahan Balik',
   'btn.saveSend': 'Simpan & kirim…',
+  'btn.save': 'Simpan',
+  'btn.done': 'Sudah selesai (Kirim)…',
   'btn.back': 'Kembali ke daftar teks',
   'btn.help': 'Bantuan',
   'help.close': '← Kembali',
@@ -864,6 +870,7 @@ id: {
   'invite.declined': 'Ditolak. Perangkat ini tidak dihubungkan.',
   'toast.saved': 'Tersimpan.',
   'toast.shareFailed': 'Gagal membagikan: {msg}',
+  'toast.autoSaved': '✓ Tersimpan otomatis — pekerjaan Anda aman.',
   'toast.saveFailed': 'Gagal menyimpan: {msg}',
   'toast.storageFull': 'Ruang penyimpanan perangkat ini hampir habis, jadi rekaman atau teks tidak bisa disimpan. Hapus beberapa foto/video atau aplikasi yang tidak dipakai — aplikasi ini akan mencoba lagi.',
   'toast.corrected': 'File yang sudah diperbaiki telah diunduh.',
@@ -934,6 +941,7 @@ id: {
   'convert.failed': 'Pengubahan gagal: {msg}',
 
   'update.available': 'Versi baru aplikasi ini tersedia.',
+  'update.done': 'Aplikasi diperbarui.',
   'update.now': 'Perbarui',
   'update.updating': 'Memperbarui…',
 

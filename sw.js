@@ -2,7 +2,7 @@
 
 // Bump VERSION on every deploy: clients check for a changed sw.js whenever
 // they load / regain focus / come online, and offer the user an update.
-const VERSION = 'v83';
+const VERSION = 'v84';
 // On localhost the SW serves NETWORK-FIRST so code edits show up immediately during dev
 // (cache-first would keep serving a stale build until every file's VERSION is bumped). The
 // SW stays registered (PWA + localStorage behave normally); production stays offline-first.
@@ -66,8 +66,12 @@ self.addEventListener('install', (e) => {
 });
 
 function cleanupOldCaches() {
-  return caches.keys()
-    .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))));
+  // Scope to THIS app's OWN version caches only. The editor, recorder, and researcher are three PWAs on
+  // ONE origin sharing one CacheStorage, so an unscoped `k !== CACHE` would delete the SIBLING apps'
+  // complete caches and brick them offline. Editor caches are 'flextext-v*'; exclude 'flextext-researcher-*'.
+  return caches.keys().then(keys => Promise.all(
+    keys.filter(k => k !== CACHE && k.startsWith('flextext-') && !k.startsWith('flextext-researcher-'))
+      .map(k => caches.delete(k))));
 }
 
 self.addEventListener('message', (e) => {

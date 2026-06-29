@@ -757,7 +757,9 @@ function closeConsentModal() {
   const ca = $('#consent-audio');
   ca.pause?.(); ca.removeAttribute('src');
   $('#consent-modal').hidden = true;
-  applyUpdateIfSafe();   // back on a safe screen → apply a pending update (esp. record mode, which has no texts list)
+  // NOTE: deliberately NO applyUpdateIfSafe() here — consent is given immediately before the record modal
+  // opens, so a reload in that gap would re-prompt consent. The recorder's update applies via the
+  // saveRecording finally, closeRecordModal (cancel), closeShareMenu, or visibilitychange instead.
 }
 
 // Run `onApproved(assent)` once permission is satisfied. assent is a
@@ -1216,6 +1218,7 @@ async function saveRecording() {
   const title = $('#record-title').value.trim();
   if (!title) { syncRecordSaveEnabled(); $('#record-title').focus(); return; } // title required
   recordUI('saving', { pct: 0 });
+  savingRecording = true;   // block any auto-update reload until the take is safely written to IndexedDB
   try {
     const stamp = fileStamp();
     let file;
@@ -1251,6 +1254,9 @@ async function saveRecording() {
   } catch (e) {
     recordUI('review');
     $('#record-status').textContent = t('convert.failed', { msg: e.message });
+  } finally {
+    savingRecording = false;
+    applyUpdateIfSafe();   // take written (or failed) → now safe to apply a deferred update
   }
 }
 
@@ -2526,7 +2532,7 @@ async function doUpload(researcher = false) {
   }
 }
 
-function closeShareMenu() { $('#share-menu').hidden = true; }
+function closeShareMenu() { $('#share-menu').hidden = true; applyUpdateIfSafe(); }
 
 /* ---------------- Research tab ---------------- */
 
@@ -3059,6 +3065,7 @@ function setupServiceWorker() {
 let pendingWorker = null;   // a fully-installed waiting SW, ready to activate when safe
 let reloadPending = false;  // a controllerchange fired while this tab was unsafe → reload when safe
 let reloading = false;      // re-entry guard so we reload exactly once
+let savingRecording = false; // a take is being encoded + written to IndexedDB — a reload would abort it
 
 function markUpdateReady(worker) {
   pendingWorker = worker;
@@ -3068,6 +3075,7 @@ function markUpdateReady(worker) {
 // Safe = no modal/dialog open (recording, consent, share, settings) AND — in the editor — sitting on the
 // texts list (never yank an open text away). Cold start passes (no modal, texts list).
 function updateSafeNow() {
+  if (savingRecording) return false;   // a recording save is mid-write to IndexedDB — a reload would lose the take
   if (document.querySelector('.modal:not([hidden])')) return false;
   if (!RECORD_MODE) { const tv = $('#view-texts'); if (tv && tv.hidden) return false; }
   return true;

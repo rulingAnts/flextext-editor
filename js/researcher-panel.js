@@ -65,10 +65,11 @@ const GROUPS = [
     { k: 'nr', type: 'checkbox' }, { k: 'echo', type: 'checkbox' }, { k: 'norm', type: 'checkbox' },
   ] },
   { id: 'consent', fields: [
-    { k: 'consentMode', type: 'select', opts: CONSENT_MODES, optPrefix: 'panel.opt.consent.' },
+    // Consent is multi-select: any combination of prompts + confirmations, all required together.
+    { k: 'consentAsk', type: 'multicheck', opts: ['text', 'audio'], optPrefix: 'panel.opt.ask.' },
     { k: 'consentMsg', type: 'textarea' },
     { k: 'consentAudioUrl', type: 'text' },
-    { k: 'consentResp', type: 'select', opts: CONSENT_RESP, optPrefix: 'panel.opt.resp.' },
+    { k: 'consentConfirm', type: 'multicheck', opts: ['yesno', 'record', 'signature'], optPrefix: 'panel.opt.conf.' },
   ] },
   { id: 'sending', fields: [
     { k: 'upload', type: 'text' },
@@ -722,6 +723,11 @@ function toFormValues(s, mode) {
     if (f.k === 'upload') v.upload = mode === 'local' ? (s.uploadUrl || '') : (s.uploadFolder || '');
     else if (f.k === 'sendOptions') v.sendOptions = (mode === 'local' ? s.linkSendOptions : s.sendOptions) || [];
     else if (f.k === 'buttons') v.buttons = (mode === 'local' ? s.linkButtons : s.toolbarButtons) || [];
+    // Consent multi-select: prefer the new arrays; else migrate the old single consentMode/consentResp.
+    else if (f.k === 'consentAsk') v.consentAsk = Array.isArray(s.consentAsk) ? s.consentAsk
+      : (s.consentMode && s.consentMode !== 'off' ? [s.consentMode] : []);
+    else if (f.k === 'consentConfirm') v.consentConfirm = Array.isArray(s.consentConfirm) ? s.consentConfirm
+      : (s.consentMode && s.consentMode !== 'off' ? [s.consentResp || 'yesno'] : []);
     else if (f.k === 'autoDel') v.autoDel = !!s.autoDelUploaded;                                   // stored as autoDelUploaded
     else if (f.type === 'checkbox') v[f.k] = !!s[f.k];
     else if (f.type === 'select') v[f.k] = s[f.k] || (f.k === 'recordFormat' ? DEFAULT_REC_FORMAT : f.opts[0]);
@@ -804,13 +810,15 @@ function validateDeviceSettings(raw, opts = {}) {
   // A Drive upload folder is required if "Upload" is an enabled send button OR if consent assent is
   // RECORDED (the recorded "yes" has to be uploaded somewhere, or it's stranded on the device).
   const needForSend = sends.includes('upload');
-  const needForAssent = raw.consentResp === 'record';
+  const ask = Array.isArray(raw.consentAsk) ? raw.consentAsk : [];
+  const confirm = Array.isArray(raw.consentConfirm) ? raw.consentConfirm : [];
+  const needForAssent = confirm.includes('record');
   if (needForSend || needForAssent) {
     if (blank(raw.upload)) out.push({ group: 'sending', field: 'upload', msg: (needForAssent && !needForSend) ? t('panel.val.assentUpload') : t('panel.val.uploadMissing') });
     else if (uploadIsUrl && parseFolder && !parseFolder(raw.upload)) out.push({ group: 'sending', field: 'upload', msg: t('panel.val.uploadBad') });
   }
-  if (raw.consentMode === 'audio' && blank(raw.consentAudioUrl)) out.push({ group: 'consent', field: 'consentAudioUrl', msg: t('panel.val.consentAudio') });
-  if (raw.consentMode === 'text' && blank(raw.consentMsg)) out.push({ group: 'consent', field: 'consentMsg', msg: t('panel.val.consentMsg') });
+  if (ask.includes('audio') && blank(raw.consentAudioUrl)) out.push({ group: 'consent', field: 'consentAudioUrl', msg: t('panel.val.consentAudio') });
+  if (ask.includes('text') && blank(raw.consentMsg)) out.push({ group: 'consent', field: 'consentMsg', msg: t('panel.val.consentMsg') });
   return out;
 }
 
@@ -821,7 +829,8 @@ function settingsToRaw(s) {
     vernLang: s.vernLang, analLang: s.analLang,
     upload: s.uploadFolder,                       // device mode persists the already-parsed folder
     sendOptions: s.sendOptions || [],
-    consentMode: s.consentMode, consentResp: s.consentResp,
+    consentAsk: Array.isArray(s.consentAsk) ? s.consentAsk : (s.consentMode && s.consentMode !== 'off' ? [s.consentMode] : []),
+    consentConfirm: Array.isArray(s.consentConfirm) ? s.consentConfirm : (s.consentMode && s.consentMode !== 'off' ? [s.consentResp || 'yesno'] : []),
     consentAudioUrl: s.consentAudioUrl, consentMsg: s.consentMsg,
   };
 }

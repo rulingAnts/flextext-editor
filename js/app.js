@@ -139,13 +139,19 @@ function applyUrlSettings() {
       s.sendOptions = p.get('send').split(',')
         .filter(o => ['share', 'upload', 'save', 'download'].includes(o));
     }
+    // Consent is multi-select. New array params win; legacy single consentMode/consentResp are migrated,
+    // preserving "off = off". (Link builders are gone, but legacy links + hand-built URLs still work.)
     if (p.has('consentMode')) {
       const m = p.get('consentMode');
-      s.consentMode = ['off', 'text', 'audio'].includes(m) ? m : 'off';
+      s.consentAsk = (m === 'text' || m === 'audio') ? [m] : [];
+      s.consentConfirm = (m === 'off') ? []
+        : [['record', 'signature'].includes(p.get('consentResp')) ? p.get('consentResp') : 'yesno'];
+      delete s.consentMode; delete s.consentResp;
     }
+    if (p.has('consentAsk')) s.consentAsk = p.get('consentAsk').split(',').filter((x) => x === 'text' || x === 'audio');
+    if (p.has('consentConfirm')) s.consentConfirm = p.get('consentConfirm').split(',').filter((x) => ['yesno', 'record', 'signature'].includes(x));
     if (p.has('consentMsg')) s.consentMsg = p.get('consentMsg');
     if (p.has('consentAudio')) s.consentAudio = p.get('consentAudio');
-    if (p.has('consentResp')) s.consentResp = ['record', 'signature'].includes(p.get('consentResp')) ? p.get('consentResp') : 'yesno';
     // Whether a text is deleted from the device after it uploads to Drive
     // (researcher's explicit choice; overrides the per-app default below).
     if (p.has('autoDel')) s.autoDelUploaded = p.get('autoDel') === 'on';
@@ -612,23 +618,52 @@ function deviceId() {
   return id;
 }
 
+// Consent is MULTI-SELECT: the researcher may require ANY combination of prompts (text/audio) and
+// confirmations (yesno/record/signature), all operating together. Stored as arrays consentAsk /
+// consentConfirm. These accessors also migrate the older single consentMode/consentResp values, so a
+// device that hasn't re-saved still behaves: old consentMode 'off' → consent off; 'text'/'audio' → that
+// one prompt; consentResp → that one confirmation. New keys win once written.
+function consentAskList(s) {
+  s = s || settings;
+  if (Array.isArray(s.consentAsk)) return s.consentAsk.filter((x) => x === 'text' || x === 'audio');
+  return (s.consentMode && s.consentMode !== 'off') ? [s.consentMode] : [];
+}
+function consentConfirmList(s) {
+  s = s || settings;
+  if (Array.isArray(s.consentConfirm)) return s.consentConfirm.filter((x) => ['yesno', 'record', 'signature'].includes(x));
+  // legacy: a confirmation only existed when the prompt was on (consentMode !== 'off')
+  return (s.consentMode && s.consentMode !== 'off') ? [s.consentResp || 'yesno'] : [];
+}
+// Consent gate runs if the researcher asks anything OR requires any confirmation.
+function consentRequired(s) { return consentAskList(s).length > 0 || consentConfirmList(s).length > 0; }
+
 // Build the consent audit record at the moment permission is given. The IP and
 // (if the speaker allowed location once) approxLocation are filled in best
 // effort by captureConsentContext; both stay "unavailable" when offline or when
 // location was never granted. Location NEVER prompts here — see readGeoIfGranted.
 function buildConsentReceipt(assent, signatureName) {
   const now = new Date();
+  const ask = consentAskList();
+  const confirm = consentConfirmList();
+  // Every form of consent actually collected (all enabled operate together). A prompt with no explicit
+  // confirmation still records the affirm tap as a yes.
+  const responseTypes = [];
+  if (confirm.includes('yesno')) responseTypes.push('yesno');
+  if (confirm.includes('record')) responseTypes.push('recorded');
+  if (confirm.includes('signature')) responseTypes.push('signature');
+  if (!responseTypes.length) responseTypes.push('yesno');
   return {
     app: 'Flextext Editor',
     consentGiven: true,
-    responseType: settings.consentResp === 'record' ? 'recorded'
-      : settings.consentResp === 'signature' ? 'signature' : 'yesno',
+    responseTypes,
+    responseType: responseTypes.join('+'),               // legacy single field, kept for older readers
     signatureName: signatureName || '',
     recordedAssentFile: assent?.name || '',
-    promptMode: settings.consentMode || 'off',
+    promptModes: ask,
+    promptMode: ask.join('+') || 'off',                  // legacy
     promptMessage: settings.consentMsg || '',
-    promptAudioUrl: settings.consentMode === 'audio' ? (settings.consentAudio || '') : '',
-    promptAudioFile: (settings.consentMode === 'audio' && pendingPromptAudio) ? pendingPromptAudio.name : '',
+    promptAudioUrl: ask.includes('audio') ? (settings.consentAudio || '') : '',
+    promptAudioFile: (ask.includes('audio') && pendingPromptAudio) ? pendingPromptAudio.name : '',
     timestamp: now.toISOString(),
     localTime: now.toString(),
     timezone: (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch { return ''; } })(),
@@ -665,13 +700,13 @@ function consentReceiptText(r) {
     '',
     'Text: ' + (r.textTitle || '(untitled)'),
     'Consent given: yes',
-    'Form of consent: ' + r.responseType +
-      (r.responseType === 'signature' ? ' — signed: "' + r.signatureName + '"'
-        : r.responseType === 'recorded' ? ' — audio: ' + (r.recordedAssentFile || '(in this bundle)') : ''),
+    'Forms of consent: ' + (r.responseTypes && r.responseTypes.length ? r.responseTypes : [r.responseType]).join(', ') +
+      (r.signatureName ? '  — signed: "' + r.signatureName + '"' : '') +
+      (r.recordedAssentFile ? '  — audio: ' + r.recordedAssentFile : ''),
     'Date/time: ' + r.localTime + '  (' + r.timestamp + ', ' + r.timezone + ')',
     '',
-    'Prompt shown to the speaker (' + r.promptMode + '):',
-    (r.promptMessage || (r.promptMode === 'audio' ? '(spoken — see prompt audio file below)' : '(none)')),
+    'Prompt(s) shown to the speaker (' + ((r.promptModes && r.promptModes.length ? r.promptModes : (r.promptMode && r.promptMode !== 'off' ? [r.promptMode] : [])).join(' + ') || 'none') + '):',
+    (r.promptMessage || ((r.promptModes || []).includes('audio') || r.promptMode === 'audio' ? '(spoken — see prompt audio file below)' : '(none)')),
     ...(r.promptAudioFile ? ['Spoken prompt audio (included in this bundle): ' + r.promptAudioFile
       + (r.promptAudioUrl ? '   [source: ' + r.promptAudioUrl + ']' : '')] : []),
     '',
@@ -700,7 +735,7 @@ function consentAudioIdentity() {
 
 // Keep the cached consent-prompt audio in sync with the researcher's URL.
 async function syncConsentAudio() {
-  if (settings.consentMode === 'audio' && settings.consentAudio) {
+  if (consentAskList().includes('audio') && settings.consentAudio) {
     try { await ensureAsset('asset:consent-prompt', settings.consentAudio, consentAudioIdentity()); }
     catch { /* will retry next time; consent can still show text fallback */ }
   }
@@ -733,18 +768,26 @@ async function requestConsentThen(onApproved) {
   pendingAssent = null;
   pendingReceipt = null;
   pendingPromptAudio = null;
-  const mode = settings.consentMode || 'off';
-  if (mode === 'off') { onApproved(null); return; }
+  const ask = consentAskList();
+  const confirm = consentConfirmList();
+  if (ask.length === 0 && confirm.length === 0) { onApproved(null); return; }  // consent off
+
+  const wantText = ask.includes('text');
+  const wantAudio = ask.includes('audio');
+  const needYesno = confirm.includes('yesno');
+  const needRecord = confirm.includes('record');
+  const needSign = confirm.includes('signature');
 
   const msgEl = $('#consent-message');
   const audioEl = $('#consent-audio');
   const status = $('#consent-status');
   status.hidden = true;
-  msgEl.hidden = mode !== 'text' && !settings.consentMsg;
+  // Prompt(s): written reminder if asked (and a message exists); spoken reminder if asked. Both can show.
+  msgEl.hidden = !(wantText && settings.consentMsg);
   msgEl.textContent = settings.consentMsg || '';
   audioEl.hidden = true;
 
-  if (mode === 'audio') {
+  if (wantAudio) {
     status.hidden = false;
     status.textContent = t('consent.loadingAudio');
     try {
@@ -755,9 +798,7 @@ async function requestConsentThen(onApproved) {
         audioEl.hidden = false;
         status.hidden = true;
         audioEl.play?.().catch(() => {});
-        // Freeze a copy of the EXACT prompt that was played, to bundle beside
-        // the response — the prompt may be refined later, so the record must
-        // show what THIS speaker was actually asked (IRB verification).
+        // Freeze a copy of the EXACT prompt that was played, to bundle beside the response (IRB).
         const m = asset.name && asset.name.match(/\.[a-z0-9]+$/i);
         const ext = m ? m[0] : (asset.mimeType === 'audio/mpeg' ? '.mp3' : '.audio');
         pendingPromptAudio = { blob: asset.blob, name: 'consent-prompt' + ext, mimeType: asset.mimeType };
@@ -767,16 +808,17 @@ async function requestConsentThen(onApproved) {
     } catch {
       status.textContent = t('consent.audioFailed');
     }
-    if (settings.consentMsg) { msgEl.hidden = false; }
+    if (wantText && settings.consentMsg) { msgEl.hidden = false; }
   }
 
-  const respRecord = settings.consentResp === 'record';
-  const respSign = settings.consentResp === 'signature';
-  $('#consent-yesno').hidden = respRecord || respSign;
-  $('#consent-record').hidden = !respRecord;
-  $('#consent-sign').hidden = !respSign;
-  if (respSign) $('#consent-name').value = '';
-  resetConsentRecordUI();
+  // Confirmations: show EVERY enabled section; ALL must be satisfied before the affirm proceeds.
+  $('#consent-record').hidden = !needRecord;
+  $('#consent-sign').hidden = !needSign;
+  if (needSign) $('#consent-name').value = '';
+  if (needRecord) resetConsentRecordUI();
+  // The affirm + decline are always present when consent is on (the affirm IS the submit).
+  $('#consent-yesno').hidden = false;
+  $('#consent-yes').textContent = needYesno ? t('consent.yes') : t('consent.give');
 
   $('#consent-modal').hidden = false;
 
@@ -791,26 +833,26 @@ async function requestConsentThen(onApproved) {
     onApproved(assent);
   };
 
-  $('#consent-yes').onclick = () => proceed(null);
-  $('#consent-no').onclick = () => { closeConsentModal(); toast(t('consent.declined'), 5000); };
-  $('#consent-sign-continue').onclick = () => {
-    const nm = $('#consent-name').value.trim();
-    if (!nm) { $('#consent-name').focus(); toast(t('consent.needName'), 5000); return; }
-    proceed(null, nm);
+  // Unified affirm: every enabled confirmation must be satisfied, then collect the evidence and proceed.
+  $('#consent-yes').onclick = async () => {
+    if (needRecord && !crec?.blob) { status.hidden = false; status.textContent = t('consent.needRecording'); return; }
+    const nm = needSign ? $('#consent-name').value.trim() : '';
+    if (needSign && !nm) { $('#consent-name').focus(); toast(t('consent.needName'), 5000); return; }
+    let assent = null;
+    if (needRecord && crec?.blob) {
+      try {
+        const conv = settings.convert || {};
+        const res = await convertToMp3(crec.blob, { kbps: conv.kbps || 64, sampleRate: conv.rate || 22050, mono: conv.mono !== false });
+        assent = { blob: res.blob, name: 'consent-' + fileStamp() + '.mp3' };
+      } catch {
+        assent = { blob: crec.blob, name: 'consent-' + fileStamp() + '.webm' };
+      }
+    }
+    proceed(assent, nm);
   };
+  $('#consent-no').onclick = () => { closeConsentModal(); toast(t('consent.declined'), 5000); };
   $('#consent-cancel').onclick = () => closeConsentModal();
   $('#consent-modal').onclick = (e) => { if (e.target === $('#consent-modal')) closeConsentModal(); };
-  $('#consent-assent-continue').onclick = async () => {
-    if (!crec?.blob) return;
-    try {
-      const conv = settings.convert || {};
-      const res = await convertToMp3(crec.blob,
-        { kbps: conv.kbps || 64, sampleRate: conv.rate || 22050, mono: conv.mono !== false });
-      proceed({ blob: res.blob, name: 'consent-' + fileStamp() + '.mp3' });
-    } catch {
-      proceed({ blob: crec.blob, name: 'consent-' + fileStamp() + '.webm' });
-    }
-  };
   $('#consent-assent-redo').onclick = () => { discardConsentRec(); resetConsentRecordUI(); };
   $('#consent-assent-toggle').onclick = () => {
     if (crec?.recorder && crec.recorder.state === 'recording') crec.recorder.stop();
@@ -822,7 +864,6 @@ function resetConsentRecordUI() {
   $('#consent-assent-toggle').hidden = false;
   $('#consent-assent-toggle').innerHTML = '&#9679; ' +
     `<span>${t('consent.recYes')}</span>`;
-  $('#consent-assent-continue').hidden = true;
   $('#consent-assent-redo').hidden = true;
   $('#consent-assent-preview').hidden = true;
 }
@@ -848,7 +889,6 @@ async function startConsentAssent() {
       const pv = $('#consent-assent-preview');
       pv.src = crec.url; pv.hidden = false;
       $('#consent-assent-toggle').hidden = true;
-      $('#consent-assent-continue').hidden = false;
       $('#consent-assent-redo').hidden = false;
       $('#consent-status').hidden = false;
       $('#consent-status').textContent = t('consent.assentReview');
@@ -1934,8 +1974,8 @@ async function syncGatherInventory() {
   const snap = {};
   for (const k of ['vernLang', 'vernName', 'vernFont', 'analLang', 'analName', 'analFont',
                    'recordFormat', 'agc', 'nr', 'echo', 'norm',
-                   'consentMode', 'consentMsg', 'consentResp', 'consentAudioUrl',
-                   'uploadFolder', 'toolbarButtons', 'sendOptions', 'autoDelUploaded', 'recordWelcome']) {
+                   'consentAsk', 'consentConfirm', 'consentMode', 'consentMsg', 'consentResp', 'consentAudioUrl',
+                   'appLang', 'uploadFolder', 'toolbarButtons', 'sendOptions', 'autoDelUploaded', 'recordWelcome']) {
     if (settings[k] !== undefined) snap[k] = settings[k];
   }
   return { type: RECORD_MODE ? 'recorder' : 'editor', items, settings: snap };
@@ -2471,20 +2511,24 @@ function fillWsForm() {
     if (f.elements[key]) f.elements[key].value = settings[key] || '';
   }
   f.elements.uploadUrl.value = settings.uploadUrl || '';
-  f.elements.consentMode.value = settings.consentMode || 'off';
+  const cAsk = consentAskList();
+  f.elements.askText.checked = cAsk.includes('text');
+  f.elements.askAudio.checked = cAsk.includes('audio');
   f.elements.consentMsg.value = settings.consentMsg || '';
   f.elements.consentAudioUrl.value = settings.consentAudioUrl || '';
-  f.elements.consentResp.value = settings.consentResp || 'yesno';
+  const cConf = consentConfirmList();
+  f.elements.confYesno.checked = cConf.includes('yesno');
+  f.elements.confRecord.checked = cConf.includes('record');
+  f.elements.confSign.checked = cConf.includes('signature');
   f.elements.autoDel.checked = !!settings.autoDelUploaded;
   updateConsentFields(f);
 }
 
-// Show only the message/audio field relevant to the chosen consent mode.
+// Show the written-reminder message field when "written reminder" is checked, the audio field when
+// "spoken reminder" is checked (consent is multi-select; both can be on).
 function updateConsentFields(f) {
-  const mode = f.elements.consentMode.value;
-  f.querySelector('.consent-text-field').hidden = mode === 'off';
-  f.querySelector('.consent-audio-field').hidden = mode !== 'audio';
-  f.elements.consentResp.closest('label').hidden = mode === 'off';
+  f.querySelector('.consent-text-field').hidden = !f.elements.askText.checked;
+  f.querySelector('.consent-audio-field').hidden = !f.elements.askAudio.checked;
 }
 
 // Read the whole Research form into `settings` and persist it. NO validation
@@ -2499,9 +2543,18 @@ function applyResearchFormToSettings(f) {
   const rawUpload = f.elements.uploadUrl.value.trim();
   settings.uploadUrl = rawUpload;
   settings.uploadFolder = rawUpload ? (parseDriveFolder(rawUpload) || '') : '';
-  settings.consentMode = f.elements.consentMode.value;
+  const cAsk = [];
+  if (f.elements.askText.checked) cAsk.push('text');
+  if (f.elements.askAudio.checked) cAsk.push('audio');
+  settings.consentAsk = cAsk;
+  delete settings.consentMode;   // superseded by the consentAsk array
   settings.consentMsg = f.elements.consentMsg.value.trim();
-  settings.consentResp = ['record', 'signature'].includes(f.elements.consentResp.value) ? f.elements.consentResp.value : 'yesno';
+  const cConf = [];
+  if (f.elements.confYesno.checked) cConf.push('yesno');
+  if (f.elements.confRecord.checked) cConf.push('record');
+  if (f.elements.confSign.checked) cConf.push('signature');
+  settings.consentConfirm = cConf;
+  delete settings.consentResp;   // superseded by the consentConfirm array
   const rawConsentAudio = f.elements.consentAudioUrl.value.trim();
   settings.consentAudioUrl = rawConsentAudio;
   settings.consentAudio = resolveAudioInput(rawConsentAudio);
@@ -2522,7 +2575,7 @@ function setupResearch() {
     toast(t('toast.settingsSaved'));
   });
 
-  $('#ws-form').elements.consentMode.addEventListener('change', () => updateConsentFields($('#ws-form')));
+  ['askText', 'askAudio'].forEach((n) => $('#ws-form').elements[n].addEventListener('change', () => updateConsentFields($('#ws-form'))));
 
   // Lock down the coworker's interface in person: hide the Research tab on THIS
   // device. The confirm spells out the touch-friendly recovery so nobody gets

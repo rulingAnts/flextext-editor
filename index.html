@@ -146,22 +146,17 @@
     </fieldset>
     <fieldset>
       <legend data-i18n="consent.legend">Speaker permission before recording</legend>
-      <label class="wide"><span data-i18n="consent.mode">When the coworker records a new text, first ask&hellip;</span>
-        <select name="consentMode">
-          <option value="off" data-i18n="consent.modeOff">Don't ask anything</option>
-          <option value="text" data-i18n="consent.modeText">Show a written reminder</option>
-          <option value="audio" data-i18n="consent.modeAudio">Play a spoken reminder (audio)</option>
-        </select></label>
+      <p class="note" data-i18n="consent.askLabel">When the coworker records a new text, show… (check any — every checked one is shown)</p>
+      <label class="check-label"><input type="checkbox" name="askText"> <span data-i18n="consent.modeText">Show a written reminder</span></label>
       <label class="wide consent-text-field"><span data-i18n="consent.msg">Written reminder shown to the coworker</span>
         <textarea name="consentMsg" rows="2" placeholder="e.g. Have you asked the speaker if we may record and share their words?"></textarea></label>
+      <label class="check-label"><input type="checkbox" name="askAudio"> <span data-i18n="consent.modeAudio">Play a spoken reminder (audio)</span></label>
       <label class="wide consent-audio-field"><span data-i18n="consent.audioUrl">Spoken reminder audio (Drive share link or direct MP3 URL)</span>
         <input name="consentAudioUrl" spellcheck="false" placeholder="https://drive.google.com/file/d/…"></label>
-      <label class="wide"><span data-i18n="consent.resp">How the coworker confirms</span>
-        <select name="consentResp">
-          <option value="yesno" data-i18n="consent.respYesNo">Tap Yes / No</option>
-          <option value="record" data-i18n="consent.respRecord">Record the speaker saying yes (kept in the bundle)</option>
-          <option value="signature" data-i18n="consent.respSignature">Type the speaker's name as a signature</option>
-        </select></label>
+      <p class="note" data-i18n="consent.confirmLabel">How the coworker confirms — check any. EVERY checked one is required (they operate together).</p>
+      <label class="check-label"><input type="checkbox" name="confYesno"> <span data-i18n="consent.respYesNo">Tap Yes / No</span></label>
+      <label class="check-label"><input type="checkbox" name="confRecord"> <span data-i18n="consent.respRecord">Record the speaker saying yes (kept in the bundle)</span></label>
+      <label class="check-label"><input type="checkbox" name="confSign"> <span data-i18n="consent.respSignature">Type the speaker's name as a signature</span></label>
       <p class="note" data-i18n="consent.note">This reminder appears on the coworker's device before each new recording. A recorded "yes" is saved alongside the text (in the zip), never inside the transcription audio.</p>
     </fieldset>
     <div class="toolbar">
@@ -303,14 +298,12 @@
     <div id="consent-record" hidden>
       <audio id="consent-assent-preview" controls hidden></audio>
       <button id="consent-assent-toggle" class="primary-btn">&#9679; <span data-i18n="consent.recYes">Record the "yes"</span></button>
-      <button id="consent-assent-continue" class="primary-btn" data-i18n="consent.continue" hidden>Continue</button>
       <button id="consent-assent-redo" class="secondary-btn" data-i18n="record.redo" hidden>Re-record</button>
     </div>
     <!-- typed-name signature -->
     <div id="consent-sign" hidden>
       <label class="wide"><span data-i18n="consent.signLabel">Type your name to give permission</span>
         <input id="consent-name" type="text" spellcheck="false" autocomplete="name"></label>
-      <button id="consent-sign-continue" class="primary-btn" data-i18n="consent.signBtn">Sign &amp; continue</button>
     </div>
     <button id="consent-cancel" class="link-btn" data-i18n="share.cancel">Cancel</button>
   </div>

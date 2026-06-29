@@ -862,6 +862,9 @@ main {
 .rp-tag-requested { background: #ece3f7; color: #5b3d8a; }       /* request sent — in flight */
 .rp-tag-slow { background: #fbe6cf; color: #8a4b10; }            /* sent, device hasn't synced yet */
 .rp-tag-justUploaded { background: #cdeccf; color: #18521b; font-weight: 600; }  /* just confirmed by the device */
+.rp-as-status { margin: 8px 0 4px; font-size: 13px; line-height: 1.4; white-space: pre-wrap; }
+.rp-as-status.rp-as-ok { color: #1f5d22; }
+.rp-as-status.rp-as-err { color: #a3261f; }
 .rp-inst-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .rp-revoke { color: #a3261f; }
 .rp-empty { text-align: center; padding: 20px; }

@@ -16,8 +16,12 @@ import * as Researcher from './researcher.js';
 import { t } from './i18n.js';
 import { REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { importPublicKeyB64, publicKeyFingerprint } from './crypto.js';
-import { esc } from './flextext.js';
+import { esc, parseFlextext } from './flextext.js';
+import { probeAudioUrl, fetchFileViaUrl } from './audio.js';
 import * as db from './db.js';
+
+// Byte-size formatter for assign-validation verdicts (mirrors app.js sizeFmt; that one is not exported).
+const fmtSize = (b) => (b < 1048576 ? Math.max(1, Math.round(b / 1024)) + ' KB' : (b / 1048576).toFixed(1) + ' MB');
 
 let deps = null;
 let root = null;
@@ -586,9 +590,16 @@ function assignModal(instanceId) {
     <label class="rp-field"><span>${esc(t('panel.assign.titleField'))}</span><input id="rp-as-title" spellcheck="false"></label>
     <label class="rp-field"><span>${esc(t('panel.assign.audio'))}</span><input id="rp-as-audio" spellcheck="false" placeholder="${esc(t('panel.assign.urlPh'))}"></label>
     <label class="rp-field"><span>${esc(t('panel.assign.flextext'))}</span><input id="rp-as-ft" spellcheck="false" placeholder="${esc(t('panel.assign.urlPh'))}"></label>
+    <p class="rp-as-status" id="rp-as-status" role="status" hidden></p>
     <button class="primary-btn" data-m="send">${esc(t('panel.assign.send'))}</button>
     <button class="link-btn" data-m="cancel">${esc(t('panel.assign.cancel'))}</button>`);
   m.el.querySelector('[data-m="cancel"]').onclick = m.close;
+  const say = (msg, kind) => {
+    const s = m.el.querySelector('#rp-as-status');
+    s.hidden = false; s.textContent = msg;
+    s.className = 'rp-as-status' + (kind ? ' rp-as-' + kind : '');
+  };
+  const resolve = (u) => (deps.resolveAudioInput ? deps.resolveAudioInput(u) : u);
   m.el.querySelector('[data-m="send"]').onclick = (e) => busy(e.target, async () => {
     const title = m.el.querySelector('#rp-as-title').value.trim();
     const audioUrl = m.el.querySelector('#rp-as-audio').value.trim();
@@ -596,8 +607,51 @@ function assignModal(instanceId) {
     // The field only materializes an assign that carries an audio or flextext resource;
     // a title alone bumps the rev but creates nothing — so require at least one URL.
     if (!audioUrl && !flextextUrl) return deps.toast(t('panel.assign.needUrl'), 5000);
+
+    // Validate BEFORE sending — the researcher (not the barely-literate field coworker) finds
+    // out about a folder link / AIFF / oversize / unshared file. Reuses the editor link-builder's
+    // probe + the same field-tested task.* messages. A hard failure NEVER reaches Researcher.assign.
+    if (audioUrl) {
+      const resolved = resolve(audioUrl);
+      if (!resolved) { say('⚠ ' + t('task.badAudio'), 'err'); return; }
+      say(t('panel.assign.checkingAudio'));
+      try {
+        const info = await probeAudioUrl(resolved);
+        say('✓ ' + t('task.checkOk', { name: info.name || '?', size: info.size ? fmtSize(info.size) : '?' }), 'ok');
+      } catch (err) {
+        // A Drive link is proxied through the SAME-ORIGIN worker/relay, so a failure there is real.
+        // Only a direct NON-Drive host can be cross-origin-blocked (opaque) — there we can't tell a
+        // real outage from a CORS block, so offer "send anyway" rather than a false hard block.
+        const soft = !/script\.google|\/drive/.test(resolved)
+          && (err.name === 'TypeError' || /failed to fetch|networkerror/i.test(err.message || ''));
+        if (soft) {
+          if (!confirm(t('panel.assign.couldNotVerify'))) { say('⚠ ' + t('panel.assign.blockedNoSend'), 'err'); return; }
+        } else {
+          const msg = err.code === 'cantPlay' ? t('task.cantPlay')
+            : err.code === 'big' ? t('task.tooBig', { mb: err.mb })
+            : err.code === 'notAudio' ? t('task.notAudio', { mime: err.mime || '?' })
+            : t('task.checkFailed', { msg: err.message });
+          say('⚠ ' + msg, 'err'); return;
+        }
+      }
+    }
+
+    // Validate the flextext link too: reachable + a SINGLE interlinear text (only the first is
+    // delivered). Writing-system-code match is deferred (this modal doesn't carry the device's codes).
+    if (flextextUrl) {
+      const resolved2 = resolve(flextextUrl);
+      if (!resolved2) { say('⚠ ' + t('task.badFlextext'), 'err'); return; }
+      say(t('panel.assign.checkingFlextext'));
+      let xml;
+      try { xml = await (await fetchFileViaUrl(resolved2)).blob.text(); }
+      catch (err) { say('⚠ ' + t('task.ftFetchFailed', { msg: err.message }), 'err'); return; }
+      const parsed = parseFlextext(xml);
+      if (parsed.error || !parsed.texts.length) { say('⚠ ' + t('task.ftParseFailed', { msg: parsed.error || t('task.ftNone') }), 'err'); return; }
+      if (parsed.texts.length > 1) { say('⚠ ' + t('task.ftMultiText', { n: parsed.texts.length }), 'err'); return; }
+    }
+
     const fields = { title };
-    if (audioUrl) fields.audioUrl = audioUrl;
+    if (audioUrl) fields.audioUrl = audioUrl;     // send the RAW url; the device re-resolves it
     if (flextextUrl) fields.flextextUrl = flextextUrl;
     try { await Researcher.assign(instanceId, crypto.randomUUID(), fields); m.close(); deps.toast(t('panel.assign.sent'), 4000); }
     catch (err) { errToast(err); }

@@ -27,6 +27,9 @@ import {
 
 const AUTH_KEY = 'flextext-researcher-auth';
 const STAY_KEY = 'flextext-researcher-stay';   // "1" = persist the session across app exit
+const LAST_ACCT_KEY = 'flextext-researcher-acct';   // sticky: the last account whose data lives in this browser.
+                                                    // SURVIVES signOut (only AUTH_KEY is cleared) so a DIFFERENT account
+                                                    // signing in on the same profile is detectable; cleared only by a full wipe.
 const REQ_TIMEOUT_MS = 20000;
 
 /* ---------------- module state ---------------- */
@@ -140,8 +143,16 @@ export async function bootstrap() {
   kiCache = new Map();
   if (v.email) { const a = loadAuth(); if (a && a.email !== v.email) { a.email = v.email; saveAuth(a); } }
   approvedSelf = !!v.approved; ownerSelf = !!v.is_owner;
+  setAccountMarker(currentAccountId());   // remember which account owns this browser's offline data (switch-guard)
   return { ok: true, email: v.email, approved: approvedSelf, isOwner: ownerSelf };
 }
+
+// Account-switch guard support: the current signed-in account id (from the session token) vs the sticky
+// marker of the account that last owned this browser's offline data. The panel blocks a sign-in whose id
+// differs from the marker (until the old data is erased), since offline data is origin- not account-scoped.
+export function currentAccountId() { const a = loadAuth(); return (a && a.researcher_id) || null; }
+export function lastAccountId() { try { return localStorage.getItem(LAST_ACCT_KEY) || null; } catch { return null; } }
+function setAccountMarker(id) { try { if (id) localStorage.setItem(LAST_ACCT_KEY, id); } catch { /* noop */ } }
 
 // Account status for the panel: approved = active (can manage devices); otherwise pending. owner =
 // may approve other researchers. Set by bootstrap()/listView().

@@ -854,10 +854,21 @@ main {
 .rp-badge-type, .rp-badge-you { background: #e8f0fc; color: var(--blue-dark); }
 .rp-badge-ok { background: #e3f3e4; color: #1f5d22; }
 .rp-badge-warn { background: #fdf3d7; color: #6b5310; }
+.rp-badge-stale { background: #f7d9d6; color: #a3261f; font-weight: 600; }
+
+/* Destructive actions (erase data / delete account / account-switch erase) — visually distinct so a
+   reflex tap is less likely, paired with a typed confirm. Works for both primary and link buttons. */
+.primary-btn.rp-danger { background: #a3261f; border-color: #a3261f; color: #fff; }
+.primary-btn.rp-danger:hover { background: #871c16; border-color: #871c16; }
+.primary-btn.rp-danger:disabled { background: #d8a6a2; border-color: #d8a6a2; cursor: default; }
+.link-btn.rp-danger { color: #a3261f; }
+.rp-sep { border: none; border-top: 1px solid var(--border); margin: 16px 0 12px; }
+.rp-cv-src { font-weight: 600; }
 
 .rp-install { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 6px; display: flex; flex-direction: column; gap: 6px; }
 .rp-devinfo { font-size: 11px; opacity: .85; }
 .rp-devinfo-old { color: #a3261f; opacity: 1; }   /* device hasn't updated (no version reported) */
+.rp-devinfo-stale { color: #a3261f; opacity: 1; }  /* running engine is behind the live site */
 .rp-install-pending {
   flex-direction: row; align-items: center; justify-content: space-between; gap: 12px;
   background: #fdf8e9; border: 1px solid #e4c95b; border-radius: 8px; padding: 10px 12px;

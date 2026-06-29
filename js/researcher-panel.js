@@ -13,13 +13,13 @@
  */
 
 import * as Researcher from './researcher.js';
-import { t } from './i18n.js';
+import { t, ENGINE_VERSION } from './i18n.js';
 import { REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { importPublicKeyB64, publicKeyFingerprint } from './crypto.js';
 import { esc, parseFlextext, surveyWritingSystems, remapWritingSystems } from './flextext.js';
 import { probeAudioUrl, fetchFileViaUrl } from './audio.js';
 import { probeDriveFolder } from './upload.js';
-import { convertToMp3 } from './convert.js';
+import { convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
 import * as db from './db.js';
 
 // Byte-size formatter for assign-validation verdicts (mirrors app.js sizeFmt; that one is not exported).
@@ -104,6 +104,11 @@ async function route() {
   // Returning from Google? Consume #gauth=<id>.<token>, then strip it from the address bar.
   if (Researcher.consumeGauth()) { try { history.replaceState(null, '', location.pathname + location.search); } catch { /* noop */ } }
   if (!Researcher.isSignedUp()) return renderSignIn();
+  // Account-switch guard: a DIFFERENT account signed in on a browser that still holds the PREVIOUS
+  // account's offline data (docs / enrollment) → block until that data is erased. Offline data is
+  // origin-scoped, not account-scoped, so it would otherwise be inherited. Explicit + reversible.
+  { const cur = Researcher.currentAccountId(), last = Researcher.lastAccountId();
+    if (last && cur && cur !== last && await hasInheritableData()) return renderAccountSwitch(); }
   if (!Researcher.isUnlocked()) {
     renderConnecting();
     try { await Researcher.bootstrap(); }
@@ -173,6 +178,35 @@ function renderAwaiting() {
   wireActs({
     recheck: (btn) => busy(btn, async () => { try { await Researcher.bootstrap(); } catch { /* stay pending */ } route(); }),
     signout: () => { Researcher.signOut(); route(); },
+    exit: close,
+  });
+}
+
+// Cheap probe: does this browser hold offline data a different account would inherit? A field
+// enrollment (sync-session) or any locally-authored docs both qualify. A fresh researcher-only
+// browser has neither → no gate.
+async function hasInheritableData() {
+  try { if (localStorage.getItem('flextext-sync-session')) return true; } catch { /* noop */ }
+  try { if ((await db.listDocs()).length) return true; } catch { /* noop */ }
+  return false;
+}
+
+// A different account signed in on a browser that still holds the previous account's data. Block with
+// a clear choice: erase this device's data and continue (full local wipe → reload → fresh sign-in), or
+// cancel (drop the just-signed-in session; the old data stays intact for whoever owns it). Never silent.
+function renderAccountSwitch() {
+  stopDashPoll();
+  root.innerHTML = header('panel.title', false) + `
+    <div class="rp-body rp-narrow"><div class="rp-card rp-signin">
+      <h2>${esc(t('panel.acctswitch.title'))}</h2>
+      <p class="note">${esc(t('panel.acctswitch.intro', { email: Researcher.accountEmail() || '' }))}</p>
+      <p class="banner warn-banner">${esc(t('panel.acctswitch.warn'))}</p>
+      <button class="primary-btn rp-danger" data-act="erase">${esc(t('panel.acctswitch.erase'))}</button>
+      <button class="link-btn" data-act="cancel">${esc(t('panel.acctswitch.cancel'))}</button>
+    </div></div>`;
+  wireActs({
+    erase: (btn) => busy(btn, async () => { try { await deps.eraseAllData(); } catch (e) { errToast(e); } }),
+    cancel: () => { Researcher.signOut(); route(); },   // drop the new session; old data stays for its owner
     exit: close,
   });
 }
@@ -276,6 +310,7 @@ function viewSig(data) {
         (it.installs || []).map((ins) => [
           ins.install_id, ins.status, ins.accepted, ins.has_key,
           ins.inventory && ins.inventory.ua, ins.inventory && JSON.stringify(ins.inventory.cachedApps),  // re-render when the device's browser/app version changes
+          ins.inventory && ins.inventory.engineVersion,  // re-render when the true running engine version changes (brick/stale signal)
           ins.inventory && Array.isArray(ins.inventory.items)
             // uploadedFileId IS part of the signature: a re-send of an unchanged doc keeps uploadState
             // 'uploaded' but mints a new file id, and that's our only signal the re-upload landed.
@@ -317,19 +352,26 @@ function parseUA(ua) {
   else if (/Linux/.test(ua)) os = 'Linux';
   return os ? b + ' · ' + os : b;
 }
-// "editor v84 · recorder v33" from a reported cachedApps map (versions attacker-controllable → esc'd at use).
-function fmtApps(c) {
-  if (!c || typeof c !== 'object') return '';
-  const p = [];
-  if (c.editor) p.push('editor ' + c.editor);
-  if (c.recorder) p.push('recorder ' + c.recorder);
-  if (c.researcher) p.push('researcher ' + c.researcher);
-  return p.join(' · ');
-}
-// One device-line for a tile: "Browser · OS · editor vNN · recorder vNN". '' when nothing is reported (an
-// old client that doesn't send ua/cachedApps yet — itself a signal the device is on a stale build).
-function deviceLine(ua, cachedApps) {
-  return [parseUA(ua), fmtApps(cachedApps)].filter(Boolean).join(' · ');
+// One tile's device line + a staleness verdict. The PRIMARY version is the TRUE running engine
+// (engineVersion, reported from inside the running code) — NOT the cache name, which a stale-body
+// precache can make lie (the Firefox-Utilities bug). cachedApps' recorder/researcher shell versions
+// ride along as secondary detail. stale = the running engine is BEHIND the live site, or the client is
+// so old it reports no engineVersion at all (both mean "this device needs to update / may be stuck").
+// All values are attacker-controllable (a seized device) → esc'd at every call site.
+function deviceInfo(ua, cachedApps, engineVersion) {
+  const segs = [];
+  const b = parseUA(ua); if (b) segs.push(b);
+  const eng = engineVersion || (cachedApps && cachedApps.editor);   // true running engine, or cache-name fallback
+  if (eng) segs.push(t('panel.dev.engine', { v: eng }));
+  if (cachedApps && typeof cachedApps === 'object') {
+    if (cachedApps.recorder) segs.push('recorder ' + cachedApps.recorder);
+    if (cachedApps.researcher) segs.push('researcher ' + cachedApps.researcher);
+  }
+  const live = liveVersions && liveVersions.editor;
+  let stale = false;
+  if (!engineVersion && !(cachedApps && cachedApps.editor)) stale = true;        // pre-feature client → definitely old
+  else if (live && eng && eng !== live) stale = true;                            // running engine behind the live site
+  return { text: segs.join(' · '), stale };
 }
 // This panel's OWN cached apps (same parse as the field client's listCachedApps), for the This-device tile.
 async function panelCachedApps() {
@@ -418,7 +460,7 @@ async function renderDashboard(prefetched) {
     if (ins.inventory && Array.isArray(ins.inventory.items)) texts += ins.inventory.items.length;
   }
   const localDocs = await db.listDocs().catch(() => []);
-  const myDevice = deviceLine(navigator.userAgent, await panelCachedApps());
+  const myDevice = deviceInfo(navigator.userAgent, await panelCachedApps(), ENGINE_VERSION);
 
   const cards = await Promise.all(insts.map(renderInstanceCard));
   root.querySelector('.rp-body').innerHTML = `
@@ -453,7 +495,7 @@ async function renderDashboard(prefetched) {
         <button class="secondary-btn" data-act="self-settings">${esc(t('panel.inst.settings'))}</button>
       </div>
       <p class="note">${esc(t('panel.dash.thisDeviceNote', { n: localDocs.length }))}</p>
-      ${myDevice ? `<div class="note rp-devinfo">${esc(myDevice)}</div>` : ''}
+      ${myDevice.text ? `<div class="note rp-devinfo${myDevice.stale ? ' rp-devinfo-stale' : ''}">${esc(myDevice.text)}${myDevice.stale ? ` <span class="rp-badge rp-badge-stale">${esc(t('panel.dev.stale'))}</span>` : ''}</div>` : ''}
     </div>
     ${insts.length ? cards.join('') : `<p class="note rp-empty">${esc(t('panel.dash.empty'))}</p>`}`;
 
@@ -546,7 +588,7 @@ async function renderInstanceCard(it) {
         : `<li class="note">${esc(t('panel.inst.noTexts'))}</li>`;
       installsHtml += `<div class="rp-install">
         <div class="note">${esc(t('panel.inst.lastSeen', { when: lastSeen(ins.last_seen_at) }))} · ${esc(t('panel.inst.texts', { n: inv ? inv.length : 0 }))}</div>
-        ${(() => { const dl = deviceLine(ins.inventory && ins.inventory.ua, ins.inventory && ins.inventory.cachedApps); return `<div class="note rp-devinfo${dl ? '' : ' rp-devinfo-old'}">${esc(dl || t('panel.inst.verUnknown'))}</div>`; })()}
+        ${(() => { const di = deviceInfo(ins.inventory && ins.inventory.ua, ins.inventory && ins.inventory.cachedApps, ins.inventory && ins.inventory.engineVersion); const txt = di.text || t('panel.inst.verUnknown'); return `<div class="note rp-devinfo${di.text ? '' : ' rp-devinfo-old'}${di.stale ? ' rp-devinfo-stale' : ''}">${esc(txt)}${di.stale ? ` <span class="rp-badge rp-badge-stale">${esc(t('panel.dev.stale'))}</span>` : ''}</div>`; })()}
         <ul class="rp-inv">${rows}</ul>
         <button class="link-btn rp-revoke" data-iact="revoke-install" data-i="${esc(it.instance_id)}" data-id="${esc(ins.install_id)}">${esc(t('panel.inst.revokeInstall'))}</button>
       </div>`;
@@ -773,7 +815,7 @@ function assignModal(instanceId) {
 
 /* ---------------- Utilities: audio converter + FLEx writing-systems checker ----------------
  * Surfaced in the panel as modals; both reuse the SAME engine the editor's Settings tab uses
- * (convertToMp3 / surveyWritingSystems / remapWritingSystems). All runs locally in the browser. */
+ * (convertAudio / surveyWritingSystems / remapWritingSystems). All runs locally in the browser. */
 
 function utilitiesModal() {
   const m = modal(`
@@ -781,10 +823,38 @@ function utilitiesModal() {
     <p class="note">${esc(t('panel.util.intro'))}</p>
     <button class="primary-btn" data-m="audio">${esc(t('panel.util.audio'))}</button>
     <button class="primary-btn" data-m="ws">${esc(t('panel.util.ws'))}</button>
+    <hr class="rp-sep">
+    <button class="link-btn rp-danger" data-m="erase">${esc(t('panel.erase.btn'))}</button>
     <button class="link-btn" data-m="close">${esc(t('panel.util.close'))}</button>`);
   m.el.querySelector('[data-m="close"]').onclick = m.close;
   m.el.querySelector('[data-m="audio"]').onclick = () => { m.close(); audioConverterModal(); };
   m.el.querySelector('[data-m="ws"]').onclick = () => { m.close(); wsCheckModal(); };
+  m.el.querySelector('[data-m="erase"]').onclick = () => { m.close(); eraseDataModal(); };
+}
+
+// Complete local wipe of THIS browser → a blank, no-PWA-installed slate (testing + privacy). Behind a
+// typed confirm so a reflex tap can't trigger it. Local only — does NOT touch the server (that's the
+// separate "delete account" action). Reuses the engine's eraseAllData (injected via deps).
+function eraseDataModal(after) {
+  const m = modal(`
+    <h3>${esc(t('panel.erase.title'))}</h3>
+    <p class="note">${esc(t('panel.erase.what'))}</p>
+    <p class="banner warn-banner">${esc(t('panel.erase.scope'))}</p>
+    <label class="rp-field"><span>${esc(t('panel.erase.typeLabel', { word: t('panel.erase.word') }))}</span>
+      <input id="erase-confirm" spellcheck="false" autocomplete="off" autocapitalize="characters"></label>
+    <button class="primary-btn rp-danger" data-m="go" disabled>${esc(t('panel.erase.btn'))}</button>
+    <button class="link-btn" data-m="close">${esc(t('panel.util.close'))}</button>`, true);
+  const input = m.el.querySelector('#erase-confirm');
+  const go = m.el.querySelector('[data-m="go"]');
+  const word = t('panel.erase.word');
+  input.addEventListener('input', () => { go.disabled = input.value.trim().toUpperCase() !== word.toUpperCase(); });
+  m.el.querySelector('[data-m="close"]').onclick = m.close;
+  go.onclick = async () => {
+    go.disabled = true; go.textContent = t('panel.erase.working');
+    try { if (typeof after === 'function') await after(); } catch (e) { errToast(e); go.disabled = false; go.textContent = t('panel.erase.btn'); return; }
+    // eraseAllData wipes everything then reloads to a blank slate — if control returns, surface the error.
+    try { await deps.eraseAllData(); } catch (e) { errToast(e); go.disabled = false; go.textContent = t('panel.erase.btn'); }
+  };
 }
 
 // Recording-format help — reuses the editor's trusted recfmt.* i18n HTML (incl. the archive-acceptance table).
@@ -797,35 +867,86 @@ function recfmtHelpModal() {
   m.el.querySelector('[data-m="close"]').onclick = m.close;
 }
 
+// Map a label to a validOutputs() option value (en/id come from i18n; fall back to the raw value).
+function cvFmtLabel(v) { const s = t('convert.fmt.' + v); return s === 'convert.fmt.' + v ? v : s; }
+
 function audioConverterModal() {
+  let srcBuf = null, srcInfo = null, srcName = '', srcSize = 0;
   const m = modal(`
     <h3>${esc(t('convert.h'))} <button class="rp-help-inline" data-m="help" aria-label="${esc(t('recfmt.helpLink'))}" title="${esc(t('recfmt.helpLink'))}">?</button></h3>
-    <p class="note">${esc(t('convert.note'))}</p>
-    <label class="rp-field"><span>${esc(t('convert.kbps'))}</span>
-      <select id="cv-kbps"><option value="32">32</option><option value="48">48</option><option value="64" selected>64</option><option value="96">96</option><option value="128">128</option></select></label>
-    <label class="rp-field"><span>${esc(t('convert.rate'))}</span>
-      <select id="cv-rate"><option value="16000">16000</option><option value="22050" selected>22050</option><option value="44100">44100</option></select></label>
-    <p class="note">${esc(t('convert.mono'))}</p>
+    <p class="note">${esc(t('convert.note2'))}</p>
     <button class="primary-btn" data-m="pick">${esc(t('convert.pick'))}</button>
     <input type="file" id="cv-file" accept="audio/*,.wav,.aif,.aiff,.mp3,.m4a,.flac,.ogg" hidden>
+    <div id="cv-form" hidden>
+      <p class="note rp-cv-src" id="cv-src"></p>
+      <label class="rp-field"><span>${esc(t('convert.outFmt'))}</span><select id="cv-fmt"></select></label>
+      <label class="rp-field" id="cv-mono-row"><span>${esc(t('convert.monoMode'))}</span>
+        <select id="cv-mono">
+          <option value="keep">${esc(t('convert.mono.keep'))}</option>
+          <option value="auto" selected>${esc(t('convert.mono.auto'))}</option>
+          <option value="mix">${esc(t('convert.mono.mix'))}</option>
+          <option value="left">${esc(t('convert.mono.left'))}</option>
+          <option value="right">${esc(t('convert.mono.right'))}</option>
+        </select></label>
+      <div id="cv-mp3opts">
+        <label class="rp-field"><span>${esc(t('convert.kbps'))}</span>
+          <select id="cv-kbps"><option value="32">32</option><option value="48">48</option><option value="64" selected>64</option><option value="96">96</option><option value="128">128</option></select></label>
+        <label class="rp-field"><span>${esc(t('convert.rate'))}</span>
+          <select id="cv-rate"><option value="16000">16000</option><option value="22050" selected>22050</option><option value="44100">44100</option></select></label>
+      </div>
+      <button class="primary-btn" data-m="go">${esc(t('convert.go'))}</button>
+    </div>
     <p class="note" id="cv-status" hidden></p>
     <button class="link-btn" data-m="close">${esc(t('panel.util.close'))}</button>`);
+  const $$ = (s) => m.el.querySelector(s);
+  const status = $$('#cv-status'), form = $$('#cv-form'), fmtSel = $$('#cv-fmt'), monoRow = $$('#cv-mono-row'), mp3opts = $$('#cv-mp3opts');
   m.el.querySelector('[data-m="close"]').onclick = m.close;
   m.el.querySelector('[data-m="help"]').onclick = recfmtHelpModal;
-  m.el.querySelector('[data-m="pick"]').onclick = () => m.el.querySelector('#cv-file').click();
-  const status = m.el.querySelector('#cv-status');
-  m.el.querySelector('#cv-file').addEventListener('change', async (e) => {
+  m.el.querySelector('[data-m="pick"]').onclick = () => $$('#cv-file').click();
+
+  const syncMp3Vis = () => {
+    const o = (srcInfo && srcInfo.outs.find((x) => x.value === fmtSel.value)) || {};
+    mp3opts.hidden = o.format !== 'mp3';
+  };
+  fmtSel.addEventListener('change', syncMp3Vis);
+
+  $$('#cv-file').addEventListener('change', async (e) => {
     const file = e.target.files[0]; e.target.value = ''; if (!file) return;
+    srcName = file.name; srcSize = file.size; status.hidden = true;
+    try { srcBuf = await file.arrayBuffer(); } catch (err) { status.hidden = false; status.textContent = t('convert.failed', { msg: err.message }); return; }
+    const fmt = detectFormat(srcBuf);
+    let bits = null, chans = null, rate = null;
+    if (fmt === 'wav') { const h = readWavHeader(srcBuf); if (h) { bits = h.bitsPerSample; chans = h.channels; rate = h.sampleRate; } }
+    const outs = validOutputs(fmt, bits);
+    srcInfo = { fmt, bits, chans, outs };
+    // Source summary line (what we cheaply know). esc'd — file metadata is untrusted.
+    const parts = [fmt ? fmt.toUpperCase() : t('convert.fmtUnknown')];
+    if (bits) parts.push(t('convert.bit', { n: bits }));
+    if (chans) parts.push(chans >= 2 ? t('convert.stereo') : t('convert.monoSrc'));
+    if (rate) parts.push(rate + ' Hz');
+    parts.push(fmtSize(srcSize));
+    $$('#cv-src').textContent = t('convert.src', { name: srcName, detail: parts.join(' · ') });
+    fmtSel.innerHTML = outs.map((o) => `<option value="${esc(o.value)}">${esc(cvFmtLabel(o.value))}</option>`).join('');
+    monoRow.hidden = (chans === 1);   // a known-mono WAV has nothing to reduce; otherwise offer the control
+    form.hidden = false; syncMp3Vis();
+  });
+
+  m.el.querySelector('[data-m="go"]').onclick = async () => {
+    if (!srcBuf || !srcInfo) return;
+    const o = srcInfo.outs.find((x) => x.value === fmtSel.value); if (!o) return;
+    const opts = { format: o.format, mono: monoRow.hidden ? 'keep' : $$('#cv-mono').value };
+    if (o.format === 'wav') opts.wavBits = o.wavBits;
+    if (o.format === 'flac') opts.flacBits = o.flacBits;
+    if (o.format === 'mp3') { opts.kbps = parseInt($$('#cv-kbps').value, 10); opts.sampleRate = parseInt($$('#cv-rate').value, 10); }
     status.hidden = false; status.textContent = t('convert.working', { pct: 0 });
     try {
-      const opts = { kbps: parseInt(m.el.querySelector('#cv-kbps').value, 10), sampleRate: parseInt(m.el.querySelector('#cv-rate').value, 10), mono: true };
-      const res = await convertToMp3(file, opts, (f) => { status.textContent = t('convert.working', { pct: Math.round(f * 100) }); });
-      const outName = file.name.replace(/\.[^.]+$/, '') + '.mp3';
+      const res = await convertAudio(srcBuf, opts, (f) => { status.textContent = t('convert.working', { pct: Math.round(f * 100) }); });
+      const outName = srcName.replace(/\.[^.]+$/, '') + '.' + res.ext;
       const a = document.createElement('a'); a.href = URL.createObjectURL(res.blob); a.download = outName; a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 30000);
-      status.textContent = t('convert.done', { name: outName, out: fmtSize(res.blob.size), in: fmtSize(file.size) });
+      status.textContent = t('convert.done', { name: outName, out: fmtSize(res.blob.size), in: fmtSize(srcSize) });
     } catch (err) { status.textContent = t('convert.failed', { msg: err.message }); }
-  });
+  };
 }
 
 // FLEx writing-system-codes help — adapted from Seth's writing-system-codes doc (trusted i18n HTML) + the

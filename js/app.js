@@ -7,7 +7,7 @@ import {
   surveyWritingSystems, remapWritingSystems,
 } from './flextext.js';
 import * as db from './db.js';
-import { t, getLang, setLang, applyI18n, LANGS } from './i18n.js';
+import { t, getLang, setLang, applyI18n, LANGS, ENGINE_VERSION } from './i18n.js';
 import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl, ensureAsset, getAsset, fetchFileViaUrl } from './audio.js';
 import { convertToMp3 } from './convert.js';
 import { losslessSupported, recFormatSupported, PCMRecorder, encodeWav, encodeRecording, normalizePeak, reduceChannels,
@@ -2006,8 +2006,10 @@ async function syncGatherInventory() {
   }
   // ua + cachedApps let the panel show which browser/device this install is + whether its apps are
   // current (so the researcher can tell if a coworker hasn't updated). Both are E2EE in the report.
+  // engineVersion is the TRUE running engine version (vs cachedApps, which reads cache NAMES that a
+  // stale-body precache can make lie) — the reliable brick/stale signal. All E2EE in the report.
   return { type: RECORD_MODE ? 'recorder' : 'editor', items, settings: snap,
-           ua: navigator.userAgent, cachedApps: await listCachedApps() };
+           ua: navigator.userAgent, cachedApps: await listCachedApps(), engineVersion: ENGINE_VERSION };
 }
 
 // One-time invite link (?invite=<id>#k=<secret>) → bind this install to the
@@ -3173,16 +3175,37 @@ function wireSharedModals() {
   $('#upload-toggle')?.addEventListener('click', () => { uploadListOpen = !uploadListOpen; renderUploadQueue(); });
 }
 
-// Dev-only hard reset: ?devreset on localhost wipes this origin's settings, docs,
-// sync session, keys, caches, and service worker, then reloads clean — a one-tap way
-// to start a fresh test without digging through DevTools. No-op off localhost.
-async function devReset() {
+// Complete client wipe → a pristine "no PWA installed" slate. Clears ALL this-origin storage
+// (localStorage + sessionStorage), deletes every IndexedDB database, deletes every CacheStorage cache,
+// and unregisters all service workers, then reloads. ORDER matters: close the docs DB + clear storage →
+// delete IDBs (awaited, never hangs) → delete caches → unregister SW LAST → reload, so the fresh load
+// fetches truly uncached (or shows the browser's offline page) with nothing left behind. Origin-wide by
+// design (editor + recorder + researcher share this origin) — every key is flextext-* and all ours.
+// Used by ?devreset (localhost) AND the researcher panel's "Erase all data" + account-switch guard.
+function deleteDB(name) {
+  return new Promise((resolve) => {
+    let done = false; const fin = () => { if (!done) { done = true; resolve(); } };
+    try { const req = indexedDB.deleteDatabase(name); req.onsuccess = fin; req.onerror = fin; req.onblocked = fin; }
+    catch { fin(); }
+    setTimeout(fin, 2500);   // a blocked delete must never hang the wipe; the reload completes it
+  });
+}
+async function eraseAllData() {
+  try { db.close(); } catch { /* noop */ }                       // drop the cached docs-DB handle so the delete isn't blocked
   try { localStorage.clear(); } catch { /* noop */ }
-  try { for (const name of ['flextext-editor', 'flextext-sync']) indexedDB.deleteDatabase(name); } catch { /* noop */ }
+  try { sessionStorage.clear(); } catch { /* noop */ }
+  try {
+    let names = [];
+    if (indexedDB.databases) { try { names = (await indexedDB.databases()).map((d) => d.name).filter(Boolean); } catch { /* noop */ } }
+    // Firefox lacks indexedDB.databases() → union with the known DB names (harmless if already listed).
+    for (const name of new Set([...names, 'flextext-editor', 'flextext-sync'])) await deleteDB(name);
+  } catch { /* noop */ }
   try { if (window.caches) for (const k of await caches.keys()) await caches.delete(k); } catch { /* noop */ }
   try { for (const r of (await navigator.serviceWorker?.getRegistrations?.()) || []) await r.unregister(); } catch { /* noop */ }
   location.replace(location.pathname);
 }
+// Dev-only hard reset hook: ?devreset on localhost runs the same wipe (no-op off localhost; see setup()).
+async function devReset() { return eraseAllData(); }
 
 // Standalone "Flextext Researcher" app: wire only what the panel needs and boot straight into it
 // (no editor/field UI). The shell (flextext-researcher/index.html) provides #view-researcher +
@@ -3206,6 +3229,7 @@ function setupResearcherMode() {
     driveRelay: DEFAULT_RELAY,
     openView: (v) => show(v),
     goHome: () => {},   // no editor to return to; the panel's Lock button signs out → sign-in
+    eraseAllData: () => eraseAllData(),
   });
   researcherPanelApi.open();
 }
@@ -3384,6 +3408,7 @@ function setup() {
     driveRelay: DEFAULT_RELAY,
     openView: (v) => show(v),
     goHome: () => { renderDocList(); show('texts'); },
+    eraseAllData: () => eraseAllData(),
     onSignedUp: () => { const b = $('#btn-researcher'); if (b) b.hidden = !researcherPanelApi.isSignedUp(); },
     onLocalSettingsSaved: () => {
       settings = loadSettings();

@@ -36,6 +36,13 @@ function getDB() {
   return dbPromise;
 }
 
+// Close the cached connection so a full erase (eraseAllData) can deleteDatabase without onblocked.
+export function close() {
+  if (!dbPromise) return;
+  const p = dbPromise; dbPromise = null;
+  p.then((db) => { try { db.close(); } catch { /* noop */ } }).catch(() => {});
+}
+
 function tx(db, mode) {
   return db.transaction(STORE, mode).objectStore(STORE);
 }

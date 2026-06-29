@@ -20,6 +20,7 @@ import { esc, parseFlextext, surveyWritingSystems, remapWritingSystems } from '.
 import { probeAudioUrl, fetchFileViaUrl } from './audio.js';
 import { probeDriveFolder } from './upload.js';
 import { convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
+import WaveSurfer from './vendor/wavesurfer.esm.js';
 import * as db from './db.js';
 
 // Byte-size formatter for assign-validation verdicts (mirrors app.js sizeFmt; that one is not exported).
@@ -252,14 +253,16 @@ function errToast(e) { deps.toast(t('panel.err', { msg: (e && e.message) || Stri
 
 /* a body-level overlay modal: closes on backdrop click or Escape, moves focus in,
  * traps Tab, and restores focus on close. Returns { el, close }. */
-function modal(innerHtml, wide) {
+function modal(innerHtml, wide, onClose) {
   const wrap = document.createElement('div');
   wrap.className = 'modal';
   wrap.innerHTML = `<div class="modal-card${wide ? ' help-modal' : ''}" role="dialog" aria-modal="true">${innerHtml}</div>`;
   document.body.appendChild(wrap);
   const prevFocus = document.activeElement;
   const focusables = () => Array.from(wrap.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])'));
-  const close = () => { document.removeEventListener('keydown', onKey, true); wrap.remove(); try { prevFocus && prevFocus.focus(); } catch { /* noop */ } };
+  // onClose fires on EVERY close path (button, backdrop, Escape) — callers use it to release resources
+  // (e.g. destroy WaveSurfer players + revoke object URLs in the converter).
+  const close = () => { document.removeEventListener('keydown', onKey, true); wrap.remove(); try { onClose && onClose(); } catch { /* noop */ } try { prevFocus && prevFocus.focus(); } catch { /* noop */ } };
   function onKey(e) {
     if (e.key === 'Escape') { e.preventDefault(); close(); return; }
     if (e.key === 'Tab') {                       // simple focus trap
@@ -870,8 +873,36 @@ function recfmtHelpModal() {
 // Map a label to a validOutputs() option value (en/id come from i18n; fall back to the raw value).
 function cvFmtLabel(v) { const s = t('convert.fmt.' + v); return s === 'convert.fmt.' + v ? v : s; }
 
+// A small WaveSurfer player (matches the baseline tab's look): a play/pause button + a waveform.
+// split:true stacks one waveform PER CHANNEL, so a stereo file shows both — the user can see which
+// channel carries the voice before choosing a mono mode. normalize is OFF when split so a near-silent
+// channel reads as flat (honest) instead of being boosted to look like signal.
+function cvMakePlayer(host, url, split) {
+  host.innerHTML = `<button type="button" class="player-play cv-play" aria-label="${esc(t('convert.play'))}">▶</button><div class="cv-wave"></div>`;
+  host.hidden = false;
+  const ws = WaveSurfer.create({
+    container: host.querySelector('.cv-wave'),
+    url, height: split ? 38 : 54, normalize: !split,
+    waveColor: '#9db4d4', progressColor: '#1f4f8f', cursorColor: '#c0392b', cursorWidth: 2,
+    dragToSeek: true, splitChannels: split ? true : undefined,
+  });
+  const btn = host.querySelector('.cv-play');
+  btn.onclick = () => { try { ws.playPause(); } catch { /* not ready */ } };
+  ws.on('play', () => { btn.textContent = '⏸'; });
+  ws.on('pause', () => { btn.textContent = '▶'; });
+  ws.on('finish', () => { btn.textContent = '▶'; });
+  ws.on('error', (e) => { console.warn('converter player:', e); });
+  return ws;
+}
+
 function audioConverterModal() {
   let srcBuf = null, srcInfo = null, srcName = '', srcSize = 0;
+  let srcWs = null, outWs = null, srcUrl = null, outUrl = null;
+  const destroyPlayers = () => {
+    for (const w of [srcWs, outWs]) { try { w && w.destroy(); } catch { /* noop */ } }
+    for (const u of [srcUrl, outUrl]) { try { u && URL.revokeObjectURL(u); } catch { /* noop */ } }
+    srcWs = outWs = srcUrl = outUrl = null;
+  };
   const m = modal(`
     <h3>${esc(t('convert.h'))} <button class="rp-help-inline" data-m="help" aria-label="${esc(t('recfmt.helpLink'))}" title="${esc(t('recfmt.helpLink'))}">?</button></h3>
     <p class="note">${esc(t('convert.note2'))}</p>
@@ -879,6 +910,9 @@ function audioConverterModal() {
     <input type="file" id="cv-file" accept="audio/*,.wav,.aif,.aiff,.mp3,.m4a,.flac,.ogg" hidden>
     <div id="cv-form" hidden>
       <p class="note rp-cv-src" id="cv-src"></p>
+      <p class="note cv-cap" id="cv-before-cap" hidden>${esc(t('convert.before'))}</p>
+      <div id="cv-src-player" class="cv-player" hidden></div>
+      <p class="note cv-cap" id="cv-chan-hint" hidden>${esc(t('convert.chanHint'))}</p>
       <label class="rp-field"><span>${esc(t('convert.outFmt'))}</span><select id="cv-fmt"></select></label>
       <label class="rp-field" id="cv-mono-row"><span>${esc(t('convert.monoMode'))}</span>
         <select id="cv-mono">
@@ -897,7 +931,11 @@ function audioConverterModal() {
       <button class="primary-btn" data-m="go">${esc(t('convert.go'))}</button>
     </div>
     <p class="note" id="cv-status" hidden></p>
-    <button class="link-btn" data-m="close">${esc(t('panel.util.close'))}</button>`);
+    <div id="cv-out-wrap" hidden>
+      <p class="note cv-cap">${esc(t('convert.after'))}</p>
+      <div id="cv-out-player" class="cv-player"></div>
+    </div>
+    <button class="link-btn" data-m="close">${esc(t('panel.util.close'))}</button>`, true, destroyPlayers);
   const $$ = (s) => m.el.querySelector(s);
   const status = $$('#cv-status'), form = $$('#cv-form'), fmtSel = $$('#cv-fmt'), monoRow = $$('#cv-mono-row'), mp3opts = $$('#cv-mp3opts');
   m.el.querySelector('[data-m="close"]').onclick = m.close;
@@ -910,9 +948,13 @@ function audioConverterModal() {
   };
   fmtSel.addEventListener('change', syncMp3Vis);
 
+  const setStereoUi = (stereo) => { monoRow.hidden = !stereo; $$('#cv-chan-hint').hidden = !stereo; };
+
   $$('#cv-file').addEventListener('change', async (e) => {
     const file = e.target.files[0]; e.target.value = ''; if (!file) return;
-    srcName = file.name; srcSize = file.size; status.hidden = true;
+    destroyPlayers();                                           // tear down any previous file's players
+    $$('#cv-out-wrap').hidden = true; status.hidden = true;
+    srcName = file.name; srcSize = file.size;
     try { srcBuf = await file.arrayBuffer(); } catch (err) { status.hidden = false; status.textContent = t('convert.failed', { msg: err.message }); return; }
     const fmt = detectFormat(srcBuf);
     let bits = null, chans = null, rate = null;
@@ -927,8 +969,17 @@ function audioConverterModal() {
     parts.push(fmtSize(srcSize));
     $$('#cv-src').textContent = t('convert.src', { name: srcName, detail: parts.join(' · ') });
     fmtSel.innerHTML = outs.map((o) => `<option value="${esc(o.value)}">${esc(cvFmtLabel(o.value))}</option>`).join('');
-    monoRow.hidden = (chans === 1);   // a known-mono WAV has nothing to reduce; otherwise offer the control
+    setStereoUi(chans == null || chans >= 2);   // assume stereo until the decoded channel count says otherwise
+    $$('#cv-before-cap').hidden = false;
     form.hidden = false; syncMp3Vis();
+    // "Before" player: per-channel waveforms + playback. The decoded channel count is the authority
+    // (covers non-WAV sources we can't header-sniff) — refine the mono controls once it's ready.
+    srcUrl = URL.createObjectURL(file);
+    srcWs = cvMakePlayer($$('#cv-src-player'), srcUrl, true);
+    srcWs.on('ready', () => {
+      let nch = chans || 1; try { const d = srcWs.getDecodedData(); if (d) nch = d.numberOfChannels; } catch { /* noop */ }
+      setStereoUi(nch >= 2);
+    });
   });
 
   m.el.querySelector('[data-m="go"]').onclick = async () => {
@@ -942,9 +993,16 @@ function audioConverterModal() {
     try {
       const res = await convertAudio(srcBuf, opts, (f) => { status.textContent = t('convert.working', { pct: Math.round(f * 100) }); });
       const outName = srcName.replace(/\.[^.]+$/, '') + '.' + res.ext;
-      const a = document.createElement('a'); a.href = URL.createObjectURL(res.blob); a.download = outName; a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+      const dlUrl = URL.createObjectURL(res.blob);
+      const a = document.createElement('a'); a.href = dlUrl; a.download = outName; a.click();
+      setTimeout(() => URL.revokeObjectURL(dlUrl), 30000);
       status.textContent = t('convert.done', { name: outName, out: fmtSize(res.blob.size), in: fmtSize(srcSize) });
+      // "After" player on the converted result (its own object URL, released on re-convert / close).
+      try { if (outWs) outWs.destroy(); } catch { /* noop */ }
+      try { if (outUrl) URL.revokeObjectURL(outUrl); } catch { /* noop */ }
+      outUrl = URL.createObjectURL(res.blob);
+      $$('#cv-out-wrap').hidden = false;
+      outWs = cvMakePlayer($$('#cv-out-player'), outUrl, false);
     } catch (err) { status.textContent = t('convert.failed', { msg: err.message }); }
   };
 }

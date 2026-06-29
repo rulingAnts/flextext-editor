@@ -344,6 +344,10 @@ en: {
   'convert.stereo': 'stereo',
   'convert.monoSrc': 'mono',
   'convert.fmtUnknown': 'audio',
+  'convert.before': 'Before — play the original; if stereo, each channel is shown separately:',
+  'convert.after': 'After — play the converted file:',
+  'convert.chanHint': 'Stereo: top waveform = Left, bottom = Right. To make it mono, pick the channel with the clear voice (or “mix” to combine both).',
+  'convert.play': 'Play / pause',
 
   'update.available': 'A new version of the app is available.',
   'update.done': 'App updated.',
@@ -1009,6 +1013,10 @@ id: {
   'convert.stereo': 'stereo',
   'convert.monoSrc': 'mono',
   'convert.fmtUnknown': 'audio',
+  'convert.before': 'Sebelum — putar aslinya; jika stereo, tiap kanal ditampilkan terpisah:',
+  'convert.after': 'Sesudah — putar file hasil konversi:',
+  'convert.chanHint': 'Stereo: gelombang atas = Kiri, bawah = Kanan. Untuk menjadikannya mono, pilih kanal dengan suara yang jelas (atau “gabung” untuk menggabungkan keduanya).',
+  'convert.play': 'Putar / jeda',
 
   'update.available': 'Versi baru aplikasi ini tersedia.',
   'update.done': 'Aplikasi diperbarui.',

@@ -18,6 +18,7 @@ import { REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { importPublicKeyB64, publicKeyFingerprint } from './crypto.js';
 import { esc, parseFlextext } from './flextext.js';
 import { probeAudioUrl, fetchFileViaUrl } from './audio.js';
+import { probeDriveFolder } from './upload.js';
 import * as db from './db.js';
 
 // Byte-size formatter for assign-validation verdicts (mirrors app.js sizeFmt; that one is not exported).
@@ -691,7 +692,16 @@ function fieldHtml(f) {
     return `<label class="rp-field"><span>${label}</span><select data-f="${f.k}">${opts}</select></label>`;
   }
   if (f.type === 'textarea') return `<label class="rp-field"><span>${label}</span><textarea data-f="${f.k}" rows="2"></textarea></label>`;
-  return `<label class="rp-field"><span>${label}</span><input data-f="${f.k}" spellcheck="false"></label>`;
+  const input = `<label class="rp-field"><span>${label}</span><input data-f="${f.k}" spellcheck="false"></label>`;
+  // #4b: under the Drive upload-folder field, a "send a test file" write-probe + a sharing-help link.
+  if (f.k === 'upload') {
+    return input
+      + `<div class="rp-probe-row">`
+      + `<button type="button" class="link-btn rp-probe-btn" data-act="probe-upload">${esc(t('panel.f.probeBtn'))}</button>`
+      + `<a class="rp-doclink" href="https://support.google.com/drive/answer/2494822" target="_blank" rel="noopener" title="${esc(t('panel.f.probeHelp'))}">?</a>`
+      + `<div class="rp-probe-result" role="status" hidden></div></div>`;
+  }
+  return input;
 }
 
 function groupHtml(g) {
@@ -917,6 +927,25 @@ async function openSettingsModal(target, opts = {}) {
       }
     } catch (err) { errToast(err); }
   });
+
+  // #4b: live write-probe — drop a real test file into the folder typed in the box via the SAME relay
+  // the field device uses, so a green result PROVES uploads will land (no Drive token needed).
+  const probeBtn = box.querySelector('[data-act="probe-upload"]');
+  if (probeBtn) probeBtn.addEventListener('click', () => busy(probeBtn, async () => {
+    const out = box.querySelector('.rp-probe-result');
+    const paint = (msg, kind) => { out.hidden = false; out.textContent = msg; out.className = 'rp-probe-result' + (kind ? ' rp-as-' + kind : ''); };
+    const raw = (box.querySelector('[data-f="upload"]').value || '').trim();
+    const fid = deps.parseDriveFolder ? deps.parseDriveFolder(raw) : raw;
+    if (!fid) { paint(t('panel.probe.needFolder'), 'err'); return; }
+    paint(t('panel.probe.testing'));
+    try {
+      const r = await probeDriveFolder(deps.driveRelay, fid);
+      if (r && r.ok) paint(t('panel.probe.ok', { name: r.name }), 'ok');
+      else paint(t('panel.probe.timeout'), 'err');
+    } catch (err) {
+      paint(t('panel.probe.failPrefix') + ' ' + (err.message || ''), 'err');
+    }
+  }));
 }
 
 // Pull a device's last-reported settings snapshot (if any) to prefill its editor.

@@ -3313,6 +3313,7 @@ function setupResearcherMode() {
     saveSettings,
     parseDriveFolder,
     resolveAudioInput,
+    driveRelay: DEFAULT_RELAY,
     openView: (v) => show(v),
     goHome: () => {},   // no editor to return to; the panel's Lock button signs out → sign-in
   });
@@ -3488,6 +3489,7 @@ function setup() {
     saveSettings,
     parseDriveFolder,
     resolveAudioInput,
+    driveRelay: DEFAULT_RELAY,
     openView: (v) => show(v),
     goHome: () => { renderDocList(); show('texts'); },
     onSignedUp: () => { const b = $('#btn-researcher'); if (b) b.hidden = !researcherPanelApi.isSignedUp(); },

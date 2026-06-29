@@ -214,6 +214,44 @@ export class DriveUpload {
   }
 }
 
+// Idiot-proof write-probe for a Drive upload folder: drop a tiny marker file via the EXACT relay
+// path real uploads use, so a green result PROVES field uploads to this folder will land. Needs NO
+// client-side Drive token (the relay holds the only credential). Resolves {ok:true,fileId,name} on
+// success, {ok:false,timeout:true} if the relay never confirms, or REJECTS with the relay's own
+// plain-language error (e.g. "Share it as 'Anyone with the link can EDIT'") on a real Drive failure.
+export async function probeDriveFolder(relayUrl, folderId) {
+  const token = newToken();
+  const name = 'flextext-write-test-' + Date.now() + '.txt';
+  const text = 'FlexText folder write test — safe to delete.';
+  const data = await blobToBase64(new Blob([text], { type: 'text/plain' }));
+  const body = JSON.stringify({
+    action: 'upload', token, folder: folderId || '',
+    name, mimeType: 'text/plain', size: text.length, data,
+  });
+  try {
+    await fetch(relayUrl, { method: 'POST', mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body });
+  } catch {
+    throw new Error('Could not reach the upload relay — check the connection and try again.');
+  }
+  const sep = relayUrl.includes('?') ? '&' : '?';
+  for (let i = 0; i < 12; i++) {   // a ~40-byte file lands fast, so fewer tries than a real upload
+    try {
+      const resp = await fetch(relayUrl + sep +
+        new URLSearchParams({ action: 'upload-status', token }).toString());
+      if (resp.ok) {
+        const b = await resp.json();
+        if (b.error) { const e = new Error(b.error); e.fatal = true; throw e; } // relay's plain-language Drive error
+        if (b.done && b.fileId) return { ok: true, fileId: b.fileId, name };
+      }
+    } catch (e) {
+      if (e.fatal) throw e;            // surface a real Drive/permission error; a transient blip just retries
+    }
+    await new Promise((r) => setTimeout(r, POLL_DELAY));
+  }
+  return { ok: false, timeout: true };
+}
+
 // Pending uploads persisted from a previous session (restarted from 0 — the
 // proxy upload has no byte-level resume).
 export async function listPendingUploads() {

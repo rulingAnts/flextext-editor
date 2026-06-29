@@ -872,6 +872,17 @@ main {
 .cv-wave { flex: 1 1 auto; min-width: 0; }
 .cv-cap { margin: 10px 0 2px; font-size: 12px; }
 
+/* Subtle always-on per-app version badge (bottom-right corner). Never intercepts taps. */
+.app-version {
+  position: fixed;
+  right: calc(6px + env(safe-area-inset-right));
+  bottom: calc(4px + env(safe-area-inset-bottom));
+  font-size: 10px; line-height: 1; letter-spacing: .02em;
+  color: var(--muted); opacity: .5;
+  pointer-events: none; user-select: none;
+  z-index: 30; font-variant-numeric: tabular-nums;
+}
+
 .rp-install { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 6px; display: flex; flex-direction: column; gap: 6px; }
 .rp-devinfo { font-size: 11px; opacity: .85; }
 .rp-devinfo-old { color: #a3261f; opacity: 1; }   /* device hasn't updated (no version reported) */

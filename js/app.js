@@ -1973,6 +1973,22 @@ async function listCachedApps() {
   } catch { return null; }
 }
 
+// Subtle always-on version badge in the bottom-right corner (all three modes). Shows THIS app's OWN
+// version: the editor's is the engine version (same thing); the recorder/researcher show their own
+// shell version (from their cache name) since they ship on their own cadence. Informational only —
+// pointer-events:none so it never intercepts a tap.
+async function showAppVersion() {
+  const name = RESEARCHER_MODE ? 'researcher' : (RECORD_MODE ? 'recorder' : 'editor');
+  let ver = ENGINE_VERSION;                                   // editor: shell == engine version
+  if (RECORD_MODE || RESEARCHER_MODE) {
+    const apps = await listCachedApps().catch(() => null);
+    ver = (apps && (RECORD_MODE ? apps.recorder : apps.researcher)) || '';   // own shell version (cache name)
+  }
+  let el = document.getElementById('app-version');
+  if (!el) { el = document.createElement('div'); el.id = 'app-version'; el.className = 'app-version'; (document.body || document.documentElement).appendChild(el); }
+  el.textContent = ver ? name + ' ' + ver : name;
+}
+
 // Inventory for the report. The whole blob is E2EE-encrypted before it leaves the device
 // (sync.js), so the actual title + a researcher-relevant settings snapshot ride along: only
 // the Ki holder (the researcher) can read them — the Worker/D1 see ciphertext. titleHash is
@@ -3252,6 +3268,8 @@ function setup() {
   // Local live-sync: when another same-origin window/app changes settings or the doc list, re-render
   // here too — no manual refresh. Registered in every mode; the handlers no-op in researcher mode.
   db.onLive((kind) => { if (kind === 'settings') applyLiveSettings(); else if (kind === 'docs') refreshLiveLists(); });
+
+  showAppVersion();   // subtle corner version badge (all modes; fire-and-forget)
 
   // ----- Standalone Researcher console: boot the panel only; skip ALL field/editor wiring. -----
   if (RESEARCHER_MODE) {

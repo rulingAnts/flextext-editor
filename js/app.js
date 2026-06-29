@@ -1955,6 +1955,24 @@ async function syncDispatch(cmd) {
   }
 }
 
+// Which PWA shells are cached on THIS browser profile + their version, parsed from the SW cache names
+// (flextext-vNN = editor, text-recorder-vNN, flextext-researcher-vNN). Lets the researcher panel show
+// whether a managed device is up to date + which apps it has. Null on dev (SW skipped). CacheStorage is
+// shared across the three same-origin PWAs, so every installed one shows.
+async function listCachedApps() {
+  try {
+    if (typeof caches === 'undefined') return null;
+    const out = {};
+    for (const k of await caches.keys()) {
+      let m;
+      if ((m = k.match(/^flextext-researcher-(.+)$/))) out.researcher = m[1];
+      else if ((m = k.match(/^text-recorder-(.+)$/))) out.recorder = m[1];
+      else if ((m = k.match(/^flextext-(.+)$/))) out.editor = m[1];
+    }
+    return out;
+  } catch { return null; }
+}
+
 // Inventory for the report. The whole blob is E2EE-encrypted before it leaves the device
 // (sync.js), so the actual title + a researcher-relevant settings snapshot ride along: only
 // the Ki holder (the researcher) can read them — the Worker/D1 see ciphertext. titleHash is
@@ -1986,7 +2004,10 @@ async function syncGatherInventory() {
                    'appLang', 'uploadFolder', 'toolbarButtons', 'sendOptions', 'autoDelUploaded', 'recordWelcome']) {
     if (settings[k] !== undefined) snap[k] = settings[k];
   }
-  return { type: RECORD_MODE ? 'recorder' : 'editor', items, settings: snap };
+  // ua + cachedApps let the panel show which browser/device this install is + whether its apps are
+  // current (so the researcher can tell if a coworker hasn't updated). Both are E2EE in the report.
+  return { type: RECORD_MODE ? 'recorder' : 'editor', items, settings: snap,
+           ua: navigator.userAgent, cachedApps: await listCachedApps() };
 }
 
 // One-time invite link (?invite=<id>#k=<secret>) → bind this install to the

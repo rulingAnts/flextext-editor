@@ -849,6 +849,8 @@ main {
 .rp-badge-warn { background: #fdf3d7; color: #6b5310; }
 
 .rp-install { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 6px; display: flex; flex-direction: column; gap: 6px; }
+.rp-devinfo { font-size: 11px; opacity: .85; }
+.rp-devinfo-old { color: #a3261f; opacity: 1; }   /* device hasn't updated (no version reported) */
 .rp-install-pending {
   flex-direction: row; align-items: center; justify-content: space-between; gap: 12px;
   background: #fdf8e9; border: 1px solid #e4c95b; border-radius: 8px; padding: 10px 12px;

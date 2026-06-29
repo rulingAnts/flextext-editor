@@ -274,6 +274,7 @@ function viewSig(data) {
         it.instance_id, it.nickname, it.type,
         (it.installs || []).map((ins) => [
           ins.install_id, ins.status, ins.accepted, ins.has_key,
+          ins.inventory && ins.inventory.ua, ins.inventory && JSON.stringify(ins.inventory.cachedApps),  // re-render when the device's browser/app version changes
           ins.inventory && Array.isArray(ins.inventory.items)
             // uploadedFileId IS part of the signature: a re-send of an unchanged doc keeps uploadState
             // 'uploaded' but mints a new file id, and that's our only signal the re-upload landed.
@@ -293,6 +294,55 @@ async function pollDashboard() {
   try { data = await Researcher.listView(); } catch { return; }                      // transient; next tick retries
   if (root.hidden || document.querySelector('.modal')) return;                       // re-check after the await
   if (viewSig(data) !== lastSig) renderDashboard(data);
+}
+
+// Parse a reported userAgent into a short "Browser NN · OS" for the device tiles. The UA is
+// attacker-controllable (a seized field device), but this only pulls a browser name + digits + a fixed OS
+// label, and the result is esc()'d at every call site — no raw UA reaches the DOM.
+function parseUA(ua) {
+  if (!ua || typeof ua !== 'string') return '';
+  let b = 'browser', m;
+  if ((m = ua.match(/Firefox\/(\d+)/))) b = 'Firefox ' + m[1];
+  else if ((m = ua.match(/Edg\/(\d+)/))) b = 'Edge ' + m[1];
+  else if ((m = ua.match(/OPR\/(\d+)/))) b = 'Opera ' + m[1];
+  else if ((m = ua.match(/Chrome\/(\d+)/))) b = 'Chrome ' + m[1];
+  else if (/Safari/.test(ua) && (m = ua.match(/Version\/(\d+)/))) b = 'Safari ' + m[1];
+  let os = '';
+  if ((m = ua.match(/Android (\d+)/))) os = 'Android ' + m[1];
+  else if (/Android/.test(ua)) os = 'Android';
+  else if (/iPhone|iPad|iPod|iOS/.test(ua)) os = 'iOS';
+  else if (/Windows NT/.test(ua)) os = 'Windows';
+  else if (/Mac OS X/.test(ua)) os = 'Mac';
+  else if (/Linux/.test(ua)) os = 'Linux';
+  return os ? b + ' · ' + os : b;
+}
+// "editor v84 · recorder v33" from a reported cachedApps map (versions attacker-controllable → esc'd at use).
+function fmtApps(c) {
+  if (!c || typeof c !== 'object') return '';
+  const p = [];
+  if (c.editor) p.push('editor ' + c.editor);
+  if (c.recorder) p.push('recorder ' + c.recorder);
+  if (c.researcher) p.push('researcher ' + c.researcher);
+  return p.join(' · ');
+}
+// One device-line for a tile: "Browser · OS · editor vNN · recorder vNN". '' when nothing is reported (an
+// old client that doesn't send ua/cachedApps yet — itself a signal the device is on a stale build).
+function deviceLine(ua, cachedApps) {
+  return [parseUA(ua), fmtApps(cachedApps)].filter(Boolean).join(' · ');
+}
+// This panel's OWN cached apps (same parse as the field client's listCachedApps), for the This-device tile.
+async function panelCachedApps() {
+  try {
+    if (typeof caches === 'undefined') return null;
+    const out = {};
+    for (const k of await caches.keys()) {
+      let m;
+      if ((m = k.match(/^flextext-researcher-(.+)$/))) out.researcher = m[1];
+      else if ((m = k.match(/^text-recorder-(.+)$/))) out.recorder = m[1];
+      else if ((m = k.match(/^flextext-(.+)$/))) out.editor = m[1];
+    }
+    return out;
+  } catch { return null; }
 }
 
 async function renderDashboard(prefetched) {
@@ -329,6 +379,7 @@ async function renderDashboard(prefetched) {
     if (ins.inventory && Array.isArray(ins.inventory.items)) texts += ins.inventory.items.length;
   }
   const localDocs = await db.listDocs().catch(() => []);
+  const myDevice = deviceLine(navigator.userAgent, await panelCachedApps());
 
   const cards = await Promise.all(insts.map(renderInstanceCard));
   root.querySelector('.rp-body').innerHTML = `
@@ -361,6 +412,7 @@ async function renderDashboard(prefetched) {
         <button class="secondary-btn" data-act="self-settings">${esc(t('panel.inst.settings'))}</button>
       </div>
       <p class="note">${esc(t('panel.dash.thisDeviceNote', { n: localDocs.length }))}</p>
+      ${myDevice ? `<div class="note rp-devinfo">${esc(myDevice)}</div>` : ''}
     </div>
     ${insts.length ? cards.join('') : `<p class="note rp-empty">${esc(t('panel.dash.empty'))}</p>`}`;
 
@@ -450,6 +502,7 @@ async function renderInstanceCard(it) {
         : `<li class="note">${esc(t('panel.inst.noTexts'))}</li>`;
       installsHtml += `<div class="rp-install">
         <div class="note">${esc(t('panel.inst.lastSeen', { when: lastSeen(ins.last_seen_at) }))} · ${esc(t('panel.inst.texts', { n: inv ? inv.length : 0 }))}</div>
+        ${(() => { const dl = deviceLine(ins.inventory && ins.inventory.ua, ins.inventory && ins.inventory.cachedApps); return `<div class="note rp-devinfo${dl ? '' : ' rp-devinfo-old'}">${esc(dl || t('panel.inst.verUnknown'))}</div>`; })()}
         <ul class="rp-inv">${rows}</ul>
         <button class="link-btn rp-revoke" data-iact="revoke-install" data-i="${esc(it.instance_id)}" data-id="${esc(ins.install_id)}">${esc(t('panel.inst.revokeInstall'))}</button>
       </div>`;

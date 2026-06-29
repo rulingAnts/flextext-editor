@@ -351,6 +351,11 @@ en: {
 
   'update.available': 'A new version of the app is available.',
   'update.done': 'App updated.',
+  'update.checking': 'Checking for updates…',
+  'update.none': 'You’re on the latest version ({v}).',
+  'update.downloading': 'Update found — downloading…',
+  'update.checkFailed': 'Couldn’t check for updates (offline?).',
+  'update.busyRecording': 'Finish saving the recording first, then try again.',
   'update.now': 'Update',
   'update.updating': 'Updating…',
 
@@ -1020,6 +1025,11 @@ id: {
 
   'update.available': 'Versi baru aplikasi ini tersedia.',
   'update.done': 'Aplikasi diperbarui.',
+  'update.checking': 'Memeriksa pembaruan…',
+  'update.none': 'Anda memakai versi terbaru ({v}).',
+  'update.downloading': 'Pembaruan ditemukan — mengunduh…',
+  'update.checkFailed': 'Tidak dapat memeriksa pembaruan (luring?).',
+  'update.busyRecording': 'Selesaikan dulu penyimpanan rekaman, lalu coba lagi.',
   'update.now': 'Perbarui',
   'update.updating': 'Memperbarui…',
 

@@ -3067,7 +3067,7 @@ function setupServiceWorker() {
   // a tab that became unsafe (opened a text, started recording) defers its reload until it is safe again.
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (reloading) return;
-    if (!updateSafeNow()) { reloadPending = true; return; }
+    if (!forcedApply && !updateSafeNow()) { reloadPending = true; return; }   // forced (manual shortcut) reloads regardless
     doUpdateReload();
   });
 
@@ -3094,6 +3094,13 @@ function setupServiceWorker() {
     document.addEventListener('visibilitychange', () => { if (!document.hidden) { check(); applyUpdateIfSafe(); } });
     window.addEventListener('online', () => { check(); applyUpdateIfSafe(); });
     setInterval(() => { check(); applyUpdateIfSafe(); }, 5 * 60 * 1000);
+    // Manual "check for updates now" — Ctrl/⌃ + Alt/⌥ + U (mirrors the Ctrl+Alt+R research toggle). e.code
+    // keys off the physical U so the Mac Option-U dead key (ü) doesn't matter. Forces a check + immediate apply.
+    document.addEventListener('keydown', (e) => {
+      if (e.ctrlKey && e.altKey && !e.shiftKey && !e.metaKey && (e.code === 'KeyU' || e.key === 'u' || e.key === 'U')) {
+        e.preventDefault(); forceUpdateCheck();
+      }
+    });
   }).catch(() => {});
 }
 
@@ -3107,18 +3114,23 @@ let pendingWorker = null;   // a fully-installed waiting SW, ready to activate w
 let reloadPending = false;  // a controllerchange fired while this tab was unsafe → reload when safe
 let reloading = false;      // re-entry guard so we reload exactly once
 let savingRecording = false; // a take is being encoded + written to IndexedDB — a reload would abort it
+let forcedApply = false;     // user pressed the manual "check for updates" shortcut → apply now even off the safe views
 
 function markUpdateReady(worker) {
   pendingWorker = worker;
   applyUpdateIfSafe();
 }
 
-// Safe = no modal/dialog open (recording, consent, share, settings) AND — in the editor — sitting on the
-// texts list (never yank an open text away). Cold start passes (no modal, texts list).
+// Safe = no recording mid-save, no modal/dialog open, AND — in the editor — NOT currently editing an open
+// text (the baseline/gloss views). The Texts list, Settings, help, research, and the researcher panel are
+// all safe to reload (settings persist on change; nothing to yank). Cold start passes.
 function updateSafeNow() {
   if (savingRecording) return false;   // a recording save is mid-write to IndexedDB — a reload would lose the take
   if (document.querySelector('.modal:not([hidden])')) return false;
-  if (!RECORD_MODE) { const tv = $('#view-texts'); if (tv && tv.hidden) return false; }
+  if (!RECORD_MODE) {                  // defer ONLY while a text is open for editing — never yank interlinear work
+    const b = document.getElementById('view-baseline'), g = document.getElementById('view-gloss');
+    if ((b && !b.hidden) || (g && !g.hidden)) return false;
+  }
   return true;
 }
 
@@ -3143,6 +3155,36 @@ function applyUpdateIfSafe() {
   Promise.resolve(current ? persist() : null).catch(() => {}).finally(() => {
     w.postMessage({ type: 'SKIP_WAITING' });   // → activate → controllerchange → (if safe) doUpdateReload
   });
+}
+
+// Apply a ready worker NOW because the user asked (the manual shortcut), even if not on a "safe" view —
+// still flush state first and still refuse mid-recording-save (the one genuinely unsafe case).
+function forceApply(worker) {
+  if (savingRecording) { toast(t('update.busyRecording'), 4000); return; }
+  forcedApply = true; pendingWorker = null;
+  Promise.resolve(current ? persist() : null).catch(() => {}).finally(() => {
+    worker.postMessage({ type: 'SKIP_WAITING' });   // → controllerchange → doUpdateReload (forced)
+  });
+}
+
+// Manual "check for updates now" (Ctrl/⌃+Alt/⌥+U). Forces a SW update check and, if a new version is
+// ready/downloading, applies it immediately instead of waiting for the 5-min poll. Toasts the outcome.
+async function forceUpdateCheck() {
+  if (!('serviceWorker' in navigator)) { toast(t('update.none', { v: ENGINE_VERSION }), 3000); return; }
+  toast(t('update.checking'), 2500);
+  let reg = null;
+  try { reg = await navigator.serviceWorker.getRegistration(); } catch { /* noop */ }
+  if (!reg) { toast(t('update.none', { v: ENGINE_VERSION }), 3000); return; }
+  if (reg.waiting) { toast(t('update.downloading'), 2500); forceApply(reg.waiting); return; }
+  try { await reg.update(); } catch { toast(t('update.checkFailed'), 4000); return; }
+  if (reg.waiting) { toast(t('update.downloading'), 2500); forceApply(reg.waiting); return; }
+  if (reg.installing) {
+    toast(t('update.downloading'), 3000);
+    const nw = reg.installing;
+    nw.addEventListener('statechange', () => { if (nw.state === 'installed') forceApply(nw); });
+    return;
+  }
+  toast(t('update.none', { v: ENGINE_VERSION }), 3000);   // already current
 }
 
 /* ---------------- Wire-up ---------------- */

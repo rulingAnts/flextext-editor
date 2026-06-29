@@ -1831,6 +1831,16 @@ function applyLiveSettings() {
   if (RECORD_MODE) { renderRecordView(); renderRecordList(); }
   else { applyResearchVisibility(); applyAllowedButtons(); fillWsForm(); renderDocList(); }
 }
+// Setting D: a researcher pushed an app (interface) language for this device. Apply it LIVE — no reload —
+// and keep the local language toggle in sync. SET-WITH-OVERRIDE: this is called only when a push ARRIVES
+// (not on every re-render), so a field worker who later prefers the other language is never fought.
+function applyDeviceLang(lang) {
+  if (!LANGS.includes(lang) || lang === getLang()) return false;
+  setLang(lang);                                  // persists to LANG_KEY → survives reload
+  applyI18n();                                    // repaint all static [data-i18n] markup
+  const ls = $('#lang-select'); if (ls) ls.value = lang;  // keep the local toggle from showing a stale value
+  return true;
+}
 // Re-render just the document list (a doc was added/changed/removed in another window).
 function refreshLiveLists() {
   if (RESEARCHER_MODE) return;
@@ -1868,6 +1878,9 @@ async function syncDispatch(cmd) {
       const s = loadSettings();
       Object.assign(s, cmd.settings || {});
       saveSettings(s);
+      // A pushed app-language (setting D) takes effect live — set it BEFORE the re-render so the menus
+      // repaint in the new language right away (only on the actual push; the local toggle still works after).
+      if (cmd.settings && cmd.settings.appLang) applyDeviceLang(cmd.settings.appLang);
       // Reflect pushed changes immediately so the field worker (no refresh button) sees them without
       // reopening — and tell them their researcher made the change. applyLiveSettings reloads + re-renders
       // (editor: visibility/buttons/form/list; recorder: welcome heading + buttons + list).

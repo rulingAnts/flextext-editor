@@ -53,6 +53,9 @@ const SEND_OPTS = ['share', 'upload', 'save', 'download'];
  * fillForm/readForm). This is the reusable settings-form component. */
 const GROUPS = [
   { id: 'languages', fields: [
+    // Interface language pushed to THIS device (setting D). deviceOnly → hidden in the researcher's own
+    // local-settings modal (where the live #lang-select toggle already covers it).
+    { k: 'appLang', type: 'select', opts: ['follow', 'en', 'id'], optPrefix: 'panel.opt.appLang.', deviceOnly: true },
     { k: 'vernLang', type: 'text' }, { k: 'vernName', type: 'text' }, { k: 'vernFont', type: 'text' },
     { k: 'analLang', type: 'text' }, { k: 'analName', type: 'text' }, { k: 'analFont', type: 'text' },
   ] },
@@ -704,15 +707,18 @@ function fieldHtml(f) {
   return input;
 }
 
-function groupHtml(g) {
-  return `<div class="rp-group" id="rp-grp-${g.id}" role="tabpanel" aria-labelledby="rp-tab-${g.id}" data-group="${g.id}" hidden><fieldset class="rp-fieldset"><legend>${esc(t('panel.grp.' + g.id))}</legend>${g.fields.map(fieldHtml).join('')}</fieldset></div>`;
+// Hide deviceOnly fields (e.g. appLang) in the researcher's OWN local-settings modal — there the live
+// #lang-select toggle already covers the UI language, so a duplicate control would be a confusing no-op.
+function groupFields(g, mode) { return g.fields.filter((f) => !(f.deviceOnly && mode === 'local')); }
+function groupHtml(g, mode) {
+  return `<div class="rp-group" id="rp-grp-${g.id}" role="tabpanel" aria-labelledby="rp-tab-${g.id}" data-group="${g.id}" hidden><fieldset class="rp-fieldset"><legend>${esc(t('panel.grp.' + g.id))}</legend>${groupFields(g, mode).map(fieldHtml).join('')}</fieldset></div>`;
 }
 
 // Map stored settings → canonical form values (mode-aware on the divergent fields).
 function toFormValues(s, mode) {
   s = s || {};
   const v = {};
-  for (const g of GROUPS) for (const f of g.fields) {
+  for (const g of GROUPS) for (const f of groupFields(g, mode)) {
     if (f.k === 'upload') v.upload = mode === 'local' ? (s.uploadUrl || '') : (s.uploadFolder || '');
     else if (f.k === 'sendOptions') v.sendOptions = (mode === 'local' ? s.linkSendOptions : s.sendOptions) || [];
     else if (f.k === 'buttons') v.buttons = (mode === 'local' ? s.linkButtons : s.toolbarButtons) || [];
@@ -752,10 +758,13 @@ function readForm(box, mode) {
   const raw = collectRaw(box);
   const patch = {};
   const SPECIAL = ['upload', 'sendOptions', 'buttons', 'autoDel', 'consentAudioUrl'];
-  for (const g of GROUPS) for (const f of g.fields) {
+  for (const g of GROUPS) for (const f of groupFields(g, mode)) {
     if (SPECIAL.includes(f.k)) continue;
     patch[f.k] = raw[f.k];
   }
+  // appLang 'follow' (or unset) = "don't change this device's language" → never push it (it would
+  // clobber a field worker's own toggle choice). Only an explicit en/id is sent (set-with-override).
+  if (patch.appLang === 'follow' || !patch.appLang) delete patch.appLang;
   // autoDel checkbox is stored as autoDelUploaded (the key the field client reads).
   patch.autoDelUploaded = !!raw.autoDel;
   // Consent audio: store the raw link AND the resolved URL the device actually plays.
@@ -877,7 +886,7 @@ async function openSettingsModal(target, opts = {}) {
   const m = modal(`
     <div class="rp-set-head"><h3>${esc(mode === 'local' ? t('panel.set.titleLocal') : t('panel.set.title', { name: (target.instance && target.instance.nickname) || '' }))}</h3></div>
     <div class="rp-tabs" role="tablist">${GROUPS.map((g, i) => `<button class="rp-tab${i === 0 ? ' on' : ''}" role="tab" id="rp-tab-${g.id}" aria-controls="rp-grp-${g.id}" aria-selected="${i === 0}" data-tab="${g.id}">${esc(t('panel.grp.' + g.id))}</button>`).join('')}</div>
-    <div class="rp-groups">${GROUPS.map(groupHtml).join('')}</div>
+    <div class="rp-groups">${GROUPS.map((g) => groupHtml(g, mode)).join('')}</div>
     <p class="note rp-enc">${esc(t(mode === 'local' ? 'panel.set.localNote' : 'panel.set.encNote'))}</p>
     <button class="primary-btn" data-m="save">${esc(t(mode === 'local' ? 'panel.set.save' : 'panel.set.push'))}</button>
     <button class="link-btn" data-m="cancel">${esc(t('panel.set.cancel'))}</button>`, true);

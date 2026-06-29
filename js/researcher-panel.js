@@ -890,15 +890,14 @@ function deleteAccountModal() {
       // "failed" on a dead session. Any other error (offline / 5xx — account still there) → surface + retry.
       if (!(e && (e.status === 401 || e.status === 404))) { errToast(e); go.disabled = false; go.textContent = t('panel.delacct.btn'); return; }
     }
-    // 2) wipe ONLY the researcher console's local data on this device (session token + keys + markers) —
-    // NOT the Editor/Recorder apps' texts/audio or caches. Any sync binding to them releases on its own:
-    // the deleted account's instances are gone, so the field app's next poll gets 410 and unlinks while
-    // keeping its docs. Other researcher devices wipe the same way on their next 401 (purgeLocal above).
-    Researcher.purgeLocal();
-    m.close();
     deps.toast(t('panel.delacct.done'), 6000);
-    deps.onSignedUp && deps.onSignedUp();
-    route();                                  // → researcher sign-in screen (the account is gone)
+    // 2) Completely wipe THIS device back to a blank slate (the warning copy makes the full scope explicit
+    // + this is behind a type-DELETE gate). eraseAllData reloads itself; force a reload too in case it
+    // returns, so the user is never left on a frozen modal. (OTHER researcher devices wipe only their
+    // console data on their next 401 via purgeLocal — safe, since a 401 isn't always an account delete.
+    // Linked FIELD devices keep their texts and just unlink via the 410 path on their next poll.)
+    try { await deps.eraseAllData(); } catch { /* noop */ }
+    try { location.replace(location.pathname); } catch { /* noop */ }
   };
 }
 

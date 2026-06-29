@@ -66,6 +66,20 @@ export function isUnlocked() { return !!Kr; }
 export function lock() { Kr = null; settingsCache = null; settingsRev = null; kiCache = new Map(); approvedSelf = false; ownerSelf = false; }
 export function signOut() { lock(); try { localStorage.removeItem(AUTH_KEY); sessionStorage.removeItem(AUTH_KEY); } catch { /* noop */ } }
 
+// Full local wipe of the researcher CONSOLE's footprint on this device: the session token, the
+// "stay signed in" pref, the account marker, and the in-memory keys (Kr/Ki/inventory via lock()).
+// That IS the console's entire persistent footprint — there is no researcher IndexedDB. Used on account
+// DELETE and when the server reports the session is gone (401). Deliberately does NOT touch the Editor/
+// Recorder apps' docs/audio or any app cache — those are separate; a deleted account's field bindings
+// release themselves (the device's next poll gets 410 → it unlinks but keeps its texts).
+export function purgeLocal() {
+  lock();
+  try {
+    localStorage.removeItem(AUTH_KEY); sessionStorage.removeItem(AUTH_KEY);
+    localStorage.removeItem(STAY_KEY); localStorage.removeItem(LAST_ACCT_KEY);
+  } catch { /* noop */ }
+}
+
 /* ---------------- low-level request (researcher-authed unless auth:false) ---------------- */
 
 const RETRY_MAX = 4;                                   // bounded inner retries; outer loops (poll, route) add more

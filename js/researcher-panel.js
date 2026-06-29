@@ -118,7 +118,7 @@ async function route() {
       // 401 = the session is genuinely invalid → sign out. Any OTHER failure (network/timeout/5xx —
       // the field hits these constantly) must NOT sign the researcher out: show "reconnecting" and
       // keep retrying, so a blip never drops them back to the sign-in screen.
-      if (e && e.status === 401) { Researcher.signOut(); return renderSignIn(t('panel.signin.expired')); }
+      if (e && e.status === 401) { Researcher.purgeLocal(); return renderSignIn(t('panel.signin.expired')); }   // session gone/deleted → wipe researcher-console local data
       return renderReconnecting();
     }
   }
@@ -440,7 +440,7 @@ async function renderDashboard(prefetched) {
   if (!data) {
     try { data = await Researcher.listView(); }
     catch (e) {
-      if (e && e.status === 401) { Researcher.signOut(); return renderSignIn(t('panel.signin.expired')); }
+      if (e && e.status === 401) { Researcher.purgeLocal(); return renderSignIn(t('panel.signin.expired')); }   // session gone/deleted → wipe researcher-console local data
       // Transient: keep the poll running (it recovers on the next good tick) and show "reconnecting"
       // instead of a dead error screen — a field network drop must not strand the dashboard.
       startDashPoll();
@@ -890,11 +890,15 @@ function deleteAccountModal() {
       // "failed" on a dead session. Any other error (offline / 5xx — account still there) → surface + retry.
       if (!(e && (e.status === 401 || e.status === 404))) { errToast(e); go.disabled = false; go.textContent = t('panel.delacct.btn'); return; }
     }
+    // 2) wipe ONLY the researcher console's local data on this device (session token + keys + markers) —
+    // NOT the Editor/Recorder apps' texts/audio or caches. Any sync binding to them releases on its own:
+    // the deleted account's instances are gone, so the field app's next poll gets 410 and unlinks while
+    // keeping its docs. Other researcher devices wipe the same way on their next 401 (purgeLocal above).
+    Researcher.purgeLocal();
+    m.close();
     deps.toast(t('panel.delacct.done'), 6000);
-    // 2) wipe this device + reload to a blank slate (also drops the now-dead session). eraseAllData reloads
-    // itself; force a reload too in case it ever returns, so the user is never left on a frozen modal.
-    try { await deps.eraseAllData(); } catch { /* noop */ }
-    try { location.replace(location.pathname); } catch { /* noop */ }
+    deps.onSignedUp && deps.onSignedUp();
+    route();                                  // → researcher sign-in screen (the account is gone)
   };
 }
 

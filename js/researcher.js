@@ -163,6 +163,12 @@ export function isOwnerSelf() { return ownerSelf; }
 export async function approveResearcher(researcherId) { return api('POST', '/v1/researcher/approve', { body: { researcher_id: researcherId } }); }
 export async function declineResearcher(researcherId) { return api('POST', '/v1/researcher/decline', { body: { researcher_id: researcherId } }); }
 
+// Self-delete THIS account + all its server data (instances/installs/invites/reset). Auth is the caller's
+// own session token, so it can only ever delete the caller. The local offline wipe must run AFTER this
+// succeeds (the wipe destroys the session token this call needs). retry:false — non-idempotent (a retried
+// delete just 401s once the row is gone, which the caller treats as already-done).
+export async function deleteAccount() { return api('POST', '/v1/researcher/delete', { body: {}, retry: false }); }
+
 /* ---------------- account ---------------- */
 
 export function accountEmail() { const a = loadAuth(); return a && a.email; }

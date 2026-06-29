@@ -3251,18 +3251,24 @@ function deleteDB(name) {
   });
 }
 async function eraseAllData() {
-  try { db.close(); } catch { /* noop */ }                       // drop the cached docs-DB handle so the delete isn't blocked
-  try { localStorage.clear(); } catch { /* noop */ }
-  try { sessionStorage.clear(); } catch { /* noop */ }
+  // Wrap the whole wipe so the reload in `finally` ALWAYS runs — even if a step throws, the page reloads
+  // to the blank slate. localStorage/sessionStorage are cleared FIRST, so even a partial wipe self-heals:
+  // no session token → the fresh load lands on a clean sign-in, never a frozen half-deleted screen.
   try {
-    let names = [];
-    if (indexedDB.databases) { try { names = (await indexedDB.databases()).map((d) => d.name).filter(Boolean); } catch { /* noop */ } }
-    // Firefox lacks indexedDB.databases() → union with the known DB names (harmless if already listed).
-    for (const name of new Set([...names, 'flextext-editor', 'flextext-sync'])) await deleteDB(name);
-  } catch { /* noop */ }
-  try { if (window.caches) for (const k of await caches.keys()) await caches.delete(k); } catch { /* noop */ }
-  try { for (const r of (await navigator.serviceWorker?.getRegistrations?.()) || []) await r.unregister(); } catch { /* noop */ }
-  location.replace(location.pathname);
+    try { db.close(); } catch { /* noop */ }                     // drop the cached docs-DB handle so the delete isn't blocked
+    try { localStorage.clear(); } catch { /* noop */ }
+    try { sessionStorage.clear(); } catch { /* noop */ }
+    try {
+      let names = [];
+      if (indexedDB.databases) { try { names = (await indexedDB.databases()).map((d) => d.name).filter(Boolean); } catch { /* noop */ } }
+      // Firefox lacks indexedDB.databases() → union with the known DB names (harmless if already listed).
+      for (const name of new Set([...names, 'flextext-editor', 'flextext-sync'])) await deleteDB(name);
+    } catch { /* noop */ }
+    try { if (window.caches) for (const k of await caches.keys()) await caches.delete(k); } catch { /* noop */ }
+    try { for (const r of (await navigator.serviceWorker?.getRegistrations?.()) || []) await r.unregister(); } catch { /* noop */ }
+  } finally {
+    location.replace(location.pathname);
+  }
 }
 // Dev-only hard reset hook: ?devreset on localhost runs the same wipe (no-op off localhost; see setup()).
 async function devReset() { return eraseAllData(); }

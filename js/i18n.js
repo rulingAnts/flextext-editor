@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v89';
+export const ENGINE_VERSION = 'v90';
 
 const S = {
 en: {
@@ -501,6 +501,16 @@ internet after the first time.</p>
   'panel.erase.typeLabel': 'Type {word} to confirm',
   'panel.erase.word': 'ERASE',
   'panel.erase.working': 'Erasing…',
+  'panel.delacct.intro': 'Leaving the project, or need your account and all its devices removed from the server?',
+  'panel.delacct.link': 'Delete my account from the server…',
+  'panel.delacct.title': 'Delete account from server',
+  'panel.delacct.what': 'This permanently deletes your researcher account and ALL of its devices, links, and pending invites from the server. Any field device you linked keeps all its own texts and audio, but it automatically unlinks — it shows a brief “now a standalone app” notice, drops the sync link and its Drive settings, and disappears from every researcher console.',
+  'panel.delacct.warn': 'This also erases this device and signs you out, and it CANNOT be undone. Your account, devices, and links are gone for good.',
+  'panel.delacct.typeLabel': 'Type {word} to confirm',
+  'panel.delacct.word': 'DELETE',
+  'panel.delacct.btn': 'Delete my account permanently',
+  'panel.delacct.working': 'Deleting account…',
+  'panel.delacct.done': 'Account deleted.',
   'panel.acctswitch.title': 'A different account owns this device',
   'panel.acctswitch.intro': 'You are signing in as {email}, but this browser still holds data from a different account. Because offline data is shared per browser (not per account), you must erase this device’s data before continuing as a different account.',
   'panel.acctswitch.warn': 'Continuing erases ALL of this browser’s local data (texts, audio, settings, device enrollment) and reloads to a blank slate. It does NOT affect the server or any other device — the other account’s data elsewhere is untouched.',
@@ -1176,6 +1186,16 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.erase.typeLabel': 'Ketik {word} untuk mengonfirmasi',
   'panel.erase.word': 'HAPUS',
   'panel.erase.working': 'Menghapus…',
+  'panel.delacct.intro': 'Meninggalkan proyek, atau perlu akun Anda beserta semua perangkatnya dihapus dari server?',
+  'panel.delacct.link': 'Hapus akun saya dari server…',
+  'panel.delacct.title': 'Hapus akun dari server',
+  'panel.delacct.what': 'Ini menghapus permanen akun peneliti Anda dan SEMUA perangkat, tautan, serta undangan tertunda miliknya dari server. Perangkat lapangan yang Anda tautkan tetap menyimpan semua teks dan audionya sendiri, tetapi otomatis memutus tautan — menampilkan pemberitahuan singkat “kini aplikasi mandiri”, melepaskan tautan sinkronisasi dan pengaturan Drive-nya, lalu hilang dari setiap konsol peneliti.',
+  'panel.delacct.warn': 'Ini juga menghapus perangkat ini dan mengeluarkan Anda, dan TIDAK dapat dibatalkan. Akun, perangkat, dan tautan Anda hilang selamanya.',
+  'panel.delacct.typeLabel': 'Ketik {word} untuk mengonfirmasi',
+  'panel.delacct.word': 'DELETE',
+  'panel.delacct.btn': 'Hapus akun saya permanen',
+  'panel.delacct.working': 'Menghapus akun…',
+  'panel.delacct.done': 'Akun dihapus.',
   'panel.acctswitch.title': 'Akun berbeda menguasai perangkat ini',
   'panel.acctswitch.intro': 'Anda masuk sebagai {email}, tetapi peramban ini masih menyimpan data dari akun lain. Karena data luring dibagikan per peramban (bukan per akun), Anda harus menghapus data perangkat ini sebelum melanjutkan sebagai akun berbeda.',
   'panel.acctswitch.warn': 'Melanjutkan akan menghapus SEMUA data lokal peramban ini (teks, audio, pengaturan, pendaftaran perangkat) dan memuat ulang ke keadaan kosong. TIDAK memengaruhi server atau perangkat lain — data akun lain di tempat lain tidak terpengaruh.',

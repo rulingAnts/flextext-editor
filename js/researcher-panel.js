@@ -848,17 +848,57 @@ function eraseDataModal(after) {
     <label class="rp-field"><span>${esc(t('panel.erase.typeLabel', { word: t('panel.erase.word') }))}</span>
       <input id="erase-confirm" spellcheck="false" autocomplete="off" autocapitalize="characters"></label>
     <button class="primary-btn rp-danger" data-m="go" disabled>${esc(t('panel.erase.btn'))}</button>
+    <hr class="rp-sep">
+    <p class="note">${esc(t('panel.delacct.intro'))}</p>
+    <button class="link-btn rp-danger" data-m="delacct">${esc(t('panel.delacct.link'))}</button>
     <button class="link-btn" data-m="close">${esc(t('panel.util.close'))}</button>`, true);
   const input = m.el.querySelector('#erase-confirm');
   const go = m.el.querySelector('[data-m="go"]');
   const word = t('panel.erase.word');
   input.addEventListener('input', () => { go.disabled = input.value.trim().toUpperCase() !== word.toUpperCase(); });
   m.el.querySelector('[data-m="close"]').onclick = m.close;
+  m.el.querySelector('[data-m="delacct"]').onclick = () => { m.close(); deleteAccountModal(); };   // SEPARATE server-side delete
   go.onclick = async () => {
     go.disabled = true; go.textContent = t('panel.erase.working');
     try { if (typeof after === 'function') await after(); } catch (e) { errToast(e); go.disabled = false; go.textContent = t('panel.erase.btn'); return; }
     // eraseAllData wipes everything then reloads to a blank slate — if control returns, surface the error.
     try { await deps.eraseAllData(); } catch (e) { errToast(e); go.disabled = false; go.textContent = t('panel.erase.btn'); }
+  };
+}
+
+// SEPARATE, server-side account deletion (reached from the erase-offline flow). Permanently deletes the
+// researcher account + ALL its instances/installs/invites from the server, THEN erases this device. Behind
+// its own type-DELETE confirm (distinct from the local ERASE word). ORDER is load-bearing: the SERVER
+// delete runs FIRST while still authed, because the local wipe destroys the session token it needs.
+function deleteAccountModal() {
+  const m = modal(`
+    <h3>${esc(t('panel.delacct.title'))}</h3>
+    <p class="note">${esc(t('panel.delacct.what'))}</p>
+    <p class="banner warn-banner">${esc(t('panel.delacct.warn'))}</p>
+    <label class="rp-field"><span>${esc(t('panel.delacct.typeLabel', { word: t('panel.delacct.word') }))}</span>
+      <input id="delacct-confirm" spellcheck="false" autocomplete="off" autocapitalize="characters"></label>
+    <button class="primary-btn rp-danger" data-m="go" disabled>${esc(t('panel.delacct.btn'))}</button>
+    <button class="link-btn" data-m="close">${esc(t('panel.util.close'))}</button>`, true);
+  const input = m.el.querySelector('#delacct-confirm');
+  const go = m.el.querySelector('[data-m="go"]');
+  const word = t('panel.delacct.word');
+  input.addEventListener('input', () => { go.disabled = input.value.trim().toUpperCase() !== word.toUpperCase(); });
+  m.el.querySelector('[data-m="close"]').onclick = m.close;
+  go.onclick = async () => {
+    go.disabled = true; go.textContent = t('panel.delacct.working');
+    // 1) delete the SERVER account while still authed.
+    try { await Researcher.deleteAccount(); }
+    catch (e) {
+      // 401/404 = the row is ALREADY gone (a prior attempt committed but its response was lost in transit)
+      // → treat as deleted and fall through to the wipe, so a manual retry can't get stuck insisting it
+      // "failed" on a dead session. Any other error (offline / 5xx — account still there) → surface + retry.
+      if (!(e && (e.status === 401 || e.status === 404))) { errToast(e); go.disabled = false; go.textContent = t('panel.delacct.btn'); return; }
+    }
+    deps.toast(t('panel.delacct.done'), 6000);
+    // 2) wipe this device + reload to a blank slate (also drops the now-dead session). eraseAllData reloads
+    // itself; force a reload too in case it ever returns, so the user is never left on a frozen modal.
+    try { await deps.eraseAllData(); } catch { /* noop */ }
+    try { location.replace(location.pathname); } catch { /* noop */ }
   };
 }
 

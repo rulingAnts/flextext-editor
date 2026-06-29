@@ -757,6 +757,7 @@ function closeConsentModal() {
   const ca = $('#consent-audio');
   ca.pause?.(); ca.removeAttribute('src');
   $('#consent-modal').hidden = true;
+  applyUpdateIfSafe();   // back on a safe screen → apply a pending update (esp. record mode, which has no texts list)
 }
 
 // Run `onApproved(assent)` once permission is satisfied. assent is a
@@ -1072,6 +1073,7 @@ function closeRecordModal() {
   pendingReceipt = null;      // and its audit record
   pendingPromptAudio = null;  // and the frozen prompt copy
   $('#record-modal').hidden = true;
+  applyUpdateIfSafe();   // back on a safe screen → apply a pending update (esp. record mode, which has no texts list)
 }
 
 async function startRecording() {
@@ -3011,20 +3013,25 @@ function setupServiceWorker() {
     return;
   }
 
-  // Confirm a just-completed auto-update. The flag is set ONLY right before we activate a ready new
-  // version, so this can never show a false "updated" — it appears only after a real apply + reload.
+  // Confirm a just-completed auto-update. The flag is set ONLY inside doUpdateReload() right before the
+  // reload (tied to a real controllerchange), so it can never show a false "updated".
   try { if (sessionStorage.getItem('fx-updated')) { sessionStorage.removeItem('fx-updated'); toast(t('update.done'), 4000); } } catch { /* noop */ }
 
-  let reloading = false;
+  // A new worker took control → reload to run it. RE-CHECK safety HERE (not only when we posted
+  // SKIP_WAITING): controllerchange also fires in OTHER tabs (clients.claim) and after an async gap, so
+  // a tab that became unsafe (opened a text, started recording) defers its reload until it is safe again.
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (reloading) return;
-    reloading = true;
-    location.reload();
+    if (!updateSafeNow()) { reloadPending = true; return; }
+    doUpdateReload();
   });
 
   navigator.serviceWorker.register('sw.js').then((reg) => {
     const check = () => reg.update().catch(() => {});
-    reg.active?.postMessage({ type: 'CLEANUP' });
+    // CRITICAL: never post CLEANUP while a new version's COMPLETE cache is waiting/installing — the old
+    // worker's cleanup would delete that cache (different version name) and the new worker would activate
+    // with no cache (offline brick). The new worker's own activate-time cleanup prunes the old cache safely.
+    if (!reg.waiting && !reg.installing) reg.active?.postMessage({ type: 'CLEANUP' });
     // A fully-installed waiting worker = a COMPLETE new cache (install is atomic), ready to apply.
     if (reg.waiting && navigator.serviceWorker.controller) markUpdateReady(reg.waiting);
     reg.addEventListener('updatefound', () => {
@@ -3049,7 +3056,9 @@ function setupServiceWorker() {
 // reaches 'installed' → the OLD version keeps serving). So activating a waiting worker can never serve a
 // half-downloaded version. We hold it until a SAFE moment, apply silently, and a post-reload toast
 // ('App updated') confirms — set only right before activation, so it can never claim a false update.
-let pendingWorker = null;
+let pendingWorker = null;   // a fully-installed waiting SW, ready to activate when safe
+let reloadPending = false;  // a controllerchange fired while this tab was unsafe → reload when safe
+let reloading = false;      // re-entry guard so we reload exactly once
 
 function markUpdateReady(worker) {
   pendingWorker = worker;
@@ -3057,21 +3066,33 @@ function markUpdateReady(worker) {
 }
 
 // Safe = no modal/dialog open (recording, consent, share, settings) AND — in the editor — sitting on the
-// texts list (never yank an open text away). Cold start passes (no modal, texts list). Re-checked on
-// foreground-return and whenever the user lands back on the texts list.
+// texts list (never yank an open text away). Cold start passes (no modal, texts list).
 function updateSafeNow() {
   if (document.querySelector('.modal:not([hidden])')) return false;
   if (!RECORD_MODE) { const tv = $('#view-texts'); if (tv && tv.hidden) return false; }
   return true;
 }
 
-function applyUpdateIfSafe() {
-  if (!pendingWorker || !updateSafeNow()) return;   // deferred; re-checked on foreground-return / nav
-  const w = pendingWorker; pendingWorker = null;
+// Set the "just updated" flag and reload — called ONLY at the moment we actually reload (from
+// controllerchange), so the post-reload toast is tied to a real apply and can never be a false "updated".
+function doUpdateReload() {
+  if (reloading) return;
+  reloading = true;
   try { sessionStorage.setItem('fx-updated', '1'); } catch { /* private mode */ }
-  // Flush any debounced save so nothing in flight is lost across the reload, then activate.
+  location.reload();
+}
+
+// Re-checked at every safe moment (foreground-return, landing on the texts list, closing a record/consent
+// modal). Flushes a deferred reload first, else activates a ready waiting worker.
+function applyUpdateIfSafe() {
+  if (reloading) return;
+  if (reloadPending) { if (updateSafeNow()) doUpdateReload(); return; }
+  if (!pendingWorker || !updateSafeNow()) return;
+  const w = pendingWorker; pendingWorker = null;
+  // Flush any debounced save so nothing in flight is lost. The flag + reload happen later in
+  // doUpdateReload (via controllerchange), which RE-CHECKS safety — so a gap-race can't reload mid-edit.
   Promise.resolve(current ? persist() : null).catch(() => {}).finally(() => {
-    w.postMessage({ type: 'SKIP_WAITING' });   // → activate → controllerchange → location.reload()
+    w.postMessage({ type: 'SKIP_WAITING' });   // → activate → controllerchange → (if safe) doUpdateReload
   });
 }
 

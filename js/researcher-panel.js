@@ -29,6 +29,7 @@ const fmtSize = (b) => (b < 1048576 ? Math.max(1, Math.round(b / 1024)) + ' KB' 
 let deps = null;
 let root = null;
 let dashPoll = null;   // dashboard auto-refresh interval (runs only while the dashboard shows)
+let liveTick = 0;      // counts dashboard polls, to re-fetch the LIVE-version banner periodically (not every tick)
 let lastSig = null;    // signature of the last-rendered view, to skip no-op re-renders
 let reconnectTimer = null; // auto-retry timer for the "reconnecting" screen (network blip during bootstrap)
 let lastData = null;   // last dashboard view, kept so an action (e.g. upload) can re-render instantly w/o a refetch
@@ -88,12 +89,12 @@ export function initResearcherPanel(d) {
   deps = d;
   root = d.root;
   Researcher.init({ workerBase: deps.workerBase });
-  // Returning to a backgrounded tab → refresh the dashboard right away rather than
-  // waiting for the next poll tick (only fires while the dashboard is actively polling).
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && dashPoll) pollDashboard(); });
+  // Returning to a backgrounded tab → refresh the dashboard + the LIVE-version banner right away rather
+  // than waiting for the next poll tick (only fires while the dashboard is actively polling).
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && dashPoll) { refreshLiveVersions(); pollDashboard(); } });
   // Regained connectivity → recover immediately instead of waiting for the next timer: refresh the
   // dashboard if it's up, otherwise re-attempt sign-in/bootstrap (drives the reconnecting screen).
-  window.addEventListener('online', () => { if (!root || root.hidden) return; if (dashPoll) pollDashboard(); else route(); });
+  window.addEventListener('online', () => { if (!root || root.hidden) return; if (dashPoll) { refreshLiveVersions(); pollDashboard(); } else route(); });
   return { open, close, isSignedUp: () => Researcher.isSignedUp() };
 }
 
@@ -329,6 +330,7 @@ function viewSig(data) {
 async function pollDashboard() {
   if (!root || root.hidden || !Researcher.isUnlocked()) { stopDashPoll(); return; } // left the dashboard
   if (document.hidden || document.querySelector('.modal')) return;                   // backgrounded / dialog open
+  if (liveTick++ % 10 === 0) refreshLiveVersions();                                  // refresh the LIVE-version banner ~every 2 min (12s×10), in place
   let data;
   try { data = await Researcher.listView(); } catch { return; }                      // transient; next tick retries
   if (root.hidden || document.querySelector('.modal')) return;                       // re-check after the await

@@ -3086,12 +3086,14 @@ function setupServiceWorker() {
       });
     });
     // Check for a new version (and apply a ready one, if safe) on load, when the app returns to the
-    // foreground, when the network comes back, and hourly while open. A failed download just leaves the
-    // old version serving and is retried on the next check (the SW install is all-or-nothing).
+    // foreground, when the network comes back, and every 5 min while open — so an app that stays open
+    // (a long recording session, a researcher watching the dashboard) self-updates within minutes
+    // instead of up to an hour. A failed download just leaves the old version serving and is retried
+    // on the next check (the SW install is all-or-nothing); updates apply only at a safe moment.
     check();
     document.addEventListener('visibilitychange', () => { if (!document.hidden) { check(); applyUpdateIfSafe(); } });
-    window.addEventListener('online', check);
-    setInterval(check, 60 * 60 * 1000);
+    window.addEventListener('online', () => { check(); applyUpdateIfSafe(); });
+    setInterval(() => { check(); applyUpdateIfSafe(); }, 5 * 60 * 1000);
   }).catch(() => {});
 }
 

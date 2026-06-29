@@ -790,8 +790,13 @@ main {
 .rp-exit { color: #fff; font-size: 20px; }
 .rp-helpbtn { color: #fff; font-size: 18px; font-weight: 600; }
 .rp-help h3 { margin: 16px 0 6px; }
+.rp-help h4 { margin: 14px 0 4px; }
 .rp-help summary { cursor: pointer; color: var(--blue-dark); font-weight: 600; margin: 8px 0; }
 .rp-help details { margin: 8px 0; }
+.rp-help-inline { background: none; border: 1px solid var(--border); border-radius: 50%; width: 22px; height: 22px; padding: 0; font-size: 13px; line-height: 1; cursor: pointer; color: var(--muted); vertical-align: middle; }
+.wsc-help .wsc-shot { margin: 12px 0; text-align: center; }
+.wsc-help .wsc-shot img { max-width: 100%; height: auto; border: 1px solid var(--border); border-radius: 6px; }
+.wsc-help figcaption { margin-top: 4px; }
 .rp-lock { background: rgba(255,255,255,.15); border-color: rgba(255,255,255,.35); color: #fff; }
 .rp-lock:hover { background: rgba(255,255,255,.25); }
 

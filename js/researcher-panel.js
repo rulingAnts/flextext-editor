@@ -16,9 +16,10 @@ import * as Researcher from './researcher.js';
 import { t } from './i18n.js';
 import { REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { importPublicKeyB64, publicKeyFingerprint } from './crypto.js';
-import { esc, parseFlextext } from './flextext.js';
+import { esc, parseFlextext, surveyWritingSystems, remapWritingSystems } from './flextext.js';
 import { probeAudioUrl, fetchFileViaUrl } from './audio.js';
 import { probeDriveFolder } from './upload.js';
+import { convertToMp3 } from './convert.js';
 import * as db from './db.js';
 
 // Byte-size formatter for assign-validation verdicts (mirrors app.js sizeFmt; that one is not exported).
@@ -431,6 +432,7 @@ async function renderDashboard(prefetched) {
       <button class="primary-btn" data-act="new">${esc(t('panel.dash.newDevice'))}</button>
       <button class="secondary-btn" data-act="refresh">${esc(t('panel.dash.refresh'))}</button>
       <span class="rp-spacer"></span>
+      <button class="link-btn" data-act="utilities">${esc(t('panel.util.btn'))}</button>
       <button class="link-btn" data-act="account">${esc(t('panel.dash.account'))}</button>
     </div>
     ${(data.isOwner && (data.pending || []).length) ? `
@@ -460,6 +462,7 @@ async function renderDashboard(prefetched) {
     lock: () => { Researcher.signOut(); route(); },
     new: () => newDeviceModal(),
     refresh: () => renderDashboard(),
+    utilities: () => utilitiesModal(),
     account: () => accountModal(),
     'self-settings': () => openSettingsModal({ kind: 'local' }),
   });
@@ -766,6 +769,118 @@ function assignModal(instanceId) {
     try { await Researcher.assign(instanceId, crypto.randomUUID(), fields); m.close(); deps.toast(t('panel.assign.sent'), 4000); }
     catch (err) { errToast(err); }
   });
+}
+
+/* ---------------- Utilities: audio converter + FLEx writing-systems checker ----------------
+ * Surfaced in the panel as modals; both reuse the SAME engine the editor's Settings tab uses
+ * (convertToMp3 / surveyWritingSystems / remapWritingSystems). All runs locally in the browser. */
+
+function utilitiesModal() {
+  const m = modal(`
+    <h3>${esc(t('panel.util.title'))}</h3>
+    <p class="note">${esc(t('panel.util.intro'))}</p>
+    <button class="primary-btn" data-m="audio">${esc(t('panel.util.audio'))}</button>
+    <button class="primary-btn" data-m="ws">${esc(t('panel.util.ws'))}</button>
+    <button class="link-btn" data-m="close">${esc(t('panel.util.close'))}</button>`);
+  m.el.querySelector('[data-m="close"]').onclick = m.close;
+  m.el.querySelector('[data-m="audio"]').onclick = () => { m.close(); audioConverterModal(); };
+  m.el.querySelector('[data-m="ws"]').onclick = () => { m.close(); wsCheckModal(); };
+}
+
+// Recording-format help — reuses the editor's trusted recfmt.* i18n HTML (incl. the archive-acceptance table).
+function recfmtHelpModal() {
+  const ps = ['recfmt.helpKeep', 'recfmt.helpRaw', 'recfmt.helpProcessing', 'recfmt.helpBits', 'recfmt.helpWavFlac',
+    'recfmt.helpMono', 'recfmt.helpRate', 'recfmt.helpMp3', 'recfmt.helpWebm', 'recfmt.helpArchives'];
+  const body = ps.map((k) => `<p>${t(k)}</p>`).join('') + `<div>${t('recfmt.helpTable')}</div><p>${t('recfmt.helpTech')}</p><p class="note">${t('recfmt.helpCourse')}</p>`;
+  const m = modal(`<h3>${esc(t('recfmt.helpTitle'))}</h3><div class="help-body">${body}</div>
+    <button class="primary-btn" data-m="close">${esc(t('recfmt.helpClose'))}</button>`, true);
+  m.el.querySelector('[data-m="close"]').onclick = m.close;
+}
+
+function audioConverterModal() {
+  const m = modal(`
+    <h3>${esc(t('convert.h'))} <button class="rp-help-inline" data-m="help" aria-label="${esc(t('recfmt.helpLink'))}" title="${esc(t('recfmt.helpLink'))}">?</button></h3>
+    <p class="note">${esc(t('convert.note'))}</p>
+    <label class="rp-field"><span>${esc(t('convert.kbps'))}</span>
+      <select id="cv-kbps"><option value="32">32</option><option value="48">48</option><option value="64" selected>64</option><option value="96">96</option><option value="128">128</option></select></label>
+    <label class="rp-field"><span>${esc(t('convert.rate'))}</span>
+      <select id="cv-rate"><option value="16000">16000</option><option value="22050" selected>22050</option><option value="44100">44100</option></select></label>
+    <p class="note">${esc(t('convert.mono'))}</p>
+    <button class="primary-btn" data-m="pick">${esc(t('convert.pick'))}</button>
+    <input type="file" id="cv-file" accept="audio/*,.wav,.aif,.aiff,.mp3,.m4a,.flac,.ogg" hidden>
+    <p class="note" id="cv-status" hidden></p>
+    <button class="link-btn" data-m="close">${esc(t('panel.util.close'))}</button>`);
+  m.el.querySelector('[data-m="close"]').onclick = m.close;
+  m.el.querySelector('[data-m="help"]').onclick = recfmtHelpModal;
+  m.el.querySelector('[data-m="pick"]').onclick = () => m.el.querySelector('#cv-file').click();
+  const status = m.el.querySelector('#cv-status');
+  m.el.querySelector('#cv-file').addEventListener('change', async (e) => {
+    const file = e.target.files[0]; e.target.value = ''; if (!file) return;
+    status.hidden = false; status.textContent = t('convert.working', { pct: 0 });
+    try {
+      const opts = { kbps: parseInt(m.el.querySelector('#cv-kbps').value, 10), sampleRate: parseInt(m.el.querySelector('#cv-rate').value, 10), mono: true };
+      const res = await convertToMp3(file, opts, (f) => { status.textContent = t('convert.working', { pct: Math.round(f * 100) }); });
+      const outName = file.name.replace(/\.[^.]+$/, '') + '.mp3';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(res.blob); a.download = outName; a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+      status.textContent = t('convert.done', { name: outName, out: fmtSize(res.blob.size), in: fmtSize(file.size) });
+    } catch (err) { status.textContent = t('convert.failed', { msg: err.message }); }
+  });
+}
+
+// FLEx writing-system-codes help — adapted from Seth's writing-system-codes doc (trusted i18n HTML) + the
+// vern_writ_sys.png screenshot precached in the SW shell so it works offline.
+function wsCodesHelpModal() {
+  const m = modal(`<div class="rp-help wsc-help">${t('panel.wscodes.html')}</div>
+    <button class="primary-btn" data-m="close">${esc(t('panel.help.close'))}</button>`, true);
+  m.el.querySelector('[data-m="close"]').onclick = m.close;
+}
+
+function wsCheckModal() {
+  let wsState = null;
+  const m = modal(`
+    <h3>${esc(t('panel.util.ws'))} <button class="rp-help-inline" data-m="help" aria-label="?" title="?">?</button></h3>
+    <p class="note">${esc(t('panel.util.wsIntro'))}</p>
+    <button class="primary-btn" data-m="pick">${esc(t('research.checkBtn'))}</button>
+    <input type="file" id="wsc-file" accept=".flextext,.xml,.txt,text/plain,text/xml,application/xml" hidden>
+    <div id="wsc-result" hidden>
+      <p id="wsc-name" class="note"></p>
+      <table class="ws-table"><thead><tr><th>${esc(t('ws.line'))}</th><th>${esc(t('ws.code'))}</th><th>${esc(t('ws.count'))}</th><th>${esc(t('ws.changeTo'))}</th></tr></thead><tbody id="wsc-rows"></tbody></table>
+      <button class="primary-btn" data-m="apply">${esc(t('research.downloadCorrected'))}</button>
+    </div>
+    <button class="link-btn" data-m="close">${esc(t('panel.util.close'))}</button>`, true);
+  m.el.querySelector('[data-m="close"]').onclick = m.close;
+  m.el.querySelector('[data-m="help"]').onclick = wsCodesHelpModal;
+  m.el.querySelector('[data-m="pick"]').onclick = () => m.el.querySelector('#wsc-file').click();
+  m.el.querySelector('#wsc-file').addEventListener('change', async (e) => {
+    const file = e.target.files[0]; e.target.value = ''; if (!file) return;
+    let res;
+    try { res = surveyWritingSystems(await file.text()); } catch (err) { deps.toast(t('toast.importFailed', { msg: err.message }), 6000); return; }
+    if (res.error) { deps.toast(t('toast.importFailed', { msg: res.error }), 6000); return; }
+    wsState = { dom: res.dom, filename: file.name };
+    m.el.querySelector('#wsc-name').textContent = t('research.declared', { name: file.name, list: res.declared.length ? res.declared.map((l) => `${l.lang}${l.vernacular ? ' ★' : ''}`).join(', ') : t('research.noneDeclared') });
+    const tbody = m.el.querySelector('#wsc-rows'); tbody.innerHTML = '';
+    for (const r of res.rows) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td></td><td><code></code></td><td></td><td><input class="ws-newcode" spellcheck="false"></td>';
+      tr.children[0].textContent = t(r.label);
+      tr.children[1].firstChild.textContent = r.lang;   // textContent: lang codes from the file are attacker-controllable
+      tr.children[2].textContent = r.count;
+      const inp = tr.querySelector('input'); inp.placeholder = t('ws.keepPh'); inp.dataset.selector = r.selector; inp.dataset.fromLang = r.lang;
+      tbody.appendChild(tr);
+    }
+    m.el.querySelector('#wsc-result').hidden = false;
+  });
+  m.el.querySelector('[data-m="apply"]').onclick = () => {
+    if (!wsState) return;
+    const mappings = Array.from(m.el.querySelectorAll('#wsc-rows .ws-newcode')).filter((i) => i.value.trim())
+      .map((i) => ({ selector: i.dataset.selector, fromLang: i.dataset.fromLang, toLang: i.value.trim() }));
+    const xml = '<?xml version="1.0" encoding="utf-8"?>\n' + remapWritingSystems(wsState.dom, mappings).replace(/^<\?xml[^>]*\?>\s*/i, '');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([xml], { type: 'application/xml' }));
+    a.download = wsState.filename.replace(/(\.flextext|\.xml)?$/i, (mm) => mm || '.flextext'); a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+    deps.toast(mappings.length ? t('toast.corrected') : t('toast.noChanges'));
+  };
 }
 
 function accountModal() {

@@ -2,7 +2,7 @@
 
 // Bump VERSION on every deploy: clients check for a changed sw.js whenever
 // they load / regain focus / come online, and offer the user an update.
-const VERSION = 'v85';
+const VERSION = 'v86';
 // On localhost the SW serves NETWORK-FIRST so code edits show up immediately during dev
 // (cache-first would keep serving a stale build until every file's VERSION is bumped). The
 // SW stays registered (PWA + localStorage behave normally); production stays offline-first.
@@ -38,6 +38,7 @@ const SHELL = [
   'icons/icon-192.png',
   'icons/icon-512.png',
   'icons/apple-touch-icon.png',
+  'help/ws-flex-codes.png',   // FLEx writing-systems help screenshot (panel Utilities) — precache for offline
 ];
 
 // Fetch each shell file fresh with retries, then cache.put — far more resilient on a flaky field

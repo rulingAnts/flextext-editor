@@ -887,6 +887,8 @@ main {
 .rp-devinfo { font-size: 11px; opacity: .85; }
 .rp-devinfo-old { color: #a3261f; opacity: 1; }   /* device hasn't updated (no version reported) */
 .rp-devinfo-stale { color: #a3261f; opacity: 1; }  /* running engine is behind the live site */
+.rp-wipe-pending { color: #8a4b10; font-weight: 600; }  /* remote wipe requested, awaiting the device */
+.rp-wipe-done { color: #1f5d22; font-weight: 600; }     /* device confirmed the wipe */
 .rp-install-pending {
   flex-direction: row; align-items: center; justify-content: space-between; gap: 12px;
   background: #fdf8e9; border: 1px solid #e4c95b; border-radius: 8px; padding: 10px 12px;

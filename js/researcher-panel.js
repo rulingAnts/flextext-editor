@@ -312,7 +312,7 @@ function viewSig(data) {
       (data.instances || []).map((it) => [
         it.instance_id, it.nickname, it.type,
         (it.installs || []).map((ins) => [
-          ins.install_id, ins.status, ins.accepted, ins.has_key,
+          ins.install_id, ins.status, ins.accepted, ins.has_key, ins.wipe_state,   // wipe_state → re-render on wipe pending/confirmed
           ins.inventory && ins.inventory.ua, ins.inventory && JSON.stringify(ins.inventory.cachedApps),  // re-render when the device's browser/app version changes
           ins.inventory && ins.inventory.engineVersion,  // re-render when the true running engine version changes (brick/stale signal)
           ins.inventory && Array.isArray(ins.inventory.items)
@@ -595,7 +595,15 @@ async function renderInstanceCard(it) {
         <div class="note">${esc(t('panel.inst.lastSeen', { when: lastSeen(ins.last_seen_at) }))} · ${esc(t('panel.inst.texts', { n: inv ? inv.length : 0 }))}</div>
         ${(() => { const di = deviceInfo(ins.inventory && ins.inventory.ua, ins.inventory && ins.inventory.cachedApps, ins.inventory && ins.inventory.engineVersion); const txt = di.text || t('panel.inst.verUnknown'); return `<div class="note rp-devinfo${di.text ? '' : ' rp-devinfo-old'}${di.stale ? ' rp-devinfo-stale' : ''}">${esc(txt)}${di.stale ? ` <span class="rp-badge rp-badge-stale">${esc(t('panel.dev.stale'))}</span>` : ''}</div>`; })()}
         <ul class="rp-inv">${rows}</ul>
-        <button class="link-btn rp-revoke" data-iact="revoke-install" data-i="${esc(it.instance_id)}" data-id="${esc(ins.install_id)}">${esc(t('panel.inst.revokeInstall'))}</button>
+        ${(() => {
+          const I = esc(it.instance_id), D = esc(ins.install_id);
+          if (ins.wipe_state === 'confirmed') return `<div class="note rp-wipe-done">${esc(t('panel.wipe.confirmed'))}</div>
+            <button class="link-btn rp-revoke" data-iact="force-remove" data-i="${I}" data-id="${D}">${esc(t('panel.wipe.removeBtn'))}</button>`;
+          if (ins.wipe_state === 'requested') return `<div class="note rp-wipe-pending">${esc(t('panel.wipe.pending', { when: lastSeen(ins.wipe_at) }))}</div>
+            <button class="link-btn rp-revoke" data-iact="force-remove" data-i="${I}" data-id="${D}">${esc(t('panel.wipe.forceRemoveBtn'))}</button>`;
+          return `<button class="link-btn rp-revoke" data-iact="revoke-install" data-i="${I}" data-id="${D}">${esc(t('panel.inst.revokeInstall'))}</button>
+            <button class="link-btn rp-danger" data-iact="wipe-install" data-i="${I}" data-id="${D}" data-name="${esc(it.nickname || '')}">${esc(t('panel.wipe.btn'))}</button>`;
+        })()}
       </div>`;
     }
   }
@@ -636,8 +644,14 @@ async function instanceAction(el) {
       await busy(el, () => Researcher.revokeInstance(id));
       renderDashboard();
     } else if (act === 'revoke-install') {
-      if (!confirm(t('panel.inst.confirmRevokeInstall'))) return;
+      if (!confirm(t('panel.inst.confirmRevokeInstall'))) return;   // UNLINK — warns local data stays on the device
       await busy(el, () => Researcher.revokeInstall(id, installId));
+      renderDashboard();
+    } else if (act === 'wipe-install') {
+      wipeConfirmModal(id, installId, el.dataset.name || '');       // REMOTE WIPE — typed confirm (+ TOTP step-up)
+    } else if (act === 'force-remove') {
+      if (!confirm(t('panel.wipe.confirmForceRemove'))) return;
+      await busy(el, () => Researcher.forceRemoveInstall(id, installId));
       renderDashboard();
     } else if (act === 'invite') {
       // Gate: don't mint an invite for a device that lacks minimal usable settings, or the field
@@ -898,6 +912,44 @@ function deleteAccountModal() {
     // Linked FIELD devices keep their texts and just unlink via the 410 path on their next poll.)
     try { await deps.eraseAllData(); } catch { /* noop */ }
     try { location.replace(location.pathname); } catch { /* noop */ }
+  };
+}
+
+// REMOTE WIPE of a seized/hostile-held device. Typed device-name confirm (strong "are you sure?"). If the
+// researcher has 2FA, the worker answers the first attempt with 401 totp_required → we reveal a code field
+// and retry (step-up auth on this destructive, remote, irreversible action). The wipe is delivered to the
+// device on its NEXT connection, so the copy says so honestly.
+function wipeConfirmModal(instanceId, installId, name) {
+  let totpShown = false;
+  const m = modal(`
+    <h3>${esc(t('panel.wipe.title'))}</h3>
+    <p class="note">${esc(t('panel.wipe.what'))}</p>
+    <p class="banner warn-banner">${esc(t('panel.wipe.warn'))}</p>
+    <label class="rp-field"><span>${esc(t('panel.wipe.typeLabel', { name: name || 'WIPE' }))}</span>
+      <input id="wipe-confirm" spellcheck="false" autocomplete="off"></label>
+    <div id="wipe-totp" hidden><label class="rp-field"><span>${esc(t('panel.wipe.totpLabel'))}</span>
+      <input id="wipe-totp-code" inputmode="numeric" autocomplete="off" spellcheck="false"></label></div>
+    <button class="primary-btn rp-danger" data-m="go" disabled>${esc(t('panel.wipe.btn'))}</button>
+    <button class="link-btn" data-m="close">${esc(t('panel.util.close'))}</button>`, true);
+  const input = m.el.querySelector('#wipe-confirm');
+  const go = m.el.querySelector('[data-m="go"]');
+  const want = (name || 'WIPE').trim().toLowerCase();
+  input.addEventListener('input', () => { go.disabled = input.value.trim().toLowerCase() !== want; });
+  m.el.querySelector('[data-m="close"]').onclick = m.close;
+  go.onclick = async () => {
+    const code = totpShown ? m.el.querySelector('#wipe-totp-code').value.trim() : undefined;
+    go.disabled = true; go.textContent = t('panel.wipe.working');
+    try {
+      await Researcher.wipeInstall(instanceId, installId, code);
+      m.close(); deps.toast(t('panel.wipe.sent'), 6000); renderDashboard();
+    } catch (e) {
+      if (e && e.status === 401 && e.data && e.data.error === 'totp_required' && !totpShown) {
+        totpShown = true; m.el.querySelector('#wipe-totp').hidden = false;
+        deps.toast(t('panel.wipe.needTotp'), 6000);
+        go.textContent = t('panel.wipe.btn'); go.disabled = false; return;   // name already matched → re-enable for the code
+      }
+      errToast(e); go.disabled = false; go.textContent = t('panel.wipe.btn');
+    }
   };
 }
 

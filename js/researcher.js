@@ -271,6 +271,18 @@ export async function revokeInstance(instanceId) {
 export async function revokeInstall(instanceId, installId) {
   return api('POST', `/v1/instances/${encodeURIComponent(instanceId)}/installs/${encodeURIComponent(installId)}/revoke`, { body: {} });
 }
+// Remote WIPE (seized device): flags the device to fully erase itself on its next poll (NOT just unlink).
+// totpCode is required + verified server-side only when the researcher has 2FA enabled (step-up auth on
+// this destructive, irreversible, remote action). retry:false — non-idempotent intent (re-arming is fine,
+// but don't auto-retry a destructive op on a flaky response).
+export async function wipeInstall(instanceId, installId, totpCode) {
+  return api('POST', `/v1/instances/${encodeURIComponent(instanceId)}/installs/${encodeURIComponent(installId)}/wipe`, { body: totpCode ? { totpCode } : {}, retry: false });
+}
+// Force-remove a seized device that never confirmed: hides it from the panel but KEEPS the wipe armed —
+// if it ever reconnects it still wipes (the row is not deleted server-side).
+export async function forceRemoveInstall(instanceId, installId) {
+  return api('POST', `/v1/instances/${encodeURIComponent(instanceId)}/installs/${encodeURIComponent(installId)}/force-remove`, { body: {} });
+}
 
 /* ---------------- approve + deliver key (model A) ---------------- */
 
@@ -367,6 +379,7 @@ export async function listView() {
         accepted: Number(ins.accepted) === 1,                      // B: field user accepted this enrollment
         has_key: Number(ins.has_key) === 1, pubkey: ins.pubkey || null,
         ack_seq: ins.ack_seq, reported_rev: ins.reported_rev, last_seen_at: ins.last_seen_at,
+        wipe_state: ins.wipe_state || null, wipe_at: ins.wipe_at || null,   // remote-wipe lifecycle (panel renders pending/confirmed)
         inventory,
       });
     }

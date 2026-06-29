@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v91';
+export const ENGINE_VERSION = 'v92';
 
 const S = {
 en: {
@@ -511,6 +511,20 @@ internet after the first time.</p>
   'panel.delacct.btn': 'Delete my account permanently',
   'panel.delacct.working': 'Deleting account…',
   'panel.delacct.done': 'Account deleted.',
+  'panel.wipe.btn': 'Wipe device',
+  'panel.wipe.title': 'Remotely wipe this device',
+  'panel.wipe.what': 'On its next connection this device will COMPLETELY erase itself — all texts, audio, settings, cached app code, and the service worker — back to nothing, then drop off your panel. For a lost or seized device.',
+  'panel.wipe.warn': 'Irreversible once the device receives it. A device that is offline or never reconnects can’t be wiped now — the wipe stays armed and runs whenever it next connects. This is not a substitute for device encryption.',
+  'panel.wipe.typeLabel': 'Type the device name ({name}) to confirm',
+  'panel.wipe.totpLabel': 'Enter your 2FA code to authorize',
+  'panel.wipe.working': 'Sending…',
+  'panel.wipe.sent': 'Wipe armed — it runs the next time the device connects.',
+  'panel.wipe.needTotp': 'Enter your 2FA code to authorize the wipe.',
+  'panel.wipe.pending': 'Wipe requested {when} — waiting for the device to connect…',
+  'panel.wipe.confirmed': 'Device confirmed wipe ✓',
+  'panel.wipe.forceRemoveBtn': 'Force-remove (keep wipe armed)',
+  'panel.wipe.removeBtn': 'Remove from list',
+  'panel.wipe.confirmForceRemove': 'Remove this device from your panel? The wipe stays armed — if it ever reconnects it still wipes — you just won’t see it here anymore.',
   'panel.acctswitch.title': 'A different account owns this device',
   'panel.acctswitch.intro': 'You are signing in as {email}, but this browser still holds data from a different account. Because offline data is shared per browser (not per account), you must erase this device’s data before continuing as a different account.',
   'panel.acctswitch.warn': 'Continuing erases ALL of this browser’s local data (texts, audio, settings, device enrollment) and reloads to a blank slate. It does NOT affect the server or any other device — the other account’s data elsewhere is untouched.',
@@ -551,7 +565,7 @@ internet after the first time.</p>
   'panel.inst.revoke': 'Revoke device',
   'panel.inst.revokeInstall': 'Revoke this install',
   'panel.inst.confirmRevoke': 'Revoke “{name}” and all its installs? The device loses access.',
-  'panel.inst.confirmRevokeInstall': 'Revoke this install? The device loses access.',
+  'panel.inst.confirmRevokeInstall': 'Unlink this device? It loses access and stops syncing — but its local texts and audio STAY on the device, and you will NOT be able to retrieve or remove them afterward. To erase the device instead, use Wipe.',
   'panel.inst.never': 'never',
   'panel.inst.now': 'just now',
   'panel.inst.minsAgo': '{n} min ago',
@@ -1196,6 +1210,20 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.delacct.btn': 'Hapus akun saya permanen',
   'panel.delacct.working': 'Menghapus akun…',
   'panel.delacct.done': 'Akun dihapus.',
+  'panel.wipe.btn': 'Hapus total perangkat',
+  'panel.wipe.title': 'Hapus total perangkat ini dari jarak jauh',
+  'panel.wipe.what': 'Pada koneksi berikutnya, perangkat ini akan MENGHAPUS TOTAL dirinya sendiri — semua teks, audio, pengaturan, kode aplikasi tersimpan, dan service worker — hingga kosong, lalu hilang dari panel Anda. Untuk perangkat hilang atau disita.',
+  'panel.wipe.warn': 'Tidak dapat dibatalkan setelah perangkat menerimanya. Perangkat yang luring atau tidak pernah terhubung lagi tidak bisa dihapus sekarang — perintah hapus tetap aktif dan berjalan kapan pun perangkat berikutnya terhubung. Ini bukan pengganti enkripsi perangkat.',
+  'panel.wipe.typeLabel': 'Ketik nama perangkat ({name}) untuk mengonfirmasi',
+  'panel.wipe.totpLabel': 'Masukkan kode 2FA Anda untuk mengizinkan',
+  'panel.wipe.working': 'Mengirim…',
+  'panel.wipe.sent': 'Penghapusan diaktifkan — berjalan saat perangkat berikutnya terhubung.',
+  'panel.wipe.needTotp': 'Masukkan kode 2FA Anda untuk mengizinkan penghapusan.',
+  'panel.wipe.pending': 'Penghapusan diminta {when} — menunggu perangkat terhubung…',
+  'panel.wipe.confirmed': 'Perangkat mengonfirmasi penghapusan ✓',
+  'panel.wipe.forceRemoveBtn': 'Paksa-hapus (penghapusan tetap aktif)',
+  'panel.wipe.removeBtn': 'Hapus dari daftar',
+  'panel.wipe.confirmForceRemove': 'Hapus perangkat ini dari panel Anda? Perintah penghapusan tetap aktif — jika perangkat terhubung lagi, ia tetap menghapus dirinya — Anda hanya tidak melihatnya di sini lagi.',
   'panel.acctswitch.title': 'Akun berbeda menguasai perangkat ini',
   'panel.acctswitch.intro': 'Anda masuk sebagai {email}, tetapi peramban ini masih menyimpan data dari akun lain. Karena data luring dibagikan per peramban (bukan per akun), Anda harus menghapus data perangkat ini sebelum melanjutkan sebagai akun berbeda.',
   'panel.acctswitch.warn': 'Melanjutkan akan menghapus SEMUA data lokal peramban ini (teks, audio, pengaturan, pendaftaran perangkat) dan memuat ulang ke keadaan kosong. TIDAK memengaruhi server atau perangkat lain — data akun lain di tempat lain tidak terpengaruh.',
@@ -1236,7 +1264,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.inst.revoke': 'Cabut perangkat',
   'panel.inst.revokeInstall': 'Cabut instalasi ini',
   'panel.inst.confirmRevoke': 'Cabut “{name}” dan semua instalasinya? Perangkat kehilangan akses.',
-  'panel.inst.confirmRevokeInstall': 'Cabut instalasi ini? Perangkat kehilangan akses.',
+  'panel.inst.confirmRevokeInstall': 'Cabut tautan perangkat ini? Perangkat kehilangan akses dan berhenti menyinkronkan — tetapi teks dan audio lokalnya TETAP ada di perangkat, dan Anda TIDAK akan dapat mengambil atau menghapusnya setelahnya. Untuk menghapus perangkatnya, gunakan Hapus Total.',
   'panel.inst.never': 'belum pernah',
   'panel.inst.now': 'baru saja',
   'panel.inst.minsAgo': '{n} mnt lalu',

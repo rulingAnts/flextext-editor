@@ -309,6 +309,23 @@ export async function deviceFingerprint() {
   } catch { return null; }
 }
 
+/* ---------------- remote wipe (seized device) ---------------- */
+
+// The worker signalled a remote wipe. ACK first (best-effort, retry:false) so the panel can show
+// "confirmed" — this MUST run before the wipe, because eraseAllData destroys the very credentials the ack
+// needs (after it, there is nothing to ack with). The await orders the ack before the (page-reloading,
+// never-returning) wipe; if the ack fails (offline), the wipe still proceeds. Then erase everything.
+async function wipeThisDevice(s) {
+  // Best-effort ack so the panel can show the device received it — but NEVER let a slow/offline ack delay
+  // the actual wipe (the device may be mid-seizure): race it against a short timeout, then erase regardless.
+  try {
+    const ack = v1('POST', `/v1/instances/${encodeURIComponent(s.instanceId)}/installs/${encodeURIComponent(s.installId)}/wipe-ack`,
+      { headers: installHeaders(s) }).catch(() => {});
+    await Promise.race([ack, new Promise((r) => setTimeout(r, 4000))]);
+  } catch { /* best-effort */ }
+  if (iface && iface.eraseAllData) await iface.eraseAllData();   // clears IDB + storage + caches + SWs, then reloads (never returns)
+}
+
 /* ---------------- poll (desired lane → apply commands → report) ---------------- */
 
 export async function poll() {
@@ -320,6 +337,7 @@ export async function poll() {
     const r = await v1('GET', `/v1/instances/${encodeURIComponent(s.instanceId)}?since=${s.desiredRev}`,
       { headers: installHeaders(s) });
     failStreak = 0;
+    if (r.wipe) { await wipeThisDevice(s); return; }           // REMOTE WIPE — top priority, any state, before every gate
     if (r._status === 204) { await maybeReport(s); return; }   // nothing new
     if (r.pending) {                                           // awaiting researcher approval (§D.3)
       if (s.status !== 'pending' && iface.onStatus) iface.onStatus('pending');

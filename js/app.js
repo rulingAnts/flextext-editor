@@ -3252,18 +3252,21 @@ function deleteDB(name) {
 }
 async function eraseAllData() {
   // Wrap the whole wipe so the reload in `finally` ALWAYS runs — even if a step throws, the page reloads
-  // to the blank slate. localStorage/sessionStorage are cleared FIRST, so even a partial wipe self-heals:
-  // no session token → the fresh load lands on a clean sign-in, never a frozen half-deleted screen.
+  // to a blank slate. ORDER is deliberate for a remote-wipe that may be INTERRUPTED on a seized device:
+  // destroy the actual CORPUS first (the docs/audio IndexedDB), THEN credentials/settings, THEN caches/SW
+  // — so a wipe killed partway has already obliterated the data. (For the non-interrupted cases — local
+  // Erase / account-delete — order is immaterial; the whole lot goes.)
   try {
     try { db.close(); } catch { /* noop */ }                     // drop the cached docs-DB handle so the delete isn't blocked
-    try { localStorage.clear(); } catch { /* noop */ }
-    try { sessionStorage.clear(); } catch { /* noop */ }
     try {
       let names = [];
       if (indexedDB.databases) { try { names = (await indexedDB.databases()).map((d) => d.name).filter(Boolean); } catch { /* noop */ } }
-      // Firefox lacks indexedDB.databases() → union with the known DB names (harmless if already listed).
-      for (const name of new Set([...names, 'flextext-editor', 'flextext-sync'])) await deleteDB(name);
+      // Firefox lacks indexedDB.databases() → union with the known DB names. flextext-editor (the corpus)
+      // FIRST so the most sensitive data dies before anything else, then flextext-sync (the install key).
+      for (const name of new Set(['flextext-editor', 'flextext-sync', ...names])) await deleteDB(name);
     } catch { /* noop */ }
+    try { localStorage.clear(); } catch { /* noop */ }
+    try { sessionStorage.clear(); } catch { /* noop */ }
     try { if (window.caches) for (const k of await caches.keys()) await caches.delete(k); } catch { /* noop */ }
     try { for (const r of (await navigator.serviceWorker?.getRegistrations?.()) || []) await r.unregister(); } catch { /* noop */ }
   } finally {
@@ -3336,6 +3339,7 @@ function setup() {
     gatherInventory: syncGatherInventory,
     onStatus: () => {},
     onRevoked: onSyncRevoked,
+    eraseAllData: () => eraseAllData(),   // remote-wipe directive → full local nuke (seized device)
   });
   handleInviteParam();
   // Re-prompt an unfinished invite acceptance on reload (B): a claimed-but-unaccepted enrollment

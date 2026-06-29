@@ -345,6 +345,44 @@ async function panelCachedApps() {
   } catch { return null; }
 }
 
+// LIVE (cache-busted) versions currently deployed on the site — the reference the researcher compares
+// devices against (a device reporting an OLDER version, or stale + not reporting, may be stuck/bricked).
+// null = the site is unreachable (researcher offline). The ?live= query forces a SW cache miss → network.
+let liveVersions = undefined;  // undefined = not yet checked
+async function fetchLiveVersion(path) {
+  try {
+    const r = await fetch(path + '?live=' + Date.now(), { cache: 'no-store' });
+    if (!r.ok) return null;
+    const m = (await r.text()).match(/const VERSION = '([^']+)'/);
+    return m ? m[1] : null;
+  } catch { return null; }
+}
+async function refreshLiveVersions() {
+  const o = location.origin;
+  const [editor, recorder, researcher] = await Promise.all([
+    fetchLiveVersion(o + '/flextext-editor/sw.js'),
+    fetchLiveVersion(o + '/text-recorder/sw.js'),
+    fetchLiveVersion(o + '/flextext-researcher/sw.js'),
+  ]);
+  liveVersions = (editor == null && recorder == null && researcher == null) ? null : { editor, recorder, researcher };
+  paintLiveVersions();
+}
+function liveVerText() {
+  if (liveVersions === undefined) return t('panel.live.checking');
+  if (liveVersions === null) return t('panel.live.offline');
+  const p = [];
+  if (liveVersions.editor) p.push('editor ' + liveVersions.editor);
+  if (liveVersions.recorder) p.push('recorder ' + liveVersions.recorder);
+  if (liveVersions.researcher) p.push('researcher ' + liveVersions.researcher);
+  return t('panel.live.latest', { v: p.join(' · ') });
+}
+function paintLiveVersions() {
+  const el = root && root.querySelector('#rp-live-ver');
+  if (!el) return;
+  el.textContent = liveVerText();   // versions come from our OWN site's sw.js (not attacker data); textContent regardless
+  el.className = 'rp-live' + (liveVersions === null ? ' rp-live-offline' : '');
+}
+
 async function renderDashboard(prefetched) {
   if (!prefetched) {
     root.innerHTML = header('panel.title', true) + `<div class="rp-body"><p class="note">${esc(t('panel.dash.loading'))}</p></div>`;
@@ -383,6 +421,7 @@ async function renderDashboard(prefetched) {
 
   const cards = await Promise.all(insts.map(renderInstanceCard));
   root.querySelector('.rp-body').innerHTML = `
+    <div id="rp-live-ver" class="rp-live${liveVersions === null ? ' rp-live-offline' : ''}">${esc(liveVerText())}</div>
     <div class="rp-metrics">
       <div class="rp-metric"><div class="rp-metric-l">${esc(t('panel.dash.devices'))}</div><div class="rp-metric-n">${insts.length}</div></div>
       <div class="rp-metric"><div class="rp-metric-l">${esc(t('panel.dash.pending'))}</div><div class="rp-metric-n${pending ? ' rp-warn' : ''}">${pending}</div></div>
@@ -429,6 +468,8 @@ async function renderDashboard(prefetched) {
   root.querySelectorAll('[data-ract]').forEach((el) => el.addEventListener('click', () => researcherAction(el)));
   lastSig = viewSig(data);
   startDashPoll();
+  // Refresh the LIVE-version tip on a full render (initial load / manual refresh), not on every poll tick.
+  if (!prefetched) refreshLiveVersions();
 }
 
 // Owner: approve / decline a pending researcher request (request/approve onboarding).

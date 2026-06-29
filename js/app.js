@@ -2471,30 +2471,11 @@ function fillWsForm() {
     if (f.elements[key]) f.elements[key].value = settings[key] || '';
   }
   f.elements.uploadUrl.value = settings.uploadUrl || '';
-  // The checkboxes are a TEMPLATE for the links you hand out — what the
-  // coworker sees. They never restrict this device (allowedSend, below, only
-  // honors a restriction this device RECEIVED via a link). Default: all on.
-  const link = new Set(settings.linkSendOptions?.length
-    ? settings.linkSendOptions : ['share', 'upload', 'save', 'download']);
-  f.elements.sendShare.checked = link.has('share');
-  f.elements.sendUpload.checked = link.has('upload');
-  f.elements.sendSave.checked = link.has('save');
-  f.elements.sendDownload.checked = link.has('download');
   f.elements.consentMode.value = settings.consentMode || 'off';
   f.elements.consentMsg.value = settings.consentMsg || '';
   f.elements.consentAudioUrl.value = settings.consentAudioUrl || '';
   f.elements.consentResp.value = settings.consentResp || 'yesno';
-  // Texts-screen button template (default all on) + the Phone-Recording welcome
-  // heading (prefilled from the language name until the researcher edits it).
-  const lb = new Set(Array.isArray(settings.linkButtons) ? settings.linkButtons : ALL_BUTTONS);
-  f.elements.btnNew.checked = lb.has('new');
-  f.elements.btnAudio.checked = lb.has('audio');
-  f.elements.btnRecord.checked = lb.has('record');
-  f.elements.btnOpen.checked = lb.has('open');
   f.elements.autoDel.checked = !!settings.autoDelUploaded;
-  const welcomeEl = $('#record-welcome');
-  if (welcomeEl) welcomeEl.value = settings.recordWelcome
-    || t('record.welcomeDefault', { lang: settings.vernName || settings.vernLang || '' });
   updateConsentFields(f);
 }
 
@@ -2504,15 +2485,6 @@ function updateConsentFields(f) {
   f.querySelector('.consent-text-field').hidden = mode === 'off';
   f.querySelector('.consent-audio-field').hidden = mode !== 'audio';
   f.elements.consentResp.closest('label').hidden = mode === 'off';
-}
-
-function sendOptionsFromForm(f) {
-  const opts = [];
-  if (f.elements.sendShare.checked) opts.push('share');
-  if (f.elements.sendUpload.checked) opts.push('upload');
-  if (f.elements.sendSave.checked) opts.push('save');
-  if (f.elements.sendDownload.checked) opts.push('download');
-  return opts;
 }
 
 // Read the whole Research form into `settings` and persist it. NO validation
@@ -2527,26 +2499,13 @@ function applyResearchFormToSettings(f) {
   const rawUpload = f.elements.uploadUrl.value.trim();
   settings.uploadUrl = rawUpload;
   settings.uploadFolder = rawUpload ? (parseDriveFolder(rawUpload) || '') : '';
-  settings.linkSendOptions = sendOptionsFromForm(f); // template for links, not this device
   settings.consentMode = f.elements.consentMode.value;
   settings.consentMsg = f.elements.consentMsg.value.trim();
   settings.consentResp = ['record', 'signature'].includes(f.elements.consentResp.value) ? f.elements.consentResp.value : 'yesno';
   const rawConsentAudio = f.elements.consentAudioUrl.value.trim();
   settings.consentAudioUrl = rawConsentAudio;
   settings.consentAudio = resolveAudioInput(rawConsentAudio);
-  // Link templates (decoupled from this device, like linkSendOptions): which
-  // Texts-screen buttons to show + the Phone-Recording welcome heading.
-  const lb = [];
-  if (f.elements.btnNew.checked) lb.push('new');
-  if (f.elements.btnAudio.checked) lb.push('audio');
-  if (f.elements.btnRecord.checked) lb.push('record');
-  if (f.elements.btnOpen.checked) lb.push('open');
-  settings.linkButtons = lb;
-  // Auto-delete-after-upload travels with the link as an explicit on/off, so the
-  // researcher's current choice always overwrites whatever the device had.
   settings.autoDelUploaded = !!f.elements.autoDel.checked;
-  const welcomeEl = $('#record-welcome');
-  if (welcomeEl) settings.recordWelcome = welcomeEl.value.trim();
   saveSettings(settings);
   return { rawUpload, rawConsentAudio };
 }
@@ -2573,237 +2532,6 @@ function setupResearch() {
     localStorage.setItem(RESEARCH_HIDDEN_KEY, '1');
     applyResearchVisibility();
     toast(t('research.disabled'));
-  });
-
-  $('#btn-copy-link').addEventListener('click', async () => {
-    const f2 = $('#ws-form');
-    applyResearchFormToSettings(f2); // link must reflect the CURRENT form, not the last Save
-    const p = new URLSearchParams();
-    const map = { vernLang: 'vern', vernName: 'vernName', vernFont: 'vernFont',
-                  analLang: 'anal', analName: 'analName', analFont: 'analFont' };
-    for (const [key, qp] of Object.entries(map)) {
-      const v = f2.elements[key].value.trim();
-      if (v) p.set(qp, v);
-    }
-    if (!p.has('vern')) { toast(t('toast.needVern')); return; }
-    if (!p.has('anal') && !confirm(t('research.analBlankConfirm'))) return;
-    p.set('lang', getLang());
-    if ($('#research-off-box').checked) p.set('research', 'off');
-    // Upload target + allowed save/send options always travel with the link
-    // so the researcher's latest choices overwrite older ones.
-    p.set('upload', settings.uploadFolder || '');
-    p.set('send', (settings.linkSendOptions?.length
-      ? settings.linkSendOptions
-      : ['share', 'upload', 'save', 'download']).join(','));
-    // Delete-after-upload (always travels as explicit on/off).
-    p.set('autoDel', settings.autoDelUploaded ? 'on' : 'off');
-    p.set('recFormat', normRecFormat(settings.recordFormat)); // capture format travels with every link
-    p.set('dsp', ['nr', 'echo', 'norm'].filter((k) => settings[k]).join(',')); // optional processing (default none)
-    p.set('agc', settings.agc || 'off'); // 'off' (default, faithful) | 'on' (auto-gain) | 'auto'
-    // Which Texts-screen buttons the coworker sees (always travels, like the
-    // send options, so the researcher's current choice overwrites older ones).
-    p.set('btns', (Array.isArray(settings.linkButtons) ? settings.linkButtons : ALL_BUTTONS).join(','));
-    // Consent (app-wide) travels with every link.
-    if (settings.consentMode && settings.consentMode !== 'off') {
-      p.set('consentMode', settings.consentMode);
-      if (settings.consentMsg) p.set('consentMsg', settings.consentMsg);
-      if (settings.consentAudio) p.set('consentAudio', settings.consentAudio);
-      p.set('consentResp', settings.consentResp || 'yesno');
-    }
-    const url = location.origin + location.pathname + '?' + p.toString();
-    const out = $('#share-link-out');
-    out.hidden = false;
-    out.textContent = url;
-    try {
-      await navigator.clipboard.writeText(url);
-      toast(t('toast.linkCopied'));
-    } catch {
-      toast(t('toast.linkCopyManual'));
-    }
-  });
-
-  // Phone Recording link builder → the sibling /text-recorder/ app (the installable
-  // "Flextext Recorder"). Refuses to produce a link until the welcome heading is filled in.
-  $('#btn-copy-record-link').addEventListener('click', async () => {
-    const f2 = $('#ws-form');
-    applyResearchFormToSettings(f2); // link reflects the CURRENT form (+ persists welcome)
-    const welcome = ($('#record-welcome').value || '').trim();
-    if (!welcome) { $('#record-welcome').focus(); toast(t('recordlink.needWelcome'), 7000); return; }
-    if (!f2.elements.vernLang.value.trim()) { toast(t('toast.needVern')); return; }
-    if (!f2.elements.analLang.value.trim() && !confirm(t('research.analBlankConfirm'))) return;
-    settings.recordWelcome = welcome;
-    saveSettings(settings);
-    const p = new URLSearchParams();
-    const map = { vernLang: 'vern', vernName: 'vernName', vernFont: 'vernFont',
-                  analLang: 'anal', analName: 'analName', analFont: 'analFont' };
-    for (const [key, qp] of Object.entries(map)) {
-      const v = f2.elements[key].value.trim();
-      if (v) p.set(qp, v);
-    }
-    p.set('lang', getLang());
-    p.set('welcome', welcome);
-    p.set('upload', settings.uploadFolder || '');
-    p.set('send', (settings.linkSendOptions?.length
-      ? settings.linkSendOptions
-      : ['share', 'upload', 'save', 'download']).join(','));
-    // Delete-after-upload (always travels as explicit on/off). The recorder
-    // also defaults to deleting when no link param is present (see
-    // deleteAfterUpload()), but an explicit value lets a researcher turn it off.
-    p.set('autoDel', settings.autoDelUploaded ? 'on' : 'off');
-    p.set('recFormat', normRecFormat(settings.recordFormat)); // capture format travels with every link
-    p.set('dsp', ['nr', 'echo', 'norm'].filter((k) => settings[k]).join(',')); // optional processing (default none)
-    p.set('agc', settings.agc || 'off'); // 'off' (default, faithful) | 'on' (auto-gain) | 'auto'
-    if (settings.consentMode && settings.consentMode !== 'off') {
-      p.set('consentMode', settings.consentMode);
-      if (settings.consentMsg) p.set('consentMsg', settings.consentMsg);
-      if (settings.consentAudio) p.set('consentAudio', settings.consentAudio);
-      p.set('consentResp', settings.consentResp || 'yesno');
-    }
-    // The recorder is its OWN app at the sibling path /text-recorder/ (a disjoint
-    // PWA scope, so it installs separately from the editor). Build that URL from
-    // the editor's location: strip the editor's own directory, append the sibling.
-    const dir = location.pathname.replace(/[^/]*$/, '');   // /flextext-editor/  (or / in dev)
-    const parent = dir.replace(/[^/]+\/$/, '');            // /flextext-editor/ -> /  (dir keeps its own leading slash)
-    const url = location.origin + parent + 'text-recorder/?' + p.toString();
-    const out = $('#record-link-out');
-    out.hidden = false;
-    out.textContent = url;
-    try {
-      await navigator.clipboard.writeText(url);
-      toast(t('toast.linkCopied'));
-    } catch {
-      toast(t('toast.linkCopyManual'));
-    }
-  });
-
-  // Task link builder (text + audio + optional existing transcription)
-  const tf = $('#task-form');
-  tf.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const f2 = $('#ws-form');
-    if (!f2.elements.vernLang.value.trim()) { toast(t('toast.needVern')); return; }
-    if (!f2.elements.analLang.value.trim() && !confirm(t('research.analBlankConfirm'))) return;
-    applyResearchFormToSettings(f2); // link must reflect the CURRENT form, not the last Save
-
-    const audioIn = tf.elements.taskAudio.value.trim();
-    let audioUrl = '';
-    if (audioIn) {
-      audioUrl = resolveAudioInput(audioIn);
-      if (!audioUrl) { toast(t('task.badAudio'), 6000); return; }
-    }
-    let flextextUrl = '';
-
-    // Validate the audio BEFORE producing a link, so the researcher — not
-    // the coworker — finds out about WAVs, oversized files, or unshared
-    // Drive links. Costs only the first ~16 KB.
-    const check = $('#task-check');
-    if (audioUrl) {
-      check.hidden = false;
-      check.textContent = t('task.checking');
-      $('#task-link-out').hidden = true;
-      try {
-        const info = await probeAudioUrl(audioUrl);
-        check.textContent = '✓ ' + t('task.checkOk', {
-          name: info.name || '?',
-          size: info.size ? sizeFmt(info.size) : '?',
-        });
-      } catch (err) {
-        const msg = err.code === 'cantPlay' ? t('task.cantPlay')
-          : err.code === 'big' ? t('task.tooBig', { mb: err.mb })
-          : err.code === 'notAudio' ? t('task.notAudio', { mime: err.mime || '?' })
-          : t('task.checkFailed', { msg: err.message });
-        check.textContent = '⚠ ' + msg;
-        return; // no link for a bad file
-      }
-    } else {
-      check.hidden = true;
-    }
-
-    // Validate an optional attached flextext: show its writing-system codes and
-    // HARD-REFUSE the link if vern/anal don't match the setup, so a mismatched
-    // file is never sent to a coworker. (Reuses the WS checker's survey.)
-    const ftIn = tf.elements.taskFlextext.value.trim();
-    const wsOut = $('#task-ws');
-    if (ftIn) {
-      flextextUrl = resolveAudioInput(ftIn); // same Drive/direct resolution as audio
-      if (!flextextUrl) { wsOut.hidden = false; wsOut.textContent = '⚠ ' + t('task.badFlextext'); return; }
-      wsOut.hidden = false;
-      wsOut.textContent = t('task.ftChecking');
-      $('#task-link-out').hidden = true;
-      let xml;
-      try { xml = await (await fetchFileViaUrl(flextextUrl)).blob.text(); }
-      catch (err) { wsOut.textContent = '⚠ ' + t('task.ftFetchFailed', { msg: err.message }); return; }
-      // Only the first <interlinear-text> is delivered to the coworker, so refuse a
-      // multi-text export — otherwise the WS survey's union of codes gives a false
-      // pass/fail and the other texts are silently dropped.
-      const parsed = parseFlextext(xml);
-      if (parsed.error || !parsed.texts.length) { wsOut.textContent = '⚠ ' + t('task.ftParseFailed', { msg: parsed.error || t('task.ftNone') }); return; }
-      if (parsed.texts.length > 1) { wsOut.textContent = '⚠ ' + t('task.ftMultiText', { n: parsed.texts.length }); return; }
-      const a = analyzeFlextextWs(xml);
-      if (a.error) { wsOut.textContent = '⚠ ' + t('task.ftParseFailed', { msg: a.error }); return; }
-      const vernLang = f2.elements.vernLang.value.trim();
-      const analLang = f2.elements.analLang.value.trim();
-      const vernOk = a.vernCodes.length > 0 && a.vernCodes.every(c => c === vernLang);
-      const analOk = !analLang || a.analCodes.length === 0 || a.analCodes.every(c => c === analLang);
-      const fmt = (codes) => codes.length ? codes.join(', ') : t('task.ftNone');
-      if (vernOk && analOk) {
-        wsOut.textContent = '✓ ' + t('task.ftDetected', { vern: fmt(a.vernCodes), anal: fmt(a.analCodes) });
-      } else {
-        // Hard refuse: the file's writing-system codes must match the setup.
-        wsOut.textContent = '⚠ ' + t('task.ftMismatch', {
-          vern: fmt(a.vernCodes), vernWant: vernLang || '—',
-          anal: fmt(a.analCodes), analWant: analLang || '—',
-        });
-        return; // no link until the file's codes match
-      }
-    } else {
-      wsOut.hidden = true; // clear any stale ⚠ from a previous flextext attempt
-    }
-
-    const p = new URLSearchParams();
-    const map = { vernLang: 'vern', vernName: 'vernName', vernFont: 'vernFont',
-                  analLang: 'anal', analName: 'analName', analFont: 'analFont' };
-    for (const [key, qp] of Object.entries(map)) {
-      const v = f2.elements[key].value.trim();
-      if (v) p.set(qp, v);
-    }
-    p.set('lang', getLang());
-    if ($('#research-off-box').checked) p.set('research', 'off');
-    // Upload target + allowed save/send options always travel with the link
-    // so the researcher's latest choices overwrite older ones.
-    p.set('upload', settings.uploadFolder || '');
-    p.set('send', (settings.linkSendOptions?.length
-      ? settings.linkSendOptions
-      : ['share', 'upload', 'save', 'download']).join(','));
-    // Delete-after-upload (always travels as explicit on/off).
-    p.set('autoDel', settings.autoDelUploaded ? 'on' : 'off');
-    p.set('recFormat', normRecFormat(settings.recordFormat)); // capture format travels with every link
-    p.set('dsp', ['nr', 'echo', 'norm'].filter((k) => settings[k]).join(',')); // optional processing (default none)
-    p.set('agc', settings.agc || 'off'); // 'off' (default, faithful) | 'on' (auto-gain) | 'auto'
-    // Which Texts-screen buttons the coworker sees (always travels, like the
-    // send options, so the researcher's current choice overwrites older ones).
-    p.set('btns', (Array.isArray(settings.linkButtons) ? settings.linkButtons : ALL_BUTTONS).join(','));
-    // Consent (app-wide) travels with every link.
-    if (settings.consentMode && settings.consentMode !== 'off') {
-      p.set('consentMode', settings.consentMode);
-      if (settings.consentMsg) p.set('consentMsg', settings.consentMsg);
-      if (settings.consentAudio) p.set('consentAudio', settings.consentAudio);
-      p.set('consentResp', settings.consentResp || 'yesno');
-    }
-    const title = tf.elements.taskTitle.value.trim();
-    if (title) p.set('title', title);
-    if (audioUrl) p.set('audio', audioUrl);
-    if (flextextUrl) p.set('flextext', flextextUrl);
-    const url = location.origin + location.pathname + '?' + p.toString();
-    const out = $('#task-link-out');
-    out.hidden = false;
-    out.textContent = url;
-    try {
-      await navigator.clipboard.writeText(url);
-      toast(t('toast.linkCopied'));
-    } catch {
-      toast(t('toast.linkCopyManual'));
-    }
   });
 
   // Recording format (archival capture) — default 32-bit WAV. Travels with links;
@@ -3485,12 +3213,6 @@ function setup() {
   setupResearch();
   setupResearchToggle();
   applyResearchVisibility();
-  const offBox = $('#research-off-box');
-  offBox.checked = !!settings.researchOffChecked;
-  offBox.addEventListener('change', () => {
-    settings.researchOffChecked = offBox.checked;
-    saveSettings(settings);
-  });
 
   // ----- Researcher panel (separate full-screen view; editor mode only) -----
   researcherPanelApi = initResearcherPanel({

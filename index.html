@@ -133,32 +133,16 @@
       <label><span data-i18n="research.font">Font</span> <input name="analFont" spellcheck="false"></label>
     </fieldset>
     <fieldset>
-      <legend data-i18n="research.sendLegend">Saving &amp; sending on the coworker's device</legend>
+      <legend data-i18n="research.sendLegend">Saving &amp; sending on THIS device</legend>
       <label class="wide"><span data-i18n="research.uploadUrl">Google Drive upload folder (share it as "Anyone with the link can edit")</span>
         <input name="uploadUrl" spellcheck="false" placeholder="https://drive.google.com/drive/folders/…"></label>
-      <div class="send-options">
-        <label class="check-label"><input type="checkbox" name="sendShare" checked> <span data-i18n="share.share">Share…</span></label>
-        <label class="check-label"><input type="checkbox" name="sendUpload" checked> <span data-i18n="share.upload">Upload</span></label>
-        <label class="check-label"><input type="checkbox" name="sendSave" checked> <span data-i18n="share.saveas">Save to file…</span></label>
-        <label class="check-label"><input type="checkbox" name="sendDownload" checked> <span data-i18n="share.download">Download</span></label>
-      </div>
-      <p class="note" data-i18n="research.sendNote">These choices travel with your setup/task links and decide which buttons the coworker sees under "Save and send…".</p>
+      <p class="note" data-i18n="research.sendNote">These choose where this device uploads its texts and whether it deletes them after upload.</p>
       <label class="check-label wide"><input type="checkbox" name="autoDel"> <span data-i18n="research.autoDel">Delete each text from the device after it uploads to Drive</span></label>
       <p class="note" data-i18n="research.autoDelNote">Best for collecting recordings on a phone — frees storage and keeps the list to what still needs sending. Leave OFF if coworkers edit texts over several sessions. (The Flextext Recorder app deletes after upload by default.)</p>
       <details class="advanced">
         <summary data-i18n="relay.summary">Advanced: audio files larger than ~500 MB</summary>
         <div class="note" data-i18n-html="relay.note"></div>
       </details>
-    </fieldset>
-    <fieldset>
-      <legend data-i18n="buttons.legend">Buttons on the coworker's Texts screen</legend>
-      <div class="send-options">
-        <label class="check-label"><input type="checkbox" name="btnNew" checked> <span data-i18n="texts.new">+ New text</span></label>
-        <label class="check-label"><input type="checkbox" name="btnAudio" checked> <span data-i18n="texts.newAudio">+ New text from audio…</span></label>
-        <label class="check-label"><input type="checkbox" name="btnRecord" checked> <span data-i18n="record.btn">Record new text…</span></label>
-        <label class="check-label"><input type="checkbox" name="btnOpen" checked> <span data-i18n="texts.open">Open .flextext file…</span></label>
-      </div>
-      <p class="note" data-i18n="buttons.note">These travel with your setup/task links and decide which "new text" buttons the coworker sees on their Texts screen.</p>
     </fieldset>
     <fieldset>
       <legend data-i18n="consent.legend">Speaker permission before recording</legend>
@@ -182,53 +166,9 @@
     </fieldset>
     <div class="toolbar">
       <button type="submit" class="primary-btn" data-i18n="research.save">Save settings</button>
-      <button type="button" id="btn-copy-link" class="secondary-btn" data-i18n="research.copyLink">Copy setup link for coworker</button>
     </div>
-    <label class="check-label">
-      <input type="checkbox" id="research-off-box">
-      <span data-i18n="research.disableBox">Hide the Settings tab on the coworker's device (included in the link above)</span>
-    </label>
     <button type="button" id="btn-hide-research" class="secondary-btn" data-i18n="research.hideHere">Hide the Settings tab on THIS device now</button>
     <p class="note" data-i18n="research.hideHereNote">Use this when you set up a coworker's own phone in person. To bring the Settings tab back: tap the ? (Help) button 7 times (or press Ctrl+Alt+R on a keyboard).</p>
-    <p id="share-link-out" class="share-link" hidden></p>
-  </form>
-
-  <hr>
-
-  <h2 data-i18n="task.h">Task link (text + audio)</h2>
-  <p class="note" data-i18n-html="task.note"></p>
-  <form id="task-form" class="ws-form">
-    <fieldset>
-      <label><span data-i18n="task.title">Text title</span>
-        <input name="taskTitle" spellcheck="false"></label>
-      <label class="wide"><span data-i18n="task.audio">Audio (Drive share link, file ID, or direct URL)</span>
-        <input name="taskAudio" spellcheck="false"></label>
-      <label class="wide"><span data-i18n="task.flextext">Existing transcription (optional — a .flextext file's Drive share link, file ID, or direct URL)</span>
-        <input name="taskFlextext" spellcheck="false"></label>
-    </fieldset>
-    <p class="note" data-i18n="task.flextextNote">Optional: send an already-transcribed (or fully glossed) FLEx text for checking/editing. The app reads its writing-system codes and will not build a link unless they match your vern/anal setup above.</p>
-    <div class="toolbar">
-      <button type="submit" class="primary-btn" data-i18n="task.copy">Copy task link</button>
-    </div>
-    <p id="task-check" class="note" hidden></p>
-    <p id="task-ws" class="note" hidden></p>
-    <p id="task-link-out" class="share-link" hidden></p>
-  </form>
-
-  <hr>
-
-  <h2 data-i18n="recordlink.h">Phone Recording link</h2>
-  <p class="note" data-i18n-html="recordlink.note"></p>
-  <form id="record-link-form" class="ws-form">
-    <fieldset>
-      <label class="wide"><span data-i18n="recordlink.welcome">Welcome message / heading (shown on the phone — include the language name)</span>
-        <textarea id="record-welcome" rows="2" data-i18n-ph="recordlink.welcomePh"></textarea></label>
-    </fieldset>
-    <p class="note" data-i18n="recordlink.whatsapp">Audio sent through WhatsApp is recompressed and loses quality, even inside a zip. Prefer Upload to Google Drive.</p>
-    <div class="toolbar">
-      <button type="button" id="btn-copy-record-link" class="primary-btn" data-i18n="recordlink.copy">Copy Phone Recording link</button>
-    </div>
-    <p id="record-link-out" class="share-link" hidden></p>
   </form>
 
   <hr>

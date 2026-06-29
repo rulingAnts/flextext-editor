@@ -164,9 +164,9 @@ en: {
   'upload.errorShort': 'Failed — will retry',
   'upload.pausedItem': 'Paused',
 
-  'research.sendLegend': 'Saving & sending on the coworker\'s device',
+  'research.sendLegend': 'Saving & sending on THIS device',
   'research.uploadUrl': 'Google Drive upload folder (share it as "Anyone with the link can edit")',
-  'research.sendNote': 'These choices travel with your setup/task links and decide which buttons the coworker sees under "Save and send…".',
+  'research.sendNote': 'These choose where this device uploads its texts and whether it deletes them after upload.',
   'research.autoDel': 'Delete each text from the device after it uploads to Drive',
   'research.autoDelNote': 'Best for collecting recordings on a phone — frees storage and keeps the list to what still needs sending. Leave OFF if coworkers edit texts over several sessions. (The Flextext Recorder app deletes after upload by default.)',
   'relay.summary': 'Advanced: audio files larger than ~500 MB',
@@ -767,9 +767,9 @@ id: {
   'upload.errorShort': 'Gagal — akan dicoba lagi',
   'upload.pausedItem': 'Dijeda',
 
-  'research.sendLegend': 'Penyimpanan & pengiriman di perangkat rekan kerja',
+  'research.sendLegend': 'Penyimpanan & pengiriman di perangkat INI',
   'research.uploadUrl': 'Folder unggahan Google Drive (bagikan sebagai "Siapa saja yang memiliki link dapat mengedit")',
-  'research.sendNote': 'Pilihan ini ikut dalam tautan pengaturan/tugas Anda dan menentukan tombol mana yang dilihat rekan kerja di "Simpan dan kirim…".',
+  'research.sendNote': 'Pilihan ini menentukan ke mana perangkat ini mengunggah teksnya dan apakah teks dihapus setelah diunggah.',
   'research.autoDel': 'Hapus tiap teks dari perangkat setelah berhasil diunggah ke Drive',
   'research.autoDelNote': 'Cocok untuk mengumpulkan rekaman di HP — menghemat penyimpanan dan menjaga daftar hanya berisi yang belum terkirim. Biarkan MATI jika rekan kerja menyunting teks selama beberapa sesi. (Aplikasi Perekam Flextext menghapus otomatis setelah unggah.)',
   'relay.summary': 'Lanjutan: berkas audio lebih besar dari ~500 MB',

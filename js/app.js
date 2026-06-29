@@ -2327,6 +2327,7 @@ function uploadState(docId) {
             if (st.fileId) d.uploadedFileId = st.fileId;
             d.uploadedModified = (st.docModified != null) ? st.docModified : d.modified;
             d.uploadedAt = Date.now();
+            d.uploadedSig = uploadContentSig(d);   // remember WHAT was uploaded → skip duplicate re-uploads
           };
           if (current && current.id === docId) stamp(current);
           // Persist the new uploadedFileId, THEN report — so the researcher panel sees the (re)upload
@@ -2481,15 +2482,37 @@ function renderUploadQueue() {
   }
 }
 
+// Cheap, non-cryptographic content signature — used ONLY to detect whether a doc actually changed
+// since its last upload, so a coworker trained (MS-Office style) to obsessively tap Save doesn't spawn
+// a duplicate Drive copy on every press (each upload writes a fresh timestamped file; Drive never
+// overwrites). Compares the interlinear content + audio identity + title.
+function cheapHash(str) {
+  let h = 5381;
+  for (let i = 0; i < str.length; i++) h = ((h * 33) ^ str.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
+function uploadContentSig(rec) {
+  try { return cheapHash(JSON.stringify(rec.doc) + '|' + (rec.audioId || rec.audioSource || '') + '|' + (rec.title || '')); }
+  catch { return 'x' + Date.now(); }   // unstringifiable → never matches → always (re)uploads (safe)
+}
+
 async function doUpload(researcher = false) {
   if (!current) return;
   try {
-    // Sync the open editor into the record (applyBaseline + title) before persisting +
-    // bundling, so the upload reflects the latest edits.
+    // Sync the open editor into the record (applyBaseline reconciles synchronously) before bundling.
     if (activeTab === 'baseline' && $('#baseline-text')) applyBaseline();
+    // Idiot-proofing: if this doc is already on Drive and its CONTENT hasn't changed since that upload,
+    // don't make another copy — tell the user it's saved. Stops an obsessive Save-tapper from filling the
+    // folder with dozens of identical files. (Researcher-triggered uploads bypass this — a fresh send is
+    // exactly what was asked for.)
+    if (!researcher && current.uploadedFileId && current.uploadedSig
+        && current.uploadedSig === uploadContentSig(current)) {
+      await persist();                       // still save the just-synced edit locally
+      toast(t('upload.alreadyDone'), 6000);
+      return;
+    }
     // A USER-initiated upload = the user consenting to share THIS doc with their researcher
     // (it then reports + becomes remote-uploadable). Set it on `current` so later edits keep it.
-    // Researcher-triggered uploads (researcher=true) never mark — that's what scoping protects.
     if (!researcher) { const enr = Sync.enrollment(); if (enr && enr.installId) current.sharedInstall = enr.installId; }
     await persist();
     await uploadDocById(current.id);
@@ -3014,17 +3037,22 @@ function setupServiceWorker() {
 }
 
 function promptUpdate(waitingWorker) {
-  const el = $('#toast');
-  clearTimeout(toastTimer);
-  el.textContent = t('update.available') + ' ';
+  // A prominent full-width top BANNER (not the easy-to-miss corner toast) — a field coworker trained to
+  // ignore small notifications was leaving devices on a stale cached version. Stays until tapped/reload.
+  if (document.getElementById('update-banner')) return;   // already showing
+  const bar = document.createElement('div');
+  bar.id = 'update-banner';
+  const span = document.createElement('span');
+  span.textContent = t('update.available');
   const b = document.createElement('button');
-  b.className = 'toast-btn';
+  b.className = 'update-banner-btn';
   b.textContent = t('update.now');
   b.addEventListener('click', () => {
-    waitingWorker.postMessage({ type: 'SKIP_WAITING' });
+    b.textContent = t('update.updating'); b.disabled = true;
+    waitingWorker.postMessage({ type: 'SKIP_WAITING' });   // → controllerchange → location.reload()
   });
-  el.appendChild(b);
-  el.hidden = false; // stays until acted on or page reload
+  bar.appendChild(span); bar.appendChild(b);
+  document.body.appendChild(bar);
 }
 
 /* ---------------- Wire-up ---------------- */

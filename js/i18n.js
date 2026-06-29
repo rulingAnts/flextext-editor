@@ -163,6 +163,7 @@ en: {
   'upload.pause': 'Pause',
   'upload.resume': 'Resume',
   'upload.queuedToast': 'Added to the upload queue — it will send when you are online.',
+  'upload.alreadyDone': '✓ Already saved to Google Drive — no new changes to send.',
   'upload.uploadingShort': 'Sending…',
   'upload.queuedShort': 'Waiting',
   'upload.errorShort': 'Failed — will retry',
@@ -318,6 +319,7 @@ en: {
 
   'update.available': 'A new version of the app is available.',
   'update.now': 'Update',
+  'update.updating': 'Updating…',
 
   'install.text': 'You can install this app on your device — it then works without internet, like a normal app.',
   'install.btn': 'Install app',
@@ -777,6 +779,7 @@ id: {
   'upload.pause': 'Jeda',
   'upload.resume': 'Lanjutkan',
   'upload.queuedToast': 'Ditambahkan ke antrean pengiriman — akan terkirim saat Anda online.',
+  'upload.alreadyDone': '✓ Sudah tersimpan ke Google Drive — tidak ada perubahan baru untuk dikirim.',
   'upload.uploadingShort': 'Mengirim…',
   'upload.queuedShort': 'Menunggu',
   'upload.errorShort': 'Gagal — akan dicoba lagi',
@@ -932,6 +935,7 @@ id: {
 
   'update.available': 'Versi baru aplikasi ini tersedia.',
   'update.now': 'Perbarui',
+  'update.updating': 'Memperbarui…',
 
   'install.text': 'Aplikasi ini bisa dipasang di perangkat Anda — setelah itu bisa dipakai tanpa internet, seperti aplikasi biasa.',
   'install.btn': 'Pasang aplikasi',

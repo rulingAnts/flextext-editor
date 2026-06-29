@@ -289,12 +289,7 @@
     <p id="consent-message"></p>
     <audio id="consent-audio" controls hidden></audio>
     <p class="note" id="consent-status" hidden></p>
-    <!-- yes/no response -->
-    <div id="consent-yesno" hidden>
-      <button id="consent-yes" class="primary-btn" data-i18n="consent.yes">Yes — I have permission</button>
-      <button id="consent-no" class="secondary-btn" data-i18n="consent.no">No</button>
-    </div>
-    <!-- recorded verbal assent -->
+    <!-- recorded verbal assent — collected BEFORE the affirm, which is the submit -->
     <div id="consent-record" hidden>
       <audio id="consent-assent-preview" controls hidden></audio>
       <button id="consent-assent-toggle" class="primary-btn">&#9679; <span data-i18n="consent.recYes">Record the "yes"</span></button>
@@ -304,6 +299,12 @@
     <div id="consent-sign" hidden>
       <label class="wide"><span data-i18n="consent.signLabel">Type your name to give permission</span>
         <input id="consent-name" type="text" spellcheck="false" autocomplete="name"></label>
+    </div>
+    <!-- affirm / decline — the submit, placed BELOW the sections it gates so the coworker completes
+         the record/signature first and the permission button is the last thing they reach -->
+    <div id="consent-yesno" hidden>
+      <button id="consent-yes" class="primary-btn" data-i18n="consent.yes">Yes — I have permission</button>
+      <button id="consent-no" class="secondary-btn" data-i18n="consent.no">No</button>
     </div>
     <button id="consent-cancel" class="link-btn" data-i18n="share.cancel">Cancel</button>
   </div>

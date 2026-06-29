@@ -649,10 +649,21 @@ function assignModal(instanceId) {
       say(t('panel.assign.checkingFlextext'));
       let xml;
       try { xml = await (await fetchFileViaUrl(resolved2)).blob.text(); }
-      catch (err) { say('⚠ ' + t('task.ftFetchFailed', { msg: err.message }), 'err'); return; }
-      const parsed = parseFlextext(xml);
-      if (parsed.error || !parsed.texts.length) { say('⚠ ' + t('task.ftParseFailed', { msg: parsed.error || t('task.ftNone') }), 'err'); return; }
-      if (parsed.texts.length > 1) { say('⚠ ' + t('task.ftMultiText', { n: parsed.texts.length }), 'err'); return; }
+      catch (err) {
+        // Same soft-CORS escape as the audio path: a direct (non-Drive) host that blocks the cross-origin
+        // check can't be told apart from a real outage, so offer "send anyway" instead of a false block.
+        const soft = !/script\.google|\/drive/.test(resolved2)
+          && (err.name === 'TypeError' || /failed to fetch|networkerror/i.test(err.message || ''));
+        if (soft) {
+          if (!confirm(t('panel.assign.couldNotVerify'))) { say('⚠ ' + t('panel.assign.blockedNoSend'), 'err'); return; }
+          // confirmed → proceed without parsing (xml stays undefined)
+        } else { say('⚠ ' + t('task.ftFetchFailed', { msg: err.message }), 'err'); return; }
+      }
+      if (xml !== undefined) {
+        const parsed = parseFlextext(xml);
+        if (parsed.error || !parsed.texts.length) { say('⚠ ' + t('task.ftParseFailed', { msg: parsed.error || t('task.ftNone') }), 'err'); return; }
+        if (parsed.texts.length > 1) { say('⚠ ' + t('task.ftMultiText', { n: parsed.texts.length }), 'err'); return; }
+      }
     }
 
     const fields = { title };
@@ -728,6 +739,10 @@ function toFormValues(s, mode) {
       : (s.consentMode && s.consentMode !== 'off' ? [s.consentMode] : []);
     else if (f.k === 'consentConfirm') v.consentConfirm = Array.isArray(s.consentConfirm) ? s.consentConfirm
       : (s.consentMode && s.consentMode !== 'off' ? [s.consentResp || 'yesno'] : []);
+    // appLang is a one-shot "set the device language" command, NOT a persistent setting to display:
+    // always open at 'follow' so it's re-sent ONLY when the researcher deliberately re-picks a language
+    // (else every later push would re-clobber a field worker who toggled their own language back).
+    else if (f.k === 'appLang') v.appLang = 'follow';
     else if (f.k === 'autoDel') v.autoDel = !!s.autoDelUploaded;                                   // stored as autoDelUploaded
     else if (f.type === 'checkbox') v[f.k] = !!s[f.k];
     else if (f.type === 'select') v[f.k] = s[f.k] || (f.k === 'recordFormat' ? DEFAULT_REC_FORMAT : f.opts[0]);

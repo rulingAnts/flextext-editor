@@ -534,7 +534,14 @@ export async function probeAudioUrl(url) {
 export async function fetchFileViaUrl(url) {
   const isRelay = /script\.google(?:usercontent)?\.com\/macros\//.test(url) || /\/exec(\?|$)/.test(url);
   if (!isRelay) {
-    const resp = await fetch(url);
+    // Timeout guard (like probeAudioUrl) so a black-holed host on a flaky field network can't hang the
+    // caller for the browser's multi-minute default — e.g. the researcher's assign-link check.
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 20000);
+    let resp;
+    try { resp = await fetch(url, { signal: ctl.signal }); }
+    catch (e) { clearTimeout(timer); throw ctl.signal.aborted ? new Error('Timed out — check the connection and try again.') : e; }
+    clearTimeout(timer);
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const blob = await resp.blob();
     const name = decodeURIComponent((url.split('/').pop() || '').split('?')[0]) || '';

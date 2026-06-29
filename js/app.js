@@ -634,8 +634,6 @@ function consentConfirmList(s) {
   // legacy: a confirmation only existed when the prompt was on (consentMode !== 'off')
   return (s.consentMode && s.consentMode !== 'off') ? [s.consentResp || 'yesno'] : [];
 }
-// Consent gate runs if the researcher asks anything OR requires any confirmation.
-function consentRequired(s) { return consentAskList(s).length > 0 || consentConfirmList(s).length > 0; }
 
 // Build the consent audit record at the moment permission is given. The IP and
 // (if the speaker allowed location once) approxLocation are filled in best

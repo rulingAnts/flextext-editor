@@ -596,6 +596,9 @@ main {
   width: min(92vw, 360px);
   display: flex; flex-direction: column; gap: 10px;
   box-shadow: 0 10px 40px rgba(0,0,0,.35);
+  /* Worst-case stack (text + audio prompt + record + signature + affirm) must stay reachable on a
+     small/landscape phone — scroll instead of clipping the buttons off-screen. */
+  max-height: 88vh; overflow-y: auto;
 }
 .modal-card h3 { margin: 0 0 2px; }
 

@@ -3121,7 +3121,10 @@ let savingRecording = false; // a take is being encoded + written to IndexedDB �
 let forcedApply = false;     // user pressed the manual "check for updates" shortcut → apply now even off the safe views
 let swReg = null;            // the SW registration, so a fresh update CHECK can be triggered from anywhere
 let lastBgCheck = 0;         // throttle the texts-list detection check (don't hammer reg.update on rapid nav)
-let updBannerEl = null;      // "new version ready — return to Texts" banner shown while a text is open
+let updBannerEl = null;      // "new version ready" banner + countdown shown while a text is open
+let updCountdownTimer = null;
+let updCountdownEnd = 0;
+const UPDATE_FORCE_MS = 30000;   // grace before we auto-exit an open text to install (work is auto-saved)
 
 function markUpdateReady(worker) {
   pendingWorker = worker;
@@ -3139,24 +3142,48 @@ function bgUpdateCheck() {
   if (swReg && now - lastBgCheck >= 30000) { lastBgCheck = now; swReg.update().catch(() => {}); }
 }
 
-// While a text is OPEN, an auto-update is held (never yank interlinear work). Show a visible, tappable
-// banner so the field worker knows to exit to the Texts list to finish updating (a transient toast was
-// too easy to miss). It clears itself when they leave the text (the update then applies + reloads).
+// While a text is OPEN, an auto-update is held (never yank interlinear work mid-keystroke). Rather than
+// wait forever for a user who camps in a text, show a visible banner + COUNTDOWN, then auto-exit to the
+// Texts list and install. Safe: the open doc is auto-saved (applyUpdateIfSafe flushes persist before the
+// reload), so the user loses nothing — they just land on Texts, updated, and reopen. Tap = update now.
+function forceUpdateNow() {
+  if (updCountdownTimer) { clearInterval(updCountdownTimer); updCountdownTimer = null; }
+  show('texts');            // leaves the text (safe view) → show()'s bgUpdateCheck applies it
+  applyUpdateIfSafe();      // belt-and-suspenders
+}
+function paintUpdateCountdown() {
+  if (!updBannerEl) return;
+  const left = Math.max(0, Math.ceil((updCountdownEnd - Date.now()) / 1000));
+  updBannerEl.textContent = t('update.forceExit', { s: left });
+  if (left <= 0) {
+    // Don't yank a half-saved recording or an open dialog — extend a few seconds and retry.
+    if (savingRecording || document.querySelector('.modal:not([hidden])')) { updCountdownEnd = Date.now() + 6000; return; }
+    forceUpdateNow();
+  }
+}
 function refreshUpdateBanner() {
   const pending = !!pendingWorker || reloadPending;
   const b = document.getElementById('view-baseline'), g = document.getElementById('view-gloss');
   const editingText = !RECORD_MODE && ((b && !b.hidden) || (g && !g.hidden));
-  if (!(pending && editingText)) { if (updBannerEl) updBannerEl.hidden = true; return; }
+  if (!(pending && editingText)) {                                  // no update OR not in a text → stand down
+    if (updCountdownTimer) { clearInterval(updCountdownTimer); updCountdownTimer = null; }
+    if (updBannerEl) updBannerEl.hidden = true;
+    return;
+  }
   if (!updBannerEl) {
     updBannerEl = document.createElement('button');
     updBannerEl.id = 'update-ready-banner';
     updBannerEl.className = 'update-ready-banner';
     updBannerEl.type = 'button';
-    updBannerEl.addEventListener('click', () => show('texts'));   // exit → applies on landing
+    updBannerEl.addEventListener('click', forceUpdateNow);          // tap = update right now
     (document.body || document.documentElement).appendChild(updBannerEl);
   }
-  updBannerEl.textContent = t('update.readyExit');
   updBannerEl.hidden = false;
+  if (!updCountdownTimer) {                                         // start the one-shot countdown to auto-exit
+    updCountdownEnd = Date.now() + UPDATE_FORCE_MS;
+    paintUpdateCountdown();
+    updCountdownTimer = setInterval(paintUpdateCountdown, 1000);
+  }
 }
 
 // Safe = no recording mid-save, no modal/dialog open, AND — in the editor — NOT currently editing an open

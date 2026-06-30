@@ -1861,14 +1861,15 @@ async function syncTitleHash(title) {
   return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
 }
 
-// Data-scoping (enrollment confidentiality): a managed device exposes (reports + allows remote
-// upload of) only docs that belong to the CURRENT enrollment — created after this device was
-// bound (enrolledAt), or ones the user explicitly shared by uploading them. Pre-existing texts
-// stay invisible to a freshly-claimed researcher, so a phished/hijacked enrollment can't
-// auto-exfiltrate the accumulated corpus.
-function docInScope(d, enr) {
-  if (!enr) return true;                                  // unmanaged → no scoping
-  return (d.created || 0) >= (enr.enrolledAt || 0) || d.sharedInstall === enr.installId;
+// A managed device exposes (reports + allows remote upload/management of) its FULL corpus to the
+// researcher it is enrolled with — pre-existing texts (created before this enrollment) INCLUDED.
+// Enrollment is already gated by the researcher allowlist (A) and an explicit on-device "Connect to
+// <researcher>?" consent (B); once the field user has accepted, hiding their existing texts only blocks
+// legitimate management. (Drops the earlier created>=enrolledAt data-scoping — "layer C" — per Seth
+// 2026-06-30: A+B are the protection against a phished/coerced enrollment now. The created/sharedInstall
+// fields are still recorded but no longer gate visibility.)
+function docInScope(/* d, enr */) {
+  return true;
 }
 
 // Re-render the settings-dependent UI in place (no reload) — used by a pushed changeSettings AND by

@@ -82,6 +82,9 @@ const GROUPS = [
   ] },
   { id: 'buttons', fields: [
     { k: 'buttons', type: 'multicheck', opts: BTN_OPTS, optPrefix: 'panel.opt.btn.' },
+    // Let the coworker fully wipe THIS device (Delete All). Off by default for managed devices; standalone
+    // apps always have it. deviceOnly → not shown in the researcher's own local-settings modal.
+    { k: 'deleteAllEnabled', type: 'checkbox', deviceOnly: true },
   ] },
 ];
 

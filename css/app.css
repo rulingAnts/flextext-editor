@@ -890,6 +890,10 @@ main {
 .rp-wipe-pending { color: #8a4b10; font-weight: 600; }  /* remote wipe requested, awaiting the device */
 .rp-wipe-done { color: #1f5d22; font-weight: 600; }     /* device confirmed the wipe */
 
+/* Self-service "Delete all data" — set apart + danger-tinted so it isn't fat-fingered (it's also behind a
+   confirm). Bottom of Help (editor) / the record screen (recorder), gated by deleteAllAllowed(). */
+.delall-btn { display: block; margin: 28px auto 8px; color: #a3261f; border-color: #a3261f; }
+
 /* "New version ready — exit your open text to finish updating" — shown while editing, tappable to go to
    Texts. Fixed at the BOTTOM so it never covers the top nav; below modals, above page content. */
 .update-ready-banner {

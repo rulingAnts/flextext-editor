@@ -248,6 +248,7 @@ function openHelp() {
   helpReturnView = currentView();
   if (helpReturnView === 'help') helpReturnView = 'texts';
   applyHelpResearchVisibility();
+  if (!RECORD_MODE) applyDeleteAllButton();   // ensure the gated Delete-All button is present + current
   show('help');
 }
 
@@ -1879,8 +1880,36 @@ function docInScope(/* d, enr */) {
 function applyLiveSettings() {
   if (RESEARCHER_MODE) return;   // the researcher panel manages its own views
   settings = loadSettings();
-  if (RECORD_MODE) { renderRecordView(); renderRecordList(); }
-  else { applyResearchVisibility(); applyAllowedButtons(); fillWsForm(); renderDocList(); }
+  if (RECORD_MODE) { renderRecordView(); renderRecordList(); }   // recorder paints its own Delete-All (gated) in renderRecordView
+  else { applyResearchVisibility(); applyAllowedButtons(); fillWsForm(); renderDocList(); applyDeleteAllButton(); }
+}
+
+// "Delete All" (full local wipe = clears storage + IndexedDB + caches + the service worker, then reloads
+// to a blank slate — also the self-service un-brick for a stale SW). Available on STANDALONE (unlinked)
+// apps by default; on a MANAGED device only if the researcher enabled it for that device (settings
+// .deleteAllEnabled). Off by default for managed devices.
+function deleteAllAllowed() {
+  return !Sync.hasSession() || loadSettings().deleteAllEnabled === true;
+}
+async function runDeleteAll() {
+  if (!confirm(t('delall.confirm'))) return;
+  await eraseAllData();
+}
+// Editor: the Delete-All button lives at the bottom of the Help view (reachable in both standalone +
+// managed, behind the "?" — not fat-fingerable). Created once, toggled by the gate. (The recorder paints
+// its own copy inside renderRecordView, since that view is rebuilt each render.)
+function applyDeleteAllButton() {
+  const view = $('#view-help'); if (!view) return;
+  let btn = $('#btn-delete-all');
+  if (deleteAllAllowed()) {
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.id = 'btn-delete-all'; btn.type = 'button'; btn.className = 'secondary-btn delall-btn';
+      btn.addEventListener('click', runDeleteAll);
+      view.appendChild(btn);
+    }
+    btn.textContent = t('delall.btn'); btn.hidden = false;
+  } else if (btn) { btn.hidden = true; }
 }
 // Setting D: a researcher pushed an app (interface) language for this device. Apply it LIVE — no reload —
 // and keep the local language toggle in sync. SET-WITH-OVERRIDE: this is called only when a push ARRIVES
@@ -2020,7 +2049,7 @@ async function syncGatherInventory() {
   for (const k of ['vernLang', 'vernName', 'vernFont', 'analLang', 'analName', 'analFont',
                    'recordFormat', 'agc', 'nr', 'echo', 'norm',
                    'consentAsk', 'consentConfirm', 'consentMode', 'consentMsg', 'consentResp', 'consentAudioUrl',
-                   'appLang', 'uploadFolder', 'toolbarButtons', 'sendOptions', 'autoDelUploaded', 'recordWelcome']) {
+                   'appLang', 'uploadFolder', 'toolbarButtons', 'sendOptions', 'autoDelUploaded', 'recordWelcome', 'deleteAllEnabled']) {
     if (settings[k] !== undefined) snap[k] = settings[k];
   }
   // ua + cachedApps let the panel show which browser/device this install is + whether its apps are
@@ -2907,12 +2936,14 @@ function renderRecordView() {
       <h3 class="record-list-h"></h3>
       <ul id="record-list" class="doc-list rec-list"></ul>
       <p id="record-empty" class="empty-note" hidden></p>
+      ${deleteAllAllowed() ? '<button id="btn-delete-all" type="button" class="secondary-btn delall-btn"></button>' : ''}
     </div>`;
   v.querySelector('.record-welcome').textContent = recordWelcomeText();
   v.querySelector('.record-big-label').textContent = t('record.btn');
   v.querySelector('.record-list-h').textContent = t('record.savedH');
   v.querySelector('#record-empty').textContent = t('record.empty');
   $('#btn-record-big').addEventListener('click', () => requestConsentThen(() => openRecordModal()));
+  const da = v.querySelector('#btn-delete-all'); if (da) { da.textContent = t('delall.btn'); da.addEventListener('click', runDeleteAll); }
 }
 
 async function renderRecordList() {

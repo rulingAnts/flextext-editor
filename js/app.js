@@ -238,8 +238,10 @@ function show(view) {
     $$('#topbar-editor .top-tab').forEach(b =>
       b.setAttribute('aria-selected', String(b.dataset.tab === view)));
   }
-  // Landing on the texts list (no open text) is a safe moment to apply a pending auto-update.
-  if (view === 'texts') applyUpdateIfSafe();
+  // Landing on the texts list (no open text) is a safe moment to apply a pending auto-update AND a good
+  // time to actively check for a new one (covers a user who only flits through the main screen).
+  if (view === 'texts') bgUpdateCheck();
+  refreshUpdateBanner();   // show/hide the "exit to update" banner as the open-text state changes
 }
 
 function openHelp() {
@@ -3073,6 +3075,7 @@ function setupServiceWorker() {
   });
 
   navigator.serviceWorker.register('sw.js').then((reg) => {
+    swReg = reg;                                   // expose so bgUpdateCheck() can trigger a fresh check from anywhere
     const check = () => reg.update().catch(() => {});
     // CRITICAL: never post CLEANUP while a new version's COMPLETE cache is waiting/installing — the old
     // worker's cleanup would delete that cache (different version name) and the new worker would activate
@@ -3116,10 +3119,44 @@ let reloadPending = false;  // a controllerchange fired while this tab was unsaf
 let reloading = false;      // re-entry guard so we reload exactly once
 let savingRecording = false; // a take is being encoded + written to IndexedDB — a reload would abort it
 let forcedApply = false;     // user pressed the manual "check for updates" shortcut → apply now even off the safe views
+let swReg = null;            // the SW registration, so a fresh update CHECK can be triggered from anywhere
+let lastBgCheck = 0;         // throttle the texts-list detection check (don't hammer reg.update on rapid nav)
+let updBannerEl = null;      // "new version ready — return to Texts" banner shown while a text is open
 
 function markUpdateReady(worker) {
   pendingWorker = worker;
+  applyUpdateIfSafe();        // applies immediately if we're on a safe screen…
+  refreshUpdateBanner();      // …otherwise prompt the user to exit their open text so it can apply
+}
+
+// Landing on the texts list is a safe apply moment AND a good time to actively CHECK for a new version —
+// so a coworker who only ever flits through the main screen (never camps there for the 5-min poll) still
+// detects updates. Applies a ready one right away; the detection fetch is throttled so rapid nav can't
+// hammer it. (The download/install still happens in the background regardless of which screen they're on.)
+function bgUpdateCheck() {
   applyUpdateIfSafe();
+  const now = Date.now();
+  if (swReg && now - lastBgCheck >= 30000) { lastBgCheck = now; swReg.update().catch(() => {}); }
+}
+
+// While a text is OPEN, an auto-update is held (never yank interlinear work). Show a visible, tappable
+// banner so the field worker knows to exit to the Texts list to finish updating (a transient toast was
+// too easy to miss). It clears itself when they leave the text (the update then applies + reloads).
+function refreshUpdateBanner() {
+  const pending = !!pendingWorker || reloadPending;
+  const b = document.getElementById('view-baseline'), g = document.getElementById('view-gloss');
+  const editingText = !RECORD_MODE && ((b && !b.hidden) || (g && !g.hidden));
+  if (!(pending && editingText)) { if (updBannerEl) updBannerEl.hidden = true; return; }
+  if (!updBannerEl) {
+    updBannerEl = document.createElement('button');
+    updBannerEl.id = 'update-ready-banner';
+    updBannerEl.className = 'update-ready-banner';
+    updBannerEl.type = 'button';
+    updBannerEl.addEventListener('click', () => show('texts'));   // exit → applies on landing
+    (document.body || document.documentElement).appendChild(updBannerEl);
+  }
+  updBannerEl.textContent = t('update.readyExit');
+  updBannerEl.hidden = false;
 }
 
 // Safe = no recording mid-save, no modal/dialog open, AND — in the editor — NOT currently editing an open

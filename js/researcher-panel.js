@@ -1513,10 +1513,12 @@ function accountModal() {
   driveSection(m.el.querySelector('#rp-drive-body'));
 }
 
-/* Drive-delivery section (inside the account modal): where do the uploads land — the shared relay's
- * "anyone with link can edit" folders (current setup), or the researcher's OWN Drive via OAuth. All
- * error codes from the worker are translated into plain-language fix steps: the field-priority rule
- * (idiot-proof over terse) applies to researchers too. Full instructions: docs/drive-oauth-cutover.md. */
+/* Drive-delivery section (inside the account modal). There is NO mode and NO switch:
+ * crowd uploads always try the researcher's OWN Drive first (streaming, via the token
+ * their Google sign-in stores) and fall back to the shared relay automatically. This
+ * section just shows the connection state, surfaces any background delivery failure
+ * loudly, and offers a live test. Error codes are translated into plain-language fix
+ * steps — the idiot-proof rule applies to researchers too. */
 function driveSection(body) {
   // Worker error codes → plain language. Codes come from OUR worker (not attacker data), but esc()'d anyway.
   const explain = (e) => {
@@ -1536,30 +1538,19 @@ function driveSection(body) {
       body.querySelector('[data-d="retry"]').onclick = load;
       return;
     }
-    const oauth = st.mode === 'oauth';
     body.innerHTML = `
       ${st.error ? `<p class="banner warn-banner">${esc(t('panel.drive.errBanner', { msg: (st.error && st.error.msg) || '' }))} ${esc(t('panel.drive.reconnectNeeded'))}</p>` : ''}
-      <p class="note">${esc(oauth ? t('panel.drive.modeOauth', { email: st.email || '?' }) : t('panel.drive.modeRelay'))}</p>
+      <p class="note">${esc(st.connected ? t('panel.drive.how', { email: st.email || '?' }) : t('panel.drive.notConnected'))}</p>
       <div class="rp-inst-actions">
         <button type="button" class="secondary-btn" data-d="test">${esc(t('panel.drive.test'))}</button>
-        <button type="button" class="secondary-btn" data-d="switch">${esc(t(oauth ? 'panel.drive.switchRelay' : 'panel.drive.switchOauth'))}</button>
       </div>
-      <div class="rp-probe-result" role="status" hidden></div>
-      <p class="note">${esc(t('panel.drive.docNote'))}</p>`;
+      <div class="rp-probe-result" role="status" hidden></div>`;
     const out = body.querySelector('.rp-probe-result');
     const paint = (msg, kind) => { out.hidden = false; out.textContent = msg; out.className = 'rp-probe-result' + (kind ? ' rp-as-' + kind : ''); };
     body.querySelector('[data-d="test"]').addEventListener('click', (e) => busy(e.target, async () => {
       paint(t('panel.drive.testing'));
       try { const r = await Researcher.driveTest(); paint(t('panel.drive.testOk') + ((r && r.note) ? ' — ' + r.note : ''), 'ok'); }
       catch (err) { paint(explain(err), 'err'); }
-    }));
-    body.querySelector('[data-d="switch"]').addEventListener('click', (e) => busy(e.target, async () => {
-      // The worker live-tests before accepting 'oauth' — a failed switch surfaces the same codes as /test.
-      try {
-        const r = await Researcher.driveSetMode(oauth ? 'relay' : 'oauth');
-        deps.toast(t(r.mode === 'oauth' ? 'panel.drive.nowOauth' : 'panel.drive.nowRelay'), 5000);
-        load();
-      } catch (err) { paint(explain(err), 'err'); }
     }));
   };
   load();

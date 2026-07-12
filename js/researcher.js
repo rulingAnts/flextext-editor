@@ -372,9 +372,7 @@ export function crowdSubmissions(id) { return api('GET', `/v1/crowd/${encodeURIC
 
 export function driveStatus() { return api('GET', '/v1/researcher/drive'); }
 export function driveTest() { return api('POST', '/v1/researcher/drive/test', { body: {}, retry: false }); }   // deterministic outcome — retrying just makes the button feel hung
-// The worker live-tests before accepting 'oauth', so a failed switch surfaces the same error codes
-// as driveTest (reconnect_needed / drive_api_disabled / …) — the panel explains them identically.
-export function driveSetMode(mode) { return api('POST', '/v1/researcher/drive/mode', { body: { mode }, retry: false }); }
+// (No driveSetMode: delivery is always own-Drive-first with automatic relay fallback — no mode to switch.)
 
 /* ---------------- decrypted control-panel view ---------------- */
 

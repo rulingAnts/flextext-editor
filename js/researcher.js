@@ -350,6 +350,31 @@ export async function getInstanceSettings(instanceId) {
   try { return await decryptJSON(Kr, enc); } catch { return null; }
 }
 export function triggerUpload(instanceId, docId)  { return pushCommand(instanceId, 'triggerUpload', { docId }); }
+// Upload-first remote delete: the device uploads a fresh timestamped Drive copy, and only deletes the
+// text once that upload is confirmed safe. Engine v94+ only — the panel gates the button on the
+// install's reported engineVersion (an older engine would ignore or mis-handle the command).
+export function uploadDelete(instanceId, docId)   { return pushCommand(instanceId, 'uploadDelete', { docId }); }
+
+/* ---------------- crowd recorders (public crowd-source recording pages) ----------------
+ * Deliberately NOT E2EE: the public recorder page is keyless, so it must be able to read its own
+ * config (welcome + consent text) straight from the worker — these fields are server-readable by
+ * design. Never put secrets in a crowd config; the panel warns the researcher likewise. */
+
+export function crowdList() { return api('GET', '/v1/crowd'); }
+export function crowdCreate(label, driveFolder, config) {
+  return api('POST', '/v1/crowd', { body: { label, drive_folder: driveFolder, config }, retry: false });   // non-idempotent: don't risk a duplicate recorder on a lost response
+}
+export function crowdUpdate(id, patch) { return api('PUT', `/v1/crowd/${encodeURIComponent(id)}`, { body: patch }); }
+export function crowdDelete(id) { return api('DELETE', `/v1/crowd/${encodeURIComponent(id)}`, { retry: false }); }   // non-idempotent (a retry after success would 404)
+export function crowdSubmissions(id) { return api('GET', `/v1/crowd/${encodeURIComponent(id)}/submissions`); }
+
+/* ---------------- Drive delivery (shared relay vs the researcher's own Drive OAuth) ---------------- */
+
+export function driveStatus() { return api('GET', '/v1/researcher/drive'); }
+export function driveTest() { return api('POST', '/v1/researcher/drive/test', { body: {}, retry: false }); }   // deterministic outcome — retrying just makes the button feel hung
+// The worker live-tests before accepting 'oauth', so a failed switch surfaces the same error codes
+// as driveTest (reconnect_needed / drive_api_disabled / …) — the panel explains them identically.
+export function driveSetMode(mode) { return api('POST', '/v1/researcher/drive/mode', { body: { mode }, retry: false }); }
 
 /* ---------------- decrypted control-panel view ---------------- */
 

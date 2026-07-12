@@ -44,6 +44,11 @@ const UPLOAD_WAIT_MS = 120000;   // no device confirmation after this long → r
 // recorder even though this code usually runs inside the researcher app at /flextext-researcher/.
 const EDITOR_BASE = location.origin + '/flextext-editor/';
 const RECORDER_BASE = location.origin + '/text-recorder/';
+const CROWD_BASE = location.origin + '/crowd-recorder/';
+
+// Crowd recorders live OUTSIDE the 12s poll signature (worker load stays flat): fetched on full
+// dashboard renders + after crowd actions only. undefined = not yet fetched, null = fetch failed.
+let crowdCache;
 
 const REC_KEYS = Object.keys(REC_FORMATS);
 const AGC_OPTS = ['off', 'on', 'auto'];
@@ -78,6 +83,10 @@ const GROUPS = [
     { k: 'upload', type: 'text' },
     { k: 'sendOptions', type: 'multicheck', opts: SEND_OPTS, optPrefix: 'panel.opt.send.' },
     { k: 'autoDel', type: 'checkbox' },
+    // Auto-backup: a text changed since its last upload is auto-uploaded once it's been quiet for
+    // autoBackupMins (device engine feature; each backup is a NEW timestamped Drive copy).
+    { k: 'autoBackup', type: 'checkbox' },
+    { k: 'autoBackupMins', type: 'select', opts: ['5', '15', '30', '60'], optPrefix: 'panel.opt.abm.' },
     { k: 'recordWelcome', type: 'text' },
   ] },
   { id: 'buttons', fields: [
@@ -470,6 +479,13 @@ async function renderDashboard(prefetched) {
   const localDocs = await db.listDocs().catch(() => []);
   const myDevice = deviceInfo(navigator.userAgent, await panelCachedApps(), ENGINE_VERSION);
 
+  // Crowd recorders ride FULL renders only (initial load / manual refresh / post-action), never the
+  // 12s poll (worker load stays flat; viewSig excludes them). A fetch failure paints a reconnect
+  // note inside the card — the rest of the dashboard must never be taken down by it.
+  if (!prefetched && Researcher.isApprovedSelf()) {
+    try { crowdCache = (await Researcher.crowdList()).recorders || []; } catch { crowdCache = null; }
+  }
+
   const cards = await Promise.all(insts.map(renderInstanceCard));
   root.querySelector('.rp-body').innerHTML = `
     <div id="rp-live-ver" class="rp-live${liveVersions === null ? ' rp-live-offline' : ''}">${esc(liveVerText())}</div>
@@ -505,7 +521,8 @@ async function renderDashboard(prefetched) {
       <p class="note">${esc(t('panel.dash.thisDeviceNote', { n: localDocs.length }))}</p>
       ${myDevice.text ? `<div class="note rp-devinfo${myDevice.stale ? ' rp-devinfo-stale' : ''}">${esc(myDevice.text)}${myDevice.stale ? ` <span class="rp-badge rp-badge-stale">${esc(t('panel.dev.stale'))}</span>` : ''}</div>` : ''}
     </div>
-    ${insts.length ? cards.join('') : `<p class="note rp-empty">${esc(t('panel.dash.empty'))}</p>`}`;
+    ${insts.length ? cards.join('') : `<p class="note rp-empty">${esc(t('panel.dash.empty'))}</p>`}
+    ${Researcher.isApprovedSelf() ? renderCrowdCard(crowdCache) : ''}`;
 
   wireActs({
     exit: close,
@@ -519,6 +536,7 @@ async function renderDashboard(prefetched) {
   // per-card actions are delegated:
   root.querySelectorAll('[data-iact]').forEach((el) => el.addEventListener('click', () => instanceAction(el)));
   root.querySelectorAll('[data-ract]').forEach((el) => el.addEventListener('click', () => researcherAction(el)));
+  root.querySelectorAll('[data-cact]').forEach((el) => el.addEventListener('click', () => crowdAction(el)));
   lastSig = viewSig(data);
   startDashPoll();
   // Refresh the LIVE-version tip on a full render (initial load / manual refresh), not on every poll tick.
@@ -567,6 +585,11 @@ async function renderInstanceCard(it) {
       </div>`;
     } else {
       const inv = ins.inventory && Array.isArray(ins.inventory.items) ? ins.inventory.items : null;
+      // uploadDelete gate: only engine v94+ understands the upload-first delete command — an older
+      // (or non-reporting) install gets a disabled button with a "must update first" tooltip instead
+      // of a command it would drop on the floor. Devices auto-update, so this resolves itself.
+      const engNum = parseInt(String((ins.inventory && ins.inventory.engineVersion) || '').replace(/[^0-9]/g, ''), 10);
+      const canDelText = engNum >= 94;
       // The inventory is decrypted from the field install's OWN report, so every value is
       // attacker-controllable if a device is seized (hostile-gov threat model). Titles go
       // through esc(); uploadState lands in a class attribute, so ALLOW-LIST it to the three
@@ -591,7 +614,13 @@ async function renderInstanceCard(it) {
                         justUploaded: 'panel.inst.reupload', slow: 'panel.inst.resend' }[DISP] || 'panel.inst.upload';
         const up = pending ? ''   // request in flight: hide the button so it isn't double-fired
           : ` <button class="link-btn rp-up" data-iact="upload" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-fileid="${esc(d.uploadedFileId || '')}">${esc(t(label))}</button>`;
-        return `<li>${esc(d.title || d.titleHash || '?')} ${d.hasAudio ? `<span class="rp-tag">${esc(t('panel.inst.audio'))}</span>` : ''}<span class="rp-tag rp-tag-${DISP}">${esc(t('panel.up.' + DISP))}</span>${up}</li>`;
+        // Upload-first remote delete (v94+): the device uploads a fresh timestamped copy, THEN deletes.
+        // No marker machinery — the row simply disappears from the inventory on the next report.
+        const del = !d.id ? ''
+          : canDelText
+            ? ` <button class="link-btn rp-revoke" data-iact="del-text" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.inst.delText'))}</button>`
+            : ` <button class="link-btn rp-revoke" disabled title="${esc(t('panel.inst.delNeedsUpdate'))}">${esc(t('panel.inst.delText'))}</button>`;
+        return `<li>${esc(d.title || d.titleHash || '?')} ${d.hasAudio ? `<span class="rp-tag">${esc(t('panel.inst.audio'))}</span>` : ''}<span class="rp-tag rp-tag-${DISP}">${esc(t('panel.up.' + DISP))}</span>${up}${del}</li>`;
       }).join('')
         : `<li class="note">${esc(t('panel.inst.noTexts'))}</li>`;
       installsHtml += `<div class="rp-install">
@@ -681,6 +710,13 @@ async function instanceAction(el) {
       requestedUploads.set(docId, { prevFileId, requestedAt: Date.now(), doneAt: 0 });
       deps.toast(t('panel.inst.uploadSent'), 5000);
       renderDashboard(lastData || undefined);                             // instant feedback: row flips to "request sent…"
+    } else if (act === 'del-text') {
+      // Upload-first delete: the confirm spells out the safety order (fresh Drive copy FIRST, delete
+      // only after it's confirmed). No local marker — the row vanishes on the device's next report.
+      if (!confirm(t('panel.inst.confirmDelText', { title: el.dataset.title || '?' }))) return;
+      await busy(el, () => Researcher.uploadDelete(id, el.dataset.id));    // data-id is the doc id here
+      deps.toast(t('panel.inst.delSent'), 5000);
+      renderDashboard(lastData || undefined);
     } else if (act === 'settings') {
       lastView = await Researcher.listView();
       const inst = lastView.instances.find((x) => x.instance_id === id);
@@ -833,6 +869,300 @@ function assignModal(instanceId) {
     try { await Researcher.assign(instanceId, crypto.randomUUID(), fields); m.close(); deps.toast(t('panel.assign.sent'), 4000); }
     catch (err) { errToast(err); }
   });
+}
+
+/* ---------------- crowd recorders (public crowd-source recording pages) ----------------
+ * A crowd recorder is a PUBLIC page (CROWD_BASE?c=<id>) anyone with the link can use: welcome →
+ * consent → record → the worker relays the zip to the researcher's Drive folder. No login, no local
+ * corpus, no E2EE — the keyless public page must read its own config, so everything in it (except
+ * nothing: even the folder id) is server-readable. The edit modal warns accordingly. */
+
+// Bytes → human size up to GB (the crowd budgets are GB-scale; fmtSize stops at MB).
+function fmtBytes(b) {
+  b = Number(b) || 0;
+  if (b >= 1073741824) { const g = b / 1073741824; return (g >= 10 ? Math.round(g) : g.toFixed(1)) + ' GB'; }
+  if (b >= 1048576) { const mo = b / 1048576; return (mo >= 10 ? Math.round(mo) : mo.toFixed(1)) + ' MB'; }
+  return Math.max(0, Math.round(b / 1024)) + ' KB';
+}
+
+const CROWD_DEFAULT_CONFIG = { welcome: '', consentAsk: ['text'], consentConfirm: ['yesno'], consentMsg: '', consentAudioUrl: '', lang: 'id', maxSeconds: 300, turnstile: true };
+
+function renderCrowdCard(recs) {
+  let body;
+  if (recs == null) body = `<p class="banner warn-banner">${esc(t('panel.crowd.fetchFail'))}</p>
+    <button class="secondary-btn" data-cact="reload">${esc(t('panel.dash.retry'))}</button>`;
+  else if (!recs.length) body = `<p class="note">${esc(t('panel.crowd.empty'))}</p>`;
+  else body = recs.map(renderCrowdRow).join('');
+  return `<div class="rp-card rp-crowd">
+    <div class="rp-inst-top"><span class="rp-inst-name">${esc(t('panel.crowd.title'))}</span></div>
+    <p class="note">${esc(t('panel.crowd.intro'))}</p>
+    ${body}
+    <div class="rp-inst-actions"><button class="primary-btn" data-cact="new">${esc(t('panel.crowd.new'))}</button></div>
+  </div>`;
+}
+
+function renderCrowdRow(r) {
+  const id = esc(r.crowd_id);
+  const live = Number(r.enabled) === 1;
+  // Budget-reached = auto-paused by the worker until the day/budget resets or the researcher raises it.
+  const overDay = Number(r.max_per_day) > 0 && Number(r.day_count) >= Number(r.max_per_day);
+  const overBytes = Number(r.max_bytes_total) > 0 && Number(r.bytes_total) >= Number(r.max_bytes_total);
+  const pill = live
+    ? `<span class="rp-badge rp-badge-ok">${esc(t('panel.crowd.live'))}</span>`
+    : `<span class="rp-badge">${esc(t('panel.crowd.paused'))}</span>`;
+  const counts = t('panel.crowd.counts', {
+    total: Number(r.submit_count) || 0,
+    today: Number(r.day_count) || 0, max: Number(r.max_per_day) || 0,
+    bytes: fmtBytes(r.bytes_total), budget: fmtBytes(r.max_bytes_total),
+  });
+  return `<div class="rp-install">
+    <div><div class="rp-inst-name">${esc(r.label || '?')} ${pill}</div>
+      <div class="note">${esc(counts)}</div>
+      ${(overDay || overBytes) ? `<div class="note rp-crowd-budget">${esc(t('panel.crowd.budget'))}</div>` : ''}</div>
+    <div class="rp-inst-actions">
+      <button class="secondary-btn" data-cact="edit" data-c="${id}">${esc(t('panel.crowd.edit'))}</button>
+      <button class="secondary-btn" data-cact="share" data-c="${id}">${esc(t('panel.crowd.share'))}</button>
+      <button class="secondary-btn" data-cact="toggle" data-c="${id}" data-on="${live ? '1' : '0'}">${esc(t(live ? 'panel.crowd.pause' : 'panel.crowd.resume'))}</button>
+      <button class="link-btn" data-cact="subs" data-c="${id}">${esc(t('panel.crowd.subs'))}</button>
+      <button class="link-btn rp-revoke" data-cact="delete" data-c="${id}">${esc(t('panel.crowd.delete'))}</button>
+    </div>
+  </div>`;
+}
+
+// Refetch + repaint ONLY the crowd card (post-action feedback without a full dashboard refetch).
+async function refreshCrowd() {
+  try { crowdCache = (await Researcher.crowdList()).recorders || []; } catch { crowdCache = null; }
+  const holder = root && root.querySelector('.rp-crowd');
+  if (!holder) return;
+  const tmp = document.createElement('div');
+  tmp.innerHTML = renderCrowdCard(crowdCache);
+  holder.replaceWith(tmp.firstElementChild);
+  root.querySelectorAll('.rp-crowd [data-cact]').forEach((el) => el.addEventListener('click', () => crowdAction(el)));
+}
+
+async function crowdAction(el) {
+  const id = el.dataset.c, act = el.dataset.cact;
+  const rec = (Array.isArray(crowdCache) ? crowdCache : []).find((r) => r.crowd_id === id) || null;
+  try {
+    if (act === 'new') newCrowdModal();
+    else if (act === 'reload') await busy(el, refreshCrowd);
+    else if (act === 'edit') { if (rec) crowdEditModal(rec); }
+    else if (act === 'share') { if (rec) crowdShareModal(rec); }
+    else if (act === 'subs') { if (rec) crowdSubsModal(rec); }
+    else if (act === 'delete') { if (rec) crowdDeleteModal(rec); }
+    else if (act === 'toggle') {
+      // Pause/Resume is safe + instantly reversible → no confirm on either direction.
+      const on = el.dataset.on === '1';
+      await busy(el, () => Researcher.crowdUpdate(id, { enabled: on ? 0 : 1 }));
+      deps.toast(t(on ? 'panel.crowd.pausedToast' : 'panel.crowd.resumedToast'), 4000);
+      await refreshCrowd();
+    }
+  } catch (e) { errToast(e); }
+}
+
+// Create flow mirrors newDeviceModal: ask only for a label, create with safe defaults, then drop
+// straight into the edit modal so the recorder gets its Drive folder before anyone shares the link.
+function newCrowdModal() {
+  const m = modal(`
+    <h3>${esc(t('panel.crowd.newTitle'))}</h3>
+    <p class="note">${esc(t('panel.crowd.newIntro'))}</p>
+    <label class="rp-field"><span>${esc(t('panel.crowd.label'))}</span><input id="rp-cr-label" spellcheck="false" placeholder="${esc(t('panel.crowd.labelPh'))}"></label>
+    <button class="primary-btn" data-m="create">${esc(t('panel.crowd.create'))}</button>
+    <button class="link-btn" data-m="cancel">${esc(t('panel.set.cancel'))}</button>`);
+  m.el.querySelector('[data-m="cancel"]').onclick = m.close;
+  m.el.querySelector('[data-m="create"]').onclick = (e) => busy(e.target, async () => {
+    const label = m.el.querySelector('#rp-cr-label').value.trim();
+    if (!label) return deps.toast(t('panel.crowd.needLabel'), 4000);
+    try {
+      const r = await Researcher.crowdCreate(label, '', Object.assign({}, CROWD_DEFAULT_CONFIG));
+      m.close();
+      await refreshCrowd();   // also pulls the server-defaulted budgets for the edit modal below
+      deps.toast(t('panel.crowd.created'), 4000);
+      const rec = (Array.isArray(crowdCache) ? crowdCache : []).find((x) => x.crowd_id === r.crowd_id)
+        || { crowd_id: r.crowd_id, label, enabled: 1, drive_folder: '', config: Object.assign({}, CROWD_DEFAULT_CONFIG), max_per_day: 200, max_bytes_total: 1073741824 };
+      crowdEditModal(rec);
+    } catch (err) { errToast(err); }
+  });
+}
+
+function crowdEditModal(rec) {
+  const cfg = (rec.config && typeof rec.config === 'object') ? rec.config : {};
+  const secs = [60, 120, 300, 600];
+  const m = modal(`
+    <h3>${esc(t('panel.crowd.editTitle', { label: rec.label || '' }))}</h3>
+    <p class="banner warn-banner">${esc(t('panel.crowd.publicWarn'))}</p>
+    <label class="rp-field"><span>${esc(t('panel.crowd.label'))}</span><input id="cr-label" spellcheck="false"></label>
+    <label class="rp-field"><span>${esc(t('panel.crowd.welcome'))}</span><textarea id="cr-welcome" rows="2"></textarea></label>
+    <div class="rp-field"><span>${esc(t('panel.f.consentAsk'))}</span><div class="rp-multi">${['text', 'audio'].map((o) =>
+      `<label class="check-label rp-inline"><input type="checkbox" data-ask="${o}"> ${esc(t('panel.opt.ask.' + o))}</label>`).join('')}</div></div>
+    <label class="rp-field"><span>${esc(t('panel.f.consentMsg'))}</span><textarea id="cr-cmsg" rows="2"></textarea></label>
+    <label class="rp-field"><span>${esc(t('panel.f.consentAudioUrl'))}</span><input id="cr-caudio" spellcheck="false"></label>
+    <div class="rp-field"><span>${esc(t('panel.f.consentConfirm'))}</span><div class="rp-multi">${['yesno', 'record', 'signature'].map((o) =>
+      `<label class="check-label rp-inline"><input type="checkbox" data-conf="${o}"> ${esc(t('panel.opt.conf.' + o))}</label>`).join('')}</div></div>
+    <label class="rp-field"><span>${esc(t('panel.crowd.folder'))}</span><input id="cr-folder" spellcheck="false"></label>
+    <div class="rp-probe-row">
+      <button type="button" class="link-btn rp-probe-btn" data-m="probe">${esc(t('panel.f.probeBtn'))}</button>
+      <div class="rp-probe-result" role="status" hidden></div></div>
+    <label class="rp-field"><span>${esc(t('panel.crowd.lang'))}</span>
+      <select id="cr-lang"><option value="en">${esc(t('panel.opt.appLang.en'))}</option><option value="id">${esc(t('panel.opt.appLang.id'))}</option></select></label>
+    <label class="rp-field"><span>${esc(t('panel.crowd.maxSec'))}</span>
+      <select id="cr-maxsec">${secs.map((s) => `<option value="${s}">${esc(t('panel.opt.crowdSec.' + s))}</option>`).join('')}</select></label>
+    <label class="check-label"><input type="checkbox" id="cr-turnstile"> ${esc(t('panel.crowd.turnstile'))}</label>
+    <p class="note">${esc(t('panel.crowd.turnstileNote'))}</p>
+    <label class="rp-field"><span>${esc(t('panel.crowd.maxDay'))}</span><input id="cr-maxday" type="number" min="1" inputmode="numeric"></label>
+    <label class="rp-field"><span>${esc(t('panel.crowd.maxMb'))}</span><input id="cr-maxmb" type="number" min="1" inputmode="numeric"></label>
+    <button class="primary-btn" data-m="save">${esc(t('panel.crowd.save'))}</button>
+    <button class="link-btn" data-m="cancel">${esc(t('panel.set.cancel'))}</button>`, true);
+  const $$ = (s) => m.el.querySelector(s);
+  // Prefill programmatically (same pattern as fillForm) — no untrusted values in attribute position.
+  $$('#cr-label').value = rec.label || '';
+  $$('#cr-welcome').value = cfg.welcome || '';
+  $$('#cr-cmsg').value = cfg.consentMsg || '';
+  $$('#cr-caudio').value = cfg.consentAudioUrl || '';
+  $$('#cr-folder').value = rec.drive_folder || '';
+  $$('#cr-lang').value = cfg.lang === 'en' ? 'en' : 'id';
+  $$('#cr-maxsec').value = String(secs.includes(Number(cfg.maxSeconds)) ? Number(cfg.maxSeconds) : 300);
+  $$('#cr-turnstile').checked = cfg.turnstile !== false;   // default ON
+  $$('#cr-maxday').value = String(Number(rec.max_per_day) || 200);
+  $$('#cr-maxmb').value = String(Math.max(1, Math.round((Number(rec.max_bytes_total) || 1073741824) / 1048576)));
+  const ask = Array.isArray(cfg.consentAsk) ? cfg.consentAsk : [];
+  const conf = Array.isArray(cfg.consentConfirm) ? cfg.consentConfirm : [];
+  m.el.querySelectorAll('[data-ask]').forEach((c) => { c.checked = ask.includes(c.dataset.ask); });
+  m.el.querySelectorAll('[data-conf]').forEach((c) => { c.checked = conf.includes(c.dataset.conf); });
+  m.el.querySelector('[data-m="cancel"]').onclick = m.close;
+
+  // "Test folder" — same live write-probe as the device settings (a real file through the relay), so
+  // a green result PROVES public submissions will land in this folder.
+  m.el.querySelector('[data-m="probe"]').addEventListener('click', (e) => busy(e.target, async () => {
+    const out = m.el.querySelector('.rp-probe-result');
+    const paint = (msg, kind) => { out.hidden = false; out.textContent = msg; out.className = 'rp-probe-result' + (kind ? ' rp-as-' + kind : ''); };
+    const raw = ($$('#cr-folder').value || '').trim();
+    const fid = deps.parseDriveFolder ? deps.parseDriveFolder(raw) : raw;
+    if (!fid) { paint(t('panel.probe.needFolder'), 'err'); return; }
+    paint(t('panel.probe.testing'));
+    try {
+      const r = await probeDriveFolder(deps.driveRelay, fid);
+      if (r && r.ok) paint(t('panel.probe.ok', { name: r.name }), 'ok');
+      else paint(t('panel.probe.timeout'), 'err');
+    } catch (err) { paint(t('panel.probe.failPrefix') + ' ' + (err.message || ''), 'err'); }
+  }));
+
+  m.el.querySelector('[data-m="save"]').onclick = (e) => busy(e.target, async () => {
+    const label = $$('#cr-label').value.trim();
+    if (!label) return deps.toast(t('panel.crowd.needLabel'), 4000);
+    // The folder is REQUIRED — a folderless crowd recorder would swallow submissions into nowhere.
+    const rawFolder = ($$('#cr-folder').value || '').trim();
+    const fid = deps.parseDriveFolder ? (deps.parseDriveFolder(rawFolder) || '') : rawFolder;
+    if (!fid) return deps.toast(t('panel.crowd.needFolder'), 6000);
+    const config = {
+      welcome: $$('#cr-welcome').value.trim(),
+      consentAsk: Array.from(m.el.querySelectorAll('[data-ask]')).filter((c) => c.checked).map((c) => c.dataset.ask),
+      consentConfirm: Array.from(m.el.querySelectorAll('[data-conf]')).filter((c) => c.checked).map((c) => c.dataset.conf),
+      consentMsg: $$('#cr-cmsg').value.trim(),
+      consentAudioUrl: $$('#cr-caudio').value.trim(),
+      lang: $$('#cr-lang').value === 'en' ? 'en' : 'id',
+      maxSeconds: parseInt($$('#cr-maxsec').value, 10) || 300,
+      turnstile: $$('#cr-turnstile').checked,
+    };
+    const maxDay = parseInt($$('#cr-maxday').value, 10);
+    const maxMb = parseInt($$('#cr-maxmb').value, 10);
+    try {
+      await Researcher.crowdUpdate(rec.crowd_id, {
+        label, drive_folder: fid, config,
+        max_per_day: maxDay > 0 ? maxDay : 200,                       // NaN/0 → the documented defaults
+        max_bytes_total: maxMb > 0 ? maxMb * 1048576 : 1073741824,    // researcher-facing unit is MB
+      });
+      m.close(); deps.toast(t('panel.crowd.saved'), 4000);
+      refreshCrowd();
+    } catch (err) { errToast(err); }
+  });
+}
+
+// Share & Embed — patterned on inviteModal (readonly boxes + Copy). Three integration tiers, most
+// robust first; the notes are the field-tested embedding pitfalls (allow="microphone", CMS stripping).
+function crowdShareModal(rec) {
+  const link = CROWD_BASE + '?c=' + encodeURIComponent(rec.crowd_id);
+  const snips = {
+    link,
+    iframe: `<iframe src="${link}&embed=1" allow="microphone; autoplay" style="width:100%;max-width:480px;height:640px;border:0;border-radius:12px" title="Voice recorder" loading="lazy"></iframe>`,
+    script: `<script async src="${CROWD_BASE}embed.js" data-recorder="${rec.crowd_id}"><\/script>`,
+  };
+  const block = (key, titleKey, noteKey, rows, share) => `
+    <div class="rp-field"><span>${esc(t(titleKey))}</span>
+      <textarea class="rp-linkbox" readonly rows="${rows}" data-url="${key}">${esc(snips[key])}</textarea>
+      <p class="note">${esc(t(noteKey))}</p>
+      <div class="rp-inst-actions"><button class="secondary-btn" data-copy="${key}">${esc(t(share ? 'panel.invite.copy' : 'panel.crowd.copyCode'))}</button>
+      ${share ? `<button class="link-btn" data-share="${key}">${esc(t('panel.invite.share'))}</button>` : ''}</div></div>`;
+  const m = modal(`
+    <h3>${esc(t('panel.crowd.shareTitle', { label: rec.label || '' }))}</h3>
+    <p class="banner warn-banner">${esc(t('panel.crowd.shareWarn'))}</p>
+    ${block('link', 'panel.crowd.shareLink', 'panel.crowd.shareLinkNote', 2, true)}
+    ${block('iframe', 'panel.crowd.shareIframe', 'panel.crowd.shareIframeNote', 4, false)}
+    ${block('script', 'panel.crowd.shareScript', 'panel.crowd.shareScriptNote', 3, false)}
+    <p class="note">${esc(t('panel.crowd.wildfireNote'))}</p>
+    <button class="link-btn" data-m="close">${esc(t('panel.invite.close'))}</button>`, true);
+  m.el.querySelector('[data-m="close"]').onclick = m.close;
+  m.el.querySelectorAll('[data-copy]').forEach((b) => { b.onclick = async () => {
+    const u = snips[b.dataset.copy];
+    try { await navigator.clipboard.writeText(u); deps.toast(t('panel.invite.copied'), 3000); }
+    catch { const ta = m.el.querySelector(`[data-url="${b.dataset.copy}"]`); if (ta) ta.select(); }
+  }; });
+  m.el.querySelectorAll('[data-share]').forEach((b) => { b.onclick = () => {
+    const u = snips[b.dataset.share];
+    if (navigator.share) navigator.share({ url: u, text: t('panel.crowd.shareText') }).catch(() => {});
+    else window.open('https://wa.me/?text=' + encodeURIComponent(u), '_blank');
+  }; });
+}
+
+// Last 50 submissions (worker keeps a rolling log; already-uploaded Drive files are the real archive).
+async function crowdSubsModal(rec) {
+  const m = modal(`<h3>${esc(t('panel.crowd.subsTitle', { label: rec.label || '' }))}</h3>
+    <p class="note">${esc(t('panel.crowd.subsLoading'))}</p>`, true);
+  try {
+    const r = await Researcher.crowdSubmissions(rec.crowd_id);
+    const subs = r.submissions || [];
+    const rows = subs.length ? subs.map((s) => `<tr>
+      <td>${esc(s.created_at ? new Date(s.created_at).toLocaleString() : '?')}</td>
+      <td>${esc(fmtBytes(s.bytes))}</td>
+      <td>${esc(s.country || '—')}</td>
+      <td>${esc(s.file_name || '—')}</td>
+      <td>${esc(s.status || '—')}</td></tr>`).join('')
+      : `<tr><td colspan="5" class="note">${esc(t('panel.crowd.subsNone'))}</td></tr>`;
+    m.el.querySelector('.modal-card').innerHTML = `
+      <h3>${esc(t('panel.crowd.subsTitle', { label: rec.label || '' }))}</h3>
+      <p class="note">${esc(t('panel.crowd.subsIntro'))}</p>
+      <div class="rp-subs-scroll"><table class="ws-table"><thead><tr>
+        <th>${esc(t('panel.crowd.subDate'))}</th><th>${esc(t('panel.crowd.subSize'))}</th><th>${esc(t('panel.crowd.subCountry'))}</th><th>${esc(t('panel.crowd.subFile'))}</th><th>${esc(t('panel.crowd.subStatus'))}</th>
+      </tr></thead><tbody>${rows}</tbody></table></div>
+      <button class="primary-btn" data-m="close">${esc(t('panel.invite.close'))}</button>`;
+    m.el.querySelector('[data-m="close"]').onclick = m.close;
+  } catch (e) { m.close(); errToast(e); }
+}
+
+// Typed-confirmation delete (patterned on wipeConfirmModal): kills the PUBLIC link immediately +
+// deletes the submission log; already-uploaded Drive files are NOT touched. Cannot be undone.
+function crowdDeleteModal(rec) {
+  const m = modal(`
+    <h3>${esc(t('panel.crowd.delTitle'))}</h3>
+    <p class="note">${esc(t('panel.crowd.delWhat'))}</p>
+    <p class="banner warn-banner">${esc(t('panel.crowd.delWarn'))}</p>
+    <label class="rp-field"><span>${esc(t('panel.crowd.delTypeLabel', { label: rec.label || 'DELETE' }))}</span>
+      <input id="crowd-del-confirm" spellcheck="false" autocomplete="off"></label>
+    <button class="primary-btn rp-danger" data-m="go" disabled>${esc(t('panel.crowd.delBtn'))}</button>
+    <button class="link-btn" data-m="close">${esc(t('panel.util.close'))}</button>`, true);
+  const input = m.el.querySelector('#crowd-del-confirm');
+  const go = m.el.querySelector('[data-m="go"]');
+  const want = (rec.label || 'DELETE').trim().toLowerCase();
+  input.addEventListener('input', () => { go.disabled = input.value.trim().toLowerCase() !== want; });
+  m.el.querySelector('[data-m="close"]').onclick = m.close;
+  go.onclick = async () => {
+    go.disabled = true; go.textContent = t('panel.crowd.delWorking');
+    try {
+      await Researcher.crowdDelete(rec.crowd_id);
+      m.close(); deps.toast(t('panel.crowd.deleted'), 5000);
+      refreshCrowd();
+    } catch (e) { errToast(e); go.disabled = false; go.textContent = t('panel.crowd.delBtn'); }
+  };
 }
 
 /* ---------------- Utilities: audio converter + FLEx writing-systems checker ----------------
@@ -1166,6 +1496,9 @@ function accountModal() {
     <p class="note">${esc(t('panel.account.stayNote'))}</p>
     <button class="link-btn" data-m="signout">${esc(t('panel.account.signout'))}</button>
     <hr class="rp-sep">
+    <div class="rp-field"><span>${esc(t('panel.drive.title'))}</span>
+      <div id="rp-drive-body"><p class="note">${esc(t('panel.drive.loading'))}</p></div></div>
+    <hr class="rp-sep">
     <p class="note">${esc(t('panel.delacct.intro'))}</p>
     <button class="link-btn rp-danger" data-m="delacct">${esc(t('panel.delacct.link'))}</button>
     <button class="link-btn" data-m="close">${esc(t('panel.invite.close'))}</button>`, true);
@@ -1177,6 +1510,59 @@ function accountModal() {
     Researcher.signOut(); m.close(); deps.onSignedUp && deps.onSignedUp(); route();
   };
   m.el.querySelector('[data-m="delacct"]').onclick = () => { m.close(); deleteAccountModal(); };   // permanent server-side account delete
+  driveSection(m.el.querySelector('#rp-drive-body'));
+}
+
+/* Drive-delivery section (inside the account modal): where do the uploads land — the shared relay's
+ * "anyone with link can edit" folders (current setup), or the researcher's OWN Drive via OAuth. All
+ * error codes from the worker are translated into plain-language fix steps: the field-priority rule
+ * (idiot-proof over terse) applies to researchers too. Full instructions: docs/drive-oauth-cutover.md. */
+function driveSection(body) {
+  // Worker error codes → plain language. Codes come from OUR worker (not attacker data), but esc()'d anyway.
+  const explain = (e) => {
+    const code = (e && e.message) || '';
+    if (code === 'reconnect_needed') return t('panel.drive.reconnectNeeded');
+    if (code === 'drive_api_disabled') return t('panel.drive.apiDisabled');
+    if (code === 'oauth_unconfigured') return t('panel.drive.oauthUnconfigured');
+    return t('panel.err', { msg: code || String(e) });
+  };
+  const load = async () => {
+    body.innerHTML = `<p class="note">${esc(t('panel.drive.loading'))}</p>`;
+    let st;
+    try { st = await Researcher.driveStatus(); }
+    catch {
+      // Tolerate a fetch failure with an inline retry — never a dead section in the account modal.
+      body.innerHTML = `<p class="note">${esc(t('panel.drive.loadFail'))} <button type="button" class="link-btn" data-d="retry">${esc(t('panel.drive.retry'))}</button></p>`;
+      body.querySelector('[data-d="retry"]').onclick = load;
+      return;
+    }
+    const oauth = st.mode === 'oauth';
+    body.innerHTML = `
+      ${st.error ? `<p class="banner warn-banner">${esc(t('panel.drive.errBanner', { msg: (st.error && st.error.msg) || '' }))} ${esc(t('panel.drive.reconnectNeeded'))}</p>` : ''}
+      <p class="note">${esc(oauth ? t('panel.drive.modeOauth', { email: st.email || '?' }) : t('panel.drive.modeRelay'))}</p>
+      <div class="rp-inst-actions">
+        <button type="button" class="secondary-btn" data-d="test">${esc(t('panel.drive.test'))}</button>
+        <button type="button" class="secondary-btn" data-d="switch">${esc(t(oauth ? 'panel.drive.switchRelay' : 'panel.drive.switchOauth'))}</button>
+      </div>
+      <div class="rp-probe-result" role="status" hidden></div>
+      <p class="note">${esc(t('panel.drive.docNote'))}</p>`;
+    const out = body.querySelector('.rp-probe-result');
+    const paint = (msg, kind) => { out.hidden = false; out.textContent = msg; out.className = 'rp-probe-result' + (kind ? ' rp-as-' + kind : ''); };
+    body.querySelector('[data-d="test"]').addEventListener('click', (e) => busy(e.target, async () => {
+      paint(t('panel.drive.testing'));
+      try { const r = await Researcher.driveTest(); paint(t('panel.drive.testOk') + ((r && r.note) ? ' — ' + r.note : ''), 'ok'); }
+      catch (err) { paint(explain(err), 'err'); }
+    }));
+    body.querySelector('[data-d="switch"]').addEventListener('click', (e) => busy(e.target, async () => {
+      // The worker live-tests before accepting 'oauth' — a failed switch surfaces the same codes as /test.
+      try {
+        const r = await Researcher.driveSetMode(oauth ? 'relay' : 'oauth');
+        deps.toast(t(r.mode === 'oauth' ? 'panel.drive.nowOauth' : 'panel.drive.nowRelay'), 5000);
+        load();
+      } catch (err) { paint(explain(err), 'err'); }
+    }));
+  };
+  load();
 }
 
 /* ---------------- the reusable tabbed settings modal ---------------- */
@@ -1184,7 +1570,11 @@ function accountModal() {
 function fieldHtml(f) {
   const label = esc(t('panel.f.' + f.k));
   if (f.type === 'checkbox') {
-    return `<label class="check-label"><input type="checkbox" data-f="${f.k}"> ${label}</label>`;
+    const cb = `<label class="check-label"><input type="checkbox" data-f="${f.k}"> ${label}</label>`;
+    // Auto-backup needs its "what actually happens" note (new timestamped copy per backup; the
+    // quiet-time wait stops a copy per keystroke) — without it researchers expect an overwrite.
+    if (f.k === 'autoBackup') return cb + `<p class="note">${esc(t('panel.f.autoBackupNote'))}</p>`;
+    return cb;
   }
   if (f.type === 'multicheck') {
     const boxes = f.opts.map((o) => `<label class="check-label rp-inline"><input type="checkbox" data-f="${f.k}" data-v="${o}"> ${esc(t((f.optPrefix || '') + o))}</label>`).join('');
@@ -1232,6 +1622,7 @@ function toFormValues(s, mode) {
     // (else every later push would re-clobber a field worker who toggled their own language back).
     else if (f.k === 'appLang') v.appLang = 'follow';
     else if (f.k === 'autoDel') v.autoDel = !!s.autoDelUploaded;                                   // stored as autoDelUploaded
+    else if (f.k === 'autoBackupMins') v.autoBackupMins = String(s.autoBackupMins || 15);          // stored as a number; default 15
     else if (f.type === 'checkbox') v[f.k] = !!s[f.k];
     else if (f.type === 'select') v[f.k] = s[f.k] || (f.k === 'recordFormat' ? DEFAULT_REC_FORMAT : f.opts[0]);
     else v[f.k] = s[f.k] || '';
@@ -1266,7 +1657,7 @@ function collectRaw(box) {
 function readForm(box, mode) {
   const raw = collectRaw(box);
   const patch = {};
-  const SPECIAL = ['upload', 'sendOptions', 'buttons', 'autoDel', 'consentAudioUrl'];
+  const SPECIAL = ['upload', 'sendOptions', 'buttons', 'autoDel', 'consentAudioUrl', 'autoBackupMins'];
   for (const g of GROUPS) for (const f of groupFields(g, mode)) {
     if (SPECIAL.includes(f.k)) continue;
     patch[f.k] = raw[f.k];
@@ -1276,6 +1667,8 @@ function readForm(box, mode) {
   if (patch.appLang === 'follow' || !patch.appLang) delete patch.appLang;
   // autoDel checkbox is stored as autoDelUploaded (the key the field client reads).
   patch.autoDelUploaded = !!raw.autoDel;
+  // autoBackup rides the generic path (boolean); the minutes select is a string → the device wants a number.
+  patch.autoBackupMins = parseInt(raw.autoBackupMins, 10) || 15;
   // Consent audio: store the raw link AND the resolved URL the device actually plays.
   patch.consentAudioUrl = raw.consentAudioUrl || '';
   patch.consentAudio = (raw.consentAudioUrl && deps.resolveAudioInput) ? deps.resolveAudioInput(raw.consentAudioUrl) : '';

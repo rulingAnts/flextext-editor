@@ -951,3 +951,26 @@ main {
   .rp-install-pending { flex-direction: column; align-items: stretch; }
   .rp-head { margin: -12px calc(-1 * clamp(10px, 3vw, 28px)) 12px; }
 }
+
+/* ---------------- Crowd mode (public crowd-source recorder) ---------------- */
+.crowd-screen { text-align: center; }
+.crowd-status { font-size: 1.15rem; margin: 18px 0; }
+.crowd-thanks {
+  width: 72px; height: 72px; line-height: 72px; margin: 24px auto 8px;
+  border-radius: 50%; background: var(--ok, #2e7d32); color: #fff;
+  font-size: 2rem; text-align: center;
+}
+.crowd-note { margin-top: 10px; }
+/* Turnstile host: invisible in managed mode; if a challenge ever shows it floats
+   bottom-center where an embedded iframe can still display it. */
+#crowd-turnstile { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 60; }
+/* Embedded (?embed=1): tighter chrome inside a ~480px iframe. */
+.crowd-embed #topbar { display: none; }
+.crowd-embed .record-screen { padding-top: 8px; }
+.crowd-embed .record-welcome { font-size: 1.05rem; margin: 6px 0 14px; }
+
+/* Crowd recorders (researcher panel) */
+.rp-crowd-budget { display: inline-block; background: #fbe6cf; color: #8a4b10; border-radius: 6px; padding: 3px 8px; }   /* amber, matches rp-tag-slow palette */
+.rp-subs-scroll { overflow-x: auto; }   /* submissions table can outgrow the modal on phones */
+/* Disabled link-button (e.g. "Remove from device" gated until the device engine reaches v94) */
+.link-btn:disabled { color: var(--muted); cursor: not-allowed; opacity: .6; }

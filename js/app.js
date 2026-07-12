@@ -35,6 +35,13 @@ const RECORD_MODE = (typeof window !== 'undefined' && window.__MODE === 'record'
 // there is no in-editor URL entry anymore.
 const RESEARCHER_MODE = (typeof window !== 'undefined' && window.__MODE === 'researcher') ||
   (new URLSearchParams(location.search).get('mode') === 'researcher' && isLocalDev());
+// Crowd mode: the PUBLIC crowd-source recorder (crowd-recorder/index.html sets
+// window.__MODE='crowd'). No PWA/SW/sync — an always-fresh page anyone with the link
+// can use: welcome → consent → record → submit straight to the worker (which relays
+// to the researcher's Drive). It shares this ORIGIN with the field apps, so it must
+// NEVER write the shared settings/lang/doc stores — its config lives in memory and
+// its only persistence is its OWN IndexedDB database (unsent submissions).
+const CROWD_MODE = typeof window !== 'undefined' && window.__MODE === 'crowd';
 
 // The Texts-screen "new text" buttons a researcher can show/hide per link.
 const ALL_BUTTONS = ['new', 'audio', 'record', 'open'];
@@ -656,7 +663,7 @@ function buildConsentReceipt(assent, signatureName) {
   if (confirm.includes('signature')) responseTypes.push('signature');
   if (!responseTypes.length) responseTypes.push('yesno');
   return {
-    app: 'Flextext Editor',
+    app: CROWD_MODE ? 'Flextext Crowd Recorder' : 'Flextext Editor',
     consentGiven: true,
     responseTypes,
     responseType: responseTypes.join('+'),               // legacy single field, kept for older readers
@@ -671,7 +678,10 @@ function buildConsentReceipt(assent, signatureName) {
     localTime: now.toString(),
     timezone: (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch { return ''; } })(),
     interfaceLang: getLang(),
-    deviceId: deviceId(),
+    // Crowd: a per-VISIT id, never the persistent shared-origin device id — an
+    // anonymous contribution must not be linkable across visits (or to a field
+    // worker's app on the same browser).
+    deviceId: CROWD_MODE ? crowdSessionId : deviceId(),
     userAgent: navigator.userAgent,
     ipAddress: 'unavailable',
     approxLocation: lastGeo || 'unavailable',
@@ -683,6 +693,10 @@ function buildConsentReceipt(assent, signatureName) {
 // one-time first-tap request (readGeoIfGranted never prompts). Failures leave
 // the "unavailable" placeholders. Re-persists the owning doc once values arrive.
 async function captureConsentContext(receipt) {
+  // Crowd receipts stay location-free: no raw IP, no geolocation for an anonymous
+  // stranger (the worker logs coarse country only, server-side). The field-worker
+  // calibration (silent IP + opt-in location) does NOT transfer to the public.
+  if (CROWD_MODE) return;
   await Promise.allSettled([
     (async () => {
       try {
@@ -797,8 +811,12 @@ async function requestConsentThen(onApproved) {
     status.hidden = false;
     status.textContent = t('consent.loadingAudio');
     try {
-      const asset = await ensureAsset('asset:consent-prompt', settings.consentAudio, consentAudioIdentity())
-        || await getAsset('asset:consent-prompt');
+      // Crowd: fetch the prompt to MEMORY only — ensureAsset would write the shared
+      // media store and clobber a field worker's cached prompt on a shared device.
+      const asset = CROWD_MODE
+        ? await crowdFetchAsset(settings.consentAudio)
+        : (await ensureAsset('asset:consent-prompt', settings.consentAudio, consentAudioIdentity())
+           || await getAsset('asset:consent-prompt'));
       if (asset?.blob) {
         audioEl.src = URL.createObjectURL(asset.blob);
         audioEl.hidden = false;
@@ -922,7 +940,7 @@ async function startConsentAssent() {
 let rec = null;
 
 // The researcher-chosen capture format (default 32-bit WAV). Travels with links.
-function recordFormatPref() { return normRecFormat(settings.recordFormat); }
+function recordFormatPref() { return CROWD_MODE ? 'mp3' : normRecFormat(settings.recordFormat); } // crowd: small + universal + relay-safe
 
 // AGC (automatic gain control) is OFF BY DEFAULT — faithful, unmodified capture is
 // the archival-correct default (IASA TC-04 etc.). The tradeoff: Chrome/Android set
@@ -1018,8 +1036,9 @@ function recordUI(state, extra = {}) {
   $('#record-save').hidden = !inReview;
   $('#record-redo').hidden = !inReview;
   $('#record-preview').hidden = !inReview;
-  // A title is required before the recording can be saved.
-  $('#record-title-row').hidden = !inReview;
+  // A title is required before the recording can be saved — except in crowd mode:
+  // an anonymous visitor is never asked to name anything (the server names the file).
+  $('#record-title-row').hidden = !inReview || CROWD_MODE;
   // Meter + mic-distance hint show while recording on ANY path (the meter reads the
   // worklet on the lossless path, an AnalyserNode tap on the MediaRecorder path).
   const recording = state === 'recording';
@@ -1044,9 +1063,9 @@ function recordUI(state, extra = {}) {
   }
 }
 
-// Save stays disabled until the user names the text.
+// Save stays disabled until the user names the text (crowd: no title, always ready).
 function syncRecordSaveEnabled() {
-  $('#record-save').disabled = !$('#record-title').value.trim();
+  $('#record-save').disabled = CROWD_MODE ? false : !$('#record-title').value.trim();
 }
 
 function discardRecording() {
@@ -1111,6 +1130,9 @@ async function startRecording() {
   } catch (e) {
     recordUI('idle');
     $('#record-status').textContent = t('record.micError', { msg: e.message });
+    // Embedded crowd page: a host that stripped allow="microphone" fails exactly like
+    // a user "Block" — always offer the direct-link escape hatch when framed.
+    if (CROWD_MODE && window !== window.top) crowdShowFrameEscape();
   }
 }
 
@@ -1183,8 +1205,16 @@ async function startMediaRecorder(fmt, fellBack) {
 
 function startRecTimer() {
   const fmtT = (s) => Math.floor(s / 60) + ':' + String(Math.floor(s) % 60).padStart(2, '0');
-  rec.timer = setInterval(
-    () => recordUI('recording', { time: fmtT((Date.now() - rec.t0) / 1000) }), 250);
+  rec.timer = setInterval(() => {
+    const secs = (Date.now() - rec.t0) / 1000;
+    // Crowd cap: auto-STOP (to review — never discard) at the recorder's max length,
+    // so an abandoned open mic can't fill the researcher's budget with one take.
+    if (CROWD_MODE && CROWD_CFG && rec?.recording && secs >= CROWD_CFG.maxSeconds) {
+      stopRecording().catch(() => {});
+      return;
+    }
+    recordUI('recording', { time: fmtT(secs) });
+  }, 250);
 }
 
 // Stop either capture mode and move to review. MediaRecorder finishes in its
@@ -1218,8 +1248,9 @@ async function stopRecording() {
 
 async function saveRecording() {
   if (!rec || (!rec.blob && !rec.channels)) return;
-  const title = $('#record-title').value.trim();
-  if (!title) { syncRecordSaveEnabled(); $('#record-title').focus(); return; } // title required
+  let title = $('#record-title').value.trim();
+  if (CROWD_MODE) title = title || 'recording';   // anonymous visitor: server names the file
+  else if (!title) { syncRecordSaveEnabled(); $('#record-title').focus(); return; } // title required
   recordUI('saving', { pct: 0 });
   savingRecording = true;   // block any auto-update reload until the take is safely written to IndexedDB
   try {
@@ -1250,6 +1281,12 @@ async function saveRecording() {
     const receipt = pendingReceipt;   // them for the new doc
     const promptAudio = pendingPromptAudio;
     closeRecordModal();
+    if (CROWD_MODE) {
+      // Crowd divert: nothing enters the shared corpus. Bundle + persist to the
+      // crowd-only pending store, then submit; the finally below still runs.
+      await crowdQueueAndSubmit(file, { assent, receipt, promptAudio });
+      return;
+    }
     pendingAssent = assent;
     pendingReceipt = receipt;
     pendingPromptAudio = promptAudio;
@@ -1858,6 +1895,60 @@ async function deleteConfirmedDoc(docId) {
   return true;
 }
 
+// ---- upload-then-delete intents (the 'uploadDelete' command) ----
+// Persisted so a reload between "upload finished" and "delete applied" can't
+// orphan the intent. Never deletes by itself: consumption always goes through
+// deleteConfirmedDoc's proof-of-backup check.
+const PENDING_UPDEL_KEY = 'flextext-pending-upload-delete';
+function pendingUpDel() {
+  try { return JSON.parse(localStorage.getItem(PENDING_UPDEL_KEY)) || []; } catch { return []; }
+}
+function setPendingUpDel(ids) {
+  try { ids.length ? localStorage.setItem(PENDING_UPDEL_KEY, JSON.stringify(ids)) : localStorage.removeItem(PENDING_UPDEL_KEY); }
+  catch { /* private mode: the intent just won't survive a reload */ }
+}
+// Finish intents whose upload landed before a restart (or whose doc vanished).
+async function sweepPendingUpDel() {
+  const ids = pendingUpDel();
+  if (!ids.length) return;
+  const keep = [];
+  for (const docId of ids) {
+    const d = await db.getDoc(docId).catch(() => null);
+    if (!d) continue;                                             // gone — intent done
+    if (d.uploadedFileId && d.uploadedModified === d.modified) { await deleteConfirmedDoc(docId); continue; }
+    keep.push(docId);                                             // upload still pending — the queue retries it
+  }
+  setPendingUpDel(keep);
+}
+
+// ---- auto-backup (device setting autoBackup + autoBackupMins) ----
+// Researcher-enabled safety net: any text changed since its last upload is re-sent
+// automatically once it has been QUIET for autoBackupMins (default 15) — each send
+// is a fresh timestamped Drive copy, so the quiet timer (not the sweep cadence) is
+// what stops a copy per keystroke. Content-signature gated like manual uploads, so
+// timestamp-only churn never duplicates. Backs off 30 min per doc after a failure.
+const autoBackupTried = new Map();   // docId -> { sig, at }
+async function autoBackupSweep() {
+  if (RESEARCHER_MODE || CROWD_MODE) return;
+  if (settings.autoBackup !== true || !settings.uploadFolder || !navigator.onLine) return;
+  const quietMs = Math.max(1, parseInt(settings.autoBackupMins, 10) || 15) * 60000;
+  const nowT = Date.now();
+  const metas = await db.listDocs().catch(() => []);
+  for (const meta of metas) {
+    if (uploadView.has(meta.id) || getUpload(meta.id)) continue;   // queued or in flight
+    const d = await db.getDoc(meta.id).catch(() => null);
+    if (!d || !d.modified) continue;
+    if (nowT - d.modified < quietMs) continue;                     // still being worked on
+    if (d.uploadedModified === d.modified) continue;               // this exact state is on Drive
+    const sig = uploadContentSig(d);
+    if (d.uploadedSig && d.uploadedSig === sig) continue;          // content unchanged since last send
+    const tried = autoBackupTried.get(d.id);
+    if (tried && tried.sig === sig && nowT - tried.at < 30 * 60000) continue;
+    autoBackupTried.set(d.id, { sig, at: nowT });
+    await uploadDocById(d.id);                                     // one-at-a-time pump takes it from here
+  }
+}
+
 // Short, stable title hash for the report — no plaintext titles leave the device (plan §F.2).
 async function syncTitleHash(title) {
   const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(title || '')));
@@ -1968,6 +2059,23 @@ async function syncDispatch(cmd) {
       toast(t('sync.settingsUpdated'), 5000);
       break;
     }
+    case 'uploadDelete': {
+      // Per-text remote removal, upload-FIRST: back the text up to Drive, and only
+      // delete once the upload is CONFIRMED (the delete rides the upload-done hook,
+      // gated by deleteConfirmedDoc's proof-of-backup check — a failed upload means
+      // the text simply stays). The intent survives reloads in localStorage; the
+      // boot/online sweep finishes a delete whose upload landed before a restart.
+      const docId = cmd.docId || cmd.id;
+      if (!docId) break;
+      const d = await db.getDoc(docId).catch(() => null);
+      if (!d) break;                                              // already gone — nothing to do
+      if (d.uploadedFileId && d.uploadedModified === d.modified) { await deleteConfirmedDoc(docId); break; }
+      const ids = pendingUpDel();
+      if (!ids.includes(docId)) { ids.push(docId); setPendingUpDel(ids); }
+      if (current && current.id === docId) await doUpload(true);
+      else await uploadDocById(docId);
+      break;
+    }
     case 'triggerUpload': {
       const docId = cmd.docId || cmd.id;
       if (!docId) break;
@@ -2049,7 +2157,8 @@ async function syncGatherInventory() {
   for (const k of ['vernLang', 'vernName', 'vernFont', 'analLang', 'analName', 'analFont',
                    'recordFormat', 'agc', 'nr', 'echo', 'norm',
                    'consentAsk', 'consentConfirm', 'consentMode', 'consentMsg', 'consentResp', 'consentAudioUrl',
-                   'appLang', 'uploadFolder', 'toolbarButtons', 'sendOptions', 'autoDelUploaded', 'recordWelcome', 'deleteAllEnabled']) {
+                   'appLang', 'uploadFolder', 'toolbarButtons', 'sendOptions', 'autoDelUploaded', 'recordWelcome', 'deleteAllEnabled',
+                   'autoBackup', 'autoBackupMins']) {
     if (settings[k] !== undefined) snap[k] = settings[k];
   }
   // ua + cachedApps let the panel show which browser/device this install is + whether its apps are
@@ -2395,6 +2504,7 @@ function uploadState(docId) {
         // fires at the single upload-completion point, so it also covers
         // background-retry uploads that finish long after the user tapped Send.
         if (deleteAfterUpload()) {
+          setPendingUpDel(pendingUpDel().filter((x) => x !== docId));   // auto-delete covers the intent
           deleteUploadedDoc(docId).then(() => Sync.reportNow()); // inventory shrank — tell the panel promptly
           toast(t('record.sentRemoved', { name: st.name }), 6000);
         } else {
@@ -2414,9 +2524,17 @@ function uploadState(docId) {
           // Persist the new uploadedFileId, THEN report — so the researcher panel sees the (re)upload
           // land on its very next poll instead of waiting up to a full device-poll cycle (loop-closure:
           // the panel confirms completion by detecting a CHANGED uploadedFileId in the reported inventory).
-          db.getDoc(docId).then((d) => { if (d) { stamp(d); return db.putDoc(d); } })
-            .then(() => Sync.reportNow())
-            .catch(() => {});
+          db.getDoc(docId).then(async (d) => {
+            if (d) { stamp(d); await db.putDoc(d); }
+            // A researcher-requested upload-then-delete rides the SAME completion
+            // point: the proof-of-backup stamp above is persisted first, so
+            // deleteConfirmedDoc's delete-safety check passes only now.
+            if (pendingUpDel().includes(docId)) {
+              setPendingUpDel(pendingUpDel().filter((x) => x !== docId));
+              if (await deleteConfirmedDoc(docId)) toast(t('sync.removedAfterUpload'), 6000);
+            }
+            return Sync.reportNow();
+          }).catch(() => {});
           toast(t('upload.done', { name: st.name }), 6000);
         }
       }
@@ -2999,6 +3117,313 @@ function setupRecordMode() {
   show('record');
 }
 
+/* ---------------- Crowd mode (public crowd-source recorder) ----------------
+ * A plain, always-fresh web page (no SW, no install, no sync): fetch the recorder
+ * config by the ?c= id → welcome → the SAME consent gate + record modal the field
+ * apps use → zip (audio + consent receipt) → POST to the worker, which relays to
+ * the researcher's Drive. The zip is held in a crowd-ONLY IndexedDB database until
+ * the worker CONFIRMS delivery (a stranger's recording must survive a tab close /
+ * dead network), then deleted. Shared-origin discipline: never loadSettings/
+ * saveSettings/setLang(save)/db.* here — a field worker may use this browser.
+ */
+
+let CROWD_ID = '';
+let CROWD_CFG = null;
+let crowdSessionId = '';       // per-VISIT id for the consent receipt (never the shared deviceId)
+let crowdState = 'loading';
+let crowdPendingCount = 0;
+let crowdFlushing = false;
+const crowdMemQueue = [];      // fallback when IndexedDB is unavailable (strict private mode)
+const crowdAssetCache = new Map();
+
+// -- crowd-only IndexedDB (its OWN database; the editor corpus is never touched) --
+const CROWD_DB_NAME = 'flextext-crowd';
+function crowdIdbOpen() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(CROWD_DB_NAME, 1);
+    req.onupgradeneeded = () => { req.result.createObjectStore('pending', { keyPath: 'id' }); };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function crowdPutPending(item) {
+  try {
+    const idb = await crowdIdbOpen();
+    await new Promise((res, rej) => {
+      const tx = idb.transaction('pending', 'readwrite');
+      tx.objectStore('pending').put(item);
+      tx.oncomplete = () => res();
+      tx.onerror = () => rej(tx.error);
+    });
+    idb.close();
+  } catch { crowdMemQueue.push(item); }   // storage refused → memory-only (still submits)
+}
+async function crowdListPending() {
+  let items = [];
+  try {
+    const idb = await crowdIdbOpen();
+    items = await new Promise((res, rej) => {
+      const rq = idb.transaction('pending', 'readonly').objectStore('pending').getAll();
+      rq.onsuccess = () => res(rq.result || []);
+      rq.onerror = () => rej(rq.error);
+    });
+    idb.close();
+  } catch { /* no IDB */ }
+  return items.concat(crowdMemQueue);
+}
+async function crowdDelPending(id) {
+  const i = crowdMemQueue.findIndex((x) => x.id === id);
+  if (i >= 0) crowdMemQueue.splice(i, 1);
+  try {
+    const idb = await crowdIdbOpen();
+    await new Promise((res, rej) => {
+      const tx = idb.transaction('pending', 'readwrite');
+      tx.objectStore('pending').delete(id);
+      tx.oncomplete = () => res();
+      tx.onerror = () => rej(tx.error);
+    });
+    idb.close();
+  } catch { /* nothing persisted */ }
+}
+
+// Consent-prompt audio, fetched to MEMORY only (see requestConsentThen).
+async function crowdFetchAsset(url) {
+  if (!url) return null;
+  if (crowdAssetCache.has(url)) return crowdAssetCache.get(url);
+  const r = await fetch(url);
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const blob = await r.blob();
+  const m = (blob.type || '').match(/mpeg|mp4|ogg|webm|wav/i);
+  const rec = { blob, name: 'consent-prompt.' + (m ? { mpeg: 'mp3', mp4: 'm4a', ogg: 'ogg', webm: 'webm', wav: 'wav' }[m[0].toLowerCase()] : 'mp3'), mimeType: blob.type || 'audio/mpeg' };
+  crowdAssetCache.set(url, rec);
+  return rec;
+}
+
+// -- Turnstile (invisible managed widget; a challenge, if one ever shows, appears
+// in the fixed host at the bottom of the page) --
+let turnstileLoad = null;
+function crowdTurnstileHost() {
+  let el = document.getElementById('crowd-turnstile');
+  if (!el) { el = document.createElement('div'); el.id = 'crowd-turnstile'; document.body.appendChild(el); }
+  return el;
+}
+function crowdLoadTurnstile() {
+  if (!turnstileLoad) {
+    turnstileLoad = new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+      s.async = true;
+      s.onload = () => res();
+      s.onerror = () => { turnstileLoad = null; rej(new Error('turnstile load failed')); };
+      document.head.appendChild(s);
+    });
+  }
+  return turnstileLoad;
+}
+async function crowdTurnstileToken() {
+  await crowdLoadTurnstile();
+  const host = crowdTurnstileHost();
+  host.innerHTML = '';   // fresh widget per token: reset() would reuse a stale callback
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('turnstile timeout')), 45000);
+    try {
+      window.turnstile.render(host, {
+        sitekey: turnstileSiteKey(),
+        callback: (tok) => { clearTimeout(timer); resolve(tok); },
+        'error-callback': () => { clearTimeout(timer); reject(new Error('turnstile error')); },
+      });
+    } catch (e) { clearTimeout(timer); reject(e); }
+  });
+}
+
+// -- the crowd screen (rendered into #view-record — the crowd shell's only view) --
+function crowdRelabelSend() {
+  const sv = $('#record-save');
+  if (sv) { sv.removeAttribute('data-i18n'); sv.textContent = t('crowd.send'); }
+}
+function renderCrowdView(state, extra = {}) {
+  crowdState = state;
+  let v = $('#view-record');
+  if (!v) return;
+  const welcome = (CROWD_CFG && CROWD_CFG.welcome) || t('crowd.welcomeDefault');
+  const pendingBanner = crowdPendingCount
+    ? `<p class="banner warn-banner">${esc(t('crowd.pendingNote', { n: crowdPendingCount }))}</p>
+       <button id="crowd-retry" class="secondary-btn">${esc(t('crowd.retry'))}</button>`
+    : '';
+  let body = '';
+  if (state === 'loading') body = `<p class="empty-note">${esc(t('crowd.loading'))}</p>`;
+  else if (state === 'notfound') body = `<p class="empty-note">${esc(t('crowd.notFound'))}</p>`;
+  else if (state === 'closed') body = `<p class="empty-note">${esc(t('crowd.closed'))}</p>`;
+  else if (state === 'offline') body = `<p class="empty-note">${esc(t('crowd.offline'))}</p>
+    <button id="crowd-reload" class="primary-btn">${esc(t('crowd.retry'))}</button>`;
+  else if (state === 'busy') body = `<p class="empty-note">${esc(t('crowd.busy'))}</p>
+    <button id="crowd-reload" class="primary-btn">${esc(t('crowd.retry'))}</button>`;
+  else if (state === 'sending') body = `<p class="crowd-status">${esc(t('crowd.sending'))}</p>`;
+  else if (state === 'thanks') body = `<div class="crowd-thanks">✓</div>
+    <p class="crowd-status">${esc(t('crowd.thanks'))}</p>
+    <button id="crowd-again" class="primary-btn">${esc(t('crowd.another'))}</button>`;
+  else if (state === 'failed') body = `<p class="banner warn-banner">${esc(t('crowd.sendFailed'))}</p>
+    ${extra.detail ? `<p class="note">${esc(extra.detail)}</p>` : ''}
+    <button id="crowd-retry" class="secondary-btn">${esc(t('crowd.retry'))}</button>
+    <button id="crowd-again" class="link-btn">${esc(t('crowd.another'))}</button>`;
+  else /* ready */ body = `
+    ${pendingBanner}
+    <button id="btn-record-big" class="primary-btn record-big">
+      <span class="rec-dot"></span><span class="record-big-label">${esc(t('crowd.recordBtn'))}</span></button>
+    <p class="note crowd-note">${esc(t('crowd.maxNote', { min: Math.round(((CROWD_CFG && CROWD_CFG.maxSeconds) || 300) / 60) }))}</p>`;
+  v.innerHTML = `<div class="record-screen crowd-screen">
+    <p class="record-welcome">${esc(welcome)}</p>
+    ${body}
+  </div>`;
+  $('#btn-record-big')?.addEventListener('click', () => requestConsentThen(() => openRecordModal()));
+  $('#crowd-again')?.addEventListener('click', () => renderCrowdView('ready'));
+  $('#crowd-reload')?.addEventListener('click', () => setupCrowdMode());
+  $('#crowd-retry')?.addEventListener('click', () => { crowdFlush(true).catch(() => {}); });
+}
+
+// Framed without allow="microphone": getUserMedia dies instantly with NO prompt —
+// indistinguishable by error name from a user "Block". Always offer the escape
+// hatch: the direct (top-level) recorder link, which always works.
+function crowdShowFrameEscape() {
+  const status = $('#record-status');
+  if (!status) return;
+  const a = document.createElement('a');
+  a.href = location.origin + '/crowd-recorder/?c=' + encodeURIComponent(CROWD_ID);
+  a.target = '_blank';
+  a.rel = 'noopener';
+  a.textContent = t('crowd.openDirect');
+  status.appendChild(document.createElement('br'));
+  status.appendChild(a);
+}
+
+// Bundle exactly like buildBundleFor does for a field recording: audio + recorded
+// assent + frozen prompt + consent-receipt.json/.txt.
+async function crowdBuildZip(file, { assent, receipt, promptAudio }) {
+  const entries = [{ name: file.name, data: file }];
+  if (assent?.blob) entries.push({ name: assent.name, data: assent.blob });
+  if (promptAudio?.blob) entries.push({ name: promptAudio.name, data: promptAudio.blob });
+  if (receipt) {
+    const full = { ...receipt, textTitle: file.name };
+    entries.push({ name: 'consent-receipt.json', data: new Blob([JSON.stringify(full, null, 2)], { type: 'application/json' }) });
+    entries.push({ name: 'consent-receipt.txt', data: new Blob([consentReceiptText(full)], { type: 'text/plain' }) });
+  }
+  return makeZip(entries);
+}
+
+async function crowdQueueAndSubmit(file, extras) {
+  const zip = await crowdBuildZip(file, extras);
+  const cap = (CROWD_CFG && CROWD_CFG.maxBytes) || 5 * 1024 * 1024;
+  if (zip.size > cap) {
+    // Can't shrink it and the server would refuse it — be honest rather than retry forever.
+    renderCrowdView('failed', { detail: t('crowd.tooLarge') });
+    return;
+  }
+  await crowdPutPending({ id: mkGuid(), created: Date.now(), blob: zip });
+  renderCrowdView('sending');
+  await crowdFlush(true);
+}
+
+// One item → the worker. ok ONLY on confirmed Drive delivery. Throws with e.code
+// carrying the worker's error keyword so crowdFlush can pick the right message.
+async function crowdSubmitOne(item) {
+  const headers = {};
+  if (CROWD_CFG && CROWD_CFG.turnstile) headers['x-fx-turnstile'] = await crowdTurnstileToken();
+  const r = await fetch(workerBase() + '/v1/crowd/' + encodeURIComponent(CROWD_ID) + '/submit',
+    { method: 'POST', headers, body: item.blob });
+  const out = await r.json().catch(() => ({}));
+  if (r.ok && out.ok) { await crowdDelPending(item.id); return; }
+  const e = new Error(out.error || ('HTTP ' + r.status));
+  e.code = out.error || '';
+  throw e;
+}
+
+// Drain the pending store oldest-first. interactive=true drives the visitor-facing
+// states (sending/thanks/failed); the silent boot retry only updates the counter.
+async function crowdFlush(interactive) {
+  if (crowdFlushing) return;
+  crowdFlushing = true;
+  try {
+    const items = (await crowdListPending()).sort((a, b) => a.created - b.created);
+    crowdPendingCount = items.length;
+    let err = null;
+    for (const item of items) {
+      try { await crowdSubmitOne(item); crowdPendingCount--; }
+      catch (e) {
+        if (e.code === 'too_large' || e.code === 'too_small') {   // permanently unsendable — drop, don't wedge the queue
+          await crowdDelPending(item.id);
+          crowdPendingCount--;
+        }
+        err = e;
+        break;   // first failure is almost always the network — stop, retry later
+      }
+    }
+    if (!interactive) { if (crowdState === 'ready') renderCrowdView('ready'); return; }
+    if (!err && !crowdPendingCount) renderCrowdView('thanks');
+    else if (err && (err.code === 'paused' || err.code === 'budget' || err.code === 'not_found')) renderCrowdView('closed');
+    else renderCrowdView('failed', { detail: err && err.code === 'too_large' ? t('crowd.tooLarge') : '' });
+  } finally { crowdFlushing = false; }
+}
+
+async function setupCrowdMode() {
+  crowdSessionId = 'crowd-' + mkGuid();
+  const params = new URLSearchParams(location.search);
+  CROWD_ID = params.get('c') || '';
+  if (params.get('embed') === '1') document.body.classList.add('crowd-embed');
+  settings = {};   // NEVER loadSettings(): this browser may belong to a field worker
+  if (params.get('lang') && LANGS.includes(params.get('lang'))) setLang(params.get('lang'), { save: false });
+  applyI18n();
+  wireSharedModals();   // record + consent modal wiring (fully guarded lookups)
+  crowdRelabelSend();
+  const langSel = $('#lang-select');
+  if (langSel) {
+    langSel.value = getLang();
+    langSel.addEventListener('change', () => {
+      setLang(langSel.value, { save: false });   // in-memory only on the shared origin
+      applyI18n();
+      crowdRelabelSend();
+      renderCrowdView(crowdState);
+    });
+  }
+  show('record');
+  renderCrowdView('loading');
+  if (!CROWD_ID) { renderCrowdView('notfound'); return; }
+  let cfg;
+  try {
+    const r = await fetch(workerBase() + '/v1/crowd/' + encodeURIComponent(CROWD_ID), { cache: 'no-store' });
+    if (r.status === 404) { renderCrowdView('notfound'); return; }
+    if (r.status === 429) {
+      // Server busy (shared free-plan throttle) ≠ the visitor being offline — say so
+      // honestly and retry by itself; a jittered wait keeps a crowd from re-stampeding.
+      renderCrowdView('busy');
+      setTimeout(() => { if (crowdState === 'busy') setupCrowdMode(); }, 20000 + Math.floor(Math.random() * 20000));
+      return;
+    }
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    cfg = await r.json();
+  } catch { renderCrowdView('offline'); return; }
+  if (!cfg.enabled) { renderCrowdView('closed'); return; }
+  CROWD_CFG = cfg;
+  if (LANGS.includes(cfg.lang) && cfg.lang !== getLang() && !params.get('lang')) {
+    setLang(cfg.lang, { save: false });
+    applyI18n();
+    crowdRelabelSend();
+    if (langSel) langSel.value = cfg.lang;
+  }
+  // Feed the shared consent gate + recorder through the in-memory settings object.
+  settings = {
+    consentAsk: cfg.consentAsk || [],
+    consentConfirm: cfg.consentConfirm || [],
+    consentMsg: cfg.consentMsg || '',
+    consentAudioUrl: cfg.consentAudio || '',
+    consentAudio: cfg.consentAudio ? resolveAudioInput(cfg.consentAudio) : '',
+    recordFormat: 'mp3',
+    convert: { kbps: 64, rate: 22050, mono: true },
+  };
+  renderCrowdView('ready');
+  crowdFlush(false).catch(() => {});   // finish any stranded past submission, silently
+  window.addEventListener('online', () => { crowdFlush(crowdState === 'failed').catch(() => {}); });
+}
+
 /* ---------------- Install & platform banners ---------------- */
 
 // True on Safari and on any iPhone/iPad browser (they are all WebKit).
@@ -3400,6 +3825,10 @@ function setupResearcherMode() {
 }
 
 function setup() {
+  // Crowd mode boots FIRST — before applyUrlSettings/migrateSettings/SW/sync can
+  // touch the shared-origin storage a field worker's apps may be using on this
+  // same browser profile. Everything crowd needs is fetched or in-memory.
+  if (CROWD_MODE) { setupCrowdMode(); return; }
   if (isDevHost(location.hostname) && new URLSearchParams(location.search).has('devreset')) { devReset(); return; }
   // Editor-origin ?mode=researcher → hand off to the standalone Researcher app (its own install +
   // service worker). Preserve a returning #gauth fragment so an in-flight Google sign-in still
@@ -3461,18 +3890,21 @@ function setup() {
   // Shared engine wiring + housekeeping (runs in both modes).
   wireSharedModals();
   setupBanners();
-  window.addEventListener('online', () => { retryPendingAudio(); retryPendingUploads(); });
+  window.addEventListener('online', () => { retryPendingAudio(); retryPendingUploads(); autoBackupSweep().then(sweepPendingUpDel).catch(() => {}); });
   window.addEventListener('offline', () => { renderUploadQueue(); });
   // Pending uploads AND pending downloads (task audio + attached flextext) keep
   // retrying forever while the app is open — a flaky village link that never
   // fires a clean offline→online edge still gets the work moved eventually.
+  // Auto-backup + finish-pending-deletes ride the same cadence.
   setInterval(() => {
     if (!navigator.onLine) return;
     retryPendingAudio(); // also sweeps pending task flextexts
     if (uploadView.size) retryPendingUploads();
+    autoBackupSweep().then(sweepPendingUpDel).catch(() => {});
   }, RETRY_EVERY_MS);
   retryPendingAudio();
   retryPendingUploads();
+  autoBackupSweep().then(sweepPendingUpDel).catch(() => {});
   syncConsentAudio(); // fetch/cache the consent prompt audio if configured
   // Ask the browser to protect our storage (texts + recordings) from being
   // silently evicted when the device runs low on space.

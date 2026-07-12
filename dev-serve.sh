@@ -5,6 +5,7 @@
 #
 #   Editor:   http://localhost:8012/flextext-editor/
 #   Recorder: http://localhost:8012/text-recorder/
+#   Crowd:    http://localhost:8012/crowd-recorder/
 #   Reset this origin's test state: append ?devreset   (e.g. .../flextext-editor/?devreset)
 #
 # Plain HTTP on purpose: localhost is a secure context (SW + getUserMedia still work) AND
@@ -16,12 +17,15 @@ PORT="${1:-8012}"
 MIRROR="$HOME/GIT/.flextext-devserve"          # stable (gitignored-irrelevant; lives outside the repos)
 EDITOR="$HOME/GIT/flextext editor"
 RECORDER="$HOME/GIT/text-recorder"
+CROWD="$HOME/GIT/crowd-recorder"
 rm -rf "$MIRROR"; mkdir -p "$MIRROR"
 ln -s "$EDITOR" "$MIRROR/flextext-editor"
 [ -d "$RECORDER" ] && ln -s "$RECORDER" "$MIRROR/text-recorder" || echo "(note: text-recorder repo not found — editor only)"
+[ -d "$CROWD" ] && ln -s "$CROWD" "$MIRROR/crowd-recorder" || echo "(note: crowd-recorder repo not found — skipping)"
 echo "Serving on http://localhost:$PORT"
 echo "  Editor:   http://localhost:$PORT/flextext-editor/"
 echo "  Recorder: http://localhost:$PORT/text-recorder/"
+echo "  Crowd:    http://localhost:$PORT/crowd-recorder/"
 # Send no-store on every response so the browser NEVER caches dev assets (a plain
 # `http.server` lets the browser cache css/js, which made edits appear not to land).
 # With this, a normal reload always fetches fresh files — no hard-reload needed.

@@ -377,7 +377,9 @@ function schedulePersist() {
 
 async function importFile(file) {
   const text = await file.text();
-  const { texts, error } = parseFlextext(text);
+  // Multi-WS imports: edit the lines matching THIS device's writing systems;
+  // all other languages' lines round-trip untouched (flextext.js pickByLang).
+  const { texts, error } = parseFlextext(text, { vernLang: settings.vernLang, analLang: settings.analLang });
   if (error) { toast(t('toast.importFailed', { msg: error }), 6000); return; }
   let lastId = null;
   for (const doc of texts) {
@@ -922,6 +924,10 @@ async function startConsentAssent() {
   } catch (e) {
     $('#consent-status').hidden = false;
     $('#consent-status').textContent = t('record.micError', { msg: e.message });
+    // Embedded crowd page whose host stripped allow="microphone": the failure hits
+    // HERE first when the recorder requires a recorded "yes" — same escape hatch
+    // as the record modal, painted into the consent modal's status line.
+    if (CROWD_MODE && window !== window.top) crowdShowFrameEscape('#consent-status');
   }
 }
 
@@ -2072,6 +2078,9 @@ async function syncDispatch(cmd) {
       if (d.uploadedFileId && d.uploadedModified === d.modified) { await deleteConfirmedDoc(docId); break; }
       const ids = pendingUpDel();
       if (!ids.includes(docId)) { ids.push(docId); setPendingUpDel(ids); }
+      // Already queued or mid-flight? The intent above is enough — the upload-done
+      // hook consumes it. Re-queueing would reset the entry and double-start.
+      if (uploadView.has(docId) || getUpload(docId)) break;
       if (current && current.id === docId) await doUpload(true);
       else await uploadDocById(docId);
       break;
@@ -2298,7 +2307,8 @@ function analyzeFlextextWs(xmlText) {
 async function buildDocFromFlextextUrl(url, title) {
   const file = await fetchFileViaUrl(url);
   const xml = await file.blob.text();
-  const { texts, error } = parseFlextext(xml);
+  // Same multi-WS selection as importFile: edit this device's WS lines only.
+  const { texts, error } = parseFlextext(xml, { vernLang: settings.vernLang, analLang: settings.analLang });
   // A successful fetch of a non-flextext body (Drive 404 HTML page, wrong file,
   // corrupt export) is a PERMANENT failure — tag it so the retry loop stops and
   // surfaces it rather than spinning behind a silent empty placeholder.
@@ -3154,6 +3164,10 @@ async function crowdPutPending(item) {
       tx.objectStore('pending').put(item);
       tx.oncomplete = () => res();
       tx.onerror = () => rej(tx.error);
+      // onabort too: a commit-time quota abort (near-full SHARED origin — a field
+      // worker's corpus lives here) fires only 'abort'; without this the promise
+      // never settles and the take would be silently lost.
+      tx.onabort = () => rej(tx.error || new Error('aborted'));
     });
     idb.close();
   } catch { crowdMemQueue.push(item); }   // storage refused → memory-only (still submits)
@@ -3181,6 +3195,7 @@ async function crowdDelPending(id) {
       tx.objectStore('pending').delete(id);
       tx.oncomplete = () => res();
       tx.onerror = () => rej(tx.error);
+      tx.onabort = () => rej(tx.error || new Error('aborted'));   // a hung delete would wedge crowdFlushing forever
     });
     idb.close();
   } catch { /* nothing persisted */ }
@@ -3283,9 +3298,10 @@ function renderCrowdView(state, extra = {}) {
 
 // Framed without allow="microphone": getUserMedia dies instantly with NO prompt —
 // indistinguishable by error name from a user "Block". Always offer the escape
-// hatch: the direct (top-level) recorder link, which always works.
-function crowdShowFrameEscape() {
-  const status = $('#record-status');
+// hatch: the direct (top-level) recorder link, which always works. targetSel lets
+// the CONSENT modal's record-the-yes path use it too (its error paints elsewhere).
+function crowdShowFrameEscape(targetSel = '#record-status') {
+  const status = $(targetSel);
   if (!status) return;
   const a = document.createElement('a');
   a.href = location.origin + '/crowd-recorder/?c=' + encodeURIComponent(CROWD_ID);
@@ -3372,6 +3388,16 @@ async function setupCrowdMode() {
   settings = {};   // NEVER loadSettings(): this browser may belong to a field worker
   if (params.get('lang') && LANGS.includes(params.get('lang'))) setLang(params.get('lang'), { save: false });
   applyI18n();
+  // The public page's audience is the MOST likely to arrive on an iPhone — show the
+  // unsupported-WebKit warning here too. Dismiss hides it for this visit only (no
+  // localStorage: setupBanners' persisted dismiss would write the shared origin).
+  if (isUnsupportedWebKit(navigator.userAgent, navigator.maxTouchPoints || 0)) {
+    const wk = $('#webkit-warning');
+    if (wk) {
+      wk.hidden = false;
+      wk.querySelector('.banner-dismiss')?.addEventListener('click', () => { wk.hidden = true; });
+    }
+  }
   wireSharedModals();   // record + consent modal wiring (fully guarded lookups)
   crowdRelabelSend();
   const langSel = $('#lang-select');
@@ -3783,8 +3809,10 @@ async function eraseAllData() {
       let names = [];
       if (indexedDB.databases) { try { names = (await indexedDB.databases()).map((d) => d.name).filter(Boolean); } catch { /* noop */ } }
       // Firefox lacks indexedDB.databases() → union with the known DB names. flextext-editor (the corpus)
-      // FIRST so the most sensitive data dies before anything else, then flextext-sync (the install key).
-      for (const name of new Set(['flextext-editor', 'flextext-sync', ...names])) await deleteDB(name);
+      // FIRST so the most sensitive data dies before anything else, then flextext-sync (the install key),
+      // then flextext-crowd (an unsent crowd package holds audio + a signed consent receipt — a remote
+      // wipe on a seized device must take that too).
+      for (const name of new Set(['flextext-editor', 'flextext-sync', 'flextext-crowd', ...names])) await deleteDB(name);
     } catch { /* noop */ }
     try { localStorage.clear(); } catch { /* noop */ }
     try { sessionStorage.clear(); } catch { /* noop */ }

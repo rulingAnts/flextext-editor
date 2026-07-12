@@ -97,6 +97,12 @@ export function makeDoc(settings, title = '') {
     version: '2',
     textAttrs: { guid: newGuid() },
     title,
+    // WS codes for an app-AUTHORED doc are resolved at EXPORT time from the live
+    // settings (see serializeFlextext) — the values below are only the fallback
+    // for exporting on a device whose settings were wiped. appAuthored is what
+    // switches serialize to live-settings mode; imported docs (parseFlextext)
+    // keep their own codes for round-trip fidelity.
+    appAuthored: true,
     titleLang: settings.analLang || 'en',
     metaItemsXML: [],
     vernLang: settings.vernLang || '',
@@ -111,6 +117,30 @@ export function makeDoc(settings, title = '') {
   };
 }
 
+// Is this doc app-authored (recorded/typed in this app) rather than imported?
+// Authored docs resolve their WS codes from the LIVE settings at export, so a
+// researcher's code correction applies to every text exported afterwards.
+// Legacy docs (created before the appAuthored flag) are detected by the absence
+// of parse artifacts: the FLEx XSD requires lang= on every <item>, so an import
+// always leaves per-item langs (and usually preserved fragments) behind, while
+// the in-app editor never sets any of them.
+export function isAppAuthored(doc) {
+  if (doc.appAuthored === true) return true;
+  if (doc.appAuthored === false) return false;
+  if ((doc.metaItemsXML || []).length || doc.objectsXML) return false;
+  for (const p of doc.paragraphs || []) {
+    for (const s of p.segments || []) {
+      if (s.txtLang != null || s.freeLang != null) return false;
+      if ((s.preItemsXML || []).length || (s.postItemsXML || []).length) return false;
+      for (const w of s.words || []) {
+        if (w.txtLang != null || w.glsLang != null) return false;
+        if ((w.preservedXML || []).length) return false;
+      }
+    }
+  }
+  return true;
+}
+
 /* ---------------- Parsing ---------------- */
 
 function serializeEl(el) {
@@ -121,8 +151,20 @@ function childElements(el, name) {
   return Array.from(el.children).filter(c => c.tagName === name);
 }
 
-// Parse a flextext XML string. Returns { texts: [docModel...], error }
-export function parseFlextext(xmlString) {
+// Pick which of several same-type <item> lines this editor edits: the one whose
+// lang matches the app's writing system for that tier, else the first (the old
+// behavior). Multi-WS FLEx exports carry e.g. both en and id gloss lines — only
+// the matching line becomes editable; the rest round-trip untouched.
+function pickByLang(els, prefLang) {
+  if (!els.length) return null;
+  return (prefLang && els.find((el) => el.getAttribute('lang') === prefLang)) || els[0];
+}
+
+// Parse a flextext XML string. Returns { texts: [docModel...], error }.
+// prefs = { vernLang, analLang }: when an imported text carries MULTIPLE writing
+// systems per tier, these choose which lines the editor displays/edits (see
+// pickByLang); every non-selected line is preserved verbatim for round-trip.
+export function parseFlextext(xmlString, prefs = {}) {
   const dom = new DOMParser().parseFromString(xmlString, 'text/xml');
   const err = dom.querySelector('parsererror');
   if (err) return { texts: [], error: 'XML parse error: ' + err.textContent.slice(0, 300) };
@@ -131,18 +173,19 @@ export function parseFlextext(xmlString) {
   const version = docEl.getAttribute('version') || '2';
   const texts = [];
   for (const itEl of childElements(docEl, 'interlinear-text')) {
-    texts.push(parseInterlinearText(itEl, version));
+    texts.push(parseInterlinearText(itEl, version, prefs));
   }
   if (!texts.length) return { texts: [], error: 'No <interlinear-text> found in file.' };
   return { texts, error: null };
 }
 
-function parseInterlinearText(itEl, version) {
+function parseInterlinearText(itEl, version, prefs = {}) {
   const doc = {
     version,
     textAttrs: {},
     title: '',
     titleLang: 'en',
+    appAuthored: false,   // imported: keeps its own WS codes at export (round-trip fidelity)
     metaItemsXML: [],
     vernLang: '',
     analLang: '',
@@ -154,11 +197,15 @@ function parseInterlinearText(itEl, version) {
   for (const a of itEl.attributes) doc.textAttrs[a.name] = a.value;
   if (!doc.textAttrs.guid) doc.textAttrs.guid = newGuid();
 
+  // Multi-WS title: edit the analysis-language one when present (see pickByLang).
+  const titleEl = pickByLang(
+    Array.from(itEl.children).filter((c) => c.tagName === 'item' && c.getAttribute('type') === 'title'),
+    prefs.analLang);
+
   for (const child of itEl.children) {
     switch (child.tagName) {
       case 'item': {
-        const type = child.getAttribute('type');
-        if (type === 'title' && !doc.title) {
+        if (child === titleEl) {
           doc.title = child.textContent;
           doc.titleLang = child.getAttribute('lang') || 'en';
         } else {
@@ -187,7 +234,7 @@ function parseInterlinearText(itEl, version) {
           const para = { guid: pEl.getAttribute('guid') || newGuid(), segments: [] };
           for (const phrasesEl of childElements(pEl, 'phrases')) {
             for (const phEl of childElements(phrasesEl, 'phrase')) {
-              para.segments.push(parsePhrase(phEl, doc));
+              para.segments.push(parsePhrase(phEl, doc, prefs));
             }
           }
           doc.paragraphs.push(para);
@@ -219,41 +266,44 @@ function parseInterlinearText(itEl, version) {
   return doc;
 }
 
-function parsePhrase(phEl, doc) {
+function parsePhrase(phEl, doc, prefs = {}) {
   const seg = makeSegment('', []);
   seg.attrs = {};
   for (const a of phEl.attributes) seg.attrs[a.name] = a.value;
   if (!seg.attrs.guid) seg.attrs.guid = newGuid();
 
+  // Pre-scan for multi-WS line selection: which baseline txt (before <words>) and
+  // which free-translation gls (after <words>) does this editor edit? The matching
+  // language wins; every other line is preserved verbatim (the old code silently
+  // OVERWROTE earlier baseline txt lines — now they round-trip).
+  const kids = Array.from(phEl.children);
+  const wordsIdx = kids.findIndex((c) => c.tagName === 'words');
+  const txtEl = pickByLang(
+    kids.filter((c, i) => c.tagName === 'item' && c.getAttribute('type') === 'txt' && (wordsIdx < 0 || i < wordsIdx)),
+    prefs.vernLang);
+  const freeEl = pickByLang(
+    kids.filter((c, i) => c.tagName === 'item' && c.getAttribute('type') === 'gls' && wordsIdx >= 0 && i > wordsIdx),
+    prefs.analLang);
+
   let seenWords = false;
-  for (const child of phEl.children) {
+  for (const child of kids) {
     if (child.tagName === 'words') {
       seenWords = true;
       for (const wEl of child.children) {
-        if (wEl.tagName === 'word') seg.words.push(parseWord(wEl, doc));
+        if (wEl.tagName === 'word') seg.words.push(parseWord(wEl, doc, prefs));
         else seg.preItemsXML.push(serializeEl(wEl)); // e.g. scrMilestone — keep, re-emit inside <words>
       }
     } else if (child.tagName === 'item') {
       const type = child.getAttribute('type');
       const lang = child.getAttribute('lang') || '';
-      if (!seenWords) {
-        if (type === 'txt') { seg.baseline = child.textContent; seg.txtLang = lang; }
-        else if (type === 'segnum') { /* regenerated on export */ }
-        else seg.preItemsXML.push(serializeEl(child));
-      } else {
-        if (type === 'gls' && !seg.freeDone) {
-          seg.free = child.textContent;
-          seg.freeLang = lang;
-          seg.freeDone = true;
-        } else {
-          seg.postItemsXML.push(serializeEl(child));
-        }
-      }
+      if (child === txtEl) { seg.baseline = child.textContent; seg.txtLang = lang; }
+      else if (child === freeEl) { seg.free = child.textContent; seg.freeLang = lang; }
+      else if (type === 'segnum' && !seenWords) { /* regenerated on export */ }
+      else (seenWords ? seg.postItemsXML : seg.preItemsXML).push(serializeEl(child));
     } else {
       seg.postItemsXML.push(serializeEl(child));
     }
   }
-  delete seg.freeDone;
   // If no baseline txt item, reconstruct from words.
   if (!seg.baseline) seg.baseline = baselineFromWords(seg.words);
   // Words without their own txt item (morphemes-only exports) get a derived
@@ -272,23 +322,24 @@ function parsePhrase(phEl, doc) {
   return seg;
 }
 
-function parseWord(wEl, doc) {
+function parseWord(wEl, doc, prefs = {}) {
   const w = makeWord('', {});
   if (wEl.getAttribute('guid')) w.guid = wEl.getAttribute('guid');
   if (wEl.getAttribute('type') === 'phrase') w.phrase = true;
-  for (const child of wEl.children) {
-    if (child.tagName === 'item') {
-      const type = child.getAttribute('type');
-      const lang = child.getAttribute('lang') || '';
-      if (type === 'txt' && !w.txt) { w.txt = child.textContent; w.txtLang = lang; }
-      else if (type === 'punct') { w.txt = child.textContent; w.punct = true; w.txtLang = lang; }
-      else if (type === 'gls' && !w.glsSeen) { w.gls = child.textContent; w.glsLang = lang; w.glsSeen = true; }
-      else w.preservedXML.push(serializeEl(child)); // pos, cf, hn, msa, extra langs...
-    } else {
-      w.preservedXML.push(serializeEl(child)); // morphemes
-    }
+  // Multi-WS selection (see pickByLang): the vern-matching txt and anal-matching
+  // gls become the editable lines; all other langs' lines are preserved verbatim
+  // in document order (interleaved with morphemes etc., exactly as authored).
+  const kids = Array.from(wEl.children);
+  const items = kids.filter((c) => c.tagName === 'item');
+  const punctEl = items.find((el) => el.getAttribute('type') === 'punct') || null;
+  const txtEl = punctEl ? null : pickByLang(items.filter((el) => el.getAttribute('type') === 'txt'), prefs.vernLang);
+  const glsEl = pickByLang(items.filter((el) => el.getAttribute('type') === 'gls'), prefs.analLang);
+  for (const child of kids) {
+    if (child === punctEl) { w.txt = child.textContent; w.punct = true; w.txtLang = child.getAttribute('lang') || ''; }
+    else if (child === txtEl) { w.txt = child.textContent; w.txtLang = child.getAttribute('lang') || ''; }
+    else if (child === glsEl) { w.gls = child.textContent; w.glsLang = child.getAttribute('lang') || ''; }
+    else w.preservedXML.push(serializeEl(child)); // morphemes, pos, cf, hn, msa, other-lang lines...
   }
-  delete w.glsSeen;
   // Word with morphemes but no top-level txt item: derive txt from morphs for display.
   if (!w.txt && w.preservedXML.length) {
     const frag = new DOMParser().parseFromString('<x>' + w.preservedXML.join('') + '</x>', 'text/xml');
@@ -320,15 +371,21 @@ function indentFragment(xml, pad) {
 }
 
 export function serializeFlextext(doc, settings = {}) {
-  const vern = doc.vernLang || settings.vernLang || 'und';
-  const anal = doc.analLang || settings.analLang || 'en';
+  // WS codes resolve AT EXPORT for app-authored docs: the LIVE settings win, so a
+  // researcher's writing-system correction applies to every text exported after it
+  // — including texts recorded before the change. Imported docs are the opposite:
+  // their own codes win (round-trip fidelity; the file's languages are facts about
+  // the file, not about this device's settings).
+  const authored = isAppAuthored(doc);
+  const vern = authored ? (settings.vernLang || doc.vernLang || 'und') : (doc.vernLang || settings.vernLang || 'und');
+  const anal = authored ? (settings.analLang || doc.analLang || 'en') : (doc.analLang || settings.analLang || 'en');
   const lines = [];
   lines.push('<?xml version="1.0" encoding="utf-8"?>');
   lines.push(`<document version="${esc(doc.version || '2')}">`);
   const attrs = Object.entries(doc.textAttrs || {})
     .map(([k, v]) => ` ${k}="${esc(v)}"`).join('');
   lines.push(`  <interlinear-text${attrs}>`);
-  lines.push(`    <item type="title" lang="${esc(doc.titleLang || anal)}">${esc(doc.title || 'Untitled')}</item>`);
+  lines.push(`    <item type="title" lang="${esc(authored ? anal : (doc.titleLang || anal))}">${esc(doc.title || 'Untitled')}</item>`);
   for (const xml of doc.metaItemsXML || []) lines.push(indentFragment(xml, '    '));
   if (doc.objectsXML) lines.push(indentFragment(doc.objectsXML, '    '));
   lines.push('    <paragraphs>');
@@ -372,11 +429,13 @@ export function serializeFlextext(doc, settings = {}) {
     lines.push('      </paragraph>');
   }
   lines.push('    </paragraphs>');
-  // languages element
+  // languages element. Authored docs SKIP doc.languages (that's the stale snapshot
+  // frozen at creation) and emit purely from the live settings; imported docs emit
+  // their own languages first, with the settings only as gap-fillers.
   const langs = [];
   const seen = new Set();
   const push = (l) => { if (l.lang && !seen.has(l.lang)) { seen.add(l.lang); langs.push(l); } };
-  for (const l of doc.languages || []) push(l);
+  if (!authored) for (const l of doc.languages || []) push(l);
   push({ lang: vern, font: settings.vernFont || '', vernacular: true });
   push({ lang: anal, font: settings.analFont || '', vernacular: false });
   lines.push('    <languages>');

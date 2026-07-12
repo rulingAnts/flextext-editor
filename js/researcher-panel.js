@@ -1000,6 +1000,7 @@ function crowdEditModal(rec) {
     <div class="rp-field"><span>${esc(t('panel.f.consentConfirm'))}</span><div class="rp-multi">${['yesno', 'record', 'signature'].map((o) =>
       `<label class="check-label rp-inline"><input type="checkbox" data-conf="${o}"> ${esc(t('panel.opt.conf.' + o))}</label>`).join('')}</div></div>
     <label class="rp-field"><span>${esc(t('panel.crowd.folder'))}</span><input id="cr-folder" spellcheck="false"></label>
+    <p class="note">${esc(t('panel.crowd.folderNote'))}</p>
     <div class="rp-probe-row">
       <button type="button" class="link-btn rp-probe-btn" data-m="probe">${esc(t('panel.f.probeBtn'))}</button>
       <div class="rp-probe-result" role="status" hidden></div></div>

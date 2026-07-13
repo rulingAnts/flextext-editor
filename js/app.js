@@ -945,7 +945,7 @@ async function startConsentAssent() {
 let rec = null;
 
 // The researcher-chosen capture format (default 32-bit WAV). Travels with links.
-function recordFormatPref() { return CROWD_MODE ? 'mp3' : normRecFormat(settings.recordFormat); } // crowd: small + universal + relay-safe
+function recordFormatPref() { return normRecFormat(settings.recordFormat); } // crowd sets settings.recordFormat from its public config
 
 // AGC (automatic gain control) is OFF BY DEFAULT — faithful, unmodified capture is
 // the archival-correct default (IASA TC-04 etc.). The tradeoff: Chrome/Android set
@@ -3440,7 +3440,7 @@ async function setupCrowdMode() {
     consentMsg: cfg.consentMsg || '',
     consentAudioUrl: cfg.consentAudio || '',
     consentAudio: cfg.consentAudio ? resolveAudioInput(cfg.consentAudio) : '',
-    recordFormat: 'mp3',
+    recordFormat: normRecFormat(cfg.recordFormat || 'mp3'),   // researcher-chosen; engine falls back if unsupported
     convert: { kbps: 64, rate: 22050, mono: true },
   };
   renderCrowdView('ready');

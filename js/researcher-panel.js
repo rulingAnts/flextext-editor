@@ -1000,6 +1000,8 @@ function crowdEditModal(rec) {
     <label class="rp-field"><span>${esc(t('panel.f.consentAudioUrl'))}</span><input id="cr-caudio" spellcheck="false"></label>
     <div class="rp-field"><span>${esc(t('panel.f.consentConfirm'))}</span><div class="rp-multi">${['yesno', 'record', 'signature'].map((o) =>
       `<label class="check-label rp-inline"><input type="checkbox" data-conf="${o}"> ${esc(t('panel.opt.conf.' + o))}</label>`).join('')}</div></div>
+    <label class="rp-field"><span>${esc(t('panel.f.recordFormat'))}</span>
+      <select id="cr-fmt">${REC_KEYS.map((k) => `<option value="${k}">${esc(t('panel.opt.fmt.' + k))}</option>`).join('')}</select></label>
     <label class="rp-field"><span>${esc(t('panel.crowd.lang'))}</span>
       <select id="cr-lang"><option value="en">${esc(t('panel.opt.appLang.en'))}</option><option value="id">${esc(t('panel.opt.appLang.id'))}</option></select></label>
     <label class="rp-field"><span>${esc(t('panel.crowd.maxSec'))}</span>
@@ -1016,6 +1018,7 @@ function crowdEditModal(rec) {
   $$('#cr-welcome').value = cfg.welcome || '';
   $$('#cr-cmsg').value = cfg.consentMsg || '';
   $$('#cr-caudio').value = cfg.consentAudioUrl || '';
+  $$('#cr-fmt').value = REC_KEYS.includes(cfg.recordFormat) ? cfg.recordFormat : 'mp3';
   $$('#cr-lang').value = cfg.lang === 'en' ? 'en' : 'id';
   $$('#cr-maxsec').value = String(secs.includes(Number(cfg.maxSeconds)) ? Number(cfg.maxSeconds) : 300);
   $$('#cr-turnstile').checked = cfg.turnstile !== false;   // default ON
@@ -1038,6 +1041,7 @@ function crowdEditModal(rec) {
       consentConfirm: Array.from(m.el.querySelectorAll('[data-conf]')).filter((c) => c.checked).map((c) => c.dataset.conf),
       consentMsg: $$('#cr-cmsg').value.trim(),
       consentAudioUrl: $$('#cr-caudio').value.trim(),
+      recordFormat: $$('#cr-fmt').value,
       lang: $$('#cr-lang').value === 'en' ? 'en' : 'id',
       maxSeconds: parseInt($$('#cr-maxsec').value, 10) || 300,
       turnstile: $$('#cr-turnstile').checked,

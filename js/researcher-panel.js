@@ -49,7 +49,6 @@ const CROWD_BASE = location.origin + '/crowd-recorder/';
 // at ~95 MB (a public submission is one POST). The live estimate below keeps the
 // researcher honest about what their format + max-length choice produces.
 const CROWD_BPS = { mp3: 8000, webm: 6000, webmpcm: 187500, wav16: 96000, wav24: 144000, wav32: 192000, flac: 90000 };
-const CROWD_PLATFORM_CAP = 95 * 1024 * 1024;
 function crowdEstimate(fmt, secs) { return (CROWD_BPS[fmt] || 8000) * secs; }
 function fmtDur(secs) { const m = Math.floor(secs / 60), ss = secs % 60; return ss ? `${m} min ${ss} s` : `${m} min`; }
 
@@ -1036,11 +1035,8 @@ function crowdEditModal(rec) {
     $$('#cr-maxsec-lbl').textContent = fmtDur(secsNow);
     const est = crowdEstimate(fmt, secsNow);
     const mb = est / 1048576;
-    let txt = t('panel.crowd.estimate', { mb: mb >= 10 ? String(Math.round(mb)) : mb.toFixed(1) });
-    if (est * 1.5 > CROWD_PLATFORM_CAP) txt += ' ' + t('panel.crowd.estimateOver', { cap: 95, min: fmtDur(Math.floor(CROWD_PLATFORM_CAP / 1.5 / (CROWD_BPS[fmt] || 8000) / 10) * 10) });
     const el = $$('#cr-estimate');
-    el.textContent = txt;
-    el.classList.toggle('rp-est-over', est * 1.5 > CROWD_PLATFORM_CAP);
+    el.textContent = t('panel.crowd.estimate', { mb: mb >= 10 ? String(Math.round(mb)) : mb.toFixed(1) });
   };
   $$('#cr-maxsec').addEventListener('input', paintEstimate);
   $$('#cr-fmt').addEventListener('change', paintEstimate);

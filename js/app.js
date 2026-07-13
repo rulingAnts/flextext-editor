@@ -3339,7 +3339,13 @@ async function crowdQueueAndSubmit(file, extras) {
 
 // One item → the worker. ok ONLY on confirmed Drive delivery. Throws with e.code
 // carrying the worker's error keyword so crowdFlush can pick the right message.
+// Small zips are one POST; big ones go CHUNKED (a single request is platform-
+// capped ~100 MB — chunks are not), with the session ticket persisted on the
+// pending item so a reload resumes mid-file.
+const CROWD_CHUNK_SINGLE_MAX = 16 * 1024 * 1024;
+const CROWD_CHUNK = 8 * 1024 * 1024;   // multiple of 256 KiB (Drive chunk rule)
 async function crowdSubmitOne(item) {
+  if (item.blob.size > CROWD_CHUNK_SINGLE_MAX) return crowdSubmitChunked(item);
   const headers = {};
   if (CROWD_CFG && CROWD_CFG.turnstile) headers['x-fx-turnstile'] = await crowdTurnstileToken();
   const r = await fetch(workerBase() + '/v1/crowd/' + encodeURIComponent(CROWD_ID) + '/submit',
@@ -3349,6 +3355,53 @@ async function crowdSubmitOne(item) {
   const e = new Error(out.error || ('HTTP ' + r.status));
   e.code = out.error || '';
   throw e;
+}
+
+async function crowdChunkPut(streamId, range, body) {
+  const r = await fetch(workerBase() + '/v1/crowd/' + encodeURIComponent(CROWD_ID) + '/submit/chunk', {
+    method: 'PUT',
+    headers: { 'x-fx-upload': streamId, 'content-range': range,
+               ...(body ? { 'content-type': 'application/octet-stream' } : {}) },
+    body,
+  });
+  return { status: r.status, out: await r.json().catch(() => ({})) };
+}
+
+async function crowdSubmitChunked(item) {
+  const total = item.blob.size;
+  if (!item.streamId) {
+    const headers = { 'content-type': 'application/json' };
+    if (CROWD_CFG && CROWD_CFG.turnstile) headers['x-fx-turnstile'] = await crowdTurnstileToken();
+    const r = await fetch(workerBase() + '/v1/crowd/' + encodeURIComponent(CROWD_ID) + '/submit/start',
+      { method: 'POST', headers, body: JSON.stringify({ size: total }) });
+    const out = await r.json().catch(() => ({}));
+    if (!(r.ok && out.ok && out.uploadId)) { const e = new Error(out.error || ('HTTP ' + r.status)); e.code = out.error || ''; throw e; }
+    item.streamId = out.uploadId;
+    await crowdPutPending(item);   // the ticket survives a reload → resume mid-file
+  }
+  // Where does Drive stand? (exact resume after any interruption)
+  let p = await crowdChunkPut(item.streamId, `bytes */${total}`, null);
+  if (p.out.error === 'session_gone' || p.out.error === 'bad_upload') {
+    delete item.streamId; await crowdPutPending(item);
+    return crowdSubmitChunked(item);   // fresh session (new Turnstile), single re-entry
+  }
+  if (p.out.done) { await crowdDelPending(item.id); return; }
+  if (!p.out || p.out.done !== false) { const e = new Error(p.out.error || 'chunk probe failed'); e.code = p.out.error || ''; throw e; }
+  let offset = p.out.received || 0;
+  while (offset < total) {
+    const end = Math.min(offset + CROWD_CHUNK, total);
+    const res = await crowdChunkPut(item.streamId, `bytes ${offset}-${end - 1}/${total}`, item.blob.slice(offset, end));
+    if (res.out.done) { await crowdDelPending(item.id); return; }
+    if (res.out.done === false) { offset = res.out.received != null ? res.out.received : end; continue; }
+    if (res.out.error === 'session_gone') { delete item.streamId; await crowdPutPending(item); }
+    const e = new Error(res.out.error || ('HTTP ' + res.status));
+    e.code = res.out.error || '';
+    throw e;   // crowdFlush keeps the item; retry resumes from Drive's offset
+  }
+  // All bytes sent but no done seen — final probe settles it.
+  p = await crowdChunkPut(item.streamId, `bytes */${total}`, null);
+  if (p.out.done) { await crowdDelPending(item.id); return; }
+  const e = new Error('finalize failed'); e.code = p.out.error || ''; throw e;
 }
 
 // Drain the pending store oldest-first. interactive=true drives the visitor-facing

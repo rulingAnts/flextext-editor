@@ -3397,7 +3397,7 @@ async function crowdSubmitOne(item) {
 async function crowdChunkPut(streamId, range, body) {
   const r = await fetch(workerBase() + '/v1/crowd/' + encodeURIComponent(CROWD_ID) + '/submit/chunk', {
     method: 'PUT',
-    headers: { 'x-fx-upload': streamId, 'content-range': range,
+    headers: { 'x-fx-upload': streamId, 'x-fx-range': range,
                ...(body ? { 'content-type': 'application/octet-stream' } : {}) },
     body,
   });

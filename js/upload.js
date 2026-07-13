@@ -189,7 +189,7 @@ export class DriveUpload {
         headers: {
           ...target.headers,
           'x-fx-upload': rec.streamId,
-          'content-range': range,
+          'x-fx-range': range,   // NOT Content-Range: Cloudflare's edge validates that literally and 400s the probe
           ...(body ? { 'content-type': 'application/octet-stream' } : {}),
         },
         body,

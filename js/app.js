@@ -3486,7 +3486,23 @@ async function setupCrowdMode() {
   crowdSessionId = 'crowd-' + mkGuid();
   const params = new URLSearchParams(location.search);
   CROWD_ID = params.get('c') || '';
-  if (params.get('embed') === '1') document.body.classList.add('crowd-embed');
+  if (params.get('embed') === '1') {
+    document.body.classList.add('crowd-embed');
+    // Blend with the host page: transparent background + auto-size messages that
+    // embed.js (if used) turns into a fitted iframe height. Height only — no data.
+    document.documentElement.style.background = 'transparent';
+    document.body.style.background = 'transparent';
+    try {
+      const post = () => {
+        const modal = document.querySelector('.modal:not([hidden])');
+        const h = modal ? Math.max(document.documentElement.scrollHeight, 620)
+                        : Math.max(document.documentElement.scrollHeight, 300);
+        parent.postMessage({ fxCrowd: 'height', h }, '*');
+      };
+      new ResizeObserver(post).observe(document.body);
+      setInterval(post, 1200);   // fixed-position modals don't move scrollHeight — poll cheaply
+    } catch { /* no ResizeObserver — the fixed iframe height stands */ }
+  }
   settings = {};   // NEVER loadSettings(): this browser may belong to a field worker
   if (params.get('lang') && LANGS.includes(params.get('lang'))) setLang(params.get('lang'), { save: false });
   applyI18n();

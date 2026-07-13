@@ -974,3 +974,5 @@ main {
 .rp-subs-scroll { overflow-x: auto; }   /* submissions table can outgrow the modal on phones */
 /* Disabled link-button (e.g. "Remove from device" gated until the device engine reaches v94) */
 .link-btn:disabled { color: var(--muted); cursor: not-allowed; opacity: .6; }
+.rp-est-over { color: #a03b00; font-weight: 600; }   /* crowd size estimate exceeding the platform cap */
+#cr-maxsec { width: 100%; }

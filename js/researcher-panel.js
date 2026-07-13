@@ -44,6 +44,14 @@ const UPLOAD_WAIT_MS = 120000;   // no device confirmation after this long → r
 const EDITOR_BASE = location.origin + '/flextext-editor/';
 const RECORDER_BASE = location.origin + '/text-recorder/';
 const CROWD_BASE = location.origin + '/crowd-recorder/';
+// Approx capture bytes/sec per format (mono 48 kHz worst-case) — MIRRORS the
+// worker's CROWD_BPS: the submit cap is estimate×1.5+overhead, platform-clamped
+// at ~95 MB (a public submission is one POST). The live estimate below keeps the
+// researcher honest about what their format + max-length choice produces.
+const CROWD_BPS = { mp3: 8000, webm: 6000, webmpcm: 187500, wav16: 96000, wav24: 144000, wav32: 192000, flac: 90000 };
+const CROWD_PLATFORM_CAP = 95 * 1024 * 1024;
+function crowdEstimate(fmt, secs) { return (CROWD_BPS[fmt] || 8000) * secs; }
+function fmtDur(secs) { const m = Math.floor(secs / 60), ss = secs % 60; return ss ? `${m} min ${ss} s` : `${m} min`; }
 
 // Crowd recorders live OUTSIDE the 12s poll signature (worker load stays flat): fetched on full
 // dashboard renders + after crowd actions only. undefined = not yet fetched, null = fetch failed.
@@ -988,7 +996,6 @@ function newCrowdModal() {
 
 function crowdEditModal(rec) {
   const cfg = (rec.config && typeof rec.config === 'object') ? rec.config : {};
-  const secs = [60, 120, 300, 600];
   const m = modal(`
     <h3>${esc(t('panel.crowd.editTitle', { label: rec.label || '' }))}</h3>
     <p class="banner warn-banner">${esc(t('panel.crowd.publicWarn'))}</p>
@@ -1004,8 +1011,9 @@ function crowdEditModal(rec) {
       <select id="cr-fmt">${REC_KEYS.map((k) => `<option value="${k}">${esc(t('panel.opt.fmt.' + k))}</option>`).join('')}</select></label>
     <label class="rp-field"><span>${esc(t('panel.crowd.lang'))}</span>
       <select id="cr-lang"><option value="en">${esc(t('panel.opt.appLang.en'))}</option><option value="id">${esc(t('panel.opt.appLang.id'))}</option></select></label>
-    <label class="rp-field"><span>${esc(t('panel.crowd.maxSec'))}</span>
-      <select id="cr-maxsec">${secs.map((s) => `<option value="${s}">${esc(t('panel.opt.crowdSec.' + s))}</option>`).join('')}</select></label>
+    <label class="rp-field"><span>${esc(t('panel.crowd.maxSec'))} — <span id="cr-maxsec-lbl"></span></span>
+      <input type="range" id="cr-maxsec" min="10" max="3600" step="10"></label>
+    <p class="note" id="cr-estimate"></p>
     <label class="check-label"><input type="checkbox" id="cr-turnstile"> ${esc(t('panel.crowd.turnstile'))}</label>
     <p class="note">${esc(t('panel.crowd.turnstileNote'))}</p>
     <label class="rp-field"><span>${esc(t('panel.crowd.maxDay'))}</span><input id="cr-maxday" type="number" min="1" inputmode="numeric"></label>
@@ -1020,7 +1028,23 @@ function crowdEditModal(rec) {
   $$('#cr-caudio').value = cfg.consentAudioUrl || '';
   $$('#cr-fmt').value = REC_KEYS.includes(cfg.recordFormat) ? cfg.recordFormat : 'mp3';
   $$('#cr-lang').value = cfg.lang === 'en' ? 'en' : 'id';
-  $$('#cr-maxsec').value = String(secs.includes(Number(cfg.maxSeconds)) ? Number(cfg.maxSeconds) : 300);
+  $$('#cr-maxsec').value = String(Math.min(3600, Math.max(10, Number(cfg.maxSeconds) || 300)));
+  // Live size heads-up: re-computed on every slider move and format change.
+  const paintEstimate = () => {
+    const secsNow = parseInt($$('#cr-maxsec').value, 10) || 300;
+    const fmt = $$('#cr-fmt').value;
+    $$('#cr-maxsec-lbl').textContent = fmtDur(secsNow);
+    const est = crowdEstimate(fmt, secsNow);
+    const mb = est / 1048576;
+    let txt = t('panel.crowd.estimate', { mb: mb >= 10 ? String(Math.round(mb)) : mb.toFixed(1) });
+    if (est * 1.5 > CROWD_PLATFORM_CAP) txt += ' ' + t('panel.crowd.estimateOver', { cap: 95, min: fmtDur(Math.floor(CROWD_PLATFORM_CAP / 1.5 / (CROWD_BPS[fmt] || 8000) / 10) * 10) });
+    const el = $$('#cr-estimate');
+    el.textContent = txt;
+    el.classList.toggle('rp-est-over', est * 1.5 > CROWD_PLATFORM_CAP);
+  };
+  $$('#cr-maxsec').addEventListener('input', paintEstimate);
+  $$('#cr-fmt').addEventListener('change', paintEstimate);
+  paintEstimate();
   $$('#cr-turnstile').checked = cfg.turnstile !== false;   // default ON
   $$('#cr-maxday').value = String(Number(rec.max_per_day) || 200);
   $$('#cr-maxmb').value = String(Math.max(1, Math.round((Number(rec.max_bytes_total) || 1073741824) / 1048576)));

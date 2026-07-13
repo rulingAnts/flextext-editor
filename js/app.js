@@ -1070,6 +1070,7 @@ function recordUI(state, extra = {}) {
     // archived a lossless recording.
     if (rec?.fellBack && !rec._warned) { rec._warned = true; toast(t('record.fellBack'), 8000); }
     syncRecordSaveEnabled();
+    if (CROWD_MODE) crowdApplyCooldown();   // countdown on Send; recording stays free
     setTimeout(() => $('#record-title').focus(), 0);
   } else if (state === 'saving') {
     status.textContent = t('record.converting', { pct: extra.pct ?? 0 });
@@ -1078,7 +1079,7 @@ function recordUI(state, extra = {}) {
 
 // Save stays disabled until the user names the text (crowd: no title, always ready).
 function syncRecordSaveEnabled() {
-  $('#record-save').disabled = CROWD_MODE ? false : !$('#record-title').value.trim();
+  $('#record-save').disabled = CROWD_MODE ? crowdCooldownLeft() > 0 : !$('#record-title').value.trim();
 }
 
 function discardRecording() {
@@ -3224,20 +3225,23 @@ function crowdMarkSubmitted() {
   try { sessionStorage.setItem('fx-crowd-last-submit', String(Date.now())); } catch { /* private mode */ }
 }
 let crowdCooldownTimer = null;
+// Gate the record modal's SEND during the cooldown. Recording is deliberately
+// NEVER blocked — a visitor can record the next story while waiting; only the
+// sending is spaced out (the timer starts at the Send tap, see crowdQueueAndSubmit).
 function crowdApplyCooldown() {
   clearInterval(crowdCooldownTimer);
-  const btn = $('#btn-record-big') || $('#crowd-again');
+  const btn = $('#record-save');
   if (!btn) return;
   const paint = () => {
     const left = crowdCooldownLeft();
+    let n = document.getElementById('crowd-cooldown');
     if (left <= 0) {
       clearInterval(crowdCooldownTimer);
-      btn.disabled = false;
-      const n = $('#crowd-cooldown'); if (n) n.remove();
+      if (n) n.remove();
+      syncRecordSaveEnabled();
       return;
     }
     btn.disabled = true;
-    let n = $('#crowd-cooldown');
     if (!n) { n = document.createElement('p'); n.id = 'crowd-cooldown'; n.className = 'note'; btn.insertAdjacentElement('afterend', n); }
     n.textContent = t('crowd.cooldown', { s: Math.ceil(left / 1000) });
   };
@@ -3336,7 +3340,6 @@ function renderCrowdView(state, extra = {}) {
   </div>`;
   $('#btn-record-big')?.addEventListener('click', () => requestConsentThen(() => openRecordModal()));
   $('#crowd-again')?.addEventListener('click', () => renderCrowdView('ready'));
-  if (state === 'ready' || state === 'thanks') crowdApplyCooldown();
   $('#crowd-reload')?.addEventListener('click', () => setupCrowdMode());
   $('#crowd-retry')?.addEventListener('click', () => { crowdFlush(true).catch(() => {}); });
 }
@@ -3372,6 +3375,7 @@ async function crowdBuildZip(file, { assent, receipt, promptAudio }) {
 }
 
 async function crowdQueueAndSubmit(file, extras) {
+  crowdMarkSubmitted();   // the cooldown starts at the Send TAP, not at delivery
   const zip = await crowdBuildZip(file, extras);
   const cap = (CROWD_CFG && CROWD_CFG.maxBytes) || 5 * 1024 * 1024;
   if (zip.size > cap) {
@@ -3461,7 +3465,7 @@ async function crowdFlush(interactive) {
     crowdPendingCount = items.length;
     let err = null;
     for (const item of items) {
-      try { await crowdSubmitOne(item); crowdPendingCount--; crowdMarkSubmitted(); }
+      try { await crowdSubmitOne(item); crowdPendingCount--; }
       catch (e) {
         if (e.code === 'too_large' || e.code === 'too_small') {   // permanently unsendable — drop, don't wedge the queue
           await crowdDelPending(item.id);

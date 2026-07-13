@@ -48,7 +48,7 @@ const CROWD_BASE = location.origin + '/crowd-recorder/';
 // worker's CROWD_BPS: the submit cap is estimate×1.5+overhead, platform-clamped
 // at ~95 MB (a public submission is one POST). The live estimate below keeps the
 // researcher honest about what their format + max-length choice produces.
-const CROWD_BPS = { mp3: 8000, webm: 6000, webmpcm: 187500, wav16: 96000, wav24: 144000, wav32: 192000, flac: 90000 };
+const CROWD_BPS = { mp3: 8000, opus: 6000, webmpcm: 187500, wav16: 96000, wav24: 144000, wav32: 192000, flac24: 110000 };
 function crowdEstimate(fmt, secs) { return (CROWD_BPS[fmt] || 8000) * secs; }
 function fmtDur(secs) { const m = Math.floor(secs / 60), ss = secs % 60; return ss ? `${m} min ${ss} s` : `${m} min`; }
 
@@ -893,7 +893,7 @@ function fmtBytes(b) {
   return Math.max(0, Math.round(b / 1024)) + ' KB';
 }
 
-const CROWD_DEFAULT_CONFIG = { welcome: '', consentAsk: ['text'], consentConfirm: ['yesno'], consentMsg: '', consentAudioUrl: '', lang: 'id', maxSeconds: 300, turnstile: true };
+const CROWD_DEFAULT_CONFIG = { welcome: '', consentAsk: ['text'], consentConfirm: ['yesno'], consentMsg: '', consentAudioUrl: '', lang: 'id', maxSeconds: 600, recordFormat: 'wav24', turnstile: true };
 
 function renderCrowdCard(recs) {
   let body;
@@ -1025,7 +1025,7 @@ function crowdEditModal(rec) {
   $$('#cr-welcome').value = cfg.welcome || '';
   $$('#cr-cmsg').value = cfg.consentMsg || '';
   $$('#cr-caudio').value = cfg.consentAudioUrl || '';
-  $$('#cr-fmt').value = REC_KEYS.includes(cfg.recordFormat) ? cfg.recordFormat : 'mp3';
+  $$('#cr-fmt').value = REC_KEYS.includes(cfg.recordFormat) ? cfg.recordFormat : 'wav24';
   $$('#cr-lang').value = cfg.lang === 'en' ? 'en' : 'id';
   $$('#cr-maxsec').value = String(Math.min(3600, Math.max(10, Number(cfg.maxSeconds) || 300)));
   // Live size heads-up: re-computed on every slider move and format change.

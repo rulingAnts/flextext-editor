@@ -3530,7 +3530,7 @@ async function setupCrowdMode() {
     consentMsg: cfg.consentMsg || '',
     consentAudioUrl: cfg.consentAudio || '',
     consentAudio: cfg.consentAudio ? resolveAudioInput(cfg.consentAudio) : '',
-    recordFormat: normRecFormat(cfg.recordFormat || 'mp3'),   // researcher-chosen; engine falls back if unsupported
+    recordFormat: normRecFormat(cfg.recordFormat || 'wav24'),  // researcher-chosen; engine falls back if unsupported
     convert: { kbps: 64, rate: 22050, mono: true },
   };
   renderCrowdView('ready');

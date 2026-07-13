@@ -64,8 +64,11 @@ const GROUPS = [
     // Interface language pushed to THIS device (setting D). deviceOnly → hidden in the researcher's own
     // local-settings modal (where the live #lang-select toggle already covers it).
     { k: 'appLang', type: 'select', opts: ['follow', 'en', 'id'], optPrefix: 'panel.opt.appLang.', deviceOnly: true },
-    { k: 'vernLang', type: 'text' }, { k: 'vernName', type: 'text' }, { k: 'vernFont', type: 'text' },
-    { k: 'analLang', type: 'text' }, { k: 'analName', type: 'text' }, { k: 'analFont', type: 'text' },
+    // Codes ONLY (2026-07-13): the name/font fields are gone — names were display
+    // sugar, fonts device cosmetics; neither belongs in the FLEx export. tip =
+    // hover tooltip (fieldHtml) warning that FLEx codes are case-sensitive.
+    { k: 'vernLang', type: 'text', tip: 'research.wsCase' },
+    { k: 'analLang', type: 'text', tip: 'research.wsCase' },
   ] },
   { id: 'recording', fields: [
     { k: 'recordFormat', type: 'select', opts: REC_KEYS, optPrefix: 'panel.opt.fmt.' },  // the permanent recording format
@@ -1561,6 +1564,8 @@ function driveSection(body) {
 
 function fieldHtml(f) {
   const label = esc(t('panel.f.' + f.k));
+  // f.tip → hover tooltip on the label + input (e.g. the WS-code case warning).
+  const tip = f.tip ? ` title="${esc(t(f.tip))}"` : '';
   if (f.type === 'checkbox') {
     const cb = `<label class="check-label"><input type="checkbox" data-f="${f.k}"> ${label}</label>`;
     // Auto-backup needs its "what actually happens" note (new timestamped copy per backup; the
@@ -1577,7 +1582,7 @@ function fieldHtml(f) {
     return `<label class="rp-field"><span>${label}</span><select data-f="${f.k}">${opts}</select></label>`;
   }
   if (f.type === 'textarea') return `<label class="rp-field"><span>${label}</span><textarea data-f="${f.k}" rows="2"></textarea></label>`;
-  const input = `<label class="rp-field"><span>${label}</span><input data-f="${f.k}" spellcheck="false"></label>`;
+  const input = `<label class="rp-field"${tip}><span>${label}</span><input data-f="${f.k}" spellcheck="false"${tip}></label>`;
   // #4b: under the Drive upload-folder field, a "send a test file" write-probe + a sharing-help link.
   if (f.k === 'upload') {
     return input

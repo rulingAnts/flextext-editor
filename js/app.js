@@ -2737,7 +2737,10 @@ function closeShareMenu() { $('#share-menu').hidden = true; applyUpdateIfSafe();
 
 function fillWsForm() {
   const f = $('#ws-form');
-  for (const key of ['vernLang', 'vernName', 'vernFont', 'analLang', 'analName', 'analFont']) {
+  // Codes only — the name/font fields are gone (2026-07-13): names were display
+  // sugar and fonts device cosmetics; neither belongs in the FLEx export. Legacy
+  // stored values keep working where still read (welcome text, doc fonts).
+  for (const key of ['vernLang', 'analLang']) {
     if (f.elements[key]) f.elements[key].value = settings[key] || '';
   }
   f.elements.uploadUrl.value = settings.uploadUrl || '';
@@ -2767,7 +2770,7 @@ function updateConsentFields(f) {
 // on bad values. Used by Save AND by the copy-link buttons — so a generated
 // link always reflects the CURRENT form, not just whatever was last saved.
 function applyResearchFormToSettings(f) {
-  for (const key of ['vernLang', 'vernName', 'vernFont', 'analLang', 'analName', 'analFont']) {
+  for (const key of ['vernLang', 'analLang']) {
     settings[key] = f.elements[key].value.trim();
   }
   const rawUpload = f.elements.uploadUrl.value.trim();

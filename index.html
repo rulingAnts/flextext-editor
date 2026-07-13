@@ -123,15 +123,12 @@
   <form id="ws-form" class="ws-form">
     <fieldset>
       <legend data-i18n="research.vernLegend">Vernacular (text language)</legend>
-      <label><span data-i18n="research.code">Code</span> <input name="vernLang" placeholder="fau" required spellcheck="false"></label>
-      <label><span data-i18n="research.name">Name</span> <input name="vernName" placeholder="Fayu" spellcheck="false"></label>
-      <label><span data-i18n="research.font">Font</span> <input name="vernFont" placeholder="Charis SIL" spellcheck="false"></label>
+      <label><span data-i18n="research.code" data-i18n-title="research.wsCase">Code</span> <input name="vernLang" placeholder="fau" required spellcheck="false" data-i18n-title="research.wsCase"></label>
+      <p class="note" data-i18n="research.wsCase">Case-sensitive: must match the FLEx Code exactly — fau and FAU are different codes.</p>
     </fieldset>
     <fieldset>
       <legend data-i18n="research.analLegend">Analysis (gloss / translation language)</legend>
-      <label><span data-i18n="research.code">Code</span> <input name="analLang" placeholder="en" required spellcheck="false"></label>
-      <label><span data-i18n="research.name">Name</span> <input name="analName" placeholder="English" spellcheck="false"></label>
-      <label><span data-i18n="research.font">Font</span> <input name="analFont" spellcheck="false"></label>
+      <label><span data-i18n="research.code" data-i18n-title="research.wsCase">Code</span> <input name="analLang" placeholder="en" required spellcheck="false" data-i18n-title="research.wsCase"></label>
     </fieldset>
     <fieldset>
       <legend data-i18n="research.sendLegend">Saving &amp; sending on THIS device</legend>

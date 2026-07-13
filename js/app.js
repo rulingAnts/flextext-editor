@@ -2629,9 +2629,12 @@ function renderUploadQueue() {
   const total = items.length;
   const others = total - (active ? 1 : 0);
 
-  fill.classList.toggle('indeterminate', !!(active && active.status === 'uploading'));
-  fill.style.width = active && active.status === 'uploading' ? '100%'
-    : (active && active.total ? Math.round((active.sent / active.total) * 100) + '%' : '0%');
+  // Chunked streaming uploads report REAL byte progress (indeterminate false);
+  // the relay path stays an indeterminate sweep (no byte-level signal exists).
+  const indet = !!(active && active.status === 'uploading' && active.indeterminate !== false);
+  fill.classList.toggle('indeterminate', indet);
+  fill.style.width = indet ? '100%'
+    : (active && active.total ? Math.round(((active.sent || 0) / active.total) * 100) + '%' : '0%');
 
   if (active && active.status === 'uploading') {
     label.textContent = t('upload.working', { name: active.name }) +

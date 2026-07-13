@@ -18,7 +18,6 @@ import { REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { importPublicKeyB64, publicKeyFingerprint } from './crypto.js';
 import { esc, parseFlextext, surveyWritingSystems, remapWritingSystems } from './flextext.js';
 import { probeAudioUrl, fetchFileViaUrl } from './audio.js';
-import { probeDriveFolder } from './upload.js';
 import { convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
 import WaveSurfer from './vendor/wavesurfer.esm.js';
 import * as db from './db.js';
@@ -83,7 +82,6 @@ const GROUPS = [
     { k: 'consentConfirm', type: 'multicheck', opts: ['yesno', 'record', 'signature'], optPrefix: 'panel.opt.conf.' },
   ] },
   { id: 'sending', fields: [
-    { k: 'upload', type: 'text' },
     { k: 'sendOptions', type: 'multicheck', opts: SEND_OPTS, optPrefix: 'panel.opt.send.' },
     { k: 'autoDel', type: 'checkbox' },
     // Auto-backup: a text changed since its last upload is auto-uploaded once it's been quiet for
@@ -982,7 +980,7 @@ function newCrowdModal() {
       await refreshCrowd();   // also pulls the server-defaulted budgets for the edit modal below
       deps.toast(t('panel.crowd.created'), 4000);
       const rec = (Array.isArray(crowdCache) ? crowdCache : []).find((x) => x.crowd_id === r.crowd_id)
-        || { crowd_id: r.crowd_id, label, enabled: 1, drive_folder: '', config: Object.assign({}, CROWD_DEFAULT_CONFIG), max_per_day: 200, max_bytes_total: 1073741824 };
+        || { crowd_id: r.crowd_id, label, enabled: 1, config: Object.assign({}, CROWD_DEFAULT_CONFIG), max_per_day: 200, max_bytes_total: 1073741824 };
       crowdEditModal(rec);
     } catch (err) { errToast(err); }
   });
@@ -1002,11 +1000,6 @@ function crowdEditModal(rec) {
     <label class="rp-field"><span>${esc(t('panel.f.consentAudioUrl'))}</span><input id="cr-caudio" spellcheck="false"></label>
     <div class="rp-field"><span>${esc(t('panel.f.consentConfirm'))}</span><div class="rp-multi">${['yesno', 'record', 'signature'].map((o) =>
       `<label class="check-label rp-inline"><input type="checkbox" data-conf="${o}"> ${esc(t('panel.opt.conf.' + o))}</label>`).join('')}</div></div>
-    <label class="rp-field"><span>${esc(t('panel.crowd.folder'))}</span><input id="cr-folder" spellcheck="false"></label>
-    <p class="note">${esc(t('panel.crowd.folderNote'))}</p>
-    <div class="rp-probe-row">
-      <button type="button" class="link-btn rp-probe-btn" data-m="probe">${esc(t('panel.f.probeBtn'))}</button>
-      <div class="rp-probe-result" role="status" hidden></div></div>
     <label class="rp-field"><span>${esc(t('panel.crowd.lang'))}</span>
       <select id="cr-lang"><option value="en">${esc(t('panel.opt.appLang.en'))}</option><option value="id">${esc(t('panel.opt.appLang.id'))}</option></select></label>
     <label class="rp-field"><span>${esc(t('panel.crowd.maxSec'))}</span>
@@ -1023,7 +1016,6 @@ function crowdEditModal(rec) {
   $$('#cr-welcome').value = cfg.welcome || '';
   $$('#cr-cmsg').value = cfg.consentMsg || '';
   $$('#cr-caudio').value = cfg.consentAudioUrl || '';
-  $$('#cr-folder').value = rec.drive_folder || '';
   $$('#cr-lang').value = cfg.lang === 'en' ? 'en' : 'id';
   $$('#cr-maxsec').value = String(secs.includes(Number(cfg.maxSeconds)) ? Number(cfg.maxSeconds) : 300);
   $$('#cr-turnstile').checked = cfg.turnstile !== false;   // default ON
@@ -1035,29 +1027,11 @@ function crowdEditModal(rec) {
   m.el.querySelectorAll('[data-conf]').forEach((c) => { c.checked = conf.includes(c.dataset.conf); });
   m.el.querySelector('[data-m="cancel"]').onclick = m.close;
 
-  // "Test folder" — same live write-probe as the device settings (a real file through the relay), so
-  // a green result PROVES public submissions will land in this folder.
-  m.el.querySelector('[data-m="probe"]').addEventListener('click', (e) => busy(e.target, async () => {
-    const out = m.el.querySelector('.rp-probe-result');
-    const paint = (msg, kind) => { out.hidden = false; out.textContent = msg; out.className = 'rp-probe-result' + (kind ? ' rp-as-' + kind : ''); };
-    const raw = ($$('#cr-folder').value || '').trim();
-    const fid = deps.parseDriveFolder ? deps.parseDriveFolder(raw) : raw;
-    if (!fid) { paint(t('panel.probe.needFolder'), 'err'); return; }
-    paint(t('panel.probe.testing'));
-    try {
-      const r = await probeDriveFolder(deps.driveRelay, fid);
-      if (r && r.ok) paint(t('panel.probe.ok', { name: r.name }), 'ok');
-      else paint(t('panel.probe.timeout'), 'err');
-    } catch (err) { paint(t('panel.probe.failPrefix') + ' ' + (err.message || ''), 'err'); }
-  }));
-
   m.el.querySelector('[data-m="save"]').onclick = (e) => busy(e.target, async () => {
     const label = $$('#cr-label').value.trim();
     if (!label) return deps.toast(t('panel.crowd.needLabel'), 4000);
-    // The folder is REQUIRED — a folderless crowd recorder would swallow submissions into nowhere.
-    const rawFolder = ($$('#cr-folder').value || '').trim();
-    const fid = deps.parseDriveFolder ? (deps.parseDriveFolder(rawFolder) || '') : rawFolder;
-    if (!fid) return deps.toast(t('panel.crowd.needFolder'), 6000);
+    // No folder field: submissions stream into the researcher's own Drive at
+    // "FlexText Uploads / Crowd — <name>" automatically (relay leg retired).
     const config = {
       welcome: $$('#cr-welcome').value.trim(),
       consentAsk: Array.from(m.el.querySelectorAll('[data-ask]')).filter((c) => c.checked).map((c) => c.dataset.ask),
@@ -1072,7 +1046,7 @@ function crowdEditModal(rec) {
     const maxMb = parseInt($$('#cr-maxmb').value, 10);
     try {
       await Researcher.crowdUpdate(rec.crowd_id, {
-        label, drive_folder: fid, config,
+        label, config,
         max_per_day: maxDay > 0 ? maxDay : 200,                       // NaN/0 → the documented defaults
         max_bytes_total: maxMb > 0 ? maxMb * 1048576 : 1073741824,    // researcher-facing unit is MB
       });
@@ -1583,15 +1557,6 @@ function fieldHtml(f) {
   }
   if (f.type === 'textarea') return `<label class="rp-field"><span>${label}</span><textarea data-f="${f.k}" rows="2"></textarea></label>`;
   const input = `<label class="rp-field"${tip}><span>${label}</span><input data-f="${f.k}" spellcheck="false"${tip}></label>`;
-  // #4b: under the Drive upload-folder field, a "send a test file" write-probe + a sharing-help link.
-  if (f.k === 'upload') {
-    return input
-      + `<p class="note">${esc(t('panel.f.uploadFallbackNote'))}</p>`
-      + `<div class="rp-probe-row">`
-      + `<button type="button" class="link-btn rp-probe-btn" data-act="probe-upload">${esc(t('panel.f.probeBtn'))}</button>`
-      + `<a class="rp-doclink" href="https://support.google.com/drive/answer/2494822" target="_blank" rel="noopener" title="${esc(t('panel.f.probeHelp'))}">?</a>`
-      + `<div class="rp-probe-result" role="status" hidden></div></div>`;
-  }
   return input;
 }
 
@@ -1607,8 +1572,7 @@ function toFormValues(s, mode) {
   s = s || {};
   const v = {};
   for (const g of GROUPS) for (const f of groupFields(g, mode)) {
-    if (f.k === 'upload') v.upload = mode === 'local' ? (s.uploadUrl || '') : (s.uploadFolder || '');
-    else if (f.k === 'sendOptions') v.sendOptions = (mode === 'local' ? s.linkSendOptions : s.sendOptions) || [];
+    if (f.k === 'sendOptions') v.sendOptions = (mode === 'local' ? s.linkSendOptions : s.sendOptions) || [];
     else if (f.k === 'buttons') v.buttons = (mode === 'local' ? s.linkButtons : s.toolbarButtons) || [];
     // Consent multi-select: prefer the new arrays; else migrate the old single consentMode/consentResp.
     else if (f.k === 'consentAsk') v.consentAsk = Array.isArray(s.consentAsk) ? s.consentAsk
@@ -1655,7 +1619,7 @@ function collectRaw(box) {
 function readForm(box, mode) {
   const raw = collectRaw(box);
   const patch = {};
-  const SPECIAL = ['upload', 'sendOptions', 'buttons', 'autoDel', 'consentAudioUrl', 'autoBackupMins'];
+  const SPECIAL = ['sendOptions', 'buttons', 'autoDel', 'consentAudioUrl', 'autoBackupMins'];
   for (const g of GROUPS) for (const f of groupFields(g, mode)) {
     if (SPECIAL.includes(f.k)) continue;
     patch[f.k] = raw[f.k];
@@ -1670,14 +1634,10 @@ function readForm(box, mode) {
   // Consent audio: store the raw link AND the resolved URL the device actually plays.
   patch.consentAudioUrl = raw.consentAudioUrl || '';
   patch.consentAudio = (raw.consentAudioUrl && deps.resolveAudioInput) ? deps.resolveAudioInput(raw.consentAudioUrl) : '';
-  const folder = deps.parseDriveFolder ? (deps.parseDriveFolder(raw.upload) || '') : '';
   if (mode === 'local') {
-    patch.uploadUrl = raw.upload;
-    patch.uploadFolder = raw.upload ? folder : '';
     patch.linkSendOptions = raw.sendOptions || [];
     patch.linkButtons = raw.buttons || [];
   } else {
-    patch.uploadFolder = raw.upload ? (folder || raw.upload) : '';
     patch.sendOptions = raw.sendOptions || [];
     patch.toolbarButtons = raw.buttons || [];
   }
@@ -1700,17 +1660,9 @@ function validateDeviceSettings(raw, opts = {}) {
   const out = [];
   if (blank(raw.vernLang)) out.push({ group: 'languages', field: 'vernLang', msg: t('panel.val.vernLang') });
   if (blank(raw.analLang)) out.push({ group: 'languages', field: 'analLang', msg: t('panel.val.analLang') });
-  const sends = Array.isArray(raw.sendOptions) ? raw.sendOptions : [];
-  // A Drive upload folder is required if "Upload" is an enabled send button OR if consent assent is
-  // RECORDED (the recorded "yes" has to be uploaded somewhere, or it's stranded on the device).
-  const needForSend = sends.includes('upload');
+  // No upload-folder requirement any more: linked devices stream into the
+  // researcher's own Drive automatically (the relay leg is retired).
   const ask = Array.isArray(raw.consentAsk) ? raw.consentAsk : [];
-  const confirm = Array.isArray(raw.consentConfirm) ? raw.consentConfirm : [];
-  const needForAssent = confirm.includes('record');
-  if (needForSend || needForAssent) {
-    if (blank(raw.upload)) out.push({ group: 'sending', field: 'upload', msg: (needForAssent && !needForSend) ? t('panel.val.assentUpload') : t('panel.val.uploadMissing') });
-    else if (uploadIsUrl && parseFolder && !parseFolder(raw.upload)) out.push({ group: 'sending', field: 'upload', msg: t('panel.val.uploadBad') });
-  }
   if (ask.includes('audio') && blank(raw.consentAudioUrl)) out.push({ group: 'consent', field: 'consentAudioUrl', msg: t('panel.val.consentAudio') });
   if (ask.includes('text') && blank(raw.consentMsg)) out.push({ group: 'consent', field: 'consentMsg', msg: t('panel.val.consentMsg') });
   return out;
@@ -1721,7 +1673,6 @@ function settingsToRaw(s) {
   s = s || {};
   return {
     vernLang: s.vernLang, analLang: s.analLang,
-    upload: s.uploadFolder,                       // device mode persists the already-parsed folder
     sendOptions: s.sendOptions || [],
     consentAsk: Array.isArray(s.consentAsk) ? s.consentAsk : (s.consentMode && s.consentMode !== 'off' ? [s.consentMode] : []),
     consentConfirm: Array.isArray(s.consentConfirm) ? s.consentConfirm : (s.consentMode && s.consentMode !== 'off' ? [s.consentResp || 'yesno'] : []),
@@ -1840,24 +1791,6 @@ async function openSettingsModal(target, opts = {}) {
     } catch (err) { errToast(err); }
   });
 
-  // #4b: live write-probe — drop a real test file into the folder typed in the box via the SAME relay
-  // the field device uses, so a green result PROVES uploads will land (no Drive token needed).
-  const probeBtn = box.querySelector('[data-act="probe-upload"]');
-  if (probeBtn) probeBtn.addEventListener('click', () => busy(probeBtn, async () => {
-    const out = box.querySelector('.rp-probe-result');
-    const paint = (msg, kind) => { out.hidden = false; out.textContent = msg; out.className = 'rp-probe-result' + (kind ? ' rp-as-' + kind : ''); };
-    const raw = (box.querySelector('[data-f="upload"]').value || '').trim();
-    const fid = deps.parseDriveFolder ? deps.parseDriveFolder(raw) : raw;
-    if (!fid) { paint(t('panel.probe.needFolder'), 'err'); return; }
-    paint(t('panel.probe.testing'));
-    try {
-      const r = await probeDriveFolder(deps.driveRelay, fid);
-      if (r && r.ok) paint(t('panel.probe.ok', { name: r.name }), 'ok');
-      else paint(t('panel.probe.timeout'), 'err');
-    } catch (err) {
-      paint(t('panel.probe.failPrefix') + ' ' + (err.message || ''), 'err');
-    }
-  }));
 }
 
 // Pull a device's last-reported settings snapshot (if any) to prefill its editor.

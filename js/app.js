@@ -141,7 +141,6 @@ function applyUrlSettings() {
         ? cur.filter(b => b !== 'record')
         : Array.from(new Set([...cur, 'record']));
     }
-    if (p.has('upload')) s.uploadFolder = p.get('upload').replace(/[^\w-]/g, '');
     if (p.has('send')) {
       s.sendOptions = p.get('send').split(',')
         .filter(o => ['share', 'upload', 'save', 'download'].includes(o));
@@ -1936,7 +1935,7 @@ async function sweepPendingUpDel() {
 const autoBackupTried = new Map();   // docId -> { sig, at }
 async function autoBackupSweep() {
   if (RESEARCHER_MODE || CROWD_MODE) return;
-  if (settings.autoBackup !== true || !settings.uploadFolder || !navigator.onLine) return;
+  if (settings.autoBackup !== true || !Sync.workerUploadTarget() || !navigator.onLine) return;
   const quietMs = Math.max(1, parseInt(settings.autoBackupMins, 10) || 15) * 60000;
   const nowT = Date.now();
   const metas = await db.listDocs().catch(() => []);
@@ -2323,7 +2322,7 @@ async function buildDocFromFlextextUrl(url, title) {
 function updateShareButton() {
   const allow = allowedSend();
   const any = allow.has('share') || allow.has('save') || allow.has('download') ||
-    (allow.has('upload') && !!settings.uploadFolder);
+    (allow.has('upload') && !!Sync.workerUploadTarget());
   $('#btn-share').hidden = !any;
 }
 
@@ -2409,8 +2408,6 @@ async function uploadDocById(docId) {
   if (!rec) return false;
   const bundle = await buildBundleFor(rec, true); // timestamped: Drive never overwrites
   await db.putMedia('upload:' + docId, {
-    relayUrl: DEFAULT_RELAY,
-    folder: settings.uploadFolder || '',
     blob: bundle.blob, name: bundle.filename, mime: bundle.mime,
     total: bundle.blob.size, sent: 0,
     docModified: rec.modified,
@@ -2433,7 +2430,7 @@ async function openShareMenu() {
   const canPick = !!window.showSaveFilePicker;
   const allow = allowedSend();
   const showShare = canShare && allow.has('share');
-  const showUpload = allow.has('upload') && !!settings.uploadFolder;
+  const showUpload = allow.has('upload') && !!Sync.workerUploadTarget();
   const showSave = canPick && allow.has('save');
   // Blind download only when no picker is offered (Firefox) or save is off.
   const showDownload = allow.has('download') && !showSave;
@@ -2583,7 +2580,7 @@ function pumpUploads() {
     // proceed if the entry is still present and still ours to upload.
     const cur = uploadView.get(docId);
     if (!cur || cur.status !== 'uploading') return;
-    if (!rec || !rec.relayUrl || !rec.blob) { // record vanished — drop it
+    if (!rec || !rec.blob) { // record vanished — drop it
       uploadView.delete(docId); renderUploadQueue(); pumpUploads(); return;
     }
     new DriveUpload(docId, rec, uploadState(docId)).start();
@@ -2746,7 +2743,6 @@ function fillWsForm() {
   for (const key of ['vernLang', 'analLang']) {
     if (f.elements[key]) f.elements[key].value = settings[key] || '';
   }
-  f.elements.uploadUrl.value = settings.uploadUrl || '';
   const cAsk = consentAskList();
   f.elements.askText.checked = cAsk.includes('text');
   f.elements.askAudio.checked = cAsk.includes('audio');
@@ -2776,9 +2772,6 @@ function applyResearchFormToSettings(f) {
   for (const key of ['vernLang', 'analLang']) {
     settings[key] = f.elements[key].value.trim();
   }
-  const rawUpload = f.elements.uploadUrl.value.trim();
-  settings.uploadUrl = rawUpload;
-  settings.uploadFolder = rawUpload ? (parseDriveFolder(rawUpload) || '') : '';
   const cAsk = [];
   if (f.elements.askText.checked) cAsk.push('text');
   if (f.elements.askAudio.checked) cAsk.push('audio');
@@ -2796,15 +2789,14 @@ function applyResearchFormToSettings(f) {
   settings.consentAudio = resolveAudioInput(rawConsentAudio);
   settings.autoDelUploaded = !!f.elements.autoDel.checked;
   saveSettings(settings);
-  return { rawUpload, rawConsentAudio };
+  return { rawConsentAudio };
 }
 
 function setupResearch() {
   const f = $('#ws-form');
   f.addEventListener('submit', (e) => {
     e.preventDefault();
-    const { rawUpload, rawConsentAudio } = applyResearchFormToSettings(f);
-    if (rawUpload && !settings.uploadFolder) toast(t('research.badFolder'), 7000);
+    const { rawConsentAudio } = applyResearchFormToSettings(f);
     if (rawConsentAudio && !settings.consentAudio) toast(t('task.badAudio'), 6000);
     renderWsBanner();
     syncConsentAudio();
@@ -3850,7 +3842,6 @@ function setupResearcherMode() {
     saveSettings,
     parseDriveFolder,
     resolveAudioInput,
-    driveRelay: DEFAULT_RELAY,
     openView: (v) => show(v),
     goHome: () => {},   // no editor to return to; the panel's Lock button signs out → sign-in
     eraseAllData: () => eraseAllData(),
@@ -4043,7 +4034,6 @@ function setup() {
     saveSettings,
     parseDriveFolder,
     resolveAudioInput,
-    driveRelay: DEFAULT_RELAY,
     openView: (v) => show(v),
     goHome: () => { renderDocList(); show('texts'); },
     eraseAllData: () => eraseAllData(),

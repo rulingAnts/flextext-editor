@@ -3199,6 +3199,42 @@ async function crowdDelPending(id) {
   } catch { /* nothing persisted */ }
 }
 
+// One browser shouldn't fire submissions back-to-back: 60s between NEW recordings
+// (per tab, reload-surviving via sessionStorage — deliberately not the shared
+// localStorage). Retries of an already-recorded pending item are NOT throttled;
+// the serious anti-automation is Turnstile + per-IP limits + budgets.
+const CROWD_COOLDOWN_MS = 60000;
+function crowdCooldownLeft() {
+  try {
+    const t = parseInt(sessionStorage.getItem('fx-crowd-last-submit') || '0', 10);
+    return Math.max(0, t + CROWD_COOLDOWN_MS - Date.now());
+  } catch { return 0; }
+}
+function crowdMarkSubmitted() {
+  try { sessionStorage.setItem('fx-crowd-last-submit', String(Date.now())); } catch { /* private mode */ }
+}
+let crowdCooldownTimer = null;
+function crowdApplyCooldown() {
+  clearInterval(crowdCooldownTimer);
+  const btn = $('#btn-record-big') || $('#crowd-again');
+  if (!btn) return;
+  const paint = () => {
+    const left = crowdCooldownLeft();
+    if (left <= 0) {
+      clearInterval(crowdCooldownTimer);
+      btn.disabled = false;
+      const n = $('#crowd-cooldown'); if (n) n.remove();
+      return;
+    }
+    btn.disabled = true;
+    let n = $('#crowd-cooldown');
+    if (!n) { n = document.createElement('p'); n.id = 'crowd-cooldown'; n.className = 'note'; btn.insertAdjacentElement('afterend', n); }
+    n.textContent = t('crowd.cooldown', { s: Math.ceil(left / 1000) });
+  };
+  paint();
+  if (crowdCooldownLeft() > 0) crowdCooldownTimer = setInterval(paint, 1000);
+}
+
 // Consent-prompt audio, fetched to MEMORY only (see requestConsentThen).
 async function crowdFetchAsset(url) {
   if (!url) return null;
@@ -3290,6 +3326,7 @@ function renderCrowdView(state, extra = {}) {
   </div>`;
   $('#btn-record-big')?.addEventListener('click', () => requestConsentThen(() => openRecordModal()));
   $('#crowd-again')?.addEventListener('click', () => renderCrowdView('ready'));
+  if (state === 'ready' || state === 'thanks') crowdApplyCooldown();
   $('#crowd-reload')?.addEventListener('click', () => setupCrowdMode());
   $('#crowd-retry')?.addEventListener('click', () => { crowdFlush(true).catch(() => {}); });
 }
@@ -3414,7 +3451,7 @@ async function crowdFlush(interactive) {
     crowdPendingCount = items.length;
     let err = null;
     for (const item of items) {
-      try { await crowdSubmitOne(item); crowdPendingCount--; }
+      try { await crowdSubmitOne(item); crowdPendingCount--; crowdMarkSubmitted(); }
       catch (e) {
         if (e.code === 'too_large' || e.code === 'too_small') {   // permanently unsendable — drop, don't wedge the queue
           await crowdDelPending(item.id);

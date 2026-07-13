@@ -1212,9 +1212,11 @@ function startRecTimer() {
   const fmtT = (s) => Math.floor(s / 60) + ':' + String(Math.floor(s) % 60).padStart(2, '0');
   rec.timer = setInterval(() => {
     const secs = (Date.now() - rec.t0) / 1000;
-    // Crowd cap: auto-STOP (to review — never discard) at the recorder's max length,
-    // so an abandoned open mic can't fill the researcher's budget with one take.
-    if (CROWD_MODE && CROWD_CFG && rec?.recording && secs >= CROWD_CFG.maxSeconds) {
+    // Auto-STOP (to review — never discard) at the max length: crowd recorders use
+    // their public config; a managed device uses the researcher-set maxRecordSeconds
+    // (0/absent = no limit).
+    const capSecs = CROWD_MODE ? ((CROWD_CFG && CROWD_CFG.maxSeconds) || 0) : (parseInt(settings.maxRecordSeconds, 10) || 0);
+    if (capSecs > 0 && rec?.recording && secs >= capSecs) {
       stopRecording().catch(() => {});
       return;
     }
@@ -2166,7 +2168,7 @@ async function syncGatherInventory() {
                    'recordFormat', 'agc', 'nr', 'echo', 'norm',
                    'consentAsk', 'consentConfirm', 'consentMode', 'consentMsg', 'consentResp', 'consentAudioUrl',
                    'appLang', 'uploadFolder', 'toolbarButtons', 'sendOptions', 'autoDelUploaded', 'recordWelcome', 'deleteAllEnabled',
-                   'autoBackup', 'autoBackupMins']) {
+                   'autoBackup', 'autoBackupMins', 'maxRecordSeconds']) {
     if (settings[k] !== undefined) snap[k] = settings[k];
   }
   // ua + cachedApps let the panel show which browser/device this install is + whether its apps are

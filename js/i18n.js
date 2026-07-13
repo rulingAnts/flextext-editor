@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v95';
+export const ENGINE_VERSION = 'v96';
 
 const S = {
 en: {
@@ -233,6 +233,9 @@ en: {
   'crowd.openDirect': 'Open the recorder in its own page',
   'sync.removedAfterUpload': 'Uploaded to Drive, then removed from this device (researcher\'s request).',
   'panel.f.autoBackup': 'Auto-backup changed texts',
+  'panel.f.maxRecordSeconds': 'Maximum recording length',
+  'panel.f.maxRecUnlimited': 'no limit',
+  'panel.f.perMinEstimate': 'About {mb} MB per minute of recording.',
   'panel.f.autoBackupMins': 'Auto-backup wait time',
   'panel.f.autoBackupNote': 'Any text changed since its last upload is uploaded automatically once it has sat untouched for the chosen time. Each backup is a NEW time-stamped copy in Drive — nothing is overwritten; the wait timer stops it making a copy on every keystroke.',
   'panel.opt.abm.5': '5 minutes',
@@ -1053,6 +1056,9 @@ id: {
   'crowd.openDirect': 'Buka perekam di halamannya sendiri',
   'sync.removedAfterUpload': 'Sudah terunggah ke Drive, lalu dihapus dari perangkat ini (permintaan peneliti).',
   'panel.f.autoBackup': 'Cadangkan otomatis teks yang berubah',
+  'panel.f.maxRecordSeconds': 'Durasi rekaman maksimum',
+  'panel.f.maxRecUnlimited': 'tanpa batas',
+  'panel.f.perMinEstimate': 'Sekitar {mb} MB per menit rekaman.',
   'panel.f.autoBackupMins': 'Waktu tunggu cadangan otomatis',
   'panel.f.autoBackupNote': 'Teks apa pun yang berubah sejak unggahan terakhirnya akan diunggah otomatis setelah tidak disentuh selama waktu yang dipilih. Setiap cadangan adalah salinan BARU berstempel waktu di Drive — tidak ada yang ditimpa; waktu tunggu mencegah salinan dibuat pada setiap ketikan.',
   'panel.opt.abm.5': '5 menit',

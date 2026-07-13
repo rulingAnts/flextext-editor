@@ -78,6 +78,7 @@ const GROUPS = [
   ] },
   { id: 'recording', fields: [
     { k: 'recordFormat', type: 'select', opts: REC_KEYS, optPrefix: 'panel.opt.fmt.' },  // the permanent recording format
+    { k: 'maxRecordSeconds', type: 'range' },   // auto-stop cap (0 = no limit) + live size readout
     { k: 'agc', type: 'select', opts: AGC_OPTS, optPrefix: 'panel.opt.agc.' },
     { k: 'nr', type: 'checkbox' }, { k: 'echo', type: 'checkbox' }, { k: 'norm', type: 'checkbox' },
   ] },
@@ -1575,6 +1576,11 @@ function fieldHtml(f) {
     const boxes = f.opts.map((o) => `<label class="check-label rp-inline"><input type="checkbox" data-f="${f.k}" data-v="${o}"> ${esc(t((f.optPrefix || '') + o))}</label>`).join('');
     return `<div class="rp-field"><span>${label}</span><div class="rp-multi">${boxes}</div></div>`;
   }
+  if (f.type === 'range') {
+    // Max-duration slider (0 = no limit) with a live duration label + size readout
+    // that tracks the recording-format select (mirrors the crowd editor's estimate).
+    return `<label class="rp-field"><span>${label} — <span id="rp-maxrec-lbl"></span></span><input type="range" data-f="${f.k}" min="0" max="3600" step="10"></label><p class="note" id="rp-maxrec-est"></p>`;
+  }
   if (f.type === 'select') {
     const opts = f.opts.map((o) => `<option value="${o}">${esc(f.optPrefix ? t(f.optPrefix + o) : o)}</option>`).join('');
     return `<label class="rp-field"><span>${label}</span><select data-f="${f.k}">${opts}</select></label>`;
@@ -1611,6 +1617,7 @@ function toFormValues(s, mode) {
     else if (f.k === 'autoBackupMins') v.autoBackupMins = String(s.autoBackupMins || 15);          // stored as a number; default 15
     else if (f.type === 'checkbox') v[f.k] = !!s[f.k];
     else if (f.type === 'select') v[f.k] = s[f.k] || (f.k === 'recordFormat' ? DEFAULT_REC_FORMAT : f.opts[0]);
+    else if (f.type === 'range') v[f.k] = parseInt(s[f.k], 10) || 0;
     else v[f.k] = s[f.k] || '';
   }
   return v;
@@ -1643,7 +1650,7 @@ function collectRaw(box) {
 function readForm(box, mode) {
   const raw = collectRaw(box);
   const patch = {};
-  const SPECIAL = ['sendOptions', 'buttons', 'autoDel', 'consentAudioUrl', 'autoBackupMins'];
+  const SPECIAL = ['sendOptions', 'buttons', 'autoDel', 'consentAudioUrl', 'autoBackupMins', 'maxRecordSeconds'];
   for (const g of GROUPS) for (const f of groupFields(g, mode)) {
     if (SPECIAL.includes(f.k)) continue;
     patch[f.k] = raw[f.k];
@@ -1655,6 +1662,7 @@ function readForm(box, mode) {
   patch.autoDelUploaded = !!raw.autoDel;
   // autoBackup rides the generic path (boolean); the minutes select is a string → the device wants a number.
   patch.autoBackupMins = parseInt(raw.autoBackupMins, 10) || 15;
+  patch.maxRecordSeconds = parseInt(raw.maxRecordSeconds, 10) || 0;   // 0 = no limit
   // Consent audio: store the raw link AND the resolved URL the device actually plays.
   patch.consentAudioUrl = raw.consentAudioUrl || '';
   patch.consentAudio = (raw.consentAudioUrl && deps.resolveAudioInput) ? deps.resolveAudioInput(raw.consentAudioUrl) : '';
@@ -1789,6 +1797,23 @@ async function openSettingsModal(target, opts = {}) {
   else source = (target.instance && await Researcher.getInstanceSettings(target.instance.instance_id).catch(() => null))
     || (target.instance && firstInventorySettings(target.instance)) || {};
   fillForm(box, toFormValues(source, mode));
+  // Live max-duration label + size readout (crowd-editor twin). mbTxt keeps 1dp under 10 MB.
+  const mrSlider = box.querySelector('[data-f="maxRecordSeconds"]');
+  if (mrSlider) {
+    const fmtSel = box.querySelector('[data-f="recordFormat"]');
+    const mbTxt = (bytes) => { const mb = bytes / 1048576; return mb >= 10 ? String(Math.round(mb)) : mb.toFixed(1); };
+    const paintMr = () => {
+      const secs = parseInt(mrSlider.value, 10) || 0;
+      const fmt = fmtSel ? fmtSel.value : 'wav24';
+      box.querySelector('#rp-maxrec-lbl').textContent = secs ? fmtDur(secs) : t('panel.f.maxRecUnlimited');
+      box.querySelector('#rp-maxrec-est').textContent = secs
+        ? t('panel.crowd.estimate', { mb: mbTxt(crowdEstimate(fmt, secs)) })
+        : t('panel.f.perMinEstimate', { mb: mbTxt(crowdEstimate(fmt, 60)) });
+    };
+    mrSlider.addEventListener('input', paintMr);
+    if (fmtSel) fmtSel.addEventListener('change', paintMr);
+    paintMr();
+  }
 
   // If opened because validation already blocked the researcher (e.g. the invite gate), show
   // exactly what's missing right away rather than waiting for them to hit Save.

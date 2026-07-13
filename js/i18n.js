@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v96';
+export const ENGINE_VERSION = 'v97';
 
 const S = {
 en: {
@@ -123,6 +123,8 @@ en: {
   'consent.continue': 'Continue',
   'consent.assentReview': 'Listen to check, then give permission below — or Re-record.',
   'consent.declined': 'Recording needs the speaker\'s permission. Ask first, then try again.',
+  'consent.next': 'Continue',
+  'consent.chooseYesNo': 'Please answer Yes or No first.',
   'consent.loadingAudio': 'Loading the spoken reminder…',
   'consent.audioFailed': 'Could not load the spoken reminder. You can still continue.',
   'texts.open': 'Open .flextext file…',
@@ -946,6 +948,8 @@ id: {
   'consent.continue': 'Lanjutkan',
   'consent.assentReview': 'Dengarkan dulu, lalu beri izin di bawah — atau Rekam ulang.',
   'consent.declined': 'Merekam memerlukan izin penutur. Tanyakan dulu, lalu coba lagi.',
+  'consent.next': 'Lanjutkan',
+  'consent.chooseYesNo': 'Silakan jawab Ya atau Tidak dulu.',
   'consent.loadingAudio': 'Memuat pengingat lisan…',
   'consent.audioFailed': 'Tidak bisa memuat pengingat lisan. Anda tetap bisa melanjutkan.',
   'texts.open': 'Buka file .flextext…',

@@ -841,9 +841,14 @@ async function requestConsentThen(onApproved) {
   $('#consent-sign').hidden = !needSign;
   if (needSign) $('#consent-name').value = '';
   if (needRecord) resetConsentRecordUI();
-  // The affirm + decline are always present when consent is on (the affirm IS the submit).
-  $('#consent-yesno').hidden = false;
-  $('#consent-yes').textContent = needYesno ? t('consent.yes') : t('consent.give');
+  // (3) yes/no as RADIOS — shown only when the researcher asked for an explicit
+  // yes/no; the submit button below is always the single proceed point.
+  $('#consent-yesno').hidden = !needYesno;
+  const rYes = $('#consent-choice-yes');
+  const rNo = $('#consent-choice-no');
+  if (rYes) rYes.checked = false;
+  if (rNo) rNo.checked = false;
+  $('#consent-yes').textContent = t(needYesno ? 'consent.next' : 'consent.give');
 
   $('#consent-modal').hidden = false;
 
@@ -860,6 +865,10 @@ async function requestConsentThen(onApproved) {
 
   // Unified affirm: every enabled confirmation must be satisfied, then collect the evidence and proceed.
   $('#consent-yes').onclick = async () => {
+    if (needYesno) {
+      if (rNo && rNo.checked) { closeConsentModal(); toast(t('consent.declined'), 5000); return; }
+      if (!rYes || !rYes.checked) { status.hidden = false; status.textContent = t('consent.chooseYesNo'); return; }
+    }
     if (needRecord && !crec?.blob) { status.hidden = false; status.textContent = t('consent.needRecording'); return; }
     const nm = needSign ? $('#consent-name').value.trim() : '';
     if (needSign && !nm) { $('#consent-name').focus(); toast(t('consent.needName'), 5000); return; }
@@ -875,7 +884,6 @@ async function requestConsentThen(onApproved) {
     }
     proceed(assent, nm);
   };
-  $('#consent-no').onclick = () => { closeConsentModal(); toast(t('consent.declined'), 5000); };
   $('#consent-cancel').onclick = () => closeConsentModal();
   $('#consent-modal').onclick = (e) => { if (e.target === $('#consent-modal')) closeConsentModal(); };
   $('#consent-assent-redo').onclick = () => { discardConsentRec(); resetConsentRecordUI(); };

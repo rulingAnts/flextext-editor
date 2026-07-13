@@ -1586,6 +1586,7 @@ function fieldHtml(f) {
   // #4b: under the Drive upload-folder field, a "send a test file" write-probe + a sharing-help link.
   if (f.k === 'upload') {
     return input
+      + `<p class="note">${esc(t('panel.f.uploadFallbackNote'))}</p>`
       + `<div class="rp-probe-row">`
       + `<button type="button" class="link-btn rp-probe-btn" data-act="probe-upload">${esc(t('panel.f.probeBtn'))}</button>`
       + `<a class="rp-doclink" href="https://support.google.com/drive/answer/2494822" target="_blank" rel="noopener" title="${esc(t('panel.f.probeHelp'))}">?</a>`

@@ -13,7 +13,7 @@ import { convertToMp3 } from './convert.js';
 import { losslessSupported, recFormatSupported, PCMRecorder, encodeWav, encodeRecording, normalizePeak, reduceChannels,
          normRecFormat, REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { makeZip } from './zip.js';
-import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads } from './upload.js';
+import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget } from './upload.js';
 import * as Sync from './sync.js';
 import { initResearcherPanel } from './researcher-panel.js';
 import { esc, newGuid as mkGuid } from './flextext.js';
@@ -3897,6 +3897,10 @@ function setup() {
     onRevoked: onSyncRevoked,
     eraseAllData: () => eraseAllData(),   // remote-wipe directive → full local nuke (seized device)
   });
+  // Enrolled devices stream uploads through the worker into the researcher's own
+  // Drive ("FlexText Uploads / <device>"); unmanaged devices get null → relay as
+  // always. Evaluated per attempt inside the upload engine (see upload.js).
+  setWorkerUploadTarget(() => Sync.workerUploadTarget());
   handleInviteParam();
   // Re-prompt an unfinished invite acceptance on reload (B): a claimed-but-unaccepted enrollment
   // re-shows the consent dialog. (handleInviteParam shows it for a fresh link; this covers a reload

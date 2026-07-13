@@ -45,6 +45,23 @@ export function enrollment() {
 }
 export function clearSession() { localStorage.removeItem(SESSION_KEY); resetKeys(); }
 
+// Streaming-upload target for THIS enrolled device (null when unmanaged, pending,
+// not yet user-accepted, or before Sync.start injected the iface): the worker
+// route that lands bundles in the researcher's own Drive ("FlexText Uploads /
+// <device>"). The install secret stays inside this module — callers get
+// ready-made headers, never the raw session.
+export function workerUploadTarget() {
+  if (!iface || !iface.workerBase) return null;
+  const s = loadSession();
+  if (!s || !s.instanceId || !s.accepted || s.status !== 'approved') return null;
+  const base = (iface.workerBase() || '').replace(/\/+$/, '');
+  if (!base) return null;
+  return {
+    url: `${base}/v1/instances/${encodeURIComponent(s.instanceId)}/installs/${encodeURIComponent(s.installId)}/upload`,
+    headers: { 'x-fx-install': s.installId, 'x-fx-secret': s.installSecret },
+  };
+}
+
 /* ---------------- crypto helpers (install identity, minted locally) ---------------- */
 
 // ≥128-bit base64url token (plan §F.3). Used for the install secret.

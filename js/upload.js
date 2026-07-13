@@ -36,6 +36,13 @@ const POLL_DELAY = 1500;   // ms between them
 
 export function getUpload(docId) { return active.get(docId) || null; }
 
+// Injected by app.js (returns {url, headers} for an ENROLLED device, else null):
+// lets uploads stream through the worker into the researcher's own Drive without
+// this module importing sync.js. Evaluated fresh on every run/retry, so a device
+// enrolled (or revoked) mid-queue does the right thing on its next attempt.
+let workerTargetProvider = null;
+export function setWorkerUploadTarget(fn) { workerTargetProvider = fn; }
+
 export function driveFolderId(text) {
   const s = String(text || '').trim();
   let m = s.match(/drive\.google\.com\/[^\s]*folders\/([\w-]{10,})/);
@@ -143,6 +150,46 @@ export class DriveUpload {
     this.indeterminate = true; // no byte-level progress available (see header)
     this.emit();
     await db.putMedia(upKey(this.docId), rec).catch(() => {});
+
+    // ENROLLED devices: stream through the worker into the researcher's OWN Drive
+    // ("FlexText Uploads / <device nickname>") FIRST — no base64, no 15 MB cap, no
+    // WAV refusal, and a directly readable response (no status-poll dance). ANY
+    // failure falls through to the relay path below, exactly as before — and the
+    // queue's retry loop re-enters here, so a transient worker/token problem heals
+    // back onto the streaming path on a later attempt.
+    const target = workerTargetProvider && workerTargetProvider();
+    if (target) {
+      try {
+        this.abortCtl = new AbortController();
+        const resp = await fetch(target.url, {
+          method: 'POST',
+          headers: {
+            ...target.headers,
+            'content-type': 'application/octet-stream',
+            'x-fx-name': encodeURIComponent(rec.name || ''),
+            'x-fx-mime': rec.mime || '',
+          },
+          body: rec.blob,
+          signal: this.abortCtl.signal,
+        });
+        if (this._gen !== run || this.status !== 'uploading') return;
+        const out = await resp.json().catch(() => ({}));
+        if (resp.ok && out.ok && out.fileId) {
+          this.indeterminate = false;
+          rec.sent = rec.total;
+          this.uploadedFileId = out.fileId;   // proof-of-backup — delete-safety unchanged
+          this.status = 'done';
+          await db.deleteMedia(upKey(this.docId)).catch(() => {});
+          this.emit();
+          return;
+        }
+        // no_drive / too_large / 5xx → relay fallback below
+      } catch (e) {
+        if (e.name === 'AbortError' || this._gen !== run) throw new Error('aborted');
+        // network blip → try the relay leg; the retry sweep will revisit streaming
+      }
+      if (this._gen !== run || this.status !== 'uploading') return;
+    }
 
     const dataB64 = await blobToBase64(rec.blob);
     if (this._gen !== run || this.status !== 'uploading') return;

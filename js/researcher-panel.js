@@ -1612,9 +1612,10 @@ function groupFields(g, mode) { return g.fields.filter((f) => !(f.deviceOnly && 
 function groupHtml(g, mode) {
   // The TAB label (panel.grp.<id>) and the fieldset heading may differ (g.legend):
   // e.g. the Languages tab's fieldset is headed "FLEx Writing System Codes".
-  // g.helpUrl renders a new-tab "more info…" link on its own line under the heading.
-  const help = g.helpUrl ? `<p class="note rp-grp-help"><a class="rp-doclink" href="${g.helpUrl}" target="_blank" rel="noopener">${esc(t('panel.grp.moreInfo'))}</a></p>` : '';
-  return `<div class="rp-group" id="rp-grp-${g.id}" role="tabpanel" aria-labelledby="rp-tab-${g.id}" data-group="${g.id}" hidden><fieldset class="rp-fieldset"><legend>${esc(t(g.legend || 'panel.grp.' + g.id))}</legend>${help}${groupFields(g, mode).map(fieldHtml).join('')}</fieldset></div>`;
+  // g.helpUrl renders a new-tab "more info…" link INLINE after the heading (the
+  // heading is short; .rp-legend-help keeps it one non-wrapping unit).
+  const help = g.helpUrl ? `<a class="rp-doclink rp-legend-help" href="${g.helpUrl}" target="_blank" rel="noopener">${esc(t('panel.grp.moreInfo'))}</a>` : '';
+  return `<div class="rp-group" id="rp-grp-${g.id}" role="tabpanel" aria-labelledby="rp-tab-${g.id}" data-group="${g.id}" hidden><fieldset class="rp-fieldset"><legend>${esc(t(g.legend || 'panel.grp.' + g.id))}${help}</legend>${groupFields(g, mode).map(fieldHtml).join('')}</fieldset></div>`;
 }
 
 // Map stored settings → canonical form values (mode-aware on the divergent fields).

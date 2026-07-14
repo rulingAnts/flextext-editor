@@ -990,4 +990,4 @@ main {
 .crowd-embed .modal-card { margin: 12px auto; width: auto; max-width: 420px; box-shadow: 0 2px 14px rgba(0,0,0,.18); border: 1px solid var(--border); }
 /* While a step-card is open, the big Record button yields to it (graceful where :has is unsupported). */
 .crowd-embed:has(.modal:not([hidden])) .record-big { display: none; }
-.rp-grp-help { margin: -4px 0 10px; }   /* the "more info…" line tucks under the group heading */
+.rp-legend-help { margin-left: 10px; font-weight: normal; font-size: 13px; white-space: nowrap; }   /* inline "more info…" after the group heading */

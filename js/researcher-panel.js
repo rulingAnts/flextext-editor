@@ -69,18 +69,21 @@ const GROUPS = [
   { id: 'languages', legend: 'panel.legend.languages', helpModal: 'wscodes', fields: [
     // Interface language pushed to THIS device (setting D). deviceOnly → hidden in the researcher's own
     // local-settings modal (where the live #lang-select toggle already covers it).
-    { k: 'appLang', type: 'select', opts: ['follow', 'en', 'id'], optPrefix: 'panel.opt.appLang.', deviceOnly: true },
+    { k: 'appLang', type: 'select', opts: ['follow', 'en', 'id'], optPrefix: 'panel.opt.appLang.', deviceOnly: true, outside: true },   // sits ABOVE the codes fieldset
     // Codes ONLY (2026-07-13): the name/font fields are gone — names were display
     // sugar, fonts device cosmetics; neither belongs in the FLEx export. tip =
     // hover tooltip (fieldHtml) warning that FLEx codes are case-sensitive.
     { k: 'vernLang', type: 'text', tip: 'research.wsCase' },
     { k: 'analLang', type: 'text', tip: 'research.wsCase' },
   ] },
-  { id: 'recording', fields: [
+  { id: 'recording', helpModal: 'recfmt', fields: [
     { k: 'recordFormat', type: 'select', opts: REC_KEYS, optPrefix: 'panel.opt.fmt.' },  // the permanent recording format
     { k: 'maxRecordSeconds', type: 'range' },   // auto-stop cap (0 = no limit) + live size readout
     { k: 'agc', type: 'select', opts: AGC_OPTS, optPrefix: 'panel.opt.agc.' },
     { k: 'nr', type: 'checkbox' }, { k: 'echo', type: 'checkbox' }, { k: 'norm', type: 'checkbox' },
+    // One-tap archive-grade capture: 24-bit WAV with EVERY processing stage off
+    // (AGC/NR/echo/normalization are prohibited on preservation masters).
+    { k: 'archivalDefaults', type: 'action' },
   ] },
   { id: 'consent', fields: [
     // Consent is multi-select: any combination of prompts + confirmations, all required together.
@@ -1592,6 +1595,10 @@ function fieldHtml(f) {
     const boxes = f.opts.map((o) => `<label class="check-label rp-inline"><input type="checkbox" data-f="${f.k}" data-v="${o}"> ${esc(t((f.optPrefix || '') + o))}</label>`).join('');
     return `<div class="rp-field"><span>${label}</span><div class="rp-multi">${boxes}</div></div>`;
   }
+  if (f.type === 'action') {
+    const note = f.k === 'archivalDefaults' ? `<p class="note">${esc(t('panel.f.archivalNote'))}</p>` : '';
+    return `<div class="rp-field"><button type="button" class="secondary-btn" data-gact="${f.k}">${label}</button></div>${note}`;
+  }
   if (f.type === 'range') {
     // Max-duration slider (0 = no limit) with a live duration label + size readout
     // that tracks the recording-format select (mirrors the crowd editor's estimate).
@@ -1617,7 +1624,10 @@ function groupHtml(g, mode) {
   // any non-precached in-scope URL, so same-scope help pages can't be linked from
   // inside the PWA. The modal also works offline and follows the panel language.
   const help = g.helpModal ? `<button type="button" class="link-btn rp-legend-help" data-ghelp="${g.helpModal}">${esc(t('panel.grp.moreInfo'))}</button>` : '';
-  return `<div class="rp-group" id="rp-grp-${g.id}" role="tabpanel" aria-labelledby="rp-tab-${g.id}" data-group="${g.id}" hidden><fieldset class="rp-fieldset"><legend>${esc(t(g.legend || 'panel.grp.' + g.id))}</legend>${help}${groupFields(g, mode).map(fieldHtml).join('')}</fieldset></div>`;
+  const fields = groupFields(g, mode);
+  const outside = fields.filter((f) => f.outside).map(fieldHtml).join('');   // e.g. appLang sits above the codes fieldset
+  const inside = fields.filter((f) => !f.outside).map(fieldHtml).join('');
+  return `<div class="rp-group" id="rp-grp-${g.id}" role="tabpanel" aria-labelledby="rp-tab-${g.id}" data-group="${g.id}" hidden>${outside}<fieldset class="rp-fieldset"><legend>${esc(t(g.legend || 'panel.grp.' + g.id))}</legend>${help}${inside}</fieldset></div>`;
 }
 
 // Map stored settings → canonical form values (mode-aware on the divergent fields).
@@ -1625,6 +1635,7 @@ function toFormValues(s, mode) {
   s = s || {};
   const v = {};
   for (const g of GROUPS) for (const f of groupFields(g, mode)) {
+    if (f.type === 'action') continue;
     if (f.k === 'sendOptions') v.sendOptions = (mode === 'local' ? s.linkSendOptions : s.sendOptions) || [];
     else if (f.k === 'buttons') v.buttons = (mode === 'local' ? s.linkButtons : s.toolbarButtons) || [];
     // Consent multi-select: prefer the new arrays; else migrate the old single consentMode/consentResp.
@@ -1675,7 +1686,7 @@ function readForm(box, mode) {
   const patch = {};
   const SPECIAL = ['sendOptions', 'buttons', 'autoDel', 'consentAudioUrl', 'autoBackupMins', 'maxRecordSeconds'];
   for (const g of GROUPS) for (const f of groupFields(g, mode)) {
-    if (SPECIAL.includes(f.k)) continue;
+    if (SPECIAL.includes(f.k) || f.type === 'action') continue;
     patch[f.k] = raw[f.k];
   }
   // appLang 'follow' (or unset) = "don't change this device's language" → never push it (it would
@@ -1824,6 +1835,20 @@ async function openSettingsModal(target, opts = {}) {
   // same pattern as the WS utility's "?" button).
   box.querySelectorAll('[data-ghelp]').forEach((b) => b.addEventListener('click', () => {
     if (b.dataset.ghelp === 'wscodes') wsCodesHelpModal();
+    if (b.dataset.ghelp === 'recfmt') recfmtHelpModal();
+  }));
+  // Archive-grade one-tap: 24-bit WAV + AGC/NR/echo/normalization OFF (the widely
+  // accepted preservation-master baseline). Sets the form; Save/push as usual.
+  box.querySelectorAll('[data-gact="archivalDefaults"]').forEach((b) => b.addEventListener('click', () => {
+    const fmt = box.querySelector('[data-f="recordFormat"]');
+    if (fmt) { fmt.value = 'wav24'; fmt.dispatchEvent(new Event('change')); }   // change → live size readout follows
+    const agc = box.querySelector('[data-f="agc"]');
+    if (agc) agc.value = 'off';
+    for (const k of ['nr', 'echo', 'norm']) {
+      const el = box.querySelector(`[data-f="${k}"]`);
+      if (el) el.checked = false;
+    }
+    deps.toast(t('panel.f.archivalSet'), 4000);
   }));
   // Live max-duration label + size readout (crowd-editor twin). mbTxt keeps 1dp under 10 MB.
   const mrSlider = box.querySelector('[data-f="maxRecordSeconds"]');

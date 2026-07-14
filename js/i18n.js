@@ -1668,7 +1668,11 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
 let cur = detect();
 
 function detect() {
-  const saved = localStorage.getItem(LANG_KEY);
+  // try/catch: an embedded crowd iframe under strict third-party-storage settings
+  // (Chrome incognito, Brave, blocked 3P cookies) DENIES localStorage — a bare read
+  // here throws at module load and kills the whole page before it can boot.
+  let saved = null;
+  try { saved = localStorage.getItem(LANG_KEY); } catch { /* storage denied — fall through */ }
   if (saved && LANGS.includes(saved)) return saved;
   for (const l of navigator.languages || [navigator.language || 'en']) {
     const base = String(l).toLowerCase().split('-')[0];
@@ -1682,7 +1686,7 @@ export function getLang() { return cur; }
 export function setLang(lang, { save = true } = {}) {
   if (!LANGS.includes(lang)) return;
   cur = lang;
-  if (save) localStorage.setItem(LANG_KEY, lang);
+  if (save) { try { localStorage.setItem(LANG_KEY, lang); } catch { /* storage denied — in-memory only */ } }
   document.documentElement.lang = lang;
 }
 

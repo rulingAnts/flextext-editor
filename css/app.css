@@ -976,3 +976,8 @@ main {
 .link-btn:disabled { color: var(--muted); cursor: not-allowed; opacity: .6; }
 .rp-est-over { color: #a03b00; font-weight: 600; }   /* crowd size estimate exceeding the platform cap */
 #cr-maxsec { width: 100%; }
+/* Embed mode: html/body/main stretch to 100% height by default, which makes the
+   auto-size measurement read "frame height" forever (a one-way ratchet). Let the
+   embedded page be exactly as tall as its content. */
+.crowd-embed, .crowd-embed body { height: auto; min-height: 0; }
+.crowd-embed main { flex: none; height: auto; min-height: 0; }

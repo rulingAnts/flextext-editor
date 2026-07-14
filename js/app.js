@@ -3488,19 +3488,36 @@ async function setupCrowdMode() {
   CROWD_ID = params.get('c') || '';
   if (params.get('embed') === '1') {
     document.body.classList.add('crowd-embed');
+    document.documentElement.classList.add('crowd-embed');   // the height:100% chain starts at <html>
     // Blend with the host page: transparent background + auto-size messages that
     // embed.js (if used) turns into a fitted iframe height. Height only — no data.
     document.documentElement.style.background = 'transparent';
     document.body.style.background = 'transparent';
     try {
+      // Measure the CONTENT's true bottom edge, not scrollHeight: inside an iframe
+      // the body fills the viewport, so scrollHeight can never shrink below the
+      // frame's current height — a one-way ratchet. Fixed-position elements (the
+      // modals, the Turnstile host) are skipped; an open modal just enforces a
+      // minimum tall enough to use it.
       const post = () => {
+        let h = 0;
+        for (const el of document.body.children) {
+          if (getComputedStyle(el).position === 'fixed') continue;
+          const r = el.getBoundingClientRect();
+          h = Math.max(h, r.bottom + window.scrollY);
+        }
+        h = Math.ceil(h) + 24;
         const modal = document.querySelector('.modal:not([hidden])');
-        const h = modal ? Math.max(document.documentElement.scrollHeight, 620)
-                        : Math.max(document.documentElement.scrollHeight, 300);
-        parent.postMessage({ fxCrowd: 'height', h }, '*');
+        if (modal) {
+          // Fixed-position card: size the frame to what the card actually needs
+          // (scrollHeight sees clipped content), so Cancel is never below the fold.
+          const card = modal.querySelector('.modal-card');
+          h = Math.max(h, card ? card.scrollHeight + 96 : 620, 480);
+        }
+        parent.postMessage({ fxCrowd: 'height', h: Math.max(h, 240) }, '*');
       };
       new ResizeObserver(post).observe(document.body);
-      setInterval(post, 1200);   // fixed-position modals don't move scrollHeight — poll cheaply
+      setInterval(post, 1200);   // fixed-position changes don't fire the observer — poll cheaply
     } catch { /* no ResizeObserver — the fixed iframe height stands */ }
   }
   settings = {};   // NEVER loadSettings(): this browser may belong to a field worker

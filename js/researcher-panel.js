@@ -125,13 +125,32 @@ export function initResearcherPanel(d) {
       route();
     }
   });
+  // Install button (parity with the editor/recorder apps): the top install banner is
+  // hidden behind the panel's full-screen takeover, so it lives in the panel header.
+  root.addEventListener('click', (e) => {
+    const b = e.target.closest && e.target.closest('#rp-install');
+    if (b) { b.remove(); if (deps.doInstall) deps.doInstall(); }
+  });
   // Returning to a backgrounded tab → refresh the dashboard + the LIVE-version banner right away rather
   // than waiting for the next poll tick (only fires while the dashboard is actively polling).
   document.addEventListener('visibilitychange', () => { if (!document.hidden && dashPoll) { refreshLiveVersions(); pollDashboard(); } });
   // Regained connectivity → recover immediately instead of waiting for the next timer: refresh the
   // dashboard if it's up, otherwise re-attempt sign-in/bootstrap (drives the reconnecting screen).
   window.addEventListener('online', () => { if (!root || root.hidden) return; if (dashPoll) { refreshLiveVersions(); pollDashboard(); } else route(); });
-  return { open, close, isSignedUp: () => Researcher.isSignedUp() };
+  return { open, close, isSignedUp: () => Researcher.isSignedUp(), onInstallable };
+}
+
+// app.js calls this when a deferred install prompt arrives (which may be after the
+// header already rendered) — inject the Install button into the current header if
+// it isn't already there. header() also renders it up-front when the prompt exists.
+function onInstallable() {
+  const head = root && root.querySelector('.rp-head');
+  if (!head || head.querySelector('#rp-install')) return;
+  const btn = document.createElement('button');
+  btn.className = 'secondary-btn rp-install';
+  btn.id = 'rp-install';
+  btn.textContent = t('install.btn');
+  head.insertBefore(btn, head.querySelector('#rp-lang') || head.querySelector('.rp-helpbtn') || null);
 }
 
 function open() { deps.openView('researcher'); route(); }
@@ -260,6 +279,7 @@ function header(titleKey, withLock) {
     ${exitBtn}
     <span class="rp-title">${esc(t(titleKey))}</span>
     <span class="rp-spacer"></span>
+    ${deps && deps.canInstall && deps.canInstall() ? `<button class="secondary-btn rp-install" id="rp-install">${esc(t('install.btn'))}</button>` : ''}
     <select id="rp-lang" title="${esc(t('research.lang'))}">
       <option value="en"${getLang() === 'en' ? ' selected' : ''}>English</option>
       <option value="id"${getLang() === 'id' ? ' selected' : ''}>Indonesia</option>

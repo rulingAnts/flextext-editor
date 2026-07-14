@@ -3618,6 +3618,9 @@ function setupBanners() {
     e.preventDefault();
     installPrompt = e;
     updateInstallBanner();
+    // The researcher panel takes over the full screen (its own header), covering the
+    // top install banner — surface an Install button in the panel header instead.
+    if (researcherPanelApi && researcherPanelApi.onInstallable) researcherPanelApi.onInstallable();
   });
   window.addEventListener('appinstalled', () => {
     installPrompt = null;
@@ -3977,6 +3980,13 @@ function setupResearcherMode() {
     openView: (v) => show(v),
     goHome: () => {},   // no editor to return to; the panel's Lock button signs out → sign-in
     eraseAllData: () => eraseAllData(),
+    canInstall: () => !!installPrompt,
+    doInstall: async () => {
+      if (!installPrompt) return;
+      const p = installPrompt; installPrompt = null;   // usable once
+      try { p.prompt(); await p.userChoice; } catch { /* dismissed */ }
+      updateInstallBanner();
+    },
   });
   researcherPanelApi.open();
 }

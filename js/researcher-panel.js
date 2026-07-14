@@ -66,7 +66,7 @@ const SEND_OPTS = ['share', 'upload', 'save', 'download'];
 /* The 5 settings groups (canonical field ids; local↔device key mapping handled in
  * fillForm/readForm). This is the reusable settings-form component. */
 const GROUPS = [
-  { id: 'languages', fields: [
+  { id: 'languages', helpUrl: '/flextext-editor/help/ws-codes.html', fields: [
     // Interface language pushed to THIS device (setting D). deviceOnly → hidden in the researcher's own
     // local-settings modal (where the live #lang-select toggle already covers it).
     { k: 'appLang', type: 'select', opts: ['follow', 'en', 'id'], optPrefix: 'panel.opt.appLang.', deviceOnly: true },
@@ -1594,7 +1594,9 @@ function fieldHtml(f) {
 // #lang-select toggle already covers the UI language, so a duplicate control would be a confusing no-op.
 function groupFields(g, mode) { return g.fields.filter((f) => !(f.deviceOnly && mode === 'local')); }
 function groupHtml(g, mode) {
-  return `<div class="rp-group" id="rp-grp-${g.id}" role="tabpanel" aria-labelledby="rp-tab-${g.id}" data-group="${g.id}" hidden><fieldset class="rp-fieldset"><legend>${esc(t('panel.grp.' + g.id))}</legend>${groupFields(g, mode).map(fieldHtml).join('')}</fieldset></div>`;
+  // Optional per-group help page, opened in a NEW TAB next to the legend.
+  const help = g.helpUrl ? ` <a class="rp-doclink" href="${g.helpUrl}" target="_blank" rel="noopener">${esc(t('panel.grp.moreInfo'))}</a>` : '';
+  return `<div class="rp-group" id="rp-grp-${g.id}" role="tabpanel" aria-labelledby="rp-tab-${g.id}" data-group="${g.id}" hidden><fieldset class="rp-fieldset"><legend>${esc(t('panel.grp.' + g.id))}${help}</legend>${groupFields(g, mode).map(fieldHtml).join('')}</fieldset></div>`;
 }
 
 // Map stored settings → canonical form values (mode-aware on the divergent fields).

@@ -66,7 +66,7 @@ const SEND_OPTS = ['share', 'upload', 'save', 'download'];
 /* The 5 settings groups (canonical field ids; local↔device key mapping handled in
  * fillForm/readForm). This is the reusable settings-form component. */
 const GROUPS = [
-  { id: 'languages', legend: 'panel.legend.languages', helpUrl: '/flextext-editor/help/ws-codes.html', fields: [
+  { id: 'languages', legend: 'panel.legend.languages', helpModal: 'wscodes', fields: [
     // Interface language pushed to THIS device (setting D). deviceOnly → hidden in the researcher's own
     // local-settings modal (where the live #lang-select toggle already covers it).
     { k: 'appLang', type: 'select', opts: ['follow', 'en', 'id'], optPrefix: 'panel.opt.appLang.', deviceOnly: true },
@@ -1612,9 +1612,11 @@ function groupFields(g, mode) { return g.fields.filter((f) => !(f.deviceOnly && 
 function groupHtml(g, mode) {
   // The TAB label (panel.grp.<id>) and the fieldset heading may differ (g.legend):
   // e.g. the Languages tab's fieldset is headed "FLEx Writing System Codes".
-  // g.helpUrl renders a new-tab "more info…" link INLINE after the heading (the
-  // heading is short; .rp-legend-help keeps it one non-wrapping unit).
-  const help = g.helpUrl ? `<a class="rp-doclink rp-legend-help" href="${g.helpUrl}" target="_blank" rel="noopener">${esc(t('panel.grp.moreInfo'))}</a>` : '';
+  // g.helpModal renders an inline "more info…" that opens the in-panel help modal —
+  // NOT a new-tab link: the editor SW's navigate fallback serves the app shell for
+  // any non-precached in-scope URL, so same-scope help pages can't be linked from
+  // inside the PWA. The modal also works offline and follows the panel language.
+  const help = g.helpModal ? `<button type="button" class="link-btn rp-legend-help" data-ghelp="${g.helpModal}">${esc(t('panel.grp.moreInfo'))}</button>` : '';
   return `<div class="rp-group" id="rp-grp-${g.id}" role="tabpanel" aria-labelledby="rp-tab-${g.id}" data-group="${g.id}" hidden><fieldset class="rp-fieldset"><legend>${esc(t(g.legend || 'panel.grp.' + g.id))}${help}</legend>${groupFields(g, mode).map(fieldHtml).join('')}</fieldset></div>`;
 }
 
@@ -1818,6 +1820,11 @@ async function openSettingsModal(target, opts = {}) {
   else source = (target.instance && await Researcher.getInstanceSettings(target.instance.instance_id).catch(() => null))
     || (target.instance && firstInventorySettings(target.instance)) || {};
   fillForm(box, toFormValues(source, mode));
+  // Group help buttons → the matching in-panel help modal (stacks over settings,
+  // same pattern as the WS utility's "?" button).
+  box.querySelectorAll('[data-ghelp]').forEach((b) => b.addEventListener('click', () => {
+    if (b.dataset.ghelp === 'wscodes') wsCodesHelpModal();
+  }));
   // Live max-duration label + size readout (crowd-editor twin). mbTxt keeps 1dp under 10 MB.
   const mrSlider = box.querySelector('[data-f="maxRecordSeconds"]');
   if (mrSlider) {

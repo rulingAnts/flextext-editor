@@ -981,3 +981,12 @@ main {
    embedded page be exactly as tall as its content. */
 .crowd-embed, .crowd-embed body { height: auto; min-height: 0; }
 .crowd-embed main { flex: none; height: auto; min-height: 0; }
+
+/* Embed mode: a fixed-overlay modal is a full-page idiom — inside a content-sized
+   iframe it can sit half outside the visitor's real viewport. Modals become
+   IN-FLOW cards instead: they appear right in the widget, push the frame taller
+   (the auto-height messages follow), and are always fully visible. */
+.crowd-embed .modal { position: static; inset: auto; background: none; display: block; padding: 0; z-index: auto; }
+.crowd-embed .modal-card { margin: 12px auto; width: auto; max-width: 420px; box-shadow: 0 2px 14px rgba(0,0,0,.18); border: 1px solid var(--border); }
+/* While a step-card is open, the big Record button yields to it (graceful where :has is unsupported). */
+.crowd-embed:has(.modal:not([hidden])) .record-big { display: none; }

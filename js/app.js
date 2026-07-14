@@ -3507,13 +3507,8 @@ async function setupCrowdMode() {
           h = Math.max(h, r.bottom + window.scrollY);
         }
         h = Math.ceil(h) + 24;
-        const modal = document.querySelector('.modal:not([hidden])');
-        if (modal) {
-          // Fixed-position card: size the frame to what the card actually needs
-          // (scrollHeight sees clipped content), so Cancel is never below the fold.
-          const card = modal.querySelector('.modal-card');
-          h = Math.max(h, card ? card.scrollHeight + 96 : 620, 480);
-        }
+        // Modals are IN-FLOW cards in embed mode (see .crowd-embed .modal in the
+        // CSS) — they're measured like any other content; no special-casing.
         parent.postMessage({ fxCrowd: 'height', h: Math.max(h, 240) }, '*');
       };
       new ResizeObserver(post).observe(document.body);

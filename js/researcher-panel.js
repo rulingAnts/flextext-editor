@@ -1100,8 +1100,8 @@ function crowdShareModal(rec) {
     <h3>${esc(t('panel.crowd.shareTitle', { label: rec.label || '' }))}</h3>
     <p class="banner warn-banner">${esc(t('panel.crowd.shareWarn'))}</p>
     ${block('link', 'panel.crowd.shareLink', 'panel.crowd.shareLinkNote', 2, true)}
-    ${block('iframe', 'panel.crowd.shareIframe', 'panel.crowd.shareIframeNote', 4, false)}
     ${block('script', 'panel.crowd.shareScript', 'panel.crowd.shareScriptNote', 3, false)}
+    ${block('iframe', 'panel.crowd.shareIframe', 'panel.crowd.shareIframeNote', 4, false)}
     <p class="note">${esc(t('panel.crowd.wildfireNote'))}</p>
     <button class="link-btn" data-m="close">${esc(t('panel.invite.close'))}</button>`, true);
   m.el.querySelector('[data-m="close"]').onclick = m.close;

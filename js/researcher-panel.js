@@ -13,7 +13,7 @@
  */
 
 import * as Researcher from './researcher.js';
-import { t, ENGINE_VERSION } from './i18n.js';
+import { t, getLang, setLang, applyI18n, ENGINE_VERSION } from './i18n.js';
 import { REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { importPublicKeyB64, publicKeyFingerprint } from './crypto.js';
 import { esc, parseFlextext, surveyWritingSystems, remapWritingSystems } from './flextext.js';
@@ -110,6 +110,18 @@ export function initResearcherPanel(d) {
   deps = d;
   root = d.root;
   Researcher.init({ workerBase: deps.workerBase });
+  // Language selector lives in the panel's OWN header (every screen, both homes).
+  // Delegated once: setLang persists (shared LANG_KEY, same as the apps' toggles),
+  // applyI18n repaints the shell's static bits, and route() rebuilds the whole
+  // panel so every t() string — dashboard, modals opened later, settings forms —
+  // is consistently in the chosen language.
+  root.addEventListener('change', (e) => {
+    if (e.target && e.target.id === 'rp-lang') {
+      setLang(e.target.value);
+      applyI18n();
+      route();
+    }
+  });
   // Returning to a backgrounded tab → refresh the dashboard + the LIVE-version banner right away rather
   // than waiting for the next poll tick (only fires while the dashboard is actively polling).
   document.addEventListener('visibilitychange', () => { if (!document.hidden && dashPoll) { refreshLiveVersions(); pollDashboard(); } });
@@ -245,6 +257,10 @@ function header(titleKey, withLock) {
     ${exitBtn}
     <span class="rp-title">${esc(t(titleKey))}</span>
     <span class="rp-spacer"></span>
+    <select id="rp-lang" title="${esc(t('research.lang'))}">
+      <option value="en"${getLang() === 'en' ? ' selected' : ''}>English</option>
+      <option value="id"${getLang() === 'id' ? ' selected' : ''}>Indonesia</option>
+    </select>
     <button class="icon-btn rp-helpbtn" data-act="help" title="${esc(t('panel.help.btn'))}" aria-label="${esc(t('panel.help.btn'))}">?</button>
     ${withLock ? `<button class="secondary-btn rp-lock" data-act="lock">${esc(t('panel.lock'))}</button>` : ''}
   </div>`;

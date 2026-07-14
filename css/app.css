@@ -990,4 +990,7 @@ main {
 .crowd-embed .modal-card { margin: 12px auto; width: auto; max-width: 420px; box-shadow: 0 2px 14px rgba(0,0,0,.18); border: 1px solid var(--border); }
 /* While a step-card is open, the big Record button yields to it (graceful where :has is unsupported). */
 .crowd-embed:has(.modal:not([hidden])) .record-big { display: none; }
-.rp-legend-help { margin-left: 10px; font-weight: normal; font-size: 13px; white-space: nowrap; }   /* inline "more info…" after the group heading */
+/* "more info…" sits on the fieldset border at the RIGHT, mirroring how the legend
+   sits on it at the left (a <legend> itself can't flex-justify its contents). */
+.rp-fieldset { position: relative; }
+.rp-legend-help { position: absolute; top: 0; right: 12px; transform: translateY(-55%); background: #fff; padding: 0 6px; font-size: 13px; white-space: nowrap; }

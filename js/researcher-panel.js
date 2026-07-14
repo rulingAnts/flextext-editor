@@ -1617,7 +1617,7 @@ function groupHtml(g, mode) {
   // any non-precached in-scope URL, so same-scope help pages can't be linked from
   // inside the PWA. The modal also works offline and follows the panel language.
   const help = g.helpModal ? `<button type="button" class="link-btn rp-legend-help" data-ghelp="${g.helpModal}">${esc(t('panel.grp.moreInfo'))}</button>` : '';
-  return `<div class="rp-group" id="rp-grp-${g.id}" role="tabpanel" aria-labelledby="rp-tab-${g.id}" data-group="${g.id}" hidden><fieldset class="rp-fieldset"><legend>${esc(t(g.legend || 'panel.grp.' + g.id))}${help}</legend>${groupFields(g, mode).map(fieldHtml).join('')}</fieldset></div>`;
+  return `<div class="rp-group" id="rp-grp-${g.id}" role="tabpanel" aria-labelledby="rp-tab-${g.id}" data-group="${g.id}" hidden><fieldset class="rp-fieldset"><legend>${esc(t(g.legend || 'panel.grp.' + g.id))}</legend>${help}${groupFields(g, mode).map(fieldHtml).join('')}</fieldset></div>`;
 }
 
 // Map stored settings → canonical form values (mode-aware on the divergent fields).

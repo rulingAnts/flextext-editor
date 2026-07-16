@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v97';
+export const ENGINE_VERSION = 'v98';
 
 const S = {
 en: {
@@ -337,6 +337,15 @@ en: {
   'panel.drive.oauthUnconfigured': 'Direct-Drive delivery is not configured on the server yet — see the setup guide.',
   'panel.drive.errBanner': 'A recent upload to Drive failed: {msg}',
   'invite.alreadyLinked': 'This device is already set up.',
+  'invite.pasteBtn': 'Link to a researcher…',
+  'invite.pasteTitle': 'Accept an invite',
+  'invite.pasteIntro': 'Paste the invite link your researcher sent (pasting the whole message is fine — the link is found automatically).',
+  'invite.pasteGo': 'Accept invite',
+  'invite.pasteWorking': 'Linking…',
+  'invite.pasteBad': 'That does not look like a complete invite link. Paste the WHOLE link, including the part after the # sign.',
+  'invite.pasteOffline': 'Could not reach the server — check the connection and try again.',
+  'invite.expired': 'This invite has expired — ask your researcher to send a new one.',
+  'invite.claimed': 'This invite was already used on another device — ask your researcher for a fresh one.',
   'invite.linkedElsewhere': 'This device is already linked to a researcher. To link it to a different one, reset the app (clear its data or reinstall).',
   'ws.line': 'Interlinear line',
   'ws.code': 'Code in file',
@@ -1167,6 +1176,15 @@ id: {
   'panel.drive.oauthUnconfigured': 'Pengiriman langsung ke Drive belum dikonfigurasi di server — lihat panduan penyiapan.',
   'panel.drive.errBanner': 'Unggahan ke Drive baru-baru ini gagal: {msg}',
   'invite.alreadyLinked': 'Perangkat ini sudah disiapkan.',
+  'invite.pasteBtn': 'Tautkan ke peneliti…',
+  'invite.pasteTitle': 'Terima undangan',
+  'invite.pasteIntro': 'Tempel tautan undangan dari peneliti Anda (menempel seluruh pesan juga boleh — tautannya ditemukan otomatis).',
+  'invite.pasteGo': 'Terima undangan',
+  'invite.pasteWorking': 'Menautkan…',
+  'invite.pasteBad': 'Itu tampaknya bukan tautan undangan yang lengkap. Tempel SELURUH tautan, termasuk bagian setelah tanda #.',
+  'invite.pasteOffline': 'Tidak dapat terhubung ke server — periksa koneksi lalu coba lagi.',
+  'invite.expired': 'Undangan ini sudah kedaluwarsa — minta peneliti Anda mengirim yang baru.',
+  'invite.claimed': 'Undangan ini sudah dipakai di perangkat lain — minta yang baru kepada peneliti Anda.',
   'invite.linkedElsewhere': 'Perangkat ini sudah tertaut ke seorang peneliti. Untuk menautkannya ke peneliti lain, setel ulang aplikasi (hapus datanya atau pasang ulang).',
   'ws.line': 'Baris interlinear',
   'ws.code': 'Kode di file',

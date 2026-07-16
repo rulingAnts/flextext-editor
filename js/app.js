@@ -254,7 +254,7 @@ function openHelp() {
   helpReturnView = currentView();
   if (helpReturnView === 'help') helpReturnView = 'texts';
   applyHelpResearchVisibility();
-  if (!RECORD_MODE) applyDeleteAllButton();   // ensure the gated Delete-All button is present + current
+  if (!RECORD_MODE) applyDeleteAllButton(); applyInviteButton();   // ensure the gated Delete-All button is present + current
   show('help');
 }
 
@@ -1988,7 +1988,7 @@ function applyLiveSettings() {
   if (RESEARCHER_MODE) return;   // the researcher panel manages its own views
   settings = loadSettings();
   if (RECORD_MODE) { renderRecordView(); renderRecordList(); }   // recorder paints its own Delete-All (gated) in renderRecordView
-  else { applyResearchVisibility(); applyAllowedButtons(); fillWsForm(); renderDocList(); applyDeleteAllButton(); }
+  else { applyResearchVisibility(); applyAllowedButtons(); fillWsForm(); renderDocList(); applyDeleteAllButton(); applyInviteButton(); }
 }
 
 // "Delete All" (full local wipe = clears storage + IndexedDB + caches + the service worker, then reloads
@@ -2191,6 +2191,31 @@ async function syncGatherInventory() {
 // One-time invite link (?invite=<id>#k=<secret>) → bind this install to the
 // researcher's instance for async remote management. Quiet background bind; the
 // secret rides the URL fragment (out of server logs) and is stripped immediately.
+// Claim an invite (from the URL or a pasted link) and drive the shared outcome
+// handling. interactive=true (the paste flow) surfaces every failure in plain
+// language; the URL path stays quiet on unknowns (never block startup).
+async function claimInvite(inviteId, secret, interactive) {
+  try {
+    const r = await Sync.claim(inviteId, secret);
+    if (r.ok) {
+      if (r.accepted) toast(t('invite.alreadyLinked'), 5000);   // reused (the other app's link): already set up
+      else showInviteConsent(r.researcher);                      // B: user must see who is connecting + accept
+      return true;
+    }
+    if (r.error === 'already_linked') { toast(t('invite.linkedElsewhere'), 9000); return true; }
+    if (r.error === 'type_mismatch') { toast(t('toast.linkMismatch'), 6000); return true; }
+    if (interactive) {
+      if (r.error === 'expired') toast(t('invite.expired'), 8000);
+      else if (r.error === 'already_claimed') toast(t('invite.claimed'), 8000);
+      else toast(t('invite.pasteBad'), 8000);
+    }
+    return false;
+  } catch {
+    if (interactive) toast(t('invite.pasteOffline'), 7000);
+    return false;
+  }
+}
+
 function handleInviteParam() {
   try {
     const p = new URLSearchParams(location.search);
@@ -2202,17 +2227,72 @@ function handleInviteParam() {
     const qs = p.toString();
     history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '')); // strip secret from URL/history
     if (!secret) return;
-    Sync.claim(inviteId, secret).then(async (r) => {
-      if (r.ok) {
-        if (r.accepted) toast(t('invite.alreadyLinked'), 5000);   // reused (the other app's link): already set up
-        else showInviteConsent(r.researcher);                      // B: user must see who's connecting + accept
-      } else if (r.error === 'already_linked') {
-        toast(t('invite.linkedElsewhere'), 9000);                  // claim guard: bound to a different instance
-      } else if (r.error === 'type_mismatch') {
-        toast(t('toast.linkMismatch'), 6000);
-      }
-    }).catch(() => { /* offline; the persisted identity lets a later retry resume */ });
+    claimInvite(inviteId, secret, false);
   } catch { /* never block startup */ }
+}
+
+// Pull the invite id + secret out of whatever was pasted: the full link, a bare
+// "invite=…#k=…" tail, or a whole WhatsApp message containing the link. The
+// kiosk path (no URL bar, no link opening) depends on this being forgiving.
+function parseInviteInput(text) {
+  const s = String(text || '');
+  const id = (s.match(/[?&]invite=([0-9a-fA-F-]{8,})/) || [])[1] || null;
+  const secret = (s.match(/[#?&]k=([A-Za-z0-9_~.-]{8,})/) || [])[1] || null;
+  return { id, secret };
+}
+
+// Locked kiosks can't receive/open a URL, so an unenrolled device offers a
+// paste box instead: paste the invite link → same claim + consent flow.
+function showInvitePasteModal() {
+  if (document.querySelector('[data-invite-paste]')) return;   // never stack
+  const wrap = document.createElement('div');
+  wrap.className = 'modal';
+  wrap.dataset.invitePaste = '1';
+  wrap.innerHTML = `<div class="modal-card" role="dialog" aria-modal="true">
+    <h3>${esc(t('invite.pasteTitle'))}</h3>
+    <p class="note">${esc(t('invite.pasteIntro'))}</p>
+    <textarea id="invite-paste-box" class="invite-paste-box" rows="3" spellcheck="false" placeholder="https://…?invite=…#k=…"></textarea>
+    <p class="note" id="invite-paste-status" hidden></p>
+    <button class="primary-btn" data-iv="go">${esc(t('invite.pasteGo'))}</button>
+    <button class="link-btn" data-iv="cancel">${esc(t('share.cancel'))}</button>
+  </div>`;
+  document.body.appendChild(wrap);
+  const close = () => wrap.remove();
+  const status = wrap.querySelector('#invite-paste-status');
+  wrap.querySelector('[data-iv="cancel"]').addEventListener('click', close);
+  wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
+  wrap.querySelector('[data-iv="go"]').addEventListener('click', async (e) => {
+    const { id, secret } = parseInviteInput(wrap.querySelector('#invite-paste-box').value);
+    if (!id || !secret) {
+      status.hidden = false;
+      status.textContent = t('invite.pasteBad');
+      return;
+    }
+    e.target.disabled = true;
+    status.hidden = false;
+    status.textContent = t('invite.pasteWorking');
+    const handled = await claimInvite(id, secret, true);
+    if (handled) { close(); applyInviteButton(); if (RECORD_MODE) renderRecordView(); }
+    else { e.target.disabled = false; status.hidden = true; }
+  });
+  setTimeout(() => wrap.querySelector('#invite-paste-box').focus(), 0);
+}
+
+// The editor's entry point for the paste flow: a link at the bottom of the Help
+// view (admin territory, reachable via "?"), shown only while UNenrolled — the
+// recorder paints its own copy inside renderRecordView.
+function applyInviteButton() {
+  const view = $('#view-help'); if (!view) return;
+  let btn = $('#btn-paste-invite');
+  if (!Sync.hasSession()) {
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.id = 'btn-paste-invite'; btn.type = 'button'; btn.className = 'secondary-btn delall-btn';
+      btn.addEventListener('click', showInvitePasteModal);
+      view.appendChild(btn);
+    }
+    btn.textContent = t('invite.pasteBtn'); btn.hidden = false;
+  } else if (btn) { btn.hidden = true; }
 }
 
 // B (enrollment consent): show WHO is enrolling this device (Google name + avatar) and require the
@@ -3073,6 +3153,7 @@ function renderRecordView() {
       <h3 class="record-list-h"></h3>
       <ul id="record-list" class="doc-list rec-list"></ul>
       <p id="record-empty" class="empty-note" hidden></p>
+      ${!Sync.hasSession() ? '<button id="btn-paste-invite" type="button" class="secondary-btn delall-btn"></button>' : ''}
       ${deleteAllAllowed() ? '<button id="btn-delete-all" type="button" class="secondary-btn delall-btn"></button>' : ''}
     </div>`;
   v.querySelector('.record-welcome').textContent = recordWelcomeText();
@@ -3081,6 +3162,7 @@ function renderRecordView() {
   v.querySelector('#record-empty').textContent = t('record.empty');
   $('#btn-record-big').addEventListener('click', () => requestConsentThen(() => openRecordModal()));
   const da = v.querySelector('#btn-delete-all'); if (da) { da.textContent = t('delall.btn'); da.addEventListener('click', runDeleteAll); }
+  const pi = v.querySelector('#btn-paste-invite'); if (pi) { pi.textContent = t('invite.pasteBtn'); pi.addEventListener('click', showInvitePasteModal); }
 }
 
 async function renderRecordList() {

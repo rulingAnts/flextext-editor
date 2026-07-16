@@ -993,4 +993,6 @@ main {
 /* "more info…" sits on the fieldset border at the RIGHT, mirroring how the legend
    sits on it at the left (a <legend> itself can't flex-justify its contents). */
 .rp-fieldset { position: relative; }
+.rp-group > .rp-field { margin-bottom: 16px; }   /* breathing room between an outside field (App language) and the codes box */
 .rp-legend-help { position: absolute; top: 0; right: 12px; transform: translateY(-55%); background: #fff; padding: 0 6px; font-size: 13px; white-space: nowrap; }
+.invite-paste-box { width: 100%; box-sizing: border-box; font-size: 14px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; }

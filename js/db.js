@@ -55,8 +55,8 @@ export async function listDocs() {
     req.onsuccess = () => {
       const cur = req.result;
       if (cur) {
-        const { id, title, modified, created, segCount, glossed } = cur.value;
-        out.push({ id, title, modified, created, segCount, glossed });
+        const { id, title, modified, created, segCount, glossed, done } = cur.value;
+        out.push({ id, title, modified, created, segCount, glossed, done });
         cur.continue();
       } else {
         out.sort((a, b) => (b.modified || 0) - (a.modified || 0));

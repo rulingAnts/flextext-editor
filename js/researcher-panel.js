@@ -106,6 +106,12 @@ const GROUPS = [
     // Let the coworker fully wipe THIS device (Delete All). Off by default for managed devices; standalone
     // apps always have it. deviceOnly → not shown in the researcher's own local-settings modal.
     { k: 'deleteAllEnabled', type: 'checkbox', deviceOnly: true },
+    // Let the coworker delete individual texts. Default ON (absent = allowed) so existing
+    // devices keep the delete button until the researcher deliberately turns it off.
+    { k: 'allowDelete', type: 'checkbox' },
+    // Show the coworker an optional "Done" button on each text; marking done auto-uploads
+    // and surfaces a "done" badge to the researcher. Off by default.
+    { k: 'doneEnabled', type: 'checkbox' },
   ] },
 ];
 
@@ -378,7 +384,7 @@ function viewSig(data) {
           ins.inventory && Array.isArray(ins.inventory.items)
             // uploadedFileId IS part of the signature: a re-send of an unchanged doc keeps uploadState
             // 'uploaded' but mints a new file id, and that's our only signal the re-upload landed.
-            ? ins.inventory.items.map((d) => [d.id, d.title, d.uploadState, d.hasAudio, d.uploadedFileId])
+            ? ins.inventory.items.map((d) => [d.id, d.title, d.uploadState, d.hasAudio, d.uploadedFileId, d.done])
             : null,
         ]),
       ]),
@@ -668,7 +674,8 @@ async function renderInstanceCard(it) {
           : canDelText
             ? ` <button class="link-btn rp-revoke" data-iact="del-text" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.inst.delText'))}</button>`
             : ` <button class="link-btn rp-revoke" disabled title="${esc(t('panel.inst.delNeedsUpdate'))}">${esc(t('panel.inst.delText'))}</button>`;
-        return `<li>${esc(d.title || d.titleHash || '?')} ${d.hasAudio ? `<span class="rp-tag">${esc(t('panel.inst.audio'))}</span>` : ''}<span class="rp-tag rp-tag-${DISP}">${esc(t('panel.up.' + DISP))}</span>${up}${del}</li>`;
+        const doneTag = d.done ? `<span class="rp-tag rp-tag-done">${esc(t('panel.inst.doneTag'))}</span>` : '';
+        return `<li>${esc(d.title || d.titleHash || '?')} ${d.hasAudio ? `<span class="rp-tag">${esc(t('panel.inst.audio'))}</span>` : ''}${doneTag}<span class="rp-tag rp-tag-${DISP}">${esc(t('panel.up.' + DISP))}</span>${up}${del}</li>`;
       }).join('')
         : `<li class="note">${esc(t('panel.inst.noTexts'))}</li>`;
       installsHtml += `<div class="rp-install">
@@ -1668,6 +1675,7 @@ function toFormValues(s, mode) {
     // (else every later push would re-clobber a field worker who toggled their own language back).
     else if (f.k === 'appLang') v.appLang = 'follow';
     else if (f.k === 'autoDel') v.autoDel = !!s.autoDelUploaded;                                   // stored as autoDelUploaded
+    else if (f.k === 'allowDelete') v.allowDelete = s.allowDelete !== false;                       // default ON (absent = allowed)
     else if (f.k === 'autoBackupMins') v.autoBackupMins = String(s.autoBackupMins || 15);          // stored as a number; default 15
     else if (f.type === 'checkbox') v[f.k] = !!s[f.k];
     else if (f.type === 'select') v[f.k] = s[f.k] || (f.k === 'recordFormat' ? DEFAULT_REC_FORMAT : f.opts[0]);

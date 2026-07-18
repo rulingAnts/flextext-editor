@@ -283,13 +283,14 @@ async function renderDocList() {
         <span class="doc-meta"></span>
       </button>
       <button class="doc-delete icon-btn"></button>`;
-    li.querySelector('.doc-name').textContent = d.title || t('untitled');
+    li.querySelector('.doc-name').textContent = (d.done ? '\u2713 ' : '') + (d.title || t('untitled'));
     li.querySelector('.doc-meta').textContent =
       t('texts.meta', { n: d.segCount ?? 0, g: d.glossed ?? 0, date });
     const del = li.querySelector('.doc-delete');
+    li.querySelector('.doc-open').addEventListener('click', () => openDoc(d.id));
+    if (!allowDeleteOn()) { del.remove(); ul.appendChild(li); continue; }   // researcher disabled deleting
     del.title = t('texts.deleteTitle');
     del.innerHTML = '&#128465;';
-    li.querySelector('.doc-open').addEventListener('click', () => openDoc(d.id));
     del.addEventListener('click', async () => {
       if (confirm(t('texts.confirmDelete', { title: d.title || t('untitled') }))) {
         // Stop any queued/in-flight upload so a deleted text never reaches Drive.
@@ -404,7 +405,33 @@ async function importFile(file) {
 
 /* ---------------- Editor ---------------- */
 
+// The optional per-text "Done" button (researcher setting doneEnabled): marks the
+// open text finished (togglable), reports at once, and sends it to Drive unless
+// this exact content is already there.
+function applyDoneButton() {
+  const b = $('#btn-done');
+  if (!b) return;
+  b.hidden = !(doneFeatureOn() && current);
+  if (current) b.textContent = current.done ? t('done.btnDone') : t('done.btn');
+}
+async function toggleDone() {
+  if (!current) return;
+  current.done = !current.done;
+  current.doneAt = current.done ? Date.now() : null;
+  applyDoneButton();
+  try { await persist(); } catch { /* stays local; the report below still reflects memory */ }
+  if (current.done) {
+    toast(t('done.marked'), 5000);
+    if (!(current.uploadedSig && current.uploadedSig === uploadContentSig(current))) await uploadDocById(current.id);
+  } else {
+    toast(t('done.unmarked'), 4000);
+  }
+  Sync.reportNow();
+  renderDocList();
+}
+
 function enterEditor(tab) {
+  applyDoneButton();
   $('#doc-title').value = current.title || '';
   updateShareButton();
   switchTab(tab);
@@ -1876,6 +1903,12 @@ function applyAllowedButtons() {
 // settings.autoDelUploaded). When the link said nothing, default per app: the
 // Flextext Recorder clears sent recordings (gather-and-send, frees phone storage),
 // the editor keeps texts (a transcriber may edit them over several sessions).
+// Researcher-controlled: may the coworker delete texts on this device? Default
+// YES (absent = allowed) so existing devices behave unchanged until pushed.
+function allowDeleteOn() { return settings.allowDelete !== false; }
+// Researcher-controlled: show the coworker a "Done" button on texts (off by default).
+function doneFeatureOn() { return settings.doneEnabled === true; }
+
 function deleteAfterUpload() {
   return settings.autoDelUploaded === undefined ? RECORD_MODE : !!settings.autoDelUploaded;
 }
@@ -1988,7 +2021,7 @@ function applyLiveSettings() {
   if (RESEARCHER_MODE) return;   // the researcher panel manages its own views
   settings = loadSettings();
   if (RECORD_MODE) { renderRecordView(); renderRecordList(); }   // recorder paints its own Delete-All (gated) in renderRecordView
-  else { applyResearchVisibility(); applyAllowedButtons(); fillWsForm(); renderDocList(); applyDeleteAllButton(); applyInviteButton(); }
+  else { applyResearchVisibility(); applyAllowedButtons(); fillWsForm(); renderDocList(); applyDeleteAllButton(); applyInviteButton(); applyDoneButton(); }
 }
 
 // "Delete All" (full local wipe = clears storage + IndexedDB + caches + the service worker, then reloads
@@ -2167,6 +2200,7 @@ async function syncGatherInventory() {
       titleHash: await syncTitleHash(d.title),
       hasAudio: !!(d.audioSource || d.pendingAudio || d.audioId),
       modified: d.modified,
+      done: !!d.done,
       uploadState: backed ? (d.uploadedModified === d.modified ? 'uploaded' : 'changed') : 'local',
       uploadedFileId: d.uploadedFileId || null,
     });
@@ -2177,7 +2211,7 @@ async function syncGatherInventory() {
                    'recordFormat', 'agc', 'nr', 'echo', 'norm',
                    'consentAsk', 'consentConfirm', 'consentMode', 'consentMsg', 'consentResp', 'consentAudioUrl',
                    'appLang', 'uploadFolder', 'toolbarButtons', 'sendOptions', 'autoDelUploaded', 'recordWelcome', 'deleteAllEnabled',
-                   'autoBackup', 'autoBackupMins', 'maxRecordSeconds']) {
+                   'autoBackup', 'autoBackupMins', 'maxRecordSeconds', 'allowDelete', 'doneEnabled']) {
     if (settings[k] !== undefined) snap[k] = settings[k];
   }
   // ua + cachedApps let the panel show which browser/device this install is + whether its apps are
@@ -2502,6 +2536,7 @@ async function uploadDocById(docId) {
     blob: bundle.blob, name: bundle.filename, mime: bundle.mime,
     total: bundle.blob.size, sent: 0,
     docModified: rec.modified,
+    docDone: !!rec.done,   // auto-delete fires only for FINISHED texts
   });
   uploadView.set(docId, { name: bundle.filename, status: 'waiting' });
   renderUploadQueue();
@@ -2601,7 +2636,7 @@ function uploadState(docId) {
         // for who decides (researcher link param, else per-app default). This
         // fires at the single upload-completion point, so it also covers
         // background-retry uploads that finish long after the user tapped Send.
-        if (deleteAfterUpload()) {
+        if (deleteAfterUpload() && st.docDone !== false) {   // auto-delete only after marked finished AND safely uploaded
           setPendingUpDel(pendingUpDel().filter((x) => x !== docId));   // auto-delete covers the intent
           deleteUploadedDoc(docId).then(() => Sync.reportNow()); // inventory shrank — tell the panel promptly
           toast(t('record.sentRemoved', { name: st.name }), 6000);
@@ -2814,6 +2849,9 @@ async function doUpload(researcher = false) {
     // A USER-initiated upload = the user consenting to share THIS doc with their researcher
     // (it then reports + becomes remote-uploadable). Set it on `current` so later edits keep it.
     if (!researcher) { const enr = Sync.enrollment(); if (enr && enr.installId) current.sharedInstall = enr.installId; }
+    // The Finished-Send button IS the coworker saying "done" — mark it so the
+    // panel shows it and (with auto-delete on) the text may clear after upload.
+    if (!researcher && !current.done) { current.done = true; current.doneAt = Date.now(); applyDoneButton(); }
     await persist();
     await uploadDocById(current.id);
     toast(t('upload.queuedToast'));
@@ -3190,8 +3228,8 @@ async function renderRecordList() {
     const send = li.querySelector('.rec-send');
     send.textContent = t('record.send');
     const del = li.querySelector('.doc-delete');
-    del.title = t('texts.deleteTitle');
-    del.innerHTML = '&#128465;';
+    if (allowDeleteOn()) { del.title = t('texts.deleteTitle'); del.innerHTML = '&#128465;'; }
+    else del.remove();   // researcher disabled deleting
     send.addEventListener('click', async () => {
       const rec = await db.getDoc(d.id);
       if (!rec) { toast(t('toast.cantOpen')); return; }
@@ -4219,6 +4257,7 @@ function setup() {
     toast(t('toast.autoSaved'), 4000);
   });
   $('#btn-share').addEventListener('click', openShareMenu);
+  $('#btn-done')?.addEventListener('click', () => { toggleDone().catch(() => {}); });
 
   $('#audio-player .player-dl-pause').addEventListener('click', () => {
     if (!current) return;

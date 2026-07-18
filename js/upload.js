@@ -71,6 +71,7 @@ export class DriveUpload {
       // doc can record proof-of-backup (delete-safety). Undefined until done.
       fileId: this.uploadedFileId,
       docModified: this.rec.docModified,
+      docDone: this.rec.docDone,   // was the doc marked FINISHED at queue time (gates auto-delete)
     });
   }
 

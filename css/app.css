@@ -919,6 +919,7 @@ main {
 .rp-tag-requested { background: #ece3f7; color: #5b3d8a; }       /* request sent — in flight */
 .rp-tag-slow { background: #fbe6cf; color: #8a4b10; }            /* sent, device hasn't synced yet */
 .rp-tag-justUploaded { background: #cdeccf; color: #18521b; font-weight: 600; }  /* just confirmed by the device */
+.rp-tag-done { background: #e3f3e4; color: #1f5d22; font-weight: 600; }  /* coworker marked the text finished */
 .rp-as-status { margin: 8px 0 4px; font-size: 13px; line-height: 1.4; white-space: pre-wrap; }
 .rp-as-status.rp-as-ok { color: #1f5d22; }
 .rp-as-status.rp-as-err { color: #a3261f; }
@@ -993,6 +994,6 @@ main {
 /* "more info…" sits on the fieldset border at the RIGHT, mirroring how the legend
    sits on it at the left (a <legend> itself can't flex-justify its contents). */
 .rp-fieldset { position: relative; }
-.rp-group > .rp-field { margin-bottom: 16px; }   /* breathing room between an outside field (App language) and the codes box */
+.rp-group > .rp-field { margin-bottom: 28px; }   /* breathing room between an outside field (App language) and the codes box */
 .rp-legend-help { position: absolute; top: 0; right: 12px; transform: translateY(-55%); background: #fff; padding: 0 6px; font-size: 13px; white-space: nowrap; }
 .invite-paste-box { width: 100%; box-sizing: border-box; font-size: 14px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; }

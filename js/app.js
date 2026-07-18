@@ -416,6 +416,9 @@ function applyDoneButton() {
 }
 async function toggleDone() {
   if (!current) return;
+  // When the researcher has auto-delete on, marking done uploads AND then removes the
+  // text from this device — warn before that irreversible-feeling step (not when un-marking).
+  if (!current.done && deleteAfterUpload() && !confirm(t('done.confirmDelete'))) return;
   current.done = !current.done;
   current.doneAt = current.done ? Date.now() : null;
   applyDoneButton();

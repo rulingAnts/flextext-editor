@@ -644,6 +644,9 @@ async function renderInstanceCard(it) {
       // of a command it would drop on the floor. Devices auto-update, so this resolves itself.
       const engNum = parseInt(String((ins.inventory && ins.inventory.engineVersion) || '').replace(/[^0-9]/g, ''), 10);
       const canDelText = engNum >= 94;
+      // Only surface finished/not-finished status when THIS device actually has the Done
+      // feature on — else every text on other devices would carry a meaningless "not done".
+      const doneOn = !!(ins.inventory && ins.inventory.settings && ins.inventory.settings.doneEnabled);
       // The inventory is decrypted from the field install's OWN report, so every value is
       // attacker-controllable if a device is seized (hostile-gov threat model). Titles go
       // through esc(); uploadState lands in a class attribute, so ALLOW-LIST it to the three
@@ -674,7 +677,9 @@ async function renderInstanceCard(it) {
           : canDelText
             ? ` <button class="link-btn rp-revoke" data-iact="del-text" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.inst.delText'))}</button>`
             : ` <button class="link-btn rp-revoke" disabled title="${esc(t('panel.inst.delNeedsUpdate'))}">${esc(t('panel.inst.delText'))}</button>`;
-        const doneTag = d.done ? `<span class="rp-tag rp-tag-done">${esc(t('panel.inst.doneTag'))}</span>` : '';
+        const doneTag = d.done
+          ? `<span class="rp-tag rp-tag-done">${esc(t('panel.inst.doneTag'))}</span>`
+          : (doneOn ? `<span class="rp-tag rp-tag-notdone">${esc(t('panel.inst.notDoneTag'))}</span>` : '');
         return `<li>${esc(d.title || d.titleHash || '?')} ${d.hasAudio ? `<span class="rp-tag">${esc(t('panel.inst.audio'))}</span>` : ''}${doneTag}<span class="rp-tag rp-tag-${DISP}">${esc(t('panel.up.' + DISP))}</span>${up}${del}</li>`;
       }).join('')
         : `<li class="note">${esc(t('panel.inst.noTexts'))}</li>`;
@@ -1675,7 +1680,6 @@ function toFormValues(s, mode) {
     // (else every later push would re-clobber a field worker who toggled their own language back).
     else if (f.k === 'appLang') v.appLang = 'follow';
     else if (f.k === 'autoDel') v.autoDel = !!s.autoDelUploaded;                                   // stored as autoDelUploaded
-    else if (f.k === 'allowDelete') v.allowDelete = s.allowDelete !== false;                       // default ON (absent = allowed)
     else if (f.k === 'autoBackupMins') v.autoBackupMins = String(s.autoBackupMins || 15);          // stored as a number; default 15
     else if (f.type === 'checkbox') v[f.k] = !!s[f.k];
     else if (f.type === 'select') v[f.k] = s[f.k] || (f.k === 'recordFormat' ? DEFAULT_REC_FORMAT : f.opts[0]);

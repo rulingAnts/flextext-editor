@@ -1929,9 +1929,11 @@ function applyAllowedButtons() {
 // settings.autoDelUploaded). When the link said nothing, default per app: the
 // Flextext Recorder clears sent recordings (gather-and-send, frees phone storage),
 // the editor keeps texts (a transcriber may edit them over several sessions).
-// Researcher-controlled: may the coworker delete texts on this device? Default
-// YES (absent = allowed) so existing devices behave unchanged until pushed.
-function allowDeleteOn() { return settings.allowDelete !== false; }
+// Researcher-controlled: may the coworker delete texts on this device? A STANDALONE
+// (unlinked) device always can — it's the user's own app. A researcher-managed device
+// gets it only when the researcher enables allowDelete: OFF by default, so a barely-
+// literate coworker can't lose a text by accident. (Mirrors deleteAllOn().)
+function allowDeleteOn() { return !Sync.hasSession() || settings.allowDelete === true; }
 // Researcher-controlled: show the coworker a "Done" button on texts (off by default).
 function doneFeatureOn() { return settings.doneEnabled === true; }
 

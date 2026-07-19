@@ -923,6 +923,7 @@ main {
 .rp-tag-slow { background: #fbe6cf; color: #8a4b10; }            /* sent, device hasn't synced yet */
 .rp-tag-justUploaded { background: #cdeccf; color: #18521b; font-weight: 600; }  /* just confirmed by the device */
 .rp-tag-done { background: #e3f3e4; color: #1f5d22; font-weight: 600; }  /* coworker marked the text finished */
+.rp-tag-notdone { background: var(--panel); color: var(--muted); }  /* Done feature on, not yet finished */
 .rp-as-status { margin: 8px 0 4px; font-size: 13px; line-height: 1.4; white-space: pre-wrap; }
 .rp-as-status.rp-as-ok { color: #1f5d22; }
 .rp-as-status.rp-as-err { color: #a3261f; }

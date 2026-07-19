@@ -38,6 +38,10 @@ let lastData = null;   // last dashboard view, kept so an action (e.g. upload) c
 // of an otherwise-unchanged doc (uploadState stays 'uploaded'). Swept in renderDashboard; resets on reload.
 const requestedUploads = new Map();
 const UPLOAD_WAIT_MS = 120000;   // no device confirmation after this long → re-offer the button ("awaiting device…")
+// docId -> requestedAt for a delete the researcher just triggered: gives the row an INSTANT
+// struck-through/faded look before the device's next report carries pendingDelete=true. The
+// device flag (inventory) is the source of truth; this only smooths the poll-cadence gap.
+const requestedDeletes = new Map();
 
 // Absolute paths (NOT derived from location.pathname): invite links must point at the editor /
 // recorder even though this code usually runs inside the researcher app at /flextext-researcher/.
@@ -384,7 +388,7 @@ function viewSig(data) {
           ins.inventory && Array.isArray(ins.inventory.items)
             // uploadedFileId IS part of the signature: a re-send of an unchanged doc keeps uploadState
             // 'uploaded' but mints a new file id, and that's our only signal the re-upload landed.
-            ? ins.inventory.items.map((d) => [d.id, d.title, d.uploadState, d.hasAudio, d.uploadedFileId, d.done])
+            ? ins.inventory.items.map((d) => [d.id, d.title, d.uploadState, d.hasAudio, d.uploadedFileId, d.done, d.pendingDelete])
             : null,
         ]),
       ]),
@@ -524,6 +528,9 @@ async function renderDashboard(prefetched) {
   for (const [k, r] of requestedUploads) {
     if (r.doneAt ? (nowTs - r.doneAt > 60000) : (nowTs - r.requestedAt > 600000)) requestedUploads.delete(k);
   }
+  // Drop an optimistic delete-marker after ~10min (device offline / never confirmed) — once the
+  // removal actually lands the row is gone anyway, so a lingering marker is harmless.
+  for (const [k, at] of requestedDeletes) { if (nowTs - at > 600000) requestedDeletes.delete(k); }
   const insts = data.instances || [];
   let pending = 0, texts = 0;
   for (const it of insts) for (const ins of it.installs || []) {
@@ -680,7 +687,11 @@ async function renderInstanceCard(it) {
         const doneTag = d.done
           ? `<span class="rp-tag rp-tag-done">${esc(t('panel.inst.doneTag'))}</span>`
           : (doneOn ? `<span class="rp-tag rp-tag-notdone">${esc(t('panel.inst.notDoneTag'))}</span>` : '');
-        return `<li>${esc(d.title || d.titleHash || '?')} ${d.hasAudio ? `<span class="rp-tag">${esc(t('panel.inst.audio'))}</span>` : ''}${doneTag}<span class="rp-tag rp-tag-${DISP}">${esc(t('panel.up.' + DISP))}</span>${up}${del}</li>`;
+        // Delete triggered (by device flag OR this researcher's just-clicked request) but not yet
+        // confirmed → strike through + fade the whole row, and add a small "deleting…" tag.
+        const deleting = !!d.pendingDelete || requestedDeletes.has(d.id);
+        const delTag = deleting ? `<span class="rp-tag rp-tag-deleting">${esc(t('panel.inst.deletingTag'))}</span>` : '';
+        return `<li class="${deleting ? 'rp-pending-del' : ''}">${esc(d.title || d.titleHash || '?')} ${d.hasAudio ? `<span class="rp-tag">${esc(t('panel.inst.audio'))}</span>` : ''}${doneTag}${delTag}<span class="rp-tag rp-tag-${DISP}">${esc(t('panel.up.' + DISP))}</span>${up}${del}</li>`;
       }).join('')
         : `<li class="note">${esc(t('panel.inst.noTexts'))}</li>`;
       installsHtml += `<div class="rp-install">
@@ -775,6 +786,7 @@ async function instanceAction(el) {
       // only after it's confirmed). No local marker — the row vanishes on the device's next report.
       if (!confirm(t('panel.inst.confirmDelText', { title: el.dataset.title || '?' }))) return;
       await busy(el, () => Researcher.uploadDelete(id, el.dataset.id));    // data-id is the doc id here
+      requestedDeletes.set(el.dataset.id, Date.now());                     // instant strike-through until the device confirms
       deps.toast(t('panel.inst.delSent'), 5000);
       renderDashboard(lastData || undefined);
     } else if (act === 'settings') {

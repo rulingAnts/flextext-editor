@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v102';
+export const ENGINE_VERSION = 'v103';
 
 const S = {
 en: {
@@ -701,6 +701,7 @@ internet after the first time.</p>
   'panel.inst.audio': 'audio',
   'panel.inst.doneTag': 'done',
   'panel.inst.notDoneTag': 'not done',
+  'panel.inst.deletingTag': 'deleting…',
   'panel.inst.noTexts': 'No texts reported yet.',
   'panel.inst.noInstall': 'No device has claimed the invite yet.',
   'panel.inst.lastSeen': 'Last seen {when}',
@@ -1554,6 +1555,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.inst.audio': 'audio',
   'panel.inst.doneTag': 'selesai',
   'panel.inst.notDoneTag': 'belum selesai',
+  'panel.inst.deletingTag': 'menghapus…',
   'panel.inst.noTexts': 'Belum ada teks dilaporkan.',
   'panel.inst.noInstall': 'Belum ada perangkat yang mengeklaim undangan.',
   'panel.inst.lastSeen': 'Terakhir terlihat {when}',

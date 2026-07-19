@@ -274,8 +274,10 @@ async function renderDocList() {
   const ul = $('#doc-list');
   ul.innerHTML = '';
   $('#doc-list-empty').hidden = docs.length > 0;
+  const upDel = new Set(pendingUpDel());   // deletes triggered (coworker or researcher) but not yet confirmed
   for (const d of docs) {
     const li = document.createElement('li');
+    if (upDel.has(d.id)) li.classList.add('doc-pending-del');   // strikethrough + faded until the removal lands
     const date = d.modified ? new Date(d.modified).toLocaleString() : '';
     li.innerHTML = `
       <button class="doc-open">
@@ -2252,6 +2254,7 @@ async function showAppVersion() {
 async function syncGatherInventory() {
   const metas = await db.listDocs();
   const enr = Sync.enrollment();
+  const upDel = new Set(pendingUpDel());   // a delete is in flight (upload-first) but not yet confirmed
   const items = [];
   for (const meta of metas) {
     const d = await db.getDoc(meta.id);
@@ -2265,6 +2268,7 @@ async function syncGatherInventory() {
       hasAudio: !!(d.audioSource || d.pendingAudio || d.audioId),
       modified: d.modified,
       done: !!d.done,
+      pendingDelete: upDel.has(d.id),   // panel shows it struck-through/faded until it's gone
       uploadState: backed ? (d.uploadedModified === d.modified ? 'uploaded' : 'changed') : 'local',
       uploadedFileId: d.uploadedFileId || null,
     });
@@ -3274,9 +3278,11 @@ async function renderRecordList() {
   ul.innerHTML = '';
   const empty = $('#record-empty');
   if (empty) empty.hidden = docs.length > 0;
+  const upDel = new Set(pendingUpDel());   // deletes triggered but not yet confirmed
   for (const d of docs) {
     const li = document.createElement('li');
     li.className = 'rec-item';
+    if (upDel.has(d.id)) li.classList.add('doc-pending-del');   // strikethrough + faded until removal lands
     const date = d.modified ? new Date(d.modified).toLocaleString() : '';
     li.innerHTML = `
       <div class="rec-item-main">

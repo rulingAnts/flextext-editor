@@ -304,16 +304,7 @@ async function renderDocList() {
     if (allowDeleteOn()) {
       del.title = t('texts.deleteTitle');
       del.innerHTML = '&#128465;';
-      del.addEventListener('click', async () => {
-        if (confirm(t('texts.confirmDelete', { title: d.title || t('untitled') }))) {
-          // Stop any queued/in-flight upload so a deleted text never reaches Drive.
-          const up = getUpload(d.id);
-          if (up) up.cancel(); else uploadView.delete(d.id);
-          await db.deleteDoc(d.id);
-          renderUploadQueue();
-          renderDocList();
-        }
-      });
+      del.addEventListener('click', () => { userDeleteDoc(d.id, d.title); });
     } else del.remove();
     ul.appendChild(li);
   }
@@ -445,7 +436,15 @@ async function setDocDone(docId, wantDone) {
   if (isOpen) applyDoneButton();
   if (wantDone) {
     toast(t('done.marked'), 5000);
-    if (!(rec.uploadedSig && rec.uploadedSig === uploadContentSig(rec))) await uploadDocById(rec.id);
+    const onDrive = rec.uploadedSig && rec.uploadedSig === uploadContentSig(rec);
+    if (!onDrive) {
+      // Content changed since the last send (or never sent) → one final upload. If the
+      // researcher has auto-delete on, the upload-done hook removes it once confirmed.
+      await uploadDocById(rec.id);
+    } else if (deleteAfterUpload()) {
+      // Already safely on Drive, nothing to send → honour auto-delete by removing now.
+      if (await deleteConfirmedDoc(rec.id)) toast(t('sync.removedAfterUpload'), 6000);
+    }
   } else {
     toast(t('done.unmarked'), 4000);
   }
@@ -1998,6 +1997,43 @@ async function sweepPendingUpDel() {
   setPendingUpDel(keep);
 }
 
+// The coworker's own per-text delete button. SAFE by default: confirm, then if uploading
+// is configured and this text isn't already provably on Drive, make ONE final upload and
+// remove it only once that's CONFIRMED (never lose un-uploaded or edited-since work) — the
+// same upload-first path as the researcher's remote delete. A standalone device (no upload
+// target) just deletes locally. Used by both the editor list and the recorder list.
+async function userDeleteDoc(docId, title) {
+  const d = await db.getDoc(docId).catch(() => null);
+  const uploads = !!Sync.workerUploadTarget();
+  const backedUp = d && d.uploadedFileId && d.uploadedModified === d.modified;
+  const willUpload = d && uploads && !backedUp;
+  const msg = willUpload
+    ? t('texts.confirmDeleteUpload', { title: title || t('untitled') })
+    : t('texts.confirmDelete', { title: title || t('untitled') });
+  if (!confirm(msg)) return;
+  if (!d || !uploads || backedUp) {
+    // Nothing to preserve (gone / no upload target / already safely on Drive) → remove now,
+    // cancelling any stray queued upload so it can't resurrect.
+    const up = getUpload(docId); if (up) up.cancel(); else uploadView.delete(docId);
+    if (current && current.id === docId) current = null;
+    await db.deleteDoc(docId).catch(() => {});
+    renderUploadQueue();
+    if (RECORD_MODE) renderRecordList(); else renderDocList();
+    Sync.reportNow();
+    return;
+  }
+  // Uploading configured + changed/never-sent → final upload, delete once it lands (survives
+  // reloads via pendingUpDel; the upload-done hook + boot sweep finish the removal).
+  const ids = pendingUpDel();
+  if (!ids.includes(docId)) { ids.push(docId); setPendingUpDel(ids); }
+  toast(t('texts.deleteUploadFirst'), 6000);
+  if (!(uploadView.has(docId) || getUpload(docId))) {
+    if (current && current.id === docId) await doUpload(true);
+    else await uploadDocById(docId);
+  }
+  if (RECORD_MODE) renderRecordList(); else renderDocList();
+}
+
 // ---- auto-backup (device setting autoBackup + autoBackupMins) ----
 // Researcher-enabled safety net: any text changed since its last upload is re-sent
 // automatically once it has been QUIET for autoBackupMins (default 15) — each send
@@ -3256,24 +3292,17 @@ async function renderRecordList() {
     const send = li.querySelector('.rec-send');
     send.textContent = t('record.send');
     const del = li.querySelector('.doc-delete');
-    if (allowDeleteOn()) { del.title = t('texts.deleteTitle'); del.innerHTML = '&#128465;'; }
-    else del.remove();   // researcher disabled deleting
     send.addEventListener('click', async () => {
       const rec = await db.getDoc(d.id);
       if (!rec) { toast(t('toast.cantOpen')); return; }
       current = rec;
       openShareMenu();
     });
-    del.addEventListener('click', async () => {
-      if (confirm(t('texts.confirmDelete', { title: d.title || t('untitled') }))) {
-        const up = getUpload(d.id);
-        if (up) up.cancel(); else uploadView.delete(d.id);
-        await db.deleteDoc(d.id);
-        if (current && current.id === d.id) current = null;
-        renderUploadQueue();
-        renderRecordList();
-      }
-    });
+    if (allowDeleteOn()) {
+      del.title = t('texts.deleteTitle');
+      del.innerHTML = '&#128465;';
+      del.addEventListener('click', () => { userDeleteDoc(d.id, d.title); });
+    } else del.remove();   // researcher disabled deleting
     ul.appendChild(li);
   }
 }

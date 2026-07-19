@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v101';
+export const ENGINE_VERSION = 'v102';
 
 const S = {
 en: {
@@ -138,6 +138,8 @@ en: {
   'texts.empty': 'No texts yet. Tap <b>New text</b> to start transcribing, or open an existing <code>.flextext</code> file.',
   'texts.deleteTitle': 'Delete',
   'texts.confirmDelete': 'Delete "{title}" from this device?\n(Make sure it has been saved/sent if you need it.)',
+  'texts.confirmDeleteUpload': 'Delete "{title}"? It will be uploaded to Drive first, then removed from this device — so nothing is lost.',
+  'texts.deleteUploadFirst': 'Uploading to Drive first — this text is removed once it\u2019s safely saved.',
   'texts.meta': '{n} sentences · {g} words glossed · {date}',
   'untitled': 'Untitled text',
 
@@ -988,6 +990,8 @@ id: {
   'texts.empty': 'Belum ada teks. Tekan <b>Teks baru</b> untuk mulai mengetik, atau buka file <code>.flextext</code> yang sudah ada.',
   'texts.deleteTitle': 'Hapus',
   'texts.confirmDelete': 'Hapus "{title}" dari perangkat ini?\n(Pastikan sudah disimpan/dikirim kalau masih diperlukan.)',
+  'texts.confirmDeleteUpload': 'Hapus "{title}"? Akan diunggah ke Drive dulu, lalu dihapus dari perangkat ini \u2014 jadi tidak ada yang hilang.',
+  'texts.deleteUploadFirst': 'Mengunggah ke Drive dulu \u2014 teks ini dihapus setelah tersimpan dengan aman.',
   'texts.meta': '{n} kalimat · {g} kata diglos · {date}',
   'untitled': 'Teks tanpa judul',
 

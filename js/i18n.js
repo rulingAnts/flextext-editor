@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v99';
+export const ENGINE_VERSION = 'v100';
 
 const S = {
 en: {
@@ -23,6 +23,8 @@ en: {
   'btn.done': 'Done — send…',
   'done.btn': 'Mark done',
   'done.btnDone': '✓ Done',
+  'done.markTitle': 'Mark this text completed',
+  'done.unmarkTitle': 'Completed — tap to un-mark',
   'done.marked': 'Marked done — sending to Drive.',
   'done.unmarked': 'No longer marked done.',
   'done.confirmDelete': 'Mark this text finished? It will be sent to Drive and then removed from this device (that’s the current setting). Make sure you’re done editing it.',
@@ -870,6 +872,8 @@ id: {
   'btn.done': 'Sudah selesai (Kirim)…',
   'done.btn': 'Tandai selesai',
   'done.btnDone': '✓ Selesai',
+  'done.markTitle': 'Tandai teks ini selesai',
+  'done.unmarkTitle': 'Selesai — ketuk untuk membatalkan',
   'done.marked': 'Ditandai selesai — mengunggah ke Drive.',
   'done.unmarked': 'Tanda selesai dilepas.',
   'done.confirmDelete': 'Tandai teks ini selesai? Teks akan dikirim ke Drive lalu dihapus dari perangkat ini (sesuai pengaturan saat ini). Pastikan Anda sudah selesai menyuntingnya.',

@@ -282,25 +282,39 @@ async function renderDocList() {
         <span class="doc-name"></span>
         <span class="doc-meta"></span>
       </button>
+      <button class="doc-done icon-btn"></button>
       <button class="doc-delete icon-btn"></button>`;
     li.querySelector('.doc-name').textContent = (d.done ? '\u2713 ' : '') + (d.title || t('untitled'));
     li.querySelector('.doc-meta').textContent =
       t('texts.meta', { n: d.segCount ?? 0, g: d.glossed ?? 0, date });
-    const del = li.querySelector('.doc-delete');
     li.querySelector('.doc-open').addEventListener('click', () => openDoc(d.id));
-    if (!allowDeleteOn()) { del.remove(); ul.appendChild(li); continue; }   // researcher disabled deleting
-    del.title = t('texts.deleteTitle');
-    del.innerHTML = '&#128465;';
-    del.addEventListener('click', async () => {
-      if (confirm(t('texts.confirmDelete', { title: d.title || t('untitled') }))) {
-        // Stop any queued/in-flight upload so a deleted text never reaches Drive.
-        const up = getUpload(d.id);
-        if (up) up.cancel(); else uploadView.delete(d.id);
-        await db.deleteDoc(d.id);
-        renderUploadQueue();
-        renderDocList();
-      }
-    });
+
+    // "Completed" toggle (researcher setting doneEnabled): mark a text finished right
+    // from the list \u2014 reports + auto-uploads (setDocDone confirms first if auto-delete is on).
+    const doneBtn = li.querySelector('.doc-done');
+    if (doneFeatureOn()) {
+      doneBtn.classList.toggle('on', !!d.done);
+      doneBtn.title = t(d.done ? 'done.unmarkTitle' : 'done.markTitle');
+      doneBtn.innerHTML = d.done ? '&#9745;' : '&#9744;';   // \u2611 / \u2610
+      doneBtn.addEventListener('click', () => { setDocDone(d.id, !d.done).catch(() => {}); });
+    } else doneBtn.remove();
+
+    // Per-text delete (researcher setting allowDelete, default on).
+    const del = li.querySelector('.doc-delete');
+    if (allowDeleteOn()) {
+      del.title = t('texts.deleteTitle');
+      del.innerHTML = '&#128465;';
+      del.addEventListener('click', async () => {
+        if (confirm(t('texts.confirmDelete', { title: d.title || t('untitled') }))) {
+          // Stop any queued/in-flight upload so a deleted text never reaches Drive.
+          const up = getUpload(d.id);
+          if (up) up.cancel(); else uploadView.delete(d.id);
+          await db.deleteDoc(d.id);
+          renderUploadQueue();
+          renderDocList();
+        }
+      });
+    } else del.remove();
     ul.appendChild(li);
   }
   renderWsBanner();
@@ -414,23 +428,32 @@ function applyDoneButton() {
   b.hidden = !(doneFeatureOn() && current);
   if (current) b.textContent = current.done ? t('done.btnDone') : t('done.btn');
 }
-async function toggleDone() {
-  if (!current) return;
-  // When the researcher has auto-delete on, marking done uploads AND then removes the
-  // text from this device — warn before that irreversible-feeling step (not when un-marking).
-  if (!current.done && deleteAfterUpload() && !confirm(t('done.confirmDelete'))) return;
-  current.done = !current.done;
-  current.doneAt = current.done ? Date.now() : null;
-  applyDoneButton();
-  try { await persist(); } catch { /* stays local; the report below still reflects memory */ }
-  if (current.done) {
+// Mark ANY text finished/unfinished — driven by the texts-list row toggle AND the
+// in-editor button. Works whether or not the text is the one currently open. Marking
+// done reports to the panel and auto-uploads (unless that exact content is already on
+// Drive); with auto-delete on it confirms first (that combo removes the text after upload).
+async function setDocDone(docId, wantDone) {
+  const isOpen = current && current.id === docId;
+  if (wantDone && deleteAfterUpload() && !confirm(t('done.confirmDelete'))) return;
+  let rec;
+  if (isOpen) { await persist().catch(() => {}); rec = current; }   // flush pending edits first
+  else rec = await db.getDoc(docId);
+  if (!rec || !!rec.done === wantDone) return;
+  rec.done = wantDone;
+  rec.doneAt = wantDone ? Date.now() : null;
+  try { await db.putDoc(rec); } catch { /* stays in memory; the report below still reflects it */ }
+  if (isOpen) applyDoneButton();
+  if (wantDone) {
     toast(t('done.marked'), 5000);
-    if (!(current.uploadedSig && current.uploadedSig === uploadContentSig(current))) await uploadDocById(current.id);
+    if (!(rec.uploadedSig && rec.uploadedSig === uploadContentSig(rec))) await uploadDocById(rec.id);
   } else {
     toast(t('done.unmarked'), 4000);
   }
   Sync.reportNow();
   renderDocList();
+}
+async function toggleDone() {
+  if (current) await setDocDone(current.id, !current.done);
 }
 
 function enterEditor(tab) {

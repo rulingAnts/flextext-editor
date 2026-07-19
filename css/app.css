@@ -194,6 +194,9 @@ main {
 .doc-name { font-weight: 600; font-size: 16px; }
 .doc-meta { color: var(--muted); font-size: 13px; }
 .doc-delete { color: var(--muted); border-left: 1px solid var(--border); border-radius: 0; }
+.doc-done { color: var(--muted); border-left: 1px solid var(--border); border-radius: 0; font-size: 22px; line-height: 1; }
+.doc-done.on { color: #1f5d22; }   /* text marked completed */
+.doc-done:hover { background: var(--panel); }
 
 .empty-note { color: var(--muted); margin-top: 24px; text-align: center; }
 

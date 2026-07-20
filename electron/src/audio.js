@@ -97,7 +97,41 @@ async function listDevicesUncached() {
     const re = /\[(\d+)\]\s+(.+)/g;
     let m; while ((m = re.exec(audioBlock))) out.push({ id: `:${m[1]}`, name: m[2].trim() });
   }
-  return out;
+  return out.map((d) => ({ ...d, ...classify(d.name) })).sort((a, b) => b.rank - a.rank);
+}
+
+/* Rank inputs by how defensible a recording from them would be.
+ *
+ * ⚠ NEVER just take the first device the OS lists. On a Mac with a paired iPhone, Continuity puts
+ * "<name>'s iPhone Microphone" FIRST — so the obvious default would record over a wireless, heavily
+ * processed phone link and write it into a file labelled 24-bit. The file would look archival and
+ * not be, which is the precise mislabelling this whole project exists to prevent. Windows has the
+ * same trap with webcam and virtual-cable mics.
+ *
+ * `wireless` is the load-bearing field: it does not merely lose the ranking, it is reported to the
+ * user and marks the capture as non-archival. We still RECORD over it — refusing would strand a
+ * field worker mid-session, which is a worse outcome than a quality note — we just never let the
+ * label outrun the source. */
+function classify(name) {
+  const n = String(name).toLowerCase();
+  // Wireless/relayed inputs: compressed, processed, and not an archival source at any bit depth.
+  if (/iphone|ipad|continuity|bluetooth|airpod|handsfree|hands-free/.test(n)) {
+    return { rank: 0, wireless: true, kind: 'wireless',
+             note: 'Wireless or relayed microphone — compressed and processed. Not archive quality.' };
+  }
+  // Virtual/loopback devices capture other software, not a room. Never a field recording.
+  if (/blackhole|soundflower|virtual|aggregate|loopback|vb-audio|voicemeeter|stereo mix|teams|zoom/.test(n)) {
+    return { rank: 1, wireless: false, kind: 'virtual',
+             note: 'Virtual audio device — records other software, not a microphone.' };
+  }
+  // A real interface is what archival fieldwork actually uses.
+  if (/usb|scarlett|focusrite|zoom h|tascam|rode|røde|behringer|audio.?box|interface|xlr/.test(n)) {
+    return { rank: 4, wireless: false, kind: 'interface', note: null };
+  }
+  if (/built.?in|internal|macbook|realtek|microphone array/.test(n)) {
+    return { rank: 3, wireless: false, kind: 'builtin', note: null };
+  }
+  return { rank: 2, wireless: false, kind: 'unknown', note: null };
 }
 
 async function capabilities() {
@@ -216,6 +250,12 @@ async function start(opts = {}, onPeak) {
       encoding, sampleRate, channels,
       bits: BITS[encoding], float: encoding === 'float32', label: LABEL[encoding],
       device: dev.name, deviceId: dev.id,
+      // What the audio actually came from. `archival: false` travels with the recording so the
+      // researcher sees WHY a take is not preservation grade, instead of inferring it later from a
+      // file that says 24-bit and sounds like a phone call.
+      deviceKind: dev.kind, deviceNote: dev.note || null,
+      archival: !dev.wireless && dev.kind !== 'virtual',
+      archivalReason: dev.note || null,
       requested: { encoding: opts.encoding || encoding, sampleRate: opts.sampleRate || sampleRate, label: LABEL[opts.encoding] || LABEL[encoding] },
       substituted: false, substitutionReason: null,
       depthVerified: false,          // see the HONESTY GAP

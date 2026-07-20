@@ -13,7 +13,7 @@ Bundles [wavesurfer.js](https://wavesurfer.xyz/) (BSD-3-Clause, see
 
 An offline-capable web app (PWA) that duplicates FieldWorks Language Explorer's
 interlinear **Baseline** and **Gloss** tabs, editing
-[`.flextext`](docs/FlexInterlinear.xsd) files directly — no FLEx, no lexicon, no
+[`.flextext`](notes/FlexInterlinear.xsd) files directly — no FLEx, no lexicon, no
 server. Built for the workflow where a researcher sets up the language settings
 and a native-speaker coworker transcribes, glosses, and free-translates texts on
 whatever device they have (Windows, Mac, Linux, iOS, Android).
@@ -63,16 +63,13 @@ audio…** on the Texts screen creates a titled text with the file loaded in
 the player.
 
 Audio sources can be any CORS-friendly direct URL, **or a researcher's own
-Google Drive** via a tiny relay ([docs/drive-relay.gs](docs/drive-relay.gs))
-deployed as an Apps Script web app ("Execute as: me", access "Anyone").
-**A default relay is baked into the app** (`DEFAULT_RELAY` in
-[js/app.js](js/app.js)), so researchers just share recordings as "Anyone with
-the link" and paste the Drive share link into the form — zero setup, nothing
-to configure. Forks running their own relay swap that one constant. The relay requests no Drive permissions
-at all (it proxies only Drive's public download endpoint), so it can never
-expose private files. Recommended format: mono 64 kbps MP3 (≈0.5 MB/min).
-Exports reference the recording via a `<media-files>` element so FLEx can
-re-link it.
+Google Drive**. Uploads stream through a Cloudflare Worker into the
+researcher's own Drive using their `drive.file` token; downloads (task audio,
+consent prompts) are proxied by the same Worker. The old Apps Script relay for
+uploads has been **retired** — its source is kept only for reference at
+[notes/drive-relay.gs](notes/drive-relay.gs). Recommended distribution format:
+mono 64 kbps MP3 (≈0.5 MB/min). Exports reference the recording via a
+`<media-files>` element so FLEx can re-link it.
 
 ## Platform support & install
 
@@ -86,31 +83,56 @@ On Chromium browsers the app offers a one-tap **Install app** banner
 without hunting through browser menus; Firefox users get instructions in the
 built-in help.
 
-## Companion app: the Flextext Recorder
+## Repository layout — one repo, four published apps
 
-A second, **independent repository**
-([`rulingAnts/text-recorder`](https://github.com/rulingAnts/text-recorder), live
-at <https://rulingants.github.io/text-recorder/>) ships a stripped-down,
-**recording-only** sibling PWA — "Flextext Recorder" — for native-speaker coworkers
-gathering audio on a phone (record → send). **This editor is the main project;**
-the recorder is the *same engine* running in record mode, not a fork: its page is
-a thin shell that loads this repo's `js/app.js` + `css/app.css` cross-path over
-the same GitHub Pages origin and sets `window.__MODE='record'`.
+**All development happens in this repository.** Only `docs/` is published:
+GitHub Pages serves `productionWeb:/docs`, so everything else is committed but
+never served.
 
-It's a separate repo on purpose: two PWAs on one origin need **non-overlapping
-scopes** to install as distinct apps, and keeping the recorder at the sibling
-path `/text-recorder/` lets this editor stay at `/flextext-editor/` untouched
-(moving it would change its PWA identity and orphan every installed copy).
+```
+docs/          THE PUBLISHED SITE (the PWA) → /flextext-editor/
+satellites/    source of the three sibling apps (see below)
+android/       Capacitor wrappers — recorder + editor APKs
+electron/      Windows desktop shell (planned)
+notes/         planning docs, schema, retired code — gitignored
+```
 
-**Maintainers — two coupling rules (full detail in [CLAUDE.md](CLAUDE.md)):**
+### The sibling apps
 
-1. **Change the engine here, not there.** All recording/consent/upload logic
-   lives in this repo; never copy engine code into the recorder repo.
-2. **Version + order.** The recorder caches this engine *by path*, so (a) bump
-   `text-recorder/sw.js`'s `VERSION` whenever an engine change should reach the
-   recorder, and (b) when a change spans both repos, **deploy this repo's
-   `productionWeb` first**, confirm it's live, then push the recorder — its
-   service worker precaches whatever editor engine is live at install time.
+Three companion PWAs ship from their own repos **only because they have to**:
+GitHub Pages serves a project site at `/<repo-name>/`, and two PWAs sharing a
+scope are treated by the browser as **one installed app**. They therefore need
+paths disjoint from `/flextext-editor/`:
+
+| App | Path | What it is |
+|---|---|---|
+| **Flextext Recorder** | `/text-recorder/` | record → send, for coworkers gathering audio on a phone |
+| **Flextext Researcher** | `/flextext-researcher/` | the researcher console |
+| **Crowd Recorder** | `/crowd-recorder/` | public, embeddable, one-clip contribution |
+
+None is a fork. Each is a thin shell that loads **this repo's engine**
+(`docs/js/app.js` + `docs/css/app.css`) and sets a mode flag. Their source lives
+here in `satellites/`; the sibling repos are **machine-managed mirrors** — do
+not edit them directly.
+
+### How they are published
+
+The `Publish satellites` workflow mirrors `satellites/<name>/` into each repo
+using a per-repo SSH deploy key. **It enforces the ordering that matters:** it
+waits until the live editor actually serves this commit's `sw.js` version, then
+verifies every engine path that satellite precaches returns 200, and refuses to
+publish if any does not. A satellite published ahead of the engine it caches
+fails its service-worker install — which silently costs new installs their
+offline support.
+
+### Native wrappers
+
+The Android apps (`android/`) exist for one reason: **archive-compliant audio**.
+The Web Audio API is 32-bit float *by specification*, so a browser can never
+capture at a chosen integer bit depth — it can only capture float and reduce
+afterwards. Native `AudioRecord` can. `docs/js/native-audio.js` is the single
+file permitted to touch a native bridge, and `check-native-containment.sh`
+enforces that.
 
 ## Localization & help
 
@@ -138,7 +160,7 @@ everything.
 ## Format
 
 Follows `FlexInterlinear.xsd` from the FieldWorks sources (copy in
-[docs/](docs/FlexInterlinear.xsd)):
+[notes/](notes/FlexInterlinear.xsd)):
 `document > interlinear-text > paragraphs > paragraph > phrases > phrase >
 words > word`, with `item` elements (`txt`, `punct`, `gls`, `segnum`, `pos`, …)
 carrying `lang` writing-system codes, chained words as `<word type="phrase">`,

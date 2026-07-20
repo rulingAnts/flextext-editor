@@ -125,6 +125,14 @@ jobs:
           rsync -a --delete --exclude '.git' --exclude '.github' \
                 "satellites/${{ matrix.name }}/" /tmp/sat/
 
+          # Stamp the do-not-edit marker into the MIRROR ONLY. It must never live in
+          # satellites/ in the source repo: there it would sit in the very directory it tells you
+          # not to edit, pointing at itself — exactly the self-contradiction that would derail a
+          # future session (or a human) reading it. The template lives in .github/, which is
+          # workflow tooling and is never mirrored.
+          sed "s/__SATELLITE__/${{ matrix.name }}/g" \
+            "$GITHUB_WORKSPACE/.github/satellite-mirror-notice.md" > /tmp/sat/DO-NOT-EDIT-HERE.md
+
           cd /tmp/sat
           if git diff --quiet && git diff --cached --quiet && [ -z "$(git status --porcelain)" ]; then
             echo "no change — nothing to publish"; exit 0

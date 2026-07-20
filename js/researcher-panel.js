@@ -36,6 +36,10 @@ let lastData = null;   // last dashboard view, kept so an action (e.g. upload) c
 // "request sent → uploaded just now" with NO server state: a (re)upload writes a new timestamped Drive file,
 // so when the device later reports a DIFFERENT uploadedFileId we know THIS request completed — even a re-send
 // of an otherwise-unchanged doc (uploadState stays 'uploaded'). Swept in renderDashboard; resets on reload.
+// Where the native (Android/Windows/Mac) builds can be downloaded. EMPTY until they are
+// actually published — the notice then says "in preparation" rather than offering a dead link.
+const NATIVE_DOWNLOADS_URL = '';
+
 const requestedUploads = new Map();
 const UPLOAD_WAIT_MS = 120000;   // no device confirmation after this long → re-offer the button ("awaiting device…")
 // docId -> requestedAt for a delete the researcher just triggered: gives the row an INSTANT
@@ -80,7 +84,7 @@ const GROUPS = [
     { k: 'vernLang', type: 'text', tip: 'research.wsCase' },
     { k: 'analLang', type: 'text', tip: 'research.wsCase' },
   ] },
-  { id: 'recording', helpModal: 'recfmt', fields: [
+  { id: 'recording', helpModal: 'recfmt', notice: 'pwaAudio', fields: [
     { k: 'recordFormat', type: 'select', opts: REC_KEYS, optPrefix: 'panel.opt.fmt.' },  // the permanent recording format
     { k: 'maxRecordSeconds', type: 'range' },   // auto-stop cap (0 = no limit) + live size readout
     { k: 'agc', type: 'select', opts: AGC_OPTS, optPrefix: 'panel.opt.agc.' },
@@ -1660,6 +1664,17 @@ function fieldHtml(f) {
 // Hide deviceOnly fields (e.g. appLang) in the researcher's OWN local-settings modal — there the live
 // #lang-select toggle already covers the UI language, so a duplicate control would be a confusing no-op.
 function groupFields(g, mode) { return g.fields.filter((f) => !(f.deviceOnly && mode === 'local')); }
+// A prominent, plain-language warning box at the top of a settings group. Used to tell a
+// researcher that a website-installed (PWA) device cannot make archive-quality recordings —
+// the single most consequential thing they can get wrong without ever being told.
+function noticeHtml(kind) {
+  if (kind !== 'pwaAudio') return '';
+  const link = NATIVE_DOWNLOADS_URL
+    ? `<p><a href="${esc(NATIVE_DOWNLOADS_URL)}" target="_blank" rel="noopener noreferrer">${esc(t('panel.notice.audioGet'))}</a></p>`
+    : `<p class="note">${esc(t('panel.notice.audioSoon'))}</p>`;
+  return `<div class="rp-notice"><b>${esc(t('panel.notice.audioTitle'))}</b>${t('panel.notice.audioBody')}${link}</div>`;
+}
+
 function groupHtml(g, mode) {
   // The TAB label (panel.grp.<id>) and the fieldset heading may differ (g.legend):
   // e.g. the Languages tab's fieldset is headed "FLEx Writing System Codes".
@@ -1671,7 +1686,8 @@ function groupHtml(g, mode) {
   const fields = groupFields(g, mode);
   const outside = fields.filter((f) => f.outside).map(fieldHtml).join('');   // e.g. appLang sits above the codes fieldset
   const inside = fields.filter((f) => !f.outside).map(fieldHtml).join('');
-  return `<div class="rp-group" id="rp-grp-${g.id}" role="tabpanel" aria-labelledby="rp-tab-${g.id}" data-group="${g.id}" hidden>${outside}<fieldset class="rp-fieldset"><legend>${esc(t(g.legend || 'panel.grp.' + g.id))}</legend>${help}${inside}</fieldset></div>`;
+  const notice = g.notice ? noticeHtml(g.notice) : '';
+  return `<div class="rp-group" id="rp-grp-${g.id}" role="tabpanel" aria-labelledby="rp-tab-${g.id}" data-group="${g.id}" hidden>${notice}${outside}<fieldset class="rp-fieldset"><legend>${esc(t(g.legend || 'panel.grp.' + g.id))}</legend>${help}${inside}</fieldset></div>`;
 }
 
 // Map stored settings → canonical form values (mode-aware on the divergent fields).

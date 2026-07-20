@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v104';
+export const ENGINE_VERSION = 'v105';
 
 const S = {
 en: {
@@ -702,6 +702,10 @@ internet after the first time.</p>
   'panel.inst.doneTag': 'done',
   'panel.inst.notDoneTag': 'not done',
   'panel.inst.deletingTag': 'deleting…',
+  'panel.notice.audioTitle': 'Sound quality depends on how this app was installed',
+  'panel.notice.audioBody': '<p>If this device got the app <b>straight from the website</b> (you opened a link and tapped \u201cInstall\u201d), it has to record through the web browser \u2014 and browsers do not let any website control the microphone properly. The browser sets the recording volume itself, so a loud voice can be spoiled, and it <b>cannot record in the exact quality you choose here</b>: it always records one way and changes it afterwards.</p><p><b>That is perfectly fine for</b> typing up texts, glossing words, free translation, and rough first recordings you simply want to collect and listen to.</p><p><b>It is not good enough for</b> recordings you will send to a language archive, or use later for careful study of the sounds.</p><p>For archive-quality sound, use the <b>installed app</b> for that device instead \u2014 Android (from the Play Store or an APK file), Windows, or Mac. Those record straight from the microphone, in the exact quality you pick, and tell you plainly what was recorded.</p>',
+  'panel.notice.audioGet': 'Download the Android, Windows and Mac versions',
+  'panel.notice.audioSoon': 'The Android, Windows and Mac versions are still being prepared \u2014 a download link will appear here once they are ready.',
   'panel.inst.noTexts': 'No texts reported yet.',
   'panel.inst.noInstall': 'No device has claimed the invite yet.',
   'panel.inst.lastSeen': 'Last seen {when}',
@@ -1556,6 +1560,10 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.inst.doneTag': 'selesai',
   'panel.inst.notDoneTag': 'belum selesai',
   'panel.inst.deletingTag': 'menghapus…',
+  'panel.notice.audioTitle': 'Mutu suara tergantung cara aplikasi ini dipasang',
+  'panel.notice.audioBody': '<p>Jika perangkat ini mendapat aplikasi <b>langsung dari situs web</b> (Anda membuka tautan lalu menekan \u201cPasang\u201d), maka ia harus merekam lewat peramban \u2014 dan peramban tidak mengizinkan situs web mana pun mengendalikan mikrofon dengan benar. Peramban sendiri yang mengatur volume rekaman, sehingga suara keras bisa rusak, dan ia <b>tidak bisa merekam persis pada mutu yang Anda pilih di sini</b>: ia selalu merekam dengan satu cara lalu mengubahnya sesudahnya.</p><p><b>Ini sudah cukup baik untuk</b> mengetik teks, memberi gloss pada kata, terjemahan bebas, dan rekaman awal kasar yang sekadar ingin Anda kumpulkan dan dengarkan.</p><p><b>Ini tidak cukup baik untuk</b> rekaman yang akan Anda kirim ke arsip bahasa, atau yang dipakai nanti untuk kajian bunyi secara cermat.</p><p>Untuk suara bermutu arsip, gunakan <b>aplikasi terpasang</b> untuk perangkat itu \u2014 Android (dari Play Store atau berkas APK), Windows, atau Mac. Versi tersebut merekam langsung dari mikrofon, persis pada mutu yang Anda pilih, dan memberi tahu dengan jelas apa yang direkam.</p>',
+  'panel.notice.audioGet': 'Unduh versi Android, Windows, dan Mac',
+  'panel.notice.audioSoon': 'Versi Android, Windows, dan Mac masih disiapkan \u2014 tautan unduhan akan muncul di sini setelah siap.',
   'panel.inst.noTexts': 'Belum ada teks dilaporkan.',
   'panel.inst.noInstall': 'Belum ada perangkat yang mengeklaim undangan.',
   'panel.inst.lastSeen': 'Terakhir terlihat {when}',

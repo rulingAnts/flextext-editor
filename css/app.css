@@ -928,6 +928,13 @@ main {
 .rp-tag-notdone { background: var(--panel); color: var(--muted); }  /* Done feature on, not yet finished */
 .rp-pending-del { opacity: .5; text-decoration: line-through; }
 .rp-tag-deleting { background: #fdecea; color: #9b2c22; font-weight: 600; text-decoration: none; }
+/* Loud, plain-language warning at the top of a settings group (e.g. website-installed
+   devices cannot make archive-quality recordings). Deliberately hard to miss. */
+.rp-notice { border: 1px solid #e0b892; border-left: 5px solid #c9772a; background: #fdf6ee;
+             border-radius: 9px; padding: 12px 14px; margin-bottom: 18px; font-size: 14px; }
+.rp-notice > b { display: block; margin-bottom: 6px; font-size: 15px; color: #8a4b10; }
+.rp-notice p { margin: 7px 0; }
+.rp-notice p:last-child { margin-bottom: 0; }
 .rp-as-status { margin: 8px 0 4px; font-size: 13px; line-height: 1.4; white-space: pre-wrap; }
 .rp-as-status.rp-as-ok { color: #1f5d22; }
 .rp-as-status.rp-as-err { color: #a3261f; }

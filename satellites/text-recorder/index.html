@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Flextext Recorder</title>
+<meta name="description" content="Record spoken texts on a phone and send them to your language researcher. Works offline.">
+<meta name="theme-color" content="#1f4f8f">
+<link rel="manifest" href="recorder.webmanifest">
+<link rel="icon" href="icons/recorder.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/recorder-apple-touch.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Flextext Recorder">
+<!-- Shared engine + styles live in the Flextext Editor repo (same origin), so the
+     recording/consent/upload code is maintained ONCE. This app is a thin shell
+     at a DISTINCT path (/text-recorder/) so it installs as its own PWA — the
+     editor's root scope (/flextext-editor/) does NOT contain this path. -->
+<link rel="stylesheet" href="/flextext-editor/css/app.css">
+<!-- Selects record-only mode in the shared engine. Classic inline script so it
+     runs before the deferred module executes. -->
+<script>window.__MODE = 'record';</script>
+</head>
+<body>
+
+<header id="topbar">
+  <div id="topbar-home" class="topbar-row">
+    <span class="app-title" data-i18n="record.appName">Flextext Recorder</span>
+    <select id="lang-select" data-i18n-title="research.lang">
+      <option value="en">English</option>
+      <option value="id">Indonesia</option>
+    </select>
+  </div>
+</header>
+
+<main>
+
+<div id="webkit-warning" class="banner warn-banner" hidden>
+  <span data-i18n="webkit.warning"></span>
+  <button class="banner-dismiss" data-dismiss="webkit-warning" title="✕">✕</button>
+</div>
+<div id="install-banner" class="banner install-banner" hidden>
+  <span data-i18n="install.text"></span>
+  <button id="btn-install" class="primary-btn" data-i18n="install.btn">Install app</button>
+  <button class="banner-dismiss" data-dismiss="install-banner" title="✕">✕</button>
+</div>
+
+<!-- Record-only view. Its contents are rendered by the shared js/app.js
+     (renderRecordView), so the markup lives in one place. -->
+<section id="view-record" class="view"></section>
+
+</main>
+
+<!-- Non-blocking upload status bar -->
+<div id="upload-bar" hidden>
+  <div class="upload-row">
+    <span id="upload-label"></span>
+    <div class="upload-progress"><div id="upload-fill"></div></div>
+    <button id="upload-toggle" class="icon-btn2" hidden></button>
+    <button id="upload-pause" class="icon-btn2"></button>
+    <button id="upload-cancel" class="icon-btn2" data-i18n-title="upload.cancel">✕</button>
+  </div>
+  <ul id="upload-list" class="upload-list" hidden></ul>
+</div>
+
+<div id="toast" hidden></div>
+
+<!-- Consent / speaker-permission modal — KEEP IN SYNC with the editor repo. -->
+<div id="consent-modal" class="modal" hidden>
+  <div class="modal-card">
+    <h3 data-i18n="consent.title">Speaker permission</h3>
+    <p id="consent-message"></p>
+    <audio id="consent-audio" controls hidden></audio>
+    <p class="note" id="consent-status" hidden></p>
+    <!-- (1) recorded verbal assent -->
+    <div id="consent-record" hidden>
+      <audio id="consent-assent-preview" controls hidden></audio>
+      <button id="consent-assent-toggle" class="primary-btn">&#9679; <span data-i18n="consent.recYes">Record the "yes"</span></button>
+      <button id="consent-assent-redo" class="secondary-btn" data-i18n="record.redo" hidden>Re-record</button>
+    </div>
+    <!-- (2) typed-name signature -->
+    <div id="consent-sign" hidden>
+      <label class="wide"><span data-i18n="consent.signLabel">Type your name to give permission</span>
+        <input id="consent-name" type="text" spellcheck="false" autocomplete="name"></label>
+    </div>
+    <!-- (3) yes/no as RADIO buttons; the single submit button below is the only proceed point -->
+    <div id="consent-yesno" hidden>
+      <label class="check-label"><input type="radio" name="consent-choice" id="consent-choice-yes" value="yes"> <span data-i18n="consent.yes">Yes — I have permission</span></label>
+      <label class="check-label"><input type="radio" name="consent-choice" id="consent-choice-no" value="no"> <span data-i18n="consent.no">No</span></label>
+    </div>
+    <button id="consent-yes" class="primary-btn" data-i18n="consent.give">Give permission</button>
+    <button id="consent-cancel" class="link-btn" data-i18n="share.cancel">Cancel</button>
+  </div>
+</div>
+
+<!-- Recording modal — KEEP IN SYNC with the editor repo. -->
+<div id="record-modal" class="modal" hidden>
+  <div class="modal-card">
+    <h3 data-i18n="record.title">Record new text</h3>
+    <p class="note" id="record-status"></p>
+    <div id="record-meter" hidden><div id="record-meter-fill"></div></div>
+    <p id="record-clip-warn" class="meter-warn" data-i18n="record.clipWarn" hidden>⚠ Too loud — move back a little.</p>
+    <p id="record-hint" class="note record-hint" data-i18n="record.distanceHint" hidden>Hold the phone about a hand's width from your mouth.</p>
+    <audio id="record-preview" controls hidden></audio>
+    <label id="record-title-row" hidden><span data-i18n="record.titleLabel">Title for this text</span>
+      <input id="record-title" data-i18n-ph="record.titlePh" placeholder="Give this recording a name" spellcheck="false"></label>
+    <button id="record-toggle" class="primary-btn">&#9679; Record</button>
+    <button id="record-save" class="primary-btn" data-i18n="record.save" hidden>Save</button>
+    <button id="record-redo" class="secondary-btn" data-i18n="record.redo" hidden>Re-record</button>
+    <button id="record-cancel" class="link-btn" data-i18n="share.cancel">Cancel</button>
+  </div>
+</div>
+
+<!-- Share/save menu — KEEP IN SYNC with the editor repo. -->
+<div id="share-menu" class="modal" hidden>
+  <div class="modal-card">
+    <h3 data-i18n="share.title">Save and send</h3>
+    <p class="note" id="share-filename"></p>
+    <button id="share-share" class="primary-btn" data-i18n="share.share">Share&hellip;</button>
+    <button id="share-upload" class="primary-btn" data-i18n="share.upload">Upload</button>
+    <button id="share-saveas" class="secondary-btn" data-i18n="share.saveas">Save to file&hellip;</button>
+    <button id="share-download" class="secondary-btn" data-i18n="share.download">Download</button>
+    <button id="share-cancel" class="link-btn" data-i18n="share.cancel">Cancel</button>
+  </div>
+</div>
+
+<!-- MP3 encoder + shared app engine load from the editor repo (same origin). -->
+<script src="/flextext-editor/js/vendor/lame.min.js" defer></script>
+<script type="module" src="/flextext-editor/js/app.js"></script>
+</body>
+</html>

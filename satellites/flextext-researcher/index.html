@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Flextext Researcher</title>
+<meta name="description" content="Set up and manage your coworkers' Flextext devices, send tasks, and review what they collect. Works offline.">
+<meta name="theme-color" content="#0f766e">
+<link rel="manifest" href="researcher.webmanifest">
+<link rel="icon" href="icons/researcher.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/researcher-apple-touch.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Flextext Researcher">
+<!-- Shared engine + styles live in the Flextext Editor repo (same origin), so ALL
+     researcher / connectivity logic is maintained ONCE. This app is a thin shell at a
+     DISTINCT path (/flextext-researcher/) so it installs as its own PWA — the editor's
+     root scope (/flextext-editor/) does NOT contain this path. -->
+<link rel="stylesheet" href="/flextext-editor/css/app.css">
+<!-- Selects researcher-console mode in the shared engine. Classic inline script so it
+     runs before the deferred module executes. -->
+<script>window.__MODE = 'researcher';</script>
+</head>
+<body>
+
+<main>
+
+<div id="webkit-warning" class="banner warn-banner" hidden>
+  <span data-i18n="webkit.warning"></span>
+  <button class="banner-dismiss" data-dismiss="webkit-warning" title="✕">✕</button>
+</div>
+<div id="install-banner" class="banner install-banner" hidden>
+  <span data-i18n="install.text"></span>
+  <button id="btn-install" class="primary-btn" data-i18n="install.btn">Install app</button>
+  <button class="banner-dismiss" data-dismiss="install-banner" title="✕">✕</button>
+</div>
+
+<!-- The researcher panel takes over this view with its own full-screen header.
+     Rendered by the shared js/app.js (setupResearcherMode → initResearcherPanel). -->
+<section id="view-researcher" class="view"></section>
+
+</main>
+
+<div id="toast" hidden></div>
+
+<!-- Shared app engine loads from the editor repo (same origin). -->
+<script type="module" src="/flextext-editor/js/app.js"></script>
+</body>
+</html>

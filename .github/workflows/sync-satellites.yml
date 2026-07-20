@@ -1,0 +1,141 @@
+# Publish the satellite apps from this repo.
+#
+# WHY THIS EXISTS
+# The recorder / researcher / crowd apps must live at DISJOINT paths from /flextext-editor/ (two
+# PWAs sharing a scope are treated by the browser as one app), and on GitHub Pages one repo = one
+# path. So those repos must exist to SERVE — but their source now lives here, in satellites/, and
+# they are dumb mirrors. All development happens in this repo.
+#
+# WHY PUSH AND NOT PULL
+# A cloud session can only reach ONE repo. It can commit here and trigger this workflow, but it
+# could not trigger a workflow living in a satellite repo it has no access to. Push keeps the whole
+# flow reachable from this repo alone.
+#
+# ⚠ THE ORDERING GUARD IS THE POINT
+# A satellite's service worker precaches engine files from /flextext-editor/ BY PATH. Publishing a
+# satellite before those files are live makes precacheAll() throw inside install's waitUntil, so the
+# SW install FAILS: existing installs stick on the old worker and NEW installs get no precached
+# shell at all — offline support silently gone. That happened for real on 2026-07-20. So this
+# workflow waits for the editor to actually be live, then verifies every path, and refuses to
+# publish a satellite whose paths are not all 200.
+#
+# Cost: Actions on a PUBLIC repo with standard runners is free.
+
+name: Publish satellites
+
+on:
+  push:
+    branches: [productionWeb]
+    paths:
+      - 'satellites/**'
+      - 'docs/**'
+  workflow_dispatch:
+    inputs:
+      only:
+        description: 'Publish just one satellite (blank = all)'
+        required: false
+        default: ''
+
+# This job only READS this repo. Writes to the satellites go over per-repo SSH deploy keys, so a
+# leaked key can write to exactly one repo and nothing else.
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false          # one bad satellite must not block the others
+      matrix:
+        include:
+          - name: text-recorder
+            secret: DEPLOY_KEY_TEXT_RECORDER
+          - name: flextext-researcher
+            secret: DEPLOY_KEY_FLEXTEXT_RESEARCHER
+          - name: crowd-recorder
+            secret: DEPLOY_KEY_CROWD_RECORDER
+    steps:
+      - name: Check out productionWeb
+        uses: actions/checkout@v4
+        with:
+          ref: productionWeb
+
+      - name: Skip if this run targets a different satellite
+        id: gate
+        run: |
+          only='${{ github.event.inputs.only }}'
+          if [ -n "$only" ] && [ "$only" != '${{ matrix.name }}' ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "not selected (only=$only) — skipping"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Wait for the live editor to serve this commit's engine
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          want=$(grep -m1 "const VERSION" docs/sw.js | grep -oE "v[0-9]+")
+          echo "expecting editor sw.js VERSION=$want"
+          for i in $(seq 1 40); do          # ~10 min; Pages usually takes well under 1
+            got=$(curl -fsS "https://rulingants.github.io/flextext-editor/sw.js?cb=$RANDOM" \
+                  | grep -m1 "const VERSION" | grep -oE "v[0-9]+" || echo "")
+            if [ "$got" = "$want" ]; then echo "editor is live at $got"; exit 0; fi
+            echo "  attempt $i: live=$got, waiting…"; sleep 15
+          done
+          echo "::error::Editor never went live at $want — refusing to publish satellites." >&2
+          exit 1
+
+      - name: Verify every engine path this satellite precaches is LIVE
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          set -uo pipefail
+          sw="satellites/${{ matrix.name }}/sw.js"
+          if [ ! -f "$sw" ]; then echo "no sw.js (crowd app has none) — nothing to verify"; exit 0; fi
+          paths=$(grep -oE "'/flextext-editor/[^']+'" "$sw" | tr -d "'" | sort -u)
+          [ -n "$paths" ] || { echo "no editor paths in SHELL"; exit 0; }
+          fail=0
+          while IFS= read -r p; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "https://rulingants.github.io$p?cb=$RANDOM" || echo 000)
+            [ "$code" = "200" ] || { echo "::error::MISSING ($code) $p"; fail=1; }
+          done <<< "$paths"
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::Refusing to publish ${{ matrix.name }} — it precaches engine files that are not live." >&2
+            exit 1
+          fi
+          echo "all engine paths live"
+
+      - name: Publish to rulingAnts/${{ matrix.name }}
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          DEPLOY_KEY: ${{ secrets[matrix.secret] }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DEPLOY_KEY:-}" ]; then
+            echo "::error::Secret ${{ matrix.secret }} is not set." >&2; exit 1
+          fi
+          # Never enable shell tracing in this step — it would echo the key.
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+
+          git clone --depth 1 "git@github.com:rulingAnts/${{ matrix.name }}.git" /tmp/sat
+          # Mirror the source over the satellite, but never touch its git internals.
+          rsync -a --delete --exclude '.git' --exclude '.github' \
+                "satellites/${{ matrix.name }}/" /tmp/sat/
+
+          cd /tmp/sat
+          if git diff --quiet && git diff --cached --quiet && [ -z "$(git status --porcelain)" ]; then
+            echo "no change — nothing to publish"; exit 0
+          fi
+          git config user.name  "flextext-editor CI"
+          git config user.email "actions@github.com"
+          git add -A
+          git commit \
+            -m "Publish from flextext-editor@${GITHUB_SHA:0:7}" \
+            -m "Source of truth: rulingAnts/flextext-editor:satellites/${{ matrix.name }}/" \
+            -m "Do not edit this repo directly - changes here are overwritten on the next publish." \
+            -m "Published only after the editor was confirmed live and every precached engine path returned 200."
+          git push origin HEAD:main
+          echo "published ${{ matrix.name }}"

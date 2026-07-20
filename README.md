@@ -168,50 +168,129 @@ and a `<languages>` declaration block.
 
 ## Development
 
-Static site, no build step. Serve the folder with the included dev server
-(plain Python, no dependencies — sends `Cache-Control: no-cache` and correct
-MIME types):
+Static site, **no build step**. All web source lives in `docs/`.
 
 ```sh
-python3 dev_server.py            # http://localhost:8765/
+python3 dev_server.py --port 8765   # HTTPS via mkcert — needed for microphone access
+bash dev-serve.sh 8012              # serves the editor AND satellites at their real paths
+./devctl.sh start                   # full rig incl. the Cloudflare dev worker
 ```
+
+`dev-serve.sh` is usually what you want: it serves at the **production paths**
+(`/flextext-editor/`, `/text-recorder/`, …) on a fixed port, so PWA scope,
+service worker and `localStorage` survive across sessions — switching ports
+means a new origin and lost test state. It sends `Cache-Control: no-store`, so
+a normal reload always gets fresh files. Append `?devreset` to wipe that
+origin's settings/storage for a clean test.
 
 The service worker is skipped on `localhost` so you always see fresh files
-(add `?sw=1` to test offline behavior locally).
+(add `?sw=1` to test offline behaviour deliberately).
 
-**Testing offline:** load `http://localhost:8765/?sw=1` once while the server
-is running normally, then restart it as `python3 dev_server.py --offline` —
-every request now fails with 503, like a dead connection. Reload the page:
-the app should keep working entirely from the service-worker cache. When
-done, unregister the service worker (DevTools → Application → Service
-workers → Unregister) to get back to live-reload development.
+**Key files:** `docs/js/flextext.js` is the format engine (parse / serialize /
+tokenize / segment / reconcile); `docs/js/app.js` is the UI; `docs/js/db.js` is
+IndexedDB storage; `docs/js/native-audio.js` is the **only** file allowed to
+touch a native bridge.
 
-**Branches:** day-to-day work lands on `main`; when a release is ready, bump
-`VERSION` in `sw.js` and merge/push `main` into `productionWeb`, which is the
-branch GitHub Pages serves.
+## Versions — what to bump
 
-**Releasing an update:** bump `VERSION` in `sw.js` and deploy. Installed
-clients check for a changed `sw.js` on every launch, on returning to the
-foreground, and when the network comes back; when a new version has downloaded
-they see an **Update** button (so the app never swaps versions mid-edit —
-the new version also applies on the next full restart). GitHub Pages caches
-`sw.js` for up to 10 minutes, so allow that long for rollout to begin.
+Three constants move together on an engine change:
 
-`js/flextext.js` is the format engine (parse / serialize / tokenize /
-segment / reconcile); `js/app.js` is the UI; `js/db.js` is IndexedDB storage.
+| Constant | File | Why |
+|---|---|---|
+| `ENGINE_VERSION` | `docs/js/i18n.js` | what the app reports about itself |
+| `VERSION` | `docs/sw.js` | triggers the update on installed PWAs |
+| `VERSION` | `satellites/*/sw.js` | satellites cache the engine **by path** — without a bump they keep serving a stale copy offline |
 
-## Deploying to GitHub Pages
+Bump the version **up**, never down — a lower number will not reliably
+re-trigger a service-worker update.
 
-GitHub Pages serves the `productionWeb` branch, folder `/ (root)`
-(**Settings → Pages → Deploy from a branch**). The app appears at
-`https://<user>.github.io/<repo>/` — HTTPS, so the service worker and Web
-Share work. To release: bump `VERSION` in `sw.js` on `main`, then fast-forward
-`productionWeb` to `main` and push:
+## Deployment
+
+**`main` is development. `productionWeb` is what the world sees.** GitHub Pages
+serves **`productionWeb` → `/docs`** (Settings → Pages → Deploy from a branch).
+
+> ⚠ **Never push `productionWeb` without the maintainer's explicit sign-off.**
+> Real users in the field load it; a broken push breaks their work until it is
+> noticed and fixed.
+
+Releasing:
 
 ```sh
-git checkout productionWeb && git merge --ff-only main && git push && git checkout main
+# 1. bump versions (table above), commit on main
+ALLOW_MAIN_PUSH=1 git push origin main
+
+# 2. after sign-off, fast-forward production
+git checkout productionWeb && git merge --ff-only main
+ALLOW_MAIN_PUSH=1 git push origin productionWeb
+git checkout main
 ```
 
+Pushing `productionWeb` triggers the **`Publish satellites`** workflow, which
+does the rest — see below. Pages caches `sw.js` briefly, so allow a few minutes
+for rollout to begin. Installed clients check for a changed `sw.js` on launch,
+on returning to the foreground, and when the network returns; they show an
+**Update** button rather than swapping versions mid-edit.
+
+### How the satellites get published
+
+`satellites/<name>/` is the source of truth for each sibling repo. The workflow
+mirrors it across using a **per-repo SSH deploy key** (a leaked key writes to
+exactly one repo and nothing else), and enforces the ordering that matters:
+
+1. **Wait** until the live editor actually serves this commit's `sw.js` version.
+2. **Verify** every `/flextext-editor/…` path that satellite precaches returns
+   **200** — and refuse to publish it if any does not.
+3. Only then commit and push.
+
+Why that guard exists: a satellite's service worker precaches engine files by
+path. Publish it before those files are live and `precacheAll()` throws inside
+`install`, so the **service-worker install fails** — existing installs stick on
+the old worker, and *new* installs get no precached shell at all, silently
+losing offline support. That happened for real, hence the automation.
+
+Run it by hand (e.g. from a cloud session) with:
+
+```sh
+gh workflow run sync-satellites.yml            # all three
+gh workflow run sync-satellites.yml -f only=text-recorder
+```
+
+### Guards you will meet
+
+| Guard | What it stops | Override |
+|---|---|---|
+| `.git/hooks/pre-push` | pushing `main`/`productionWeb` unthinkingly | `ALLOW_MAIN_PUSH=1` |
+| same hook | adding/altering `.github/workflows/**` | `ALLOW_WORKFLOW_PUSH=1` |
+| `check-native-containment.sh` | any file but `native-audio.js` touching a native bridge | fix the code, not the guard |
+| `check-editor-shell.sh` *(satellite repos)* | publishing a satellite ahead of the engine | `ALLOW_STALE_SHELL=1` |
+
+Hooks are **not** versioned by git — reinstall them after a fresh clone.
+
+### Rolling back
+
+```sh
+git checkout productionWeb
+git reset --hard <last-good-commit>
+ALLOW_MAIN_PUSH=1 git push -f origin productionWeb
+```
+
+Then bump the service-worker `VERSION` **upward** (e.g. past the bad release)
+so installed clients reliably pick the rollback up.
+
+### Android APKs
+
+```sh
+cd android
+./scripts/build.sh recorder                 # or: editor
+./scripts/build.sh recorder --diagnostic    # capability/test-record harness
+```
+
+The build pins a snapshot of `docs/` into the APK, so an APK does **not**
+auto-update — re-bundle and rebuild to move it forward. It also asserts the
+native classes really landed in the packaged dex, because Gradle's up-to-date
+check does not see edits through the symlinked plugin and will happily package
+stale native code.
+
 > **Note:** `samples/` contains real language data and is `.gitignore`d so it
-> never lands in a public repo. Remove the ignore line if you want them
-> published.
+> never lands in a public repo. `notes/` (planning docs, schema, retired code)
+> is likewise ignored and never served.

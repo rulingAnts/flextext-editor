@@ -41,6 +41,9 @@ en: {
   'record.save': 'Save',
   'record.redo': 'Re-record',
   'record.idle': 'Press Record and speak. You can listen and re-record before saving.',
+  // Shown while the microphone is opening, with the Record button disabled. Plain words on
+  // purpose: this is read by people with limited literacy, in their second language.
+  'record.warming': 'Getting the microphone ready…',
   'record.recording': 'Recording… {time}',
   'record.review': 'Listen to check the recording, then Save — or Re-record and try again.',
   'record.converting': 'Saving recording… {pct}%',
@@ -905,6 +908,7 @@ id: {
   'record.save': 'Simpan',
   'record.redo': 'Rekam ulang',
   'record.idle': 'Tekan Rekam lalu berbicara. Anda bisa mendengarkan dan merekam ulang sebelum menyimpan.',
+  'record.warming': 'Menyiapkan mikrofon…',
   'record.recording': 'Merekam… {time}',
   'record.review': 'Dengarkan dulu rekamannya, lalu Simpan — atau Rekam ulang kalau belum pas.',
   'record.converting': 'Menyimpan rekaman… {pct}%',

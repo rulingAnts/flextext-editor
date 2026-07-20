@@ -1124,6 +1124,13 @@ function recordUI(state, extra = {}) {
   if (state === 'idle') {
     toggle.textContent = t('record.start');
     status.textContent = t('record.idle');
+    // Do not offer Record until the mic is genuinely open. Tapping early used to "work" — it waited
+    // for the warm-up and then started — but the speaker had already begun talking into a mic that
+    // was not listening yet, and the pre-roll buffer was still empty, so the opening words were lost
+    // anyway. On a fast Mac that needs deliberate fast-clicking to hit; on a cheap phone, where
+    // opening the mic takes far longer, it is what a normal-speed user gets. Gating moves the wait
+    // to before anyone speaks, which is the only place it is harmless.
+    applyWarmGate();
   } else if (state === 'recording') {
     toggle.textContent = t('record.stop');
     status.textContent = t('record.recording', { time: extra.time || '0:00' });
@@ -1182,6 +1189,39 @@ function discardRecording() {
 let warmMic = null;             // { pcmRec } once the graph is live
 let warmMicPending = null;      // in-flight warm, so a fast tap can await it instead of racing
 
+/* Gate the Record button on the mic actually being open.
+ *
+ * ⚠ THIS MUST NEVER STRAND ANYONE. A disabled button with no way out is worse than a slightly
+ * clipped recording: the user is simply stuck, with no idea why, and no path forward. So the gate
+ * opens on ANY terminal outcome — warm succeeded, warm failed, or the deadline passed — and a
+ * failed warm just means the tap takes the original cold-open path, exactly as before pre-warm
+ * existed. The gate is an improvement on a working system, never a precondition for it. */
+const WARM_GATE_MAX_MS = 4000;
+let warmGateDeadline = 0;
+
+function warmGateOpen() {
+  // Open if the mic is ready, if nothing is warming, or if we have waited long enough that a
+  // further wait is worse than a cold start.
+  return !!warmMic || !warmMicPending || Date.now() > warmGateDeadline;
+}
+
+function applyWarmGate() {
+  const toggle = $('#record-toggle');
+  const status = $('#record-status');
+  if (!toggle) return;
+  const open = warmGateOpen();
+  toggle.disabled = !open;
+  toggle.classList.toggle('warming', !open);
+  if (!open) {
+    // Text is the WEAKEST part of this for a barely-literate user, so it is deliberately not the
+    // only signal — the button is visibly disabled too. Keep both.
+    if (status) status.textContent = t('record.warming');
+    setTimeout(() => { if (!$('#record-modal')?.hidden && !rec?.recording) applyWarmGate(); }, 120);
+  } else if (status && status.textContent === t('record.warming')) {
+    status.textContent = t('record.idle');
+  }
+}
+
 async function warmUpMic() {
   if (warmMic || warmMicPending || rec?.recording) return;
   // Only the AudioWorklet path benefits: native capture opens its own device, and MediaRecorder
@@ -1191,6 +1231,7 @@ async function warmUpMic() {
   if (nativeAudioAvailable() && NATIVE_ENCODING[fmt]) return;
   if (!losslessSupported()) return;
   const pcmRec = new PCMRecorder();
+  warmGateDeadline = Date.now() + WARM_GATE_MAX_MS;
   warmMicPending = (async () => {
     try {
       await pcmRec.warm({ audio: dspConstraints(), preRollSec: 2 });
@@ -1200,7 +1241,7 @@ async function warmUpMic() {
       try { pcmRec.cancel(); } catch { /* noop */ }
       warmMic = null;                     // stay silent: the tap will just open the mic itself
       console.warn('Mic pre-warm unavailable; recording will open the mic on tap.', e);
-    } finally { warmMicPending = null; }
+    } finally { warmMicPending = null; applyWarmGate(); }
   })();
   await warmMicPending;
 }
@@ -1220,9 +1261,9 @@ document.addEventListener('visibilitychange', () => {
 function openRecordModal() {
   discardRecording();
   $('#record-title').value = '';
-  recordUI('idle');
+  warmUpMic();      // fire-and-forget; sets the pending flag synchronously, before the gate is read
+  recordUI('idle'); // applies the warm gate, which now sees the warm-up already in flight
   $('#record-modal').hidden = false;
-  warmUpMic();   // fire-and-forget: the tap awaits it if it is still in flight
 }
 
 function closeRecordModal() {

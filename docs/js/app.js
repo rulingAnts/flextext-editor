@@ -1189,6 +1189,21 @@ function discardRecording() {
 let warmMic = null;             // { pcmRec } once the graph is live
 let warmMicPending = null;      // in-flight warm, so a fast tap can await it instead of racing
 
+/* How much audio to keep from BEFORE the tap. The single knob — tune it here.
+ *
+ * Cost is negligible and was measured, not assumed: float32 @48k mono is ~187 KB/s, so 4s is
+ * ~0.73 MB. For scale, the take itself is held in RAM on this path at the same rate — a 10-minute
+ * recording is ~110 MB — so the pre-roll is well under 1% of what a real recording already costs.
+ * Memory is not the reason to keep this small.
+ *
+ * The real trade is LEADING ROOM TONE: every file starts with up to this much of the room before
+ * anyone spoke. That is the right way to err (an archive would rather have room tone than a clipped
+ * first word — it also documents the noise floor), but it is not free at corpus scale.
+ *
+ * 4s because Fayu speakers habitually start before the button. Raise it if field use shows people
+ * still being clipped; 8s is still only ~1.5 MB. */
+const PRE_ROLL_SEC = 4;
+
 /* Gate the Record button on the mic actually being open.
  *
  * ⚠ THIS MUST NEVER STRAND ANYONE. A disabled button with no way out is worse than a slightly
@@ -1234,7 +1249,7 @@ async function warmUpMic() {
   warmGateDeadline = Date.now() + WARM_GATE_MAX_MS;
   warmMicPending = (async () => {
     try {
-      await pcmRec.warm({ audio: dspConstraints(), preRollSec: 2 });
+      await pcmRec.warm({ audio: dspConstraints(), preRollSec: PRE_ROLL_SEC });
       warmMic = { pcmRec };
       startMeter();                       // the meter IS the disclosure that the mic is open
     } catch (e) {

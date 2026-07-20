@@ -1,5 +1,6 @@
 /* ============================================================================================
- * NATIVE AUDIO BRIDGE — THE ONLY FILE IN THIS ENGINE THAT MAY TOUCH `window.Capacitor`.
+ * NATIVE AUDIO BRIDGE — THE ONLY FILE IN THIS ENGINE THAT MAY TOUCH A NATIVE GLOBAL
+ * (`window.Capacitor` on Android, `window.__flextextNative` on desktop).
  *
  * ⚠ READ THIS BEFORE CHANGING ANYTHING HERE ⚠
  *
@@ -16,8 +17,9 @@
  *   - Do NOT "tidy", inline, or refactor this file while working on unrelated engine features.
  *     If a change elsewhere seems to require editing this file, that is the signal to STOP and
  *     rebuild + re-test the APK (rulingAnts/flextext-native, scripts/build.sh).
- *   - Do NOT reference `window.Capacitor` anywhere else in the engine. A grep hit outside this
- *     file is a bug, not a style question. scripts/check-native-containment.sh enforces it.
+ *   - Do NOT reference `window.Capacitor` or `window.__flextextNative` anywhere else in the
+ *     engine. A grep hit outside this file is a bug, not a style question.
+ *     check-native-containment.sh enforces it.
  *   - Keep this module INERT on the web: every export must be safe to call in a normal browser
  *     and must behave exactly as before the native work existed.
  *
@@ -43,12 +45,21 @@ export function isNativeShell() {
   } catch { return false; }
 }
 
-/** The registered Capacitor plugin, or null. Never throws. */
+/**
+ * The native backend, or null. Never throws.
+ *
+ * TWO TRANSPORTS, ONE CONTRACT: the Android Capacitor plugin and the desktop preload bridge expose
+ * the same method names and return shapes, so everything below this function is platform-agnostic.
+ * Adding a platform means adding a line here — not touching any other file.
+ */
 function plugin() {
   try {
-    const cap = typeof window !== 'undefined' ? window.Capacitor : null;
-    return (cap && cap.Plugins && cap.Plugins.FlextextAudio) || null;
-  } catch { return false || null; }
+    if (typeof window === 'undefined') return null;
+    const cap = window.Capacitor;
+    const androidPlugin = cap && cap.Plugins && cap.Plugins.FlextextAudio;
+    if (androidPlugin) return androidPlugin;
+    return window.__flextextNative || null;      // desktop (Electron) preload bridge
+  } catch { return null; }
 }
 
 /** Is native capture actually usable right now? Feature-detected, never assumed. */
@@ -72,7 +83,12 @@ export function nativePlatform() {
     if (!n) return 'web';
     const rec = (typeof window !== 'undefined' && window.__MODE === 'record');
     if (n === 'android') return rec ? 'android-recorder' : 'android-editor';
-    if (n === 'electron') return 'windows';
+    if (n === 'electron') {
+      // The shell tells us which OS it is; default to windows since that is the shipped target.
+      const os = (window.__flextextNative && window.__flextextNative.os) || '';
+      if (os === 'darwin') return 'mac';
+      return 'windows';
+    }
     return 'unknown-native';
   } catch { return 'web'; }
 }
@@ -186,6 +202,27 @@ export class NativeRecorder {
  */
 export async function absorbCapture(path) {
   if (!path) throw new Error('no capture path');
+
+  // DESKTOP: the page is served from a REMOTE https origin, so it cannot fetch a file:// path the
+  // way the Android shell can via convertFileSrc. Read it in chunks over IPC instead — a local
+  // HTTP server trips antivirus/firewall prompts, and base64 would inflate an ~86 MB capture by a
+  // third as one enormous string. Blob assembly from parts is disk-backed in Chromium, so memory
+  // stays flat.
+  const p = plugin();
+  if (p && typeof p.readChunk === 'function') {
+    const CHUNK = 4 * 1024 * 1024;
+    const parts = [];
+    for (let offset = 0; ; offset += CHUNK) {
+      const r = await p.readChunk(path, offset, CHUNK);
+      const bytes = r && r.bytes;
+      if (!bytes || !bytes.byteLength) break;
+      parts.push(bytes);
+      if (bytes.byteLength < CHUNK) break;      // short read = end of file
+    }
+    return new Blob(parts, { type: 'audio/wav' });
+  }
+
+  // ANDROID: stream through the WebView's own network stack.
   let url = path;
   try {
     const cap = window.Capacitor;

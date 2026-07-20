@@ -1,0 +1,14 @@
+{
+  "name": "flextext-desktop",
+  "version": "0.1.0",
+  "description": "Desktop shell for the Flextext editor — exists solely for archive-quality audio capture.",
+  "license": "AGPL-3.0",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "start:local": "FLEXTEXT_URL=http://localhost:8012/flextext-editor/ electron ."
+  },
+  "devDependencies": {
+    "electron": "^43.1.1"
+  }
+}

@@ -3,11 +3,12 @@
 #
 #   ./check-native-containment.sh
 #
-# WHY: the Flextext Android apps (rulingAnts/flextext-native) wrap this engine. The engine
-# auto-updates; the APK does NOT. So native-facing code is confined to ONE file — docs/js/native-audio.js
-# — and everything else in the engine must be unaware Android exists. If a future change scatters
-# `window.Capacitor` references around the engine, an unrelated refactor can silently break
-# installed field apps that cannot be patched without shipping a new APK.
+# WHY: the Flextext native apps (android/ and electron/) wrap this engine. The engine
+# auto-updates; the APK and the desktop installer do NOT. So native-facing code is confined to ONE
+# file — docs/js/native-audio.js — and everything else in the engine must be unaware they exist.
+# If a future change scatters `window.Capacitor` or `window.__flextextNative` references around the
+# engine, an unrelated refactor can silently break installed field apps that cannot be patched
+# without shipping a new build.
 #
 # Run this after touching capture/recording code. Exit 0 = contained.
 set -uo pipefail
@@ -27,6 +28,17 @@ if [ -n "$offenders" ]; then
   fail=1
 else
   echo "  ok: only $CHOKEPOINT touches the Capacitor bridge"
+fi
+
+# 1b. Same rule for the DESKTOP bridge global that the Electron preload exposes.
+offenders=$(grep -rln "__flextextNative" docs/js/ 2>/dev/null | grep -v "^$CHOKEPOINT$" || true)
+if [ -n "$offenders" ]; then
+  echo "FAIL: files outside $CHOKEPOINT reference the desktop native bridge:" >&2
+  echo "$offenders" | sed 's/^/  - /' >&2
+  echo "  Move that code into $CHOKEPOINT and call it through the exported interface." >&2
+  fail=1
+else
+  echo "  ok: only $CHOKEPOINT touches the desktop bridge"
 fi
 
 # 2. The chokepoint must still exist and still carry its warning header.

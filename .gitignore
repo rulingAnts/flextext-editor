@@ -6,3 +6,6 @@ CLAUDE.md
 # Local TLS dev certificates (mkcert) — never commit private keys
 certs/
 __pycache__/
+electron/node_modules/
+electron/dist/
+electron/out/

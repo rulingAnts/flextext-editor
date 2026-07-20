@@ -164,6 +164,27 @@ export function detectFormat(buf) {
   return null;
 }
 
+// Read a fmt chunk, resolving WAVE_FORMAT_EXTENSIBLE to the format it actually contains.
+//
+// ⚠ Anything writing >16-bit WAV tends to use EXTENSIBLE (0xFFFE) rather than a plain format tag — our
+// own desktop shell does, via ffmpeg. The real format then lives in the SubFormat GUID, whose first two
+// bytes carry the classic code (1 = PCM, 3 = IEEE float). Reading wFormatTag alone makes a float file
+// look like an unknown format, and parseWav would then decode float samples through the integer branch:
+// no error, just noise. So resolve it here, once, for every caller.
+function readFmt(dv, body) {
+  const f = {
+    audioFormat: dv.getUint16(body, true),
+    channels: dv.getUint16(body + 2, true),
+    sampleRate: dv.getUint32(body + 4, true),
+    bitsPerSample: dv.getUint16(body + 14, true),
+  };
+  if (f.audioFormat === 0xFFFE && body + 26 <= dv.byteLength) {
+    f.extensible = true;
+    f.audioFormat = dv.getUint16(body + 24, true);   // SubFormat GUID, first 2 bytes
+  }
+  return f;
+}
+
 // Read ONLY a WAV's fmt header (cheap — no sample decode). Returns null if not a parseable WAV.
 export function readWavHeader(buf) {
   const dv = new DataView(buf);
@@ -173,8 +194,7 @@ export function readWavHeader(buf) {
   while (p + 8 <= dv.byteLength) {
     const id = str(p, 4); const sz = dv.getUint32(p + 4, true); const body = p + 8;
     if (id === 'fmt ' && body + 16 <= dv.byteLength) {
-      fmt = { audioFormat: dv.getUint16(body, true), channels: dv.getUint16(body + 2, true),
-              sampleRate: dv.getUint32(body + 4, true), bitsPerSample: dv.getUint16(body + 14, true) };
+      fmt = readFmt(dv, body);
     } else if (id === 'data') { dataLen = sz; }
     p = body + sz + (sz & 1);   // chunks are word-aligned
   }
@@ -193,8 +213,7 @@ export function parseWav(buf) {
   let p = 12, fmt = null, dataOff = -1, dataLen = 0;
   while (p + 8 <= dv.byteLength) {
     const id = str(p, 4); const sz = dv.getUint32(p + 4, true); const body = p + 8;
-    if (id === 'fmt ') fmt = { audioFormat: dv.getUint16(body, true), channels: dv.getUint16(body + 2, true),
-                               sampleRate: dv.getUint32(body + 4, true), bitsPerSample: dv.getUint16(body + 14, true) };
+    if (id === 'fmt ') fmt = readFmt(dv, body);
     else if (id === 'data') { dataOff = body; dataLen = Math.min(sz, dv.byteLength - body); }
     p = body + sz + (sz & 1);
   }

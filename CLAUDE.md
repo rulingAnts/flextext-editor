@@ -34,6 +34,37 @@ git checkout main             # go back to dev
 > recorder (engine import gap). The `git push origin productionWeb` step still
 > requires the maintainer's explicit test-drive sign-off.
 
+## 🚨 DEPLOY ORDER IS ENFORCED — read before pushing ANY satellite
+
+**The rule:** the editor's `productionWeb` must be **LIVE and serving** every engine file a
+satellite precaches, *before* that satellite is pushed. Not "committed" — **live**.
+
+**Why (this actually broke production 2026-07-20):** editor v108 added `js/native-audio.js`; the
+satellites were pushed while that editor commit still sat on `main`. Live result:
+`/flextext-editor/js/native-audio.js` returned **404** while the recorder (sw v57) and researcher
+(sw v47) listed it in their SHELL. `precacheAll()` retries 3× then **throws**, inside `install`'s
+`waitUntil` → **the service-worker install FAILS**. Existing installs stuck on the old worker;
+**new installs got no precached shell at all — offline support silently gone**, which is the
+entire point of a field app.
+
+**The old rule was too weak.** "Bump the satellite sw when the engine changes" says *bump*; it
+never said *verify the file is live first*. Both halves are required.
+
+**Enforcement (don't rely on memory — it already failed once):**
+- Each satellite repo has **`check-editor-shell.sh`** — curls every `/flextext-editor/...` path in
+  its SHELL against the live site and fails on anything that isn't 200.
+- It is wired into each satellite's **`.git/hooks/pre-push`**, so a premature push is *blocked*.
+  Hooks aren't versioned — **reinstall after any re-clone** (the script is committed; the hook
+  calls it). Override only with cause: `ALLOW_STALE_SHELL=1`.
+- **Adding a new top-level `import` to `js/app.js` is the trigger.** It becomes a new SHELL entry
+  in the editor *and both satellites*, so it is exactly the change that needs this ordering.
+
+**Correct sequence, every time:**
+1. Land the engine change on editor `main`, bump `sw.js` VERSION.
+2. Get Seth's sign-off, then ff-merge `main` → `productionWeb` and push.
+3. **Confirm it is live** (`curl` the new path → 200; the sw.js VERSION reports the new number).
+4. Only then bump + push the satellites — their hook will re-verify anyway.
+
 ## Companion repo: the Flextext Recorder (`rulingAnts/text-recorder`) — READ THIS
 
 There is a **second, independent Git repo** that ships a sibling PWA, the

@@ -1,0 +1,18 @@
+node_modules/
+.DS_Store
+
+# Android build output + machine-specific config
+**/android/build/
+**/android/app/build/
+**/android/.gradle/
+**/android/local.properties
+**/android/capacitor-cordova-android-plugins/
+*.apk
+*.aab
+*.keystore
+*.jks
+
+# Bundled web engine — generated at build time by scripts/bundle-engine.sh from the
+# flextext-editor repo. Never hand-edited, never committed (it would fork the engine).
+apps/*/www/
+!apps/*/www/.gitkeep

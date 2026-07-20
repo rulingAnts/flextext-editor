@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Keeps a recording alive when backgrounded. Required on Android 14+ to hold the mic, and
+         the practical fix for cheap OEM ROMs that kill background apps mid-recording. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <!-- API 33+: needed for the ongoing notification to be visible. The service still runs
+         without it, so it is not required for correctness. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application>
+        <service
+            android:name="app.flextext.audio.RecordingService"
+            android:exported="false"
+            android:stopWithTask="true"
+            android:foregroundServiceType="microphone" />
+    </application>
+</manifest>

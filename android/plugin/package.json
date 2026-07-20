@@ -1,0 +1,15 @@
+{
+  "name": "flextext-native-audio",
+  "version": "0.1.0",
+  "description": "Unprocessed, true-bit-depth microphone capture for the Flextext suite (Android).",
+  "main": "dist/plugin.js",
+  "license": "AGPL-3.0",
+  "files": ["android/", "dist/", "FlextextNativeAudio.podspec"],
+  "capacitor": {
+    "android": { "src": "android" }
+  },
+  "devDependencies": {},
+  "peerDependencies": {
+    "@capacitor/core": ">=8.0.0"
+  }
+}

@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Flextext audio capability diagnostic</title>
+<style>
+  :root { --bg:#fff; --fg:#1a1a1a; --muted:#666; --border:#d6d6d6; --panel:#f4f6f8;
+          --ok:#1f5d22; --okbg:#e3f3e4; --warn:#8a4b10; --warnbg:#fbe6cf; --bad:#9b2c22; --badbg:#fdecea; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:16px; font:16px/1.45 -apple-system,system-ui,Roboto,sans-serif; background:var(--bg); color:var(--fg); }
+  h1 { font-size:19px; margin:0 0 4px; }
+  h2 { font-size:15px; margin:20px 0 8px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }
+  .sub { color:var(--muted); font-size:13px; margin:0 0 16px; }
+  .card { border:1px solid var(--border); border-radius:10px; padding:12px 14px; margin-bottom:12px; background:#fff; }
+  .kv { display:flex; justify-content:space-between; gap:12px; padding:3px 0; font-size:14px; }
+  .kv span:first-child { color:var(--muted); }
+  .kv span:last-child { font-weight:600; text-align:right; word-break:break-word; }
+  .badge { display:inline-block; padding:2px 9px; border-radius:6px; font-size:13px; font-weight:600; }
+  .b-ok { background:var(--okbg); color:var(--ok); }
+  .b-warn { background:var(--warnbg); color:var(--warn); }
+  .b-bad { background:var(--badbg); color:var(--bad); }
+  button { font:inherit; padding:11px 16px; border-radius:9px; border:1px solid var(--border);
+           background:var(--panel); cursor:pointer; margin:0 6px 8px 0; }
+  button.primary { background:#1f4f8f; border-color:#1f4f8f; color:#fff; font-weight:600; }
+  button:disabled { opacity:.45; }
+  select { font:inherit; padding:9px; border-radius:8px; border:1px solid var(--border); width:100%; margin-bottom:8px; }
+  pre { background:var(--panel); border-radius:8px; padding:10px; overflow-x:auto; font-size:12px; margin:0; }
+  .meter { height:16px; background:var(--panel); border-radius:8px; overflow:hidden; margin:8px 0; }
+  .meter > i { display:block; height:100%; width:0; background:var(--ok); transition:width .08s linear; }
+  .meter.clip > i { background:var(--bad); }
+  .note { font-size:13px; color:var(--muted); }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:5px 6px; border-bottom:1px solid var(--border); }
+  th { color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; }
+</style>
+</head>
+<body>
+
+<h1>Flextext audio capability diagnostic</h1>
+<p class="sub">Reports exactly what this device can really capture — and exactly what gets written.</p>
+
+<div id="bridge" class="card">
+  <div class="kv"><span>Native bridge</span><span id="bridge-state">checking…</span></div>
+</div>
+
+<div id="perm-wrap" class="card" hidden>
+  <p class="note" style="margin-top:0">Microphone permission is needed before capabilities can be probed — probing works by really opening the microphone.</p>
+  <button class="primary" id="btn-perm">Grant microphone permission</button>
+</div>
+
+<h2>Device</h2>
+<div id="device" class="card"><span class="note">—</span></div>
+
+<h2>What this device can actually capture</h2>
+<div id="caps" class="card"><span class="note">—</span></div>
+
+<h2>Test a recording</h2>
+<div class="card">
+  <select id="fmt"></select>
+  <div class="meter" id="meter"><i></i></div>
+  <button class="primary" id="btn-rec" disabled>Record 5 seconds</button>
+  <button id="btn-stop" disabled>Stop now</button>
+  <div id="result"></div>
+</div>
+
+<h2>Raw report</h2>
+<div class="card"><pre id="raw">—</pre></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+let Audio = null, caps = null, recording = false, stopTimer = null;
+
+function fxRow(name, e) {
+  if (!e) return '';
+  if (!e.available) return kv(name, 'not implemented', 'b-ok');
+  if (e.stillActive) return kv(name, 'STILL ACTIVE' + (e.note ? ' — ' + e.note : ''), 'b-bad');
+  const was = e.wasEnabled ? 'was on, we turned it off' : 'was already off';
+  return kv(name, 'off (' + was + ')', 'b-ok');
+}
+
+function effectsBlock(fx) {
+  if (!fx) return '';
+  return '<h2 style="margin-top:16px">OS processing on this capture</h2>' +
+    fxRow('Automatic gain control', fx.agc) +
+    fxRow('Noise suppression', fx.ns) +
+    fxRow('Echo cancellation', fx.aec) +
+    (fx.allDisabled
+      ? '<p class="note">No OS processor is running on this capture — this is an archival-clean signal path.</p>'
+      : '<p class="note">At least one processor could not be switched off, so this is NOT an archival-clean capture.</p>');
+}
+
+function kv(label, value, badgeClass) {
+  const v = badgeClass ? `<span class="badge ${badgeClass}">${value}</span>` : value;
+  return `<div class="kv"><span>${label}</span><span>${v}</span></div>`;
+}
+
+function boot() {
+  const cap = window.Capacitor;
+  Audio = cap && cap.Plugins && cap.Plugins.FlextextAudio;
+  if (!Audio) {
+    $('#bridge-state').innerHTML = '<span class="badge b-bad">not available</span>';
+    $('#bridge').insertAdjacentHTML('beforeend',
+      '<p class="note">This page is running in a plain browser, not the native shell. ' +
+      'Build and install the APK to test native capture.</p>');
+    return;
+  }
+  $('#bridge-state').innerHTML = '<span class="badge b-ok">connected</span>';
+  Audio.addListener('meter', (e) => {
+    const pct = Math.round((e.peak || 0) * 100);
+    const m = $('#meter');
+    m.querySelector('i').style.width = pct + '%';
+    m.classList.toggle('clip', (e.peak || 0) >= 0.99);
+  });
+  probe();
+}
+
+async function probe() {
+  try {
+    caps = await Audio.capabilities();
+  } catch (err) {
+    $('#caps').innerHTML = `<span class="badge b-bad">probe failed</span><pre>${String(err && err.message || err)}</pre>`;
+    return;
+  }
+  $('#raw').textContent = JSON.stringify(caps, null, 2);
+
+  $('#device').innerHTML =
+    kv('Device', caps.device || '?') +
+    kv('Android SDK', caps.androidSdk || '?') +
+    kv('Unprocessed capture', caps.unprocessedSupported ? 'supported' : 'NOT supported',
+       caps.unprocessedSupported ? 'b-ok' : 'b-warn') +
+    kv('Capture source', caps.source || '?') +
+    (caps.effectsAvailable ? (
+      kv('AGC implemented', caps.effectsAvailable.agcImplemented ? 'yes' : 'no') +
+      kv('Noise suppressor', caps.effectsAvailable.nsImplemented ? 'yes' : 'no') +
+      kv('Echo canceller', caps.effectsAvailable.aecImplemented ? 'yes' : 'no')
+    ) : '') +
+    (caps.unprocessedSupported ? '' :
+      '<p class="note">This device does not advertise Android\'s UNPROCESSED source (that flag requires the ' +
+      'maker to meet strict CDD frequency-response and sensitivity measurements, which many cheap phones ' +
+      'never certify). We fall back to VOICE_RECOGNITION and then explicitly switch off the OS processors ' +
+      'below — see what each recording actually reports.</p>');
+
+  if (caps.permission !== 'granted' || !caps.probed) {
+    $('#perm-wrap').hidden = false;
+    $('#caps').innerHTML = '<span class="note">Grant microphone permission to probe formats.</span>';
+    return;
+  }
+  $('#perm-wrap').hidden = true;
+  renderCaps();
+}
+
+function renderCaps() {
+  const encs = caps.encodings || [];
+  if (!encs.length) {
+    $('#caps').innerHTML = '<span class="badge b-bad">no capture formats available</span>';
+    return;
+  }
+  let html = '<table><thead><tr><th>Format</th><th>Bits</th><th>Sample rates</th><th>Stereo</th></tr></thead><tbody>';
+  for (const e of encs) {
+    html += `<tr><td>${e.id}${e.float ? ' <span class="note">(float)</span>' : ''}</td>` +
+            `<td>${e.bits}</td><td>${(e.rates || []).join(', ')}</td><td>${e.stereo ? 'yes' : 'no'}</td></tr>`;
+  }
+  html += '</tbody></table>';
+  if (caps.recommended) {
+    html += `<p class="note" style="margin-bottom:0">Best archival capture on this device: ` +
+            `<b>${caps.recommended.label}</b> @ ${caps.recommended.sampleRate} Hz mono.</p>`;
+  }
+  $('#caps').innerHTML = html;
+
+  // Offer every real combination, plus a deliberately unsupported one to exercise the fallback path.
+  const sel = $('#fmt');
+  sel.innerHTML = '';
+  for (const e of encs) {
+    for (const r of (e.rates || [])) {
+      const o = document.createElement('option');
+      o.value = JSON.stringify({ encoding: e.id, sampleRate: r, channels: 1 });
+      o.textContent = `${e.id} @ ${r} Hz mono` + (e.bits ? ` — ${e.bits}-bit` : '');
+      sel.appendChild(o);
+    }
+  }
+  const probe = document.createElement('option');
+  probe.value = JSON.stringify({ encoding: 'pcm32', sampleRate: 192000, channels: 2 });
+  probe.textContent = '⚠ deliberately unsupported (tests fallback disclosure)';
+  sel.appendChild(probe);
+  $('#btn-rec').disabled = false;
+}
+
+$('#btn-perm').addEventListener('click', async () => {
+  try { await Audio.requestMicPermission(); } catch (e) { /* reported by probe */ }
+  probe();
+});
+
+$('#btn-rec').addEventListener('click', async () => {
+  if (recording) return;
+  const req = JSON.parse($('#fmt').value);
+  $('#result').innerHTML = '';
+  let started;
+  try {
+    started = await Audio.start(req);
+  } catch (err) {
+    $('#result').innerHTML = `<p><span class="badge b-bad">start failed</span></p><pre>${String(err && err.message || err)}</pre>`;
+    return;
+  }
+  recording = true;
+  $('#btn-rec').disabled = true; $('#btn-stop').disabled = false;
+
+  // The transparency that matters: asked-for vs actually-being-written.
+  let banner = '';
+  if (started.substituted) {
+    banner = `<p><span class="badge b-warn">format substituted</span></p>` +
+             `<p class="note">${started.substitutionReason || ''}</p>` +
+             kv('You asked for', started.requested ? started.requested.label : '?') +
+             kv('Actually recording', started.label);
+  } else {
+    banner = `<p><span class="badge b-ok">recording exactly as requested</span></p>` + kv('Recording', started.label);
+  }
+  banner += kv('Sample rate', started.sampleRate + ' Hz') +
+            kv('Channels', started.channels) +
+            kv('Source', started.source, started.unprocessedSource ? 'b-ok' : 'b-warn') +
+            kv('Archival-clean', started.archivalClean ? 'YES' : 'NO', started.archivalClean ? 'b-ok' : 'b-bad') +
+            effectsBlock(started.effects);
+  $('#result').innerHTML = banner;
+
+  stopTimer = setTimeout(finish, 5000);
+});
+
+$('#btn-stop').addEventListener('click', () => { if (stopTimer) clearTimeout(stopTimer); finish(); });
+
+async function finish() {
+  if (!recording) return;
+  recording = false; stopTimer = null;
+  $('#btn-rec').disabled = false; $('#btn-stop').disabled = true;
+  $('#meter').querySelector('i').style.width = '0';
+  let r;
+  try {
+    r = await Audio.stop();
+  } catch (err) {
+    $('#result').insertAdjacentHTML('beforeend', `<p><span class="badge b-bad">stop failed</span></p><pre>${String(err && err.message || err)}</pre>`);
+    return;
+  }
+  const written = `${r.label} · ${r.sampleRate} Hz · ${r.channels === 2 ? 'stereo' : 'mono'}`;
+  $('#result').insertAdjacentHTML('beforeend',
+    '<h2 style="margin-top:16px">What was written</h2>' +
+    kv('File format', written, 'b-ok') +
+    (r.substituted ? kv('Substituted from', (r.requested && r.requested.label) || '?', 'b-warn') : '') +
+    kv('UNPROCESSED source', r.unprocessedSource ? 'yes' : 'no', r.unprocessedSource ? 'b-ok' : 'b-warn') +
+    kv('Archival-clean', r.archivalClean ? 'YES' : 'NO', r.archivalClean ? 'b-ok' : 'b-bad') +
+    kv('Duration', (r.durationSec || 0).toFixed(2) + ' s') +
+    kv('Size', ((r.bytes || 0) / 1024).toFixed(1) + ' KB') +
+    kv('Frames', r.frames || 0) +
+    kv('Path', r.path || '?') +
+    `<pre>${JSON.stringify(r, null, 2)}</pre>`);
+}
+
+boot();
+</script>
+</body>
+</html>

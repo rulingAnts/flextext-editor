@@ -180,15 +180,39 @@ toast **only when something actually changed**. The PWA manifest sets
 
 ## Structure
 
-- `index.html`, `manifest.webmanifest`, `sw.js` (service worker)
-- `js/` — `app.js` (main), `upload.js` (Google Drive upload), `i18n.js` (en/id strings),
-  `audio.js` (download/cache/playback), and the **connectivity engine**: `crypto.js`
-  (E2EE primitives), `sync.js` (no-login D1 sync), `researcher.js` (account/auth +
-  instance/Ki logic), `researcher-panel.js` (the researcher UI)
-- `dev-serve.sh` (no-cache rig), `devctl.sh` (dev-rig daemon controller)
-- `css/`, `icons/`, `samples/`, `docs/`
-- `docs/` — `RELEASE-RUNBOOK.md` (how to ship), `connectivity-*.md` (design/status),
+> ⚠ **`docs/` IS THE WEBSITE.** GitHub Pages serves **`productionWeb:/docs`**, so only what is
+> inside `docs/` is ever published. Everything else in this repo is committed but never served —
+> which is exactly what lets the native wrappers live here without reaching the web.
+> `docs/.nojekyll` disables Jekyll so files are served verbatim.
+
+```
+docs/        THE PUBLISHED SITE (the PWA)
+android/     Capacitor wrappers (recorder + editor APKs) — never served
+electron/    desktop shell (planned) — never served
+notes/       planning docs, gitignored, never served
+```
+
+- `docs/index.html`, `docs/manifest.webmanifest`, `docs/sw.js` (service worker)
+- `docs/js/` — `app.js` (main), `upload.js` (Google Drive upload), `i18n.js` (en/id strings),
+  `audio.js` (download/cache/playback), `native-audio.js` (**the ONE native chokepoint**), and the
+  **connectivity engine**: `crypto.js` (E2EE primitives), `sync.js` (no-login D1 sync),
+  `researcher.js` (account/auth + instance/Ki logic), `researcher-panel.js` (the researcher UI)
+- `docs/css/`, `docs/icons/`, `docs/help/`, `docs/installers/`
+- `dev-serve.sh` (no-cache rig), `devctl.sh` (dev-rig daemon controller) — root, not served
+- `notes/` — `RELEASE-RUNBOOK.md` (how to ship), `connectivity-*.md` (design/status),
   `release-track-broker-and-turnstile.md` (the deferred Drive-broker design)
+- `samples/` — real language data, gitignored, root only
+
+**Two traps this layout created — both already handled, don't undo them:**
+1. `.gitignore` must ignore `notes/`, **not** `docs/`. Ignoring `docs/` would ignore the whole website.
+2. The bare `CLAUDE.md` ignore rule swallows `android/CLAUDE.md` (the native contract). It is
+   **force-added**; if you ever re-add it, use `git add -f`.
+
+**Flipping the Pages source does NOT trigger a rebuild.** Changing it and pushing in the wrong
+order once served the branch root, so every asset 404'd while Jekyll returned a 200 placeholder
+built from README.md. Push first, flip, then **force a rebuild with a commit** — and verify with a
+check that can FAIL, e.g. `/dev-serve.sh` must be **404** (it exists only at the branch root, so if
+it serves, Pages is publishing the root).
 
 ## Connectivity / researcher backend (separate repo)
 

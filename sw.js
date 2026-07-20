@@ -2,7 +2,7 @@
 
 // Bump VERSION on every deploy: clients check for a changed sw.js whenever
 // they load / regain focus / come online, and offer the user an update.
-const VERSION = 'v107';
+const VERSION = 'v108';
 // On localhost the SW serves NETWORK-FIRST so code edits show up immediately during dev
 // (cache-first would keep serving a stale build until every file's VERSION is bumped). The
 // SW stays registered (PWA + localStorage behave normally); production stays offline-first.
@@ -26,6 +26,7 @@ const SHELL = [
   'js/crypto.js',
   'js/researcher.js',
   'js/researcher-panel.js',
+  'js/native-audio.js',
   'js/record-pcm.js',
   'js/audio-capture-worklet.js',
   'js/flac.js',

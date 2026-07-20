@@ -10,6 +10,10 @@ import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS, ENGINE_VERSION } from './i18n.js';
 import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl, ensureAsset, getAsset, fetchFileViaUrl } from './audio.js';
 import { convertToMp3 } from './convert.js';
+// NATIVE BRIDGE — the ONLY import of native code in this engine. Everything Android-specific
+// lives behind js/native-audio.js and is INERT in a browser. See that file's header before
+// changing anything here; ./check-native-containment.sh enforces the boundary.
+import { isNativeShell, nativeAudioAvailable, NativeRecorder, releaseCapture } from './native-audio.js';
 import { losslessSupported, recFormatSupported, PCMRecorder, encodeWav, encodeRecording, normalizePeak, reduceChannels,
          normRecFormat, REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { makeZip } from './zip.js';
@@ -1141,6 +1145,7 @@ function discardRecording() {
   if (rec) {
     try { if (rec.recorder && rec.recorder.state !== 'inactive') rec.recorder.stop(); } catch { /* noop */ }
     try { rec.pcmRec?.cancel(); } catch { /* noop */ } // lossless path owns its own stream/ctx
+    try { rec.nrec?.cancel(); } catch { /* noop */ }   // native path: release the mic + drop its partial file
     try { rec.meterCtx && rec.meterCtx.close(); } catch { /* noop */ } // MediaRecorder-path meter tap
     rec.stream?.getTracks().forEach(tr => tr.stop());
     clearInterval(rec.timer);
@@ -1182,6 +1187,18 @@ async function startRecording() {
       await startMediaRecorder('mp3', f.lossless);
       return;
     }
+    // NATIVE capture first, for the WAV formats only. This is the whole point of the Android
+    // apps: AudioRecord can capture a TRUE integer bit depth (the web cannot — Web Audio is
+    // float32 by spec) and can force AGC/NS/AEC off. FLAC and the lossy formats deliberately
+    // fall through to the existing browser paths for now.
+    if (nativeAudioAvailable() && NATIVE_ENCODING[fmt]) {
+      try { await startNative(fmt); return; }
+      catch (natErr) {
+        if (natErr && natErr.name === 'NotAllowedError') throw natErr;   // mic denied is a real error
+        console.warn('Native capture unavailable; using the browser path.', natErr);
+        // fall through to the normal browser backends below
+      }
+    }
     // Lossless PCM formats (WAV/FLAC): AudioWorklet path, with MediaRecorder→MP3 fallback.
     if (losslessSupported()) {
       try { await startPcm(fmt, false); return; }
@@ -1202,6 +1219,29 @@ async function startRecording() {
     // a user "Block" — always offer the direct-link escape hatch when framed.
     if (CROWD_MODE && window !== window.top) crowdShowFrameEscape();
   }
+}
+
+// App format -> native encoding id. Only the WAV formats map: the native side writes a finished
+// WAV, so these need no re-encoding at all. (`wav32` is IEEE float, matching encodeWav's format 3.)
+const NATIVE_ENCODING = { wav16: 'pcm16', wav24: 'pcm24', wav32: 'float32' };
+
+// Native (Android AudioRecord) capture. Produces a FINISHED WAV file on device — the bytes never
+// pass through JS during capture, which is what keeps a long take from exhausting memory on a
+// cheap phone. Throws so startRecording can fall back to the browser paths.
+async function startNative(fmt) {
+  const nrec = new NativeRecorder();
+  const meta = await nrec.start({
+    encoding: NATIVE_ENCODING[fmt],
+    sampleRate: 48000,
+    channels: 1,
+    notificationTitle: t('record.btn'),
+    notificationText: t('record.recording', { time: '' }).trim(),
+  });
+  rec = { mode: 'native', nrec, fmt, fellBack: false, recording: true, nativeMeta: meta,
+          t0: Date.now(), timer: null, blob: null, url: null };
+  startRecTimer();
+  recordUI('recording');
+  startMeter();
 }
 
 // AudioWorklet lossless capture (WAV/FLAC). Throws if getUserMedia / the worklet
@@ -1299,6 +1339,24 @@ async function stopRecording() {
   rec.recording = false;
   clearInterval(rec.timer);
   stopMeter();
+  if (rec.mode === 'native') {
+    // Native hands back a complete WAV plus its provenance record. Nothing to encode.
+    try {
+      const { blob, meta } = await rec.nrec.stop();
+      if (!blob || !blob.size) throw new Error('empty');
+      rec.blob = blob;
+      rec.nativeMeta = meta;
+      rec.url = URL.createObjectURL(rec.blob);
+      $('#record-preview').src = rec.url;
+      recordUI('review');
+    } catch (e) {
+      discardRecording();
+      recordUI('idle');
+      $('#record-status').textContent = t('record.micError',
+        { msg: e.message === 'empty' ? t('record.noAudio') : e.message });
+    }
+    return;
+  }
   try {
     const { channels, sampleRate } = await rec.pcmRec.stop();
     if (!channels.length || !channels[0].length) throw new Error('empty');
@@ -1326,7 +1384,12 @@ async function saveRecording() {
   try {
     const stamp = fileStamp();
     let file;
-    if (rec.mode === 'pcm') {
+    if (rec.mode === 'native') {
+      // Already a finished WAV at the exact format the device really captured — no re-encode.
+      // (Auto-normalize is deliberately NOT applied: it would edit an archival master, and the
+      // whole reason for the native path is an unmodified capture.)
+      file = new File([rec.blob], `recording-${stamp}.wav`, { type: 'audio/wav' });
+    } else if (rec.mode === 'pcm') {
       // Decide mono-vs-stereo (drop a dead channel; keep real stereo) — never
       // averaging a live channel with an empty one. Then optional normalize.
       const chans = reduceChannels(rec.channels);
@@ -1350,17 +1413,23 @@ async function saveRecording() {
     const assent = pendingAssent;     // closeRecordModal clears these; preserve
     const receipt = pendingReceipt;   // them for the new doc
     const promptAudio = pendingPromptAudio;
+    // ABSORB-THEN-DELETE: grab the on-device capture path BEFORE closeRecordModal() clears `rec`.
+    // The native file is released only after the bytes are safely stored below — never before,
+    // because until then those bytes exist ONLY on disk and losing them loses field data.
+    const nativePath = (rec.mode === 'native' && rec.nativeMeta) ? rec.nativeMeta.path : null;
     closeRecordModal();
     if (CROWD_MODE) {
       // Crowd divert: nothing enters the shared corpus. Bundle + persist to the
       // crowd-only pending store, then submit; the finally below still runs.
       await crowdQueueAndSubmit(file, { assent, receipt, promptAudio });
+      if (nativePath) await releaseCapture(nativePath);   // stored in the crowd pending store
       return;
     }
     pendingAssent = assent;
     pendingReceipt = receipt;
     pendingPromptAudio = promptAudio;
     await newDocFromAudio(file, title);
+    if (nativePath) await releaseCapture(nativePath);     // now safely in IndexedDB
   } catch (e) {
     recordUI('review');
     $('#record-status').textContent = t('convert.failed', { msg: e.message });
@@ -3842,6 +3911,10 @@ function isDevHost(h) {
 
 function setupServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
+  // Native shell: assets are bundled in the APK, so a service worker would add nothing but a
+  // stale-cache failure mode. (It also happens to be skipped by the isDev check below, since
+  // Capacitor serves from localhost — but rely on the explicit marker, not that coincidence.)
+  if (isNativeShell()) return;
   const isDev = isDevHost(location.hostname) &&
     !new URLSearchParams(location.search).has('sw');
   if (isDev) {

@@ -1,0 +1,207 @@
+/* ============================================================================================
+ * NATIVE AUDIO BRIDGE — THE ONLY FILE IN THIS ENGINE THAT MAY TOUCH `window.Capacitor`.
+ *
+ * ⚠ READ THIS BEFORE CHANGING ANYTHING HERE ⚠
+ *
+ * The Flextext Android apps (rulingAnts/flextext-native) wrap THIS engine in a native shell so
+ * recordings can be captured by Android's AudioRecord instead of the browser. That exists for two
+ * archival reasons the web genuinely cannot satisfy:
+ *   1. the WebView forces an AGC-or-clip dilemma that IASA TC-03 / FADGI forbid on a master;
+ *   2. Web Audio is 32-bit-float BY SPECIFICATION, so a web app can never capture at a chosen
+ *      integer bit depth — it can only capture float and reduce afterwards.
+ *
+ * ⚠ THE ENGINE AUTO-UPDATES. THE APK DOES NOT. ⚠
+ * A change here that breaks the contract breaks INSTALLED FIELD APPS, with no way to push a fix
+ * except building and distributing a new APK. So:
+ *   - Do NOT "tidy", inline, or refactor this file while working on unrelated engine features.
+ *     If a change elsewhere seems to require editing this file, that is the signal to STOP and
+ *     rebuild + re-test the APK (rulingAnts/flextext-native, scripts/build.sh).
+ *   - Do NOT reference `window.Capacitor` anywhere else in the engine. A grep hit outside this
+ *     file is a bug, not a style question. scripts/check-native-containment.sh enforces it.
+ *   - Keep this module INERT on the web: every export must be safe to call in a normal browser
+ *     and must behave exactly as before the native work existed.
+ *
+ * The native side of the contract lives in flextext-native/CLAUDE.md and
+ * plugin/android/.../FlextextAudioPlugin.java (CONTRACT_VERSION).
+ * ============================================================================================ */
+
+// The contract revision this engine speaks. Must match the plugin's CONTRACT_VERSION.
+// If they diverge, we refuse the native path and say so loudly rather than misbehave quietly.
+const EXPECTED_CONTRACT = 1;
+
+let warned = false;
+function warnOnce(msg) {
+  if (warned) return;
+  warned = true;
+  console.warn('[flextext native] ' + msg);
+}
+
+/** True only inside a Flextext native shell. Always false in a browser/PWA. */
+export function isNativeShell() {
+  try {
+    return typeof window !== 'undefined' && !!window.__NATIVE;
+  } catch { return false; }
+}
+
+/** The registered Capacitor plugin, or null. Never throws. */
+function plugin() {
+  try {
+    const cap = typeof window !== 'undefined' ? window.Capacitor : null;
+    return (cap && cap.Plugins && cap.Plugins.FlextextAudio) || null;
+  } catch { return false || null; }
+}
+
+/** Is native capture actually usable right now? Feature-detected, never assumed. */
+export function nativeAudioAvailable() {
+  return !!(isNativeShell() && plugin());
+}
+
+/** Engine build info stamped into the native shell at bundle time (for diagnostics). */
+export function nativeEngineInfo() {
+  try { return (window.__NATIVE_ENGINE) || null; } catch { return null; }
+}
+
+/**
+ * Ask the device what it can genuinely capture. Returns null when not native, or when the
+ * plugin speaks a different contract version (we refuse rather than guess at field data).
+ */
+export async function nativeCapabilities() {
+  const p = plugin();
+  if (!p) return null;
+  let caps;
+  try {
+    caps = await p.capabilities();
+  } catch (e) {
+    warnOnce('capabilities() failed: ' + (e && e.message));
+    return null;
+  }
+  const got = caps && caps.contractVersion;
+  if (got !== EXPECTED_CONTRACT) {
+    warnOnce(`contract mismatch — engine expects v${EXPECTED_CONTRACT}, app provides v${got}. `
+           + 'Native capture disabled; the installed app needs rebuilding from flextext-native.');
+    return null;
+  }
+  return caps;
+}
+
+/** Request the microphone permission through the native prompt. */
+export async function nativeRequestMic() {
+  const p = plugin();
+  if (!p) return false;
+  try { const r = await p.requestMicPermission(); return !!(r && r.granted); }
+  catch { return false; }
+}
+
+/**
+ * A capture in progress. Deliberately mirrors the shape the engine already uses for its other
+ * backends (start / peak / stop / cancel) so the calling code stays backend-agnostic.
+ *
+ * Unlike the Web Audio backend, native returns a FINISHED WAV FILE rather than PCM channels —
+ * the bytes never pass through JS during capture, which is what keeps a long recording from
+ * exhausting memory on a cheap phone.
+ */
+export class NativeRecorder {
+  constructor() {
+    this.meta = null;       // provenance from start(): requested vs actual, effects, source
+    this._peak = 0;
+    this._meterSub = null;
+  }
+
+  /** opts: { encoding, sampleRate, channels, notificationTitle, notificationText } */
+  async start(opts = {}) {
+    const p = plugin();
+    if (!p) throw new Error('native audio unavailable');
+    // The meter must be fed from native: native capture replaces the MediaStream the web
+    // AnalyserNode would otherwise read, so there is nothing for the web meter to tap.
+    try {
+      this._meterSub = await p.addListener('meter', (e) => { this._peak = (e && e.peak) || 0; });
+    } catch { /* meter is cosmetic; never fail a recording over it */ }
+    this.meta = await p.start(opts);
+    return this.meta;
+  }
+
+  /** 0..1, same contract as the Web Audio backend's peak(). */
+  peak() { return this._peak; }
+
+  async _removeMeter() {
+    try { if (this._meterSub && this._meterSub.remove) await this._meterSub.remove(); }
+    catch { /* noop */ }
+    this._meterSub = null;
+    this._peak = 0;
+  }
+
+  /**
+   * Finish the capture and ABSORB it: returns { blob, meta }.
+   * The file is deleted from the device only after the caller confirms it is stored — see
+   * absorbCapture() / releaseCapture() below. We never delete here, because at this point the
+   * bytes exist only on disk and losing them would be losing field data.
+   */
+  async stop() {
+    const p = plugin();
+    if (!p) throw new Error('native audio unavailable');
+    const meta = await p.stop();
+    await this._removeMeter();
+    const blob = await absorbCapture(meta && meta.path);
+    this.meta = { ...(this.meta || {}), ...(meta || {}) };
+    return { blob, meta: this.meta };
+  }
+
+  /** Abandon the capture; the native side deletes its own partial file. */
+  async cancel() {
+    const p = plugin();
+    await this._removeMeter();
+    if (!p) return;
+    try { await p.cancel(); } catch { /* noop */ }
+  }
+}
+
+/**
+ * Read a native capture into a Blob.
+ *
+ * ⚠ Uses convertFileSrc + fetch DELIBERATELY. Do NOT switch this to Filesystem.readFile: that
+ * returns base64 (~33% inflation) marshalled through the JS bridge as one enormous string, and a
+ * 10-minute 24-bit capture (~86 MB) would very likely exhaust memory on a cheap phone. Going
+ * through the WebView's own network stack streams the bytes instead.
+ */
+export async function absorbCapture(path) {
+  if (!path) throw new Error('no capture path');
+  let url = path;
+  try {
+    const cap = window.Capacitor;
+    if (cap && typeof cap.convertFileSrc === 'function') url = cap.convertFileSrc(path);
+  } catch { /* fall through to the raw path */ }
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error('could not read capture (HTTP ' + resp.status + ')');
+  return await resp.blob();
+}
+
+/**
+ * Delete a capture from the device. Call this ONLY once the bytes are safely stored
+ * (IndexedDB write resolved) — never before.
+ */
+export async function releaseCapture(path) {
+  const p = plugin();
+  if (!p || !path) return false;
+  try { const r = await p.deleteCapture({ path }); return !!(r && r.deleted); }
+  catch { return false; }
+}
+
+/**
+ * Sweep captures orphaned by a crash or an OEM process-kill between "file written" and "stored".
+ * `keepPaths` are the paths the engine still holds; everything else in the capture directory is
+ * garbage. Native never sweeps on its own — only this side knows what was really absorbed.
+ */
+export async function sweepOrphanCaptures(keepPaths = []) {
+  const p = plugin();
+  if (!p) return { deleted: 0, bytesFreed: 0 };
+  try { return await p.cleanupCaptures({ keep: keepPaths }); }
+  catch { return { deleted: 0, bytesFreed: 0 }; }
+}
+
+/** What is actually sitting in the capture directory (diagnostics + sweep planning). */
+export async function listNativeCaptures() {
+  const p = plugin();
+  if (!p) return [];
+  try { const r = await p.listCaptures(); return (r && r.captures) || []; }
+  catch { return []; }
+}

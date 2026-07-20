@@ -73,6 +73,33 @@ project**; the recorder is a thin companion.
   (`recorder.webmanifest`, distinct `id`/`scope`), its `sw.js`, and its icons.
   It has its own `CLAUDE.md` stating the same rules from its side.
 
+## ⚠ Native apps depend on this engine — `js/native-audio.js` is a hard boundary
+
+There are Android apps (**`rulingAnts/flextext-native`**) that wrap THIS engine so recordings can be
+captured by Android's `AudioRecord` instead of the browser. That exists for two archival reasons the
+web cannot satisfy: the WebView's AGC-or-clip dilemma, and the fact that **Web Audio is 32-bit float
+by specification** — so a web app can never capture at a chosen integer bit depth, only capture float
+and reduce afterwards.
+
+**The engine auto-updates. The APK does not.** A careless change here breaks installed field apps
+with no way to push a fix except building and distributing a new APK. So:
+
+- **`js/native-audio.js` is the ONLY file allowed to touch `window.Capacitor`.** Everything
+  Android-specific lives behind it, and it is INERT in a browser (feature-detects, returns safe
+  values). A grep hit elsewhere is a bug, not a style preference.
+- **Run `./check-native-containment.sh`** after touching recording/capture code. It enforces the
+  above, checks the warning header is intact, and checks the contract version is declared once.
+- **Do not "tidy", inline, or refactor `js/native-audio.js`** while working on unrelated features.
+  If a change seems to require editing it, that is the signal to STOP and rebuild + re-test the APK.
+- The engine touches the native path in only a handful of clearly-commented places in `js/app.js`
+  (import, service-worker skip, `startNative`, the `rec.mode === 'native'` branches in
+  `stopRecording`/`saveRecording`, and the absorb-then-delete in `saveRecording`). Keep it that few.
+- **Absorb-then-delete:** a native capture is a file on the device. It is read into a Blob, stored
+  in IndexedDB, and only THEN released via `releaseCapture()`. Never delete first — until it is
+  stored, those bytes exist only on disk.
+
+Full contract (methods, capture lifecycle, `CONTRACT_VERSION`): `flextext-native/CLAUDE.md`.
+
 ## Local dev / testing
 
 The app is a static PWA — no build step. Simple options:

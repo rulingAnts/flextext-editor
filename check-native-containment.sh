@@ -73,5 +73,44 @@ if [ -n "$readfile_hits" ]; then
   echo "$readfile_hits" | sed 's/^/  /' >&2
 fi
 
+# 5. THE TWO TREES MUST NOT REACH INTO EACH OTHER.
+#    The shells wrap the engine over HTTP — they load the LIVE site. Neither tree may import the
+#    other's files. A desktop shell that require()s engine source would freeze a copy of the engine
+#    into an installer that cannot be updated; an engine that imports shell source would break every
+#    browser, which is the overwhelming majority of users.
+cross=$(grep -rn "require(['\"].*\.\./\.\./docs/\|from ['\"].*\.\./\.\./docs/" electron/src android/ 2>/dev/null || true)
+if [ -n "$cross" ]; then
+  echo "FAIL: a native shell imports engine source directly — it must load the live site instead:" >&2
+  echo "$cross" | sed 's/^/  /' >&2
+  fail=1
+else
+  echo "  ok: no native shell imports engine source"
+fi
+cross=$(grep -rn "electron/\|require(['\"]electron" docs/js/ 2>/dev/null | grep -vE "^[^:]+:[0-9]+:\s*(\*|//|/\*)" || true)
+if [ -n "$cross" ]; then
+  echo "FAIL: engine code references the Electron tree — the engine must stay browser-only:" >&2
+  echo "$cross" | sed 's/^/  /' >&2
+  fail=1
+else
+  echo "  ok: engine does not reference the Electron tree"
+fi
+
+# 6. THE SHARED PARSER MUST STILL SERVE THE PWA.
+#    convert.js is engine code that native work has a standing reason to touch (the shells write
+#    WAVE_FORMAT_EXTENSIBLE; the PWA writes plain tags). It is read by every field recording, so a
+#    native-motivated edit landing a PWA regression is the exact failure this whole file exists to
+#    prevent. Round-trip the PWA's own writer through it.
+if [ -f test/wav-roundtrip.test.mjs ]; then
+  if node test/wav-roundtrip.test.mjs >/tmp/wavtest.log 2>&1; then
+    echo "  ok: shared WAV parser round-trips the PWA's own recordings"
+  else
+    echo "FAIL: the shared WAV parser broke the PWA path:" >&2
+    sed 's/^/  /' /tmp/wavtest.log >&2
+    fail=1
+  fi
+else
+  echo "WARN: test/wav-roundtrip.test.mjs is missing — the PWA regression guard is not running" >&2
+fi
+
 [ "$fail" = 0 ] && echo "PASS: native boundary is contained." || echo "FAILED — see above." >&2
 exit $fail

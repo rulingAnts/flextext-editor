@@ -1051,11 +1051,16 @@ function dspConstraints() {
 // (WebM/MP3) path taps the same mic stream with an AnalyserNode (rec.meterAnalyser).
 // The rAF loop self-stops when recording ends.
 let meterRAF = null;
+// The meter must also run while the mic is merely WARM (open, not yet recording). That is not a
+// nicety: a warm mic is a live mic, and a moving meter is the only "it is listening" signal a
+// non-reading user can actually verify. If this ever stops covering the warm case, pre-warm becomes
+// an undisclosed open microphone.
 function recHasMeter() {
+  if (warmMic && warmMic.pcmRec) return true;
   return !!(rec && ((rec.mode === 'pcm' && rec.pcmRec) || rec.meterAnalyser));
 }
 function recPeak() { // 0..1 linear peak from whichever capture path is live
-  if (!rec) return 0;
+  if (!rec) return warmMic && warmMic.pcmRec ? warmMic.pcmRec.peak() : 0;
   if (rec.mode === 'pcm' && rec.pcmRec) return rec.pcmRec.peak();
   if (rec.meterAnalyser && rec.meterBuf) {
     rec.meterAnalyser.getFloatTimeDomainData(rec.meterBuf);
@@ -1076,7 +1081,8 @@ function startMeter() {
   if (!meter || !fill || !recHasMeter()) return;
   let clipHold = 0;
   const tick = () => {
-    if (!rec || !rec.recording || !recHasMeter()) { meterRAF = null; return; }
+    if ((!rec || !rec.recording) && !warmMic) { meterRAF = null; return; }
+    if (!recHasMeter()) { meterRAF = null; return; }
     const p = recPeak(); // 0..1 linear peak
     // sqrt curve so normal speech sits mid-bar and quiet input is still visible.
     fill.style.width = Math.min(100, Math.round(Math.sqrt(p) * 100)) + '%';
@@ -1157,14 +1163,70 @@ function discardRecording() {
   pv.removeAttribute('src');
 }
 
+/* ---------------- mic pre-warm ----------------
+ * Opening the mic takes real time (getUserMedia + AudioWorklet — comfortably a second on a cheap
+ * phone). Doing it on the record TAP means the speaker is already talking while the interface is
+ * still opening, and their first word is simply absent from the file. Warming when the record
+ * screen opens moves that wait to a moment when nobody is speaking; the ring buffer in PCMRecorder
+ * then covers what is left, including a speaker who starts before the tap.
+ *
+ * ⚠ THE MIC IS GENUINELY LIVE WHILE WARM. Three rules follow, and none are optional:
+ *   1. Warm only AFTER consent. Every entry point is requestConsentThen(() => openRecordModal()),
+ *      so warming here is post-consent by construction — keep it that way.
+ *   2. Release when the screen closes AND when the app is backgrounded. Holding a hot mic behind
+ *      another app is indefensible regardless of what we do with the audio.
+ *   3. The level meter is the disclosure. A non-reading user cannot verify a privacy claim, but
+ *      they can see a meter move.
+ * Warming is best-effort: any failure leaves warmMic null and the tap takes the original path, so
+ * this can degrade but never block a recording. */
+let warmMic = null;             // { pcmRec } once the graph is live
+let warmMicPending = null;      // in-flight warm, so a fast tap can await it instead of racing
+
+async function warmUpMic() {
+  if (warmMic || warmMicPending || rec?.recording) return;
+  // Only the AudioWorklet path benefits: native capture opens its own device, and MediaRecorder
+  // cannot pre-roll (its chunks are encoded and not safely splittable).
+  const fmt = recordFormatPref();
+  if (REC_FORMATS[fmt]?.capture === 'media') return;
+  if (nativeAudioAvailable() && NATIVE_ENCODING[fmt]) return;
+  if (!losslessSupported()) return;
+  const pcmRec = new PCMRecorder();
+  warmMicPending = (async () => {
+    try {
+      await pcmRec.warm({ audio: dspConstraints(), preRollSec: 2 });
+      warmMic = { pcmRec };
+      startMeter();                       // the meter IS the disclosure that the mic is open
+    } catch (e) {
+      try { pcmRec.cancel(); } catch { /* noop */ }
+      warmMic = null;                     // stay silent: the tap will just open the mic itself
+      console.warn('Mic pre-warm unavailable; recording will open the mic on tap.', e);
+    } finally { warmMicPending = null; }
+  })();
+  await warmMicPending;
+}
+
+function releaseWarmMic() {
+  if (warmMic) { try { warmMic.pcmRec.cancel(); } catch { /* noop */ } }
+  warmMic = null;
+  if (!rec?.recording) stopMeter();
+}
+
+// Never hold an open mic behind another app.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && !rec?.recording) releaseWarmMic();
+  else if (!document.hidden && !$('#record-modal')?.hidden && !rec?.recording) warmUpMic();
+});
+
 function openRecordModal() {
   discardRecording();
   $('#record-title').value = '';
   recordUI('idle');
   $('#record-modal').hidden = false;
+  warmUpMic();   // fire-and-forget: the tap awaits it if it is still in flight
 }
 
 function closeRecordModal() {
+  releaseWarmMic();
   discardRecording();
   pendingAssent = null;       // abandon any consent clip if the recording is cancelled
   pendingReceipt = null;      // and its audit record
@@ -1247,15 +1309,28 @@ async function startNative(fmt) {
 // AudioWorklet lossless capture (WAV/FLAC). Throws if getUserMedia / the worklet
 // fails so startRecording can fall back. fellBack=true flags a downgrade at review.
 async function startPcm(fmt, fellBack) {
-  const pcmRec = new PCMRecorder();
-  try {
-    await pcmRec.start({ audio: dspConstraints() }); // getUserMedia + AudioWorklet
-  } catch (e) {
-    try { pcmRec.cancel(); } catch { /* noop */ } // release any half-open mic stream
-    throw e;
+  // Prefer the already-open mic. If a warm-up is still in flight (the user tapped immediately),
+  // wait for it rather than opening a SECOND device — two concurrent getUserMedia calls on a cheap
+  // phone is how you get a failed recording.
+  if (warmMicPending) { try { await warmMicPending; } catch { /* fall through to a cold open */ } }
+  let pcmRec = warmMic?.pcmRec || null;
+  let preRollSec = 0;
+  if (pcmRec) {
+    warmMic = null;                       // ownership moves to `rec`; no double-teardown
+    preRollSec = pcmRec.arm().preRollSec;
+  } else {
+    pcmRec = new PCMRecorder();
+    try {
+      await pcmRec.start({ audio: dspConstraints() }); // getUserMedia + AudioWorklet
+    } catch (e) {
+      try { pcmRec.cancel(); } catch { /* noop */ } // release any half-open mic stream
+      throw e;
+    }
   }
-  rec = { mode: 'pcm', pcmRec, fmt, fellBack: !!fellBack, recording: true,
-          t0: Date.now(), timer: null, blob: null, url: null };
+  rec = { mode: 'pcm', pcmRec, fmt, fellBack: !!fellBack, recording: true, preRollSec,
+          // The take already contains preRollSec of audio, so the elapsed clock must start there
+          // or the displayed time drifts from the file's real length.
+          t0: Date.now() - Math.round(preRollSec * 1000), timer: null, blob: null, url: null };
   startRecTimer();
   recordUI('recording');
   startMeter();

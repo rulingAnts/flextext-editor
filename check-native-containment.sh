@@ -95,21 +95,25 @@ else
   echo "  ok: engine does not reference the Electron tree"
 fi
 
-# 6. THE SHARED PARSER MUST STILL SERVE THE PWA.
-#    convert.js is engine code that native work has a standing reason to touch (the shells write
-#    WAVE_FORMAT_EXTENSIBLE; the PWA writes plain tags). It is read by every field recording, so a
-#    native-motivated edit landing a PWA regression is the exact failure this whole file exists to
-#    prevent. Round-trip the PWA's own writer through it.
-if [ -f test/wav-roundtrip.test.mjs ]; then
-  if node test/wav-roundtrip.test.mjs >/tmp/wavtest.log 2>&1; then
-    echo "  ok: shared WAV parser round-trips the PWA's own recordings"
-  else
-    echo "FAIL: the shared WAV parser broke the PWA path:" >&2
-    sed 's/^/  /' /tmp/wavtest.log >&2
-    fail=1
-  fi
+# 6. ENGINE REGRESSION GUARDS.
+#    Native work has standing reasons to touch shared engine code (the shells write
+#    WAVE_FORMAT_EXTENSIBLE; capture latency is a native concern with a web fix). That code is read
+#    and written by every field recording, so a native-motivated edit landing a PWA regression is
+#    the exact failure this file exists to prevent. Run every engine test.
+shopt -s nullglob
+tests=(test/*.test.mjs)
+if [ ${#tests[@]} -eq 0 ]; then
+  echo "WARN: no engine tests found — the PWA regression guards are not running" >&2
 else
-  echo "WARN: test/wav-roundtrip.test.mjs is missing — the PWA regression guard is not running" >&2
+  for tf in "${tests[@]}"; do
+    if node "$tf" >/tmp/enginetest.log 2>&1; then
+      echo "  ok: $(basename "$tf")"
+    else
+      echo "FAIL: $tf" >&2
+      sed 's/^/    /' /tmp/enginetest.log >&2
+      fail=1
+    fi
+  done
 fi
 
 [ "$fail" = 0 ] && echo "PASS: native boundary is contained." || echo "FAILED — see above." >&2

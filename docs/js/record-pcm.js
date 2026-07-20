@@ -32,6 +32,68 @@ export class PCMRecorder {
     this.analyser = null; this._meterBuf = null;
     this.chanChunks = null; this.nch = 1; this.total = 0; this.sampleRate = 0;
     this._flushResolve = null;
+    // Armed by DEFAULT so a plain start() behaves exactly as it always has — only warm() disarms.
+    // Getting this backwards would silently route every existing recording into the ring buffer.
+    this._armed = true; this._preChunks = null; this._preTotal = 0; this._preRollSec = 0;
+  }
+
+  /* Open the mic and run the capture graph WITHOUT keeping a take yet, holding the most recent
+   * `preRollSec` of audio in a ring buffer.
+   *
+   * ⚠ WHY: getUserMedia + AudioWorklet takes real time — on a cheap phone, comfortably a second.
+   * Doing that on the record TAP means the interface is still opening while the speaker is already
+   * talking, and their first word is simply not in the file. It looks fine afterwards, which is the
+   * worst kind of loss. Warming when the record SCREEN opens moves that wait to a moment when
+   * nobody is speaking, and the ring buffer then covers the remaining gap — including a speaker who
+   * starts before the tap, which in practice they do.
+   *
+   * The mic IS live while warm. That is disclosed by the level meter, which is the only "it is
+   * listening" signal a non-reading user can trust. Callers must warm only AFTER consent and must
+   * release on leaving the screen — see releaseWarmMic() in app.js. */
+  async warm(opts = {}) {
+    this._preRollSec = opts.preRollSec == null ? 2 : opts.preRollSec;
+    this._armed = false;
+    this._preChunks = null;
+    this._preTotal = 0;
+    await this.start(opts);
+  }
+
+  /* Ring-buffer one block while warm, keeping only the most recent preRollSec.
+   *
+   * Split out as its own method so the test suite can drive THIS code rather than a re-implementation
+   * of it — a test that copies the logic it is checking passes even when the real path is broken.
+   * (That is not hypothetical: a copied test is exactly what hid a missing IPC handler in the desktop
+   * shell.) It needs no AudioWorklet, so it stays testable headlessly. */
+  _bufferPreRoll(chans) {
+    if (!this._preChunks || this._preChunks.length !== chans.length) {
+      this._preChunks = Array.from({ length: chans.length }, () => []);
+      this._preTotal = 0;
+    }
+    for (let c = 0; c < chans.length; c++) this._preChunks[c].push(chans[c]);
+    this._preTotal += chans[0].length;
+    // Drop whole chunks off the front — whole chunks only, so a sample is never split. The buffer
+    // therefore holds slightly MORE than asked for, never less, which is the right way to round
+    // when the cost of being short is a missing first word.
+    const max = Math.max(0, Math.floor(this._preRollSec * (this.sampleRate || 48000)));
+    while (this._preChunks[0].length > 1 && this._preTotal - this._preChunks[0][0].length >= max) {
+      const n = this._preChunks[0][0].length;
+      for (let c = 0; c < this._preChunks.length; c++) this._preChunks[c].shift();
+      this._preTotal -= n;
+    }
+  }
+
+  /** Begin keeping the take, prepending whatever the ring buffer already holds. */
+  arm() {
+    if (this._armed) return { preRollSec: 0 };
+    this._armed = true;
+    const pre = this._preChunks;
+    const preTotal = this._preTotal;
+    this._preChunks = null; this._preTotal = 0;
+    if (!pre || !preTotal) return { preRollSec: 0 };
+    this.chanChunks = pre;
+    this.nch = pre.length;
+    this.total = preTotal;
+    return { preRollSec: this.sampleRate ? preTotal / this.sampleRate : 0 };
   }
 
   async start(opts = {}) {
@@ -60,11 +122,17 @@ export class PCMRecorder {
     this.node.port.onmessage = (e) => {
       const d = e.data;
       if (d.bufs && d.bufs.length) {
+        const first = new Float32Array(d.bufs[0]);
+        if (!this._armed) {
+          const chans = [first];
+          for (let c = 1; c < d.nch; c++) chans.push(new Float32Array(d.bufs[c]));
+          this._bufferPreRoll(chans);
+          return;
+        }
         if (!this.chanChunks || this.nch !== d.nch) {
           this.nch = d.nch;
           this.chanChunks = Array.from({ length: d.nch }, () => []);
         }
-        const first = new Float32Array(d.bufs[0]);
         for (let c = 0; c < d.nch; c++) this.chanChunks[c].push(c === 0 ? first : new Float32Array(d.bufs[c]));
         this.total += first.length;
       }
@@ -122,7 +190,13 @@ export class PCMRecorder {
     return { channels, sampleRate: this.sampleRate, duration: this.sampleRate ? this.total / this.sampleRate : 0 };
   }
 
-  cancel() { this._teardown(); this.chanChunks = null; this.total = 0; }
+  // Releasing the mic must also drop the ring buffer: warm audio was captured before anyone chose
+  // to record, so it must never outlive the screen that disclosed the mic was open.
+  cancel() {
+    this._teardown();
+    this.chanChunks = null; this.total = 0;
+    this._preChunks = null; this._preTotal = 0; this._armed = true;
+  }
 
   _teardown() {
     try { this.source && this.source.disconnect(); } catch { /* noop */ }

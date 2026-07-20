@@ -10,7 +10,7 @@
  * engine list IDENTICAL to the editor's sw.js (app.js resolves its whole static
  * import graph at load, even though the panel uses only part of it). */
 
-const VERSION = 'v48';
+const VERSION = 'v49';
 const CACHE = 'flextext-researcher-' + VERSION;
 const SHELL = [
   './',

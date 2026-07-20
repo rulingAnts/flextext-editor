@@ -13,7 +13,7 @@ import { convertToMp3 } from './convert.js';
 // NATIVE BRIDGE — the ONLY import of native code in this engine. Everything Android-specific
 // lives behind js/native-audio.js and is INERT in a browser. See that file's header before
 // changing anything here; ./check-native-containment.sh enforces the boundary.
-import { isNativeShell, nativeAudioAvailable, NativeRecorder, releaseCapture } from './native-audio.js';
+import { isNativeShell, nativeAudioAvailable, NativeRecorder, releaseCapture, nativePlatform, nativeEngineInfo } from './native-audio.js';
 import { losslessSupported, recFormatSupported, PCMRecorder, encodeWav, encodeRecording, normalizePeak, reduceChannels,
          normRecFormat, REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { makeZip } from './zip.js';
@@ -2356,7 +2356,10 @@ async function syncGatherInventory() {
   // engineVersion is the TRUE running engine version (vs cachedApps, which reads cache NAMES that a
   // stale-body precache can make lie) — the reliable brick/stale signal. All E2EE in the report.
   return { type: RECORD_MODE ? 'recorder' : 'editor', items, settings: snap,
-           ua: navigator.userAgent, cachedApps: await listCachedApps(), engineVersion: ENGINE_VERSION };
+           ua: navigator.userAgent, cachedApps: await listCachedApps(), engineVersion: ENGINE_VERSION,
+           // Which shell this install runs in. Each shell is its own storage sandbox, so the
+           // panel must be able to tell a PWA apart from an APK on the same handset.
+           platform: nativePlatform(), nativeEngine: nativeEngineInfo() };
 }
 
 // One-time invite link (?invite=<id>#k=<secret>) → bind this install to the

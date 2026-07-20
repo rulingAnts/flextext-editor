@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v108';
+export const ENGINE_VERSION = 'v109';
 
 const S = {
 en: {
@@ -793,7 +793,7 @@ internet after the first time.</p>
   'panel.val.uploadMissing': 'Upload is on as a send button — add the Google Drive folder link.',
   'panel.val.uploadBad': 'That isn’t a recognizable Google Drive folder link or ID.',
   'panel.val.assentUpload': 'Recorded assent has to be uploaded — add a Google Drive folder on the Sending tab.',
-  'panel.val.consentAudio': 'Audio consent is on — add the consent audio link.',
+  'panel.val.consentAudio': '\u201cSpoken reminder\u201d is switched on \u2014 add the recording that will be played to the speaker.',
   'panel.val.consentMsg': 'Text consent is on — enter the consent message.',
   'panel.grp.languages': 'Languages',
   'panel.legend.languages': 'FLEx Writing System Codes',
@@ -819,7 +819,12 @@ internet after the first time.</p>
   'panel.f.norm': 'Peak normalization',
   'panel.f.consentMode': 'Consent prompt',
   'panel.f.consentMsg': 'Consent message',
-  'panel.f.consentAudioUrl': 'Consent audio link (required for Audio consent)',
+  'panel.f.consentAudioUrl': 'Spoken-prompt recording (played TO the speaker)',
+  'panel.f.consentAudioNote': 'This is the consent wording YOU record in the speaker\u2019s language \u2014 the app plays it aloud to them. It is not their answer: a spoken \u201cyes\u201d is captured separately by the \u201cRecord the \u2018yes\u2019\u201d confirmation below.',
+  'panel.dev.platWeb': 'Web app',
+  'panel.dev.platAndroidRec': 'Android app \u2014 Recorder',
+  'panel.dev.platAndroidEd': 'Android app \u2014 Editor',
+  'panel.dev.platWindows': 'Windows app',
   'panel.f.consentResp': 'Consent response',
   'panel.f.consentAsk': 'Consent prompts',
   'panel.f.consentConfirm': 'Consent confirmations (all required)',
@@ -1653,7 +1658,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.val.uploadMissing': 'Tombol Unggah aktif — tambahkan tautan folder Google Drive.',
   'panel.val.uploadBad': 'Itu bukan tautan atau ID folder Google Drive yang dikenali.',
   'panel.val.assentUpload': 'Persetujuan terekam harus diunggah — tambahkan folder Google Drive di tab Pengiriman.',
-  'panel.val.consentAudio': 'Izin audio aktif — tambahkan tautan audio izin.',
+  'panel.val.consentAudio': '\u201cPengingat lisan\u201d aktif \u2014 tambahkan rekaman yang akan diputar untuk penutur.',
   'panel.val.consentMsg': 'Izin teks aktif — masukkan pesan izin.',
   'panel.grp.languages': 'Bahasa',
   'panel.legend.languages': 'Kode Sistem Penulisan FLEx',
@@ -1679,7 +1684,12 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.f.norm': 'Normalisasi puncak',
   'panel.f.consentMode': 'Permintaan izin',
   'panel.f.consentMsg': 'Pesan izin',
-  'panel.f.consentAudioUrl': 'Tautan audio izin (wajib untuk izin Audio)',
+  'panel.f.consentAudioUrl': 'Rekaman pesan izin lisan (diputar UNTUK penutur)',
+  'panel.f.consentAudioNote': 'Ini adalah kata-kata izin yang ANDA rekam dalam bahasa penutur \u2014 aplikasi memutarnya untuk mereka. Ini bukan jawaban mereka: \u201cya\u201d lisan direkam terpisah lewat konfirmasi \u201cRekam \u2018ya\u2019\u201d di bawah.',
+  'panel.dev.platWeb': 'Aplikasi web',
+  'panel.dev.platAndroidRec': 'Aplikasi Android \u2014 Perekam',
+  'panel.dev.platAndroidEd': 'Aplikasi Android \u2014 Editor',
+  'panel.dev.platWindows': 'Aplikasi Windows',
   'panel.f.consentResp': 'Respons izin',
   'panel.f.consentAsk': 'Permintaan izin',
   'panel.f.consentConfirm': 'Konfirmasi izin (semua wajib)',

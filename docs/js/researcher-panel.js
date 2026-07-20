@@ -97,7 +97,7 @@ const GROUPS = [
     // Consent is multi-select: any combination of prompts + confirmations, all required together.
     { k: 'consentAsk', type: 'multicheck', opts: ['text', 'audio'], optPrefix: 'panel.opt.ask.' },
     { k: 'consentMsg', type: 'textarea' },
-    { k: 'consentAudioUrl', type: 'text' },
+    { k: 'consentAudioUrl', type: 'text', note: 'panel.f.consentAudioNote' },
     { k: 'consentConfirm', type: 'multicheck', opts: ['yesno', 'record', 'signature'], optPrefix: 'panel.opt.conf.' },
   ] },
   { id: 'sending', fields: [
@@ -393,6 +393,7 @@ function viewSig(data) {
             // uploadedFileId IS part of the signature: a re-send of an unchanged doc keeps uploadState
             // 'uploaded' but mints a new file id, and that's our only signal the re-upload landed.
             ? ins.inventory.items.map((d) => [d.id, d.title, d.uploadState, d.hasAudio, d.uploadedFileId, d.done, d.pendingDelete])
+            .concat([[ins.inventory.platform || '']])
             : null,
         ]),
       ]),
@@ -437,8 +438,21 @@ function parseUA(ua) {
 // ride along as secondary detail. stale = the running engine is BEHIND the live site, or the client is
 // so old it reports no engineVersion at all (both mean "this device needs to update / may be stuck").
 // All values are attacker-controllable (a seized device) → esc'd at every call site.
-function deviceInfo(ua, cachedApps, engineVersion) {
+// Each shell is a SEPARATE storage sandbox (own IndexedDB, own enrollment) even when several load
+// the same URL — so the same person on a PWA and an APK is legitimately two devices here. Showing
+// the platform first is what makes that comprehensible instead of looking like a duplicate.
+const PLATFORM_KEY = {
+  'web': 'panel.dev.platWeb',
+  'android-recorder': 'panel.dev.platAndroidRec',
+  'android-editor': 'panel.dev.platAndroidEd',
+  'windows': 'panel.dev.platWindows',
+};
+
+function deviceInfo(ua, cachedApps, engineVersion, platform) {
   const segs = [];
+  const pk = PLATFORM_KEY[platform];
+  if (pk) segs.push(t(pk));
+  else if (platform) segs.push(platform);          // unknown native shell — show it raw, don't hide it
   const b = parseUA(ua); if (b) segs.push(b);
   const eng = engineVersion || (cachedApps && cachedApps.editor);   // true running engine, or cache-name fallback
   if (eng) segs.push(t('panel.dev.engine', { v: eng }));
@@ -700,7 +714,7 @@ async function renderInstanceCard(it) {
         : `<li class="note">${esc(t('panel.inst.noTexts'))}</li>`;
       installsHtml += `<div class="rp-install">
         <div class="note">${esc(t('panel.inst.lastSeen', { when: lastSeen(ins.last_seen_at) }))} · ${esc(t('panel.inst.texts', { n: inv ? inv.length : 0 }))}</div>
-        ${(() => { const di = deviceInfo(ins.inventory && ins.inventory.ua, ins.inventory && ins.inventory.cachedApps, ins.inventory && ins.inventory.engineVersion); const txt = di.text || t('panel.inst.verUnknown'); return `<div class="note rp-devinfo${di.text ? '' : ' rp-devinfo-old'}${di.stale ? ' rp-devinfo-stale' : ''}">${esc(txt)}${di.stale ? ` <span class="rp-badge rp-badge-stale">${esc(t('panel.dev.stale'))}</span>` : ''}</div>`; })()}
+        ${(() => { const di = deviceInfo(ins.inventory && ins.inventory.ua, ins.inventory && ins.inventory.cachedApps, ins.inventory && ins.inventory.engineVersion, ins.inventory && ins.inventory.platform); const txt = di.text || t('panel.inst.verUnknown'); return `<div class="note rp-devinfo${di.text ? '' : ' rp-devinfo-old'}${di.stale ? ' rp-devinfo-stale' : ''}">${esc(txt)}${di.stale ? ` <span class="rp-badge rp-badge-stale">${esc(t('panel.dev.stale'))}</span>` : ''}</div>`; })()}
         <ul class="rp-inv">${rows}</ul>
         ${(() => {
           const I = esc(it.instance_id), D = esc(ins.install_id);
@@ -1665,7 +1679,11 @@ function fieldHtml(f) {
     return `<label class="rp-field"><span>${label}</span><select data-f="${f.k}">${opts}</select></label>`;
   }
   if (f.type === 'textarea') return `<label class="rp-field"><span>${label}</span><textarea data-f="${f.k}" rows="2"></textarea></label>`;
-  const input = `<label class="rp-field"${tip}><span>${label}</span><input data-f="${f.k}" spellcheck="false"${tip}></label>`;
+  // f.note → an explanatory line under the input. Generic on purpose: several fields have
+  // meanings that are NOT obvious from a short label (e.g. consent audio is the prompt PLAYED to
+  // the speaker, not their recorded answer).
+  const note = f.note ? `<p class="note">${t(f.note)}</p>` : '';
+  const input = `<label class="rp-field"${tip}><span>${label}</span><input data-f="${f.k}" spellcheck="false"${tip}></label>${note}`;
   return input;
 }
 

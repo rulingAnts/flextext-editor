@@ -56,6 +56,27 @@ export function nativeAudioAvailable() {
   return !!(isNativeShell() && plugin());
 }
 
+/**
+ * Which shell is this engine running in? The panel shows it per device, because each install is a
+ * SEPARATE storage sandbox — the PWA, the recorder APK, the editor APK and the desktop app each
+ * have their own IndexedDB and their own enrollment, even though several load the same URL. A
+ * coworker using two of them legitimately appears as two devices.
+ *
+ * Returns one of: 'web' | 'android-recorder' | 'android-editor' | 'windows' | 'unknown-native'.
+ * Kept HERE rather than in app.js so nothing else has to know how native shells identify
+ * themselves — same containment rule as everything else in this file.
+ */
+export function nativePlatform() {
+  try {
+    const n = (typeof window !== 'undefined' && window.__NATIVE) || null;
+    if (!n) return 'web';
+    const rec = (typeof window !== 'undefined' && window.__MODE === 'record');
+    if (n === 'android') return rec ? 'android-recorder' : 'android-editor';
+    if (n === 'electron') return 'windows';
+    return 'unknown-native';
+  } catch { return 'web'; }
+}
+
 /** Engine build info stamped into the native shell at bundle time (for diagnostics). */
 export function nativeEngineInfo() {
   try { return (window.__NATIVE_ENGINE) || null; } catch { return null; }

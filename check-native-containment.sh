@@ -4,7 +4,7 @@
 #   ./check-native-containment.sh
 #
 # WHY: the Flextext Android apps (rulingAnts/flextext-native) wrap this engine. The engine
-# auto-updates; the APK does NOT. So native-facing code is confined to ONE file — js/native-audio.js
+# auto-updates; the APK does NOT. So native-facing code is confined to ONE file — docs/js/native-audio.js
 # — and everything else in the engine must be unaware Android exists. If a future change scatters
 # `window.Capacitor` references around the engine, an unrelated refactor can silently break
 # installed field apps that cannot be patched without shipping a new APK.
@@ -13,13 +13,13 @@
 set -uo pipefail
 cd "$(dirname "$0")"
 
-CHOKEPOINT="js/native-audio.js"
+CHOKEPOINT="docs/js/native-audio.js"
 fail=0
 
 echo "== native containment check =="
 
 # 1. Only the chokepoint may reference the Capacitor bridge.
-offenders=$(grep -rln "window\.Capacitor\|Capacitor\.Plugins" js/ 2>/dev/null | grep -v "^$CHOKEPOINT$" || true)
+offenders=$(grep -rln "window\.Capacitor\|Capacitor\.Plugins" docs/js/ 2>/dev/null | grep -v "^$CHOKEPOINT$" || true)
 if [ -n "$offenders" ]; then
   echo "FAIL: files outside $CHOKEPOINT reference the Capacitor bridge:" >&2
   echo "$offenders" | sed 's/^/  - /' >&2
@@ -53,8 +53,8 @@ fi
 #    (base64 through the bridge would OOM on a large capture). Match only real CALLS: skip
 #    vendor code, and skip comment lines — the chokepoint documents this rule in prose, and a
 #    check that cries wolf at its own documentation is a check people learn to ignore.
-readfile_hits=$(grep -rn "Filesystem\.readFile" js/ 2>/dev/null \
-  | grep -v "^js/vendor/" \
+readfile_hits=$(grep -rn "Filesystem\.readFile" docs/js/ 2>/dev/null \
+  | grep -v "^docs/js/vendor/" \
   | grep -vE "^[^:]+:[0-9]+:\s*(\*|//|/\*)" || true)
 if [ -n "$readfile_hits" ]; then
   echo "WARN: Filesystem.readFile is called — native captures must use convertFileSrc + fetch" >&2

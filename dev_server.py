@@ -27,7 +27,8 @@ import http.server
 import pathlib
 import socketserver
 
-ROOT = pathlib.Path(__file__).resolve().parent
+# The published site lives in docs/ (GitHub Pages serves productionWeb:/docs), so serve THAT
+ROOT = pathlib.Path(__file__).resolve().parent / "docs"
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):

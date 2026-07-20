@@ -15,7 +15,9 @@
 set -euo pipefail
 PORT="${1:-8012}"
 MIRROR="$HOME/GIT/.flextext-devserve"          # stable (gitignored-irrelevant; lives outside the repos)
-EDITOR="$HOME/GIT/flextext editor"
+# The published site now lives in docs/ (GitHub Pages serves productionWeb:/docs), so the
+# symlink that becomes /flextext-editor/ must point THERE, not at the repo root.
+EDITOR="$HOME/GIT/flextext editor/docs"
 RECORDER="$HOME/GIT/text-recorder"
 CROWD="$HOME/GIT/crowd-recorder"
 rm -rf "$MIRROR"; mkdir -p "$MIRROR"

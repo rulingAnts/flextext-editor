@@ -868,11 +868,18 @@ function assignModal(instanceId) {
     <label class="rp-field"><span>${esc(t('panel.assign.titleField'))}</span><input id="rp-as-title" spellcheck="false"></label>
     <label class="rp-field"><span>${esc(t('panel.assign.audio'))}</span><input id="rp-as-audio" spellcheck="false" placeholder="${esc(t('panel.assign.urlPh'))}"></label>
     <label class="rp-field"><span>${esc(t('panel.assign.flextext'))}</span><input id="rp-as-ft" spellcheck="false" placeholder="${esc(t('panel.assign.urlPh'))}"></label>
-    <div class="rp-notice rp-notice-sm"><b>${esc(t('panel.assign.roundTripTitle'))}</b>${t('panel.assign.roundTripBody')}</div>
+    <div class="rp-notice rp-notice-sm" id="rp-as-ft-warn" hidden><b>${esc(t('panel.assign.roundTripTitle'))}</b>${t('panel.assign.roundTripBody')}</div>
     <p class="rp-as-status" id="rp-as-status" role="status" hidden></p>
     <button class="primary-btn" data-m="send">${esc(t('panel.assign.send'))}</button>
     <button class="link-btn" data-m="cancel">${esc(t('panel.assign.cancel'))}</button>`);
   m.el.querySelector('[data-m="cancel"]').onclick = m.close;
+  // The FLEx round-trip warning is only relevant once they're actually attaching a flextext
+  // file — showing it on an audio-only assignment is noise that trains people to ignore it.
+  const ftInput = m.el.querySelector('#rp-as-ft');
+  const ftWarn = m.el.querySelector('#rp-as-ft-warn');
+  const syncFtWarn = () => { ftWarn.hidden = !ftInput.value.trim(); };
+  ftInput.addEventListener('input', syncFtWarn);
+  syncFtWarn();
   const say = (msg, kind) => {
     const s = m.el.querySelector('#rp-as-status');
     s.hidden = false; s.textContent = msg;

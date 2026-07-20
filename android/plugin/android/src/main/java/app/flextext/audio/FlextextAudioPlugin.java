@@ -489,6 +489,11 @@ public class FlextextAudioPlugin extends Plugin {
             }
             // Force the OS processors off on OUR session before a single frame is captured.
             effectsReport = configureEffects(recorder.getAudioSessionId());
+            // --- AudioRouting --- (remove this line to revert; see AudioRouting.java)
+            // Steer away from a wireless route BEFORE capture starts. Best-effort by design.
+            AudioRouting.preferBestInput(
+                (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE), recorder);
+            // --- end AudioRouting ---
             outFile = new File(captureDir(), "flextext-" + System.currentTimeMillis() + ".wav");
             out = new RandomAccessFile(outFile, "rw");
             writeWavHeaderPlaceholder(out, enc, rate, channels);
@@ -539,6 +544,14 @@ public class FlextextAudioPlugin extends Plugin {
         // "archivalClean" is the claim that actually matters: no OS processor left running on
         // this capture. It can be true even without an UNPROCESSED source.
         ret.put("archivalClean", effectsReport.getBoolean("allDisabled", false));
+        // --- AudioRouting --- (remove this line to revert; see AudioRouting.java)
+        // WHICH mic this actually ran on. Additive fields only, so CONTRACT_VERSION stays 1 and an
+        // engine that predates routing is unaffected. Must come AFTER startRecording(), because the
+        // route is not resolved until then. Deliberately does NOT touch archivalClean above: that
+        // field's documented meaning is "no OS processor left running", which stays true and
+        // separately measured. Combining the two claims is the web layer's job.
+        AudioRouting.describeRouted(recorder, ret);
+        // --- end AudioRouting ---
         call.resolve(ret);
     }
 

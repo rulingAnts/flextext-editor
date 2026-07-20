@@ -144,6 +144,30 @@ export class NativeRecorder {
     this._meterSub = null;
   }
 
+  /* Fold "which microphone" into the archival claim.
+   *
+   * The native side reports two INDEPENDENT facts and deliberately does not merge them:
+   * `archivalClean` means no OS processor was left running, and `routedWireless` means the audio
+   * arrived over Bluetooth. Either one alone can make a capture unfit as a preservation master, and
+   * a wireless route is the sneakier of the two — the file really is 24-bit/48k, it just contains
+   * narrowband compressed audio, so every number in it looks right.
+   *
+   * Merging happens HERE rather than in the plugin so the native side stays additive: a build that
+   * predates routing reports no routed* fields, `wireless` reads as false, and behaviour is
+   * unchanged. That is what lets the APK and the engine ship on different schedules. */
+  static _normalizeArchival(meta) {
+    if (!meta || typeof meta !== 'object') return meta;
+    const wireless = meta.routedWireless === true;
+    if (!wireless) return meta;
+    return {
+      ...meta,
+      archivalClean: false,
+      archivalReason: meta.routedNote
+        || 'Recorded through a wireless microphone, which compresses the audio before this app '
+         + 'receives it. Not archive quality regardless of the bit depth shown.',
+    };
+  }
+
   /** opts: { encoding, sampleRate, channels, notificationTitle, notificationText } */
   async start(opts = {}) {
     const p = plugin();
@@ -153,7 +177,7 @@ export class NativeRecorder {
     try {
       this._meterSub = await p.addListener('meter', (e) => { this._peak = (e && e.peak) || 0; });
     } catch { /* meter is cosmetic; never fail a recording over it */ }
-    this.meta = await p.start(opts);
+    this.meta = NativeRecorder._normalizeArchival(await p.start(opts));
     return this.meta;
   }
 

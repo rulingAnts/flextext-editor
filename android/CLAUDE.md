@@ -40,6 +40,57 @@ bytes" makes an APK rebuild a rare event.
 - Bit depth is a property of the *file*, not the microphone: a phone ADC yields ~16 effective bits,
   so extra depth is **headroom, not detail**. Never imply otherwise.
 
+## Input routing — WHICH microphone (added 2026-07-20, easy to revert)
+
+The plugin proved what **format** a device could capture but said nothing about the **source**.
+Those are independent, and the gap was real: a Bluetooth headset routes input through SCO at
+8/16 kHz, heavily processed, and Android will hand those samples to an `AudioRecord` configured for
+24-bit/48 kHz. The result is a genuine 24-bit/48 kHz WAV containing narrowband compressed audio —
+every number in it correct, the whole thing misleading, since upsampling adds no information. That
+is the fabricated-provenance failure the honesty contract exists to stop, arriving through a door
+the contract did not cover.
+
+**How likely, honestly:** less than that framing suggests. SCO input normally requires
+`startBluetoothSco()`, which this plugin never calls, so the built-in mic is the expected route on
+stock Android. But OEM behaviour varies across exactly the cheap phones this project targets, and
+newer Android can route BLE headsets. So the primary value is **making the route an observed fact
+instead of an assumption**; steering is a secondary safeguard.
+
+**What it does** (all in `plugin/.../AudioRouting.java`):
+- before capture, `setPreferredDevice()` toward the best-ranked input (USB > wired > built-in), and
+  only ever to *avoid* a wireless route — if the only mic is wireless, it records anyway;
+- after `startRecording()`, `getRoutedDevice()` reports what was actually used.
+
+**Added fields on `start()`** — additive only, so **`CONTRACT_VERSION` stays 1** and an engine that
+has never heard of routing is unaffected:
+
+| Field | Meaning |
+|---|---|
+| `routedDevice` | product name, or null if the OS did not say |
+| `routedType` | `builtin_mic` / `usb_device` / `bluetooth_sco` / `ble_headset` / … |
+| `routedWireless` | true only for SCO/BLE |
+| `routedArchival` | `!routedWireless` |
+| `routedNote` | plain-language explanation when not archival |
+
+`archivalClean` is deliberately **not** changed by the native side — its documented meaning is "no
+OS processor left running", which stays true and separately measured. The web chokepoint
+(`docs/js/native-audio.js` → `NativeRecorder._normalizeArchival`) merges the two claims, so an old
+APK reporting no `routed*` fields behaves exactly as before. That separation is what lets the APK
+and the engine ship on different schedules; keep it.
+
+### To revert (no APK users existed when this landed)
+1. `AudioRouting.ENABLED = false` — every method becomes a no-op, nothing else changes; **or**
+2. delete `AudioRouting.java` and the two blocks in `FlextextAudioPlugin.java` marked
+   `// --- AudioRouting ---` (no imports were added, so there is nothing else to unpick); **or**
+3. `git revert` the single commit that introduced it.
+
+The engine-side merge is inert without the native fields, so it can be left in place either way.
+
+**Unverified:** written and compiled, packaged into the APK (confirmed in the dex), but the routing
+behaviour itself has **never run on real hardware** — an emulator certifies nothing about audio
+routing, exactly as it certifies nothing about `UNPROCESSED`. Treat `routedType` as unproven until
+a real phone reports it.
+
 ## ⚠ THE JS↔NATIVE CONTRACT — read before touching engine code
 
 The web engine **auto-updates** (service worker today, OTA bundle later). The **APK does not.**

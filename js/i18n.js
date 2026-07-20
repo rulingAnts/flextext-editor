@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v105';
+export const ENGINE_VERSION = 'v106';
 
 const S = {
 en: {
@@ -706,6 +706,8 @@ internet after the first time.</p>
   'panel.notice.audioBody': '<p>If this device got the app <b>straight from the website</b> (you opened a link and tapped \u201cInstall\u201d), it has to record through the web browser \u2014 and browsers do not let any website control the microphone properly. The browser sets the recording volume itself, so a loud voice can be spoiled, and it <b>cannot record in the exact quality you choose here</b>: it always records one way and changes it afterwards.</p><p><b>That is perfectly fine for</b> typing up texts, glossing words, free translation, and rough first recordings you simply want to collect and listen to.</p><p><b>It is not good enough for</b> recordings you will send to a language archive, or use later for careful study of the sounds.</p><p>For archive-quality sound, use the <b>installed app</b> for that device instead \u2014 Android (from the Play Store or an APK file), Windows, or Mac. Those record straight from the microphone, in the exact quality you pick, and tell you plainly what was recorded.</p>',
   'panel.notice.audioGet': 'Download the Android, Windows and Mac versions',
   'panel.notice.audioSoon': 'The Android, Windows and Mac versions are still being prepared \u2014 a download link will appear here once they are ready.',
+  'panel.assign.roundTripTitle': 'If this file was exported from FLEx, test the round-trip first',
+  'panel.assign.roundTripBody': '<p>Sending a <code>.flextext</code> <b>exported from FLEx</b> is meant to work like this: your coworker edits it here, you import it back into FLEx, and FLEx merges only what changed while keeping everything else \u2014 charts, tags, analysis decisions, glosses, free translations and other writing-system fields.</p><p><b>In practice that merge has proved unreliable.</b> Before trusting it with real work, run the whole round-trip on a <b>copy</b> of your FLEx project and check that nothing was lost.</p><p>A file <b>produced by Flextext Editor</b> (rather than exported from FLEx) imports back into FLEx without this problem \u2014 just make sure the writing system codes match this device\'s settings.</p>',
   'panel.inst.noTexts': 'No texts reported yet.',
   'panel.inst.noInstall': 'No device has claimed the invite yet.',
   'panel.inst.lastSeen': 'Last seen {when}',
@@ -1564,6 +1566,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.notice.audioBody': '<p>Jika perangkat ini mendapat aplikasi <b>langsung dari situs web</b> (Anda membuka tautan lalu menekan \u201cPasang\u201d), maka ia harus merekam lewat peramban \u2014 dan peramban tidak mengizinkan situs web mana pun mengendalikan mikrofon dengan benar. Peramban sendiri yang mengatur volume rekaman, sehingga suara keras bisa rusak, dan ia <b>tidak bisa merekam persis pada mutu yang Anda pilih di sini</b>: ia selalu merekam dengan satu cara lalu mengubahnya sesudahnya.</p><p><b>Ini sudah cukup baik untuk</b> mengetik teks, memberi gloss pada kata, terjemahan bebas, dan rekaman awal kasar yang sekadar ingin Anda kumpulkan dan dengarkan.</p><p><b>Ini tidak cukup baik untuk</b> rekaman yang akan Anda kirim ke arsip bahasa, atau yang dipakai nanti untuk kajian bunyi secara cermat.</p><p>Untuk suara bermutu arsip, gunakan <b>aplikasi terpasang</b> untuk perangkat itu \u2014 Android (dari Play Store atau berkas APK), Windows, atau Mac. Versi tersebut merekam langsung dari mikrofon, persis pada mutu yang Anda pilih, dan memberi tahu dengan jelas apa yang direkam.</p>',
   'panel.notice.audioGet': 'Unduh versi Android, Windows, dan Mac',
   'panel.notice.audioSoon': 'Versi Android, Windows, dan Mac masih disiapkan \u2014 tautan unduhan akan muncul di sini setelah siap.',
+  'panel.assign.roundTripTitle': 'Jika berkas ini diekspor dari FLEx, uji dulu perjalanan bolak-baliknya',
+  'panel.assign.roundTripBody': '<p>Mengirim <code>.flextext</code> yang <b>diekspor dari FLEx</b> semestinya bekerja begini: rekan kerja Anda menyuntingnya di sini, Anda mengimpornya kembali ke FLEx, lalu FLEx menggabungkan hanya yang berubah sambil mempertahankan sisanya \u2014 bagan, tag, keputusan analisis, gloss, terjemahan bebas, dan isi ruas sistem penulisan lainnya.</p><p><b>Dalam praktiknya penggabungan itu terbukti tidak dapat diandalkan.</b> Sebelum memakainya untuk pekerjaan sungguhan, jalankan seluruh proses bolak-balik pada <b>salinan</b> proyek FLEx Anda dan periksa bahwa tidak ada yang hilang.</p><p>Berkas yang <b>dihasilkan oleh Flextext Editor</b> (bukan diekspor dari FLEx) dapat diimpor kembali ke FLEx tanpa masalah ini \u2014 pastikan saja kode sistem penulisannya cocok dengan pengaturan perangkat ini.</p>',
   'panel.inst.noTexts': 'Belum ada teks dilaporkan.',
   'panel.inst.noInstall': 'Belum ada perangkat yang mengeklaim undangan.',
   'panel.inst.lastSeen': 'Terakhir terlihat {when}',

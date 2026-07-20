@@ -935,6 +935,10 @@ main {
 .rp-notice > b { display: block; margin-bottom: 6px; font-size: 15px; color: #8a4b10; }
 .rp-notice p { margin: 7px 0; }
 .rp-notice p:last-child { margin-bottom: 0; }
+/* Compact variant for use inside a modal (e.g. the assignment dialog). */
+.rp-notice-sm { font-size: 13px; padding: 10px 12px; margin: 4px 0 14px; }
+.rp-notice-sm > b { font-size: 14px; }
+.rp-notice-sm code { background: rgba(0,0,0,.06); padding: 1px 4px; border-radius: 4px; }
 .rp-as-status { margin: 8px 0 4px; font-size: 13px; line-height: 1.4; white-space: pre-wrap; }
 .rp-as-status.rp-as-ok { color: #1f5d22; }
 .rp-as-status.rp-as-err { color: #a3261f; }

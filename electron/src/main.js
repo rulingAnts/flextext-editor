@@ -21,7 +21,7 @@
  *   4. update itself rarely.
  * ============================================================================================ */
 
-const { app, BrowserWindow, shell, session } = require('electron');
+const { app, BrowserWindow, shell, session, Menu } = require('electron');
 const path = require('node:path');
 const audio = require('./audio');
 const { registerAudioIpc } = require('./ipc');
@@ -29,6 +29,23 @@ const { registerAudioIpc } = require('./ipc');
 // Configurable, never hard-coded: moving off GitHub Pages would otherwise orphan every install.
 const APP_URL = process.env.FLEXTEXT_URL || 'https://rulingants.github.io/flextext-editor/';
 const APP_ORIGIN = new URL(APP_URL).origin;
+
+/* DEVELOPER TOOLS — off unless this build was made as a TEST build.
+ *
+ * Why off in a release: the renderer runs REMOTE content with a native bridge attached. DevTools is
+ * a console with that bridge in scope, and the people using this app cannot judge what is safe to
+ * paste into one — "run this to fix your problem" is a plausible thing for a stranger to say. It
+ * also lets a curious user break their own install in ways nobody can diagnose from a village.
+ *
+ * Why on in a test build: while proving the Windows capture path, being able to read the console is
+ * worth far more than the risk, and the audience is Seth.
+ *
+ * The flag is written at BUILD time (see .github/workflows/build-desktop.yml). Missing or malformed
+ * means OFF — a release must never gain devtools by accident, so the failure direction is closed.
+ * FLEXTEXT_DEVTOOLS=1 in the environment also enables it, for running from source.
+ */
+const { devToolsAllowed } = require('./flags');
+const DEVTOOLS = devToolsAllowed();
 
 let win = null;
 
@@ -45,10 +62,17 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: true,
       webviewTag: false,
+      // Blocks the shortcut, the context menu item, and any programmatic open — not just the menu.
+      devTools: DEVTOOLS,
     },
   });
 
   win.once('ready-to-show', () => win.show());
+
+  // The default application menu carries View -> Toggle Developer Tools. devTools:false already
+  // refuses to open it, but leaving a menu item that silently does nothing looks like a broken app,
+  // so the menu goes too. A test build keeps the normal menu.
+  if (!DEVTOOLS) Menu.setApplicationMenu(null);
 
   // The microphone permission prompt has no meaning here — the user already granted it to the app
   // at OS level, and capture runs natively, not through getUserMedia. Grant media, refuse the rest.

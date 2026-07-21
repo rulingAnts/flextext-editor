@@ -10,3 +10,4 @@ electron/node_modules/
 electron/dist/
 electron/out/
 electron/vendor/
+electron/src/build-flags.json

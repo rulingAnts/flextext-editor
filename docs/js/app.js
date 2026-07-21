@@ -2709,17 +2709,33 @@ function showInvitePasteModal() {
 // view (admin territory, reachable via "?"), shown only while UNenrolled — the
 // recorder paints its own copy inside renderRecordView.
 function applyInviteButton() {
-  const view = $('#view-help'); if (!view) return;
-  let btn = $('#btn-paste-invite');
-  if (!Sync.hasSession()) {
+  // ⚠ PUT IT WHERE THE PERSON ACTUALLY IS. This used to live ONLY at the bottom of the help screen,
+  // so enrolling an editor meant knowing to open Help first — while the recorder paints the same
+  // button straight onto its main view. Same feature, two very different chances of being found,
+  // and the editor's was effectively hidden (Seth: "it's buried in the help modal").
+  //
+  // The toolbar copy is the discoverable one; the help copy stays for anyone who went looking there.
+  // Both disappear once the device is enrolled, since claiming twice is not a thing.
+  const enrolled = Sync.hasSession();
+
+  const place = (host, id, cls) => {
+    if (!host) return;
+    let btn = document.getElementById(id);
+    if (enrolled) { if (btn) btn.hidden = true; return; }
     if (!btn) {
       btn = document.createElement('button');
-      btn.id = 'btn-paste-invite'; btn.type = 'button'; btn.className = 'secondary-btn delall-btn';
+      btn.id = id; btn.type = 'button'; btn.className = cls;
       btn.addEventListener('click', showInvitePasteModal);
-      view.appendChild(btn);
+      host.appendChild(btn);
     }
-    btn.textContent = t('invite.pasteBtn'); btn.hidden = false;
-  } else if (btn) { btn.hidden = true; }
+    btn.textContent = t('invite.pasteBtn');
+    btn.hidden = false;
+  };
+
+  // The editor's main screen — the toolbar it already uses for New text / Record.
+  place(document.querySelector('#view-texts .toolbar'), 'btn-paste-invite-bar', 'secondary-btn');
+  // The original help-screen copy, kept so nobody who learned that route loses it.
+  place($('#view-help'), 'btn-paste-invite', 'secondary-btn delall-btn');
 }
 
 // B (enrollment consent): show WHO is enrolling this device (Google name + avatar) and require the

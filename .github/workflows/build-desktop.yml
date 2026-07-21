@@ -26,6 +26,11 @@ on:
         type: boolean
         required: false
         default: false
+      devtools:
+        description: 'TEST BUILD: allow Developer Tools. Leave OFF for anything a field user runs.'
+        type: boolean
+        required: false
+        default: false
 
 # contents: write is needed ONLY to attach the build to a release. Everything else here reads.
 permissions:
@@ -55,6 +60,18 @@ jobs:
           New-Item -ItemType Directory -Force -Path electron/vendor | Out-Null
           Copy-Item $exe.FullName electron/vendor/ffmpeg.exe
           & electron/vendor/ffmpeg.exe -hide_banner -version | Select-Object -First 1
+
+      # Written into the packaged app; main.js reads it and treats missing/malformed as OFF, so a
+      # release cannot gain developer tools by accident. Deliberately NOT defaulted to the branch or
+      # anything implicit — someone has to ask for it.
+      - name: Stamp the build flags
+        shell: pwsh
+        working-directory: electron
+        run: |
+          $dev = '${{ inputs.devtools }}' -eq 'true'
+          @{ devTools = $dev } | ConvertTo-Json | Set-Content -Path src/build-flags.json
+          Write-Host "devTools = $dev"
+          Get-Content src/build-flags.json
 
       - name: Install
         working-directory: electron

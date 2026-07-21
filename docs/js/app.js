@@ -15,7 +15,7 @@ import { convertToMp3 } from './convert.js';
 // changing anything here; ./check-native-containment.sh enforces the boundary.
 import { isNativeShell, nativeAudioAvailable, NativeRecorder, releaseCapture, nativePlatform, nativeEngineInfo } from './native-audio.js';
 import { losslessSupported, recFormatSupported, PCMRecorder, encodeWav, encodeRecording, normalizePeak, reduceChannels,
-         normRecFormat, REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
+         normRecFormat, REC_FORMATS, DEFAULT_REC_FORMAT, pcmRamBudgetBytes, pcmCapStatus } from './record-pcm.js';
 import { makeZip } from './zip.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget } from './upload.js';
 import * as Sync from './sync.js';
@@ -1133,9 +1133,13 @@ function recordUI(state, extra = {}) {
     applyWarmGate();
   } else if (state === 'recording') {
     toggle.textContent = t('record.stop');
-    status.textContent = t('record.recording', { time: extra.time || '0:00' });
+    status.textContent = t('record.recording', { time: extra.time || '0:00' })
+      + (extra.warn ? '  ' + extra.warn : '');
   } else if (state === 'review') {
     status.textContent = t('record.review');
+    // Auto-stopped on the memory ceiling: say so plainly, and lead with the fact that the take
+    // survived. A recording that ends by itself reads as a failure unless it is named as not one.
+    if (rec?._memStopped && !rec._memStopWarned) { rec._memStopWarned = true; toast(t('record.memStopped'), 9000); }
     // If a lossless choice couldn't be honored on this browser, the take was
     // captured as compressed MP3 — say so once, plainly, so nobody assumes they
     // archived a lossless recording.
@@ -1454,13 +1458,40 @@ function startRecTimer() {
       stopRecording().catch(() => {});
       return;
     }
-    recordUI('recording', { time: fmtT(secs) });
+    // Second, INDEPENDENT ceiling: the memory this device can actually hold (lossless path only).
+    // Whichever limit comes first wins, and both stop to review with the take intact. This one is
+    // a safety net rather than a policy — without it the browser kills the tab instead, which
+    // loses the take silently and is not catchable, so there is no error path to fall back on.
+    const mem = pcmMemStatus();
+    if (mem.level === 'stop' && rec?.recording) {
+      rec._memStopped = true;
+      stopRecording().catch(() => {});
+      return;
+    }
+    let warn = '';
+    if (mem.level === 'warn') {
+      if (!rec._memWarned) { rec._memWarned = true; toast(t('record.memWarn'), 8000); }
+      warn = t('record.memLeft', { mins: Math.max(1, Math.ceil(mem.secsLeft / 60)) });
+    }
+    recordUI('recording', { time: fmtT(secs), warn });
   }, 250);
 }
 
+// Where the current take stands against the memory this device can hold. ONLY the lossless PCM
+// path accumulates in RAM — MediaRecorder flushes to disk-backed Blobs on its 3s timeslice, and
+// the native path writes straight to a file — so no other mode can reach this limit.
+function pcmMemStatus() {
+  if (!rec || rec.mode !== 'pcm' || !rec.pcmRec) return { frac: 0, secsLeft: Infinity, level: 'ok' };
+  return pcmCapStatus({
+    bytesHeld: rec.pcmRec.bytesHeld(),
+    bytesPerSecond: rec.pcmRec.bytesPerSecond(),
+    budgetBytes: pcmRamBudgetBytes(navigator.deviceMemory),
+  });
+}
+
 // Stop either capture mode and move to review. MediaRecorder finishes in its
-// own 'stop' listener; the PCM path flushes its tail and builds a fast
-// 32-bit-float WAV preview (native, instant) from the captured samples.
+// own 'stop' listener; the PCM path flushes its tail and builds a fast 16-bit
+// WAV preview (native, instant) from the captured samples.
 async function stopRecording() {
   if (!rec || !rec.recording) return;
   if (rec.mode === 'mr') {
@@ -1493,7 +1524,13 @@ async function stopRecording() {
     if (!channels.length || !channels[0].length) throw new Error('empty');
     rec.channels = channels;
     rec.sampleRate = sampleRate;
-    rec.blob = encodeWav(reduceChannels(channels), sampleRate, 32); // preview reflects what we'll save (mono/stereo)
+    // Preview reflects what we'll save (mono/stereo) but is encoded at 16-bit, NOT 32: it exists
+    // only to feed the <audio> element for a review listen and is thrown away at save — the file
+    // is re-encoded from rec.channels, which is untouched, so nothing about fidelity depends on
+    // it. At 32-bit this was the single largest allocation in the whole recording path (a full
+    // extra copy of the take, at the widest possible depth, on top of the take itself). For the
+    // 24/16-bit formats it is also a MORE honest preview, since those clamp identically.
+    rec.blob = encodeWav(reduceChannels(channels), sampleRate, 16);
     rec.url = URL.createObjectURL(rec.blob);
     $('#record-preview').src = rec.url;
     recordUI('review');
@@ -1521,6 +1558,17 @@ async function saveRecording() {
       // whole reason for the native path is an unmodified capture.)
       file = new File([rec.blob], `recording-${stamp}.wav`, { type: 'audio/wav' });
     } else if (rec.mode === 'pcm') {
+      // The preview blob has done its job (the review listen) and is a whole extra copy of the
+      // take. Release it BEFORE allocating the encode buffer — holding both at once is a large
+      // enough peak on a long take to be the thing that kills the tab, and the tab dying here
+      // loses a recording the user has already decided to keep. rec.channels is deliberately NOT
+      // freed: if the encode throws, the user lands back on review and Save must still work.
+      const pv = $('#record-preview');
+      try { pv.pause(); } catch { /* noop */ }
+      pv.removeAttribute('src');
+      try { pv.load(); } catch { /* noop */ }
+      if (rec.url) { URL.revokeObjectURL(rec.url); rec.url = null; }
+      rec.blob = null;
       // Decide mono-vs-stereo (drop a dead channel; keep real stereo) — never
       // averaging a live channel with an empty one. Then optional normalize.
       const chans = reduceChannels(rec.channels);

@@ -8,7 +8,7 @@
  *
  * Run: node test/wav-roundtrip.test.mjs
  */
-import { encodeWav } from '../docs/js/record-pcm.js';
+import { encodeWav, reduceChannels } from '../docs/js/record-pcm.js';
 import { parseWav, readWavHeader } from '../docs/js/convert.js';
 
 let fail = 0;
@@ -69,6 +69,27 @@ const hI = readWavHeader(extI), pI = parseWav(extI);
 const gI = pI[0] || (pI.channels && pI.channels[0]);
 ok(hI.audioFormat === 1 && hI.extensible && hI.bitsPerSample === 24, '24-bit: subformat resolved to PCM');
 ok(gI && [...gI].every((v, i) => near(v, sig[i], 1e-5)), '24-bit: samples round-trip');
+
+console.log('\npreview encode is non-destructive (the review listen must not touch the master)');
+{
+  // stopRecording() builds a preview WAV for the <audio> element at a DIFFERENT (cheaper) bit
+  // depth than the take will be saved at; saveRecording() then re-encodes the SAME channels to
+  // the archival format. If making a preview altered the samples, every saved recording would
+  // carry that damage invisibly — the preview itself would still sound perfectly correct.
+  const a = Float32Array.from(sig);
+  const b = Float32Array.from(sig);
+  const pristine24 = new Uint8Array(await encodeWav([b], 48000, 24).arrayBuffer());
+  await encodeWav(reduceChannels([a]), 48000, 16).arrayBuffer();   // the preview, as app.js makes it
+  const after24 = new Uint8Array(await encodeWav([a], 48000, 24).arrayBuffer());
+  ok([...a].every((v, i) => v === sig[i]), 'preview encode leaves the captured samples untouched');
+  ok(after24.length === pristine24.length && after24.every((v, i) => v === pristine24[i]),
+     'archival encode is byte-identical whether or not a preview was made first');
+  // Stereo goes through the same reduce step; it must not rewrite the channels either.
+  const s0 = Float32Array.from(sig), s1 = Float32Array.from(sig, (v) => -v);
+  await encodeWav(reduceChannels([s0, s1]), 48000, 16).arrayBuffer();
+  ok([...s0].every((v, i) => v === sig[i]) && [...s1].every((v, i) => v === -sig[i]),
+     'stereo: reduceChannels + preview leave both channels untouched');
+}
 
 console.log(fail ? `\nFAILED (${fail})\n` : '\nPASS: shared parser is intact for the PWA and the shell.\n');
 process.exit(fail ? 1 : 0);

@@ -184,10 +184,29 @@ export class PCMRecorder {
     const nch = this.chanChunks ? this.chanChunks.length : 1;
     const channels = [];
     for (let c = 0; c < nch; c++) {
-      channels.push(concatFloat32(this.chanChunks ? this.chanChunks[c] : [], this.total));
+      // Hand each channel's chunk list to concatFloat32 and drop OUR reference to it first, so the
+      // chunks can be collected as they are copied instead of the whole take existing twice. On a
+      // long take that doubling is a big enough allocation to be the thing that kills the tab.
+      const chunks = this.chanChunks ? this.chanChunks[c] : [];
+      if (this.chanChunks) this.chanChunks[c] = null;
+      channels.push(concatFloat32(chunks, this.total));
     }
     this.chanChunks = null;
     return { channels, sampleRate: this.sampleRate, duration: this.sampleRate ? this.total / this.sampleRate : 0 };
+  }
+
+  /* Bytes of Float32 PCM this recorder is currently holding in memory (take + any warm ring
+   * buffer). This is the REAL number, not an estimate from elapsed time: it already accounts for
+   * however many channels the device actually delivered, which is the whole difficulty — a stereo
+   * device fills memory twice as fast as a mono one at the same clock time. */
+  bytesHeld() {
+    return ((this.total || 0) + (this._preTotal || 0)) * (this.nch || 1) * 4;
+  }
+
+  /* Rate that number grows at. Used to turn "budget remaining" into "seconds remaining", which is
+   * the only form of it a field user can act on. */
+  bytesPerSecond() {
+    return (this.sampleRate || 0) * (this.nch || 1) * 4;
   }
 
   // Releasing the mic must also drop the ring buffer: warm audio was captured before anyone chose
@@ -208,10 +227,66 @@ export class PCMRecorder {
   }
 }
 
+/* ---- RAM safety net for the lossless path ---------------------------------
+ * The AudioWorklet take lives as Float32 in memory until it is encoded, so a long take on a cheap
+ * phone can exhaust the renderer. Running out there is NOT a catchable error — the browser kills
+ * the tab, and the recording is gone with no message and no way to recover it. That is the worst
+ * failure this app has, so a take is stopped (to REVIEW, fully intact) before reaching that point,
+ * with a warning first.
+ *
+ * These two functions are pure and exported so the test suite drives the REAL logic rather than a
+ * re-implementation of it — the same reason _bufferPreRoll is its own method.
+ */
+
+/* How much Float32 PCM we allow in memory, from navigator.deviceMemory (GiB; undefined on Firefox
+ * and Safari). Peak usage is ~2.5x this figure during the final encode, so the fraction sits well
+ * below what the device actually has. The unknown-device default assumes a desktop: the phones
+ * this guard exists for (Chromium on Android) all report deviceMemory, and capping an unknown
+ * browser aggressively would penalise exactly the machines used to record masters (Firefox on a
+ * laptop), which have no shortage of RAM. */
+export function pcmRamBudgetBytes(deviceMemoryGiB) {
+  const MB = 1024 * 1024;
+  if (!deviceMemoryGiB || !(deviceMemoryGiB > 0)) return 640 * MB;
+  // ⚠ THE FLOOR MUST STAY BELOW WHAT THE FORMULA GIVES THE WEAKEST DEVICE.
+  // A 192 MB floor (the first version of this) INVERTED the whole point: a 0.5 GiB phone's formula
+  // says 92 MB, but the floor raised it to 192 MB — a ~480 MB peak on a half-gigabyte device, i.e.
+  // the most fragile hardware got the largest risk, which is the opposite of a safety net. A floor
+  // exists so the budget is never absurdly small; it must never hand a device MORE than its own
+  // memory justifies.
+  //
+  // 0.10 rather than 0.18 because the asymmetry is severe: hitting the cap is SAFE (the take stops
+  // to review, fully intact), while guessing high means the browser kills the tab and the recording
+  // is gone with no error to catch. Against Seth's actual distribution — 1-10 min typical, 2-3 min
+  // average, 45 min rare — 0.10 still allows ~9 min mono on a 1 GiB phone and ~36 min on a 4 GiB
+  // one, so the cap only bites on the rare long take, and bites safely.
+  //
+  // ⚠ STILL UNMEASURED on real low-end hardware. This is reasoned, not observed. Retune here once a
+  // cheap Android phone has been tested; pcmCapStatus and this function are pure and covered by
+  // test/record-memory.test.mjs, so changing the numbers is a one-line edit.
+  return Math.max(48 * MB, Math.min(1024 * MB, deviceMemoryGiB * 1024 * 0.10 * MB));
+}
+
+/* Where a take stands against that budget. 'warn' leaves time to reach a natural stopping point;
+ * 'stop' means stop now, keeping the take. */
+export function pcmCapStatus({ bytesHeld, bytesPerSecond, budgetBytes, warnFrac = 0.8 }) {
+  if (!(budgetBytes > 0)) return { frac: 0, secsLeft: Infinity, level: 'ok' };
+  const frac = bytesHeld / budgetBytes;
+  const secsLeft = bytesPerSecond > 0
+    ? Math.max(0, (budgetBytes - bytesHeld) / bytesPerSecond)
+    : Infinity;
+  return { frac, secsLeft, level: frac >= 1 ? 'stop' : frac >= warnFrac ? 'warn' : 'ok' };
+}
+
+/* ⚠ CONSUMES `chunks`: each entry is released as it is copied, so the take does not briefly exist
+ * twice. Callers must not reuse the array afterwards (stop() drops its reference first). */
 function concatFloat32(chunks, total) {
   const out = new Float32Array(total);
   let o = 0;
-  for (const c of chunks) { out.set(c, o); o += c.length; }
+  for (let i = 0; i < chunks.length; i++) {
+    const c = chunks[i];
+    out.set(c, o); o += c.length;
+    chunks[i] = null;
+  }
   return out;
 }
 

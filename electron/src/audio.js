@@ -36,13 +36,30 @@ function captureDir() {
   return d;
 }
 
-function ffmpegPath() {
-  // A bundled binary wins (that is how a shipped installer will work); otherwise fall back to PATH
-  // so a developer machine works with no extra setup.
-  const bundled = path.join(process.resourcesPath || '', 'ffmpeg' + (process.platform === 'win32' ? '.exe' : ''));
-  if (fs.existsSync(bundled)) return bundled;
-  return process.env.FLEXTEXT_FFMPEG || 'ffmpeg';
+/* WHICH ffmpeg — and it must be unambiguous.
+ *
+ * ⚠ THE FALLBACK CAN HIDE A BROKEN BUNDLE. If the packaged binary is missing, this silently uses
+ * whatever `ffmpeg` is on PATH. On a developer machine that works, so the app looks fine while
+ * shipping a bundle that fails on every field laptop — where PATH will never have ffmpeg. Installing
+ * ffmpeg to debug a problem is enough to make the symptom vanish and the cause survive.
+ *
+ * So the resolution is REPORTED, not just performed: which binary, why it was chosen, whether the
+ * bundled path exists, and where it was looked for.
+ */
+function ffmpegInfo() {
+  const exe = 'ffmpeg' + (process.platform === 'win32' ? '.exe' : '');
+  const bundledPath = path.join(process.resourcesPath || '', exe);
+  let bundledExists = false;
+  try { bundledExists = fs.existsSync(bundledPath); } catch { /* unreadable counts as absent */ }
+  if (bundledExists) return { path: bundledPath, source: 'bundled', bundledPath, bundledExists };
+  if (process.env.FLEXTEXT_FFMPEG) {
+    return { path: process.env.FLEXTEXT_FFMPEG, source: 'env(FLEXTEXT_FFMPEG)', bundledPath, bundledExists };
+  }
+  // ⚠ A field machine will NOT have this. Reaching here in a packaged app is a packaging bug.
+  return { path: exe, source: 'system PATH (NOT bundled)', bundledPath, bundledExists };
 }
+
+function ffmpegPath() { return ffmpegInfo().path; }
 
 const IS_WIN = process.platform === 'win32';
 const INPUT_FORMAT = IS_WIN ? 'dshow' : 'avfoundation';
@@ -152,15 +169,23 @@ function classify(name) {
 }
 
 async function capabilities() {
-  const ff = ffmpegPath();
+  const info = ffmpegInfo();
+  const ff = info.path;
   const probe = await run(ff, ['-hide_banner', '-version'], 8000);
   const haveFfmpeg = !probe.err;
+  const ffmpeg = {
+    ...info,
+    working: haveFfmpeg,
+    version: haveFfmpeg ? (probe.stdout || probe.stderr).split('\n')[0].trim() : null,
+    resourcesPath: process.resourcesPath || null,
+  };
 
   if (!haveFfmpeg) {
     // Be explicit rather than pretending: the engine will fall back to browser capture.
     return {
       platform: 'electron', contractVersion: CONTRACT_VERSION, probed: false,
       os: process.platform, device: os.hostname(), encodings: [], devices: [],
+      ffmpeg,
       error: 'ffmpeg_not_found',
       note: 'Native capture unavailable — ffmpeg was not found. The app will use browser capture.',
     };
@@ -177,6 +202,7 @@ async function capabilities() {
   return {
     platform: 'electron',
     contractVersion: CONTRACT_VERSION,
+    ffmpeg,
     os: process.platform,
     device: os.hostname(),
     devices,

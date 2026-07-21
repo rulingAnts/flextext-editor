@@ -191,6 +191,20 @@ app.whenReady().then(async () => {
   // machine cannot record: was ffmpeg found, and did it see any microphone at all?
   try {
     const caps = await audio.capabilities();
+    // WHICH ffmpeg, stated first and unambiguously. A packaged app falling back to PATH is a
+    // PACKAGING BUG that a developer machine hides, because installing ffmpeg to investigate makes
+    // the symptom disappear while the cause ships to every field laptop.
+    const ff = caps.ffmpeg || {};
+    log.info('ffmpeg', {
+      source: ff.source, path: ff.path, working: ff.working, version: ff.version,
+      bundledPath: ff.bundledPath, bundledExists: ff.bundledExists, resourcesPath: ff.resourcesPath,
+    });
+    if (ff.source && ff.source !== 'bundled') {
+      log.error(`⚠ NOT USING THE BUNDLED FFMPEG — resolved via ${ff.source}. The packaged binary was `
+              + `expected at ${ff.bundledPath} and ${ff.bundledExists ? 'exists' : 'IS MISSING'}. `
+              + 'A field machine has no ffmpeg on PATH, so this build would fail there even if it '
+              + 'works here.');
+    }
     log.info('audio capabilities', {
       probed: caps.probed, error: caps.error || null,
       deviceCount: (caps.devices || []).length,

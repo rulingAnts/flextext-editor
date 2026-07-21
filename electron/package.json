@@ -6,9 +6,37 @@
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
-    "start:local": "FLEXTEXT_URL=http://localhost:8012/flextext-editor/ electron ."
+    "start:local": "FLEXTEXT_URL=http://localhost:8012/flextext-editor/ electron .",
+    "dist:win": "electron-builder --win --x64 --publish never"
   },
   "devDependencies": {
-    "electron": "^43.1.1"
+    "electron": "^43.1.1",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "app.flextext.desktop",
+    "productName": "Flextext Desktop",
+    "directories": { "output": "dist" },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "//": [
+      "ffmpeg.exe ships in resources/ because audio.js looks at process.resourcesPath FIRST. It is",
+      "invoked as a separate process and never linked, so its GPL terms do not reach this app's own",
+      "code. Without it the shell still opens, but reports ffmpeg_not_found and the engine falls back",
+      "to browser capture - which defeats the only reason this shell exists.",
+      "PORTABLE, not an installer: no admin rights, nothing in Program Files or the registry, and it",
+      "uninstalls by deleting the file. That matters on a machine that is not ours."
+    ],
+    "extraResources": [
+      { "from": "vendor/ffmpeg.exe", "to": "ffmpeg.exe" }
+    ],
+    "win": {
+      "target": [{ "target": "portable", "arch": ["x64"] }]
+    },
+    "portable": {
+      "artifactName": "Flextext-Desktop-${version}-x64-portable.exe"
+    }
   }
 }

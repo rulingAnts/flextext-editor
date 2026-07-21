@@ -1,0 +1,86 @@
+# Build the Windows desktop shell.
+#
+# MANUAL ONLY — no push trigger and no schedule. This runs when someone asks for a build, because a
+# build is only useful when a person is waiting to test it.
+#
+# COST: free. Actions on a PUBLIC repo with standard GitHub-hosted runners is always free, including
+# windows-latest; the 2x Windows multiplier applies to BILLABLE (private-repo) minutes, which this is
+# not. Standard runner only — no larger or GPU labels.
+#
+# ⚠ THE OUTPUT IS UNSIGNED. Windows SmartScreen will warn on first run ("Windows protected your PC")
+# and the user must choose More info -> Run anyway. Code signing needs a paid certificate; until
+# then that warning is expected, and anyone testing this needs to be told so in advance rather than
+# discovering it and assuming the app is broken.
+
+name: Build desktop (Windows)
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'Site the shell loads (blank = production)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # ffmpeg IS the capture engine on desktop — audio.js shells out to it. Bundling it is what
+      # makes this a self-contained app rather than one that silently falls back to browser capture
+      # on any machine that happens not to have ffmpeg installed. A field laptop never will.
+      - name: Fetch ffmpeg for bundling
+        shell: pwsh
+        run: |
+          $url = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip'
+          Invoke-WebRequest -Uri $url -OutFile ffmpeg.zip
+          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg-extract
+          $exe = Get-ChildItem -Path ffmpeg-extract -Filter ffmpeg.exe -Recurse | Select-Object -First 1
+          if (-not $exe) { throw 'ffmpeg.exe not found in the downloaded archive' }
+          New-Item -ItemType Directory -Force -Path electron/vendor | Out-Null
+          Copy-Item $exe.FullName electron/vendor/ffmpeg.exe
+          & electron/vendor/ffmpeg.exe -hide_banner -version | Select-Object -First 1
+
+      - name: Install
+        working-directory: electron
+        run: npm install
+
+      - name: Build portable exe
+        working-directory: electron
+        env:
+          FLEXTEXT_URL: ${{ github.event.inputs.url }}
+        run: npm run dist:win
+
+      # Prove the bundle actually contains what it needs, rather than trusting a green build. A
+      # missing ffmpeg.exe produces a shell that opens, looks fine, and cannot record - the exact
+      # failure that is invisible until someone is in a village trying to use it.
+      - name: Verify the artifact
+        shell: pwsh
+        working-directory: electron
+        run: |
+          $exe = Get-ChildItem dist -Filter '*portable*.exe' | Select-Object -First 1
+          if (-not $exe) { throw 'No portable exe was produced' }
+          Write-Host ("built: {0} ({1:N1} MB)" -f $exe.Name, ($exe.Length / 1MB))
+          if ($exe.Length -lt 40MB) { throw 'Artifact is implausibly small - Electron did not package' }
+          $unpacked = Get-ChildItem dist -Directory -Filter '*unpacked*' | Select-Object -First 1
+          if ($unpacked) {
+            $ff = Join-Path $unpacked.FullName 'resources\ffmpeg.exe'
+            if (-not (Test-Path $ff)) { throw 'ffmpeg.exe is NOT in resources - the app could not record' }
+            Write-Host 'ffmpeg.exe present in resources'
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flextext-desktop-windows-x64
+          path: electron/dist/*.exe
+          if-no-files-found: error
+          retention-days: 14

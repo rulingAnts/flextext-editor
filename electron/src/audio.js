@@ -112,6 +112,17 @@ async function listDevicesUncached() {
  * user and marks the capture as non-archival. We still RECORD over it — refusing would strand a
  * field worker mid-session, which is a worse outcome than a quality note — we just never let the
  * label outrun the source. */
+/* Desktop input categories -> the shared vocabulary the Android plugin uses, so the engine can
+ * render both without knowing which platform it is on. 'virtual' has no Android equivalent (a phone
+ * has no loopback devices), so it is desktop-only and the engine must tolerate it. */
+const DEVICE_TYPE = {
+  interface: 'usb_device',
+  builtin: 'builtin_mic',
+  wireless: 'bluetooth_sco',
+  virtual: 'virtual',
+  unknown: 'unknown',
+};
+
 function classify(name) {
   const n = String(name).toLowerCase();
   // Wireless/relayed inputs: compressed, processed, and not an archival source at any bit depth.
@@ -250,11 +261,19 @@ async function start(opts = {}, onPeak) {
       encoding, sampleRate, channels,
       bits: BITS[encoding], float: encoding === 'float32', label: LABEL[encoding],
       device: dev.name, deviceId: dev.id,
-      // What the audio actually came from. `archival: false` travels with the recording so the
-      // researcher sees WHY a take is not preservation grade, instead of inferring it later from a
-      // file that says 24-bit and sounds like a phone call.
-      deviceKind: dev.kind, deviceNote: dev.note || null,
-      archival: !dev.wireless && dev.kind !== 'virtual',
+      /* ⚠ ONE CONTRACT, TWO TRANSPORTS — these field NAMES are shared with the Android plugin.
+       *
+       * They diverged once: this shell reported device/deviceKind/archival while the Android plugin
+       * reported routedDevice/routedType/archivalClean, so the engine's describeCapture() — written
+       * against the Android names — silently found nothing here and the desktop showed a recording
+       * with no microphone at all. Nothing errored; the information just vanished. Both sides must
+       * use the SAME names or the engine has to special-case a platform, which is exactly what the
+       * chokepoint exists to prevent. */
+      routedDevice: dev.name,
+      routedType: DEVICE_TYPE[dev.kind] || 'unknown',
+      routedWireless: !!dev.wireless,
+      routedNote: dev.note || null,
+      archivalClean: !dev.wireless && dev.kind !== 'virtual',
       archivalReason: dev.note || null,
       requested: { encoding: opts.encoding || encoding, sampleRate: opts.sampleRate || sampleRate, label: LABEL[opts.encoding] || LABEL[encoding] },
       substituted: false, substitutionReason: null,

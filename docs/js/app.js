@@ -1495,6 +1495,7 @@ function startRecTimer() {
 const CAPTURE_DEV_KEYS = new Set([
   'builtin_mic', 'wired_headset', 'usb_device', 'usb_accessory', 'usb_headset',
   'bluetooth_sco', 'ble_headset', 'telephony', 'unknown',
+  'virtual',   // desktop only — loopback/virtual cables, never a real microphone
 ]);
 
 /* Render "recorded with X" under the review player, plus an honest archival verdict.

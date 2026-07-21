@@ -67,6 +67,7 @@ function run(cmd, args, timeoutMs = 15000) {
 // Enumerating devices means running ffmpeg and parsing its output — over a second on macOS. That is
 // fine when the settings screen opens, but not on the record button, so the result is cached briefly.
 // The TTL is short because a USB interface can be plugged in at any moment and must still show up.
+let lastEnumerationOutput = '';
 let deviceCache = { at: 0, list: null };
 const DEVICE_TTL_MS = 30000;
 
@@ -87,6 +88,11 @@ async function listDevicesUncached() {
     : ['-hide_banner', '-f', 'avfoundation', '-list_devices', 'true', '-i', ''];
   const { stderr } = await run(ff, args);
   const out = [];
+  // Kept so the caller can log ffmpeg's RAW output when parsing yields nothing. The dshow branch
+  // below has never run outside CI, and a regex that fails to match produces exactly the same empty
+  // list as a machine with no microphone. Without the raw text those two are indistinguishable from
+  // a log file, and one is a five-minute fix while the other is a hardware problem.
+  lastEnumerationOutput = stderr;
   if (IS_WIN) {
     // ... "Microphone (Realtek)" (audio)
     const re = /"([^"]+)"\s*\(audio\)/g;
@@ -386,6 +392,7 @@ async function cleanupCaptures(keep = []) {
 }
 
 module.exports = {
+  lastEnumerationOutput: () => lastEnumerationOutput,
   capabilities, start, stop, cancel,
   readChunk, deleteCapture, listCaptures, cleanupCaptures,
 };

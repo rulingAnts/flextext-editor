@@ -107,6 +107,24 @@ function createWindow() {
   });
   win.webContents.on('will-attach-webview', (e) => e.preventDefault());
 
+  // Chromium enumerates devices independently of ffmpeg. Comparing the two is what separates "this
+  // machine has no working microphone" from "our dshow parser is broken" — the single question the
+  // first Windows report could not answer.
+  win.webContents.once('did-finish-load', async () => {
+    try {
+      const seen = await win.webContents.executeJavaScript(
+        `navigator.mediaDevices.enumerateDevices()
+           .then(ds => ds.filter(d => d.kind === 'audioinput').map(d => d.label || '(unlabelled)'))
+           .catch(e => ['ERROR: ' + e.name])`);
+      log.info('chromium audio inputs', { count: seen.length, labels: seen });
+      if (!seen.length) {
+        log.error('CHROMIUM ALSO SEES NO MICROPHONE. Both enumerations are independent, so this '
+                + 'points at the machine (no input device, a disabled device, or a driver), not at '
+                + 'our device-name parsing.');
+      }
+    } catch (e) { log.warn('could not enumerate from the renderer', String(e && e.message)); }
+  });
+
   win.loadURL(APP_URL).catch(() => showOfflineNotice());
 
   // First launch NEEDS the network (afterwards the service worker serves it). Say so in plain
@@ -180,9 +198,12 @@ app.whenReady().then(async () => {
     });
     if (caps.error) log.error('NATIVE CAPTURE UNAVAILABLE:', caps.error, caps.note || '');
     else if (!(caps.devices || []).length) {
-      log.error('NATIVE CAPTURE FOUND NO MICROPHONE. On Windows this is either the OS privacy '
-              + 'setting (Settings > Privacy & security > Microphone > "Let desktop apps access '
-              + 'your microphone") or a device-name parsing failure in listDevices().');
+      log.error('NATIVE CAPTURE FOUND NO MICROPHONE.');
+      // The decisive evidence: an unmatched regex and a machine with no microphone produce an
+      // IDENTICAL empty list. The raw text distinguishes them, and one is a five-minute fix.
+      log.error('ffmpeg raw enumeration output follows >>>');
+      log.error(audio.lastEnumerationOutput() || '(ffmpeg produced no output at all)');
+      log.error('<<< end raw enumeration output');
     }
   } catch (e) { log.error('capabilities threw', String(e && e.message)); }
   createWindow();

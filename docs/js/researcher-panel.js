@@ -1756,7 +1756,13 @@ function fieldHtml(f) {
   }
   if (f.type === 'select') {
     const opts = f.opts.map((o) => `<option value="${o}">${esc(f.optPrefix ? t(f.optPrefix + o) : o)}</option>`).join('');
-    return `<label class="rp-field"><span>${label}</span><select data-f="${f.k}">${opts}</select></label>`;
+    // The recording format is the one setting whose consequences are invisible here: it decides how
+    // long a cheap phone can record before the app has to stop it, and whether the result can be
+    // called an archival master at all. Neither is guessable from a format name in a dropdown.
+    const help = f.k === 'recordFormat'
+      ? `<p class="note"><a href="/flextext-editor/help/recording-limits.html" target="_blank" rel="noopener">${esc(t('panel.f.recordFormatHelp'))}</a></p>`
+      : '';
+    return `<label class="rp-field"><span>${label}</span><select data-f="${f.k}">${opts}</select></label>${help}`;
   }
   if (f.type === 'textarea') return `<label class="rp-field"><span>${label}</span><textarea data-f="${f.k}" rows="2"></textarea></label>`;
   // f.note → an explanatory line under the input. Generic on purpose: several fields have

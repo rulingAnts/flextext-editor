@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recording limits on real devices — FlexText</title>
+<style>
+  body { font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 720px; margin: 0 auto; padding: 20px; color: #1c2733; }
+  h1 { font-size: 1.5rem; } h2 { font-size: 1.15rem; margin-top: 1.6em; } h3 { font-size: 1rem; margin-top: 1.3em; }
+  .warn { background: #fdf3d7; border: 1px solid #e5c66a; border-radius: 8px; padding: 12px 14px; }
+  .good { background: #e6f4ea; border: 1px solid #9ccbb0; border-radius: 8px; padding: 12px 14px; }
+  code { background: #eef2f6; padding: 1px 5px; border-radius: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+  th, td { border: 1px solid #cfd8e0; padding: 6px 9px; text-align: left; font-size: 14px; }
+  th { background: #eef2f6; }
+  figcaption, .note { color: #5b6b7a; font-size: 14px; }
+  hr { margin: 2.2em 0; border: 0; border-top: 1px solid #cfd8e0; }
+</style>
+</head>
+<body>
+
+<h1>Recording limits on real devices</h1>
+<p class="note">For researchers setting up a worker's device. It covers what a cheap phone can and cannot do,
+what the app does when it reaches a limit, and which settings to choose when a device is too limited for
+archive-quality recording.</p>
+
+<p class="good"><strong>The short version.</strong> A recording is never lost because a device ran out of room.
+The app stops the recording first, keeps it, and offers it for review as normal. What you lose is <em>length</em>,
+not the take. If workers are regularly hitting the limit, the fix is a different recording format — see
+<a href="#practical">When a device is too limited</a>.</p>
+
+<h2>Why lossless recording has a length limit</h2>
+<p>The lossless formats (WAV and FLAC) are held in the phone's memory while recording, and only written out when
+the worker saves. Longer recording means more memory. If a device ran out completely, the browser would close the
+page and <strong>the recording would be gone with no warning and no way to get it back</strong> — so the app stops
+before that point instead.</p>
+<p>The compressed formats (Opus and MP3) do <strong>not</strong> work this way. They are written out continuously
+while recording, so they have no memory limit at all. That difference is the single most useful thing to know on
+this page.</p>
+
+<h2>What the app actually does</h2>
+<p>There are two separate limits, and whichever comes first wins:</p>
+<ol>
+  <li><strong>The maximum length you set</strong> for that worker, if you set one.</li>
+  <li><strong>A memory limit the app works out from the device itself.</strong> You do not set this and cannot
+      turn it off — it is the safety net.</li>
+</ol>
+<p>As a recording approaches the memory limit, the worker sees <em>"About 3 min left on this device"</em> on the
+recording screen, plus a one-time message asking them to finish soon. If they keep going, the recording
+<strong>stops by itself and goes straight to the review screen with the recording intact</strong>, and says so
+plainly: nothing was lost, listen to it and save it.</p>
+
+<h3>Roughly how long, by device</h3>
+<p>These are for the usual 48 kHz setting. A phone microphone is normally mono; stereo halves every figure.</p>
+<table>
+  <tr><th>Device memory</th><th>Lossless (WAV/FLAC), mono</th><th>Opus / MP3</th></tr>
+  <tr><td>0.5 GB (very cheap)</td><td>about 4–5 minutes</td><td>no limit</td></tr>
+  <tr><td>1 GB</td><td>about 9 minutes</td><td>no limit</td></tr>
+  <tr><td>2 GB</td><td>about 18 minutes</td><td>no limit</td></tr>
+  <tr><td>4 GB</td><td>about 37 minutes</td><td>no limit</td></tr>
+  <tr><td>Desktop / laptop</td><td>about an hour</td><td>no limit</td></tr>
+</table>
+<p class="note">The app reads the device's memory to decide. Firefox and Safari do not report it, so those are
+treated as a desktop. These figures are calculated, not yet measured on a range of real cheap phones — if a device
+behaves worse than this table suggests, that is worth reporting.</p>
+
+<h2>What actually ends up in the saved file</h2>
+<ul>
+  <li><strong>The file is made fresh from the captured audio when the worker saves.</strong> The clip they hear on
+      the review screen is a throwaway preview at lower quality; it never becomes the saved file, and it never
+      affects it.</li>
+  <li><strong>Recordings start a few seconds early.</strong> The app keeps the last few seconds of sound from
+      before the Record button was pressed, because speakers often begin before the button. Expect up to about
+      four seconds of room noise at the start of every file. This is deliberate — better a little room noise than
+      a missing first word.</li>
+  <li><strong>If the device cannot do the format you chose</strong>, the app records in the closest one it can and
+      says which. It never silently gives you something different.</li>
+  <li><strong>The file that uploads is the file that was saved</strong> — nothing is re-compressed on the way out.</li>
+</ul>
+
+<h2 id="archive">What a phone genuinely cannot do</h2>
+<p>Some archive requirements cannot be met by a phone browser, no matter which settings you choose. It is better to
+know this than to collect files that look compliant and are not.</p>
+
+<h3>"24-bit" from a phone is not the same as 24-bit from a recorder</h3>
+<p>Bit depth is a property of the <em>file</em>, not the microphone. A phone's audio hardware resolves roughly 16
+bits of real detail. Recording at 24-bit gives you headroom — protection against distortion — but not extra
+detail. The file is honestly 24-bit; the microphone was never that good. Do not describe such a file to an archive
+as though it came from a 24-bit recorder.</p>
+
+<h3>A web browser cannot capture a chosen bit depth at all</h3>
+<p>By the design of the web audio standard, a browser always captures in a 32-bit floating-point form and the app
+converts afterwards. The conversion is faithful, but "the worker chose 24-bit and the device truly recorded 24-bit"
+is <strong>only</strong> provable in the Android app, which records through the phone's audio system directly.</p>
+
+<h3>Automatic gain</h3>
+<p>The app leaves automatic gain <strong>off</strong> by default, which is what archives require. There is an
+<code>auto</code> setting that switches it on in Chrome-based browsers, because Chrome drives the microphone level
+high and gain control is the only protection a browser has against distortion. <strong>Recordings made with
+automatic gain on are not archival masters</strong> — the loudness has been altered while recording. Use it only
+when the alternative is a distorted, unusable recording.</p>
+
+<h3>Wireless microphones are never archive quality</h3>
+<p>A Bluetooth headset compresses and processes the audio before the app ever receives it, so the result is not a
+master no matter which bit depth is selected. The Android app reports which microphone was actually used and marks
+such recordings accordingly. Use the phone's built-in microphone, or a plug-in one.</p>
+
+<h2 id="practical">When a device is too limited — what to change</h2>
+<p>In order of how much they help, and how much they cost you:</p>
+
+<h3>1. Record mono, not stereo (free)</h3>
+<p>Doubles the available length and loses nothing — one person talking into a phone is a mono source.</p>
+
+<h3>2. Use 16-bit WAV instead of 24-bit (nearly free)</h3>
+<p>Half the memory, so double the length, and on a phone microphone you give up almost nothing real — the extra
+depth was headroom rather than detail. 16-bit WAV is uncompressed and accepted by most archives. <strong>This is
+usually the best first change</strong> on a limited device.</p>
+
+<h3>3. Set a maximum length yourself</h3>
+<p>If you set it below the device's own limit, workers get a predictable stopping point instead of discovering the
+limit mid-sentence. Consider splitting long texts into named sections — often better for the work anyway.</p>
+
+<h3>4. Switch to Opus (WebM) — no length limit, but not an archival master</h3>
+<p>Opus removes the length limit entirely and produces small files that upload easily on a poor connection. The
+cost is real and permanent: it is <strong>lossy</strong>, so detail is discarded and cannot be recovered. Suitable
+for transcription, analysis, and getting the work done. Not suitable as a preservation master.</p>
+<p class="warn"><strong>Be honest about the trade.</strong> A lossy recording that exists is worth far more than an
+archival recording that was never made because the device could not manage it. But do not later describe those
+files to an archive as masters. If a text matters enough to preserve, record it again on a better device — or
+record it on a device you control and import it.</p>
+
+<h3>5. Use the Android app instead of the browser</h3>
+<p>For a device that keeps hitting limits and where the recordings genuinely matter, the Android app records
+straight to a file. It has no memory limit, can record a true bit depth, can switch off the phone's audio
+processing, and reports which microphone was used.</p>
+
+<h2>Choosing quickly</h2>
+<table>
+  <tr><th>Situation</th><th>Setting</th></tr>
+  <tr><td>Short texts (2–5 min), any phone</td><td>24-bit WAV — the default is fine</td></tr>
+  <tr><td>Cheap phone, texts up to ~15 min</td><td>16-bit WAV, mono</td></tr>
+  <tr><td>Long texts, limited phone, work must get done</td><td>Opus — accept it is not a master</td></tr>
+  <tr><td>Preservation matters and the device is weak</td><td>Android app, or record on a device you control</td></tr>
+  <tr><td>Loud speaker, distortion in recordings</td><td>Automatic gain <code>auto</code> — and mark as non-archival</td></tr>
+</table>
+
+<hr>
+
+<h1 lang="id">Batas perekaman pada perangkat nyata</h1>
+<p class="note" lang="id">Untuk peneliti yang menyiapkan perangkat pekerja. Menjelaskan apa yang bisa dan tidak bisa
+dilakukan ponsel murah, apa yang terjadi saat mencapai batas, dan pengaturan mana yang dipilih bila perangkat
+terlalu terbatas untuk rekaman kualitas arsip.</p>
+
+<p class="good" lang="id"><strong>Ringkasnya.</strong> Rekaman tidak pernah hilang karena perangkat kehabisan
+memori. Aplikasi menghentikan rekaman lebih dulu, menyimpannya, dan menampilkannya untuk ditinjau seperti biasa.
+Yang hilang adalah <em>durasi</em>, bukan rekamannya. Jika pekerja sering mencapai batas, solusinya adalah format
+rekaman yang berbeda.</p>
+
+<h2 lang="id">Mengapa rekaman lossless punya batas durasi</h2>
+<p lang="id">Format lossless (WAV dan FLAC) disimpan di memori ponsel selama merekam, dan baru ditulis saat pekerja
+menyimpan. Makin panjang rekaman, makin besar memorinya. Jika perangkat benar-benar kehabisan memori, peramban akan
+menutup halaman dan <strong>rekaman hilang tanpa peringatan dan tidak bisa dikembalikan</strong> — jadi aplikasi
+berhenti sebelum titik itu.</p>
+<p lang="id">Format terkompresi (Opus dan MP3) <strong>tidak</strong> bekerja begitu. Keduanya ditulis terus-menerus
+selama merekam, jadi sama sekali tidak punya batas memori. Perbedaan itu adalah hal paling berguna di halaman ini.</p>
+
+<h2 lang="id">Apa yang dilakukan aplikasi</h2>
+<p lang="id">Ada dua batas terpisah, dan yang lebih dulu tercapai yang berlaku: <strong>durasi maksimum yang Anda
+tetapkan</strong>, dan <strong>batas memori yang dihitung aplikasi dari perangkat itu sendiri</strong> (tidak bisa
+Anda atur atau matikan — ini jaring pengaman).</p>
+<p lang="id">Mendekati batas memori, pekerja melihat <em>"Sekitar 3 menit lagi di perangkat ini"</em> di layar
+rekaman, disertai satu pesan agar segera menyelesaikan. Jika diteruskan, rekaman <strong>berhenti sendiri dan
+langsung ke layar tinjauan dengan rekaman utuh</strong>, dan menyatakan dengan jelas: tidak ada yang hilang,
+dengarkan lalu simpan.</p>
+
+<h3 lang="id">Perkiraan durasi menurut perangkat</h3>
+<table lang="id">
+  <tr><th>Memori perangkat</th><th>Lossless (WAV/FLAC), mono</th><th>Opus / MP3</th></tr>
+  <tr><td>0,5 GB (sangat murah)</td><td>sekitar 4–5 menit</td><td>tanpa batas</td></tr>
+  <tr><td>1 GB</td><td>sekitar 9 menit</td><td>tanpa batas</td></tr>
+  <tr><td>2 GB</td><td>sekitar 18 menit</td><td>tanpa batas</td></tr>
+  <tr><td>4 GB</td><td>sekitar 37 menit</td><td>tanpa batas</td></tr>
+  <tr><td>Komputer</td><td>sekitar satu jam</td><td>tanpa batas</td></tr>
+</table>
+<p class="note" lang="id">Stereo memotong semua angka ini menjadi setengah. Angka-angka ini dihitung, belum diukur
+pada berbagai ponsel murah nyata.</p>
+
+<h2 lang="id">Apa yang sebenarnya tersimpan di berkas</h2>
+<ul lang="id">
+  <li><strong>Berkas dibuat ulang dari audio asli saat pekerja menyimpan.</strong> Klip yang terdengar di layar
+      tinjauan hanya pratinjau berkualitas lebih rendah; itu tidak pernah menjadi berkas yang disimpan.</li>
+  <li><strong>Rekaman dimulai beberapa detik lebih awal.</strong> Aplikasi menyimpan beberapa detik terakhir sebelum
+      tombol Rekam ditekan, karena penutur sering mulai bicara lebih dulu. Harap maklum ada sekitar empat detik suara
+      ruangan di awal setiap berkas — ini disengaja.</li>
+  <li><strong>Jika perangkat tidak mendukung format pilihan Anda</strong>, aplikasi merekam dengan format terdekat
+      dan menyebutkan yang mana. Tidak pernah diam-diam menggantinya.</li>
+  <li><strong>Berkas yang diunggah adalah berkas yang disimpan</strong> — tidak dikompresi ulang.</li>
+</ul>
+
+<h2 lang="id">Yang benar-benar tidak bisa dilakukan ponsel</h2>
+<p lang="id"><strong>"24-bit" dari ponsel tidak sama dengan 24-bit dari perekam profesional.</strong> Kedalaman bit
+adalah sifat <em>berkas</em>, bukan mikrofon. Perangkat keras ponsel hanya menghasilkan sekitar 16 bit detail nyata.
+Merekam pada 24-bit memberi ruang aman terhadap distorsi, bukan detail tambahan.</p>
+<p lang="id"><strong>Peramban tidak bisa merekam pada kedalaman bit pilihan sama sekali.</strong> Sesuai standar
+audio web, peramban selalu merekam dalam bentuk 32-bit floating-point lalu aplikasi mengonversinya. Hanya aplikasi
+Android yang bisa membuktikan bahwa perangkat benar-benar merekam pada kedalaman yang dipilih.</p>
+<p lang="id"><strong>Penguatan otomatis (AGC)</strong> mati secara bawaan, sesuai syarat arsip. Pengaturan
+<code>auto</code> menyalakannya di peramban berbasis Chrome. <strong>Rekaman dengan penguatan otomatis bukan master
+arsip</strong> — kenyaringannya sudah diubah saat merekam.</p>
+<p lang="id"><strong>Mikrofon nirkabel tidak pernah berkualitas arsip.</strong> Headset Bluetooth mengompresi dan
+memproses audio sebelum aplikasi menerimanya. Gunakan mikrofon bawaan ponsel atau mikrofon berkabel.</p>
+
+<h2 lang="id">Bila perangkat terlalu terbatas</h2>
+<ol lang="id">
+  <li><strong>Rekam mono, bukan stereo.</strong> Menggandakan durasi, tanpa kehilangan apa pun.</li>
+  <li><strong>Gunakan WAV 16-bit, bukan 24-bit.</strong> Setengah memori, durasi dua kali lipat, dan pada mikrofon
+      ponsel hampir tidak ada yang hilang. <strong>Biasanya perubahan pertama yang terbaik.</strong></li>
+  <li><strong>Tetapkan durasi maksimum sendiri</strong>, di bawah batas perangkat, agar pekerja punya titik berhenti
+      yang bisa diperkirakan. Pertimbangkan membagi teks panjang menjadi beberapa bagian.</li>
+  <li><strong>Beralih ke Opus (WebM).</strong> Menghilangkan batas durasi dan menghasilkan berkas kecil yang mudah
+      diunggah. Biayanya nyata dan permanen: <strong>lossy</strong>, detail dibuang dan tidak bisa dikembalikan.
+      Cocok untuk transkripsi dan analisis; tidak cocok sebagai master pelestarian.</li>
+  <li><strong>Gunakan aplikasi Android.</strong> Merekam langsung ke berkas: tanpa batas memori, kedalaman bit
+      sungguhan, pemrosesan audio ponsel bisa dimatikan, dan melaporkan mikrofon mana yang dipakai.</li>
+</ol>
+<p class="warn" lang="id"><strong>Jujurlah tentang pertukarannya.</strong> Rekaman lossy yang ada jauh lebih berharga
+daripada rekaman arsip yang tidak pernah dibuat karena perangkat tidak sanggup. Tetapi jangan kemudian menyebut
+berkas itu sebagai master kepada arsip.</p>
+
+</body>
+</html>

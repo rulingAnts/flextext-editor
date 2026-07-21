@@ -21,9 +21,15 @@ on:
         description: 'Site the shell loads (blank = production)'
         required: false
         default: ''
+      publish:
+        description: 'Also attach the build to a PRE-RELEASE (stable, resumable download URL)'
+        type: boolean
+        required: false
+        default: false
 
+# contents: write is needed ONLY to attach the build to a release. Everything else here reads.
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   windows:
@@ -84,3 +90,48 @@ jobs:
           path: electron/dist/*.exe
           if-no-files-found: error
           retention-days: 14
+
+      # WHY A RELEASE AND NOT JUST THE ARTIFACT: an Actions artifact download URL is signed and
+      # expires in about a minute, so it cannot be handed to a download manager — which is what a
+      # slow, drop-prone connection actually needs. Release asset URLs are stable, need no
+      # authentication, and resume. Publishing happens HERE, on GitHub's own network, so the 124 MB
+      # never crosses the maintainer's link twice.
+      #
+      # PRE-RELEASE, not draft: a draft's assets still require authentication to fetch, which would
+      # defeat the entire purpose. Pre-release is publicly downloadable AND clearly marked as not a
+      # finished release.
+      - name: Attach to a pre-release
+        if: ${{ inputs.publish }}
+        shell: pwsh
+        working-directory: electron
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ver = (Get-Content package.json | ConvertFrom-Json).version
+          $tag = "desktop-v$ver-test"
+          $exe = (Get-ChildItem dist -Filter '*portable*.exe' | Select-Object -First 1)
+          # NOTE: built line by line, NOT with a PowerShell here-string. A here-string terminator
+          # must sit at column 0, which cannot happen inside an indented YAML block - the same class
+          # of trap that has broken this repo's workflows twice before.
+          $notes = @(
+            'Unsigned Windows x64 test build of the Flextext desktop shell.',
+            '',
+            '**This is a test build, not a release.** It exists so the Windows capture path can be',
+            'tried on real hardware for the first time - dshow device enumeration and capture timing',
+            'have never run outside CI.',
+            '',
+            '- **Portable**: no installer, no admin rights, nothing written to Program Files or the',
+            '  registry. Uninstall by deleting the file.',
+            '- **Unsigned**: Windows SmartScreen will warn on first run. Choose *More info -> Run',
+            '  anyway*. Signing needs a paid certificate.',
+            '- **ffmpeg is bundled** - it is the capture engine on desktop, invoked as a separate',
+            '  process, so its GPL terms do not reach this app''s own code.',
+            '- Loads the live site, so the editor engine updates itself; only the shell is fixed.'
+          ) -join "`n"
+          gh release delete $tag --yes --cleanup-tag 2>$null
+          gh release create $tag $exe.FullName --prerelease --title "Desktop shell $ver (Windows x64 test build)" --notes $notes
+          # The canonical PUBLIC url - stable, unauthenticated, resumable. Not assets[0].url, which
+          # is the API url and needs a token.
+          $url = "https://github.com/${{ github.repository }}/releases/download/$tag/$($exe.Name)"
+          Write-Host "DOWNLOAD_URL: $url"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "## Download`n`n<$url>"

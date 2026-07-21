@@ -109,17 +109,25 @@ jobs:
         shell: pwsh
         working-directory: electron
         run: |
+          # ⚠ TWO LAYERS. The portable exe is an NSIS self-extractor whose payload is a NESTED
+          # archive ($PLUGINSDIR\app-64.7z). Listing only the outer layer shows NSIS plumbing and
+          # none of the app, so a check at that level can never see ffmpeg and always "fails".
           $exe = (Get-ChildItem dist -Filter '*portable*.exe' | Select-Object -First 1).FullName
-          $listing = & 7z l "$exe" 2>&1 | Out-String
+          $work = Join-Path $env:RUNNER_TEMP 'portable-check'
+          New-Item -ItemType Directory -Force -Path $work | Out-Null
+          & 7z e "$exe" -o"$work" '$PLUGINSDIR/app-64.7z' -y | Out-Null
+          $inner = Join-Path $work 'app-64.7z'
+          if (-not (Test-Path $inner)) { throw 'could not extract the inner app archive from the portable exe' }
+          $listing = & 7z l "$inner" 2>&1 | Out-String
           if ($listing -match 'ffmpeg\.exe') {
-            Write-Host 'CONFIRMED: ffmpeg.exe is inside the portable exe'
+            Write-Host 'CONFIRMED: ffmpeg.exe IS inside the shipped portable exe'
+            ($listing -split "`n" | Where-Object { $_ -match 'ffmpeg\.exe' }) | ForEach-Object { Write-Host $_.Trim() }
           } else {
             Write-Host $listing
             throw 'ffmpeg.exe is NOT inside the portable exe - the shipped build cannot record'
           }
-          # Also confirm the app itself is in there, so a malformed archive cannot pass silently.
           if ($listing -notmatch 'app\.asar') { throw 'app.asar missing from the portable exe' }
-          Write-Host 'CONFIRMED: app.asar is inside the portable exe'
+          Write-Host 'CONFIRMED: app.asar is inside the shipped portable exe'
 
       - uses: actions/upload-artifact@v4
         with:

@@ -1034,3 +1034,8 @@ main {
 .rp-group > .rp-field { margin-bottom: 28px; }   /* breathing room between an outside field (App language) and the codes box */
 .rp-legend-help { position: absolute; top: 0; right: 12px; transform: translateY(-55%); background: #fff; padding: 0 6px; font-size: 13px; white-space: nowrap; }
 .invite-paste-box { width: 100%; box-sizing: border-box; font-size: 14px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; }
+
+/* "Recorded with: a USB microphone" under the review player. Informational by default; only turns
+   warning-coloured when the capture is genuinely not archive grade, so the colour keeps meaning. */
+.record-capture-info { margin-top: 6px; font-size: 13px; color: #5b6b7a; }
+.record-capture-info.capture-warn { color: #a3261f; font-weight: 600; }

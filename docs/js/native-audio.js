@@ -93,6 +93,43 @@ export function nativePlatform() {
   } catch { return 'web'; }
 }
 
+/* Turn a native capture's provenance into something displayable and storable.
+ *
+ * WHY IT LIVES HERE: it reads native-only fields (routedType, unprocessedSource, effects,
+ * archivalClean), so by the containment rule it belongs behind the chokepoint rather than in app.js.
+ * Returns null for a web capture, so every caller can invoke it unconditionally and the browser path
+ * behaves exactly as before.
+ *
+ * ⚠ FIELDS MAY BE ABSENT. An APK built before routing existed reports no routed* fields at all, and
+ * the engine auto-updates while the APK does not — so every field is treated as optional and a
+ * missing one means "not reported", never "false". Inventing a negative from silence is how you get
+ * a recording wrongly marked non-archival.
+ */
+export function describeCapture(meta) {
+  if (!meta || typeof meta !== 'object') return null;
+  const known = (v) => v !== undefined && v !== null;
+  const wireless = meta.routedWireless === true;
+  const out = {
+    device: meta.routedDevice || null,
+    deviceType: meta.routedType || null,
+    label: meta.label || null,
+    encoding: meta.encoding || null,
+    sampleRate: meta.sampleRate || null,
+    channels: meta.channels || null,
+    source: meta.source || null,
+    unprocessed: known(meta.unprocessedSource) ? !!meta.unprocessedSource : null,
+    substituted: !!meta.substituted,
+    substitutionReason: meta.substitutionReason || null,
+    depthVerified: known(meta.depthVerified) ? !!meta.depthVerified : null,
+    archival: known(meta.archivalClean) ? !!meta.archivalClean : null,
+    archivalReason: meta.archivalReason || meta.routedNote || null,
+    wireless,
+  };
+  // Nothing identifying was reported at all — an old build. Say so rather than render an empty row.
+  if (!out.device && !out.deviceType && !out.label) return null;
+  return out;
+}
+
 /** Engine build info stamped into the native shell at bundle time (for diagnostics). */
 export function nativeEngineInfo() {
   try { return (window.__NATIVE_ENGINE) || null; } catch { return null; }

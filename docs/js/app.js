@@ -13,7 +13,7 @@ import { convertToMp3 } from './convert.js';
 // NATIVE BRIDGE — the ONLY import of native code in this engine. Everything Android-specific
 // lives behind js/native-audio.js and is INERT in a browser. See that file's header before
 // changing anything here; ./check-native-containment.sh enforces the boundary.
-import { isNativeShell, nativeAudioAvailable, NativeRecorder, releaseCapture, nativePlatform, nativeEngineInfo } from './native-audio.js';
+import { isNativeShell, nativeAudioAvailable, NativeRecorder, releaseCapture, nativePlatform, nativeEngineInfo, describeCapture } from './native-audio.js';
 import { losslessSupported, recFormatSupported, PCMRecorder, encodeWav, encodeRecording, normalizePeak, reduceChannels,
          normRecFormat, REC_FORMATS, DEFAULT_REC_FORMAT, pcmRamBudgetBytes, pcmCapStatus } from './record-pcm.js';
 import { makeZip } from './zip.js';
@@ -594,6 +594,13 @@ async function newDocFromAudio(file, titleOverride) {
   await attachAudioFile(file);
   // If a recorded verbal assent was captured in the consent gate, store it
   // with this doc so it travels in the upload/save zip bundle.
+  // Which microphone this actually came from, and whether it is archive grade. Persisted with the
+  // doc because provenance is worthless if it only exists while the record screen is open — the
+  // question "was this take made on the USB mic?" is asked weeks later, not at record time.
+  if (pendingCapture) {
+    current.capture = pendingCapture;
+    pendingCapture = null;
+  }
   if (pendingReceipt) {
     current.consentReceipt = pendingReceipt; // same object captureConsentContext fills
     pendingReceipt = null;
@@ -629,6 +636,7 @@ async function newDocFromAudio(file, titleOverride) {
  */
 
 let pendingAssent = null; // { blob, name } captured assent, consumed on doc create
+let pendingCapture = null;   // native capture provenance, awaiting the doc it belongs to
 let pendingReceipt = null; // consent audit record, consumed on doc create
 let pendingPromptAudio = null; // frozen copy of the spoken prompt, consumed on doc create
 let consentCapture = null; // { receipt, promise } in-flight IP/location capture
@@ -1144,6 +1152,12 @@ function recordUI(state, extra = {}) {
     // captured as compressed MP3 — say so once, plainly, so nobody assumes they
     // archived a lossless recording.
     if (rec?.fellBack && !rec._warned) { rec._warned = true; toast(t('record.fellBack'), 8000); }
+    // WHICH MICROPHONE this take actually came from. This is the readout that makes testing a USB
+    // microphone possible at all: plug it in, record, and read whether the phone really used it.
+    // Without it the only test is recording twice and listening, which cannot distinguish "the
+    // phone ignored the mic" from "the mic is poor". Native only — null on every browser path, so
+    // the line simply does not appear there.
+    showCaptureProvenance(rec && rec.mode === 'native' ? describeCapture(rec.nativeMeta) : null);
     syncRecordSaveEnabled();
     if (CROWD_MODE) crowdApplyCooldown();   // countdown on Send; recording stays free
     setTimeout(() => $('#record-title').focus(), 0);
@@ -1477,6 +1491,47 @@ function startRecTimer() {
   }, 250);
 }
 
+// Device types we have translated names for. Anything outside this set is displayed verbatim.
+const CAPTURE_DEV_KEYS = new Set([
+  'builtin_mic', 'wired_headset', 'usb_device', 'usb_accessory', 'usb_headset',
+  'bluetooth_sco', 'ble_headset', 'telephony', 'unknown',
+]);
+
+/* Render "recorded with X" under the review player, plus an honest archival verdict.
+ *
+ * Deliberately shows the DEVICE first: that is the fact being tested when someone plugs in a USB
+ * microphone, and it is the one the researcher cannot otherwise obtain. The archival line is only
+ * drawn when the app actually knows — an older APK reports nothing, and silence must not be
+ * rendered as a negative verdict. */
+function showCaptureProvenance(cap) {
+  const host = $('#record-status');
+  if (!host) return;
+  let el = document.getElementById('record-capture-info');
+  if (!cap) { if (el) el.remove(); return; }
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'record-capture-info';
+    el.className = 'note record-capture-info';
+    host.insertAdjacentElement('afterend', el);
+  }
+  const bits = [];
+  // t() falls back to the KEY when a string is missing, which would print "record.cap.dev.usb_device"
+  // at a field user. So only translate types we actually have strings for; show anything else raw,
+  // which is at least true. The plugin can emit "type_<n>" for an Android type we have not named.
+  const dev = cap.device
+    || (cap.deviceType
+        ? (CAPTURE_DEV_KEYS.has(cap.deviceType) ? t('record.cap.dev.' + cap.deviceType) : cap.deviceType)
+        : null);
+  if (dev) bits.push(t('record.cap.via', { device: dev }));
+  if (cap.label) bits.push(cap.label);
+  el.textContent = bits.join(' · ');
+  el.classList.toggle('capture-warn', cap.archival === false || cap.wireless === true);
+  if (cap.archival === false || cap.wireless) {
+    const why = cap.archivalReason || t('record.cap.notArchival');
+    el.textContent += ' — ' + why;
+  }
+}
+
 // Where the current take stands against the memory this device can hold. ONLY the lossless PCM
 // path accumulates in RAM — MediaRecorder flushes to disk-backed Blobs on its 3s timeslice, and
 // the native path writes straight to a file — so no other mode can reach this limit.
@@ -1596,6 +1651,8 @@ async function saveRecording() {
     // The native file is released only after the bytes are safely stored below — never before,
     // because until then those bytes exist ONLY on disk and losing them loses field data.
     const nativePath = (rec.mode === 'native' && rec.nativeMeta) ? rec.nativeMeta.path : null;
+    // Same reason as nativePath: grab it BEFORE closeRecordModal() clears `rec`.
+    pendingCapture = (rec.mode === 'native') ? describeCapture(rec.nativeMeta) : null;
     closeRecordModal();
     if (CROWD_MODE) {
       // Crowd divert: nothing enters the shared corpus. Bundle + persist to the
@@ -2519,6 +2576,11 @@ async function syncGatherInventory() {
       pendingDelete: upDel.has(d.id),   // panel shows it struck-through/faded until it's gone
       uploadState: backed ? (d.uploadedModified === d.modified ? 'uploaded' : 'changed') : 'local',
       uploadedFileId: d.uploadedFileId || null,
+      // Which mic this take came from + whether it is archive grade (native captures only; null
+      // everywhere else). E2EE like the rest of the inventory. Lets a researcher audit provenance
+      // long after the fact, and see at a glance whether a deployed USB mic is actually being used
+      // on that device — which is the question this whole readout exists to answer.
+      capture: d.capture || null,
     });
   }
   // The settings the researcher panel can view/prefill for this device (encrypted in transit).

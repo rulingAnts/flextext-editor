@@ -86,24 +86,13 @@ jobs:
           echo "::error::Editor never went live at $want — refusing to publish satellites." >&2
           exit 1
 
+      # The gate calls the SAME code as the daily integrity checker (check-release-integrity.sh),
+      # rather than its own copy of the logic. That matters: this gate had never been observed
+      # failing, and a duplicate implementation can pass its own test while the real one is broken.
+      # Sharing means negative-testing the script negative-tests this gate.
       - name: Verify every engine path this satellite precaches is LIVE
         if: steps.gate.outputs.skip != 'true'
-        run: |
-          set -uo pipefail
-          sw="satellites/${{ matrix.name }}/sw.js"
-          if [ ! -f "$sw" ]; then echo "no sw.js (crowd app has none) — nothing to verify"; exit 0; fi
-          paths=$(grep -oE "'/flextext-editor/[^']+'" "$sw" | tr -d "'" | sort -u)
-          [ -n "$paths" ] || { echo "no editor paths in SHELL"; exit 0; }
-          fail=0
-          while IFS= read -r p; do
-            code=$(curl -s -o /dev/null -w "%{http_code}" "https://rulingants.github.io$p?cb=$RANDOM" || echo 000)
-            [ "$code" = "200" ] || { echo "::error::MISSING ($code) $p"; fail=1; }
-          done <<< "$paths"
-          if [ "$fail" -ne 0 ]; then
-            echo "::error::Refusing to publish ${{ matrix.name }} — it precaches engine files that are not live." >&2
-            exit 1
-          fi
-          echo "all engine paths live"
+        run: FLEXTEXT_REF=productionWeb ./check-release-integrity.sh paths "${{ matrix.name }}"
 
       - name: Publish to rulingAnts/${{ matrix.name }}
         if: steps.gate.outputs.skip != 'true'

@@ -1,0 +1,52 @@
+# Catch a satellite serving the WRONG engine because the release process misfired.
+#
+# WHY A SCHEDULED CHECK AND NOT JUST THE PUBLISH GATE
+# The publish gate only runs when something is published. The failures this catches are ones that
+# appear BETWEEN releases, or from a release that half-finished: a mirror that was never
+# republished, a Pages deploy that silently did not complete, an engine file that stopped being
+# served, or someone editing a generated mirror directly. Nobody notices any of those until a field
+# user is stuck offline, which is exactly too late.
+#
+# WHAT IT CANNOT SEE: any individual device's cache. A phone stuck on an old engine is invisible
+# from CI by construction — that is covered by the researcher panel's confirmed-stale badge, which
+# compares each device's TRUE running engine version against the live site.
+#
+# HOW YOU FIND OUT: a failing scheduled run emails the repo owner. No extra permissions, no bot.
+#
+# COST: free. Public repo + standard runner = always free, and this is about a minute a day.
+# It deliberately uses only ubuntu-latest, no larger runner, and requests read-only permissions.
+
+name: Release integrity
+
+on:
+  schedule:
+    # 22:00 UTC = 07:00 in Jayapura, so a failure is waiting at the start of Seth's day
+    # rather than discovered by a field user first.
+    - cron: '0 22 * * *'
+  workflow_dispatch:
+  # Re-check after a publish actually completes, which is when a half-finished release shows up.
+  workflow_run:
+    workflows: ['Publish satellites']
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out (full history — the script reads productionWeb, not the checkout)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Make productionWeb available locally
+        run: git fetch origin productionWeb:productionWeb --force
+
+      # Compares the LIVE sites against what productionWeb says they should be. It deliberately
+      # does NOT read the working tree: main is the development branch and is ahead of production
+      # nearly all the time, so that comparison would fail every ordinary day — and a checker that
+      # cries wolf gets ignored, which is the exact failure it exists to prevent.
+      - name: Verify live sites match production
+        run: ./check-release-integrity.sh

@@ -496,6 +496,7 @@ function getPlayer() {
       labels: {
         get preparing() { return t('player.preparing'); },
         get error() { return t('player.error'); },
+        get errorTruncated() { return t('player.errorTruncated'); },
       },
       onPeaks: (media) => { db.putMedia(playerDocId, media).catch(() => {}); },
       onRemove: async () => {
@@ -1309,7 +1310,11 @@ function closeRecordModal() {
   applyUpdateIfSafe();   // back on a safe screen → apply a pending update (esp. record mode, which has no texts list)
 }
 
+// Why the native path bowed out this attempt, so a fallback failure can name BOTH causes.
+let lastNativeError = null;
+
 async function startRecording() {
+  lastNativeError = null;
   const fmt = recordFormatPref();
   const f = REC_FORMATS[fmt];
   try {
@@ -1331,8 +1336,13 @@ async function startRecording() {
       try { await startNative(fmt); return; }
       catch (natErr) {
         if (natErr && natErr.name === 'NotAllowedError') throw natErr;   // mic denied is a real error
-        console.warn('Native capture unavailable; using the browser path.', natErr);
-        // fall through to the normal browser backends below
+        // ⚠ REMEMBER WHY NATIVE FAILED. Falling back is right, but silently swallowing the reason
+        // meant the user saw only the BROWSER's error — so a native fault (no device found by
+        // ffmpeg, ffmpeg missing, a bad device name) was reported as whatever getUserMedia said
+        // afterwards, which is a different subsystem with a different cause. That made the first
+        // Windows failure undiagnosable from the message alone.
+        lastNativeError = (natErr && (natErr.message || natErr.name)) || 'unknown';
+        console.error('[flextext] native capture failed; falling back to the browser path:', natErr);
       }
     }
     // Lossless PCM formats (WAV/FLAC): AudioWorklet path, with MediaRecorder→MP3 fallback.
@@ -1350,7 +1360,13 @@ async function startRecording() {
     await startMediaRecorder('mp3', true); // no AudioWorklet at all on this browser
   } catch (e) {
     recordUI('idle');
-    $('#record-status').textContent = t('record.micError', { msg: e.message });
+    // If native was tried and failed FIRST, both reasons matter: the browser error alone points at
+    // the wrong subsystem entirely.
+    const msg = lastNativeError
+      ? t('record.micErrorBoth', { native: lastNativeError, browser: e.message })
+      : t('record.micError', { msg: e.message });
+    $('#record-status').textContent = msg;
+    console.error('[flextext] recording failed. native:', lastNativeError || '(not attempted)', 'browser:', e);
     // Embedded crowd page: a host that stripped allow="microphone" fails exactly like
     // a user "Block" — always offer the direct-link escape hatch when framed.
     if (CROWD_MODE && window !== window.top) crowdShowFrameEscape();

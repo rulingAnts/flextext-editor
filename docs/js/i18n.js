@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v123';
+export const ENGINE_VERSION = 'v124';
 
 const S = {
 en: {
@@ -65,6 +65,8 @@ en: {
   'record.review': 'Listen to check the recording, then Save — or Re-record and try again.',
   'record.converting': 'Saving recording… {pct}%',
   'record.micError': 'Could not use the microphone: {msg}',
+  // Both subsystems failed. Naming only the browser one sends people after the wrong cause.
+  'record.micErrorBoth': 'Could not use the microphone. Direct recording: {native}. Browser recording: {browser}.',
   'record.noAudio': 'No sound was recorded — please try again.',
   'record.clipWarn': '⚠ Too loud — move back a little.',
   'record.distanceHint': 'Hold the device about a hand\'s width from your mouth.',
@@ -437,6 +439,9 @@ en: {
   'player.attach': 'Attach audio…',
   'player.preparing': 'Preparing waveform…',
   'player.error': 'Could not play this audio file.',
+  // Shown when the stored bytes are FEWER than the download said to expect — on a poor connection
+  // that is far and away the likeliest cause, and it points at a fix rather than a format worry.
+  'player.errorTruncated': 'This audio file did not finish downloading, so it cannot be played. Download the text again.',
   'player.pending': 'Audio not downloaded yet — it will download automatically when there is a connection.',
   'player.downloading': 'Downloading audio… {pct}% ({got} of {size} MB)',
   'player.downloadingBytes': 'Downloading audio… {got} MB so far',
@@ -951,6 +956,7 @@ id: {
   'record.review': 'Dengarkan dulu rekamannya, lalu Simpan — atau Rekam ulang kalau belum pas.',
   'record.converting': 'Menyimpan rekaman… {pct}%',
   'record.micError': 'Mikrofon tidak bisa dipakai: {msg}',
+  'record.micErrorBoth': 'Mikrofon tidak bisa dipakai. Perekaman langsung: {native}. Perekaman peramban: {browser}.',
   'record.noAudio': 'Tidak ada suara yang terekam — silakan coba lagi.',
   'record.clipWarn': '⚠ Terlalu keras — mundur sedikit.',
   'record.distanceHint': 'Pegang perangkat sekitar selebar telapak tangan dari mulut.',
@@ -1323,6 +1329,7 @@ id: {
   'player.attach': 'Lampirkan audio…',
   'player.preparing': 'Menyiapkan gambar gelombang…',
   'player.error': 'File audio ini tidak bisa diputar.',
+  'player.errorTruncated': 'File audio ini belum lengkap terunduh, jadi tidak bisa diputar. Unduh ulang teksnya.',
   'player.pending': 'Audio belum terunduh — akan diunduh otomatis saat ada koneksi.',
   'player.downloading': 'Mengunduh audio… {pct}% ({got} dari {size} MB)',
   'player.downloadingBytes': 'Mengunduh audio… sudah {got} MB',

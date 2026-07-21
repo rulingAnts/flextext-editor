@@ -642,6 +642,13 @@ export class Player {
     this.el.status.textContent = this.labels.preparing;
     this.el.status.hidden = false;
 
+    // Recorded for the failure path: on a poor connection a truncated download is the likeliest
+    // reason playback fails, and `total` (from the download's content-length) is the only evidence
+    // available. A stored media record that never carried one leaves this undefined, which the
+    // error handler treats as "cannot tell" rather than guessing.
+    this._srcBytes = (media.blob && media.blob.size) || null;
+    this._expectedBytes = media.total != null ? media.total : null;
+    this._srcKind = (media.mimeType || media.blob && media.blob.type) || 'unknown';
     this.objectUrl = URL.createObjectURL(media.blob);
     const opts = {
       container: this.el.wave,
@@ -683,12 +690,26 @@ export class Player {
       this.el.zoom.value = String(Math.floor(fit));
     });
     this.ws.on('error', (err) => {
-      // Never surface the browser's raw demuxer/decoder text (e.g.
-      // "DEMUXER_ERROR_COULD_NOT_OPEN"). The blob couldn't be decoded — an
-      // incomplete/failed download or an unsupported codec. Show a plain,
-      // friendly line and keep the technical detail in the console.
-      console.warn('Audio could not be played:', err);
-      this.el.status.textContent = this.labels.error;
+      // Raw demuxer text ("DEMUXER_ERROR_COULD_NOT_OPEN") means nothing to a field user, so the
+      // message stays plain — but it must not be USELESS either.
+      //
+      // ⚠ A WAVEFORM CAN DRAW WHILE PLAYBACK FAILS: the wave is rendered from CACHED PEAKS, while
+      // playback goes through a media element. Seeing a wave therefore proves the file was decodable
+      // ONCE, not that the bytes present now are complete. On a poor connection the overwhelmingly
+      // likely cause is a TRUNCATED DOWNLOAD, and telling someone "could not play this file" sends
+      // them looking for a format problem they do not have.
+      //
+      // So: say the likely cause in plain words, and put the technical detail at console.ERROR — it
+      // was console.warn before, which is filtered out of most consoles by default and is why the
+      // first report of this came back as "developer tools showed nothing in particular".
+      console.error('[flextext] audio playback failed:', err, {
+        src: this._srcKind || 'unknown', bytes: this._srcBytes ?? 'unknown',
+      });
+      const truncated = this._srcBytes != null && this._expectedBytes != null
+        && this._srcBytes < this._expectedBytes;
+      this.el.status.textContent = truncated
+        ? (this.labels.errorTruncated || this.labels.error)
+        : this.labels.error;
       this.el.status.hidden = false;
     });
     this.ws.on('play', () => { this.el.play.textContent = '⏸'; });

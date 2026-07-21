@@ -144,6 +144,93 @@ processing, and reports which microphone was used.</p>
   <tr><td>Loud speaker, distortion in recordings</td><td>Automatic gain <code>auto</code> — and mark as non-archival</td></tr>
 </table>
 
+
+<h2 id="mics">Microphones — what actually affects archive quality</h2>
+
+<p class="warn"><strong>A microphone has no bit depth.</strong> Bit depth belongs to the
+<em>converter</em> — the chip that turns sound into numbers — not to the microphone, which is a
+purely analog device producing a varying voltage. "A 24-bit microphone" is a marketing phrase, not a
+specification. This matters practically: it is why a <strong>USB</strong> microphone can improve a
+recording (it contains its own converter and bypasses the phone's) while a microphone plugged into a
+<strong>headphone socket</strong> cannot (the phone still does the conversion, with the same limits
+as its built-in mic).</p>
+
+<h3>What does affect quality</h3>
+<ul>
+  <li><strong>Self-noise</strong> — the hiss the microphone itself produces, quoted in dB-A. This,
+      not bit depth, sets the real noise floor of a recording. A quiet room recorded with a noisy
+      microphone is still a noisy recording, at any bit depth.</li>
+  <li><strong>Sensitivity</strong> — how much signal it produces. A quiet microphone needs more
+      amplification, and amplification adds the preamplifier's own noise.</li>
+  <li><strong>The converter behind it</strong> — a phone's converter resolves roughly 16 bits of
+      real detail; a decent USB microphone or interface resolves more. This is the only part of the
+      chain where bit depth means anything.</li>
+</ul>
+
+<h3>Dynamic or condenser</h3>
+<table>
+  <tr><th></th><th>Dynamic</th><th>Condenser</th></tr>
+  <tr><td>Needs power</td><td>No</td><td>Yes (from USB or phantom power)</td></tr>
+  <tr><td>Humidity and heat</td><td><strong>Robust</strong></td><td>Can fail or go noisy in sustained high humidity</td></tr>
+  <tr><td>Sensitivity</td><td>Lower — needs more gain</td><td>Higher</td></tr>
+  <tr><td>Detail / high frequencies</td><td>Good</td><td>Better</td></tr>
+  <tr><td>Handling and knocks</td><td>Very tolerant</td><td>Fragile</td></tr>
+</table>
+<p>For fieldwork in a hot, humid climate, with equipment carried on foot and used by people who are
+not audio technicians, a <strong>dynamic microphone is usually the better trade</strong>. It gives up
+some high-frequency detail and needs more gain, but it keeps working. A condenser is the better
+microphone in a studio and the more likely one to fail in a village.</p>
+
+<h3>Why a headphone-socket microphone does not help</h3>
+<p>An analog microphone plugged into the phone's headphone socket is converted by the phone, using
+the same converter and the same automatic processing as the built-in microphone. It may sound better
+because it is closer to the speaker's mouth — that is a real gain — but it does not raise the
+recording above the phone's own limits, and it cannot make an archival master out of a phone.</p>
+
+<h2 id="usb">Using a USB microphone with an Android phone</h2>
+<p>This is the one hardware change that genuinely lifts a phone recording toward archive quality: a
+USB microphone brings its own converter and preamplifier, so the phone is reduced to storage.</p>
+
+<h3>What to look for</h3>
+<ul>
+  <li><strong>"Class-compliant", "UAC" or "USB Audio Class", "no app or driver required."</strong>
+      Android supports these directly. Anything needing a manufacturer's app or driver will not work.</li>
+  <li><strong>A USB-C plug that goes straight into the phone.</strong> Every adapter, hub, or
+      extension is another thing to lose, break, or plug in wrongly — and hubs frequently break audio
+      even when they carry data fine.</li>
+  <li><strong>Low power draw.</strong> Power is the most common failure: the phone must supply the
+      microphone. Small USB-C microphones usually work; larger interfaces and anything supplying
+      phantom power to a condenser often will not, or will drain the battery quickly.</li>
+  <li><strong>Check the converter's specification</strong> if archive compliance matters — plenty of
+      inexpensive USB microphones convert at 16-bit/48 kHz. That is honest and acceptable to many
+      archives, but it is not 24-bit, and the app cannot make it so.</li>
+</ul>
+
+<h3 class="note">The unavoidable trade</h3>
+<p>Single-cable USB-C microphones tend to be small condensers. Rugged dynamic microphones with USB
+tend to use the older full-size USB plug, needing an adapter. You can usually have
+<em>single-cable simplicity</em> or <em>dynamic robustness</em>, not both — pick according to whether
+the greater risk is a lost adapter or a humid climate.</p>
+
+<h3>Test before buying more than one</h3>
+<p class="warn"><strong>There is currently no readout of which microphone was used.</strong> The
+Android app records that information internally, but it is not yet shown anywhere you can read it.
+Until it is, test the crude way: record the same short phrase twice on the same phone, once with the
+microphone plugged in and once without, and listen to both. A working USB microphone sounds
+obviously different — closer, fuller, less roomy. <strong>If the two recordings sound the same, the
+phone ignored the microphone</strong> and no setting will change that.</p>
+<p>Test on the <strong>exact phone model</strong> you plan to deploy. USB audio support is the area
+where inexpensive phones vary most: two phones that look identical, from the same seller, can behave
+differently. Do not buy microphones in quantity before one has been proven on the phone it will be
+used with.</p>
+
+<h3>What not to use for archive recording</h3>
+<ul>
+  <li><strong>Wireless and Bluetooth microphones.</strong> The audio is compressed and processed
+      before the app receives it. Never an archival master, whatever the settings say.</li>
+  <li><strong>Anything requiring its own recording app.</strong> The audio would never reach FlexText.</li>
+</ul>
+
 <hr>
 
 <h1 lang="id">Batas perekaman pada perangkat nyata</h1>
@@ -226,6 +313,61 @@ memproses audio sebelum aplikasi menerimanya. Gunakan mikrofon bawaan ponsel ata
 <p class="warn" lang="id"><strong>Jujurlah tentang pertukarannya.</strong> Rekaman lossy yang ada jauh lebih berharga
 daripada rekaman arsip yang tidak pernah dibuat karena perangkat tidak sanggup. Tetapi jangan kemudian menyebut
 berkas itu sebagai master kepada arsip.</p>
+
+
+<h2 lang="id">Mikrofon — apa yang sebenarnya memengaruhi kualitas arsip</h2>
+<p class="warn" lang="id"><strong>Mikrofon tidak punya kedalaman bit.</strong> Kedalaman bit adalah
+milik <em>konverter</em> — cip yang mengubah suara menjadi angka — bukan milik mikrofon, yang murni
+perangkat analog penghasil tegangan. "Mikrofon 24-bit" adalah istilah pemasaran, bukan spesifikasi.
+Ini penting: itulah sebabnya mikrofon <strong>USB</strong> bisa memperbaiki rekaman (ia membawa
+konverternya sendiri dan melewati konverter ponsel), sedangkan mikrofon yang dicolok ke
+<strong>lubang headphone</strong> tidak bisa (ponsel tetap yang mengonversi, dengan batas yang sama
+seperti mikrofon bawaannya).</p>
+
+<h3 lang="id">Yang benar-benar berpengaruh</h3>
+<ul lang="id">
+  <li><strong>Derau sendiri (self-noise)</strong> — desis yang dihasilkan mikrofon itu sendiri. Inilah,
+      bukan kedalaman bit, yang menentukan lantai derau rekaman.</li>
+  <li><strong>Sensitivitas</strong> — mikrofon yang lemah butuh penguatan lebih besar, dan penguatan
+      menambah derau prapenguat.</li>
+  <li><strong>Konverter di belakangnya</strong> — konverter ponsel menghasilkan sekitar 16 bit detail
+      nyata. Hanya di bagian inilah kedalaman bit berarti sesuatu.</li>
+</ul>
+
+<h3 lang="id">Dinamis atau kondensor</h3>
+<table lang="id">
+  <tr><th></th><th>Dinamis</th><th>Kondensor</th></tr>
+  <tr><td>Perlu daya</td><td>Tidak</td><td>Ya</td></tr>
+  <tr><td>Kelembapan dan panas</td><td><strong>Tahan</strong></td><td>Bisa rusak atau berderau pada kelembapan tinggi</td></tr>
+  <tr><td>Sensitivitas</td><td>Lebih rendah</td><td>Lebih tinggi</td></tr>
+  <tr><td>Ketahanan benturan</td><td>Sangat tahan</td><td>Rapuh</td></tr>
+</table>
+<p lang="id">Untuk kerja lapangan di iklim panas dan lembap, dibawa berjalan kaki, dan dipakai orang
+yang bukan teknisi audio, <strong>mikrofon dinamis biasanya pilihan yang lebih tepat</strong>. Ia
+mengorbankan sedikit detail frekuensi tinggi, tetapi tetap bekerja.</p>
+
+<h2 lang="id">Memakai mikrofon USB dengan ponsel Android</h2>
+<p lang="id">Inilah satu-satunya perubahan perangkat keras yang benar-benar mengangkat rekaman ponsel
+mendekati kualitas arsip: mikrofon USB membawa konverter dan prapenguatnya sendiri.</p>
+<ul lang="id">
+  <li><strong>Cari "class-compliant", "UAC", atau "tanpa aplikasi/driver".</strong> Android mendukung
+      perangkat semacam ini secara langsung. Yang memerlukan aplikasi pabrikan tidak akan berfungsi.</li>
+  <li><strong>Colokan USB-C langsung ke ponsel.</strong> Setiap adaptor atau hub adalah satu benda lagi
+      yang bisa hilang atau rusak, dan hub sering merusak audio.</li>
+  <li><strong>Konsumsi daya rendah.</strong> Daya adalah penyebab kegagalan paling umum — ponsel harus
+      memberi daya pada mikrofon.</li>
+  <li><strong>Periksa spesifikasi konverternya</strong> bila kepatuhan arsip penting: banyak mikrofon
+      USB murah mengonversi pada 16-bit/48 kHz.</li>
+</ul>
+<p class="warn" lang="id"><strong>Uji sebelum membeli banyak.</strong> Saat ini
+<strong>belum ada tampilan</strong> yang memberi tahu mikrofon mana yang dipakai. Untuk sementara,
+uji dengan cara sederhana: rekam kalimat pendek yang sama dua kali pada ponsel yang sama — sekali
+dengan mikrofon tercolok, sekali tanpa — lalu dengarkan keduanya. Mikrofon USB yang berfungsi
+terdengar jelas berbeda: lebih dekat dan lebih penuh. <strong>Jika keduanya terdengar sama, ponsel
+mengabaikan mikrofon itu.</strong> Uji pada <strong>model ponsel yang persis sama</strong> dengan
+yang akan dipakai — dukungan audio USB paling bervariasi pada ponsel murah.</p>
+<p lang="id"><strong>Jangan pakai mikrofon nirkabel/Bluetooth</strong> untuk rekaman arsip: audionya
+sudah dikompresi dan diproses sebelum diterima aplikasi.</p>
 
 </body>
 </html>

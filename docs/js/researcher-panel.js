@@ -448,7 +448,59 @@ const PLATFORM_KEY = {
   'windows': 'panel.dev.platWindows',
 };
 
-function deviceInfo(ua, cachedApps, engineVersion, platform) {
+/* CONFIRMED staleness — do not cry wolf on every release.
+ *
+ * A device is briefly "behind" after every deploy: service workers update on the next load, so an
+ * instant warning would fire for every install after every push and train the researcher to ignore
+ * the badge — which is worse than having no badge, because it burns the one signal that a genuinely
+ * bricked device would raise.
+ *
+ * So a mismatch must be confirmed across TWO DISTINCT REPORTS separated by STALE_CONFIRM_MS. The
+ * separation is measured on the DEVICE's report timestamps, not on wall clock, or simply leaving the
+ * panel open for six hours would "confirm" staleness from a single report.
+ *
+ * The timer resets if the device's engine version CHANGES while still behind: a device that is
+ * moving is lagging, not stuck, and only stuck is worth an alarm.
+ *
+ * Clears itself the moment a device reports the current version.
+ *
+ * 6h: propagation is minutes (editor Pages ~30s, satellites ~90s), so this is generous padding,
+ * while still surfacing a genuinely stuck device inside a day. Watch state lives in this
+ * researcher's own localStorage; losing it only restarts the timer.
+ */
+const STALE_CONFIRM_MS = 6 * 60 * 60 * 1000;
+const STALE_WATCH_KEY = 'flextext-rp-stale-watch';
+
+function staleWatchRead() {
+  try { return JSON.parse(localStorage.getItem(STALE_WATCH_KEY) || '{}') || {}; }
+  catch { return {}; }
+}
+function staleWatchWrite(w) {
+  try { localStorage.setItem(STALE_WATCH_KEY, JSON.stringify(w)); } catch { /* quota — non-critical */ }
+}
+
+/** @returns true only when this install has been behind across two reports >= STALE_CONFIRM_MS apart.
+ *  Exported ONLY so the test suite can drive this function itself rather than a copy of its logic —
+ *  a copied test passes while the real path is broken. Not part of the panel's public surface. */
+export function staleConfirmed(installId, reportedAt, behind, runningVer) {
+  const w = staleWatchRead();
+  if (!installId) return behind;                 // nothing to track by — fail toward showing it
+  if (!behind) {                                 // resolved: drop the record so the badge disappears
+    if (w[installId]) { delete w[installId]; staleWatchWrite(w); }
+    return false;
+  }
+  const ts = Date.parse(reportedAt) || Number(reportedAt) || Date.now();
+  const e = w[installId];
+  if (!e || e.ver !== runningVer) {              // first sighting, or it moved — (re)start the clock
+    w[installId] = { first: ts, last: ts, ver: runningVer };
+    staleWatchWrite(w);
+    return false;
+  }
+  if (ts > e.last) { e.last = ts; staleWatchWrite(w); }
+  return (e.last - e.first) >= STALE_CONFIRM_MS;
+}
+
+function deviceInfo(ua, cachedApps, engineVersion, platform, installId, reportedAt) {
   const segs = [];
   const pk = PLATFORM_KEY[platform];
   if (pk) segs.push(t(pk));
@@ -464,7 +516,12 @@ function deviceInfo(ua, cachedApps, engineVersion, platform) {
   let stale = false;
   if (!engineVersion && !(cachedApps && cachedApps.editor)) stale = true;        // pre-feature client → definitely old
   else if (live && eng && eng !== live) stale = true;                            // running engine behind the live site
-  return { text: segs.join(' · '), stale };
+  // Confirm across two reports before alarming (see STALE_CONFIRM_MS). A client so old it reports no
+  // version at all is NOT put through the timer: that is not a propagation delay, it is a client from
+  // before the field existed, and it is already definitively behind.
+  const known = !!(engineVersion || (cachedApps && cachedApps.editor));
+  const confirmed = known ? staleConfirmed(installId, reportedAt, stale, eng) : stale;
+  return { text: segs.join(' · '), stale: confirmed, behindNow: stale, running: eng, live };
 }
 // This panel's OWN cached apps (same parse as the field client's listCachedApps), for the This-device tile.
 async function panelCachedApps() {
@@ -714,7 +771,30 @@ async function renderInstanceCard(it) {
         : `<li class="note">${esc(t('panel.inst.noTexts'))}</li>`;
       installsHtml += `<div class="rp-install">
         <div class="note">${esc(t('panel.inst.lastSeen', { when: lastSeen(ins.last_seen_at) }))} · ${esc(t('panel.inst.texts', { n: inv ? inv.length : 0 }))}</div>
-        ${(() => { const di = deviceInfo(ins.inventory && ins.inventory.ua, ins.inventory && ins.inventory.cachedApps, ins.inventory && ins.inventory.engineVersion, ins.inventory && ins.inventory.platform); const txt = di.text || t('panel.inst.verUnknown'); return `<div class="note rp-devinfo${di.text ? '' : ' rp-devinfo-old'}${di.stale ? ' rp-devinfo-stale' : ''}">${esc(txt)}${di.stale ? ` <span class="rp-badge rp-badge-stale">${esc(t('panel.dev.stale'))}</span>` : ''}</div>`; })()}
+        ${(() => {
+          const di = deviceInfo(ins.inventory && ins.inventory.ua, ins.inventory && ins.inventory.cachedApps,
+                                ins.inventory && ins.inventory.engineVersion, ins.inventory && ins.inventory.platform,
+                                ins.id, ins.last_seen_at);
+          const txt = di.text || t('panel.inst.verUnknown');
+          // The badge is RESEARCHER/DEVELOPER-facing only — it never renders in the coworker's app.
+          // A confirmed mismatch means the release process itself misfired, so give a way to report
+          // it rather than leaving the researcher to describe a version mismatch from memory.
+          let badge = '';
+          if (di.stale) {
+            const detail = t('panel.dev.staleWhy', { running: di.running || '?', live: di.live || '?' });
+            const body = encodeURIComponent(
+              'A device is stuck on an old engine after a release.\n\n'
+              + 'Running engine: ' + (di.running || 'unknown') + '\n'
+              + 'Live engine: ' + (di.live || 'unknown') + '\n'
+              + 'Platform: ' + ((ins.inventory && ins.inventory.platform) || 'unknown') + '\n\n'
+              + 'Confirmed across two reports at least 6h apart, so this is not propagation delay.');
+            const url = 'https://github.com/rulingAnts/flextext-editor/issues/new?title='
+              + encodeURIComponent('Stale engine on a field device') + '&body=' + body;
+            badge = ` <span class="rp-badge rp-badge-stale" title="${esc(detail)}">${esc(t('panel.dev.stale'))}</span>`
+                  + ` <a class="rp-report" href="${url}" target="_blank" rel="noopener">${esc(t('panel.dev.staleReport'))}</a>`;
+          }
+          return `<div class="note rp-devinfo${di.text ? '' : ' rp-devinfo-old'}${di.stale ? ' rp-devinfo-stale' : ''}">${esc(txt)}${badge}</div>`;
+        })()}
         <ul class="rp-inv">${rows}</ul>
         ${(() => {
           const I = esc(it.instance_id), D = esc(ins.install_id);

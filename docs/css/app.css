@@ -874,6 +874,10 @@ main {
 .rp-badge-ok { background: #e3f3e4; color: #1f5d22; }
 .rp-badge-warn { background: #fdf3d7; color: #6b5310; }
 .rp-badge-stale { background: #f7d9d6; color: #a3261f; font-weight: 600; }
+/* Report link beside a CONFIRMED stale badge. Researcher panel only — this styling can never
+   reach the coworker's app, which has no device tiles at all. */
+.rp-report { font-size: 0.85em; color: #a3261f; text-decoration: underline; margin-left: 0.35em; }
+.rp-report:hover { color: #7d1c17; }
 
 /* Destructive actions (erase data / delete account / account-switch erase) — visually distinct so a
    reflex tap is less likely, paired with a typed confirm. Works for both primary and link buttons. */

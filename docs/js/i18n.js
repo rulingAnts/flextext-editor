@@ -642,6 +642,10 @@ internet after the first time.</p>
   'panel.util.close': 'Close',
   'panel.dev.engine': 'engine {v}',
   'panel.dev.stale': 'update needed',
+  // Researcher/developer-facing only — never shown in the coworker's app. Explains a CONFIRMED
+  // mismatch (seen across two reports 6h+ apart), not the normal post-release update window.
+  'panel.dev.staleWhy': 'This device is still running engine {running} while the live site serves {live}. Confirmed across two reports at least 6 hours apart, so this is not normal update delay — the release process may have misfired.',
+  'panel.dev.staleReport': 'report this',
   'panel.erase.btn': 'Erase all data on this device',
   'panel.erase.title': 'Erase all data on this device',
   'panel.erase.what': 'This permanently deletes EVERYTHING this app stores in this browser: all texts and audio, settings, your sign-in, the device enrollment and keys, and the installed app — leaving a blank, freshly-installed slate. Use it for troubleshooting, or to clear / hand off a device.',
@@ -1508,6 +1512,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.util.close': 'Tutup',
   'panel.dev.engine': 'mesin {v}',
   'panel.dev.stale': 'perlu diperbarui',
+  'panel.dev.staleWhy': 'Perangkat ini masih menjalankan engine {running} sementara situs menyajikan {live}. Terkonfirmasi pada dua laporan berjarak minimal 6 jam, jadi ini bukan keterlambatan pembaruan biasa — proses rilis mungkin bermasalah.',
+  'panel.dev.staleReport': 'laporkan ini',
   'panel.erase.btn': 'Hapus semua data di perangkat ini',
   'panel.erase.title': 'Hapus semua data di perangkat ini',
   'panel.erase.what': 'Ini menghapus permanen SEMUA yang disimpan aplikasi ini di peramban ini: semua teks dan audio, pengaturan, info masuk Anda, pendaftaran dan kunci perangkat, serta aplikasi terpasang — mengembalikannya ke keadaan kosong seperti baru dipasang. Gunakan untuk pemecahan masalah, atau untuk membersihkan / menyerahkan perangkat.',

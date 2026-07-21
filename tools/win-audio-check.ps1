@@ -45,7 +45,10 @@ W "--- device enumeration (raw) ---"
 $enum = cmd /c "`"$ff`" -hide_banner -f dshow -list_devices true -i dummy 2>&1" | Out-String
 W $enum
 
-$names = [regex]::Matches($enum, '"([^"]+)"\s*\(audio\)') | ForEach-Object { $_.Groups[1].Value }
+# @() FORCES AN ARRAY. Without it, a SINGLE match makes $names a plain string, and $names[0]
+# then returns its first CHARACTER -- the capture below was handed the device name "M".
+# A machine with exactly one microphone is the common case, so this bit on the first real test.
+$names = @([regex]::Matches($enum, '"([^"]+)"\s*\(audio\)') | ForEach-Object { $_.Groups[1].Value })
 W "--- parsed by OUR regex ---"
 if ($names.Count -eq 0) {
   W "NO AUDIO DEVICES PARSED. The raw text above shows what the regex was given."

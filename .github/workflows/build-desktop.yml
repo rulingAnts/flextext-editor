@@ -101,6 +101,26 @@ jobs:
             Write-Host 'ffmpeg.exe present in resources'
           }
 
+      # ⚠ VERIFY THE THING WE ACTUALLY SHIP. The step above inspects the UNPACKED directory, which
+      # is not what the portable exe contains at runtime — a distinction that cost a field debugging
+      # session, because a build can pass that check while shipping an exe with no ffmpeg in it.
+      # The portable target is a self-extracting archive, so look INSIDE it.
+      - name: Verify ffmpeg is inside the PORTABLE exe
+        shell: pwsh
+        working-directory: electron
+        run: |
+          $exe = (Get-ChildItem dist -Filter '*portable*.exe' | Select-Object -First 1).FullName
+          $listing = & 7z l "$exe" 2>&1 | Out-String
+          if ($listing -match 'ffmpeg\.exe') {
+            Write-Host 'CONFIRMED: ffmpeg.exe is inside the portable exe'
+          } else {
+            Write-Host $listing
+            throw 'ffmpeg.exe is NOT inside the portable exe - the shipped build cannot record'
+          }
+          # Also confirm the app itself is in there, so a malformed archive cannot pass silently.
+          if ($listing -notmatch 'app\.asar') { throw 'app.asar missing from the portable exe' }
+          Write-Host 'CONFIRMED: app.asar is inside the portable exe'
+
       - uses: actions/upload-artifact@v4
         with:
           name: flextext-desktop-windows-x64

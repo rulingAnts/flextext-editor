@@ -47,6 +47,9 @@ en: {
   // Which microphone a native recording actually came from — the readout that makes testing a USB
   // mic possible. Plain words: a field worker reads these, not an engineer.
   'record.cap.via': 'Recorded with: {device}',
+  // Model AND category, e.g. "Samson Q2U (a USB microphone)" — the model alone does not tell a
+  // non-technical user that the external mic was the one actually used.
+  'record.cap.model': '{model} ({kind})',
   'record.cap.notArchival': 'not archive quality',
   'record.cap.dev.builtin_mic': "the phone's own microphone",
   'record.cap.dev.wired_headset': 'a plug-in microphone',
@@ -931,6 +934,7 @@ id: {
   'record.idle': 'Tekan Rekam lalu berbicara. Anda bisa mendengarkan dan merekam ulang sebelum menyimpan.',
   'record.warming': 'Menyiapkan mikrofon…',
   'record.cap.via': 'Direkam dengan: {device}',
+  'record.cap.model': '{model} ({kind})',
   'record.cap.notArchival': 'bukan kualitas arsip',
   'record.cap.dev.builtin_mic': 'mikrofon bawaan ponsel',
   'record.cap.dev.wired_headset': 'mikrofon colok',

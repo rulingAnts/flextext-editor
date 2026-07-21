@@ -1518,10 +1518,21 @@ function showCaptureProvenance(cap) {
   // t() falls back to the KEY when a string is missing, which would print "record.cap.dev.usb_device"
   // at a field user. So only translate types we actually have strings for; show anything else raw,
   // which is at least true. The plugin can emit "type_<n>" for an Android type we have not named.
-  const dev = cap.device
-    || (cap.deviceType
-        ? (CAPTURE_DEV_KEYS.has(cap.deviceType) ? t('record.cap.dev.' + cap.deviceType) : cap.deviceType)
-        : null);
+  // Prefer the ACTUAL MODEL the OS reported ("Samson Q2U") over the generic category, but show both
+  // when both are known: the model alone does not tell a non-technical user whether the external mic
+  // was used, which is the entire question being answered. Android's product name is often generic
+  // ("USB Audio Device") or absent, so the category is a genuine fallback, not decoration.
+  // An Android type we have no name for ("type_29") is meaningless to a field user. It is still
+  // better than nothing when it is ALL we have, but it must never be appended to a perfectly good
+  // model name — "Weird Mic 9000 (type_29)" reads as a fault in the app.
+  const kindKnown = !!(cap.deviceType && CAPTURE_DEV_KEYS.has(cap.deviceType));
+  const kind = kindKnown ? t('record.cap.dev.' + cap.deviceType) : (cap.deviceType || null);
+  // A "model" that just restates the category adds nothing — don't print "USB Audio Device (a USB
+  // microphone)".
+  const modelIsUseful = cap.device && kindKnown
+    && cap.device.toLowerCase().replace(/[^a-z]/g, '') !== kind.toLowerCase().replace(/[^a-z]/g, '');
+  const dev = modelIsUseful ? t('record.cap.model', { model: cap.device, kind })
+            : (cap.device || kind);
   if (dev) bits.push(t('record.cap.via', { device: dev }));
   if (cap.label) bits.push(cap.label);
   el.textContent = bits.join(' · ');

@@ -45,6 +45,7 @@ const APP_ORIGIN = new URL(APP_URL).origin;
  * FLEXTEXT_DEVTOOLS=1 in the environment also enables it, for running from source.
  */
 const { devToolsAllowed } = require('./flags');
+const log = require('./log');
 const DEVTOOLS = devToolsAllowed();
 
 let win = null;
@@ -69,10 +70,23 @@ function createWindow() {
 
   win.once('ready-to-show', () => win.show());
 
+  // EVERYTHING DEVTOOLS WOULD HAVE SHOWN, written to a file instead. The engine logs its failures
+  // at console.error (native capture, audio playback), so this is the channel that answers "why did
+  // recording fail on that laptop" without anyone opening a console.
+  win.webContents.on('console-message', (_e, level, message, line, sourceId) => {
+    if (level < 2) return;                       // warnings and errors only; info would drown it
+    log[level >= 3 ? 'error' : 'warn'](`renderer: ${message}`, `(${sourceId}:${line})`);
+  });
+  win.webContents.on('render-process-gone', (_e, details) => log.error('renderer gone', details));
+  win.webContents.on('did-fail-load', (_e, code, desc, url) => log.error('load failed', { code, desc, url }));
+
   // The default application menu carries View -> Toggle Developer Tools. devTools:false already
   // refuses to open it, but leaving a menu item that silently does nothing looks like a broken app,
   // so the menu goes too. A test build keeps the normal menu.
-  if (!DEVTOOLS) Menu.setApplicationMenu(null);
+  // A CURATED menu rather than none. The default menu exposes Developer Tools, which a field build
+  // must not; but removing the menu entirely also removes the only route to the diagnostics log,
+  // which is the thing that actually helps when something breaks on a machine nobody can inspect.
+  buildMenu();
 
   // The microphone permission prompt has no meaning here — the user already granted it to the app
   // at OS level, and capture runs natively, not through getUserMedia. Grant media, refuse the rest.
@@ -102,6 +116,35 @@ function createWindow() {
   });
 }
 
+function buildMenu() {
+  const items = [
+    { label: 'Reload', accelerator: 'CmdOrCtrl+R', click: () => win && win.reload() },
+    { type: 'separator' },
+    {
+      // The point of the whole file: a field user can be asked for this over a message, with no
+      // console, no screen share, and no technical vocabulary.
+      label: 'Open diagnostics log…',
+      click: async () => {
+        const p = log.path();
+        if (!p) return;
+        try { await shell.showItemInFolder(p); } catch { /* nothing more we can do */ }
+      },
+    },
+  ];
+  if (DEVTOOLS) {
+    items.push({ type: 'separator' },
+      { label: 'Developer Tools', accelerator: 'CmdOrCtrl+Shift+I',
+        click: () => win && win.webContents.openDevTools({ mode: 'detach' }) });
+  }
+  items.push({ type: 'separator' }, { role: 'quit' });
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    { label: 'Flextext', submenu: items },
+    { label: 'Edit', submenu: [
+      { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' },
+    ] },
+  ]));
+}
+
 function showOfflineNotice(detail = '') {
   const html = `<!doctype html><meta charset="utf-8">
     <style>body{font:16px/1.5 system-ui,sans-serif;margin:0;display:grid;place-items:center;
@@ -120,6 +163,31 @@ function showOfflineNotice(detail = '') {
 
 registerAudioIpc(() => win);
 
-app.whenReady().then(createWindow);
+app.whenReady().then(async () => {
+  log.init(app.getPath('userData'));
+  log.info('--- start ---', {
+    app: app.getVersion(), electron: process.versions.electron,
+    platform: process.platform, arch: process.arch, devTools: DEVTOOLS, url: APP_URL,
+  });
+  // Probe the capture chain AT STARTUP, so the log already answers the first question asked when a
+  // machine cannot record: was ffmpeg found, and did it see any microphone at all?
+  try {
+    const caps = await audio.capabilities();
+    log.info('audio capabilities', {
+      probed: caps.probed, error: caps.error || null,
+      deviceCount: (caps.devices || []).length,
+      devices: (caps.devices || []).map((d) => d.name),
+    });
+    if (caps.error) log.error('NATIVE CAPTURE UNAVAILABLE:', caps.error, caps.note || '');
+    else if (!(caps.devices || []).length) {
+      log.error('NATIVE CAPTURE FOUND NO MICROPHONE. On Windows this is either the OS privacy '
+              + 'setting (Settings > Privacy & security > Microphone > "Let desktop apps access '
+              + 'your microphone") or a device-name parsing failure in listDevices().');
+    }
+  } catch (e) { log.error('capabilities threw', String(e && e.message)); }
+  createWindow();
+});
+
+process.on('uncaughtException', (e) => log.error('uncaught', String(e && e.stack || e)));
 app.on('window-all-closed', () => { audio.cancel().catch(() => {}); app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });

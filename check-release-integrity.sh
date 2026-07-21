@@ -32,6 +32,14 @@ live_version() {   # live_version <url> -> the VERSION string, or empty
 # is "does the live site match what PRODUCTION says it should be" — anything else is noise, and a
 # checker that cries wolf gets ignored, which is the whole failure it exists to prevent.
 REF="${FLEXTEXT_REF:-productionWeb}"
+# A shallow CI checkout may not have the branch ref even when its CONTENT is checked out, so
+# callers that already have production checked out pass FLEXTEXT_REF=HEAD. Fail loudly here
+# rather than reporting a confusing "no satellites found" further down.
+if ! git rev-parse --verify -q "$REF" >/dev/null; then
+  echo "FAIL: ref '$REF' does not resolve here. Fetch it, or pass FLEXTEXT_REF=HEAD if" >&2
+  echo "      production is already the checked-out commit." >&2
+  exit 1
+fi
 
 src_version() {    # src_version <path-in-repo> -> the VERSION string per productionWeb, or empty
   git show "$REF:$1" 2>/dev/null | grep -m1 "const VERSION" | grep -oE "v[0-9]+" || true

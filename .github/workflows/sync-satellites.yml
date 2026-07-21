@@ -92,7 +92,7 @@ jobs:
       # Sharing means negative-testing the script negative-tests this gate.
       - name: Verify every engine path this satellite precaches is LIVE
         if: steps.gate.outputs.skip != 'true'
-        run: FLEXTEXT_REF=productionWeb ./check-release-integrity.sh paths "${{ matrix.name }}"
+        run: FLEXTEXT_REF=HEAD ./check-release-integrity.sh paths "${{ matrix.name }}"
 
       - name: Publish to rulingAnts/${{ matrix.name }}
         if: steps.gate.outputs.skip != 'true'

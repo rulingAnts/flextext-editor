@@ -66,9 +66,15 @@ jobs:
           if (-not $exe) { throw 'ffmpeg.exe not found in the downloaded archive' }
           New-Item -ItemType Directory -Force -Path electron/vendor | Out-Null
           Copy-Item $exe.FullName electron/vendor/ffmpeg.exe
-          $ver = (& electron/vendor/ffmpeg.exe -hide_banner -version | Select-Object -First 1)
+          $verFull = (& electron/vendor/ffmpeg.exe -hide_banner -version | Out-String)
+          $ver = ($verFull -split "`n")[0].Trim()
           Write-Host $ver
-          if ($ver -notmatch 'lgpl') { throw "expected an LGPL build, got: $ver" }
+          # The licence marker is NOT in the version string - it is the configuration line. A GPL
+          # build carries --enable-gpl (and a nonfree one --enable-nonfree); the LGPL build carries
+          # neither. Assert on the flags themselves, not on a name.
+          if ($verFull -match '--enable-gpl')     { throw 'this ffmpeg was configured with --enable-gpl - not the LGPL build' }
+          if ($verFull -match '--enable-nonfree') { throw 'this ffmpeg was configured with --enable-nonfree - undistributable' }
+          Write-Host 'verified: configuration has neither --enable-gpl nor --enable-nonfree (LGPL)'
 
           # LICENCE TEXT: the build zip carries its own LICENSE.txt; it ships beside the binary.
           $lic = Get-ChildItem -Path ffmpeg-extract -Filter LICENSE.txt -Recurse | Select-Object -First 1

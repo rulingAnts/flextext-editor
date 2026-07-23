@@ -1,0 +1,25 @@
+# Manual deploy of the connectivity Worker — replaces running `wrangler deploy` on the VM.
+# Run it from the repo's Actions tab → "Deploy worker" → "Run workflow" (keeps your
+# explicit sign-off: it never deploys automatically on push).
+#
+# Requires two repo secrets (Settings → Secrets and variables → Actions):
+#   CLOUDFLARE_API_TOKEN  — a token scoped to this account: Workers Scripts:Edit + D1:Edit
+#   CLOUDFLARE_ACCOUNT_ID — your Cloudflare account id (Dashboard → Workers → right sidebar)
+# These replace the VM's full `wrangler login`, so CI holds a *narrower* credential than the VM did.
+name: Deploy worker
+on:
+  workflow_dispatch:
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: wrangler deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # The worker lives in worker/ since the repo fold (2026-07-23); wrangler.toml is there.
+          workingDirectory: worker
+          # No `command:` → wrangler-action runs `wrangler deploy` (uses wrangler.toml: name,
+          # routes/custom_domain, [vars], D1/R2 bindings). workers_dev=true keeps …workers.dev live.

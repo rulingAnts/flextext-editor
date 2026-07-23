@@ -1,0 +1,29 @@
+# Manual D1 migration — replaces `wrangler d1 execute --remote --file=…` on the VM.
+# Run from the Actions tab → "D1 migrate" → "Run workflow" → type the .sql filename.
+#
+# ⚠ --remote is the LIVE database. Run each migration file exactly ONCE (the ALTER ADD COLUMN
+#   statements error on a re-run). The job prints wrangler's output and fails on a non-zero exit.
+# Uses the same CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID repo secrets as deploy.
+name: D1 migrate
+on:
+  workflow_dispatch:
+    inputs:
+      file:
+        description: "Migration SQL file in worker/ (e.g. migrate-researcher-approval.sql)"
+        required: true
+        type: string
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Confirm the file exists in the repo"
+        run: |
+          test -f "worker/${{ inputs.file }}" || { echo "::error::Migration file not found worker/${{ inputs.file }}"; exit 1; }
+      - name: wrangler d1 execute (remote / LIVE)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: worker
+          command: d1 execute flextext-connectivity --remote --file=${{ inputs.file }}

@@ -1,0 +1,39 @@
+# Generic "run any wrangler command" — covers everything the deploy/migrate buttons don't
+# (D1 queries, `versions list`, `rollback`, `deployments list`, etc.) so you never need wrangler
+# locally or a VM. Run from the Actions tab → "wrangler (one-off command)" → Run workflow → type args.
+#
+# Examples for the `args` box:
+#   versions list
+#   rollback
+#   d1 execute flextext-connectivity --remote --command "SELECT researcher_id, drive_email, approved FROM researcher"
+#
+# NOT for: `wrangler dev` (a live server — can't run in CI), `wrangler tail` (streams forever — use
+# the dashboard Logs), or `wrangler secret put` (needs stdin — use the dashboard).
+#
+# ⚠ `args` is interpolated into the shell, so this is a "run arbitrary command as you" tool.
+# The old justification was "it's a private repo" — NO LONGER TRUE since the fold made this code
+# public. The property that actually keeps it safe is unchanged and visibility-independent:
+# workflow_dispatch can only be triggered by accounts with WRITE access to this repo, and fork
+# pull requests can neither dispatch it nor read the CLOUDFLARE_* secrets. The set of people who
+# can run commands here is exactly the set who could already push code that runs in CI. If
+# collaborators are ever added, remember this grants them live-database access.
+# `--remote` is the LIVE database/worker — double-check before destructive D1 statements.
+name: wrangler (one-off command)
+on:
+  workflow_dispatch:
+    inputs:
+      args:
+        description: "wrangler arguments (everything after `wrangler`)"
+        required: true
+        type: string
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: "wrangler ${{ inputs.args }}"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        working-directory: worker
+        run: npx --yes wrangler@4 ${{ inputs.args }}

@@ -1,0 +1,74 @@
+name = "flextext-r2-worker"
+main = "src/index.js"
+compatibility_date = "2026-06-01"
+# Keep the *.workers.dev URL live ALONGSIDE the custom domain (additive). wrangler 4
+# DISABLES workers.dev by default once a custom_domain route exists — which breaks
+# already-deployed field clients still pointed at …workers.dev. Must stay true until
+# every client has cut over to connect.flextext.app.
+workers_dev = true
+
+# --- Custom domain (OAuth consent-screen branding) -------------------------------
+# Puts the Worker behind connect.flextext.app IN ADDITION TO the default
+# *.workers.dev URL (workers_dev stays unset = true), so already-deployed field
+# clients keep working. `wrangler deploy` auto-provisions the proxied DNS record +
+# edge cert for this hostname (the flextext.app zone is already in this CF account).
+# The OAuth redirect_uri is derived from the request host (src/v1.js), so NO worker
+# code change is needed — but BEFORE the client flips DEFAULT_WORKER to this domain,
+# add https://connect.flextext.app/v1/oauth/google/callback to the Google OAuth
+# client's Authorized redirect URIs (keep the workers.dev one during transition).
+# Full ordered steps: docs/RELEASE-RUNBOOK.md.
+[[routes]]
+pattern = "connect.flextext.app"
+custom_domain = true
+
+# Bind YOUR OWN R2 bucket by name (no S3 keys needed/stored).
+# Confirm the exact name with: wrangler r2 bucket list
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "flextext-back-end"
+
+[vars]
+# Production: ONLY the live origin. Localhost dev origins live in .dev.vars (gitignored),
+# which `wrangler dev` overlays — so the DEPLOYED worker never allowlists localhost.
+# https://localhost is the ORIGIN OF THE ANDROID APKs, not a dev-machine loophole:
+# Capacitor serves the bundled app from https://localhost (confirmed in logcat:
+# "Loading app at https://localhost"), so without it every call from the native apps —
+# enrollment, sync, upload, /drive downloads — fails CORS with origin_not_allowed.
+# Kept as localhost rather than a custom server.hostname on Capacitor's own advice
+# (localhost preserves secure-context Web APIs such as getUserMedia, which the engine
+# still needs for the FLAC/lossy formats the native capture path does not handle).
+# Exposure is small: CORS is browser-enforced and a site cannot forge an Origin header,
+# so this only admits a page genuinely served from https://localhost on the user's own
+# machine. The real gate remains the per-install secret.
+ALLOWED_ORIGINS = "https://rulingants.github.io,https://localhost"
+MAX_FILE_BYTES  = "536870912"     # 512 MB per-file ceiling (Cloudflare cache limit)
+MAX_TOTAL_BYTES = "9500000000"    # ~9.5 GB total — stops BEFORE the 10 GB free tier
+# (RELAY_URL removed 2026-07-13: the Apps Script relay upload leg is retired —
+# all uploads stream into the researcher's own Drive via their OAuth token.)
+
+# RELAY_SECRET is a secret, NOT in this file. Set it after deploy with:
+#   wrangler secret put RELAY_SECRET
+# RELAY_WRITE_SECRET (owner-only: R2 uploads + /stats). NOT used by /v1 — researcher
+# signup is open + rate-limited, so Seth is never a signup gatekeeper.
+#   wrangler secret put RELAY_WRITE_SECRET
+
+# --- Connectivity sync layer (/v1/*) — Phase 0. ---
+# D1 created + schema applied + full /v1/ lifecycle verified on a staging worker
+# against this DB (2026-06-20). The /v1/ block stays fault-isolated above the
+# global gates, so it cannot affect /drive even if D1 is unreachable.
+[[d1_databases]]
+binding = "DB"
+database_name = "flextext-connectivity"
+database_id = "4b77babc-3581-4928-ab70-053660ba1b0d"
+
+# Per-IP flood backstop for OPEN researcher self-signup (free Workers binding —
+# no paid plan, no D1 writes). NOTE: Cloudflare's rate-limit binding is APPROXIMATE
+# + eventually-consistent — it throttles a SUSTAINED flood, not precise per-minute
+# counts (observed letting ~14 through at limit=2). That's acceptable: a stray
+# signup is a harmless empty row, blast radius is self-contained, and D1-free
+# throttles-not-bills. If precise control is ever needed, add a D1 per-IP counter.
+[[unsafe.bindings]]
+name = "SIGNUP_LIMIT"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 10, period = 60 }

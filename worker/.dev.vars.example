@@ -1,0 +1,20 @@
+# Local-dev overrides for `wrangler dev` ONLY — copy to .dev.vars (gitignored).
+# `wrangler dev` overlays these on top of wrangler.toml [vars]; `wrangler deploy`
+# IGNORES this file. So the local dev worker accepts the localhost client origins
+# and uses Cloudflare's always-pass Turnstile TEST secret, while the DEPLOYED worker
+# (wrangler.toml) stays locked to https://rulingants.github.io with the real secret.
+#
+# Turnstile TEST keys (pair with the client's TURNSTILE_TEST_SITE_KEY 1x00000000000000000000AA):
+#   1x0000000000000000000000000000000AA = always passes
+#   2x0000000000000000000000000000000AA = always blocks
+ALLOWED_ORIGINS=http://localhost:8012,http://localhost:8011,http://localhost:8765,https://localhost:8765,http://localhost:8766,https://localhost:8766,http://localhost:8767,http://localhost:8787
+TURNSTILE_SECRET=1x0000000000000000000000000000000AA
+
+# Drive-download relay read token. The client appends ?t=<this> on every /drive request
+# (js/app.js DEFAULT_RELAY_TOKEN). The dev worker MUST set the SAME value or every Drive
+# download — consent audio AND assigned-text audio — returns 401 "unauthorized". This is
+# the deliberately-public read token (proxies public Drive files only; grants no write).
+RELAY_SECRET=7a93cb82d8ad2bd533a75ddf03bebc92501494ca57dab46c5b9f0c5aef00db34
+# Optional — only needed to test R2 *uploads* locally (the ?w= write token). Leave unset
+# to keep dev uploads disabled (matches prod-by-secret behavior):
+# RELAY_WRITE_SECRET=<your-dev-write-token>

@@ -188,7 +188,8 @@ toast **only when something actually changed**. The PWA manifest sets
 ```
 docs/        THE PUBLISHED SITE (the PWA)
 android/     Capacitor wrappers (recorder + editor APKs) — never served
-electron/    desktop shell (planned) — never served
+electron/    desktop shell (Windows) — never served
+worker/      the Cloudflare Worker + D1 backend (former flextext-r2-worker repo) — never served
 notes/       planning docs, gitignored, never served
 ```
 
@@ -216,9 +217,11 @@ it serves, Pages is publishing the root).
 
 ## Connectivity / researcher backend (separate repo)
 
-The no-login sync + researcher accounts run on a Cloudflare Worker + D1 in the
-**`flextext-r2-worker`** repo (`/Users/Seth/GIT/flextext-r2-worker/`, deployed to
-`*.workers.dev`; the client's `DEFAULT_WORKER` in `js/app.js`). Auth = email +
+The no-login sync + researcher accounts run on a Cloudflare Worker + D1 that lives IN THIS REPO
+under **`worker/`** (folded 2026-07-23 from the former private repo `flextext-r2-worker`, as a fresh
+snapshot — the old clone at `/Users/Seth/GIT/flextext-r2-worker/` is now legacy). Deployed to
+`*.workers.dev` (the client's `DEFAULT_WORKER` in `js/app.js`) via the manual-dispatch Actions
+`worker-deploy.yml` / `worker-d1-migrate.yml` / `worker-wrangler.yml`. Auth = email +
 password (password never reaches the server) with operator-recoverable escrow +
 optional TOTP 2FA; metadata is E2EE so D1 holds ciphertext. See
 [`docs/RELEASE-RUNBOOK.md`](docs/RELEASE-RUNBOOK.md) for deploy/migration and

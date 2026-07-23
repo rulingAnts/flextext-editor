@@ -10,6 +10,12 @@
  * addon to compile or distribute. A PortAudio addon would be lighter but adds per-platform
  * prebuild risk for no benefit we need.
  *
+ * LICENSING: the Windows build bundles BtbN's LGPL ffmpeg (everything this file uses — dshow, the
+ * PCM encoders, the wav muxer, astats — is core FFmpeg). It is invoked as a SEPARATE PROCESS, never
+ * linked, and its licence text + source offer ship beside it in resources/. Do not "upgrade" the
+ * bundle to a gpl/nonfree variant for a feature without revisiting that reasoning — the workflow
+ * asserts the build string says lgpl and fails otherwise.
+ *
  * ⚠ HONESTY GAP — READ BEFORE TRUSTING A DESKTOP RECORDING FOR ARCHIVE USE.
  * On Android we PROVE what a device can capture by really opening an AudioRecord, and refuse to
  * fabricate a depth the hardware cannot produce. ffmpeg does NOT behave that way: ask it for

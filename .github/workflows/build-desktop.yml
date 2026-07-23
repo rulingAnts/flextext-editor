@@ -49,17 +49,57 @@ jobs:
       # ffmpeg IS the capture engine on desktop — audio.js shells out to it. Bundling it is what
       # makes this a self-contained app rather than one that silently falls back to browser capture
       # on any machine that happens not to have ffmpeg installed. A field laptop never will.
-      - name: Fetch ffmpeg for bundling
+      #
+      # ⚠ THE LGPL BUILD, DELIBERATELY. The first builds bundled win64-GPL, which drags in GPL-only
+      # components (x264, x265) this app never invokes — extra licence weight for nothing. Everything
+      # the capture path uses (dshow, the PCM encoders, the WAV muxer, the astats meter filter) is
+      # core FFmpeg under the LGPL. Compliance is then two concrete duties, both done below: ship the
+      # licence text with the binary, and state where the corresponding source lives. Invocation is a
+      # SEPARATE PROCESS either way — never linked — so FFmpeg's terms do not reach the app's code.
+      - name: Fetch ffmpeg (LGPL build) for bundling
         shell: pwsh
         run: |
-          $url = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip'
+          $url = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip'
           Invoke-WebRequest -Uri $url -OutFile ffmpeg.zip
           Expand-Archive ffmpeg.zip -DestinationPath ffmpeg-extract
           $exe = Get-ChildItem -Path ffmpeg-extract -Filter ffmpeg.exe -Recurse | Select-Object -First 1
           if (-not $exe) { throw 'ffmpeg.exe not found in the downloaded archive' }
           New-Item -ItemType Directory -Force -Path electron/vendor | Out-Null
           Copy-Item $exe.FullName electron/vendor/ffmpeg.exe
-          & electron/vendor/ffmpeg.exe -hide_banner -version | Select-Object -First 1
+          $ver = (& electron/vendor/ffmpeg.exe -hide_banner -version | Select-Object -First 1)
+          Write-Host $ver
+          if ($ver -notmatch 'lgpl') { throw "expected an LGPL build, got: $ver" }
+
+          # LICENCE TEXT: the build zip carries its own LICENSE.txt; it ships beside the binary.
+          $lic = Get-ChildItem -Path ffmpeg-extract -Filter LICENSE.txt -Recurse | Select-Object -First 1
+          if (-not $lic) { throw 'LICENSE.txt not found in the ffmpeg archive - cannot ship without it' }
+          Copy-Item $lic.FullName electron/vendor/ffmpeg-LICENSE.txt
+
+          # SOURCE OFFER: LGPL requires saying where the corresponding source is. BtbN's release
+          # publishes the exact build scripts and FFmpeg revision; the version string pins it.
+          @(
+            'FFmpeg (LGPL build) bundled with Flextext Desktop',
+            '',
+            ('version : ' + $ver),
+            'binary  : https://github.com/BtbN/FFmpeg-Builds/releases (win64-lgpl)',
+            'source  : https://github.com/BtbN/FFmpeg-Builds (build scripts) and https://git.ffmpeg.org/ffmpeg.git',
+            'licence : GNU LGPL v2.1 or later - see ffmpeg-LICENSE.txt beside this file',
+            '',
+            'FFmpeg is invoked as a separate process for audio capture only; it is not linked',
+            'into this application.'
+          ) | Set-Content electron/vendor/ffmpeg-SOURCE.txt -Encoding ASCII
+
+          # THE CAPTURE PATH MUST SURVIVE THE SLIMMER BUILD. These are core components and should
+          # all be present, but "should" is how the last packaging gap shipped - prove it.
+          $devices  = (& electron/vendor/ffmpeg.exe -hide_banner -devices 2>&1  | Out-String)
+          if ($devices -notmatch 'dshow')      { throw 'LGPL build lacks dshow - cannot capture on Windows' }
+          $encoders = (& electron/vendor/ffmpeg.exe -hide_banner -encoders 2>&1 | Out-String)
+          foreach ($e in 'pcm_s16le','pcm_s24le','pcm_s32le','pcm_f32le') {
+            if ($encoders -notmatch $e) { throw "LGPL build lacks $e" }
+          }
+          $filters = (& electron/vendor/ffmpeg.exe -hide_banner -filters 2>&1 | Out-String)
+          if ($filters -notmatch 'astats')     { throw 'LGPL build lacks astats - the level meter would be dead' }
+          Write-Host 'verified: dshow + all four PCM encoders + astats present in the LGPL build'
 
       # Written into the packaged app; main.js reads it and treats missing/malformed as OFF, so a
       # release cannot gain developer tools by accident. Deliberately NOT defaulted to the branch or
@@ -128,6 +168,8 @@ jobs:
           }
           if ($listing -notmatch 'app\.asar') { throw 'app.asar missing from the portable exe' }
           Write-Host 'CONFIRMED: app.asar is inside the shipped portable exe'
+          if ($listing -notmatch 'ffmpeg-LICENSE\.txt') { throw 'ffmpeg licence text missing from the shipped exe' }
+          Write-Host 'CONFIRMED: ffmpeg-LICENSE.txt ships inside the portable exe'
 
       - uses: actions/upload-artifact@v4
         with:
@@ -169,8 +211,8 @@ jobs:
             '  registry. Uninstall by deleting the file.',
             '- **Unsigned**: Windows SmartScreen will warn on first run. Choose *More info -> Run',
             '  anyway*. Signing needs a paid certificate.',
-            '- **ffmpeg is bundled** - it is the capture engine on desktop, invoked as a separate',
-            '  process, so its GPL terms do not reach this app''s own code.',
+            '- **ffmpeg is bundled** (the LGPL build) - it is the capture engine on desktop, invoked',
+            '  as a separate process; its licence and source offer ship beside it in resources/.',
             '- Loads the live site, so the editor engine updates itself; only the shell is fixed.'
           ) -join "`n"
           gh release delete $tag --yes --cleanup-tag 2>$null

@@ -27,6 +27,14 @@
       {
         "from": "vendor/ffmpeg.exe",
         "to": "ffmpeg.exe"
+      },
+      {
+        "from": "vendor/ffmpeg-LICENSE.txt",
+        "to": "ffmpeg-LICENSE.txt"
+      },
+      {
+        "from": "vendor/ffmpeg-SOURCE.txt",
+        "to": "ffmpeg-SOURCE.txt"
       }
     ],
     "win": {

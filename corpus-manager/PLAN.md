@@ -266,7 +266,8 @@ corpus-manager/
 **Reuse (confirmed portable — dependency-injected already):**
 - **`flextext.js`** — the crown jewel: FLEx `.flextext` parse/serialize/tokenize/
   segment/**lossless round-trip** + the in-memory interlinear model. Reused for
-  import and the interlinear preview.
+  import and the interlinear preview. (A small **`.eaf` reader** is net-new — `.eaf`
+  is documented XML — feeding the same preview renderer; see §6.)
 - **The record-mode consent/permissions modal** — the suite's consent flow (consent
   prompt/response capture + receipts; the `consentMode/Ask/Confirm/Msg/Audio`
   settings in `applyUrlSettings`). Reuse it so **in-app recording follows the exact
@@ -276,8 +277,8 @@ corpus-manager/
   Google-OAuth/Drive + Cloudflare-worker layer, all injected via `iface`/`deps`. Reuse
   for the Drive-browse/import and any researcher-account features. (OAuth is
   **server-mediated** by the worker — a new desktop origin must be **allow-listed in
-  the worker + Google OAuth client**; the backend lives in the separate
-  `flextext-r2-worker` repo.)
+  the worker + Google OAuth client**; the backend now lives in this repo's `worker/`
+  folder [folded in], deployed to `*.workers.dev`.)
 - The interlinear **rendering** patterns and i18n (`i18n.js`) as source material.
 
 **Update strategy:** app serves the engine from its **own local `engine/` copy**
@@ -384,9 +385,20 @@ modal and record UX around it are the reused engine ones**.
   (Transcription/glossing then happen in FLEx or a later in-app editor.)
 - **Per-text:**
   - "Open in FLEx" (title/button → `silfw://` via `BuildGotoURL`).
-  - **Interlinear preview** (reuse `flextext.js`), select segments/words → link to
-    notes; select lines → **"Copy as TSV"** matching FLEx (feeds AcPub macros /
-    LingTeX Tools). *Plan for* future LingTeX-Tools fold-in; don't build it now.
+  - **Interlinear preview (source fallback chain):** preview **primarily from FLEx**
+    (live, via flexlibs). If the text isn't in FLEx yet, fall back in order to (1) the
+    record's **authoritative `.flextext`** (each record designates one
+    authoritative/original `.flextext`; else the first included one), then (2) its
+    **authoritative `.eaf`** (one per record). Parsed via reused `flextext.js` (for
+    `.flextext`) + a small new **`.eaf` reader** (`.eaf` is documented XML).
+    - **`.eaf` preview = Simple-EAF-style segment-by-segment playback:** render each
+      annotation aligned to its media time-code with a **per-segment play** control
+      (play just that segment, or on repeat). Usually only **vernacular + free
+      translation** tiers exist; if the `.eaf` *does* carry word/gloss tiers, render
+      those too.
+    - Any source: select segments/words → link to notes; select lines → **"Copy as
+      TSV"** matching FLEx (feeds AcPub macros / LingTeX Tools). *Plan for* future
+      LingTeX-Tools fold-in; don't build it now.
   - **Writing-system detection + relabel (fix misassignments — NOT baseline swap):**
     detect which WS have data. **We only offer WS-code relabel** — when a transcription
     was entered under the wrong WS code, re-assign it to the correct WS **without
@@ -416,7 +428,9 @@ modal and record UX around it are the reused engine ones**.
     prompt/response recordings + JSON receipts**, **permission-proof docs** (ethics
     forms), and any other files. Per-project and per-text **link vs. copy ("embed")**
     setting; hash + relative-path tracking; multi-file audio chooser with persisted last
-    choice; QC status per file.
+    choice; QC status per file. Each record can mark **one authoritative/original
+    `.flextext`** and **one authoritative/original `.eaf`** (used by the preview
+    fallback chain, above).
   - **Metadata (lameta-informed field set):** per-text metadata linked to the FLEx
     text; the **optional field set is modeled on lameta's** (session / participants /
     recording conditions / consent / rights, IMDI/OLAC-derived) — collect what's
@@ -467,11 +481,16 @@ modal and record UX around it are the reused engine ones**.
 - **QC (a clean differentiator, largely absent from field tools):** `ffprobe` for
   format compliance; `ffmpeg -af volumedetect`/`astats`/`ebur128` for **clipping,
   low level, DC offset, true-peak/loudness**. Flag suspected clipping / high noise /
-  cut-off. (Bundle `ffmpeg`/`ffprobe` as videoannotationtool does.)
-- **Player:** failure-resistant across local/removable/cloud storage; multi-file
-  chooser with **persisted last choice** (feeds the playlist export, §6); "open in
-  external editor" (Ocenaudio/Audacity/etc.) with a **strict tampering/archiving
-  warning**.
+  cut-off. (Bundle `ffmpeg`/`ffprobe` — the repo already carries an LGPL ffmpeg build
+  with its licence + source offer.)
+- **Player + “Open in…”:** failure-resistant across local/removable/cloud storage;
+  multi-file chooser with **persisted last choice** (feeds the playlist export, §6).
+  **Every audio file has an “Open in…” launcher** with **Ocenaudio** and **Audacity**
+  built in (**auto-detect** the install path; if not found, let the user **browse** for
+  the executable and **remember** it), plus a user-defined **“Other”** (name + locate a
+  custom editor, remembered). Every external launch carries a **strict sound-file
+  tampering / archiving warning**. (Launch = Python `subprocess`; editor paths persisted
+  in settings.)
 - **Future:** AI speech-enhanced/normalized **FLAC access copy** (never overwriting
   the master); **BWF `bext`/iXML metadata read/preserve/populate** for archive
   compliance (approach TBD); archive-export wizard with per-archive rules.
@@ -482,7 +501,8 @@ modal and record UX around it are the reused engine ones**.
 
 Core exchange format = **`.flextext`** (round-trip via `flextext.js`). Then, in
 priority order: **TSV clipboard** (FLEx-style) → **`.eaf`** import/export (word-level
-fidelity to verify on the ELAN path) → **OLAC/DC + IMDI/METS** emit for hand-off to
+fidelity to verify on the ELAN path; note `.eaf` **reading** already powers the
+interlinear-preview fallback, §6) → **OLAC/DC + IMDI/METS** emit for hand-off to
 **RAMP/lameta** → **LaTeX** (ExPex / gb4e / langsci-gb4e) and **XLingPaper** export
 (or hand to LingTeX Tools). Leave clean seams; build lazily. **Archival/other exports
 are permission-gated (§6)** — either via FLEx's own export formats over the permitted
@@ -510,9 +530,11 @@ subset or a **clone-and-prune** project copy — and always emit an **exclusion 
   corpus-wide dashboard** (**Pillar 2**, defaults spanning pre-FLEx → FLEx lifecycle);
   **notes + tag tree + observation-linking** (**Pillar 3**); **attachment tracking +
   metadata field set + audio player** (**Pillar 4**, manual attach); files-as-truth +
-  SQLite index; interlinear preview (reuse `flextext.js`). Scaffold the **project folder
-  layout + `.gitignore` + sync setup docs + in-app “commit & push” button +
-  git-troubleshooting doc** (§4).
+  SQLite index; **interlinear preview with source fallback FLEx → authoritative
+  `.flextext` → authoritative `.eaf`** (reuse `flextext.js` + a small `.eaf` reader;
+  EAF segment-*playback* comes in Phase 2). Scaffold the **project folder layout +
+  `.gitignore` + sync setup docs + in-app “commit & push” button + git-troubleshooting
+  doc** (§4).
 - **Phase 2 — Automation + audio (capture, QC, imports, listening):** in-app
   **record-new-text** (reused suite consent modal + 24-bit capture; lands in the
   pre-transcription backlog, optional blank-FLEx-text creation + mapping); FlexText-zip
@@ -520,8 +542,10 @@ subset or a **clone-and-prune** project copy — and always emit an **exclusion 
   **bulk folder-import** with suggested FLEx-text mappings (user-confirmed) +
   create-blank-on-no-match (or leave as pre-transcription record); file-store link/copy;
   `ffprobe`/`ffmpeg` QC (clipping/level/format-compliance) + master-guarding;
-  listening-copy generation; **listening/playlist export** (portable folder + `.m3u8`,
-  or in-place `.m3u8`); Drive browse (reuse OAuth/worker).
+  listening-copy generation; **EAF segment-by-segment playback** in the preview; per-audio
+  **“Open in…”** launcher (Ocenaudio/Audacity auto-detect + browse-remember + custom
+  ‘Other’); **listening/playlist export** (portable folder + `.m3u8`, or in-place
+  `.m3u8`); Drive browse (reuse OAuth/worker).
 - **Phase 3 — Writing-system tools:** single-text **WS relabel** (guarded) → **bulk
   misassignment-relabel** report/wizard (find + fix wrong WS codes across the corpus).
   *(No baseline-swap feature — see §6: original transcriptions are preserved.)*
@@ -567,6 +591,12 @@ subset or a **clone-and-prune** project copy — and always emit an **exclusion 
    FLEx-format export **or** clone-and-prune (on a copy), always with an **exclusion
    report**. *(Exact FLEx Source/Participant/Transcriber field mapping = Phase-0.)*
 10. **Listening/playlist export** = `.m3u8` (UTF-8), either portable-folder or in-place.
+11. **Interlinear preview source fallback** = FLEx → authoritative `.flextext` (or first
+    included) → authoritative `.eaf`; each record designates one authoritative
+    `.flextext` + one authoritative `.eaf`; the `.eaf` preview does Simple-EAF-style
+    segment-by-segment playback (vernacular + free translation, or whatever tiers exist).
+12. **Per-audio “Open in…”** = Ocenaudio + Audacity (auto-detect / browse-and-remember)
+    + a custom “Other” (name + locate + remember), always with a tampering warning.
 
 ## 11. Key risks
 
@@ -601,7 +631,8 @@ subset or a **clone-and-prune** project copy — and always emit an **exclusion 
 - **FLEx-must-be-installed + share-setting** — hard dependencies; need graceful detection + guidance.
 - **Scope creep into a lameta/archiving tool** — mitigated by holding to the four
   FLEx-corpus pillars; metadata/archiving stay optional + interop-only.
-- **Worker origin allow-listing** for a desktop origin — coordinate with `flextext-r2-worker`.
+- **Worker origin allow-listing** for a desktop origin — coordinate with the `worker/`
+  Cloudflare Worker (now folded into this repo).
 - **WebView2 tail on old Win10** — first-run check + bootstrap.
 
 ## 12. Separate follow-up (needs repo access — NOT done here)
@@ -637,6 +668,9 @@ archival-format logic.)
   recording, drops the interlinear text); exclusion report matches what actually exported.
 - SQLite index rebuild-from-JSON test (source-of-truth integrity); round-trip a project
   through git (data/) + a cloud folder (files/) and confirm it reopens intact.
+- **Preview + audio tests**: interlinear preview resolves the FLEx → `.flextext` → `.eaf`
+  fallback in the right order; EAF segment-by-segment playback aligns to time-codes;
+  “Open in…” auto-detects/remembers editor paths (Ocenaudio/Audacity/Other).
 - Audio QC against known-clipped / non-compliant fixtures; **playlist export** produces a
   valid `.m3u8` (portable-folder relative paths + in-place paths resolve); bulk-import
   mapping suggestions against a folder + FLEx fixture; reconciliation flags orphans on

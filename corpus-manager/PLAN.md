@@ -251,8 +251,8 @@ the two failure modes to avoid.
 ## 5. Engine reuse & repo layout — **vendor + self-update** *(my call — revisit)*
 
 **Repo layout:** new top-level folder **`corpus-manager/`** (sibling to `electron/`,
-`satellites/`, `android/`). It is **never served** (only `docs/` is published by
-Pages), so it can't affect the live PWA or satellites. Suggested shape:
+`satellites/`, `android/`, `worker/`). It is **never served** (only `docs/` is published
+by Pages), so it can't affect the live PWA or satellites. Suggested shape:
 ```
 corpus-manager/
   PLAN.md              # this document
@@ -643,6 +643,50 @@ guidance). That repo is **out of scope for this session**, so it hasn't been tou
 To action it, add that repo to scope (or open a session there) and file the
 note/issue. (It's also a good candidate to share this app's future `ffprobe` QC +
 archival-format logic.)
+
+## 13. Originality, IP & attribution (borrowing ideas, not code)
+
+This app **reimplements ideas** from neighbouring tools (ELAN's segment-by-segment
+annotation playback; lameta's metadata field set; the FlexTools “modify” write-guard
+pattern) — it does **not** copy their source code, assets, or documentation, and it
+interoperates with **published file formats** (`.eaf`, `.flextext`). Under that posture
+no permission or legal attribution is owed:
+
+- **Ideas / functionality aren't copyrightable — internationally.** The idea/expression
+  split is treaty-level (TRIPS Art. 9(2); WIPO Copyright Treaty Art. 2), binding the
+  Netherlands/EU, not just the US. **EU-specific and *stronger* for us:** Software
+  Directive **2009/24/EC Art. 1(2)** (ideas & principles underlying a program, *including
+  its interfaces*, are not protected) and **CJEU *SAS Institute v World Programming*,
+  C-406/10 (2012)** — a program's **functionality**, programming language, and
+  **data-file formats are NOT protected by copyright**. So reimplementing the behaviour
+  and reading/writing `.eaf`/`.flextext` is squarely fine.
+- **“Open source” ≠ “free to appropriate”.** ELAN *is* open source — GPL (copyleft; The
+  Language Archive, MPI Nijmegen). Copyleft lets you *use and study* the code but attaches
+  **conditions** if you incorporate it (the combined work must also be GPL, with source +
+  notices). We sidestep all of that by **not using their code at all** — we reimplement
+  the concept, so **no GPL obligation attaches**. *(Aside: this repo is now AGPL-3.0,
+  which is GPL-v3-compatible — so a deliberate, licence-compliant reuse of GPL/AGPL code
+  could be lawful; but that's a different, licence-bound path we are **not** taking.)*
+- **Moral rights** (strong in NL/EU *droit d'auteur*) attach to a reproduced **work** and
+  its author — **not triggered** by independently reimplementing an idea.
+- **Trademarks:** use others' names only **descriptively / for interop** (“reads ELAN
+  `.eaf`”, “Simple-EAF-style”); never brand the app as theirs or imply endorsement.
+- **Patents:** negligible — EU largely excludes software patents “as such” (EPC Art. 52)
+  and time-aligned playback has overwhelming prior art.
+
+**Courtesy acknowledgement (voluntary scholarly etiquette — not a legal admission).**
+Worded to make **independence** explicit (a careless “based on ELAN” could wrongly imply
+code derivation), for the app's README/About:
+
+> Independently implemented; no third-party source code is used. Concepts gratefully
+> acknowledged: **ELAN** — The Language Archive, Max Planck Institute for
+> Psycholinguistics, Nijmegen (segment-by-segment annotation playback; cited per TLA's
+> “how to cite ELAN”); **lameta** (SIL) — metadata field set; **FlexTools** (C. Farrow /
+> SIL) — the write-safe “modify” guard pattern.
+
+*Not legal advice.* If we ever incorporate actual code/text/assets from these tools, the
+relevant **licences** (and, in NL/EU, authors' **moral rights**) apply — get a quick IP
+check then.
 
 ## Development / testing aids
 

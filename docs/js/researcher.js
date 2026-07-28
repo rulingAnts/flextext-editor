@@ -177,6 +177,15 @@ export function isOwnerSelf() { return ownerSelf; }
 export async function approveResearcher(researcherId) { return api('POST', '/v1/researcher/approve', { body: { researcher_id: researcherId } }); }
 export async function declineResearcher(researcherId) { return api('POST', '/v1/researcher/decline', { body: { researcher_id: researcherId } }); }
 
+/* Pre-approved e-mail domains (OWNER only; the Worker enforces it too — never rely on the UI hiding
+ * a control). Rows are stored as keyed hashes, so the domain itself is UNRECOVERABLE: listDomains
+ * returns notes + hash prefixes only, and removing one means naming the domain again so the Worker
+ * can re-derive its hash. testDomain is the honest check — it reports what WOULD happen and why. */
+export async function listDomains() { return api('GET', '/v1/researcher/domains'); }
+export async function addDomain(domain, note) { return api('POST', '/v1/researcher/domains', { body: { domain, note } }); }
+export async function testDomain(domain) { return api('POST', '/v1/researcher/domains/test', { body: { domain } }); }
+export async function removeDomain(domain) { return api('POST', '/v1/researcher/domains/remove', { body: { domain } }); }
+
 // Self-delete THIS account + all its server data (instances/installs/invites/reset). Auth is the caller's
 // own session token, so it can only ever delete the caller. The local offline wipe must run AFTER this
 // succeeds (the wipe destroys the session token this call needs). retry:false — non-idempotent (a retried

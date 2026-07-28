@@ -643,6 +643,7 @@ async function renderDashboard(prefetched) {
       <button class="primary-btn" data-act="new">${esc(t('panel.dash.newDevice'))}</button>
       <button class="secondary-btn" data-act="refresh">${esc(t('panel.dash.refresh'))}</button>
       <span class="rp-spacer"></span>
+      ${data.isOwner ? `<button class="link-btn rp-admin-btn" data-act="admin">${esc(t('panel.admin.btn'))}</button>` : ''}
       <button class="link-btn" data-act="history">${esc(t('panel.hist.btn'))}</button>
       <button class="link-btn" data-act="utilities">${esc(t('panel.util.btn'))}</button>
       <button class="link-btn" data-act="account">${esc(t('panel.dash.account'))}</button>
@@ -675,6 +676,7 @@ async function renderDashboard(prefetched) {
     lock: () => { Researcher.signOut(); route(); },
     new: () => newDeviceModal(),
     refresh: () => renderDashboard(),
+    admin: () => adminModal(),
     history: () => historyModal(),
     utilities: () => utilitiesModal(),
     account: () => accountModal(),
@@ -1439,6 +1441,139 @@ function crowdDeleteModal(rec) {
       refreshCrowd();
     } catch (e) { errToast(e); go.disabled = false; go.textContent = t('panel.crowd.delBtn'); }
   };
+}
+
+/* ---------------- Admin: OWNER-only settings ----------------------------------------------
+ * Link sits LEFT of History and renders only for owners (env ALLOWED_RESEARCHERS). ⚠ The hidden
+ * link is CONVENIENCE, NOT THE BOUNDARY — every endpoint behind it re-checks isOwner() server-side,
+ * because anything enforced only by not drawing a button is enforced by nothing.
+ *
+ * Replaces the paste-into-console helper in worker/docs/approved-domains.md. That existed because
+ * the domain hashes can only be derived inside the Worker; this puts the same four endpoints behind
+ * a UI so managing the list never means opening a developer console. */
+
+// Client-side mirror of the Worker's PUBLIC_EMAIL_DOMAINS. Duplicated ON PURPOSE: the server is the
+// real gate (it refuses these with a 400), but catching it here turns a round-trip and a raw error
+// code into an immediate, plain-language explanation of WHY it is refused.
+const PUBLIC_MAIL_DOMAINS = new Set([
+  'gmail.com', 'googlemail.com', 'outlook.com', 'hotmail.com', 'live.com', 'msn.com',
+  'yahoo.com', 'yahoo.co.id', 'ymail.com', 'aol.com', 'icloud.com', 'me.com', 'mac.com',
+  'proton.me', 'protonmail.com', 'gmx.com', 'gmx.net', 'mail.com', 'zoho.com', 'yandex.com',
+  'qq.com', '163.com', '126.com', 'naver.com', 'web.de', 'mail.ru',
+]);
+
+// Normalize what the user typed: accept a full address, a leading @, stray case/dots.
+function normDomainInput(raw) {
+  const s = String(raw || '').trim().toLowerCase().replace(/^[@.\s]+/, '').replace(/[.\s]+$/, '');
+  return s.includes('@') ? s.split('@').pop() : s;
+}
+// Returns an i18n key when the input is unusable, else null.
+function domainInputError(d) {
+  if (!d) return 'panel.admin.errEmpty';
+  if (!/^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/.test(d)) return 'panel.admin.errShape';
+  if (PUBLIC_MAIL_DOMAINS.has(d)) return 'panel.admin.errPublic';
+  return null;
+}
+
+function adminModal() {
+  const m = modal(`
+    <h3>${esc(t('panel.admin.title'))}</h3>
+    <p class="note">${esc(t('panel.admin.intro'))}</p>
+    <hr class="rp-sep">
+    <div class="rp-adm-sec">
+      <div class="rp-adm-h">${esc(t('panel.admin.domTitle'))}</div>
+      <p class="note">${esc(t('panel.admin.domIntro'))}</p>
+      <div id="rp-adm-list" class="rp-adm-list"><p class="note">…</p></div>
+      <p class="note rp-adm-privacy">${esc(t('panel.admin.domPrivacy'))}</p>
+      <label class="rp-field"><span>${esc(t('panel.admin.addDomain'))}</span>
+        <input id="rp-adm-dom" spellcheck="false" autocapitalize="off" placeholder="${esc(t('panel.admin.addDomainPh'))}"></label>
+      <label class="rp-field"><span>${esc(t('panel.admin.addNote'))}</span>
+        <input id="rp-adm-note" spellcheck="false" placeholder="${esc(t('panel.admin.addNotePh'))}"></label>
+      <button class="primary-btn" id="rp-adm-add">${esc(t('panel.admin.addBtn'))}</button>
+      <div id="rp-adm-say" class="rp-adm-say" hidden></div>
+    </div>
+    <hr class="rp-sep">
+    <div class="rp-adm-sec">
+      <div class="rp-adm-h">${esc(t('panel.admin.testTitle'))}</div>
+      <label class="rp-field"><span>&nbsp;</span>
+        <input id="rp-adm-test" spellcheck="false" autocapitalize="off" placeholder="${esc(t('panel.admin.testPh'))}"></label>
+      <button class="secondary-btn" id="rp-adm-testbtn">${esc(t('panel.admin.testBtn'))}</button>
+      <div id="rp-adm-testsay" class="rp-adm-say" hidden></div>
+    </div>
+    <hr class="rp-sep">
+    <button class="link-btn" data-m="close">${esc(t('panel.util.close'))}</button>`, true);
+  m.el.querySelector('[data-m="close"]').onclick = m.close;
+
+  const say = (el, msg, kind) => {
+    el.hidden = false; el.textContent = msg;
+    el.className = 'rp-adm-say' + (kind ? ' rp-adm-' + kind : '');
+  };
+
+  async function refreshList() {
+    const box = m.el.querySelector('#rp-adm-list');
+    let rows = [];
+    try { rows = (await Researcher.listDomains()).domains || []; }
+    catch (e) { box.innerHTML = `<p class="note rp-adm-err">${esc(String(e.message || e))}</p>`; return; }
+    if (!rows.length) { box.innerHTML = `<p class="note">${esc(t('panel.admin.listEmpty'))}</p>`; return; }
+    box.innerHTML = `<ul class="rp-adm-ul">${rows.map((r) => `<li>
+      <span class="rp-adm-note">${esc(r.note || '—')}</span>
+      <span class="note rp-adm-meta">${esc(t('panel.admin.added_at', { when: lastSeen(r.created_at) }))} · <span class="rp-mono">${esc(r.hash_prefix)}</span></span>
+      <button class="link-btn rp-revoke" data-rm="${esc(r.hash_prefix)}" data-note="${esc(r.note || '')}">${esc(t('panel.admin.removeBtn'))}</button>
+    </li>`).join('')}</ul>`;
+    box.querySelectorAll('[data-rm]').forEach((b) => b.addEventListener('click', () => removeRow(b.dataset.rm, b.dataset.note, b)));
+  }
+
+  // Removal has to name the domain again — the table holds hashes, not names. Rather than trust the
+  // typed value, we ask the Worker to hash it and compare against THIS row's prefix, so a typo
+  // removes nothing instead of silently deleting a different entry.
+  async function removeRow(prefix, note, btn) {
+    const typed = prompt(t('panel.admin.removePrompt', { n: note || prefix }));
+    if (typed === null) return;
+    const d = normDomainInput(typed);
+    const err = domainInputError(d);
+    const box = m.el.querySelector('#rp-adm-say');
+    if (err) return say(box, t(err), 'err');
+    try {
+      const probe = await busy(btn, () => Researcher.testDomain(d));
+      if (probe.hash_prefix !== prefix) return say(box, t('panel.admin.removeMismatch'), 'err');
+      await Researcher.removeDomain(d);
+      say(box, t('panel.admin.removed', { d }), 'ok');
+      refreshList();
+    } catch (e) { say(box, String(e.message || e), 'err'); }
+  }
+
+  m.el.querySelector('#rp-adm-add').addEventListener('click', async (e) => {
+    const box = m.el.querySelector('#rp-adm-say');
+    const d = normDomainInput(m.el.querySelector('#rp-adm-dom').value);
+    const err = domainInputError(d);
+    if (err) return say(box, t(err), 'err');
+    const note = m.el.querySelector('#rp-adm-note').value.trim();
+    try {
+      await busy(e.target, () => Researcher.addDomain(d, note));
+      // VERIFY, don't assume: a 200 proves the row was written, not that the rule works.
+      const probe = await Researcher.testDomain('someone@' + d);
+      say(box, t(probe.auto_approves ? 'panel.admin.added' : 'panel.admin.addedUnverified', { d }),
+          probe.auto_approves ? 'ok' : 'err');
+      m.el.querySelector('#rp-adm-dom').value = '';
+      m.el.querySelector('#rp-adm-note').value = '';
+      refreshList();
+    } catch (e2) { say(box, String(e2.message || e2), 'err'); }
+  });
+
+  m.el.querySelector('#rp-adm-testbtn').addEventListener('click', async (e) => {
+    const box = m.el.querySelector('#rp-adm-testsay');
+    const d = normDomainInput(m.el.querySelector('#rp-adm-test').value);
+    if (!d) return say(box, t('panel.admin.errEmpty'), 'err');
+    try {
+      const r = await busy(e.target, () => Researcher.testDomain(d));
+      // Localize from the STRUCTURED result, not the Worker's English `why` string.
+      const key = r.public_provider ? 'panel.admin.testPublic'
+                : r.auto_approves ? 'panel.admin.testAuto' : 'panel.admin.testManual';
+      say(box, t(key, { d: r.domain }), r.public_provider ? 'err' : r.auto_approves ? 'ok' : '');
+    } catch (e2) { say(box, String(e2.message || e2), 'err'); }
+  });
+
+  refreshList();
 }
 
 /* ---------------- History: the back-log of texts that USED to be on a device ----------------

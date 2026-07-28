@@ -74,6 +74,24 @@ export function emailDomain(email) {
   return (/^[a-z0-9.-]+\.[a-z]{2,}$/.test(d)) ? d : '';
 }
 
+// ⚠ THE ONE CATASTROPHIC MISCONFIGURATION THIS FEATURE ALLOWS. Adding a PUBLIC e-mail provider to
+// approved_domain would auto-approve literally anyone on earth who can open a free mailbox — one
+// INSERT and the entire approval gate is gone, silently, with no error to notice. It is an easy
+// mistake to make: real researchers legitimately use gmail addresses (one already does), so
+// 'gmail.com' looks like a reasonable thing to add. It is not.
+//
+// Refused in CODE, not just documented, because a comment in a .sql file cannot stop a 2am INSERT.
+// Refusing costs nothing — the account simply falls back to manual approval, today's behaviour.
+const PUBLIC_EMAIL_DOMAINS = new Set([
+  'gmail.com', 'googlemail.com', 'outlook.com', 'hotmail.com', 'live.com', 'msn.com',
+  'yahoo.com', 'yahoo.co.id', 'ymail.com', 'aol.com', 'icloud.com', 'me.com', 'mac.com',
+  'proton.me', 'protonmail.com', 'gmx.com', 'gmx.net', 'mail.com', 'zoho.com', 'yandex.com',
+  'qq.com', '163.com', '126.com', 'naver.com', 'web.de', 'mail.ru',
+]);
+
+// Exported for the unit test — the blocklist is an auth boundary and must be verifiable.
+export function isPublicEmailDomain(email) { return PUBLIC_EMAIL_DOMAINS.has(emailDomain(email)); }
+
 // Third onboarding tier: an ordinary (never owner) researcher whose e-mail domain the operator has
 // pre-approved in D1. ⚠ EQUALITY, never a suffix/substring test — a suffix test would let
 // 'evil-sil.org' match 'sil.org'. Subdomains are therefore NOT covered unless listed explicitly,
@@ -81,6 +99,7 @@ export function emailDomain(email) {
 async function isDomainApproved(email, env) {
   const d = emailDomain(email);
   if (!d || !env.DB) return false;
+  if (PUBLIC_EMAIL_DOMAINS.has(d)) return false;   // never auto-approve a free-mailbox provider
   try {
     return !!(await env.DB.prepare('SELECT domain FROM approved_domain WHERE domain=?').bind(d).first());
   } catch { return false; }   // table not migrated yet, or D1 hiccup → fall back to manual approval

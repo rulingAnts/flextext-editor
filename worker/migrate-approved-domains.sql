@@ -8,6 +8,13 @@
 -- The owner is still ALERTED on every new account (worker/src/seclog.js), so auto-approval removes
 -- the click, not the visibility.
 --
+-- ⚠⚠ NEVER LIST A PUBLIC E-MAIL PROVIDER (gmail.com, outlook.com, yahoo.com, icloud.com, …).
+-- One such row would auto-approve anyone on earth who can open a free mailbox — the whole approval
+-- gate, gone silently, with no error to notice. It is a TEMPTING mistake, because real researchers
+-- do use gmail addresses. The worker REFUSES these in code (PUBLIC_EMAIL_DOMAINS in src/v1.js), so
+-- such a row is inert rather than catastrophic — but do not add one and assume it works.
+-- List only domains an ORGANISATION controls: sil.org, canil.ca, tsco.org, …
+--
 -- ⚠ MATCH THE DOMAIN EXACTLY, never as a substring: '@notmyorg.com' must not match 'myorg.com'.
 -- The worker lowercases and takes the part after the LAST '@', then compares for equality. Storing
 -- domains lowercase and without a leading '@' or '.' is what makes that comparison correct.

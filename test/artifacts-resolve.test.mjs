@@ -49,8 +49,17 @@ console.log('\nthe assigned audio comes from the History log, not the device');
   const url = 'https://drive.google.com/file/d/AUDIO1234567/view';
   const r = resolveArtifacts({ id: 't1', uploadedFileId: ID, hasAudio: true }, { audioUrl: url });
   ok(kinds(r)[0] === 'audio', 'audio is offered FIRST — it is what a researcher reaches for most');
-  ok(r[0].url === url, 'and it is the exact assigned URL');
   ok(kinds(r).join() === 'audio,bundle', 'alongside the uploaded artifact');
+  // ⚠ The researcher pasted a SHARE link. Left alone it opens Drive's preview page instead of
+  // downloading — which for a .flextext or .eaf is a dead end ("no preview available").
+  ok(r[0].url.startsWith('https://drive.usercontent.google.com/download?'),
+     'a pasted Drive SHARE link is rewritten to download directly');
+  ok(r[0].url.includes('AUDIO1234567'), 'keeping the same file');
+  ok(!r[0].url.includes('/view'), 'never the preview page');
+  // ...but a link to some other host is passed through untouched: rewriting URLs we do not
+  // understand would break perfectly good ones.
+  const other = resolveArtifacts({ id: 't1' }, { audioUrl: 'https://example.org/audio.wav' });
+  ok(other[0].url === 'https://example.org/audio.wav', 'a NON-Drive URL is left exactly as given');
   // A device never reports the assigned audio; it only reports what it UPLOADED.
   ok(resolveArtifacts({ id: 't1', uploadedFileId: ID, hasAudio: true }, null).find((x) => x.kind === 'audio') === undefined,
      'with no assigned record there is no audio entry — it is not invented from the upload');

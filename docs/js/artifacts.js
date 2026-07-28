@@ -15,7 +15,7 @@
  * — but that is exactly why the input shape matters (see below).
  */
 
-import { driveLink } from './history.js';
+import { driveLink, driveIdFrom } from './history.js';
 
 /* The artifact kinds, in the order they should be offered. Order is deliberate: the audio comes
  * first because it is what a researcher most often wants to re-listen to, and the working formats
@@ -81,8 +81,16 @@ export function resolveArtifacts(item, assigned) {
 
   // The originally-assigned audio. Retained at assign time (history.js assignedEvent) because the
   // device's own reports never carry it — the field app only ever reports what it UPLOADED.
+  //
+  // ⚠ The researcher pasted this URL by hand, so it is almost always a Drive SHARE link
+  // (/file/d/<id>/view) — a preview page, not a download. Convert it to the direct-download
+  // endpoint when it is recognisably Drive, and pass anything else through untouched (it may be a
+  // perfectly good link to some other host, and rewriting URLs we do not understand would break it).
   const a = assigned && assigned.audioUrl;
-  if (a && /^https?:\/\//i.test(String(a))) add('audio', String(a));
+  if (a && /^https?:\/\//i.test(String(a))) {
+    const id = driveIdFrom(a);
+    add('audio', id ? driveLink(id) : String(a));
+  }
 
   const up = uploadedMap(item);
   const legacy = !(item && item.uploaded && typeof item.uploaded === 'object');

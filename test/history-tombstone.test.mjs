@@ -12,7 +12,7 @@
  *
  * Run: node test/history-tombstone.test.mjs
  */
-import { diffInventory, snapshotOf, mergeEvents, assignedEvent, driveLink } from '../docs/js/history.js';
+import { diffInventory, snapshotOf, mergeEvents, assignedEvent, driveLink, driveIdFrom } from '../docs/js/history.js';
 
 let fail = 0;
 const ok = (c, m) => { console.log(`  ${c ? 'ok  ' : 'FAIL'}  ${m}`); if (!c) fail++; };
@@ -115,13 +115,29 @@ console.log('\nthe log is capped, dropping the OLDEST (a field account runs for 
   ok(capped[0].docId === 'd7' && capped[4].docId === 'd11', 'the newest survive, the oldest fall off');
 }
 
-console.log('\nDrive links are only built from a Drive-shaped id (this panel holds Kr)');
+console.log('\nDrive links DOWNLOAD the file — they never open the preview page (Seth)');
 {
-  ok(driveLink('1AbC-dEfGh_2i').startsWith('https://drive.google.com/file/d/'), 'a real id -> a link');
+  const L = driveLink('1AbC-dEfGh_2i');
+  ok(L.startsWith('https://drive.usercontent.google.com/download?'), 'a real id -> the download endpoint');
+  ok(/[?&]export=download(&|$)/.test(L), 'export=download is present');
+  ok(/[?&]confirm=t(&|$)/.test(L), 'confirm=t skips the large-file interstitial');
+  ok(!L.includes('/view'), 'NOT the /view preview page — Drive cannot render .flextext or .eaf anyway');
+  ok(L.includes('1AbC-dEfGh_2i'), 'and it carries the file id');
   ok(driveLink('') === '', 'no id -> no link');
   ok(driveLink('short') === '', 'a too-short id is refused rather than linked');
   ok(driveLink('javascript:alert(1)') === '', 'a scheme injected via a device report is refused');
   ok(driveLink('abc"onmouseover="x') === '', 'an attribute-breakout attempt is refused');
+}
+
+console.log('\na pasted Drive share URL yields its id, so it too can become a download');
+{
+  ok(driveIdFrom('https://drive.google.com/file/d/1AbC-dEfGh_2i/view?usp=sharing') === '1AbC-dEfGh_2i',
+     'the /file/d/<id>/view share form');
+  ok(driveIdFrom('https://drive.google.com/open?id=1AbC-dEfGh_2i') === '1AbC-dEfGh_2i', 'the open?id= form');
+  ok(driveIdFrom('https://drive.google.com/uc?export=download&id=1AbC-dEfGh_2i') === '1AbC-dEfGh_2i',
+     'the older /uc?export=download form');
+  ok(driveIdFrom('https://example.org/audio.wav') === '', 'a NON-Drive URL yields nothing, so it is left untouched');
+  ok(driveIdFrom('') === '' && driveIdFrom(null) === '', 'empty/null are safe');
 }
 
 console.log('\nitems with no id cannot be tracked and are skipped, not crashed on');

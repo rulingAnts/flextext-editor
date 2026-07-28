@@ -21,6 +21,7 @@ import { probeAudioUrl, fetchFileViaUrl } from './audio.js';
 import { convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
 import WaveSurfer from './vendor/wavesurfer.esm.js';
 import * as db from './db.js';
+import { observeView, recordEvents, loadHistory, clearHistory, assignedEvent, driveLink, HISTORY_KINDS } from './history.js';
 
 // Byte-size formatter for assign-validation verdicts (mirrors app.js sizeFmt; that one is not exported).
 const fmtSize = (b) => (b < 1048576 ? Math.max(1, Math.round(b / 1024)) + ' KB' : (b / 1048576).toFixed(1) + ' MB');
@@ -607,6 +608,12 @@ async function renderDashboard(prefetched) {
   // removal actually lands the row is gone anyway, so a lingering marker is harmless.
   for (const [k, at] of requestedDeletes) { if (nowTs - at > 600000) requestedDeletes.delete(k); }
   const insts = data.instances || [];
+  // HISTORY: observe BEFORE rendering, and on every poll — not only on full renders. A text can be
+  // assigned, uploaded and deleted between two full renders, and the deletion is only visible as
+  // the one report where it goes present→absent. Miss that report and the tombstone is lost for
+  // good. observeView never throws and diffs a repeated report to nothing, so calling it on the
+  // 12s tick is both safe and necessary.
+  observeView(Researcher.currentAccountId(), insts);
   let pending = 0, texts = 0;
   for (const it of insts) for (const ins of it.installs || []) {
     if (ins.status === 'pending') pending++;
@@ -634,6 +641,7 @@ async function renderDashboard(prefetched) {
       <button class="primary-btn" data-act="new">${esc(t('panel.dash.newDevice'))}</button>
       <button class="secondary-btn" data-act="refresh">${esc(t('panel.dash.refresh'))}</button>
       <span class="rp-spacer"></span>
+      <button class="link-btn" data-act="history">${esc(t('panel.hist.btn'))}</button>
       <button class="link-btn" data-act="utilities">${esc(t('panel.util.btn'))}</button>
       <button class="link-btn" data-act="account">${esc(t('panel.dash.account'))}</button>
     </div>
@@ -665,6 +673,7 @@ async function renderDashboard(prefetched) {
     lock: () => { Researcher.signOut(); route(); },
     new: () => newDeviceModal(),
     refresh: () => renderDashboard(),
+    history: () => historyModal(),
     utilities: () => utilitiesModal(),
     account: () => accountModal(),
     'self-settings': () => openSettingsModal({ kind: 'local' }),
@@ -1044,7 +1053,19 @@ function assignModal(instanceId) {
     const fields = { title };
     if (audioUrl) fields.audioUrl = audioUrl;     // send the RAW url; the device re-resolves it
     if (flextextUrl) fields.flextextUrl = flextextUrl;
-    try { await Researcher.assign(instanceId, crypto.randomUUID(), fields); m.close(); deps.toast(t('panel.assign.sent'), 4000); }
+    // The docId is minted HERE, so this is the only place that knows which assignment produced
+    // which text. Record it now: the device's later reports carry the id but never the audio URL,
+    // so if this event is not written the "audio that was assigned" link is unrecoverable.
+    const docId = crypto.randomUUID();
+    try {
+      await Researcher.assign(instanceId, docId, fields);
+      // Logged only AFTER the assign succeeds — a failed send did not assign anything.
+      const inst = (lastData && (lastData.instances || []).find((x) => x.instance_id === instanceId)) || null;
+      recordEvents(Researcher.currentAccountId(), [assignedEvent({
+        instanceId, device: (inst && inst.nickname) || '', docId, title, audioUrl, flextextUrl,
+      })]);
+      m.close(); deps.toast(t('panel.assign.sent'), 4000);
+    }
     catch (err) { errToast(err); }
   });
 }
@@ -1334,6 +1355,81 @@ function crowdDeleteModal(rec) {
       m.close(); deps.toast(t('panel.crowd.deleted'), 5000);
       refreshCrowd();
     } catch (e) { errToast(e); go.disabled = false; go.textContent = t('panel.crowd.delBtn'); }
+  };
+}
+
+/* ---------------- History: the back-log of texts that USED to be on a device ----------------
+ * Deliberately a modal rather than a section of the dashboard: the dashboard answers "what is on
+ * my devices right now", and mixing in a growing list of things that are gone would bury it. See
+ * js/history.js for how the events are observed (and why deletion is the hard one). */
+
+function histWhen(ts) {
+  const d = new Date(ts);
+  if (isNaN(d)) return '?';
+  // Explicit date AND time: "which device, when" is the whole point, and a relative
+  // "3 days ago" stops being useful for exactly the old entries this log exists to hold.
+  return d.toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function historyModal() {
+  const all = loadHistory(Researcher.currentAccountId());
+  let filter = 'all';
+
+  const rowsHtml = () => {
+    const list = all.filter((e) => filter === 'all' || e.kind === filter).slice().reverse();   // newest first
+    if (!list.length) {
+      return `<p class="note rp-hist-empty">${esc(t(all.length ? 'panel.hist.emptyFilter' : 'panel.hist.empty'))}</p>`;
+    }
+    return `<ul class="rp-hist">${list.map((e) => {
+      // SECURITY: kind lands in a class attribute and every other value comes from a field
+      // device's own report — allow-list the kind, esc() the rest, and build links only from a
+      // Drive-shaped id (history.js/driveLink). Same reasoning as the uploadState allow-list.
+      const kind = HISTORY_KINDS.includes(e.kind) ? e.kind : 'assigned';
+      const audio = /^https?:\/\//.test(e.audioUrl || '') ? e.audioUrl : '';
+      const up = driveLink(e.fileId);
+      const by = kind === 'deleted' && e.by === 'researcher' ? ' ' + t('panel.hist.byResearcher')
+               : kind === 'deleted' ? ' ' + t('panel.hist.byDevice') : '';
+      return `<li class="rp-hist-row rp-hist-${kind}">
+        <div class="rp-hist-head">
+          <span class="rp-tag rp-hist-k rp-hist-k-${kind}">${esc(t('panel.hist.kind.' + kind))}</span>
+          <span class="rp-hist-title">${esc(e.title || t('panel.hist.untitled'))}</span>
+        </div>
+        <div class="note rp-hist-meta">${esc(histWhen(e.at))}${e.device ? ' · ' + esc(e.device) : ''}${esc(by)}</div>
+        ${(audio || up) ? `<div class="rp-hist-links">
+          ${audio ? `<a href="${esc(audio)}" target="_blank" rel="noopener noreferrer">${esc(t('panel.hist.audioLink'))}</a>` : ''}
+          ${up ? `<a href="${esc(up)}" target="_blank" rel="noopener noreferrer">${esc(t('panel.hist.uploadLink'))}</a>` : ''}
+        </div>` : ''}
+      </li>`;
+    }).join('')}</ul>`;
+  };
+
+  const m = modal(`
+    <h3>${esc(t('panel.hist.title'))}</h3>
+    <p class="note">${esc(t('panel.hist.intro'))}</p>
+    <div class="rp-hist-filters">
+      <button class="link-btn rp-hist-f is-on" data-f="all">${esc(t('panel.hist.all'))}</button>
+      ${HISTORY_KINDS.map((k) => `<button class="link-btn rp-hist-f" data-f="${k}">${esc(t('panel.hist.kind.' + k))}</button>`).join('')}
+    </div>
+    <div id="rp-hist-list">${rowsHtml()}</div>
+    <hr class="rp-sep">
+    <button class="link-btn rp-danger" data-m="clear">${esc(t('panel.hist.clear'))}</button>
+    <button class="link-btn" data-m="close">${esc(t('panel.util.close'))}</button>`, true);
+
+  const repaint = () => { m.el.querySelector('#rp-hist-list').innerHTML = rowsHtml(); };
+  m.el.querySelectorAll('[data-f]').forEach((b) => b.addEventListener('click', () => {
+    filter = b.dataset.f;
+    m.el.querySelectorAll('[data-f]').forEach((x) => x.classList.toggle('is-on', x === b));
+    repaint();
+  }));
+  m.el.querySelector('[data-m="close"]').onclick = m.close;
+  m.el.querySelector('[data-m="clear"]').onclick = () => {
+    // Typed-confirm-free but still explicit: this is the researcher's own local log, not field
+    // data, and it is re-derivable for nothing that is still on a device — but the tombstones
+    // ARE unrecoverable, so say that in the prompt rather than a generic "are you sure".
+    if (!confirm(t('panel.hist.confirmClear'))) return;
+    clearHistory(Researcher.currentAccountId());
+    all.length = 0;
+    repaint();
   };
 }
 

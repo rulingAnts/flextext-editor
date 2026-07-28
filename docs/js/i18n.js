@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v124';
+export const ENGINE_VERSION = 'v126';
 
 const S = {
 en: {
@@ -658,6 +658,25 @@ internet after the first time.</p>
   'panel.dash.texts': 'Texts',
   'panel.dash.newDevice': '+ New device',
   'panel.dash.refresh': 'Refresh',
+  // History — the back-log of texts that are no longer on a device. Written as the panel observes
+  // each device report (see js/history.js); a deleted text leaves nothing behind but this.
+  'panel.hist.btn': 'History',
+  'panel.hist.title': 'History',
+  'panel.hist.intro': 'What has happened to your texts — including ones that have since been deleted from a device. Kept in this browser only.',
+  'panel.hist.empty': 'Nothing recorded yet. Assign a text, or wait for a device to report in, and its history will build up here.',
+  'panel.hist.emptyFilter': 'Nothing of that kind yet.',
+  'panel.hist.all': 'All',
+  'panel.hist.kind.assigned': 'Assigned',
+  'panel.hist.kind.submitted': 'Uploaded',
+  'panel.hist.kind.done': 'Marked done',
+  'panel.hist.kind.deleted': 'Deleted',
+  'panel.hist.byResearcher': '· deleted from here',
+  'panel.hist.byDevice': '· deleted on the device',
+  'panel.hist.untitled': '(no title)',
+  'panel.hist.audioLink': 'Assigned audio',
+  'panel.hist.uploadLink': 'Uploaded file',
+  'panel.hist.clear': 'Clear history',
+  'panel.hist.confirmClear': 'Clear the whole history log?\n\nEntries for texts that still exist on a device will build up again, but records of DELETED texts cannot be recovered — this log is the only place they exist.',
   'panel.util.btn': 'Utilities',
   'panel.util.title': 'Utilities',
   'panel.util.intro': 'Offline tools you can use any time — they run in your browser; nothing is uploaded.',
@@ -1547,6 +1566,23 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.dash.texts': 'Teks',
   'panel.dash.newDevice': '+ Perangkat baru',
   'panel.dash.refresh': 'Segarkan',
+  'panel.hist.btn': 'Riwayat',
+  'panel.hist.title': 'Riwayat',
+  'panel.hist.intro': 'Apa yang terjadi pada teks Anda — termasuk yang sudah dihapus dari perangkat. Disimpan hanya di browser ini.',
+  'panel.hist.empty': 'Belum ada catatan. Tugaskan sebuah teks, atau tunggu perangkat melapor, dan riwayatnya akan terkumpul di sini.',
+  'panel.hist.emptyFilter': 'Belum ada yang seperti itu.',
+  'panel.hist.all': 'Semua',
+  'panel.hist.kind.assigned': 'Ditugaskan',
+  'panel.hist.kind.submitted': 'Diunggah',
+  'panel.hist.kind.done': 'Ditandai selesai',
+  'panel.hist.kind.deleted': 'Dihapus',
+  'panel.hist.byResearcher': '· dihapus dari sini',
+  'panel.hist.byDevice': '· dihapus di perangkat',
+  'panel.hist.untitled': '(tanpa judul)',
+  'panel.hist.audioLink': 'Audio yang ditugaskan',
+  'panel.hist.uploadLink': 'Berkas yang diunggah',
+  'panel.hist.clear': 'Hapus riwayat',
+  'panel.hist.confirmClear': 'Hapus seluruh catatan riwayat?\n\nEntri untuk teks yang masih ada di perangkat akan terkumpul lagi, tetapi catatan teks yang SUDAH DIHAPUS tidak dapat dipulihkan — catatan ini satu-satunya tempat entri itu ada.',
   'panel.util.btn': 'Peralatan',
   'panel.util.title': 'Peralatan',
   'panel.util.intro': 'Alat luring yang bisa dipakai kapan saja — berjalan di browser Anda; tidak ada yang diunggah.',

@@ -8,7 +8,7 @@
  * whenever the editor engine changes in a way the recorder should pick up — or
  * installed recorders keep serving a stale cached engine offline. */
 
-const VERSION = 'v72';
+const VERSION = 'v74';
 const CACHE = 'text-recorder-' + VERSION;
 const SHELL = [
   './',
@@ -33,6 +33,7 @@ const SHELL = [
   // stops the whole module graph from loading.
   '/flextext-editor/js/native-audio.js',
   '/flextext-editor/js/record-pcm.js',
+  '/flextext-editor/js/history.js',
   '/flextext-editor/js/audio-capture-worklet.js',
   '/flextext-editor/js/flac.js',
   // app.js now STATICALLY imports the connectivity engine (top-level imports), so the

@@ -96,12 +96,17 @@ export function isPublicEmailDomain(email) { return PUBLIC_EMAIL_DOMAINS.has(ema
 // pre-approved in D1. ⚠ EQUALITY, never a suffix/substring test — a suffix test would let
 // 'evil-sil.org' match 'sil.org'. Subdomains are therefore NOT covered unless listed explicitly,
 // which is the safe default for an auth boundary. Fails CLOSED: any DB error → not approved.
+// Lookup key for a domain. HMAC (not a bare digest) because the set of real-world domains is small
+// and enumerable — sha256('sil.org') would fall to a wordlist instantly. Mirrors emailKey().
+function domainKey(domain, env) { return hmacHex(env.SERVER_HMAC_KEY || '', 'domain:' + String(domain || '').toLowerCase()); }
+
 async function isDomainApproved(email, env) {
   const d = emailDomain(email);
   if (!d || !env.DB) return false;
   if (PUBLIC_EMAIL_DOMAINS.has(d)) return false;   // never auto-approve a free-mailbox provider
   try {
-    return !!(await env.DB.prepare('SELECT domain FROM approved_domain WHERE domain=?').bind(d).first());
+    return !!(await env.DB.prepare('SELECT domain_hash FROM approved_domain WHERE domain_hash=?')
+      .bind(await domainKey(d, env)).first());
   } catch { return false; }   // table not migrated yet, or D1 hiccup → fall back to manual approval
 }
 
@@ -843,6 +848,77 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     if (!body.researcher_id) return j({ error: 'bad_body' }, 400, origin, env);
     await env.DB.prepare('DELETE FROM researcher WHERE researcher_id=? AND approved=0').bind(body.researcher_id).run();
     return j({ ok: true }, 200, origin, env);
+  }
+
+  /* ---- OWNER-ONLY: the pre-approved domain list ---------------------------------------------
+   * Rows are keyed hashes (see migrate-approved-domains-hashed.sql), so they CANNOT be written by
+   * hand — deriving domain_hash needs SERVER_HMAC_KEY, which lives only here. That is the point:
+   * an auto-approval rule should require an authenticated OWNER session, never merely database
+   * access. It also means the operator drives this through these endpoints rather than raw SQL.
+   *
+   * POST   /v1/researcher/domains        {domain, note}  — add
+   * POST   /v1/researcher/domains/test   {domain|email}  — does this address auto-approve? + why
+   * POST   /v1/researcher/domains/remove {domain}        — remove (name it again to re-derive)
+   * GET    /v1/researcher/domains                        — list (notes + hash prefix only)
+   */
+  if (seg.length >= 3 && seg[1] === 'researcher' && seg[2] === 'domains') {
+    const r = await authResearcher(request, env);
+    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    if (!isOwner(r.drive_email, env)) return j({ error: 'not_owner' }, 403, origin, env);
+    const sub = seg[3] || '';
+
+    if (m === 'GET' && !sub) {
+      const rows = (await env.DB.prepare('SELECT domain_hash, note_enc, created_at FROM approved_domain ORDER BY created_at').all()).results || [];
+      // The domain itself is UNRECOVERABLE by design — the note is what makes a row recognisable,
+      // and the hash prefix is enough to match against a /test result.
+      const out = [];
+      for (const row of rows) {
+        out.push({ hash_prefix: String(row.domain_hash).slice(0, 12), note: await decAtRest(env, row.note_enc), created_at: row.created_at });
+      }
+      return j({ domains: out }, 200, origin, env);
+    }
+
+    const body = await readJson(request) || {};
+    // Accept a bare domain OR a full address, so pasting a real person's e-mail just works.
+    const raw = String(body.domain || body.email || '').trim().toLowerCase().replace(/^@/, '');
+    const d = raw.includes('@') ? emailDomain(raw) : emailDomain('x@' + raw);
+    if (!d) return j({ error: 'bad_domain' }, 400, origin, env);
+
+    if (m === 'POST' && sub === 'test') {
+      // The operator's self-service check: what would actually happen to this address, and why.
+      const isPublic = PUBLIC_EMAIL_DOMAINS.has(d);
+      const hash = await domainKey(d, env);
+      const listed = !isPublic && !!(await env.DB.prepare('SELECT domain_hash FROM approved_domain WHERE domain_hash=?').bind(hash).first());
+      return j({
+        domain: d, hash, hash_prefix: hash.slice(0, 12), listed,
+        public_provider: isPublic,
+        auto_approves: listed,
+        why: isPublic ? 'refused: free-mailbox provider, never auto-approved'
+           : listed ? 'auto-approves as an ordinary researcher (never owner)'
+           : 'not listed: this address needs individual approval',
+      }, 200, origin, env);
+    }
+
+    if (m === 'POST' && sub === 'remove') {
+      const res = await env.DB.prepare('DELETE FROM approved_domain WHERE domain_hash=?').bind(await domainKey(d, env)).run();
+      return j({ ok: true, domain: d, removed: (res.meta && res.meta.changes) || 0 }, 200, origin, env);
+    }
+
+    if (m === 'POST' && !sub) {
+      // Refuse a public provider AT WRITE TIME too, not only at approval time — a row that silently
+      // does nothing is worse than an error, because it looks like it worked.
+      if (PUBLIC_EMAIL_DOMAINS.has(d)) return j({ error: 'public_provider', domain: d }, 400, origin, env);
+      await env.DB.prepare('INSERT OR REPLACE INTO approved_domain (domain_hash, note_enc, created_at) VALUES (?,?,?)')
+        .bind(await domainKey(d, env), await encAtRest(env, String(body.note || '').slice(0, 200)), now).run();
+      secAlert(env, ctx, request, 'Pre-approved domain added', [
+        'A domain was added to the auto-approval list: ' + d,
+        'Anyone signing in with a Google account on that domain is now approved automatically.',
+        'If this was not you, revoke it immediately — your owner session is compromised.',
+      ]);
+      return j({ ok: true, domain: d, hash_prefix: (await domainKey(d, env)).slice(0, 12) }, 200, origin, env);
+    }
+
+    return j({ error: 'not_found' }, 404, origin, env);
   }
 
   // PUT /v1/researcher/settings — cloud-backed researcher settings (incl. lock passphrase).

@@ -7,6 +7,21 @@ compatibility_date = "2026-06-01"
 # every client has cut over to connect.flextext.app.
 workers_dev = true
 
+# --- Workers Logs (observability) -------------------------------------------------
+# WITHOUT THIS THE SECURITY LOG IS INVISIBLE. src/seclog.js writes structured events with
+# console.log; console output is only RETAINED and searchable in the dashboard when
+# observability is enabled. Workers created before ~late-2024 have it OFF by default, so
+# declaring it here is what makes `"sec":1` events actually queryable (Workers & Pages →
+# this worker → Logs, filter on `sec = 1`).
+# Cost: Workers Logs is included in the free plan (daily event allowance, then sampling
+# stops ingestion). It THROTTLES rather than bills, and with no payment method on file it
+# cannot bill regardless — same safety valve as the rest of this account.
+# head_sampling_rate = 1 keeps ALL requests; this worker's volume is tiny (a handful of
+# researchers + field devices), and sampling a security log would defeat its purpose.
+[observability]
+enabled = true
+head_sampling_rate = 1
+
 # --- Custom domain (OAuth consent-screen branding) -------------------------------
 # Puts the Worker behind connect.flextext.app IN ADDITION TO the default
 # *.workers.dev URL (workers_dev stays unset = true), so already-deployed field

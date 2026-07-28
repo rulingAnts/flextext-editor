@@ -12,6 +12,8 @@
  * or another install's row). Metadata + pointers only — never audio/flextext bytes.
  */
 
+import { secAlert } from './seclog.js';
+
 /* ---------------- crypto + helpers ---------------- */
 
 function randTok(n = 24) {
@@ -454,6 +456,11 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       'INSERT INTO researcher (researcher_id, secret_hash, email_sha256, settings_blob, settings_rev, created_at, salt, wrapped_kr, escrow_kr, email_enc, totp_enabled) VALUES (?,?,?,?,0,?,?,?,?,?,0)'
     ).bind(researcher_id, await sha256hex(body.authSecret), ekey, JSON.stringify({}), now,
            String(body.salt), String(body.wrappedKr), String(body.escrowKr), await encAtRest(env, email)).run();
+    secAlert(env, ctx, request, 'New researcher account (password signup)', [
+      'A new researcher account was created with email + password.',
+      'Email: ' + email,
+      'This account is PENDING and can do nothing until you approve it in the researcher panel.',
+    ]);
     return j({ researcher_id }, 200, origin, env);
   }
 
@@ -558,6 +565,17 @@ export async function handleV1(request, env, ctx, url, path, origin) {
              await encAtRest(env, krB64), tok.refresh_token ? await encAtRest(env, tok.refresh_token) : null,
              email, await encAtRest(env, email), name, picture, owner ? 1 : 0).run();
       row = { researcher_id };
+      // FIRST sign-in for this Google account — a brand-new researcher row. Alert-worthy because
+      // it should essentially never happen unannounced; repeat sign-ins take the else-branch and
+      // are silent, so this cannot become routine noise.
+      secAlert(env, ctx, request, 'New researcher account (Google sign-in)', [
+        'A new researcher account signed in with Google for the first time.',
+        'Email: ' + (email || '(none)'),
+        'Name: ' + (name || '(none)'),
+        owner
+          ? 'This address is on ALLOWED_RESEARCHERS, so it was auto-approved as an OWNER.'
+          : 'This account is PENDING and can do nothing until you approve it in the researcher panel.',
+      ]);
     } else {
       const sets = ['secret_hash=?']; const binds = [sessionHash];
       if (tok.refresh_token) { sets.push('drive_refresh_enc=?'); binds.push(await encAtRest(env, tok.refresh_token)); }
@@ -626,6 +644,15 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     }
     let kr;
     try { kr = await escrowRecover(env, row.escrow_kr); } catch { return j({ error: 'escrow_failed' }, 500, origin, env); }
+    // The data key just left the escrow. If this was not the account holder, someone has both the
+    // emailed reset token and (if enabled) the second factor — the single most serious event this
+    // worker can observe, so it alerts even though the request itself succeeded.
+    secAlert(env, ctx, request, 'Escrow key recovery completed', [
+      'A password reset successfully recovered a researcher data key from escrow.',
+      'Researcher id: ' + rt.researcher_id,
+      'If this was not you or a researcher you were expecting to help, treat it as a compromise: '
+        + 'the reset token was emailed to that account address.',
+    ]);
     return j({ kr }, 200, origin, env);
   }
 

@@ -1,4 +1,5 @@
 import { handleV1 } from './v1.js';
+import { logAuthFailures, secLog } from './seclog.js';
 
 /* flextext-r2-worker — a free-egress relay for the Flextext Editor.
  *
@@ -125,16 +126,30 @@ export default {
     // proxy. Backward-compat mandate, plan §B. (Non-/v1/ OPTIONS still falls through.)
     if (path === '/v1' || path.startsWith('/v1/')) {
       try {
-        return await handleV1(request, env, ctx, url, path, origin);
+        // logAuthFailures is the ONE chokepoint for every 401/403/429 in v1.js's ~40 refusal
+        // points — same containment reasoning as native-audio.js: instrumentation scattered
+        // beside every `return j(...)` is instrumentation that rots. It swallows its own errors
+        // and returns the response untouched, so it cannot change what the client receives.
+        return await logAuthFailures(env, request, await handleV1(request, env, ctx, url, path, origin));
       } catch (e) {
+        // A thrown /v1/ error is itself worth seeing — it is the shape a probe for an unhandled
+        // input takes. Logged, then handled exactly as before.
+        await secLog(env, request, 'v1_threw', { message: String(e && e.message || e).slice(0, 200) });
         return json({ error: 'v1_error', message: e.message || String(e) }, 500, origin, env);
       }
     }
 
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders(origin, env) });
 
-    if (!authed(url, env)) return json({ error: 'unauthorized' }, 401, origin, env);
-    if (origin && allowedOrigin(origin, env) === null) return json({ error: 'origin_not_allowed' }, 403, origin, env);
+    // The relay-token + origin gates. Failures here are the signal for someone guessing the
+    // ?t= token or calling the relay from an origin that is not ours — logged, never alerted
+    // (scanners trip these constantly; an alarm that cries wolf gets ignored).
+    if (!authed(url, env)) {
+      return await logAuthFailures(env, request, json({ error: 'unauthorized' }, 401, origin, env));
+    }
+    if (origin && allowedOrigin(origin, env) === null) {
+      return await logAuthFailures(env, request, json({ error: 'origin_not_allowed' }, 403, origin, env));
+    }
 
     const MAX_FILE = parseInt(env.MAX_FILE_BYTES || '536870912', 10);
     const MAX_TOTAL = parseInt(env.MAX_TOTAL_BYTES || '9500000000', 10);
@@ -194,7 +209,11 @@ export default {
       if (path.startsWith('/r2/') && request.method === 'PUT') {
         // Owner-only: requires the separate write token. Coworker links don't
         // carry it, so nobody else can upload to this bucket.
-        if (!authedWrite(url, env)) return json({ error: 'upload_forbidden' }, 403, origin, env);
+        // Owner-only write token. Failing this while HOLDING a valid read token is a notable
+        // event — it means someone with a coworker link is probing for upload access.
+        if (!authedWrite(url, env)) {
+          return await logAuthFailures(env, request, json({ error: 'upload_forbidden' }, 403, origin, env));
+        }
         const key = decodeURIComponent(path.slice(4));
         if (!key || key.startsWith('_')) return json({ error: 'bad_key' }, 400, origin, env);
         const len = parseInt(request.headers.get('content-length') || '0', 10);
@@ -208,7 +227,9 @@ export default {
       if (path === '/stats' && request.method === 'GET') {
         // Owner-only: bucket usage is private metadata. Requires the write token,
         // not the public read token that ships in the app.
-        if (!authedWrite(url, env)) return json({ error: 'stats_forbidden' }, 403, origin, env);
+        if (!authedWrite(url, env)) {
+          return await logAuthFailures(env, request, json({ error: 'stats_forbidden' }, 403, origin, env));
+        }
         const { total, files } = await bucketBytes(env);
         return json({ bytesUsed: total, files, limit: MAX_TOTAL, pct: Math.round((total / MAX_TOTAL) * 100) }, 200, origin, env);
       }

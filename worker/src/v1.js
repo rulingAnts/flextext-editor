@@ -62,6 +62,30 @@ function isOwner(email, env) {
 }
 function isApproved(r, env) { return !!(r && (r.approved || isOwner(r.drive_email, env))); }
 
+// The domain of an address, for the approved_domain allowlist. Split on the LAST '@' (a local part
+// may legally contain one) and lowercase. Returns '' for anything not address-shaped, which can
+// never match a row because the column is a PRIMARY KEY and '' is not a domain anyone would list.
+export function emailDomain(email) {
+  const e = normEmail(email);
+  const at = e.lastIndexOf('@');
+  if (at < 1 || at === e.length - 1) return '';
+  const d = e.slice(at + 1);
+  // A domain has at least one dot and no whitespace/@; anything else is not a domain we will match.
+  return (/^[a-z0-9.-]+\.[a-z]{2,}$/.test(d)) ? d : '';
+}
+
+// Third onboarding tier: an ordinary (never owner) researcher whose e-mail domain the operator has
+// pre-approved in D1. ⚠ EQUALITY, never a suffix/substring test — a suffix test would let
+// 'evil-sil.org' match 'sil.org'. Subdomains are therefore NOT covered unless listed explicitly,
+// which is the safe default for an auth boundary. Fails CLOSED: any DB error → not approved.
+async function isDomainApproved(email, env) {
+  const d = emailDomain(email);
+  if (!d || !env.DB) return false;
+  try {
+    return !!(await env.DB.prepare('SELECT domain FROM approved_domain WHERE domain=?').bind(d).first());
+  } catch { return false; }   // table not migrated yet, or D1 hiccup → fall back to manual approval
+}
+
 async function hmacHex(keyStr, msg) {
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(String(keyStr)), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(String(msg)));
@@ -553,6 +577,9 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     // sign in but their account is created PENDING (inert) until an owner approves it in the panel.
     // No hard reject here — the isApproved() gate on the privileged endpoints is what protects them.
     const owner = isOwner(email, env);
+    // Pre-approved DOMAIN (D1 `approved_domain`): approved on sight, but as an ordinary researcher.
+    // Owner rights come only from the env list, so no database row can ever grant them.
+    const domainOk = owner ? false : await isDomainApproved(email, env);
     const name = claims.name || ''; const picture = claims.picture || '';
     let row = await env.DB.prepare('SELECT researcher_id FROM researcher WHERE google_sub=?').bind(sub).first();
     const session = randTok(24); const sessionHash = await sha256hex(session);
@@ -563,7 +590,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         'INSERT INTO researcher (researcher_id, secret_hash, email_sha256, settings_blob, settings_rev, created_at, google_sub, kr_server_enc, drive_refresh_enc, drive_email, email_enc, display_name, avatar_url, approved) VALUES (?,?,?,?,0,?,?,?,?,?,?,?,?,?)'
       ).bind(researcher_id, sessionHash, await emailKey(email, env), JSON.stringify({}), now, sub,
              await encAtRest(env, krB64), tok.refresh_token ? await encAtRest(env, tok.refresh_token) : null,
-             email, await encAtRest(env, email), name, picture, owner ? 1 : 0).run();
+             email, await encAtRest(env, email), name, picture, (owner || domainOk) ? 1 : 0).run();
       row = { researcher_id };
       // FIRST sign-in for this Google account — a brand-new researcher row. Alert-worthy because
       // it should essentially never happen unannounced; repeat sign-ins take the else-branch and
@@ -574,7 +601,11 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         'Name: ' + (name || '(none)'),
         owner
           ? 'This address is on ALLOWED_RESEARCHERS, so it was auto-approved as an OWNER.'
-          : 'This account is PENDING and can do nothing until you approve it in the researcher panel.',
+          : domainOk
+            ? 'Its domain (' + emailDomain(email) + ') is in your pre-approved list, so it was '
+              + 'auto-approved as an ordinary researcher. Nothing to do — this is just so you know. '
+              + 'If it was NOT expected, revoke it in the researcher panel.'
+            : 'This account is PENDING and can do nothing until you approve it in the researcher panel.',
       ]);
     } else {
       const sets = ['secret_hash=?']; const binds = [sessionHash];

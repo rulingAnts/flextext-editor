@@ -107,13 +107,7 @@
     <button id="btn-attach-audio" class="link-btn" data-i18n="player.attach">Attach audio&hellip;</button>
     <input type="file" id="attach-audio-file" accept="audio/*,.mp3,.wav,.m4a,.flac,.ogg" hidden>
   </p>
-  <!-- The gutter holds one per-segment play control per LOGICAL line, absolutely positioned to that
-       line's MEASURED top (lines wrap, so rows are not uniform height). Hidden entirely unless
-       segmentation is enabled, so today's layout is untouched for existing users. -->
-  <div id="baseline-wrap" class="baseline-wrap">
-    <div id="baseline-gutter" class="baseline-gutter" hidden></div>
-    <textarea id="baseline-text" class="baseline-area" spellcheck="false" data-i18n-ph="baseline.placeholder"></textarea>
-  </div>
+  <textarea id="baseline-text" class="baseline-area" spellcheck="false" data-i18n-ph="baseline.placeholder"></textarea>
 </section>
 
 <!-- ===== Editor: Gloss tab ===== -->

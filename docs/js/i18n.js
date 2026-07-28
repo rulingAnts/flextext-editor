@@ -44,9 +44,6 @@ en: {
   // Shown while the microphone is opening, with the Record button disabled. Plain words on
   // purpose: this is read by people with limited literacy, in their second language.
   'record.warming': 'Getting the microphone ready…',
-  // Per-segment controls in the baseline gutter (Simple-ELAN segmentation mode).
-  'seg.play': 'Play this line',
-  'seg.pending': 'This line has no time yet — scrub to the right place and set it',
   // Which microphone a native recording actually came from — the readout that makes testing a USB
   // mic possible. Plain words: a field worker reads these, not an engineer.
   'record.cap.via': 'Recorded with: {device}',
@@ -1010,8 +1007,6 @@ id: {
   'record.redo': 'Rekam ulang',
   'record.idle': 'Tekan Rekam lalu berbicara. Anda bisa mendengarkan dan merekam ulang sebelum menyimpan.',
   'record.warming': 'Menyiapkan mikrofon…',
-  'seg.play': 'Putar baris ini',
-  'seg.pending': 'Baris ini belum punya waktu — geser ke tempat yang tepat lalu tetapkan',
   'record.cap.via': 'Direkam dengan: {device}',
   'record.cap.model': '{model} ({kind})',
   'record.cap.notArchival': 'bukan kualitas arsip',

@@ -599,10 +599,7 @@ export class Player {
       fill: root.querySelector('.player-progress-fill'),
     };
 
-    // clearSpan first: after playing one segment, the transport must go back to normal continuous
-    // playback. Without this the main play button would still stop at the previous span's end,
-    // which reads as "the player is broken".
-    this.el.play.addEventListener('click', () => { this.clearSpan(); this.ws?.playPause(); });
+    this.el.play.addEventListener('click', () => this.ws?.playPause());
     this.el.back.addEventListener('click', () => {
       if (this.ws) this.ws.setTime(Math.max(0, this.ws.getCurrentTime() - 3));
     });
@@ -739,75 +736,7 @@ export class Player {
       fmt(this.ws.getCurrentTime()) + ' / ' + fmt(this.ws.getDuration());
   }
 
-  /* Current playhead in MILLISECONDS, or null when there is no media.
-   * ms because the whole segment model, flextext offsets and EAF TIME_SLOTs are all integer ms —
-   * converting once here keeps float seconds from leaking into stored time codes. */
-  playheadMs() {
-    if (!this.ws) return null;
-    try { return Math.round(this.ws.getCurrentTime() * 1000); } catch { return null; }
-  }
-
-  /** Media length in ms, or null. Used to clamp the last segment's end. */
-  durationMs() {
-    if (!this.ws) return null;
-    try {
-      const d = this.ws.getDuration();
-      return Number.isFinite(d) && d > 0 ? Math.round(d * 1000) : null;
-    } catch { return null; }
-  }
-
-  /* Play just [startMs, endMs) — one segment — then stop.
-   *
-   * ⚠ NO REGIONS PLUGIN, DELIBERATELY. wavesurfer's regions plugin would add a vendor dependency
-   * and an editable-region UI we explicitly do NOT want (dragging must stay scrub-only; boundaries
-   * are created by text edits, never by dragging). Seeking + watching timeupdate does the whole job.
-   *
-   * The stop watcher is stored on the instance and cleared by any new call, pause, or destroy, so
-   * overlapping span plays can never leave two watchers fighting over the transport.
-   */
-  playSpan(startMs, endMs) {
-    if (!this.ws || !Number.isFinite(startMs)) return;
-    this.clearSpan();
-    const start = Math.max(0, startMs / 1000);
-    const end = Number.isFinite(endMs) && endMs > startMs ? endMs / 1000 : null;
-
-    try { this.ws.setTime(start); } catch { /* seek unsupported/not ready */ }
-
-    if (end !== null) {
-      // A tiny epsilon: timeupdate fires on a coarse cadence (~50ms measured), so waiting for
-      // >= end overshoots. MEASURED against real wavesurfer: asking to stop at 4000ms stopped at
-      // 4031ms — a ~30ms sliver of the next segment, which is one glottal pulse and inaudible in
-      // speech. Erring early is the honest side; do not chase exactness with a rAF loop for this.
-      const stopAt = Math.max(start, end - 0.02);
-      const onTick = () => {
-        if (!this.ws) return this.clearSpan();
-        if (this.ws.getCurrentTime() >= stopAt) {
-          try { this.ws.pause(); } catch { /* noop */ }
-          this.clearSpan();
-        }
-      };
-      // wavesurfer 7's on() RETURNS an unsubscribe function; older/other builds expose un().
-      // Keep whichever we actually get rather than betting on one — a leaked timeupdate listener
-      // would keep pausing playback at a stale boundary forever.
-      this._spanTick = onTick;
-      const off = this.ws.on('timeupdate', onTick);
-      this._spanOff = typeof off === 'function' ? off : null;
-    }
-    try { this.ws.play(); } catch { /* autoplay blocked — the user gesture path handles it */ }
-  }
-
-  /** Drop any active span watcher, so the transport returns to normal continuous playback. */
-  clearSpan() {
-    if (this._spanOff) { try { this._spanOff(); } catch { /* noop */ } }
-    else if (this._spanTick && this.ws) {
-      try { this.ws.un('timeupdate', this._spanTick); } catch { /* noop */ }
-    }
-    this._spanTick = null;
-    this._spanOff = null;
-  }
-
   destroyWs() {
-    this.clearSpan();
     if (this.ws) { try { this.ws.destroy(); } catch { /* noop */ } this.ws = null; }
     if (this.objectUrl) { URL.revokeObjectURL(this.objectUrl); this.objectUrl = null; }
     this.el.play.textContent = '▶';

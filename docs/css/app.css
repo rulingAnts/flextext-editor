@@ -947,6 +947,33 @@ main {
 .rp-pending-del { opacity: .5; text-decoration: line-through; }
 .rp-tag-deleting { background: #fdecea; color: #9b2c22; font-weight: 600; text-decoration: none; }
 
+/* Downloads dropdown on a text row. Anchored to the row, floating above it — the inventory list is
+   dense, so an inline expansion would shove every following row down on hover. */
+.rp-dl { position: relative; display: inline-block; }
+.rp-dl-btn { white-space: nowrap; }
+.rp-dl-caret { font-size: 9px; opacity: .7; }
+.rp-dl-menu {
+  position: absolute; z-index: 30; top: calc(100% + 4px); left: 0;
+  min-width: 244px; max-width: min(320px, 80vw);
+  display: flex; flex-direction: column;
+  background: var(--card, #fff); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(0,0,0,.18); padding: 6px;
+  /* ⚠ ALWAYS drop DOWNWARD, and scroll when tall. An earlier version flipped the menu upward on
+     the last row to avoid overflowing the card — which broke exactly when it mattered: with all
+     six artifact kinds the menu is ~400px, so flipping up ran it off the TOP of the viewport and
+     clipped the first entries. Caught by screenshotting it, not by reading the CSS. */
+  max-height: 60vh; overflow-y: auto;
+}
+.rp-dl-menu[hidden] { display: none; }
+.rp-dl-head { font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+              color: var(--muted); padding: 4px 8px 6px; }
+.rp-dl-item { display: block; padding: 7px 8px; border-radius: 7px; text-decoration: none; color: inherit; }
+.rp-dl-item:hover, .rp-dl-item:focus-visible { background: var(--panel); text-decoration: none; }
+.rp-dl-name { display: block; font-weight: 600; font-size: 14px; color: var(--blue-dark); }
+/* The sub-line carries the PURPOSE ("import into FLEx", "annotation file, tiers named for
+   SayMore") — it is what makes two .eaf exports distinguishable at a glance. */
+.rp-dl-sub { display: block; font-size: 12px; color: var(--muted); margin-top: 1px; }
+
 /* History modal — the back-log of texts that are no longer on a device. The kind colours REUSE the
    dashboard's tag palette above on purpose: "uploaded" must look the same here as it does on a live
    row, or the two views read as two unrelated systems. */

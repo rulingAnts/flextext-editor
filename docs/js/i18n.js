@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v126';
+export const ENGINE_VERSION = 'v127';
 
 const S = {
 en: {
@@ -658,6 +658,25 @@ internet after the first time.</p>
   'panel.dash.texts': 'Texts',
   'panel.dash.newDevice': '+ New device',
   'panel.dash.refresh': 'Refresh',
+  // Downloads dropdown on each text row. Labelled by PURPOSE, never filename: two .eaf files are
+  // near-impossible to tell apart by name, and "ELAN" vs "SayMore" says which tool opens which.
+  'panel.dl.btn': 'Files',
+  'panel.dl.title': 'Download',
+  'panel.dl.audio': 'Original audio',
+  'panel.dl.audioSub': 'the recording that was assigned',
+  'panel.dl.wavDerived': 'WAV for ELAN / SayMore',
+  'panel.dl.wavDerivedSub': 'converted so a waveform can be drawn — not an archival master',
+  'panel.dl.flextext': 'FLExText',
+  'panel.dl.flextextSub': 'import into FLEx',
+  'panel.dl.bundle': 'FlexText Editor',
+  'panel.dl.bundleSub': 'reopen in this app — text and audio together',
+  'panel.dl.eafFlex': 'ELAN',
+  'panel.dl.eafFlexSub': 'annotation file, tiers named for FLEx',
+  'panel.dl.eafSaymore': 'SayMore',
+  'panel.dl.eafSaymoreSub': 'annotation file, tiers named for SayMore',
+  'panel.dl.inferred': 'file type not reported by this device — it may be a zip',
+  'panel.dl.noneYet': 'Nothing uploaded from this device yet.',
+  'panel.dl.noneAssignedPreV126': 'This text was assigned before the app started keeping the audio link, so the original audio cannot be recovered. Anything uploaded from now on will appear here.',
   // History — the back-log of texts that are no longer on a device. Written as the panel observes
   // each device report (see js/history.js); a deleted text leaves nothing behind but this.
   'panel.hist.btn': 'History',
@@ -1566,6 +1585,23 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.dash.texts': 'Teks',
   'panel.dash.newDevice': '+ Perangkat baru',
   'panel.dash.refresh': 'Segarkan',
+  'panel.dl.btn': 'Berkas',
+  'panel.dl.title': 'Unduh',
+  'panel.dl.audio': 'Audio asli',
+  'panel.dl.audioSub': 'rekaman yang ditugaskan',
+  'panel.dl.wavDerived': 'WAV untuk ELAN / SayMore',
+  'panel.dl.wavDerivedSub': 'dikonversi agar bentuk gelombang bisa digambar — bukan master arsip',
+  'panel.dl.flextext': 'FLExText',
+  'panel.dl.flextextSub': 'impor ke FLEx',
+  'panel.dl.bundle': 'FlexText Editor',
+  'panel.dl.bundleSub': 'buka lagi di aplikasi ini — teks dan audio sekaligus',
+  'panel.dl.eafFlex': 'ELAN',
+  'panel.dl.eafFlexSub': 'berkas anotasi, nama tier untuk FLEx',
+  'panel.dl.eafSaymore': 'SayMore',
+  'panel.dl.eafSaymoreSub': 'berkas anotasi, nama tier untuk SayMore',
+  'panel.dl.inferred': 'jenis berkas tidak dilaporkan perangkat ini — mungkin sebuah zip',
+  'panel.dl.noneYet': 'Belum ada yang diunggah dari perangkat ini.',
+  'panel.dl.noneAssignedPreV126': 'Teks ini ditugaskan sebelum aplikasi mulai menyimpan tautan audio, jadi audio aslinya tidak dapat dipulihkan. Apa pun yang diunggah mulai sekarang akan muncul di sini.',
   'panel.hist.btn': 'Riwayat',
   'panel.hist.title': 'Riwayat',
   'panel.hist.intro': 'Apa yang terjadi pada teks Anda — termasuk yang sudah dihapus dari perangkat. Disimpan hanya di browser ini.',

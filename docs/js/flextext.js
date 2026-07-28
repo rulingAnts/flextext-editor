@@ -627,7 +627,7 @@ export function breakPhrase(seg, i) {
 export function surveyWritingSystems(xmlString) {
   const dom = new DOMParser().parseFromString(xmlString, 'text/xml');
   if (dom.querySelector('parsererror')) return { error: 'XML parse error', rows: [], dom: null };
-  const counts = new Map(); // key "context lang" -> count
+  const counts = new Map(); // key "context\0lang" -> count
   // Labels are i18n keys, translated by the UI layer.
   const CONTEXTS = [
     ['phrase > item[type="txt"]', 'wsline.baseline'],

@@ -8,7 +8,7 @@
  * whenever the editor engine changes in a way the recorder should pick up — or
  * installed recorders keep serving a stale cached engine offline. */
 
-const VERSION = 'v77';
+const VERSION = 'v78';
 const CACHE = 'text-recorder-' + VERSION;
 const SHELL = [
   './',

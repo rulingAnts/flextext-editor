@@ -1002,6 +1002,32 @@ main {
 .rp-tag-notdone { background: var(--panel); color: var(--muted); }  /* Done feature on, not yet finished */
 .rp-pending-del { opacity: .5; text-decoration: line-through; }
 .rp-tag-deleting { background: #fdecea; color: #9b2c22; font-weight: 600; text-decoration: none; }
+
+/* History modal — the back-log of texts that are no longer on a device. The kind colours REUSE the
+   dashboard's tag palette above on purpose: "uploaded" must look the same here as it does on a live
+   row, or the two views read as two unrelated systems. */
+.rp-hist-filters { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 12px; }
+.rp-hist-f { padding: 4px 10px; border-radius: 999px; }
+.rp-hist-f.is-on { background: var(--blue); color: #fff; }
+.rp-hist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px;
+           /* The log grows without bound; scroll it INSIDE the modal so the filters and the
+              Clear/Close buttons never get pushed out of reach. */
+           max-height: 55vh; overflow-y: auto; }
+.rp-hist-row { padding: 9px 2px; border-bottom: 1px solid var(--border); }
+.rp-hist-row:last-child { border-bottom: none; }
+.rp-hist-head { display: flex; align-items: baseline; gap: 8px; }
+.rp-hist-title { font-weight: 600; overflow-wrap: anywhere; }
+.rp-hist-k { flex: none; }
+.rp-hist-k-assigned { background: #e8f0fc; color: var(--blue-dark); }
+.rp-hist-k-submitted { background: #e3f3e4; color: #1f5d22; }
+.rp-hist-k-done { background: #cdeccf; color: #18521b; font-weight: 600; }
+.rp-hist-k-deleted { background: #fdecea; color: #9b2c22; font-weight: 600; }
+.rp-hist-meta { margin-top: 2px; }
+.rp-hist-links { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 12px; font-size: 13px; }
+.rp-hist-empty { padding: 18px 2px; }
+/* A deleted text is GONE — fade the row so the log reads at a glance, but never strike the title
+   through: unlike the dashboard's pending-delete row, this is a record, not an in-flight action. */
+.rp-hist-deleted .rp-hist-title { color: var(--muted); }
 /* Loud, plain-language warning at the top of a settings group (e.g. website-installed
    devices cannot make archive-quality recordings). Deliberately hard to miss. */
 .rp-notice { border: 1px solid #e0b892; border-left: 5px solid #c9772a; background: #fdf6ee;

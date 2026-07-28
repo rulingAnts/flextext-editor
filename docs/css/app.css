@@ -946,6 +946,13 @@ main {
 .rp-tag-notdone { background: var(--panel); color: var(--muted); }  /* Done feature on, not yet finished */
 .rp-pending-del { opacity: .5; text-decoration: line-through; }
 .rp-tag-deleting { background: #fdecea; color: #9b2c22; font-weight: 600; text-decoration: none; }
+/* A request the device has already picked up: no longer cancellable, so it is a TAG, not a button.
+   Deliberately not styled as clickable — offering a cancel that the server will refuse is worse
+   than showing none, because the researcher would believe the request was called off. */
+.rp-tag-taken { background: #fdf3d7; color: #6b5310; font-weight: 600; text-decoration: none; cursor: help; }
+/* The withdraw toggle. Same weight as the action it undoes, so a queued request reads as a pair. */
+.rp-cancel { color: #8a4b10; font-weight: 600; }
+.rp-pending-del .rp-cancel, .rp-pending-del .rp-tag-taken { text-decoration: none; opacity: 1; }
 
 /* Admin modal — owner-only. Deliberately plainer than the dashboard: these are rare, considered
    actions, so the layout favours reading over density. */

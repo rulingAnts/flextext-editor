@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v130';
+export const ENGINE_VERSION = 'v131';
 
 const S = {
 en: {
@@ -283,6 +283,13 @@ en: {
   'panel.opt.abm.60': '1 hour',
   'panel.inst.delText': 'Remove from device',
   'panel.inst.confirmDelText': 'The device will first upload “{title}” to Drive (a fresh time-stamped copy), then delete it from the device. The text is only deleted after the upload is confirmed safe. Continue?',
+  'panel.inst.cancelUpload': 'Cancel upload',
+  'panel.inst.cancelDelete': 'Cancel removal',
+  'panel.inst.taken': 'in progress',
+  'panel.inst.takenWhy': 'The device has already picked this up, so it can no longer be cancelled.',
+  'panel.inst.cancelled': 'Request cancelled — the device will not act on it.',
+  'panel.inst.cancelTooLate': 'Too late to cancel: the device has already picked this up and is acting on it.',
+  'panel.inst.cancelFailed': 'Could not cancel — the request is still queued. Try again.',
   'panel.inst.delSent': 'Sent — the device will upload, then remove it.',
   'panel.inst.delNeedsUpdate': 'The device app must update first (automatic).',
   'panel.crowd.title': 'Crowd recorders',
@@ -1254,6 +1261,13 @@ id: {
   'panel.opt.abm.60': '1 jam',
   'panel.inst.delText': 'Hapus dari perangkat',
   'panel.inst.confirmDelText': 'Perangkat akan terlebih dahulu mengunggah “{title}” ke Drive (salinan baru berstempel waktu), lalu menghapusnya dari perangkat. Teks hanya dihapus setelah unggahan dipastikan aman. Lanjutkan?',
+  'panel.inst.cancelUpload': 'Batalkan unggahan',
+  'panel.inst.cancelDelete': 'Batalkan penghapusan',
+  'panel.inst.taken': 'sedang berjalan',
+  'panel.inst.takenWhy': 'Perangkat sudah mengambil perintah ini, jadi tidak bisa dibatalkan lagi.',
+  'panel.inst.cancelled': 'Permintaan dibatalkan — perangkat tidak akan menjalankannya.',
+  'panel.inst.cancelTooLate': 'Terlambat membatalkan: perangkat sudah mengambil dan sedang menjalankannya.',
+  'panel.inst.cancelFailed': 'Tidak dapat membatalkan — permintaan masih dalam antrean. Coba lagi.',
   'panel.inst.delSent': 'Terkirim — perangkat akan mengunggah, lalu menghapusnya.',
   'panel.inst.delNeedsUpdate': 'Aplikasi perangkat harus diperbarui dulu (otomatis).',
   'panel.crowd.title': 'Perekam publik',

@@ -331,6 +331,13 @@ export async function pushCommand(instanceId, type, opts = {}) {
   return { ok: true, seq: r.seq, desired_rev: r.desired_rev };
 }
 
+/* Withdraw a queued command the device has not picked up yet.
+ * Throws on 409 `already_delivered` — a cancel that quietly failed would be worse than none, since
+ * the researcher would walk away believing the request is off when the device is already acting. */
+export function cancelCommand(instanceId, seq) {
+  return api('POST', `/v1/instances/${encodeURIComponent(instanceId)}/command/cancel`, { body: { seq } });
+}
+
 export function assign(instanceId, docId, fields) { return pushCommand(instanceId, 'assign', { id: docId, ...(fields || {}) }); }
 export function deleteDoc(instanceId, docId)       { return pushCommand(instanceId, 'delete', { docId }); }
 export async function changeSettings(instanceId, settings) {

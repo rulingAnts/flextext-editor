@@ -42,12 +42,37 @@ let lastData = null;   // last dashboard view, kept so an action (e.g. upload) c
 // actually published — the notice then says "in preparation" rather than offering a dead link.
 const NATIVE_DOWNLOADS_URL = '';
 
-const requestedUploads = new Map();
-const UPLOAD_WAIT_MS = 120000;   // no device confirmation after this long → re-offer the button ("awaiting device…")
-// docId -> requestedAt for a delete the researcher just triggered: gives the row an INSTANT
-// struck-through/faded look before the device's next report carries pendingDelete=true. The
-// device flag (inventory) is the source of truth; this only smooths the poll-cadence gap.
-const requestedDeletes = new Map();
+/* PENDING COMMANDS — docId -> { seq, kind:'upload'|'delete', instanceId, prevFileId, at }.
+ *
+ * ⚠ REPLACES TWO EXPIRING TIMERS, AND THAT IS THE POINT. The old markers faded after 2 and 10
+ * minutes, so a request the device simply had not polled for yet became indistinguishable from one
+ * that was never made: the strikethrough vanished while the command was still queued server-side,
+ * and the text was still there. Seth hit exactly that. A clock was never the right signal —
+ * `install.ack_seq` is, because it says whether the device has actually SEEN the command.
+ *
+ * Persisted, because these are real outstanding requests: closing the panel must not lose track of
+ * a delete that is still queued.
+ *
+ * ⚠ THE STATE IS DERIVED FROM ack_seq, NEVER FROM ELAPSED TIME:
+ *   seq >  maxAck  → queued, the device has not seen it → CANCELLABLE
+ *   seq <= maxAck  → the device has it → in progress, NOT cancellable
+ * The second case must never offer a cancel. Letting a researcher "cancel" a delete that already
+ * happened would leave the panel claiming a text the device no longer has — and for an upload, that
+ * it was never sent when it was. The Worker refuses it too (409 already_delivered); the UI simply
+ * must not ask for something the server will rightly reject.
+ */
+const PENDING_KEY = 'flextext-rp-pending:';
+let pendingCmds = new Map();
+function loadPending(accountId) {
+  try {
+    const raw = JSON.parse(localStorage.getItem(PENDING_KEY + (accountId || 'anon')) || '[]');
+    pendingCmds = new Map(Array.isArray(raw) ? raw : []);
+  } catch { pendingCmds = new Map(); }
+}
+function savePending(accountId) {
+  try { localStorage.setItem(PENDING_KEY + (accountId || 'anon'), JSON.stringify([...pendingCmds])); }
+  catch { /* quota/private mode — the markers degrade to in-memory only */ }
+}
 
 // Absolute paths (NOT derived from location.pathname): invite links must point at the editor /
 // recorder even though this code usually runs inside the researcher app at /flextext-researcher/.
@@ -598,17 +623,29 @@ async function renderDashboard(prefetched) {
   }
 
   lastData = data;   // cache for an instant local re-render after an action (no refetch)
-  // Sweep upload-request markers: drop a completed one after it has lingered (~60s of "uploaded just
-  // now"), and give up on one the device never confirmed (~10min, likely offline) so the row reverts
-  // to its real reported state and the action button comes back.
-  const nowTs = Date.now();
-  for (const [k, r] of requestedUploads) {
-    if (r.doneAt ? (nowTs - r.doneAt > 60000) : (nowTs - r.requestedAt > 600000)) requestedUploads.delete(k);
-  }
-  // Drop an optimistic delete-marker after ~10min (device offline / never confirmed) — once the
-  // removal actually lands the row is gone anyway, so a lingering marker is harmless.
-  for (const [k, at] of requestedDeletes) { if (nowTs - at > 600000) requestedDeletes.delete(k); }
   const insts = data.instances || [];
+  loadPending(Researcher.currentAccountId());
+  // Retire pending markers on OUTCOME, never on a clock. A request stays visible for as long as it
+  // is genuinely outstanding — which is the whole correction: the old timers made a still-queued
+  // delete look forgotten while the command was alive on the server.
+  {
+    const live = new Map();                                   // docId -> its current inventory item
+    for (const it of insts) for (const ins of it.installs || []) {
+      const items = ins.inventory && Array.isArray(ins.inventory.items) ? ins.inventory.items : [];
+      for (const d of items) if (d && d.id) live.set(d.id, d);
+    }
+    let changed = false;
+    for (const [docId, p] of pendingCmds) {
+      const d = live.get(docId);
+      // A delete is done when the text is gone from every inventory. An upload is done when the
+      // device reports a NEW file id — the same signal the History log uses.
+      const done = p.kind === 'delete'
+        ? (d === undefined && ackOf(insts, p.instanceId) >= p.seq)
+        : !!(d && d.uploadedFileId && d.uploadedFileId !== p.prevFileId);
+      if (done) { pendingCmds.delete(docId); changed = true; }
+    }
+    if (changed) savePending(Researcher.currentAccountId());
+  }
   // HISTORY: observe BEFORE rendering, and on every poll — not only on full renders. A text can be
   // assigned, uploaded and deleted between two full renders, and the deletion is only visible as
   // the one report where it goes present→absent. Miss that report and the tombstone is lost for
@@ -759,6 +796,22 @@ function wireDownloadMenus() {
   }
 }
 
+/* The highest command seq ANY live install of an instance has processed.
+ *
+ * This is the single source of truth for "has the device seen it yet". ack_seq is monotonic
+ * server-side (Math.max on every report), so a command with seq > this has demonstrably not been
+ * acted on — and one with seq <= this has. MAX across installs, not per-install: an instance can
+ * run the editor and the recorder side by side and either may hold the text, so the conservative
+ * reading is the only one that cannot race. */
+function ackOf(instances, instanceId) {
+  let max = 0;
+  for (const it of instances || []) {
+    if (it.instance_id !== instanceId) continue;
+    for (const ins of it.installs || []) max = Math.max(max, parseInt(ins.ack_seq, 10) || 0);
+  }
+  return max;
+}
+
 /* Assigned-audio lookup for the downloads dropdown. The History log is the ONLY place the assigned
  * Drive URL is retained — a device reports what it UPLOADED, never what it was given. Built once
  * per dashboard render: re-reading localStorage per text row would be O(rows x log). */
@@ -814,37 +867,46 @@ async function renderInstanceCard(it) {
       // through esc(); uploadState lands in a class attribute, so ALLOW-LIST it to the three
       // known states — never interpolate it raw (would permit an attribute-breakout XSS into
       // this privileged panel where Kr + the account secret live).
+      // Computed once per card: the highest seq any install of THIS instance has processed.
+      const maxAck = ackOf(lastData ? lastData.instances : [], it.instance_id);
       const rows = inv && inv.length ? inv.map((d) => {
         const us = (d.uploadState === 'uploaded' || d.uploadState === 'changed') ? d.uploadState : 'local';
-        // Mark a pending request done the first render the device reports a NEW file id (see requestedUploads).
-        const req = requestedUploads.get(d.id);
-        if (req && !req.doneAt && d.uploadedFileId && d.uploadedFileId !== req.prevFileId) req.doneAt = Date.now();
-        let disp = us, pending = false;
-        if (req) {
-          if (req.doneAt) disp = 'justUploaded';                              // ✓ confirmed by the device
-          else if (Date.now() - req.requestedAt < UPLOAD_WAIT_MS) { disp = 'requested'; pending = true; }
-          else disp = 'slow';                                                 // no confirmation yet → re-offer button
-        }
+        // ⚠ STATE FROM ack_seq, NOT FROM A CLOCK. `queued` = the device has not polled for it yet,
+        // so it can still be withdrawn. `taken` = the device has it and is acting; offering a
+        // cancel there would let the panel claim a text the device has already deleted, or claim an
+        // upload never happened when it did. The Worker refuses it too — this just never asks.
+        const p = pendingCmds.get(d.id);
+        const queued = !!p && p.seq > maxAck;
+        const taken  = !!p && p.seq <= maxAck;
+        let disp = us;
+        if (p && p.kind === 'upload') disp = queued ? 'requested' : 'slow';
         // SECURITY: disp must stay within this fixed literal set — it lands in a class attribute in this
         // privileged panel; never let an attacker-controlled report value reach it (see note above).
         const DISP = ['local', 'uploaded', 'changed', 'requested', 'slow', 'justUploaded'].includes(disp) ? disp : 'local';
         // Action label by state — Upload (never sent) / Upload changes (edited since) / Re-upload (re-send).
         const label = { changed: 'panel.inst.uploadChanges', uploaded: 'panel.inst.reupload',
                         justUploaded: 'panel.inst.reupload', slow: 'panel.inst.resend' }[DISP] || 'panel.inst.upload';
-        const up = pending ? ''   // request in flight: hide the button so it isn't double-fired
+        // A queued request TOGGLES: click again to withdraw it. Once taken, the button goes inert
+        // and says so, rather than pretending an option exists that cannot be honoured.
+        const cancelBtn = (kind) => ` <button class="link-btn rp-cancel" data-iact="cancel-cmd" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}">${esc(t('panel.inst.cancel' + kind))}</button>`;
+        const takenTag = ` <span class="rp-tag rp-tag-taken" title="${esc(t('panel.inst.takenWhy'))}">${esc(t('panel.inst.taken'))}</span>`;
+
+        const up = (p && p.kind === 'upload')
+          ? (queued ? cancelBtn('Upload') : takenTag)
           : ` <button class="link-btn rp-up" data-iact="upload" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-fileid="${esc(d.uploadedFileId || '')}">${esc(t(label))}</button>`;
         // Upload-first remote delete (v94+): the device uploads a fresh timestamped copy, THEN deletes.
-        // No marker machinery — the row simply disappears from the inventory on the next report.
         const del = !d.id ? ''
-          : canDelText
-            ? ` <button class="link-btn rp-revoke" data-iact="del-text" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.inst.delText'))}</button>`
-            : ` <button class="link-btn rp-revoke" disabled title="${esc(t('panel.inst.delNeedsUpdate'))}">${esc(t('panel.inst.delText'))}</button>`;
+          : (p && p.kind === 'delete')
+            ? (queued ? cancelBtn('Delete') : takenTag)
+            : canDelText
+              ? ` <button class="link-btn rp-revoke" data-iact="del-text" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.inst.delText'))}</button>`
+              : ` <button class="link-btn rp-revoke" disabled title="${esc(t('panel.inst.delNeedsUpdate'))}">${esc(t('panel.inst.delText'))}</button>`;
         const doneTag = d.done
           ? `<span class="rp-tag rp-tag-done">${esc(t('panel.inst.doneTag'))}</span>`
           : (doneOn ? `<span class="rp-tag rp-tag-notdone">${esc(t('panel.inst.notDoneTag'))}</span>` : '');
         // Delete triggered (by device flag OR this researcher's just-clicked request) but not yet
         // confirmed → strike through + fade the whole row, and add a small "deleting…" tag.
-        const deleting = !!d.pendingDelete || requestedDeletes.has(d.id);
+        const deleting = !!d.pendingDelete || !!(p && p.kind === 'delete');
         const delTag = deleting ? `<span class="rp-tag rp-tag-deleting">${esc(t('panel.inst.deletingTag'))}</span>` : '';
         // Downloads: labelled by PURPOSE (ELAN / SayMore / FLExText / FlexText Editor), never by
         // filename — two .eaf exports are near-impossible to tell apart by name. The assigned-audio
@@ -969,18 +1031,39 @@ async function instanceAction(el) {
     } else if (act === 'upload') {
       const docId = el.dataset.id;                                         // data-id is the doc id here
       const prevFileId = el.dataset.fileid || '';                          // snapshot: a DIFFERENT id later = this upload landed
-      await busy(el, () => Researcher.triggerUpload(id, docId));           // throws on failure → caught below → no marker set
-      requestedUploads.set(docId, { prevFileId, requestedAt: Date.now(), doneAt: 0 });
+      // Keep the seq the Worker assigned — it is what makes the request withdrawable, and what
+      // ack_seq is later compared against to know whether it still can be.
+      const r1 = await busy(el, () => Researcher.triggerUpload(id, docId)); // throws on failure → caught below → no marker set
+      pendingCmds.set(docId, { seq: r1.seq, kind: 'upload', instanceId: id, prevFileId, at: Date.now() });
+      savePending(Researcher.currentAccountId());
       deps.toast(t('panel.inst.uploadSent'), 5000);
       renderDashboard(lastData || undefined);                             // instant feedback: row flips to "request sent…"
     } else if (act === 'del-text') {
       // Upload-first delete: the confirm spells out the safety order (fresh Drive copy FIRST, delete
-      // only after it's confirmed). No local marker — the row vanishes on the device's next report.
+      // only after it's confirmed).
       if (!confirm(t('panel.inst.confirmDelText', { title: el.dataset.title || '?' }))) return;
-      await busy(el, () => Researcher.uploadDelete(id, el.dataset.id));    // data-id is the doc id here
-      requestedDeletes.set(el.dataset.id, Date.now());                     // instant strike-through until the device confirms
+      const r2 = await busy(el, () => Researcher.uploadDelete(id, el.dataset.id));  // data-id is the doc id here
+      pendingCmds.set(el.dataset.id, { seq: r2.seq, kind: 'delete', instanceId: id, at: Date.now() });
+      savePending(Researcher.currentAccountId());
       deps.toast(t('panel.inst.delSent'), 5000);
       renderDashboard(lastData || undefined);
+    } else if (act === 'cancel-cmd') {
+      // Withdraw a request the device has not picked up. The Worker re-checks ack_seq and refuses
+      // with 409 already_delivered if it is too late — that refusal is SHOWN, never swallowed,
+      // because a cancel the researcher believes worked but did not is the dangerous outcome: the
+      // panel would claim a text the device has already deleted.
+      const p = pendingCmds.get(el.dataset.id);
+      if (!p) { renderDashboard(lastData || undefined); return; }
+      try {
+        await busy(el, () => Researcher.cancelCommand(id, p.seq));
+        pendingCmds.delete(el.dataset.id);
+        savePending(Researcher.currentAccountId());
+        deps.toast(t('panel.inst.cancelled'), 4000);
+      } catch (e) {
+        // Too late: leave the marker in place so the row correctly shows "in progress".
+        deps.toast(t(/already_delivered|409/.test(String(e && e.message)) ? 'panel.inst.cancelTooLate' : 'panel.inst.cancelFailed'), 7000);
+      }
+      renderDashboard();   // refetch: ack_seq has moved, so the row must re-derive its true state
     } else if (act === 'settings') {
       lastView = await Researcher.listView();
       const inst = lastView.instances.find((x) => x.instance_id === id);

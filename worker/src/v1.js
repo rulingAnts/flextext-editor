@@ -1094,6 +1094,48 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       return j({ error: 'conflict_retry' }, 409, origin, env);
     }
 
+    /* POST .../command/cancel {seq} — WITHDRAW a queued command the device has not picked up yet.
+     *
+     * WHY THIS IS SAFE TO EXPOSE: a command is only ever removed while NO install of this instance
+     * has acked a seq that high. `install.ack_seq` is monotonic (Math.max on report), so
+     * "max(ack_seq) < seq" is a sound proof that nothing has acted on it. Once any install has
+     * acked past it, the answer is a refusal, never a silent no-op — a cancel that quietly fails is
+     * worse than no cancel, because the researcher walks away believing the delete is off.
+     *
+     * ⚠ ANY install, not all: an instance can run the editor and the recorder side by side, and
+     * either may be the one holding that text. Requiring every install to be behind the seq is the
+     * conservative reading and the only one that cannot race.
+     *
+     * Uses the same desired_rev compare-and-swap loop as the append path, so a poll landing
+     * mid-edit, or two panels acting at once, cannot corrupt the blob.
+     */
+    if (m === 'POST' && sub === 'command' && seg.length === 5 && seg[4] === 'cancel') {
+      const r = await authResearcher(request, env);
+      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      const body = await readJson(request) || {};
+      const seq = parseInt(body.seq, 10);
+      if (!Number.isFinite(seq) || seq <= 0) return j({ error: 'bad_seq' }, 400, origin, env);
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const inst = await env.DB.prepare('SELECT desired_blob, desired_rev FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
+          .bind(instanceId, r.researcher_id).first();
+        if (!inst) return j({ error: 'not_found' }, 404, origin, env);
+        // The highest seq ANY live install has processed.
+        const acked = await env.DB.prepare('SELECT MAX(ack_seq) AS a FROM install WHERE instance_id=? AND revoked=0')
+          .bind(instanceId).first();
+        const maxAck = (acked && acked.a) || 0;
+        if (seq <= maxAck) return j({ error: 'already_delivered', ack_seq: maxAck }, 409, origin, env);
+        const blob = inst.desired_blob ? JSON.parse(inst.desired_blob) : { settings: {}, commands: [] };
+        const before = (blob.commands || []).length;
+        blob.commands = (blob.commands || []).filter((c) => c.seq !== seq);
+        if (blob.commands.length === before) return j({ error: 'not_queued', ack_seq: maxAck }, 404, origin, env);
+        const newRev = inst.desired_rev + 1;
+        const res = await env.DB.prepare('UPDATE instance SET desired_blob=?, desired_rev=? WHERE instance_id=? AND desired_rev=?')
+          .bind(JSON.stringify(blob), newRev, instanceId, inst.desired_rev).run();
+        if (res.meta.changes === 1) return j({ ok: true, cancelled: seq, desired_rev: newRev }, 200, origin, env);
+      }
+      return j({ error: 'conflict_retry' }, 409, origin, env);
+    }
+
     // POST .../revoke — revoke the whole instance.
     if (m === 'POST' && sub === 'revoke' && seg.length === 4) {
       const r = await authResearcher(request, env);

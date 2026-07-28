@@ -6,6 +6,10 @@ import {
   canMerge, mergeWords, breakPhrase, newGuid,
   surveyWritingSystems, remapWritingSystems,
 } from './flextext.js';
+// Time-aligned segment spans (Simple-ELAN mode). Pure model, no DOM — segments.js holds all the
+// crossing-prevention rules. ⚠ NEW TOP-LEVEL IMPORT: it must appear in the editor sw.js SHELL list
+// AND in BOTH satellites' SHELL lists, or an updated satellite is dead offline.
+import { boundaryAtPlayhead, mergeSegments, syncToLines } from './segments.js';
 import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS, ENGINE_VERSION } from './i18n.js';
 import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl, ensureAsset, getAsset, fetchFileViaUrl } from './audio.js';
@@ -477,6 +481,9 @@ function switchTab(tab) {
   if (tab === 'baseline') {
     $('#baseline-text').value = getBaselineParagraphs(current.doc).join('\n');
     show('baseline');
+    // Measure AFTER show() — a hidden textarea has zero width, so measuring first would put every
+    // control at top 0.
+    renderBaselineGutter();
     if (settings.vernFont) $('#baseline-text').style.fontFamily = quoteFont(settings.vernFont);
     refreshPlayer();
   } else {
@@ -2043,14 +2050,147 @@ async function tryDownloadFlextext(rec) {
   return true;
 }
 
+/* ---------------- Segmentation (Simple-ELAN mode) ----------------
+ * Everything here is inert unless the researcher enabled `segmentation` for this device. The doc
+ * SHAPE is identical either way (segments are just an extra array), so a bundle stays portable
+ * between differently-configured devices and turning the setting off never destroys segment data.
+ */
+
+function segmentationEnabled() { return !!settings.segmentation; }
+
+/** The doc's segment spans, lazily created. One entry per baseline line, same order. */
+function docSegments(doc) {
+  if (!doc) return [];
+  if (!Array.isArray(doc.segments)) doc.segments = [];
+  return doc.segments;
+}
+
 function applyBaseline() {
   if (!current) return;
   const text = $('#baseline-text').value;
-  const paras = text.split('\n').map(s => s.trim()).filter((s, i, arr) => s || arr.length === 1);
+  const segMode = segmentationEnabled() || docSegments(current.doc).length > 0;
+  // ⚠ EMPTY LINES ARE REAL DATA IN SEGMENTATION MODE. A blank line between two boundaries is a
+  // timed segment covering silence / noise / untranscribable audio — dropping it would delete both
+  // the line AND its time span. Outside segmentation mode the original filtering is kept exactly,
+  // so a plain transcription user sees no behaviour change. The `|| docSegments(...)` clause means
+  // a doc that WAS segmented keeps its line<->segment correspondence even after the setting is
+  // switched off, which is what makes "turning it off never destroys data" true.
+  const paras = segMode
+    ? text.split('\n').map(s => s.trim())
+    : text.split('\n').map(s => s.trim()).filter((s, i, arr) => s || arr.length === 1);
   const before = JSON.stringify(getBaselineParagraphs(current.doc));
   if (JSON.stringify(paras) === before) return;
-  reconcileBaseline(current.doc, paras.length ? paras : ['']);
+  // Flat mode: one line == one paragraph == one phrase, punctuation ignored as a structural signal
+  // (transcribers break on PAUSES and cannot be relied on to punctuate).
+  reconcileBaseline(current.doc, paras.length ? paras : [''], { flatSegments: segMode });
+  if (segMode) {
+    current.doc.segments = syncToLines(docSegments(current.doc), paras.length || 1,
+                                       { duration: getPlayer()?.durationMs?.() ?? null });
+  }
   schedulePersist();
+  renderBaselineGutter();
+}
+
+/* Measure the TOP OFFSET of every logical line as the textarea actually renders it.
+ *
+ * ⚠ WHY MEASURE INSTEAD OF MULTIPLYING BY line-height: a long line WRAPS, so logical line N is not
+ * at `N * lineHeight`. Assuming uniform rows makes every control below a wrapped line point at the
+ * wrong segment — silently, and worse the longer the text. A style-matched mirror is the only
+ * reliable way to ask the browser where the lines really are.
+ */
+function measureLineTops(ta) {
+  const cs = getComputedStyle(ta);
+  const mirror = document.createElement('div');
+  for (const p of ['fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'letterSpacing',
+                   'lineHeight', 'textIndent', 'wordSpacing', 'textTransform',
+                   'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft']) {
+    mirror.style[p] = cs[p];
+  }
+  mirror.style.boxSizing = 'border-box';
+  mirror.style.width = ta.clientWidth + 'px';   // content + padding, excludes border/scrollbar
+  mirror.style.position = 'absolute';
+  mirror.style.left = '-99999px';
+  mirror.style.top = '0';
+  mirror.style.visibility = 'hidden';
+  mirror.style.whiteSpace = 'pre-wrap';
+  mirror.style.overflowWrap = 'break-word';
+  document.body.appendChild(mirror);
+
+  const rows = [];
+  try {
+    const lines = ta.value.split('\n');
+    const divs = lines.map((l) => {
+      const d = document.createElement('div');
+      // A zero-width space gives an EMPTY line real height — empty lines are legitimate segments
+      // here, so they must occupy a measurable row like any other.
+      d.textContent = l === '' ? '​' : l;
+      mirror.appendChild(d);
+      return d;
+    });
+    for (const d of divs) rows.push({ top: d.offsetTop, height: d.offsetHeight });
+  } finally {
+    mirror.remove();
+  }
+  return rows;
+}
+
+/** Character range of logical line `i`, for selecting it in the textarea. */
+function lineCharRange(text, i) {
+  const lines = text.split('\n');
+  let start = 0;
+  for (let k = 0; k < i && k < lines.length; k++) start += lines[k].length + 1;
+  return { start, end: start + (lines[i] || '').length };
+}
+
+/* Build the per-line controls. Called after any edit, scroll, resize or tab entry. */
+function renderBaselineGutter() {
+  const gutter = $('#baseline-gutter');
+  const ta = $('#baseline-text');
+  if (!gutter || !ta) return;
+
+  if (!segmentationEnabled() || !current) { gutter.hidden = true; gutter.innerHTML = ''; return; }
+  gutter.hidden = false;
+
+  const segs = docSegments(current.doc);
+  const rows = measureLineTops(ta);
+  const frag = document.createDocumentFragment();
+
+  rows.forEach((row, i) => {
+    const seg = segs[i];
+    const pending = !seg || seg.timePending || !Number.isFinite(seg.start);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'seg-btn'
+      + (pending ? ' seg-pending' : '')
+      + (seg && seg.timeEstimated ? ' seg-estimated' : '');
+    btn.style.top = (row.top - ta.scrollTop) + 'px';
+    btn.style.height = row.height + 'px';
+    btn.dataset.line = String(i);
+    // ⋯ for a segment with no time: there is nothing to play, so offering a play triangle would
+    // promise something the app cannot deliver.
+    btn.textContent = pending ? '⋯' : '▶';
+    btn.title = pending ? t('seg.pending') : t('seg.play');
+    btn.setAttribute('aria-label', btn.title);
+    frag.appendChild(btn);
+  });
+
+  gutter.innerHTML = '';
+  gutter.appendChild(frag);
+}
+
+/** Play one line's span and select its text, so ear and eye agree about which line is sounding. */
+function playSegmentLine(i) {
+  if (!current) return;
+  const seg = docSegments(current.doc)[i];
+  const p = getPlayer();
+  if (!seg || seg.timePending || !p || typeof p.playSpan !== 'function') return;
+  const ta = $('#baseline-text');
+  const { start, end } = lineCharRange(ta.value, i);
+  try { ta.setSelectionRange(start, end); } catch { /* noop */ }
+  p.playSpan(seg.start, seg.end);
+  $$('#baseline-gutter .seg-btn').forEach((b) => b.classList.remove('seg-active'));
+  const btn = $(`#baseline-gutter .seg-btn[data-line="${i}"]`);
+  if (btn) btn.classList.add('seg-active');
 }
 
 function quoteFont(f) {
@@ -4672,6 +4812,58 @@ function setup() {
     if (f) importFile(f).catch(err => toast(t('toast.importFailed', { msg: err.message }), 6000));
   });
   $('#baseline-text').addEventListener('blur', () => { applyBaseline(); });
+
+  /* ---- Segmentation wiring. Every listener no-ops unless segmentation is enabled, so this adds
+     nothing to the existing experience. ---- */
+  {
+    const ta = $('#baseline-text');
+    const gutter = $('#baseline-gutter');
+
+    // Click a line's control -> play just that line and select its text.
+    gutter?.addEventListener('click', (e) => {
+      const btn = e.target.closest('.seg-btn');
+      if (!btn || btn.classList.contains('seg-pending')) return;
+      playSegmentLine(Number(btn.dataset.line));
+    });
+
+    // The gutter has no scrollbar of its own; it is repositioned to follow the textarea. Doing it
+    // on scroll (rather than syncing scrollTop) keeps the two perfectly locked even mid-momentum.
+    ta?.addEventListener('scroll', () => {
+      if (!segmentationEnabled()) return;
+      const rows = $$('#baseline-gutter .seg-btn');
+      const tops = measureLineTops(ta);
+      rows.forEach((b, i) => { if (tops[i]) b.style.top = (tops[i].top - ta.scrollTop) + 'px'; });
+    });
+
+    // ENTER drops a boundary at the playhead. The line break ALWAYS happens (text is sacred); the
+    // only question is whether this playhead is a legal boundary — boundaryAtPlayhead decides, and
+    // returns a pending segment rather than inventing a crossing time.
+    ta?.addEventListener('keydown', (e) => {
+      if (!segmentationEnabled() || !current) return;
+      if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
+      const lineIdx = ta.value.slice(0, ta.selectionStart).split('\n').length - 1;
+      const p = getPlayer();
+      current.doc.segments = boundaryAtPlayhead(
+        docSegments(current.doc), lineIdx, p?.playheadMs?.() ?? null,
+        { duration: p?.durationMs?.() ?? null });
+      // Let the textarea insert the newline itself, then re-measure against the new text.
+      setTimeout(() => { applyBaseline(); renderBaselineGutter(); }, 0);
+    });
+
+    // Any other edit can change how lines wrap, so the gutter must re-measure. Cheap: one hidden
+    // mirror layout per keystroke burst.
+    let reflow = null;
+    ta?.addEventListener('input', () => {
+      if (!segmentationEnabled()) return;
+      clearTimeout(reflow);
+      reflow = setTimeout(() => renderBaselineGutter(), 80);
+    });
+
+    // Resizing (or dragging the textarea's resize handle) changes wrapping too.
+    window.addEventListener('resize', () => {
+      if (segmentationEnabled() && !$('#view-baseline').hidden) renderBaselineGutter();
+    });
+  }
   // Dummy "Save" (Office-web style): work is ALREADY auto-saved continuously — this just flushes any
   // pending save and reassures the coworker, so the obsessive Save reflex never triggers an upload.
   // The real send is the separate "Sudah selesai (Kirim)" button (#btn-share → the send menu).

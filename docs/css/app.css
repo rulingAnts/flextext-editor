@@ -219,6 +219,62 @@ main {
 }
 .baseline-area:focus { outline: 2px solid var(--blue); }
 
+/* ---- Segmentation gutter (Simple-ELAN mode) ----------------------------------------------
+   The wrapper is the positioning context; the gutter is a fixed-width column whose buttons are
+   absolutely positioned at each logical line's MEASURED top (see renderBaselineGutter). When
+   segmentation is off the gutter is [hidden] and the wrapper collapses to exactly today's layout,
+   so existing field users see no change at all. */
+.baseline-wrap { position: relative; display: flex; align-items: stretch; gap: 0; }
+.baseline-wrap > .baseline-area { flex: 1 1 auto; min-width: 0; }
+
+.baseline-gutter {
+  position: relative;
+  flex: 0 0 34px;
+  width: 34px;
+  overflow: hidden;          /* scrolled in sync with the textarea, never independently */
+  user-select: none;
+}
+.baseline-gutter[hidden] { display: none; }
+
+/* One control per line. Big enough to hit on a phone (the row is short, so the tap target is
+   widened by padding rather than by making the column wide and wasting text width). */
+.seg-btn {
+  position: absolute;
+  left: 0;
+  width: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-left: 3px solid var(--blue);
+  border-radius: 0;
+  background: transparent;
+  color: var(--blue);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.seg-btn:hover { background: rgba(31, 79, 143, 0.08); }
+.seg-btn:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+
+/* A segment whose time was INTERPOLATED, not chosen by the user (e.g. a gloss-tab split with the
+   playhead elsewhere). Dashed = "playable, but a guess you can correct". */
+.seg-btn.seg-estimated { border-left-style: dashed; }
+
+/* A segment with NO time yet — the break happened but no valid boundary existed. Deliberately not
+   a play triangle: there is nothing to play, and offering one would be a lie. */
+.seg-btn.seg-pending {
+  border-left-color: var(--muted, #8a94a0);
+  color: var(--muted, #8a94a0);
+  cursor: default;
+}
+
+/* The line currently playing. Highlighting the TEXT is what ties audio to writing for a
+   low-literacy user, so it is deliberately strong rather than subtle. */
+.baseline-area.seg-playing { background: linear-gradient(transparent, transparent); }
+.seg-btn.seg-active { background: rgba(31, 79, 143, 0.18); }
+
 /* ---------- Audio player ---------- */
 
 .player {

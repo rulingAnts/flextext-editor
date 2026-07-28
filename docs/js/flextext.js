@@ -464,7 +464,21 @@ export function getBaselineParagraphs(doc) {
   return doc.paragraphs.map(p => p.segments.map(s => s.baseline).join(' ').trim());
 }
 
-export function reconcileBaseline(doc, paragraphTexts) {
+/* opts.flatSegments — ONE phrase per line, punctuation ignored (Simple-ELAN segmentation mode).
+ *
+ * ⚠ WHY THIS OPTION EXISTS. Normally a line is split into sentence-phrases by segmentText(), i.e.
+ * punctuation decides the structure. That is wrong for pause-based transcription: mother-tongue
+ * transcribers break where they HEAR a pause, and cannot be relied on to punctuate at all — so
+ * inferring phrase structure from their punctuation invents information they never supplied.
+ *
+ * It also breaks time alignment. Time lives on the PHRASE (per ELAN's FLEx mapping), so a
+ * two-sentence line would need two times from a single Enter keypress — times the user never chose.
+ *
+ * In flat mode each line becomes exactly one paragraph holding exactly one phrase, so
+ * line <-> paragraph <-> phrase <-> time span is 1:1:1:1 and nothing is inferred.
+ */
+export function reconcileBaseline(doc, paragraphTexts, opts = {}) {
+  const flat = !!opts.flatSegments;
   const norm = (s) => s.replace(/\s+/g, ' ').trim();
 
   // Pass 0: paragraphs whose text is unchanged are kept verbatim (object
@@ -483,7 +497,9 @@ export function reconcileBaseline(doc, paragraphTexts) {
   // Skeleton for changed/new paragraphs only.
   const newParas = paragraphTexts.map((text, j) => {
     if (keptOldByNew.has(j)) return oldParas[keptOldByNew.get(j)];
-    return { guid: newGuid(), segments: [], segTexts: segmentText(text) };
+    // Flat mode keeps the line whole (even an EMPTY line, which is a legitimate timed segment
+    // marking silence/untranscribable audio); default mode splits it into sentence-phrases.
+    return { guid: newGuid(), segments: [], segTexts: flat ? [text] : segmentText(text) };
   });
 
   const newSegsFlat = [];

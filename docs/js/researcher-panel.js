@@ -22,6 +22,7 @@ import { convertAudio, detectFormat, readWavHeader, validOutputs } from './conve
 import WaveSurfer from './vendor/wavesurfer.esm.js';
 import * as db from './db.js';
 import { observeView, recordEvents, loadHistory, clearHistory, assignedEvent, driveLink, HISTORY_KINDS } from './history.js';
+import { resolveArtifacts, emptyReason } from './artifacts.js';
 
 // Byte-size formatter for assign-validation verdicts (mirrors app.js sizeFmt; that one is not exported).
 const fmtSize = (b) => (b < 1048576 ? Math.max(1, Math.round(b / 1024)) + ' KB' : (b / 1048576).toFixed(1) + ' MB');
@@ -614,6 +615,7 @@ async function renderDashboard(prefetched) {
   // good. observeView never throws and diffs a repeated report to nothing, so calling it on the
   // 12s tick is both safe and necessary.
   observeView(Researcher.currentAccountId(), insts);
+  rebuildAssignedCache();   // after observeView, so an assignment made this tick is already in it
   let pending = 0, texts = 0;
   for (const it of insts) for (const ins of it.installs || []) {
     if (ins.status === 'pending') pending++;
@@ -679,6 +681,7 @@ async function renderDashboard(prefetched) {
     'self-settings': () => openSettingsModal({ kind: 'local' }),
   });
   // per-card actions are delegated:
+  wireDownloadMenus();
   root.querySelectorAll('[data-iact]').forEach((el) => el.addEventListener('click', () => instanceAction(el)));
   root.querySelectorAll('[data-ract]').forEach((el) => el.addEventListener('click', () => researcherAction(el)));
   root.querySelectorAll('[data-cact]').forEach((el) => el.addEventListener('click', () => crowdAction(el)));
@@ -703,6 +706,72 @@ async function researcherAction(el) {
     }
   } catch (e) { errToast(e); }
 }
+
+/* Downloads dropdown: opens on hover AND on click (Seth asked for both).
+ *
+ * Hover alone is not enough — it does not exist on the touch devices a researcher may be using, and
+ * it is unreachable by keyboard. Click alone loses the quick glance. So: hover opens it on
+ * pointers that actually have hover, click toggles it everywhere, Escape and any outside click
+ * close it, and only ONE menu is ever open (two overlapping menus would be unreadable).
+ *
+ * Closing on mouseleave is deliberately DELAYED — a menu that vanishes while the pointer crosses
+ * the few pixels between the button and the menu is the classic dropdown failure, and it makes the
+ * links effectively unclickable. */
+let openDl = null;
+let dlCloseTimer = null;
+function closeDlMenu() {
+  if (dlCloseTimer) { clearTimeout(dlCloseTimer); dlCloseTimer = null; }
+  if (!openDl) return;
+  openDl.querySelector('.rp-dl-menu').hidden = true;
+  openDl.querySelector('.rp-dl-btn').setAttribute('aria-expanded', 'false');
+  openDl.classList.remove('is-open');
+  openDl = null;
+}
+function openDlMenu(wrap) {
+  if (openDl === wrap) { if (dlCloseTimer) { clearTimeout(dlCloseTimer); dlCloseTimer = null; } return; }
+  closeDlMenu();
+  wrap.querySelector('.rp-dl-menu').hidden = false;
+  wrap.querySelector('.rp-dl-btn').setAttribute('aria-expanded', 'true');
+  wrap.classList.add('is-open');
+  openDl = wrap;
+}
+function wireDownloadMenus() {
+  const hoverable = window.matchMedia && window.matchMedia('(hover: hover)').matches;
+  root.querySelectorAll('.rp-dl').forEach((wrap) => {
+    wrap.querySelector('.rp-dl-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      openDl === wrap ? closeDlMenu() : openDlMenu(wrap);
+    });
+    if (hoverable) {
+      wrap.addEventListener('mouseenter', () => openDlMenu(wrap));
+      wrap.addEventListener('mouseleave', () => {
+        if (dlCloseTimer) clearTimeout(dlCloseTimer);
+        dlCloseTimer = setTimeout(closeDlMenu, 350);   // survive the gap between button and menu
+      });
+    }
+  });
+  if (!wireDownloadMenus.global) {   // document listeners attach ONCE, not per render
+    wireDownloadMenus.global = true;
+    document.addEventListener('click', () => closeDlMenu());
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDlMenu(); }, true);
+  }
+}
+
+/* Assigned-audio lookup for the downloads dropdown. The History log is the ONLY place the assigned
+ * Drive URL is retained — a device reports what it UPLOADED, never what it was given. Built once
+ * per dashboard render: re-reading localStorage per text row would be O(rows x log). */
+let assignedCache = null;
+function rebuildAssignedCache() {
+  assignedCache = new Map();
+  try {
+    for (const e of loadHistory(Researcher.currentAccountId())) {
+      if (e.kind === 'assigned' && e.docId) assignedCache.set(e.docId, { audioUrl: e.audioUrl, flextextUrl: e.flextextUrl });
+    }
+  } catch { /* a broken log must not take down the dashboard */ }
+}
+// null = never assigned through this panel; an object = assigned (possibly with no retained URL,
+// which is the pre-v126 case emptyReason() explains rather than hiding).
+function assignedFor(docId) { return (assignedCache && assignedCache.get(docId)) || null; }
 
 async function renderInstanceCard(it) {
   const installs = it.installs || [];
@@ -775,7 +844,21 @@ async function renderInstanceCard(it) {
         // confirmed → strike through + fade the whole row, and add a small "deleting…" tag.
         const deleting = !!d.pendingDelete || requestedDeletes.has(d.id);
         const delTag = deleting ? `<span class="rp-tag rp-tag-deleting">${esc(t('panel.inst.deletingTag'))}</span>` : '';
-        return `<li class="${deleting ? 'rp-pending-del' : ''}">${esc(d.title || d.titleHash || '?')} ${d.hasAudio ? `<span class="rp-tag">${esc(t('panel.inst.audio'))}</span>` : ''}${doneTag}${delTag}<span class="rp-tag rp-tag-${DISP}">${esc(t('panel.up.' + DISP))}</span>${up}${del}</li>`;
+        // Downloads: labelled by PURPOSE (ELAN / SayMore / FLExText / FlexText Editor), never by
+        // filename — two .eaf exports are near-impossible to tell apart by name. The assigned-audio
+        // URL comes from the History log, the only place it is retained (the device reports what it
+        // UPLOADED, never what it was given).
+        const files = resolveArtifacts(d, assignedFor(d.id));
+        const dl = files.length ? `<span class="rp-dl">
+          <button class="link-btn rp-dl-btn" aria-haspopup="true" aria-expanded="false">${esc(t('panel.dl.btn'))} <span class="rp-dl-caret" aria-hidden="true">▾</span></button>
+          <span class="rp-dl-menu" hidden role="menu">
+            <span class="rp-dl-head">${esc(t('panel.dl.title'))}</span>
+            ${files.map((f) => `<a class="rp-dl-item" role="menuitem" href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">
+              <span class="rp-dl-name">${esc(t(f.labelKey))}</span>
+              <span class="rp-dl-sub">${esc(t(f.labelKey + 'Sub'))}${f.inferred ? ' · ' + esc(t('panel.dl.inferred')) : ''}</span>
+            </a>`).join('')}
+          </span></span>` : '';
+        return `<li class="${deleting ? 'rp-pending-del' : ''}">${esc(d.title || d.titleHash || '?')} ${d.hasAudio ? `<span class="rp-tag">${esc(t('panel.inst.audio'))}</span>` : ''}${doneTag}${delTag}<span class="rp-tag rp-tag-${DISP}">${esc(t('panel.up.' + DISP))}</span>${dl}${up}${del}</li>`;
       }).join('')
         : `<li class="note">${esc(t('panel.inst.noTexts'))}</li>`;
       installsHtml += `<div class="rp-install">

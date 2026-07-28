@@ -10,7 +10,7 @@
  * engine list IDENTICAL to the editor's sw.js (app.js resolves its whole static
  * import graph at load, even though the panel uses only part of it). */
 
-const VERSION = 'v64';
+const VERSION = 'v65';
 const CACHE = 'flextext-researcher-' + VERSION;
 const SHELL = [
   './',
@@ -37,6 +37,7 @@ const SHELL = [
   '/flextext-editor/js/record-pcm.js',
   '/flextext-editor/js/segments.js',
   '/flextext-editor/js/history.js',
+  '/flextext-editor/js/artifacts.js',
   '/flextext-editor/js/audio-capture-worklet.js',
   '/flextext-editor/js/flac.js',
   // app.js STATICALLY imports the connectivity engine (top-level imports), so the

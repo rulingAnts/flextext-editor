@@ -12,7 +12,7 @@
  * or another install's row). Metadata + pointers only — never audio/flextext bytes.
  */
 
-import { secAlert } from './seclog.js';
+import { secAlert, secLog } from './seclog.js';
 
 /* ---------------- crypto + helpers ---------------- */
 
@@ -88,6 +88,21 @@ const PUBLIC_EMAIL_DOMAINS = new Set([
   'proton.me', 'protonmail.com', 'gmx.com', 'gmx.net', 'mail.com', 'zoho.com', 'yandex.com',
   'qq.com', '163.com', '126.com', 'naver.com', 'web.de', 'mail.ru',
 ]);
+
+/* Append-only record of WHO was let in, WHEN and HOW (table: approval_log).
+ *
+ * ⚠ A FAILED AUDIT WRITE MUST NOT BREAK THE ACTION IT RECORDS — an owner must still be able to
+ * approve a researcher when D1 is having a bad minute. But a silently-lost audit entry is its own
+ * hazard, so the failure is pushed to the security log rather than swallowed outright: the event is
+ * lost from the table and visible in Workers Logs, instead of vanishing entirely. */
+async function logApproval(env, request, kind, subject, detail, actor) {
+  try {
+    await env.DB.prepare('INSERT INTO approval_log (at, kind, subject, detail, actor) VALUES (?,?,?,?,?)')
+      .bind(Date.now(), kind, subject || null, detail || null, actor || null).run();
+  } catch (e) {
+    await secLog(env, request, 'approval_log_failed', { kind, message: String((e && e.message) || e).slice(0, 160) });
+  }
+}
 
 // Exported for the unit test — the blocklist is an auth boundary and must be verifiable.
 export function isPublicEmailDomain(email) { return PUBLIC_EMAIL_DOMAINS.has(emailDomain(email)); }
@@ -616,6 +631,14 @@ export async function handleV1(request, env, ctx, url, path, origin) {
              await encAtRest(env, krB64), tok.refresh_token ? await encAtRest(env, tok.refresh_token) : null,
              email, await encAtRest(env, email), name, picture, (owner || domainOk) ? 1 : 0).run();
       row = { researcher_id };
+      // Every account creation is logged, whether it was auto-approved or left pending, so the log
+      // answers "when did this person first appear" and not merely "when was someone approved".
+      await logApproval(env, request, owner || domainOk ? 'account_auto_approved' : 'account_signup',
+                        email || sub,
+                        owner ? 'owner allowlist (ALLOWED_RESEARCHERS)'
+                              : domainOk ? 'pre-approved domain: ' + emailDomain(email)
+                              : 'pending — awaiting manual approval',
+                        'system');
       // FIRST sign-in for this Google account — a brand-new researcher row. Alert-worthy because
       // it should essentially never happen unannounced; repeat sign-ins take the else-branch and
       // are silent, so this cannot become routine noise.
@@ -834,7 +857,12 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     if (!isOwner(r.drive_email, env)) return j({ error: 'not_owner' }, 403, origin, env);
     const body = await readJson(request) || {};
     if (!body.researcher_id) return j({ error: 'bad_body' }, 400, origin, env);
+    // Read the subject BEFORE acting — after a decline the row is gone, so both paths capture it
+    // the same way for symmetry (and so the log is never missing the one detail that identifies it).
+    const target = await env.DB.prepare('SELECT drive_email FROM researcher WHERE researcher_id=?').bind(body.researcher_id).first();
     await env.DB.prepare('UPDATE researcher SET approved=1 WHERE researcher_id=?').bind(body.researcher_id).run();
+    await logApproval(env, request, 'account_approved', (target && target.drive_email) || body.researcher_id,
+                      'approved by hand', r.drive_email);
     return j({ ok: true }, 200, origin, env);
   }
 
@@ -846,7 +874,14 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     if (!isOwner(r.drive_email, env)) return j({ error: 'not_owner' }, 403, origin, env);
     const body = await readJson(request) || {};
     if (!body.researcher_id) return j({ error: 'bad_body' }, 400, origin, env);
-    await env.DB.prepare('DELETE FROM researcher WHERE researcher_id=? AND approved=0').bind(body.researcher_id).run();
+    // ⚠ MUST read the e-mail BEFORE the DELETE. This is the case that proved the log was needed:
+    // declining wipes the row outright, so afterwards nothing anywhere records who it was.
+    const target = await env.DB.prepare('SELECT drive_email FROM researcher WHERE researcher_id=?').bind(body.researcher_id).first();
+    const res = await env.DB.prepare('DELETE FROM researcher WHERE researcher_id=? AND approved=0').bind(body.researcher_id).run();
+    if ((res.meta && res.meta.changes) || 0) {
+      await logApproval(env, request, 'account_declined', (target && target.drive_email) || body.researcher_id,
+                        'declined and deleted', r.drive_email);
+    }
     return j({ ok: true }, 200, origin, env);
   }
 
@@ -901,7 +936,9 @@ export async function handleV1(request, env, ctx, url, path, origin) {
 
     if (m === 'POST' && sub === 'remove') {
       const res = await env.DB.prepare('DELETE FROM approved_domain WHERE domain_hash=?').bind(await domainKey(d, env)).run();
-      return j({ ok: true, domain: d, removed: (res.meta && res.meta.changes) || 0 }, 200, origin, env);
+      const removed = (res.meta && res.meta.changes) || 0;
+      if (removed) await logApproval(env, request, 'domain_removed', d, '', r.drive_email);
+      return j({ ok: true, domain: d, removed }, 200, origin, env);
     }
 
     if (m === 'POST' && !sub) {
@@ -910,6 +947,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       if (PUBLIC_EMAIL_DOMAINS.has(d)) return j({ error: 'public_provider', domain: d }, 400, origin, env);
       await env.DB.prepare('INSERT OR REPLACE INTO approved_domain (domain_hash, note_enc, created_at) VALUES (?,?,?)')
         .bind(await domainKey(d, env), await encAtRest(env, String(body.note || '').slice(0, 200)), now).run();
+      await logApproval(env, request, 'domain_added', d, String(body.note || ''), r.drive_email);
       secAlert(env, ctx, request, 'Pre-approved domain added', [
         'A domain was added to the auto-approval list: ' + d,
         'Anyone signing in with a Google account on that domain is now approved automatically.',
@@ -919,6 +957,27 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     }
 
     return j({ error: 'not_found' }, 404, origin, env);
+  }
+
+  /* GET /v1/researcher/approvals — OWNER only. The append-only access-control history: every
+   * account that appeared, was approved, auto-approved or declined, and every domain added or
+   * removed. Read-only by design; nothing in the app writes here except logApproval(), and nothing
+   * anywhere updates or deletes a row. An audit log you can edit is not an audit log. */
+  if (m === 'GET' && seg.length === 3 && seg[1] === 'researcher' && seg[2] === 'approvals') {
+    const r = await authResearcher(request, env);
+    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    if (!isOwner(r.drive_email, env)) return j({ error: 'not_owner' }, 403, origin, env);
+    const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '200', 10) || 200, 1), 1000);
+    let rows = [];
+    try {
+      rows = (await env.DB.prepare('SELECT at, kind, subject, detail, actor FROM approval_log ORDER BY at DESC, id DESC LIMIT ?')
+        .bind(limit).all()).results || [];
+    } catch {
+      // Table not migrated yet → an empty log, not a 500. The panel then shows "nothing recorded"
+      // rather than an error the owner cannot act on.
+      return j({ approvals: [], unavailable: true }, 200, origin, env);
+    }
+    return j({ approvals: rows }, 200, origin, env);
   }
 
   // PUT /v1/researcher/settings — cloud-backed researcher settings (incl. lock passphrase).

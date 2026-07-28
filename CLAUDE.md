@@ -10,6 +10,17 @@ via GitHub Pages.
 |---|---|
 | `main` | **Development.** All work and commits go here. Test locally with the dev server (below). |
 | `productionWeb` | **The live site.** Deployed by GitHub Pages to https://rulingants.github.io/flextext-editor/ . Only stable, tested versions belong here. |
+| `segmentation` | **Experimental, parked.** Simple-ELAN segmentation Phase 1 — unfinished and risky. Kept OFF `main` on purpose (2026-07-28). |
+
+> **⚠ `segmentation`: REBASE onto `main`, never merge it.** It was removed from `main` by revert
+> (`1ef6df2`), so a merge would meet those reverts and git would treat the changes as already
+> applied-and-undone — silently reinstating nothing. Rebase replays the commits fresh.
+>
+> **Why it was parked:** it lived on `main` while unfinished, so every release had to cherry-pick
+> around it and merge back (v126, v127/v128, v129). Worse, the SHELL merge conflict offers
+> `segments.js` and `history.js` as a single hunk — taking both precaches a file production does not
+> serve, which is exactly the v108 outage. Anything long-running and half-built belongs on its own
+> branch for the same reason.
 
 **Do NOT push to `productionWeb` without the maintainer's explicit OK.** It's the
 live site that real users (field translators in the village) load — a broken push

@@ -74,19 +74,34 @@ export function secAlert(env, ctx, request, subject, lines) {
   try {
     if (!env.ALERT_EMAIL || !env.RESEND_API_KEY) return;
     const send = (async () => {
-      await secLog(env, request, 'alert_sent', { subject });
-      await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { Authorization: 'Bearer ' + env.RESEND_API_KEY, 'content-type': 'application/json' },
-        body: JSON.stringify({
-          from: env.RESET_FROM || 'FlexText <noreply@flextext.app>',
-          to: [env.ALERT_EMAIL],
-          subject: '[FlexText security] ' + subject,
-          html: '<p>' + (lines || []).map(esc).join('</p><p>')
-              + '</p><p style="color:#667">Automated alert from the FlexText worker. '
-              + 'If this was you, no action is needed.</p>',
-        }),
-      });
+      // ⚠ LOG THE OUTCOME, NOT THE ATTEMPT. This used to log 'alert_sent' BEFORE the fetch and
+      // swallow every failure, so a rejected send (unverified `from` domain, bad key, Resend down)
+      // left a log line claiming the owner had been told when they had not. A monitoring system
+      // that lies about its own delivery is worse than none — you would stop watching the inbox
+      // AND believe silence meant safety. So: success and failure are now distinct events, and
+      // 'alert_failed' carries Resend's own status + body so the cause is in the log.
+      let r;
+      try {
+        r = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + env.RESEND_API_KEY, 'content-type': 'application/json' },
+          body: JSON.stringify({
+            from: env.RESET_FROM || 'FlexText <noreply@flextext.app>',
+            to: [env.ALERT_EMAIL],
+            subject: '[FlexText security] ' + subject,
+            html: '<p>' + (lines || []).map(esc).join('</p><p>')
+                + '</p><p style="color:#667">Automated alert from the FlexText worker. '
+                + 'If this was you, no action is needed.</p>',
+          }),
+        });
+      } catch (e) {
+        await secLog(env, request, 'alert_failed', { subject, error: String((e && e.message) || e).slice(0, 120) });
+        return;
+      }
+      if (r.ok) { await secLog(env, request, 'alert_sent', { subject, status: r.status }); return; }
+      let detail = '';
+      try { detail = (await r.text()).slice(0, 200); } catch { /* body unreadable */ }
+      await secLog(env, request, 'alert_failed', { subject, status: r.status, detail });
     })().catch(() => { /* an alert that cannot send costs the alert, not the request */ });
     if (ctx && ctx.waitUntil) ctx.waitUntil(send);
   } catch { /* noop */ }

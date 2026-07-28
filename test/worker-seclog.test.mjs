@@ -153,6 +153,39 @@ console.log('\nalerting is inert until ALERT_EMAIL is set (property 4 — it dep
   } catch { threw = true; }
   ok(threw === false, 'a failing mail provider does not reject the waitUntil promise');
 
+  // ⚠ THE LOG MUST NOT LIE ABOUT DELIVERY. A monitoring system that reports a send it did not
+  // make is worse than none: you would stop watching the inbox and read silence as safety.
+  {
+    globalThis.fetch = async () => { throw new Error('resend down'); };
+    const s = [];
+    const { lines } = await capture(async () => {
+      secAlert(full, { waitUntil: (p) => s.push(p) }, req(), 'boom', ['l']); await Promise.all(s);
+    });
+    const evs = events(lines);
+    ok(!evs.some((e) => e.event === 'alert_sent'), 'a network failure does NOT log alert_sent');
+    ok(evs.some((e) => e.event === 'alert_failed'), '...it logs alert_failed instead');
+  }
+  {
+    // The realistic failure: Resend rejects an unverified `from` domain with a 403 + JSON body.
+    globalThis.fetch = async () => new Response('{"message":"domain not verified"}', { status: 403 });
+    const s = [];
+    const { lines } = await capture(async () => {
+      secAlert(full, { waitUntil: (p) => s.push(p) }, req(), 'boom', ['l']); await Promise.all(s);
+    });
+    const e = events(lines).find((x) => x.event === 'alert_failed');
+    ok(!events(lines).some((x) => x.event === 'alert_sent'), 'a 403 from Resend does NOT log alert_sent');
+    ok(e && e.status === 403, '...alert_failed carries the HTTP status');
+    ok(e && /domain not verified/.test(e.detail || ''), '...and Resend\'s own reason, so the cause is in the log');
+  }
+  {
+    globalThis.fetch = async () => new Response('{"id":"x"}', { status: 200 });
+    const s = [];
+    const { lines } = await capture(async () => {
+      secAlert(full, { waitUntil: (p) => s.push(p) }, req(), 'ok', ['l']); await Promise.all(s);
+    });
+    ok(events(lines).some((e) => e.event === 'alert_sent' && e.status === 200), 'a real success DOES log alert_sent');
+  }
+
   // A missing ctx is the shape of a call from a code path that has no execution context.
   globalThis.fetch = async () => { calls++; return new Response('{}'); };
   try { secAlert(full, null, req(), 't', ['l']); } catch { threw = true; }

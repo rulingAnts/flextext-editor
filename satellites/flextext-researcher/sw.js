@@ -8,9 +8,19 @@
  * whenever the editor engine changes in a way this app should pick up — or
  * installed copies keep serving a stale cached engine offline. Keep the SHELL
  * engine list IDENTICAL to the editor's sw.js (app.js resolves its whole static
- * import graph at load, even though the panel uses only part of it). */
+ * import graph at load, even though the panel uses only part of it).
+ *
+ * ⚠ ENGINE below is the editor ENGINE_VERSION this satellite was built against, and
+ * test/version-sync.test.mjs FAILS unless it matches the editor exactly. That is the guard
+ * for the failure bumping VERSION alone cannot prevent: if this file is not edited at all,
+ * the publish workflow finds the mirror unchanged, reports "no change — nothing to
+ * publish", exits 0, and installed copies go on serving a STALE engine. The ordering gate
+ * cannot see that — it only checks that the editor is live and its paths are 200, which
+ * they are. Editing ENGINE is also what makes these bytes change, which is what makes the
+ * browser fetch and install this worker at all. */
 
 const VERSION = 'v68';
+const ENGINE = 'v130';   // editor ENGINE_VERSION this was built against — must match; see version-sync test
 const CACHE = 'flextext-researcher-' + VERSION;
 const SHELL = [
   './',

@@ -71,6 +71,19 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # ⚠ THE FAILURE THE ORDERING GATE BELOW CANNOT SEE.
+      # Everything after this step guards against publishing TOO EARLY. Nothing guarded against not
+      # publishing AT ALL: bump the engine, never touch satellites/, and this workflow still runs
+      # (docs/** triggers it), still waits for the editor, still verifies every path is 200 — then
+      # finds the mirror unchanged, prints "no change — nothing to publish", and exits 0. A fully
+      # green release in which installed satellites go on serving a STALE engine. That is exactly
+      # what happened at v130.
+      # version-sync.test.mjs fails when a satellite's declared ENGINE does not match the editor's
+      # ENGINE_VERSION, so that silent no-op becomes a loud failure at the moment of release.
+      - name: Source tree is self-consistent (satellites match the engine)
+        if: steps.gate.outputs.skip != 'true'
+        run: node test/version-sync.test.mjs
+
       - name: Wait for the live editor to serve this commit's engine
         if: steps.gate.outputs.skip != 'true'
         run: |

@@ -6,9 +6,19 @@
  * (/flextext-editor/js/*.js, css/app.css). Those files have their own lifecycle
  * in the editor repo. Bump VERSION here whenever you deploy — AND specifically
  * whenever the editor engine changes in a way the recorder should pick up — or
- * installed recorders keep serving a stale cached engine offline. */
+ * installed recorders keep serving a stale cached engine offline.
+ *
+ * ⚠ ENGINE below is the editor ENGINE_VERSION this satellite was built against, and
+ * test/version-sync.test.mjs FAILS unless it matches the editor exactly. That is the guard
+ * for the failure bumping VERSION alone cannot prevent: if this file is not edited at all,
+ * the publish workflow finds the mirror unchanged, reports "no change — nothing to
+ * publish", exits 0, and installed copies go on serving a STALE engine. The ordering gate
+ * cannot see that — it only checks that the editor is live and its paths are 200, which
+ * they are. Editing ENGINE is also what makes these bytes change, which is what makes the
+ * browser fetch and install this worker at all. */
 
 const VERSION = 'v78';
+const ENGINE = 'v130';   // editor ENGINE_VERSION this was built against — must match; see version-sync test
 const CACHE = 'text-recorder-' + VERSION;
 const SHELL = [
   './',

@@ -50,9 +50,32 @@ console.log('\nsatellites are versioned independently, and must stay parseable')
 for (const name of ['text-recorder', 'flextext-researcher']) {
   const src = read(`../satellites/${name}/sw.js`);
   const v = (src.match(/const VERSION = '([^']+)'/) || [])[1];
-  // Satellites ship on their own cadence, so they are NOT expected to equal the editor's version —
-  // only to be readable, since the release-integrity check compares each against what is live.
+  // A satellite's own VERSION rides its own cadence — it is NOT expected to equal the editor's.
   ok(/^v\d+$/.test(v || ''), `${name} declares a parseable VERSION (${v})`);
+}
+
+/* ⚠ THE GUARD FOR THE FAILURE THE ORDERING GATE CANNOT SEE.
+ *
+ * The publish workflow already refuses to ship a satellite BEFORE the editor is live and all its
+ * precached paths return 200 (the 2026-07-20 outage). But it is blind to the opposite failure:
+ * bumping the engine and never touching the satellites at all. Then the workflow still runs, still
+ * waits for the editor, still verifies every path — and finds the mirror unchanged, prints
+ * "no change — nothing to publish", exits 0. A completely green release in which installed
+ * satellites go on serving a STALE engine. That happened at v130.
+ *
+ * So each satellite declares the engine version it was built against, and it must match exactly.
+ * The point is not the constant; it is that keeping this test green REQUIRES editing the satellite
+ * file — and editing it is what changes its bytes, which is what makes a browser fetch and install
+ * the new worker. The reminder becomes structural.
+ */
+console.log('\neach satellite declares the ENGINE it was built against, and it must match');
+for (const name of ['text-recorder', 'flextext-researcher']) {
+  const src = read(`../satellites/${name}/sw.js`);
+  const e = (src.match(/const ENGINE = '([^']+)'/) || [])[1];
+  ok(!!e, `${name} declares ENGINE (${e || 'NOT FOUND'})`);
+  ok(e === engineVer,
+     `${name} ENGINE (${e}) === editor ENGINE_VERSION (${engineVer})`
+     + (e === engineVer ? '' : ' — bump this satellite, or its users keep a stale engine'));
 }
 
 console.log(fail ? `\nFAILED (${fail}) — a version has drifted.\n`

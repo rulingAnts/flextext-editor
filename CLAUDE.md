@@ -22,6 +22,23 @@ via GitHub Pages.
 > serve, which is exactly the v108 outage. Anything long-running and half-built belongs on its own
 > branch for the same reason.
 
+### 🚩 FEATURE BRANCHES — standing policy (Seth, 2026-07-28)
+
+**Build any new feature on its own branch — especially a major one. Do not develop it on `main`.**
+
+`main` must stay releasable at all times, because a release is a `merge --ff-only main` and there is
+no way to ship *part* of `main`. The moment an unfinished feature sits there, every unrelated
+release has to be cherry-picked around it — which happened three times for segmentation before it
+was moved off, and each cherry-pick re-offered the SHELL hunk that caused the v108 outage.
+
+- Branch from `main`: `git checkout -b <feature> main`. Push it freely, finished or not.
+- Merge to `main` only when the feature is **complete and tested** — at which point `main` is
+  releasable again and a production release is a plain fast-forward with nothing to resolve.
+- Small, self-contained, same-day changes can still go straight to `main`. The test is whether
+  `main` would be releasable if you stopped work right now.
+- ⚠ If a branch was ever removed from `main` by revert (as `segmentation` was), **rebase it onto
+  `main`, never merge it** — a merge meets the reverts and silently reinstates nothing.
+
 **Do NOT push to `productionWeb` without the maintainer's explicit OK.** It's the
 live site that real users (field translators in the village) load — a broken push
 breaks their work. Develop and test on `main` first.

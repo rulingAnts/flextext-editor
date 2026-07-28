@@ -11,6 +11,26 @@ FLEx flextext schema and real interlinear exports under Seth's direction.
 Bundles [wavesurfer.js](https://wavesurfer.xyz/) (BSD-3-Clause, see
 `js/vendor/wavesurfer.LICENSE`).
 
+> ## ⚠ Which branch you are looking at
+>
+> **`main` is the DEVELOPMENT branch. It is work in progress and may be partially
+> broken at any moment** — half-finished features, code behind flags that is not
+> ready, experiments mid-verification. Do not judge the app by `main`, and do not
+> run it from `main` expecting a stable tool.
+>
+> **[`productionWeb`](../../tree/productionWeb) is the live, stable version** —
+> the branch GitHub Pages actually serves, and the only one field users ever run.
+> It only ever moves forward by fast-forward from a tested `main`, after the
+> maintainer has explicitly signed it off.
+>
+> | | branch | state |
+> |---|---|---|
+> | Live app people use | **`productionWeb`** | stable, tested, signed off |
+> | Day-to-day development | **`main`** | in progress, may be broken |
+>
+> Running the live app: <https://rulingants.github.io/flextext-editor/> ·
+> deployment mechanics in [Deployment](#deployment).
+
 An offline-capable web app (PWA) that duplicates FieldWorks Language Explorer's
 interlinear **Baseline** and **Gloss** tabs, editing
 [`.flextext`](notes/FlexInterlinear.xsd) files directly — no FLEx, no lexicon, no
@@ -206,8 +226,12 @@ re-trigger a service-worker update.
 
 ## Deployment
 
-**`main` is development. `productionWeb` is what the world sees.** GitHub Pages
-serves **`productionWeb` → `/docs`** (Settings → Pages → Deploy from a branch).
+**`main` is development — in progress, and possibly broken at any given moment.
+`productionWeb` is what the world sees.** GitHub Pages serves
+**`productionWeb` → `/docs`** (Settings → Pages → Deploy from a branch). Nothing
+reaches `productionWeb` except by fast-forward from a `main` that has been tested
+and explicitly signed off, so production is never a snapshot of whatever `main`
+happened to look like.
 
 > ⚠ **Never push `productionWeb` without the maintainer's explicit sign-off.**
 > Real users in the field load it; a broken push breaks their work until it is

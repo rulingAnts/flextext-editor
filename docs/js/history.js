@@ -142,13 +142,43 @@ export function mergeEvents(existing, incoming, cap) {
   return out.length > lim ? out.slice(out.length - lim) : out;
 }
 
-/** A Google Drive file id -> a link a human can open. '' when there is no file. */
+/**
+ * A Google Drive file id -> a link that DOWNLOADS the file immediately.
+ *
+ * ⚠ NOT `/file/d/<id>/view` (Seth). That is Drive's preview page: it opens a viewer, and for a
+ * .flextext or .eaf — formats Drive cannot render — it shows a "no preview available" page with the
+ * download hidden behind another click. The researcher wanted the file, not a tour of Drive.
+ *
+ * This is the endpoint Drive itself redirects downloads to, and the one the Worker already uses in
+ * fetchDrive() (worker/src/index.js), so it is proven against real files rather than assumed.
+ * `confirm=t` skips the large-file virus-scan interstitial, which would otherwise re-introduce the
+ * extra click for exactly the big audio files most worth downloading.
+ */
 export function driveLink(fileId) {
   const id = String(fileId || '').trim();
   // Only ever build a link from a Drive-shaped id. The id arrives via a field device's report, so
   // an id containing a quote or a scheme must never be interpolated into an href in this
   // privileged panel (same reasoning as the uploadState allow-list in researcher-panel.js).
-  return /^[\w-]{10,}$/.test(id) ? `https://drive.google.com/file/d/${id}/view` : '';
+  return /^[\w-]{10,}$/.test(id)
+    ? `https://drive.usercontent.google.com/download?id=${id}&export=download&confirm=t`
+    : '';
+}
+
+/**
+ * Pull a Drive file id out of whatever URL a researcher pasted, so an assigned-audio link can be
+ * turned into a direct download too. Mirrors the Worker's driveId() (worker/src/index.js) — the
+ * same three shapes, deliberately, so client and server agree on what counts as a Drive link.
+ * Returns '' for anything that is not Drive, which the caller leaves untouched.
+ */
+export function driveIdFrom(url) {
+  const s = String(url || '').trim();
+  let m = s.match(/drive\.google\.com\/file\/d\/([\w-]{10,})/);
+  if (m) return m[1];
+  m = s.match(/[?&]id=([\w-]{10,})/);           // ...?id=, and the /uc?export=download&id= form
+  if (m) return m[1];
+  m = s.match(/drive\.google\.com\/open\?id=([\w-]{10,})/);
+  if (m) return m[1];
+  return '';
 }
 
 /* ---------------- storage (thin; the only part that is not pure) ---------------- */

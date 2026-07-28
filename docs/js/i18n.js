@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v129';
+export const ENGINE_VERSION = 'v130';
 
 const S = {
 en: {
@@ -688,6 +688,17 @@ internet after the first time.</p>
   'panel.admin.errPublic': 'That is a free public mail provider — adding it would auto-approve anyone on earth. Refused.',
   'panel.admin.errEmpty': 'Enter a domain first.',
   'panel.admin.added_at': 'added {when}',
+  'panel.admin.logTitle': 'Who has been let in',
+  'panel.admin.logIntro': 'Every account that appeared, was approved or declined, and every domain added or removed. Kept on the server and never edited — this is the only record of a declined account, because declining deletes it.',
+  'panel.admin.logEmpty': 'Nothing recorded yet.',
+  'panel.admin.logUnavailable': 'The log is not set up on the server yet.',
+  'panel.admin.byActor': 'by {a}',
+  'panel.admin.kind.account_signup': 'Signed up',
+  'panel.admin.kind.account_auto_approved': 'Auto-approved',
+  'panel.admin.kind.account_approved': 'Approved',
+  'panel.admin.kind.account_declined': 'Declined',
+  'panel.admin.kind.domain_added': 'Domain added',
+  'panel.admin.kind.domain_removed': 'Domain removed',
   // Downloads dropdown on each text row. Labelled by PURPOSE, never filename: two .eaf files are
   // near-impossible to tell apart by name, and "ELAN" vs "SayMore" says which tool opens which.
   'panel.dl.btn': 'Files',
@@ -712,6 +723,8 @@ internet after the first time.</p>
   'panel.hist.btn': 'History',
   'panel.hist.title': 'History',
   'panel.hist.intro': 'What has happened to your texts — including ones that have since been deleted from a device. Kept in this browser only.',
+  'panel.hist.since': 'Recording since {when}. Anything deleted before then cannot appear here — the text was already gone, so there was nothing to notice.',
+  'panel.hist.sinceNone': 'Not recording yet. This starts the first time a device reports in while the dashboard is open.',
   'panel.hist.empty': 'Nothing recorded yet. Assign a text, or wait for a device to report in, and its history will build up here.',
   'panel.hist.emptyFilter': 'Nothing of that kind yet.',
   'panel.hist.all': 'All',
@@ -1643,6 +1656,17 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.admin.errPublic': 'Itu penyedia e-mail umum gratis — menambahkannya akan menyetujui siapa pun di dunia. Ditolak.',
   'panel.admin.errEmpty': 'Masukkan domain dulu.',
   'panel.admin.added_at': 'ditambahkan {when}',
+  'panel.admin.logTitle': 'Siapa saja yang sudah diizinkan masuk',
+  'panel.admin.logIntro': 'Setiap akun yang muncul, disetujui atau ditolak, dan setiap domain yang ditambah atau dihapus. Disimpan di server dan tidak pernah diubah — ini satu-satunya catatan akun yang ditolak, karena menolak berarti menghapusnya.',
+  'panel.admin.logEmpty': 'Belum ada catatan.',
+  'panel.admin.logUnavailable': 'Catatan belum disiapkan di server.',
+  'panel.admin.byActor': 'oleh {a}',
+  'panel.admin.kind.account_signup': 'Mendaftar',
+  'panel.admin.kind.account_auto_approved': 'Disetujui otomatis',
+  'panel.admin.kind.account_approved': 'Disetujui',
+  'panel.admin.kind.account_declined': 'Ditolak',
+  'panel.admin.kind.domain_added': 'Domain ditambahkan',
+  'panel.admin.kind.domain_removed': 'Domain dihapus',
   'panel.dl.btn': 'Berkas',
   'panel.dl.title': 'Unduh',
   'panel.dl.audio': 'Audio asli',
@@ -1663,6 +1687,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.hist.btn': 'Riwayat',
   'panel.hist.title': 'Riwayat',
   'panel.hist.intro': 'Apa yang terjadi pada teks Anda — termasuk yang sudah dihapus dari perangkat. Disimpan hanya di browser ini.',
+  'panel.hist.since': 'Merekam sejak {when}. Apa pun yang dihapus sebelum itu tidak bisa muncul di sini — teksnya sudah hilang, jadi tidak ada yang bisa terdeteksi.',
+  'panel.hist.sinceNone': 'Belum merekam. Ini dimulai saat pertama kali sebuah perangkat melapor sementara dasbor terbuka.',
   'panel.hist.empty': 'Belum ada catatan. Tugaskan sebuah teks, atau tunggu perangkat melapor, dan riwayatnya akan terkumpul di sini.',
   'panel.hist.emptyFilter': 'Belum ada yang seperti itu.',
   'panel.hist.all': 'Semua',

@@ -21,7 +21,7 @@ import { probeAudioUrl, fetchFileViaUrl } from './audio.js';
 import { convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
 import WaveSurfer from './vendor/wavesurfer.esm.js';
 import * as db from './db.js';
-import { observeView, recordEvents, loadHistory, clearHistory, assignedEvent, driveLink, HISTORY_KINDS } from './history.js';
+import { observeView, recordEvents, loadHistory, clearHistory, assignedEvent, driveLink, recordingSince, HISTORY_KINDS } from './history.js';
 import { resolveArtifacts, emptyReason } from './artifacts.js';
 
 // Byte-size formatter for assign-validation verdicts (mirrors app.js sizeFmt; that one is not exported).
@@ -1501,8 +1501,36 @@ function adminModal() {
       <div id="rp-adm-testsay" class="rp-adm-say" hidden></div>
     </div>
     <hr class="rp-sep">
+    <div class="rp-adm-sec">
+      <div class="rp-adm-h">${esc(t('panel.admin.logTitle'))}</div>
+      <p class="note">${esc(t('panel.admin.logIntro'))}</p>
+      <div id="rp-adm-log" class="rp-adm-log"><p class="note">…</p></div>
+    </div>
+    <hr class="rp-sep">
     <button class="link-btn" data-m="close">${esc(t('panel.util.close'))}</button>`, true);
   m.el.querySelector('[data-m="close"]').onclick = m.close;
+
+  // The access-control history. Server-side and append-only, so unlike the texts History it
+  // survives switching machines — and it is the only record of a DECLINED account, whose row is
+  // deleted outright.
+  async function refreshLog() {
+    const box = m.el.querySelector('#rp-adm-log');
+    let rows = [], unavailable = false;
+    try { const r = await Researcher.listApprovals(200); rows = r.approvals || []; unavailable = !!r.unavailable; }
+    catch (e) { box.innerHTML = `<p class="note rp-adm-err">${esc(String(e.message || e))}</p>`; return; }
+    if (!rows.length) { box.innerHTML = `<p class="note">${esc(t(unavailable ? 'panel.admin.logUnavailable' : 'panel.admin.logEmpty'))}</p>`; return; }
+    const KINDS = ['account_signup', 'account_auto_approved', 'account_approved', 'account_declined',
+                   'domain_added', 'domain_removed'];
+    box.innerHTML = `<ul class="rp-adm-ul rp-adm-logul">${rows.map((r) => {
+      // SECURITY: kind lands in a class attribute; allow-list it. subject/detail/actor are esc()'d.
+      const k = KINDS.includes(r.kind) ? r.kind : 'account_signup';
+      return `<li class="rp-log-${k}">
+        <span class="rp-tag rp-log-k rp-log-k-${k}">${esc(t('panel.admin.kind.' + k))}</span>
+        <span class="rp-adm-note">${esc(r.subject || '—')}</span>
+        <span class="note rp-adm-meta">${esc(histWhen(r.at))}${r.detail ? ' · ' + esc(r.detail) : ''}${r.actor && r.actor !== 'system' ? ' · ' + esc(t('panel.admin.byActor', { a: r.actor })) : ''}</span>
+      </li>`;
+    }).join('')}</ul>`;
+  }
 
   const say = (el, msg, kind) => {
     el.hidden = false; el.textContent = msg;
@@ -1538,7 +1566,7 @@ function adminModal() {
       if (probe.hash_prefix !== prefix) return say(box, t('panel.admin.removeMismatch'), 'err');
       await Researcher.removeDomain(d);
       say(box, t('panel.admin.removed', { d }), 'ok');
-      refreshList();
+      refreshList(); refreshLog();
     } catch (e) { say(box, String(e.message || e), 'err'); }
   }
 
@@ -1556,7 +1584,7 @@ function adminModal() {
           probe.auto_approves ? 'ok' : 'err');
       m.el.querySelector('#rp-adm-dom').value = '';
       m.el.querySelector('#rp-adm-note').value = '';
-      refreshList();
+      refreshList(); refreshLog();
     } catch (e2) { say(box, String(e2.message || e2), 'err'); }
   });
 
@@ -1574,6 +1602,7 @@ function adminModal() {
   });
 
   refreshList();
+  refreshLog();
 }
 
 /* ---------------- History: the back-log of texts that USED to be on a device ----------------
@@ -1621,9 +1650,19 @@ function historyModal() {
     }).join('')}</ul>`;
   };
 
+  // ⚠ Say plainly WHEN observation began. Anything deleted before that is unrecordable — the text
+  // was already gone, so there was nothing to notice disappearing. Without this line the log just
+  // looks broken, which is exactly how it looked after a delete that happened while the browser was
+  // still serving a pre-v126 engine.
+  const since = recordingSince(Researcher.currentAccountId());
+  const sinceLine = since
+    ? `<p class="note rp-hist-since">${esc(t('panel.hist.since', { when: histWhen(since) }))}</p>`
+    : `<p class="note rp-hist-since">${esc(t('panel.hist.sinceNone'))}</p>`;
+
   const m = modal(`
     <h3>${esc(t('panel.hist.title'))}</h3>
     <p class="note">${esc(t('panel.hist.intro'))}</p>
+    ${sinceLine}
     <div class="rp-hist-filters">
       <button class="link-btn rp-hist-f is-on" data-f="all">${esc(t('panel.hist.all'))}</button>
       ${HISTORY_KINDS.map((k) => `<button class="link-btn rp-hist-f" data-f="${k}">${esc(t('panel.hist.kind.' + k))}</button>`).join('')}

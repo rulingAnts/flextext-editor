@@ -181,6 +181,10 @@ export async function declineResearcher(researcherId) { return api('POST', '/v1/
  * a control). Rows are stored as keyed hashes, so the domain itself is UNRECOVERABLE: listDomains
  * returns notes + hash prefixes only, and removing one means naming the domain again so the Worker
  * can re-derive its hash. testDomain is the honest check — it reports what WOULD happen and why. */
+/* The append-only access-control history (owner only): who appeared, who was approved or declined,
+ * which domains were added or removed. Read-only — there is deliberately no write or delete API. */
+export async function listApprovals(limit) { return api('GET', '/v1/researcher/approvals' + (limit ? '?limit=' + limit : '')); }
+
 export async function listDomains() { return api('GET', '/v1/researcher/domains'); }
 export async function addDomain(domain, note) { return api('POST', '/v1/researcher/domains', { body: { domain, note } }); }
 export async function testDomain(domain) { return api('POST', '/v1/researcher/domains/test', { body: { domain } }); }

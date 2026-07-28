@@ -33,6 +33,7 @@ export const HISTORY_KINDS = ['assigned', 'submitted', 'done', 'deleted'];
 const CAP = 2000;            // ring cap: oldest entries fall off. ~2000 events is years of fieldwork.
 const KEY_PREFIX = 'flextext-rp-history:';
 const SNAP_PREFIX = 'flextext-rp-invsnap:';
+const SINCE_PREFIX = 'flextext-rp-since:';
 
 /* ---------------- pure core (no DOM, no storage — unit-testable) ---------------- */
 
@@ -192,11 +193,32 @@ export function clearHistory(accountId) {
   try {
     localStorage.removeItem(KEY_PREFIX + (accountId || 'anon'));
     localStorage.removeItem(SNAP_PREFIX + (accountId || 'anon'));
+    // The start marker goes too: after a clear, observation genuinely restarts from now, and a
+    // stale "recording since" would claim coverage the log no longer has.
+    localStorage.removeItem(SINCE_PREFIX + (accountId || 'anon'));
   } catch { /* noop */ }
 }
 
 function loadSnaps(accountId) { return rd(SNAP_PREFIX + (accountId || 'anon'), {}) || {}; }
 function saveSnaps(accountId, s) { wr(SNAP_PREFIX + (accountId || 'anon'), s); }
+
+/**
+ * When this browser FIRST began observing, or null if it never has.
+ *
+ * ⚠ WHY THIS EXISTS — it is the honesty fix for a real confusion. A tombstone can only be written
+ * when a text goes present -> absent BETWEEN two observations. Anything deleted before the first
+ * observation is unrecordable: the text was already gone, so there was nothing to notice. That is
+ * correct behaviour, but silently correct — the log simply looks broken, which is exactly how it
+ * looked to Seth after a delete that happened while his browser was still serving a pre-v126
+ * engine. Showing the start date turns "this is broken" into "that happened before I was watching".
+ */
+export function recordingSince(accountId) {
+  const v = rd(SINCE_PREFIX + (accountId || 'anon'), null);
+  return typeof v === 'number' ? v : null;
+}
+function markRecordingStarted(accountId) {
+  if (recordingSince(accountId) == null) wr(SINCE_PREFIX + (accountId || 'anon'), Date.now());
+}
 
 /** Record events straight away (the 'assigned' path, which has no diff to run). */
 export function recordEvents(accountId, events) {
@@ -231,7 +253,10 @@ export function observeView(accountId, instances) {
         if (events.length) all = all.concat(events);
       }
     }
-    if (dirty) saveSnaps(accountId, snaps);
+    // Stamp the start the first time we successfully observe anything. Deliberately tied to a real
+    // snapshot, not to the panel merely opening: before a snapshot exists nothing can be detected,
+    // so an earlier timestamp would overstate what the log actually covers.
+    if (dirty) { saveSnaps(accountId, snaps); markRecordingStarted(accountId); }
     if (all.length) recordEvents(accountId, all);
     return all;
   } catch { return []; }        // instrumentation must never break the panel it observes

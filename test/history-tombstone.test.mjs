@@ -12,7 +12,7 @@
  *
  * Run: node test/history-tombstone.test.mjs
  */
-import { diffInventory, snapshotOf, mergeEvents, assignedEvent, driveLink, driveIdFrom } from '../docs/js/history.js';
+import { diffInventory, snapshotOf, mergeEvents, assignedEvent, driveLink, driveIdFrom, recordingSince } from '../docs/js/history.js';
 
 let fail = 0;
 const ok = (c, m) => { console.log(`  ${c ? 'ok  ' : 'FAIL'}  ${m}`); if (!c) fail++; };
@@ -146,6 +146,25 @@ console.log('\nitems with no id cannot be tracked and are skipped, not crashed o
      'an id-less item is dropped from the snapshot');
   ok(snapshotOf([null, undefined, item('a')]) !== null, 'null entries do not throw');
   ok(assignedEvent({ docId: 'a', title: 'T' }).kind === 'assigned', 'assignedEvent builds a well-formed entry');
+}
+
+console.log('\nthe log states WHEN it started watching (the honesty fix)');
+{
+  // A tombstone needs two observations. Anything deleted before the first one is unrecordable —
+  // correct, but silently correct, so the log just looks broken. This is what makes it explainable.
+  // recordingSince() must never claim coverage the log does not have.
+  const store = new Map();
+  globalThis.localStorage = {
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+    removeItem: (k) => store.delete(k),
+  };
+  ok(recordingSince('acct') === null, 'before any observation there is NO start date — not a fake one');
+  store.set('flextext-rp-since:acct', JSON.stringify(1700000000000));
+  ok(recordingSince('acct') === 1700000000000, 'once stamped it reads back');
+  store.set('flextext-rp-since:acct', JSON.stringify('not-a-number'));
+  ok(recordingSince('acct') === null, 'a corrupt marker reads as "unknown", never as a bogus date');
+  delete globalThis.localStorage;
 }
 
 console.log(fail ? `\nFAILED (${fail})` : '\nPASS');

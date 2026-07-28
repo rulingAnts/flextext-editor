@@ -965,6 +965,19 @@ main {
 .rp-adm-say { margin-top: 10px; padding: 9px 11px; border-radius: 8px; font-size: 14px;
               background: var(--panel); white-space: pre-wrap; }
 .rp-adm-say[hidden] { display: none; }
+/* Approval log — append-only, so it only grows; scroll it inside the modal. */
+.rp-adm-log { margin-top: 8px; max-height: 46vh; overflow-y: auto; }
+.rp-adm-logul li { align-items: baseline; }
+.rp-log-k { flex: none; }
+.rp-log-k-account_signup { background: #e8f0fc; color: var(--blue-dark); }
+.rp-log-k-account_auto_approved { background: #e3f3e4; color: #1f5d22; }
+.rp-log-k-account_approved { background: #cdeccf; color: #18521b; font-weight: 600; }
+.rp-log-k-account_declined { background: #fdecea; color: #9b2c22; font-weight: 600; }
+.rp-log-k-domain_added { background: #ece3f7; color: #5b3d8a; }
+.rp-log-k-domain_removed { background: #fbe6cf; color: #8a4b10; }
+/* States what the log actually covers. Without it, a gap reads as a bug rather than as
+   "that happened before I was watching". */
+.rp-hist-since { border-left: 3px solid var(--border); padding-left: 10px; margin: 6px 0 12px; }
 .rp-adm-ok { background: #e3f3e4; color: #1f5d22; }
 .rp-adm-err { background: #fdecea; color: #9b2c22; }
 

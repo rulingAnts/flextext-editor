@@ -11,3 +11,13 @@ electron/dist/
 electron/out/
 electron/vendor/
 electron/src/build-flags.json
+
+# ── AI/dev-facing working notes — NOT tracked (Seth, 2026-07-29) ──────────────
+# "md files meant for AI models' use during development shouldn't be tracked, unless
+# they're specifically meant for public use by others cloning the repository."
+# These are working notes and task briefs; they change constantly, and one of them
+# (worker/docs/approved-domains.md) once leaked the operator's whole partner list into
+# a public repo. Keep them locally, out of git.
+tasks/
+corpus-manager/PLAN.md
+worker/docs/approved-domains.md

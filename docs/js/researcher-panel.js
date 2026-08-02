@@ -61,29 +61,6 @@ const NATIVE_DOWNLOADS_URL = '';
  * it was never sent when it was. The Worker refuses it too (409 already_delivered); the UI simply
  * must not ask for something the server will rightly reject.
  */
-/* Collapsed/expanded state per device card. Persisted per account so the dashboard looks the same
- * when the panel is reopened. DEFAULT: collapsed once there is more than one device — one device is
- * the whole dashboard, so hiding it would be silly; several is when the page gets busy.
- * A card that needs attention always opens, whatever was stored. */
-const CARDS_KEY = 'flextext-rp-cards:';
-let cardState = null;
-function loadCards(accountId) {
-  try { cardState = JSON.parse(localStorage.getItem(CARDS_KEY + (accountId || 'anon')) || '{}') || {}; }
-  catch { cardState = {}; }
-}
-function saveCards(accountId) {
-  try { localStorage.setItem(CARDS_KEY + (accountId || 'anon'), JSON.stringify(cardState || {})); }
-  catch { /* quota/private mode — collapsing degrades to per-session */ }
-}
-function isCardOpen(instanceId, needsAttention) {
-  if (needsAttention) return true;                       // never hide a card that is asking for help
-  const st = cardState && cardState[instanceId];
-  if (st === 'open') return true;
-  if (st === 'closed') return false;
-  return !defaultCollapsed;                              // no stored preference -> the default
-}
-let defaultCollapsed = false;
-
 const PENDING_KEY = 'flextext-rp-pending:';
 let pendingCmds = new Map();
 function loadPending(accountId) {
@@ -95,6 +72,34 @@ function loadPending(accountId) {
 function savePending(accountId) {
   try { localStorage.setItem(PENDING_KEY + (accountId || 'anon'), JSON.stringify([...pendingCmds])); }
   catch { /* quota/private mode — the markers degrade to in-memory only */ }
+}
+
+/* COLLAPSED DEVICE CARDS — instanceId -> true (collapsed) | false (expanded). Same per-account
+ * localStorage shape as PENDING_KEY above.
+ *
+ * ⚠ ONLY AN EXPLICIT CHOICE IS STORED. A card the researcher has never touched has no entry and
+ * falls back to collapsedByDefault() — one device expands (there is nothing to scan past), several
+ * collapse (the dashboard becomes a list again). Writing the default in at first render would
+ * freeze whatever the device count happened to be that day.
+ */
+const COLLAPSE_KEY = 'flextext-rp-collapsed:';
+let collapsedCards = new Map();
+function loadCollapsed(accountId) {
+  try {
+    const raw = JSON.parse(localStorage.getItem(COLLAPSE_KEY + (accountId || 'anon')) || '[]');
+    collapsedCards = new Map(Array.isArray(raw) ? raw : []);
+  } catch { collapsedCards = new Map(); }
+}
+function saveCollapsed(accountId) {
+  try { localStorage.setItem(COLLAPSE_KEY + (accountId || 'anon'), JSON.stringify([...collapsedCards])); }
+  catch { /* quota/private mode — the choice degrades to in-memory only */ }
+}
+/* Is this card collapsed right now? PURE, and exported for the test: the state is DERIVED on every
+ * render (never carried in the DOM), which is what makes it survive the 12s poll — the rebuilt card
+ * comes back in the same state it was in, so there is nothing to animate and nothing to flicker. */
+export function isCardCollapsed(stored, instanceId, deviceCount) {
+  const v = stored instanceof Map ? stored.get(instanceId) : (stored ? stored[instanceId] : undefined);
+  return (v === undefined || v === null) ? deviceCount > 1 : !!v;
 }
 
 // Absolute paths (NOT derived from location.pathname): invite links must point at the editor /
@@ -648,8 +653,7 @@ async function renderDashboard(prefetched) {
   lastData = data;   // cache for an instant local re-render after an action (no refetch)
   const insts = data.instances || [];
   loadPending(Researcher.currentAccountId());
-  loadCards(Researcher.currentAccountId());
-  defaultCollapsed = insts.length > 1;
+  loadCollapsed(Researcher.currentAccountId());
   // Retire pending markers on OUTCOME, never on a clock. A request stays visible for as long as it
   // is genuinely outstanding — which is the whole correction: the old timers made a still-queued
   // delete look forgotten while the command was alive on the server.
@@ -693,7 +697,8 @@ async function renderDashboard(prefetched) {
     try { crowdCache = (await Researcher.crowdList()).recorders || []; } catch { crowdCache = null; }
   }
 
-  const cards = await Promise.all(insts.map(renderInstanceCard));
+  // deviceCount passed explicitly (not taken from map's array arg): it decides the collapse default.
+  const cards = await Promise.all(insts.map((it) => renderInstanceCard(it, insts.length)));
   root.querySelector('.rp-body').innerHTML = `
     <div id="rp-live-ver" class="rp-live${liveVersions === null ? ' rp-live-offline' : ''}">${esc(liveVerText())}</div>
     <div class="rp-metrics">
@@ -745,20 +750,6 @@ async function renderDashboard(prefetched) {
     'self-settings': () => openSettingsModal({ kind: 'local' }),
   });
   // per-card actions are delegated:
-  root.querySelectorAll('[data-cardtoggle]').forEach((b) => b.addEventListener('click', () => {
-    const id = b.dataset.cardtoggle;
-    const card = b.closest('.rp-inst');
-    const nowOpen = card.classList.contains('rp-collapsed');   // about to flip
-    cardState[id] = nowOpen ? 'open' : 'closed';
-    saveCards(Researcher.currentAccountId());
-    // Toggle in place rather than re-rendering: the 12s poll would otherwise fight the click,
-    // and a full re-render loses scroll position and any open Files menu.
-    card.classList.toggle('rp-collapsed', !nowOpen);
-    card.querySelector('.rp-inst-body').hidden = !nowOpen;
-    b.setAttribute('aria-expanded', nowOpen ? 'true' : 'false');
-    b.querySelector('.rp-caret').textContent = nowOpen ? '▾' : '▸';
-    const sum = card.querySelector('.rp-card-sum'); if (sum) sum.hidden = nowOpen;
-  }));
   wireDownloadMenus();
   root.querySelectorAll('[data-iact]').forEach((el) => el.addEventListener('click', () => instanceAction(el)));
   root.querySelectorAll('[data-ract]').forEach((el) => el.addEventListener('click', () => researcherAction(el)));
@@ -867,9 +858,13 @@ function rebuildAssignedCache() {
 // which is the pre-v126 case emptyReason() explains rather than hiding).
 function assignedFor(docId) { return (assignedCache && assignedCache.get(docId)) || null; }
 
-async function renderInstanceCard(it) {
+async function renderInstanceCard(it, deviceCount) {
   const installs = it.installs || [];
   const anyPending = installs.some((i) => i.status === 'pending');
+  // Collected while the installs render, then shown in the COLLAPSED header too. A collapse that
+  // hides a pending install, a remote wipe or a stuck engine would conceal exactly the states that
+  // need attention — so these three ride the summary line and are visible either way.
+  let anyStale = false, anyWipe = false, textCount = 0;
   const linked = installs.some((i) => i.status === 'approved' && i.has_key);
   const status = anyPending
     ? `<span class="rp-badge rp-badge-warn">${esc(t('panel.inst.pending'))}</span>`
@@ -893,6 +888,8 @@ async function renderInstanceCard(it) {
       </div>`;
     } else {
       const inv = ins.inventory && Array.isArray(ins.inventory.items) ? ins.inventory.items : null;
+      if (inv) textCount += inv.length;
+      if (ins.wipe_state) anyWipe = true;
       // uploadDelete gate: only engine v94+ understands the upload-first delete command — an older
       // (or non-reporting) install gets a disabled button with a "must update first" tooltip instead
       // of a command it would drop on the floor. Devices auto-update, so this resolves itself.
@@ -976,6 +973,7 @@ async function renderInstanceCard(it) {
           // it rather than leaving the researcher to describe a version mismatch from memory.
           let badge = '';
           if (di.stale) {
+            anyStale = true;   // surfaced in the collapsed header too — see the note at the top of this function
             const detail = t('panel.dev.staleWhy', { running: di.running || '?', live: di.live || '?' });
             const body = encodeURIComponent(
               'A device is stuck on an old engine after a release.\n\n'
@@ -1008,34 +1006,30 @@ async function renderInstanceCard(it) {
   // creation-time type — a unified device may run the editor, the recorder, or both.
   const apps = [...new Set((it.installs || []).map((i) => i.inventory && i.inventory.type).filter(Boolean))];
   const runs = apps.length ? apps.join(' + ') : (it.type || '');
-  // ⚠ Anything that NEEDS ATTENTION must stay visible while collapsed, or the collapse hides
-  // exactly what the researcher opened the panel to find. A pending install, a wipe in flight, or a
-  // stale engine are all reasons not to let a card go quiet.
-  const needsAttention = anyPending
-    || installs.some((i) => i.wipe_state)
-    || installs.some((i) => deviceInfo(i.inventory && i.inventory.ua, i.inventory && i.inventory.cachedApps,
-                                       i.inventory && i.inventory.engineVersion, i.inventory && i.inventory.platform,
-                                       i.id, i.last_seen_at).stale);
-  const open = isCardOpen(it.instance_id, needsAttention);
-  const nTexts = installs.reduce((n, i) => n + ((i.inventory && Array.isArray(i.inventory.items)) ? i.inventory.items.length : 0), 0);
-
-  return `<div class="rp-card rp-inst${open ? '' : ' rp-collapsed'}${needsAttention ? ' rp-attn' : ''}">
+  // Collapsed by default once there is more than one device; an explicit choice always wins.
+  const collapsed = isCardCollapsed(collapsedCards, it.instance_id, deviceCount || 1);
+  const bodyId = 'rp-inst-body-' + it.instance_id;
+  // Warning badges that must NOT be hidden behind the collapse.
+  const warnBadges = `${anyWipe ? ` <span class="rp-badge rp-badge-warn">${esc(t('panel.inst.wipeBadge'))}</span>` : ''}`
+                   + `${anyStale ? ` <span class="rp-badge rp-badge-stale">${esc(t('panel.dev.stale'))}</span>` : ''}`;
+  return `<div class="rp-card rp-inst${collapsed ? ' rp-inst-collapsed' : ''}">
     <div class="rp-inst-top">
-      <button class="rp-card-toggle" data-cardtoggle="${esc(it.instance_id)}" aria-expanded="${open ? 'true' : 'false'}"
-              title="${esc(t(open ? 'panel.inst.collapse' : 'panel.inst.expand'))}">
-        <span class="rp-caret" aria-hidden="true">${open ? '▾' : '▸'}</span>
-        <span class="rp-inst-name">${esc(it.nickname || '?')} ${runs ? `<span class="rp-badge rp-badge-type">${esc(runs)}</span>` : ''} ${status}</span>
+      <button class="rp-inst-toggle" data-iact="collapse" data-i="${esc(it.instance_id)}"
+              aria-expanded="${collapsed ? 'false' : 'true'}" aria-controls="${esc(bodyId)}"
+              title="${esc(t(collapsed ? 'panel.inst.expand' : 'panel.inst.collapse'))}">
+        <span class="rp-caret" aria-hidden="true">▾</span>
+        <span class="rp-inst-name">${esc(it.nickname || '?')} ${runs ? `<span class="rp-badge rp-badge-type">${esc(runs)}</span>` : ''} ${status}${warnBadges}</span>
+        <span class="rp-inst-count">${esc(t('panel.inst.texts', { n: textCount }))}</span>
       </button>
-      ${open ? '' : `<span class="note rp-card-sum">${esc(t('panel.inst.texts', { n: nTexts }))}</span>`}
     </div>
-    <div class="rp-inst-body"${open ? '' : ' hidden'}>
-    ${installsHtml || `<p class="note">${esc(t('panel.inst.noInstall'))}</p>`}
-    <div class="rp-inst-actions">
-      <button class="secondary-btn" data-iact="settings" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}">${esc(t('panel.inst.settings'))}</button>
-      <button class="secondary-btn" data-iact="invite" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}">${esc(t('panel.inst.invite'))}</button>
-      <button class="secondary-btn" data-iact="assign" data-i="${esc(it.instance_id)}">${esc(t('panel.inst.assign'))}</button>
-      <button class="link-btn rp-revoke" data-iact="revoke" data-i="${esc(it.instance_id)}" data-name="${esc(it.nickname || '')}">${esc(t('panel.inst.revoke'))}</button>
-    </div>
+    <div class="rp-inst-body" id="${esc(bodyId)}"${collapsed ? ' hidden' : ''}>
+      ${installsHtml || `<p class="note">${esc(t('panel.inst.noInstall'))}</p>`}
+      <div class="rp-inst-actions">
+        <button class="secondary-btn" data-iact="settings" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}">${esc(t('panel.inst.settings'))}</button>
+        <button class="secondary-btn" data-iact="invite" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}">${esc(t('panel.inst.invite'))}</button>
+        <button class="secondary-btn" data-iact="assign" data-i="${esc(it.instance_id)}">${esc(t('panel.inst.assign'))}</button>
+        <button class="link-btn rp-revoke" data-iact="revoke" data-i="${esc(it.instance_id)}" data-name="${esc(it.nickname || '')}">${esc(t('panel.inst.revoke'))}</button>
+      </div>
     </div>
   </div>`;
 }
@@ -1046,6 +1040,22 @@ async function instanceAction(el) {
   const id = el.dataset.i, installId = el.dataset.id, type = el.dataset.type;
   const act = el.dataset.iact;
   try {
+    if (act === 'collapse') {
+      // ⚠ A DOM FLIP, DELIBERATELY NOT A RE-RENDER. renderDashboard() would refetch and rebuild
+      // every card just to hide one; the state is re-derived on the next 12s poll anyway, so the
+      // card comes back exactly as left. Nothing animates, so there is nothing to flicker.
+      const card = el.closest('.rp-inst');
+      const body = card && card.querySelector('.rp-inst-body');
+      if (!card || !body) return;
+      const nowCollapsed = !body.hidden;
+      body.hidden = nowCollapsed;
+      card.classList.toggle('rp-inst-collapsed', nowCollapsed);
+      el.setAttribute('aria-expanded', nowCollapsed ? 'false' : 'true');
+      el.title = t(nowCollapsed ? 'panel.inst.expand' : 'panel.inst.collapse');
+      collapsedCards.set(id, nowCollapsed);
+      saveCollapsed(Researcher.currentAccountId());   // persist BEFORE the next render reads it back
+      return;
+    }
     if (act === 'approve') {
       lastView = await Researcher.listView();
       const inst = lastView.instances.find((x) => x.instance_id === id);

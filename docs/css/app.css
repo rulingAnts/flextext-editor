@@ -869,6 +869,18 @@ main {
 .rp-inst-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .rp-inst-name { font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
+/* Collapse toggle. A REAL <button> (keyboard + screen reader get it for free) styled to read as the
+   card header it replaced — the whole header row is the hit target, which is what makes tapping it
+   on a phone practical. No transition on .rp-inst-body on purpose: the dashboard re-renders every
+   12s and the state is re-derived, so an animation would replay on every poll. */
+.rp-inst-toggle { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; width: 100%;
+  background: none; border: 0; padding: 0; margin: 0; font: inherit; color: inherit;
+  text-align: left; cursor: pointer; }
+.rp-inst-toggle:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; border-radius: 6px; }
+.rp-caret { color: var(--muted); font-size: 12px; line-height: 1; transform: rotate(0deg); }
+.rp-inst-collapsed .rp-caret { transform: rotate(-90deg); }
+.rp-inst-count { margin-left: auto; font-size: 12px; color: var(--muted); font-weight: 400; }
+
 .rp-badge { font-size: 12px; padding: 2px 9px; border-radius: 6px; background: var(--panel); color: var(--muted); font-weight: 400; }
 .rp-badge-type, .rp-badge-you { background: #e8f0fc; color: var(--blue-dark); }
 .rp-badge-ok { background: #e3f3e4; color: #1f5d22; }
@@ -987,20 +999,6 @@ main {
 .rp-hist-since { border-left: 3px solid var(--border); padding-left: 10px; margin: 6px 0 12px; }
 .rp-adm-ok { background: #e3f3e4; color: #1f5d22; }
 .rp-adm-err { background: #fdecea; color: #9b2c22; }
-
-/* Collapsible device cards. The toggle is a real button so it is keyboard operable; the caret and
-   the name live inside it so the whole heading is the hit target. */
-.rp-card-toggle { appearance: none; border: none; background: none; color: inherit; cursor: pointer;
-                  display: flex; align-items: center; gap: 8px; padding: 2px 0; text-align: left;
-                  font: inherit; flex: 1 1 auto; min-width: 0; }
-.rp-card-toggle:hover .rp-inst-name { text-decoration: underline; }
-.rp-caret { color: var(--muted); font-size: 12px; flex: none; width: 12px; }
-.rp-card-sum { flex: none; margin-left: 8px; }
-/* Collapsed cards tighten up so the dashboard scans; expanded ones are unchanged. */
-.rp-inst.rp-collapsed { padding-top: 10px; padding-bottom: 10px; }
-/* ⚠ A card that needs attention (pending install, wipe in flight, stale engine) is force-opened in
-   renderInstanceCard and marked here, so it reads as "look at me" rather than blending in. */
-.rp-inst.rp-attn { border-color: #e4c95b; }
 
 /* Downloads dropdown on a text row. Anchored to the row, floating above it — the inventory list is
    dense, so an inline expansion would shove every following row down on hover. */

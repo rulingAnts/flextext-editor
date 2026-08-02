@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v132';
+export const ENGINE_VERSION = 'v133';
 
 const S = {
 en: {
@@ -283,8 +283,6 @@ en: {
   'panel.opt.abm.60': '1 hour',
   'panel.inst.delText': 'Remove from device',
   'panel.inst.confirmDelText': 'The device will first upload “{title}” to Drive (a fresh time-stamped copy), then delete it from the device. The text is only deleted after the upload is confirmed safe. Continue?',
-  'panel.inst.collapse': 'Hide this device\u2019s texts',
-  'panel.inst.expand': 'Show this device\u2019s texts',
   'panel.inst.cancelUpload': 'Cancel upload',
   'panel.inst.cancelDelete': 'Cancel removal',
   'panel.inst.taken': 'in progress',
@@ -834,6 +832,11 @@ internet after the first time.</p>
   'panel.inst.noInstall': 'No device has claimed the invite yet.',
   'panel.inst.lastSeen': 'Last seen {when}',
   'panel.inst.texts': '{n} text(s)',
+  // Collapsible device cards. The collapsed header still carries the nickname, the app-type and
+  // status badges, the text count and any warning state — a collapse must never hide those.
+  'panel.inst.expand': 'Show this device',
+  'panel.inst.collapse': 'Hide this device',
+  'panel.inst.wipeBadge': 'remote wipe',
   'panel.inst.verUnknown': 'version not reported (older build — not yet updated)',
   'panel.inst.settings': 'Settings',
   'panel.inst.invite': 'Invite link',
@@ -1263,8 +1266,6 @@ id: {
   'panel.opt.abm.60': '1 jam',
   'panel.inst.delText': 'Hapus dari perangkat',
   'panel.inst.confirmDelText': 'Perangkat akan terlebih dahulu mengunggah “{title}” ke Drive (salinan baru berstempel waktu), lalu menghapusnya dari perangkat. Teks hanya dihapus setelah unggahan dipastikan aman. Lanjutkan?',
-  'panel.inst.collapse': 'Sembunyikan teks perangkat ini',
-  'panel.inst.expand': 'Tampilkan teks perangkat ini',
   'panel.inst.cancelUpload': 'Batalkan unggahan',
   'panel.inst.cancelDelete': 'Batalkan penghapusan',
   'panel.inst.taken': 'sedang berjalan',
@@ -1656,7 +1657,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.admin.addDomain': 'Domain',
   'panel.admin.addDomainPh': 'example.org',
   'panel.admin.addNote': 'Label (agar Anda mengenalinya nanti)',
-  'panel.admin.addNotePh': 'Organisasi mana ini',
+  'panel.admin.addNotePh': 'Organisasi apa ini',
   'panel.admin.addBtn': 'Tambah domain',
   'panel.admin.added': 'Ditambahkan {d} — terverifikasi: alamat di sana kini disetujui otomatis.',
   'panel.admin.addedUnverified': '⚠ {d} tersimpan, tetapi pengujian menyatakan TIDAK disetujui otomatis. Periksa lagi.',
@@ -1805,6 +1806,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.inst.noInstall': 'Belum ada perangkat yang mengeklaim undangan.',
   'panel.inst.lastSeen': 'Terakhir terlihat {when}',
   'panel.inst.texts': '{n} teks',
+  'panel.inst.expand': 'Tampilkan perangkat ini',
+  'panel.inst.collapse': 'Sembunyikan perangkat ini',
+  'panel.inst.wipeBadge': 'penghapusan jarak jauh',
   'panel.inst.verUnknown': 'versi tidak dilaporkan (versi lama — belum diperbarui)',
   'panel.inst.settings': 'Pengaturan',
   'panel.inst.invite': 'Tautan undangan',

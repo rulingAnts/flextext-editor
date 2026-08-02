@@ -988,6 +988,20 @@ main {
 .rp-adm-ok { background: #e3f3e4; color: #1f5d22; }
 .rp-adm-err { background: #fdecea; color: #9b2c22; }
 
+/* Collapsible device cards. The toggle is a real button so it is keyboard operable; the caret and
+   the name live inside it so the whole heading is the hit target. */
+.rp-card-toggle { appearance: none; border: none; background: none; color: inherit; cursor: pointer;
+                  display: flex; align-items: center; gap: 8px; padding: 2px 0; text-align: left;
+                  font: inherit; flex: 1 1 auto; min-width: 0; }
+.rp-card-toggle:hover .rp-inst-name { text-decoration: underline; }
+.rp-caret { color: var(--muted); font-size: 12px; flex: none; width: 12px; }
+.rp-card-sum { flex: none; margin-left: 8px; }
+/* Collapsed cards tighten up so the dashboard scans; expanded ones are unchanged. */
+.rp-inst.rp-collapsed { padding-top: 10px; padding-bottom: 10px; }
+/* ⚠ A card that needs attention (pending install, wipe in flight, stale engine) is force-opened in
+   renderInstanceCard and marked here, so it reads as "look at me" rather than blending in. */
+.rp-inst.rp-attn { border-color: #e4c95b; }
+
 /* Downloads dropdown on a text row. Anchored to the row, floating above it — the inventory list is
    dense, so an inline expansion would shove every following row down on hover. */
 .rp-dl { position: relative; display: inline-block; }

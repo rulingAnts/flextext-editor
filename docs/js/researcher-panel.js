@@ -61,6 +61,29 @@ const NATIVE_DOWNLOADS_URL = '';
  * it was never sent when it was. The Worker refuses it too (409 already_delivered); the UI simply
  * must not ask for something the server will rightly reject.
  */
+/* Collapsed/expanded state per device card. Persisted per account so the dashboard looks the same
+ * when the panel is reopened. DEFAULT: collapsed once there is more than one device — one device is
+ * the whole dashboard, so hiding it would be silly; several is when the page gets busy.
+ * A card that needs attention always opens, whatever was stored. */
+const CARDS_KEY = 'flextext-rp-cards:';
+let cardState = null;
+function loadCards(accountId) {
+  try { cardState = JSON.parse(localStorage.getItem(CARDS_KEY + (accountId || 'anon')) || '{}') || {}; }
+  catch { cardState = {}; }
+}
+function saveCards(accountId) {
+  try { localStorage.setItem(CARDS_KEY + (accountId || 'anon'), JSON.stringify(cardState || {})); }
+  catch { /* quota/private mode — collapsing degrades to per-session */ }
+}
+function isCardOpen(instanceId, needsAttention) {
+  if (needsAttention) return true;                       // never hide a card that is asking for help
+  const st = cardState && cardState[instanceId];
+  if (st === 'open') return true;
+  if (st === 'closed') return false;
+  return !defaultCollapsed;                              // no stored preference -> the default
+}
+let defaultCollapsed = false;
+
 const PENDING_KEY = 'flextext-rp-pending:';
 let pendingCmds = new Map();
 function loadPending(accountId) {
@@ -625,6 +648,8 @@ async function renderDashboard(prefetched) {
   lastData = data;   // cache for an instant local re-render after an action (no refetch)
   const insts = data.instances || [];
   loadPending(Researcher.currentAccountId());
+  loadCards(Researcher.currentAccountId());
+  defaultCollapsed = insts.length > 1;
   // Retire pending markers on OUTCOME, never on a clock. A request stays visible for as long as it
   // is genuinely outstanding — which is the whole correction: the old timers made a still-queued
   // delete look forgotten while the command was alive on the server.
@@ -720,6 +745,20 @@ async function renderDashboard(prefetched) {
     'self-settings': () => openSettingsModal({ kind: 'local' }),
   });
   // per-card actions are delegated:
+  root.querySelectorAll('[data-cardtoggle]').forEach((b) => b.addEventListener('click', () => {
+    const id = b.dataset.cardtoggle;
+    const card = b.closest('.rp-inst');
+    const nowOpen = card.classList.contains('rp-collapsed');   // about to flip
+    cardState[id] = nowOpen ? 'open' : 'closed';
+    saveCards(Researcher.currentAccountId());
+    // Toggle in place rather than re-rendering: the 12s poll would otherwise fight the click,
+    // and a full re-render loses scroll position and any open Files menu.
+    card.classList.toggle('rp-collapsed', !nowOpen);
+    card.querySelector('.rp-inst-body').hidden = !nowOpen;
+    b.setAttribute('aria-expanded', nowOpen ? 'true' : 'false');
+    b.querySelector('.rp-caret').textContent = nowOpen ? '▾' : '▸';
+    const sum = card.querySelector('.rp-card-sum'); if (sum) sum.hidden = nowOpen;
+  }));
   wireDownloadMenus();
   root.querySelectorAll('[data-iact]').forEach((el) => el.addEventListener('click', () => instanceAction(el)));
   root.querySelectorAll('[data-ract]').forEach((el) => el.addEventListener('click', () => researcherAction(el)));
@@ -969,16 +1008,34 @@ async function renderInstanceCard(it) {
   // creation-time type — a unified device may run the editor, the recorder, or both.
   const apps = [...new Set((it.installs || []).map((i) => i.inventory && i.inventory.type).filter(Boolean))];
   const runs = apps.length ? apps.join(' + ') : (it.type || '');
-  return `<div class="rp-card rp-inst">
+  // ⚠ Anything that NEEDS ATTENTION must stay visible while collapsed, or the collapse hides
+  // exactly what the researcher opened the panel to find. A pending install, a wipe in flight, or a
+  // stale engine are all reasons not to let a card go quiet.
+  const needsAttention = anyPending
+    || installs.some((i) => i.wipe_state)
+    || installs.some((i) => deviceInfo(i.inventory && i.inventory.ua, i.inventory && i.inventory.cachedApps,
+                                       i.inventory && i.inventory.engineVersion, i.inventory && i.inventory.platform,
+                                       i.id, i.last_seen_at).stale);
+  const open = isCardOpen(it.instance_id, needsAttention);
+  const nTexts = installs.reduce((n, i) => n + ((i.inventory && Array.isArray(i.inventory.items)) ? i.inventory.items.length : 0), 0);
+
+  return `<div class="rp-card rp-inst${open ? '' : ' rp-collapsed'}${needsAttention ? ' rp-attn' : ''}">
     <div class="rp-inst-top">
-      <span class="rp-inst-name">${esc(it.nickname || '?')} ${runs ? `<span class="rp-badge rp-badge-type">${esc(runs)}</span>` : ''} ${status}</span>
+      <button class="rp-card-toggle" data-cardtoggle="${esc(it.instance_id)}" aria-expanded="${open ? 'true' : 'false'}"
+              title="${esc(t(open ? 'panel.inst.collapse' : 'panel.inst.expand'))}">
+        <span class="rp-caret" aria-hidden="true">${open ? '▾' : '▸'}</span>
+        <span class="rp-inst-name">${esc(it.nickname || '?')} ${runs ? `<span class="rp-badge rp-badge-type">${esc(runs)}</span>` : ''} ${status}</span>
+      </button>
+      ${open ? '' : `<span class="note rp-card-sum">${esc(t('panel.inst.texts', { n: nTexts }))}</span>`}
     </div>
+    <div class="rp-inst-body"${open ? '' : ' hidden'}>
     ${installsHtml || `<p class="note">${esc(t('panel.inst.noInstall'))}</p>`}
     <div class="rp-inst-actions">
       <button class="secondary-btn" data-iact="settings" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}">${esc(t('panel.inst.settings'))}</button>
       <button class="secondary-btn" data-iact="invite" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}">${esc(t('panel.inst.invite'))}</button>
       <button class="secondary-btn" data-iact="assign" data-i="${esc(it.instance_id)}">${esc(t('panel.inst.assign'))}</button>
       <button class="link-btn rp-revoke" data-iact="revoke" data-i="${esc(it.instance_id)}" data-name="${esc(it.nickname || '')}">${esc(t('panel.inst.revoke'))}</button>
+    </div>
     </div>
   </div>`;
 }

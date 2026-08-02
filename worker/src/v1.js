@@ -109,10 +109,10 @@ export function isPublicEmailDomain(email) { return PUBLIC_EMAIL_DOMAINS.has(ema
 
 // Third onboarding tier: an ordinary (never owner) researcher whose e-mail domain the operator has
 // pre-approved in D1. ⚠ EQUALITY, never a suffix/substring test — a suffix test would let
-// 'evil-sil.org' match 'sil.org'. Subdomains are therefore NOT covered unless listed explicitly,
+// 'evil-example.org' match 'example.org'. Subdomains are therefore NOT covered unless listed explicitly,
 // which is the safe default for an auth boundary. Fails CLOSED: any DB error → not approved.
 // Lookup key for a domain. HMAC (not a bare digest) because the set of real-world domains is small
-// and enumerable — sha256('sil.org') would fall to a wordlist instantly. Mirrors emailKey().
+// and enumerable — sha256('example.org') would fall to a wordlist instantly. Mirrors emailKey().
 function domainKey(domain, env) { return hmacHex(env.SERVER_HMAC_KEY || '', 'domain:' + String(domain || '').toLowerCase()); }
 
 async function isDomainApproved(email, env) {
@@ -1084,6 +1084,21 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         if (!inst) return j({ error: 'not_found' }, 404, origin, env);
         if (cmd.forType && cmd.forType !== inst.type) return j({ error: 'type_mismatch' }, 400, origin, env); // §F.5
         const blob = inst.desired_blob ? JSON.parse(inst.desired_blob) : { settings: {}, commands: [] };
+        /* ⚠ seq is derived from the TAIL of the array, so it is only monotonic while the array
+         * keeps its highest-numbered entries. The cancel endpoint below REMOVES entries, which
+         * makes that a load-bearing invariant rather than an accident:
+         *
+         *   cancel refuses any seq <= max(ack_seq)  ⟹  acked commands can never be removed
+         *   ⟹ the tail is always >= max(ack_seq)    ⟹  tail+1 is always > max(ack_seq)
+         *
+         * That matters because the DEVICE runs only commands with `seq > its ack_seq`
+         * (docs/js/sync.js). Hand it a reused seq at or below its ack and it silently skips the
+         * command forever — no error anywhere, the researcher just watches nothing happen.
+         *
+         * ⚠ SO: DO NOT PRUNE ACKED COMMANDS FROM THIS BLOB to keep it small, which is otherwise an
+         * obvious optimisation. Pruning breaks the chain above and reintroduces seq reuse. If the
+         * blob ever needs trimming, store a separate high-water `next_seq` on the instance row
+         * instead of inferring it from the array. Covered by test/command-seq-invariant.test.mjs. */
         const seq = (blob.commands.length ? blob.commands[blob.commands.length - 1].seq : 0) + 1;
         blob.commands.push({ ...cmd, seq, at: now });
         const newRev = inst.desired_rev + 1;

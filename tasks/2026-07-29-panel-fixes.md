@@ -147,8 +147,8 @@ app is open source and they could mirror it and see that."*
 
 In `docs/js/i18n.js`, both the **en** and **id** blocks:
 
-- `panel.admin.addDomainPh` — currently `sil.org` → use a neutral shape hint such as `example.org`
-- `panel.admin.addNotePh` — currently `SIL Global` → use a generic label (e.g. "Which organisation
+- `panel.admin.addDomainPh` — currently a real partner domain → use a neutral shape hint such as `example.org`
+- `panel.admin.addNotePh` — currently a real partner name → use a generic label (e.g. "Which organisation
   this is", localised)
 
 The placeholder still has to teach the expected FORM (a bare domain, no `@`, no protocol), so do not

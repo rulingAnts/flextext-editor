@@ -1,6 +1,6 @@
 -- Pre-approved e-mail domains, stored as KEYED HASHES rather than plaintext.
 --
--- WHY THE REWRITE (Seth, 2026-07-28): the first cut stored 'sil.org' in the clear. But the LIST
+-- WHY THE REWRITE (Seth, 2026-07-28): the first cut stored 'example.org' in the clear. But the LIST
 -- ITSELF is sensitive — it names the mission, NGO and academic organisations this operator works
 -- with. Under this project's hostile-government threat model, "who are his partners" is exactly the
 -- intelligence a D1 dump should not hand over, independently of any user's data. Same reasoning
@@ -8,7 +8,7 @@
 --
 -- domain_hash = HMAC-SHA256(SERVER_HMAC_KEY, 'domain:' + <lowercased bare domain>), hex.
 -- Keyed, not a bare digest: the set of real-world domains is small and enumerable, so a plain
--- sha256('sil.org') would be reversed by anyone with a wordlist in seconds. The key is what makes
+-- sha256('example.org') would be reversed by anyone with a wordlist in seconds. The key is what makes
 -- the hash meaningful, and the key never leaves the Worker's secrets.
 --
 -- ⚠ CONSEQUENCE, BY DESIGN: nobody — not even the operator, not even Claude — can read the list

@@ -13,7 +13,7 @@
 -- gate, gone silently, with no error to notice. It is a TEMPTING mistake, because real researchers
 -- do use gmail addresses. The worker REFUSES these in code (PUBLIC_EMAIL_DOMAINS in src/v1.js), so
 -- such a row is inert rather than catastrophic — but do not add one and assume it works.
--- List only domains an ORGANISATION controls: sil.org, canil.ca, tsco.org, …
+-- List only domains an ORGANISATION controls: example.org, example.ac.uk, example.net, …
 --
 -- ⚠ MATCH THE DOMAIN EXACTLY, never as a substring: '@notmyorg.com' must not match 'myorg.com'.
 -- The worker lowercases and takes the part after the LAST '@', then compares for equality. Storing
@@ -21,7 +21,7 @@
 --
 -- Run ONCE:  Actions -> "D1 migrate" -> file = migrate-approved-domains.sql
 CREATE TABLE IF NOT EXISTS approved_domain (
-  domain     TEXT PRIMARY KEY,   -- lowercase, bare: 'sil.org' — NOT '@sil.org', NOT 'mail.sil.org' unless you mean that exact host
-  note       TEXT,               -- free text for your own reference ('SIL colleagues')
+  domain     TEXT PRIMARY KEY,   -- lowercase, bare: 'example.org' — NOT '@example.org', NOT 'mail.example.org' unless you mean that exact host
+  note       TEXT,               -- free text for your own reference ('Partner org A')
   created_at INTEGER NOT NULL    -- ms since epoch
 );

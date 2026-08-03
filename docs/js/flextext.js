@@ -370,7 +370,7 @@ function indentFragment(xml, pad) {
   return xml.split('\n').map(l => pad + l.trim()).join('\n');
 }
 
-export function serializeFlextext(doc, settings = {}) {
+export function serializeFlextext(doc, settings = {}, opts = {}) {
   // WS codes resolve AT EXPORT for app-authored docs: the LIVE settings win, so a
   // researcher's writing-system correction applies to every text exported after it
   // — including texts recorded before the change. Imported docs are the opposite:
@@ -389,14 +389,33 @@ export function serializeFlextext(doc, settings = {}) {
   for (const xml of doc.metaItemsXML || []) lines.push(indentFragment(xml, '    '));
   if (doc.objectsXML) lines.push(indentFragment(doc.objectsXML, '    '));
   lines.push('    <paragraphs>');
+  // Segmentation time-alignment (Seth, 2026-08-03): aligned spans are exported BOTH ways — as
+  // FLEx's native phrase begin/end-time-offset attributes AND as a human-visible note item — and
+  // NEVER into the baseline. One phrase per paragraph is the segmentation-mode invariant, so
+  // phrase↔span pairing is by paragraph position; a multi-phrase paragraph gets no pairing
+  // rather than a crossed one. Estimated boundaries are marked with '~' in the note.
+  const spans = Array.isArray(doc.segments) ? doc.segments : [];
+  const hasSpans = spans.some((s) => typeof s.start === 'number' && typeof s.end === 'number' && !s.timePending);
+  const clock = (ms) => { const ti = Math.max(0, Math.round(ms)); return `${Math.floor(ti / 60000)}:${String(Math.floor((ti % 60000) / 1000)).padStart(2, '0')}.${String(ti % 1000).padStart(3, '0')}`; };
+  const OUR_NOTE = /type="note"[^>]*>audio ~?\d+:\d\d\.\d{3}/;   // dedupe our own notes on round trips
+  const mediaGuid = hasSpans && opts.mediaName && !(doc.mediaXML || []).length
+    ? (doc.mediaGuid || (doc.mediaGuid = newGuid())) : null;
   let segnum = 0;
+  let pi = -1;
   for (const para of doc.paragraphs) {
+    pi++;
     lines.push(`      <paragraph guid="${esc(para.guid)}">`);
     lines.push('        <phrases>');
     for (const seg of para.segments) {
       segnum++;
+      const span = (hasSpans && para.segments.length === 1) ? spans[pi] : null;
+      const timed = !!(span && typeof span.start === 'number' && typeof span.end === 'number' && !span.timePending);
+      // A round trip preserves imported offsets in seg.attrs — when we emit fresh ones, filter
+      // the stale copies or the phrase would carry the attribute twice (invalid XML).
       const pAttrs = Object.entries(seg.attrs || {})
-        .map(([k, v]) => ` ${k}="${esc(v)}"`).join('');
+        .filter(([k]) => !(timed && (k === 'begin-time-offset' || k === 'end-time-offset' || k === 'media-file')))
+        .map(([k, v]) => ` ${k}="${esc(v)}"`).join('')
+        + (timed ? ` begin-time-offset="${Math.round(span.start)}" end-time-offset="${Math.round(span.end)}"${mediaGuid ? ` media-file="${esc(mediaGuid)}"` : ''}` : '');
       lines.push(`          <phrase${pAttrs}>`);
       lines.push(`            <item type="txt" lang="${esc(seg.txtLang || vern)}">${esc(seg.baseline)}</item>`);
       lines.push(`            <item type="segnum" lang="${esc(anal)}">${segnum}</item>`);
@@ -422,7 +441,12 @@ export function serializeFlextext(doc, settings = {}) {
       if (seg.free || seg.freeLang) {
         lines.push(`            <item type="gls" lang="${esc(seg.freeLang || anal)}">${esc(seg.free)}</item>`);
       }
-      for (const xml of seg.postItemsXML || []) lines.push(indentFragment(xml, '            '));
+      // The human-visible timestamps (never in the baseline): a note item FLEx displays on its
+      // own Note line. '~' marks an estimated boundary the transcriber has not confirmed by ear.
+      if (timed) {
+        lines.push(`            <item type="note" lang="${esc(anal)}">audio ${span.timeEstimated ? '~' : ''}${clock(span.start)}–${clock(span.end)}</item>`);
+      }
+      for (const xml of (seg.postItemsXML || []).filter((x) => !(timed && OUR_NOTE.test(x)))) lines.push(indentFragment(xml, '            '));
       lines.push('          </phrase>');
     }
     lines.push('        </phrases>');
@@ -447,6 +471,13 @@ export function serializeFlextext(doc, settings = {}) {
     lines.push(s + ' />');
   }
   lines.push('    </languages>');
+  // flextext's native media reference: phrases point at this guid via media-file. Emitted only
+  // when WE minted the guid (authored docs with no imported media-files block of their own).
+  if (mediaGuid) {
+    lines.push('    <media-files offset-type="">');
+    lines.push(`      <media guid="${esc(mediaGuid)}" location="${esc(opts.mediaName)}"/>`);
+    lines.push('    </media-files>');
+  }
   for (const xml of doc.mediaXML || []) lines.push(indentFragment(xml, '    '));
   lines.push('  </interlinear-text>');
   lines.push('</document>');

@@ -18,6 +18,7 @@ import { losslessSupported, recFormatSupported, PCMRecorder, encodeWav, encodeRe
          normRecFormat, REC_FORMATS, DEFAULT_REC_FORMAT, pcmRamBudgetBytes, pcmCapStatus } from './record-pcm.js';
 import { makeZip } from './zip.js';
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay } from './segment-strips.js';
+import { serializeEaf, buildSegPreviewHtml, wavWithBext } from './seg-exports.js';
 import { mergeSegments, splitSegment, isAligned } from './segments.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget } from './upload.js';
 import * as Sync from './sync.js';
@@ -3237,17 +3238,54 @@ function exportFilename() {
 async function buildBundle(withTimestamp) {
   if (activeTab === 'baseline' && $('#baseline-text')) applyBaseline();
   if (current && $('#doc-title')) current.title = ($('#doc-title').value.trim()) || current.title || 'Untitled';
-  return buildBundleFor(current, withTimestamp);
+  // The share/save/download menu is the LOCAL path → full segmentation exports (preview page with
+  // embedded audio + bext-stamped derived WAV). Uploads never get those — field bandwidth pays.
+  return buildBundleFor(current, withTimestamp, { full: true });
 }
 
 // DOM-free bundle builder for ANY doc record — lets a remote-triggered upload bundle a
 // doc that isn't open. Pure: reads only the passed record + IndexedDB media.
-async function buildBundleFor(rec, withTimestamp) {
-  const xmlBlob = serializeDocBlob(rec);
+async function buildBundleFor(rec, withTimestamp, opts = {}) {
   const name = docFilename(rec);                  // Title.flextext
   const base = name.replace(/\.flextext$/, '');
   const media = await db.getMedia(rec.id).catch(() => null);
   const userAudio = !!(media && !isAudioLocked(rec));
+  // Segmentation exports (Seth, 2026-08-03). The EAFs are small text and ride EVERY bundle
+  // (uploads included, so the researcher's Drive copy carries them); the preview page (audio
+  // embedded base64) and the derived WAV ride LOCAL bundles only (opts.full). Media reference:
+  // the WAV working copy when one exists — the segment times live on ITS timeline — else the
+  // original. The original media is never modified; bext goes on the DERIVED copy only.
+  const spans = Array.isArray(rec.doc && rec.doc.segments) ? rec.doc.segments : [];
+  const hasAligned = spans.some((s) => typeof s.start === 'number' && typeof s.end === 'number' && !s.timePending);
+  const segEntries = [];
+  let segMediaName = '';
+  if (hasAligned && media) {
+    const working = await db.getMedia('segwav:' + rec.id).catch(() => null);
+    const segMedia = (working && working.blob && working.srcName === media.name) ? working : media;
+    segMediaName = segMedia.name || 'audio';
+    const vern = settings.vernLang || rec.doc.vernLang || 'und';
+    const anal = settings.analLang || rec.doc.analLang || 'en';
+    const wavName = /\.wav$/i.test(segMediaName) || /wav$/i.test(segMedia.mimeType || '');
+    const eafOpts = { vern, anal, mediaName: segMediaName, mediaMime: wavName ? 'audio/x-wav' : (segMedia.mimeType || 'audio/*') };
+    segEntries.push({ name: base + '.eaf', data: new Blob([serializeEaf(rec.doc, { ...eafOpts, profile: 'flex' })], { type: 'application/xml' }) });
+    segEntries.push({ name: base + '.saymore.eaf', data: new Blob([serializeEaf(rec.doc, { ...eafOpts, profile: 'saymore' })], { type: 'application/xml' }) });
+    if (opts.full) {
+      const b64 = await blobToBase64(segMedia.blob);
+      segEntries.push({ name: base + '.preview.html', data: new Blob([buildSegPreviewHtml(rec.doc, {
+        title: rec.title || base, audioB64: b64, audioMime: segMedia.mimeType || 'audio/wav', mediaName: segMediaName,
+      })], { type: 'text/html' }) });
+      if (segMedia.derived) {
+        // Honesty in the BYTES, not just the filename: the derived WAV gets a BWF bext chunk
+        // naming its lossy origin and stating it is not a master (audio-archival-standards).
+        const stamped = wavWithBext(await segMedia.blob.arrayBuffer(), {
+          description: `DERIVED from lossy source (${segMedia.srcName || 'unknown'}) - NOT an archival master`,
+          codingHistory: `A=${String(media.mimeType || 'lossy').replace(/^audio\//, '').replace(/[^\w-]/g, '').toUpperCase() || 'LOSSY'},T=original lossy source ${segMedia.srcName || ''}\nA=PCM,W=16,T=DERIVED from lossy source - NOT an archival master`,
+        });
+        segEntries.push({ name: segMediaName, data: new Blob([stamped], { type: 'audio/wav' }) });
+      }
+    }
+  }
+  const xmlBlob = serializeDocBlob(rec, segMediaName || undefined);
   const consent = rec.consentClip
     ? await db.getMedia('consent:' + rec.id).catch(() => null)
     : null;
@@ -3263,8 +3301,8 @@ async function buildBundleFor(rec, withTimestamp) {
     await Promise.race([consentCapture.promise, new Promise((r) => setTimeout(r, 5000))]);
   }
   const stamp = withTimestamp ? ' ' + fileStamp() : '';
-  if (userAudio || consent || promptAudio || receipt) {
-    const entries = [{ name, data: xmlBlob }];
+  if (userAudio || consent || promptAudio || receipt || segEntries.length) {
+    const entries = [{ name, data: xmlBlob }, ...segEntries];
     if (userAudio) entries.push({ name: media.name || 'audio.mp3', data: media.blob });
     if (consent?.blob) entries.push({ name: consent.name || rec.consentClip, data: consent.blob });
     if (promptAudio?.blob) entries.push({ name: promptAudio.name || rec.consentPromptClip, data: promptAudio.blob });
@@ -3282,10 +3320,21 @@ async function buildBundleFor(rec, withTimestamp) {
 }
 
 // Serialize a doc record to a .flextext XML blob (DOM-free; mirrors exportBlob without the DOM).
-function serializeDocBlob(rec) {
+// mediaName (optional) lets aligned segments reference their audio via flextext's native
+// media-files block; timestamps ride as begin/end offsets + note items either way.
+function serializeDocBlob(rec, mediaName) {
   const doc = rec.doc;
   doc.title = rec.title || doc.title || 'Untitled';
-  return new Blob([serializeFlextext(doc, settings)], { type: 'application/xml' });
+  return new Blob([serializeFlextext(doc, settings, { mediaName })], { type: 'application/xml' });
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(',')[1] || '');
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
 }
 function docFilename(rec) {
   const base = (rec.title || 'text').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80);

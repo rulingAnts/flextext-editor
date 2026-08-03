@@ -487,6 +487,20 @@ function isEditorTab(tab) { return tab === 'baseline' || tab === 'gloss'; }
  * left-margin ▶/⏸ (pause-in-place, resume-from-playhead) and a skinny per-line waveform. In flat
  * segmentation mode phrase i IS segment i, so decoration is positional. Rendering-only: all edits
  * still happen through the model. */
+/* Heal a legacy flat doc IN PLACE: paragraphs written before the flat-mode guarantee (v153) may
+ * carry ZERO segments for empty lines, which skewed the gloss tab's per-segment pairing. Viewing
+ * never corrupted data — this simply adds the empty segment each empty line was always supposed to
+ * have, so an UNEDITED legacy doc aligns on open instead of waiting for its first edit to trigger
+ * reconcileBaseline. Idempotent; persists only when something actually changed. */
+function healFlatSegments(doc) {
+  if (!segmentationEnabled() || !doc || !doc.paragraphs) return;
+  let changed = false;
+  for (const p of doc.paragraphs) {
+    if (p.segments && !p.segments.length) { p.segments.push(makeSegment('', [])); changed = true; }
+  }
+  if (changed) schedulePersist();
+}
+
 function decorateGlossSegments() {
   if (!segmentationEnabled() || !current) return;
   const segs = docSegments(current.doc);
@@ -663,6 +677,7 @@ function switchTab(tab) {
       // Strip mode: per-segment waveform + single-line text pairs. The textarea stays in the DOM
       // but hidden — switching the researcher setting off returns the classic editor with the
       // same paragraphs (segments are retained on the doc, only the UI hides).
+      healFlatSegments(current && current.doc);
       $('#baseline-text').hidden = true;
       $('#segment-strips').hidden = false;
       show('baseline');
@@ -693,6 +708,7 @@ function switchTab(tab) {
   } else {
     stopStrips();
     stopGlossCursor();
+    healFlatSegments(current && current.doc);
     renderGloss();
     show('gloss');
     // The shared dock stays live on the gloss tab (Seth): full-track player + per-line mini waves.

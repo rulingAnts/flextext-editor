@@ -505,7 +505,6 @@ function decorateGlossSegments() {
     waveWrap.className = 'gseg-wavewrap';
     const wave = document.createElement('canvas');
     wave.className = 'gseg-wave';
-    wave.height = 18;
     waveWrap.appendChild(wave);
     bar.append(btn, waveWrap);
     g.prepend(bar);

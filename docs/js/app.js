@@ -17,6 +17,7 @@ import { isNativeShell, nativeAudioAvailable, NativeRecorder, releaseCapture, na
 import { losslessSupported, recFormatSupported, PCMRecorder, encodeWav, encodeRecording, normalizePeak, reduceChannels,
          normRecFormat, REC_FORMATS, DEFAULT_REC_FORMAT, pcmRamBudgetBytes, pcmCapStatus } from './record-pcm.js';
 import { makeZip } from './zip.js';
+import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments } from './segment-strips.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget } from './upload.js';
 import * as Sync from './sync.js';
 import { initResearcherPanel } from './researcher-panel.js';
@@ -468,6 +469,16 @@ function enterEditor(tab) {
   switchTab(tab);
 }
 
+// Segmentation mode: researcher-pushed setting, with a URL escape (?segmentation=1) so the
+// staging site can be test-driven before the panel toggle ships. Default OFF — the plain
+// textarea workflow every field user knows is untouched unless this is explicitly on.
+function segmentationEnabled() {
+  try {
+    if (new URLSearchParams(location.search).get('segmentation') === '1') return true;
+  } catch { /* noop */ }
+  return settings.segmentation === true;
+}
+
 function switchTab(tab) {
   // Leaving baseline: apply baseline edits to the model first.
   if (activeTab === 'baseline' && !$('#view-baseline').hidden) {
@@ -475,11 +486,38 @@ function switchTab(tab) {
   }
   activeTab = tab;
   if (tab === 'baseline') {
-    $('#baseline-text').value = getBaselineParagraphs(current.doc).join('\n');
-    show('baseline');
-    if (settings.vernFont) $('#baseline-text').style.fontFamily = quoteFont(settings.vernFont);
-    refreshPlayer();
+    if (segmentationEnabled()) {
+      // Strip mode: per-segment waveform + single-line text pairs. The textarea stays in the DOM
+      // but hidden — switching the researcher setting off returns the classic editor with the
+      // same paragraphs (segments are retained on the doc, only the UI hides).
+      $('#baseline-text').hidden = true;
+      $('#segment-strips').hidden = false;
+      show('baseline');
+      refreshPlayer();
+      initStrips({
+        container: $('#segment-strips'),
+        getPlayer: () => player,
+        getDoc: () => current && current.doc,
+        getParagraphs: (doc) => getBaselineParagraphs(doc),
+        setParagraphs: (doc, paras) => { reconcileBaseline(doc, paras.length ? paras : [''], { flatSegments: true }); schedulePersist(); },
+        persist: () => schedulePersist(),
+        t,
+      });
+      (async () => {
+        const media = current ? await db.getMedia(current.id).catch(() => null) : null;
+        await ensurePeaks(current && current.id, media && media.blob);
+        renderStrips();
+      })();
+    } else {
+      $('#segment-strips').hidden = true;
+      $('#baseline-text').hidden = false;
+      $('#baseline-text').value = getBaselineParagraphs(current.doc).join('\n');
+      show('baseline');
+      if (settings.vernFont) $('#baseline-text').style.fontFamily = quoteFont(settings.vernFont);
+      refreshPlayer();
+    }
   } else {
+    stopStrips();
     renderGloss();
     show('gloss');
   }
@@ -2052,6 +2090,7 @@ async function tryDownloadFlextext(rec) {
 
 function applyBaseline() {
   if (!current) return;
+  if (segmentationEnabled()) return;   // strip mode edits the doc directly on every keystroke
   const text = $('#baseline-text').value;
   const paras = text.split('\n').map(s => s.trim()).filter((s, i, arr) => s || arr.length === 1);
   const before = JSON.stringify(getBaselineParagraphs(current.doc));

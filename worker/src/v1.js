@@ -1231,9 +1231,13 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         const folderId = found.files[0].id;
         const lq = encodeURIComponent(`'${folderId}' in parents and trashed=false`);
         const list = await driveJson(access, 'GET',
-          'https://www.googleapis.com/drive/v3/files?spaces=drive&orderBy=modifiedTime desc&pageSize=200&fields=files(id,name,size,mimeType,modifiedTime)&q=' + lq);
+          'https://www.googleapis.com/drive/v3/files?spaces=drive&orderBy=modifiedTime desc&pageSize=200&fields=files(id,name,size,mimeType,modifiedTime,appProperties)&q=' + lq);
         return j({ folderId, files: (list.files || []).map((f) => ({
           id: f.id, name: f.name, size: parseInt(f.size, 10) || 0, mime: f.mimeType || '', modified: f.modifiedTime || '',
+          // The role tag distinguishes the ORIGINAL-assigned-audio copy from a recording the
+          // device uploaded — the panel needs that to honour "show the cached link if and only
+          // if no copy exists in the folder".
+          role: (f.appProperties && f.appProperties.flextextRole) || '',
         })) }, 200, origin, env);
       } catch (e) { return j({ error: e.code || 'drive_error', message: e.message }, 502, origin, env); }
     }

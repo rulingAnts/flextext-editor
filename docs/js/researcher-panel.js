@@ -198,6 +198,13 @@ const GROUPS = [
     // workflow is untouched unless the researcher deliberately enables it; the note tells them to
     // trial it with one worker first. Turning it off later hides the UI but never deletes segments.
     { k: 'segmentation', type: 'checkbox', note: 'panel.f.segmentationNote' },
+    // Which annotation exports ride the bundles (Seth, 2026-08-03): each is researcher-selectable;
+    // an UNSET value follows the mode (basic editor → flextext only; segmentation → all three on).
+    // toFormValues prefils these with the EFFECTIVE value so the checkboxes never lie about what
+    // the device actually exports. All require real time alignment on the text to apply at all.
+    { k: 'exportEaf', type: 'checkbox' },
+    { k: 'exportSaymore', type: 'checkbox' },
+    { k: 'exportPreview', type: 'checkbox', note: 'panel.f.exportsNote' },
   ] },
 ];
 
@@ -2733,6 +2740,9 @@ function toFormValues(s, mode) {
     // (else every later push would re-clobber a field worker who toggled their own language back).
     else if (f.k === 'appLang') v.appLang = 'follow';
     else if (f.k === 'autoDel') v.autoDel = !!s.autoDelUploaded;                                   // stored as autoDelUploaded
+    // Export toggles: unset follows Audio Segmentation Mode — show the EFFECTIVE value, so the
+    // researcher sees what the device will actually do, not a misleading unchecked box.
+    else if (f.k === 'exportEaf' || f.k === 'exportSaymore' || f.k === 'exportPreview') v[f.k] = s[f.k] ?? !!s.segmentation;
     else if (f.k === 'autoBackupMins') v.autoBackupMins = String(s.autoBackupMins || 15);          // stored as a number; default 15
     else if (f.type === 'checkbox') v[f.k] = !!s[f.k];
     else if (f.type === 'select') v[f.k] = s[f.k] || (f.k === 'recordFormat' ? DEFAULT_REC_FORMAT : f.opts[0]);

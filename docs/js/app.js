@@ -2967,7 +2967,7 @@ async function syncGatherInventory() {
                    'consentAsk', 'consentConfirm', 'consentMode', 'consentMsg', 'consentResp', 'consentAudioUrl',
                    'appLang', 'uploadFolder', 'toolbarButtons', 'sendOptions', 'autoDelUploaded', 'recordWelcome', 'deleteAllEnabled',
                    'autoBackup', 'autoBackupMins', 'maxRecordSeconds', 'allowDelete', 'doneEnabled',
-                   'segmentation']) {
+                   'segmentation', 'exportEaf', 'exportSaymore', 'exportPreview']) {
     if (settings[k] !== undefined) snap[k] = settings[k];
   }
   // ua + cachedApps let the panel show which browser/device this install is + whether its apps are
@@ -3258,11 +3258,15 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
   const base = name.replace(/\.flextext$/, '');
   const media = await db.getMedia(rec.id).catch(() => null);
   const userAudio = !!(media && !isAudioLocked(rec));
-  // Segmentation exports (Seth, 2026-08-03). The EAFs are small text and ride EVERY bundle
-  // (uploads included, so the researcher's Drive copy carries them); the preview page (audio
-  // embedded base64) and the derived WAV ride LOCAL bundles only (opts.full). Media reference:
-  // the WAV working copy when one exists — the segment times live on ITS timeline — else the
-  // original. The original media is never modified; bext goes on the DERIVED copy only.
+  // Segmentation exports — RESEARCHER-SELECTED (Seth, 2026-08-03): exportEaf / exportSaymore /
+  // exportPreview device settings choose which annotation files ride the bundles. An UNSET value
+  // follows the mode: basic editor → flextext only (plus the audio, as always); Audio
+  // Segmentation Mode → all three on. All of them additionally require real alignment to exist —
+  // an EAF with no times is pointless. EAFs are small text and ride every bundle incl. uploads;
+  // the preview page (audio embedded base64) and the derived WAV ride LOCAL bundles only
+  // (opts.full) — field upload bandwidth never pays for embedded audio. Media reference: the WAV
+  // working copy when one exists — the segment times live on ITS timeline — else the original.
+  // The original media is never modified; bext goes on the DERIVED copy only.
   // Fall back to the flextext-native offsets: an imported aligned doc that was never OPENED in
   // segmentation mode has no doc.segments yet, but its phrases carry the alignment — without the
   // fallback its bundles silently shipped without EAFs (audit find).
@@ -3270,26 +3274,40 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
     ? rec.doc.segments
     : ((rec.doc && segmentsFromOffsets(rec.doc)) || []);
   const hasAligned = spans.some((s) => typeof s.start === 'number' && typeof s.end === 'number' && !s.timePending);
+  const expDefault = segmentationEnabled();
+  const wantEaf = settings.exportEaf ?? expDefault;
+  const wantSaymore = settings.exportSaymore ?? expDefault;
+  const wantPreview = settings.exportPreview ?? expDefault;
   const segEntries = [];
+  // The flextext's OWN media-files reference is part of the flextext, not an optional annotation
+  // export — resolve the working-media name whenever alignment exists, regardless of checkboxes.
   let segMediaName = '';
+  let segMedia = null;
   if (hasAligned && media) {
     const working = await db.getMedia('segwav:' + rec.id).catch(() => null);
-    const segMedia = (working && working.blob && working.srcName === media.name) ? working : media;
+    segMedia = (working && working.blob && working.srcName === media.name) ? working : media;
     segMediaName = segMedia.name || 'audio';
+  }
+  if (hasAligned && media && (wantEaf || wantSaymore || wantPreview)) {
     const vern = settings.vernLang || rec.doc.vernLang || 'und';
     const anal = settings.analLang || rec.doc.analLang || 'en';
     const wavName = /\.wav$/i.test(segMediaName) || /wav$/i.test(segMedia.mimeType || '');
     const eafOpts = { vern, anal, mediaName: segMediaName, mediaMime: wavName ? 'audio/x-wav' : (segMedia.mimeType || 'audio/*') };
-    segEntries.push({ name: base + '.eaf', data: new Blob([serializeEaf(rec.doc, { ...eafOpts, profile: 'flex' })], { type: 'application/xml' }) });
-    segEntries.push({ name: base + '.saymore.eaf', data: new Blob([serializeEaf(rec.doc, { ...eafOpts, profile: 'saymore' })], { type: 'application/xml' }) });
+    if (wantEaf) segEntries.push({ name: base + '.eaf', data: new Blob([serializeEaf(rec.doc, { ...eafOpts, profile: 'flex' })], { type: 'application/xml' }) });
+    if (wantSaymore) segEntries.push({ name: base + '.saymore.eaf', data: new Blob([serializeEaf(rec.doc, { ...eafOpts, profile: 'saymore' })], { type: 'application/xml' }) });
     if (opts.full) {
-      const b64 = await blobToBase64(segMedia.blob);
-      segEntries.push({ name: base + '.preview.html', data: new Blob([buildSegPreviewHtml(rec.doc, {
-        title: rec.title || base, audioB64: b64, audioMime: segMedia.mimeType || 'audio/wav', mediaName: segMediaName,
-      })], { type: 'text/html' }) });
-      if (segMedia.derived) {
-        // Honesty in the BYTES, not just the filename: the derived WAV gets a BWF bext chunk
-        // naming its lossy origin and stating it is not a master (audio-archival-standards).
+      if (wantPreview) {
+        // Named after the ORIGINAL recording (Seth): story.m4a → story.preview.html.
+        const previewBase = String(media.name || base).replace(/\.[^.]+$/, '');
+        const b64 = await blobToBase64(segMedia.blob);
+        segEntries.push({ name: previewBase + '.preview.html', data: new Blob([buildSegPreviewHtml(rec.doc, {
+          title: rec.title || base, audioB64: b64, audioMime: segMedia.mimeType || 'audio/wav', mediaName: segMediaName,
+        })], { type: 'text/html' }) });
+      }
+      if (segMedia.derived && (wantEaf || wantSaymore)) {
+        // The derived WAV accompanies the EAFs (they reference it by name for relinking).
+        // Honesty in the BYTES, not just the filename: it gets a BWF bext chunk naming its
+        // lossy origin and stating it is not a master (audio-archival-standards).
         const stamped = wavWithBext(await segMedia.blob.arrayBuffer(), {
           description: `DERIVED from lossy source (${segMedia.srcName || 'unknown'}) - NOT an archival master`,
           codingHistory: `A=${String(media.mimeType || 'lossy').replace(/^audio\//, '').replace(/[^\w-]/g, '').toUpperCase() || 'LOSSY'},T=original lossy source ${segMedia.srcName || ''}\nA=PCM,W=16,T=DERIVED from lossy source - NOT an archival master`,

@@ -55,7 +55,11 @@ bucket_name = "flextext-back-end"
 # Exposure is small: CORS is browser-enforced and a site cannot forge an Origin header,
 # so this only admits a page genuinely served from https://localhost on the user's own
 # machine. The real gate remains the per-install secret.
-ALLOWED_ORIGINS = "https://rulingants.github.io,https://localhost"
+# The workers.dev origin is Seth's own STAGING/dev site (git-connected static build of the
+# `staging` branch). Allowing it lets a dev-site session enroll via a production invite link and
+# sync as one of his "devices" — the real gate remains the per-install secret; CORS only admits
+# pages genuinely served from his own staging origin.
+ALLOWED_ORIGINS = "https://rulingants.github.io,https://localhost,https://flextext-editor-dev.68mh29kgsd.workers.dev"
 MAX_FILE_BYTES  = "536870912"     # 512 MB per-file ceiling (Cloudflare cache limit)
 MAX_TOTAL_BYTES = "9500000000"    # ~9.5 GB total — stops BEFORE the 10 GB free tier
 # (RELAY_URL removed 2026-07-13: the Apps Script relay upload leg is retired —

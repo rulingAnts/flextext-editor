@@ -765,6 +765,12 @@ export class Player {
    * The stop watcher is stored on the instance and cleared by any new call, pause, or destroy, so
    * overlapping span plays can never leave two watchers fighting over the transport.
    */
+  /** The player's OWN decoded audio, when available — the segment strips derive their peaks from
+   * this so display and transport share one timeline. Two independent decodes of a compressed file
+   * can disagree by tens of ms about where zero is (encoder priming), which surfaces as 'the
+   * waveform is a tiny bit behind the audio' when chopping by ear. */
+  decodedBuffer() { try { return this.ws?.getDecodedData?.() || null; } catch { return null; } }
+
   /** Park the playhead at an absolute position WITHOUT changing play/pause state — strip
    * click-to-position and scrubbing. If a span watcher is active it is cleared: a manual seek is
    * the user taking the transport, and a stale boundary must not pause them later. */

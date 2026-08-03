@@ -36,13 +36,18 @@ export function initStrips(d) { deps = d; }
 // once and far cheaper than keeping the decoded buffer.
 const BUCKETS_PER_SEC = 200;
 
-export async function ensurePeaks(docId, blob) {
-  if (peaksCache.docId === docId && peaksCache.peaks) return peaksCache;
+export async function ensurePeaks(docId, blob, playerBuf) {
+  // Prefer the PLAYER'S decoded buffer: one decode, one timeline (see Player.decodedBuffer).
+  // A cache built from our own fallback decode is upgraded when the player's arrives.
+  if (peaksCache.docId === docId && peaksCache.peaks && (peaksCache.fromPlayer || !playerBuf)) return peaksCache;
   peaksCache = { docId, peaks: null, durationMs: 0 };
-  if (!blob) return peaksCache;
+  if (!blob && !playerBuf) return peaksCache;
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
+    let buf = playerBuf || null, ctx = null;
+    if (!buf) {
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      buf = await ctx.decodeAudioData(await blob.arrayBuffer());
+    }
     const ch = buf.getChannelData(0);
     const BUCKETS = Math.min(400000, Math.max(4000, Math.round(buf.duration * BUCKETS_PER_SEC)));
     const peaks = new Float32Array(BUCKETS);
@@ -59,8 +64,8 @@ export async function ensurePeaks(docId, blob) {
       peaks[b] = m;
     }
     peaksCache = { docId, peaks, durationMs: Math.round(buf.duration * 1000),
-                   msPerBucket: (per / buf.sampleRate) * 1000 };
-    try { ctx.close(); } catch { /* noop */ }
+                   msPerBucket: (per / buf.sampleRate) * 1000, fromPlayer: !!playerBuf };
+    try { ctx && ctx.close(); } catch { /* noop */ }
   } catch { /* undecodable (or no Web Audio) → strips render without waveforms */ }
   return peaksCache;
 }

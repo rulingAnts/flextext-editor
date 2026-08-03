@@ -505,7 +505,9 @@ function switchTab(tab) {
       });
       (async () => {
         const media = current ? await db.getMedia(current.id).catch(() => null) : null;
-        await ensurePeaks(current && current.id, media && media.blob);
+        // One timeline: prefer the player's own decoded data; fall back to decoding the blob, and
+        // upgrade to the player's copy on the next render once it has decoded.
+        await ensurePeaks(current && current.id, media && media.blob, player && player.decodedBuffer && player.decodedBuffer());
         renderStrips();
       })();
     } else {

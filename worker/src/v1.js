@@ -404,6 +404,27 @@ async function driveEnsureDeviceFolder(env, access, instanceId, nickname, existi
   return f.id;
 }
 
+/* Extract one entry's bytes from a STORE-only zip (method 0 — what our own zip.js writes; entry
+ * data is an uncompressed byte slice after the local header). Scans local file headers only;
+ * returns null when no entry name matches or any entry uses compression. Never used on foreign
+ * zips: the caller only points it at files this suite uploaded. */
+function storeZipEntry(buf, nameRe) {
+  let i = 0;
+  const u16 = (o) => buf[o] | (buf[o + 1] << 8);
+  const u32 = (o) => (buf[o] | (buf[o + 1] << 8) | (buf[o + 2] << 16) | (buf[o + 3] << 24)) >>> 0;
+  while (i + 30 <= buf.length && u32(i) === 0x04034b50) {
+    const method = u16(i + 8), csize = u32(i + 18), nlen = u16(i + 26), xlen = u16(i + 28);
+    const name = new TextDecoder().decode(buf.subarray(i + 30, i + 30 + nlen));
+    const dataStart = i + 30 + nlen + xlen;
+    if (nameRe.test(name)) {
+      if (method !== 0) return null;              // compressed entry — not ours, refuse
+      return buf.subarray(dataStart, dataStart + csize);
+    }
+    i = dataStart + csize;
+  }
+  return null;
+}
+
 // A Drive file id out of whatever the panel stored for the assignment — the same three URL shapes
 // index.js's driveId() and the client's driveIdFrom() accept, duplicated here because index.js does
 // not export (it is the isolation boundary; importing across it would couple the lanes).
@@ -528,6 +549,47 @@ export async function handleV1(request, env, ctx, url, path, origin) {
   const seg = path.split('/').filter(Boolean); // ['v1', ...]
   const m = request.method;
   const now = Date.now();
+
+  /* GET /v1/textfile/<token> — stream a researcher-Drive file to an assigned DEVICE.
+   * The token is opaque (AES-GCM under SERVER_HMAC_KEY), time-boxed (90 days), and names the
+   * researcher + file, so the URL works from a plain fetch with no headers — which is exactly how
+   * devices fetch assignment media. Unguessable-URL auth, same trust model as invite links. When
+   * the token says x:'flextext', the file is one of OUR OWN STORE-only zips and the .flextext
+   * entry is extracted here — that is what lets a move deliver text content for a text whose only
+   * uploads are bundles. */
+  if (m === 'GET' && seg.length === 3 && seg[1] === 'textfile') {
+    let tk = null;
+    try { tk = JSON.parse(await decAtRest(env, decodeURIComponent(seg[2]))); } catch { /* invalid */ }
+    if (!tk || !tk.f || !tk.r || !(tk.e > now)) return j({ error: 'bad_token' }, 401, origin, env);
+    const owner = await env.DB.prepare('SELECT * FROM researcher WHERE researcher_id=?').bind(tk.r).first();
+    if (!owner || !owner.drive_refresh_enc) return j({ error: 'gone' }, 410, origin, env);
+    try {
+      const access = await driveAccessToken(env, owner);
+      const range = request.headers.get('Range');
+      const g = await fetch('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(tk.f) + '?alt=media', {
+        headers: { Authorization: 'Bearer ' + access, ...(range && !tk.x ? { Range: range } : {}) },
+      });
+      if (!g.ok && g.status !== 206) return j({ error: 'not_found', status: g.status }, g.status === 404 ? 404 : 502, origin, env);
+      if (tk.x === 'flextext') {
+        // Extract the .flextext entry from a STORE-only zip (zip.js writes method 0, so entry data
+        // is a plain byte slice). Bounded: refuse zips too big to buffer in worker memory.
+        const len = parseInt(g.headers.get('content-length') || '0', 10);
+        if (len > 60 * 1024 * 1024) { try { g.body?.cancel?.(); } catch { /* noop */ } return j({ error: 'zip_too_large' }, 502, origin, env); }
+        const buf = new Uint8Array(await g.arrayBuffer());
+        const xml = storeZipEntry(buf, /\.flextext$/i);
+        if (!xml) return j({ error: 'no_flextext_in_zip' }, 404, origin, env);
+        const h = new Headers(v1Cors(origin, env));
+        h.set('content-type', 'application/xml'); h.set('Cache-Control', 'no-store');
+        return new Response(xml, { status: 200, headers: h });
+      }
+      const h = new Headers(v1Cors(origin, env));
+      for (const k of ['content-type', 'content-length', 'content-range', 'accept-ranges']) {
+        const v = g.headers.get(k); if (v) h.set(k, v);
+      }
+      h.set('Cache-Control', 'no-store');
+      return new Response(g.body, { status: g.status, headers: h });
+    } catch (e) { return j({ error: e.code || 'drive_error', message: e.message }, 502, origin, env); }
+  }
 
   // POST /v1/researcher — signup with EMAIL + PASSWORD-derived material (the password never reaches
   // the server). Turnstile-gated, fail-closed. Unique email. Stores the escrow copy of Kr (for email
@@ -994,6 +1056,32 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     return j({ error: 'not_found' }, 404, origin, env);
   }
 
+  /* POST /v1/researcher/trash {fileIds:[…]} — RESEARCHER: move their own app-created Drive files
+   * (or folders) to TRASH. Never files.delete: trash is recoverable for 30 days at
+   * drive.google.com/trash, and cleanup rules are exactly the kind of thing that is occasionally
+   * wrong — a survivable mistake is the design requirement (Seth). drive.file scope is the guard:
+   * a file the app did not create 404s at Google, so this cannot reach anything else. The PANEL
+   * decides WHAT to trash (it owns the kind classification); the Worker only enforces HOW. */
+  if (m === 'POST' && seg.length === 3 && seg[1] === 'researcher' && seg[2] === 'trash') {
+    const r = await authResearcher(request, env);
+    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    const body = await readJson(request) || {};
+    const ids = (Array.isArray(body.fileIds) ? body.fileIds : []).map((x) => String(x || '').replace(/[^\w-]/g, '').slice(0, 90)).filter(Boolean);
+    if (!ids.length || ids.length > 100) return j({ error: 'bad_fileids' }, 400, origin, env);
+    try {
+      const access = await driveAccessToken(env, r);
+      const results = [];
+      for (const id of ids) {
+        try {
+          await driveJson(access, 'PATCH', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(id) + '?fields=id', { trashed: true });
+          results.push({ id, ok: true });
+        } catch (e) { results.push({ id, ok: false, error: String(e.message || e).slice(0, 80) }); }
+      }
+      await logApproval(env, request, 'files_trashed', ids.length + ' file(s)', (body.note || '').slice(0, 120), r.drive_email);
+      return j({ results, trashed: results.filter((x) => x.ok).length }, 200, origin, env);
+    } catch (e) { return j({ error: e.code || 'drive_error', message: e.message }, 502, origin, env); }
+  }
+
   /* GET /v1/researcher/drive-file/<fileId> — RESEARCHER: stream one of their own app-created Drive
    * files back through the Worker. Exists for the panel's download-all-as-ZIP: the browser cannot
    * fetch drive.usercontent.google.com cross-origin (CORS), so the bytes route through here with
@@ -1136,7 +1224,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       if (cmd.type === 'assign' && !cmd.id) return j({ error: 'assign_needs_id' }, 400, origin, env);     // §F.5
       // uploadDelete = upload-then-delete (per-text remote removal; engine ≥ v94 — older
       // clients warn-and-ack it harmlessly, so the panel gates the button on engineVersion).
-      if (!['assign', 'delete', 'changeSettings', 'triggerUpload', 'uploadDelete'].includes(cmd.type)) return j({ error: 'unknown_command' }, 400, origin, env);
+      if (!['assign', 'delete', 'changeSettings', 'triggerUpload', 'uploadDelete', 'setDone'].includes(cmd.type)) return j({ error: 'unknown_command' }, 400, origin, env);
       for (let attempt = 0; attempt < 5; attempt++) {
         const inst = await env.DB.prepare('SELECT desired_blob, desired_rev, type FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
           .bind(instanceId, r.researcher_id).first();
@@ -1239,6 +1327,54 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           // if no copy exists in the folder".
           role: (f.appProperties && f.appProperties.flextextRole) || '',
         })) }, 200, origin, env);
+      } catch (e) { return j({ error: e.code || 'drive_error', message: e.message }, 502, origin, env); }
+    }
+
+    /* POST .../texts/<docId>/move {to, flextextFileId?, audioFileId?, extractFromZipId?} —
+     * RESEARCHER: re-home a text onto another of their devices.
+     * The Worker does the Drive half: ensure the DESTINATION device folder, re-parent the text's
+     * folder under it (one PATCH — the docId tag travels with the folder, so the destination's
+     * uploads keep landing in it), and mint AUTHED STREAMING tokens for the content files so the
+     * destination can fetch them privately — nothing is ever link-shared (Seth's decision; field
+     * data stays private). The PANEL does the command half: assign to B with these URLs (same
+     * docId — v137 identity), then fire the upload-first remove at A once B reports the doc. */
+    if (m === 'POST' && sub === 'texts' && seg.length === 6 && seg[5] === 'move') {
+      const r = await authResearcher(request, env);
+      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      const body = await readJson(request) || {};
+      const toId = String(body.to || '');
+      const docId = String(seg[4] || '').replace(/[^\w-]/g, '').slice(0, 64);
+      if (!docId || !toId || toId === instanceId) return j({ error: 'bad_move' }, 400, origin, env);
+      const from = await env.DB.prepare('SELECT instance_id, nickname, oauth_folder_id FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
+        .bind(instanceId, r.researcher_id).first();
+      const to = await env.DB.prepare('SELECT instance_id, nickname, oauth_folder_id FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
+        .bind(toId, r.researcher_id).first();
+      if (!from || !to) return j({ error: 'not_found' }, 404, origin, env);
+      try {
+        const access = await driveAccessToken(env, r);
+        const toFolder = await driveEnsureDeviceFolder(env, access, toId, to.nickname, to.oauth_folder_id);
+        // Re-parent the text folder if one exists (legacy texts may have none — the move still works,
+        // it just has no folder to carry).
+        let movedFolder = false;
+        const fq = encodeURIComponent(`appProperties has { key='flextextDoc' and value='${docId}' } and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+        const found = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files?spaces=drive&fields=files(id,parents)&q=' + fq);
+        if (found.files && found.files.length) {
+          const f = found.files[0];
+          const oldParents = (f.parents || []).join(',');
+          await driveJson(access, 'PATCH', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(f.id)
+            + '?addParents=' + encodeURIComponent(toFolder) + (oldParents ? '&removeParents=' + encodeURIComponent(oldParents) : '') + '&fields=id');
+          movedFolder = true;
+        }
+        // Mint 90-day streaming tokens for whatever content the panel identified. Opaque + time-
+        // boxed, bound to this researcher; the /v1/textfile endpoint validates and streams.
+        const mint = async (fileId, extract) => fileId
+          ? (url.origin + '/v1/textfile/' + encodeURIComponent(await encAtRest(env, JSON.stringify(
+              { r: r.researcher_id, f: fileId, x: extract || '', e: now + 90 * 86400000 }))))
+          : null;
+        const flextextUrl = await mint(body.flextextFileId) || await mint(body.extractFromZipId, 'flextext');
+        const audioUrl = await mint(body.audioFileId);
+        await logApproval(env, request, 'text_moved', docId.slice(0, 12) + '…', (from.nickname || '?') + ' → ' + (to.nickname || '?'), r.drive_email);
+        return j({ ok: true, movedFolder, flextextUrl, audioUrl }, 200, origin, env);
       } catch (e) { return j({ error: e.code || 'drive_error', message: e.message }, 502, origin, env); }
     }
 

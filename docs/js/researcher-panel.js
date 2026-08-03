@@ -62,6 +62,23 @@ const NATIVE_DOWNLOADS_URL = '';
  * it was never sent when it was. The Worker refuses it too (409 already_delivered); the UI simply
  * must not ask for something the server will rightly reject.
  */
+/* In-flight MOVES — docId -> { from, to, title, at, stage:'assigned'|'removing' }. Persisted like
+ * pendingCmds; advanced by the sweep in renderDashboard on every poll:
+ *   'assigned'  → destination reports the doc in its inventory → fire the upload-first remove at
+ *                 the source (stage 'removing'). AUTOMATIC by Seth's decision.
+ *   'removing'  → the doc is gone from the source's inventory → the move is complete.
+ * Both signals are the same inventory facts the rest of the panel already trusts. */
+const MOVES_KEY = 'flextext-rp-moves:';
+let pendingMoves = new Map();
+function loadMoves(accountId) {
+  try { pendingMoves = new Map(JSON.parse(localStorage.getItem(MOVES_KEY + (accountId || 'anon')) || '[]')); }
+  catch { pendingMoves = new Map(); }
+}
+function saveMoves(accountId) {
+  try { localStorage.setItem(MOVES_KEY + (accountId || 'anon'), JSON.stringify([...pendingMoves])); }
+  catch { /* degrade to in-memory */ }
+}
+
 const PENDING_KEY = 'flextext-rp-pending:';
 let pendingCmds = new Map();
 function loadPending(accountId) {
@@ -654,6 +671,27 @@ async function renderDashboard(prefetched) {
   lastData = data;   // cache for an instant local re-render after an action (no refetch)
   const insts = data.instances || [];
   loadPending(Researcher.currentAccountId());
+  loadMoves(Researcher.currentAccountId());
+  // Advance in-flight moves on every poll (a stage transition is visible in exactly one report —
+  // same reasoning as the History observer): destination reports the doc → fire the upload-first
+  // remove at the source (AUTOMATIC, Seth's decision); source no longer reports it → move done.
+  {
+    let dirty = false;
+    for (const [docId, mv] of pendingMoves) {
+      if (mv.stage === 'assigned' && findInventoryItem(mv.to, docId)) {
+        try {
+          const r1 = await Researcher.uploadDelete(mv.from, docId);
+          pendingCmds.set(docId, { seq: r1.seq, kind: 'delete', instanceId: mv.from, at: Date.now() });
+          savePending(Researcher.currentAccountId());
+          mv.stage = 'removing'; dirty = true;
+        } catch { /* transient — retried next poll */ }
+      } else if (mv.stage === 'removing' && !findInventoryItem(mv.from, docId)) {
+        pendingMoves.delete(docId); dirty = true;
+        deps.toast(t('panel.move.done', { title: mv.title || '?' }), 6000);
+      }
+    }
+    if (dirty) saveMoves(Researcher.currentAccountId());
+  }
   loadCollapsed(Researcher.currentAccountId());
   // Retire pending markers on OUTCOME, never on a clock. A request stays visible for as long as it
   // is genuinely outstanding — which is the whole correction: the old timers made a still-queued
@@ -873,6 +911,14 @@ function bridgedIds(docId, title) {
  * has it. Folder files win their kind; the cached audio link fills 'audio-original' only when the
  * folder has no copy (the if-and-only-if rule); report artifacts fill kinds nothing else claimed;
  * a history event's own fileId is the last resort for texts deleted from every inventory. */
+/* What cleanup is allowed to remove: every file NOT selected by latestPerKind (i.e. the older
+ * backup copies), EXCEPT anything tagged as the original assigned audio — the original is never a
+ * "backup copy" however old it is. PURE and lifted by test/text-folder-files.test.mjs. */
+function cleanupCandidates(allFiles) {
+  const keep = new Set(latestPerKind(allFiles).map((f) => f.id));
+  return (allFiles || []).filter((f) => !keep.has(f.id) && f.role !== 'assigned-audio');
+}
+
 async function populateFilesMenu(wrap) {
   if (wrap.dataset.loaded) return;
   wrap.dataset.loaded = '1';
@@ -947,6 +993,15 @@ async function populateFilesMenu(wrap) {
     // identity, backups included. The list above stays newest-per-kind; the zip does not.
     tailRows.push(`<button class="rp-dl-item rp-dl-all" data-zipall data-i="${esc(iid)}" data-id="${esc(docId)}" data-title="${esc(title)}">
       <span class="rp-dl-name">${esc(t('panel.dl.all'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.allSub', { n: allFiles.length }))}</span></button>`);
+    // Cleanup: only the older backup copies (never the newest of any kind, never the original
+    // audio), always to TRASH — recoverable for 30 days. The menu computes the exact set so the
+    // confirm can honestly say how many.
+    const dead = cleanupCandidates(allFiles);
+    if (dead.length) {
+      wrap._cleanupIds = dead.map((f) => f.id);
+      tailRows.push(`<button class="rp-dl-item rp-dl-all rp-dl-clean" data-cleanup data-n="${dead.length}">
+        <span class="rp-dl-name">${esc(t('panel.dl.cleanup'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.cleanupSub', { n: dead.length }))}</span></button>`);
+    }
   }
   const rows = [...audioRows, ...fileRows, ...tailRows];
   menu.innerHTML = `<span class="rp-dl-head">${esc(t('panel.dl.title'))}</span>`
@@ -1023,6 +1078,42 @@ function wireDownloadMenus(scope) {
     document.addEventListener('click', (e) => {
       const z = e.target.closest && e.target.closest('[data-zipall]');
       if (z) { e.preventDefault(); e.stopPropagation(); downloadAllZip(z); return; }
+      const cl = e.target.closest && e.target.closest('[data-cleanup]');
+      if (cl) {
+        e.preventDefault(); e.stopPropagation();
+        const wrap2 = cl.closest('.rp-dl');
+        const ids = (wrap2 && wrap2._cleanupIds) || [];
+        if (!ids.length) return;
+        if (!confirm(t('panel.dl.cleanupConfirm', { n: ids.length }))) return;
+        Researcher.trashFiles(ids, 'backup cleanup').then((r) => {
+          deps.toast(t('panel.dl.cleanupDone', { n: r.trashed }), 6000);
+          if (wrap2) { wrap2.dataset.loaded = ''; populateFilesMenu(wrap2); }   // menu refreshes to the post-cleanup truth
+        }).catch(() => deps.toast(t('panel.dl.zipFailed'), 5000));
+        return;
+      }
+      const hc = e.target.closest && e.target.closest('[data-histclean]');
+      if (hc) {
+        e.preventDefault(); e.stopPropagation();
+        (async () => {
+          // Find every folder the bridged identities own, then confirm with the ADVISORY (Seth):
+          // download first, and the removal follows the folder ID wherever it now lives — if the
+          // folder was MOVED elsewhere in Drive, THAT folder is what goes to trash. Copy or
+          // download; never move.
+          const bridge = bridgedIds(hc.dataset.id, hc.dataset.title);
+          const folderIds = [];
+          for (const id of bridge.ids) {
+            try { const r = await Researcher.listTextFiles(hc.dataset.i, id); if (r.folderId) folderIds.push(r.folderId); }
+            catch { /* a missing folder is simply not removable */ }
+          }
+          if (!folderIds.length) { deps.toast(t('panel.hist.noFolder'), 5000); return; }
+          if (!confirm(t('panel.hist.removeFolderConfirm', { title: hc.dataset.title || '?' }))) return;
+          try {
+            const r = await Researcher.trashFiles(folderIds, 'deleted-text folder removal');
+            deps.toast(t('panel.hist.folderRemoved', { n: r.trashed }), 6000);
+          } catch { deps.toast(t('panel.dl.zipFailed'), 5000); }
+        })();
+        return;
+      }
       const df = e.target.closest && e.target.closest('[data-drivefile]');
       if (df) {
         e.preventDefault(); e.stopPropagation();
@@ -1148,15 +1239,24 @@ async function renderInstanceCard(it, deviceCount) {
           ? (queued ? cancelBtn('Upload') : takenTag)
           : ` <button class="link-btn rp-up" data-iact="upload" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-fileid="${esc(d.uploadedFileId || '')}">${esc(t(label))}</button>`;
         // Upload-first remote delete (v94+): the device uploads a fresh timestamped copy, THEN deletes.
+        const mv = pendingMoves.get(d.id);
+        const moveChip = mv ? ` <span class="rp-tag rp-tag-moving">${esc(t(mv.stage === 'assigned' ? 'panel.move.waitingDest' : 'panel.move.removingSrc'))}</span>` : '';
+        const moveBtn = (!d.id || mv || (p && p.kind === 'delete')) ? ''
+          : ` <button class="link-btn" data-iact="move-text" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.move.btn'))}</button>`;
         const del = !d.id ? ''
           : (p && p.kind === 'delete')
             ? (queued ? cancelBtn('Delete') : takenTag)
             : canDelText
               ? ` <button class="link-btn rp-revoke" data-iact="del-text" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.inst.delText'))}</button>`
               : ` <button class="link-btn rp-revoke" disabled title="${esc(t('panel.inst.delNeedsUpdate'))}">${esc(t('panel.inst.delText'))}</button>`;
+        // The done tag is a TOGGLE when the engine understands setDone (v100+): the researcher can
+        // flip finished-state from here. Older engines keep the inert tag.
+        const canSetDone = engNum >= 100;
         const doneTag = d.done
-          ? `<span class="rp-tag rp-tag-done">${esc(t('panel.inst.doneTag'))}</span>`
-          : (doneOn ? `<span class="rp-tag rp-tag-notdone">${esc(t('panel.inst.notDoneTag'))}</span>` : '');
+          ? (canSetDone ? `<button class="rp-tag rp-tag-done rp-tag-btn" data-iact="toggle-done" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-done="1" title="${esc(t('panel.inst.toggleDoneTip'))}">${esc(t('panel.inst.doneTag'))}</button>`
+                        : `<span class="rp-tag rp-tag-done">${esc(t('panel.inst.doneTag'))}</span>`)
+          : (doneOn ? (canSetDone ? `<button class="rp-tag rp-tag-notdone rp-tag-btn" data-iact="toggle-done" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-done="" title="${esc(t('panel.inst.toggleDoneTip'))}">${esc(t('panel.inst.notDoneTag'))}</button>`
+                                  : `<span class="rp-tag rp-tag-notdone">${esc(t('panel.inst.notDoneTag'))}</span>`) : '');
         // Delete triggered (by device flag OR this researcher's just-clicked request) but not yet
         // confirmed → strike through + fade the whole row, and add a small "deleting…" tag.
         const deleting = !!d.pendingDelete || !!(p && p.kind === 'delete');
@@ -1178,7 +1278,7 @@ async function renderInstanceCard(it, deviceCount) {
             <div class="rp-text-title">${esc(d.title || d.titleHash || '?')} <span class="rp-tag rp-tag-${DISP}">${esc(t('panel.up.' + DISP))}</span>${delTag}</div>
             <div class="note rp-text-meta">${d.hasAudio ? esc(t('panel.inst.audio')) : ''}${doneTag ? (d.hasAudio ? ' · ' : '') + doneTag : ''}</div>
           </div>
-          <div class="rp-text-actions">${dl}${up}${del}</div>
+          <div class="rp-text-actions">${dl}${up}${moveBtn}${del}</div>
         </li>`;
       }).join('')
         : `<li class="note">${esc(t('panel.inst.noTexts'))}</li>`;
@@ -1352,6 +1452,12 @@ async function instanceAction(el) {
         deps.toast(t(/already_delivered|409/.test(String(e && e.message)) ? 'panel.inst.cancelTooLate' : 'panel.inst.cancelFailed'), 7000);
       }
       renderDashboard();   // refetch: ack_seq has moved, so the row must re-derive its true state
+    } else if (act === 'move-text') {
+      moveTextModal(id, el.dataset.id, el.dataset.title || '');
+    } else if (act === 'toggle-done') {
+      const want = !el.dataset.done;
+      await busy(el, () => Researcher.setDone(id, el.dataset.id, want));
+      deps.toast(t(want ? 'panel.move.doneSent' : 'panel.move.notDoneSent'), 4000);
     } else if (act === 'settings') {
       lastView = await Researcher.listView();
       const inst = lastView.instances.find((x) => x.instance_id === id);
@@ -1900,7 +2006,7 @@ function adminModal() {
     catch (e) { box.innerHTML = `<p class="note rp-adm-err">${esc(String(e.message || e))}</p>`; return; }
     if (!rows.length) { box.innerHTML = `<p class="note">${esc(t(unavailable ? 'panel.admin.logUnavailable' : 'panel.admin.logEmpty'))}</p>`; return; }
     const KINDS = ['account_signup', 'account_auto_approved', 'account_approved', 'account_declined',
-                   'domain_added', 'domain_removed'];
+                   'domain_added', 'domain_removed', 'files_trashed', 'text_moved'];
     box.innerHTML = `<ul class="rp-adm-ul rp-adm-logul">${rows.map((r) => {
       // SECURITY: kind lands in a class attribute; allow-list it. subject/detail/actor are esc()'d.
       const k = KINDS.includes(r.kind) ? r.kind : 'account_signup';
@@ -1985,6 +2091,64 @@ function adminModal() {
   refreshLog();
 }
 
+/* Move a text to another device. The Worker re-homes the Drive folder and mints authed streaming
+ * URLs; we assign to the destination with the SAME docId (v137 identity — the folder tag already
+ * follows), then the render sweep completes the handoff automatically once the destination reports
+ * the doc. Upload-first remove at the source means the final copy is in the text's folder before
+ * anything is deleted — the same safety order as remote delete. */
+function moveTextModal(fromId, docId, title) {
+  const insts = ((lastData && lastData.instances) || []).filter((x) => x.instance_id !== fromId);
+  if (!insts.length) { deps.toast(t('panel.move.noOther'), 5000); return; }
+  const m = modal(`
+    <h3>${esc(t('panel.move.title', { title }))}</h3>
+    <p class="note">${esc(t('panel.move.intro'))}</p>
+    ${insts.map((x, i) => `<label class="rp-field rp-move-opt"><input type="radio" name="rp-move-to" value="${esc(x.instance_id)}" ${i === 0 ? 'checked' : ''}> <span>${esc(x.nickname || '?')}</span></label>`).join('')}
+    <button class="primary-btn" data-m="go">${esc(t('panel.move.go'))}</button>
+    <button class="link-btn" data-m="cancel">${esc(t('panel.assign.cancel'))}</button>
+    <div class="rp-adm-say" id="rp-move-say" hidden></div>`);
+  m.el.querySelector('[data-m="cancel"]').onclick = m.close;
+  m.el.querySelector('[data-m="go"]').addEventListener('click', async (e) => {
+    const to = (m.el.querySelector('input[name="rp-move-to"]:checked') || {}).value;
+    if (!to) return;
+    const say = m.el.querySelector('#rp-move-say');
+    try {
+      e.target.disabled = true;
+      // What content can the destination be given? Newest bare flextext wins; else the newest
+      // bundle zip (the Worker extracts the .flextext from our STORE-only zips); audio is the
+      // original copy if the folder has one, else the newest recording.
+      const bridge = bridgedIds(docId, title);
+      let all = [];
+      for (const id of bridge.ids) {
+        try { all = all.concat((await Researcher.listTextFiles(fromId, id)).files || []); } catch { /* partial */ }
+      }
+      all.sort((a, b) => String(b.modified).localeCompare(String(a.modified)));
+      const latest = latestPerKind(all);
+      const pick = (k) => (latest.find((f) => f.kind === k) || {}).id || null;
+      const fields = { to, flextextFileId: pick('flextext'), extractFromZipId: pick('bundle'),
+                       audioFileId: pick('audio-original') || pick('audio') };
+      const r = await Researcher.moveText(fromId, docId, fields);
+      const assignFields = { title };
+      if (r.audioUrl) assignFields.audioUrl = r.audioUrl;
+      if (r.flextextUrl) assignFields.flextextUrl = r.flextextUrl;
+      if (!assignFields.audioUrl && !assignFields.flextextUrl) {
+        // The device only materializes an assignment that carries a resource — with nothing to
+        // stream, the move cannot deliver content and must say so instead of half-happening.
+        say.hidden = false; say.className = 'rp-adm-say rp-adm-err'; say.textContent = t('panel.move.nothingToMove');
+        e.target.disabled = false; return;
+      }
+      await Researcher.assign(to, docId, assignFields);
+      const toName = (insts.find((x) => x.instance_id === to) || {}).nickname || '?';
+      recordEvents(Researcher.currentAccountId(), [assignedEvent({ instanceId: to, device: toName, docId, title,
+        audioUrl: assignFields.audioUrl || '', flextextUrl: assignFields.flextextUrl || '' })]);
+      pendingMoves.set(docId, { from: fromId, to, title, at: Date.now(), stage: 'assigned' });
+      saveMoves(Researcher.currentAccountId());
+      m.close();
+      deps.toast(t('panel.move.sent', { device: toName }), 6000);
+      renderDashboard();
+    } catch (err) { say.hidden = false; say.className = 'rp-adm-say rp-adm-err'; say.textContent = String(err.message || err); e.target.disabled = false; }
+  });
+}
+
 /* ---------------- History: the back-log of texts that USED to be on a device ----------------
  * Deliberately a modal rather than a section of the dashboard: the dashboard answers "what is on
  * my devices right now", and mixing in a growing list of things that are gone would bury it. See
@@ -2024,6 +2188,7 @@ function historyModal() {
         <div class="note rp-hist-meta">${esc(histWhen(e.at))}${e.device ? ' · ' + esc(e.device) : ''}${esc(by)}</div>
         <div class="rp-hist-links">
           ${e.instanceId && e.docId ? filesMenuHtml(e.instanceId, e.docId, e.title || '', e.audioUrl, e.fileId) : ''}
+          ${kind === 'deleted' && e.instanceId && e.docId ? `<button class="link-btn rp-revoke rp-histclean" data-histclean data-i="${esc(e.instanceId)}" data-id="${esc(e.docId)}" data-title="${esc(e.title || '')}">${esc(t('panel.hist.removeFolder'))}</button>` : ''}
           ${audio && !(e.instanceId && e.docId) ? `<a href="${esc(audio)}" target="_blank" rel="noopener noreferrer">${esc(t('panel.hist.audioLink'))}</a>` : ''}
           ${up && !(e.instanceId && e.docId) ? `<a href="${esc(up)}" target="_blank" rel="noopener noreferrer">${esc(t('panel.hist.uploadLink'))}</a>` : ''}
         </div>

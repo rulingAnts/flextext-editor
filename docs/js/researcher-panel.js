@@ -21,7 +21,8 @@ import { probeAudioUrl, fetchFileViaUrl } from './audio.js';
 import { convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
 import WaveSurfer from './vendor/wavesurfer.esm.js';
 import * as db from './db.js';
-import { observeView, recordEvents, loadHistory, clearHistory, assignedEvent, driveLink, recordingSince, HISTORY_KINDS } from './history.js';
+import { observeView, recordEvents, loadHistory, clearHistory, assignedEvent, driveLink, driveIdFrom, recordingSince, HISTORY_KINDS } from './history.js';
+import { makeZip } from './zip.js';
 import { resolveArtifacts, emptyReason } from './artifacts.js';
 
 // Byte-size formatter for assign-validation verdicts (mirrors app.js sizeFmt; that one is not exported).
@@ -804,15 +805,121 @@ function openDlMenu(wrap) {
   wrap.classList.add('is-open');
   openDl = wrap;
 }
-function wireDownloadMenus() {
+/* The Files ▾ control, renderable ANYWHERE a text appears (device rows, History entries). The menu
+ * body is a placeholder that populates from the text's Drive FOLDER on first open — the folder is
+ * the source of truth for what artifacts exist, so History entries show the same live menu the
+ * device row does instead of a snapshot frozen at event time. */
+function filesMenuHtml(instanceId, docId, title) {
+  if (!docId) return '';
+  return `<span class="rp-dl" data-fmenu data-i="${esc(instanceId)}" data-id="${esc(docId)}" data-title="${esc(title || '')}">
+    <button class="link-btn rp-dl-btn" aria-haspopup="true" aria-expanded="false">${esc(t('panel.dl.btn'))} <span class="rp-dl-caret" aria-hidden="true">▾</span></button>
+    <span class="rp-dl-menu" hidden role="menu"><span class="rp-dl-head">${esc(t('panel.dl.title'))}</span>
+      <span class="note rp-dl-loading">${esc(t('panel.dl.loading'))}</span></span></span>`;
+}
+
+// Newest file per KIND (classified by extension), so the menu never shows the backup-copy pileup.
+// The folder listing arrives newest-first, so "first seen wins" IS "most recent per kind".
+const EXT_KIND = [
+  [/\.saymore\.eaf$/i, 'eaf-saymore'], [/\.eaf$/i, 'eaf-flex'], [/\.flextext$/i, 'flextext'],
+  [/\.zip$/i, 'bundle'], [/derived[^.]*\.wav$/i, 'wav-derived'],
+  [/\.(wav|mp3|opus|ogg|webm|flac|m4a|aac)$/i, 'audio'],
+];
+function latestPerKind(files) {
+  const seen = new Set(); const out = [];
+  for (const f of files || []) {
+    const kind = (EXT_KIND.find(([re]) => re.test(f.name || '')) || [null, 'other'])[1];
+    const key = kind === 'other' ? 'other:' + f.name : kind;   // unknown kinds keep every distinct name
+    if (seen.has(key)) continue;
+    seen.add(key); out.push({ ...f, kind });
+  }
+  return out;
+}
+
+async function populateFilesMenu(wrap) {
+  if (wrap.dataset.loaded) return;
+  wrap.dataset.loaded = '1';
+  const menu = wrap.querySelector('.rp-dl-menu');
+  const iid = wrap.dataset.i, docId = wrap.dataset.id, title = wrap.dataset.title || 'text';
+  const assigned = assignedFor(docId);
+  let files = [];
+  try { files = latestPerKind((await Researcher.listTextFiles(iid, docId)).files); }
+  catch { /* listing failed → fall through to the static fallback */ }
+  const rows = [];
+  const audioUrl = assigned && /^https?:\/\//i.test(assigned.audioUrl || '') ? assigned.audioUrl : '';
+  if (audioUrl) {
+    const gid = driveIdFrom(audioUrl);
+    rows.push(`<a class="rp-dl-item" role="menuitem" href="${esc(gid ? driveLink(gid) : audioUrl)}" target="_blank" rel="noopener noreferrer">
+      <span class="rp-dl-name">${esc(t('panel.dl.audio'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.audioSub'))}</span></a>`);
+  }
+  for (const f of files) {
+    const label = f.kind === 'other' ? f.name : t({ 'audio': 'panel.dl.audioUpload', 'flextext': 'panel.dl.flextext', 'bundle': 'panel.dl.bundle',
+      'eaf-flex': 'panel.dl.eafFlex', 'eaf-saymore': 'panel.dl.eafSaymore', 'wav-derived': 'panel.dl.wavDerived' }[f.kind]);
+    rows.push(`<a class="rp-dl-item" role="menuitem" data-drivefile="${esc(f.id)}" data-fname="${esc(f.name)}" href="#">
+      <span class="rp-dl-name">${esc(label)}</span><span class="rp-dl-sub">${esc(f.name)}${f.size ? ' · ' + esc(fmtSize(f.size)) : ''}</span></a>`);
+  }
+  if (!files.length && !audioUrl) {
+    // No folder yet — old text, or nothing uploaded. Fall back to the static per-report artifacts.
+    const item = findInventoryItem(iid, docId);
+    for (const f of resolveArtifacts(item, assigned)) {
+      rows.push(`<a class="rp-dl-item" role="menuitem" href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">
+        <span class="rp-dl-name">${esc(t(f.labelKey))}</span><span class="rp-dl-sub">${esc(t(f.labelKey + 'Sub'))}</span></a>`);
+    }
+  }
+  if (files.length) {
+    rows.push(`<button class="rp-dl-item rp-dl-all" data-zipall data-i="${esc(iid)}" data-id="${esc(docId)}" data-title="${esc(title)}">
+      <span class="rp-dl-name">${esc(t('panel.dl.all'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.allSub', { n: files.length }))}</span></button>`);
+  }
+  menu.innerHTML = `<span class="rp-dl-head">${esc(t('panel.dl.title'))}</span>`
+    + (rows.length ? rows.join('') : `<span class="note rp-dl-loading">${esc(t('panel.dl.noneYet'))}</span>`);
+}
+
+// The current inventory item for a doc, for the static fallback path.
+function findInventoryItem(instanceId, docId) {
+  for (const it of (lastData && lastData.instances) || []) {
+    if (it.instance_id !== instanceId) continue;
+    for (const ins of it.installs || []) {
+      const items = ins.inventory && Array.isArray(ins.inventory.items) ? ins.inventory.items : [];
+      const d = items.find((x) => x && x.id === docId);
+      if (d) return d;
+    }
+  }
+  return null;
+}
+
+/* Download-everything-as-one-ZIP: every byte routes through the Worker with the RESEARCHER'S own
+ * token and connection — this control must never exist on a field device. Built client-side because
+ * Drive has no "folder as zip" URL. */
+async function downloadAllZip(btn) {
+  const iid = btn.dataset.i, docId = btn.dataset.id;
+  const title = (btn.dataset.title || 'text').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80);
+  const nameEl = btn.querySelector('.rp-dl-name');
+  const orig = nameEl.textContent;
+  try {
+    btn.disabled = true; nameEl.textContent = t('panel.dl.zipBuilding');
+    const { files } = await Researcher.listTextFiles(iid, docId);
+    const latest = latestPerKind(files);
+    const entries = [];
+    for (const f of latest) entries.push({ name: f.name, data: await Researcher.fetchDriveFile(f.id) });
+    if (!entries.length) throw new Error('empty');
+    const blob = await makeZip(entries);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = title + '.zip';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+    nameEl.textContent = orig;
+  } catch { nameEl.textContent = t('panel.dl.zipFailed'); }
+  finally { btn.disabled = false; }
+}
+
+function wireDownloadMenus(scope) {
   const hoverable = window.matchMedia && window.matchMedia('(hover: hover)').matches;
-  root.querySelectorAll('.rp-dl').forEach((wrap) => {
+  (scope || root).querySelectorAll('.rp-dl').forEach((wrap) => {
     wrap.querySelector('.rp-dl-btn').addEventListener('click', (e) => {
       e.stopPropagation();
-      openDl === wrap ? closeDlMenu() : openDlMenu(wrap);
+      if (openDl === wrap) closeDlMenu(); else { openDlMenu(wrap); populateFilesMenu(wrap); }
     });
     if (hoverable) {
-      wrap.addEventListener('mouseenter', () => openDlMenu(wrap));
+      wrap.addEventListener('mouseenter', () => { openDlMenu(wrap); populateFilesMenu(wrap); });
       wrap.addEventListener('mouseleave', () => {
         if (dlCloseTimer) clearTimeout(dlCloseTimer);
         dlCloseTimer = setTimeout(closeDlMenu, 350);   // survive the gap between button and menu
@@ -821,7 +928,25 @@ function wireDownloadMenus() {
   });
   if (!wireDownloadMenus.global) {   // document listeners attach ONCE, not per render
     wireDownloadMenus.global = true;
-    document.addEventListener('click', () => closeDlMenu());
+    document.addEventListener('click', (e) => {
+      const z = e.target.closest && e.target.closest('[data-zipall]');
+      if (z) { e.preventDefault(); e.stopPropagation(); downloadAllZip(z); return; }
+      const df = e.target.closest && e.target.closest('[data-drivefile]');
+      if (df) {
+        e.preventDefault(); e.stopPropagation();
+        // Single-file download through the Worker (same auth as the ZIP; a plain drive URL would
+        // work for the owner, but this behaves identically signed in or not, and never leaves a
+        // preview page).
+        Researcher.fetchDriveFile(df.dataset.drivefile).then((blob) => {
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob); a.download = df.dataset.fname || 'file';
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+        }).catch(() => deps.toast(t('panel.dl.zipFailed'), 5000));
+        return;
+      }
+      closeDlMenu();
+    });
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDlMenu(); }, true);
   }
 }
@@ -948,17 +1073,21 @@ async function renderInstanceCard(it, deviceCount) {
         // filename — two .eaf exports are near-impossible to tell apart by name. The assigned-audio
         // URL comes from the History log, the only place it is retained (the device reports what it
         // UPLOADED, never what it was given).
-        const files = resolveArtifacts(d, assignedFor(d.id));
-        const dl = files.length ? `<span class="rp-dl">
-          <button class="link-btn rp-dl-btn" aria-haspopup="true" aria-expanded="false">${esc(t('panel.dl.btn'))} <span class="rp-dl-caret" aria-hidden="true">▾</span></button>
-          <span class="rp-dl-menu" hidden role="menu">
-            <span class="rp-dl-head">${esc(t('panel.dl.title'))}</span>
-            ${files.map((f) => `<a class="rp-dl-item" role="menuitem" href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">
-              <span class="rp-dl-name">${esc(t(f.labelKey))}</span>
-              <span class="rp-dl-sub">${esc(t(f.labelKey + 'Sub'))}${f.inferred ? ' · ' + esc(t('panel.dl.inferred')) : ''}</span>
-            </a>`).join('')}
-          </span></span>` : '';
-        return `<li class="${deleting ? 'rp-pending-del' : ''}">${esc(d.title || d.titleHash || '?')} ${d.hasAudio ? `<span class="rp-tag">${esc(t('panel.inst.audio'))}</span>` : ''}${doneTag}${delTag}<span class="rp-tag rp-tag-${DISP}">${esc(t('panel.up.' + DISP))}</span>${dl}${up}${del}</li>`;
+        // Files ▾ renders for EVERY text; the menu populates lazily from the text's Drive folder
+        // when opened (filesMenuHtml), falling back to the static artifacts when there is no
+        // folder yet. Rendering it unconditionally is the point of the per-text folder: the menu
+        // is now the one place all of a text's artifacts live.
+        const dl = filesMenuHtml(it.instance_id, d.id, d.title || '');
+        // (5) The row reads in two lines: title + state chip, then muted metadata; actions sit on
+        // the right. The tags stopped fighting the title for attention — that was Seth's "plain
+        // line of text with plain hyperlinks is getting busy and ugly".
+        return `<li class="rp-text-row ${deleting ? 'rp-pending-del' : ''}">
+          <div class="rp-text-main">
+            <div class="rp-text-title">${esc(d.title || d.titleHash || '?')} <span class="rp-tag rp-tag-${DISP}">${esc(t('panel.up.' + DISP))}</span>${delTag}</div>
+            <div class="note rp-text-meta">${d.hasAudio ? esc(t('panel.inst.audio')) : ''}${doneTag ? (d.hasAudio ? ' · ' : '') + doneTag : ''}</div>
+          </div>
+          <div class="rp-text-actions">${dl}${up}${del}</div>
+        </li>`;
       }).join('')
         : `<li class="note">${esc(t('panel.inst.noTexts'))}</li>`;
       installsHtml += `<div class="rp-install">
@@ -1299,6 +1428,15 @@ function assignModal(instanceId) {
       recordEvents(Researcher.currentAccountId(), [assignedEvent({
         instanceId, device: (inst && inst.nickname) || '', docId, title, audioUrl, flextextUrl,
       })]);
+      // Best-effort SERVER-side copy of the assigned audio into the text's new Drive folder —
+      // fire-and-forget by design: the assignment has already succeeded, the Worker streams the
+      // public file with the researcher's own token (zero coworker bandwidth), and a failure costs
+      // only the convenience copy. Deliberately NOT awaited: a big recording can take a while and
+      // the modal must not hang on it.
+      if (audioUrl && driveIdFrom(audioUrl)) {
+        Researcher.assignCopy(instanceId, docId, title, audioUrl)
+          .catch(() => console.warn('assign-copy failed (assignment itself succeeded)'));
+      }
       m.close(); deps.toast(t('panel.assign.sent'), 4000);
     }
     catch (err) { errToast(err); }
@@ -1792,10 +1930,11 @@ function historyModal() {
           <span class="rp-hist-title">${esc(e.title || t('panel.hist.untitled'))}</span>
         </div>
         <div class="note rp-hist-meta">${esc(histWhen(e.at))}${e.device ? ' · ' + esc(e.device) : ''}${esc(by)}</div>
-        ${(audio || up) ? `<div class="rp-hist-links">
-          ${audio ? `<a href="${esc(audio)}" target="_blank" rel="noopener noreferrer">${esc(t('panel.hist.audioLink'))}</a>` : ''}
-          ${up ? `<a href="${esc(up)}" target="_blank" rel="noopener noreferrer">${esc(t('panel.hist.uploadLink'))}</a>` : ''}
-        </div>` : ''}
+        <div class="rp-hist-links">
+          ${e.instanceId && e.docId ? filesMenuHtml(e.instanceId, e.docId, e.title || '') : ''}
+          ${audio && !(e.instanceId && e.docId) ? `<a href="${esc(audio)}" target="_blank" rel="noopener noreferrer">${esc(t('panel.hist.audioLink'))}</a>` : ''}
+          ${up && !(e.instanceId && e.docId) ? `<a href="${esc(up)}" target="_blank" rel="noopener noreferrer">${esc(t('panel.hist.uploadLink'))}</a>` : ''}
+        </div>
       </li>`;
     }).join('')}</ul>`;
   };
@@ -1822,7 +1961,8 @@ function historyModal() {
     <button class="link-btn rp-danger" data-m="clear">${esc(t('panel.hist.clear'))}</button>
     <button class="link-btn" data-m="close">${esc(t('panel.util.close'))}</button>`, true);
 
-  const repaint = () => { m.el.querySelector('#rp-hist-list').innerHTML = rowsHtml(); };
+  const repaint = () => { m.el.querySelector('#rp-hist-list').innerHTML = rowsHtml(); wireDownloadMenus(m.el); };
+  wireDownloadMenus(m.el);
   m.el.querySelectorAll('[data-f]').forEach((b) => b.addEventListener('click', () => {
     filter = b.dataset.f;
     m.el.querySelectorAll('[data-f]').forEach((x) => x.classList.toggle('is-on', x === b));

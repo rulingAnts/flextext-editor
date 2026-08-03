@@ -2962,6 +2962,11 @@ async function uploadDocById(docId) {
     total: bundle.blob.size, sent: 0,
     docModified: rec.modified,
     docDone: !!rec.done,   // auto-delete fires only for FINISHED texts
+    // Text identity for the per-text Drive folder ("FlexText Uploads / <device> / <title>").
+    // The WORKER resolves the folder from docId (rename-proof appProperties tag); the title is
+    // display-only at folder creation. Legacy queued records lack both → device-folder root,
+    // exactly the old behaviour.
+    docTitle: rec.title || '',
   });
   uploadView.set(docId, { name: bundle.filename, status: 'waiting' });
   renderUploadQueue();

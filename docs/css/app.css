@@ -1000,6 +1000,31 @@ main {
 .rp-adm-ok { background: #e3f3e4; color: #1f5d22; }
 .rp-adm-err { background: #fdecea; color: #9b2c22; }
 
+/* (5) The text row, restructured: title + state chip on line one, muted metadata on line two,
+   actions grouped on the right. Replaces the single crowded line of text + inline hyperlinks. */
+.rp-text-row { display: flex; align-items: flex-start; gap: 10px; padding: 8px 2px;
+               border-bottom: 1px solid var(--border); }
+.rp-inv .rp-text-row:last-child { border-bottom: none; }
+.rp-text-main { flex: 1 1 auto; min-width: 0; }
+.rp-text-title { font-weight: 600; overflow-wrap: anywhere; }
+.rp-text-title .rp-tag { margin-left: 6px; }
+.rp-text-meta { margin-top: 1px; }
+.rp-text-meta:empty { display: none; }
+.rp-text-actions { flex: none; display: flex; align-items: center; gap: 2px; white-space: nowrap; }
+.rp-text-actions .link-btn { padding: 6px 7px; }
+/* The pending-delete strikethrough hits the TITLE, not the action buttons — a struck-through
+   "Cancel removal" would read as disabled, which is the opposite of what it is. */
+.rp-pending-del .rp-text-title { text-decoration: line-through; }
+.rp-pending-del .rp-text-actions { text-decoration: none; opacity: 1; }
+/* The download-all entry is a <button> restyled to sit in the menu like the links above it. */
+.rp-dl-all { appearance: none; border: none; background: none; width: 100%; text-align: left;
+             font: inherit; cursor: pointer; border-top: 1px solid var(--border); margin-top: 4px;
+             padding-top: 10px; }
+.rp-dl-all:disabled { opacity: .6; cursor: wait; }
+.rp-dl-loading { display: block; padding: 6px 8px; }
+/* History rows carry the same Files control; give it breathing room under the meta line. */
+.rp-hist-links .rp-dl { display: inline-block; }
+
 /* Downloads dropdown on a text row. Anchored to the row, floating above it — the inventory list is
    dense, so an inline expansion would shove every following row down on hover. */
 .rp-dl { position: relative; display: inline-block; }

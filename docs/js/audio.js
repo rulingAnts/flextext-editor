@@ -765,6 +765,26 @@ export class Player {
    * The stop watcher is stored on the instance and cleared by any new call, pause, or destroy, so
    * overlapping span plays can never leave two watchers fighting over the transport.
    */
+  /** Park the playhead at an absolute position WITHOUT changing play/pause state — strip
+   * click-to-position and scrubbing. If a span watcher is active it is cleared: a manual seek is
+   * the user taking the transport, and a stale boundary must not pause them later. */
+  seekMs(ms) {
+    if (!this.ws || !Number.isFinite(ms)) return;
+    this.clearSpan();
+    try { this.ws.setTime(Math.max(0, ms) / 1000); } catch { /* not ready */ }
+  }
+
+  /** Is audio actually rolling right now? The strip buttons render play/pause from this. */
+  playing() { try { return !!(this.ws && this.ws.isPlaying()); } catch { return false; } }
+
+  /** Pause IN PLACE — the playhead stays exactly where it is, which is the whole point: the user
+   * parks it, then presses Enter to break the segment there. clearSpan so a stale span watcher
+   * cannot later pause a resumed continuous play at an old boundary. */
+  pause() {
+    try { this.ws && this.ws.pause(); } catch { /* noop */ }
+    this.clearSpan();
+  }
+
   playSpan(startMs, endMs) {
     if (!this.ws || !Number.isFinite(startMs)) return;
     this.clearSpan();

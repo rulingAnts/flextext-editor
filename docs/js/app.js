@@ -18,6 +18,7 @@ import { losslessSupported, recFormatSupported, PCMRecorder, encodeWav, encodeRe
          normRecFormat, REC_FORMATS, DEFAULT_REC_FORMAT, pcmRamBudgetBytes, pcmCapStatus } from './record-pcm.js';
 import { makeZip } from './zip.js';
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay, startGlossTicker, stopGlossTicker } from './segment-strips.js';
+import { mergeSegments } from './segments.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget } from './upload.js';
 import * as Sync from './sync.js';
 import { initResearcherPanel } from './researcher-panel.js';
@@ -508,8 +509,38 @@ function decorateGlossSegments() {
     wireSegPlay(btn, seg, () => player);
     drawSpanWave(wave, seg);
     entries.push({ btn, seg });
+    // JOIN control between this line and the next (Seth) — sits in the margin between the play
+    // buttons. Same model operation as baseline Backspace-merge: glue-space text join +
+    // mergeSegments, so the tabs can never disagree.
+    if (i < groups.length - 1) {
+      const join = document.createElement('button');
+      join.className = 'gseg-join';
+      join.textContent = '⤙⤚';
+      join.title = t('seg.joinTip');
+      join.addEventListener('click', () => glossJoinLines(i));
+      g.appendChild(join);
+    }
   });
   startGlossTicker(entries, () => player, t);
+}
+
+/* Join gloss line i with i+1 through the SAME model rules as the baseline merge: texts join with a
+ * glue space (never mashed into one orthographic word), spans join via mergeSegments, and both
+ * tabs re-render from the one doc. */
+function glossJoinLines(i) {
+  if (!current) return;
+  const doc = current.doc;
+  const paras = getBaselineParagraphs(doc).slice();
+  if (i < 0 || i + 1 >= paras.length) return;
+  const left = paras[i] ?? '', right = paras[i + 1] ?? '';
+  const glue = left && right && !/\s$/.test(left) && !/^\s/.test(right) ? ' ' : '';
+  paras.splice(i, 2, left + glue + right);
+  doc.segments = mergeSegments(docSegments(doc), i, {});
+  reconcileBaseline(doc, paras.length ? paras : [''], { flatSegments: true });
+  schedulePersist();
+  stopGlossTicker();
+  renderGloss();
+  decorateGlossSegments();
 }
 
 function switchTab(tab) {
@@ -538,9 +569,8 @@ function switchTab(tab) {
         t,
       });
       (async () => {
-        const media = current ? await db.getMedia(current.id).catch(() => null) : null;
-        // One timeline: prefer the player's own decoded data; fall back to decoding the blob, and
-        // upgrade to the player's copy on the next render once it has decoded.
+        let media = current ? await db.getMedia(current.id).catch(() => null) : null;
+        media = await segWorkingMedia(current && current.id, media);   // same WAV the player uses
         await ensurePeaks(current && current.id, media && media.blob, player && player.decodedBuffer && player.decodedBuffer());
         renderStrips();
       })();
@@ -561,7 +591,8 @@ function switchTab(tab) {
     refreshPlayer();
     if (segmentationEnabled()) {
       (async () => {
-        const media = current ? await db.getMedia(current.id).catch(() => null) : null;
+        let media = current ? await db.getMedia(current.id).catch(() => null) : null;
+        media = await segWorkingMedia(current && current.id, media);
         await ensurePeaks(current && current.id, media && media.blob, player && player.decodedBuffer && player.decodedBuffer());
         decorateGlossSegments();
       })();
@@ -582,7 +613,11 @@ function getPlayer() {
         get error() { return t('player.error'); },
         get errorTruncated() { return t('player.errorTruncated'); },
       },
-      onPeaks: (media) => { db.putMedia(playerDocId, media).catch(() => {}); },
+      // ⚠ Write peaks back to the record's OWN storage key. Keying by playerDocId overwrote the
+      // ORIGINAL media with the derived WAV working copy when segmentation mode handed the player
+      // the derived record (caught by the originalUntouched check). The derived copy carries its
+      // key in mediaKey; an original has none and keeps the old behaviour.
+      onPeaks: (media) => { db.putMedia(media.mediaKey || playerDocId, media).catch(() => {}); },
       onRemove: async () => {
         if (!current || isAudioLocked(current)) return;
         if (!confirm(t('player.confirmRemove'))) return;
@@ -607,13 +642,47 @@ function isAudioLocked(rec) {
 }
 
 // Show/refresh the player for the current doc on the Baseline tab.
+/* Segmentation working copy (Seth): a NON-WAV source is auto-converted to WAV on load and the WAV
+ * becomes the working file for all audio annotation. WHY: compressed codecs carry encoder priming
+ * (AAC ≈ 44-48ms) and browsers disagree between decode and playback about where zero is — chop-by-
+ * ear boundaries land audibly off. PCM has no priming; with the player and the peaks both on the
+ * WAV there is ONE unambiguous timeline.
+ *
+ * HONESTY RULES (Seth): the converted file is NAMED as converted
+ * (<orig>.converted-NOT-ARCHIVAL.wav) and flagged derived:true in its media record, so exports can
+ * mark it in filename AND metadata. The ORIGINAL is never touched, replaced, or deleted — the
+ * working copy lives beside it under its own key and is a pure derivation (lossy→PCM adds no
+ * information; this is a timeline fix, not an upgrade — see audio-archival-standards).
+ */
+async function segWorkingMedia(docId, media) {
+  if (!media || !media.blob) return media;
+  const isWav = /wav$/i.test(media.mimeType || '') || /\.wav$/i.test(media.name || '');
+  if (isWav || !segmentationEnabled()) return media;
+  const key = 'segwav:' + docId;
+  const cached = await db.getMedia(key).catch(() => null);
+  if (cached && cached.blob && cached.srcName === media.name) return cached;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const buf = await ctx.decodeAudioData(await media.blob.arrayBuffer());
+    const chans = []; for (let c = 0; c < buf.numberOfChannels; c++) chans.push(buf.getChannelData(c));
+    const wavBlob = encodeWav(chans, buf.sampleRate, 16);
+    try { ctx.close(); } catch { /* noop */ }
+    const rec = { blob: wavBlob, mimeType: 'audio/wav', derived: true, srcName: media.name,
+      mediaKey: key,   // peaks writeback targets THIS record, never the original's key
+      name: String(media.name || 'audio').replace(/\.[^.]+$/, '') + '.converted-NOT-ARCHIVAL.wav' };
+    await db.putMedia(key, rec).catch(() => {});
+    return rec;
+  } catch { return media; }   // undecodable → play the original; alignment caveat stands
+}
+
 async function refreshPlayer() {
   if (!$('#audio-player')) return; // record mode has no player UI
   const p = getPlayer();
   $('#btn-attach-audio').hidden = true;
   if (!current) { p.hide(); return; }
   playerDocId = current.id;
-  const media = await db.getMedia(current.id).catch(() => null);
+  let media = await db.getMedia(current.id).catch(() => null);
+  media = await segWorkingMedia(current.id, media);   // WAV working copy in segmentation mode
   if (current.id !== playerDocId || !isEditorTab(activeTab)) return;
   p.el.remove.hidden = isAudioLocked(current);
   if (media) {

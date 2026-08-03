@@ -149,6 +149,12 @@ console.log('preview page');
   ok(html.includes('(blank line)'), 'blank line keeps its placeholder row');
   ok(html.includes('~' + fmtClock(4000)), 'estimated time marked with ~');
   ok(!/https?:\/\//.test(html.replace(/xmlns[^"]*"[^"]*"/g, '')), 'fully self-contained (no external URLs)');
+  // v2 (Seth): a read-only twin of the segmentation editor — scrubbable overview + per-line waves.
+  ok(html.includes('id="ov"'), 'v2: scrubbable full-track overview canvas present');
+  ok((html.match(/class="rw"/g) || []).length === 3, 'v2: one mini waveform per aligned row');
+  ok(html.includes('decodeAudioData'), 'v2: waves computed at load from the embedded audio');
+  ok(html.includes('wireScrub'), 'v2: scrub wiring present (overview + per-line)');
+  ok(html.includes('requestAnimationFrame'), 'v2: live playhead cursors');
 }
 
 console.log('bext (derived-WAV provenance in the bytes)');

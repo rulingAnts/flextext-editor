@@ -253,7 +253,11 @@ function v1Cors(origin, env) {
     'Cache-Control': 'no-store',
     'Vary': 'Origin',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'content-type, x-fx-researcher, x-fx-install, x-fx-secret, x-fx-invite-secret, x-fx-turnstile, x-fx-name, x-fx-mime, x-fx-upload, x-fx-range, content-range',
+    // ⚠ EVERY custom request header the CLIENT sends must be listed here, or the browser's
+    // preflight silently kills the request on EVERY origin — production included. v134 added
+    // x-fx-doc/x-fx-doctitle to uploads without extending this list, which broke all browser
+    // uploads until v142. When adding a header client-side, add it here in the same commit.
+    'Access-Control-Allow-Headers': 'content-type, x-fx-researcher, x-fx-install, x-fx-secret, x-fx-invite-secret, x-fx-turnstile, x-fx-name, x-fx-mime, x-fx-doc, x-fx-doctitle, x-fx-upload, x-fx-range, content-range',
   };
   // Reflect a known browser origin; curl/scripts send none → no ACAO needed.
   if (origin && list.includes(origin)) h['Access-Control-Allow-Origin'] = origin;

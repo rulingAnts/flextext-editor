@@ -125,7 +125,7 @@ function applyUrlSettings() {
   if (p.has('lang')) setLang(p.get('lang'));
   if (p.get('research') === 'off') localStorage.setItem(RESEARCH_HIDDEN_KEY, '1');
   if (p.get('research') === 'on') localStorage.removeItem(RESEARCH_HIDDEN_KEY);
-  const gotSettings = p.has('vern') || p.has('anal') || p.has('welcome') || p.has('btns') || p.has('editorRec') || p.has('autoDel') || p.has('recFormat') || p.has('dsp') || p.has('agc');
+  const gotSettings = p.has('vern') || p.has('anal') || p.has('welcome') || p.has('btns') || p.has('editorRec') || p.has('autoDel') || p.has('recFormat') || p.has('dsp') || p.has('agc') || p.has('segmentation');
   let settingsChanged = false;
   if (gotSettings) {
     const s = loadSettings();
@@ -176,6 +176,9 @@ function applyUrlSettings() {
     }
     // AGC mode — its own param: 'off' (default, faithful) | 'on' (auto-gain) | 'auto'.
     if (p.has('agc')) s.agc = ['on', 'off', 'auto'].includes(p.get('agc')) ? p.get('agc') : 'off';
+    // Audio Segmentation Mode (researcher opt-in, default OFF). Persisted like every other
+    // pushed setting; segmentationEnabled() also honours a live ?segmentation=1 for dev links.
+    if (p.has('segmentation')) s.segmentation = ['1', 'on'].includes(p.get('segmentation'));
     settingsChanged = JSON.stringify(s) !== before;
     saveSettings(s);
   }
@@ -2329,8 +2332,15 @@ async function tryDownloadFlextext(rec) {
 
 function applyBaseline() {
   if (!current) return;
-  if (segmentationEnabled()) return;   // strip mode edits the doc directly on every keystroke
-  const text = $('#baseline-text').value;
+  // Apply from the textarea only when the textarea IS the live editor — DOM truth, not setting
+  // truth. In strip mode the doc is edited directly on every keystroke, and during a LIVE
+  // settings flip the setting has already changed while the screen still shows the previous
+  // editor: keying this guard off segmentationEnabled() made the OFF-flip read the hidden,
+  // empty textarea and reconcile the doc's text to NOTHING (caught in v158 verification).
+  // Conversely the ON-flip must still run: the visible textarea may hold unsaved keystrokes.
+  const ta = $('#baseline-text');
+  if (!ta || ta.hidden) return;
+  const text = ta.value;
   const paras = text.split('\n').map(s => s.trim()).filter((s, i, arr) => s || arr.length === 1);
   const before = JSON.stringify(getBaselineParagraphs(current.doc));
   if (JSON.stringify(paras) === before) return;
@@ -2732,9 +2742,20 @@ function docInScope(/* d, enr */) {
 // the local cross-window live-sync, so a setting change appears immediately in every open window.
 function applyLiveSettings() {
   if (RESEARCHER_MODE) return;   // the researcher panel manages its own views
+  const segBefore = settings.segmentation === true;
   settings = loadSettings();
   if (RECORD_MODE) { renderRecordView(); renderRecordList(); }   // recorder paints its own Delete-All (gated) in renderRecordView
-  else { applyResearchVisibility(); applyAllowedButtons(); fillWsForm(); renderDocList(); applyDeleteAllButton(); applyInviteButton(); applyDoneButton(); }
+  else {
+    applyResearchVisibility(); applyAllowedButtons(); fillWsForm(); renderDocList(); applyDeleteAllButton(); applyInviteButton(); applyDoneButton();
+    // A pushed segmentation toggle takes effect LIVE if the coworker is sitting in the editor:
+    // re-enter the visible tab so strips appear/hide without a reload. Gated on the actual flag
+    // changing — a plain settings broadcast must never yank the caret mid-typing. currentView()
+    // (not activeTab) so a user on the Texts list is never pulled into the editor.
+    const v = currentView();
+    if (current && (v === 'baseline' || v === 'gloss') && (settings.segmentation === true) !== segBefore) {
+      switchTab(v);
+    }
+  }
 }
 
 // "Delete All" (full local wipe = clears storage + IndexedDB + caches + the service worker, then reloads
@@ -2936,7 +2957,8 @@ async function syncGatherInventory() {
                    'recordFormat', 'agc', 'nr', 'echo', 'norm',
                    'consentAsk', 'consentConfirm', 'consentMode', 'consentMsg', 'consentResp', 'consentAudioUrl',
                    'appLang', 'uploadFolder', 'toolbarButtons', 'sendOptions', 'autoDelUploaded', 'recordWelcome', 'deleteAllEnabled',
-                   'autoBackup', 'autoBackupMins', 'maxRecordSeconds', 'allowDelete', 'doneEnabled']) {
+                   'autoBackup', 'autoBackupMins', 'maxRecordSeconds', 'allowDelete', 'doneEnabled',
+                   'segmentation']) {
     if (settings[k] !== undefined) snap[k] = settings[k];
   }
   // ua + cachedApps let the panel show which browser/device this install is + whether its apps are

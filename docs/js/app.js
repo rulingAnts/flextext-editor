@@ -3229,7 +3229,7 @@ function updateShareButton() {
 function exportBlob() {
   if (activeTab === 'baseline' && $('#baseline-text')) applyBaseline();
   current.doc.title = ($('#doc-title')?.value.trim()) || current.title || 'Untitled';
-  const xml = serializeFlextext(current.doc, settings);
+  const xml = serializeFlextext(current.doc, settings, { segTimes: segmentationEnabled() });
   return new Blob([xml], { type: 'application/xml' });
 }
 
@@ -3356,7 +3356,9 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
 function serializeDocBlob(rec, mediaName) {
   const doc = rec.doc;
   doc.title = rec.title || doc.title || 'Untitled';
-  return new Blob([serializeFlextext(doc, settings, { mediaName })], { type: 'application/xml' });
+  // Timing emission follows the mode (Seth): basic editor → a clean classic flextext, even when
+  // the doc still carries spans from earlier segmentation work. Imported attrs round-trip either way.
+  return new Blob([serializeFlextext(doc, settings, { mediaName, segTimes: segmentationEnabled() })], { type: 'application/xml' });
 }
 
 function blobToBase64(blob) {
@@ -5185,7 +5187,7 @@ window.__flextext = { parseFlextext, serializeFlextext, reconcileBaseline, segme
 window.__app = {
   get current() { return current; },
   get settings() { return settings; },
-  exportXml() { return serializeFlextext(current.doc, settings); },
+  exportXml() { return serializeFlextext(current.doc, settings, { segTimes: segmentationEnabled() }); },
   applyBaseline,
 };
 // Dev-only queue inspection hooks — never exposed on the production host.

@@ -45,6 +45,8 @@ const SHELL = [
   // stops the whole module graph from loading.
   '/flextext-editor/js/native-audio.js',
   '/flextext-editor/js/record-pcm.js',
+  '/flextext-editor/js/segments.js',
+  '/flextext-editor/js/segment-strips.js',
   '/flextext-editor/js/history.js',
   '/flextext-editor/js/artifacts.js',
   '/flextext-editor/js/audio-capture-worklet.js',

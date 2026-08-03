@@ -28,6 +28,8 @@ const SHELL = [
   'js/researcher-panel.js',
   'js/native-audio.js',
   'js/record-pcm.js',
+  'js/segments.js',
+  'js/segment-strips.js',
   'js/history.js',
   'js/artifacts.js',
   'js/audio-capture-worklet.js',

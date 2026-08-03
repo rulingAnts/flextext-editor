@@ -249,6 +249,13 @@ main {
   background: var(--panel);
   padding: 8px 10px 6px;
   margin: 8px 0 4px;
+  /* STICKY (Seth): the overview player stays put at the top while the strip stack scrolls under
+     it, so the transport and the big-picture waveform are always reachable mid-transcription.
+     `main` is the scrolling ancestor; the shadow separates it from strips passing beneath. */
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  box-shadow: 0 3px 10px rgba(20,30,50,.08);
 }
 
 .player-wave { min-height: 72px; }

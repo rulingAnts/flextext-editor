@@ -134,7 +134,17 @@ function reconcile(doc) {
   // timePending and no boundary can ever be real.
   let repaired = false;
   if (!segs.length && peaksCache.durationMs > 0) {
-    doc.segments = [{ start: 0, end: peaksCache.durationMs }];
+    // Fresh single-line doc: one whole-file span (transcribe-from-scratch; the first Enter
+    // needs a real span to break). PRE-TRANSCRIBED multi-line doc (an imported flextext with
+    // glosses but no time alignment — Seth's case, 2026-08-03): an even division marked
+    // timeEstimated instead. Line 1 claiming the whole recording would be a FALSE alignment;
+    // estimated spans are honest (dashed), playable, and correctable with the set-boundary
+    // control — and creating them touches doc.segments only, so glosses and free translations
+    // cannot be lost by construction.
+    const D = peaksCache.durationMs, N = paras.length;
+    doc.segments = N > 1
+      ? paras.map((_, k) => ({ start: Math.round((k * D) / N), end: Math.round(((k + 1) * D) / N), timeEstimated: true }))
+      : [{ start: 0, end: D }];
     repaired = true;
   } else if (peaksCache.durationMs > 0 && segs.length && segs.every((x) => !isAligned(x))) {
     // HEAL a stuck all-pending doc (Seth's '⋯ + no waveform' screenshot): a doc opened while its
@@ -170,7 +180,8 @@ export function renderStrips() {
   paras.forEach((text, i) => {
     const seg = segs[i] || { timePending: true };
     const row = document.createElement('div');
-    row.className = 'seg-strip' + (isAligned(seg) ? '' : ' seg-pending') + (text.trim() ? '' : ' seg-empty');
+    row.className = 'seg-strip' + (isAligned(seg) ? '' : ' seg-pending') + (text.trim() ? '' : ' seg-empty')
+      + (seg.timeEstimated ? ' seg-est' : '');
     row.dataset.i = i;
 
     const play = document.createElement('button');
@@ -208,7 +219,7 @@ export function renderStrips() {
       };
       wave.addEventListener('pointerdown', (ev) => {
         ev.preventDefault();
-        wave.setPointerCapture(ev.pointerId);
+        try { wave.setPointerCapture(ev.pointerId); } catch { /* capture is drag comfort, not required */ }
         seekAt(ev);
         const move = (e2) => seekAt(e2);
         const up = () => { wave.removeEventListener('pointermove', move); wave.removeEventListener('pointerup', up); };
@@ -225,10 +236,56 @@ export function renderStrips() {
     input.addEventListener('keydown', (e) => onKey(e, i, input));
 
     row.append(play, wave, input);
+    // Estimated/pending lines get the ALIGNMENT control: park the playhead where this line
+    // really ends, tap ⇥, and the boundary moves there — re-timing without re-texting, so a
+    // pre-transcribed doc's glosses and free translations are untouchable by construction.
+    if (seg.timeEstimated || seg.timePending) {
+      const setb = document.createElement('button');
+      setb.className = 'seg-setend';
+      setb.textContent = '⇥';
+      setb.title = deps.t('seg.setEndTip');
+      setb.addEventListener('click', () => setBoundaryAt(i));
+      row.appendChild(setb);
+    }
     host.appendChild(row);
     drawStrip(wave, seg, dur);
   });
   positionCursor();
+}
+
+/* Re-TIME without re-TEXTING: set the end of line i (and the start of line i+1) to the playhead.
+ * The alignment tool for a pre-transcribed text — it writes doc.segments ONLY, so glosses and
+ * free translations can never be touched. Confirms the LEFT segment (its end was just set by
+ * ear; its start came from the previously-confirmed chain) and leaves the right one estimated
+ * until its own end is confirmed — the natural top-to-bottom listening workflow clears the
+ * dashes one line at a time. */
+function setBoundaryAt(i) {
+  const doc = deps.getDoc();
+  const segs = docSegments(doc).map((s) => ({ ...s }));
+  const t = deps.getPlayer()?.playheadMs?.();
+  const cur = segs[i], next = segs[i + 1];
+  if (!cur || typeof t !== 'number') return;
+  const start = (typeof cur.start === 'number' && !cur.timePending) ? cur.start
+    : (i > 0 && isAligned(segs[i - 1]) ? segs[i - 1].end : 0);
+  if (t <= start + 150) return;                                                        // no zero-length line
+  if (next && isAligned(next) && !next.timeEstimated && t >= next.end - 150) return;   // never swallow a CONFIRMED neighbour
+  cur.start = start;
+  cur.end = Math.round(t);
+  delete cur.timePending;
+  delete cur.timeEstimated;
+  if (next) {
+    next.start = Math.round(t);
+    if (next.timePending) {
+      delete next.timePending;
+      next.timeEstimated = true;
+      next.end = typeof next.end === 'number' ? Math.max(next.end, next.start + 500) : (peaksCache.durationMs || next.start + 1000);
+    } else if (next.end <= next.start + 150) {
+      next.end = Math.min(peaksCache.durationMs || next.start + 1000, next.start + 1000);
+    }
+  }
+  doc.segments = normalizeSegments(segs, { duration: peaksCache.durationMs || null });
+  deps.persist();
+  renderStrips();
 }
 
 function drawStrip(canvas, seg, durationMs) {

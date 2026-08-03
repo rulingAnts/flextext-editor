@@ -491,6 +491,27 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
  * for changed material, like FLEx does.
  */
 
+/* Derive segmentation-mode time spans from phrase begin/end-time-offset attributes — the
+ * flextext-NATIVE alignment carrier (ELAN interop, FLEx 7+; stored on FLEx's Segment object).
+ * This is what makes flextext the default segmentation format with no proprietary sidecar
+ * (Seth, 2026-08-03): export writes the offsets, this reads them back. One span per PARAGRAPH
+ * (the editor's line): a single-phrase paragraph takes its own offsets; a multi-phrase paragraph
+ * (e.g. merged in ELAN) takes the envelope first-begin..last-end (per-phrase detail stays
+ * preserved in seg.attrs for round-trip). Paragraphs without offsets come back timePending.
+ * Returns null when nothing in the doc carries offsets. */
+export function segmentsFromOffsets(doc) {
+  let any = false;
+  const spans = (doc.paragraphs || []).map((p) => {
+    const offs = (p.segments || [])
+      .map((s) => [parseInt(s.attrs && s.attrs['begin-time-offset'], 10), parseInt(s.attrs && s.attrs['end-time-offset'], 10)])
+      .filter(([b, e]) => Number.isFinite(b) && Number.isFinite(e) && e > b);
+    if (!offs.length) return { timePending: true };
+    any = true;
+    return { start: offs[0][0], end: offs[offs.length - 1][1] };
+  });
+  return any ? spans : null;
+}
+
 export function getBaselineParagraphs(doc) {
   return doc.paragraphs.map(p => p.segments.map(s => s.baseline).join(' ').trim());
 }

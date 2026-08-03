@@ -169,8 +169,14 @@ export function renderStrips() {
 }
 
 function drawStrip(canvas, seg, durationMs) {
+  const dpr = window.devicePixelRatio || 1;
   const w = canvas.clientWidth || 300;
-  canvas.width = w * (window.devicePixelRatio || 1);
+  // Scale BOTH axes by devicePixelRatio. The vertical buffer used to stay at CSS pixels, which
+  // blurred every wave slightly on retina — and at the gloss tab's half height that blur eats the
+  // little amplitude detail there is. CSS fixes the on-screen size; the buffer carries the detail.
+  const cssH = canvas.clientHeight || canvas.height || 44;
+  canvas.width = w * dpr;
+  canvas.height = cssH * dpr;
   const g = canvas.getContext('2d');
   const H = canvas.height, W = canvas.width;
   g.clearRect(0, 0, W, H);

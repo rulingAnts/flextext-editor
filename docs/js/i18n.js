@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v156';
+export const ENGINE_VERSION = 'v157';
 
 const S = {
 en: {
@@ -175,6 +175,7 @@ en: {
   'baseline.placeholder': 'Type the text here in the vernacular language…',
 
   'gloss.empty': 'Nothing to gloss yet — enter the text on the <b>Baseline</b> tab first.',
+  'gloss.blankLine': '(blank line — nothing to gloss)',
   'gloss.wordLabel': 'Word',
   'gloss.glossLabel': 'Gloss',
   'gloss.freeLabel': 'Free',
@@ -1194,6 +1195,7 @@ id: {
   'baseline.placeholder': 'Ketik teks bahasa daerah di sini…',
 
   'gloss.empty': 'Belum ada yang bisa dikerjakan — ketik teksnya di tab <b>Ketik</b> dulu.',
+  'gloss.blankLine': '(baris kosong — tidak ada yang digloss)',
   'gloss.wordLabel': 'Asli',
   'gloss.glossLabel': 'Harfiah',
   'gloss.freeLabel': 'Bebas',

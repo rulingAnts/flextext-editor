@@ -2354,13 +2354,42 @@ function renderGloss() {
   let any = false;
   for (const para of doc.paragraphs) {
     for (const seg of para.segments) {
-      if (!seg.words.length && !seg.baseline.trim()) continue;
+      if (!seg.words.length && !seg.baseline.trim()) {
+        // Blank line: in segmentation mode it IS a line — a timed span (usually silence) that must
+        // hold its slot here, because decorateGlossSegments pairs .segment groups to doc.segments
+        // POSITIONALLY. Skipping it (the classic behaviour, kept when segmentation is off) shifted
+        // every waveform after a blank onto the wrong gloss/free line (Seth's misalignment report).
+        // A placeholder row: numbered, dimmed label, nothing to gloss — but the slot, and the
+        // skinny waveform the decorator will attach to it, exist.
+        if (segmentationEnabled()) {
+          any = true;
+          segnum++;
+          body.appendChild(renderBlankSegment(segnum));
+        }
+        continue;
+      }
       any = true;
       segnum++;
       body.appendChild(renderSegment(seg, segnum, vernFont, analFont));
     }
   }
   $('#gloss-empty').hidden = any;
+}
+
+function renderBlankSegment(segnum) {
+  const div = document.createElement('div');
+  div.className = 'segment seg-blank';
+  const row = document.createElement('div');
+  row.className = 'word-row';
+  const num = document.createElement('span');
+  num.className = 'segnum';
+  num.textContent = segnum;
+  const lbl = document.createElement('span');
+  lbl.className = 'blank-label';
+  lbl.textContent = t('gloss.blankLine');
+  row.append(num, lbl);
+  div.appendChild(row);
+  return div;
 }
 
 function fontFor(doc, vernacular) {

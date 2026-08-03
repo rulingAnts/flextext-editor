@@ -483,6 +483,15 @@ main {
   flex: none;
 }
 
+/* Blank-line placeholder on the gloss tab (segmentation mode): holds the slot for a timed span
+   with no text, so gloss groups stay positionally paired with their waveforms. */
+.segment.seg-blank .blank-label {
+  color: var(--muted);
+  font-style: italic;
+  font-size: 12px;
+  align-self: center;
+}
+
 .free-input {
   flex: 1;
   border: 1px solid transparent;

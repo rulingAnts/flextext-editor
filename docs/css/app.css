@@ -238,6 +238,13 @@ main {
    (Enter, let it play through the pause, Enter again). Visually quieter, never hidden. */
 .seg-strip.seg-empty .seg-wave { opacity: .55; }
 .seg-text:focus { outline: 2px solid var(--blue); border-radius: 4px; }
+/* Gloss-tab per-line bar: the same transport, skinnier clothes — a small ▶/⏸ and a thin waveform
+   above each interlinear line-group. */
+.gseg-bar { display: flex; align-items: center; gap: 8px; margin: 2px 0 4px; }
+.gseg-play { appearance: none; border: 1px solid var(--border); background: var(--panel);
+             border-radius: 6px; min-width: 30px; height: 26px; font-size: 12px; cursor: pointer; flex: none; }
+.gseg-play:hover { background: #e8ecf2; }
+.gseg-wave { flex: 1; height: 18px; display: block; }
 /* The playhead cursor, drawn on whichever strip contains the current time. */
 .seg-cursor { position: absolute; width: 2px; background: #c9772a; pointer-events: none; }
 

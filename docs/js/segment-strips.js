@@ -299,3 +299,44 @@ function positionCursor() {
 }
 
 export function stopStrips() { cancelAnimationFrame(rafId); }
+
+/* ---------------- gloss-tab decorations (shared machinery, skinnier clothes) ---------------- */
+
+/* Draw one segment's span on any canvas — the gloss tab's mini strips reuse the exact peaks,
+ * mapping and perceptual curve of the baseline strips, just shorter. */
+export function drawSpanWave(canvas, seg) {
+  drawStrip(canvas, seg, peaksCache.durationMs);
+}
+
+/* The strip transport behaviour (toggle pause-in-place, resume-from-playhead, restart near end)
+ * as a wire-up any button can adopt — the gloss line buttons must feel IDENTICAL to the baseline
+ * ones or the two tabs teach different habits. */
+export function wireSegPlay(btn, seg, getPlayer) {
+  btn.addEventListener('click', () => {
+    if (!isAligned(seg)) return;
+    const p = getPlayer();
+    if (!p) return;
+    const t = p.playheadMs?.();
+    if (p.playing?.() && typeof t === 'number' && t >= seg.start && t < seg.end) { p.pause(); return; }
+    const from = (typeof t === 'number' && t > seg.start && t < seg.end - 150) ? t : seg.start;
+    p.playSpan(from, seg.end);
+  });
+}
+
+/* Keep a set of gloss-line buttons' glyphs live (▶/⏸). Light interval, not rAF — glyphs need
+ * ~300ms fidelity, and the gloss tab has no moving cursor to justify a frame loop. */
+let glossTick = 0;
+export function startGlossTicker(entries, getPlayer, t) {
+  stopGlossTicker();
+  glossTick = setInterval(() => {
+    const p = getPlayer();
+    const time = p?.playheadMs?.();
+    for (const { btn, seg } of entries) {
+      if (!isAligned(seg)) continue;
+      const rolling = p?.playing?.() && typeof time === 'number' && time >= seg.start && time < seg.end;
+      const want = rolling ? '⏸' : '▶';
+      if (btn.textContent !== want) { btn.textContent = want; btn.title = t(rolling ? 'seg.pauseTip' : 'seg.playTip'); }
+    }
+  }, 300);
+}
+export function stopGlossTicker() { if (glossTick) { clearInterval(glossTick); glossTick = 0; } }

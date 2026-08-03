@@ -17,7 +17,7 @@ import { isNativeShell, nativeAudioAvailable, NativeRecorder, releaseCapture, na
 import { losslessSupported, recFormatSupported, PCMRecorder, encodeWav, encodeRecording, normalizePeak, reduceChannels,
          normRecFormat, REC_FORMATS, DEFAULT_REC_FORMAT, pcmRamBudgetBytes, pcmCapStatus } from './record-pcm.js';
 import { makeZip } from './zip.js';
-import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments } from './segment-strips.js';
+import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay, startGlossTicker, stopGlossTicker } from './segment-strips.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget } from './upload.js';
 import * as Sync from './sync.js';
 import { initResearcherPanel } from './researcher-panel.js';
@@ -479,6 +479,39 @@ function segmentationEnabled() {
   return settings.segmentation === true;
 }
 
+// The tabs that share the media dock (the ONE Player instance).
+function isEditorTab(tab) { return tab === 'baseline' || tab === 'gloss'; }
+
+/* Gloss tab, segmentation mode: give every line-group the SAME transport as its baseline strip —
+ * left-margin ▶/⏸ (pause-in-place, resume-from-playhead) and a skinny per-line waveform. In flat
+ * segmentation mode phrase i IS segment i, so decoration is positional. Rendering-only: all edits
+ * still happen through the model. */
+function decorateGlossSegments() {
+  if (!segmentationEnabled() || !current) return;
+  const segs = docSegments(current.doc);
+  const groups = $('#gloss-body') ? $('#gloss-body').querySelectorAll('.segment') : [];
+  const entries = [];
+  groups.forEach((g, i) => {
+    const seg = segs[i];
+    if (!seg || g.querySelector('.gseg-bar')) return;
+    const bar = document.createElement('div');
+    bar.className = 'gseg-bar';
+    const btn = document.createElement('button');
+    btn.className = 'gseg-play';
+    btn.textContent = seg.timePending ? '⋯' : '▶';
+    btn.title = t(seg.timePending ? 'seg.pendingTip' : 'seg.playTip');
+    const wave = document.createElement('canvas');
+    wave.className = 'gseg-wave';
+    wave.height = 18;
+    bar.append(btn, wave);
+    g.prepend(bar);
+    wireSegPlay(btn, seg, () => player);
+    drawSpanWave(wave, seg);
+    entries.push({ btn, seg });
+  });
+  startGlossTicker(entries, () => player, t);
+}
+
 function switchTab(tab) {
   // Leaving baseline: apply baseline edits to the model first.
   if (activeTab === 'baseline' && !$('#view-baseline').hidden) {
@@ -486,6 +519,7 @@ function switchTab(tab) {
   }
   activeTab = tab;
   if (tab === 'baseline') {
+    stopGlossTicker();
     if (segmentationEnabled()) {
       // Strip mode: per-segment waveform + single-line text pairs. The textarea stays in the DOM
       // but hidden — switching the researcher setting off returns the classic editor with the
@@ -520,8 +554,18 @@ function switchTab(tab) {
     }
   } else {
     stopStrips();
+    stopGlossTicker();
     renderGloss();
     show('gloss');
+    // The shared dock stays live on the gloss tab (Seth): full-track player + per-line mini waves.
+    refreshPlayer();
+    if (segmentationEnabled()) {
+      (async () => {
+        const media = current ? await db.getMedia(current.id).catch(() => null) : null;
+        await ensurePeaks(current && current.id, media && media.blob, player && player.decodedBuffer && player.decodedBuffer());
+        decorateGlossSegments();
+      })();
+    }
   }
 }
 
@@ -570,7 +614,7 @@ async function refreshPlayer() {
   if (!current) { p.hide(); return; }
   playerDocId = current.id;
   const media = await db.getMedia(current.id).catch(() => null);
-  if (current.id !== playerDocId || activeTab !== 'baseline') return;
+  if (current.id !== playerDocId || !isEditorTab(activeTab)) return;
   p.el.remove.hidden = isAudioLocked(current);
   if (media) {
     updateDlControls('done');
@@ -1774,7 +1818,7 @@ async function finalizeAudioDownload(rec) {
   if (current && current.id === rec.id) {
     current = rec;
     if (player) player.loadedFor = null;
-    if (activeTab === 'baseline') refreshPlayer();
+    if (isEditorTab(activeTab)) refreshPlayer();
     toast(t('player.downloaded'));
   }
 }
@@ -1822,7 +1866,7 @@ function downloadStateHandler(rec) {
       toast(t('toast.storageFull'), 9000);
     }
     if (!storage) toastedStorage = false;
-    if (!current || rec.id !== current.id || activeTab !== 'baseline') return;
+    if (!current || rec.id !== current.id || !isEditorTab(activeTab)) return;
     const p = getPlayer();
     if (status === 'done') { updateDlControls('done'); return; }
     updateDlControls(status);

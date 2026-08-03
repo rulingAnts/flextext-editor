@@ -16,6 +16,15 @@
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
+  <!-- STAGING ribbon: runtime hostname detection, so THIS SAME FILE ships to production unchanged
+       and the ribbon can only ever appear on Cloudflare Pages (the staging/preview host). Inline —
+       no engine dependency — so it shows even if app.js fails to load, which is exactly when
+       knowing which site you are on matters most. -->
+  <script>
+    if (/\.pages\.dev$/.test(location.hostname)) {
+      document.write('<div style="position:sticky;top:0;z-index:9999;background:repeating-linear-gradient(45deg,#b45309,#b45309 12px,#92400e 12px,#92400e 24px);color:#fff;text-align:center;font:600 13px/1.5 system-ui;padding:4px 8px;">STAGING — test site · situs uji — not production / bukan produksi</div>');
+    }
+  </script>
 
 <header id="topbar">
   <div id="topbar-home" class="topbar-row">

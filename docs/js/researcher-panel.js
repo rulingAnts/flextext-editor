@@ -193,6 +193,11 @@ const GROUPS = [
     // Show the coworker an optional "Done" button on each text; marking done auto-uploads
     // and surfaces a "done" badge to the researcher. Off by default.
     { k: 'doneEnabled', type: 'checkbox' },
+    // Audio Segmentation Mode: the Baseline/Gloss tabs become time-aligned waveform strips with
+    // per-line playback and Enter-at-playhead line breaks. Default OFF — the classic textarea
+    // workflow is untouched unless the researcher deliberately enables it; the note tells them to
+    // trial it with one worker first. Turning it off later hides the UI but never deletes segments.
+    { k: 'segmentation', type: 'checkbox', note: 'panel.f.segmentationNote' },
   ] },
 ];
 
@@ -2646,6 +2651,7 @@ function fieldHtml(f) {
     // Auto-backup needs its "what actually happens" note (new timestamped copy per backup; the
     // quiet-time wait stops a copy per keystroke) — without it researchers expect an overwrite.
     if (f.k === 'autoBackup') return cb + `<p class="note">${esc(t('panel.f.autoBackupNote'))}</p>`;
+    if (f.note) return cb + `<p class="note">${esc(t(f.note))}</p>`;
     return cb;
   }
   if (f.type === 'multicheck') {

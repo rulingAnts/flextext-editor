@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v157';
+export const ENGINE_VERSION = 'v158';
 
 const S = {
 en: {
@@ -1006,6 +1006,8 @@ internet after the first time.</p>
   'panel.f.deleteAllEnabled': 'Allow “Delete all data” on this device (full local wipe)',
   'panel.f.allowDelete': 'Let the coworker delete individual texts',
   'panel.f.doneEnabled': 'Show a “Done” button on each text (marking done auto-uploads it)',
+  'panel.f.segmentation': 'Enable Audio Segmentation Mode',
+  'panel.f.segmentationNote': 'The Baseline and Gloss tabs become time-aligned strips: a waveform per line, per-line playback, and Enter breaks the line at the playhead. Try it with one worker first before enabling it broadly. Turning it off later hides the tools but never deletes segment data.',
   'delall.btn': 'Delete all data on this device',
   'delall.confirm': 'Erase EVERYTHING on this device — all texts, recordings, settings, and the installed app — and reload fresh? This cannot be undone. (Your data on Drive or other devices is not affected.)',
   'panel.opt.agc.off': 'Off',
@@ -2015,6 +2017,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.f.deleteAllEnabled': 'Izinkan “Hapus semua data” di perangkat ini (hapus total lokal)',
   'panel.f.allowDelete': 'Izinkan rekan kerja menghapus teks satu per satu',
   'panel.f.doneEnabled': 'Tampilkan tombol “Selesai” pada tiap teks (menandai selesai otomatis mengunggahnya)',
+  'panel.f.segmentation': 'Aktifkan Mode Segmentasi Audio',
+  'panel.f.segmentationNote': 'Tab Ketik dan Terjemahan Balik menjadi potongan selaras waktu: gelombang suara per baris, pemutaran per baris, dan Enter memotong baris pada posisi putar. Coba dulu dengan satu rekan kerja sebelum diaktifkan lebih luas. Jika dimatikan nanti, alatnya disembunyikan tetapi data segmen tidak pernah dihapus.',
   'delall.btn': 'Hapus semua data di perangkat ini',
   'delall.confirm': 'Hapus SEMUA di perangkat ini — semua teks, rekaman, pengaturan, dan aplikasi terpasang — lalu muat ulang dari awal? Ini tidak dapat dibatalkan. (Data Anda di Drive atau perangkat lain tidak terpengaruh.)',
   'panel.opt.agc.off': 'Mati',

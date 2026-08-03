@@ -2498,6 +2498,11 @@ async function syncDispatch(cmd) {
     case 'delete':
       await deleteConfirmedDoc(cmd.docId || cmd.id);
       break;
+    case 'setDone':
+      // Researcher toggles finished-state from the panel. Reuses the device's own setDocDone (v100)
+      // so the auto-delete-after-upload gating and confirm rules behave exactly as a local tap.
+      await setDocDone(cmd.docId || cmd.id, !!cmd.done);
+      break;
     case 'changeSettings': {
       // MERGE only the researcher-supplied keys; never a whole-object overwrite that
       // would wipe a power-user's relayWorker / uploadFolder (plan §F.1).

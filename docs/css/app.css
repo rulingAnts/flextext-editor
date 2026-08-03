@@ -1024,6 +1024,16 @@ main {
 .rp-dl-loading { display: block; padding: 6px 8px; }
 /* History rows carry the same Files control; give it breathing room under the meta line. */
 .rp-hist-links .rp-dl { display: inline-block; }
+/* Cleanup entry: visually a caution, not a download. */
+.rp-dl-clean .rp-dl-name { color: #8a4b10; }
+/* In-flight move chip + the clickable done tag. */
+.rp-tag-moving { background: #ece3f7; color: #5b3d8a; font-weight: 600; }
+.rp-tag-btn { appearance: none; border: none; cursor: pointer; font: inherit; font-size: 11px; }
+.rp-tag-btn:hover { outline: 1px solid currentColor; }
+.rp-move-opt { display: flex; align-items: center; gap: 8px; }
+.rp-histclean { font-size: 13px; }
+.rp-log-k-files_trashed { background: #fbe6cf; color: #8a4b10; }
+.rp-log-k-text_moved { background: #e8f0fc; color: var(--blue-dark); }
 
 /* Downloads dropdown on a text row. Anchored to the row, floating above it — the inventory list is
    dense, so an inline expansion would shove every following row down on hover. */

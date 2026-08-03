@@ -365,6 +365,20 @@ export function cancelCommand(instanceId, seq) {
 }
 
 export function assign(instanceId, docId, fields) { return pushCommand(instanceId, 'assign', { id: docId, ...(fields || {}) }); }
+export function setDone(instanceId, docId, done)   { return pushCommand(instanceId, 'setDone', { docId, done: !!done }); }
+
+/* Move a text's Drive half to another device: re-parents the folder, mints authed streaming URLs
+ * for the content. The caller then assigns to the destination (same docId) and fires the
+ * upload-first remove at the source once the destination reports the doc. */
+export function moveText(instanceId, docId, fields) {
+  return api('POST', `/v1/instances/${encodeURIComponent(instanceId)}/texts/${encodeURIComponent(docId)}/move`, { body: fields });
+}
+
+/* Move the researcher's own app-created files to Drive TRASH (30-day recoverable — never a
+ * permanent delete). The panel decides what; the Worker only enforces how. */
+export function trashFiles(fileIds, note) {
+  return api('POST', '/v1/researcher/trash', { body: { fileIds, note } });
+}
 export function deleteDoc(instanceId, docId)       { return pushCommand(instanceId, 'delete', { docId }); }
 export async function changeSettings(instanceId, settings) {
   // Push the encrypted settings command to the device…

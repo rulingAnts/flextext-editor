@@ -87,6 +87,27 @@ console.log('\nthe assigned-audio COPY is its own kind — the role tag beats th
      'a recording WITHOUT the role tag is never mistaken for the original copy');
 }
 
+console.log('\ncleanup may take ONLY older backups — never the newest of a kind, never the original');
+{
+  // Lift the real cleanupCandidates (it closes over latestPerKind, lifted above).
+  const ccSrc = panel.match(/function cleanupCandidates\(allFiles\) \{([\s\S]*?)\n\}/);
+  ok(!!ccSrc, 'cleanupCandidates is present in researcher-panel.js');
+  const cleanupCandidates = new Function('latestPerKind', 'allFiles', ccSrc[1]).bind(null, latestPerKind);
+  const all = [
+    { id: 'z3', name: 'k 08-03.zip', modified: '3' },
+    { id: 'z2', name: 'k 08-02.zip', modified: '2' },
+    { id: 'z1', name: 'k 08-01.zip', modified: '1' },
+    { id: 'o1', name: 'old-original.mp3', modified: '0', role: 'assigned-audio' },
+    { id: 'f1', name: 'k.flextext', modified: '2' },
+  ];
+  const dead = cleanupCandidates(all).map((f) => f.id).sort();
+  ok(dead.join() === 'z1,z2', 'only the two OLDER zips are candidates');
+  ok(!dead.includes('z3'), 'the newest bundle survives');
+  ok(!dead.includes('f1'), 'the only flextext survives');
+  ok(!dead.includes('o1'), 'the ORIGINAL assigned audio is never a cleanup candidate, however old');
+  ok(cleanupCandidates([]).length === 0 && cleanupCandidates(null).length === 0, 'empty/null are safe');
+}
+
 console.log('\nmalformed input degrades, never throws (this feeds a privileged panel)');
 {
   ok(Array.isArray(latestPerKind(null)) && latestPerKind(null).length === 0, 'null -> []');

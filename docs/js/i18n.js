@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v137';
+export const ENGINE_VERSION = 'v138';
 
 const S = {
 en: {
@@ -708,6 +708,29 @@ internet after the first time.</p>
   'panel.admin.kind.domain_removed': 'Domain removed',
   // Downloads dropdown on each text row. Labelled by PURPOSE, never filename: two .eaf files are
   // near-impossible to tell apart by name, and "ELAN" vs "SayMore" says which tool opens which.
+  'panel.dl.cleanup': 'Clean up old backups',
+  'panel.dl.cleanupSub': 'moves {n} older cop(y/ies) to Drive trash — recoverable for 30 days',
+  'panel.dl.cleanupConfirm': 'Move {n} older backup cop(y/ies) to the Drive trash?\n\nThe newest copy of each file and the original audio are kept. Trashed files stay recoverable at drive.google.com/trash for 30 days.',
+  'panel.dl.cleanupDone': 'Moved {n} file(s) to Drive trash.',
+  'panel.hist.removeFolder': 'Remove folder from Drive\u2026',
+  'panel.hist.noFolder': 'No Drive folder found for this text.',
+  'panel.hist.removeFolderConfirm': 'Move \u201c{title}\u201d\u2019s Drive folder to the trash?\n\n\u26a0 Make sure you have DOWNLOADED it first (Files \u2192 Download all) and saved it on your computer.\n\n\u26a0 The removal follows the folder itself, wherever it now is: if you MOVED the folder somewhere else in your Drive, THAT folder is what goes to the trash. If you want to keep a copy in Drive, COPY the files \u2014 do not just move the folder.\n\nTrashed items stay recoverable for 30 days.',
+  'panel.hist.folderRemoved': 'Moved {n} folder(s) to Drive trash.',
+  'panel.move.btn': 'Move\u2026',
+  'panel.move.title': 'Move \u201c{title}\u201d',
+  'panel.move.intro': 'The text, its audio and its Drive folder move to the device you pick. The copy here is removed only after the other device has received it \u2014 a final upload happens first, so nothing is lost even if the move stalls.',
+  'panel.move.go': 'Move text',
+  'panel.move.noOther': 'There is no other device to move to.',
+  'panel.move.nothingToMove': 'Nothing to move yet \u2014 this text has no uploaded content the other device could receive.',
+  'panel.move.sent': 'Move started \u2014 waiting for {device} to receive it.',
+  'panel.move.waitingDest': 'moving \u2014 waiting for the new device',
+  'panel.move.removingSrc': 'moving \u2014 removing from this device',
+  'panel.move.done': '\u201c{title}\u201d has finished moving.',
+  'panel.move.doneSent': 'Marked finished \u2014 the device will apply it when it next checks in.',
+  'panel.move.notDoneSent': 'Marked not finished \u2014 the device will apply it when it next checks in.',
+  'panel.inst.toggleDoneTip': 'Click to change the finished status on the device',
+  'panel.admin.kind.files_trashed': 'Files trashed',
+  'panel.admin.kind.text_moved': 'Text moved',
   'panel.dl.loading': 'Checking the text\u2019s folder\u2026',
   'panel.dl.audioUpload': 'Recording (uploaded)',
   'panel.dl.lastUploadSub': 'the last file this text uploaded',
@@ -1693,6 +1716,29 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.admin.kind.account_declined': 'Ditolak',
   'panel.admin.kind.domain_added': 'Domain ditambahkan',
   'panel.admin.kind.domain_removed': 'Domain dihapus',
+  'panel.dl.cleanup': 'Bersihkan cadangan lama',
+  'panel.dl.cleanupSub': 'memindahkan {n} salinan lama ke sampah Drive — dapat dipulihkan 30 hari',
+  'panel.dl.cleanupConfirm': 'Pindahkan {n} salinan cadangan lama ke sampah Drive?\n\nSalinan terbaru tiap berkas dan audio asli tetap disimpan. Berkas di sampah dapat dipulihkan di drive.google.com/trash selama 30 hari.',
+  'panel.dl.cleanupDone': '{n} berkas dipindahkan ke sampah Drive.',
+  'panel.hist.removeFolder': 'Hapus folder dari Drive\u2026',
+  'panel.hist.noFolder': 'Folder Drive untuk teks ini tidak ditemukan.',
+  'panel.hist.removeFolderConfirm': 'Pindahkan folder Drive \u201c{title}\u201d ke sampah?\n\n\u26a0 Pastikan Anda sudah MENGUNDUHNYA dulu (Berkas \u2192 Unduh semua) dan menyimpannya di komputer Anda.\n\n\u26a0 Penghapusan mengikuti folder itu sendiri, di mana pun ia berada sekarang: jika Anda MEMINDAHKAN folder ke tempat lain di Drive, folder ITULAH yang masuk sampah. Jika ingin menyimpan salinan di Drive, SALIN berkasnya \u2014 jangan hanya memindahkan folder.\n\nItem di sampah dapat dipulihkan selama 30 hari.',
+  'panel.hist.folderRemoved': '{n} folder dipindahkan ke sampah Drive.',
+  'panel.move.btn': 'Pindahkan\u2026',
+  'panel.move.title': 'Pindahkan \u201c{title}\u201d',
+  'panel.move.intro': 'Teks, audionya, dan folder Drive-nya pindah ke perangkat yang Anda pilih. Salinan di sini dihapus hanya setelah perangkat lain menerimanya \u2014 unggahan terakhir terjadi lebih dulu, jadi tidak ada yang hilang meski pemindahan tertunda.',
+  'panel.move.go': 'Pindahkan teks',
+  'panel.move.noOther': 'Tidak ada perangkat lain untuk tujuan pemindahan.',
+  'panel.move.nothingToMove': 'Belum ada yang bisa dipindahkan \u2014 teks ini belum punya konten terunggah yang bisa diterima perangkat lain.',
+  'panel.move.sent': 'Pemindahan dimulai \u2014 menunggu {device} menerimanya.',
+  'panel.move.waitingDest': 'memindahkan \u2014 menunggu perangkat baru',
+  'panel.move.removingSrc': 'memindahkan \u2014 menghapus dari perangkat ini',
+  'panel.move.done': '\u201c{title}\u201d selesai dipindahkan.',
+  'panel.move.doneSent': 'Ditandai selesai \u2014 perangkat akan menerapkannya saat berikutnya terhubung.',
+  'panel.move.notDoneSent': 'Ditandai belum selesai \u2014 perangkat akan menerapkannya saat berikutnya terhubung.',
+  'panel.inst.toggleDoneTip': 'Klik untuk mengubah status selesai di perangkat',
+  'panel.admin.kind.files_trashed': 'Berkas dibuang',
+  'panel.admin.kind.text_moved': 'Teks dipindahkan',
   'panel.dl.loading': 'Memeriksa folder teks\u2026',
   'panel.dl.audioUpload': 'Rekaman (terunggah)',
   'panel.dl.lastUploadSub': 'berkas terakhir yang diunggah teks ini',

@@ -1,0 +1,12 @@
+# ⚠ THIS IS THE STAGING SITE CONFIG — NOT THE PRODUCTION WORKER.
+# The production connectivity worker lives in worker/wrangler.toml and deploys ONLY via the
+# manual worker-deploy Action. THIS file exists so Cloudflare's git-connected build ("npx wrangler
+# deploy" at the repo root) deploys a STATIC-ASSETS-ONLY worker serving docs/ — the staging test
+# site. It has no code, no bindings, no D1, no R2: nothing it can break.
+# Static asset requests are FREE and unmetered on the Workers free plan.
+name = "flextext-staging"
+compatibility_date = "2026-06-01"
+workers_dev = true
+
+[assets]
+directory = "./docs"

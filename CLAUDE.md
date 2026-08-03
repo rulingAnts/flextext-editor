@@ -8,19 +8,15 @@ via GitHub Pages.
 
 | Branch | Purpose |
 |---|---|
-| `main` | **Development.** All work and commits go here. Test locally with the dev server (below). |
-| `productionWeb` | **The live site.** Deployed by GitHub Pages to https://rulingants.github.io/flextext-editor/ . Only stable, tested versions belong here. |
-| `segmentation` | **Experimental, parked.** Simple-ELAN segmentation Phase 1 — unfinished and risky. Kept OFF `main` on purpose (2026-07-28). |
+| `main` | **Releasable trunk.** Small same-day changes and finished feature merges. A release is `merge --ff-only main` into `productionWeb`, so main must stay shippable at all times. |
+| `productionWeb` | **The live site.** Deployed by GitHub Pages to https://rulingants.github.io/flextext-editor/ . Pushing it also triggers `sync-satellites.yml`, which publishes the satellite mirrors AFTER verifying the editor is live. Never push without Seth's explicit test-drive sign-off. |
+| `staging` | **The dev site.** `main` + in-progress feature merges (`--no-ff`), built by Cloudflare's git integration into the `flextext-staging` Worker at https://flextext-editor-dev.68mh29kgsd.workers.dev/ (free tier; root `wrangler.toml` serves `./docs` as a static site). This is where Seth test-drives features before a production release. Verify a deploy landed by curling `/sw.js` for the new version. |
+| feature branches | e.g. `segmentation2` (shipped as v158), `seg-exports` (in test). Branch from `main`, merge `--no-ff` into `staging` to test, ff into `main` only when complete + approved. |
 
-> **⚠ `segmentation`: REBASE onto `main`, never merge it.** It was removed from `main` by revert
-> (`1ef6df2`), so a merge would meet those reverts and git would treat the changes as already
-> applied-and-undone — silently reinstating nothing. Rebase replays the commits fresh.
->
-> **Why it was parked:** it lived on `main` while unfinished, so every release had to cherry-pick
-> around it and merge back (v126, v127/v128, v129). Worse, the SHELL merge conflict offers
-> `segments.js` and `history.js` as a single hunk — taking both precaches a file production does not
-> serve, which is exactly the v108 outage. Anything long-running and half-built belongs on its own
-> branch for the same reason.
+> **⚠ The OLD `segmentation` branch is OBSOLETE** (superseded by `segmentation2`, which shipped to
+> production as v158 on 2026-08-03). It was removed from `main` by revert (`1ef6df2`) and must never
+> be merged — delete it when convenient. The history of why it was parked (cherry-pick churn, the
+> SHELL-hunk trap behind the v108 outage) is in the feature-branch policy below.
 
 ### 🚩 FEATURE BRANCHES — standing policy (Seth, 2026-07-28)
 
@@ -57,7 +53,7 @@ git checkout main             # go back to dev
 > Cloudflare Worker or its D1 schema), the editor is NOT the first thing to ship.**
 > The deployed client must never be ahead of the backend. Full ordered sequence —
 > **D1 migrate → worker deploy → smoke test → editor `productionWeb` → recorder →
-> Turnstile** — is in **[`docs/RELEASE-RUNBOOK.md`](docs/RELEASE-RUNBOOK.md)**.
+> Turnstile** — is in **[`notes/RELEASE-RUNBOOK.md`](notes/RELEASE-RUNBOOK.md)**.
 > Skipping the order gives field users 404s (worker/D1 behind) or a dead-offline
 > recorder (engine import gap). The `git push origin productionWeb` step still
 > requires the maintainer's explicit test-drive sign-off.
@@ -78,56 +74,52 @@ entire point of a field app.
 **The old rule was too weak.** "Bump the satellite sw when the engine changes" says *bump*; it
 never said *verify the file is live first*. Both halves are required.
 
-**Enforcement (don't rely on memory — it already failed once):**
-- Each satellite repo has **`check-editor-shell.sh`** — curls every `/flextext-editor/...` path in
-  its SHELL against the live site and fails on anything that isn't 200.
-- It is wired into each satellite's **`.git/hooks/pre-push`**, so a premature push is *blocked*.
-  Hooks aren't versioned — **reinstall after any re-clone** (the script is committed; the hook
-  calls it). Override only with cause: `ALLOW_STALE_SHELL=1`.
+**Enforcement (automated since the satellites folded into this repo — don't rely on memory):**
+- `sync-satellites.yml` (triggered by the `productionWeb` push) WAITS for the live editor to serve
+  the pushed sw.js version, then runs `check-release-integrity.sh paths <satellite>` — every
+  `/flextext-editor/...` path in that satellite's SHELL must return 200 — before it will publish
+  that mirror. A premature publish is impossible by construction.
+- `test/version-sync.test.mjs` runs in the same workflow and fails the release when a satellite's
+  declared ENGINE ≠ the editor's ENGINE_VERSION — the "bumped the engine, forgot the satellites"
+  silent no-op (the v130 failure) is now a loud failure at release time.
 - **Adding a new top-level `import` to `js/app.js` is the trigger.** It becomes a new SHELL entry
-  in the editor *and both satellites*, so it is exactly the change that needs this ordering.
+  in the editor *and both satellites' sw.js files* (`satellites/*/sw.js`), in the same commit.
 
 **Correct sequence, every time:**
-1. Land the engine change on editor `main`, bump `sw.js` VERSION.
+1. Land the engine change (feature branch → `staging` for Seth's test drive → ff into `main`),
+   bumping all four version sites together.
 2. Get Seth's sign-off, then ff-merge `main` → `productionWeb` and push.
-3. **Confirm it is live** (`curl` the new path → 200; the sw.js VERSION reports the new number).
-4. Only then bump + push the satellites — their hook will re-verify anyway.
+3. Watch the `Publish satellites` workflow run green, then confirm the mirrors' Pages went live
+   (curl each satellite's `/sw.js` for the new version — their Pages rebuild takes ~1 min).
 
-## Companion repo: the Flextext Recorder (`rulingAnts/text-recorder`) — READ THIS
+## Satellite apps: source of truth is `satellites/` IN THIS REPO — READ THIS
 
-There is a **second, independent Git repo** that ships a sibling PWA, the
-**Flextext Recorder**, live at https://rulingants.github.io/text-recorder/ .
-Local path: `/Users/Seth/GIT/text-recorder/`. This editor is the **main
-project**; the recorder is a thin companion.
+The sibling PWAs — **Flextext Recorder** (https://rulingants.github.io/text-recorder/),
+**Flextext Researcher** (https://rulingants.github.io/flextext-researcher/), and the crowd-recorder
+embed — are developed HERE, under `satellites/<name>/`. Their GitHub repos
+(`rulingAnts/text-recorder`, `rulingAnts/flextext-researcher`, `rulingAnts/crowd-recorder`) are
+**dumb serving mirrors**, overwritten by the `sync-satellites.yml` workflow on every
+`productionWeb` push. Never edit a mirror repo directly (each carries a `DO-NOT-EDIT-HERE.md`);
+the old local clone `/Users/Seth/GIT/text-recorder/` is legacy.
 
-- **Why a separate repo:** two PWAs on one origin must have **non-overlapping
-  scopes** or the browser treats them as one app (installing one makes the other
-  report "already installed"). The editor owns `/flextext-editor/` (root scope);
-  the recorder lives at the disjoint sibling path `/text-recorder/`. Keeping it
-  in its own repo lets the editor stay at `/flextext-editor/` **untouched** —
-  moving the editor would change its PWA `id` and **orphan every installed copy
-  in the field**.
-- **Same code, one engine — change it HERE:** the recorder is NOT a fork. Its
-  `index.html` is a thin shell that loads THIS repo's engine cross-path over the
-  same origin (`/flextext-editor/js/app.js` + `css/app.css`) and sets
-  `window.__MODE='record'` to render the record-only UI. **All
-  record/consent/storage/upload logic lives in this editor repo.** Make engine
-  changes here; never copy engine code into the recorder repo.
-- **⚠ VERSION COUPLING:** the recorder has its OWN `sw.js` that **precaches this
-  repo's engine files by path**. Whenever you change the engine here in a way the
-  recorder should pick up, you MUST also bump `text-recorder/sw.js`'s `VERSION`,
-  or installed recorders keep serving a **stale cached engine** offline. **And if
-  you change `js/app.js`'s top-level `import` graph, add/remove the matching files
-  in the recorder's `sw.js` `SHELL` list too** — the recorder loads `app.js` as a
-  module and resolves every static import at load (even in record mode), so a
-  missing precached module makes an updated recorder **dead offline**. (v67 added
-  `crypto.js`/`sync.js`/`researcher.js`/`researcher-panel.js` to that graph →
-  recorder `sw.js` `v19` precaches them.)
-- **⚠ DEPLOY ORDER — editor first, always:** when a change spans both repos,
-  deploy **this repo's `productionWeb` FIRST**, confirm `/flextext-editor/` is
-  live, **then** push the recorder repo. The recorder's SW precaches whatever
-  editor engine is live *at install time* — pushing it first would cache the OLD
-  engine.
+- **Why separate serving repos:** two PWAs on one origin must have **non-overlapping scopes** or
+  the browser treats them as one app. On GitHub Pages one repo = one path, and the editor must
+  stay at `/flextext-editor/` untouched (moving it would change its PWA `id` and orphan every
+  installed copy in the field).
+- **Same code, one engine — change it HERE:** satellites are NOT forks. Each `index.html` is a
+  thin shell loading THIS repo's engine cross-path (`/flextext-editor/js/app.js` + `css/app.css`).
+  All engine logic lives in `docs/js/`; never copy engine code into a satellite.
+- **⚠ VERSION COUPLING (enforced):** each satellite `sw.js` precaches the editor's engine files BY
+  PATH and declares the `ENGINE` version it was built against. `test/version-sync.test.mjs` fails
+  the release when any satellite's ENGINE ≠ the editor's `ENGINE_VERSION` — so **any `docs/`
+  change bumps ALL FOUR together**: `docs/sw.js` VERSION == `docs/js/i18n.js` ENGINE_VERSION, plus
+  both real satellites' VERSION + ENGINE lines (crowd-recorder has no sw.js). **A new top-level
+  import in `js/app.js` is a new SHELL entry in the editor AND both satellite sw.js files** — a
+  missing precached module makes an updated satellite dead offline (the v108 outage).
+- **⚠ DEPLOY ORDER — automated but still the law:** `sync-satellites.yml` waits for the live
+  editor to serve the pushed version, verifies every precached engine path returns 200
+  (`check-release-integrity.sh`), and only then publishes the mirrors. The version-sync test makes
+  the "bumped engine but forgot the satellites" silent no-op (the v130 failure) loud.
 - The recorder repo holds only: its shell (`index.html`), its manifest
   (`recorder.webmanifest`, distinct `id`/`scope`), its `sw.js`, and its icons.
   It has its own `CLAUDE.md` stating the same rules from its side.
@@ -158,6 +150,49 @@ with no way to push a fix except building and distributing a new APK. So:
   stored, those bytes exist only on disk.
 
 Full contract (methods, capture lifecycle, `CONTRACT_VERSION`): `flextext-native/CLAUDE.md`.
+
+## Audio Segmentation Mode + exports (v158+) — the rules that keep it safe
+
+Researcher-gated (default **OFF**: `settings.segmentation`, pushed from the panel's Buttons group
+or a `?segmentation=on` settings link). OFF = the classic textarea workflow, pixel-identical. ON =
+the Baseline tab becomes waveform **strips** (one line = one paragraph = one phrase = one time
+span; Enter breaks text at the CURSOR and time at the PLAYHEAD; Backspace/Delete merges) and the
+Gloss tab gets per-line mini waves, join buttons, and Enter-split on gloss fields. Blank lines are
+real timed spans (silence) and hold placeholder rows on the Gloss tab.
+
+- **`flextext` IS the segmentation format — no proprietary sidecar.** Aligned spans export as
+  FLEx-native phrase `begin/end-time-offset` attributes (+ a `media-files` block) AND as visible
+  `note` items (`audio 0:00.000–0:02.000`, `~` = estimated) — NEVER into the baseline text.
+  `segmentsFromOffsets()` (flextext.js) derives spans back on open, clamped monotonic. FLEx stores
+  the offsets on its Segment objects (ELAN interop); it has no interlinear line for them, so the
+  note line is the visible carrier — that's why both are written.
+- **`doc.segments` is the working state** (time spans, one per paragraph), edited ONLY through
+  `segments.js` (never invent a time; out-of-range → `timePending`; text is sacred). ALIGNMENT
+  EDITS NEVER TOUCH TEXT: the ⇥ set-boundary control and the seeds write `doc.segments` only, so
+  glosses/free translations cannot be lost by construction.
+- **Seeds:** fresh single-line doc → one whole-file span. Pre-transcribed multi-line doc with no
+  alignment → even division marked `timeEstimated` (dashed) — line 1 claiming the whole recording
+  would be a false alignment. All-pending docs heal the same way once audio decodes.
+- **Exports (in the save/share zip):** `<title>.eaf` (ELAN-for-FLEx: `A_interlinear-text-title-*`
+  > `A_paragraph` > `A_phrase-txt-*` > word/gloss; the paragraph tier MIRRORS the phrase tier
+  sharing its slots — mergeable in ELAN, never needs splitting; **NO segnum in EAFs**, Seth's
+  rule); `<title>.saymore.eaf` (ONLY `Transcription` + `Free Translation` — SayMore ignores and
+  advises against extra tiers); `<title>.preview.html` (self-contained, audio embedded base64,
+  per-segment playback — for alt-tabbing beside FLEx). Exports follow the DATA (segments present),
+  not the UI toggle. EAFs ride every bundle incl. uploads; the preview + bext-stamped derived WAV
+  ride LOCAL bundles only — field upload bandwidth never pays for embedded audio.
+- **Lossy sources:** segmentation works on a WAV working copy (`segwav:` key,
+  `<orig>.converted-NOT-ARCHIVAL.wav`, `derived:true`) because AAC priming makes decode and
+  playback disagree by ~44ms. The ORIGINAL is never touched; the derived copy exported in bundles
+  carries a BWF `bext` chunk naming its lossy origin (honesty that survives renaming).
+- **⚠ Traps that already bit once — do not "simplify" these away:**
+  - `applyBaseline` is gated on DOM truth (`#baseline-text` hidden ⇒ skip), NOT on
+    `segmentationEnabled()` — during a live settings flip the setting changes before the DOM, and
+    the setting-based guard read the hidden empty textarea and WIPED the doc's text.
+  - Strip/gloss waveform canvases redraw via ResizeObserver + the existing tickers — a draw that
+    races layout bakes a tiny buffer that CSS stretches into a blank slab.
+  - `reconcile()`'s seeds/heals persist immediately; peaks failures `console.warn` instead of
+    vanishing.
 
 ## Local dev / testing
 
@@ -223,9 +258,16 @@ notes/       planning docs, gitignored, never served
 
 - `docs/index.html`, `docs/manifest.webmanifest`, `docs/sw.js` (service worker)
 - `docs/js/` — `app.js` (main), `upload.js` (Google Drive upload), `i18n.js` (en/id strings),
-  `audio.js` (download/cache/playback), `native-audio.js` (**the ONE native chokepoint**), and the
+  `audio.js` (download/cache/playback), `native-audio.js` (**the ONE native chokepoint**), the
   **connectivity engine**: `crypto.js` (E2EE primitives), `sync.js` (no-login D1 sync),
-  `researcher.js` (account/auth + instance/Ki logic), `researcher-panel.js` (the researcher UI)
+  `researcher.js` (account/auth + instance/Ki logic), `researcher-panel.js` (the researcher UI),
+  and the **segmentation engine**: `segments.js` (the time-span model + ordering invariants),
+  `segment-strips.js` (baseline strip UI + peaks), `seg-exports.js` (EAF ×2 profiles, preview
+  page, BWF bext — pure format module, node-testable)
+- `satellites/` — the recorder / researcher / crowd-recorder apps (source of truth; mirrored out
+  by `sync-satellites.yml` — see the satellites section above)
+- root `wrangler.toml` — the `flextext-staging` static-site Worker config for the staging branch's
+  Cloudflare dev site (NOT the connectivity Worker; that one is `worker/wrangler.toml`)
 - `docs/css/`, `docs/icons/`, `docs/help/`, `docs/installers/`
 - `dev-serve.sh` (no-cache rig), `devctl.sh` (dev-rig daemon controller) — root, not served
 - `notes/` — `RELEASE-RUNBOOK.md` (how to ship), `connectivity-*.md` (design/status),
@@ -252,7 +294,7 @@ snapshot — the old clone at `/Users/Seth/GIT/flextext-r2-worker/` is now legac
 `worker-deploy.yml` / `worker-d1-migrate.yml` / `worker-wrangler.yml`. Auth = email +
 password (password never reaches the server) with operator-recoverable escrow +
 optional TOTP 2FA; metadata is E2EE so D1 holds ciphertext. See
-[`docs/RELEASE-RUNBOOK.md`](docs/RELEASE-RUNBOOK.md) for deploy/migration and
+[`notes/RELEASE-RUNBOOK.md`](notes/RELEASE-RUNBOOK.md) for deploy/migration and
 [`docs/connectivity-auth-plan.md`](docs/connectivity-auth-plan.md) for the locked design.
 
 ---

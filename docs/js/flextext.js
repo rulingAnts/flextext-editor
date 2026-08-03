@@ -411,9 +411,12 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
       const span = (hasSpans && para.segments.length === 1) ? spans[pi] : null;
       const timed = !!(span && typeof span.start === 'number' && typeof span.end === 'number' && !span.timePending);
       // A round trip preserves imported offsets in seg.attrs — when we emit fresh ones, filter
-      // the stale copies or the phrase would carry the attribute twice (invalid XML).
+      // the stale copies or the phrase would carry the attribute twice (invalid XML). media-file
+      // is filtered ONLY when we mint our own guid: an imported doc keeps its media-files block
+      // (mediaGuid null), so its phrases must keep their original media-file references too —
+      // filtering unconditionally silently unlinked every phrase from its media (audit find).
       const pAttrs = Object.entries(seg.attrs || {})
-        .filter(([k]) => !(timed && (k === 'begin-time-offset' || k === 'end-time-offset' || k === 'media-file')))
+        .filter(([k]) => !(timed && (k === 'begin-time-offset' || k === 'end-time-offset' || (k === 'media-file' && mediaGuid))))
         .map(([k, v]) => ` ${k}="${esc(v)}"`).join('')
         + (timed ? ` begin-time-offset="${Math.round(span.start)}" end-time-offset="${Math.round(span.end)}"${mediaGuid ? ` media-file="${esc(mediaGuid)}"` : ''}` : '');
       lines.push(`          <phrase${pAttrs}>`);
@@ -509,7 +512,19 @@ export function segmentsFromOffsets(doc) {
     any = true;
     return { start: offs[0][0], end: offs[offs.length - 1][1] };
   });
-  return any ? spans : null;
+  if (!any) return null;
+  // Malformed sources exist: clamp to monotonic non-overlap (a span may not start before the
+  // previous one ends; an unsalvageable span demotes to timePending). Without this a bad file
+  // could smuggle crossing spans into the model — and out again as an INVALID EAF, since ELAN
+  // requires aligned annotations on a tier to be ordered and non-overlapping (audit find).
+  let floor = 0;
+  for (const s of spans) {
+    if (typeof s.start !== 'number') continue;
+    if (s.start < floor) s.start = floor;
+    if (s.end <= s.start) { delete s.start; delete s.end; s.timePending = true; continue; }
+    floor = s.end;
+  }
+  return spans;
 }
 
 export function getBaselineParagraphs(doc) {

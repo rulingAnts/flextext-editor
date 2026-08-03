@@ -809,9 +809,10 @@ function openDlMenu(wrap) {
  * body is a placeholder that populates from the text's Drive FOLDER on first open — the folder is
  * the source of truth for what artifacts exist, so History entries show the same live menu the
  * device row does instead of a snapshot frozen at event time. */
-function filesMenuHtml(instanceId, docId, title) {
+function filesMenuHtml(instanceId, docId, title, audioUrl) {
   if (!docId) return '';
-  return `<span class="rp-dl" data-fmenu data-i="${esc(instanceId)}" data-id="${esc(docId)}" data-title="${esc(title || '')}">
+  const au = /^https?:\/\//i.test(String(audioUrl || '')) ? audioUrl : '';
+  return `<span class="rp-dl" data-fmenu data-i="${esc(instanceId)}" data-id="${esc(docId)}" data-title="${esc(title || '')}" data-audio="${esc(au)}">
     <button class="link-btn rp-dl-btn" aria-haspopup="true" aria-expanded="false">${esc(t('panel.dl.btn'))} <span class="rp-dl-caret" aria-hidden="true">▾</span></button>
     <span class="rp-dl-menu" hidden role="menu"><span class="rp-dl-head">${esc(t('panel.dl.title'))}</span>
       <span class="note rp-dl-loading">${esc(t('panel.dl.loading'))}</span></span></span>`;
@@ -827,7 +828,8 @@ const EXT_KIND = [
 function latestPerKind(files) {
   const seen = new Set(); const out = [];
   for (const f of files || []) {
-    const kind = (EXT_KIND.find(([re]) => re.test(f.name || '')) || [null, 'other'])[1];
+    const kind = f.role === 'assigned-audio' ? 'audio-original'
+      : (EXT_KIND.find(([re]) => re.test(f.name || '')) || [null, 'other'])[1];
     const key = kind === 'other' ? 'other:' + f.name : kind;   // unknown kinds keep every distinct name
     if (seen.has(key)) continue;
     seen.add(key); out.push({ ...f, kind });
@@ -845,14 +847,22 @@ async function populateFilesMenu(wrap) {
   try { files = latestPerKind((await Researcher.listTextFiles(iid, docId)).files); }
   catch { /* listing failed → fall through to the static fallback */ }
   const rows = [];
-  const audioUrl = assigned && /^https?:\/\//i.test(assigned.audioUrl || '') ? assigned.audioUrl : '';
+  // ⚠ THE IF-AND-ONLY-IF RULE (Seth): when the folder holds the assigned-audio COPY, that copy IS
+  // the original-audio entry and the cached panel link stays hidden. The cached link renders only
+  // for texts whose folder has no copy (assigned before v134 — backward compatible). Sources for
+  // the cached link, in order: this row's own event (data-audio — a history entry recorded before
+  // the assigned-events cache existed still knows its audio), then the cache.
+  const folderHasOriginal = files.some((f) => f.kind === 'audio-original');
+  const cached = wrap.dataset.audio || (assigned && assigned.audioUrl) || '';
+  const audioUrl = !folderHasOriginal && /^https?:\/\//i.test(cached) ? cached : '';
   if (audioUrl) {
     const gid = driveIdFrom(audioUrl);
     rows.push(`<a class="rp-dl-item" role="menuitem" href="${esc(gid ? driveLink(gid) : audioUrl)}" target="_blank" rel="noopener noreferrer">
       <span class="rp-dl-name">${esc(t('panel.dl.audio'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.audioSub'))}</span></a>`);
   }
   for (const f of files) {
-    const label = f.kind === 'other' ? f.name : t({ 'audio': 'panel.dl.audioUpload', 'flextext': 'panel.dl.flextext', 'bundle': 'panel.dl.bundle',
+    const label = f.kind === 'other' ? f.name : t({ 'audio-original': 'panel.dl.audio', 'audio': 'panel.dl.audioUpload',
+      'flextext': 'panel.dl.flextext', 'bundle': 'panel.dl.bundle',
       'eaf-flex': 'panel.dl.eafFlex', 'eaf-saymore': 'panel.dl.eafSaymore', 'wav-derived': 'panel.dl.wavDerived' }[f.kind]);
     rows.push(`<a class="rp-dl-item" role="menuitem" data-drivefile="${esc(f.id)}" data-fname="${esc(f.name)}" href="#">
       <span class="rp-dl-name">${esc(label)}</span><span class="rp-dl-sub">${esc(f.name)}${f.size ? ' · ' + esc(fmtSize(f.size)) : ''}</span></a>`);
@@ -1931,7 +1941,7 @@ function historyModal() {
         </div>
         <div class="note rp-hist-meta">${esc(histWhen(e.at))}${e.device ? ' · ' + esc(e.device) : ''}${esc(by)}</div>
         <div class="rp-hist-links">
-          ${e.instanceId && e.docId ? filesMenuHtml(e.instanceId, e.docId, e.title || '') : ''}
+          ${e.instanceId && e.docId ? filesMenuHtml(e.instanceId, e.docId, e.title || '', e.audioUrl) : ''}
           ${audio && !(e.instanceId && e.docId) ? `<a href="${esc(audio)}" target="_blank" rel="noopener noreferrer">${esc(t('panel.hist.audioLink'))}</a>` : ''}
           ${up && !(e.instanceId && e.docId) ? `<a href="${esc(up)}" target="_blank" rel="noopener noreferrer">${esc(t('panel.hist.uploadLink'))}</a>` : ''}
         </div>

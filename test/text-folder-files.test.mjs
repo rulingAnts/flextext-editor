@@ -69,6 +69,24 @@ console.log('\nunknown kinds are kept per NAME — distinct files never collapse
   ok(r.length === 2, 'two distinct unknown names -> two entries; a duplicate name collapses');
 }
 
+console.log('\nthe assigned-audio COPY is its own kind — the role tag beats the extension');
+{
+  // ⚠ The if-and-only-if rule depends on this: the panel hides the cached original-audio link
+  // exactly when the folder holds the copy. If a device-recorded take (same extensions!) could
+  // classify as the original, the cached link would vanish for texts whose copy never existed.
+  const r = latestPerKind([
+    { name: 'take2.wav', id: 't2' },                                          // device recording
+    { name: 'assigned-audio.mp3', id: 'o1', role: 'assigned-audio' },         // the Worker's copy
+    { name: 'take1.wav', id: 't1' },
+  ]);
+  ok(kinds(r).sort().join() === 'audio,audio-original', 'copy and recording are DISTINCT kinds');
+  ok(r.find((x) => x.kind === 'audio-original').id === 'o1', 'the role tag picked the copy');
+  ok(r.find((x) => x.kind === 'audio').name === 'take2.wav', 'newest device take survives beside it');
+  const noCopy = latestPerKind([{ name: 'take2.wav', id: 't2' }]);
+  ok(!noCopy.some((x) => x.kind === 'audio-original'),
+     'a recording WITHOUT the role tag is never mistaken for the original copy');
+}
+
 console.log('\nmalformed input degrades, never throws (this feeds a privileged panel)');
 {
   ok(Array.isArray(latestPerKind(null)) && latestPerKind(null).length === 0, 'null -> []');

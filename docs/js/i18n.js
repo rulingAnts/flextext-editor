@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v135';
+export const ENGINE_VERSION = 'v136';
 
 const S = {
 en: {
@@ -710,6 +710,7 @@ internet after the first time.</p>
   // near-impossible to tell apart by name, and "ELAN" vs "SayMore" says which tool opens which.
   'panel.dl.loading': 'Checking the text\u2019s folder\u2026',
   'panel.dl.audioUpload': 'Recording (uploaded)',
+  'panel.dl.lastUploadSub': 'the last file this text uploaded',
   'panel.dl.all': 'Download all (ZIP)',
   'panel.dl.allSub': 'the newest copy of each file, zipped — {n} file(s)',
   'panel.dl.zipBuilding': 'Building ZIP\u2026',
@@ -729,7 +730,7 @@ internet after the first time.</p>
   'panel.dl.eafSaymore': 'SayMore',
   'panel.dl.eafSaymoreSub': 'annotation file, tiers named for SayMore',
   'panel.dl.inferred': 'file type not reported by this device — it may be a zip',
-  'panel.dl.noneYet': 'Nothing uploaded from this device yet.',
+  'panel.dl.noneYet': 'No files found for this text.',
   'panel.dl.noneAssignedPreV126': 'This text was assigned before the app started keeping the audio link, so the original audio cannot be recovered. Anything uploaded from now on will appear here.',
   // History — the back-log of texts that are no longer on a device. Written as the panel observes
   // each device report (see js/history.js); a deleted text leaves nothing behind but this.
@@ -1694,6 +1695,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.admin.kind.domain_removed': 'Domain dihapus',
   'panel.dl.loading': 'Memeriksa folder teks\u2026',
   'panel.dl.audioUpload': 'Rekaman (terunggah)',
+  'panel.dl.lastUploadSub': 'berkas terakhir yang diunggah teks ini',
   'panel.dl.all': 'Unduh semua (ZIP)',
   'panel.dl.allSub': 'salinan terbaru tiap berkas, di-ZIP — {n} berkas',
   'panel.dl.zipBuilding': 'Membuat ZIP\u2026',
@@ -1713,7 +1715,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.dl.eafSaymore': 'SayMore',
   'panel.dl.eafSaymoreSub': 'berkas anotasi, nama tier untuk SayMore',
   'panel.dl.inferred': 'jenis berkas tidak dilaporkan perangkat ini — mungkin sebuah zip',
-  'panel.dl.noneYet': 'Belum ada yang diunggah dari perangkat ini.',
+  'panel.dl.noneYet': 'Tidak ada berkas ditemukan untuk teks ini.',
   'panel.dl.noneAssignedPreV126': 'Teks ini ditugaskan sebelum aplikasi mulai menyimpan tautan audio, jadi audio aslinya tidak dapat dipulihkan. Apa pun yang diunggah mulai sekarang akan muncul di sini.',
   'panel.hist.btn': 'Riwayat',
   'panel.hist.title': 'Riwayat',

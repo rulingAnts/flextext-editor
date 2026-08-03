@@ -809,10 +809,10 @@ function openDlMenu(wrap) {
  * body is a placeholder that populates from the text's Drive FOLDER on first open — the folder is
  * the source of truth for what artifacts exist, so History entries show the same live menu the
  * device row does instead of a snapshot frozen at event time. */
-function filesMenuHtml(instanceId, docId, title, audioUrl) {
+function filesMenuHtml(instanceId, docId, title, audioUrl, fileId) {
   if (!docId) return '';
   const au = /^https?:\/\//i.test(String(audioUrl || '')) ? audioUrl : '';
-  return `<span class="rp-dl" data-fmenu data-i="${esc(instanceId)}" data-id="${esc(docId)}" data-title="${esc(title || '')}" data-audio="${esc(au)}">
+  return `<span class="rp-dl" data-fmenu data-i="${esc(instanceId)}" data-id="${esc(docId)}" data-title="${esc(title || '')}" data-audio="${esc(au)}" data-fileid="${esc(fileId || '')}">
     <button class="link-btn rp-dl-btn" aria-haspopup="true" aria-expanded="false">${esc(t('panel.dl.btn'))} <span class="rp-dl-caret" aria-hidden="true">▾</span></button>
     <span class="rp-dl-menu" hidden role="menu"><span class="rp-dl-head">${esc(t('panel.dl.title'))}</span>
       <span class="note rp-dl-loading">${esc(t('panel.dl.loading'))}</span></span></span>`;
@@ -837,6 +837,17 @@ function latestPerKind(files) {
   return out;
 }
 
+/* Build ONE menu from ALL sources, merged by kind — never either/or.
+ *
+ * ⚠ WHY MERGED (Seth, after two rounds of non-uniform menus): the sources cover DIFFERENT files,
+ * not the same files at different freshness. The Drive folder has what was uploaded since v134;
+ * the report's uploadedFileId covers pre-folder uploads; the cached/event audio URL covers
+ * assignments whose audio was never copied. Treating them as fallbacks meant every menu showed
+ * whichever single source happened to be non-empty — audio-only on Assigned history rows,
+ * flextext-only on device rows. The rule is: every kind appears once, from the BEST source that
+ * has it. Folder files win their kind; the cached audio link fills 'audio-original' only when the
+ * folder has no copy (the if-and-only-if rule); report artifacts fill kinds nothing else claimed;
+ * a history event's own fileId is the last resort for texts deleted from every inventory. */
 async function populateFilesMenu(wrap) {
   if (wrap.dataset.loaded) return;
   wrap.dataset.loaded = '1';
@@ -845,40 +856,61 @@ async function populateFilesMenu(wrap) {
   const assigned = assignedFor(docId);
   let files = [];
   try { files = latestPerKind((await Researcher.listTextFiles(iid, docId)).files); }
-  catch { /* listing failed → fall through to the static fallback */ }
-  const rows = [];
-  // ⚠ THE IF-AND-ONLY-IF RULE (Seth): when the folder holds the assigned-audio COPY, that copy IS
-  // the original-audio entry and the cached panel link stays hidden. The cached link renders only
-  // for texts whose folder has no copy (assigned before v134 — backward compatible). Sources for
-  // the cached link, in order: this row's own event (data-audio — a history entry recorded before
-  // the assigned-events cache existed still knows its audio), then the cache.
-  const folderHasOriginal = files.some((f) => f.kind === 'audio-original');
-  const cached = wrap.dataset.audio || (assigned && assigned.audioUrl) || '';
-  const audioUrl = !folderHasOriginal && /^https?:\/\//i.test(cached) ? cached : '';
-  if (audioUrl) {
-    const gid = driveIdFrom(audioUrl);
-    rows.push(`<a class="rp-dl-item" role="menuitem" href="${esc(gid ? driveLink(gid) : audioUrl)}" target="_blank" rel="noopener noreferrer">
-      <span class="rp-dl-name">${esc(t('panel.dl.audio'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.audioSub'))}</span></a>`);
-  }
+  catch { /* listing failed — the other sources still render */ }
+
+  const claimed = new Set(files.map((f) => f.kind));
+  const audioRows = [], fileRows = [], tailRows = [];
+  const KIND_LABEL = { 'audio-original': 'panel.dl.audio', 'audio': 'panel.dl.audioUpload',
+    'flextext': 'panel.dl.flextext', 'bundle': 'panel.dl.bundle',
+    'eaf-flex': 'panel.dl.eafFlex', 'eaf-saymore': 'panel.dl.eafSaymore', 'wav-derived': 'panel.dl.wavDerived' };
+
+  // 1. Folder files — the authoritative source for every kind they cover. The original-audio copy
+  //    sorts to the top so the menu always leads with the recording.
   for (const f of files) {
-    const label = f.kind === 'other' ? f.name : t({ 'audio-original': 'panel.dl.audio', 'audio': 'panel.dl.audioUpload',
-      'flextext': 'panel.dl.flextext', 'bundle': 'panel.dl.bundle',
-      'eaf-flex': 'panel.dl.eafFlex', 'eaf-saymore': 'panel.dl.eafSaymore', 'wav-derived': 'panel.dl.wavDerived' }[f.kind]);
-    rows.push(`<a class="rp-dl-item" role="menuitem" data-drivefile="${esc(f.id)}" data-fname="${esc(f.name)}" href="#">
-      <span class="rp-dl-name">${esc(label)}</span><span class="rp-dl-sub">${esc(f.name)}${f.size ? ' · ' + esc(fmtSize(f.size)) : ''}</span></a>`);
+    const label = f.kind === 'other' ? f.name : t(KIND_LABEL[f.kind]);
+    const row = `<a class="rp-dl-item" role="menuitem" data-drivefile="${esc(f.id)}" data-fname="${esc(f.name)}" href="#">
+      <span class="rp-dl-name">${esc(label)}</span><span class="rp-dl-sub">${esc(f.name)}${f.size ? ' · ' + esc(fmtSize(f.size)) : ''}</span></a>`;
+    (f.kind === 'audio-original' ? audioRows : fileRows).push(row);
   }
-  if (!files.length && !audioUrl) {
-    // No folder yet — old text, or nothing uploaded. Fall back to the static per-report artifacts.
-    const item = findInventoryItem(iid, docId);
-    for (const f of resolveArtifacts(item, assigned)) {
-      rows.push(`<a class="rp-dl-item" role="menuitem" href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">
-        <span class="rp-dl-name">${esc(t(f.labelKey))}</span><span class="rp-dl-sub">${esc(t(f.labelKey + 'Sub'))}</span></a>`);
+
+  // 2. The cached audio link — if and only if the folder holds no copy. Sources in order: this
+  //    row's own event (data-audio; a history entry recorded before the assigned-events cache
+  //    existed still knows its audio), then the cache.
+  if (!claimed.has('audio-original')) {
+    const cached = wrap.dataset.audio || (assigned && assigned.audioUrl) || '';
+    if (/^https?:\/\//i.test(cached)) {
+      claimed.add('audio-original');
+      const gid = driveIdFrom(cached);
+      audioRows.push(`<a class="rp-dl-item" role="menuitem" href="${esc(gid ? driveLink(gid) : cached)}" target="_blank" rel="noopener noreferrer">
+        <span class="rp-dl-name">${esc(t('panel.dl.audio'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.audioSub'))}</span></a>`);
     }
   }
+
+  // 3. Report artifacts (uploadedFileId et al) fill any kind nothing above claimed — this is what
+  //    keeps pre-folder uploads visible next to folder-era files instead of instead of them.
+  //    resolveArtifacts' 'audio' kind IS the cached assigned link, already handled above — skip it.
+  const item = findInventoryItem(iid, docId);
+  for (const f of resolveArtifacts(item, null)) {
+    if (f.kind === 'audio' || claimed.has(f.kind)) continue;
+    claimed.add(f.kind);
+    fileRows.push(`<a class="rp-dl-item" role="menuitem" href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">
+      <span class="rp-dl-name">${esc(t(f.labelKey))}</span><span class="rp-dl-sub">${esc(t(f.labelKey + 'Sub'))}</span></a>`);
+  }
+
+  // 4. A history event's own fileId — the last resort for a text deleted from every inventory,
+  //    where findInventoryItem has nothing. Generic label, because the event does not record which
+  //    kind the upload was.
+  if (wrap.dataset.fileid && !claimed.has('flextext') && !claimed.has('bundle')) {
+    const gid = driveLink(wrap.dataset.fileid);
+    if (gid) fileRows.push(`<a class="rp-dl-item" role="menuitem" href="${esc(gid)}" target="_blank" rel="noopener noreferrer">
+      <span class="rp-dl-name">${esc(t('panel.hist.uploadLink'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.lastUploadSub'))}</span></a>`);
+  }
+
   if (files.length) {
-    rows.push(`<button class="rp-dl-item rp-dl-all" data-zipall data-i="${esc(iid)}" data-id="${esc(docId)}" data-title="${esc(title)}">
+    tailRows.push(`<button class="rp-dl-item rp-dl-all" data-zipall data-i="${esc(iid)}" data-id="${esc(docId)}" data-title="${esc(title)}">
       <span class="rp-dl-name">${esc(t('panel.dl.all'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.allSub', { n: files.length }))}</span></button>`);
   }
+  const rows = [...audioRows, ...fileRows, ...tailRows];
   menu.innerHTML = `<span class="rp-dl-head">${esc(t('panel.dl.title'))}</span>`
     + (rows.length ? rows.join('') : `<span class="note rp-dl-loading">${esc(t('panel.dl.noneYet'))}</span>`);
 }
@@ -1941,7 +1973,7 @@ function historyModal() {
         </div>
         <div class="note rp-hist-meta">${esc(histWhen(e.at))}${e.device ? ' · ' + esc(e.device) : ''}${esc(by)}</div>
         <div class="rp-hist-links">
-          ${e.instanceId && e.docId ? filesMenuHtml(e.instanceId, e.docId, e.title || '', e.audioUrl) : ''}
+          ${e.instanceId && e.docId ? filesMenuHtml(e.instanceId, e.docId, e.title || '', e.audioUrl, e.fileId) : ''}
           ${audio && !(e.instanceId && e.docId) ? `<a href="${esc(audio)}" target="_blank" rel="noopener noreferrer">${esc(t('panel.hist.audioLink'))}</a>` : ''}
           ${up && !(e.instanceId && e.docId) ? `<a href="${esc(up)}" target="_blank" rel="noopener noreferrer">${esc(t('panel.hist.uploadLink'))}</a>` : ''}
         </div>

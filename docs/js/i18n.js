@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v133';
+export const ENGINE_VERSION = 'v134';
 
 const S = {
 en: {
@@ -708,6 +708,12 @@ internet after the first time.</p>
   'panel.admin.kind.domain_removed': 'Domain removed',
   // Downloads dropdown on each text row. Labelled by PURPOSE, never filename: two .eaf files are
   // near-impossible to tell apart by name, and "ELAN" vs "SayMore" says which tool opens which.
+  'panel.dl.loading': 'Checking the text\u2019s folder\u2026',
+  'panel.dl.audioUpload': 'Recording (uploaded)',
+  'panel.dl.all': 'Download all (ZIP)',
+  'panel.dl.allSub': 'the newest copy of each file, zipped — {n} file(s)',
+  'panel.dl.zipBuilding': 'Building ZIP\u2026',
+  'panel.dl.zipFailed': 'Download failed — try again.',
   'panel.dl.btn': 'Files',
   'panel.dl.title': 'Download',
   'panel.dl.audio': 'Original audio',
@@ -1686,6 +1692,12 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.admin.kind.account_declined': 'Ditolak',
   'panel.admin.kind.domain_added': 'Domain ditambahkan',
   'panel.admin.kind.domain_removed': 'Domain dihapus',
+  'panel.dl.loading': 'Memeriksa folder teks\u2026',
+  'panel.dl.audioUpload': 'Rekaman (terunggah)',
+  'panel.dl.all': 'Unduh semua (ZIP)',
+  'panel.dl.allSub': 'salinan terbaru tiap berkas, di-ZIP — {n} berkas',
+  'panel.dl.zipBuilding': 'Membuat ZIP\u2026',
+  'panel.dl.zipFailed': 'Unduhan gagal — coba lagi.',
   'panel.dl.btn': 'Berkas',
   'panel.dl.title': 'Unduh',
   'panel.dl.audio': 'Audio asli',

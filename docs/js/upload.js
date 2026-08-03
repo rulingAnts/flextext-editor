@@ -151,6 +151,10 @@ export class DriveUpload {
           'content-type': 'application/octet-stream',
           'x-fx-name': encodeURIComponent(rec.name || ''),
           'x-fx-mime': rec.mime || '',
+          // Per-text Drive folder identity. Headers, because the body is the raw bytes. A worker
+          // that predates them ignores unknown x-fx-* headers, so deploy order cannot break this.
+          'x-fx-doc': this.docId || '',
+          'x-fx-doctitle': encodeURIComponent(rec.docTitle || ''),
         },
         body: rec.blob,
         signal: this.abortCtl.signal,
@@ -236,7 +240,8 @@ export class DriveUpload {
         const r = await fetch(target.url + '/start', {
           method: 'POST',
           headers: { ...target.headers, 'content-type': 'application/json' },
-          body: JSON.stringify({ name: rec.name, mime: rec.mime, size: rec.total }),
+          body: JSON.stringify({ name: rec.name, mime: rec.mime, size: rec.total,
+                                 docId: this.docId || '', docTitle: rec.docTitle || '' }),
         });
         out = await r.json().catch(() => null);
         if (!r.ok || !out || !out.uploadId) return false;   // no_drive/network → caller decides

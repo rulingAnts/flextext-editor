@@ -331,6 +331,32 @@ export async function pushCommand(instanceId, type, opts = {}) {
   return { ok: true, seq: r.seq, desired_rev: r.desired_rev };
 }
 
+/* The text's Drive folder listing — the source of truth for "what artifacts exist for this text".
+ * Returns { folderId, files: [{id,name,size,mime,modified}] }, newest first; files:[] is the
+ * normal state for a text nothing has been uploaded for, not an error. */
+export function listTextFiles(instanceId, docId) {
+  return api('GET', `/v1/instances/${encodeURIComponent(instanceId)}/texts/${encodeURIComponent(docId)}/files`);
+}
+
+/* Best-effort server-side copy of the assigned audio into the text's Drive folder. Called AFTER a
+ * successful assign; a failure costs only the convenience copy, never the assignment. */
+export function assignCopy(instanceId, docId, title, src) {
+  return api('POST', `/v1/instances/${encodeURIComponent(instanceId)}/assign-copy`, { body: { docId, title, src } });
+}
+
+/* Raw bytes of one of the researcher's own app-created Drive files, as a Blob — for the panel's
+ * download-all-as-ZIP builder. Not api(): that helper parses JSON, and this is a file body. */
+export async function fetchDriveFile(fileId) {
+  const a = (() => { try { return JSON.parse(sessionStorage.getItem(AUTH_KEY) || localStorage.getItem(AUTH_KEY)) || null; } catch { return null; } })();
+  if (!a) throw new Error('not_signed_up');
+  const base = (workerBaseFn() || '').replace(/\/+$/, '');
+  const r = await fetch(`${base}/v1/researcher/drive-file/${encodeURIComponent(fileId)}`, {
+    headers: { 'x-fx-researcher': a.researcher_id, 'x-fx-secret': a.secret },
+  });
+  if (!r.ok) throw new Error('file_fetch_failed_' + r.status);
+  return r.blob();
+}
+
 /* Withdraw a queued command the device has not picked up yet.
  * Throws on 409 `already_delivered` — a cancel that quietly failed would be worse than none, since
  * the researcher would walk away believing the request is off when the device is already acting. */

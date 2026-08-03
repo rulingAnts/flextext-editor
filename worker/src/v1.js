@@ -404,6 +404,41 @@ async function driveEnsureDeviceFolder(env, access, instanceId, nickname, existi
   return f.id;
 }
 
+// A Drive file id out of whatever the panel stored for the assignment — the same three URL shapes
+// index.js's driveId() and the client's driveIdFrom() accept, duplicated here because index.js does
+// not export (it is the isolation boundary; importing across it would couple the lanes).
+function driveIdOf(src) {
+  const s = String(src || '').trim();
+  let m = s.match(/drive\.google\.com\/file\/d\/([\w-]{10,})/);
+  if (m) return m[1];
+  m = s.match(/[?&]id=([\w-]{10,})/);
+  if (m) return m[1];
+  if (/^[\w-]{10,}$/.test(s)) return s;
+  return null;
+}
+
+// A TEXT's folder inside its device folder: "FlexText Uploads / <nickname> / <title>".
+// Found by an appProperties tag carrying the docId — the SAME rename/move-proof mechanism as the
+// master folder, and deliberately NOT a D1 table: the docId is the identity, the name is display
+// only (the researcher may rename the folder freely; retitling a text just leaves the old folder
+// name, which is honest — the files in it were uploaded under that title).
+// ⚠ The tag search is scoped to trashed=false but NOT to the parent: if the researcher moves a
+// text folder elsewhere, uploads keep following it — mirroring the move-once behaviour of the
+// master folder rather than silently forking a second folder.
+async function driveEnsureTextFolder(access, deviceFolderId, docId, title) {
+  const id = String(docId || '').replace(/[^\w-]/g, '').slice(0, 64);
+  if (!id) return deviceFolderId;                       // no doc identity → old behaviour (device root)
+  const q = encodeURIComponent(`appProperties has { key='flextextDoc' and value='${id}' } and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+  try {
+    const found = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files?spaces=drive&fields=files(id)&q=' + q);
+    if (found.files && found.files.length) return found.files[0].id;
+  } catch { /* fall through to create */ }
+  const name = String(title || '').replace(/[\\/:*?"<>|]+/g, '_').trim().slice(0, 120) || ('Text — ' + id.slice(0, 8));
+  const f = await driveJson(access, 'POST', 'https://www.googleapis.com/drive/v3/files?fields=id',
+    { name, mimeType: 'application/vnd.google-apps.folder', parents: [deviceFolderId], appProperties: { flextextDoc: id } });
+  return f.id;
+}
+
 // The recorder's folder in the RESEARCHER'S Drive: "FlexText Uploads / Crowd — <label>".
 // drive.file can only write to app-created files, so the worker creates (and
 // remembers) the folder itself; a trashed/vanished folder is transparently
@@ -959,6 +994,30 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     return j({ error: 'not_found' }, 404, origin, env);
   }
 
+  /* GET /v1/researcher/drive-file/<fileId> — RESEARCHER: stream one of their own app-created Drive
+   * files back through the Worker. Exists for the panel's download-all-as-ZIP: the browser cannot
+   * fetch drive.usercontent.google.com cross-origin (CORS), so the bytes route through here with
+   * the researcher's own token instead. drive.file scope is the guard — a file the app did not
+   * create simply 404s at Google, so this cannot become a general Drive reader. Free egress. */
+  if (m === 'GET' && seg.length === 4 && seg[1] === 'researcher' && seg[2] === 'drive-file') {
+    const r = await authResearcher(request, env);
+    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    const fileId = String(seg[3] || '').replace(/[^\w-]/g, '').slice(0, 90);
+    if (!fileId) return j({ error: 'bad_file' }, 400, origin, env);
+    try {
+      const access = await driveAccessToken(env, r);
+      const g = await fetch('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?alt=media', {
+        headers: { Authorization: 'Bearer ' + access },
+      });
+      if (!g.ok) return j({ error: g.status === 404 ? 'not_found' : 'drive_error', status: g.status }, g.status === 404 ? 404 : 502, origin, env);
+      const h = new Headers(v1Cors(origin, env));
+      h.set('content-type', g.headers.get('content-type') || 'application/octet-stream');
+      const len = g.headers.get('content-length'); if (len) h.set('content-length', len);
+      h.set('Cache-Control', 'no-store');
+      return new Response(g.body, { status: 200, headers: h });
+    } catch (e) { return j({ error: e.code || 'drive_error', message: e.message }, 502, origin, env); }
+  }
+
   /* GET /v1/researcher/approvals — OWNER only. The append-only access-control history: every
    * account that appeared, was approved, auto-approved or declined, and every domain added or
    * removed. Read-only by design; nothing in the app writes here except logApproval(), and nothing
@@ -1151,6 +1210,87 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       return j({ error: 'conflict_retry' }, 409, origin, env);
     }
 
+    /* GET .../texts/<docId>/files — RESEARCHER: list the text's Drive folder, newest first.
+     * This is what feeds the Files dropdown and the download-all ZIP: the folder IS the source of
+     * truth for "what artifacts exist", so the panel never has to reconstruct it from reports.
+     * Returns [] (not an error) when the folder does not exist yet — a text with no uploads is a
+     * normal state, not a failure. */
+    if (m === 'GET' && sub === 'texts' && seg.length === 6 && seg[5] === 'files') {
+      const r = await authResearcher(request, env);
+      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      const owned = await env.DB.prepare('SELECT instance_id FROM instance WHERE instance_id=? AND researcher_id=?')
+        .bind(instanceId, r.researcher_id).first();
+      if (!owned) return j({ error: 'not_found' }, 404, origin, env);
+      const docId = String(seg[4] || '').replace(/[^\w-]/g, '').slice(0, 64);
+      if (!docId) return j({ error: 'bad_doc' }, 400, origin, env);
+      try {
+        const access = await driveAccessToken(env, r);
+        const fq = encodeURIComponent(`appProperties has { key='flextextDoc' and value='${docId}' } and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+        const found = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files?spaces=drive&fields=files(id)&q=' + fq);
+        if (!found.files || !found.files.length) return j({ files: [], folderId: null }, 200, origin, env);
+        const folderId = found.files[0].id;
+        const lq = encodeURIComponent(`'${folderId}' in parents and trashed=false`);
+        const list = await driveJson(access, 'GET',
+          'https://www.googleapis.com/drive/v3/files?spaces=drive&orderBy=modifiedTime desc&pageSize=200&fields=files(id,name,size,mimeType,modifiedTime)&q=' + lq);
+        return j({ folderId, files: (list.files || []).map((f) => ({
+          id: f.id, name: f.name, size: parseInt(f.size, 10) || 0, mime: f.mimeType || '', modified: f.modifiedTime || '',
+        })) }, 200, origin, env);
+      } catch (e) { return j({ error: e.code || 'drive_error', message: e.message }, 502, origin, env); }
+    }
+
+    /* POST .../assign-copy {docId, title, src} — RESEARCHER: place a copy of the assigned audio in
+     * the text's folder, at assign time, server-side.
+     * WHY HERE AND NOT ON THE DEVICE: drive.file cannot copy a file the app did not create, and the
+     * device re-uploading what it just downloaded would spend the coworker's bandwidth — the one
+     * resource this suite is built to protect. The Worker streams the PUBLIC file (the assignment
+     * link is already public — the device fetches it through /drive with the read token) into a
+     * file the app DOES create, with the researcher's own token, on Cloudflare's free egress.
+     * Best-effort by contract: the assignment itself has already succeeded when this is called, and
+     * a failed copy costs only the convenience copy. */
+    if (m === 'POST' && sub === 'assign-copy' && seg.length === 4) {
+      const r = await authResearcher(request, env);
+      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      const inst = await env.DB.prepare('SELECT instance_id, nickname, oauth_folder_id FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
+        .bind(instanceId, r.researcher_id).first();
+      if (!inst) return j({ error: 'not_found' }, 404, origin, env);
+      const body = await readJson(request) || {};
+      const srcId = driveIdOf(String(body.src || ""));
+      if (!srcId) return j({ error: 'bad_src' }, 400, origin, env);
+      if (!body.docId) return j({ error: 'bad_doc' }, 400, origin, env);
+      try {
+        const access = await driveAccessToken(env, r);
+        const deviceFolder = await driveEnsureDeviceFolder(env, access, instanceId, inst.nickname, inst.oauth_folder_id);
+        const folder = await driveEnsureTextFolder(access, deviceFolder, body.docId, body.title);
+        // Fetch the public file exactly as the /drive proxy does, then STREAM it into Drive —
+        // never buffered, so a long recording cannot exhaust worker memory.
+        const srcResp = await fetch(`https://drive.usercontent.google.com/download?id=${srcId}&export=download&confirm=t`);
+        if (!srcResp.ok || (srcResp.headers.get('content-type') || '').includes('text/html')) {
+          return j({ error: 'src_unavailable' }, 502, origin, env);
+        }
+        const len = parseInt(srcResp.headers.get('content-length') || '0', 10);
+        if (!len) { try { srcResp.body?.cancel?.(); } catch { /* noop */ } return j({ error: 'no_length' }, 502, origin, env); }
+        const mime = srcResp.headers.get('content-type') || 'application/octet-stream';
+        let name = (srcResp.headers.get('content-disposition') || '').match(/filename="?([^";]+)"?/)?.[1] || '';
+        name = (name || ('assigned-audio-' + srcId.slice(0, 8))).replace(/[\\/:*?"<>|]+/g, '_').slice(0, 180);
+        const init = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + access, 'content-type': 'application/json',
+                     'X-Upload-Content-Type': mime, 'X-Upload-Content-Length': String(len) },
+          body: JSON.stringify({ name, mimeType: mime, parents: [folder], appProperties: { flextextRole: 'assigned-audio' } }),
+        });
+        const session = init.ok ? init.headers.get('Location') : null;
+        if (!session) { try { srcResp.body?.cancel?.(); } catch { /* noop */ } return j({ error: 'drive_error' }, 502, origin, env); }
+        const put = await fetch(session, {
+          method: 'PUT',
+          headers: { 'content-length': String(len), 'content-type': mime },
+          body: srcResp.body,
+        });
+        const done = put.ok ? await put.json().catch(() => ({})) : {};
+        if (!put.ok || !done.id) return j({ error: 'copy_failed', status: put.status }, 502, origin, env);
+        return j({ ok: true, fileId: done.id, name, size: len }, 200, origin, env);
+      } catch (e) { return j({ error: e.code || 'drive_error', message: e.message }, 502, origin, env); }
+    }
+
     // POST .../revoke — revoke the whole instance.
     if (m === 'POST' && sub === 'revoke' && seg.length === 4) {
       const r = await authResearcher(request, env);
@@ -1289,7 +1429,12 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         const mime = String(body.mime || 'application/octet-stream').slice(0, 100);
         try {
           const access = await driveAccessToken(env, inst);
-          const folder = await driveEnsureDeviceFolder(env, access, instanceId, inst.inst_nickname, inst.inst_folder);
+          const deviceFolder = await driveEnsureDeviceFolder(env, access, instanceId, inst.inst_nickname, inst.inst_folder);
+          // Per-text sub-folder when the device declares which text this belongs to (new engines
+          // send docId/docTitle; old engines omit them and land in the device folder as before).
+          const folder = body.docId
+            ? await driveEnsureTextFolder(access, deviceFolder, body.docId, body.docTitle)
+            : deviceFolder;
           const init = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id', {
             method: 'POST',
             headers: {
@@ -1364,12 +1509,18 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         try { name = decodeURIComponent(request.headers.get('x-fx-name') || ''); } catch { /* keep '' */ }
         name = name.replace(/[\\/:*?"<>|]+/g, '_').trim().slice(0, 180) || ('upload-' + now + '.bin');
         const mime = String(request.headers.get('x-fx-mime') || 'application/octet-stream').slice(0, 100);
+        // Per-text folder identity: headers, because the body is the raw file bytes. Old engines
+        // simply do not send them and their uploads land in the device folder exactly as before.
+        const docId = String(request.headers.get('x-fx-doc') || '').trim();
+        let docTitle = '';
+        try { docTitle = decodeURIComponent(request.headers.get('x-fx-doctitle') || ''); } catch { /* keep '' */ }
         const buf = await request.arrayBuffer();
         if (buf.byteLength > cap) return j({ error: 'too_large', limit: cap }, 413, origin, env);
         if (!buf.byteLength) return j({ error: 'empty' }, 400, origin, env);
         try {
           const access = await driveAccessToken(env, inst);
-          const folder = await driveEnsureDeviceFolder(env, access, instanceId, inst.inst_nickname, inst.inst_folder);
+          const deviceFolder = await driveEnsureDeviceFolder(env, access, instanceId, inst.inst_nickname, inst.inst_folder);
+          const folder = docId ? await driveEnsureTextFolder(access, deviceFolder, docId, docTitle) : deviceFolder;
           const fileId = await driveUpload(access, folder, name, buf, mime);
           return j({ ok: true, fileId }, 200, origin, env);
         } catch (e) {

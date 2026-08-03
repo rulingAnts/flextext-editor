@@ -126,6 +126,20 @@ console.log('flextext IMPORT — segmentsFromOffsets (flextext as THE segmentati
   ok(JSON.stringify(beginVals) === JSON.stringify([0, 2000, 4000]), 'exported offsets carry the exact span starts back');
 }
 
+console.log('flextext — segTimes:false suppresses OUR emission, never imported data');
+{
+  // Basic editor (segmentation off): a doc still carrying spans exports a CLEAN classic flextext.
+  const d = segDoc();
+  const xml = serializeFlextext(d, { vernLang: 'fau', analLang: 'id' }, { mediaName: 'story.wav', segTimes: false });
+  ok(!xml.includes('begin-time-offset') && !xml.includes('>audio ') && !xml.includes('<media-files'),
+     'segTimes:false → no offsets, no notes, no media-files block');
+  // But IMPORTED offsets living in phrase attrs still round-trip verbatim — suppression is not stripping.
+  const d2 = segDoc();
+  d2.paragraphs[0].segments[0].attrs = { guid: 'g', 'begin-time-offset': '5', 'end-time-offset': '900' };
+  const xml2 = serializeFlextext(d2, { vernLang: 'fau', analLang: 'id' }, { segTimes: false });
+  ok(xml2.includes('begin-time-offset="5"'), 'imported attrs still round-trip with segTimes:false');
+}
+
 console.log('preview page');
 {
   const html = buildSegPreviewHtml(segDoc(), { title: 'Kisah <A&B>', audioB64: 'QUJD', audioMime: 'audio/wav', mediaName: 'story.wav' });

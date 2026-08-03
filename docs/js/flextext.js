@@ -394,7 +394,10 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
   // NEVER into the baseline. One phrase per paragraph is the segmentation-mode invariant, so
   // phrase↔span pairing is by paragraph position; a multi-phrase paragraph gets no pairing
   // rather than a crossed one. Estimated boundaries are marked with '~' in the note.
-  const spans = Array.isArray(doc.segments) ? doc.segments : [];
+  // opts.segTimes === false suppresses OUR timing emission entirely (Seth, 2026-08-03: no audio
+  // segmentation going on → none in the flextext). Preserved attrs/notes from an IMPORTED file
+  // still round-trip verbatim below — suppressing emission must never strip imported data.
+  const spans = (opts.segTimes !== false && Array.isArray(doc.segments)) ? doc.segments : [];
   const hasSpans = spans.some((s) => typeof s.start === 'number' && typeof s.end === 'number' && !s.timePending);
   const clock = (ms) => { const ti = Math.max(0, Math.round(ms)); return `${Math.floor(ti / 60000)}:${String(Math.floor((ti % 60000) / 1000)).padStart(2, '0')}.${String(ti % 1000).padStart(3, '0')}`; };
   const OUR_NOTE = /type="note"[^>]*>audio ~?\d+:\d\d\.\d{3}/;   // dedupe our own notes on round trips

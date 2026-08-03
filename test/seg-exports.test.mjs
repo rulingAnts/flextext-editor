@@ -26,8 +26,24 @@ function segDoc() {
 
 console.log('EAF — FLEx profile');
 {
-  const eaf = serializeEaf(segDoc(), { profile: 'flex', vern: 'fau', anal: 'id', mediaName: 'story.wav' });
+  const doc = segDoc();
+  doc.title = 'Kisah Kasuari';
+  const eaf = serializeEaf(doc, { profile: 'flex', vern: 'fau', anal: 'id', mediaName: 'story.wav' });
   ok(!/segnum/i.test(eaf), 'NO segnum anywhere in the EAF (Seth, 2026-08-03)');
+  // Structural hierarchy (Seth, 2026-08-03): interlinear-text > paragraph > phrase, with the
+  // paragraph tier mirroring the phrase tier exactly — mergeable in ELAN, never needs splitting.
+  ok(eaf.includes('TIER_ID="A_interlinear-text-title-id"'), 'interlinear-text tier present');
+  const itextTier = eaf.slice(eaf.indexOf('TIER_ID="A_interlinear-text-title-id"'), eaf.indexOf('TIER_ID="A_paragraph"'));
+  ok(itextTier.includes('<ANNOTATION_VALUE>Kisah Kasuari</ANNOTATION_VALUE>'), 'interlinear-text annotation carries the title');
+  ok((itextTier.match(/<ALIGNABLE_ANNOTATION /g) || []).length === 1, 'exactly one interlinear-text annotation spanning the text');
+  const paraTier = eaf.slice(eaf.indexOf('TIER_ID="A_paragraph"'), eaf.indexOf('TIER_ID="A_phrase-txt-fau"'));
+  ok((paraTier.match(/<ALIGNABLE_ANNOTATION /g) || []).length === 3, 'paragraph tier mirrors the phrase tier 1:1 (3 annotations)');
+  const phraseTs = [...eaf.slice(eaf.indexOf('TIER_ID="A_phrase-txt-fau"')).matchAll(/TIME_SLOT_REF1="(ts\d+)" TIME_SLOT_REF2="(ts\d+)"/g)].slice(0, 3).map((m) => m[1] + '/' + m[2]);
+  const paraTs = [...paraTier.matchAll(/TIME_SLOT_REF1="(ts\d+)" TIME_SLOT_REF2="(ts\d+)"/g)].map((m) => m[1] + '/' + m[2]);
+  ok(JSON.stringify(paraTs) === JSON.stringify(phraseTs), 'paragraph annotations SHARE the phrase time slots');
+  ok(eaf.includes('PARENT_REF="A_interlinear-text-title-id" TIER_ID="A_paragraph"'), 'paragraph is a child of interlinear-text');
+  ok(eaf.includes('PARENT_REF="A_paragraph" TIER_ID="A_phrase-txt-fau"'), 'phrase is a child of paragraph');
+  ok(eaf.includes('LINGUISTIC_TYPE_ID="paragraph" TIME_ALIGNABLE="true"') && eaf.includes('CONSTRAINTS="Included_In"'), 'structural types are Included_In (gaps + pending tolerated)');
   ok(eaf.includes('TIER_ID="A_phrase-txt-fau"'), 'baseline tier named A_phrase-txt-<vern>');
   ok(eaf.includes('TIER_ID="A_phrase-gls-id"'), 'free-translation tier named A_phrase-gls-<anal>');
   ok(eaf.includes('TIER_ID="A_word-txt-fau"') && eaf.includes('TIER_ID="A_word-gls-id"'), 'word + word-gloss tiers present');
@@ -50,6 +66,11 @@ console.log('EAF — SayMore profile + pending segments');
   ok(eaf.includes('TIER_ID="Transcription"'), 'SayMore requires the literal Transcription tier name');
   ok(eaf.includes('TIER_ID="Free Translation"'), 'SayMore requires the literal Free Translation tier name');
   ok(!eaf.includes('A_phrase-txt'), 'FLEx phrase tier name absent from the SayMore profile');
+  // SIL's SayMore docs: extra tiers are ignored and adding any is advised against — so the
+  // SayMore file carries ONLY its two documented tiers (Seth, 2026-08-03).
+  ok(!eaf.includes('A_word-txt') && !eaf.includes('A_word-gls'), 'word/gloss tiers deliberately absent from SayMore profile');
+  ok(!eaf.includes('A_paragraph') && !eaf.includes('A_interlinear-text'), 'structural tiers absent from SayMore profile');
+  ok((eaf.match(/<TIER /g) || []).length === 2, 'SayMore file has exactly two tiers');
   const bare = [...eaf.matchAll(/<TIME_SLOT TIME_SLOT_ID="[^"]+"\/>/g)].length;
   ok(bare === 2, `pending segment gets value-less TIME_SLOTs (ELAN's unaligned mechanism), got ${bare}`);
 }

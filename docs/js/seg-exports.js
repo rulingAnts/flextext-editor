@@ -41,17 +41,31 @@ export function fmtClock(ms) {
 
 /* ---------------- EAF (ELAN Annotation Format 3.0) ---------------- */
 
-/* Two profiles from ONE writer — the tier-NAMING is the only difference (verified: SayMore
- * requires literal `Transcription` / `Free Translation` tier names; ELAN's FLEx importer decodes
- * `A_<element>-<item-type>-<language>`). Everything else — shared TIME_SLOTs, dependent-tier
- * stereotypes, pending segments as slots WITHOUT TIME_VALUE (ELAN's own unaligned mechanism) —
- * is identical and schema-verified in the plan. Word + word-gloss tiers ride along in BOTH
- * profiles (SayMore is expected to ignore them — verify with a real install before promising). */
+/* Two profiles from ONE writer (verified against the ELAN manual + SayMore docs, 2026-08-03):
+ *
+ * - 'flex': the full ELAN-for-FLEx hierarchy `interlinear-text > paragraph > phrase > word`,
+ *   tier names in ELAN's decodable `<Speaker>_<element>-<item-type>-<language>` schema. The
+ *   PARAGRAPH tier mirrors the phrase tier annotation-for-annotation, SHARING its time slots
+ *   (Seth's design): ELAN can MERGE annotations but not split ones with dependents, so starting
+ *   maximally split lets the user build real paragraph structure by joining — the same
+ *   over-segment-then-merge logic as pause-based breaking. ELAN's FLEx exporter treats both
+ *   structural tiers as optional, so their absence elsewhere is safe.
+ * - 'saymore': ONLY the two tiers SayMore documents — literal `Transcription` /
+ *   `Free Translation`. SIL's docs say extra tiers are ignored and advise against adding any
+ *   (SayMore rewrites annotation files), so word/gloss detail is deliberately NOT included —
+ *   it lives in the .eaf and the .flextext (Seth, 2026-08-03).
+ *
+ * Shared machinery: contiguous boundaries share TIME_SLOTs; pending segments get slots WITHOUT
+ * TIME_VALUE (ELAN's own unaligned mechanism); empty (silence) segments are empty aligned
+ * annotations. All schema-verified in the plan. */
 export function serializeEaf(doc, opts = {}) {
   const { profile = 'flex', vern = 'und', anal = 'en', mediaName = '', mediaMime = 'audio/x-wav' } = opts;
-  const names = profile === 'saymore'
-    ? { phrase: 'Transcription', free: 'Free Translation', word: `A_word-txt-${vern}`, gloss: `A_word-gls-${anal}` }
-    : { phrase: `A_phrase-txt-${vern}`, free: `A_phrase-gls-${anal}`, word: `A_word-txt-${vern}`, gloss: `A_word-gls-${anal}` };
+  const flex = profile !== 'saymore';
+  const names = flex
+    ? { itext: `A_interlinear-text-title-${anal}`, para: 'A_paragraph',
+        phrase: `A_phrase-txt-${vern}`, free: `A_phrase-gls-${anal}`,
+        word: `A_word-txt-${vern}`, gloss: `A_word-gls-${anal}` }
+    : { phrase: 'Transcription', free: 'Free Translation' };
 
   const rows = phraseRows(doc);
   // TIME_ORDER: one slot per boundary; contiguous aligned neighbours SHARE the joint slot.
@@ -95,36 +109,57 @@ export function serializeEaf(doc, opts = {}) {
   }
   L.push('  </TIME_ORDER>');
 
-  // Baseline: the only time-aligned tier. Empty segments export with an empty ANNOTATION_VALUE
-  // (schema-legal) — a timed span of silence is real data.
-  L.push(`  <TIER LINGUISTIC_TYPE_REF="phrase" TIER_ID="${esc(names.phrase)}">`);
+  // Structural tiers (flex profile, and only when something is aligned — Included_In children
+  // need a real parent span to sit inside). The interlinear-text annotation spans first..last
+  // aligned boundary (REUSING those rows' slots, so containment is exact) and carries the title;
+  // each paragraph annotation MIRRORS its phrase — same slots, empty value — so the ELAN user
+  // can merge paragraphs into real groupings but never needs to split one.
+  const alignedAnns = anns.filter((a, k) => isAligned(rows[k].span));
+  const structural = flex && alignedAnns.length > 0;
+  if (structural) {
+    const itextId = 'a' + (++aid);
+    L.push(`  <TIER LINGUISTIC_TYPE_REF="interlinear-text" TIER_ID="${esc(names.itext)}">`);
+    L.push(`    <ANNOTATION><ALIGNABLE_ANNOTATION ANNOTATION_ID="${itextId}" TIME_SLOT_REF1="${alignedAnns[0].ts1}" TIME_SLOT_REF2="${alignedAnns[alignedAnns.length - 1].ts2}"><ANNOTATION_VALUE>${esc(doc.title || '')}</ANNOTATION_VALUE></ALIGNABLE_ANNOTATION></ANNOTATION>`);
+    L.push('  </TIER>');
+    L.push(`  <TIER LINGUISTIC_TYPE_REF="paragraph" PARENT_REF="${esc(names.itext)}" TIER_ID="${esc(names.para)}">`);
+    for (const a of anns) {
+      L.push(`    <ANNOTATION><ALIGNABLE_ANNOTATION ANNOTATION_ID="a${++aid}" TIME_SLOT_REF1="${a.ts1}" TIME_SLOT_REF2="${a.ts2}"><ANNOTATION_VALUE></ANNOTATION_VALUE></ALIGNABLE_ANNOTATION></ANNOTATION>`);
+    }
+    L.push('  </TIER>');
+  }
+
+  // Baseline: time-aligned; a child of the paragraph tier when the structure exists. Empty
+  // segments export with an empty ANNOTATION_VALUE (schema-legal) — timed silence is real data.
+  L.push(`  <TIER LINGUISTIC_TYPE_REF="phrase"${structural ? ` PARENT_REF="${esc(names.para)}"` : ''} TIER_ID="${esc(names.phrase)}">`);
   for (const a of anns) {
     L.push(`    <ANNOTATION><ALIGNABLE_ANNOTATION ANNOTATION_ID="${a.id}" TIME_SLOT_REF1="${a.ts1}" TIME_SLOT_REF2="${a.ts2}"><ANNOTATION_VALUE>${esc(a.text)}</ANNOTATION_VALUE></ALIGNABLE_ANNOTATION></ANNOTATION>`);
   }
   L.push('  </TIER>');
 
-  // Words: Symbolic_Subdivision of the phrase (ordered children, no times of their own).
-  L.push(`  <TIER LINGUISTIC_TYPE_REF="word" PARENT_REF="${esc(names.phrase)}" TIER_ID="${esc(names.word)}">`);
-  for (const a of anns) {
-    let prevW = null;
-    for (const w of a.words) {
-      const chain = prevW ? ` PREVIOUS_ANNOTATION="${prevW}"` : '';
-      L.push(`    <ANNOTATION><REF_ANNOTATION ANNOTATION_ID="${w.id}" ANNOTATION_REF="${a.id}"${chain}><ANNOTATION_VALUE>${esc(w.text)}</ANNOTATION_VALUE></REF_ANNOTATION></ANNOTATION>`);
-      prevW = w.id;
+  if (flex) {
+    // Words: Symbolic_Subdivision of the phrase (ordered children, no times of their own).
+    L.push(`  <TIER LINGUISTIC_TYPE_REF="word" PARENT_REF="${esc(names.phrase)}" TIER_ID="${esc(names.word)}">`);
+    for (const a of anns) {
+      let prevW = null;
+      for (const w of a.words) {
+        const chain = prevW ? ` PREVIOUS_ANNOTATION="${prevW}"` : '';
+        L.push(`    <ANNOTATION><REF_ANNOTATION ANNOTATION_ID="${w.id}" ANNOTATION_REF="${a.id}"${chain}><ANNOTATION_VALUE>${esc(w.text)}</ANNOTATION_VALUE></REF_ANNOTATION></ANNOTATION>`);
+        prevW = w.id;
+      }
     }
-  }
-  L.push('  </TIER>');
+    L.push('  </TIER>');
 
-  // Word glosses: Symbolic_Association on the WORD (1:1) — chaining to words, not the phrase,
-  // is what binds each gloss to its specific word.
-  L.push(`  <TIER LINGUISTIC_TYPE_REF="wordGloss" PARENT_REF="${esc(names.word)}" TIER_ID="${esc(names.gloss)}">`);
-  for (const a of anns) {
-    for (const w of a.words) {
-      if (!w.gloss) continue;
-      L.push(`    <ANNOTATION><REF_ANNOTATION ANNOTATION_ID="a${++aid}" ANNOTATION_REF="${w.id}"><ANNOTATION_VALUE>${esc(w.gloss)}</ANNOTATION_VALUE></REF_ANNOTATION></ANNOTATION>`);
+    // Word glosses: Symbolic_Association on the WORD (1:1) — chaining to words, not the phrase,
+    // is what binds each gloss to its specific word.
+    L.push(`  <TIER LINGUISTIC_TYPE_REF="wordGloss" PARENT_REF="${esc(names.word)}" TIER_ID="${esc(names.gloss)}">`);
+    for (const a of anns) {
+      for (const w of a.words) {
+        if (!w.gloss) continue;
+        L.push(`    <ANNOTATION><REF_ANNOTATION ANNOTATION_ID="a${++aid}" ANNOTATION_REF="${w.id}"><ANNOTATION_VALUE>${esc(w.gloss)}</ANNOTATION_VALUE></REF_ANNOTATION></ANNOTATION>`);
+      }
     }
+    L.push('  </TIER>');
   }
-  L.push('  </TIER>');
 
   // Free translation: Symbolic_Association on the phrase. Empty → no annotation at all.
   L.push(`  <TIER LINGUISTIC_TYPE_REF="phraseGloss" PARENT_REF="${esc(names.phrase)}" TIER_ID="${esc(names.free)}">`);
@@ -136,9 +171,19 @@ export function serializeEaf(doc, opts = {}) {
 
   // The stereotype names are ELAN conventions recognised BY NAME, not schema-enforced — the
   // standard CONSTRAINT declarations below are required for ELAN to interpret the tiers.
-  L.push('  <LINGUISTIC_TYPE GRAPHIC_REFERENCES="false" LINGUISTIC_TYPE_ID="phrase" TIME_ALIGNABLE="true"/>');
-  L.push('  <LINGUISTIC_TYPE CONSTRAINTS="Symbolic_Subdivision" GRAPHIC_REFERENCES="false" LINGUISTIC_TYPE_ID="word" TIME_ALIGNABLE="false"/>');
-  L.push('  <LINGUISTIC_TYPE CONSTRAINTS="Symbolic_Association" GRAPHIC_REFERENCES="false" LINGUISTIC_TYPE_ID="wordGloss" TIME_ALIGNABLE="false"/>');
+  // Included_In (not Time_Subdivision) for the structural children: it tolerates gaps and
+  // unaligned (pending) members, which Time_Subdivision's no-gaps rule would not.
+  if (structural) {
+    L.push('  <LINGUISTIC_TYPE GRAPHIC_REFERENCES="false" LINGUISTIC_TYPE_ID="interlinear-text" TIME_ALIGNABLE="true"/>');
+    L.push('  <LINGUISTIC_TYPE CONSTRAINTS="Included_In" GRAPHIC_REFERENCES="false" LINGUISTIC_TYPE_ID="paragraph" TIME_ALIGNABLE="true"/>');
+    L.push('  <LINGUISTIC_TYPE CONSTRAINTS="Included_In" GRAPHIC_REFERENCES="false" LINGUISTIC_TYPE_ID="phrase" TIME_ALIGNABLE="true"/>');
+  } else {
+    L.push('  <LINGUISTIC_TYPE GRAPHIC_REFERENCES="false" LINGUISTIC_TYPE_ID="phrase" TIME_ALIGNABLE="true"/>');
+  }
+  if (flex) {
+    L.push('  <LINGUISTIC_TYPE CONSTRAINTS="Symbolic_Subdivision" GRAPHIC_REFERENCES="false" LINGUISTIC_TYPE_ID="word" TIME_ALIGNABLE="false"/>');
+    L.push('  <LINGUISTIC_TYPE CONSTRAINTS="Symbolic_Association" GRAPHIC_REFERENCES="false" LINGUISTIC_TYPE_ID="wordGloss" TIME_ALIGNABLE="false"/>');
+  }
   L.push('  <LINGUISTIC_TYPE CONSTRAINTS="Symbolic_Association" GRAPHIC_REFERENCES="false" LINGUISTIC_TYPE_ID="phraseGloss" TIME_ALIGNABLE="false"/>');
   L.push('  <CONSTRAINT DESCRIPTION="Time subdivision of parent annotation\'s time interval, no time gaps allowed within this interval" STEREOTYPE="Time_Subdivision"/>');
   L.push('  <CONSTRAINT DESCRIPTION="Symbolic subdivision of a parent annotation. Annotations refering to the same parent are ordered" STEREOTYPE="Symbolic_Subdivision"/>');

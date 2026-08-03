@@ -16,7 +16,7 @@ jobs:
   migrate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: "Confirm the file exists in the repo"
         run: |
           test -f "worker/${{ inputs.file }}" || { echo "::error::Migration file not found worker/${{ inputs.file }}"; exit 1; }
@@ -25,5 +25,9 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # Pin a current wrangler (the action bundles a stale v3 that warns about critical
+          # errors). Bump this deliberately — a major jump changes deploy behaviour, so verify
+          # the next deploy after touching it.
+          wranglerVersion: "4.118.0"
           workingDirectory: worker
           command: d1 execute flextext-connectivity --remote --file=${{ inputs.file }}

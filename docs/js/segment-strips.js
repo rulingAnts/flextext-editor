@@ -47,13 +47,19 @@ export async function ensurePeaks(docId, blob) {
     const BUCKETS = Math.min(400000, Math.max(4000, Math.round(buf.duration * BUCKETS_PER_SEC)));
     const peaks = new Float32Array(BUCKETS);
     const per = Math.max(1, Math.floor(ch.length / BUCKETS));
+    // ⚠ THE ALIGNMENT TRUTH: bucket b covers samples [b*per, (b+1)*per) — NOT b/BUCKETS of the
+    // duration. flooring `per` leaves a remainder tail unmapped, so any proportional-to-duration
+    // mapping accumulates error toward the file end (≈1.4s of skew on a 10-min recording — Seth
+    // saw the waveforms 'not aligning perfectly'). msPerBucket is the exact conversion; every
+    // consumer must use it, never durationMs proportions.
     for (let b = 0; b < BUCKETS; b++) {
       let m = 0;
       const off = b * per, end = Math.min(ch.length, off + per);
       for (let i = off; i < end; i += 4) { const v = Math.abs(ch[i]); if (v > m) m = v; }  // stride 4: display, not measurement
       peaks[b] = m;
     }
-    peaksCache = { docId, peaks, durationMs: Math.round(buf.duration * 1000) };
+    peaksCache = { docId, peaks, durationMs: Math.round(buf.duration * 1000),
+                   msPerBucket: (per / buf.sampleRate) * 1000 };
     try { ctx.close(); } catch { /* noop */ }
   } catch { /* undecodable (or no Web Audio) → strips render without waveforms */ }
   return peaksCache;
@@ -172,8 +178,10 @@ function drawStrip(canvas, seg, durationMs) {
     return;
   }
   const B = peaks.length;
-  const b0 = Math.floor((seg.start / durationMs) * B);
-  const b1 = Math.max(b0 + 1, Math.ceil((seg.end / durationMs) * B));
+  // Exact time→bucket mapping (see ensurePeaks): proportional-to-duration drifts toward the end.
+  const mpb = peaksCache.msPerBucket || (durationMs / B);
+  const b0 = Math.min(B - 1, Math.max(0, Math.floor(seg.start / mpb)));
+  const b1 = Math.min(B, Math.max(b0 + 1, Math.ceil(seg.end / mpb)));
   g.fillStyle = '#1f4f8f';
   const n = b1 - b0;
   for (let x = 0; x < W; x++) {

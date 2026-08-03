@@ -158,5 +158,48 @@ console.log('bext (derived-WAV provenance in the bytes)');
   ok(new DataView(out).getInt16(dataAt + 8 + 2, true) === 1000, 'sample bytes unchanged');
 }
 
+console.log('adversarial audit regressions (2026-08-03)');
+{
+  // F1: the preview's base64 was spliced in with .replace(marker) — first occurrence wins, so a
+  // title containing the literal marker text hijacked the audio slot.
+  const doc = segDoc();
+  const html = buildSegPreviewHtml(doc, { title: 'weird __AUDIO_B64__ title', audioB64: 'QUJD', audioMime: 'audio/wav' });
+  ok(html.includes('var b64 = "QUJD"'), 'F1: marker text in a title cannot hijack the embedded audio');
+
+  // F2: re-exporting an IMPORTED doc must keep its phrases' media-file references (we only filter
+  // that attr when minting our own guid).
+  const d2 = makeDoc({ vernLang: 'fau', analLang: 'id' });
+  reconcileBaseline(d2, ['satu'], { flatSegments: true });
+  d2.appAuthored = false;
+  d2.mediaXML = ['<media-files><media guid="MG" location="x.wav"/></media-files>'];
+  d2.paragraphs[0].segments[0].attrs = { guid: 'g', 'begin-time-offset': '5', 'end-time-offset': '900', 'media-file': 'MG' };
+  d2.segments = [{ start: 5, end: 900 }];
+  const x2 = serializeFlextext(d2, { vernLang: 'fau', analLang: 'id' });
+  ok(/media-file="MG"/.test(x2), 'F2: imported media-file reference survives re-export');
+  ok((x2.match(/begin-time-offset=/g) || []).length === 1, 'F2: offsets still not duplicated');
+
+  // F3: malformed/overlapping imported offsets must not smuggle crossing spans into the model
+  // (ELAN requires ordered, non-overlapping aligned annotations — a crossed EAF is invalid).
+  const d3 = makeDoc({ vernLang: 'fau', analLang: 'id' });
+  reconcileBaseline(d3, ['a', 'b'], { flatSegments: true });
+  d3.paragraphs[0].segments[0].attrs = { 'begin-time-offset': '0', 'end-time-offset': '3000' };
+  d3.paragraphs[1].segments[0].attrs = { 'begin-time-offset': '1000', 'end-time-offset': '2000' };
+  const s3 = segmentsFromOffsets(d3);
+  ok(s3[1].timePending === true, 'F3: unsalvageable overlapping span demotes to pending, never crosses');
+
+  // F6: a multi-phrase paragraph (merged in ELAN) exports each phrase's OWN offsets, not pending.
+  const d6 = makeDoc({ vernLang: 'fau', analLang: 'id' });
+  reconcileBaseline(d6, ['satu dua'], { flatSegments: true });
+  const ph6 = d6.paragraphs[0].segments[0];
+  d6.paragraphs[0].segments = [
+    { ...ph6, attrs: { 'begin-time-offset': '0', 'end-time-offset': '400' } },
+    { ...ph6, attrs: { 'begin-time-offset': '400', 'end-time-offset': '900' } },
+  ];
+  d6.segments = [{ start: 0, end: 900 }];
+  const e6 = serializeEaf(d6, { profile: 'flex', vern: 'fau', anal: 'id', mediaName: 'x.wav' });
+  ok((e6.match(/<TIME_SLOT TIME_SLOT_ID="[^"]+"\/>/g) || []).length === 0,
+     'F6: per-phrase offsets export as real times in a multi-phrase paragraph');
+}
+
 if (failures) { console.error(`\n${failures} FAILURE(S)`); process.exit(1); }
 console.log('\nPASS: segmentation export formats behave.');

@@ -3263,7 +3263,12 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
   // embedded base64) and the derived WAV ride LOCAL bundles only (opts.full). Media reference:
   // the WAV working copy when one exists — the segment times live on ITS timeline — else the
   // original. The original media is never modified; bext goes on the DERIVED copy only.
-  const spans = Array.isArray(rec.doc && rec.doc.segments) ? rec.doc.segments : [];
+  // Fall back to the flextext-native offsets: an imported aligned doc that was never OPENED in
+  // segmentation mode has no doc.segments yet, but its phrases carry the alignment — without the
+  // fallback its bundles silently shipped without EAFs (audit find).
+  const spans = (Array.isArray(rec.doc && rec.doc.segments) && rec.doc.segments.length)
+    ? rec.doc.segments
+    : ((rec.doc && segmentsFromOffsets(rec.doc)) || []);
   const hasAligned = spans.some((s) => typeof s.start === 'number' && typeof s.end === 'number' && !s.timePending);
   const segEntries = [];
   let segMediaName = '';

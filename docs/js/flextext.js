@@ -542,6 +542,13 @@ export function reconcileBaseline(doc, paragraphTexts, opts = {}) {
 
   // Fill in segments of changed paragraphs; kept paragraphs already have theirs.
   for (const { seg, para } of result) para.segments.push(seg);
+  // ⚠ FLAT-MODE GUARANTEE: one line = one phrase, INCLUDING EMPTY LINES. An empty line is how the
+  // transcriber marks silence (Enter, play through the pause, Enter again) — its paragraph must
+  // still carry exactly one (empty) segment, or every per-segment view drifts: the gloss tab
+  // renders one group per SEGMENT, so a zero-segment paragraph silently vanished there and every
+  // following line paired with the WRONG waveform (Seth's misalignment report). The baseline tab
+  // masked the defect by rendering from paragraph texts.
+  if (flat) for (const p of newParas) { if (!p.segments.length) p.segments.push(makeSegment('', [])); }
   doc.paragraphs = newParas.map(p => { delete p.segTexts; return p; });
   if (!doc.paragraphs.length) doc.paragraphs.push({ guid: newGuid(), segments: [] });
   return doc;

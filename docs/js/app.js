@@ -713,7 +713,7 @@ function switchTab(tab) {
       (async () => {
         let media = current ? await db.getMedia(current.id).catch(() => null) : null;
         media = await segWorkingMedia(current && current.id, media);   // same WAV the player uses
-        await ensurePeaks(current && current.id, media && media.blob, player && player.decodedBuffer && player.decodedBuffer());
+        await ensurePeaks(current && current.id, media && media.blob, (current && playerReadyFor === current.id && player && player.decodedBuffer) ? player.decodedBuffer() : null);
         renderStrips();
       })();
     } else {
@@ -736,7 +736,7 @@ function switchTab(tab) {
       (async () => {
         let media = current ? await db.getMedia(current.id).catch(() => null) : null;
         media = await segWorkingMedia(current && current.id, media);
-        await ensurePeaks(current && current.id, media && media.blob, player && player.decodedBuffer && player.decodedBuffer());
+        await ensurePeaks(current && current.id, media && media.blob, (current && playerReadyFor === current.id && player && player.decodedBuffer) ? player.decodedBuffer() : null);
         decorateGlossSegments();
       })();
     }
@@ -747,6 +747,12 @@ function switchTab(tab) {
 
 let player = null;
 let playerDocId = null;
+// Which doc's audio the player has FINISHED decoding. decodedBuffer() returns whatever wavesurfer
+// currently holds — during a doc switch that is the PREVIOUS doc's audio, and ensurePeaks trusting
+// it raced in wrong peaks: plausible-but-wrong waves within the old recording's length, solid bars
+// beyond it (Seth's 'previews stop working after a certain point', 2026-08-04). Set only after a
+// load RESOLVES, and only if no newer load superseded it.
+let playerReadyFor = null;
 
 function getPlayer() {
   if (!player) {
@@ -832,8 +838,11 @@ async function refreshPlayer() {
     updateDlControls('done');
     // Re-load only when switching docs (avoid resetting playback position).
     if (p.loadedFor !== current.id) {
-      p.loadedFor = current.id;
+      const loadId = current.id;
+      p.loadedFor = loadId;
+      playerReadyFor = null;
       await p.load(media);
+      if (p.loadedFor === loadId) playerReadyFor = loadId;   // a newer load supersedes silently
     } else {
       p.root.hidden = false;
     }
@@ -3306,6 +3315,18 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
     // and SayMore lists the annotations under the audio with no import step (Seth: loading must
     // be as simple as possible; HOW-TO-OPEN.txt below documents both paths).
     if (wantSaymore) segEntries.push({ name: segMediaName + '.annotations.eaf', data: new Blob([serializeEaf(rec.doc, { ...eafOpts, profile: 'saymore' })], { type: 'application/xml' }) });
+    if (segMedia.derived && (wantEaf || wantSaymore)) {
+      // The EAFs reference this WAV by name (RELATIVE_MEDIA_URL / the .annotations.eaf filename),
+      // so it rides EVERY bundle that carries an EAF — uploads included (Seth, 2026-08-04: the
+      // researcher's Drive copy must open in ELAN/SayMore without hunting for audio). Researcher
+      // bandwidth control stays: turning the EAF exports off drops the WAV too. Honesty in the
+      // BYTES: a BWF bext chunk names the lossy origin and states it is not a master.
+      const stamped = wavWithBext(await segMedia.blob.arrayBuffer(), {
+        description: `DERIVED from lossy source (${segMedia.srcName || 'unknown'}) - NOT an archival master`,
+        codingHistory: `A=${String(media.mimeType || 'lossy').replace(/^audio\//, '').replace(/[^\w-]/g, '').toUpperCase() || 'LOSSY'},T=original lossy source ${segMedia.srcName || ''}\nA=PCM,W=16,T=DERIVED from lossy source - NOT an archival master`,
+      });
+      segEntries.push({ name: segMediaName, data: new Blob([stamped], { type: 'audio/wav' }) });
+    }
     if (opts.full) {
       if (wantPreview) {
         // Named after the ORIGINAL recording (Seth): story.m4a → story.preview.html.
@@ -3314,16 +3335,6 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
         segEntries.push({ name: previewBase + '.preview.html', data: new Blob([buildSegPreviewHtml(rec.doc, {
           title: rec.title || base, audioB64: b64, audioMime: segMedia.mimeType || 'audio/wav', mediaName: segMediaName,
         })], { type: 'text/html' }) });
-      }
-      if (segMedia.derived && (wantEaf || wantSaymore)) {
-        // The derived WAV accompanies the EAFs (they reference it by name for relinking).
-        // Honesty in the BYTES, not just the filename: it gets a BWF bext chunk naming its
-        // lossy origin and stating it is not a master (audio-archival-standards).
-        const stamped = wavWithBext(await segMedia.blob.arrayBuffer(), {
-          description: `DERIVED from lossy source (${segMedia.srcName || 'unknown'}) - NOT an archival master`,
-          codingHistory: `A=${String(media.mimeType || 'lossy').replace(/^audio\//, '').replace(/[^\w-]/g, '').toUpperCase() || 'LOSSY'},T=original lossy source ${segMedia.srcName || ''}\nA=PCM,W=16,T=DERIVED from lossy source - NOT an archival master`,
-        });
-        segEntries.push({ name: segMediaName, data: new Blob([stamped], { type: 'audio/wav' }) });
       }
     }
     // The instructions travel WITH the files (Seth: whatever the user must do, clearly
@@ -3455,6 +3466,10 @@ async function uploadDocById(docId) {
     // display-only at folder creation. Legacy queued records lack both → device-folder root,
     // exactly the old behaviour.
     docTitle: rec.title || '',
+    // The per-text Drive folder id from the LAST successful upload: the worker verifies it by
+    // files.get (strongly consistent) instead of tag-SEARCHING (eventually consistent), which is
+    // what stopped every upload minting a fresh "Title (n)" folder.
+    docFolderId: rec.driveFolderId || '',
   });
   uploadView.set(docId, { name: bundle.filename, status: 'waiting' });
   renderUploadQueue();
@@ -3567,6 +3582,7 @@ function uploadState(docId) {
           // `current` back and silently drop these markers.
           const stamp = (d) => {
             if (st.fileId) d.uploadedFileId = st.fileId;
+            if (st.folderId) d.driveFolderId = st.folderId;   // next upload echoes it (folder dedupe)
             d.uploadedModified = (st.docModified != null) ? st.docModified : d.modified;
             d.uploadedAt = Date.now();
             d.uploadedSig = uploadContentSig(d);   // remember WHAT was uploaded → skip duplicate re-uploads

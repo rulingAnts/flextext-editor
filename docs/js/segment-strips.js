@@ -312,6 +312,13 @@ function drawStrip(canvas, seg, durationMs) {
   const B = peaks.length;
   // Exact time→bucket mapping (see ensurePeaks): proportional-to-duration drifts toward the end.
   const mpb = peaksCache.msPerBucket || (durationMs / B);
+  // A span starting BEYOND the peaks' covered range would stretch the last bucket into a
+  // misleading solid bar — draw the honest no-data midline instead (guards timeline mismatches).
+  if (seg.start >= B * mpb) {
+    g.fillStyle = 'rgba(120,130,150,.45)';
+    g.fillRect(0, H / 2 - 1, W, 2);
+    return;
+  }
   const b0 = Math.min(B - 1, Math.max(0, Math.floor(seg.start / mpb)));
   const b1 = Math.min(B, Math.max(b0 + 1, Math.ceil(seg.end / mpb)));
   g.fillStyle = '#1f4f8f';

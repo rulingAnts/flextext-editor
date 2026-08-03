@@ -257,7 +257,7 @@ function v1Cors(origin, env) {
     // preflight silently kills the request on EVERY origin — production included. v134 added
     // x-fx-doc/x-fx-doctitle to uploads without extending this list, which broke all browser
     // uploads until v142. When adding a header client-side, add it here in the same commit.
-    'Access-Control-Allow-Headers': 'content-type, x-fx-researcher, x-fx-install, x-fx-secret, x-fx-invite-secret, x-fx-turnstile, x-fx-name, x-fx-mime, x-fx-doc, x-fx-doctitle, x-fx-upload, x-fx-range, content-range',
+    'Access-Control-Allow-Headers': 'content-type, x-fx-researcher, x-fx-install, x-fx-secret, x-fx-invite-secret, x-fx-turnstile, x-fx-name, x-fx-mime, x-fx-doc, x-fx-doctitle, x-fx-folder, x-fx-upload, x-fx-range, content-range',
   };
   // Reflect a known browser origin; curl/scripts send none → no ACAO needed.
   if (origin && list.includes(origin)) h['Access-Control-Allow-Origin'] = origin;
@@ -450,12 +450,26 @@ function driveIdOf(src) {
 // ⚠ The tag search is scoped to trashed=false but NOT to the parent: if the researcher moves a
 // text folder elsewhere, uploads keep following it — mirroring the move-once behaviour of the
 // master folder rather than silently forking a second folder.
-async function driveEnsureTextFolder(access, deviceFolderId, docId, title) {
+async function driveEnsureTextFolder(access, deviceFolderId, docId, title, knownId) {
   const id = String(docId || '').replace(/[^\w-]/g, '').slice(0, 64);
   if (!id) return deviceFolderId;                       // no doc identity → old behaviour (device root)
+  // A REMEMBERED id beats searching: files.get by id is STRONGLY consistent, while the tag
+  // search below runs on Drive's eventually-consistent index — a folder created by the previous
+  // upload can be invisible to search for minutes, which is how one text grew a new "Title (n)"
+  // folder per upload (Seth's screenshot, 2026-08-04). The client echoes the folderId we returned
+  // on its last upload; verify it still exists and is untrashed before trusting it.
+  const known = String(knownId || '').replace(/[^\w-]/g, '').slice(0, 128);
+  if (known) {
+    try {
+      const f = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(known) + '?fields=id,trashed');
+      if (f && f.id && !f.trashed) return f.id;
+    } catch { /* stale/foreign id → fall through to search */ }
+  }
   const q = encodeURIComponent(`appProperties has { key='flextextDoc' and value='${id}' } and mimeType='application/vnd.google-apps.folder' and trashed=false`);
   try {
-    const found = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files?spaces=drive&fields=files(id)&q=' + q);
+    // createdTime order → among ALREADY-duplicated folders every upload picks the same (oldest)
+    // one, so the duplication at least stops compounding even before a client echoes ids.
+    const found = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files?spaces=drive&orderBy=createdTime&fields=files(id)&q=' + q);
     if (found.files && found.files.length) return found.files[0].id;
   } catch { /* fall through to create */ }
   const name = String(title || '').replace(/[\\/:*?"<>|]+/g, '_').trim().slice(0, 120) || ('Text — ' + id.slice(0, 8));
@@ -1577,7 +1591,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           // Per-text sub-folder when the device declares which text this belongs to (new engines
           // send docId/docTitle; old engines omit them and land in the device folder as before).
           const folder = body.docId
-            ? await driveEnsureTextFolder(access, deviceFolder, body.docId, body.docTitle)
+            ? await driveEnsureTextFolder(access, deviceFolder, body.docId, body.docTitle, body.folderId)
             : deviceFolder;
           const init = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id', {
             method: 'POST',
@@ -1590,7 +1604,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           const session = init.ok ? init.headers.get('Location') : null;
           if (!session) { const e = new Error('no upload session (HTTP ' + init.status + ')'); e.code = 'drive_error'; throw e; }
           const uploadId = await encAtRest(env, JSON.stringify({ u: session, i: installId, s: size }));
-          return j({ ok: true, uploadId }, 200, origin, env);
+          return j({ ok: true, uploadId, folderId: folder !== deviceFolder ? folder : undefined }, 200, origin, env);
         } catch (e) {
           await noteDriveError(env, inst.researcher_id, 'chunked upload start failed: ' + e.message);
           return j({ error: e.code || 'drive_error' }, 502, origin, env);
@@ -1658,15 +1672,17 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         const docId = String(request.headers.get('x-fx-doc') || '').trim();
         let docTitle = '';
         try { docTitle = decodeURIComponent(request.headers.get('x-fx-doctitle') || ''); } catch { /* keep '' */ }
+        const knownFolder = String(request.headers.get('x-fx-folder') || '').trim();   // the id we returned last time
         const buf = await request.arrayBuffer();
         if (buf.byteLength > cap) return j({ error: 'too_large', limit: cap }, 413, origin, env);
         if (!buf.byteLength) return j({ error: 'empty' }, 400, origin, env);
         try {
           const access = await driveAccessToken(env, inst);
           const deviceFolder = await driveEnsureDeviceFolder(env, access, instanceId, inst.inst_nickname, inst.inst_folder);
-          const folder = docId ? await driveEnsureTextFolder(access, deviceFolder, docId, docTitle) : deviceFolder;
+          const folder = docId ? await driveEnsureTextFolder(access, deviceFolder, docId, docTitle, knownFolder) : deviceFolder;
           const fileId = await driveUpload(access, folder, name, buf, mime);
-          return j({ ok: true, fileId }, 200, origin, env);
+          // folderId rides back so the device REMEMBERS it (strong-consistency dedupe above).
+          return j({ ok: true, fileId, folderId: folder !== deviceFolder ? folder : undefined }, 200, origin, env);
         } catch (e) {
           await noteDriveError(env, inst.researcher_id, 'device upload fell back to the relay: ' + e.message);
           return j({ error: e.code || 'drive_error' }, 502, origin, env);   // → relay fallback

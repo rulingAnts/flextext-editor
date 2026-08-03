@@ -70,6 +70,7 @@ export class DriveUpload {
       // On 'done', the Drive file id + the send-time doc-modified stamp, so the
       // doc can record proof-of-backup (delete-safety). Undefined until done.
       fileId: this.uploadedFileId,
+      folderId: this.uploadedFolderId,   // per-text Drive folder (remembered for dedupe)
       docModified: this.rec.docModified,
       docDone: this.rec.docDone,   // was the doc marked FINISHED at queue time (gates auto-delete)
     });
@@ -155,6 +156,7 @@ export class DriveUpload {
           // that predates them ignores unknown x-fx-* headers, so deploy order cannot break this.
           'x-fx-doc': this.docId || '',
           'x-fx-doctitle': encodeURIComponent(rec.docTitle || ''),
+          'x-fx-folder': rec.docFolderId || '',   // remembered per-text folder id (dedupe)
         },
         body: rec.blob,
         signal: this.abortCtl.signal,
@@ -173,6 +175,7 @@ export class DriveUpload {
     this.indeterminate = false;
     rec.sent = rec.total;
     this.uploadedFileId = out.fileId;   // proof-of-backup — delete-safety unchanged
+    this.uploadedFolderId = out.folderId || rec.docFolderId || null;   // remembered → next upload reuses it
     this.status = 'done';
     await db.deleteMedia(upKey(this.docId)).catch(() => {});
     this.emit();
@@ -217,6 +220,7 @@ export class DriveUpload {
     this.indeterminate = false;
     rec.sent = rec.total;
     this.uploadedFileId = fileId;   // proof-of-backup — delete-safety unchanged
+    this.uploadedFolderId = rec.folderId || rec.docFolderId || null;
     this.status = 'done';
     await db.deleteMedia(upKey(this.docId)).catch(() => {});
     this.emit();
@@ -241,12 +245,14 @@ export class DriveUpload {
           method: 'POST',
           headers: { ...target.headers, 'content-type': 'application/json' },
           body: JSON.stringify({ name: rec.name, mime: rec.mime, size: rec.total,
-                                 docId: this.docId || '', docTitle: rec.docTitle || '' }),
+                                 docId: this.docId || '', docTitle: rec.docTitle || '',
+                                 folderId: rec.docFolderId || '' }),
         });
         out = await r.json().catch(() => null);
         if (!r.ok || !out || !out.uploadId) return false;   // no_drive/network → caller decides
       } catch { return false; }
       rec.streamId = out.uploadId;
+      rec.folderId = out.folderId || rec.docFolderId || '';   // persists with the session state
       rec.chunkBytes = rec.chunkBytes || CHUNK_START;
       await db.putMedia(upKey(this.docId), rec).catch(() => {});
     }

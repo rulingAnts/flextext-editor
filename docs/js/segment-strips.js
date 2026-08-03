@@ -92,6 +92,17 @@ function reconcile(doc) {
   // timePending and no boundary can ever be real.
   if (!segs.length && peaksCache.durationMs > 0) {
     doc.segments = [{ start: 0, end: peaksCache.durationMs }];
+  } else if (peaksCache.durationMs > 0 && segs.length && segs.every((x) => !isAligned(x))) {
+    // HEAL a stuck all-pending doc (Seth's '⋯ + no waveform' screenshot): a doc opened while its
+    // audio could not be decoded (or under a pre-fix build) persisted pending segments, and the
+    // whole-file seed above only fires on ZERO segments — so it never self-repaired once the audio
+    // became readable. With a known duration: a single pending becomes the exact whole-file span;
+    // several become an even division marked timeEstimated (dashed — scrub + re-break to correct).
+    // Only the every-pending case is touched: real alignments are never second-guessed.
+    const D = peaksCache.durationMs, N = segs.length;
+    doc.segments = N === 1
+      ? [{ start: 0, end: D }]
+      : segs.map((_, k) => ({ start: Math.round((k * D) / N), end: Math.round(((k + 1) * D) / N), timeEstimated: true }));
   }
   doc.segments = syncToLines(docSegments(doc), paras.length, { duration: peaksCache.durationMs || null });
   return doc.segments;

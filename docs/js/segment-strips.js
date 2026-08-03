@@ -70,8 +70,50 @@ export async function ensurePeaks(docId, blob, playerBuf) {
     peaksCache = { docId, peaks, durationMs: Math.round(buf.duration * 1000),
                    msPerBucket: (per / buf.sampleRate) * 1000, fromPlayer: !!playerBuf };
     try { ctx && ctx.close(); } catch { /* noop */ }
-  } catch { /* undecodable (or no Web Audio) → strips render without waveforms */ }
+  } catch (e) {
+    // Undecodable (or no Web Audio) → strips render without waveforms. WARN rather than vanish:
+    // a silent catch here cost a whole debugging round (every wave flat, no clue why) — the
+    // console line is the difference between "decode failed: EncodingError" and guessing.
+    try { console.warn('[segment-strips] peaks unavailable for', docId, e); } catch { /* noop */ }
+  }
   return peaksCache;
+}
+
+/* ---------------- redraw-on-resize (the 'no waveform, just a slab' fix) ---------------- */
+
+/* drawStrip captures canvas.clientWidth at the INSTANT it runs. A render that races layout — the
+ * tab unhidden this same frame, a window resize, phone rotation, fonts landing — bakes a tiny
+ * buffer that CSS width:100% then stretches into a featureless slab or a bare midline (Seth:
+ * 'line by line previews no longer working', both tabs). One shared ResizeObserver redraws any
+ * wave whose on-screen size no longer matches its buffer; detached canvases are swept on each
+ * observe call so re-renders never accumulate dead nodes. Redraw only fires when the sizes
+ * genuinely disagree, and setting canvas.width does not change its CSS box — no feedback loop. */
+let waveRO = null;
+const observedWaves = new Set();
+function observeWave(canvas, redraw) {
+  canvas.__redrawWave = redraw;
+  if (typeof ResizeObserver === 'undefined') return;
+  if (!waveRO) {
+    waveRO = new ResizeObserver((entries) => {
+      for (const en of entries) {
+        const el = en.target;
+        if (!el.isConnected) { waveRO.unobserve(el); observedWaves.delete(el); continue; }
+        const want = Math.round(el.clientWidth * (window.devicePixelRatio || 1));
+        if (want > 0 && el.width !== want && el.__redrawWave) el.__redrawWave();
+      }
+    });
+  }
+  for (const el of observedWaves) if (!el.isConnected) { waveRO.unobserve(el); observedWaves.delete(el); }
+  if (!observedWaves.has(canvas)) { waveRO.observe(canvas); observedWaves.add(canvas); }
+}
+
+/* Belt-and-braces beside the observer: both tabs already run a ticker (baseline rAF cursor loop,
+ * gloss glyph interval) — piggyback a width check there so a stale buffer heals within a tick
+ * even where ResizeObserver misbehaves. Reads nothing the loops don't already touch. */
+function fixStaleWave(canvas) {
+  if (!canvas || !canvas.__redrawWave) return;
+  const want = Math.round(canvas.clientWidth * (window.devicePixelRatio || 1));
+  if (want > 0 && canvas.width !== want) canvas.__redrawWave();
 }
 
 /* ---------------- segment state on the doc ---------------- */
@@ -90,8 +132,10 @@ function reconcile(doc) {
   // recording — that is the truthful starting state (nothing has been divided yet), and it is what
   // makes the first Enter actually have a time span to break. Without it every strip starts
   // timePending and no boundary can ever be real.
+  let repaired = false;
   if (!segs.length && peaksCache.durationMs > 0) {
     doc.segments = [{ start: 0, end: peaksCache.durationMs }];
+    repaired = true;
   } else if (peaksCache.durationMs > 0 && segs.length && segs.every((x) => !isAligned(x))) {
     // HEAL a stuck all-pending doc (Seth's '⋯ + no waveform' screenshot): a doc opened while its
     // audio could not be decoded (or under a pre-fix build) persisted pending segments, and the
@@ -103,8 +147,12 @@ function reconcile(doc) {
     doc.segments = N === 1
       ? [{ start: 0, end: D }]
       : segs.map((_, k) => ({ start: Math.round((k * D) / N), end: Math.round(((k + 1) * D) / N), timeEstimated: true }));
+    repaired = true;
   }
   doc.segments = syncToLines(docSegments(doc), paras.length, { duration: peaksCache.durationMs || null });
+  // Persist a seed/heal right away: without this the repair lived only in memory until the next
+  // edit, so storage (and everything that syncs from it) kept the broken pending state.
+  if (repaired && deps.persist) deps.persist();
   return doc.segments;
 }
 
@@ -184,6 +232,7 @@ export function renderStrips() {
 }
 
 function drawStrip(canvas, seg, durationMs) {
+  observeWave(canvas, () => drawStrip(canvas, seg, durationMs));
   const dpr = window.devicePixelRatio || 1;
   const w = canvas.clientWidth || 300;
   // Scale BOTH axes by devicePixelRatio. The vertical buffer used to stay at CSS pixels, which
@@ -303,6 +352,7 @@ function positionCursor() {
     const dur = peaksCache.durationMs;
     deps.container.querySelectorAll('.seg-strip').forEach((row, i) => {
       const seg = docSegments(deps.getDoc())[i];
+      fixStaleWave(row.querySelector('.seg-wave'));
       let cur = row.querySelector('.seg-cursor');
       const inSeg = seg && isAligned(seg) && typeof t === 'number' && t >= seg.start && t < seg.end;
       const btn = row.querySelector('.seg-play');
@@ -359,6 +409,7 @@ let glossTick = 0;
 export function startGlossTicker(entries, getPlayer, t) {
   stopGlossTicker();
   glossTick = setInterval(() => {
+    document.querySelectorAll('.gseg-wave').forEach(fixStaleWave);
     const p = getPlayer();
     const time = p?.playheadMs?.();
     for (const { btn, seg } of entries) {

@@ -1249,9 +1249,10 @@ async function renderInstanceCard(it, deviceCount) {
             : canDelText
               ? ` <button class="link-btn rp-revoke" data-iact="del-text" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.inst.delText'))}</button>`
               : ` <button class="link-btn rp-revoke" disabled title="${esc(t('panel.inst.delNeedsUpdate'))}">${esc(t('panel.inst.delText'))}</button>`;
-        // The done tag is a TOGGLE when the engine understands setDone (v100+): the researcher can
-        // flip finished-state from here. Older engines keep the inert tag.
-        const canSetDone = engNum >= 100;
+        // The done tag is a TOGGLE when the engine understands the setDone COMMAND — the dispatch
+        // case shipped in v138. Gating on setDocDone's age (v100) was wrong: an older device ACKS
+        // the unknown command and silently does nothing, which reads as "the toggle is broken".
+        const canSetDone = engNum >= 138;
         const doneTag = d.done
           ? (canSetDone ? `<button class="rp-tag rp-tag-done rp-tag-btn" data-iact="toggle-done" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-done="1" title="${esc(t('panel.inst.toggleDoneTip'))}">${esc(t('panel.inst.doneTag'))}</button>`
                         : `<span class="rp-tag rp-tag-done">${esc(t('panel.inst.doneTag'))}</span>`)
@@ -2097,12 +2098,18 @@ function adminModal() {
  * the doc. Upload-first remove at the source means the final copy is in the text's folder before
  * anything is deleted — the same safety order as remote delete. */
 function moveTextModal(fromId, docId, title) {
+  // ⚠ Only devices on v138+ can RECEIVE a move: older engines ignore the assign's docId and mint
+  // their own, so the arrival is invisible to the sweep and the move waits forever (fail-safe —
+  // the source is never removed — but wedged). Devices auto-update, so this resolves itself.
+  const engOf = (x) => Math.max(0, ...((x.installs || []).map((i) => parseInt(String((i.inventory && i.inventory.engineVersion) || '').replace(/[^0-9]/g, ''), 10) || 0)));
   const insts = ((lastData && lastData.instances) || []).filter((x) => x.instance_id !== fromId);
   if (!insts.length) { deps.toast(t('panel.move.noOther'), 5000); return; }
+  for (const x of insts) x._canReceive = engOf(x) >= 138;
+  if (!insts.some((x) => x._canReceive)) { deps.toast(t('panel.move.allTooOld'), 7000); return; }
   const m = modal(`
     <h3>${esc(t('panel.move.title', { title }))}</h3>
     <p class="note">${esc(t('panel.move.intro'))}</p>
-    ${insts.map((x, i) => `<label class="rp-field rp-move-opt"><input type="radio" name="rp-move-to" value="${esc(x.instance_id)}" ${i === 0 ? 'checked' : ''}> <span>${esc(x.nickname || '?')}</span></label>`).join('')}
+    ${insts.map((x) => `<label class="rp-field rp-move-opt"><input type="radio" name="rp-move-to" value="${esc(x.instance_id)}" ${x._canReceive ? '' : 'disabled'} ${x === insts.find((y) => y._canReceive) ? 'checked' : ''}> <span>${esc(x.nickname || '?')}${x._canReceive ? '' : ' — ' + esc(t('panel.move.tooOld'))}</span></label>`).join('')}
     <button class="primary-btn" data-m="go">${esc(t('panel.move.go'))}</button>
     <button class="link-btn" data-m="cancel">${esc(t('panel.assign.cancel'))}</button>
     <div class="rp-adm-say" id="rp-move-say" hidden></div>`);

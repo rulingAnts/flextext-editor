@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v138';
+export const ENGINE_VERSION = 'v139';
 
 const S = {
 en: {
@@ -720,6 +720,8 @@ internet after the first time.</p>
   'panel.move.title': 'Move \u201c{title}\u201d',
   'panel.move.intro': 'The text, its audio and its Drive folder move to the device you pick. The copy here is removed only after the other device has received it \u2014 a final upload happens first, so nothing is lost even if the move stalls.',
   'panel.move.go': 'Move text',
+  'panel.move.tooOld': 'needs its app updated first',
+  'panel.move.allTooOld': 'No destination device is updated enough to receive a move yet \u2014 devices update themselves within a day or so of coming online.',
   'panel.move.noOther': 'There is no other device to move to.',
   'panel.move.nothingToMove': 'Nothing to move yet \u2014 this text has no uploaded content the other device could receive.',
   'panel.move.sent': 'Move started \u2014 waiting for {device} to receive it.',
@@ -1728,6 +1730,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.move.title': 'Pindahkan \u201c{title}\u201d',
   'panel.move.intro': 'Teks, audionya, dan folder Drive-nya pindah ke perangkat yang Anda pilih. Salinan di sini dihapus hanya setelah perangkat lain menerimanya \u2014 unggahan terakhir terjadi lebih dulu, jadi tidak ada yang hilang meski pemindahan tertunda.',
   'panel.move.go': 'Pindahkan teks',
+  'panel.move.tooOld': 'aplikasinya perlu diperbarui dulu',
+  'panel.move.allTooOld': 'Belum ada perangkat tujuan yang cukup baru untuk menerima pemindahan \u2014 perangkat memperbarui dirinya dalam sehari setelah online.',
   'panel.move.noOther': 'Tidak ada perangkat lain untuk tujuan pemindahan.',
   'panel.move.nothingToMove': 'Belum ada yang bisa dipindahkan \u2014 teks ini belum punya konten terunggah yang bisa diterima perangkat lain.',
   'panel.move.sent': 'Pemindahan dimulai \u2014 menunggu {device} menerimanya.',

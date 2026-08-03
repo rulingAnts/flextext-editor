@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v149';
+export const ENGINE_VERSION = 'v150';
 
 const S = {
 en: {
@@ -734,6 +734,7 @@ internet after the first time.</p>
   'panel.admin.kind.files_trashed': 'Files trashed',
   'panel.admin.kind.text_moved': 'Text moved',
   'seg.pauseTip': 'Pause here \u2014 then press Enter to break the segment at this spot',
+  'seg.joinTip': 'Join this line with the next \u2014 text and audio together',
   'seg.playTip': 'Play this segment',
   'seg.pendingTip': 'No time yet \u2014 scrub to the right spot and press Enter again',
   'panel.dl.loading': 'Checking the text\u2019s folder\u2026',
@@ -1747,6 +1748,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.admin.kind.files_trashed': 'Berkas dibuang',
   'panel.admin.kind.text_moved': 'Teks dipindahkan',
   'seg.pauseTip': 'Jeda di sini \u2014 lalu tekan Enter untuk memecah segmen di titik ini',
+  'seg.joinTip': 'Gabungkan baris ini dengan berikutnya \u2014 teks dan audio sekaligus',
   'seg.playTip': 'Putar segmen ini',
   'seg.pendingTip': 'Belum ada waktu \u2014 geser ke posisi yang tepat lalu tekan Enter lagi',
   'panel.dl.loading': 'Memeriksa folder teks\u2026',

@@ -88,8 +88,10 @@
 </section>
 
 <!-- ===== Editor: Baseline tab ===== -->
-<section id="view-baseline" class="view" hidden>
-  <div id="audio-player" class="player" hidden>
+<!-- SHARED MEDIA DOCK: one Player instance serving BOTH editor tabs (baseline strips + gloss).
+     Outside the view sections so switching tabs never re-creates it — playback position survives
+     the switch, and one decode serves both waveform renderers. Sticky via .player. -->
+<div id="audio-player" class="player" hidden>
     <div class="player-wave"></div>
     <p class="player-status" hidden></p>
     <div class="player-progress" hidden><div class="player-progress-fill"></div></div>
@@ -112,6 +114,8 @@
       <button class="player-remove icon-btn2" data-i18n-title="player.remove">✕</button>
     </div>
   </div>
+
+<section id="view-baseline" class="view" hidden>
   <p class="tab-hint"><span data-i18n-html="baseline.hint"></span>
     <button id="btn-attach-audio" class="link-btn" data-i18n="player.attach">Attach audio&hellip;</button>
     <input type="file" id="attach-audio-file" accept="audio/*,.mp3,.wav,.m4a,.flac,.ogg" hidden>

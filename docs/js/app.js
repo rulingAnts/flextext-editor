@@ -1947,7 +1947,14 @@ async function openUrlTask(task, mode = 'interactive') {
     try { doc = await buildDocFromFlextextUrl(task.flextextUrl, task.title); gotFlextext = true; }
     catch { /* fall through to placeholder + pending retry */ }
   }
-  const rec = { id: newGuid(), title: task.title || doc.title || '', created: Date.now(), modified: Date.now(), doc };
+  // ⚠ ADOPT the researcher's assign id as this doc's identity when one was given. The panel keys
+  // EVERYTHING on that id — the history log, the assigned-audio cache, and the per-text Drive
+  // folder tag. Minting a fresh guid here (the old behaviour) split every assigned text into two
+  // identities: the panel's id (history "Assigned" row, audio cache, assign-copy folder) and the
+  // device's id (inventory, uploads — which then landed in a SECOND Drive folder). One text, two
+  // folders, and no menu could see the other half. Same id everywhere is the fix; the guid remains
+  // for docs the user creates locally, which have no researcher identity.
+  const rec = { id: task.docId || newGuid(), title: task.title || doc.title || '', created: Date.now(), modified: Date.now(), doc };
   rec.doc.title = rec.title;
   if (task.flextextUrl) {
     rec.flextextId = flextextId;
@@ -2482,7 +2489,7 @@ function onSyncRevoked() {
 async function syncDispatch(cmd) {
   switch (cmd && cmd.type) {
     case 'assign': {
-      const task = { title: cmd.title || '' };
+      const task = { title: cmd.title || '', docId: cmd.id || '' };
       if (cmd.audioUrl) { task.audioUrl = resolveAudioInput(cmd.audioUrl); task.audioId = cmd.id; }
       if (cmd.flextextUrl) { task.flextextUrl = resolveAudioInput(cmd.flextextUrl); task.flextextId = cmd.id; }
       if (task.audioUrl || task.flextextUrl) await openUrlTask(task, 'background');

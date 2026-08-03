@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v136';
+export const ENGINE_VERSION = 'v137';
 
 const S = {
 en: {
@@ -712,7 +712,7 @@ internet after the first time.</p>
   'panel.dl.audioUpload': 'Recording (uploaded)',
   'panel.dl.lastUploadSub': 'the last file this text uploaded',
   'panel.dl.all': 'Download all (ZIP)',
-  'panel.dl.allSub': 'the newest copy of each file, zipped — {n} file(s)',
+  'panel.dl.allSub': 'everything in this text\u2019s Drive folder — {n} file(s)',
   'panel.dl.zipBuilding': 'Building ZIP\u2026',
   'panel.dl.zipFailed': 'Download failed — try again.',
   'panel.dl.btn': 'Files',
@@ -1697,7 +1697,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.dl.audioUpload': 'Rekaman (terunggah)',
   'panel.dl.lastUploadSub': 'berkas terakhir yang diunggah teks ini',
   'panel.dl.all': 'Unduh semua (ZIP)',
-  'panel.dl.allSub': 'salinan terbaru tiap berkas, di-ZIP — {n} berkas',
+  'panel.dl.allSub': 'semua isi folder Drive teks ini — {n} berkas',
   'panel.dl.zipBuilding': 'Membuat ZIP\u2026',
   'panel.dl.zipFailed': 'Unduhan gagal — coba lagi.',
   'panel.dl.btn': 'Berkas',

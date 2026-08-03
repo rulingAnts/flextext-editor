@@ -837,6 +837,31 @@ function latestPerKind(files) {
   return out;
 }
 
+/* LEGACY IDENTITY BRIDGE. Until v137 the device DISCARDED the assign id and minted its own doc
+ * id, so every assigned text has TWO identities: the panel's (history "Assigned" row, audio cache,
+ * assign-copy folder) and the device's (inventory, uploads — in a SECOND Drive folder). New
+ * assigns share one id, but every existing text stays split forever, so the menu bridges the halves
+ * through the history log: events with the SAME TITLE name the sibling ids. Exact-title match is
+ * imperfect (a retitled text will not bridge) — acceptable for a display menu, and only legacy
+ * texts ever need it. */
+function bridgedIds(docId, title) {
+  const ids = new Set([docId]);
+  const audio = [];
+  const fileIds = [];
+  try {
+    const want = String(title || '').trim();
+    for (const e of loadHistory(Researcher.currentAccountId())) {
+      const same = e.docId === docId || (want && String(e.title || '').trim() === want);
+      if (!same) continue;
+      if (e.docId) ids.add(e.docId);
+      if (/^https?:\/\//i.test(e.audioUrl || '')) audio.push(e.audioUrl);
+      if (e.fileId) fileIds.push({ fileId: e.fileId, at: e.at || 0 });
+    }
+  } catch { /* the bridge is best-effort; the primary id still renders */ }
+  fileIds.sort((a, b) => b.at - a.at);
+  return { ids: [...ids], audioUrl: audio[0] || '', latestEventFileId: (fileIds[0] || {}).fileId || '' };
+}
+
 /* Build ONE menu from ALL sources, merged by kind — never either/or.
  *
  * ⚠ WHY MERGED (Seth, after two rounds of non-uniform menus): the sources cover DIFFERENT files,
@@ -853,10 +878,20 @@ async function populateFilesMenu(wrap) {
   wrap.dataset.loaded = '1';
   const menu = wrap.querySelector('.rp-dl-menu');
   const iid = wrap.dataset.i, docId = wrap.dataset.id, title = wrap.dataset.title || 'text';
-  const assigned = assignedFor(docId);
-  let files = [];
-  try { files = latestPerKind((await Researcher.listTextFiles(iid, docId)).files); }
-  catch { /* listing failed — the other sources still render */ }
+  const bridge = bridgedIds(docId, wrap.dataset.title);
+  const assigned = bridge.ids.map(assignedFor).find(Boolean) || assignedFor(docId);
+  // Query EVERY bridged identity's folder (legacy texts have two), merge, newest wins per kind.
+  // ⚠ Collect per-promise, then flatten. The first version concatenated onto a SHARED variable
+  // inside Promise.all — a lost-update race where the last resolver's stale read silently dropped
+  // the other folder's files, and WHICH half survived depended on resolution order. Caught by the
+  // bridge fixture returning complementary menus per direction.
+  const lists = await Promise.all(bridge.ids.map(async (id) => {
+    try { return (await Researcher.listTextFiles(iid, id)).files || []; }
+    catch { return []; /* one folder failing must not empty the menu */ }
+  }));
+  const allFiles = lists.flat().sort((a, b) => String(b.modified).localeCompare(String(a.modified)));
+  wrap._allFiles = allFiles;                 // the entire-folder ZIP wants EVERYTHING, uncollapsed
+  const files = latestPerKind(allFiles);
 
   const claimed = new Set(files.map((f) => f.kind));
   const audioRows = [], fileRows = [], tailRows = [];
@@ -877,7 +912,7 @@ async function populateFilesMenu(wrap) {
   //    row's own event (data-audio; a history entry recorded before the assigned-events cache
   //    existed still knows its audio), then the cache.
   if (!claimed.has('audio-original')) {
-    const cached = wrap.dataset.audio || (assigned && assigned.audioUrl) || '';
+    const cached = wrap.dataset.audio || (assigned && assigned.audioUrl) || bridge.audioUrl || '';
     if (/^https?:\/\//i.test(cached)) {
       claimed.add('audio-original');
       const gid = driveIdFrom(cached);
@@ -889,7 +924,7 @@ async function populateFilesMenu(wrap) {
   // 3. Report artifacts (uploadedFileId et al) fill any kind nothing above claimed — this is what
   //    keeps pre-folder uploads visible next to folder-era files instead of instead of them.
   //    resolveArtifacts' 'audio' kind IS the cached assigned link, already handled above — skip it.
-  const item = findInventoryItem(iid, docId);
+  const item = bridge.ids.map((id) => findInventoryItem(iid, id)).find(Boolean);
   for (const f of resolveArtifacts(item, null)) {
     if (f.kind === 'audio' || claimed.has(f.kind)) continue;
     claimed.add(f.kind);
@@ -900,15 +935,18 @@ async function populateFilesMenu(wrap) {
   // 4. A history event's own fileId — the last resort for a text deleted from every inventory,
   //    where findInventoryItem has nothing. Generic label, because the event does not record which
   //    kind the upload was.
-  if (wrap.dataset.fileid && !claimed.has('flextext') && !claimed.has('bundle')) {
-    const gid = driveLink(wrap.dataset.fileid);
+  const lastFileId = wrap.dataset.fileid || bridge.latestEventFileId;
+  if (lastFileId && !claimed.has('flextext') && !claimed.has('bundle')) {
+    const gid = driveLink(lastFileId);
     if (gid) fileRows.push(`<a class="rp-dl-item" role="menuitem" href="${esc(gid)}" target="_blank" rel="noopener noreferrer">
       <span class="rp-dl-name">${esc(t('panel.hist.uploadLink'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.lastUploadSub'))}</span></a>`);
   }
 
-  if (files.length) {
+  if (allFiles.length) {
+    // ONE zip control (Seth): it takes the ENTIRE folder — every file across every bridged
+    // identity, backups included. The list above stays newest-per-kind; the zip does not.
     tailRows.push(`<button class="rp-dl-item rp-dl-all" data-zipall data-i="${esc(iid)}" data-id="${esc(docId)}" data-title="${esc(title)}">
-      <span class="rp-dl-name">${esc(t('panel.dl.all'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.allSub', { n: files.length }))}</span></button>`);
+      <span class="rp-dl-name">${esc(t('panel.dl.all'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.allSub', { n: allFiles.length }))}</span></button>`);
   }
   const rows = [...audioRows, ...fileRows, ...tailRows];
   menu.innerHTML = `<span class="rp-dl-head">${esc(t('panel.dl.title'))}</span>`
@@ -938,10 +976,22 @@ async function downloadAllZip(btn) {
   const orig = nameEl.textContent;
   try {
     btn.disabled = true; nameEl.textContent = t('panel.dl.zipBuilding');
-    const { files } = await Researcher.listTextFiles(iid, docId);
-    const latest = latestPerKind(files);
+    // Re-list across every bridged identity (legacy texts have two folders — see bridgedIds).
+    const bridge = bridgedIds(docId, btn.dataset.title);
+    const lists = await Promise.all(bridge.ids.map(async (id) => {
+      try { return (await Researcher.listTextFiles(iid, id)).files || []; } catch { return []; /* partial is fine */ }
+    }));
+    const all = lists.flat().sort((a, b) => String(b.modified).localeCompare(String(a.modified)));
+    const wanted = all;   // the ENTIRE folder — every bridged identity, backups included
     const entries = [];
-    for (const f of latest) entries.push({ name: f.name, data: await Researcher.fetchDriveFile(f.id) });
+    const used = new Set();
+    for (const f of wanted) {
+      // Backup copies share names across time; a zip needs unique entry names.
+      let name = f.name || 'file'; let n = 1;
+      while (used.has(name)) name = (f.name || 'file').replace(/(\.[^.]*)?$/, ` (${++n})$1`);
+      used.add(name);
+      entries.push({ name, data: await Researcher.fetchDriveFile(f.id) });
+    }
     if (!entries.length) throw new Error('empty');
     const blob = await makeZip(entries);
     const a = document.createElement('a');

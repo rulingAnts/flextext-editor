@@ -30,7 +30,11 @@ export function initStrips(d) { deps = d; }
 
 /* ---------------- peaks (one decode per doc, buffer released immediately) ---------------- */
 
-const BUCKETS = 4000;   // ~4k buckets across the whole file → plenty for strip-width canvases
+// Peak DENSITY scales with duration — a fixed whole-file bucket count is why short segments
+// looked blocky: a 2s slice of a 10-min file got ~13 buckets stretched across the strip. 200
+// buckets/second = 5ms resolution; a 10-min recording is still only ~470 KB of Float32, computed
+// once and far cheaper than keeping the decoded buffer.
+const BUCKETS_PER_SEC = 200;
 
 export async function ensurePeaks(docId, blob) {
   if (peaksCache.docId === docId && peaksCache.peaks) return peaksCache;
@@ -40,6 +44,7 @@ export async function ensurePeaks(docId, blob) {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
     const ch = buf.getChannelData(0);
+    const BUCKETS = Math.min(400000, Math.max(4000, Math.round(buf.duration * BUCKETS_PER_SEC)));
     const peaks = new Float32Array(BUCKETS);
     const per = Math.max(1, Math.floor(ch.length / BUCKETS));
     for (let b = 0; b < BUCKETS; b++) {
@@ -166,13 +171,20 @@ function drawStrip(canvas, seg, durationMs) {
     g.fillRect(0, H / 2 - 1, W, 2);
     return;
   }
-  const b0 = Math.floor((seg.start / durationMs) * BUCKETS);
-  const b1 = Math.max(b0 + 1, Math.ceil((seg.end / durationMs) * BUCKETS));
+  const B = peaks.length;
+  const b0 = Math.floor((seg.start / durationMs) * B);
+  const b1 = Math.max(b0 + 1, Math.ceil((seg.end / durationMs) * B));
   g.fillStyle = '#1f4f8f';
   const n = b1 - b0;
   for (let x = 0; x < W; x++) {
-    const p = peaks[b0 + Math.floor((x / W) * n)] || 0;
-    const h = Math.max(2, p * (H - 4));
+    // MAX over this pixel's whole bucket range, not nearest-neighbour — nearest is what made the
+    // strips read blocky/blurry: adjacent pixels sampled the same bucket in steps. Range-max keeps
+    // transients (a plosive is one bucket) and draws a crisp column per pixel.
+    const i0 = b0 + Math.floor((x / W) * n);
+    const i1 = Math.max(i0 + 1, b0 + Math.ceil(((x + 1) / W) * n));
+    let m = 0;
+    for (let i = i0; i < i1; i++) { const v = peaks[i] || 0; if (v > m) m = v; }
+    const h = Math.max(2, m * (H - 4));
     g.fillRect(x, (H - h) / 2, 1, h);
   }
 }

@@ -13,12 +13,16 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: wrangler deploy
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # Pin a current wrangler (the action bundles a stale v3 that warns about critical
+          # errors). Bump this deliberately — a major jump changes deploy behaviour, so verify
+          # the next deploy after touching it.
+          wranglerVersion: "4.118.0"
           # The worker lives in worker/ since the repo fold (2026-07-23); wrangler.toml is there.
           workingDirectory: worker
           # No `command:` → wrangler-action runs `wrangler deploy` (uses wrangler.toml: name,

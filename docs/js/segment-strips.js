@@ -91,7 +91,7 @@ export function renderStrips() {
   paras.forEach((text, i) => {
     const seg = segs[i] || { timePending: true };
     const row = document.createElement('div');
-    row.className = 'seg-strip' + (isAligned(seg) ? '' : ' seg-pending');
+    row.className = 'seg-strip' + (isAligned(seg) ? '' : ' seg-pending') + (text.trim() ? '' : ' seg-empty');
     row.dataset.i = i;
 
     const play = document.createElement('button');
@@ -213,6 +213,8 @@ function positionCursor() {
         const wave = row.querySelector('.seg-wave');
         const frac = (t - seg.start) / (seg.end - seg.start);
         cur.style.left = (wave.offsetLeft + frac * wave.offsetWidth) + 'px';
+        cur.style.top = wave.offsetTop + 'px';
+        cur.style.height = wave.offsetHeight + 'px';
       } else if (cur) cur.remove();
     });
     rafId = requestAnimationFrame(tick);

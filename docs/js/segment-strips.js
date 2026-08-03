@@ -34,7 +34,11 @@ export function initStrips(d) { deps = d; }
 // looked blocky: a 2s slice of a 10-min file got ~13 buckets stretched across the strip. 200
 // buckets/second = 5ms resolution; a 10-min recording is still only ~470 KB of Float32, computed
 // once and far cheaper than keeping the decoded buffer.
-const BUCKETS_PER_SEC = 200;
+// 2000/s = 0.5ms resolution: a HALF-SECOND segment gets ~1000 buckets — at or below one bucket
+// per device pixel on any realistic strip width, which is what 'clear and detailed' requires for
+// the short segments this workflow produces (Seth: 200/s read blocky at 0.5-2s). A 10-minute file
+// is ~4.8 MB of Float32 — trivial beside the decoded buffer we deliberately discard.
+const BUCKETS_PER_SEC = 2000;
 
 export async function ensurePeaks(docId, blob, playerBuf) {
   // Prefer the PLAYER'S decoded buffer: one decode, one timeline (see Player.decodedBuffer).
@@ -49,7 +53,7 @@ export async function ensurePeaks(docId, blob, playerBuf) {
       buf = await ctx.decodeAudioData(await blob.arrayBuffer());
     }
     const ch = buf.getChannelData(0);
-    const BUCKETS = Math.min(400000, Math.max(4000, Math.round(buf.duration * BUCKETS_PER_SEC)));
+    const BUCKETS = Math.min(2000000, Math.max(4000, Math.round(buf.duration * BUCKETS_PER_SEC)));
     const peaks = new Float32Array(BUCKETS);
     const per = Math.max(1, Math.floor(ch.length / BUCKETS));
     // ⚠ THE ALIGNMENT TRUTH: bucket b covers samples [b*per, (b+1)*per) — NOT b/BUCKETS of the
@@ -199,10 +203,19 @@ function drawStrip(canvas, seg, durationMs) {
     // MAX over this pixel's whole bucket range, not nearest-neighbour — nearest is what made the
     // strips read blocky/blurry: adjacent pixels sampled the same bucket in steps. Range-max keeps
     // transients (a plosive is one bucket) and draws a crisp column per pixel.
-    const i0 = b0 + Math.floor((x / W) * n);
+    // Two regimes per pixel column: more buckets than pixels → MAX over the range (transients stay
+    // crisp); more pixels than buckets (short segments drawn wide) → LINEAR INTERPOLATION between
+    // neighbouring buckets, so a flat-topped block becomes a slope.
+    const fpos = (x / W) * n + b0;
+    const i0 = Math.floor(fpos);
     const i1 = Math.max(i0 + 1, b0 + Math.ceil(((x + 1) / W) * n));
     let m = 0;
-    for (let i = i0; i < i1; i++) { const v = peaks[i] || 0; if (v > m) m = v; }
+    if (i1 - i0 <= 1) {
+      const fr = fpos - i0;
+      m = (peaks[i0] || 0) * (1 - fr) + (peaks[Math.min(i0 + 1, b0 + n - 1)] || 0) * fr;
+    } else {
+      for (let i = i0; i < i1; i++) { const v = peaks[i] || 0; if (v > m) m = v; }
+    }
     // Perceptual DISPLAY curve (m^0.6): linear amplitude hides quiet-but-real detail — a stop
     // burst or fricative at -30 dB is a couple of pixels tall in a 44px strip and reads as
     // silence (Seth's report). The power curve lifts low-level signal into visibility while TRUE

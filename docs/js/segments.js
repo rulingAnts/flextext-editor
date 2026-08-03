@@ -49,6 +49,11 @@ function blank(seg) {
  * sorting by time here would silently re-associate text with the wrong audio — far worse than an
  * unaligned segment. When a time conflicts with its neighbours we drop the TIME, never move the row.
  * ------------------------------------------------------------------------------------------- */
+/* ⚠ "Normalize" in the DATA sense only — this makes the segment ARRAY well-formed (boundaries
+ * clamped, monotonic, non-overlapping). It has NOTHING to do with audio level normalization and
+ * never reads a single sample. The entire segmentation feature is metadata pointing INTO an
+ * untouched recording; the master is never rewritten. (Level normalization exists in this app only
+ * as the `norm` recording setting, which archival defaults turn OFF.) */
 export function normalizeSegments(segments, opts = {}) {
   const duration = isNum(opts.duration) ? opts.duration : null;
   const minMs = isNum(opts.minMs) ? opts.minMs : MIN_SEGMENT_MS;

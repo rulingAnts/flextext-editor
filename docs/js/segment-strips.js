@@ -192,7 +192,12 @@ function drawStrip(canvas, seg, durationMs) {
     const i1 = Math.max(i0 + 1, b0 + Math.ceil(((x + 1) / W) * n));
     let m = 0;
     for (let i = i0; i < i1; i++) { const v = peaks[i] || 0; if (v > m) m = v; }
-    const h = Math.max(2, m * (H - 4));
+    // Perceptual DISPLAY curve (m^0.6): linear amplitude hides quiet-but-real detail — a stop
+    // burst or fricative at -30 dB is a couple of pixels tall in a 44px strip and reads as
+    // silence (Seth's report). The power curve lifts low-level signal into visibility while TRUE
+    // silence stays flat. Display-only: the cached peaks and the audio are untouched — this is a
+    // rendering choice, not processing (see the header: no audio is ever edited).
+    const h = Math.max(2, Math.pow(m, 0.6) * (H - 4));
     g.fillRect(x, (H - h) / 2, 1, h);
   }
 }

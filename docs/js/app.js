@@ -37,11 +37,13 @@ const RECORD_MODE = (typeof window !== 'undefined' && window.__MODE === 'record'
   new URLSearchParams(location.search).get('mode') === 'record';
 
 // Researcher-console mode: the standalone "Flextext Researcher" app (its index.html sets
-// window.__MODE='researcher'), or — LOCAL DEV ONLY — ?mode=researcher on the editor origin.
+// window.__MODE='researcher'), or — DEV HOSTS ONLY — ?mode=researcher on the editor origin
+// (localhost AND the Cloudflare staging site, so panel features can be test-driven against the
+// staging engine before a release; staging still talks to the PRODUCTION worker).
 // In PRODUCTION the editor redirects ?mode=researcher to the standalone app (see setup());
 // there is no in-editor URL entry anymore.
 const RESEARCHER_MODE = (typeof window !== 'undefined' && window.__MODE === 'researcher') ||
-  (new URLSearchParams(location.search).get('mode') === 'researcher' && isLocalDev());
+  (new URLSearchParams(location.search).get('mode') === 'researcher' && (isLocalDev() || isStagingHost()));
 // Crowd mode: the PUBLIC crowd-source recorder (crowd-recorder/index.html sets
 // window.__MODE='crowd'). No PWA/SW/sync — an always-fresh page anyone with the link
 // can use: welcome → consent → record → submit straight to the worker (which relays
@@ -85,6 +87,11 @@ const LOCAL_WORKER = 'http://localhost:8787';                 // `wrangler dev` 
 const TURNSTILE_SITE_KEY = '0x4AAAAAADo0TdBBVpldATJ6';        // production widget (rulingants.github.io)
 const TURNSTILE_TEST_SITE_KEY = '1x00000000000000000000AA';  // Cloudflare always-pass key (local dev only)
 function isLocalDev() { return /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname); }
+// The Cloudflare STAGING site counts as a dev host for the researcher-panel ENTRY only
+// (?mode=researcher runs the panel on the staging engine instead of redirecting to the
+// production app). Worker base + Turnstile keys deliberately do NOT follow this: staging
+// talks to the PRODUCTION worker with the real widget (its origin is CORS-allowlisted).
+function isStagingHost() { return /\.(pages|workers)\.dev$/.test(location.hostname); }
 function workerBase() {
   const explicit = (settings.relayWorker || '').trim();
   return explicit || (isLocalDev() ? LOCAL_WORKER : DEFAULT_WORKER);
@@ -3294,7 +3301,11 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
     const wavName = /\.wav$/i.test(segMediaName) || /wav$/i.test(segMedia.mimeType || '');
     const eafOpts = { vern, anal, mediaName: segMediaName, mediaMime: wavName ? 'audio/x-wav' : (segMedia.mimeType || 'audio/*') };
     if (wantEaf) segEntries.push({ name: base + '.eaf', data: new Blob([serializeEaf(rec.doc, { ...eafOpts, profile: 'flex' })], { type: 'application/xml' }) });
-    if (wantSaymore) segEntries.push({ name: base + '.saymore.eaf', data: new Blob([serializeEaf(rec.doc, { ...eafOpts, profile: 'saymore' })], { type: 'application/xml' }) });
+    // SayMore's OWN storage convention is <mediafile>.annotations.eaf beside the media — emitting
+    // that exact name makes the drop-in path work: copy audio + this file into a session folder
+    // and SayMore lists the annotations under the audio with no import step (Seth: loading must
+    // be as simple as possible; HOW-TO-OPEN.txt below documents both paths).
+    if (wantSaymore) segEntries.push({ name: segMediaName + '.annotations.eaf', data: new Blob([serializeEaf(rec.doc, { ...eafOpts, profile: 'saymore' })], { type: 'application/xml' }) });
     if (opts.full) {
       if (wantPreview) {
         // Named after the ORIGINAL recording (Seth): story.m4a → story.preview.html.
@@ -3315,6 +3326,13 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
         segEntries.push({ name: segMediaName, data: new Blob([stamped], { type: 'audio/wav' }) });
       }
     }
+    // The instructions travel WITH the files (Seth: whatever the user must do, clearly
+    // documented) — a plain-text README naming this bundle's actual files, one section per tool.
+    segEntries.push({ name: 'HOW-TO-OPEN.txt', data: new Blob([howToOpenText({
+      base, segMediaName, derived: !!segMedia.derived,
+      eaf: wantEaf, saymore: wantSaymore, preview: !!(opts.full && wantPreview),
+      previewName: String(media.name || base).replace(/\.[^.]+$/, '') + '.preview.html',
+    })], { type: 'text/plain' }) });
   }
   const xmlBlob = serializeDocBlob(rec, segMediaName || undefined);
   const consent = rec.consentClip
@@ -3359,6 +3377,52 @@ function serializeDocBlob(rec, mediaName) {
   // Timing emission follows the mode (Seth): basic editor → a clean classic flextext, even when
   // the doc still carries spans from earlier segmentation work. Imported attrs round-trip either way.
   return new Blob([serializeFlextext(doc, settings, { mediaName, segTimes: segmentationEnabled() })], { type: 'application/xml' });
+}
+
+// The end-user instructions bundled beside the annotation exports. Plain text, plain words,
+// naming this bundle's ACTUAL files — the reader is a researcher (or their student) with the
+// unzipped folder open, not someone who knows our terminology.
+function howToOpenText({ base, segMediaName, derived, eaf, saymore, preview, previewName }) {
+  const L = [];
+  L.push('HOW TO OPEN THESE FILES');
+  L.push('=======================');
+  L.push('');
+  L.push('Keep everything from this zip together in ONE folder, and do not rename the');
+  L.push('files — the annotation files find the audio by its exact name.');
+  L.push('');
+  if (eaf) {
+    L.push(`ELAN — open "${base}.eaf"`);
+    L.push('  Double-click it (or ELAN > File > Open). ELAN finds the audio in the same');
+    L.push('  folder automatically — no relinking dialog.');
+    L.push('');
+  }
+  if (saymore) {
+    L.push(`SayMore — use "${segMediaName}.annotations.eaf"`);
+    L.push('  Easiest: copy BOTH the audio file and this .annotations.eaf file into your');
+    L.push('  SayMore session folder (Documents/SayMore/<Project>/Sessions/<Session>/).');
+    L.push('  SayMore lists the annotations under the audio automatically.');
+    L.push('  Alternative: add the audio to a session, open the "Start Annotating" tab,');
+    L.push('  choose "Copy an existing ELAN file", and pick this file.');
+    L.push('');
+  }
+  L.push(`FLEx — import "${base}.flextext"`);
+  L.push('  FLEx > Texts & Words > Import > FLExText interlinear. The segment times show');
+  L.push('  on the Note line (Configure Interlinear Lines > Note).');
+  L.push('');
+  if (preview) {
+    L.push(`Quick listen — open "${previewName}" in any browser`);
+    L.push('  The audio is embedded in the page: it works offline, plays line by line, and');
+    L.push('  needs no other files. Handy beside FLEx while glossing or charting.');
+    L.push('');
+  }
+  if (derived) {
+    L.push(`ABOUT "${segMediaName}"`);
+    L.push('  The original recording was not a WAV, so this converted listening copy was');
+    L.push('  made for exact time alignment — the annotation files point at it. It is NOT');
+    L.push('  an archival master; the original recording is included unchanged.');
+    L.push('');
+  }
+  return L.join('\n');
 }
 
 function blobToBase64(blob) {

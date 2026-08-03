@@ -176,8 +176,9 @@ real timed spans (silence) and hold placeholder rows on the Gloss tab.
 - **Exports (in the save/share zip):** `<title>.eaf` (ELAN-for-FLEx: `A_interlinear-text-title-*`
   > `A_paragraph` > `A_phrase-txt-*` > word/gloss; the paragraph tier MIRRORS the phrase tier
   sharing its slots — mergeable in ELAN, never needs splitting; **NO segnum in EAFs**, Seth's
-  rule); `<title>.saymore.eaf` (ONLY `Transcription` + `Free Translation` — SayMore ignores and
-  advises against extra tiers); `<audio-basename>.preview.html` (self-contained, audio embedded
+  rule); `<audio>.annotations.eaf` (SayMore profile, ONLY `Transcription` + `Free Translation`;
+  named by SayMore's own convention so dropping it beside the audio in a session folder is
+  picked up automatically); `<audio-basename>.preview.html` (self-contained, audio embedded
   base64, per-segment playback — for alt-tabbing beside FLEx). WHICH exports ride is
   RESEARCHER-SELECTED (`exportEaf` / `exportSaymore` / `exportPreview`, panel Buttons group);
   unset values follow the mode — the basic editor exports a CLEAN classic flextext with no

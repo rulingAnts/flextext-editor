@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v164';
+export const ENGINE_VERSION = 'v165';
 
 const S = {
 en: {
@@ -1010,7 +1010,7 @@ internet after the first time.</p>
   'panel.f.segmentation': 'Enable Audio Segmentation Mode',
   'panel.f.segmentationNote': 'The Baseline and Gloss tabs become time-aligned strips: a waveform per line, per-line playback, and Enter breaks the line at the playhead. Try it with one worker first before enabling it broadly. Turning it off later hides the tools but never deletes segment data.',
   'panel.f.exportEaf': 'Include ELAN file (.eaf) in sent/saved bundles',
-  'panel.f.exportSaymore': 'Include SayMore file (.saymore.eaf) in sent/saved bundles',
+  'panel.f.exportSaymore': 'Include SayMore annotation file (<audio>.annotations.eaf) in sent/saved bundles',
   'panel.f.exportPreview': 'Include audio preview page (.preview.html) in local saves',
   'panel.f.exportsNote': 'These follow Audio Segmentation Mode unless you change them (all on when it is on, all off when it is off), and only apply to texts that have time alignment. The .flextext file and the audio are always included.',
   'delall.btn': 'Delete all data on this device',
@@ -2026,7 +2026,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.f.segmentation': 'Aktifkan Mode Segmentasi Audio',
   'panel.f.segmentationNote': 'Tab Ketik dan Terjemahan Balik menjadi potongan selaras waktu: gelombang suara per baris, pemutaran per baris, dan Enter memotong baris pada posisi putar. Coba dulu dengan satu rekan kerja sebelum diaktifkan lebih luas. Jika dimatikan nanti, alatnya disembunyikan tetapi data segmen tidak pernah dihapus.',
   'panel.f.exportEaf': 'Sertakan file ELAN (.eaf) dalam bundel yang dikirim/disimpan',
-  'panel.f.exportSaymore': 'Sertakan file SayMore (.saymore.eaf) dalam bundel yang dikirim/disimpan',
+  'panel.f.exportSaymore': 'Sertakan file anotasi SayMore (<audio>.annotations.eaf) dalam bundel yang dikirim/disimpan',
   'panel.f.exportPreview': 'Sertakan halaman pratinjau audio (.preview.html) dalam simpanan lokal',
   'panel.f.exportsNote': 'Pengaturan ini mengikuti Mode Segmentasi Audio kecuali Anda mengubahnya (semua aktif saat mode aktif, semua nonaktif saat mode nonaktif), dan hanya berlaku untuk teks yang memiliki penyelarasan waktu. File .flextext dan audio selalu disertakan.',
   'delall.btn': 'Hapus semua data di perangkat ini',

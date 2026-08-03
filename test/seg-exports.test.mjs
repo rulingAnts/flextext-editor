@@ -2,7 +2,7 @@
  * Pure-module tests — seg-exports.js and flextext.js must run under plain node (the format-module
  * rule); any DOM dependency creeping in fails here first. */
 import { serializeEaf, buildSegPreviewHtml, wavWithBext, fmtClock } from '../docs/js/seg-exports.js';
-import { serializeFlextext, reconcileBaseline, makeDoc } from '../docs/js/flextext.js';
+import { serializeFlextext, reconcileBaseline, makeDoc, segmentsFromOffsets } from '../docs/js/flextext.js';
 
 let failures = 0;
 const ok = (cond, msg) => { console.log((cond ? '  ok    ' : '  FAIL  ') + msg); if (!cond) failures++; };
@@ -98,6 +98,32 @@ console.log('flextext — timestamps in notes + native offsets, never the baseli
   doc3.segments = [{ timePending: true }, { timePending: true }, { timePending: true }];
   const xml3 = serializeFlextext(doc3, { vernLang: 'fau', analLang: 'id' });
   ok(!xml3.includes('begin-time-offset') && !xml3.includes('>audio '), 'all-pending doc emits no offsets and no notes');
+}
+
+console.log('flextext IMPORT — segmentsFromOffsets (flextext as THE segmentation format, no sidecar)');
+{
+  const doc = segDoc();
+  delete doc.segments;   // simulate an import: offsets in phrase attrs, no app spans yet
+  doc.paragraphs[0].segments[0].attrs = { guid: 'g1', 'begin-time-offset': '0', 'end-time-offset': '2500' };
+  doc.paragraphs[1].segments[0].attrs = { guid: 'g2', 'begin-time-offset': '2500', 'end-time-offset': '4000' };
+  const spans = segmentsFromOffsets(doc);   // paragraph 3 has no offsets
+  ok(spans && spans.length === 3, 'one span per paragraph');
+  ok(spans[0].start === 0 && spans[0].end === 2500 && spans[1].start === 2500, 'spans read from the native attributes');
+  ok(spans[2].timePending === true, 'offset-less paragraph comes back timePending');
+  const d2 = segDoc();
+  const ph = d2.paragraphs[0].segments[0];
+  d2.paragraphs[0].segments = [
+    { ...ph, attrs: { 'begin-time-offset': '100', 'end-time-offset': '900' } },
+    { ...ph, attrs: { 'begin-time-offset': '900', 'end-time-offset': '1800' } },
+  ];
+  const s2 = segmentsFromOffsets(d2);
+  ok(s2[0].start === 100 && s2[0].end === 1800, 'multi-phrase paragraph (merged in ELAN) takes the envelope');
+  ok(segmentsFromOffsets(segDoc()) === null, 'doc without offsets → null (no invented times)');
+  // The full circle: our own export re-imports to the same spans.
+  const d4 = segDoc();
+  const xml = serializeFlextext(d4, { vernLang: 'fau', analLang: 'id' });
+  const beginVals = [...xml.matchAll(/begin-time-offset="(\d+)"/g)].map((m) => +m[1]);
+  ok(JSON.stringify(beginVals) === JSON.stringify([0, 2000, 4000]), 'exported offsets carry the exact span starts back');
 }
 
 console.log('preview page');

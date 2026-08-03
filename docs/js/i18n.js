@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v160';
+export const ENGINE_VERSION = 'v161';
 
 const S = {
 en: {
@@ -738,6 +738,7 @@ internet after the first time.</p>
   'seg.joinTip': 'Join this line with the next \u2014 text and audio together',
   'seg.playTip': 'Play this segment',
   'seg.pendingTip': 'No time yet \u2014 scrub to the right spot and press Enter again',
+  'seg.setEndTip': 'Set the end of this line at the playhead (times only \u2014 text and glosses are untouched)',
   'panel.dl.loading': 'Checking the text\u2019s folder\u2026',
   'panel.dl.audioUpload': 'Recording (uploaded)',
   'panel.dl.lastUploadSub': 'the last file this text uploaded',
@@ -1755,6 +1756,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'seg.joinTip': 'Gabungkan baris ini dengan berikutnya \u2014 teks dan audio sekaligus',
   'seg.playTip': 'Putar segmen ini',
   'seg.pendingTip': 'Belum ada waktu \u2014 geser ke posisi yang tepat lalu tekan Enter lagi',
+  'seg.setEndTip': 'Tetapkan akhir baris ini pada posisi putar (hanya waktu \u2014 teks dan gloss tidak berubah)',
   'panel.dl.loading': 'Memeriksa folder teks\u2026',
   'panel.dl.audioUpload': 'Rekaman (terunggah)',
   'panel.dl.lastUploadSub': 'berkas terakhir yang diunggah teks ini',

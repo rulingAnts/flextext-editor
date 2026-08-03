@@ -3,7 +3,7 @@
 import {
   parseFlextext, serializeFlextext, makeDoc, makeWord, makeSegment,
   getBaselineParagraphs, reconcileBaseline, segmentText, tokenize,
-  canMerge, mergeWords, breakPhrase, newGuid,
+  canMerge, mergeWords, breakPhrase, newGuid, segmentsFromOffsets,
   surveyWritingSystems, remapWritingSystems,
 } from './flextext.js';
 import * as db from './db.js';
@@ -502,6 +502,14 @@ function healFlatSegments(doc) {
   for (const p of doc.paragraphs) {
     if (p.segments && !p.segments.length) { p.segments.push(makeSegment('', [])); changed = true; }
   }
+  // flextext is the segmentation format (Seth, 2026-08-03): a doc imported with phrase
+  // begin/end-time-offset attributes (from us, ELAN, or SayMore) recovers its alignment here —
+  // no proprietary sidecar. Only when the doc has no spans of its own; touches doc.segments
+  // ONLY, so glosses/free translations cannot be affected by construction.
+  if (!doc.segments || !doc.segments.length) {
+    const derived = segmentsFromOffsets(doc);
+    if (derived) { doc.segments = derived; changed = true; }
+  }
   if (changed) schedulePersist();
 }
 
@@ -537,7 +545,7 @@ function decorateGlossSegments() {
       };
       wave.addEventListener('pointerdown', (ev) => {
         ev.preventDefault();
-        wave.setPointerCapture(ev.pointerId);
+        try { wave.setPointerCapture(ev.pointerId); } catch { /* capture is drag comfort, not required */ }
         seekAt(ev);
         const move = (e2) => seekAt(e2);
         const up = () => { wave.removeEventListener('pointermove', move); wave.removeEventListener('pointerup', up); };

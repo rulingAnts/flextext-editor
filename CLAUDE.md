@@ -177,10 +177,14 @@ real timed spans (silence) and hold placeholder rows on the Gloss tab.
   > `A_paragraph` > `A_phrase-txt-*` > word/gloss; the paragraph tier MIRRORS the phrase tier
   sharing its slots — mergeable in ELAN, never needs splitting; **NO segnum in EAFs**, Seth's
   rule); `<title>.saymore.eaf` (ONLY `Transcription` + `Free Translation` — SayMore ignores and
-  advises against extra tiers); `<title>.preview.html` (self-contained, audio embedded base64,
-  per-segment playback — for alt-tabbing beside FLEx). Exports follow the DATA (segments present),
-  not the UI toggle. EAFs ride every bundle incl. uploads; the preview + bext-stamped derived WAV
-  ride LOCAL bundles only — field upload bandwidth never pays for embedded audio.
+  advises against extra tiers); `<audio-basename>.preview.html` (self-contained, audio embedded
+  base64, per-segment playback — for alt-tabbing beside FLEx). WHICH exports ride is
+  RESEARCHER-SELECTED (`exportEaf` / `exportSaymore` / `exportPreview`, panel Buttons group);
+  unset values follow the mode — the basic editor exports a CLEAN classic flextext with no
+  offsets/notes (`serializeFlextext` `opts.segTimes`), segmentation mode defaults everything on.
+  Imported offsets preserved in `seg.attrs` round-trip verbatim regardless. EAFs ride every
+  selected bundle incl. uploads; the preview + bext-stamped derived WAV ride LOCAL bundles only —
+  field upload bandwidth never pays for embedded audio.
 - **Lossy sources:** segmentation works on a WAV working copy (`segwav:` key,
   `<orig>.converted-NOT-ARCHIVAL.wav`, `derived:true`) because AAC priming makes decode and
   playback disagree by ~44ms. The ORIGINAL is never touched; the derived copy exported in bundles

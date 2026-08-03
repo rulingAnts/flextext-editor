@@ -17,8 +17,8 @@ import { isNativeShell, nativeAudioAvailable, NativeRecorder, releaseCapture, na
 import { losslessSupported, recFormatSupported, PCMRecorder, encodeWav, encodeRecording, normalizePeak, reduceChannels,
          normRecFormat, REC_FORMATS, DEFAULT_REC_FORMAT, pcmRamBudgetBytes, pcmCapStatus } from './record-pcm.js';
 import { makeZip } from './zip.js';
-import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay, startGlossTicker, stopGlossTicker } from './segment-strips.js';
-import { mergeSegments } from './segments.js';
+import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay } from './segment-strips.js';
+import { mergeSegments, splitSegment, isAligned } from './segments.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget } from './upload.js';
 import * as Sync from './sync.js';
 import { initResearcherPanel } from './researcher-panel.js';
@@ -501,17 +501,34 @@ function decorateGlossSegments() {
     btn.className = 'gseg-play';
     btn.textContent = seg.timePending ? '⋯' : '▶';
     btn.title = t(seg.timePending ? 'seg.pendingTip' : 'seg.playTip');
+    const waveWrap = document.createElement('div');
+    waveWrap.className = 'gseg-wavewrap';
     const wave = document.createElement('canvas');
     wave.className = 'gseg-wave';
     wave.height = 18;
-    bar.append(btn, wave);
+    waveWrap.appendChild(wave);
+    bar.append(btn, waveWrap);
     g.prepend(bar);
     wireSegPlay(btn, seg, () => player);
     drawSpanWave(wave, seg);
-    entries.push({ btn, seg });
-    // JOIN control between this line and the next (Seth) — sits in the margin between the play
-    // buttons. Same model operation as baseline Backspace-merge: glue-space text join +
-    // mergeSegments, so the tabs can never disagree.
+    // Interactive, same as the baseline strips: click to PARK the playhead, drag to scrub.
+    if (isAligned(seg)) {
+      const seekAt = (ev) => {
+        const r = wave.getBoundingClientRect();
+        const f = Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width));
+        player?.seekMs?.(seg.start + f * (seg.end - seg.start));
+      };
+      wave.addEventListener('pointerdown', (ev) => {
+        ev.preventDefault();
+        wave.setPointerCapture(ev.pointerId);
+        seekAt(ev);
+        const move = (e2) => seekAt(e2);
+        const up = () => { wave.removeEventListener('pointermove', move); wave.removeEventListener('pointerup', up); };
+        wave.addEventListener('pointermove', move);
+        wave.addEventListener('pointerup', up);
+      });
+    }
+    entries.push({ btn, seg, wave, wrap: waveWrap });
     if (i < groups.length - 1) {
       const join = document.createElement('button');
       join.className = 'gseg-join';
@@ -520,13 +537,105 @@ function decorateGlossSegments() {
       join.addEventListener('click', () => glossJoinLines(i));
       g.appendChild(join);
     }
+    // ⚠ ENTER-SPLIT ON WORD-GLOSS FIELDS: caret at the START of a word's gloss box splits BEFORE
+    // that word; at the END, AFTER it. Mid-text Enter does nothing (a stray key cannot split), and
+    // Backspace in a gloss field NEVER merges words or segments (Seth's invariant) — words merge
+    // only via the chain-link control, segments join only via the ⤙⤚ button here or Backspace on
+    // the BASELINE strips. Word index = cell position: renderSegment appends one .word-cell per
+    // seg.words entry, punctuation included, so DOM order IS model order.
+    const phrase = current.doc.paragraphs[i] && current.doc.paragraphs[i].segments[0];
+    if (phrase) {
+      [...g.querySelectorAll('.word-cell')].forEach((cell, w) => {
+        const gi = cell.querySelector('.gloss-input');
+        if (!gi) return;   // punctuation cell
+        gi.addEventListener('keydown', (e) => {
+          if (e.key !== 'Enter') return;
+          const atStart = gi.selectionStart === 0 && gi.selectionEnd === 0;
+          const atEnd = gi.selectionStart === gi.value.length && gi.selectionEnd === gi.value.length;
+          if (!atStart && !atEnd) return;
+          e.preventDefault();
+          glossSplitAt(i, atStart ? w : w + 1);
+        });
+      });
+    }
   });
-  startGlossTicker(entries, () => player, t);
+  startGlossCursor(entries);
 }
 
-/* Join gloss line i with i+1 through the SAME model rules as the baseline merge: texts join with a
- * glue space (never mashed into one orthographic word), spans join via mergeSegments, and both
- * tabs re-render from the one doc. */
+/* The gloss playhead: a cursor over whichever mini wave contains the current time, plus live ▶/⏸
+ * glyphs — one rAF loop, the gloss twin of the baseline strips' positionCursor. */
+let glossRafId = 0;
+function startGlossCursor(entries) {
+  cancelAnimationFrame(glossRafId);
+  const tick = () => {
+    const time = player?.playheadMs?.();
+    const rolling = player?.playing?.();
+    for (const en of entries) {
+      if (!isAligned(en.seg)) continue;
+      const inSeg = typeof time === 'number' && time >= en.seg.start && time < en.seg.end;
+      const want = rolling && inSeg ? '⏸' : '▶';
+      if (en.btn.textContent !== want) { en.btn.textContent = want; en.btn.title = t(rolling && inSeg ? 'seg.pauseTip' : 'seg.playTip'); }
+      let cur = en.wrap.querySelector('.gseg-cursor');
+      if (inSeg) {
+        if (!cur) { cur = document.createElement('div'); cur.className = 'gseg-cursor'; en.wrap.appendChild(cur); }
+        cur.style.left = (((time - en.seg.start) / (en.seg.end - en.seg.start)) * en.wave.offsetWidth) + 'px';
+      } else if (cur) cur.remove();
+    }
+    glossRafId = requestAnimationFrame(tick);
+  };
+  glossRafId = requestAnimationFrame(tick);
+}
+function stopGlossCursor() { cancelAnimationFrame(glossRafId); }
+
+/* Split gloss line i at word boundary `boundary`. Time via splitSegment — the REAL playhead when
+ * it sits inside the segment (the dock lives on this tab precisely for that), else interpolation
+ * by word position marked timeEstimated. The free translation follows the MAJORITY side (tie →
+ * left) — it cannot be auto-split, so it stays whole where most of its words went. Glosses ride
+ * their words through the reconcile carry-over pool. */
+function glossSplitAt(i, boundary) {
+  if (!current) return;
+  const doc = current.doc;
+  const phrase = doc.paragraphs[i] && doc.paragraphs[i].segments[0];
+  if (!phrase || !phrase.words) return;
+  const words = phrase.words;
+  if (boundary <= 0 || boundary >= words.length) return;   // no empty halves
+  const free = phrase.free || '';
+  // Capture gloss data BEFORE the reconcile: its carry-over pool can attach the original phrase's
+  // words to only ONE of the two halves, so the other half would arrive glossless (caught by the
+  // verification: right-half glosses came back as '?'). Explicit redistribution by position+text
+  // is the guarantee.
+  const origWords = words.map((w) => ({ txt: w.txt, gls: w.gls }));
+  const leftText = words.slice(0, boundary).map((w) => w.txt).join(' ');
+  const rightText = words.slice(boundary).map((w) => w.txt).join(' ');
+  const paras = getBaselineParagraphs(doc).slice();
+  paras.splice(i, 1, leftText, rightText);
+  doc.segments = splitSegment(docSegments(doc), i, {
+    playheadMs: player?.playheadMs?.() ?? null,
+    fraction: boundary / words.length,
+  });
+  reconcileBaseline(doc, paras.length ? paras : [''], { flatSegments: true });
+  const L = doc.paragraphs[i] && doc.paragraphs[i].segments[0];
+  const R = doc.paragraphs[i + 1] && doc.paragraphs[i + 1].segments[0];
+  // Re-attach glosses to both halves by position, verifying the token text still matches.
+  const reglue = (ph2, src) => {
+    if (!ph2 || !ph2.words) return;
+    ph2.words.forEach((w, k) => {
+      if (src[k] && src[k].txt === w.txt && src[k].gls && !w.gls) w.gls = src[k].gls;
+    });
+  };
+  reglue(L, origWords.slice(0, boundary));
+  reglue(R, origWords.slice(boundary));
+  if (L && R && free) {
+    const leftWins = boundary >= words.length - boundary;   // tie → left
+    (leftWins ? L : R).free = free;
+    (leftWins ? R : L).free = '';
+  }
+  schedulePersist();
+  stopGlossCursor();
+  renderGloss();
+  decorateGlossSegments();
+}
+
 function glossJoinLines(i) {
   if (!current) return;
   const doc = current.doc;
@@ -538,7 +647,7 @@ function glossJoinLines(i) {
   doc.segments = mergeSegments(docSegments(doc), i, {});
   reconcileBaseline(doc, paras.length ? paras : [''], { flatSegments: true });
   schedulePersist();
-  stopGlossTicker();
+  stopGlossCursor();
   renderGloss();
   decorateGlossSegments();
 }
@@ -550,7 +659,7 @@ function switchTab(tab) {
   }
   activeTab = tab;
   if (tab === 'baseline') {
-    stopGlossTicker();
+    stopGlossCursor();
     if (segmentationEnabled()) {
       // Strip mode: per-segment waveform + single-line text pairs. The textarea stays in the DOM
       // but hidden — switching the researcher setting off returns the classic editor with the
@@ -584,7 +693,7 @@ function switchTab(tab) {
     }
   } else {
     stopStrips();
-    stopGlossTicker();
+    stopGlossCursor();
     renderGloss();
     show('gloss');
     // The shared dock stays live on the gloss tab (Seth): full-track player + per-line mini waves.

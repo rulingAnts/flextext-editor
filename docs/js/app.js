@@ -3397,12 +3397,13 @@ function howToOpenText({ base, segMediaName, derived, eaf, saymore, preview, pre
     L.push('');
   }
   if (saymore) {
+    // The drop-in (copy into the session folder) does NOT work — Seth tested it 2026-08-03.
+    // The route that works is New Session from the audio + Copy Existing ELAN file.
     L.push(`SayMore — use "${segMediaName}.annotations.eaf"`);
-    L.push('  Easiest: copy BOTH the audio file and this .annotations.eaf file into your');
-    L.push('  SayMore session folder (Documents/SayMore/<Project>/Sessions/<Session>/).');
-    L.push('  SayMore lists the annotations under the audio automatically.');
-    L.push('  Alternative: add the audio to a session, open the "Start Annotating" tab,');
-    L.push('  choose "Copy an existing ELAN file", and pick this file.');
+    L.push('  1. In SayMore: New Session from Device/File — choose the audio file.');
+    L.push('  2. Select the audio, open the "Start Annotating" tab.');
+    L.push('  3. Choose "Copy Existing ELAN file" and pick this .annotations.eaf file.');
+    L.push('  The transcriptions and free translations appear on the Annotations tab.');
     L.push('');
   }
   L.push(`FLEx — import "${base}.flextext"`);

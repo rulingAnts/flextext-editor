@@ -100,12 +100,38 @@ export function renderStrips() {
     play.textContent = isAligned(seg) ? '▶' : '⋯';
     play.addEventListener('click', () => {
       if (!isAligned(seg)) return;
-      deps.getPlayer()?.playSpan(seg.start, seg.end);
+      const p = deps.getPlayer();
+      if (!p) return;
+      // Toggle: if THIS segment is the one rolling, pause IN PLACE — the parked playhead is what
+      // the user then breaks at with Enter. Anything else (stopped, or another segment playing)
+      // starts this segment's span.
+      const t = p.playheadMs?.();
+      if (p.playing?.() && typeof t === 'number' && t >= seg.start && t < seg.end) p.pause();
+      else p.playSpan(seg.start, seg.end);
     });
 
     const wave = document.createElement('canvas');
     wave.className = 'seg-wave';
     wave.height = 44;
+    // Click to POSITION the playhead inside this segment; drag to scrub (Seth). Position only —
+    // play/pause stays whatever it was, so the flow is: click (or drag) to park, then Enter to
+    // break there, or ▶ to listen from there.
+    if (isAligned(seg)) {
+      const seekAt = (ev) => {
+        const r = wave.getBoundingClientRect();
+        const f = Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width));
+        deps.getPlayer()?.seekMs?.(seg.start + f * (seg.end - seg.start));
+      };
+      wave.addEventListener('pointerdown', (ev) => {
+        ev.preventDefault();
+        wave.setPointerCapture(ev.pointerId);
+        seekAt(ev);
+        const move = (e2) => seekAt(e2);
+        const up = () => { wave.removeEventListener('pointermove', move); wave.removeEventListener('pointerup', up); };
+        wave.addEventListener('pointermove', move);
+        wave.addEventListener('pointerup', up);
+      });
+    }
 
     const input = document.createElement('input');
     input.className = 'seg-text';
@@ -208,6 +234,15 @@ function positionCursor() {
       const seg = docSegments(deps.getDoc())[i];
       let cur = row.querySelector('.seg-cursor');
       const inSeg = seg && isAligned(seg) && typeof t === 'number' && t >= seg.start && t < seg.end;
+      const btn = row.querySelector('.seg-play');
+      if (btn && seg && isAligned(seg)) {
+        const rolling = p?.playing?.() && inSeg;
+        const want = rolling ? '⏸' : '▶';
+        if (btn.textContent !== want) {
+          btn.textContent = want;
+          btn.title = deps.t(rolling ? 'seg.pauseTip' : 'seg.playTip');
+        }
+      }
       if (inSeg) {
         if (!cur) { cur = document.createElement('div'); cur.className = 'seg-cursor'; row.appendChild(cur); }
         const wave = row.querySelector('.seg-wave');

@@ -106,8 +106,13 @@ export function renderStrips() {
       // the user then breaks at with Enter. Anything else (stopped, or another segment playing)
       // starts this segment's span.
       const t = p.playheadMs?.();
-      if (p.playing?.() && typeof t === 'number' && t >= seg.start && t < seg.end) p.pause();
-      else p.playSpan(seg.start, seg.end);
+      if (p.playing?.() && typeof t === 'number' && t >= seg.start && t < seg.end) { p.pause(); return; }
+      // RESUME from the parked playhead when it sits inside this segment (Seth): pause/scrub then
+      // ▶ continues from that spot instead of restarting — restarting would throw away the very
+      // position the user just chose. Restart from the top only when the playhead is outside the
+      // segment or has effectively reached its end (within 150ms — "finished" for human purposes).
+      const from = (typeof t === 'number' && t > seg.start && t < seg.end - 150) ? t : seg.start;
+      p.playSpan(from, seg.end);
     });
 
     const wave = document.createElement('canvas');
@@ -201,8 +206,14 @@ function onKey(e, i, input) {
 function mergeAt(a, b, caretAtJoin) {
   const doc = deps.getDoc();
   const paras = deps.getParagraphs(doc).slice();
-  const joinPos = paras[a].length;
-  paras.splice(a, 2, paras[a] + paras[b]);
+  // ⚠ Joined lines get a SPACE between them (Seth): without it "…akhir" + "Mulai…" mashes into one
+  // orthographic word — data corruption from the transcriber's point of view. The caret lands
+  // AFTER the glue space, so a second Backspace removes the space when mashing genuinely is the
+  // intent. No glue when either side is empty (silence strips) or a boundary space already exists.
+  const left = paras[a] ?? '', right = paras[b] ?? '';
+  const glue = left && right && !/\s$/.test(left) && !/^\s/.test(right) ? ' ' : '';
+  const joinPos = left.length + glue.length;
+  paras.splice(a, 2, left + glue + right);
   doc.segments = mergeSegments(docSegments(doc), a, { duration: peaksCache.durationMs || null });
   deps.setParagraphs(doc, paras);
   deps.persist();

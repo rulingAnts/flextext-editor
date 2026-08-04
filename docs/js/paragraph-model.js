@@ -124,6 +124,40 @@ export function levelOf(data, id) {
 }
 
 // The ordered sequence of PARENTLESS units (lines and top groups) — the groupable surface.
+/* A BLANK line: no text of any kind. In segmentation these are real timed spans (usually silence)
+ * and must never be destroyed — but for GROUPING they are noise, so the paragraph app hides them
+ * (Seth, 2026-08-05). Hidden, never deleted: the .fxpa keeps them, the times stay exactly as they
+ * were, and turning the setting off brings them straight back. */
+export const isBlankLine = (l) =>
+  !!l && !isGroupId(l.id) && !String(l.baseline || '').trim() && !String(l.free || '').trim()
+  && !(l.words || []).some((w) => String(w.txt || '').trim());
+
+// The units a hidden-blank view would show, in order.
+export function visibleTopUnits(data, hideBlank) {
+  const units = topUnits(data);
+  if (!hideBlank) return units;
+  return units.filter((id) => isGroupId(id) || !isBlankLine(nodeById(data, id)));
+}
+
+/* Grouping needs CONTIGUOUS units, but a hidden blank sitting between two visible ones would make
+ * them "non-adjacent" and the group would be refused for a reason the user cannot see. So the
+ * selection absorbs any hidden blanks that fall between its own ends — the group stays contiguous
+ * in the model and the silence simply comes along, which is what it is anyway. */
+export function withBlanksBetween(data, ids, hideBlank) {
+  if (!hideBlank || !Array.isArray(ids) || ids.length < 2) return ids;
+  const top = topUnits(data);
+  const idx = ids.map((id) => top.indexOf(id)).filter((i) => i >= 0);
+  if (!idx.length) return ids;
+  const lo = Math.min(...idx), hi = Math.max(...idx);
+  const out = [...ids];
+  for (let i = lo; i <= hi; i++) {
+    const id = top[i];
+    if (out.includes(id)) continue;
+    if (!isGroupId(id) && isBlankLine(nodeById(data, id))) out.push(id);   // only blanks, never real content
+  }
+  return out;
+}
+
 export function topUnits(data) {
   const pos = new Map(data.lines.map((l, i) => [l.id, i]));
   const units = [];

@@ -11,7 +11,7 @@
  * list IDENTICAL to the editor's sw.js (app.js resolves its whole static import graph at load,
  * even though paragraph mode uses only part of it). */
 
-const VERSION = 'v2';
+const VERSION = 'v3';
 const ENGINE = 'v171';   // editor ENGINE_VERSION this was built against — must match; see version-sync test
 const CACHE = 'flextext-paragraph-' + VERSION;
 const SHELL = [

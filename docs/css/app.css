@@ -1260,6 +1260,14 @@ main {
 .pa-maprow > span { font-size: 14px; color: var(--muted); }
 .pa-maprow select { min-width: 0; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; }
 .pa-mapph { margin: 16px 0 6px; font-size: 15px; }
+/* The "how do I make this file?" walkthrough lives IN the wizard — a user who cannot save a
+   tab-separated file from Excel will never go looking for a separate help page. */
+.pa-help { margin: 10px 0; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
+.pa-help > summary { padding: 8px 12px; cursor: pointer; font-weight: 600; font-size: 14px; }
+.pa-helpbody { padding: 0 14px 12px; font-size: 14px; }
+.pa-helpbody ol { margin: 4px 0 10px; padding-left: 22px; }
+.pa-helpbody li { margin: 3px 0; }
+.pa-helpcols { margin: 8px 0 2px; }
 .pa-mappreview { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: var(--panel); max-height: 40vh; overflow: auto; }
 .pa-mapline { padding: 6px 0; border-bottom: 1px solid var(--border); }
 .pa-mapline:last-child { border-bottom: 0; }

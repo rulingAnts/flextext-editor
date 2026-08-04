@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v188';
+export const ENGINE_VERSION = 'v189';
 
 const S = {
 en: {
@@ -1018,7 +1018,7 @@ internet after the first time.</p>
   'para.appName': 'Flextext Paragraph Analysis Tool',
   'para.openHint': 'Group the lines of an interlinear text into phrases, clauses, sentences, and paragraphs — building the discourse structure level by level.',
   'para.dropHere': 'Drop a file here',
-  'para.dropKinds': 'a .fxpa file (from the editor’s save bundle) · a .flextext file · an ELAN/SayMore .eaf file · a Toolbox / SFM file (.txt, .db, .sfm — any extension). Drop the audio file in at the same time to get waveforms and playback.',
+  'para.dropKinds': 'a .fxpa file (from the editor’s save bundle) · a .flextext file · an ELAN/SayMore .eaf file · a Toolbox / SFM file (.txt, .db, .sfm) · a spreadsheet saved as CSV or TSV. Drop the audio file in at the same time to get waveforms and playback.',
   'para.chooseFiles': 'Choose files…',
   'para.textOnlyNote': 'A text without audio or time alignment works too — there are simply no waveforms or play buttons. ELAN files with several speakers are merged into one text, with every line labelled by speaker.',
   'para.errNoUsableFile': 'No usable file — drop a .fxpa, .flextext or ELAN .eaf file.',
@@ -1041,6 +1041,33 @@ internet after the first time.</p>
   // Reporting: ELAN files vary enormously and no one can test every shape, so make a clear report
   // one click away, WITHOUT sending any of the language data itself.
   // Toolbox / SFM import wizard.
+  // CSV / TSV import. The wizard CARRIES the documentation, because a user who does not know how
+  // to save a tab-separated file from Excel will never find a separate help page.
+  'para.csvTitle': 'Spreadsheet file — which column is which?',
+  'para.csvIntro': 'Opening “{file}”: {rows} rows, separated by {delim}. Check the rows below, then press Open.',
+  'para.csvNew': 'Spreadsheet import is NEW and every project lays its columns out differently. Check the preview carefully before importing, and tell us if anything is wrong.',
+  'para.csvTab': 'tabs',
+  'para.csvHasHeader': 'The first row contains column headings (not data)',
+  'para.csvTimeUnits': 'Times are written as',
+  'para.csvUnitsAuto': 'Work it out (0:01.500 is a clock, 1.5 is seconds)',
+  'para.csvUnitsSeconds': 'Seconds (1.5 = one and a half seconds)',
+  'para.csvUnitsMs': 'Milliseconds (1500 = one and a half seconds)',
+  'para.csvGlossNote': 'Glosses are matched to words IN ORDER, one gloss per word — so write a multi-part gloss as a single word: frog-Nom, not “frog -Nom”. (Toolbox files line glosses up by column instead; a spreadsheet cell has no columns to line up.)',
+  'para.csvHowTitle': 'How do I make this file? (Excel or Google Sheets)',
+  'para.csvHowIntro': 'Put one line of your text in each row, and one kind of information in each column. Only the text column is required — leave out any column you do not have.',
+  'para.csvHowColumns': 'Use these headings in the first row and everything is recognised automatically:',
+  'para.csvHowRow1': 'Speaker · Start · End · Text · Glosses · Free translation',
+  'para.csvHowRow2': 'Then one row per line of your text. Leave a cell empty if it does not apply.',
+  'para.csvHowRow3': 'If you use different headings, that is fine too — you just choose the columns yourself below.',
+  'para.csvExcelTitle': 'Saving from Microsoft Excel',
+  'para.csvExcel1': 'Type your data into the sheet, with the headings in row 1.',
+  'para.csvExcel2': 'Choose File ▸ Save As, and pick a folder.',
+  'para.csvExcel3': 'In the file-type list choose “Text (Tab delimited) (*.txt)” — or “CSV UTF-8 (Comma delimited) (*.csv)”. Click Save, and click Yes/OK if Excel warns that some features cannot be kept.',
+  'para.csvSheetsTitle': 'Saving from Google Sheets',
+  'para.csvSheets1': 'Type your data into the sheet, with the headings in row 1.',
+  'para.csvSheets2': 'Choose File ▸ Download ▸ “Tab-separated values (.tsv)” or “Comma-separated values (.csv)”. The file goes to your Downloads folder.',
+  'para.csvEncoding': 'If your language uses special characters, prefer “Text (Tab delimited)” in Excel, or “CSV UTF-8” — the plain “CSV (Comma delimited)” option can turn special letters into rubbish. Google Sheets always saves correctly.',
+  'para.csvTemplate': 'Download a template to start from',
   'para.sfmTitle': 'Toolbox / SFM file — which marker holds what?',
   'para.sfmIntro': 'Opening “{file}”. These files use backslash markers, and every project names them differently, so check the rows below. Each marker shows how many times it occurs and a sample of its content.',
   'para.sfmManyTexts': 'This file contains {n} texts. Pick the one to work on — this app holds one analysis at a time, so you can come back for another later.',
@@ -2154,7 +2181,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.appName': 'Alat Analisis Paragraf Flextext',
   'para.openHint': 'Kelompokkan baris-baris teks interlinear menjadi frasa, klausa, kalimat, dan paragraf — membangun struktur wacana tingkat demi tingkat.',
   'para.dropHere': 'Letakkan file di sini',
-  'para.dropKinds': 'file .fxpa (dari bundel simpanan editor) · file .flextext · file ELAN/SayMore .eaf · file Toolbox / SFM (.txt, .db, .sfm — ekstensi apa pun). Letakkan file audionya sekaligus agar ada gelombang suara dan pemutaran.',
+  'para.dropKinds': 'file .fxpa (dari bundel simpanan editor) · file .flextext · file ELAN/SayMore .eaf · file Toolbox / SFM (.txt, .db, .sfm) · lembar kerja yang disimpan sebagai CSV atau TSV. Letakkan file audionya sekaligus agar ada gelombang suara dan pemutaran.',
   'para.chooseFiles': 'Pilih file…',
   'para.textOnlyNote': 'Teks tanpa audio atau penyelarasan waktu juga bisa — hanya saja tanpa gelombang suara dan tombol putar. File ELAN dengan beberapa penutur digabung menjadi satu teks, dengan tiap baris diberi label penutur.',
   'para.errNoUsableFile': 'Tidak ada file yang bisa dipakai — letakkan file .fxpa, .flextext, atau ELAN .eaf.',
@@ -2173,6 +2200,31 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.eafMultiHint': 'Hapus centang untuk mengeluarkan seorang penutur. Barisnya tidak ikut diimpor; sisanya tetap dengan waktu aslinya.',
   'para.mapPreview': 'Pratinjau',
   'para.mapOpen': 'Buka',
+  'para.csvTitle': 'File lembar kerja — kolom mana yang mana?',
+  'para.csvIntro': 'Membuka “{file}”: {rows} baris, dipisahkan oleh {delim}. Periksa baris di bawah, lalu tekan Buka.',
+  'para.csvNew': 'Impor lembar kerja masih BARU dan setiap proyek menyusun kolomnya berbeda. Periksa pratinjau dengan teliti sebelum mengimpor, dan beri tahu kami jika ada yang salah.',
+  'para.csvTab': 'tab',
+  'para.csvHasHeader': 'Baris pertama berisi judul kolom (bukan data)',
+  'para.csvTimeUnits': 'Waktu ditulis sebagai',
+  'para.csvUnitsAuto': 'Tentukan sendiri (0:01.500 adalah jam, 1.5 adalah detik)',
+  'para.csvUnitsSeconds': 'Detik (1.5 = satu setengah detik)',
+  'para.csvUnitsMs': 'Milidetik (1500 = satu setengah detik)',
+  'para.csvGlossNote': 'Glos dicocokkan ke kata BERURUTAN, satu glos per kata — jadi tulis glos bergabung sebagai satu kata: frog-Nom, bukan “frog -Nom”. (File Toolbox menyejajarkan glos berdasarkan kolom; sel lembar kerja tidak punya kolom untuk disejajarkan.)',
+  'para.csvHowTitle': 'Bagaimana membuat file ini? (Excel atau Google Sheets)',
+  'para.csvHowIntro': 'Tempatkan satu baris teks Anda di tiap baris, dan satu jenis informasi di tiap kolom. Hanya kolom teks yang wajib — hilangkan kolom yang tidak Anda punya.',
+  'para.csvHowColumns': 'Pakai judul ini di baris pertama dan semuanya dikenali otomatis:',
+  'para.csvHowRow1': 'Speaker · Start · End · Text · Glosses · Free translation',
+  'para.csvHowRow2': 'Lalu satu baris untuk tiap baris teks Anda. Biarkan sel kosong jika tidak berlaku.',
+  'para.csvHowRow3': 'Jika Anda memakai judul lain, itu juga tidak apa-apa — Anda tinggal memilih kolomnya sendiri di bawah.',
+  'para.csvExcelTitle': 'Menyimpan dari Microsoft Excel',
+  'para.csvExcel1': 'Ketik data Anda di lembar kerja, dengan judul di baris 1.',
+  'para.csvExcel2': 'Pilih File ▸ Save As, lalu pilih folder.',
+  'para.csvExcel3': 'Di daftar jenis file pilih “Text (Tab delimited) (*.txt)” — atau “CSV UTF-8 (Comma delimited) (*.csv)”. Klik Save, dan klik Yes/OK bila Excel memperingatkan ada fitur yang tidak dapat dipertahankan.',
+  'para.csvSheetsTitle': 'Menyimpan dari Google Sheets',
+  'para.csvSheets1': 'Ketik data Anda di lembar kerja, dengan judul di baris 1.',
+  'para.csvSheets2': 'Pilih File ▸ Download ▸ “Tab-separated values (.tsv)” atau “Comma-separated values (.csv)”. File masuk ke folder Downloads Anda.',
+  'para.csvEncoding': 'Jika bahasa Anda memakai karakter khusus, pilih “Text (Tab delimited)” di Excel, atau “CSV UTF-8” — pilihan “CSV (Comma delimited)” biasa dapat merusak huruf khusus. Google Sheets selalu menyimpan dengan benar.',
+  'para.csvTemplate': 'Unduh templat untuk memulai',
   'para.sfmTitle': 'File Toolbox / SFM — penanda mana berisi apa?',
   'para.sfmIntro': 'Membuka “{file}”. File ini memakai penanda garis miring terbalik, dan tiap proyek menamainya berbeda, jadi periksa baris di bawah. Tiap penanda menampilkan jumlah kemunculan dan contoh isinya.',
   'para.sfmManyTexts': 'File ini berisi {n} teks. Pilih satu untuk dikerjakan — aplikasi ini menyimpan satu analisis pada satu waktu, jadi Anda bisa kembali untuk yang lain nanti.',

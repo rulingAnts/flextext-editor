@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v187';
+export const ENGINE_VERSION = 'v188';
 
 const S = {
 en: {
@@ -1102,6 +1102,10 @@ internet after the first time.</p>
   'para.exportWhat': 'What to export',
   'para.exportPreview': 'Interactive page (.preview.html)',
   'para.exportPreviewNote': 'A single self-contained web page: the analysis, its audio inside the file, and brackets you can expand and collapse. Read-only — nothing in it can change your analysis, so it is safe to send to someone else.',
+  'para.exportDiagram': 'Semantic structure diagram, scrollable (.ssa.html)',
+  'para.exportDiagramNote': 'The analysis drawn as a tree, in the shape SSA diagrams take: every proposition on its own line with the structure branching to the left, each relation named at its junction, and the prominent member carried through as the trunk. A web page, so a wide diagram scrolls instead of being squashed.',
+  'para.exportSvg': 'Semantic structure diagram (.svg)',
+  'para.exportSvgNote': 'The same diagram as a vector image — open it in a drawing program, drop it into a paper, or print it at any size without blurring.',
   'para.exportScope': 'How much',
   'para.exportAll': 'The whole text',
   'para.exportSelection': 'Just what is selected ({n})',
@@ -2230,6 +2234,10 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.exportWhat': 'Apa yang diekspor',
   'para.exportPreview': 'Halaman interaktif (.preview.html)',
   'para.exportPreviewNote': 'Satu halaman web mandiri: analisisnya, audionya di dalam file, dan tanda kurung yang bisa dibentang dan dilipat. Hanya-baca — tidak ada isinya yang dapat mengubah analisis Anda, jadi aman dikirim ke orang lain.',
+  'para.exportDiagram': 'Diagram struktur semantik, dapat digulir (.ssa.html)',
+  'para.exportDiagramNote': 'Analisis digambar sebagai pohon, dalam bentuk diagram SSA: tiap proposisi pada barisnya sendiri dengan struktur bercabang ke kiri, tiap relasi diberi nama di persimpangannya, dan anggota yang menonjol diteruskan sebagai batangnya. Berupa halaman web, jadi diagram lebar dapat digulir, bukan dipadatkan.',
+  'para.exportSvg': 'Diagram struktur semantik (.svg)',
+  'para.exportSvgNote': 'Diagram yang sama sebagai gambar vektor — buka di program gambar, masukkan ke makalah, atau cetak pada ukuran apa pun tanpa buram.',
   'para.exportScope': 'Seberapa banyak',
   'para.exportAll': 'Seluruh teks',
   'para.exportSelection': 'Hanya yang terpilih ({n})',

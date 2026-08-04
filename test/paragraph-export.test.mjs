@@ -7,7 +7,7 @@
  * Run: node test/paragraph-export.test.mjs
  */
 import { validateFxpa } from '../docs/js/paragraph-model.js';
-import { buildParagraphPreviewHtml, leavesOfLine, topUnitsOf, leafLineIds, summaryText } from '../docs/js/paragraph-export.js';
+import { buildParagraphPreviewHtml, buildSsaSvg, buildSsaDiagramHtml, ssaLayout, leavesOfLine, topUnitsOf, leafLineIds, summaryText } from '../docs/js/paragraph-export.js';
 
 let fail = 0;
 const ok = (c, m) => { console.log(`  ${c ? 'ok  ' : 'FAIL'}  ${m}`); if (!c) fail++; };
@@ -132,6 +132,70 @@ console.log('\nescaping — an export is a place where injection would be silent
   const wordy = buildParagraphPreviewHtml(nasty, { title: 'T', layer: 'interlinear' });
   ok(wordy.includes('&lt;b&gt;') && !wordy.includes('<b>'), 'hostile WORD text is escaped too');
   ok(html.includes('&quot;quoted&quot; &amp; &lt;tagged&gt;'), 'and the free translation');
+}
+
+/* The SSA propositional display: one row per PROPOSITION, indented by depth, roles in a left
+ * column, nested brackets spanning each grouping. The layout is computed in one pass so the SVG,
+ * the scrollable page and (later) the PNG all share exactly the same geometry. */
+console.log('\nSSA layout');
+{
+  const L = ssaLayout(doc, { width: 800 });
+  eq(L.rows.map((r) => r.depth), [1, 1, 0], 'rows are indented by embedding depth');
+  eq(L.rows.map((r) => r.label), ['grounds', 'CONCLUSION', ''], 'each member carries its ROLE in the left column');
+  eq(L.rows.map((r) => r.head), [false, true, false], 'the prominent member is marked');
+  eq(L.rows.map((r) => r.text), ['He went out.', 'I went to the village.', 'The child laughed.'],
+     'SSA states propositions in the analysis language — the free translation, not the vernacular');
+  eq(L.roots.length, 2, 'two top-level nodes: the grouping and the loose line');
+  eq(L.roots[0].kind + ':' + L.roots[0].relation, 'group:grounds–CONCLUSION', 'the group node carries its relation');
+  // PROMINENCE IS THE TRUNK: an asym group anchors on its HEAD child, so the line up to the parent
+  // leaves from the prominent element rather than from the middle of the span.
+  eq(L.roots[0].anchorY, L.rows[1].midY, 'the asym group anchors on its HEAD child, not the midpoint');
+  ok(L.height > 0 && L.width === 800, 'the layout has real dimensions');
+  ok(!L.rows.some((r) => r.text === ''), 'the hidden blank line contributes no row');
+
+  const bl = ssaLayout(doc, { textSource: 'baseline' });
+  eq(bl.rows[0].text, 'ana bete', 'the vernacular can be shown instead');
+
+  // Wrapping uses an INJECTED measurement, so the app can pass real canvas metrics.
+  const wide = ssaLayout(doc, { width: 2000, measure: () => 10 });
+  const narrow = ssaLayout(doc, { width: 300, measure: (t) => t.length * 30 });
+  ok(narrow.rows[0].lines.length > wide.rows[0].lines.length, 'narrower layout wraps into more lines');
+  ok(narrow.height > wide.height, 'and is therefore taller');
+
+  // Collapsed groups collapse in the diagram too — one row, the summary.
+  const col = ssaLayout(doc, { collapsed: ['G1'] });
+  eq(col.rows.length, 2, 'a collapsed group becomes ONE row');
+  ok(col.rows[0].collapsed && /village/.test(col.rows[0].text), 'showing its summary');
+}
+
+console.log('\nSSA SVG + the scrollable page');
+{
+  const svg = buildSsaSvg(doc, { width: 800 });
+  ok(svg.startsWith('<svg xmlns="http://www.w3.org/2000/svg"'), 'a real standalone SVG');
+  ok(/viewBox="0 0 800 \d+"/.test(svg), 'with a viewBox so it scales');
+  ok(svg.includes('grounds–CONCLUSION'), 'the relation is drawn');
+  ok(!/rotate\(-90/.test(svg), 'relations are HORIZONTAL now — rotated labels collided on short groups');
+  ok(/<path d="M [\d.]+ [\d.]+ V [\d.]+"/.test(svg), 'a vertical joiner across each grouping');
+  ok(/<path d="M [\d.]+ [\d.]+ H [\d.]+"/.test(svg), 'and horizontal connectors — a tree, not just brackets');
+  ok(svg.includes('>grounds<') && svg.includes('>CONCLUSION<'), 'the member roles are drawn');
+  ok(/stroke-width="2.4"/.test(svg), 'the prominent line is drawn thicker — the trunk of the tree');
+  ok(/fill="#2a6e2a"/.test(svg), 'and the prominent role label is marked');
+  ok(!/<image|href="http/.test(svg), 'nothing external — the file stands alone');
+
+  // A relation label must never run past its own bracket: two short brackets at the same depth
+  // printed their labels over each other until this was clamped (found in a screenshot).
+  const longRel = buildSsaSvg({ ...doc, tree: [{ ...doc.tree[0],
+    relation: 'an extremely long relation label that would run into the next level of the tree' }] },
+    { width: 900, levelWidth: 120 });
+  ok(/…</.test(longRel), 'an over-long relation is truncated to its level, never printed across the next one');
+
+  const nasty = buildSsaSvg({ ...doc, tree: [{ ...doc.tree[0], relation: '<script>x</script>' }] }, {});
+  ok(!nasty.includes('<script>x</script>'), 'SVG text is escaped');
+
+  const page = buildSsaDiagramHtml(doc, { title: 'Tosokai' });
+  ok(page.startsWith('<!DOCTYPE html>') && page.includes('<svg'), 'the diagram page inlines the SVG');
+  ok(/class="scroll"[^>]*>|\.scroll \{ overflow:auto/.test(page), 'and it scrolls rather than squashing a wide diagram');
+  ok(/background:#fff/.test(page) && /color-scheme:light/.test(page), 'and is readable in dark mode');
 }
 
 console.log(fail ? `\nFAILED (${fail})\n` : '\nPASS: the paragraph exports hold.\n');

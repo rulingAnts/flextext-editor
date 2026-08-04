@@ -314,3 +314,238 @@ function summaryText(data, id) {
 }
 
 export { leafLineIds, summaryText };
+
+/* ---------------- SSA propositional display ----------------
+ *
+ * The Beekman/Callow/Kopesec layout, which is what SIL's SSA actually looks like on paper:
+ *   - ONE ROW PER PROPOSITION, indented by embedding depth;
+ *   - each member's ROLE in its relation in a left column beside it (the prominent member's role
+ *     conventionally in CAPS, the supporting member's lowercase — we print whatever the analyst
+ *     typed, since that convention is theirs to keep);
+ *   - nested vertical BRACKETS in the left margin spanning each grouping, with the group's own
+ *     relation label written along its bracket.
+ *
+ * Pure: no DOM, so it cannot measure text. `opts.measure(text, fontSize)` is injected by the app
+ * (a canvas measureText) and falls back to a width estimate — good enough that a node test can
+ * assert the STRUCTURE, while the app gets real metrics. Everything is laid out in one pass so the
+ * same geometry can be emitted as SVG, wrapped in a scrollable page, or rasterized to PNG.
+ *
+ * ⚠ Rows come from LEAF UNITS (see leavesOfLine): today one per line, and one per PROPOSITION once
+ * authored propositions land — no change to this function.
+ */
+
+const DEFAULTS_SSA = { width: 1000, fontSize: 15, lineHeight: 24, levelWidth: 120, labelWidth: 120, pad: 16, gutter: 12 };
+
+/* Build the analysis as a LEFT-GROWING TREE (Seth, 2026-08-05: "our diagram should look more
+ * tree-like, just like original SSA diagrams... instead of JUST brackets"). SIL describes the SSA
+ * display as "a form somewhat resembling a tree diagram", and that is what this draws:
+ *
+ *      setting ─┐
+ *               ├─ stepN–GOAL ─┬─ orienter ──── Some Dairi people heard…
+ *                              └─ CONTENT  ──── They formed a group…
+ *
+ *   - every proposition on its own row, all TEXT ALIGNED in one column on the right;
+ *   - the structure carried by the tree on the left, one column per depth;
+ *   - each relation written HORIZONTALLY at its junction — the earlier bracket version rotated it
+ *     along the bracket, where a two-row grouping had no room for it and neighbouring labels
+ *     overprinted each other into mush;
+ *   - PROMINENCE is the trunk: an asymmetrical group's line continues up from its HEAD child, so
+ *     the eye follows the prominent element, which is the point of the method.
+ */
+export function ssaLayout(data, opts = {}) {
+  const o = { ...DEFAULTS_SSA, ...opts };
+  const measure = opts.measure || ((text, size) => String(text).length * size * 0.52);
+  const collapsed = new Set(opts.collapsed || (data.view && data.view.collapsed) || []);
+  const only = Array.isArray(opts.only) && opts.only.length ? new Set(opts.only) : null;
+  const hideBlank = opts.hideBlank !== undefined ? opts.hideBlank
+    : (data.view ? data.view.hideBlank !== false : true);
+  const textSource = opts.textSource || 'free';
+
+  const textOf = (line, leaf) => {
+    if (leaf.isProp) return leaf.text || '';
+    if (textSource === 'baseline') return line.baseline || '';
+    return line.free || line.baseline || '';
+  };
+
+  const rows = [];
+  let maxDepth = 0;
+
+  // Build a node tree; leaves push a row and remember its index.
+  const build = (id, depth, roleLabel, isHead) => {
+    maxDepth = Math.max(maxDepth, depth);
+    if (isGroup(id)) {
+      const g = node(data, id);
+      if (!g) return null;
+      if (collapsed.has(id)) {
+        rows.push({ depth, label: roleLabel, text: summaryText(data, id), head: !!isHead, collapsed: true });
+        return { kind: 'leaf', depth, row: rows.length - 1, label: roleLabel, head: !!isHead };
+      }
+      const kids = [];
+      for (const c of g.children) {
+        if (hideBlank && !isGroup(c) && blank(node(data, c))) continue;
+        const kid = build(c, depth + 1, (g.labels || {})[c] || '', g.joinType === 'asym' && g.head === c);
+        if (kid) kids.push(kid);
+      }
+      if (!kids.length) return null;
+      return { kind: 'group', depth, kids, relation: g.relation || '', joinType: g.joinType,
+               headIndex: kids.findIndex((k) => k.head), label: roleLabel, head: !!isHead };
+    }
+    const l = node(data, id);
+    if (!l) return null;
+    const leaves = leavesOfLine(l).map((leaf) => {
+      rows.push({ depth, label: roleLabel, text: textOf(l, leaf), head: !!isHead,
+                  implicit: !!leaf.implicit, speaker: l.speaker || '' });
+      return { kind: 'leaf', depth, row: rows.length - 1, label: roleLabel, head: !!isHead };
+    });
+    // Several propositions from one segment behave as an implicit grouping of that segment.
+    return leaves.length === 1 ? leaves[0]
+      : { kind: 'group', depth, kids: leaves, relation: '', joinType: 'sym', headIndex: -1, label: roleLabel, head: !!isHead, segment: true };
+  };
+
+  const roots = [];
+  for (const id of topUnitsOf(data)) {
+    if (only && !only.has(id)) continue;
+    const n = build(id, 0, '', false);
+    if (n) roots.push(n);
+  }
+
+  const treeWidth = (maxDepth + 1) * o.levelWidth;
+  const labelX = o.pad + treeWidth + o.gutter;
+  const textX = labelX + o.labelWidth + o.gutter;
+  const textWidth = Math.max(160, o.width - textX - o.pad);
+
+  let y = o.pad;
+  for (const r of rows) {
+    r.lines = wrapText(r.text, textWidth, o.fontSize, measure);
+    r.y = y;
+    r.height = Math.max(o.lineHeight, r.lines.length * o.lineHeight);
+    r.midY = y + r.height / 2;
+    y += r.height;
+  }
+
+  // Anchor: where a node's line leaves toward its parent. PROMINENCE IS THE TRUNK — an asymmetrical
+  // group anchors on its HEAD child, so the trunk runs through the prominent element.
+  const anchor = (n) => {
+    if (n.kind === 'leaf') return rows[n.row].midY;
+    const ys = n.kids.map(anchor);
+    n.anchorY = (n.joinType === 'asym' && n.headIndex >= 0) ? ys[n.headIndex] : (Math.min(...ys) + Math.max(...ys)) / 2;
+    n.top = Math.min(...ys); n.bottom = Math.max(...ys);
+    return n.anchorY;
+  };
+  roots.forEach(anchor);
+
+  return { rows, roots, opts: o, labelX, textX, textWidth, treeWidth, maxDepth,
+           height: y + o.pad, width: o.width, measure };
+}
+
+function wrapText(text, maxWidth, fontSize, measure) {
+  const words = String(text || '').split(/\s+/).filter(Boolean);
+  if (!words.length) return [''];
+  const out = [];
+  let cur = '';
+  for (const w of words) {
+    const next = cur ? cur + ' ' + w : w;
+    if (cur && measure(next, fontSize) > maxWidth) { out.push(cur); cur = w; } else cur = next;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+// Shorten text until it fits, ending with an ellipsis; '' when there is no room at all.
+function fitToLength(text, maxPx, fontSize, measure) {
+  const t = String(text || '');
+  if (maxPx <= fontSize) return '';
+  if (measure(t, fontSize) <= maxPx) return t;
+  let lo = 0, hi = t.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (measure(t.slice(0, mid) + '…', fontSize) <= maxPx) lo = mid; else hi = mid - 1;
+  }
+  return lo > 0 ? t.slice(0, lo) + '…' : '';
+}
+
+export function buildSsaSvg(data, opts = {}) {
+  const L = ssaLayout(data, opts);
+  const o = L.opts;
+  const measure = L.measure;
+  const showBrackets = opts.brackets !== false;
+  const xOf = (depth) => o.pad + depth * o.levelWidth;
+  const parts = [];
+  parts.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${L.width}" height="${Math.round(L.height)}" viewBox="0 0 ${L.width} ${Math.round(L.height)}" font-family="Helvetica, Arial, sans-serif">`);
+  parts.push('<rect width="100%" height="100%" fill="#ffffff"/>');
+
+  const line = (x1, y1, x2, y2, w, dash) =>
+    parts.push(`<path d="M ${x1} ${y1} H ${x2}" stroke="#1f4f8f" stroke-width="${w}" fill="none"${dash ? ' stroke-dasharray="4 3"' : ''}/>`);
+
+  const draw = (n) => {
+    if (n.kind === 'leaf') {
+      // the leaf's own line runs from its depth column to the label column
+      line(xOf(n.depth), L.rows[n.row].midY, L.labelX - 6, L.rows[n.row].midY, n.head ? 2.4 : 1.2, false);
+      return;
+    }
+    const x = xOf(n.depth), xc = xOf(n.depth + 1);
+    // the vertical joiner across this group's children
+    parts.push(`<path d="M ${xc} ${n.top} V ${n.bottom}" stroke="#1f4f8f" stroke-width="1.4" fill="none"${n.joinType === 'sym' ? ' stroke-dasharray="4 3"' : ''}/>`);
+    // each child's connector into the joiner
+    for (const k of n.kids) {
+      const ky = k.kind === 'leaf' ? L.rows[k.row].midY : k.anchorY;
+      line(xc, ky, xc + (k.kind === 'leaf' ? 0 : 0), ky, 1, false);
+      if (k.kind !== 'leaf') line(xc, ky, xOf(k.depth), ky, k.head ? 2.4 : 1.2, false);
+    }
+    // this group's own line toward its parent — the TRUNK, thicker when it is the prominent one
+    line(x, n.anchorY, xc, n.anchorY, n.head ? 2.4 : 1.6, false);
+    if (n.relation && !n.segment) {
+      const room = o.levelWidth - 14;
+      const label = fitToLength(n.relation, room, 11, measure);
+      if (label) parts.push(`<text x="${x + 5}" y="${n.anchorY - 5}" font-size="11" fill="#163a6b">${esc(label)}</text>`);
+    }
+    n.kids.forEach(draw);
+  };
+  L.roots.forEach(draw);
+
+  for (const r of L.rows) {
+    const baseY = r.y + (r.height - (r.lines.length - 1) * o.lineHeight) / 2 + o.fontSize * 0.36;
+    if (r.label) {
+      const lab = fitToLength(r.label, o.labelWidth, 12, measure);
+      parts.push(`<text x="${L.labelX}" y="${baseY}" font-size="12" font-weight="${r.head ? 700 : 600}" fill="${r.head ? '#2a6e2a' : '#163a6b'}">${esc(lab)}</text>`);
+    }
+    if (r.speaker) parts.push(`<text x="${L.labelX}" y="${baseY + 13}" font-size="10" fill="#6b21a8">${esc(r.speaker)}</text>`);
+    r.lines.forEach((ln, i) => {
+      const txt = (r.implicit && showBrackets) ? ((i === 0 ? '(' : '') + ln + (i === r.lines.length - 1 ? ')' : '')) : ln;
+      parts.push(`<text x="${L.textX}" y="${baseY + i * o.lineHeight}" font-size="${o.fontSize}" fill="${r.implicit ? '#5b6470' : '#1a1d21'}"${r.implicit ? ' font-style="italic"' : ''}>${esc(txt)}</text>`);
+    });
+  }
+  parts.push('</svg>');
+  return parts.join('\n');
+}
+
+/* The same diagram as a scrollable web page (Seth: two HTML exports — the interactive preview,
+ * and "a scrollable graphical diagram ... except it's an HTML page that is scrollable"). The SVG
+ * is inlined at its natural size inside a scrolling container, so a wide arcing-style diagram is
+ * usable in a browser instead of being squashed to fit. */
+export function buildSsaDiagramHtml(data, opts = {}) {
+  const svg = buildSsaSvg(data, opts);
+  const title = opts.title || data.title || 'Text';
+  return `<!DOCTYPE html>
+<html lang="${esc(opts.lang || 'en')}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(title)} — semantic structure</title>
+<style>
+html { background:#fff; }
+body { margin:0; background:#fff; color:#1a1d21; color-scheme:light; font:15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+header { position:sticky; top:0; background:#f4f6f9; border-bottom:1px solid #cfd6e0; padding:8px 14px; }
+h1 { font-size:18px; margin:0; }
+.scroll { overflow:auto; padding:10px 14px 40px; }
+svg { display:block; }
+footer { padding:10px 14px; color:#5b6470; font-size:12px; border-top:1px solid #cfd6e0; }
+</style>
+</head>
+<body>
+<header><h1>${esc(title)} — semantic structure</h1></header>
+<div class="scroll">${svg}</div>
+<footer>Semantic structure analysis. Made with the Flextext Paragraph Analysis Tool.</footer>
+</body>
+</html>`;
+}

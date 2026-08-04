@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v185';
+export const ENGINE_VERSION = 'v186';
 
 const S = {
 en: {
@@ -1081,13 +1081,13 @@ internet after the first time.</p>
   'para.ungroup': 'Ungroup',
   // Edit/Ungroup act on ONE group heading. The buttons stay clickable and say this, rather than
   // sitting disabled and looking broken (Seth, 2026-08-04).
-  'para.selectTip': 'Click a line or a group heading to select it. To select several, hold Shift or Ctrl/Cmd while clicking (or switch on “+ Add”), then press Group. Edit group and Ungroup work on one group heading.',
-  'para.multi': '+ Add',
-  'para.multiTip': 'Keep adding to the selection with plain clicks — the same as holding Shift or Ctrl/Cmd (use this on a touch screen)',
+  'para.selectTip': 'Click a line or a group heading to select it. To select a run of them, Shift-click (or Ctrl/Cmd-click, or switch on “↔ Extend”) at the other end — the selection always stretches from where you started, so it is always a single unbroken run. Then press Group. Edit group and Ungroup work on one group heading.',
+  'para.multi': '↔ Extend',
+  'para.multiTip': 'Make the next click stretch the selection to it — the same as holding Shift or Ctrl/Cmd (use this on a touch screen)',
   'para.headingTip': 'Click to select this group — then use Edit group or Ungroup',
   'para.needGroupHeading': 'Select one group heading first — the bar at the top of a group, showing ⊕ or ⊳ — and nothing else. If other things are still selected, press “Clear selection”.',
   'para.needGroupHeadingTip': 'Select one group heading (the ⊕/⊳ bar) to use this',
-  'para.needTwo': 'Select two or more units that sit next to each other first — click their rows, or the headings of the groups you want to join.',
+  'para.needTwo': 'Select a run of two or more units first: click one, then Shift-click (or Ctrl/Cmd-click) the other end.',
   'para.needTwoTip': 'Select two or more neighbouring units to use this',
   'para.groupTip': 'Join the selected units into a new group',
   'para.editNamed': 'Edit: {name}',
@@ -2198,13 +2198,13 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.group': 'Kelompokkan',
   'para.editGroup': 'Ubah kelompok',
   'para.ungroup': 'Bubarkan',
-  'para.selectTip': 'Klik satu baris atau judul kelompok untuk memilihnya. Untuk memilih beberapa, tahan Shift atau Ctrl/Cmd sambil mengklik (atau aktifkan “+ Tambah”), lalu tekan Kelompokkan. Ubah kelompok dan Bubarkan berlaku untuk satu judul kelompok.',
-  'para.multi': '+ Tambah',
-  'para.multiTip': 'Terus tambahkan ke pilihan dengan klik biasa — sama seperti menahan Shift atau Ctrl/Cmd (pakai ini di layar sentuh)',
+  'para.selectTip': 'Klik satu baris atau judul kelompok untuk memilihnya. Untuk memilih serangkaian, Shift-klik (atau Ctrl/Cmd-klik, atau aktifkan “↔ Perluas”) di ujung yang lain — pilihan selalu merentang dari titik awal, jadi selalu satu rangkaian utuh. Lalu tekan Kelompokkan. Ubah kelompok dan Bubarkan berlaku untuk satu judul kelompok.',
+  'para.multi': '↔ Perluas',
+  'para.multiTip': 'Buat klik berikutnya merentangkan pilihan sampai ke sana — sama seperti menahan Shift atau Ctrl/Cmd (pakai ini di layar sentuh)',
   'para.headingTip': 'Klik untuk memilih kelompok ini — lalu pakai Ubah kelompok atau Bubarkan',
   'para.needGroupHeading': 'Pilih satu judul kelompok dulu — batang di bagian atas kelompok, bertanda ⊕ atau ⊳ — dan tidak ada yang lain. Jika masih ada yang terpilih, tekan “Batalkan pilihan”.',
   'para.needGroupHeadingTip': 'Pilih satu judul kelompok (batang ⊕/⊳) untuk memakai ini',
-  'para.needTwo': 'Pilih dulu dua unit atau lebih yang bersebelahan — klik barisnya, atau judul kelompok yang ingin digabung.',
+  'para.needTwo': 'Pilih dulu serangkaian dua unit atau lebih: klik satu, lalu Shift-klik (atau Ctrl/Cmd-klik) ujung yang lain.',
   'para.needTwoTip': 'Pilih dua unit bersebelahan atau lebih untuk memakai ini',
   'para.groupTip': 'Gabungkan unit terpilih menjadi kelompok baru',
   'para.editNamed': 'Ubah: {name}',

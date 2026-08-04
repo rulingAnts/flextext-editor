@@ -720,7 +720,7 @@ function renderWork() {
   $('#pa-free').addEventListener('change', (e) => setView({ free: e.target.checked }));
   $('#pa-blank').addEventListener('change', (e) => {
     // Hiding a line must never hide a SELECTION the user cannot then clear.
-    if (e.target.checked) selection = new Set([...selection].filter((id) => isGroupId(id) || !isBlankLine(nodeById(state, id))));
+    if (e.target.checked) { selection = new Set([...selection].filter((id) => isGroupId(id) || !isBlankLine(nodeById(state, id)))); anchor = null; }
     setView({ hideBlank: e.target.checked });
   });
   if (state.audio) {
@@ -875,38 +875,70 @@ function renderLineRow(id, nodeLabel = '') {
 
 /* ---------------- selection + actions ---------------- */
 
-/* SELECTION (Seth, 2026-08-04): a plain click REPLACES the selection; Shift-click or
- * Ctrl/Cmd-click ADDS to it. Selection used to be purely additive, which quietly accumulated
- * units as the user explored and left Edit/Ungroup permanently unusable — the "ungroup does
- * nothing" report. Replace-by-default means the selection is always what you last clicked.
+/* SELECTION — a CONTIGUOUS RANGE, always (Seth, 2026-08-05).
  *
- * `multiMode` is the SAME thing as holding a modifier, exposed as a toolbar toggle, because a
- * touch device has no modifier keys — without it, tablets could select one unit and could
- * therefore never group anything. */
+ * A plain click selects one unit and makes it the ANCHOR. Shift / Ctrl / Cmd-click recomputes the
+ * selection as the whole run from the anchor to the clicked unit, in either direction — it moves
+ * an endpoint rather than adding one unit at a time.
+ *
+ * ⚠ WHY THIS SHAPE, and not "add one at a time": grouping REQUIRES contiguity, so a range makes a
+ * non-contiguous selection IMPOSSIBLE TO EXPRESS in the UI (Seth's point). The model's "units must
+ * be adjacent" refusal stops being something a user can trip over — it is now a guard against
+ * programming errors, not a message people see. The history here is instructive: selection began
+ * purely additive, which silently accumulated units and left Edit/Ungroup permanently unusable
+ * (the "ungroup does nothing" report); replace-by-default fixed that; ranges finish the job.
+ *
+ * The range runs over SIBLINGS — the top-level units, or the children of a shared parent — so it
+ * can never straddle a group boundary. Anchor and target in different parents means the click
+ * simply becomes a new anchor.
+ *
+ * `multiMode` is the toolbar stand-in for holding a modifier, because a touch device has none.
+ */
 let multiMode = false;
+let anchor = null;                 // the fixed end of the range; a plain click moves it
 
-function toggleSelect(id, ev) {
-  const additive = multiMode || !!(ev && (ev.shiftKey || ev.ctrlKey || ev.metaKey));
-  if (additive) {
-    if (selection.has(id)) selection.delete(id); else selection.add(id);
-  } else if (selection.size === 1 && selection.has(id)) {
-    selection = new Set();                     // clicking the only selected unit again clears it
-  } else {
-    selection = new Set([id]);                 // plain click: this one, and only this one
-  }
+// The ordered sibling list a unit belongs to, as the user SEES it (hidden blanks excluded).
+function siblingsOf(id) {
+  const hideBlank = state.view.hideBlank !== false;
+  const parent = state.tree.find((g) => g.children.includes(id)) || null;
+  const list = parent ? parent.children : visibleTopUnits(state, false);
+  return list.filter((x) => !hideBlank || isGroupId(x) || !isBlankLine(nodeById(state, x)));
+}
+
+// The contiguous run between two units, or null when they are not siblings.
+function rangeBetween(a, b) {
+  const sibs = siblingsOf(a);
+  const i = sibs.indexOf(a), j = sibs.indexOf(b);
+  if (i < 0 || j < 0) return null;
+  return sibs.slice(Math.min(i, j), Math.max(i, j) + 1);
+}
+
+function paintSelection() {
   root.querySelectorAll('.pa-row, .pa-group').forEach((el) => {
     if (el.dataset.unit) el.classList.toggle('sel', selection.has(el.dataset.unit));
   });
   refreshActionButtons();
 }
 
-// Deselect everything. A pure VIEW action — it never touches doc/tree, so it deliberately does
-// NOT commit or re-render (a render would rebuild the tree DOM and lose scroll position); it
-// just drops the highlight classes. Selection is easy to build up wrongly (a refused group
-// leaves it intact on purpose), so this is the way out that isn't hunting for each selected row.
+function toggleSelect(id, ev) {
+  const extend = multiMode || !!(ev && (ev.shiftKey || ev.ctrlKey || ev.metaKey));
+  if (extend && anchor && anchor !== id) {
+    const range = rangeBetween(anchor, id);
+    // Not siblings (different groups): start a fresh range here rather than selecting nonsense.
+    if (range) selection = new Set(range);
+    else { selection = new Set([id]); anchor = id; }
+  } else if (!extend && selection.size === 1 && selection.has(id)) {
+    selection = new Set(); anchor = null;      // clicking the only selected unit again clears it
+  } else {
+    selection = new Set([id]); anchor = id;    // plain click: this one, and it anchors the range
+  }
+  paintSelection();
+}
+
 function clearSelection() {
   if (!selection.size) return;
   selection = new Set();
+  anchor = null;
   root.querySelectorAll('.pa-row.sel, .pa-group.sel').forEach((el) => el.classList.remove('sel'));
   refreshActionButtons();
 }

@@ -199,7 +199,11 @@ real timed spans (silence) and hold placeholder rows on the Gloss tab.
 - **Seeds:** fresh single-line doc → one whole-file span. Pre-transcribed multi-line doc with no
   alignment → even division marked `timeEstimated` (dashed) — line 1 claiming the whole recording
   would be a false alignment. All-pending docs heal the same way once audio decodes.
-- **Exports (in the save/share zip):** `<title>.eaf` (ELAN-for-FLEx: `A_interlinear-text-title-*`
+- **Exports (in the save/share zip):** `<title>.eaf` + `<title>.pfsx` (ELAN reads display settings
+  from a same-basename sidecar; without it ELAN's remembered `sortAlphabetically` puts every gloss
+  tier ABOVE its own vernacular partner — `A_phrase-gls-*` sorts before `A_phrase-txt-*`. The
+  sidecar pins TierOrder + TierSortingMode=0 + SortAlpabetically=false — ELAN's own misspelling,
+  match it exactly. `serializeEafPrefs`, schema-validated, no annotation data) (ELAN-for-FLEx: `A_interlinear-text-title-*`
   > `A_paragraph` > `A_phrase-txt-*` > word/gloss; the paragraph tier MIRRORS the phrase tier
   sharing its slots — mergeable in ELAN, never needs splitting; **NO segnum in EAFs**, Seth's
   rule); `<audio>.annotations.eaf` (SayMore profile, ONLY `Transcription` + `Free Translation`;

@@ -122,14 +122,16 @@ export function buildFxpa(doc, opts = {}) {
  * Shared machinery: contiguous boundaries share TIME_SLOTs; pending segments get slots WITHOUT
  * TIME_VALUE (ELAN's own unaligned mechanism); empty (silence) segments are empty aligned
  * annotations. All schema-verified in the plan. */
+const eafTierNames = (flex, vern, anal) => (flex
+  ? { itext: `A_interlinear-text-title-${anal}`, para: 'A_paragraph',
+      phrase: `A_phrase-txt-${vern}`, free: `A_phrase-gls-${anal}`,
+      word: `A_word-txt-${vern}`, gloss: `A_word-gls-${anal}` }
+  : { phrase: 'Transcription', free: 'Free Translation' });
+
 export function serializeEaf(doc, opts = {}) {
   const { profile = 'flex', vern = 'und', anal = 'en', mediaName = '', mediaMime = 'audio/x-wav' } = opts;
   const flex = profile !== 'saymore';
-  const names = flex
-    ? { itext: `A_interlinear-text-title-${anal}`, para: 'A_paragraph',
-        phrase: `A_phrase-txt-${vern}`, free: `A_phrase-gls-${anal}`,
-        word: `A_word-txt-${vern}`, gloss: `A_word-gls-${anal}` }
-    : { phrase: 'Transcription', free: 'Free Translation' };
+  const names = eafTierNames(flex, vern, anal);
 
   const rows = phraseRows(doc);
   // TIME_ORDER: one slot per boundary; contiguous aligned neighbours SHARE the joint slot.
@@ -254,6 +256,55 @@ export function serializeEaf(doc, opts = {}) {
   L.push('  <CONSTRAINT DESCRIPTION="1-1 association with a parent annotation" STEREOTYPE="Symbolic_Association"/>');
   L.push('  <CONSTRAINT DESCRIPTION="Time alignable annotations within the parent annotation\'s time interval, gaps are allowed" STEREOTYPE="Included_In"/>');
   L.push('</ANNOTATION_DOCUMENT>');
+  return L.join('\n') + '\n';
+}
+
+/* ---------------- ELAN display preferences (.pfsx) ---------------- */
+
+/* WHY THIS FILE EXISTS: opened cold, ELAN stacked the ANALYSIS tiers above the VERNACULAR ones —
+ * free translation over baseline, word glosses over words — which is upside down for reading
+ * interlinear text, and a non-technical user has no reason to know it is a display setting rather
+ * than how we wrote the file (Seth, 2026-08-05).
+ *
+ * The cause is not our tier order; the .eaf already lists vernacular first. It is ELAN's
+ * `sortAlphabetically`, which is applied to the tier list BEFORE the sort mode is even consulted
+ * (MultiTierControlPanel.createSortedTree) — and alphabetically `A_phrase-gls-en` precedes
+ * `A_phrase-txt-fau`, `A_word-gls-en` precedes `A_word-txt-fau`. Every gloss tier therefore rises
+ * above its own vernacular partner. That setting is remembered globally, so it follows the user
+ * from file to file with nothing in THIS file to blame.
+ *
+ * ELAN stores per-document display settings in a `<same-basename>.pfsx` sidecar, so we can simply
+ * state the order we want. All three keys are required and were read off ELAN's source (the
+ * misspelling in `SortAlpabetically` is ELAN's own — matching it exactly is what makes it work):
+ *   - MultiTierViewer.TierOrder        our order, verbatim
+ *   - MultiTierViewer.TierSortingMode  0 = UNSORTED, i.e. "use that order"
+ *   - MultiTierViewer.SortAlpabetically  false, or the alphabetical pass re-inverts it anyway
+ * Naming a tier that does not exist is harmless — ELAN drops unknown names when it loads the list
+ * (ViewerManager2), which is why the structural tiers can be listed unconditionally.
+ *
+ * NOT written for the 'saymore' profile: that file has exactly two tiers, already in reading
+ * order, and SIL advise against adding files to a SayMore session folder. */
+export function serializeEafPrefs(opts = {}) {
+  const { profile = 'flex', vern = 'und', anal = 'en' } = opts;
+  const n = eafTierNames(profile !== 'saymore', vern, anal);
+  // Reading order: what you transcribed, then its words, then what they mean, then the whole
+  // sentence's meaning — structural containers last, out of the way of the text.
+  const order = profile !== 'saymore'
+    ? [n.phrase, n.word, n.gloss, n.free, n.para, n.itext]
+    : [n.phrase, n.free];
+  const L = [];
+  L.push('<?xml version="1.0" encoding="UTF-8"?>');
+  L.push('<preferences version="1.1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.mpi.nl/tools/elan/Prefs_v1.1.xsd">');
+  L.push('    <prefList key="MultiTierViewer.TierOrder">');
+  for (const t of order) L.push(`        <String>${esc(t)}</String>`);
+  L.push('    </prefList>');
+  L.push('    <pref key="MultiTierViewer.TierSortingMode">');
+  L.push('        <Int>0</Int>');
+  L.push('    </pref>');
+  L.push('    <pref key="MultiTierViewer.SortAlpabetically">');
+  L.push('        <Boolean>false</Boolean>');
+  L.push('    </pref>');
+  L.push('</preferences>');
   return L.join('\n') + '\n';
 }
 

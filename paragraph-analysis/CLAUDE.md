@@ -1,9 +1,35 @@
-# Flextext Paragraph Analysis — folder guide for Claude / LLMs
+# Flextext Paragraph Analysis Tool — folder guide for Claude / LLMs
 
-This folder ships the **Flextext Paragraph Analysis** PWA — the satellite where a researcher
+This folder ships the **Flextext Paragraph Analysis Tool** PWA — the satellite where a researcher
 groups interlinear lines into progressively larger units (phrase → clause → sentence →
 paragraph → …) for Semantic Structure Analysis / arcing / Longacre-style paragraph work.
 Live at <https://pat.flextext.app/> (own Cloudflare Worker `paragraph-analysis-tool`, see below).
+
+## ⚠ This app lives at the ORIGIN ROOT — and that is the exception, not the pattern
+
+`build.sh` assembles the shell into `public/` ITSELF (`/index.html`, `/sw.js`,
+`/manifest.webmanifest`, `/icons/`), with the engine copy beside it at `/flextext-editor/`. So
+the app IS <https://pat.flextext.app/> — no sub-path, no redirect (Seth, 2026-08-04).
+
+That is safe HERE and nowhere else in the suite: PWA scope isolation only matters when apps
+share an origin, which is the case on github.io (editor + recorder + researcher) but not here —
+this origin belongs to this app alone, and `/flextext-editor/` on it is asset storage rather
+than a second site (its HTML entry points redirect to `/` so nothing can register there).
+The shell files still live in this folder, so the LOCAL dev rig serves them at
+`/paragraph-analysis/` beside the editor; the manifest therefore uses RELATIVE `start_url`/`scope`
+(`"./"`), which resolves correctly at either mount point.
+
+## ⚠ Kill switches — keep them forever
+
+`shell.js` serves a self-unregistering worker at `/paragraph-analysis/sw.js` and
+`/flextext-editor/sw.js`. Those are not hypothetical: this site's first (setup-wizard) deployment
+served the EDITOR at the origin root, so browsers that visited then held the editor's service
+worker at scope `/` and kept painting the editor no matter what the server sent — invisible to
+curl, and permanent in Firefox, which (unlike Chrome) keeps a registration whose script 404s.
+`/sw.js` fixes itself now because that URL is this app's real worker; `sw.js` detects the ghost by
+its `flextext-v<n>` cache, activates immediately instead of waiting behind it, and reloads the tab.
+Deleting a kill-switch route silently re-strands every browser that has not come back yet.
+`test/paragraph-shell.test.mjs` guards all of it.
 
 ## This is a SHELL, not a fork
 

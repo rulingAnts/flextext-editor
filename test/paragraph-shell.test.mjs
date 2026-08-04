@@ -25,8 +25,8 @@ const env = {
 const get = (path, origin = 'https://pat.flextext.app') =>
   shell.fetch(new Request(origin + path), env);
 
-console.log('\nthe ghost-editor kill switch is served at the stale script URLs');
-for (const p of ['/sw.js', '/flextext-editor/sw.js']) {
+console.log('\nkill switch at the STALE scopes (never at /sw.js — that is the real worker now)');
+for (const p of ['/paragraph-analysis/sw.js', '/flextext-editor/sw.js']) {
   const res = await get(p);
   const body = await res.text();
   ok(res.status === 200, `${p} → 200 (NOT 404: Firefox keeps a registration whose script 404s)`);
@@ -39,31 +39,38 @@ for (const p of ['/sw.js', '/flextext-editor/sw.js']) {
      `${p} → SPARES this app's own caches (deleting them would break it offline)`);
 }
 
-console.log('\nHTML entry points land on the app, so no second app can register here');
-for (const p of ['/', '/index.html', '/flextext-editor/', '/flextext-editor/index.html']) {
+console.log('\nTHE APP IS THE ROOT — / is the app itself, not a redirect (Seth, 2026-08-04)');
+{
+  const res = await get('/');
+  ok(res.status === 200, '/ → 200, served directly');
+  ok((await res.text()) === 'ASSET:/', '/ → the app shell from the assets, NOT a redirect');
+}
+
+console.log('\nthe old sub-path and the engine copy send you to the app');
+for (const p of ['/paragraph-analysis', '/paragraph-analysis/', '/paragraph-analysis/index.html',
+                 '/flextext-editor', '/flextext-editor/', '/flextext-editor/index.html']) {
   const res = await get(p);
   ok(res.status === 302, `${p} → 302`);
-  ok(res.headers.get('location') === 'https://pat.flextext.app/paragraph-analysis/',
-     `${p} → /paragraph-analysis/`);
+  ok(res.headers.get('location') === 'https://pat.flextext.app/', `${p} → the root`);
 }
 
 console.log('\nthe redirect follows the origin it was asked on (custom domain AND workers.dev)');
 {
-  const res = await get('/', 'https://paragraph-analysis-tool.68mh29kgsd.workers.dev');
-  ok(res.headers.get('location') === 'https://paragraph-analysis-tool.68mh29kgsd.workers.dev/paragraph-analysis/',
-     'workers.dev root → its own /paragraph-analysis/');
+  const res = await get('/paragraph-analysis/', 'https://paragraph-analysis-tool.68mh29kgsd.workers.dev');
+  ok(res.headers.get('location') === 'https://paragraph-analysis-tool.68mh29kgsd.workers.dev/',
+     'workers.dev old sub-path → its own root');
 }
 
 console.log("\nthe app's own service worker is served fresh, never from the CDN cache");
 {
-  const res = await get('/paragraph-analysis/sw.js');
-  ok((await res.text()) === 'ASSET:/paragraph-analysis/sw.js', 'comes from the assets, not the kill switch');
+  const res = await get('/sw.js');
+  ok((await res.text()) === 'ASSET:/sw.js', 'the REAL worker comes from the assets — this is what replaces the ghost');
   ok(res.headers.get('cache-control') === 'no-store', 'rewritten to no-store');
 }
 
 console.log('\neverything else passes through untouched');
-for (const p of ['/paragraph-analysis/', '/paragraph-analysis/index.html', '/flextext-editor/js/app.js',
-                 '/flextext-editor/css/app.css', '/paragraph-analysis/icons/paragraph.svg']) {
+for (const p of ['/index.html', '/manifest.webmanifest', '/flextext-editor/js/app.js',
+                 '/flextext-editor/css/app.css', '/icons/paragraph.svg']) {
   const res = await get(p);
   const body = await res.text();
   ok(body === 'ASSET:' + p && res.headers.get('cache-control') !== 'no-store', `${p} → served as-is`);

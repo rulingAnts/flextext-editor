@@ -1,38 +1,41 @@
 /* Shell Worker for the paragraph-analysis-tool site (the Paragraph Analysis satellite,
  * production https://pat.flextext.app/ + paragraph-analysis-tool.68mh29kgsd.workers.dev).
  *
- * Four jobs:
+ * THE APP IS THE SITE ROOT (Seth, 2026-08-04: "ideally the root of pat.flextext.app would be our
+ * paragraph analysis tool — at the root, not redirecting to the sub-folder"). That is possible
+ * here and nowhere else in the suite: on github.io the editor and satellites share ONE origin, so
+ * each app needs a disjoint sub-path or the browser treats them as one PWA. This origin belongs to
+ * this app alone; /flextext-editor/ on it is asset storage (build.sh copies ../docs there so the
+ * shell and its engine ship atomically), not a second site.
  *
- *  1. Redirect `/` to `/paragraph-analysis/` — the app lives at its PWA scope path, and the
- *     origin root is otherwise empty.
+ * Three jobs:
  *
- *  2. Serve this app's service worker with `no-store`: the workers.dev CDN pinned a stale
- *     /sw.js for an hour-plus after deploys on the staging site (2026-08-04), so clients never
- *     saw updates. Same fix as staging-shell.js.
+ *  1. Serve the app's service worker with `no-store`: the workers.dev CDN pinned a stale sw.js
+ *     for an hour-plus after deploys on the staging site (2026-08-04), so clients never saw
+ *     updates. Same fix as staging-shell.js.
  *
- *  3. ⚠ EVICT THE GHOST EDITOR SERVICE WORKER (Seth, 2026-08-04 — this bit production).
- *     Before the deploy contract landed, this site's FIRST deployment (made by the dashboard
- *     setup wizard, before build.sh ever ran) served the EDITOR at the origin ROOT. Every
- *     browser that opened the site in that window registered the EDITOR's service worker at
- *     scope `/`. That worker precaches the editor shell and answers EVERY navigation in its
- *     scope from its own cache — including `/paragraph-analysis/` — so those browsers keep
- *     showing the editor no matter what this Worker sends. curl saw the correct app the whole
- *     time; a real browser did not. Deleting the file is NOT enough: a 404 on the script makes
- *     Chrome drop the registration but FIREFOX KEEPS IT, so the ghost is permanent there.
- *     So we SERVE a kill-switch worker at the old script URL. On its next update check the
- *     browser fetches it, installs it, and it unregisters itself, drops the stale caches
- *     (never this app's own `flextext-paragraph-*`), and reloads the open tab onto the real app.
- *     Keep this route FOREVER — removing it re-strands anyone who has not come back yet.
+ *  2. ⚠ EVICT STALE REGISTRATIONS (this bit production, 2026-08-04). This site's FIRST
+ *     deployment — the dashboard setup wizard's, before build.sh ever ran — served the EDITOR at
+ *     the origin root, so every browser that opened it registered the EDITOR's service worker at
+ *     scope `/`. That worker answers every navigation in its scope from its own precached shell,
+ *     so those browsers kept painting the editor whatever this Worker sent; curl, having no
+ *     service worker, saw the right app throughout, which is why release verification passed and
+ *     Seth's browser still showed the editor ("works fine in a private window").
+ *       - The GHOST AT `/sw.js` now fixes itself: that URL is the real app's service worker, so
+ *         the browser's next update check REPLACES the ghost with us (sw.js takes it from there —
+ *         it detects the ghost's cache, activates immediately instead of waiting behind it, and
+ *         reloads the tab).
+ *       - The other stale scopes get a KILL SWITCH: `/paragraph-analysis/sw.js` (this app's own
+ *         first release, before it moved to the root) and `/flextext-editor/sw.js` (never a real
+ *         app here). A 404 is NOT enough — Chrome drops a registration whose script 404s but
+ *         FIREFOX KEEPS IT, which is why the ghost was permanent for Seth. Keep these routes
+ *         FOREVER: removing one re-strands every browser that has not come back yet.
  *
- *  4. Keep the copied engine from booting as a second app. `/flextext-editor/` exists on this
- *     origin only as asset storage for this app (build.sh copies ../docs there so the shell and
- *     its engine ship atomically). Serving the editor's HTML from it would let a stray visit
- *     register yet another service worker and re-create the ghost, so its HTML entry points
- *     redirect to the app and its sw.js is a kill-switch too. The engine's js/ and css/ — the
- *     files this app actually loads — pass through untouched.
+ *  3. Send the old sub-path and the engine copy's HTML to the app, so no second app can register
+ *     on this origin and re-create the mess. The engine's js/ and css/ pass through untouched.
  */
 
-// Unregisters itself, clears everything EXCEPT this app's own caches, reloads open tabs.
+// Unregisters itself, clears everything EXCEPT the app's own caches, reloads open tabs.
 // No fetch handler on purpose: while it is active, requests go straight to the network.
 const KILL_SWITCH = `/* Stale-registration kill switch — see paragraph-analysis/shell.js */
 self.addEventListener('install', () => self.skipWaiting());
@@ -54,11 +57,10 @@ self.addEventListener('activate', (event) => {
 });
 `;
 
-const KILL_SWITCH_PATHS = new Set(['/sw.js', '/flextext-editor/sw.js']);
-const APP_REDIRECTS = new Set(['/', '/index.html', '/flextext-editor/', '/flextext-editor/index.html']);
-const NO_STORE = new Set(['/paragraph-analysis/sw.js']);
-
-const APP = '/paragraph-analysis/';
+const KILL_SWITCH_PATHS = new Set(['/paragraph-analysis/sw.js', '/flextext-editor/sw.js']);
+const TO_APP = new Set(['/paragraph-analysis', '/paragraph-analysis/', '/paragraph-analysis/index.html',
+                        '/flextext-editor', '/flextext-editor/', '/flextext-editor/index.html']);
+const NO_STORE = new Set(['/sw.js']);
 
 export default {
   async fetch(request, env) {
@@ -70,14 +72,12 @@ export default {
         headers: {
           'content-type': 'text/javascript; charset=utf-8',
           'cache-control': 'no-store',
-          // A service worker script may only control its own directory and below; the header
-          // keeps that explicit for the root registration it is evicting.
           'service-worker-allowed': '/',
         },
       });
     }
 
-    if (APP_REDIRECTS.has(path)) return Response.redirect(url.origin + APP, 302);
+    if (TO_APP.has(path)) return Response.redirect(url.origin + '/', 302);
 
     const res = await env.ASSETS.fetch(request);
     if (!NO_STORE.has(path)) return res;

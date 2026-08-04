@@ -301,7 +301,10 @@ function renderWork() {
         <button class="secondary-btn" id="pa-ungroup">${esc(t('para.ungroup'))}</button>
         <button class="secondary-btn" id="pa-clear" disabled title="${esc(t('para.clearSelTip'))}">${esc(t('para.clearSel'))}</button>
         <button class="primary-btn" id="pa-save">${esc(t('para.save'))}</button>
-        <button class="link-btn" id="pa-close" title="${esc(t('para.closeTip'))}">✕</button>
+        <!-- Far right, and LABELLED: a bare ✕ read as "close the toolbar/banner", not "put this
+             document away" — and it is the one control that discards the working copy. -->
+        <button class="secondary-btn pa-closebtn" id="pa-close" title="${esc(t('para.closeTip'))}">
+          ${esc(t('para.close'))} <span aria-hidden="true">✕</span></button>
       </span>
     </div>
     ${showAudio ? `

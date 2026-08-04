@@ -34,9 +34,9 @@ if (!m) { console.error('FAIL: no SHELL array in sw.js'); process.exit(1); }
 const entries = [...m[1].matchAll(/'([^']+)'/g)].map(x => x[1]);
 let fail = 0;
 for (const e of entries) {
-  const p = e === './' ? 'public/paragraph-analysis/index.html'
+  const p = e === './' ? 'public/index.html'
     : e.startsWith('/') ? 'public' + e
-    : 'public/paragraph-analysis/' + e;
+    : 'public/' + e;
   if (!existsSync(p)) { console.error('FAIL: SHELL entry not in build: ' + e + ' (' + p + ')'); fail++; }
 }
 if (fail) process.exit(1);

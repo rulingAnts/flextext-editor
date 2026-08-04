@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v175';
+export const ENGINE_VERSION = 'v177';
 
 const S = {
 en: {
@@ -1015,7 +1015,7 @@ internet after the first time.</p>
   'panel.f.exportJson': 'Include Paragraph Analysis file (.fxpa) in local saves',
   'panel.f.exportsNote': 'These follow Audio Segmentation Mode unless you change them (all on when it is on, all off when it is off), and only apply to texts that have time alignment. The .flextext file and the audio are always included.',
   // Paragraph Analysis satellite (window.__MODE='paragraph') — the grouping app.
-  'para.appName': 'Flextext Paragraph Analysis',
+  'para.appName': 'Flextext Paragraph Analysis Tool',
   'para.openHint': 'Group the lines of an interlinear text into phrases, clauses, sentences, and paragraphs — building the discourse structure level by level.',
   'para.dropHere': 'Drop a file here',
   'para.dropKinds': 'a .fxpa file (from the editor’s save bundle) — or a .flextext file, alone or together with its audio file',
@@ -1055,8 +1055,9 @@ internet after the first time.</p>
   'para.clearSel': 'Clear selection',
   'para.clearSelTip': 'Deselect everything (or press Esc)',
   'para.save': 'Save (.fxpa)',
-  'para.closeTip': 'Close this text',
-  'para.closeConfirm': 'Close this text? Save first if you want to keep your grouping — the working copy on this device will be discarded.',
+  'para.close': 'Close document',
+  'para.closeTip': 'Close this document and clear it from this browser. Your analysis stays open here — even if you close the window or lose connection — until you close it with this button.',
+  'para.closeConfirm': 'Close this document? Save it first if you want to keep your grouping — this browser keeps ONE analysis in progress, and closing discards it.',
   'para.expand': 'Expand',
   'para.collapse': 'Collapse',
   'para.sym': 'Symmetrical',
@@ -2092,7 +2093,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.f.exportJson': 'Sertakan file Analisis Paragraf (.fxpa) dalam simpanan lokal',
   'panel.f.exportsNote': 'Pengaturan ini mengikuti Mode Segmentasi Audio kecuali Anda mengubahnya (semua aktif saat mode aktif, semua nonaktif saat mode nonaktif), dan hanya berlaku untuk teks yang memiliki penyelarasan waktu. File .flextext dan audio selalu disertakan.',
   // Satelit Analisis Paragraf (window.__MODE='paragraph') — aplikasi pengelompokan.
-  'para.appName': 'Analisis Paragraf Flextext',
+  'para.appName': 'Alat Analisis Paragraf Flextext',
   'para.openHint': 'Kelompokkan baris-baris teks interlinear menjadi frasa, klausa, kalimat, dan paragraf — membangun struktur wacana tingkat demi tingkat.',
   'para.dropHere': 'Letakkan file di sini',
   'para.dropKinds': 'file .fxpa (dari bundel simpanan editor) — atau file .flextext, sendiri atau bersama file audionya',
@@ -2130,8 +2131,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.clearSel': 'Batalkan pilihan',
   'para.clearSelTip': 'Batalkan semua pilihan (atau tekan Esc)',
   'para.save': 'Simpan (.fxpa)',
-  'para.closeTip': 'Tutup teks ini',
-  'para.closeConfirm': 'Tutup teks ini? Simpan dulu jika ingin menyimpan pengelompokan Anda — salinan kerja di perangkat ini akan dibuang.',
+  'para.close': 'Tutup dokumen',
+  'para.closeTip': 'Tutup dokumen ini dan hapus dari peramban ini. Analisis Anda tetap terbuka di sini — walau jendela ditutup atau koneksi putus — sampai Anda menutupnya dengan tombol ini.',
+  'para.closeConfirm': 'Tutup dokumen ini? Simpan dulu jika ingin menyimpan pengelompokan Anda — peramban ini menyimpan SATU analisis yang sedang berjalan, dan menutup akan membuangnya.',
   'para.expand': 'Bentangkan',
   'para.collapse': 'Lipat',
   'para.sym': 'Simetris',

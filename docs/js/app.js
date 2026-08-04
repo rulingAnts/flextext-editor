@@ -771,6 +771,7 @@ function getPlayer() {
         if (!current || isAudioLocked(current)) return;
         if (!confirm(t('player.confirmRemove'))) return;
         await db.deleteMedia(current.id);
+        playerReadyFor = null;   // the decoded buffer no longer corresponds to ANY stored audio
         delete current.pendingAudio;
         delete current.audioSource;
         delete current.mediaGuid;

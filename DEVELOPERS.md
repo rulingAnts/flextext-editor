@@ -122,12 +122,18 @@ import. There is no proprietary sidecar. Timestamps also emit as visible `note` 
 This is the part that has caused real outages when done wrong — read
 [`CLAUDE.md`](CLAUDE.md) §"DEPLOY ORDER IS ENFORCED" for the history.
 
+- **Bump versions ONLY via `./bump-version.sh vNNN`** — it sets all four sites explicitly and
+  fails loudly if any didn't land (a sed-from-previous chain once no-opped silently and two
+  releases shipped mislabelled; the script is the guard).
 - **Four version sites move together** (enforced by `test/version-sync.test.mjs`):
   `docs/sw.js` `VERSION` == `docs/js/i18n.js` `ENGINE_VERSION`, plus each satellite `sw.js`'s own
   `VERSION` and its declared `ENGINE`.
 - Each satellite SW **precaches the editor's engine files by path** — a new top-level import in
   `app.js` must be added to the editor SHELL *and both satellite SHELLs* in the same commit, or
   updated satellites go dead offline.
+- The staging dev site serves its service-worker files with `no-store` via `staging-shell.js`
+  (root `wrangler.toml`, `run_worker_first`) so deploys turn over instantly; production keeps
+  normal SW-update semantics.
 - **Branches:** feature branch → `staging` (`--no-ff`, auto-built to the Cloudflare dev site) →
   after the maintainer's hands-on sign-off, ff into `main` → ff into `productionWeb`.
   Pushing `productionWeb` triggers `sync-satellites.yml`, which WAITS for the live editor,

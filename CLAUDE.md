@@ -233,6 +233,12 @@ python3 -m http.server 8011         # plain HTTP — fine for most testing (loca
 
 `.claude/launch.json` has these as preview configs.
 
+Dev affordances: `FLEXTEXT_DOCS=<path>/docs bash dev-serve.sh <port>` serves ANY checkout (e.g. a
+`git worktree` of `staging` — the pattern for Seth's local test rig on :8012); mirrors are
+per-port so instances can't re-point each other. In the app: `fxUpdate()` in the console forces a
+service-worker update check/activation (the ⌃/⌥+U flow); `?devreset` wipes the origin. Bump
+versions ONLY via `./bump-version.sh vNNN` (explicit-set, fails loudly — see DEVELOPERS.md).
+
 ### `dev-serve.sh` — the stable no-cache rig (preferred)
 `bash dev-serve.sh 8012` serves the editor + recorder at their **production paths**
 (`/flextext-editor/`, `/text-recorder/`) on a **fixed port**, so the PWA

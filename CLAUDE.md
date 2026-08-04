@@ -28,6 +28,11 @@ release has to be cherry-picked around it — which happened three times for seg
 was moved off, and each cherry-pick re-offered the SHELL hunk that caused the v108 outage.
 
 - Branch from `main`: `git checkout -b <feature> main`. Push it freely, finished or not.
+- **Test on `staging`** (Seth, 2026-08-04): merge the feature branch `--no-ff` into `staging` —
+  the dev site auto-builds from it, no gates, that is the default fast path. If the staging test
+  FAILS, **roll staging back** (`git revert -m 1 <merge-commit>` on staging) so staging returns to
+  main-plus-working-features; the feature branch keeps the work and can re-merge after fixes.
+  staging is a TEST SURFACE, not a history archive.
 - Merge to `main` only when the feature is **complete and tested** — at which point `main` is
   releasable again and a production release is a plain fast-forward with nothing to resolve.
 - Small, self-contained, same-day changes can still go straight to `main`. The test is whether

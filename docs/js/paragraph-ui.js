@@ -293,9 +293,10 @@ function renderWork() {
         </select>` : ''}
       </span>
       <span class="pa-actions">
-        <button class="secondary-btn" id="pa-group" disabled>${esc(t('para.group'))}</button>
-        <button class="secondary-btn" id="pa-edit" disabled>${esc(t('para.editGroup'))}</button>
-        <button class="secondary-btn" id="pa-ungroup" disabled>${esc(t('para.ungroup'))}</button>
+        <span class="pa-selinfo" id="pa-selinfo"></span>
+        <button class="secondary-btn" id="pa-group">${esc(t('para.group'))}</button>
+        <button class="secondary-btn" id="pa-edit">${esc(t('para.editGroup'))}</button>
+        <button class="secondary-btn" id="pa-ungroup">${esc(t('para.ungroup'))}</button>
         <button class="secondary-btn" id="pa-clear" disabled title="${esc(t('para.clearSelTip'))}">${esc(t('para.clearSel'))}</button>
         <button class="primary-btn" id="pa-save">${esc(t('para.save'))}</button>
         <button class="link-btn" id="pa-close" title="${esc(t('para.closeTip'))}">✕</button>
@@ -384,6 +385,7 @@ function renderUnit(id, nodeLabel = '') {
   const collapsed = (state.view.collapsed || []).includes(id);
   const badge = document.createElement('div');
   badge.className = 'pa-badge';
+  badge.title = t('para.headingTip');   // this bar IS the group's handle — Edit/Ungroup act on it
   const span = spanOf(state, id);
   badge.innerHTML = `
     ${nodeLabel ? `<span class="pa-nodelabel" title="${esc(nodeLabel)}">${esc(nodeLabel)}</span>` : ''}
@@ -475,13 +477,36 @@ function clearSelection() {
   refreshActionButtons();
 }
 
+// The one group the selection points at, or null. Edit/Ungroup act on a GROUP HEADING (Seth,
+// 2026-08-04) — the collapsible bar at the top of a group — so exactly one group and nothing else.
+function selectedGroup() {
+  const ids = [...selection];
+  return (ids.length === 1 && isGroupId(ids[0])) ? nodeById(state, ids[0]) : null;
+}
+
+// What a group is called in a message/tooltip: its own label, else its summary line, else its id.
+function groupTitle(g) {
+  return g.relation || (summaryOf(state, g.id)[0] || '').slice(0, 40) || g.id;
+}
+
+/* ⚠ THE BUTTONS STAY ENABLED (Seth, 2026-08-04). They used to disable themselves whenever the
+ * selection wasn't right, which reads as "the button is broken": a disabled button swallows the
+ * click, logs nothing, and shows nothing — and because selection is ADDITIVE, a few exploratory
+ * clicks silently put the app in that state. Now every button is clickable and SAYS what to
+ * select instead, and the toolbar reports what is selected so it is clear what will be acted on. */
 function refreshActionButtons() {
   const ids = [...selection];
-  $('#pa-group').disabled = ids.length < 2;
-  const oneGroup = ids.length === 1 && isGroupId(ids[0]);
-  $('#pa-ungroup').disabled = !oneGroup;
-  $('#pa-edit').disabled = !oneGroup;
+  const g = selectedGroup();
   $('#pa-clear').disabled = !ids.length;
+  $('#pa-edit').title = g ? t('para.editNamed', { name: groupTitle(g) }) : t('para.needGroupHeadingTip');
+  $('#pa-ungroup').title = g ? t('para.ungroupNamed', { name: groupTitle(g) }) : t('para.needGroupHeadingTip');
+  $('#pa-group').title = ids.length >= 2 ? t('para.groupTip') : t('para.needTwoTip');
+  const info = $('#pa-selinfo');
+  if (info) {
+    info.textContent = g ? t('para.selGroup', { name: groupTitle(g) })
+      : ids.length ? t('para.selCount', { n: ids.length })
+      : '';
+  }
 }
 
 // Esc — the companion to the Clear button: closes the join dialog if one is open, otherwise
@@ -508,12 +533,15 @@ function unitLabel(id) {
   return `${id}${g.relation ? ' — ' + g.relation : ''}`;
 }
 
-function openGroupDialog() { groupDialog({ ids: [...selection] }); }
+function openGroupDialog() {
+  if (selection.size < 2) return alert(t('para.needTwo'));
+  groupDialog({ ids: [...selection] });
+}
 
 function openEditDialog() {
-  const gid = [...selection][0];
-  const g = nodeById(state, gid);
-  groupDialog({ ids: g.children, gid, joinType: g.joinType, head: g.head,
+  const g = selectedGroup();
+  if (!g) return alert(t('para.needGroupHeading'));
+  groupDialog({ ids: g.children, gid: g.id, joinType: g.joinType, head: g.head,
                 relation: g.relation, labels: g.labels || {} });
 }
 
@@ -594,9 +622,10 @@ function groupDialog({ ids, gid, joinType = 'sym', head, relation = '', labels =
 }
 
 function doUngroup() {
-  const gid = [...selection][0];
+  const g = selectedGroup();
+  if (!g) return alert(t('para.needGroupHeading'));
   try {
-    const next = ungroup(state, gid);   // may refuse (dissolve top-down) — keep the selection then
+    const next = ungroup(state, g.id);   // may refuse (dissolve top-down) — keep the selection then
     selection = new Set();
     commit(next);
   } catch (e) { alert(e.message); }

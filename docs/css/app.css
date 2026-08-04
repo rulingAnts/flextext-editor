@@ -1286,7 +1286,12 @@ main {
 /* The bracket: one nested container per group; deeper levels indent naturally. */
 .pa-group { border-left: 3px solid var(--blue); border-radius: 6px 0 0 6px; margin: 6px 0 6px 2px; padding-left: 8px; }
 .pa-group.pa-head, .pa-row.pa-head { box-shadow: inset 3px 0 0 var(--gloss); }
-.pa-badge { display: flex; align-items: center; gap: 6px; padding: 2px 6px; border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--muted); }
+/* The group HEADING is the group's handle: clicking it selects the group, and Edit/Ungroup act on
+   exactly that. So it has to LOOK like a control — a bar with its own surface and a hover state —
+   not like a caption (users could not find it when it was plain text). */
+.pa-badge { display: flex; align-items: center; gap: 6px; padding: 3px 6px; border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--muted); background: var(--panel); border: 1px solid transparent; }
+.pa-badge:hover { border-color: var(--border); background: #e9eff8; }
+.pa-selinfo { font-size: 12px; color: var(--muted); max-width: 24ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pa-caret { border: none; background: none; cursor: pointer; font-size: 13px; padding: 0 2px; color: var(--muted); }
 .pa-jt { font-weight: 700; color: var(--blue); }
 .pa-rel { font-weight: 600; color: var(--text); }

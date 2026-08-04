@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v177';
+export const ENGINE_VERSION = 'v178';
 
 const S = {
 en: {
@@ -1021,7 +1021,23 @@ internet after the first time.</p>
   'para.dropKinds': 'a .fxpa file (from the editor’s save bundle) — or a .flextext file, alone or together with its audio file',
   'para.chooseFiles': 'Choose files…',
   'para.textOnlyNote': 'A text without audio or time alignment works too — there are simply no waveforms or play buttons.',
-  'para.errNoUsableFile': 'No usable file — drop a .fxpa or .flextext file.',
+  'para.errNoUsableFile': 'No usable file — drop a .fxpa, .flextext or ELAN .eaf file.',
+  'para.errNoTiers': 'That ELAN file has no tiers in it.',
+  // ELAN import wizard — ANY .eaf, from any source; the app proposes, the user decides.
+  'para.eafTitle': 'ELAN file — what is on each tier?',
+  'para.eafIntro': 'Opening “{file}”. Check that each row points at the right tier, then press Open. Each tier shows how many annotations it has, ⏱ if it is time-aligned, and a sample of its content.',
+  'para.eafWantsAudio': 'This ELAN file refers to the recording “{name}”. To get waveforms and playback, drop that audio file in together with the .eaf — otherwise the text opens without audio.',
+  'para.eafAudioMismatch': 'The ELAN file names the recording “{eaf}”, but you dropped “{got}”. It will be used anyway — make sure it really is the same recording, or the times will not line up.',
+  'para.mapBaseline': 'Baseline text (the vernacular)',
+  'para.mapWords': 'Words',
+  'para.mapGlosses': 'Word glosses',
+  'para.mapFree': 'Free translation',
+  'para.mapNone': '— none —',
+  'para.mapHint': 'Only the baseline is required. With no word tier, the baseline is split into words. Tiers may be linked to the baseline either as ELAN child tiers or simply by overlapping in time — both work.',
+  'para.mapPreview': 'Preview',
+  'para.mapOpen': 'Open',
+  'para.mapEmpty': 'Nothing to show with these choices — pick a different baseline tier.',
+  'para.mapMore': '…and {n} more lines.',
   'para.errOpenFailed': 'Could not open the file: {msg}',
   'para.layerTip': 'What to show for each line',
   'para.layerInterlinear': 'Words + glosses',
@@ -2099,7 +2115,22 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.dropKinds': 'file .fxpa (dari bundel simpanan editor) — atau file .flextext, sendiri atau bersama file audionya',
   'para.chooseFiles': 'Pilih file…',
   'para.textOnlyNote': 'Teks tanpa audio atau penyelarasan waktu juga bisa — hanya saja tanpa gelombang suara dan tombol putar.',
-  'para.errNoUsableFile': 'Tidak ada file yang bisa dipakai — letakkan file .fxpa atau .flextext.',
+  'para.errNoUsableFile': 'Tidak ada file yang bisa dipakai — letakkan file .fxpa, .flextext, atau ELAN .eaf.',
+  'para.errNoTiers': 'File ELAN itu tidak memiliki tier.',
+  'para.eafTitle': 'File ELAN — apa isi tiap tier?',
+  'para.eafIntro': 'Membuka “{file}”. Periksa setiap baris menunjuk ke tier yang benar, lalu tekan Buka. Tiap tier menampilkan jumlah anotasi, ⏱ bila selaras waktu, dan contoh isinya.',
+  'para.eafWantsAudio': 'File ELAN ini merujuk rekaman “{name}”. Untuk gelombang suara dan pemutaran, letakkan file audio itu bersama .eaf — jika tidak, teks dibuka tanpa audio.',
+  'para.eafAudioMismatch': 'File ELAN menyebut rekaman “{eaf}”, tetapi Anda meletakkan “{got}”. Tetap dipakai — pastikan itu rekaman yang sama, atau waktunya tidak akan cocok.',
+  'para.mapBaseline': 'Teks dasar (bahasa daerah)',
+  'para.mapWords': 'Kata',
+  'para.mapGlosses': 'Glos kata',
+  'para.mapFree': 'Terjemahan bebas',
+  'para.mapNone': '— tidak ada —',
+  'para.mapHint': 'Hanya teks dasar yang wajib. Tanpa tier kata, teks dasar dipecah menjadi kata. Tier dapat terhubung ke teks dasar sebagai tier anak ELAN atau sekadar bertumpang tindih waktu — keduanya bisa.',
+  'para.mapPreview': 'Pratinjau',
+  'para.mapOpen': 'Buka',
+  'para.mapEmpty': 'Tidak ada yang bisa ditampilkan dengan pilihan ini — pilih tier teks dasar yang lain.',
+  'para.mapMore': '…dan {n} baris lagi.',
   'para.errOpenFailed': 'File tidak bisa dibuka: {msg}',
   'para.layerTip': 'Apa yang ditampilkan untuk tiap baris',
   'para.layerInterlinear': 'Kata + glos',

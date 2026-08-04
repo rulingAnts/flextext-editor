@@ -14,14 +14,17 @@ import { t, applyI18n } from './i18n.js';
 import * as db from './db.js';
 import { parseFlextext, segmentsFromOffsets, esc } from './flextext.js';
 import { buildFxpa } from './seg-exports.js';
+import { readEaf, describeTiers, detectMapping, eafToLines } from './eaf-read.js';
 import {
   validateFxpa, serializeFxpa, groupUnits, ungroup, editGroup, toggleCollapse,
   topUnits, levelOf, spanOf, leavesOf, summaryOf, isGroupId, nodeById,
 } from './paragraph-model.js';
 
 const WORKING_KEY = 'fxpa:working';
+const EAF_MAP_KEY = 'fxpa:eaf-mapping';   // the last tier mapping, so a repeated file shape is one click
 
 let state = null;                 // validated .fxpa data (the model object)
+let pendingEaf = null;            // an .eaf awaiting its tier mapping (see renderEafMapping)
 let selection = new Set();        // selected unit ids (lines or groups)
 let root = null;                  // #pa-main
 let audio = null, peaks = null, mpb = 0, durMs = 0, stopAt = 0, activeSpan = null, rafId = 0;
@@ -59,7 +62,7 @@ function renderOpen(errors) {
         <p class="tab-hint">${esc(t('para.dropKinds'))}</p>
         <button class="primary-btn" id="pa-pick">${esc(t('para.chooseFiles'))}</button>
         <input type="file" id="pa-file" multiple hidden
-               accept=".fxpa,.flextext,audio/*,application/json,text/xml">
+               accept=".fxpa,.flextext,.eaf,audio/*,application/json,text/xml">
       </div>
       ${errors && errors.length ? `<div class="banner warn-banner"><span>${esc(errors.join(' '))}</span></div>` : ''}
       <p class="note">${esc(t('para.textOnlyNote'))}</p>
@@ -83,6 +86,23 @@ async function handleFiles(files) {
       const v = validateFxpa(JSON.parse(await fxpaFile.text()));
       if (!v.ok) return renderOpen(v.errors);
       return load(v.data);
+    }
+    const audioOf = (fs) => fs.find((f) => /^audio\//.test(f.type) || /\.(wav|mp3|m4a|aac|ogg|opus|webm|flac)$/i.test(f.name));
+    // ELAN. ANY .eaf from ANY source (Seth, 2026-08-04) — ours, SayMore's, or a stranger's with
+    // tier names we have never seen. detectMapping() only PROPOSES; the wizard lets the user say
+    // what each tier really is, because no heuristic can be right about every field file.
+    const eafFile = files.find((f) => /\.eaf$/i.test(f.name));
+    if (eafFile) {
+      const eaf = readEaf(await eafFile.text());
+      if (!eaf.tiers.length) return renderOpen([t('para.errNoTiers')]);
+      pendingEaf = {
+        eaf,
+        tiers: describeTiers(eaf),
+        mapping: rememberedMapping(detectMapping(eaf), eaf),
+        audioFile: audioOf(files) || null,
+        name: eafFile.name.replace(/\.eaf$/i, ''),
+      };
+      return renderEafMapping();
     }
     const ft = files.find((f) => /\.flextext$/i.test(f.name));
     if (!ft) return renderOpen([t('para.errNoUsableFile')]);
@@ -108,6 +128,114 @@ async function handleFiles(files) {
   } catch (e) {
     renderOpen([t('para.errOpenFailed', { msg: e.message })]);
   }
+}
+
+/* ---------------- ELAN import: the tier-mapping wizard ----------------
+ * EVERY .eaf comes through here, including ones we wrote: detectMapping()'s proposal is
+ * prefilled, so a recognised file is a single click, and a file from anywhere else is four
+ * dropdowns instead of a dead end. No heuristic can be right about every field recording, so the
+ * user always gets the last word — and sees the result BEFORE importing. */
+
+const ROLES = ['baseline', 'words', 'glosses', 'free'];
+
+const tierLabel = (d) =>
+  `${d.id} — ${d.count}${d.timed ? ' ⏱' : ''}${d.sample ? ' · “' + d.sample + '”' : ''}`;
+
+// Re-use the previous mapping when this file has the same tiers (field work repeats one shape).
+function rememberedMapping(proposed, eaf) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(EAF_MAP_KEY) || 'null');
+    if (!saved) return proposed;
+    const has = (id) => !id || eaf.tiers.some((t) => t.id === id);
+    if (ROLES.every((r) => has(saved[r])) && saved.baseline && has(saved.baseline)) {
+      return { ...proposed, ...saved };
+    }
+  } catch { /* a corrupt remembered mapping is not worth a failed import */ }
+  return proposed;
+}
+
+function currentMapping() {
+  const m = { title: pendingEaf.mapping.title || '' };
+  for (const r of ROLES) m[r] = ($('#pa-map-' + r) || {}).value || null;
+  return m;
+}
+
+function renderEafMapping(errors) {
+  stopAudio();
+  const P = pendingEaf;
+  const sel = (role, allowNone) => {
+    const cur = P.mapping[role] || '';
+    const opts = P.tiers.map((d) =>
+      `<option value="${esc(d.id)}"${d.id === cur ? ' selected' : ''}>${esc(tierLabel(d))}</option>`).join('');
+    return `<select id="pa-map-${role}">${allowNone ? `<option value=""${cur ? '' : ' selected'}>${esc(t('para.mapNone'))}</option>` : ''}${opts}</select>`;
+  };
+  const mediaName = (P.eaf.media[0] || {}).name || '';
+  const mismatch = mediaName && P.audioFile && P.audioFile.name !== mediaName;
+  root.innerHTML = `
+    <div class="pa-open pa-wizard">
+      <h1>${esc(t('para.eafTitle'))}</h1>
+      <p class="tab-hint">${esc(t('para.eafIntro', { file: P.name }))}</p>
+      ${errors && errors.length ? `<div class="banner warn-banner"><span>${esc(errors.join(' '))}</span></div>` : ''}
+      ${mediaName && !P.audioFile ? `<div class="banner"><span>${esc(t('para.eafWantsAudio', { name: mediaName }))}</span></div>` : ''}
+      ${mismatch ? `<div class="banner warn-banner"><span>${esc(t('para.eafAudioMismatch', { eaf: mediaName, got: P.audioFile.name }))}</span></div>` : ''}
+      <div class="pa-maprows">
+        <label class="pa-maprow"><span>${esc(t('para.mapBaseline'))}</span>${sel('baseline', false)}</label>
+        <label class="pa-maprow"><span>${esc(t('para.mapWords'))}</span>${sel('words', true)}</label>
+        <label class="pa-maprow"><span>${esc(t('para.mapGlosses'))}</span>${sel('glosses', true)}</label>
+        <label class="pa-maprow"><span>${esc(t('para.mapFree'))}</span>${sel('free', true)}</label>
+      </div>
+      <p class="note">${esc(t('para.mapHint'))}</p>
+      <h3 class="pa-mapph">${esc(t('para.mapPreview'))}</h3>
+      <div class="pa-mappreview" id="pa-map-preview"></div>
+      <div class="pa-modal-actions">
+        <button class="secondary-btn" id="pa-map-cancel">${esc(t('para.cancel'))}</button>
+        <button class="primary-btn" id="pa-map-go">${esc(t('para.mapOpen'))}</button>
+      </div>
+    </div>`;
+  for (const r of ROLES) $('#pa-map-' + r).addEventListener('change', () => { P.mapping = currentMapping(); drawMapPreview(); });
+  $('#pa-map-cancel').addEventListener('click', () => { pendingEaf = null; renderOpen(); });
+  $('#pa-map-go').addEventListener('click', eafConfirm);
+  drawMapPreview();
+}
+
+// The whole point of the preview: a wrong tier choice is obvious HERE, not after importing.
+function drawMapPreview() {
+  const box = $('#pa-map-preview');
+  if (!box) return;
+  const conv = eafToLines(pendingEaf.eaf, currentMapping());
+  if (!conv.lines.length) { box.innerHTML = `<p class="note">${esc(t('para.mapEmpty'))}</p>`; return; }
+  box.innerHTML = conv.lines.slice(0, 4).map((l) => `
+    <div class="pa-mapline">
+      <div class="pa-baseline">${esc(l.baseline || '—')}</div>
+      ${(l.words || []).some((w) => w.gls) ? `<div class="pa-words">${(l.words || []).map((w) =>
+        `<span class="w"><span class="wt">${esc(w.txt)}</span><span class="wg">${esc(w.gls || ' ')}</span></span>`).join('')}</div>` : ''}
+      ${l.free ? `<div class="pa-free">${esc(l.free)}</div>` : ''}
+      ${typeof l.start === 'number' ? `<div class="pa-maptime">${clock(l.start)} – ${clock(l.end)}</div>` : ''}
+    </div>`).join('')
+    + (conv.lines.length > 4 ? `<p class="note">${esc(t('para.mapMore', { n: conv.lines.length - 4 }))}</p>` : '');
+}
+
+async function eafConfirm() {
+  const P = pendingEaf;
+  const mapping = currentMapping();
+  const conv = eafToLines(P.eaf, mapping);
+  if (!conv.lines.length) return renderEafMapping([t('para.mapEmpty')]);
+  const hasSpans = conv.lines.some((l) => typeof l.start === 'number');
+  const audio = (P.audioFile && hasSpans)
+    ? { b64: await blobToB64(P.audioFile), mime: P.audioFile.type || 'audio/wav', name: P.audioFile.name }
+    : null;
+  // Back into the shape buildFxpa() already knows — one paragraph per line, spans in parallel.
+  const doc = {
+    title: conv.title || P.name,
+    paragraphs: conv.lines.map((l) => ({ segments: [{ baseline: l.baseline, free: l.free || '', words: l.words || [], attrs: {} }] })),
+    segments: conv.lines.map((l) => (typeof l.start === 'number' ? { start: l.start, end: l.end } : { timePending: true })),
+  };
+  const fx = buildFxpa(doc, { title: doc.title, vernLang: 'und', analLang: 'en', audio });
+  const v = validateFxpa(fx);
+  if (!v.ok) return renderEafMapping(v.errors);
+  try { localStorage.setItem(EAF_MAP_KEY, JSON.stringify(mapping)); } catch { /* non-fatal */ }
+  pendingEaf = null;
+  load(v.data);
 }
 
 function blobToB64(blob) {

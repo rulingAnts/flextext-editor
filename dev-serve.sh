@@ -14,10 +14,12 @@
 #   flextext-r2-worker/dev-worker.sh
 set -euo pipefail
 PORT="${1:-8012}"
-MIRROR="$HOME/GIT/.flextext-devserve"          # stable (gitignored-irrelevant; lives outside the repos)
+MIRROR="$HOME/GIT/.flextext-devserve-$PORT"    # PER-PORT: a second instance must not re-point this one's symlinks
 # The published site now lives in docs/ (GitHub Pages serves productionWeb:/docs), so the
 # symlink that becomes /flextext-editor/ must point THERE, not at the repo root.
-EDITOR="$HOME/GIT/flextext editor/docs"
+# FLEXTEXT_DOCS overrides the source — e.g. serve a git WORKTREE of another branch:
+#   FLEXTEXT_DOCS="$HOME/GIT/flextext-staging-test/docs" bash dev-serve.sh 8012
+EDITOR="${FLEXTEXT_DOCS:-$HOME/GIT/flextext editor/docs}"
 RECORDER="$HOME/GIT/text-recorder"
 CROWD="$HOME/GIT/crowd-recorder"
 rm -rf "$MIRROR"; mkdir -p "$MIRROR"

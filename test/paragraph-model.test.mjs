@@ -3,6 +3,7 @@ import {
   validateFxpa, serializeFxpa, groupUnits, ungroup, editGroup, toggleCollapse,
   topUnits, levelOf, spanOf, leavesOf, summaryOf, summaryLineOf, parentOf,
   isBlankLine, visibleTopUnits, withBlanksBetween,
+  newAuthoredDoc, addLine, setLineText, deleteLine,
 } from '../docs/js/paragraph-model.js';
 
 let failures = 0;
@@ -183,6 +184,63 @@ console.log('blank lines are HIDDEN, never deleted');
   // Never absorb real content.
   const ids2 = withBlanksBetween(withBlanks, ['L1', 'L4'], true);
   ok(!ids2.includes('L3'), 'a line with TEXT between the ends is never swept in');
+}
+
+/* AUTHORED documents: built in the app from typed propositions. Seth, 2026-08-05 — explicitly NOT
+ * a way to edit imported language data, which is what the `authored` flag guards. */
+console.log('authored documents — typed propositions, and imported text protected');
+{
+  let d = validateFxpa(newAuthoredDoc('From scratch')).data;
+  ok(d.authored === true && d.lines.length === 1, 'a new authored doc has one empty line');
+  ok(!d.audio && d.view.audio === false, 'and no audio');
+
+  d = setLineText(d, 'L1', 'The enemy destroyed the city.');
+  d = addLine(d, 'L1', 'The people were afraid.');
+  d = addLine(d, d.lines[1].id, 'They fled to the hills.');
+  eq(d.lines.map((l) => l.baseline),
+     ['The enemy destroyed the city.', 'The people were afraid.', 'They fled to the hills.'],
+     'lines are typed and inserted in order');
+  ok(d.lines.every((l) => Array.isArray(l.words) && !l.words.length), 'authored lines carry no word data');
+  ok(validateFxpa(JSON.parse(serializeFxpa(d))).ok, 'and the result is a valid .fxpa');
+  ok(validateFxpa(JSON.parse(serializeFxpa(d))).data.authored === true, 'the authored flag survives a round trip');
+
+  // IMPORTED text is refused by every editing operation — the guarantee Seth asked for.
+  const imported = base();
+  throws(() => setLineText(imported, 'L1', 'nope'), 'setLineText refuses an imported text');
+  throws(() => addLine(imported, 'L1', 'nope'), 'addLine refuses an imported text');
+  throws(() => deleteLine(imported, 'L1'), 'deleteLine refuses an imported text');
+}
+
+/* Deleting a line must leave the TREE valid, or the file will not reopen after an edit that
+ * looked like it worked — validateFxpa rejects a group with fewer than two children. */
+console.log('deleting an authored line keeps the tree valid');
+{
+  let d = validateFxpa(newAuthoredDoc('T')).data;
+  d = setLineText(d, 'L1', 'one');
+  d = addLine(d, 'L1', 'two'); d = addLine(d, d.lines[1].id, 'three'); d = addLine(d, d.lines[2].id, 'four');
+  const ids = d.lines.map((l) => l.id);
+  d = groupUnits(d, [ids[0], ids[1]], { joinType: 'asym', head: ids[1], relation: 'grounds' });
+  d = groupUnits(d, ['G1', ids[2]], { joinType: 'sym', relation: 'ADDITION' });
+  eq(d.tree.length, 2, 'two groups to start');
+
+  // Deleting one member of the inner pair leaves it with ONE child → it must dissolve, and its
+  // survivor must be promoted into the parent rather than vanishing.
+  d = deleteLine(d, ids[0]);
+  ok(validateFxpa(JSON.parse(serializeFxpa(d))).ok, 'the document still validates after the delete');
+  eq(d.tree.length, 1, 'the one-child group dissolved');
+  eq(d.tree[0].children.sort(), [ids[1], ids[2]].sort(), 'and its survivor was promoted into the parent');
+  ok(!d.lines.some((l) => l.id === ids[0]), 'the line is gone');
+
+  // Deleting the HEAD of an asym group must not leave a dangling head reference.
+  let e = validateFxpa(newAuthoredDoc('T2')).data;
+  e = setLineText(e, 'L1', 'a'); e = addLine(e, 'L1', 'b'); e = addLine(e, e.lines[1].id, 'c');
+  const eids = e.lines.map((l) => l.id);
+  e = groupUnits(e, eids, { joinType: 'asym', head: eids[0], relation: 'x' });
+  e = deleteLine(e, eids[0]);
+  ok(validateFxpa(JSON.parse(serializeFxpa(e))).ok, 'still valid after deleting the head');
+  ok(e.tree[0].children.includes(e.tree[0].head), 'the head points at a member that still exists');
+
+  throws(() => deleteLine(validateFxpa(newAuthoredDoc('T3')).data, 'L1'), 'the last line cannot be deleted');
 }
 
 console.log('round-trip');

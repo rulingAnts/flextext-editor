@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v189';
+export const ENGINE_VERSION = 'v190';
 
 const S = {
 en: {
@@ -1124,6 +1124,12 @@ internet after the first time.</p>
   'para.selCount': '{n} units selected',
   'para.clearSel': 'Clear selection',
   'para.clearSelTip': 'Deselect everything (or press Esc)',
+  'para.scratchIntro': 'Or build a diagram from scratch — type the propositions yourself, with no recording or language data at all.',
+  'para.scratchBtn': 'Start a new diagram',
+  'para.scratchTitle': 'New diagram',
+  'para.scratchPlaceholder': 'Type a proposition…',
+  'para.scratchAddLine': '+ Line',
+  'para.scratchHint': 'Type a proposition on each line. Press Enter for a new line, Backspace on an empty line to remove it. Then select a run of lines and press Group, exactly as with an imported text.',
   'para.exportBtn': 'Export…',
   'para.exportTitle': 'Export this analysis',
   'para.exportWhat': 'What to export',
@@ -2281,6 +2287,12 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.selCount': '{n} unit terpilih',
   'para.clearSel': 'Batalkan pilihan',
   'para.clearSelTip': 'Batalkan semua pilihan (atau tekan Esc)',
+  'para.scratchIntro': 'Atau bangun diagram dari nol — ketik sendiri proposisinya, tanpa rekaman atau data bahasa sama sekali.',
+  'para.scratchBtn': 'Mulai diagram baru',
+  'para.scratchTitle': 'Diagram baru',
+  'para.scratchPlaceholder': 'Ketik sebuah proposisi…',
+  'para.scratchAddLine': '+ Baris',
+  'para.scratchHint': 'Ketik satu proposisi pada tiap baris. Tekan Enter untuk baris baru, Backspace pada baris kosong untuk menghapusnya. Lalu pilih serangkaian baris dan tekan Kelompokkan, persis seperti pada teks yang diimpor.',
   'para.exportBtn': 'Ekspor…',
   'para.exportTitle': 'Ekspor analisis ini',
   'para.exportWhat': 'Apa yang diekspor',

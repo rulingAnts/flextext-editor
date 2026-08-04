@@ -93,6 +93,86 @@ export function serializeFxpa(data) {
   return JSON.stringify(data);
 }
 
+/* ---------------- authored documents (built in the app, not imported) ----------------
+ *
+ * Seth, 2026-08-05: a user may build a diagram from scratch out of typed propositions — but
+ * explicitly NOT edit imported language data. `authored: true` on the document is what enforces
+ * that: the editing operations below refuse to run on anything else, so an imported text's words,
+ * glosses, speakers and time spans can never be altered by this path. Text is sacred, as in the
+ * segmentation engine; here there simply is no imported text to protect.
+ *
+ * An authored document is otherwise an ordinary .fxpa — no audio, lines with no words and no
+ * times — so grouping, labels, collapse and every export work on it unchanged. */
+
+export function newAuthoredDoc(title = '') {
+  return {
+    format: FXPA_FORMAT, version: FXPA_VERSION, title, vernLang: 'und', analLang: 'en',
+    authored: true,
+    lines: [{ id: 'L1', baseline: '', words: [] }],
+    tree: [],
+    view: { layer: 'baseline', free: false, audio: false, waves: 'off', collapsed: [], hideBlank: false },
+  };
+}
+
+const requireAuthored = (data) => {
+  if (!data.authored) throw new Error('This text was imported — its wording cannot be edited here.');
+};
+
+const nextLineId = (data) => {
+  let n = data.lines.length + 1;
+  const taken = new Set(data.lines.map((l) => l.id));
+  while (taken.has('L' + n)) n++;
+  return 'L' + n;
+};
+
+// Insert a new empty line AFTER `afterId` (or at the end). A new line is always parentless: it
+// joins no group, because dropping it into one would silently change that grouping's meaning.
+export function addLine(data, afterId = null, text = '') {
+  requireAuthored(data);
+  const line = { id: nextLineId(data), baseline: String(text || ''), words: [] };
+  const at = afterId ? data.lines.findIndex((l) => l.id === afterId) : data.lines.length - 1;
+  const lines = [...data.lines];
+  lines.splice(at < 0 ? lines.length : at + 1, 0, line);
+  return { ...data, lines, _added: line.id };
+}
+
+export function setLineText(data, id, text) {
+  requireAuthored(data);
+  if (!data.lines.some((l) => l.id === id)) throw new Error('No such line.');
+  return { ...data, lines: data.lines.map((l) => (l.id === id ? { ...l, baseline: String(text ?? '') } : l)) };
+}
+
+/* Delete a line, and keep the TREE valid: pull it out of any group, then dissolve any group left
+ * with fewer than two children (cascading upward), promoting the survivor to the parent. Without
+ * this a delete leaves one-child groups, which validateFxpa rejects — the file would refuse to
+ * reopen after an edit that appeared to work. */
+export function deleteLine(data, id) {
+  requireAuthored(data);
+  if (data.lines.length <= 1) throw new Error('A text needs at least one line.');
+  let tree = data.tree.map((g) => ({ ...g, children: g.children.filter((c) => c !== id) }));
+  const lines = data.lines.filter((l) => l.id !== id);
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const g of [...tree]) {
+      if (g.children.length >= 2) continue;
+      const survivor = g.children[0] || null;
+      tree = tree.filter((x) => x.id !== g.id)
+        .map((x) => ({ ...x, children: x.children.flatMap((c) => (c === g.id ? (survivor ? [survivor] : []) : [c])) }));
+      changed = true;
+      break;
+    }
+  }
+  // A head that was deleted (or promoted away) must not dangle.
+  tree = tree.map((g) => {
+    if (g.joinType !== 'asym' || g.children.includes(g.head)) return g;
+    return { ...g, head: g.children[0] };
+  });
+  const collapsed = (data.view.collapsed || []).filter((c) => tree.some((g) => g.id === c));
+  return { ...data, lines, tree, view: { ...data.view, collapsed } };
+}
+
 /* ---------------- lookup / order ---------------- */
 
 export const isGroupId = (id) => /^G\d+$/.test(String(id));

@@ -1252,6 +1252,11 @@ main {
 .pa-open h1 { font-size: 26px; margin-bottom: 6px; }
 .pa-drop { border: 2px dashed var(--border); border-radius: 14px; padding: 36px 20px; margin: 18px 0; background: var(--panel); }
 .pa-drop.over { border-color: var(--blue); background: #e8f0fb; }
+.pa-scratch { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+/* An authored line IS a text box — imported language data never gets one. */
+.pa-edit { width: 100%; font: 16px/1.4 inherit; color: var(--vern); padding: 4px 6px; border: 1px solid transparent; border-radius: 6px; background: transparent; }
+.pa-edit:hover { border-color: var(--border); }
+.pa-edit:focus { border-color: var(--blue); background: #fff; outline: none; }
 /* ELAN import wizard: role → tier, with a live preview so a wrong choice is caught before import. */
 .pa-wizard { max-width: 760px; text-align: left; padding-bottom: 40px; }
 .pa-wizard h1 { text-align: center; }

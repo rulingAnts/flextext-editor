@@ -6,7 +6,7 @@
  *
  * Run: node test/paragraph-export.test.mjs
  */
-import { validateFxpa } from '../docs/js/paragraph-model.js';
+import { validateFxpa, groupUnits } from '../docs/js/paragraph-model.js';
 import { buildParagraphPreviewHtml, buildSsaSvg, buildSsaDiagramHtml, ssaLayout, leavesOfLine, topUnitsOf, leafLineIds, summaryText } from '../docs/js/paragraph-export.js';
 
 let fail = 0;
@@ -157,10 +157,65 @@ console.log('\nSSA layout');
   eq(bl.rows[0].text, 'ana bete', 'the vernacular can be shown instead');
 
   // Wrapping uses an INJECTED measurement, so the app can pass real canvas metrics.
-  const wide = ssaLayout(doc, { width: 2000, measure: () => 10 });
-  const narrow = ssaLayout(doc, { width: 300, measure: (t) => t.length * 30 });
-  ok(narrow.rows[0].lines.length > wide.rows[0].lines.length, 'narrower layout wraps into more lines');
+  const wide = ssaLayout(doc, { textWidth: 2000, measure: () => 10 });
+  const narrow = ssaLayout(doc, { textWidth: 60, measure: (t) => t.length * 30 });
+  ok(narrow.rows[0].blocks.items.length > wide.rows[0].blocks.items.length, 'narrower layout wraps into more lines');
   ok(narrow.height > wide.height, 'and is therefore taller');
+
+  /* ⚠ THE TEXT COLUMN MUST NEVER BE PUSHED OFF THE CANVAS (Seth, 2026-08-05: "language data isn't
+   * showing up in the diagram at all — at least if the diagram is at all thorough"). The text used
+   * to get whatever width was LEFT OVER after the tree, so a deep analysis drew every line beyond
+   * the right-hand edge, invisible. The canvas now grows instead. */
+  let deep = doc;
+  for (let i = 0; i < 5; i++) deep = { ...deep, tree: deep.tree };   // shape kept; depth exercised below
+  const shallow = ssaLayout(doc, { textWidth: 400 });
+  ok(shallow.textX + shallow.textWidth <= shallow.width, 'text fits inside the canvas');
+  const indented = ssaLayout(doc, { textWidth: 400, levelWidth: 400 });
+  ok(indented.textX + indented.textWidth <= indented.width,
+     'and still fits when a wide indent pushes the tree out — the canvas grows, the text is not squeezed');
+  ok(indented.width > shallow.width, 'a wider tree makes a wider diagram, not an invisible one');
+  ok(indented.textWidth === shallow.textWidth, 'the requested text width is honoured either way');
+
+  /* INTERLINEAR IN THE DIAGRAM (Seth, 2026-08-05): "one of the things that's unique about the tool
+   * we're building is the ability to include, work with, and render interlinear text. Make sure
+   * that's preserved, matching whatever view settings the user had before they exported." */
+  {
+    const il = ssaLayout(doc, { layer: 'interlinear', free: true });
+    const cells = il.rows[0].blocks.items.filter((i) => i.type === 'words').flatMap((i) => i.cells);
+    ok(cells.length > 0, 'interlinear rows carry word cells');
+    ok(cells.some((c) => c.txt === 'ana' && c.gls === '3SG'), 'each cell pairs a word with ITS gloss');
+    ok(il.rows[0].blocks.items.some((i) => i.type === 'free'), 'and the free translation rides along when the viewer showed it');
+    ok(!ssaLayout(doc, { layer: 'interlinear', free: false }).rows[0].blocks.items.some((i) => i.type === 'free'),
+       'free translation off in the viewer means off in the diagram');
+
+    const svg = buildSsaSvg(doc, { layer: 'interlinear', free: true });
+    ok(svg.includes('>ana<') && svg.includes('>3SG<'), 'the vernacular word AND its gloss reach the SVG');
+
+    // The default is unchanged: SSA states propositions in the analysis language.
+    ok(!buildSsaSvg(doc, {}).includes('>ana<'), 'default export is still the free translation, not the vernacular');
+  }
+
+  /* ROLE vs RELATION (Seth, 2026-08-05): "the relationship label wins and the daughter label
+   * doesn't appear at all... daughter groups can have a relationship label as well as a
+   * daughter/item label at the same time". A group's own role used to be dropped entirely. */
+  {
+    let n = validateFxpa({ format: 'flextext-paragraph-analysis', version: 1,
+      lines: [{ id: 'L1', free: 'one' }, { id: 'L2', free: 'two' }, { id: 'L3', free: 'three' }], tree: [] }).data;
+    n = groupUnits(n, ['L1', 'L2'], { joinType: 'asym', head: 'L2', relation: 'grounds–CONCLUSION' });
+    n = groupUnits(n, ['G1', 'L3'], { joinType: 'asym', head: 'G1', relation: 'CONTENT–result',
+                                      labels: { G1: 'CONTENT', L3: 'result' } });
+    const svg = buildSsaSvg(n, {});
+    ok(svg.includes('grounds–CONCLUSION'), "the inner group's relation is drawn");
+    ok(svg.includes('CONTENT–result'), "the outer group's relation is drawn");
+    ok(svg.includes('>CONTENT<'), "AND the inner group's ROLE in its parent is drawn — it used to vanish");
+    ok(svg.includes('>result<'), 'the sibling leaf keeps its role too');
+
+    // Either label can be suppressed, as published SSA displays often do.
+    ok(!buildSsaSvg(n, { labels: 'relations' }).includes('>CONTENT<'), 'labels:relations hides the roles');
+    ok(buildSsaSvg(n, { labels: 'relations' }).includes('grounds–CONCLUSION'), 'labels:relations keeps the relations');
+    ok(!buildSsaSvg(n, { labels: 'roles' }).includes('grounds–CONCLUSION'), 'labels:roles hides the relations');
+    ok(buildSsaSvg(n, { labels: 'roles' }).includes('>CONTENT<'), 'labels:roles keeps the roles');
+  }
 
   // Collapsed groups collapse in the diagram too — one row, the summary.
   const col = ssaLayout(doc, { collapsed: ['G1'] });

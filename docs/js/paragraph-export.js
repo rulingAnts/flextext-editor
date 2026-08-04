@@ -361,12 +361,29 @@ export function ssaLayout(data, opts = {}) {
   const only = Array.isArray(opts.only) && opts.only.length ? new Set(opts.only) : null;
   const hideBlank = opts.hideBlank !== undefined ? opts.hideBlank
     : (data.view ? data.view.hideBlank !== false : true);
-  const textSource = opts.textSource || 'free';
+  /* WHAT EACH ROW SHOWS follows the VIEWER (Seth, 2026-08-05: "matching whatever view settings the
+   * user had before they exported — if their viewer was free translation only, export free
+   * translation only, if their viewer had interlinear, export that"). Carrying real interlinear
+   * text into the analysis is what makes this tool different from a bare diagramming tool, so the
+   * diagram has to be able to show words over glosses, not just a gloss line. */
+  /* The DEFAULT stays 'free' — SSA states its propositions in the analysis language, not the
+   * vernacular — and is NOT taken from data.view implicitly. The app passes the viewer's current
+   * layer explicitly, so "export what I am looking at" is a decision the caller makes rather than
+   * a surprise the library imposes on anyone rendering a document object.
+   * `textSource` is the older name for this option and still works. */
+  const layer = opts.layer || opts.textSource || 'free';
+  const showFree = opts.free !== undefined ? !!opts.free : true;
 
-  const textOf = (line, leaf) => {
-    if (leaf.isProp) return leaf.text || '';
-    if (textSource === 'baseline') return line.baseline || '';
-    return line.free || line.baseline || '';
+  const contentOf = (line, leaf) => {
+    if (leaf.isProp) return { kind: 'prop', text: leaf.text || '', implicit: !!leaf.implicit };
+    const words = (line.words || []).filter((w) => (w.txt || '').trim());
+    if (layer === 'interlinear' && words.length) {
+      return { kind: 'interlinear', words, free: showFree ? (line.free || '') : '' };
+    }
+    if (layer === 'baseline') return { kind: 'text', text: line.baseline || '', free: showFree ? (line.free || '') : '' };
+    // 'free' (and interlinear/baseline with nothing to show) — never render an empty row when
+    // there IS text available on the other line.
+    return { kind: 'text', text: line.free || line.baseline || '', free: '' };
   };
 
   const rows = [];
@@ -379,7 +396,8 @@ export function ssaLayout(data, opts = {}) {
       const g = node(data, id);
       if (!g) return null;
       if (collapsed.has(id)) {
-        rows.push({ depth, label: roleLabel, text: summaryText(data, id), head: !!isHead, collapsed: true });
+        rows.push({ depth, label: roleLabel, content: { kind: 'text', text: summaryText(data, id), free: '' },
+                    head: !!isHead, collapsed: true });
         return { kind: 'leaf', depth, row: rows.length - 1, label: roleLabel, head: !!isHead };
       }
       const kids = [];
@@ -395,7 +413,7 @@ export function ssaLayout(data, opts = {}) {
     const l = node(data, id);
     if (!l) return null;
     const leaves = leavesOfLine(l).map((leaf) => {
-      rows.push({ depth, label: roleLabel, text: textOf(l, leaf), head: !!isHead,
+      rows.push({ depth, label: roleLabel, content: contentOf(l, leaf), head: !!isHead,
                   implicit: !!leaf.implicit, speaker: l.speaker || '' });
       return { kind: 'leaf', depth, row: rows.length - 1, label: roleLabel, head: !!isHead };
     });
@@ -411,16 +429,30 @@ export function ssaLayout(data, opts = {}) {
     if (n) roots.push(n);
   }
 
+  /* ⚠ THE TEXT COLUMN IS A FIXED WIDTH AND THE CANVAS GROWS TO HOLD IT (Seth, 2026-08-05: lines
+   * too long, "the diagram is too wide", and "language data isn't showing up at all — at least if
+   * the diagram is at all thorough"). Both were the SAME arithmetic: the text column used to be
+   * whatever was LEFT OVER after the tree (`width - textX - pad`), so a deep analysis — exactly the
+   * thorough ones — pushed textX out to the full canvas width and every line of text was drawn
+   * beyond the right edge, invisible. Now `textWidth` is what the user asks for, the canvas is
+   * whatever that needs, and the HTML wrapper scrolls. Wrapping keeps any single row from running
+   * away; `levelWidth` lets a deep tree be tightened instead of truncated. */
   const treeWidth = (maxDepth + 1) * o.levelWidth;
   const labelX = o.pad + treeWidth + o.gutter;
   const textX = labelX + o.labelWidth + o.gutter;
-  const textWidth = Math.max(160, o.width - textX - o.pad);
+  const textWidth = Math.max(120, o.textWidth || (o.width - textX - o.pad));
+  const width = Math.max(o.width, textX + textWidth + o.pad);
 
+  const glossSize = o.fontSize * 0.78;
   let y = o.pad;
   for (const r of rows) {
-    r.lines = wrapText(r.text, textWidth, o.fontSize, measure);
+    // A plain-text view of the row, whatever the layer — handy for tests, search and PNG alt text.
+    r.text = r.content.kind === 'interlinear'
+      ? r.content.words.map((w) => w.txt).join(' ')
+      : (r.content.text || '');
+    r.blocks = layoutContent(r.content, textWidth, o, measure);
     r.y = y;
-    r.height = Math.max(o.lineHeight, r.lines.length * o.lineHeight);
+    r.height = Math.max(o.lineHeight, r.blocks.height);
     r.midY = y + r.height / 2;
     y += r.height;
   }
@@ -436,8 +468,50 @@ export function ssaLayout(data, opts = {}) {
   };
   roots.forEach(anchor);
 
-  return { rows, roots, opts: o, labelX, textX, textWidth, treeWidth, maxDepth,
-           height: y + o.pad, width: o.width, measure };
+  return { rows, roots, opts: o, labelX, textX, textWidth, treeWidth, maxDepth, glossSize,
+           height: y + o.pad, width, measure };
+}
+
+/* One row's drawable content, measured. Returns { items[], height } where each item is a piece
+ * positioned relative to the row's top: a run of words with their glosses underneath, a wrapped
+ * paragraph of text, or the free translation. Interlinear is the reason this exists — a word and
+ * its gloss are ONE unit that must not be split across a wrap. */
+function layoutContent(content, maxWidth, o, measure) {
+  const c = content || { kind: 'text', text: '' };
+  const items = [];
+  let y = 0;
+  const glossSize = o.fontSize * 0.78;
+
+  if (c.kind === 'interlinear') {
+    const gap = Math.max(8, o.fontSize * 0.6);
+    let line = [], x = 0;
+    for (const w of c.words) {
+      const txt = w.txt || '', gls = w.gls || '';
+      const cell = Math.max(measure(txt, o.fontSize), measure(gls, glossSize));
+      if (line.length && x + cell > maxWidth) {
+        items.push({ type: 'words', y, cells: line });
+        y += o.fontSize * 1.25 + glossSize * 1.35;
+        line = []; x = 0;
+      }
+      line.push({ txt, gls, x });
+      x += cell + gap;
+    }
+    if (line.length) { items.push({ type: 'words', y, cells: line }); y += o.fontSize * 1.25 + glossSize * 1.35; }
+  } else {
+    const text = c.kind === 'prop' ? c.text : c.text;
+    for (const ln of wrapText(text, maxWidth, o.fontSize, measure)) {
+      items.push({ type: 'line', y, text: ln, implicit: c.kind === 'prop' && c.implicit });
+      y += o.lineHeight;
+    }
+  }
+
+  if (c.free) {
+    for (const ln of wrapText(c.free, maxWidth, glossSize, measure)) {
+      items.push({ type: 'free', y, text: ln });
+      y += glossSize * 1.5;
+    }
+  }
+  return { items, height: Math.max(o.lineHeight, y + 6) };
 }
 
 function wrapText(text, maxWidth, fontSize, measure) {
@@ -471,6 +545,10 @@ export function buildSsaSvg(data, opts = {}) {
   const o = L.opts;
   const measure = L.measure;
   const showBrackets = opts.brackets !== false;
+  // 'both' | 'relations' | 'roles' — a published SSA display often shows only one of the two.
+  const labelMode = opts.labels || 'both';
+  const showRelations = labelMode !== 'roles';
+  const showRoles = labelMode !== 'relations';
   const xOf = (depth) => o.pad + depth * o.levelWidth;
   const parts = [];
   parts.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${L.width}" height="${Math.round(L.height)}" viewBox="0 0 ${L.width} ${Math.round(L.height)}" font-family="Helvetica, Arial, sans-serif">`);
@@ -496,26 +574,60 @@ export function buildSsaSvg(data, opts = {}) {
     }
     // this group's own line toward its parent — the TRUNK, thicker when it is the prominent one
     line(x, n.anchorY, xc, n.anchorY, n.head ? 2.4 : 1.6, false);
-    if (n.relation && !n.segment) {
-      const room = o.levelWidth - 14;
-      const label = fitToLength(n.relation, room, 11, measure);
-      if (label) parts.push(`<text x="${x + 5}" y="${n.anchorY - 5}" font-size="11" fill="#163a6b">${esc(label)}</text>`);
+    /* ⚠ A GROUP CARRIES TWO INDEPENDENT LABELS AND BOTH MUST BE READABLE (Seth, 2026-08-05:
+     * "daughter element labels and mother relationship labels are rendered in the same space and
+     * when that happens, the relationship label wins and the daughter label doesn't appear at
+     * all... daughter groups can have a relationship label as well as a daughter/item label at the
+     * same time"). They are different things: RELATION names how this group's own children relate
+     * to each other; ROLE names what this group is to its PARENT. Previously a group's role was
+     * simply never drawn — only leaf rows got one — so nesting silently lost it.
+     * They now occupy different bands of the trunk: the relation ABOVE the line, the role BELOW
+     * it. Different bands rather than different x, so they cannot overprint however long they get.
+     * `labels` chooses which are drawn: published SSA displays often show only one or the other. */
+    if (!n.segment) {
+      const room = o.levelWidth - 12;
+      if (n.relation && showRelations) {
+        const lab = fitToLength(n.relation, room, 11, measure);
+        if (lab) parts.push(`<text x="${x + 5}" y="${n.anchorY - 5}" font-size="11" fill="#163a6b">${esc(lab)}</text>`);
+      }
+      if (n.label && showRoles) {
+        const lab = fitToLength(n.label, room, 10.5, measure);
+        // A prominent member is written in caps by convention; colour marks it here too.
+        if (lab) parts.push(`<text x="${x + 5}" y="${n.anchorY + 12}" font-size="10.5" font-weight="${n.head ? 700 : 600}" fill="${n.head ? '#2a6e2a' : '#5b6470'}">${esc(lab)}</text>`);
+      }
     }
     n.kids.forEach(draw);
   };
   L.roots.forEach(draw);
 
   for (const r of L.rows) {
-    const baseY = r.y + (r.height - (r.lines.length - 1) * o.lineHeight) / 2 + o.fontSize * 0.36;
-    if (r.label) {
+    const items = r.blocks.items;
+    const top = r.y + Math.max(0, (r.height - r.blocks.height) / 2);
+    const firstY = top + o.fontSize * 0.9;
+    if (r.label && showRoles) {
       const lab = fitToLength(r.label, o.labelWidth, 12, measure);
-      parts.push(`<text x="${L.labelX}" y="${baseY}" font-size="12" font-weight="${r.head ? 700 : 600}" fill="${r.head ? '#2a6e2a' : '#163a6b'}">${esc(lab)}</text>`);
+      parts.push(`<text x="${L.labelX}" y="${firstY}" font-size="12" font-weight="${r.head ? 700 : 600}" fill="${r.head ? '#2a6e2a' : '#163a6b'}">${esc(lab)}</text>`);
     }
-    if (r.speaker) parts.push(`<text x="${L.labelX}" y="${baseY + 13}" font-size="10" fill="#6b21a8">${esc(r.speaker)}</text>`);
-    r.lines.forEach((ln, i) => {
-      const txt = (r.implicit && showBrackets) ? ((i === 0 ? '(' : '') + ln + (i === r.lines.length - 1 ? ')' : '')) : ln;
-      parts.push(`<text x="${L.textX}" y="${baseY + i * o.lineHeight}" font-size="${o.fontSize}" fill="${r.implicit ? '#5b6470' : '#1a1d21'}"${r.implicit ? ' font-style="italic"' : ''}>${esc(txt)}</text>`);
-    });
+    if (r.speaker) parts.push(`<text x="${L.labelX}" y="${firstY + 13}" font-size="10" fill="#6b21a8">${esc(r.speaker)}</text>`);
+    const nLines = items.filter((it) => it.type === 'line').length;
+    let seen = 0;
+    for (const it of items) {
+      const y = top + it.y + o.fontSize * 0.9;
+      if (it.type === 'words') {
+        // A word sits over its gloss; the pair was measured as one cell so it never splits.
+        for (const c of it.cells) {
+          parts.push(`<text x="${L.textX + c.x}" y="${y}" font-size="${o.fontSize}" fill="#1a4d8f">${esc(c.txt)}</text>`);
+          if (c.gls) parts.push(`<text x="${L.textX + c.x}" y="${y + L.glossSize * 1.35}" font-size="${L.glossSize}" fill="#2a6e2a">${esc(c.gls)}</text>`);
+        }
+      } else if (it.type === 'free') {
+        parts.push(`<text x="${L.textX}" y="${y}" font-size="${L.glossSize}" fill="#454b54" font-style="italic">${esc(it.text)}</text>`);
+      } else {
+        const txt = (it.implicit && showBrackets)
+          ? ((seen === 0 ? '(' : '') + it.text + (seen === nLines - 1 ? ')' : '')) : it.text;
+        seen++;
+        parts.push(`<text x="${L.textX}" y="${y}" font-size="${o.fontSize}" fill="${it.implicit ? '#5b6470' : '#1a1d21'}"${it.implicit ? ' font-style="italic"' : ''}>${esc(txt)}</text>`);
+      }
+    }
   }
   parts.push('</svg>');
   return parts.join('\n');

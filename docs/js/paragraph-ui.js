@@ -1411,6 +1411,30 @@ function openExportDialog() {
           </select></label>
         <label class="check-label"><input type="checkbox" id="pa-exp-audio" ${state.audio ? 'checked' : 'disabled'}>
           ${esc(t('para.exportWithAudio'))}</label>
+        <div id="pa-exp-diagram" hidden>
+          <label class="pa-field"><span>${esc(t('para.exportTextWidth'))}</span>
+            <select id="pa-exp-tw">
+              <option value="300">${esc(t('para.widthNarrow'))}</option>
+              <option value="440" selected>${esc(t('para.widthMedium'))}</option>
+              <option value="640">${esc(t('para.widthWide'))}</option>
+              <option value="900">${esc(t('para.widthVeryWide'))}</option>
+            </select></label>
+          <label class="pa-field"><span>${esc(t('para.exportIndent'))}</span>
+            <select id="pa-exp-lw">
+              <option value="70">${esc(t('para.indentTight'))}</option>
+              <option value="120" selected>${esc(t('para.indentNormal'))}</option>
+              <option value="180">${esc(t('para.indentRoomy'))}</option>
+            </select></label>
+          <label class="pa-field"><span>${esc(t('para.exportLabels'))}</span>
+            <select id="pa-exp-labels">
+              <option value="both" selected>${esc(t('para.labelsBoth'))}</option>
+              <option value="relations">${esc(t('para.labelsRelations'))}</option>
+              <option value="roles">${esc(t('para.labelsRoles'))}</option>
+            </select></label>
+          <label class="check-label"><input type="checkbox" id="pa-exp-view" checked>
+            ${esc(t('para.exportMatchView'))}</label>
+          <p class="note">${esc(t('para.exportDiagramHint'))}</p>
+        </div>
         ${collapsedCount ? `<div class="banner warn-banner"><span>${esc(t('para.exportCollapsedWarn', { n: collapsedCount }))}</span></div>` : ''}
       </div>
       <div class="pa-modal-actions">
@@ -1424,6 +1448,7 @@ function openExportDialog() {
       t(k === 'preview' ? 'para.exportPreviewNote' : k === 'diagram' ? 'para.exportDiagramNote' : 'para.exportSvgNote');
     // Audio only means anything for the interactive page; a diagram is a picture.
     dlg.querySelector('#pa-exp-audio').disabled = k !== 'preview' || !state.audio;
+    dlg.querySelector('#pa-exp-diagram').hidden = k === 'preview';
   });
   dlg.querySelector('#pa-exp-cancel').addEventListener('click', () => { dlg.hidden = true; dlg.innerHTML = ''; });
   dlg.querySelector('#pa-exp-go').addEventListener('click', runExport);
@@ -1444,7 +1469,19 @@ function runExport() {
     measure: measureText,
   };
   if (kind === 'diagram' || kind === 'svg') {
-    const out = kind === 'svg' ? buildSsaSvg(state, common) : buildSsaDiagramHtml(state, common);
+    // Diagram geometry is the user's call — a long line or a deep analysis needs different room,
+    // and guessing it for them was what produced diagrams too wide to use (Seth, 2026-08-05).
+    const matchView = dlg.querySelector('#pa-exp-view').checked;
+    const diagram = { ...common,
+      textWidth: +dlg.querySelector('#pa-exp-tw').value,
+      levelWidth: +dlg.querySelector('#pa-exp-lw').value,
+      labels: dlg.querySelector('#pa-exp-labels').value,
+      // "matching whatever view settings the user had before they exported" — otherwise the
+      // library default (free translation only, the SSA convention).
+      layer: matchView ? state.view.layer : 'free',
+      free: matchView ? state.view.free !== false : false,
+    };
+    const out = kind === 'svg' ? buildSsaSvg(state, diagram) : buildSsaDiagramHtml(state, diagram);
     downloadFile(out, safeName(state.title) + (kind === 'svg' ? '.ssa.svg' : '.ssa.html'),
                  kind === 'svg' ? 'image/svg+xml' : 'text/html');
     dlg.hidden = true; dlg.innerHTML = '';

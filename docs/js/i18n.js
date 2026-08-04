@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v194';
+export const ENGINE_VERSION = 'v195';
 
 const S = {
 en: {
@@ -1124,6 +1124,21 @@ internet after the first time.</p>
   'para.selCount': '{n} units selected',
   'para.clearSel': 'Clear selection',
   'para.clearSelTip': 'Deselect everything (or press Esc)',
+  'para.exportTextWidth': 'Text column',
+  'para.widthNarrow': 'Narrow',
+  'para.widthMedium': 'Medium',
+  'para.widthWide': 'Wide',
+  'para.widthVeryWide': 'Very wide',
+  'para.exportIndent': 'Indent per level',
+  'para.indentTight': 'Tight',
+  'para.indentNormal': 'Normal',
+  'para.indentRoomy': 'Roomy',
+  'para.exportLabels': 'Labels to show',
+  'para.labelsBoth': 'Relations and roles',
+  'para.labelsRelations': 'Relations only',
+  'para.labelsRoles': 'Roles only',
+  'para.exportMatchView': 'Show what I am looking at (interlinear, glosses, free translation)',
+  'para.exportDiagramHint': 'A deep analysis makes a wide diagram — it scrolls rather than squeezing the text. Tighten the indent to narrow it.',
   'para.collapseAll': 'Collapse all',
   'para.expandAll': 'Expand all',
   'para.collapseAllTip': 'Collapse every group in the text',
@@ -2294,6 +2309,21 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.selCount': '{n} unit terpilih',
   'para.clearSel': 'Batalkan pilihan',
   'para.clearSelTip': 'Batalkan semua pilihan (atau tekan Esc)',
+  'para.exportTextWidth': 'Kolom teks',
+  'para.widthNarrow': 'Sempit',
+  'para.widthMedium': 'Sedang',
+  'para.widthWide': 'Lebar',
+  'para.widthVeryWide': 'Sangat lebar',
+  'para.exportIndent': 'Lekuk per tingkat',
+  'para.indentTight': 'Rapat',
+  'para.indentNormal': 'Normal',
+  'para.indentRoomy': 'Longgar',
+  'para.exportLabels': 'Label yang ditampilkan',
+  'para.labelsBoth': 'Relasi dan peran',
+  'para.labelsRelations': 'Relasi saja',
+  'para.labelsRoles': 'Peran saja',
+  'para.exportMatchView': 'Tampilkan seperti yang saya lihat (interlinear, gloss, terjemahan bebas)',
+  'para.exportDiagramHint': 'Analisis yang dalam menghasilkan diagram lebar — diagram digulir, teks tidak dipadatkan. Rapatkan lekuk untuk mempersempit.',
   'para.collapseAll': 'Tutup semua',
   'para.expandAll': 'Buka semua',
   'para.collapseAllTip': 'Tutup semua kelompok dalam teks',

@@ -13,7 +13,7 @@
 import { t, applyI18n, ENGINE_VERSION } from './i18n.js';
 import * as db from './db.js';
 import { parseFlextext, segmentsFromOffsets, esc } from './flextext.js';
-import { buildFxpa } from './seg-exports.js';
+import { buildFxpa, peakPlan } from './seg-exports.js';
 import { readEaf, describeTiers, detectMapping, detectStacks, looksMultiSpeaker, eafToLines } from './eaf-read.js';
 import { parseSfm, markerInventory, detectMapping as detectSfmMapping, sfmToTexts } from './sfm.js';
 import { buildParagraphPreviewHtml, buildSsaSvg, buildSsaDiagramHtml } from './paragraph-export.js';
@@ -582,8 +582,9 @@ function setupAudio() {
   const ctx = new AC();
   ctx.decodeAudioData(u8.buffer.slice(0)).then((buf) => {
     const ch = buf.getChannelData(0);
-    const B = Math.min(2000000, Math.max(4000, Math.round(buf.duration * 2000)));
-    const per = Math.max(1, Math.floor(ch.length / B));
+    // peakPlan, not an inline floor: flooring leaves the tail of the file with no buckets at all,
+    // which is what made the overview and the last lines drift (see peakPlan's note).
+    const { buckets: B, per, msPerBucket } = peakPlan(ch.length, buf.sampleRate, buf.duration);
     peaks = new Float32Array(B);
     for (let b = 0; b < B; b++) {
       let m = 0;
@@ -591,7 +592,7 @@ function setupAudio() {
       for (let i = off; i < end; i += 4) { const v = Math.abs(ch[i]); if (v > m) m = v; }
       peaks[b] = m;
     }
-    mpb = (per / buf.sampleRate) * 1000;
+    mpb = msPerBucket;
     durMs = Math.round(buf.duration * 1000);
     try { ctx.close(); } catch { /* noop */ }
     drawAllWaves();

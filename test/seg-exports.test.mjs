@@ -1,7 +1,7 @@
 /* Segmentation export formats: EAF (both profiles), flextext timestamps, preview page, bext.
  * Pure-module tests — seg-exports.js and flextext.js must run under plain node (the format-module
  * rule); any DOM dependency creeping in fails here first. */
-import { serializeEaf, serializeEafPrefs, buildSegPreviewHtml, wavWithBext, fmtClock, buildFxpa } from '../docs/js/seg-exports.js';
+import { serializeEaf, serializeEafPrefs, buildSegPreviewHtml, wavWithBext, fmtClock, buildFxpa, peakPlan } from '../docs/js/seg-exports.js';
 import { serializeFlextext, reconcileBaseline, makeDoc, segmentsFromOffsets } from '../docs/js/flextext.js';
 
 let failures = 0;
@@ -73,6 +73,41 @@ console.log('EAF — SayMore profile + pending segments');
   ok((eaf.match(/<TIER /g) || []).length === 2, 'SayMore file has exactly two tiers');
   const bare = [...eaf.matchAll(/<TIME_SLOT TIME_SLOT_ID="[^"]+"\/>/g)].length;
   ok(bare === 2, `pending segment gets value-less TIME_SLOTs (ELAN's unaligned mechanism), got ${bare}`);
+}
+
+/* The waveform-drift bug (Seth, 2026-08-05): the overview and the last lines of a recording drew
+ * the WRONG audio, worse the further into the file you went. Cause: peak buckets sized with FLOOR
+ * cover fewer samples than the file has, so times past that point clamp to the end of the array. */
+console.log('peak buckets must cover the WHOLE recording (the waveform-drift bug)');
+{
+  const covers = (samples, sr, dur, opts) => {
+    const p = peakPlan(samples, sr, dur, opts);
+    return { plan: p, coversMs: p.buckets * p.msPerBucket, durMs: dur * 1000,
+             ok: p.buckets * p.per >= samples && p.buckets * p.msPerBucket >= dur * 1000 - 0.5 };
+  };
+  // THE EXACT FILE THAT BROKE: 62.25 s decoded to 2,987,990 samples at 48 kHz. 2987990/124500 =
+  // 23.9999 — floor gave per=23, covering only 59.66 s, losing the last 2.6 SECONDS of peaks.
+  const real = covers(2987990, 48000, 62.25);
+  ok(real.plan.per === 24, `the real failing file gets per=24, not the floored 23 (got ${real.plan.per})`);
+  ok(real.ok, `and its buckets span the whole 62.25 s (span ${Math.round(real.coversMs)} ms)`);
+  ok(Math.max(1, Math.floor(2987990 / 124500)) === 23, 'floor really would have truncated it — this is not a hypothetical');
+
+  // A spread of durations and the three common sample rates: coverage must never fall short.
+  let short = 0;
+  for (const sr of [44100, 48000, 22050]) {
+    for (const dur of [0.4, 1, 7.77, 62.25, 125.3, 601.9, 3600]) {
+      const samples = Math.round(dur * sr) - (dur > 1 ? 10 : 0);   // decoders routinely return a few less
+      if (!covers(samples, sr, dur).ok) { short++; console.log(`        short: ${dur}s @ ${sr}`); }
+      if (!covers(samples, sr, dur, { perSec: 800, min: 2000, max: 400000 }).ok) { short++; console.log(`        short (preview res): ${dur}s @ ${sr}`); }
+    }
+  }
+  ok(short === 0, 'every duration × sample-rate combination is fully covered');
+
+  // msPerBucket is the ONLY legal time conversion: bucket b starts at sample b*per.
+  const p = peakPlan(2987990, 48000, 62.25);
+  ok(Math.abs(p.msPerBucket - (p.per / 48000) * 1000) < 1e-9, 'msPerBucket is per/sampleRate, exactly');
+  ok(Math.floor(60140 / p.msPerBucket) < p.buckets,
+     'the last line of the real file now maps INSIDE the array instead of clamping to its end');
 }
 
 console.log('ELAN .pfsx — the tiers must open VERNACULAR-FIRST, not alphabetically inverted');

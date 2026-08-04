@@ -259,6 +259,38 @@ export function serializeEaf(doc, opts = {}) {
   return L.join('\n') + '\n';
 }
 
+/* ---------------- waveform peak bucketing ---------------- */
+
+/* HOW MANY SAMPLES PER PEAK BUCKET — and why this is CEIL, not FLOOR (Seth, 2026-08-05).
+ *
+ * A peaks array of `buckets` entries, each the max of `per` consecutive samples, is only usable as
+ * a TIME index if the buckets actually span the whole recording. With `per = floor(samples /
+ * buckets)` they do not: the array covers `buckets × per` samples, and the remainder — up to one
+ * whole bucket per bucket, i.e. nearly `buckets` samples — falls off the end.
+ *
+ * That is not a rounding wobble, it is a hard truncation. A real case: a 62.25 s file decoded to
+ * 2,987,990 samples at 48 kHz with 124,500 buckets gives 2,987,990/124,500 = 23.9999 → per = 23,
+ * so the peaks cover 2,863,500 samples = 59.66 s. The last 2.6 SECONDS have no peaks at all. Every
+ * consumer then converts a time to a bucket index and gets clamped at the end of the array, so:
+ *   - the overview drew 0–59.66 s stretched across a ruler labelled 0–62.25 s, displacing every
+ *     feature by a factor of 1.043 — a drift reaching 2.6 s at the right-hand edge, which is what
+ *     made the playhead and the waveform disagree WAY out of proportion late in a recording;
+ *   - the last line's strip drew only the part of its span below 59.66 s, stretched to full width.
+ * Gaps made it obvious rather than caused it: the further into the file a line sits, the worse.
+ *
+ * CEIL guarantees `buckets × per >= samples`, so every time in the file maps to a bucket that
+ * exists. Overshoot is harmless — the tail buckets simply sit past the audio and are never drawn,
+ * because a span is converted with msPerBucket, which stays exact either way.
+ *
+ * ⚠ Bucket b covers samples [b·per, (b+1)·per) — a bucket index is NOT b/buckets of the duration.
+ * Convert with msPerBucket and nothing else (the same rule segment-strips.js states). */
+export function peakPlan(sampleCount, sampleRate, durationSec, opts = {}) {
+  const perSec = opts.perSec || 2000;
+  const buckets = Math.min(opts.max || 2000000, Math.max(opts.min || 4000, Math.round(durationSec * perSec)));
+  const per = Math.max(1, Math.ceil(sampleCount / buckets));
+  return { buckets, per, msPerBucket: (per / sampleRate) * 1000 };
+}
+
 /* ---------------- ELAN display preferences (.pfsx) ---------------- */
 
 /* WHY THIS FILE EXISTS: opened cold, ELAN stacked the ANALYSIS tiers above the VERNACULAR ones —
@@ -411,7 +443,9 @@ ${body}
       actx.decodeAudioData(u8.buffer.slice(0)).then(function (buf) {
         var ch = buf.getChannelData(0);
         var B = Math.min(2000000, Math.max(4000, Math.round(buf.duration * 2000)));
-        var per = Math.max(1, Math.floor(ch.length / B));
+        // CEIL, never floor: flooring leaves the tail of the recording with no buckets, so every
+        // time past that point clamps to the end of the array and the waveform drifts (peakPlan).
+        var per = Math.max(1, Math.ceil(ch.length / B));
         peaks = new Float32Array(B);
         for (var b = 0; b < B; b++) {
           var m = 0, off = b * per, end = Math.min(ch.length, off + per);

@@ -14,7 +14,7 @@ import { t, applyI18n } from './i18n.js';
 import * as db from './db.js';
 import { parseFlextext, segmentsFromOffsets, esc } from './flextext.js';
 import { buildFxpa } from './seg-exports.js';
-import { readEaf, describeTiers, detectMapping, eafToLines } from './eaf-read.js';
+import { readEaf, describeTiers, detectMapping, detectStacks, looksMultiSpeaker, eafToLines } from './eaf-read.js';
 import {
   validateFxpa, serializeFxpa, groupUnits, ungroup, editGroup, toggleCollapse,
   topUnits, levelOf, spanOf, leavesOf, summaryOf, isGroupId, nodeById,
@@ -95,10 +95,14 @@ async function handleFiles(files) {
     if (eafFile) {
       const eaf = readEaf(await eafFile.text());
       if (!eaf.tiers.length) return renderOpen([t('para.errNoTiers')]);
+      // A conversation (several speaker tiers) is COLLAPSED into one time-ordered line list with
+      // speaker attributes — flextext's model, and the one this app works in (Seth, 2026-08-04).
+      const multi = looksMultiSpeaker(eaf);
       pendingEaf = {
         eaf,
         tiers: describeTiers(eaf),
         mapping: rememberedMapping(detectMapping(eaf), eaf),
+        stacks: multi ? detectStacks(eaf).map((st) => ({ ...st, use: true })) : null,
         audioFile: audioOf(files) || null,
         name: eafFile.name.replace(/\.eaf$/i, ''),
       };
@@ -155,7 +159,14 @@ function rememberedMapping(proposed, eaf) {
 }
 
 function currentMapping() {
-  const m = { title: pendingEaf.mapping.title || '' };
+  const P = pendingEaf;
+  const m = { title: P.mapping.title || '' };
+  if (P.stacks) {
+    // Multi-speaker: the stacks ARE the mapping. Each speaker keeps its own role tiers; the user
+    // only chooses who to include.
+    m.stacks = P.stacks.filter((st) => st.use);
+    return m;
+  }
   for (const r of ROLES) m[r] = ($('#pa-map-' + r) || {}).value || null;
   return m;
 }
@@ -178,13 +189,20 @@ function renderEafMapping(errors) {
       ${errors && errors.length ? `<div class="banner warn-banner"><span>${esc(errors.join(' '))}</span></div>` : ''}
       ${mediaName && !P.audioFile ? `<div class="banner"><span>${esc(t('para.eafWantsAudio', { name: mediaName }))}</span></div>` : ''}
       ${mismatch ? `<div class="banner warn-banner"><span>${esc(t('para.eafAudioMismatch', { eaf: mediaName, got: P.audioFile.name }))}</span></div>` : ''}
+      ${P.stacks ? `
+      <div class="banner"><span>${esc(t('para.eafMultiSpeaker', { n: P.stacks.length }))}</span></div>
+      <div class="pa-maprows">
+        ${P.stacks.map((st, i) => `<label class="check-label"><input type="checkbox" class="pa-spk" data-i="${i}"${st.use ? ' checked' : ''}>
+          <b>${esc(st.speaker)}</b> — ${esc(st.baseline)}</label>`).join('')}
+      </div>
+      <p class="note">${esc(t('para.eafMultiHint'))}</p>` : `
       <div class="pa-maprows">
         <label class="pa-maprow"><span>${esc(t('para.mapBaseline'))}</span>${sel('baseline', false)}</label>
         <label class="pa-maprow"><span>${esc(t('para.mapWords'))}</span>${sel('words', true)}</label>
         <label class="pa-maprow"><span>${esc(t('para.mapGlosses'))}</span>${sel('glosses', true)}</label>
         <label class="pa-maprow"><span>${esc(t('para.mapFree'))}</span>${sel('free', true)}</label>
       </div>
-      <p class="note">${esc(t('para.mapHint'))}</p>
+      <p class="note">${esc(t('para.mapHint'))}</p>`}
       <h3 class="pa-mapph">${esc(t('para.mapPreview'))}</h3>
       <div class="pa-mappreview" id="pa-map-preview"></div>
       <div class="pa-modal-actions">
@@ -192,7 +210,14 @@ function renderEafMapping(errors) {
         <button class="primary-btn" id="pa-map-go">${esc(t('para.mapOpen'))}</button>
       </div>
     </div>`;
-  for (const r of ROLES) $('#pa-map-' + r).addEventListener('change', () => { P.mapping = currentMapping(); drawMapPreview(); });
+  if (P.stacks) {
+    root.querySelectorAll('.pa-spk').forEach((cb) => cb.addEventListener('change', () => {
+      P.stacks[+cb.dataset.i].use = cb.checked;
+      drawMapPreview();
+    }));
+  } else {
+    for (const r of ROLES) $('#pa-map-' + r).addEventListener('change', () => { P.mapping = currentMapping(); drawMapPreview(); });
+  }
   $('#pa-map-cancel').addEventListener('click', () => { pendingEaf = null; renderOpen(); });
   $('#pa-map-go').addEventListener('click', eafConfirm);
   drawMapPreview();
@@ -206,6 +231,7 @@ function drawMapPreview() {
   if (!conv.lines.length) { box.innerHTML = `<p class="note">${esc(t('para.mapEmpty'))}</p>`; return; }
   box.innerHTML = conv.lines.slice(0, 4).map((l) => `
     <div class="pa-mapline">
+      ${l.speaker ? `<div class="pa-speaker">${esc(l.speaker)}</div>` : ''}
       <div class="pa-baseline">${esc(l.baseline || '—')}</div>
       ${(l.words || []).some((w) => w.gls) ? `<div class="pa-words">${(l.words || []).map((w) =>
         `<span class="w"><span class="wt">${esc(w.txt)}</span><span class="wg">${esc(w.gls || ' ')}</span></span>`).join('')}</div>` : ''}
@@ -227,10 +253,10 @@ async function eafConfirm() {
   // Back into the shape buildFxpa() already knows — one paragraph per line, spans in parallel.
   const doc = {
     title: conv.title || P.name,
-    paragraphs: conv.lines.map((l) => ({ segments: [{ baseline: l.baseline, free: l.free || '', words: l.words || [], attrs: {} }] })),
+    paragraphs: conv.lines.map((l) => ({ segments: [{ baseline: l.baseline, free: l.free || '', words: l.words || [], speaker: l.speaker || '', attrs: {} }] })),
     segments: conv.lines.map((l) => (typeof l.start === 'number' ? { start: l.start, end: l.end } : { timePending: true })),
   };
-  const fx = buildFxpa(doc, { title: doc.title, vernLang: 'und', analLang: 'en', audio });
+  const fx = buildFxpa(doc, { title: doc.title, vernLang: 'und', analLang: 'en', audio, speakers: conv.speakers });
   const v = validateFxpa(fx);
   if (!v.ok) return renderEafMapping(v.errors);
   try { localStorage.setItem(EAF_MAP_KEY, JSON.stringify(mapping)); } catch { /* non-fatal */ }
@@ -570,6 +596,8 @@ function renderLineRow(id, nodeLabel = '') {
   const wavesMode = showAudio ? (v.waves || 'compact') : 'off';
   const parts = [];
   if (nodeLabel) parts.push(`<span class="pa-nodelabel" title="${esc(nodeLabel)}">${esc(nodeLabel)}</span>`);
+  // Who said this line (conversations only — absent in a single-speaker text).
+  if (l.speaker) parts.push(`<span class="pa-speaker" title="${esc(l.speaker)}">${esc(l.speaker)}</span>`);
   if (showAudio && timed) {
     parts.push(`<button class="pa-rowplay" data-s="${l.start}" data-e="${l.end}">▶</button>`);
   }

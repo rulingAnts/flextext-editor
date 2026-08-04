@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v179';
+export const ENGINE_VERSION = 'v180';
 
 const S = {
 en: {
@@ -1034,6 +1034,8 @@ internet after the first time.</p>
   'para.mapFree': 'Free translation',
   'para.mapNone': '— none —',
   'para.mapHint': 'Only the baseline is required. With no word tier, the baseline is split into words. Tiers may be linked to the baseline either as ELAN child tiers or simply by overlapping in time — both work.',
+  'para.eafMultiSpeaker': 'This ELAN file has {n} speakers, each on their own tiers. They will be merged into ONE text in time order, and every line will be labelled with who said it — the way FLEx stores speakers.',
+  'para.eafMultiHint': 'Untick a speaker to leave them out. Their lines are dropped from the imported text; the rest keep their original timing.',
   'para.mapPreview': 'Preview',
   'para.mapOpen': 'Open',
   'para.mapEmpty': 'Nothing to show with these choices — pick a different baseline tier.',
@@ -2127,6 +2129,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.mapFree': 'Terjemahan bebas',
   'para.mapNone': '— tidak ada —',
   'para.mapHint': 'Hanya teks dasar yang wajib. Tanpa tier kata, teks dasar dipecah menjadi kata. Tier dapat terhubung ke teks dasar sebagai tier anak ELAN atau sekadar bertumpang tindih waktu — keduanya bisa.',
+  'para.eafMultiSpeaker': 'File ELAN ini memiliki {n} penutur, masing-masing pada tier sendiri. Semuanya akan digabung menjadi SATU teks berurutan waktu, dan tiap baris diberi label siapa yang berbicara — seperti cara FLEx menyimpan penutur.',
+  'para.eafMultiHint': 'Hapus centang untuk mengeluarkan seorang penutur. Barisnya tidak ikut diimpor; sisanya tetap dengan waktu aslinya.',
   'para.mapPreview': 'Pratinjau',
   'para.mapOpen': 'Buka',
   'para.mapEmpty': 'Tidak ada yang bisa ditampilkan dengan pilihan ini — pilih tier teks dasar yang lain.',

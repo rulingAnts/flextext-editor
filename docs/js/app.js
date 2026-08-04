@@ -18,7 +18,7 @@ import { losslessSupported, recFormatSupported, PCMRecorder, encodeWav, encodeRe
          normRecFormat, REC_FORMATS, DEFAULT_REC_FORMAT, pcmRamBudgetBytes, pcmCapStatus } from './record-pcm.js';
 import { makeZip } from './zip.js';
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay } from './segment-strips.js';
-import { serializeEaf, buildSegPreviewHtml, wavWithBext, buildFxpa } from './seg-exports.js';
+import { serializeEaf, serializeEafPrefs, buildSegPreviewHtml, wavWithBext, buildFxpa } from './seg-exports.js';
 import { mergeSegments, splitSegment, isAligned } from './segments.js';
 import { initParagraphApp } from './paragraph-ui.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget } from './upload.js';
@@ -3330,7 +3330,13 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
     const anal = settings.analLang || rec.doc.analLang || 'en';
     const wavName = /\.wav$/i.test(segMediaName) || /wav$/i.test(segMedia.mimeType || '');
     const eafOpts = { vern, anal, mediaName: segMediaName, mediaMime: wavName ? 'audio/x-wav' : (segMedia.mimeType || 'audio/*') };
-    if (wantEaf) segEntries.push({ name: base + '.eaf', data: new Blob([serializeEaf(rec.doc, { ...eafOpts, profile: 'flex' })], { type: 'application/xml' }) });
+    if (wantEaf) {
+      segEntries.push({ name: base + '.eaf', data: new Blob([serializeEaf(rec.doc, { ...eafOpts, profile: 'flex' })], { type: 'application/xml' }) });
+      // ELAN reads display settings from a sidecar of the SAME BASENAME — this is what makes the
+      // tiers open vernacular-first instead of alphabetically inverted. Carries no annotation
+      // data, so it is safe to delete and safe for ELAN to overwrite (see serializeEafPrefs).
+      segEntries.push({ name: base + '.pfsx', data: new Blob([serializeEafPrefs({ ...eafOpts, profile: 'flex' })], { type: 'application/xml' }) });
+    }
     // SayMore's OWN storage convention is <mediafile>.annotations.eaf beside the media — emitting
     // that exact name makes the drop-in path work: copy audio + this file into a session folder
     // and SayMore lists the annotations under the audio with no import step (Seth: loading must
@@ -3444,6 +3450,9 @@ function howToOpenText({ base, segMediaName, derived, eaf, saymore, preview, pre
     L.push(`ELAN — open "${base}.eaf"`);
     L.push('  Double-click it (or ELAN > File > Open). ELAN finds the audio in the same');
     L.push('  folder automatically — no relinking dialog.');
+    L.push(`  The small "${base}.pfsx" beside it just tells ELAN to stack the tiers in`);
+    L.push('  reading order (text, words, glosses, translation). It holds no annotations;');
+    L.push('  delete it if you prefer your own tier order.');
     L.push('');
   }
   if (saymore) {

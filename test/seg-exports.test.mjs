@@ -1,7 +1,7 @@
 /* Segmentation export formats: EAF (both profiles), flextext timestamps, preview page, bext.
  * Pure-module tests — seg-exports.js and flextext.js must run under plain node (the format-module
  * rule); any DOM dependency creeping in fails here first. */
-import { serializeEaf, buildSegPreviewHtml, wavWithBext, fmtClock, buildFxpa } from '../docs/js/seg-exports.js';
+import { serializeEaf, serializeEafPrefs, buildSegPreviewHtml, wavWithBext, fmtClock, buildFxpa } from '../docs/js/seg-exports.js';
 import { serializeFlextext, reconcileBaseline, makeDoc, segmentsFromOffsets } from '../docs/js/flextext.js';
 
 let failures = 0;
@@ -73,6 +73,35 @@ console.log('EAF — SayMore profile + pending segments');
   ok((eaf.match(/<TIER /g) || []).length === 2, 'SayMore file has exactly two tiers');
   const bare = [...eaf.matchAll(/<TIME_SLOT TIME_SLOT_ID="[^"]+"\/>/g)].length;
   ok(bare === 2, `pending segment gets value-less TIME_SLOTs (ELAN's unaligned mechanism), got ${bare}`);
+}
+
+console.log('ELAN .pfsx — the tiers must open VERNACULAR-FIRST, not alphabetically inverted');
+{
+  const pfsx = serializeEafPrefs({ profile: 'flex', vern: 'fau', anal: 'id' });
+  const at = (name) => pfsx.indexOf(`<String>${name}</String>`);
+  ok(at('A_phrase-txt-fau') > -1, 'the baseline tier is listed');
+  // THE BUG THIS FIXES: alphabetically A_phrase-gls-id precedes A_phrase-txt-fau and A_word-gls-id
+  // precedes A_word-txt-fau, so ELAN put every gloss ABOVE its own vernacular partner.
+  ok(at('A_phrase-txt-fau') < at('A_word-txt-fau'), 'baseline above words');
+  ok(at('A_word-txt-fau') < at('A_word-gls-id'), 'words above their glosses — the inverted pair');
+  ok(at('A_word-gls-id') < at('A_phrase-gls-id'), 'word glosses above the free translation');
+  ok(at('A_phrase-gls-id') < at('A_paragraph'), 'structural containers last, out of the way');
+  // Order alone is NOT enough: both of these are what stop ELAN re-sorting it anyway. The
+  // misspelling is ELAN's own — matching it exactly is the whole point.
+  ok(/<pref key="MultiTierViewer.TierSortingMode">\s*<Int>0<\/Int>/.test(pfsx), 'sorting mode UNSORTED (0) = use our order');
+  ok(/<pref key="MultiTierViewer.SortAlpabetically">\s*<Boolean>false<\/Boolean>/.test(pfsx),
+     "alphabetical sorting off (ELAN's own misspelling, matched exactly)");
+
+  // DRIFT GUARD: every name in the .pfsx must be a tier that the .eaf actually writes. A rename on
+  // one side alone makes the file a silent no-op — ELAN drops names it does not recognise.
+  const eaf = serializeEaf(segDoc(), { profile: 'flex', vern: 'fau', anal: 'id', mediaName: 'story.wav' });
+  const listed = [...pfsx.matchAll(/<String>([^<]+)<\/String>/g)].map((m) => m[1]);
+  const written = [...eaf.matchAll(/TIER_ID="([^"]+)"/g)].map((m) => m[1]);
+  ok(listed.length === 6, `all six tiers named, got ${listed.length}`);
+  ok(listed.every((t) => written.includes(t)), `every .pfsx name exists in the .eaf (missing: ${listed.filter((t) => !written.includes(t))})`);
+
+  const say = serializeEafPrefs({ profile: 'saymore', vern: 'fau', anal: 'id' });
+  ok(say.indexOf('Transcription') < say.indexOf('Free Translation'), 'SayMore profile keeps its two documented tiers in reading order');
 }
 
 console.log('flextext — timestamps in notes + native offsets, never the baseline');

@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v183';
+export const ENGINE_VERSION = 'v184';
 
 const S = {
 en: {
@@ -1018,7 +1018,7 @@ internet after the first time.</p>
   'para.appName': 'Flextext Paragraph Analysis Tool',
   'para.openHint': 'Group the lines of an interlinear text into phrases, clauses, sentences, and paragraphs — building the discourse structure level by level.',
   'para.dropHere': 'Drop a file here',
-  'para.dropKinds': 'a .fxpa file (from the editor’s save bundle) · a .flextext file · an ELAN .eaf file · a Toolbox / SFM file — and drop the audio file in at the same time to get waveforms and playback',
+  'para.dropKinds': 'a .fxpa file (from the editor’s save bundle) · a .flextext file · an ELAN .eaf file · a Toolbox / SFM file (.txt, .db, .sfm — any extension). Drop the audio file in at the same time to get waveforms and playback.',
   'para.chooseFiles': 'Choose files…',
   'para.textOnlyNote': 'A text without audio or time alignment works too — there are simply no waveforms or play buttons. ELAN files with several speakers are merged into one text, with every line labelled by speaker.',
   'para.errNoUsableFile': 'No usable file — drop a .fxpa, .flextext or ELAN .eaf file.',
@@ -1044,6 +1044,7 @@ internet after the first time.</p>
   'para.sfmTitle': 'Toolbox / SFM file — which marker holds what?',
   'para.sfmIntro': 'Opening “{file}”. These files use backslash markers, and every project names them differently, so check the rows below. Each marker shows how many times it occurs and a sample of its content.',
   'para.sfmManyTexts': 'This file contains {n} texts. Pick the one to work on — this app holds one analysis at a time, so you can come back for another later.',
+  'para.sfmNew': 'Toolbox and SFM files vary enormously between projects, and this import is NEW — it has not yet been tested against many real files. Please check the preview below carefully before importing, and if anything is wrong, tell us: it is the only way this gets better.',
   'para.sfmWhichText': 'Which text?',
   'para.sfmUntitled': '(untitled)',
   'para.sfmLineCount': '{n} lines',
@@ -2136,7 +2137,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.appName': 'Alat Analisis Paragraf Flextext',
   'para.openHint': 'Kelompokkan baris-baris teks interlinear menjadi frasa, klausa, kalimat, dan paragraf — membangun struktur wacana tingkat demi tingkat.',
   'para.dropHere': 'Letakkan file di sini',
-  'para.dropKinds': 'file .fxpa (dari bundel simpanan editor) · file .flextext · file ELAN .eaf · file Toolbox / SFM — letakkan file audionya sekaligus agar ada gelombang suara dan pemutaran',
+  'para.dropKinds': 'file .fxpa (dari bundel simpanan editor) · file .flextext · file ELAN .eaf · file Toolbox / SFM (.txt, .db, .sfm — ekstensi apa pun). Letakkan file audionya sekaligus agar ada gelombang suara dan pemutaran.',
   'para.chooseFiles': 'Pilih file…',
   'para.textOnlyNote': 'Teks tanpa audio atau penyelarasan waktu juga bisa — hanya saja tanpa gelombang suara dan tombol putar. File ELAN dengan beberapa penutur digabung menjadi satu teks, dengan tiap baris diberi label penutur.',
   'para.errNoUsableFile': 'Tidak ada file yang bisa dipakai — letakkan file .fxpa, .flextext, atau ELAN .eaf.',
@@ -2158,6 +2159,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.sfmTitle': 'File Toolbox / SFM — penanda mana berisi apa?',
   'para.sfmIntro': 'Membuka “{file}”. File ini memakai penanda garis miring terbalik, dan tiap proyek menamainya berbeda, jadi periksa baris di bawah. Tiap penanda menampilkan jumlah kemunculan dan contoh isinya.',
   'para.sfmManyTexts': 'File ini berisi {n} teks. Pilih satu untuk dikerjakan — aplikasi ini menyimpan satu analisis pada satu waktu, jadi Anda bisa kembali untuk yang lain nanti.',
+  'para.sfmNew': 'File Toolbox dan SFM sangat berbeda antar proyek, dan impor ini BARU — belum diuji dengan banyak file nyata. Mohon periksa pratinjau di bawah dengan teliti sebelum mengimpor, dan jika ada yang salah, beri tahu kami: hanya itu cara ini menjadi lebih baik.',
   'para.sfmWhichText': 'Teks yang mana?',
   'para.sfmUntitled': '(tanpa judul)',
   'para.sfmLineCount': '{n} baris',

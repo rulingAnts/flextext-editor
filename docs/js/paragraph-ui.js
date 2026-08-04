@@ -399,6 +399,8 @@ function renderSfmMapping(errors) {
       <h1>${esc(t('para.sfmTitle'))}</h1>
       <p class="tab-hint">${esc(t('para.sfmIntro', { file: P.name }))}</p>
       ${errors && errors.length ? `<div class="banner warn-banner"><span>${esc(errors.join(' '))}</span></div>` : ''}
+      <div class="banner warn-banner"><span>${esc(t('para.sfmNew'))}
+        <button class="link-btn" id="pa-sfm-report2">${esc(t('para.reportBtn'))}</button></span></div>
       ${many ? `<div class="banner"><span>${esc(t('para.sfmManyTexts', { n: P.texts.length }))}</span></div>
       <label class="pa-maprow"><span>${esc(t('para.sfmWhichText'))}</span>
         <select id="pa-sfm-text">${P.texts.map((tx, i) =>
@@ -436,6 +438,7 @@ function renderSfmMapping(errors) {
   $('#pa-sfm-cancel').addEventListener('click', () => { pendingSfm = null; renderOpen(); });
   $('#pa-sfm-go').addEventListener('click', sfmConfirm);
   $('#pa-sfm-report').addEventListener('click', reportSfmProblem);
+  $('#pa-sfm-report2').addEventListener('click', reportSfmProblem);
   drawSfmPreview();
 }
 

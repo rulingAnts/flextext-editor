@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v182';
+export const ENGINE_VERSION = 'v183';
 
 const S = {
 en: {
@@ -1018,7 +1018,7 @@ internet after the first time.</p>
   'para.appName': 'Flextext Paragraph Analysis Tool',
   'para.openHint': 'Group the lines of an interlinear text into phrases, clauses, sentences, and paragraphs — building the discourse structure level by level.',
   'para.dropHere': 'Drop a file here',
-  'para.dropKinds': 'a .fxpa file (from the editor’s save bundle) · a .flextext file · an ELAN .eaf file — and for the last two, drop the audio file in at the same time to get waveforms and playback',
+  'para.dropKinds': 'a .fxpa file (from the editor’s save bundle) · a .flextext file · an ELAN .eaf file · a Toolbox / SFM file — and drop the audio file in at the same time to get waveforms and playback',
   'para.chooseFiles': 'Choose files…',
   'para.textOnlyNote': 'A text without audio or time alignment works too — there are simply no waveforms or play buttons. ELAN files with several speakers are merged into one text, with every line labelled by speaker.',
   'para.errNoUsableFile': 'No usable file — drop a .fxpa, .flextext or ELAN .eaf file.',
@@ -1040,6 +1040,20 @@ internet after the first time.</p>
   'para.mapOpen': 'Open',
   // Reporting: ELAN files vary enormously and no one can test every shape, so make a clear report
   // one click away, WITHOUT sending any of the language data itself.
+  // Toolbox / SFM import wizard.
+  'para.sfmTitle': 'Toolbox / SFM file — which marker holds what?',
+  'para.sfmIntro': 'Opening “{file}”. These files use backslash markers, and every project names them differently, so check the rows below. Each marker shows how many times it occurs and a sample of its content.',
+  'para.sfmManyTexts': 'This file contains {n} texts. Pick the one to work on — this app holds one analysis at a time, so you can come back for another later.',
+  'para.sfmWhichText': 'Which text?',
+  'para.sfmUntitled': '(untitled)',
+  'para.sfmLineCount': '{n} lines',
+  'para.sfmSpeaker': 'Speaker',
+  'para.sfmStart': 'Start time',
+  'para.sfmEnd': 'End time',
+  'para.sfmTitleField': 'Title',
+  'para.sfmRecord': 'Record marker (starts each line)',
+  'para.sfmHint': 'Only the baseline is required. Glosses are matched to words by the COLUMN they start in, the way Toolbox lines them up — so a word with several morphemes gets all of them. Toolbox itself has no times or speakers, but a file exported from ELAN has \\ELANBegin, \\ELANEnd and \\ELANParticipant: with those mapped, drop the audio in too and you get waveforms and playback.',
+  'para.errSfmNoTexts': 'No interlinear text found in that file — check that it uses backslash markers, or map the baseline marker yourself.',
   'para.reportIntro': 'Does this look wrong, or did the file not open?',
   'para.reportBtn': 'Report a problem with this file',
   'para.reportCopy': 'Copy the details instead',
@@ -2122,7 +2136,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.appName': 'Alat Analisis Paragraf Flextext',
   'para.openHint': 'Kelompokkan baris-baris teks interlinear menjadi frasa, klausa, kalimat, dan paragraf — membangun struktur wacana tingkat demi tingkat.',
   'para.dropHere': 'Letakkan file di sini',
-  'para.dropKinds': 'file .fxpa (dari bundel simpanan editor) · file .flextext · file ELAN .eaf — untuk dua yang terakhir, letakkan file audionya sekaligus agar ada gelombang suara dan pemutaran',
+  'para.dropKinds': 'file .fxpa (dari bundel simpanan editor) · file .flextext · file ELAN .eaf · file Toolbox / SFM — letakkan file audionya sekaligus agar ada gelombang suara dan pemutaran',
   'para.chooseFiles': 'Pilih file…',
   'para.textOnlyNote': 'Teks tanpa audio atau penyelarasan waktu juga bisa — hanya saja tanpa gelombang suara dan tombol putar. File ELAN dengan beberapa penutur digabung menjadi satu teks, dengan tiap baris diberi label penutur.',
   'para.errNoUsableFile': 'Tidak ada file yang bisa dipakai — letakkan file .fxpa, .flextext, atau ELAN .eaf.',
@@ -2141,6 +2155,19 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.eafMultiHint': 'Hapus centang untuk mengeluarkan seorang penutur. Barisnya tidak ikut diimpor; sisanya tetap dengan waktu aslinya.',
   'para.mapPreview': 'Pratinjau',
   'para.mapOpen': 'Buka',
+  'para.sfmTitle': 'File Toolbox / SFM — penanda mana berisi apa?',
+  'para.sfmIntro': 'Membuka “{file}”. File ini memakai penanda garis miring terbalik, dan tiap proyek menamainya berbeda, jadi periksa baris di bawah. Tiap penanda menampilkan jumlah kemunculan dan contoh isinya.',
+  'para.sfmManyTexts': 'File ini berisi {n} teks. Pilih satu untuk dikerjakan — aplikasi ini menyimpan satu analisis pada satu waktu, jadi Anda bisa kembali untuk yang lain nanti.',
+  'para.sfmWhichText': 'Teks yang mana?',
+  'para.sfmUntitled': '(tanpa judul)',
+  'para.sfmLineCount': '{n} baris',
+  'para.sfmSpeaker': 'Penutur',
+  'para.sfmStart': 'Waktu mulai',
+  'para.sfmEnd': 'Waktu selesai',
+  'para.sfmTitleField': 'Judul',
+  'para.sfmRecord': 'Penanda rekaman (memulai tiap baris)',
+  'para.sfmHint': 'Hanya teks dasar yang wajib. Glos dicocokkan ke kata berdasarkan KOLOM tempatnya dimulai, sebagaimana Toolbox menyejajarkannya — sehingga kata dengan beberapa morfem mendapat semuanya. Toolbox sendiri tidak punya waktu atau penutur, tetapi file hasil ekspor ELAN punya \\ELANBegin, \\ELANEnd, dan \\ELANParticipant: bila itu dipetakan, letakkan juga audionya untuk mendapat gelombang suara dan pemutaran.',
+  'para.errSfmNoTexts': 'Tidak ditemukan teks interlinear dalam file itu — pastikan memakai penanda garis miring terbalik, atau petakan sendiri penanda teks dasarnya.',
   'para.reportIntro': 'Apakah ini terlihat salah, atau file tidak terbuka?',
   'para.reportBtn': 'Laporkan masalah dengan file ini',
   'para.reportCopy': 'Salin rinciannya saja',

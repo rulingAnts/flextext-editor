@@ -2952,6 +2952,13 @@ async function showAppVersion() {
   if (RECORD_MODE || RESEARCHER_MODE) {
     const apps = await listCachedApps().catch(() => null);
     ver = (apps && (RECORD_MODE ? apps.recorder : apps.researcher)) || '';   // own shell version (cache name)
+  } else if (PARAGRAPH_MODE) {
+    // Show BOTH (Seth): the ENGINE version is the number every other surface reports and the one
+    // a bug report needs; the shell counter is still worth having when diagnosing this app's own
+    // deployment. Engine first, shell after the slash — "paragraph v182/v16".
+    const apps = await listCachedApps().catch(() => null);
+    const shell = apps && apps.paragraph;
+    if (shell) ver = ENGINE_VERSION + '/' + shell;
   }
   let el = document.getElementById('app-version');
   if (!el) { el = document.createElement('div'); el.id = 'app-version'; el.className = 'app-version'; (document.body || document.documentElement).appendChild(el); }

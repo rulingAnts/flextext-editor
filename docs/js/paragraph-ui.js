@@ -296,6 +296,7 @@ function renderWork() {
         <button class="secondary-btn" id="pa-group" disabled>${esc(t('para.group'))}</button>
         <button class="secondary-btn" id="pa-edit" disabled>${esc(t('para.editGroup'))}</button>
         <button class="secondary-btn" id="pa-ungroup" disabled>${esc(t('para.ungroup'))}</button>
+        <button class="secondary-btn" id="pa-clear" disabled title="${esc(t('para.clearSelTip'))}">${esc(t('para.clearSel'))}</button>
         <button class="primary-btn" id="pa-save">${esc(t('para.save'))}</button>
         <button class="link-btn" id="pa-close" title="${esc(t('para.closeTip'))}">✕</button>
       </span>
@@ -331,6 +332,8 @@ function renderWork() {
   $('#pa-group').addEventListener('click', openGroupDialog);
   $('#pa-ungroup').addEventListener('click', doUngroup);
   $('#pa-edit').addEventListener('click', openEditDialog);
+  $('#pa-clear').addEventListener('click', clearSelection);
+  wireKeys();
   if (showAudio) {
     $('#pa-play').addEventListener('click', () => {
       if (!audio) return;
@@ -457,12 +460,39 @@ function toggleSelect(id) {
   refreshActionButtons();
 }
 
+// Deselect everything. A pure VIEW action — it never touches doc/tree, so it deliberately does
+// NOT commit or re-render (a render would rebuild the tree DOM and lose scroll position); it
+// just drops the highlight classes. Selection is easy to build up wrongly (a refused group
+// leaves it intact on purpose), so this is the way out that isn't hunting for each selected row.
+function clearSelection() {
+  if (!selection.size) return;
+  selection = new Set();
+  root.querySelectorAll('.pa-row.sel, .pa-group.sel').forEach((el) => el.classList.remove('sel'));
+  refreshActionButtons();
+}
+
 function refreshActionButtons() {
   const ids = [...selection];
   $('#pa-group').disabled = ids.length < 2;
   const oneGroup = ids.length === 1 && isGroupId(ids[0]);
   $('#pa-ungroup').disabled = !oneGroup;
   $('#pa-edit').disabled = !oneGroup;
+  $('#pa-clear').disabled = !ids.length;
+}
+
+// Esc — the companion to the Clear button: closes the join dialog if one is open, otherwise
+// clears the selection. Registered ONCE: renderWork() replaces the whole subtree on every
+// commit, so a listener added there would stack up one copy per edit.
+let keysWired = false;
+function wireKeys() {
+  if (keysWired) return;
+  keysWired = true;
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || !state) return;
+    const dlg = document.getElementById('pa-dialog');
+    if (dlg && !dlg.hidden) { dlg.hidden = true; dlg.innerHTML = ''; return; }
+    clearSelection();
+  });
 }
 
 function unitLabel(id) {

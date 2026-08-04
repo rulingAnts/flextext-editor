@@ -7,7 +7,7 @@
 # (2026-08-04), so clients never saw updates. No bindings beyond the assets, no D1, no R2:
 # nothing it can break. Static assets are FREE and unmetered on the Workers free plan; the shell
 # adds a negligible request cost on the same free tier.
-name = "flextext-staging"
+name = "flextext-editor-dev"
 main = "staging-shell.js"
 compatibility_date = "2026-06-01"
 workers_dev = true

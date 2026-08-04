@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v171';
+export const ENGINE_VERSION = 'v173';
 
 const S = {
 en: {
@@ -1036,6 +1036,8 @@ internet after the first time.</p>
   'para.group': 'Group',
   'para.editGroup': 'Edit group',
   'para.ungroup': 'Ungroup',
+  'para.clearSel': 'Clear selection',
+  'para.clearSelTip': 'Deselect everything (or press Esc)',
   'para.save': 'Save (.fxpa)',
   'para.closeTip': 'Close this text',
   'para.closeConfirm': 'Close this text? Save first if you want to keep your grouping — the working copy on this device will be discarded.',
@@ -1043,11 +1045,16 @@ internet after the first time.</p>
   'para.collapse': 'Collapse',
   'para.sym': 'Symmetrical',
   'para.asym': 'Asymmetrical (has a head)',
-  'para.noRelation': '(no relation)',
+  'para.noRelation': '(no label)',
   'para.symLong': 'Symmetrical — the members are coordinate (addition, alternation, …)',
   'para.asymLong': 'Asymmetrical — one member is the HEAD, the others support it',
   'para.head': 'Head',
-  'para.relation': 'Relation',
+  'para.headTip': 'The prominent member — the others support it',
+  'para.members': 'Members',
+  'para.nodeLabels': 'Its label (optional)',
+  'para.nodeLabelPh': 'e.g. grounds',
+  'para.labelHint': 'Label the group, its members, or both — every label is optional.',
+  'para.relation': 'Label for the whole group (optional)',
   'para.relationPh': 'e.g. grounds–CONCLUSION, orienter–CONTENT',
   'para.cancel': 'Cancel',
   'para.ok': 'OK',
@@ -2090,6 +2097,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.group': 'Kelompokkan',
   'para.editGroup': 'Ubah kelompok',
   'para.ungroup': 'Bubarkan',
+  'para.clearSel': 'Batalkan pilihan',
+  'para.clearSelTip': 'Batalkan semua pilihan (atau tekan Esc)',
   'para.save': 'Simpan (.fxpa)',
   'para.closeTip': 'Tutup teks ini',
   'para.closeConfirm': 'Tutup teks ini? Simpan dulu jika ingin menyimpan pengelompokan Anda — salinan kerja di perangkat ini akan dibuang.',
@@ -2097,11 +2106,16 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.collapse': 'Lipat',
   'para.sym': 'Simetris',
   'para.asym': 'Asimetris (punya inti)',
-  'para.noRelation': '(tanpa relasi)',
+  'para.noRelation': '(tanpa label)',
   'para.symLong': 'Simetris — anggotanya setara (penambahan, pilihan, …)',
   'para.asymLong': 'Asimetris — satu anggota adalah INTI, yang lain mendukungnya',
   'para.head': 'Inti',
-  'para.relation': 'Relasi',
+  'para.headTip': 'Anggota yang menonjol — yang lain mendukungnya',
+  'para.members': 'Anggota',
+  'para.nodeLabels': 'Labelnya (opsional)',
+  'para.nodeLabelPh': 'mis. dasar',
+  'para.labelHint': 'Beri label pada kelompok, pada anggotanya, atau keduanya — semua label bersifat opsional.',
+  'para.relation': 'Label untuk seluruh kelompok (opsional)',
   'para.relationPh': 'mis. dasar–KESIMPULAN, pengarah–ISI',
   'para.cancel': 'Batal',
   'para.ok': 'OK',

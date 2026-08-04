@@ -59,7 +59,9 @@ export function fmtClock(ms) {
  *   start/end — the app then works without players/waves (a flextext with no segmentation, or
  *   no audio at all, is a legitimate source).
  * - `tree` is written by the paragraph app (empty at export): nodes
- *   { id, level, children[ids], joinType: 'sym'|'asym', head? (asym only), relation }.
+ *   { id, level, children[ids], joinType: 'sym'|'asym', head? (asym only), relation,
+ *     labels? { childId: 'role' } }. BOTH labels are optional and independent: `relation` names
+ *   the whole group, `labels` names each member's role in it (the SSA convention).
  * Returns a plain object; the caller JSON.stringifies it into the `.fxpa` file. */
 export function buildFxpa(doc, opts = {}) {
   const { title = 'Text', vernLang = 'und', analLang = 'en', audio = null } = opts;

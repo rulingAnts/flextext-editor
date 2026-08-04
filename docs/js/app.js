@@ -4919,6 +4919,12 @@ async function forceUpdateCheck() {
   }
   toast(t('update.none', { v: ENGINE_VERSION }), 3000);   // already current
 }
+// Console helper (Seth, 2026-08-04): type fxUpdate() in any tab's console to force the
+// service-worker refresh without the close-every-tab dance — same tested flow as the ⌃/⌥+U
+// shortcut (flushes saves, refuses only mid-recording-save, skips the waiting worker in, reloads).
+// NOTE: it cannot bust a stale CDN copy of sw.js — if the SERVER still serves the old version,
+// the "up to date" toast is reporting that truthfully.
+if (typeof window !== 'undefined') window.fxUpdate = forceUpdateCheck;
 
 /* ---------------- Wire-up ---------------- */
 

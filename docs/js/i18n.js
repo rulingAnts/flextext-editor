@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v180';
+export const ENGINE_VERSION = 'v181';
 
 const S = {
 en: {
@@ -1038,6 +1038,14 @@ internet after the first time.</p>
   'para.eafMultiHint': 'Untick a speaker to leave them out. Their lines are dropped from the imported text; the rest keep their original timing.',
   'para.mapPreview': 'Preview',
   'para.mapOpen': 'Open',
+  // Reporting: ELAN files vary enormously and no one can test every shape, so make a clear report
+  // one click away, WITHOUT sending any of the language data itself.
+  'para.reportIntro': 'Does this look wrong, or did the file not open?',
+  'para.reportBtn': 'Report a problem with this file',
+  'para.reportCopy': 'Copy the details instead',
+  'para.reportCopied': 'Copied — paste it into your message',
+  'para.reportBody': 'What went wrong (please describe what you expected to see):',
+  'para.reportNote': 'The report describes the SHAPE of your file — its tier names, how many annotations each has, and what the app guessed. It never includes your text, translations or audio.',
   'para.mapEmpty': 'Nothing to show with these choices — pick a different baseline tier.',
   'para.mapMore': '…and {n} more lines.',
   'para.errOpenFailed': 'Could not open the file: {msg}',
@@ -2133,6 +2141,12 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.eafMultiHint': 'Hapus centang untuk mengeluarkan seorang penutur. Barisnya tidak ikut diimpor; sisanya tetap dengan waktu aslinya.',
   'para.mapPreview': 'Pratinjau',
   'para.mapOpen': 'Buka',
+  'para.reportIntro': 'Apakah ini terlihat salah, atau file tidak terbuka?',
+  'para.reportBtn': 'Laporkan masalah dengan file ini',
+  'para.reportCopy': 'Salin rinciannya saja',
+  'para.reportCopied': 'Tersalin — tempelkan ke pesan Anda',
+  'para.reportBody': 'Apa yang salah (mohon jelaskan apa yang Anda harapkan):',
+  'para.reportNote': 'Laporan ini menjelaskan BENTUK file Anda — nama tier, jumlah anotasi, dan tebakan aplikasi. Tidak pernah menyertakan teks, terjemahan, atau audio Anda.',
   'para.mapEmpty': 'Tidak ada yang bisa ditampilkan dengan pilihan ini — pilih tier teks dasar yang lain.',
   'para.mapMore': '…dan {n} baris lagi.',
   'para.errOpenFailed': 'File tidak bisa dibuka: {msg}',

@@ -1272,6 +1272,10 @@ main {
   max-width: 12ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .pa-mapline .pa-speaker { display: inline-block; margin-bottom: 2px; }
+.pa-reportline { margin-top: 14px; }
+.pa-reportline .link-btn { margin-left: 8px; }
+.pa-reportnote { margin-top: 2px; font-size: 12px; }
+.pa-diag { width: 100%; min-height: 160px; margin-top: 8px; font: 12px/1.4 ui-monospace, Menlo, monospace; border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
 .pa-drop .primary-btn { margin-top: 10px; }
 
 .pa-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--panel); position: sticky; top: 0; z-index: 30; }

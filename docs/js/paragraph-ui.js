@@ -15,6 +15,7 @@ import * as db from './db.js';
 import { parseFlextext, segmentsFromOffsets, esc } from './flextext.js';
 import { buildFxpa } from './seg-exports.js';
 import { readEaf, describeTiers, detectMapping, detectStacks, looksMultiSpeaker, eafToLines } from './eaf-read.js';
+import { parseSfm, markerInventory, detectMapping as detectSfmMapping, sfmToTexts } from './sfm.js';
 import {
   validateFxpa, serializeFxpa, groupUnits, ungroup, editGroup, toggleCollapse,
   topUnits, levelOf, spanOf, leavesOf, summaryOf, isGroupId, nodeById,
@@ -22,9 +23,11 @@ import {
 
 const WORKING_KEY = 'fxpa:working';
 const EAF_MAP_KEY = 'fxpa:eaf-mapping';   // the last tier mapping, so a repeated file shape is one click
+const SFM_MAP_KEY = 'fxpa:sfm-mapping';
 
 let state = null;                 // validated .fxpa data (the model object)
 let pendingEaf = null;            // an .eaf awaiting its tier mapping (see renderEafMapping)
+let pendingSfm = null;            // a Toolbox/SFM file awaiting its marker mapping
 let selection = new Set();        // selected unit ids (lines or groups)
 let root = null;                  // #pa-main
 let audio = null, peaks = null, mpb = 0, durMs = 0, stopAt = 0, activeSpan = null, rafId = 0;
@@ -61,8 +64,11 @@ function renderOpen(errors) {
         <p><b>${esc(t('para.dropHere'))}</b></p>
         <p class="tab-hint">${esc(t('para.dropKinds'))}</p>
         <button class="primary-btn" id="pa-pick">${esc(t('para.chooseFiles'))}</button>
-        <input type="file" id="pa-file" multiple hidden
-               accept=".fxpa,.flextext,.eaf,audio/*,application/json,text/xml">
+        <!-- NO accept filter, deliberately (Seth, 2026-08-05: "it could be any number of file
+             extensions. .db and .txt are among them"). Toolbox files come as .txt, .db, .sfm,
+             .tbt and whatever a project chose, so a filter would HIDE the user's own data in the
+             picker. The format is detected from the file's CONTENT instead. -->
+        <input type="file" id="pa-file" multiple hidden>
       </div>
       ${errors && errors.length ? `<div class="banner warn-banner"><span>${esc(errors.join(' '))}</span></div>` : ''}
       <p class="note">${esc(t('para.textOnlyNote'))}</p>
@@ -107,6 +113,26 @@ async function handleFiles(files) {
         name: eafFile.name.replace(/\.eaf$/i, ''),
       };
       return renderEafMapping();
+    }
+    // Toolbox / SFM. Detected by CONTENT (a backslash-marker line), not extension: these files
+    // come as .txt, .sfm, .db, .tbt and anything else a project chose. Checked AFTER the XML/JSON
+    // formats so it can never shadow them.
+    const maybeSfm = files.find((f) => !/\.(fxpa|eaf|flextext)$/i.test(f.name) && !/^audio\//.test(f.type));
+    if (maybeSfm) {
+      const txt = await maybeSfm.text().catch(() => '');
+      if (/^\\\S+/m.test(txt)) {
+        const fields = parseSfm(txt);
+        const mapping = rememberedSfmMapping(detectSfmMapping(fields), fields);
+        const { texts } = sfmToTexts(fields, mapping);
+        if (!texts.length) return renderOpen([t('para.errSfmNoTexts')]);
+        pendingSfm = {
+          fields, mapping, texts, textIndex: 0,
+          inv: markerInventory(fields),
+          audioFile: audioOf(files) || null,
+          name: maybeSfm.name.replace(/\.[^.]+$/, ''),
+        };
+        return renderSfmMapping();
+      }
     }
     const ft = files.find((f) => /\.flextext$/i.test(f.name));
     if (!ft) return renderOpen([t('para.errNoUsableFile')]);
@@ -319,6 +345,154 @@ async function eafConfirm() {
   if (!v.ok) return renderEafMapping(v.errors);
   try { localStorage.setItem(EAF_MAP_KEY, JSON.stringify(mapping)); } catch { /* non-fatal */ }
   pendingEaf = null;
+  load(v.data);
+}
+
+
+/* ---------------- Toolbox / SFM import: the marker-mapping wizard ----------------
+ * Same contract as the ELAN wizard: the app PROPOSES (FLEx's conventional marker table plus
+ * ELAN's \ELANBegin/\ELANEnd/\ELANParticipant), the user DECIDES, and a live preview shows the
+ * result before anything is imported. Two things EAF never needs: these files can hold a whole
+ * CORPUS, so there is a text picker; and the roles include times and speaker, because a Toolbox
+ * file exported from ELAN really does carry them. */
+
+const SFM_ROLES = ['baseline', 'gloss', 'free', 'speaker', 'start', 'end', 'title', 'ref'];
+
+function rememberedSfmMapping(proposed, fields) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SFM_MAP_KEY) || 'null');
+    if (!saved || !saved.baseline) return proposed;
+    const present = new Set(fields.map((f) => f.marker));
+    if (SFM_ROLES.every((r) => !saved[r] || present.has(saved[r])) && present.has(saved.baseline)) {
+      return { ...proposed, ...saved };
+    }
+  } catch { /* a corrupt remembered mapping must not block an import */ }
+  return proposed;
+}
+
+function currentSfmMapping() {
+  const m = {};
+  for (const r of SFM_ROLES) m[r] = ($('#pa-sfm-' + r) || {}).value || null;
+  // The morpheme line is carried along implicitly (it only aligns glosses, it is never displayed).
+  // But an EXPLICIT choice must always win: mapping \mb as the gloss and leaving \mb as the
+  // morpheme line made the glosses silently disappear, because the implicit role claimed the
+  // marker. Drop the implicit one whenever the user has assigned that marker a real role.
+  const mor = pendingSfm.mapping.morphemes;
+  if (mor && !SFM_ROLES.some((r) => m[r] === mor)) m.morphemes = mor;
+  if (pendingSfm.mapping.newtext) m.newtext = pendingSfm.mapping.newtext;
+  return m;
+}
+
+function renderSfmMapping(errors) {
+  stopAudio();
+  const P = pendingSfm;
+  const label = (e) => `\\${e.marker} — ${e.count}${e.sample ? ' · “' + e.sample + '”' : ''}`;
+  const sel = (role, allowNone) => {
+    const cur = P.mapping[role] || '';
+    const opts = P.inv.map((e) =>
+      `<option value="${esc(e.marker)}"${e.marker === cur ? ' selected' : ''}>${esc(label(e))}</option>`).join('');
+    return `<select id="pa-sfm-${role}">${allowNone ? `<option value=""${cur ? '' : ' selected'}>${esc(t('para.mapNone'))}</option>` : ''}${opts}</select>`;
+  };
+  const many = P.texts.length > 1;
+  root.innerHTML = `
+    <div class="pa-open pa-wizard">
+      <h1>${esc(t('para.sfmTitle'))}</h1>
+      <p class="tab-hint">${esc(t('para.sfmIntro', { file: P.name }))}</p>
+      ${errors && errors.length ? `<div class="banner warn-banner"><span>${esc(errors.join(' '))}</span></div>` : ''}
+      ${many ? `<div class="banner"><span>${esc(t('para.sfmManyTexts', { n: P.texts.length }))}</span></div>
+      <label class="pa-maprow"><span>${esc(t('para.sfmWhichText'))}</span>
+        <select id="pa-sfm-text">${P.texts.map((tx, i) =>
+          `<option value="${i}"${i === P.textIndex ? ' selected' : ''}>${esc((tx.title || t('para.sfmUntitled')) + ' — ' + t('para.sfmLineCount', { n: tx.lines.length }))}</option>`).join('')}</select></label>` : ''}
+      <div class="pa-maprows">
+        <label class="pa-maprow"><span>${esc(t('para.mapBaseline'))}</span>${sel('baseline', false)}</label>
+        <label class="pa-maprow"><span>${esc(t('para.mapGlosses'))}</span>${sel('gloss', true)}</label>
+        <label class="pa-maprow"><span>${esc(t('para.mapFree'))}</span>${sel('free', true)}</label>
+        <label class="pa-maprow"><span>${esc(t('para.sfmSpeaker'))}</span>${sel('speaker', true)}</label>
+        <label class="pa-maprow"><span>${esc(t('para.sfmStart'))}</span>${sel('start', true)}</label>
+        <label class="pa-maprow"><span>${esc(t('para.sfmEnd'))}</span>${sel('end', true)}</label>
+        <label class="pa-maprow"><span>${esc(t('para.sfmTitleField'))}</span>${sel('title', true)}</label>
+        <label class="pa-maprow"><span>${esc(t('para.sfmRecord'))}</span>${sel('ref', true)}</label>
+      </div>
+      <p class="note">${esc(t('para.sfmHint'))}</p>
+      <h3 class="pa-mapph">${esc(t('para.mapPreview'))}</h3>
+      <div class="pa-mappreview" id="pa-map-preview"></div>
+      <p class="note pa-reportline">${esc(t('para.reportIntro'))}
+        <button class="link-btn" id="pa-sfm-report">${esc(t('para.reportBtn'))}</button>
+      </p>
+      <p class="note pa-reportnote">${esc(t('para.reportNote'))}</p>
+      <div class="pa-modal-actions">
+        <button class="secondary-btn" id="pa-sfm-cancel">${esc(t('para.cancel'))}</button>
+        <button class="primary-btn" id="pa-sfm-go">${esc(t('para.mapOpen'))}</button>
+      </div>
+    </div>`;
+  const reparse = () => {
+    P.mapping = currentSfmMapping();
+    P.texts = sfmToTexts(P.fields, P.mapping).texts;
+    if (P.textIndex >= P.texts.length) P.textIndex = 0;
+    drawSfmPreview();
+  };
+  for (const r of SFM_ROLES) $('#pa-sfm-' + r).addEventListener('change', reparse);
+  if (many) $('#pa-sfm-text').addEventListener('change', (e) => { P.textIndex = +e.target.value; drawSfmPreview(); });
+  $('#pa-sfm-cancel').addEventListener('click', () => { pendingSfm = null; renderOpen(); });
+  $('#pa-sfm-go').addEventListener('click', sfmConfirm);
+  $('#pa-sfm-report').addEventListener('click', reportSfmProblem);
+  drawSfmPreview();
+}
+
+function drawSfmPreview() {
+  const box = $('#pa-map-preview');
+  if (!box) return;
+  const tx = pendingSfm.texts[pendingSfm.textIndex];
+  if (!tx || !tx.lines.length) { box.innerHTML = `<p class="note">${esc(t('para.mapEmpty'))}</p>`; return; }
+  box.innerHTML = tx.lines.slice(0, 4).map((l) => `
+    <div class="pa-mapline">
+      ${l.speaker ? `<div class="pa-speaker">${esc(l.speaker)}</div>` : ''}
+      <div class="pa-baseline">${esc(l.baseline || '—')}</div>
+      ${(l.words || []).some((w) => w.gls) ? `<div class="pa-words">${(l.words || []).map((w) =>
+        `<span class="w"><span class="wt">${esc(w.txt)}</span><span class="wg">${esc(w.gls || ' ')}</span></span>`).join('')}</div>` : ''}
+      ${l.free ? `<div class="pa-free">${esc(l.free)}</div>` : ''}
+      ${typeof l.start === 'number' ? `<div class="pa-maptime">${clock(l.start)} – ${clock(l.end)}</div>` : ''}
+    </div>`).join('')
+    + (tx.lines.length > 4 ? `<p class="note">${esc(t('para.mapMore', { n: tx.lines.length - 4 }))}</p>` : '');
+}
+
+function reportSfmProblem() {
+  const P = pendingSfm;
+  const L = [];
+  L.push('App: Paragraph Analysis Tool ' + (ENGINE_VERSION || ''));
+  L.push('Browser: ' + navigator.userAgent);
+  L.push('File: ' + P.name + ' (Toolbox/SFM)');
+  L.push('Texts found: ' + P.texts.length + ' | importing #' + (P.textIndex + 1));
+  L.push('Chosen mapping: ' + SFM_ROLES.map((r) => r + '=' + (P.mapping[r] || 'none')).join(', '));
+  L.push('');
+  L.push('Markers present (marker | occurrences):');
+  for (const e of P.inv.slice(0, 60)) L.push('  \\' + e.marker + ' | ' + e.count);
+  L.push('');
+  L.push('(No text from the file is included above — only its structure.)');
+  const body = t('para.reportBody') + '\n\n\n---\n```\n' + L.join('\n') + '\n```\n';
+  window.open('https://github.com/rulingAnts/flextext-editor/issues/new?title='
+    + encodeURIComponent('Toolbox/SFM import: ' + P.name) + '&body=' + encodeURIComponent(body), '_blank', 'noopener');
+}
+
+async function sfmConfirm() {
+  const P = pendingSfm;
+  const tx = P.texts[P.textIndex];
+  if (!tx || !tx.lines.length) return renderSfmMapping([t('para.mapEmpty')]);
+  const hasSpans = tx.lines.some((l) => typeof l.start === 'number');
+  const audio = (P.audioFile && hasSpans)
+    ? { b64: await blobToB64(P.audioFile), mime: P.audioFile.type || 'audio/wav', name: P.audioFile.name }
+    : null;
+  const doc = {
+    title: tx.title || P.name,
+    paragraphs: tx.lines.map((l) => ({ segments: [{ baseline: l.baseline, free: l.free || '', words: l.words || [], speaker: l.speaker || '', attrs: {} }] })),
+    segments: tx.lines.map((l) => (typeof l.start === 'number' ? { start: l.start, end: l.end } : { timePending: true })),
+  };
+  const speakers = [...new Set(tx.lines.map((l) => l.speaker).filter(Boolean))];
+  const fx = buildFxpa(doc, { title: doc.title, vernLang: 'und', analLang: 'en', audio, speakers });
+  const v = validateFxpa(fx);
+  if (!v.ok) return renderSfmMapping(v.errors);
+  try { localStorage.setItem(SFM_MAP_KEY, JSON.stringify(P.mapping)); } catch { /* non-fatal */ }
+  pendingSfm = null;
   load(v.data);
 }
 

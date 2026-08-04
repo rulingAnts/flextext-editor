@@ -2944,9 +2944,14 @@ async function listCachedApps() {
 async function showAppVersion() {
   const name = RESEARCHER_MODE ? 'researcher' : (RECORD_MODE ? 'recorder' : (PARAGRAPH_MODE ? 'paragraph' : 'editor'));
   let ver = ENGINE_VERSION;                                   // editor: shell == engine version
-  if (RECORD_MODE || RESEARCHER_MODE || PARAGRAPH_MODE) {
+  // The recorder and researcher are published as SEPARATE mirrors on their own cadence, so their
+  // own shell version is the meaningful identity. The PARAGRAPH app is not: its shell and the
+  // engine copy beside it ship in ONE atomic Cloudflare deployment, so its shell number (v14) is
+  // an internal counter that matches nothing else in the suite and told Seth nothing when he read
+  // it off the screen. Show the ENGINE version there — the number every other surface reports.
+  if (RECORD_MODE || RESEARCHER_MODE) {
     const apps = await listCachedApps().catch(() => null);
-    ver = (apps && (RECORD_MODE ? apps.recorder : (PARAGRAPH_MODE ? apps.paragraph : apps.researcher))) || '';   // own shell version (cache name)
+    ver = (apps && (RECORD_MODE ? apps.recorder : apps.researcher)) || '';   // own shell version (cache name)
   }
   let el = document.getElementById('app-version');
   if (!el) { el = document.createElement('div'); el.id = 'app-version'; el.className = 'app-version'; (document.body || document.documentElement).appendChild(el); }

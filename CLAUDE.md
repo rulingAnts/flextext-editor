@@ -92,6 +92,23 @@ never said *verify the file is live first*. Both halves are required.
 3. Watch the `Publish satellites` workflow run green, then confirm the mirrors' Pages went live
    (curl each satellite's `/sw.js` for the new version — their Pages rebuild takes ~1 min).
 
+## Developer documentation
+
+**`DEVELOPERS.md` (repo root) is the contributor/adopter-facing technical documentation** —
+architecture, data model, versioning discipline, connectivity, native contract. Keep it CURRENT:
+when a rule in this file changes, check whether DEVELOPERS.md states the same rule and update both.
+(Seth's goal is that an organization like SIL LSDev or Payap could pick these apps up from the
+docs alone.)
+
+## Per-text Drive folders — the dedupe contract (v167)
+
+Drive's SEARCH index is eventually consistent; `files.get` by id is strongly consistent. So the
+worker returns `folderId` on upload responses, the device stamps it on the doc (`driveFolderId`)
+and echoes it back (`x-fx-folder` header / chunked-start `folderId`), and the worker verifies the
+echoed id by GET before falling back to the `appProperties` tag search (now `orderBy=createdTime`
+so pre-existing duplicates stop compounding). Re-searching per upload is what minted a new
+"Title (n)" folder every time. Old engines send nothing and keep the old behaviour.
+
 ## Satellite apps: source of truth is `satellites/` IN THIS REPO — READ THIS
 
 The sibling PWAs — **Flextext Recorder** (https://rulingants.github.io/text-recorder/),

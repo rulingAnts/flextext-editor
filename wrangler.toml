@@ -1,12 +1,20 @@
 # ⚠ THIS IS THE STAGING SITE CONFIG — NOT THE PRODUCTION WORKER.
 # The production connectivity worker lives in worker/wrangler.toml and deploys ONLY via the
 # manual worker-deploy Action. THIS file exists so Cloudflare's git-connected build ("npx wrangler
-# deploy" at the repo root) deploys a STATIC-ASSETS-ONLY worker serving docs/ — the staging test
-# site. It has no code, no bindings, no D1, no R2: nothing it can break.
-# Static asset requests are FREE and unmetered on the Workers free plan.
+# deploy" at the repo root) deploys the staging test site: docs/ as static assets behind a tiny
+# shell script (staging-shell.js) whose ONE job is serving the service-worker files with
+# `no-store` — the workers.dev CDN cache pinned a stale /sw.js for an hour-plus after deploys
+# (2026-08-04), so clients never saw updates. No bindings beyond the assets, no D1, no R2:
+# nothing it can break. Static assets are FREE and unmetered on the Workers free plan; the shell
+# adds a negligible request cost on the same free tier.
 name = "flextext-staging"
+main = "staging-shell.js"
 compatibility_date = "2026-06-01"
 workers_dev = true
 
 [assets]
 directory = "./docs"
+binding = "ASSETS"
+# Route requests through staging-shell.js BEFORE the asset fast-path, so the sw.js responses it
+# rewrites are never served from (or stored in) the CDN cache.
+run_worker_first = true

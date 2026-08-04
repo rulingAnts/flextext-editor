@@ -373,8 +373,10 @@ function setView(patch) {
 
 // One unit → DOM. Groups NEST: the container's left border is the bracket; collapse swaps the
 // children for free-translation summary rows (the model computes them).
-function renderUnit(id) {
-  if (!isGroupId(id)) return renderLineRow(id);
+// `nodeLabel` is this unit's ROLE in its parent group's relation (from the PARENT's labels map —
+// a role is held relative to one relation, so the parent owns it). Optional everywhere.
+function renderUnit(id, nodeLabel = '') {
+  if (!isGroupId(id)) return renderLineRow(id, nodeLabel);
   const g = nodeById(state, id);
   const el = document.createElement('div');
   el.className = 'pa-group' + (selection.has(id) ? ' sel' : '');
@@ -384,6 +386,7 @@ function renderUnit(id) {
   badge.className = 'pa-badge';
   const span = spanOf(state, id);
   badge.innerHTML = `
+    ${nodeLabel ? `<span class="pa-nodelabel" title="${esc(nodeLabel)}">${esc(nodeLabel)}</span>` : ''}
     <button class="pa-caret" title="${esc(t(collapsed ? 'para.expand' : 'para.collapse'))}">${collapsed ? '▸' : '▾'}</button>
     <span class="pa-jt" title="${esc(t(g.joinType === 'asym' ? 'para.asym' : 'para.sym'))}">${g.joinType === 'asym' ? '⊳' : '⊕'}</span>
     ${g.relation ? `<span class="pa-rel">${esc(g.relation)}</span>` : `<span class="pa-rel pa-rel-empty">${esc(t('para.noRelation'))}</span>`}
@@ -401,7 +404,7 @@ function renderUnit(id) {
       el.appendChild(s);
     }
   } else {
-    for (const c of g.children) el.appendChild(renderUnit(c));
+    for (const c of g.children) el.appendChild(renderUnit(c, (g.labels || {})[c] || ''));
     // HEAD marker on the head child's container/row.
     if (g.joinType === 'asym') {
       const headEl = [...el.children].find((ch) => ch.dataset && ch.dataset.unit === g.head);
@@ -411,7 +414,7 @@ function renderUnit(id) {
   return el;
 }
 
-function renderLineRow(id) {
+function renderLineRow(id, nodeLabel = '') {
   const l = nodeById(state, id);
   const v = state.view;
   const row = document.createElement('div');
@@ -422,6 +425,7 @@ function renderLineRow(id) {
   const showAudio = !!(state.audio && v.audio);
   const wavesMode = showAudio ? (v.waves || 'compact') : 'off';
   const parts = [];
+  if (nodeLabel) parts.push(`<span class="pa-nodelabel" title="${esc(nodeLabel)}">${esc(nodeLabel)}</span>`);
   if (showAudio && timed) {
     parts.push(`<button class="pa-rowplay" data-s="${l.start}" data-e="${l.end}">▶</button>`);
   }
@@ -509,14 +513,28 @@ function openGroupDialog() { groupDialog({ ids: [...selection] }); }
 function openEditDialog() {
   const gid = [...selection][0];
   const g = nodeById(state, gid);
-  groupDialog({ ids: g.children, gid, joinType: g.joinType, head: g.head, relation: g.relation });
+  groupDialog({ ids: g.children, gid, joinType: g.joinType, head: g.head,
+                relation: g.relation, labels: g.labels || {} });
 }
 
 // The join dialog — GROUPING is the default and only action here (Seth: destructive merges are a
 // separate explicit feature, not built in v1).
-function groupDialog({ ids, gid, joinType = 'sym', head, relation = '' }) {
+//
+// LABELS (Seth, 2026-08-04): a relation can be written on the GROUP, on its MEMBER NODES, or
+// both, and each one is optional. So the members list carries a label box per member, the group
+// label sits under it, and the HEAD choice moved from a separate dropdown INTO that same list —
+// one place showing every per-member decision, in reading order.
+function groupDialog({ ids, gid, joinType = 'sym', head, relation = '', labels = {} }) {
   const dlg = $('#pa-dialog');
   dlg.hidden = false;
+  const members = ids.map((id) => `
+    <div class="pa-member">
+      <label class="pa-headpick" title="${esc(t('para.headTip'))}">
+        <input type="radio" name="pa-head" value="${esc(id)}" ${id === head ? 'checked' : ''}></label>
+      <span class="pa-memtext" title="${esc(unitLabel(id))}">${esc(unitLabel(id))}</span>
+      <input class="pa-memlabel" data-for="${esc(id)}" value="${esc(labels[id] || '')}"
+             placeholder="${esc(t('para.nodeLabelPh'))}">
+    </div>`).join('');
   dlg.innerHTML = `
     <div class="pa-modal">
       <h3>${esc(t(gid ? 'para.editGroup' : 'para.group'))}</h3>
@@ -525,10 +543,15 @@ function groupDialog({ ids, gid, joinType = 'sym', head, relation = '' }) {
           ${esc(t('para.symLong'))}</label>
         <label class="check-label"><input type="radio" name="pa-jt" value="asym" ${joinType === 'asym' ? 'checked' : ''}>
           ${esc(t('para.asymLong'))}</label>
-        <label class="pa-field" id="pa-headwrap" ${joinType === 'asym' ? '' : 'hidden'}>
-          <span>${esc(t('para.head'))}</span>
-          <select id="pa-headsel">${ids.map((id) => `<option value="${esc(id)}" ${id === head ? 'selected' : ''}>${esc(unitLabel(id))}</option>`).join('')}</select>
-        </label>
+        <p class="note pa-labelhint">${esc(t('para.labelHint'))}</p>
+        <div class="pa-members ${joinType === 'asym' ? '' : 'no-head'}" id="pa-members">
+          <div class="pa-member pa-memhead">
+            <span class="pa-headpick">${esc(t('para.head'))}</span>
+            <span>${esc(t('para.members'))}</span>
+            <span>${esc(t('para.nodeLabels'))}</span>
+          </div>
+          ${members}
+        </div>
         <label class="pa-field"><span>${esc(t('para.relation'))}</span>
           <input id="pa-rel" value="${esc(relation)}" placeholder="${esc(t('para.relationPh'))}"></label>
       </div>
@@ -537,16 +560,29 @@ function groupDialog({ ids, gid, joinType = 'sym', head, relation = '' }) {
         <button class="primary-btn" id="pa-ok">${esc(t('para.ok'))}</button>
       </div>
     </div>`;
-  dlg.querySelectorAll('input[name="pa-jt"]').forEach((r) =>
-    r.addEventListener('change', () => { dlg.querySelector('#pa-headwrap').hidden = dlg.querySelector('input[name="pa-jt"]:checked').value !== 'asym'; }));
+  // The head column only exists for an asymmetrical join; switching TO asym pre-picks the first
+  // member so the common case needs no extra click (the model still refuses a headless asym).
+  dlg.querySelectorAll('input[name="pa-jt"]').forEach((r) => r.addEventListener('change', () => {
+    const asym = dlg.querySelector('input[name="pa-jt"]:checked').value === 'asym';
+    dlg.querySelector('#pa-members').classList.toggle('no-head', !asym);
+    if (asym && !dlg.querySelector('input[name="pa-head"]:checked')) {
+      dlg.querySelector('input[name="pa-head"]').checked = true;
+    }
+  }));
   dlg.querySelector('#pa-cancel').addEventListener('click', () => { dlg.hidden = true; dlg.innerHTML = ''; });
   dlg.querySelector('#pa-ok').addEventListener('click', () => {
     const jt = dlg.querySelector('input[name="pa-jt"]:checked').value;
-    const opts = { joinType: jt, relation: dlg.querySelector('#pa-rel').value.trim() };
-    if (jt === 'asym') opts.head = dlg.querySelector('#pa-headsel').value;
+    // Always send `labels` (even empty): the model then clears labels the user emptied out.
+    const labelsOut = {};
+    dlg.querySelectorAll('.pa-memlabel').forEach((inp) => {
+      const v = inp.value.trim();
+      if (v) labelsOut[inp.dataset.for] = v;
+    });
+    const opts = { joinType: jt, relation: dlg.querySelector('#pa-rel').value.trim(), labels: labelsOut };
+    if (jt === 'asym') opts.head = dlg.querySelector('input[name="pa-head"]:checked')?.value;
     try {
       const next = gid
-        ? editGroup(state, gid, { joinType: opts.joinType, head: opts.head, relation: opts.relation })
+        ? editGroup(state, gid, { joinType: opts.joinType, head: opts.head, relation: opts.relation, labels: opts.labels })
         : groupUnits(state, ids, opts);
       selection = new Set(gid ? [gid] : []);
       dlg.hidden = true; dlg.innerHTML = '';

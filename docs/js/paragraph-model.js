@@ -12,6 +12,15 @@
  * 'sym' | 'asym'; asym has EXACTLY ONE head (∈ children), sym has NONE; brackets can never cross
  * by construction (adjacency + single-parent). The DEFAULT join is GROUPING — nothing here ever
  * merges audio segments or text (Seth: destructive merges are a separate, explicit v1.1 feature).
+ *
+ * LABELLING (Seth, 2026-08-04) — a relation may be written on the GROUP, on its MEMBER NODES, or
+ * both, and every one of them is OPTIONAL:
+ *   - `relation` — the group's own label (e.g. "grounds–CONCLUSION", "ADDITION");
+ *   - `labels`   — { childId: "grounds", … }, each member's ROLE in that relation. This is the
+ *     SSA convention (the prominent member's role in CAPS, the supporting member's in lowercase)
+ *     and it belongs on the GROUP, not on the unit: a role is held relative to ONE relation.
+ * Keys are validated to be members of that group, values are trimmed, and empties are dropped —
+ * so "no label" is genuinely absent rather than an empty string in the saved file.
  */
 
 export const FXPA_FORMAT = 'flextext-paragraph-analysis';
@@ -61,6 +70,20 @@ export function validateFxpa(obj) {
     if (g.joinType !== 'sym' && g.joinType !== 'asym') errors.push(`Group ${g.id}: joinType must be sym|asym.`);
     if (g.joinType === 'asym' && !(g.children || []).includes(g.head)) errors.push(`Group ${g.id}: asym needs a head from its children.`);
     if (g.joinType === 'sym' && g.head) errors.push(`Group ${g.id}: sym groups have no head.`);
+    // Member labels: optional, but when present every key must be a member of THIS group.
+    if (g.labels !== undefined && g.labels !== null) {
+      if (typeof g.labels !== 'object' || Array.isArray(g.labels)) {
+        errors.push(`Group ${g.id}: labels must be an object keyed by member id.`);
+      } else {
+        const kept = {};
+        for (const [k, v] of Object.entries(g.labels)) {
+          if (!(g.children || []).includes(k)) { errors.push(`Group ${g.id}: label for ${k}, which is not one of its members.`); continue; }
+          const s = String(v ?? '').trim();
+          if (s) kept[k] = s;
+        }
+        if (Object.keys(kept).length) g.labels = kept; else delete g.labels;
+      }
+    } else if ('labels' in g) delete g.labels;
   }
   data.view.collapsed = data.view.collapsed.filter((id) => data.tree.some((g) => g.id === id));
   return errors.length ? { ok: false, errors } : { ok: true, data };
@@ -153,9 +176,24 @@ function nextGroupId(data) {
   return 'G' + (n + 1);
 }
 
+// Member labels → a clean object, or null when nothing is labelled. Every key must be a member
+// of the group; blank values are dropped so "unlabelled" is absent, never an empty string.
+function cleanLabels(children, labels) {
+  if (labels == null) return null;
+  if (typeof labels !== 'object' || Array.isArray(labels)) throw new Error('Member labels must be an object.');
+  const out = {};
+  for (const [k, v] of Object.entries(labels)) {
+    if (!children.includes(k)) throw new Error('A label was given for a unit that is not in this group.');
+    const s = String(v ?? '').trim();
+    if (s) out[k] = s;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 // The DEFAULT join: create a grouping node over 2+ adjacent parentless units. Never touches
-// lines, audio, or text — grouping is metadata by construction.
-export function groupUnits(data, ids, { joinType, head, relation = '' } = {}) {
+// lines, audio, or text — grouping is metadata by construction. Both kinds of label are
+// OPTIONAL: `relation` on the group, `labels` on its members, either, both, or neither.
+export function groupUnits(data, ids, { joinType, head, relation = '', labels = null } = {}) {
   if (!Array.isArray(ids) || ids.length < 2) throw new Error('Select at least two units to group.');
   for (const id of ids) {
     if (!nodeById(data, id)) throw new Error(`Unknown unit ${id}.`);
@@ -170,8 +208,10 @@ export function groupUnits(data, ids, { joinType, head, relation = '' } = {}) {
   if (joinType === 'asym' && !ids.includes(head)) throw new Error('An asymmetrical join needs one of its members as HEAD.');
   if (joinType === 'sym' && head) throw new Error('A symmetrical join has no head.');
   const ordered = idx.map((i) => top[i]);
-  const g = { id: nextGroupId(data), children: ordered, joinType, relation: String(relation || '') };
+  const lab = cleanLabels(ordered, labels);
+  const g = { id: nextGroupId(data), children: ordered, joinType, relation: String(relation || '').trim() };
   if (joinType === 'asym') g.head = head;
+  if (lab) g.labels = lab;
   g.level = 1 + Math.max(...ordered.map((c) => levelOf(data, c)));
   return { ...data, tree: [...data.tree, g] };
 }
@@ -194,6 +234,11 @@ export function editGroup(data, gid, patch = {}) {
   if (next.joinType !== 'sym' && next.joinType !== 'asym') throw new Error('joinType must be sym|asym.');
   if (next.joinType === 'asym' && !g.children.includes(next.head)) throw new Error('HEAD must be one of the group\'s members.');
   if (next.joinType === 'sym') delete next.head;
+  if ('relation' in patch) next.relation = String(patch.relation ?? '').trim();
+  if ('labels' in patch) {
+    const lab = cleanLabels(g.children, patch.labels);
+    if (lab) next.labels = lab; else delete next.labels;   // clearing every label removes the key
+  }
   return { ...data, tree: data.tree.map((x) => (x.id === gid ? next : x)) };
 }
 

@@ -98,10 +98,56 @@ console.log('collapse summaries — free-translation-only (Seth 2026-08-05)');
   ok(!d.view.collapsed.includes('G2'), 'toggle expands again');
 }
 
+/* Labels (Seth, 2026-08-04): the group may be labelled, its member nodes may be labelled, or
+ * both — every one optional. Member labels live on the GROUP keyed by child id, so a role is
+ * always held relative to ONE relation, and blanks are absent rather than empty strings. */
+console.log('labels — group, members, both, neither (all optional)');
+{
+  let d = base();
+  d = groupUnits(d, ['L1', 'L2'], { joinType: 'asym', head: 'L2' });                       // neither
+  ok(d.tree[0].relation === '' && !('labels' in d.tree[0]), 'no labels at all: relation empty, no labels key');
+
+  d = editGroup(d, 'G1', { joinType: 'asym', head: 'L2', labels: { L1: 'grounds', L2: 'CONCLUSION' } });
+  ok(d.tree[0].labels.L1 === 'grounds' && d.tree[0].labels.L2 === 'CONCLUSION', 'member labels only');
+  ok(d.tree[0].relation === '', 'member labels do not invent a group label');
+
+  d = editGroup(d, 'G1', { joinType: 'asym', head: 'L2', relation: 'grounds–CONCLUSION' });
+  ok(d.tree[0].relation === 'grounds–CONCLUSION' && d.tree[0].labels.L1 === 'grounds',
+     'group label added; untouched member labels survive an edit that omits them');
+
+  d = editGroup(d, 'G1', { joinType: 'asym', head: 'L2', labels: { L1: '  ', L2: '' } });
+  ok(!('labels' in d.tree[0]), 'emptying every member label removes the labels key entirely');
+
+  d = editGroup(d, 'G1', { joinType: 'asym', head: 'L2', labels: { L1: '  spaced  ' } });
+  ok(d.tree[0].labels.L1 === 'spaced', 'labels are trimmed');
+
+  throws(() => editGroup(d, 'G1', { joinType: 'asym', head: 'L2', labels: { L3: 'x' } }),
+         'a label for a NON-member is refused');
+  throws(() => groupUnits(base(), ['L1', 'L2'], { joinType: 'sym', labels: ['a', 'b'] }),
+         'labels must be an object, not an array');
+
+  // sym groups take labels too — labelling is independent of head/joinType
+  let s = groupUnits(base(), ['L1', 'L2'], { joinType: 'sym', relation: 'ADDITION', labels: { L1: 'a', L2: 'b' } });
+  ok(s.tree[0].labels.L1 === 'a' && s.tree[0].relation === 'ADDITION', 'sym group: both kinds of label');
+  s = editGroup(s, 'G1', { joinType: 'asym', head: 'L1' });
+  ok(s.tree[0].labels.L1 === 'a', 'labels survive a sym → asym change');
+
+  // a foreign file carrying a bogus label key is rejected, not silently accepted
+  const bad = validateFxpa({ format: 'flextext-paragraph-analysis', version: 1,
+    lines: [{ id: 'L1', baseline: 'a' }, { id: 'L2', baseline: 'b' }],
+    tree: [{ id: 'G1', level: 1, children: ['L1', 'L2'], joinType: 'sym', labels: { L9: 'x' } }] });
+  ok(bad.ok === false, 'file with a label for a non-member is rejected');
+  const blank = validateFxpa({ format: 'flextext-paragraph-analysis', version: 1,
+    lines: [{ id: 'L1', baseline: 'a' }, { id: 'L2', baseline: 'b' }],
+    tree: [{ id: 'G1', level: 1, children: ['L1', 'L2'], joinType: 'sym', labels: { L1: '   ' } }] });
+  ok(blank.ok === true && !('labels' in blank.data.tree[0]), 'blank labels in a file normalize away');
+}
+
 console.log('round-trip');
 {
   let d = base();
-  d = groupUnits(d, ['L1', 'L2'], { joinType: 'asym', head: 'L2', relation: 'grounds' });
+  d = groupUnits(d, ['L1', 'L2'], { joinType: 'asym', head: 'L2', relation: 'grounds–CONCLUSION',
+                                    labels: { L1: 'grounds', L2: 'CONCLUSION' } });
   d = toggleCollapse(d, 'G1');
   const rt = validateFxpa(JSON.parse(serializeFxpa(d)));
   ok(rt.ok, 'serialized state re-validates');

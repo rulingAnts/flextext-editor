@@ -292,8 +292,10 @@ android/             Capacitor wrappers (recorder + editor APKs) — never serve
 electron/            desktop shell (Windows) — never served
 worker/              the Cloudflare Worker + D1 backend (former flextext-r2-worker repo) — never served
 paragraph-analysis/  the Paragraph Analysis satellite shell + its Cloudflare deploy plumbing
-                     (own git-connected Worker `flextext-paragraph`; build.sh copies docs/ into
-                     the same deployment — see its CLAUDE.md). public/ inside it is build output.
+                     (own git-connected Worker `paragraph-analysis-tool` → pat.flextext.app;
+                     deploy.sh routes productionWeb → deploy, other branches → preview alias;
+                     build.sh copies docs/ into the same deployment — see its CLAUDE.md).
+                     public/ inside it is build output, gitignored.
 notes/       planning docs, gitignored, never served
 ```
 

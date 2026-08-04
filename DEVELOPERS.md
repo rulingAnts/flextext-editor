@@ -24,7 +24,7 @@ An **offline-first suite** for oral-text documentation with minority-language co
 | **Flextext Recorder** | `satellites/text-recorder/` | Record-only companion PWA for low-literacy speakers: record, consent, upload. |
 | **Flextext Researcher** | `satellites/flextext-researcher/` | The researcher console: device management, assignments, settings push, corpus/Drive management, history. |
 | **Crowd recorder** | `satellites/crowd-recorder/` | Embeddable one-shot recorder. |
-| **Paragraph Analysis** | `paragraph-analysis/` | Discourse-structure satellite: groups interlinear lines into phrase→clause→sentence→paragraph trees (SSA / arcing / Longacre-style) over a `.fxpa` or `.flextext` file. Own Cloudflare Worker deploy (`flextext-paragraph`), not a Pages mirror. |
+| **Paragraph Analysis** | `paragraph-analysis/` | Discourse-structure satellite: groups interlinear lines into phrase→clause→sentence→paragraph trees (SSA / arcing / Longacre-style) over a `.fxpa` or `.flextext` file. Own Cloudflare Worker deploy (`paragraph-analysis-tool` → https://pat.flextext.app/), not a Pages mirror. |
 | **Connectivity Worker** | `worker/` | Cloudflare Worker + D1: no-login device sync, researcher accounts (Google Sign-In), E2EE metadata, uploads streamed into the researcher's own Google Drive. |
 | **Native shells** | `android/` (Capacitor), `electron/` | Thin wrappers whose sole reason to exist is archive-grade audio capture (see §7). |
 

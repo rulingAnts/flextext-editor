@@ -22,6 +22,7 @@ import {
   validateFxpa, serializeFxpa, groupUnits, ungroup, editGroup, toggleCollapse,
   topUnits, levelOf, spanOf, leavesOf, summaryOf, isGroupId, nodeById,
   isBlankLine, visibleTopUnits, withBlanksBetween,
+  newAuthoredDoc, addLine, setLineText, deleteLine,
 } from './paragraph-model.js';
 
 const WORKING_KEY = 'fxpa:working';
@@ -32,6 +33,7 @@ let state = null;                 // validated .fxpa data (the model object)
 let pendingEaf = null;            // an .eaf awaiting its tier mapping (see renderEafMapping)
 let pendingSfm = null;            // a Toolbox/SFM file awaiting its marker mapping
 let pendingCsv = null;            // a CSV/TSV file awaiting its column mapping
+let focusLineId = null;           // after a re-render, put the cursor back where the user was
 let selection = new Set();        // selected unit ids (lines or groups)
 let root = null;                  // #pa-main
 let audio = null, peaks = null, mpb = 0, durMs = 0, stopAt = 0, activeSpan = null, rafId = 0;
@@ -76,10 +78,18 @@ function renderOpen(errors) {
       </div>
       ${errors && errors.length ? `<div class="banner warn-banner"><span>${esc(errors.join(' '))}</span></div>` : ''}
       <p class="note">${esc(t('para.textOnlyNote'))}</p>
+      <div class="pa-scratch">
+        <p class="tab-hint">${esc(t('para.scratchIntro'))}</p>
+        <button class="secondary-btn" id="pa-new">${esc(t('para.scratchBtn'))}</button>
+      </div>
     </div>`;
   const drop = $('#pa-drop');
   const input = $('#pa-file');
   $('#pa-pick').addEventListener('click', () => input.click());
+  $('#pa-new').addEventListener('click', () => {
+    const v = validateFxpa(newAuthoredDoc(t('para.scratchTitle')));
+    if (v.ok) { focusLineId = v.data.lines[0].id; load(v.data); }
+  });
   input.addEventListener('change', () => handleFiles([...input.files]));
   drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
   drop.addEventListener('dragleave', () => drop.classList.remove('over'));
@@ -711,6 +721,7 @@ function renderWork() {
         <button class="secondary-btn" id="pa-edit">${esc(t('para.editGroup'))}</button>
         <button class="secondary-btn" id="pa-ungroup">${esc(t('para.ungroup'))}</button>
         <button class="secondary-btn" id="pa-clear" disabled title="${esc(t('para.clearSelTip'))}">${esc(t('para.clearSel'))}</button>
+        ${state.authored ? `<button class="secondary-btn" id="pa-addline">${esc(t('para.scratchAddLine'))}</button>` : ''}
         <button class="secondary-btn" id="pa-export">${esc(t('para.exportBtn'))}</button>
         <button class="primary-btn" id="pa-save">${esc(t('para.save'))}</button>
         <!-- Far right, and LABELLED: a bare ✕ read as "close the toolbar/banner", not "put this
@@ -724,7 +735,7 @@ function renderWork() {
       <div class="pa-ovwrap"><canvas id="pa-ov"></canvas><div class="pa-cur" id="pa-ovcur"></div></div>
       <div class="pa-transport"><button class="icon-btn2" id="pa-play">▶</button><span id="pa-time" class="player-time"></span></div>
     </div>` : ''}
-    <p class="pa-tip">${esc(t('para.selectTip'))}</p>
+    <p class="pa-tip">${esc(state.authored ? t('para.scratchHint') : t('para.selectTip'))}</p>
     <div class="pa-tree" id="pa-tree"></div>
     <div id="pa-dialog" hidden></div>`;
 
@@ -750,6 +761,14 @@ function renderWork() {
   }
   $('#pa-save').addEventListener('click', saveFxpa);
   $('#pa-export').addEventListener('click', openExportDialog);
+  if (state.authored) {
+    $('#pa-addline').addEventListener('click', () => {
+      const last = state.lines[state.lines.length - 1];
+      const next = addLine(state, last ? last.id : null);
+      focusLineId = next._added;
+      commit(next);
+    });
+  }
   $('#pa-close').addEventListener('click', () => {
     if (!confirm(t('para.closeConfirm'))) return;
     db.deleteMedia(WORKING_KEY).catch(() => {});
@@ -781,9 +800,15 @@ function renderWork() {
   }
   const tree = $('#pa-tree');
   for (const id of visibleTopUnits(state, v.hideBlank !== false)) tree.appendChild(renderUnit(id));
+  if (state.authored) wireLineEditors();
   refreshActionButtons();
   drawAllWaves();
   startTicker();
+  if (focusLineId) {
+    const el = root.querySelector(`.pa-edit[data-line="${focusLineId}"]`);
+    if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+    focusLineId = null;
+  }
 }
 
 function wireOverviewScrub(el) {
@@ -874,7 +899,13 @@ function renderLineRow(id, nodeLabel = '') {
   if (wavesMode !== 'off' && timed) {
     body.push(`<canvas class="pa-wave ${wavesMode === 'compact' ? 'pa-wave-sm' : ''}" data-s="${l.start}" data-e="${l.end}"></canvas>`);
   }
-  if (v.layer === 'baseline') {
+  if (state.authored) {
+    // AUTHORED text only. Imported language data has no editor at all (Seth, 2026-08-05), which
+    // the model enforces too — setLineText/addLine/deleteLine refuse a non-authored document.
+    body.push(`<input class="pa-edit" data-line="${esc(id)}" value="${esc(l.baseline || '')}"
+                 placeholder="${esc(t('para.scratchPlaceholder'))}">`);
+  } else if (v.layer === 'baseline' || !(l.words || []).length) {
+    // Fall back to the baseline when a line has no words, or an interlinear view shows nothing.
     body.push(`<div class="pa-baseline">${esc(l.baseline || '')}</div>`);
   } else if (v.layer === 'interlinear') {
     const words = (l.words || []).map((w) => w.punct
@@ -893,6 +924,34 @@ function renderLineRow(id, nodeLabel = '') {
   if (wave) wireScrub(wave, l.start, l.end);
   row.addEventListener('click', (e) => toggleSelect(id, e));
   return row;
+}
+
+/* Typing in an authored document. Text edits do NOT re-render: rebuilding the tree on every
+ * keystroke would take the cursor away mid-word. The model is updated in place and persisted, and
+ * only STRUCTURAL changes (adding or deleting a line) re-render — which is also when the cursor
+ * has to be put back deliberately, via focusLineId. */
+function wireLineEditors() {
+  root.querySelectorAll('.pa-edit').forEach((el) => {
+    const id = el.dataset.line;
+    el.addEventListener('input', () => {
+      state = setLineText(state, id, el.value);
+      persistWorking();
+    });
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const next = addLine(state, id);
+        focusLineId = next._added;
+        commit(next);
+      } else if (e.key === 'Backspace' && el.value === '' && state.lines.length > 1) {
+        e.preventDefault();
+        const i = state.lines.findIndex((l) => l.id === id);
+        focusLineId = (state.lines[i - 1] || state.lines[i + 1] || {}).id || null;
+        try { commit(deleteLine(state, id)); } catch (err) { alert(err.message); }
+      }
+    });
+    el.addEventListener('click', (e) => e.stopPropagation());   // clicking the box must not select the row
+  });
 }
 
 /* ---------------- selection + actions ---------------- */

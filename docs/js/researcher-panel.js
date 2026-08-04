@@ -204,7 +204,10 @@ const GROUPS = [
     // the device actually exports. All require real time alignment on the text to apply at all.
     { k: 'exportEaf', type: 'checkbox' },
     { k: 'exportSaymore', type: 'checkbox' },
-    { k: 'exportPreview', type: 'checkbox', note: 'panel.f.exportsNote' },
+    { k: 'exportPreview', type: 'checkbox' },
+    // .fxpa: the Paragraph Analysis app's interchange (JSON + embedded audio inside a
+    // proprietary extension). Local saves only — never uploads (bandwidth).
+    { k: 'exportJson', type: 'checkbox', note: 'panel.f.exportsNote' },
   ] },
 ];
 
@@ -2742,7 +2745,7 @@ function toFormValues(s, mode) {
     else if (f.k === 'autoDel') v.autoDel = !!s.autoDelUploaded;                                   // stored as autoDelUploaded
     // Export toggles: unset follows Audio Segmentation Mode — show the EFFECTIVE value, so the
     // researcher sees what the device will actually do, not a misleading unchecked box.
-    else if (f.k === 'exportEaf' || f.k === 'exportSaymore' || f.k === 'exportPreview') v[f.k] = s[f.k] ?? !!s.segmentation;
+    else if (f.k === 'exportEaf' || f.k === 'exportSaymore' || f.k === 'exportPreview' || f.k === 'exportJson') v[f.k] = s[f.k] ?? !!s.segmentation;
     else if (f.k === 'autoBackupMins') v.autoBackupMins = String(s.autoBackupMins || 15);          // stored as a number; default 15
     else if (f.type === 'checkbox') v[f.k] = !!s[f.k];
     else if (f.type === 'select') v[f.k] = s[f.k] || (f.k === 'recordFormat' ? DEFAULT_REC_FORMAT : f.opts[0]);

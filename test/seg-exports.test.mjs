@@ -1,7 +1,7 @@
 /* Segmentation export formats: EAF (both profiles), flextext timestamps, preview page, bext.
  * Pure-module tests — seg-exports.js and flextext.js must run under plain node (the format-module
  * rule); any DOM dependency creeping in fails here first. */
-import { serializeEaf, buildSegPreviewHtml, wavWithBext, fmtClock } from '../docs/js/seg-exports.js';
+import { serializeEaf, buildSegPreviewHtml, wavWithBext, fmtClock, buildFxpa } from '../docs/js/seg-exports.js';
 import { serializeFlextext, reconcileBaseline, makeDoc, segmentsFromOffsets } from '../docs/js/flextext.js';
 
 let failures = 0;
@@ -138,6 +138,31 @@ console.log('flextext — segTimes:false suppresses OUR emission, never imported
   d2.paragraphs[0].segments[0].attrs = { guid: 'g', 'begin-time-offset': '5', 'end-time-offset': '900' };
   const xml2 = serializeFlextext(d2, { vernLang: 'fau', analLang: 'id' }, { segTimes: false });
   ok(xml2.includes('begin-time-offset="5"'), 'imported attrs still round-trip with segTimes:false');
+}
+
+console.log('.fxpa (Paragraph Analysis interchange)');
+{
+  const doc = segDoc();
+  doc.segments[2] = { timePending: true };   // last line loses its time
+  const fx = buildFxpa(doc, { title: 'Kisah <A&B>', vernLang: 'fau', analLang: 'id',
+    audio: { b64: 'QUJD', mime: 'audio/wav', name: 'story.converted-NOT-ARCHIVAL.wav', derived: true, srcName: 'story.m4a' } });
+  ok(fx.format === 'flextext-paragraph-analysis' && fx.version === 1, 'format + version fields present');
+  ok(fx.lines.length === 3 && fx.lines.map((l) => l.id).join(',') === 'L1,L2,L3', 'stable line ids L1..Ln');
+  ok(fx.lines[0].start === 0 && fx.lines[0].end === 2000, 'aligned line carries start/end');
+  ok(!('start' in fx.lines[2]) && !('end' in fx.lines[2]), 'pending line has NO start/end (text-only line)');
+  ok(fx.lines[0].words.some((w) => w.gls === 'G0'), 'word glosses ride');
+  ok(fx.lines[0].free === 'one two', 'free translation rides');
+  ok(fx.audio.derived === true && fx.audio.srcName === 'story.m4a', 'derived audio provenance kept');
+  ok(Array.isArray(fx.tree) && fx.tree.length === 0, 'tree starts empty (the app writes it)');
+  const rt = JSON.parse(JSON.stringify(fx));
+  ok(JSON.stringify(rt) === JSON.stringify(fx), 'JSON round-trip identity');
+  // TEXT-ONLY: no audio option, no aligned spans -> a first-class text-only document.
+  const d2 = segDoc();
+  d2.segments = [];
+  d2.paragraphs.forEach((p2) => { if (p2.segments[0]) delete p2.segments[0].attrs['begin-time-offset']; });
+  const fx2 = buildFxpa(d2, { title: 'T', vernLang: 'fau', analLang: 'id' });
+  ok(!('audio' in fx2), 'text-only: no audio block');
+  ok(fx2.lines.every((l) => !('start' in l)), 'text-only: no spans on any line');
 }
 
 console.log('preview page');

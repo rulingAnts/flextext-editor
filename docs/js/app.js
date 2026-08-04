@@ -18,7 +18,7 @@ import { losslessSupported, recFormatSupported, PCMRecorder, encodeWav, encodeRe
          normRecFormat, REC_FORMATS, DEFAULT_REC_FORMAT, pcmRamBudgetBytes, pcmCapStatus } from './record-pcm.js';
 import { makeZip } from './zip.js';
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay } from './segment-strips.js';
-import { serializeEaf, buildSegPreviewHtml, wavWithBext } from './seg-exports.js';
+import { serializeEaf, buildSegPreviewHtml, wavWithBext, buildFxpa } from './seg-exports.js';
 import { mergeSegments, splitSegment, isAligned } from './segments.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget } from './upload.js';
 import * as Sync from './sync.js';
@@ -2984,7 +2984,7 @@ async function syncGatherInventory() {
                    'consentAsk', 'consentConfirm', 'consentMode', 'consentMsg', 'consentResp', 'consentAudioUrl',
                    'appLang', 'uploadFolder', 'toolbarButtons', 'sendOptions', 'autoDelUploaded', 'recordWelcome', 'deleteAllEnabled',
                    'autoBackup', 'autoBackupMins', 'maxRecordSeconds', 'allowDelete', 'doneEnabled',
-                   'segmentation', 'exportEaf', 'exportSaymore', 'exportPreview']) {
+                   'segmentation', 'exportEaf', 'exportSaymore', 'exportPreview', 'exportJson']) {
     if (settings[k] !== undefined) snap[k] = settings[k];
   }
   // ua + cachedApps let the panel show which browser/device this install is + whether its apps are
@@ -3295,6 +3295,7 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
   const wantEaf = settings.exportEaf ?? expDefault;
   const wantSaymore = settings.exportSaymore ?? expDefault;
   const wantPreview = settings.exportPreview ?? expDefault;
+  const wantJson = settings.exportJson ?? expDefault;
   const segEntries = [];
   // The flextext's OWN media-files reference is part of the flextext, not an optional annotation
   // export — resolve the working-media name whenever alignment exists, regardless of checkboxes.
@@ -3345,6 +3346,23 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
       eaf: wantEaf, saymore: wantSaymore, preview: !!(opts.full && wantPreview),
       previewName: String(media.name || base).replace(/\.[^.]+$/, '') + '.preview.html',
     })], { type: 'text/plain' }) });
+  }
+  // The .fxpa export for the Paragraph Analysis satellite (Seth, 2026-08-05): LOCAL bundles only
+  // (embedded base64 audio — field upload bandwidth never pays), and deliberately NOT gated on
+  // alignment: an unaligned or audio-less doc exports a TEXT-ONLY .fxpa the paragraph app can
+  // still group. Audio embeds only when the working media exists (i.e. aligned + media present).
+  if (opts.full && wantJson) {
+    const fxpaAudio = segMedia && segMedia.blob
+      ? { b64: await blobToBase64(segMedia.blob), mime: segMedia.mimeType || 'audio/wav',
+          name: segMediaName, derived: !!segMedia.derived, srcName: segMedia.srcName || '' }
+      : null;
+    const fxpa = buildFxpa(rec.doc, {
+      title: rec.title || base,
+      vernLang: settings.vernLang || rec.doc.vernLang || 'und',
+      analLang: settings.analLang || rec.doc.analLang || 'en',
+      audio: fxpaAudio,
+    });
+    segEntries.push({ name: base + '.fxpa', data: new Blob([JSON.stringify(fxpa)], { type: 'application/json' }) });
   }
   const xmlBlob = serializeDocBlob(rec, segMediaName || undefined);
   const consent = rec.consentClip

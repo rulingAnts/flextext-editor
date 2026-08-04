@@ -45,6 +45,52 @@ export function fmtClock(ms) {
   return `${m}:${String(s).padStart(2, '0')}.${String(f).padStart(3, '0')}`;
 }
 
+/* ---------------- .fxpa (FlexText Paragraph Analysis) ---------------- */
+
+/* The interchange for the Paragraph Analysis satellite (Seth, 2026-08-05): JSON inside, a
+ * proprietary `.fxpa` extension outside (`.fxp` is FL Studio's; `.fxpa` has no known claimant).
+ * OPTIONAL and NOT primary — flextext remains the suite's canonical format; this exists so the
+ * paragraph app can carry a grouping TREE + embedded audio in one portable file.
+ *
+ * Shape: { format, version, title, vernLang, analLang, audio?, lines[], tree[] } —
+ * - lines carry STABLE ids (L1..Ln, minted here): tree nodes reference ids, never indexes, so
+ *   the grouping survives later bottom-level edits.
+ * - TEXT-ONLY is first-class: `audio` may be absent, and a line without alignment simply has no
+ *   start/end — the app then works without players/waves (a flextext with no segmentation, or
+ *   no audio at all, is a legitimate source).
+ * - `tree` is written by the paragraph app (empty at export): nodes
+ *   { id, level, children[ids], joinType: 'sym'|'asym', head? (asym only), relation }.
+ * Returns a plain object; the caller JSON.stringifies it into the `.fxpa` file. */
+export function buildFxpa(doc, opts = {}) {
+  const { title = 'Text', vernLang = 'und', analLang = 'en', audio = null } = opts;
+  const rows = phraseRows(doc);
+  const lines = rows.map((r, i) => {
+    const t = r.phrase;
+    const line = { id: 'L' + (i + 1), baseline: t.baseline || '' };
+    if (isAligned(r.span)) {
+      line.start = Math.round(r.span.start);
+      line.end = Math.round(r.span.end);
+      if (r.span.timeEstimated) line.timeEstimated = true;
+    }
+    line.words = (t.words || []).map((w) => {
+      const o = { txt: w.txt || '' };
+      if (w.punct) o.punct = true;
+      else if (w.gls) o.gls = w.gls;
+      return o;
+    });
+    if (t.free) line.free = t.free;
+    return line;
+  });
+  const out = { format: 'flextext-paragraph-analysis', version: 1, title, vernLang, analLang };
+  if (audio && audio.b64) {
+    out.audio = { b64: audio.b64, mime: audio.mime || 'audio/wav', name: audio.name || 'audio' };
+    if (audio.derived) { out.audio.derived = true; out.audio.srcName = audio.srcName || ''; }
+  }
+  out.lines = lines;
+  out.tree = [];
+  return out;
+}
+
 /* ---------------- EAF (ELAN Annotation Format 3.0) ---------------- */
 
 /* Two profiles from ONE writer (verified against the ELAN manual + SayMore docs, 2026-08-03):

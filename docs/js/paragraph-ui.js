@@ -1127,7 +1127,18 @@ function openEditDialog() {
 function groupDialog({ ids, gid, joinType = 'sym', head, relation = '', labels = {} }) {
   const dlg = $('#pa-dialog');
   dlg.hidden = false;
-  const members = ids.map((id) => `
+  /* ⚠ ONLY LIST MEMBERS THE USER CAN SEE (Seth, 2026-08-05: "extra group item labels for lines
+   * that don't exist"). A hidden blank line is still absorbed into the group — it has to be, or
+   * the children would not be contiguous — but it is not a unit the user is analysing, so it must
+   * not get a label box, and above all not a HEAD radio: a silence cannot be the prominent member
+   * of an asymmetrical join, and its summary would be empty. Files from FLEx routinely carry these
+   * (Jn1_1-3-glossed.flextext has four whitespace-only phrases among eleven).
+   * The current head is always shown even if invisible, so a group made before this fix can still
+   * be seen and reassigned rather than becoming uneditable. */
+  const hideBlank = state.view.hideBlank !== false;
+  const shown = ids.filter((id) => isGroupId(id) || id === head
+    || !(hideBlank && isBlankLine(nodeById(state, id))));
+  const members = shown.map((id) => `
     <div class="pa-member">
       <label class="pa-headpick" title="${esc(t('para.headTip'))}">
         <input type="radio" name="pa-head" value="${esc(id)}" ${id === head ? 'checked' : ''}></label>

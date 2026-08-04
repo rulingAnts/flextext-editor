@@ -272,14 +272,21 @@ export function summaryLineOf(data, id) {
   const g = nodeById(data, id);
   if (!g) return '';
   if (g.joinType === 'asym') return summaryLineOf(data, g.head);
-  return g.children.map((c) => summaryLineOf(data, c)).join('  ·  ');
+  return g.children.map((c) => summaryLineOf(data, c)).filter((s) => s.trim()).join('  ·  ');
 }
 
+/* ⚠ A MEMBER WITH NOTHING TO SAY CONTRIBUTES NOTHING (Seth, 2026-08-05: "FLEx can definitely do
+ * some funny things with blank lines and line numbering — our app should be able to handle that
+ * without troubling the user"). Blank lines are real timed spans and stay in the tree, but a
+ * summary entry for one is empty by definition, so listing it just puts a stray placeholder row
+ * (or a doubled ' · ' separator) where the user sees no line at all. Dropping empties is safe
+ * whatever the hide-blanks setting is, because there is no text either way. */
 export function summaryOf(data, id) {
   const g = nodeById(data, id);
   if (!g || !isGroupId(id)) return [summaryLineOf(data, id)];
   if (g.joinType === 'asym') return [summaryLineOf(data, g.head)];
-  return g.children.map((c) => summaryLineOf(data, c));
+  const lines = g.children.map((c) => summaryLineOf(data, c)).filter((s) => s.trim());
+  return lines.length ? lines : [''];      // all-blank group: ONE placeholder, not one per member
 }
 
 /* ---------------- mutations (throw on invariant violation) ---------------- */

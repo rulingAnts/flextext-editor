@@ -86,6 +86,26 @@ for (const [name, path] of SATELLITE_SW) {
      + (e === engineVer ? '' : ' — bump this satellite, or its users keep a stale engine'));
 }
 
+/* The paragraph-analysis deploy safety contract (Seth, 2026-08-04: "guarded in our workflows,
+ * not just AI memory"). The Cloudflare site paragraph-analysis-tool builds THIS repo on every
+ * branch; production (pat.flextext.app) must only ever be written by productionWeb builds.
+ * That routing lives in paragraph-analysis/deploy.sh + the build.sh guard — these assertions
+ * make removing or renaming any piece of it fail the release, not fade from memory. */
+console.log('\nthe paragraph-analysis Cloudflare deploy contract holds');
+{
+  const toml = read('../paragraph-analysis/wrangler.toml');
+  ok(/^name = "paragraph-analysis-tool"$/m.test(toml),
+     'wrangler.toml names the connected Worker exactly (paragraph-analysis-tool)');
+  ok(/command = "bash build\.sh"/.test(toml),
+     'wrangler.toml keeps the [build] hook (assembly + guard can never be skipped)');
+  const dep = read('../paragraph-analysis/deploy.sh');
+  ok(/versions upload --preview-alias/.test(dep) && /wrangler deploy/.test(dep)
+     && /WORKERS_CI_BRANCH/.test(dep) && /productionWeb/.test(dep),
+     'deploy.sh routes productionWeb → deploy, other branches → preview alias');
+  ok(/FX_CI_ROUTED/.test(dep) && /FX_CI_ROUTED/.test(read('../paragraph-analysis/build.sh')),
+     'build.sh refuses unrouted non-production builds (FX_CI_ROUTED handshake)');
+}
+
 console.log(fail ? `\nFAILED (${fail}) — a version has drifted.\n`
                  : '\nPASS: the service worker and the engine report the same version.\n');
 process.exit(fail ? 1 : 0);

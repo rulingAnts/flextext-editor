@@ -3457,7 +3457,7 @@ function howToOpenText({ base, segMediaName, derived, eaf, saymore, preview, pre
   if (json) {
     L.push(`Paragraph analysis — open "${base}.fxpa"`);
     L.push('  In the Flextext Paragraph Analysis app:');
-    L.push('  https://flextext-paragraph.68mh29kgsd.workers.dev/');
+    L.push('  https://pat.flextext.app/');
     L.push('  Drop the .fxpa file on the open screen to group the lines into phrases,');
     L.push('  clauses, sentences, and paragraphs. Text and audio are inside the file.');
     L.push('');

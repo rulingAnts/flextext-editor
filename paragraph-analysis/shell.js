@@ -1,4 +1,5 @@
-/* Shell Worker for the flextext-paragraph site (the Paragraph Analysis satellite).
+/* Shell Worker for the paragraph-analysis-tool site (the Paragraph Analysis satellite,
+ * production https://pat.flextext.app/).
  *
  * Two jobs only:
  *  1. Redirect / to /paragraph-analysis/ (the app lives at its PWA scope path; the root of

@@ -10,7 +10,7 @@
  * Grouping never touches audio or text — a collapsed group merely PLAYS its aggregate span.
  */
 
-import { t, applyI18n } from './i18n.js';
+import { t, applyI18n, ENGINE_VERSION } from './i18n.js';
 import * as db from './db.js';
 import { parseFlextext, segmentsFromOffsets, esc } from './flextext.js';
 import { buildFxpa } from './seg-exports.js';
@@ -171,6 +171,56 @@ function currentMapping() {
   return m;
 }
 
+/* A STRUCTURAL diagnostic for a bug report — deliberately NO annotation text, no sample content,
+ * no file path beyond the name. Language data is exactly what must not leak into a public issue
+ * tracker (the suite's threat model includes hostile-government scrutiny, and consent covers this
+ * material). Tier shapes and what we detected are what actually diagnose an import. */
+function eafDiagnostic() {
+  const P = pendingEaf;
+  const L = [];
+  L.push('App: Paragraph Analysis Tool ' + (ENGINE_VERSION || ''));
+  L.push('Browser: ' + navigator.userAgent);
+  L.push('File: ' + P.name + '.eaf');
+  L.push('Media named in the EAF: ' + ((P.eaf.media[0] || {}).name || 'none')
+         + ' | audio supplied: ' + (P.audioFile ? 'yes' : 'no'));
+  L.push('Multi-speaker: ' + (P.stacks ? 'yes (' + P.stacks.map((st) => st.speaker).join(', ') + ')' : 'no'));
+  const m = currentMapping();
+  L.push('Chosen mapping: ' + (P.stacks
+    ? P.stacks.filter((st) => st.use).map((st) => st.speaker + '→' + st.baseline).join(', ')
+    : ROLES.map((r) => r + '=' + (m[r] || 'none')).join(', ')));
+  L.push('');
+  L.push('Tiers (id | linguistic type | parent | annotations | time-aligned):');
+  for (const d of P.tiers.slice(0, 40)) {
+    L.push('  ' + [d.id, d.typeRef || '-', d.parentRef || '-', d.count, d.timed].join(' | ')
+           + (d.constraints ? '  [' + d.constraints + ']' : ''));
+  }
+  if (P.tiers.length > 40) L.push('  …and ' + (P.tiers.length - 40) + ' more tiers');
+  L.push('');
+  L.push('(No text from the file is included above — only its structure.)');
+  return L.join('\n');
+}
+
+function reportEafProblem() {
+  const body = t('para.reportBody') + '\n\n\n---\n```\n' + eafDiagnostic() + '\n```\n';
+  const url = 'https://github.com/rulingAnts/flextext-editor/issues/new?title='
+    + encodeURIComponent('ELAN import: ' + pendingEaf.name)
+    + '&body=' + encodeURIComponent(body);
+  window.open(url, '_blank', 'noopener');
+}
+
+async function copyEafDiagnostic() {
+  const btn = $('#pa-map-copy');
+  try {
+    await navigator.clipboard.writeText(eafDiagnostic());
+    if (btn) btn.textContent = t('para.reportCopied');
+  } catch {
+    // No clipboard permission (or an insecure context): show it so it can be copied by hand —
+    // never leave the user with a button that silently did nothing.
+    const box = $('#pa-map-diag');
+    if (box) { box.hidden = false; box.textContent = eafDiagnostic(); box.select?.(); }
+  }
+}
+
 function renderEafMapping(errors) {
   stopAudio();
   const P = pendingEaf;
@@ -205,6 +255,12 @@ function renderEafMapping(errors) {
       <p class="note">${esc(t('para.mapHint'))}</p>`}
       <h3 class="pa-mapph">${esc(t('para.mapPreview'))}</h3>
       <div class="pa-mappreview" id="pa-map-preview"></div>
+      <p class="note pa-reportline">${esc(t('para.reportIntro'))}
+        <button class="link-btn" id="pa-map-report">${esc(t('para.reportBtn'))}</button>
+        <button class="link-btn" id="pa-map-copy">${esc(t('para.reportCopy'))}</button>
+      </p>
+      <p class="note pa-reportnote">${esc(t('para.reportNote'))}</p>
+      <textarea id="pa-map-diag" class="pa-diag" readonly hidden></textarea>
       <div class="pa-modal-actions">
         <button class="secondary-btn" id="pa-map-cancel">${esc(t('para.cancel'))}</button>
         <button class="primary-btn" id="pa-map-go">${esc(t('para.mapOpen'))}</button>
@@ -218,6 +274,8 @@ function renderEafMapping(errors) {
   } else {
     for (const r of ROLES) $('#pa-map-' + r).addEventListener('change', () => { P.mapping = currentMapping(); drawMapPreview(); });
   }
+  $('#pa-map-report').addEventListener('click', reportEafProblem);
+  $('#pa-map-copy').addEventListener('click', copyEafDiagnostic);
   $('#pa-map-cancel').addEventListener('click', () => { pendingEaf = null; renderOpen(); });
   $('#pa-map-go').addEventListener('click', eafConfirm);
   drawMapPreview();

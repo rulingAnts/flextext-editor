@@ -16,6 +16,7 @@ import { parseFlextext, segmentsFromOffsets, esc } from './flextext.js';
 import { buildFxpa } from './seg-exports.js';
 import { readEaf, describeTiers, detectMapping, detectStacks, looksMultiSpeaker, eafToLines } from './eaf-read.js';
 import { parseSfm, markerInventory, detectMapping as detectSfmMapping, sfmToTexts } from './sfm.js';
+import { buildParagraphPreviewHtml } from './paragraph-export.js';
 import {
   validateFxpa, serializeFxpa, groupUnits, ungroup, editGroup, toggleCollapse,
   topUnits, levelOf, spanOf, leavesOf, summaryOf, isGroupId, nodeById,
@@ -691,6 +692,7 @@ function renderWork() {
         <button class="secondary-btn" id="pa-edit">${esc(t('para.editGroup'))}</button>
         <button class="secondary-btn" id="pa-ungroup">${esc(t('para.ungroup'))}</button>
         <button class="secondary-btn" id="pa-clear" disabled title="${esc(t('para.clearSelTip'))}">${esc(t('para.clearSel'))}</button>
+        <button class="secondary-btn" id="pa-export">${esc(t('para.exportBtn'))}</button>
         <button class="primary-btn" id="pa-save">${esc(t('para.save'))}</button>
         <!-- Far right, and LABELLED: a bare ✕ read as "close the toolbar/banner", not "put this
              document away" — and it is the one control that discards the working copy. -->
@@ -728,6 +730,7 @@ function renderWork() {
     $('#pa-waves')?.addEventListener('change', (e) => setView({ waves: e.target.value }));
   }
   $('#pa-save').addEventListener('click', saveFxpa);
+  $('#pa-export').addEventListener('click', openExportDialog);
   $('#pa-close').addEventListener('click', () => {
     if (!confirm(t('para.closeConfirm'))) return;
     db.deleteMedia(WORKING_KEY).catch(() => {});
@@ -1101,6 +1104,75 @@ function doUngroup() {
     selection = new Set();
     commit(next);
   } catch (e) { alert(e.message); }
+}
+
+/* ---------------- exports ----------------
+ * One dialog for every export format. Two of Seth's rules live here:
+ *  - COLLAPSED GROUPS EXPORT COLLAPSED (what you see is what you get) — but the dialog WARNS when
+ *    any are collapsed, so a partly-hidden export is never a surprise;
+ *  - a SELECTION can be exported, not only the whole text.
+ * More formats (scrollable diagram, SSA SVG, PNG, paragraph-analyzed EAF) slot in beside these. */
+
+function openExportDialog() {
+  const dlg = $('#pa-dialog');
+  const collapsedCount = (state.view.collapsed || []).length;
+  const selCount = selection.size;
+  dlg.hidden = false;
+  dlg.innerHTML = `
+    <div class="pa-modal">
+      <h3>${esc(t('para.exportTitle'))}</h3>
+      <div class="pa-modal-body">
+        <label class="pa-field"><span>${esc(t('para.exportWhat'))}</span>
+          <select id="pa-exp-what">
+            <option value="preview">${esc(t('para.exportPreview'))}</option>
+          </select></label>
+        <p class="note">${esc(t('para.exportPreviewNote'))}</p>
+        <label class="pa-field"><span>${esc(t('para.exportScope'))}</span>
+          <select id="pa-exp-scope">
+            <option value="all">${esc(t('para.exportAll'))}</option>
+            <option value="sel"${selCount ? '' : ' disabled'}>${esc(t('para.exportSelection', { n: selCount }))}</option>
+          </select></label>
+        <label class="check-label"><input type="checkbox" id="pa-exp-audio" ${state.audio ? 'checked' : 'disabled'}>
+          ${esc(t('para.exportWithAudio'))}</label>
+        ${collapsedCount ? `<div class="banner warn-banner"><span>${esc(t('para.exportCollapsedWarn', { n: collapsedCount }))}</span></div>` : ''}
+      </div>
+      <div class="pa-modal-actions">
+        <button class="secondary-btn" id="pa-exp-cancel">${esc(t('para.cancel'))}</button>
+        <button class="primary-btn" id="pa-exp-go">${esc(t('para.exportGo'))}</button>
+      </div>
+    </div>`;
+  dlg.querySelector('#pa-exp-cancel').addEventListener('click', () => { dlg.hidden = true; dlg.innerHTML = ''; });
+  dlg.querySelector('#pa-exp-go').addEventListener('click', runExport);
+}
+
+function runExport() {
+  const dlg = $('#pa-dialog');
+  const scope = dlg.querySelector('#pa-exp-scope').value;
+  const withAudio = dlg.querySelector('#pa-exp-audio').checked && !!state.audio;
+  const html = buildParagraphPreviewHtml(state, {
+    title: state.title,
+    audioB64: withAudio ? state.audio.b64 : '',
+    audioMime: withAudio ? (state.audio.mime || 'audio/wav') : '',
+    only: scope === 'sel' ? [...selection] : null,
+    collapsed: state.view.collapsed || [],
+    hideBlank: state.view.hideBlank !== false,
+    layer: state.view.layer,
+    free: state.view.free !== false,
+    lang: getLangForExport(),
+  });
+  downloadFile(html, safeName(state.title) + '.preview.html', 'text/html');
+  dlg.hidden = true; dlg.innerHTML = '';
+}
+
+const getLangForExport = () => (document.documentElement.lang || 'en');
+const safeName = (s) => String(s || 'text').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80);
+
+function downloadFile(text, name, mime) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: mime }));
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 30000);
 }
 
 /* ---------------- save ---------------- */

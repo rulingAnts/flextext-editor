@@ -255,6 +255,39 @@ console.log('round-trip');
      JSON.stringify(rt.data.view) === JSON.stringify(d.view), 'tree + view survive the round trip exactly');
 }
 
+/* FLEx exports routinely carry whitespace-only phrases (Jn1_1-3-glossed.flextext: four of eleven).
+ * They are real timed spans and stay in the tree, but they must never surface as units the user
+ * has to think about — Seth: "our app should be able to handle that without troubling the user". */
+console.log('\nblank lines from FLEx never surface as phantom members');
+{
+  let d = validateFxpa({
+    format: 'flextext-paragraph-analysis', version: 1,
+    lines: [
+      { id: 'L1', baseline: 'Ἐν ἀρχῇ ἦν ὁ λόγος', free: 'In the beginning was the Word' },
+      { id: 'L2', baseline: '   ' },                                  // FLEx's whitespace-only phrase
+      { id: 'L3', baseline: 'καὶ ὁ λόγος ἦν πρὸς τὸν θεόν', free: 'and the Word was with God' },
+    ],
+    tree: [],
+  }).data;
+  ok(isBlankLine(d.lines[1]), 'a whitespace-only phrase counts as blank');
+
+  // The blank MUST be absorbed — the children have to be contiguous — but it must not be listed.
+  const ids = withBlanksBetween(d, ['L1', 'L3'], true);
+  eq([...ids].sort(), ['L1', 'L2', 'L3'], 'the hidden blank is absorbed so the group stays contiguous');
+  d = groupUnits(d, ids, { joinType: 'sym', relation: 'coordinate' });
+  eq(d.tree[0].children, ['L1', 'L2', 'L3'], 'the blank really is inside the group, in text order');
+
+  eq(summaryOf(d, 'G1'), ['In the beginning was the Word', 'and the Word was with God'],
+     'the collapsed summary shows TWO lines, not three with an empty one');
+  ok(!summaryLineOf(d, 'G1').includes('·  ·'), 'no doubled separator where the blank was');
+
+  // An all-blank group degrades to a single placeholder rather than one per member.
+  let e = validateFxpa({ format: 'flextext-paragraph-analysis', version: 1,
+    lines: [{ id: 'L1', baseline: ' ' }, { id: 'L2', baseline: '' }], tree: [] }).data;
+  e = groupUnits(e, ['L1', 'L2'], { joinType: 'sym' });
+  eq(summaryOf(e, 'G1'), [''], 'all-blank group summarizes as ONE empty placeholder');
+}
+
 console.log('\ncollapse/expand ALL — whole document, or one subtree when something is selected');
 {
   // L1 L2 grouped (G1), L3 L4 grouped (G2), then G1+G2 grouped (G3) — three levels.

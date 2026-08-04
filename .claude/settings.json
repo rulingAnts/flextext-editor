@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git *)",
+      "Bash(gh workflow run *)",
+      "Bash(gh workflow list*)",
+      "Bash(gh run *)",
+      "Bash(node *)",
+      "Bash(python3 *)",
+      "Bash(perl *)",
+      "Bash(curl *)",
+      "Bash(bash dev-serve.sh *)",
+      "Bash(./bump-version.sh *)",
+      "Bash(./check-native-containment.sh)",
+      "Bash(./devctl.sh *)",
+      "Bash(./check-release-integrity.sh *)",
+      "Bash(FLEXTEXT_DOCS=*)",
+      "Bash(lsof *)",
+      "Bash(kill *)",
+      "Bash(mkdir *)",
+      "Bash(chmod *)",
+      "Bash(sed *)",
+      "Bash(grep *)",
+      "Bash(cat *)",
+      "Bash(ls *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(diff *)",
+      "Bash(shasum *)",
+      "Bash(sleep *)"
+    ],
+    "ask": [
+      "Bash(git push origin main*)",
+      "Bash(git push origin productionWeb*)",
+      "Bash(git push * main*)",
+      "Bash(git push * productionWeb*)",
+      "Bash(ALLOW_MAIN_PUSH=*)",
+      "Bash(ALLOW_WORKFLOW_PUSH=*)"
+    ]
+  }
+}

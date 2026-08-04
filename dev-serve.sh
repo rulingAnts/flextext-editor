@@ -22,14 +22,19 @@ MIRROR="$HOME/GIT/.flextext-devserve-$PORT"    # PER-PORT: a second instance mus
 EDITOR="${FLEXTEXT_DOCS:-$HOME/GIT/flextext editor/docs}"
 RECORDER="$HOME/GIT/text-recorder"
 CROWD="$HOME/GIT/crowd-recorder"
+# The paragraph-analysis shell lives BESIDE docs/ in the same checkout, so follow whatever
+# checkout FLEXTEXT_DOCS points at (a worktree's docs ⇒ that worktree's shell).
+PARAGRAPH="${FLEXTEXT_PARAGRAPH:-$(dirname "$EDITOR")/paragraph-analysis}"
 rm -rf "$MIRROR"; mkdir -p "$MIRROR"
 ln -s "$EDITOR" "$MIRROR/flextext-editor"
 [ -d "$RECORDER" ] && ln -s "$RECORDER" "$MIRROR/text-recorder" || echo "(note: text-recorder repo not found — editor only)"
 [ -d "$CROWD" ] && ln -s "$CROWD" "$MIRROR/crowd-recorder" || echo "(note: crowd-recorder repo not found — skipping)"
+[ -d "$PARAGRAPH" ] && ln -s "$PARAGRAPH" "$MIRROR/paragraph-analysis" || echo "(note: paragraph-analysis shell not found — skipping)"
 echo "Serving on http://localhost:$PORT"
-echo "  Editor:   http://localhost:$PORT/flextext-editor/"
-echo "  Recorder: http://localhost:$PORT/text-recorder/"
-echo "  Crowd:    http://localhost:$PORT/crowd-recorder/"
+echo "  Editor:    http://localhost:$PORT/flextext-editor/"
+echo "  Recorder:  http://localhost:$PORT/text-recorder/"
+echo "  Crowd:     http://localhost:$PORT/crowd-recorder/"
+echo "  Paragraph: http://localhost:$PORT/paragraph-analysis/"
 # Send no-store on every response so the browser NEVER caches dev assets (a plain
 # `http.server` lets the browser cache css/js, which made edits appear not to land).
 # With this, a normal reload always fetches fresh files — no hard-reload needed.

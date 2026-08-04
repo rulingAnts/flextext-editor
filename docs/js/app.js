@@ -18,8 +18,9 @@ import { losslessSupported, recFormatSupported, PCMRecorder, encodeWav, encodeRe
          normRecFormat, REC_FORMATS, DEFAULT_REC_FORMAT, pcmRamBudgetBytes, pcmCapStatus } from './record-pcm.js';
 import { makeZip } from './zip.js';
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay } from './segment-strips.js';
-import { serializeEaf, buildSegPreviewHtml, wavWithBext } from './seg-exports.js';
+import { serializeEaf, buildSegPreviewHtml, wavWithBext, buildFxpa } from './seg-exports.js';
 import { mergeSegments, splitSegment, isAligned } from './segments.js';
+import { initParagraphApp } from './paragraph-ui.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget } from './upload.js';
 import * as Sync from './sync.js';
 import { initResearcherPanel } from './researcher-panel.js';
@@ -51,6 +52,11 @@ const RESEARCHER_MODE = (typeof window !== 'undefined' && window.__MODE === 'res
 // NEVER write the shared settings/lang/doc stores — its config lives in memory and
 // its only persistence is its OWN IndexedDB database (unsent submissions).
 const CROWD_MODE = typeof window !== 'undefined' && window.__MODE === 'crowd';
+// Paragraph Analysis mode: the "Flextext Paragraph Analysis" satellite (paragraph-analysis/
+// index.html sets window.__MODE='paragraph'). Boots straight into the grouping app
+// (js/paragraph-ui.js) and skips ALL field/editor wiring, like the researcher console. Shell-only
+// on purpose — no ?mode= entry: the editor page has no #pa-main container to boot into.
+const PARAGRAPH_MODE = typeof window !== 'undefined' && window.__MODE === 'paragraph';
 
 // The Texts-screen "new text" buttons a researcher can show/hide per link.
 const ALL_BUTTONS = ['new', 'audio', 'record', 'open'];
@@ -2924,6 +2930,7 @@ async function listCachedApps() {
       let m;
       if ((m = k.match(/^flextext-researcher-(.+)$/))) out.researcher = m[1];
       else if ((m = k.match(/^text-recorder-(.+)$/))) out.recorder = m[1];
+      else if ((m = k.match(/^flextext-paragraph-(.+)$/))) out.paragraph = m[1];   // before the generic flextext-* (editor) match
       else if ((m = k.match(/^flextext-(.+)$/))) out.editor = m[1];
     }
     return out;
@@ -2935,11 +2942,11 @@ async function listCachedApps() {
 // shell version (from their cache name) since they ship on their own cadence. Informational only —
 // pointer-events:none so it never intercepts a tap.
 async function showAppVersion() {
-  const name = RESEARCHER_MODE ? 'researcher' : (RECORD_MODE ? 'recorder' : 'editor');
+  const name = RESEARCHER_MODE ? 'researcher' : (RECORD_MODE ? 'recorder' : (PARAGRAPH_MODE ? 'paragraph' : 'editor'));
   let ver = ENGINE_VERSION;                                   // editor: shell == engine version
-  if (RECORD_MODE || RESEARCHER_MODE) {
+  if (RECORD_MODE || RESEARCHER_MODE || PARAGRAPH_MODE) {
     const apps = await listCachedApps().catch(() => null);
-    ver = (apps && (RECORD_MODE ? apps.recorder : apps.researcher)) || '';   // own shell version (cache name)
+    ver = (apps && (RECORD_MODE ? apps.recorder : (PARAGRAPH_MODE ? apps.paragraph : apps.researcher))) || '';   // own shell version (cache name)
   }
   let el = document.getElementById('app-version');
   if (!el) { el = document.createElement('div'); el.id = 'app-version'; el.className = 'app-version'; (document.body || document.documentElement).appendChild(el); }
@@ -2984,7 +2991,7 @@ async function syncGatherInventory() {
                    'consentAsk', 'consentConfirm', 'consentMode', 'consentMsg', 'consentResp', 'consentAudioUrl',
                    'appLang', 'uploadFolder', 'toolbarButtons', 'sendOptions', 'autoDelUploaded', 'recordWelcome', 'deleteAllEnabled',
                    'autoBackup', 'autoBackupMins', 'maxRecordSeconds', 'allowDelete', 'doneEnabled',
-                   'segmentation', 'exportEaf', 'exportSaymore', 'exportPreview']) {
+                   'segmentation', 'exportEaf', 'exportSaymore', 'exportPreview', 'exportJson']) {
     if (settings[k] !== undefined) snap[k] = settings[k];
   }
   // ua + cachedApps let the panel show which browser/device this install is + whether its apps are
@@ -3295,6 +3302,7 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
   const wantEaf = settings.exportEaf ?? expDefault;
   const wantSaymore = settings.exportSaymore ?? expDefault;
   const wantPreview = settings.exportPreview ?? expDefault;
+  const wantJson = settings.exportJson ?? expDefault;
   const segEntries = [];
   // The flextext's OWN media-files reference is part of the flextext, not an optional annotation
   // export — resolve the working-media name whenever alignment exists, regardless of checkboxes.
@@ -3344,7 +3352,25 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
       base, segMediaName, derived: !!segMedia.derived,
       eaf: wantEaf, saymore: wantSaymore, preview: !!(opts.full && wantPreview),
       previewName: String(media.name || base).replace(/\.[^.]+$/, '') + '.preview.html',
+      json: !!(opts.full && wantJson),
     })], { type: 'text/plain' }) });
+  }
+  // The .fxpa export for the Paragraph Analysis satellite (Seth, 2026-08-05): LOCAL bundles only
+  // (embedded base64 audio — field upload bandwidth never pays), and deliberately NOT gated on
+  // alignment: an unaligned or audio-less doc exports a TEXT-ONLY .fxpa the paragraph app can
+  // still group. Audio embeds only when the working media exists (i.e. aligned + media present).
+  if (opts.full && wantJson) {
+    const fxpaAudio = segMedia && segMedia.blob
+      ? { b64: await blobToBase64(segMedia.blob), mime: segMedia.mimeType || 'audio/wav',
+          name: segMediaName, derived: !!segMedia.derived, srcName: segMedia.srcName || '' }
+      : null;
+    const fxpa = buildFxpa(rec.doc, {
+      title: rec.title || base,
+      vernLang: settings.vernLang || rec.doc.vernLang || 'und',
+      analLang: settings.analLang || rec.doc.analLang || 'en',
+      audio: fxpaAudio,
+    });
+    segEntries.push({ name: base + '.fxpa', data: new Blob([JSON.stringify(fxpa)], { type: 'application/json' }) });
   }
   const xmlBlob = serializeDocBlob(rec, segMediaName || undefined);
   const consent = rec.consentClip
@@ -3394,7 +3420,7 @@ function serializeDocBlob(rec, mediaName) {
 // The end-user instructions bundled beside the annotation exports. Plain text, plain words,
 // naming this bundle's ACTUAL files — the reader is a researcher (or their student) with the
 // unzipped folder open, not someone who knows our terminology.
-function howToOpenText({ base, segMediaName, derived, eaf, saymore, preview, previewName }) {
+function howToOpenText({ base, segMediaName, derived, eaf, saymore, preview, previewName, json }) {
   const L = [];
   L.push('HOW TO OPEN THESE FILES');
   L.push('=======================');
@@ -3426,6 +3452,14 @@ function howToOpenText({ base, segMediaName, derived, eaf, saymore, preview, pre
     L.push(`Quick listen — open "${previewName}" in any browser`);
     L.push('  The audio is embedded in the page: it works offline, plays line by line, and');
     L.push('  needs no other files. Handy beside FLEx while glossing or charting.');
+    L.push('');
+  }
+  if (json) {
+    L.push(`Paragraph analysis — open "${base}.fxpa"`);
+    L.push('  In the Flextext Paragraph Analysis app:');
+    L.push('  https://flextext-paragraph.68mh29kgsd.workers.dev/');
+    L.push('  Drop the .fxpa file on the open screen to group the lines into phrases,');
+    L.push('  clauses, sentences, and paragraphs. Text and audio are inside the file.');
     L.push('');
   }
   if (derived) {
@@ -5057,6 +5091,14 @@ function setup() {
   // same browser profile. Everything crowd needs is fetched or in-memory.
   if (CROWD_MODE) { setupCrowdMode(); return; }
   if (isDevHost(location.hostname) && new URLSearchParams(location.search).has('devreset')) { devReset(); return; }
+  // ----- Paragraph Analysis satellite: boot the grouping app only; skip ALL field/editor wiring.
+  // Registers its OWN service worker (sw.js resolves relative to /paragraph-analysis/).
+  if (PARAGRAPH_MODE) {
+    setupServiceWorker();
+    showAppVersion();
+    initParagraphApp();
+    return;
+  }
   // Editor-origin ?mode=researcher → hand off to the standalone Researcher app (its own install +
   // service worker). Preserve a returning #gauth fragment so an in-flight Google sign-in still
   // completes there. The standalone shell (window.__MODE='researcher') and local dev keep the

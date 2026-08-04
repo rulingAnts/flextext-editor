@@ -17,6 +17,7 @@ import { buildFxpa } from './seg-exports.js';
 import { readEaf, describeTiers, detectMapping, detectStacks, looksMultiSpeaker, eafToLines } from './eaf-read.js';
 import { parseSfm, markerInventory, detectMapping as detectSfmMapping, sfmToTexts } from './sfm.js';
 import { buildParagraphPreviewHtml, buildSsaSvg, buildSsaDiagramHtml } from './paragraph-export.js';
+import { parseDelimited, looksLikeHeader, columnsOf, detectMapping as detectCsvMapping, csvToLines, templateCsv } from './csv.js';
 import {
   validateFxpa, serializeFxpa, groupUnits, ungroup, editGroup, toggleCollapse,
   topUnits, levelOf, spanOf, leavesOf, summaryOf, isGroupId, nodeById,
@@ -30,6 +31,7 @@ const SFM_MAP_KEY = 'fxpa:sfm-mapping';
 let state = null;                 // validated .fxpa data (the model object)
 let pendingEaf = null;            // an .eaf awaiting its tier mapping (see renderEafMapping)
 let pendingSfm = null;            // a Toolbox/SFM file awaiting its marker mapping
+let pendingCsv = null;            // a CSV/TSV file awaiting its column mapping
 let selection = new Set();        // selected unit ids (lines or groups)
 let root = null;                  // #pa-main
 let audio = null, peaks = null, mpb = 0, durMs = 0, stopAt = 0, activeSpan = null, rafId = 0;
@@ -115,6 +117,23 @@ async function handleFiles(files) {
         name: eafFile.name.replace(/\.eaf$/i, ''),
       };
       return renderEafMapping();
+    }
+    // CSV / TSV. Checked before the SFM sniff: an SFM file starts with a backslash marker and a
+    // delimited file does not, so the two cannot be confused.
+    const maybeCsv = files.find((f) => !/\.(fxpa|eaf|flextext)$/i.test(f.name) && !/^audio\//.test(f.type));
+    if (maybeCsv) {
+      const txt = await maybeCsv.text().catch(() => '');
+      if (txt.trim() && !/^\\\S+/m.test(txt)) {
+        const { rows, delimiter } = parseDelimited(txt);
+        if (rows.length && Math.max(...rows.map((r) => r.length)) > 1) {
+          const hasHeader = looksLikeHeader(rows);
+          const cols = columnsOf(rows, hasHeader);
+          pendingCsv = { rows, delimiter, hasHeader, cols, mapping: detectCsvMapping(cols),
+                         timeUnits: 'auto', audioFile: audioOf(files) || null,
+                         name: maybeCsv.name.replace(/\.[^.]+$/, '') };
+          return renderCsvMapping();
+        }
+      }
     }
     // Toolbox / SFM. Detected by CONTENT (a backslash-marker line), not extension: these files
     // come as .txt, .sfm, .db, .tbt and anything else a project chose. Checked AFTER the XML/JSON
@@ -1104,6 +1123,173 @@ function doUngroup() {
     selection = new Set();
     commit(next);
   } catch (e) { alert(e.message); }
+}
+
+
+/* ---------------- CSV / TSV import: the column-mapping wizard ----------------
+ * Seth's scoping (2026-08-05): "require certain conventions and document those, rather than making
+ * our script smart enough to handle any possible CSV/TSV." So: a file following the documented
+ * column names maps itself, anything else is ASKED about, and the wizard carries the documentation
+ * — step by step for Excel and Google Sheets, because many users will not otherwise know how to
+ * produce a tab-separated file at all. */
+
+const CSV_ROLES = ['baseline', 'gloss', 'free', 'speaker', 'start', 'end'];
+
+function currentCsvMapping() {
+  const m = {};
+  for (const r of CSV_ROLES) {
+    const v = ($('#pa-csv-' + r) || {}).value;
+    if (v !== '' && v !== undefined && v !== null) m[r] = Number(v);
+  }
+  return m;
+}
+
+function renderCsvMapping(errors) {
+  stopAudio();
+  const P = pendingCsv;
+  const label = (c) => `${c.name} — ${c.filled}${c.sample ? ' · “' + c.sample + '”' : ''}`;
+  const sel = (role, allowNone) => {
+    const cur = P.mapping[role];
+    const opts = P.cols.map((c) =>
+      `<option value="${c.index}"${c.index === cur ? ' selected' : ''}>${esc(label(c))}</option>`).join('');
+    return `<select id="pa-csv-${role}">${allowNone ? `<option value=""${cur === undefined ? ' selected' : ''}>${esc(t('para.mapNone'))}</option>` : ''}${opts}</select>`;
+  };
+  const delimName = P.delimiter === '\t' ? t('para.csvTab') : P.delimiter === ';' ? ';' : P.delimiter;
+  root.innerHTML = `
+    <div class="pa-open pa-wizard">
+      <h1>${esc(t('para.csvTitle'))}</h1>
+      <p class="tab-hint">${esc(t('para.csvIntro', { file: P.name, delim: delimName, rows: P.rows.length }))}</p>
+      ${errors && errors.length ? `<div class="banner warn-banner"><span>${esc(errors.join(' '))}</span></div>` : ''}
+      <div class="banner warn-banner"><span>${esc(t('para.csvNew'))}
+        <button class="link-btn" id="pa-csv-report">${esc(t('para.reportBtn'))}</button></span></div>
+
+      <details class="pa-help">
+        <summary>${esc(t('para.csvHowTitle'))}</summary>
+        <div class="pa-helpbody">
+          <p>${esc(t('para.csvHowIntro'))}</p>
+          <p class="pa-helpcols"><b>${esc(t('para.csvHowColumns'))}</b></p>
+          <ol>
+            <li>${esc(t('para.csvHowRow1'))}</li>
+            <li>${esc(t('para.csvHowRow2'))}</li>
+            <li>${esc(t('para.csvHowRow3'))}</li>
+          </ol>
+          <p><b>${esc(t('para.csvExcelTitle'))}</b></p>
+          <ol>
+            <li>${esc(t('para.csvExcel1'))}</li>
+            <li>${esc(t('para.csvExcel2'))}</li>
+            <li>${esc(t('para.csvExcel3'))}</li>
+          </ol>
+          <p><b>${esc(t('para.csvSheetsTitle'))}</b></p>
+          <ol>
+            <li>${esc(t('para.csvSheets1'))}</li>
+            <li>${esc(t('para.csvSheets2'))}</li>
+          </ol>
+          <p class="note">${esc(t('para.csvEncoding'))}</p>
+          <button class="secondary-btn" id="pa-csv-template">${esc(t('para.csvTemplate'))}</button>
+        </div>
+      </details>
+
+      <label class="check-label"><input type="checkbox" id="pa-csv-header" ${P.hasHeader ? 'checked' : ''}>
+        ${esc(t('para.csvHasHeader'))}</label>
+      <div class="pa-maprows">
+        <label class="pa-maprow"><span>${esc(t('para.mapBaseline'))}</span>${sel('baseline', true)}</label>
+        <label class="pa-maprow"><span>${esc(t('para.mapGlosses'))}</span>${sel('gloss', true)}</label>
+        <label class="pa-maprow"><span>${esc(t('para.mapFree'))}</span>${sel('free', true)}</label>
+        <label class="pa-maprow"><span>${esc(t('para.sfmSpeaker'))}</span>${sel('speaker', true)}</label>
+        <label class="pa-maprow"><span>${esc(t('para.sfmStart'))}</span>${sel('start', true)}</label>
+        <label class="pa-maprow"><span>${esc(t('para.sfmEnd'))}</span>${sel('end', true)}</label>
+        <label class="pa-maprow"><span>${esc(t('para.csvTimeUnits'))}</span>
+          <select id="pa-csv-units">
+            <option value="auto">${esc(t('para.csvUnitsAuto'))}</option>
+            <option value="seconds">${esc(t('para.csvUnitsSeconds'))}</option>
+            <option value="ms">${esc(t('para.csvUnitsMs'))}</option>
+          </select></label>
+      </div>
+      <p class="note">${esc(t('para.csvGlossNote'))}</p>
+      <h3 class="pa-mapph">${esc(t('para.mapPreview'))}</h3>
+      <div class="pa-mappreview" id="pa-map-preview"></div>
+      <div class="pa-modal-actions">
+        <button class="secondary-btn" id="pa-csv-cancel">${esc(t('para.cancel'))}</button>
+        <button class="primary-btn" id="pa-csv-go">${esc(t('para.mapOpen'))}</button>
+      </div>
+    </div>`;
+  $('#pa-csv-units').value = P.timeUnits;
+  const refresh = () => {
+    P.hasHeader = $('#pa-csv-header').checked;
+    P.timeUnits = $('#pa-csv-units').value;
+    P.mapping = currentCsvMapping();
+    drawCsvPreview();
+  };
+  for (const r of CSV_ROLES) $('#pa-csv-' + r).addEventListener('change', refresh);
+  $('#pa-csv-units').addEventListener('change', refresh);
+  $('#pa-csv-header').addEventListener('change', () => {
+    P.hasHeader = $('#pa-csv-header').checked;
+    P.cols = columnsOf(P.rows, P.hasHeader);
+    P.mapping = currentCsvMapping();
+    renderCsvMapping();          // column NAMES change with the header, so redraw the whole form
+  });
+  $('#pa-csv-template').addEventListener('click', () =>
+    downloadFile(templateCsv(), 'paragraph-analysis-template.csv', 'text/csv'));
+  $('#pa-csv-report').addEventListener('click', reportCsvProblem);
+  $('#pa-csv-cancel').addEventListener('click', () => { pendingCsv = null; renderOpen(); });
+  $('#pa-csv-go').addEventListener('click', csvConfirm);
+  drawCsvPreview();
+}
+
+function drawCsvPreview() {
+  const box = $('#pa-map-preview');
+  if (!box) return;
+  const P = pendingCsv;
+  const { lines } = csvToLines(P.rows, currentCsvMapping(), { hasHeader: P.hasHeader, timeUnits: P.timeUnits });
+  if (!lines.length) { box.innerHTML = `<p class="note">${esc(t('para.mapEmpty'))}</p>`; return; }
+  box.innerHTML = lines.slice(0, 4).map((l) => `
+    <div class="pa-mapline">
+      ${l.speaker ? `<div class="pa-speaker">${esc(l.speaker)}</div>` : ''}
+      <div class="pa-baseline">${esc(l.baseline || '—')}</div>
+      ${(l.words || []).some((w) => w.gls) ? `<div class="pa-words">${(l.words || []).map((w) =>
+        `<span class="w"><span class="wt">${esc(w.txt)}</span><span class="wg">${esc(w.gls || ' ')}</span></span>`).join('')}</div>` : ''}
+      ${l.free ? `<div class="pa-free">${esc(l.free)}</div>` : ''}
+      ${typeof l.start === 'number' ? `<div class="pa-maptime">${clock(l.start)} – ${clock(l.end)}</div>` : ''}
+    </div>`).join('')
+    + (lines.length > 4 ? `<p class="note">${esc(t('para.mapMore', { n: lines.length - 4 }))}</p>` : '');
+}
+
+function reportCsvProblem() {
+  const P = pendingCsv;
+  const L = [];
+  L.push('App: Paragraph Analysis Tool ' + (ENGINE_VERSION || ''));
+  L.push('Browser: ' + navigator.userAgent);
+  L.push('File: ' + P.name + ' (delimited)');
+  L.push('Delimiter: ' + (P.delimiter === '\t' ? 'TAB' : P.delimiter) + ' | header row: ' + P.hasHeader
+         + ' | rows: ' + P.rows.length + ' | time units: ' + P.timeUnits);
+  L.push('Columns (name | non-empty cells): ' + P.cols.map((c) => c.name + ' | ' + c.filled).join(' · '));
+  L.push('Chosen mapping: ' + CSV_ROLES.map((r) => r + '=' + (P.mapping[r] ?? 'none')).join(', '));
+  L.push('');
+  L.push('(No text from the file is included above — only its structure.)');
+  const body = t('para.reportBody') + '\n\n\n---\n```\n' + L.join('\n') + '\n```\n';
+  window.open('https://github.com/rulingAnts/flextext-editor/issues/new?title='
+    + encodeURIComponent('CSV/TSV import: ' + P.name) + '&body=' + encodeURIComponent(body), '_blank', 'noopener');
+}
+
+async function csvConfirm() {
+  const P = pendingCsv;
+  const { lines } = csvToLines(P.rows, currentCsvMapping(), { hasHeader: P.hasHeader, timeUnits: P.timeUnits });
+  if (!lines.length) return renderCsvMapping([t('para.mapEmpty')]);
+  const hasSpans = lines.some((l) => typeof l.start === 'number');
+  const audio = (P.audioFile && hasSpans)
+    ? { b64: await blobToB64(P.audioFile), mime: P.audioFile.type || 'audio/wav', name: P.audioFile.name }
+    : null;
+  const doc = {
+    title: P.name,
+    paragraphs: lines.map((l) => ({ segments: [{ baseline: l.baseline, free: l.free || '', words: l.words || [], speaker: l.speaker || '', attrs: {} }] })),
+    segments: lines.map((l) => (typeof l.start === 'number' ? { start: l.start, end: l.end } : { timePending: true })),
+  };
+  const speakers = [...new Set(lines.map((l) => l.speaker).filter(Boolean))];
+  const fx = buildFxpa(doc, { title: doc.title, vernLang: 'und', analLang: 'en', audio, speakers });
+  const v = validateFxpa(fx);
+  if (!v.ok) return renderCsvMapping(v.errors);
+  pendingCsv = null;
+  load(v.data);
 }
 
 /* ---------------- exports ----------------

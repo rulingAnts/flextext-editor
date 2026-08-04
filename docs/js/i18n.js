@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v173';
+export const ENGINE_VERSION = 'v174';
 
 const S = {
 en: {
@@ -1036,6 +1036,18 @@ internet after the first time.</p>
   'para.group': 'Group',
   'para.editGroup': 'Edit group',
   'para.ungroup': 'Ungroup',
+  // Edit/Ungroup act on ONE group heading. The buttons stay clickable and say this, rather than
+  // sitting disabled and looking broken (Seth, 2026-08-04).
+  'para.headingTip': 'Click to select this group — then use Edit group or Ungroup',
+  'para.needGroupHeading': 'Select one group heading first — the bar at the top of a group, showing ⊕ or ⊳ — and nothing else. If other things are still selected, press “Clear selection”.',
+  'para.needGroupHeadingTip': 'Select one group heading (the ⊕/⊳ bar) to use this',
+  'para.needTwo': 'Select two or more units that sit next to each other first — click their rows, or the headings of the groups you want to join.',
+  'para.needTwoTip': 'Select two or more neighbouring units to use this',
+  'para.groupTip': 'Join the selected units into a new group',
+  'para.editNamed': 'Edit: {name}',
+  'para.ungroupNamed': 'Ungroup: {name}',
+  'para.selGroup': 'Selected: {name}',
+  'para.selCount': '{n} units selected',
   'para.clearSel': 'Clear selection',
   'para.clearSelTip': 'Deselect everything (or press Esc)',
   'para.save': 'Save (.fxpa)',
@@ -2097,6 +2109,16 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.group': 'Kelompokkan',
   'para.editGroup': 'Ubah kelompok',
   'para.ungroup': 'Bubarkan',
+  'para.headingTip': 'Klik untuk memilih kelompok ini — lalu pakai Ubah kelompok atau Bubarkan',
+  'para.needGroupHeading': 'Pilih satu judul kelompok dulu — batang di bagian atas kelompok, bertanda ⊕ atau ⊳ — dan tidak ada yang lain. Jika masih ada yang terpilih, tekan “Batalkan pilihan”.',
+  'para.needGroupHeadingTip': 'Pilih satu judul kelompok (batang ⊕/⊳) untuk memakai ini',
+  'para.needTwo': 'Pilih dulu dua unit atau lebih yang bersebelahan — klik barisnya, atau judul kelompok yang ingin digabung.',
+  'para.needTwoTip': 'Pilih dua unit bersebelahan atau lebih untuk memakai ini',
+  'para.groupTip': 'Gabungkan unit terpilih menjadi kelompok baru',
+  'para.editNamed': 'Ubah: {name}',
+  'para.ungroupNamed': 'Bubarkan: {name}',
+  'para.selGroup': 'Terpilih: {name}',
+  'para.selCount': '{n} unit terpilih',
   'para.clearSel': 'Batalkan pilihan',
   'para.clearSelTip': 'Batalkan semua pilihan (atau tekan Esc)',
   'para.save': 'Simpan (.fxpa)',

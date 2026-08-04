@@ -5095,6 +5095,7 @@ function setup() {
   // Registers its OWN service worker (sw.js resolves relative to /paragraph-analysis/).
   if (PARAGRAPH_MODE) {
     setupServiceWorker();
+    setupBanners();   // install button + WebKit warning; the shell carries both banners
     showAppVersion();
     initParagraphApp();
     return;

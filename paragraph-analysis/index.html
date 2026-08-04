@@ -33,6 +33,19 @@
   }
 </script>
 
+<!-- Install + WebKit banners, wired by the shared engine's setupBanners(). They sit OUTSIDE
+     #pa-main on purpose: the app re-renders that element wholesale on every edit, which would
+     wipe any markup placed inside it. Same markup as the recorder/researcher shells. -->
+<div id="webkit-warning" class="banner warn-banner" hidden>
+  <span data-i18n="webkit.warning"></span>
+  <button class="banner-dismiss" data-dismiss="webkit-warning" title="✕">✕</button>
+</div>
+<div id="install-banner" class="banner install-banner" hidden>
+  <span data-i18n="install.text"></span>
+  <button id="btn-install" class="primary-btn" data-i18n="install.btn">Install app</button>
+  <button class="banner-dismiss" data-dismiss="install-banner" title="✕">✕</button>
+</div>
+
 <main id="pa-main">
 <!-- The paragraph app renders everything here (shared js/app.js → initParagraphApp). -->
 </main>

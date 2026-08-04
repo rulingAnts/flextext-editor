@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v186';
+export const ENGINE_VERSION = 'v187';
 
 const S = {
 en: {
@@ -1097,6 +1097,17 @@ internet after the first time.</p>
   'para.selCount': '{n} units selected',
   'para.clearSel': 'Clear selection',
   'para.clearSelTip': 'Deselect everything (or press Esc)',
+  'para.exportBtn': 'Export…',
+  'para.exportTitle': 'Export this analysis',
+  'para.exportWhat': 'What to export',
+  'para.exportPreview': 'Interactive page (.preview.html)',
+  'para.exportPreviewNote': 'A single self-contained web page: the analysis, its audio inside the file, and brackets you can expand and collapse. Read-only — nothing in it can change your analysis, so it is safe to send to someone else.',
+  'para.exportScope': 'How much',
+  'para.exportAll': 'The whole text',
+  'para.exportSelection': 'Just what is selected ({n})',
+  'para.exportWithAudio': 'Include the audio (a much larger file)',
+  'para.exportCollapsedWarn': 'You have {n} collapsed group(s). They will be exported COLLAPSED, exactly as you see them — expand them first if you want the whole structure visible.',
+  'para.exportGo': 'Export',
   'para.save': 'Save (.fxpa)',
   'para.close': 'Close document',
   'para.closeTip': 'Close this document and clear it from this browser. Your analysis stays open here — even if you close the window or lose connection — until you close it with this button.',
@@ -2214,6 +2225,17 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.selCount': '{n} unit terpilih',
   'para.clearSel': 'Batalkan pilihan',
   'para.clearSelTip': 'Batalkan semua pilihan (atau tekan Esc)',
+  'para.exportBtn': 'Ekspor…',
+  'para.exportTitle': 'Ekspor analisis ini',
+  'para.exportWhat': 'Apa yang diekspor',
+  'para.exportPreview': 'Halaman interaktif (.preview.html)',
+  'para.exportPreviewNote': 'Satu halaman web mandiri: analisisnya, audionya di dalam file, dan tanda kurung yang bisa dibentang dan dilipat. Hanya-baca — tidak ada isinya yang dapat mengubah analisis Anda, jadi aman dikirim ke orang lain.',
+  'para.exportScope': 'Seberapa banyak',
+  'para.exportAll': 'Seluruh teks',
+  'para.exportSelection': 'Hanya yang terpilih ({n})',
+  'para.exportWithAudio': 'Sertakan audio (file jauh lebih besar)',
+  'para.exportCollapsedWarn': 'Ada {n} kelompok yang terlipat. Semuanya akan diekspor TERLIPAT, persis seperti yang Anda lihat — bentangkan dulu jika ingin seluruh strukturnya terlihat.',
+  'para.exportGo': 'Ekspor',
   'para.save': 'Simpan (.fxpa)',
   'para.close': 'Tutup dokumen',
   'para.closeTip': 'Tutup dokumen ini dan hapus dari peramban ini. Analisis Anda tetap terbuka di sini — walau jendela ditutup atau koneksi putus — sampai Anda menutupnya dengan tombol ini.',

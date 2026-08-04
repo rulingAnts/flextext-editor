@@ -19,8 +19,8 @@
  * they are. Editing ENGINE is also what makes these bytes change, which is what makes the
  * browser fetch and install this worker at all. */
 
-const VERSION = 'v123';
-const ENGINE = 'v186';   // editor ENGINE_VERSION this was built against — must match; see version-sync test
+const VERSION = 'v124';
+const ENGINE = 'v187';   // editor ENGINE_VERSION this was built against — must match; see version-sync test
 const CACHE = 'flextext-researcher-' + VERSION;
 const SHELL = [
   './',
@@ -50,6 +50,7 @@ const SHELL = [
   '/flextext-editor/js/seg-exports.js',
   '/flextext-editor/js/eaf-read.js',
   '/flextext-editor/js/sfm.js',
+  '/flextext-editor/js/paragraph-export.js',
   '/flextext-editor/js/paragraph-model.js',
   '/flextext-editor/js/paragraph-ui.js',
   '/flextext-editor/js/history.js',

@@ -11,8 +11,8 @@
  * list IDENTICAL to the editor's sw.js (app.js resolves its whole static import graph at load,
  * even though paragraph mode uses only part of it). */
 
-const VERSION = 'v19';
-const ENGINE = 'v186';   // editor ENGINE_VERSION this was built against — must match; see version-sync test
+const VERSION = 'v20';
+const ENGINE = 'v187';   // editor ENGINE_VERSION this was built against — must match; see version-sync test
 const CACHE = 'flextext-paragraph-' + VERSION;
 
 /* ⚠ THE GHOST (2026-08-04). This site's first deployment served the EDITOR at the origin root, so
@@ -52,6 +52,7 @@ const SHELL = [
   '/flextext-editor/js/seg-exports.js',
   '/flextext-editor/js/eaf-read.js',
   '/flextext-editor/js/sfm.js',
+  '/flextext-editor/js/paragraph-export.js',
   '/flextext-editor/js/paragraph-model.js',
   '/flextext-editor/js/paragraph-ui.js',
   '/flextext-editor/js/history.js',

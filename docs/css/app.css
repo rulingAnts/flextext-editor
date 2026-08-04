@@ -1264,6 +1264,14 @@ main {
 .pa-mapline { padding: 6px 0; border-bottom: 1px solid var(--border); }
 .pa-mapline:last-child { border-bottom: 0; }
 .pa-maptime { font-size: 12px; color: var(--muted); margin-top: 2px; }
+/* Who said this line. Conversations only — a single-speaker text carries no speaker at all. */
+.pa-speaker {
+  flex: none; align-self: flex-start; margin-top: 2px;
+  font-size: 12px; font-weight: 700; color: #6b21a8;
+  background: #f3e8ff; border: 1px solid #d8b4fe; border-radius: 6px; padding: 1px 6px;
+  max-width: 12ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pa-mapline .pa-speaker { display: inline-block; margin-bottom: 2px; }
 .pa-drop .primary-btn { margin-top: 10px; }
 
 .pa-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--panel); position: sticky; top: 0; z-index: 30; }

@@ -58,6 +58,9 @@ export function fmtClock(ms) {
  * - TEXT-ONLY is first-class: `audio` may be absent, and a line without alignment simply has no
  *   start/end — the app then works without players/waves (a flextext with no segmentation, or
  *   no audio at all, is a legitimate source).
+ * - `speaker` on a line + the optional top-level `speakers[]` — flextext's phrase-level model,
+ *   which is what EAF's tier-per-speaker collapses INTO on import. Absent when there is one
+ *   speaker, so older files and single-speaker texts are unaffected.
  * - `tree` is written by the paragraph app (empty at export): nodes
  *   { id, level, children[ids], joinType: 'sym'|'asym', head? (asym only), relation,
  *     labels? { childId: 'role' } }. BOTH labels are optional and independent: `relation` names
@@ -81,6 +84,9 @@ export function buildFxpa(doc, opts = {}) {
       return o;
     });
     if (t.free) line.free = t.free;
+    // SPEAKER (Seth, 2026-08-04): flextext carries it per PHRASE and so do we — EAF's
+    // tier-per-speaker is collapsed to this on import. Optional: absent in a single-speaker text.
+    if (t.speaker) line.speaker = t.speaker;
     return line;
   });
   const out = { format: 'flextext-paragraph-analysis', version: 1, title, vernLang, analLang };
@@ -88,6 +94,10 @@ export function buildFxpa(doc, opts = {}) {
     out.audio = { b64: audio.b64, mime: audio.mime || 'audio/wav', name: audio.name || 'audio' };
     if (audio.derived) { out.audio.derived = true; out.audio.srcName = audio.srcName || ''; }
   }
+  const speakers = opts.speakers && opts.speakers.length
+    ? [...opts.speakers]
+    : [...new Set(lines.map((l) => l.speaker).filter(Boolean))];
+  if (speakers.length) out.speakers = speakers;
   out.lines = lines;
   out.tree = [];
   return out;

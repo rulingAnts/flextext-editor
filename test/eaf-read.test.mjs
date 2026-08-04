@@ -7,7 +7,7 @@
  * Run: node test/eaf-read.test.mjs
  */
 import { serializeEaf } from '../docs/js/seg-exports.js';
-import { parseXml, decodeEntities, readEaf, detectMapping, eafToLines, orderedRefChildren, tierById } from '../docs/js/eaf-read.js';
+import { parseXml, decodeEntities, readEaf, detectMapping, detectStacks, looksMultiSpeaker, eafToLines, orderedRefChildren, tierById } from '../docs/js/eaf-read.js';
 
 let fail = 0;
 const ok = (c, m) => { console.log(`  ${c ? 'ok  ' : 'FAIL'}  ${m}`); if (!c) fail++; };
@@ -179,6 +179,53 @@ console.log('\nan EAF linked by TIME rather than by ANNOTATION_REF (the ordinary
      'timed words land on the right line, in time order');
   eq(out.lines.map((l) => l.free), ['I went', 'to the village and returned'],
      'time-overlapped translations attach — these would be DROPPED by a ref-only reader');
+}
+
+/* MULTIPLE SPEAKERS. EAF puts the speaker on the TIER (parallel stacks on one timeline); flextext
+ * — and our line-based model — puts it on the phrase. So the import must COLLAPSE the stacks into
+ * one time-ordered list, stamping each line with its speaker (Seth, 2026-08-04). */
+const conversation = `<?xml version="1.0" encoding="UTF-8"?>
+<ANNOTATION_DOCUMENT FORMAT="3.0">
+  <TIME_ORDER>
+    <TIME_SLOT TIME_SLOT_ID="t0" TIME_VALUE="0"/><TIME_SLOT TIME_SLOT_ID="t1" TIME_VALUE="1000"/>
+    <TIME_SLOT TIME_SLOT_ID="t2" TIME_VALUE="1000"/><TIME_SLOT TIME_SLOT_ID="t3" TIME_VALUE="2000"/>
+    <TIME_SLOT TIME_SLOT_ID="t4" TIME_VALUE="2000"/><TIME_SLOT TIME_SLOT_ID="t5" TIME_VALUE="3000"/>
+  </TIME_ORDER>
+  <TIER TIER_ID="Transcription@Barnabas" PARTICIPANT="Barnabas" LINGUISTIC_TYPE_REF="default">
+    <ANNOTATION><ALIGNABLE_ANNOTATION ANNOTATION_ID="b1" TIME_SLOT_REF1="t0" TIME_SLOT_REF2="t1"><ANNOTATION_VALUE>ana bete</ANNOTATION_VALUE></ALIGNABLE_ANNOTATION></ANNOTATION>
+    <ANNOTATION><ALIGNABLE_ANNOTATION ANNOTATION_ID="b2" TIME_SLOT_REF1="t4" TIME_SLOT_REF2="t5"><ANNOTATION_VALUE>kabo doba</ANNOTATION_VALUE></ALIGNABLE_ANNOTATION></ANNOTATION>
+  </TIER>
+  <TIER TIER_ID="Transcription@Tim" PARTICIPANT="Tim" LINGUISTIC_TYPE_REF="default">
+    <ANNOTATION><ALIGNABLE_ANNOTATION ANNOTATION_ID="m1" TIME_SLOT_REF1="t2" TIME_SLOT_REF2="t3"><ANNOTATION_VALUE>u sa</ANNOTATION_VALUE></ALIGNABLE_ANNOTATION></ANNOTATION>
+  </TIER>
+  <TIER TIER_ID="Free@Barnabas" PARENT_REF="Transcription@Barnabas" LINGUISTIC_TYPE_REF="assoc">
+    <ANNOTATION><REF_ANNOTATION ANNOTATION_ID="fb1" ANNOTATION_REF="b1"><ANNOTATION_VALUE>He went.</ANNOTATION_VALUE></REF_ANNOTATION></ANNOTATION>
+  </TIER>
+  <LINGUISTIC_TYPE LINGUISTIC_TYPE_ID="default" TIME_ALIGNABLE="true"/>
+  <LINGUISTIC_TYPE CONSTRAINTS="Symbolic_Association" LINGUISTIC_TYPE_ID="assoc" TIME_ALIGNABLE="false"/>
+</ANNOTATION_DOCUMENT>`;
+
+console.log('\nmultiple speaker tiers collapse into ONE time-ordered list of lines');
+{
+  const eaf = readEaf(conversation);
+  ok(looksMultiSpeaker(eaf), 'a conversation is recognised as multi-speaker');
+  const stacks = detectStacks(eaf);
+  eq(stacks.map((s) => s.speaker).sort(), ['Barnabas', 'Tim'], 'one stack per speaker, named from PARTICIPANT');
+  const out = eafToLines(eaf, { stacks });
+  eq(out.lines.map((l) => l.baseline), ['ana bete', 'u sa', 'kabo doba'],
+     'lines INTERLEAVE by time across speakers, not grouped by tier');
+  eq(out.lines.map((l) => l.speaker), ['Barnabas', 'Tim', 'Barnabas'], 'each line carries its speaker');
+  eq(out.speakers.sort(), ['Barnabas', 'Tim'], 'the speaker list is reported for the UI');
+  eq(out.lines[0].free, 'He went.', "a speaker's own child tiers still attach to that speaker's lines");
+}
+
+console.log('\na single-speaker file is untouched by any of that');
+{
+  const eaf = readEaf(foreign);
+  ok(!looksMultiSpeaker(eaf), 'one transcription + one translation tier is NOT a conversation');
+  const out = eafToLines(eaf, detectMapping(eaf));
+  ok(out.lines.every((l) => l.speaker === undefined), 'no speaker is invented when there is only one');
+  eq(out.speakers, [], 'and no speaker list');
 }
 
 console.log('\nordering helper handles a broken chain without losing annotations');

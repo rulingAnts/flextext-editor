@@ -232,6 +232,67 @@ export function describeTiers(doc) {
  * import "losing" data. And whatever detection concludes is only a PROPOSAL: the import wizard
  * lists every tier and lets the user assign any of them to any role.
  */
+// Every tier that could reasonably BE a baseline: timed, carrying text, and not a subdivision of
+// a timed parent (a Time_Subdivision word tier has more annotations than its sentence tier, so
+// "most annotations" picks the words and imports one word per line).
+function baselineCandidates(doc) {
+  const isSubdivision = (t) => {
+    if (!t.parentRef) return false;
+    const p = tierById(doc, t.parentRef);
+    return !!p && timedCount(p) > 0 && t.annotations.length > p.annotations.length;
+  };
+  return doc.tiers
+    .filter((t) => timedCount(t) > 0)
+    .filter((t) => t.annotations.some((a) => a.value))
+    .filter((t) => !isSubdivision(t))
+    .sort((a, b) => b.annotations.length - a.annotations.length);
+}
+
+// The roles hanging off ONE baseline tier, by ref-child or by time overlap.
+function rolesFor(doc, baselineId) {
+  const base = tierById(doc, baselineId);
+  const r = { baseline: baselineId, words: null, glosses: null, free: null };
+  if (!base) return r;
+  const baseCount = base.annotations.length || 1;
+  for (const child of childTiers(doc, baselineId)) {
+    const ratio = child.annotations.length / baseCount;
+    if (ratio > 1.2) { if (!r.words) r.words = child.id; }
+    else if (!r.free) r.free = child.id;
+  }
+  if (r.words && !r.glosses) {
+    const g = childTiers(doc, r.words)[0];
+    if (g) r.glosses = g.id;
+  }
+  return r;
+}
+
+/* SPEAKERS (Seth, 2026-08-04). EAF puts the speaker on the TIER — several speakers means several
+ * parallel tier STACKS on one timeline — while flextext puts it on the PHRASE. Our model is
+ * line-based like flextext, so an import must COLLAPSE those stacks into ONE time-ordered list of
+ * lines, each stamped with its speaker. Returns one entry per stack; a single-speaker file gives
+ * exactly one, so the ordinary case is unchanged.
+ *
+ * A speaker's name comes from the tier's PARTICIPANT, else the `@Name` suffix ELAN users
+ * conventionally put in the tier id, else the tier id itself. */
+export function detectStacks(doc) {
+  return baselineCandidates(doc).map((t) => {
+    const at = t.id.includes('@') ? t.id.slice(t.id.lastIndexOf('@') + 1).trim() : '';
+    return { ...rolesFor(doc, t.id), speaker: t.participant || at || t.id };
+  });
+}
+
+// True when this file really does hold several speakers (as opposed to one transcription plus a
+// translation tier, which also yields two candidates but is NOT a conversation).
+export function looksMultiSpeaker(doc) {
+  const stacks = detectStacks(doc);
+  if (stacks.length < 2) return false;
+  const named = stacks.filter((s) => {
+    const t = tierById(doc, s.baseline);
+    return !!(t && (t.participant || t.id.includes('@')));
+  });
+  return named.length >= 2;
+}
+
 export function detectMapping(doc) {
   const byName = (re) => doc.tiers.find((t) => re.test(t.id));
   const m = { baseline: null, words: null, glosses: null, free: null, title: '' };
@@ -296,12 +357,40 @@ export function detectMapping(doc) {
 
 /* ---------------- EAF → the shape buildFxpa() consumes ---------------- */
 
-// Returns { title, lines: [{ baseline, words:[{txt,gls}], free, start?, end? }] }.
-// Times ride only when BOTH boundaries are real: an ELAN unaligned slot must not become an
-// invented time (the same rule segments.js enforces — never invent a time).
+/* Returns { title, speakers[], lines: [{ baseline, words:[{txt,gls}], free, speaker?, start?, end? }] }.
+ *
+ * COLLAPSING SPEAKERS (Seth, 2026-08-04): when `mapping.stacks` holds several speaker stacks, each
+ * is converted separately and the results are INTERLEAVED BY TIME into one line list, each line
+ * stamped with its speaker — i.e. EAF's tier-per-speaker becomes flextext's speaker-per-phrase,
+ * which is what our line-based model needs. One speaker (or a flat mapping) behaves exactly as
+ * before. */
 export function eafToLines(doc, mapping = {}) {
+  const stacks = (Array.isArray(mapping.stacks) && mapping.stacks.length)
+    ? mapping.stacks
+    : [{ baseline: mapping.baseline, words: mapping.words, glosses: mapping.glosses, free: mapping.free, speaker: '' }];
+  const multi = stacks.length > 1;
+  const lines = [];
+  for (const st of stacks) {
+    for (const line of linesFromStack(doc, st)) {
+      if (multi && st.speaker) line.speaker = st.speaker;
+      lines.push(line);
+    }
+  }
+  // A conversation is always fully timed, so interleaving is exact. If anything is unaligned we
+  // keep stack order instead of guessing where an untimed line belongs.
+  if (multi && lines.length && lines.every((l) => typeof l.start === 'number')) {
+    lines.sort((a, b) => a.start - b.start);
+  }
+  const speakers = [];
+  for (const l of lines) if (l.speaker && !speakers.includes(l.speaker)) speakers.push(l.speaker);
+  return { title: mapping.title || '', speakers, lines };
+}
+
+// One baseline tier's worth of lines. Times ride only when BOTH boundaries are real: an ELAN
+// unaligned slot must not become an invented time (the rule segments.js enforces).
+function linesFromStack(doc, mapping) {
   const base = tierById(doc, mapping.baseline);
-  if (!base) return { title: mapping.title || '', lines: [] };
+  if (!base) return [];
   const words = mapping.words ? tierById(doc, mapping.words) : null;
   const glosses = mapping.glosses ? tierById(doc, mapping.glosses) : null;
   const free = mapping.free ? tierById(doc, mapping.free) : null;
@@ -370,5 +459,5 @@ export function eafToLines(doc, mapping = {}) {
     return line;
   });
 
-  return { title: mapping.title || '', lines };
+  return lines;
 }

@@ -3,7 +3,7 @@ import {
   validateFxpa, serializeFxpa, groupUnits, ungroup, editGroup, toggleCollapse,
   topUnits, levelOf, spanOf, leavesOf, summaryOf, summaryLineOf, parentOf,
   isBlankLine, visibleTopUnits, withBlanksBetween,
-  newAuthoredDoc, addLine, setLineText, deleteLine,
+  newAuthoredDoc, addLine, setLineText, deleteLine, setCollapsedAll,
 } from '../docs/js/paragraph-model.js';
 
 let failures = 0;
@@ -253,6 +253,35 @@ console.log('round-trip');
   ok(rt.ok, 'serialized state re-validates');
   ok(JSON.stringify(rt.data.tree) === JSON.stringify(d.tree) &&
      JSON.stringify(rt.data.view) === JSON.stringify(d.view), 'tree + view survive the round trip exactly');
+}
+
+console.log('\ncollapse/expand ALL — whole document, or one subtree when something is selected');
+{
+  // L1 L2 grouped (G1), L3 L4 grouped (G2), then G1+G2 grouped (G3) — three levels.
+  let d = base();
+  d = groupUnits(d, ['L1', 'L2'], { joinType: 'sym' });
+  d = groupUnits(d, ['L3', 'L4'], { joinType: 'sym' });
+  d = groupUnits(d, ['G1', 'G2'], { joinType: 'sym' });
+
+  const all = setCollapsedAll(d, true);
+  ok(all.view.collapsed.slice().sort().join(',') === 'G1,G2,G3', 'collapse all takes every group');
+  ok(setCollapsedAll(all, false).view.collapsed.length === 0, 'expand all opens every group');
+
+  // THE POINT of the recursion: collapsing a group must take its descendants with it, or
+  // re-opening it later dumps the entire depth back onto the screen at once.
+  const sub = setCollapsedAll(d, true, ['G1']);
+  ok(sub.view.collapsed.slice().sort().join(',') === 'G1', 'a leaf-level group collapses alone');
+  const subTop = setCollapsedAll(d, true, ['G3']);
+  ok(subTop.view.collapsed.slice().sort().join(',') === 'G1,G2,G3', 'collapsing a group takes its descendants too');
+
+  const partial = setCollapsedAll(setCollapsedAll(d, true), false, ['G2']);
+  ok(partial.view.collapsed.slice().sort().join(',') === 'G1,G3', 'expanding a subtree leaves the rest collapsed');
+
+  // A mixed or line-only selection does the sensible thing rather than throwing.
+  ok(setCollapsedAll(d, true, ['L1']).view.collapsed.length === 0, 'a line has no collapse state — nothing happens');
+  ok(setCollapsedAll(d, true, ['L1', 'G2']).view.collapsed.join(',') === 'G2', 'a mixed selection acts on the groups in it');
+  ok(setCollapsedAll(d, true, ['G9']).view.collapsed.length === 0, 'an unknown id is ignored, not crashed on');
+  ok(validateFxpa(setCollapsedAll(d, true)).ok, 'the result is still a valid document');
 }
 
 if (failures) { console.error(`\n${failures} FAILURE(S)`); process.exit(1); }

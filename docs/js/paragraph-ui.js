@@ -16,7 +16,7 @@ import { parseFlextext, segmentsFromOffsets, esc } from './flextext.js';
 import { buildFxpa } from './seg-exports.js';
 import { readEaf, describeTiers, detectMapping, detectStacks, looksMultiSpeaker, eafToLines } from './eaf-read.js';
 import { parseSfm, markerInventory, detectMapping as detectSfmMapping, sfmToTexts } from './sfm.js';
-import { buildParagraphPreviewHtml } from './paragraph-export.js';
+import { buildParagraphPreviewHtml, buildSsaSvg, buildSsaDiagramHtml } from './paragraph-export.js';
 import {
   validateFxpa, serializeFxpa, groupUnits, ungroup, editGroup, toggleCollapse,
   topUnits, levelOf, spanOf, leavesOf, summaryOf, isGroupId, nodeById,
@@ -1125,8 +1125,10 @@ function openExportDialog() {
         <label class="pa-field"><span>${esc(t('para.exportWhat'))}</span>
           <select id="pa-exp-what">
             <option value="preview">${esc(t('para.exportPreview'))}</option>
+            <option value="diagram">${esc(t('para.exportDiagram'))}</option>
+            <option value="svg">${esc(t('para.exportSvg'))}</option>
           </select></label>
-        <p class="note">${esc(t('para.exportPreviewNote'))}</p>
+        <p class="note" id="pa-exp-note">${esc(t('para.exportPreviewNote'))}</p>
         <label class="pa-field"><span>${esc(t('para.exportScope'))}</span>
           <select id="pa-exp-scope">
             <option value="all">${esc(t('para.exportAll'))}</option>
@@ -1141,14 +1143,38 @@ function openExportDialog() {
         <button class="primary-btn" id="pa-exp-go">${esc(t('para.exportGo'))}</button>
       </div>
     </div>`;
+  dlg.querySelector('#pa-exp-what').addEventListener('change', (e) => {
+    const k = e.target.value;
+    dlg.querySelector('#pa-exp-note').textContent =
+      t(k === 'preview' ? 'para.exportPreviewNote' : k === 'diagram' ? 'para.exportDiagramNote' : 'para.exportSvgNote');
+    // Audio only means anything for the interactive page; a diagram is a picture.
+    dlg.querySelector('#pa-exp-audio').disabled = k !== 'preview' || !state.audio;
+  });
   dlg.querySelector('#pa-exp-cancel').addEventListener('click', () => { dlg.hidden = true; dlg.innerHTML = ''; });
   dlg.querySelector('#pa-exp-go').addEventListener('click', runExport);
 }
 
 function runExport() {
   const dlg = $('#pa-dialog');
+  const kind = dlg.querySelector('#pa-exp-what').value;
   const scope = dlg.querySelector('#pa-exp-scope').value;
-  const withAudio = dlg.querySelector('#pa-exp-audio').checked && !!state.audio;
+  const withAudio = dlg.querySelector('#pa-exp-audio').checked && !!state.audio && kind === 'preview';
+  const common = {
+    title: state.title,
+    only: scope === 'sel' ? [...selection] : null,
+    collapsed: state.view.collapsed || [],
+    hideBlank: state.view.hideBlank !== false,
+    lang: getLangForExport(),
+    // Real text metrics from the browser, so the diagram wraps where it actually will.
+    measure: measureText,
+  };
+  if (kind === 'diagram' || kind === 'svg') {
+    const out = kind === 'svg' ? buildSsaSvg(state, common) : buildSsaDiagramHtml(state, common);
+    downloadFile(out, safeName(state.title) + (kind === 'svg' ? '.ssa.svg' : '.ssa.html'),
+                 kind === 'svg' ? 'image/svg+xml' : 'text/html');
+    dlg.hidden = true; dlg.innerHTML = '';
+    return;
+  }
   const html = buildParagraphPreviewHtml(state, {
     title: state.title,
     audioB64: withAudio ? state.audio.b64 : '',
@@ -1165,6 +1191,16 @@ function runExport() {
 }
 
 const getLangForExport = () => (document.documentElement.lang || 'en');
+
+// The diagram renderer is PURE and cannot measure text, so the app injects real metrics — the
+// difference between a diagram that wraps where it looks like it will and one that does not.
+let _measureCanvas = null;
+function measureText(text, fontSize) {
+  if (!_measureCanvas) _measureCanvas = document.createElement('canvas');
+  const ctx = _measureCanvas.getContext('2d');
+  ctx.font = fontSize + 'px Helvetica, Arial, sans-serif';
+  return ctx.measureText(String(text)).width;
+}
 const safeName = (s) => String(s || 'text').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80);
 
 function downloadFile(text, name, mime) {

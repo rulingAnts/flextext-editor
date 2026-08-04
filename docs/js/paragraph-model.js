@@ -1,0 +1,205 @@
+/* paragraph-model.js — the Paragraph Analysis data model: .fxpa parse/validate/serialize and the
+ * grouping-tree operations with their invariants.
+ *
+ * FORMAT-MODULE RULES (CLAUDE.md): imports nothing but other format modules — no DOM, no
+ * settings, no IndexedDB, no i18n. Everything here runs under plain node
+ * (test/paragraph-model.test.mjs is the enforcement).
+ *
+ * THE MODEL OWNS THE INVARIANTS (same doctrine as segments.js): every tree mutation routes
+ * through here and either returns a valid new state or throws with a human-readable message.
+ * Invariants: units group only when ADJACENT and PARENTLESS (trees build bottom-up); every unit
+ * has at most one parent; a group's level = 1 + max(child levels), lines are level 0; joinType is
+ * 'sym' | 'asym'; asym has EXACTLY ONE head (∈ children), sym has NONE; brackets can never cross
+ * by construction (adjacency + single-parent). The DEFAULT join is GROUPING — nothing here ever
+ * merges audio segments or text (Seth: destructive merges are a separate, explicit v1.1 feature).
+ */
+
+export const FXPA_FORMAT = 'flextext-paragraph-analysis';
+export const FXPA_VERSION = 1;
+
+/* ---------------- validation / normalization ---------------- */
+
+// Returns { ok:true, data } (normalized: tree/view/lines arrays present, defaults filled) or
+// { ok:false, errors:[...] }. Never throws on foreign input.
+export function validateFxpa(obj) {
+  const errors = [];
+  if (!obj || typeof obj !== 'object') return { ok: false, errors: ['Not a JSON object.'] };
+  if (obj.format !== FXPA_FORMAT) errors.push(`Not a .fxpa file (format is "${obj.format || 'missing'}").`);
+  if (typeof obj.version !== 'number' || obj.version > FXPA_VERSION) {
+    errors.push(`Unsupported .fxpa version ${obj.version} (this app reads up to ${FXPA_VERSION}).`);
+  }
+  if (!Array.isArray(obj.lines) || !obj.lines.length) errors.push('No lines in the file.');
+  if (errors.length) return { ok: false, errors };
+
+  const data = { ...obj };
+  data.lines = obj.lines.map((l, i) => ({ ...l, id: String(l.id || 'L' + (i + 1)) }));
+  data.tree = Array.isArray(obj.tree) ? obj.tree.map((g) => ({ ...g, children: [...(g.children || [])] })) : [];
+  data.view = { layer: 'interlinear', free: true, audio: true, waves: 'compact', collapsed: [], ...(obj.view || {}) };
+  if (!Array.isArray(data.view.collapsed)) data.view.collapsed = [];
+  if (!data.audio || !data.audio.b64) { delete data.audio; data.view.audio = false; }
+
+  const ids = new Set();
+  for (const l of data.lines) {
+    if (ids.has(l.id)) errors.push(`Duplicate line id ${l.id}.`);
+    ids.add(l.id);
+    const timed = typeof l.start === 'number' && typeof l.end === 'number';
+    if ((typeof l.start === 'number') !== (typeof l.end === 'number')) errors.push(`Line ${l.id}: start/end must come together.`);
+    if (timed && l.end <= l.start) errors.push(`Line ${l.id}: end before start.`);
+  }
+  for (const g of data.tree) {
+    if (!g.id || ids.has(g.id)) errors.push(`Group id ${g.id || '(missing)'} duplicate or missing.`);
+    ids.add(g.id);
+  }
+  const seenChild = new Set();
+  for (const g of data.tree) {
+    if (!Array.isArray(g.children) || g.children.length < 2) errors.push(`Group ${g.id}: needs 2+ children.`);
+    for (const c of g.children || []) {
+      if (!ids.has(c)) errors.push(`Group ${g.id}: unknown child ${c}.`);
+      if (seenChild.has(c)) errors.push(`Unit ${c} has two parents.`);
+      seenChild.add(c);
+    }
+    if (g.joinType !== 'sym' && g.joinType !== 'asym') errors.push(`Group ${g.id}: joinType must be sym|asym.`);
+    if (g.joinType === 'asym' && !(g.children || []).includes(g.head)) errors.push(`Group ${g.id}: asym needs a head from its children.`);
+    if (g.joinType === 'sym' && g.head) errors.push(`Group ${g.id}: sym groups have no head.`);
+  }
+  data.view.collapsed = data.view.collapsed.filter((id) => data.tree.some((g) => g.id === id));
+  return errors.length ? { ok: false, errors } : { ok: true, data };
+}
+
+export function serializeFxpa(data) {
+  return JSON.stringify(data);
+}
+
+/* ---------------- lookup / order ---------------- */
+
+export const isGroupId = (id) => /^G\d+$/.test(String(id));
+
+export function nodeById(data, id) {
+  return isGroupId(id) ? data.tree.find((g) => g.id === id) || null
+                       : data.lines.find((l) => l.id === id) || null;
+}
+
+export function parentOf(data, id) {
+  return data.tree.find((g) => g.children.includes(id)) || null;
+}
+
+// Ordered leaf line ids under any unit (a line = itself).
+export function leavesOf(data, id) {
+  if (!isGroupId(id)) return [id];
+  const g = nodeById(data, id);
+  if (!g) return [];
+  const out = [];
+  for (const c of g.children) out.push(...leavesOf(data, c));
+  const pos = new Map(data.lines.map((l, i) => [l.id, i]));
+  return out.sort((a, b) => pos.get(a) - pos.get(b));
+}
+
+export function levelOf(data, id) {
+  if (!isGroupId(id)) return 0;
+  const g = nodeById(data, id);
+  return g ? 1 + Math.max(...g.children.map((c) => levelOf(data, c))) : 0;
+}
+
+// The ordered sequence of PARENTLESS units (lines and top groups) — the groupable surface.
+export function topUnits(data) {
+  const pos = new Map(data.lines.map((l, i) => [l.id, i]));
+  const units = [];
+  for (const l of data.lines) if (!parentOf(data, l.id)) units.push(l.id);
+  for (const g of data.tree) if (!parentOf(data, g.id)) units.push(g.id);
+  return units.sort((a, b) => pos.get(leavesOf(data, a)[0]) - pos.get(leavesOf(data, b)[0]));
+}
+
+// Aggregate time span of a unit's leaves — null when nothing under it is aligned.
+export function spanOf(data, id) {
+  let start = null, end = null;
+  for (const lid of leavesOf(data, id)) {
+    const l = nodeById(data, lid);
+    if (l && typeof l.start === 'number' && typeof l.end === 'number') {
+      start = start === null ? l.start : Math.min(start, l.start);
+      end = end === null ? l.end : Math.max(end, l.end);
+    }
+  }
+  return start === null ? null : { start, end };
+}
+
+/* ---------------- collapse summaries (Seth's rules, 2026-08-05) ----------------
+ * Collapsed rendering is FREE-TRANSLATION-ONLY: an asym group summarizes as its HEAD's free
+ * translation (recursively — a group head summarizes by ITS head); a sym group summarizes as one
+ * compact line per member. A unit with no free translation falls back to its baseline. */
+
+export function summaryLineOf(data, id) {
+  if (!isGroupId(id)) {
+    const l = nodeById(data, id);
+    return l ? (l.free || l.baseline || '') : '';
+  }
+  const g = nodeById(data, id);
+  if (!g) return '';
+  if (g.joinType === 'asym') return summaryLineOf(data, g.head);
+  return g.children.map((c) => summaryLineOf(data, c)).join('  ·  ');
+}
+
+export function summaryOf(data, id) {
+  const g = nodeById(data, id);
+  if (!g || !isGroupId(id)) return [summaryLineOf(data, id)];
+  if (g.joinType === 'asym') return [summaryLineOf(data, g.head)];
+  return g.children.map((c) => summaryLineOf(data, c));
+}
+
+/* ---------------- mutations (throw on invariant violation) ---------------- */
+
+function nextGroupId(data) {
+  let n = 0;
+  for (const g of data.tree) { const m = /^G(\d+)$/.exec(g.id); if (m) n = Math.max(n, +m[1]); }
+  return 'G' + (n + 1);
+}
+
+// The DEFAULT join: create a grouping node over 2+ adjacent parentless units. Never touches
+// lines, audio, or text — grouping is metadata by construction.
+export function groupUnits(data, ids, { joinType, head, relation = '' } = {}) {
+  if (!Array.isArray(ids) || ids.length < 2) throw new Error('Select at least two units to group.');
+  for (const id of ids) {
+    if (!nodeById(data, id)) throw new Error(`Unknown unit ${id}.`);
+    if (parentOf(data, id)) throw new Error('A selected unit is already inside a group — ungroup it first.');
+  }
+  const top = topUnits(data);
+  const idx = ids.map((id) => top.indexOf(id)).sort((a, b) => a - b);
+  for (let k = 1; k < idx.length; k++) {
+    if (idx[k] !== idx[k - 1] + 1) throw new Error('Units must be adjacent to group.');
+  }
+  if (joinType !== 'sym' && joinType !== 'asym') throw new Error('Choose symmetrical or asymmetrical.');
+  if (joinType === 'asym' && !ids.includes(head)) throw new Error('An asymmetrical join needs one of its members as HEAD.');
+  if (joinType === 'sym' && head) throw new Error('A symmetrical join has no head.');
+  const ordered = idx.map((i) => top[i]);
+  const g = { id: nextGroupId(data), children: ordered, joinType, relation: String(relation || '') };
+  if (joinType === 'asym') g.head = head;
+  g.level = 1 + Math.max(...ordered.map((c) => levelOf(data, c)));
+  return { ...data, tree: [...data.tree, g] };
+}
+
+export function ungroup(data, gid) {
+  const g = nodeById(data, gid);
+  if (!g || !isGroupId(gid)) throw new Error('Not a group.');
+  if (parentOf(data, gid)) throw new Error('Ungroup its parent first (dissolve top-down).');
+  return {
+    ...data,
+    tree: data.tree.filter((x) => x.id !== gid),
+    view: { ...data.view, collapsed: (data.view.collapsed || []).filter((id) => id !== gid) },
+  };
+}
+
+export function editGroup(data, gid, patch = {}) {
+  const g = nodeById(data, gid);
+  if (!g || !isGroupId(gid)) throw new Error('Not a group.');
+  const next = { ...g, ...patch };
+  if (next.joinType !== 'sym' && next.joinType !== 'asym') throw new Error('joinType must be sym|asym.');
+  if (next.joinType === 'asym' && !g.children.includes(next.head)) throw new Error('HEAD must be one of the group\'s members.');
+  if (next.joinType === 'sym') delete next.head;
+  return { ...data, tree: data.tree.map((x) => (x.id === gid ? next : x)) };
+}
+
+export function toggleCollapse(data, gid) {
+  if (!nodeById(data, gid) || !isGroupId(gid)) throw new Error('Not a group.');
+  const collapsed = new Set(data.view.collapsed || []);
+  if (collapsed.has(gid)) collapsed.delete(gid); else collapsed.add(gid);
+  return { ...data, view: { ...data.view, collapsed: [...collapsed] } };
+}

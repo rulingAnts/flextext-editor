@@ -1332,7 +1332,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       try {
         const access = await driveAccessToken(env, r);
         const fq = encodeURIComponent(`appProperties has { key='flextextDoc' and value='${docId}' } and mimeType='application/vnd.google-apps.folder' and trashed=false`);
-        const found = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files?spaces=drive&fields=files(id)&q=' + fq);
+        const found = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files?spaces=drive&orderBy=createdTime&fields=files(id)&q=' + fq);
         if (!found.files || !found.files.length) return j({ files: [], folderId: null }, 200, origin, env);
         const folderId = found.files[0].id;
         const lq = encodeURIComponent(`'${folderId}' in parents and trashed=false`);
@@ -1375,7 +1375,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         // it just has no folder to carry).
         let movedFolder = false;
         const fq = encodeURIComponent(`appProperties has { key='flextextDoc' and value='${docId}' } and mimeType='application/vnd.google-apps.folder' and trashed=false`);
-        const found = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files?spaces=drive&fields=files(id,parents)&q=' + fq);
+        const found = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files?spaces=drive&orderBy=createdTime&fields=files(id,parents)&q=' + fq);
         if (found.files && found.files.length) {
           const f = found.files[0];
           const oldParents = (f.parents || []).join(',');

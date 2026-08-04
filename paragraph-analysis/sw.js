@@ -1,36 +1,28 @@
-/* Service worker for the "Flextext Researcher" PWA. Precaches its own thin shell PLUS
- * the shared engine it loads from the Flextext Editor repo (same origin), so the
- * researcher console works fully offline.
+/* Service worker for the "Flextext Paragraph Analysis" PWA. Precaches its own thin shell PLUS
+ * the shared engine it loads from /flextext-editor/ — which, on THIS origin, is a copy of the
+ * editor's docs/ assembled by build.sh into the SAME atomic Cloudflare deployment. That kills
+ * the deploy-order hazard the GitHub Pages satellites live with: a precached engine path here
+ * can never 404, because shell and engine always ship together.
  *
- * VERSION COUPLING — IMPORTANT: this SW caches byte copies of the editor engine
- * (/flextext-editor/js/*.js, css/app.css). Those files have their own lifecycle
- * in the editor repo. Bump VERSION here whenever you deploy — AND specifically
- * whenever the editor engine changes in a way this app should pick up — or
- * installed copies keep serving a stale cached engine offline. Keep the SHELL
- * engine list IDENTICAL to the editor's sw.js (app.js resolves its whole static
- * import graph at load, even though the panel uses only part of it).
- *
- * ⚠ ENGINE below is the editor ENGINE_VERSION this satellite was built against, and
- * test/version-sync.test.mjs FAILS unless it matches the editor exactly. That is the guard
- * for the failure bumping VERSION alone cannot prevent: if this file is not edited at all,
- * the publish workflow finds the mirror unchanged, reports "no change — nothing to
- * publish", exits 0, and installed copies go on serving a STALE engine. The ordering gate
- * cannot see that — it only checks that the editor is live and its paths are 200, which
- * they are. Editing ENGINE is also what makes these bytes change, which is what makes the
- * browser fetch and install this worker at all. */
+ * VERSION COUPLING still applies: ENGINE below is the editor ENGINE_VERSION this satellite was
+ * built against, and test/version-sync.test.mjs FAILS unless it matches the editor exactly.
+ * Keeping that test green requires editing this file, which changes its bytes, which is what
+ * makes an installed browser fetch and install the new worker at all. Keep the SHELL engine
+ * list IDENTICAL to the editor's sw.js (app.js resolves its whole static import graph at load,
+ * even though paragraph mode uses only part of it). */
 
-const VERSION = 'v107';
+const VERSION = 'v1';
 const ENGINE = 'v170';   // editor ENGINE_VERSION this was built against — must match; see version-sync test
-const CACHE = 'flextext-researcher-' + VERSION;
+const CACHE = 'flextext-paragraph-' + VERSION;
 const SHELL = [
   './',
   'index.html',
-  'researcher.webmanifest',
-  'icons/researcher.svg',
-  'icons/researcher-192.png',
-  'icons/researcher-512.png',
-  'icons/researcher-apple-touch.png',
-  // Shared engine + styles, served from the editor repo (same origin).
+  'manifest.webmanifest',
+  'icons/paragraph.svg',
+  'icons/paragraph-192.png',
+  'icons/paragraph-512.png',
+  'icons/paragraph-apple-touch.png',
+  // Shared engine + styles, served from the editor copy (same origin, same deployment).
   '/flextext-editor/css/app.css',
   '/flextext-editor/js/app.js',
   '/flextext-editor/js/flextext.js',
@@ -65,7 +57,6 @@ const SHELL = [
   '/flextext-editor/js/vendor/lame.min.js',
   '/flextext-editor/js/vendor/libflac.min.wasm.js',
   '/flextext-editor/js/vendor/libflac.min.wasm.wasm',
-  '/flextext-editor/help/ws-flex-codes.png',   // FLEx writing-systems help screenshot (panel Utilities) — offline
 ];
 
 // Per-file fetch with retries (resilient on flaky networks), then cache.put — STILL atomic: any file
@@ -90,10 +81,11 @@ self.addEventListener('install', (e) => {
 });
 
 function cleanupOldCaches() {
-  // Scope to THIS app's OWN caches only ('flextext-researcher-*'). Three PWAs share one origin/CacheStorage,
-  // so an unscoped `k !== CACHE` would delete the editor's + recorder's complete caches and brick them offline.
+  // Scope to THIS app's OWN caches only ('flextext-paragraph-*'). On the shared dev-rig origin
+  // several PWAs share one CacheStorage, so an unscoped `k !== CACHE` would delete the editor's
+  // and recorder's complete caches and brick them offline.
   return caches.keys().then(keys => Promise.all(
-    keys.filter(k => k !== CACHE && k.startsWith('flextext-researcher-')).map(k => caches.delete(k))));
+    keys.filter(k => k !== CACHE && k.startsWith('flextext-paragraph-')).map(k => caches.delete(k))));
 }
 
 self.addEventListener('message', (e) => {
@@ -109,11 +101,9 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
-  // Match ONLY this app's OWN cache (NOT the global caches.match). Three PWAs share one origin and ALL
-  // precache the editor engine by path, so a global match can serve a SIBLING app's STALE copy of the
-  // shared engine — that's the "Utilities link vanished in Firefox until a hard reload" bug (this app was
-  // handed an old editor/recorder cached researcher-panel.js). Own-cache match keeps the researcher app on
-  // its own precached, version-consistent engine.
+  // Match ONLY this app's OWN cache (NOT the global caches.match), so a sibling app's stale
+  // cached copy of the shared engine can never be served here (the researcher app hit exactly
+  // that bug on the Pages origin — see its sw.js).
   e.respondWith(
     caches.open(CACHE).then(c => c.match(e.request, { ignoreSearch: e.request.mode === 'navigate' }).then(hit => {
       if (hit) return hit;

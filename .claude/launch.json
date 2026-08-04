@@ -43,6 +43,15 @@
       "port": 8012
     },
     {
+      "name": "flextext-devrig-8013",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "FLEXTEXT_DOCS=\"$PWD/docs\" bash dev-serve.sh 8013"
+      ],
+      "port": 8013
+    },
+    {
       "name": "locate",
       "runtimeExecutable": "python3",
       "runtimeArgs": [

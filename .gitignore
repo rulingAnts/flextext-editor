@@ -6,6 +6,8 @@ CLAUDE.md
 # Local TLS dev certificates (mkcert) — never commit private keys
 certs/
 __pycache__/
+# Assembled Cloudflare origin for the paragraph-analysis satellite (build.sh output)
+paragraph-analysis/public/
 electron/node_modules/
 electron/dist/
 electron/out/

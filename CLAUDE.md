@@ -88,7 +88,9 @@ never said *verify the file is live first*. Both halves are required.
   declared ENGINE ≠ the editor's ENGINE_VERSION — the "bumped the engine, forgot the satellites"
   silent no-op (the v130 failure) is now a loud failure at release time.
 - **Adding a new top-level `import` to `js/app.js` is the trigger.** It becomes a new SHELL entry
-  in the editor *and both satellites' sw.js files* (`satellites/*/sw.js`), in the same commit.
+  in the editor *and every satellite sw.js file* (`satellites/*/sw.js` and
+  `paragraph-analysis/sw.js`), in the same commit. (The paragraph app deploys atomically with its
+  engine copy, so it can't 404 — but its SHELL must still list the import or it is dead offline.)
 
 **Correct sequence, every time:**
 1. Land the engine change (feature branch → `staging` for Seth's test drive → ff into `main`),
@@ -134,9 +136,11 @@ the old local clone `/Users/Seth/GIT/text-recorder/` is legacy.
 - **⚠ VERSION COUPLING (enforced):** each satellite `sw.js` precaches the editor's engine files BY
   PATH and declares the `ENGINE` version it was built against. `test/version-sync.test.mjs` fails
   the release when any satellite's ENGINE ≠ the editor's `ENGINE_VERSION` — so **any `docs/`
-  change bumps ALL FOUR together**: `docs/sw.js` VERSION == `docs/js/i18n.js` ENGINE_VERSION, plus
-  both real satellites' VERSION + ENGINE lines (crowd-recorder has no sw.js). **A new top-level
-  import in `js/app.js` is a new SHELL entry in the editor AND both satellite sw.js files** — a
+  change bumps ALL the version sites together** (`./bump-version.sh` does it): `docs/sw.js`
+  VERSION == `docs/js/i18n.js` ENGINE_VERSION, plus the VERSION + ENGINE lines of
+  `satellites/text-recorder/sw.js`, `satellites/flextext-researcher/sw.js`, AND
+  `paragraph-analysis/sw.js` (crowd-recorder has no sw.js). **A new top-level import in
+  `js/app.js` is a new SHELL entry in the editor AND every satellite sw.js file** — a
   missing precached module makes an updated satellite dead offline (the v108 outage).
 - **⚠ DEPLOY ORDER — automated but still the law:** `sync-satellites.yml` waits for the live
   editor to serve the pushed version, verifies every precached engine path returns 200
@@ -202,7 +206,8 @@ real timed spans (silence) and hold placeholder rows on the Gloss tab.
   named by SayMore's own convention so dropping it beside the audio in a session folder is
   picked up automatically); `<audio-basename>.preview.html` (self-contained, audio embedded
   base64, per-segment playback — for alt-tabbing beside FLEx). WHICH exports ride is
-  RESEARCHER-SELECTED (`exportEaf` / `exportSaymore` / `exportPreview`, panel Buttons group);
+  RESEARCHER-SELECTED (`exportEaf` / `exportSaymore` / `exportPreview` / `exportJson` —
+  the `.fxpa` Paragraph Analysis file, local saves only — panel Buttons group);
   unset values follow the mode — the basic editor exports a CLEAN classic flextext with no
   offsets/notes (`serializeFlextext` `opts.segTimes`), segmentation mode defaults everything on.
   Imported offsets preserved in `seg.attrs` round-trip verbatim regardless. EAFs ride every
@@ -282,10 +287,13 @@ toast **only when something actually changed**. The PWA manifest sets
 > `docs/.nojekyll` disables Jekyll so files are served verbatim.
 
 ```
-docs/        THE PUBLISHED SITE (the PWA)
-android/     Capacitor wrappers (recorder + editor APKs) — never served
-electron/    desktop shell (Windows) — never served
-worker/      the Cloudflare Worker + D1 backend (former flextext-r2-worker repo) — never served
+docs/                THE PUBLISHED SITE (the PWA)
+android/             Capacitor wrappers (recorder + editor APKs) — never served
+electron/            desktop shell (Windows) — never served
+worker/              the Cloudflare Worker + D1 backend (former flextext-r2-worker repo) — never served
+paragraph-analysis/  the Paragraph Analysis satellite shell + its Cloudflare deploy plumbing
+                     (own git-connected Worker `flextext-paragraph`; build.sh copies docs/ into
+                     the same deployment — see its CLAUDE.md). public/ inside it is build output.
 notes/       planning docs, gitignored, never served
 ```
 
@@ -296,7 +304,9 @@ notes/       planning docs, gitignored, never served
   `researcher.js` (account/auth + instance/Ki logic), `researcher-panel.js` (the researcher UI),
   and the **segmentation engine**: `segments.js` (the time-span model + ordering invariants),
   `segment-strips.js` (baseline strip UI + peaks), `seg-exports.js` (EAF ×2 profiles, preview
-  page, BWF bext — pure format module, node-testable)
+  page, BWF bext, `buildFxpa` — pure format module, node-testable), plus the **paragraph
+  engine**: `paragraph-model.js` (`.fxpa` validate/serialize + grouping invariants — pure) and
+  `paragraph-ui.js` (the Paragraph Analysis satellite UI, `window.__MODE='paragraph'`)
 - `satellites/` — the recorder / researcher / crowd-recorder apps (source of truth; mirrored out
   by `sync-satellites.yml` — see the satellites section above)
 - root `wrangler.toml` — the `flextext-staging` static-site Worker config for the staging branch's

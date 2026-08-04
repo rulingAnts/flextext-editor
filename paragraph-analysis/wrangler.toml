@@ -1,0 +1,23 @@
+# The "flextext-paragraph" Cloudflare Worker — the Paragraph Analysis satellite's site.
+# Deployed by Cloudflare's git-connected build (Seth's dashboard step): root directory
+# `paragraph-analysis/`, branch `productionWeb`, build command `bash build.sh`, deploy command
+# `npx wrangler deploy`. build.sh ASSEMBLES public/ — ../docs → public/flextext-editor (the
+# shared engine, copied) + this shell → public/paragraph-analysis — so the engine ships in the
+# SAME atomic deployment as the shell: this satellite has NO deploy-order hazard (a precached
+# engine path can never 404).
+#
+# NOT the connectivity worker (that is worker/wrangler.toml) and NOT the staging site (root
+# wrangler.toml). Static assets are free/unmetered on the Workers free plan; shell.js only
+# redirects / and serves sw.js with no-store (the workers.dev CDN pinned a stale sw.js for the
+# staging site on 2026-08-04 — same fix as staging-shell.js).
+name = "flextext-paragraph"
+main = "shell.js"
+compatibility_date = "2026-06-01"
+workers_dev = true
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+# Route requests through shell.js BEFORE the asset fast-path, so the sw.js response it rewrites
+# is never served from (or stored in) the CDN cache.
+run_worker_first = true

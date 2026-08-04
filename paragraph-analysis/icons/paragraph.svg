@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#5b3a9b"/>
+  <!-- interlinear line bars grouped by left-margin brackets (the paragraph-analysis mark:
+       recolored editor rows + the grouping brackets that ARE this app) -->
+  <g fill="#ffffff">
+    <!-- level-2 bracket spanning everything -->
+    <rect x="72" y="108" width="14" height="296" rx="7" opacity="0.55"/>
+    <!-- level-1 bracket: group 1 (rows 1-2) -->
+    <rect x="118" y="108" width="14" height="128" rx="7"/>
+    <!-- level-1 bracket: group 2 (rows 3-4) -->
+    <rect x="118" y="276" width="14" height="128" rx="7"/>
+    <!-- group 1 rows -->
+    <rect x="164" y="112" width="150" height="34" rx="10"/>
+    <rect x="338" y="112" width="96"  height="34" rx="10"/>
+    <g opacity="0.62">
+      <rect x="164" y="158" width="118" height="20" rx="8"/>
+      <rect x="338" y="158" width="74"  height="20" rx="8"/>
+    </g>
+    <rect x="164" y="196" width="104" height="34" rx="10"/>
+    <rect x="292" y="196" width="142" height="34" rx="10"/>
+    <!-- group 2 rows -->
+    <rect x="164" y="280" width="122" height="34" rx="10"/>
+    <rect x="310" y="280" width="124" height="34" rx="10"/>
+    <g opacity="0.62">
+      <rect x="164" y="326" width="96"  height="20" rx="8"/>
+      <rect x="310" y="326" width="98"  height="20" rx="8"/>
+    </g>
+    <rect x="164" y="364" width="164" height="34" rx="10"/>
+    <rect x="352" y="364" width="82"  height="34" rx="10"/>
+  </g>
+</svg>

@@ -1,0 +1,22 @@
+{
+  "lang": "en",
+  "id": "/paragraph-analysis/",
+  "name": "Flextext Paragraph Analysis",
+  "short_name": "Paragraph",
+  "name_localized": { "id": "Analisis Paragraf Flextext" },
+  "short_name_localized": { "id": "Paragraf" },
+  "description": "Group the lines of an interlinear text into phrases, clauses, sentences, and paragraphs — semantic structure analysis. Works offline.",
+  "description_localized": { "id": "Kelompokkan baris-baris teks interlinear menjadi frasa, klausa, kalimat, dan paragraf — analisis struktur semantik. Bisa dipakai tanpa internet." },
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "launch_handler": { "client_mode": "navigate-existing" },
+  "background_color": "#ffffff",
+  "theme_color": "#5b3a9b",
+  "icons": [
+    { "src": "icons/paragraph-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/paragraph-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/paragraph-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/paragraph.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

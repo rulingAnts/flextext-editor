@@ -46,9 +46,17 @@ ok(swVer === engineVer,
 console.log('\nthe format the rest of the system assumes');
 ok(/^v\d+$/.test(swVer || ''), `version looks like v<number> (${swVer})`);
 
+// The paragraph-analysis satellite lives at the repo root (its own Cloudflare Worker deploy,
+// not a satellites/ Pages mirror) but follows the exact same versioning discipline.
+const SATELLITE_SW = [
+  ['text-recorder', '../satellites/text-recorder/sw.js'],
+  ['flextext-researcher', '../satellites/flextext-researcher/sw.js'],
+  ['paragraph-analysis', '../paragraph-analysis/sw.js'],
+];
+
 console.log('\nsatellites are versioned independently, and must stay parseable');
-for (const name of ['text-recorder', 'flextext-researcher']) {
-  const src = read(`../satellites/${name}/sw.js`);
+for (const [name, path] of SATELLITE_SW) {
+  const src = read(path);
   const v = (src.match(/const VERSION = '([^']+)'/) || [])[1];
   // A satellite's own VERSION rides its own cadence — it is NOT expected to equal the editor's.
   ok(/^v\d+$/.test(v || ''), `${name} declares a parseable VERSION (${v})`);
@@ -69,8 +77,8 @@ for (const name of ['text-recorder', 'flextext-researcher']) {
  * the new worker. The reminder becomes structural.
  */
 console.log('\neach satellite declares the ENGINE it was built against, and it must match');
-for (const name of ['text-recorder', 'flextext-researcher']) {
-  const src = read(`../satellites/${name}/sw.js`);
+for (const [name, path] of SATELLITE_SW) {
+  const src = read(path);
   const e = (src.match(/const ENGINE = '([^']+)'/) || [])[1];
   ok(!!e, `${name} declares ENGINE (${e || 'NOT FOUND'})`);
   ok(e === engineVer,

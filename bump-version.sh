@@ -17,7 +17,7 @@ V="${1:?usage: ./bump-version.sh vNNN}"
 
 perl -pi -e "s/const VERSION = 'v\\d+';/const VERSION = '$V';/" docs/sw.js
 perl -pi -e "s/export const ENGINE_VERSION = 'v\\d+';/export const ENGINE_VERSION = '$V';/" docs/js/i18n.js
-for sat in satellites/text-recorder/sw.js satellites/flextext-researcher/sw.js; do
+for sat in satellites/text-recorder/sw.js satellites/flextext-researcher/sw.js paragraph-analysis/sw.js; do
   cur=$(grep -m1 -oE "const VERSION = 'v[0-9]+'" "$sat" | grep -oE '[0-9]+')
   perl -pi -e "s/const VERSION = 'v\\d+';/const VERSION = 'v$((cur + 1))';/" "$sat"
   perl -pi -e "s/const ENGINE = 'v\\d+';/const ENGINE = '$V';/" "$sat"
@@ -28,7 +28,8 @@ grep -q "const VERSION = '$V';" docs/sw.js            || { echo "FAIL: docs/sw.j
 grep -q "ENGINE_VERSION = '$V';" docs/js/i18n.js      || { echo "FAIL: i18n not at $V" >&2; fail=1; }
 grep -q "const ENGINE = '$V';" satellites/text-recorder/sw.js       || { echo "FAIL: recorder ENGINE" >&2; fail=1; }
 grep -q "const ENGINE = '$V';" satellites/flextext-researcher/sw.js || { echo "FAIL: researcher ENGINE" >&2; fail=1; }
+grep -q "const ENGINE = '$V';" paragraph-analysis/sw.js             || { echo "FAIL: paragraph ENGINE" >&2; fail=1; }
 [ "$fail" = 0 ] || exit 1
 node test/version-sync.test.mjs >/dev/null || { echo "FAIL: version-sync test" >&2; exit 1; }
 echo "all four sites at $V:"
-grep -h "const VERSION = \|ENGINE" docs/sw.js docs/js/i18n.js satellites/*/sw.js | grep -oE "'v[0-9]+'" | sort | uniq -c
+grep -h "const VERSION = \|ENGINE" docs/sw.js docs/js/i18n.js satellites/*/sw.js paragraph-analysis/sw.js | grep -oE "'v[0-9]+'" | sort | uniq -c

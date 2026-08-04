@@ -24,6 +24,7 @@ An **offline-first suite** for oral-text documentation with minority-language co
 | **Flextext Recorder** | `satellites/text-recorder/` | Record-only companion PWA for low-literacy speakers: record, consent, upload. |
 | **Flextext Researcher** | `satellites/flextext-researcher/` | The researcher console: device management, assignments, settings push, corpus/Drive management, history. |
 | **Crowd recorder** | `satellites/crowd-recorder/` | Embeddable one-shot recorder. |
+| **Paragraph Analysis** | `paragraph-analysis/` | Discourse-structure satellite: groups interlinear lines into phrase→clause→sentence→paragraph trees (SSA / arcing / Longacre-style) over a `.fxpa` or `.flextext` file. Own Cloudflare Worker deploy (`flextext-paragraph`), not a Pages mirror. |
 | **Connectivity Worker** | `worker/` | Cloudflare Worker + D1: no-login device sync, researcher accounts (Google Sign-In), E2EE metadata, uploads streamed into the researcher's own Google Drive. |
 | **Native shells** | `android/` (Capacitor), `electron/` | Thin wrappers whose sole reason to exist is archive-grade audio capture (see §7). |
 
@@ -67,8 +68,12 @@ committed but never served.
 
 The satellites are **not forks**: each is a thin `index.html` that loads THIS repo's engine
 cross-origin-path (`/flextext-editor/js/app.js` + CSS) and sets `window.__MODE`
-(`record` / `researcher`). All logic lives in `docs/js/`. Satellite GitHub repos are dumb serving
-mirrors published by `.github/workflows/sync-satellites.yml` — never edit them directly.
+(`record` / `researcher` / `paragraph`). All logic lives in `docs/js/`. Satellite GitHub repos are
+dumb serving mirrors published by `.github/workflows/sync-satellites.yml` — never edit them
+directly. The **Paragraph Analysis** satellite (`paragraph-analysis/`) is the exception in
+deployment only: it ships as its own git-connected Cloudflare Worker whose `build.sh` copies
+`docs/` into the same deployment (`public/flextext-editor/`), so its shell and engine ship
+atomically and it has no deploy-order hazard.
 
 Why separate origins-paths at all: two PWAs sharing a scope are treated by the browser as one app,
 and moving the editor off `/flextext-editor/` would change its PWA id and orphan every installed
@@ -82,7 +87,9 @@ Key engine modules (`docs/js/`):
 | `flextext.js` | parse/serialize/reconcile FLEx `.flextext`; round-trip preservation policy in its header | **pure, node-testable** |
 | `segments.js` | the time-span model + ordering invariants (never invent a time; `timePending`) | **pure** |
 | `segment-strips.js` | segmentation-mode baseline UI: waveform strips, peaks pipeline | DOM |
-| `seg-exports.js` | EAF writers (ELAN + SayMore profiles), the self-contained preview page, BWF `bext` | **pure** |
+| `seg-exports.js` | EAF writers (ELAN + SayMore profiles), the self-contained preview page, BWF `bext`, `buildFxpa()` (the `.fxpa` paragraph-analysis interchange) | **pure** |
+| `paragraph-model.js` | `.fxpa` validate/serialize + the grouping-tree invariants (adjacency, single parent, asym head, levels) | **pure** |
+| `paragraph-ui.js` | the Paragraph Analysis satellite UI (open/convert screen, display modes, audio, bracket tree) | DOM |
 | `audio.js` | the single shared Player (wavesurfer) | DOM |
 | `record-pcm.js`, `convert.js` | capture formats, WAV encoding, archival defaults | mostly pure |
 | `upload.js` | queued, resumable, retry-forever Drive uploads (via the worker) | DOM/db |
@@ -129,8 +136,8 @@ This is the part that has caused real outages when done wrong — read
   `docs/sw.js` `VERSION` == `docs/js/i18n.js` `ENGINE_VERSION`, plus each satellite `sw.js`'s own
   `VERSION` and its declared `ENGINE`.
 - Each satellite SW **precaches the editor's engine files by path** — a new top-level import in
-  `app.js` must be added to the editor SHELL *and both satellite SHELLs* in the same commit, or
-  updated satellites go dead offline.
+  `app.js` must be added to the editor SHELL *and every satellite SHELL* (`satellites/*/sw.js`
+  **and** `paragraph-analysis/sw.js`) in the same commit, or updated satellites go dead offline.
 - The staging dev site serves its service-worker files with `no-store` via `staging-shell.js`
   (root `wrangler.toml`, `run_worker_first`) so deploys turn over instantly; production keeps
   normal SW-update semantics.

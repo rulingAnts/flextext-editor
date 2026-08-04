@@ -219,6 +219,43 @@ console.log('\nmultiple speaker tiers collapse into ONE time-ordered list of lin
   eq(out.lines[0].free, 'He went.', "a speaker's own child tiers still attach to that speaker's lines");
 }
 
+/* OVERLAPPING speaker tiers (Seth's question, 2026-08-04). Conversation EAFs overlap constantly —
+ * interruptions, back-channels, people talking over each other. Collapsing to ONE line list means
+ * choosing a linearization; this locks the choice so it cannot drift:
+ *   - order by ONSET (start time), the standard transcript convention;
+ *   - equal onsets keep tier order from the file (stable sort) — arbitrary but DETERMINISTIC;
+ *   - every line keeps its TRUE start/end, so overlap is preserved in the data and each line still
+ *     plays exactly its own audio. Nothing is clipped or merged to force a tidy sequence. */
+console.log('\noverlapping speakers linearize by onset, keeping their real (overlapping) times');
+{
+  const overlapping = `<ANNOTATION_DOCUMENT FORMAT="3.0">
+   <TIME_ORDER>
+    <TIME_SLOT TIME_SLOT_ID="s1" TIME_VALUE="0"/><TIME_SLOT TIME_SLOT_ID="s2" TIME_VALUE="4000"/>
+    <TIME_SLOT TIME_SLOT_ID="s3" TIME_VALUE="1500"/><TIME_SLOT TIME_SLOT_ID="s4" TIME_VALUE="2200"/>
+    <TIME_SLOT TIME_SLOT_ID="s5" TIME_VALUE="5000"/><TIME_SLOT TIME_SLOT_ID="s6" TIME_VALUE="6000"/>
+    <TIME_SLOT TIME_SLOT_ID="s7" TIME_VALUE="5000"/><TIME_SLOT TIME_SLOT_ID="s8" TIME_VALUE="5500"/>
+   </TIME_ORDER>
+   <TIER TIER_ID="T@A" PARTICIPANT="A" LINGUISTIC_TYPE_REF="d">
+    <ANNOTATION><ALIGNABLE_ANNOTATION ANNOTATION_ID="a1" TIME_SLOT_REF1="s1" TIME_SLOT_REF2="s2"><ANNOTATION_VALUE>long turn</ANNOTATION_VALUE></ALIGNABLE_ANNOTATION></ANNOTATION>
+    <ANNOTATION><ALIGNABLE_ANNOTATION ANNOTATION_ID="a2" TIME_SLOT_REF1="s5" TIME_SLOT_REF2="s6"><ANNOTATION_VALUE>A over</ANNOTATION_VALUE></ALIGNABLE_ANNOTATION></ANNOTATION>
+   </TIER>
+   <TIER TIER_ID="T@B" PARTICIPANT="B" LINGUISTIC_TYPE_REF="d">
+    <ANNOTATION><ALIGNABLE_ANNOTATION ANNOTATION_ID="b1" TIME_SLOT_REF1="s3" TIME_SLOT_REF2="s4"><ANNOTATION_VALUE>interrupts</ANNOTATION_VALUE></ALIGNABLE_ANNOTATION></ANNOTATION>
+    <ANNOTATION><ALIGNABLE_ANNOTATION ANNOTATION_ID="b2" TIME_SLOT_REF1="s7" TIME_SLOT_REF2="s8"><ANNOTATION_VALUE>B over</ANNOTATION_VALUE></ALIGNABLE_ANNOTATION></ANNOTATION>
+   </TIER>
+   <LINGUISTIC_TYPE LINGUISTIC_TYPE_ID="d" TIME_ALIGNABLE="true"/>
+  </ANNOTATION_DOCUMENT>`;
+  const eaf = readEaf(overlapping);
+  const out = eafToLines(eaf, { stacks: detectStacks(eaf) });
+  eq(out.lines.map((l) => `${l.speaker}:${l.baseline}`),
+     ['A:long turn', 'B:interrupts', 'A:A over', 'B:B over'],
+     'an interruption follows the turn it lands inside (onset order), and it is NOT dropped');
+  eq(out.lines.map((l) => [l.start, l.end]), [[0, 4000], [1500, 2200], [5000, 6000], [5000, 5500]],
+     'true overlapping times survive — B 1500-2200 still sits INSIDE A 0-4000');
+  eq(out.lines[2].speaker + '/' + out.lines[3].speaker, 'A/B',
+     'simultaneous onsets fall back to tier order from the file — arbitrary but deterministic');
+}
+
 console.log('\na single-speaker file is untouched by any of that');
 {
   const eaf = readEaf(foreign);

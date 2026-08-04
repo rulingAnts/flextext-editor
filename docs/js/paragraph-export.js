@@ -215,7 +215,9 @@ ${audioB64 ? `<script>
     ctx.decodeAudioData(u.buffer.slice(0)).then(function (buf) {
       var ch = buf.getChannelData(0);
       var B = Math.min(400000, Math.max(2000, Math.round(buf.duration * 800)));
-      var per = Math.max(1, Math.floor(ch.length / B));
+      // CEIL, never floor: flooring leaves the tail of the recording with no buckets, so every
+      // time past that point clamps to the end of the array and the waveform drifts (peakPlan).
+      var per = Math.max(1, Math.ceil(ch.length / B));
       peaks = new Float32Array(B);
       for (var k = 0; k < B; k++) {
         var m = 0, off = k * per, end = Math.min(ch.length, off + per);

@@ -21,6 +21,7 @@
  */
 
 import { normalizeSegments, boundaryAtPlayhead, mergeSegments, syncToLines, isAligned } from './segments.js';
+import { peakPlan } from './seg-exports.js';
 
 let deps = null;      // { container, textarea, getPlayer, getDoc, getParagraphs, setParagraphs, persist, t }
 let peaksCache = { docId: null, peaks: null, durationMs: 0 };
@@ -53,9 +54,8 @@ export async function ensurePeaks(docId, blob, playerBuf) {
       buf = await ctx.decodeAudioData(await blob.arrayBuffer());
     }
     const ch = buf.getChannelData(0);
-    const BUCKETS = Math.min(2000000, Math.max(4000, Math.round(buf.duration * BUCKETS_PER_SEC)));
+    const { buckets: BUCKETS, per } = peakPlan(ch.length, buf.sampleRate, buf.duration, { perSec: BUCKETS_PER_SEC });
     const peaks = new Float32Array(BUCKETS);
-    const per = Math.max(1, Math.floor(ch.length / BUCKETS));
     // ⚠ THE ALIGNMENT TRUTH: bucket b covers samples [b*per, (b+1)*per) — NOT b/BUCKETS of the
     // duration. flooring `per` leaves a remainder tail unmapped, so any proportional-to-duration
     // mapping accumulates error toward the file end (≈1.4s of skew on a 10-min recording — Seth

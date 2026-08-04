@@ -19,7 +19,7 @@ import { parseSfm, markerInventory, detectMapping as detectSfmMapping, sfmToText
 import { buildParagraphPreviewHtml, buildSsaSvg, buildSsaDiagramHtml } from './paragraph-export.js';
 import { parseDelimited, looksLikeHeader, columnsOf, detectMapping as detectCsvMapping, csvToLines, templateCsv } from './csv.js';
 import {
-  validateFxpa, serializeFxpa, groupUnits, ungroup, editGroup, toggleCollapse,
+  validateFxpa, serializeFxpa, groupUnits, ungroup, editGroup, toggleCollapse, setCollapsedAll,
   topUnits, levelOf, spanOf, leavesOf, summaryOf, isGroupId, nodeById,
   isBlankLine, visibleTopUnits, withBlanksBetween,
   newAuthoredDoc, addLine, setLineText, deleteLine,
@@ -720,6 +720,8 @@ function renderWork() {
         <button class="secondary-btn" id="pa-group">${esc(t('para.group'))}</button>
         <button class="secondary-btn" id="pa-edit">${esc(t('para.editGroup'))}</button>
         <button class="secondary-btn" id="pa-ungroup">${esc(t('para.ungroup'))}</button>
+        <button class="secondary-btn" id="pa-collapse-all">${esc(t('para.collapseAll'))}</button>
+        <button class="secondary-btn" id="pa-expand-all">${esc(t('para.expandAll'))}</button>
         <button class="secondary-btn" id="pa-clear" disabled title="${esc(t('para.clearSelTip'))}">${esc(t('para.clearSel'))}</button>
         ${state.authored ? `<button class="secondary-btn" id="pa-addline">${esc(t('para.scratchAddLine'))}</button>` : ''}
         <button class="secondary-btn" id="pa-export">${esc(t('para.exportBtn'))}</button>
@@ -778,6 +780,8 @@ function renderWork() {
   $('#pa-ungroup').addEventListener('click', doUngroup);
   $('#pa-edit').addEventListener('click', openEditDialog);
   $('#pa-clear').addEventListener('click', clearSelection);
+  $('#pa-collapse-all').addEventListener('click', () => collapseAllAction(true));
+  $('#pa-expand-all').addEventListener('click', () => collapseAllAction(false));
   // The touch-friendly stand-in for holding Shift/Ctrl/Cmd (see toggleSelect).
   $('#pa-multi').addEventListener('click', () => {
     multiMode = !multiMode;
@@ -1048,6 +1052,10 @@ function refreshActionButtons() {
   $('#pa-edit').title = g ? t('para.editNamed', { name: groupTitle(g) }) : t('para.needGroupHeadingTip');
   $('#pa-ungroup').title = g ? t('para.ungroupNamed', { name: groupTitle(g) }) : t('para.needGroupHeadingTip');
   $('#pa-group').title = ids.length >= 2 ? t('para.groupTip') : t('para.needTwoTip');
+  // The scope of collapse/expand follows the selection, so the tooltip must say WHICH it will be.
+  const scoped = g ? groupTitle(g) : null;
+  $('#pa-collapse-all').title = scoped ? t('para.collapseSelTip', { name: scoped }) : t('para.collapseAllTip');
+  $('#pa-expand-all').title = scoped ? t('para.expandSelTip', { name: scoped }) : t('para.expandAllTip');
   const info = $('#pa-selinfo');
   if (info) {
     info.textContent = g ? t('para.selGroup', { name: groupTitle(g) })
@@ -1079,6 +1087,16 @@ function unitLabel(id) {
   }
   const g = nodeById(state, id);
   return `${id}${g.relation ? ' — ' + g.relation : ''}`;
+}
+
+/* Collapse/expand everything, or — when something is selected — that subtree only (Seth,
+ * 2026-08-05). Selecting a group and collapsing it takes its descendants down too, so opening it
+ * again shows one level rather than dumping the whole depth back on screen.
+ * Like every other button here it is never disabled: with no groups it SAYS so. */
+function collapseAllAction(collapsed) {
+  if (!state.tree.length) return alert(t('para.noGroupsYet'));
+  const roots = [...selection].filter((id) => isGroupId(id));
+  commit(setCollapsedAll(state, collapsed, roots.length ? roots : null));
 }
 
 function openGroupDialog() {

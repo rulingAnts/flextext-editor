@@ -356,6 +356,33 @@ export function editGroup(data, gid, patch = {}) {
   return { ...data, tree: data.tree.map((x) => (x.id === gid ? next : x)) };
 }
 
+/* Collapse or expand a WHOLE SUBTREE in one action (Seth, 2026-08-05). With no roots it acts on
+ * the entire document; with roots — a selection — it acts on those groups AND every group beneath
+ * them, which is the point: collapsing a group alone would leave its descendants expanded
+ * underneath, so re-expanding it later would dump the full depth back on the screen.
+ * A LINE among the roots contributes nothing (it has no collapse state) rather than erroring —
+ * a mixed selection should still do the sensible thing to the groups in it. */
+export function setCollapsedAll(data, collapsed, roots = null) {
+  const known = new Set(data.tree.map((g) => g.id));
+  let target;
+  if (!roots || !roots.length) {
+    target = [...known];
+  } else {
+    const seen = new Set();
+    const walk = (id) => {
+      if (!isGroupId(id) || seen.has(id) || !known.has(id)) return;
+      seen.add(id);
+      const g = nodeById(data, id);
+      for (const c of (g ? g.children : [])) walk(c);
+    };
+    for (const id of roots) walk(id);
+    target = [...seen];
+  }
+  const set = new Set((data.view.collapsed || []).filter((id) => known.has(id)));
+  for (const id of target) { if (collapsed) set.add(id); else set.delete(id); }
+  return { ...data, view: { ...data.view, collapsed: [...set] } };
+}
+
 export function toggleCollapse(data, gid) {
   if (!nodeById(data, gid) || !isGroupId(gid)) throw new Error('Not a group.');
   const collapsed = new Set(data.view.collapsed || []);

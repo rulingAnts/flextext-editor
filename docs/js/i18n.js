@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v191';
+export const ENGINE_VERSION = 'v192';
 
 const S = {
 en: {
@@ -1124,6 +1124,13 @@ internet after the first time.</p>
   'para.selCount': '{n} units selected',
   'para.clearSel': 'Clear selection',
   'para.clearSelTip': 'Deselect everything (or press Esc)',
+  'para.collapseAll': 'Collapse all',
+  'para.expandAll': 'Expand all',
+  'para.collapseAllTip': 'Collapse every group in the text',
+  'para.expandAllTip': 'Open every group in the text',
+  'para.collapseSelTip': 'Collapse {name} and everything inside it',
+  'para.expandSelTip': 'Open {name} and everything inside it',
+  'para.noGroupsYet': 'There are no groups yet — select two or more lines and press Group to make one.',
   'para.scratchIntro': 'Or build a diagram from scratch — type the propositions yourself, with no recording or language data at all.',
   'para.scratchBtn': 'Start a new diagram',
   'para.scratchTitle': 'New diagram',
@@ -2287,6 +2294,13 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.selCount': '{n} unit terpilih',
   'para.clearSel': 'Batalkan pilihan',
   'para.clearSelTip': 'Batalkan semua pilihan (atau tekan Esc)',
+  'para.collapseAll': 'Tutup semua',
+  'para.expandAll': 'Buka semua',
+  'para.collapseAllTip': 'Tutup semua kelompok dalam teks',
+  'para.expandAllTip': 'Buka semua kelompok dalam teks',
+  'para.collapseSelTip': 'Tutup {name} beserta seluruh isinya',
+  'para.expandSelTip': 'Buka {name} beserta seluruh isinya',
+  'para.noGroupsYet': 'Belum ada kelompok — pilih dua baris atau lebih lalu tekan Kelompokkan.',
   'para.scratchIntro': 'Atau bangun diagram dari nol — ketik sendiri proposisinya, tanpa rekaman atau data bahasa sama sekali.',
   'para.scratchBtn': 'Mulai diagram baru',
   'para.scratchTitle': 'Diagram baru',

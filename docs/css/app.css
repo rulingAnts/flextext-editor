@@ -1252,6 +1252,18 @@ main {
 .pa-open h1 { font-size: 26px; margin-bottom: 6px; }
 .pa-drop { border: 2px dashed var(--border); border-radius: 14px; padding: 36px 20px; margin: 18px 0; background: var(--panel); }
 .pa-drop.over { border-color: var(--blue); background: #e8f0fb; }
+/* ELAN import wizard: role → tier, with a live preview so a wrong choice is caught before import. */
+.pa-wizard { max-width: 760px; text-align: left; padding-bottom: 40px; }
+.pa-wizard h1 { text-align: center; }
+.pa-maprows { display: flex; flex-direction: column; gap: 8px; margin: 14px 0 6px; }
+.pa-maprow { display: grid; grid-template-columns: minmax(0, 15em) minmax(0, 1fr); gap: 10px; align-items: center; }
+.pa-maprow > span { font-size: 14px; color: var(--muted); }
+.pa-maprow select { min-width: 0; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; }
+.pa-mapph { margin: 16px 0 6px; font-size: 15px; }
+.pa-mappreview { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: var(--panel); max-height: 40vh; overflow: auto; }
+.pa-mapline { padding: 6px 0; border-bottom: 1px solid var(--border); }
+.pa-mapline:last-child { border-bottom: 0; }
+.pa-maptime { font-size: 12px; color: var(--muted); margin-top: 2px; }
 .pa-drop .primary-btn { margin-top: 10px; }
 
 .pa-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--panel); position: sticky; top: 0; z-index: 30; }
@@ -1291,6 +1303,8 @@ main {
    not like a caption (users could not find it when it was plain text). */
 .pa-badge { display: flex; align-items: center; gap: 6px; padding: 3px 6px; border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--muted); background: var(--panel); border: 1px solid transparent; }
 .pa-badge:hover { border-color: var(--border); background: #e9eff8; }
+.pa-closebtn { margin-left: 10px; }
+.pa-closebtn:hover { border-color: #a3261f; color: #a3261f; }
 .pa-selinfo { font-size: 12px; color: var(--muted); max-width: 24ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* "+ Add" = a sticky stand-in for Shift/Ctrl/Cmd, so touch screens can multi-select at all. */
 .pa-multi.on { background: var(--blue); border-color: var(--blue); color: #fff; }

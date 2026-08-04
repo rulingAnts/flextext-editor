@@ -3,8 +3,13 @@
 # wrangler.toml [build] hook on EVERY deploy/versions-upload (and is harmless locally —
 # public/ is gitignored).
 #
-#   public/flextext-editor/     ← ../docs   (the shared engine, COPIED — same atomic deploy)
-#   public/paragraph-analysis/  ← this shell (index.html, manifest, sw.js, icons)
+#   public/            ← this shell (index.html, manifest, sw.js, icons) — the app IS the site
+#   public/flextext-editor/  ← ../docs (the shared engine, COPIED — same atomic deploy)
+#
+# The app sits at the ORIGIN ROOT (Seth, 2026-08-04: "ideally the root of pat.flextext.app would
+# be our paragraph analysis tool ... at the root, not redirecting to the sub-folder"). It can,
+# because this origin is the app's alone — the /flextext-editor/ copy is asset storage, not a
+# site. The PWA-scope isolation that forces sub-paths on github.io does not apply here.
 #
 # Copying docs/ wholesale keeps the engine paths byte-identical to the production editor's, so
 # the same-origin engine loading works exactly as it does on github.io — but with no
@@ -25,8 +30,8 @@ if [ -n "$BRANCH" ] && [ "$BRANCH" != "productionWeb" ] && [ -z "${FX_CI_ROUTED:
 fi
 
 rm -rf public
-mkdir -p public/paragraph-analysis
+mkdir -p public
 cp -R ../docs public/flextext-editor
-cp index.html manifest.webmanifest sw.js public/paragraph-analysis/
-cp -R icons public/paragraph-analysis/icons
+cp index.html manifest.webmanifest sw.js public/
+cp -R icons public/icons
 echo "assembled public/: $(find public -type f | wc -l | tr -d ' ') files"

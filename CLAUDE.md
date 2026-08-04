@@ -291,11 +291,12 @@ docs/                THE PUBLISHED SITE (the PWA)
 android/             Capacitor wrappers (recorder + editor APKs) — never served
 electron/            desktop shell (Windows) — never served
 worker/              the Cloudflare Worker + D1 backend (former flextext-r2-worker repo) — never served
-paragraph-analysis/  the Paragraph Analysis satellite shell + its Cloudflare deploy plumbing
-                     (own git-connected Worker `paragraph-analysis-tool` → pat.flextext.app;
+paragraph-analysis/  the Paragraph Analysis Tool satellite shell + its Cloudflare deploy plumbing
+                     (own git-connected Worker `paragraph-analysis-tool` → pat.flextext.app, where
+                     the app IS the origin ROOT — safe only because that origin is its own;
                      deploy.sh routes productionWeb → deploy, other branches → preview alias;
-                     build.sh copies docs/ into the same deployment — see its CLAUDE.md).
-                     public/ inside it is build output, gitignored.
+                     build.sh copies docs/ into the same deployment; shell.js serves kill-switch
+                     workers at the stale scopes — see its CLAUDE.md). public/ is build output.
 notes/       planning docs, gitignored, never served
 ```
 

@@ -294,6 +294,8 @@ function renderWork() {
       </span>
       <span class="pa-actions">
         <span class="pa-selinfo" id="pa-selinfo"></span>
+        <button class="secondary-btn pa-multi" id="pa-multi" aria-pressed="${multiMode}"
+                title="${esc(t('para.multiTip'))}">${esc(t('para.multi'))}</button>
         <button class="secondary-btn" id="pa-group">${esc(t('para.group'))}</button>
         <button class="secondary-btn" id="pa-edit">${esc(t('para.editGroup'))}</button>
         <button class="secondary-btn" id="pa-ungroup">${esc(t('para.ungroup'))}</button>
@@ -307,6 +309,7 @@ function renderWork() {
       <div class="pa-ovwrap"><canvas id="pa-ov"></canvas><div class="pa-cur" id="pa-ovcur"></div></div>
       <div class="pa-transport"><button class="icon-btn2" id="pa-play">▶</button><span id="pa-time" class="player-time"></span></div>
     </div>` : ''}
+    <p class="pa-tip">${esc(t('para.selectTip'))}</p>
     <div class="pa-tree" id="pa-tree"></div>
     <div id="pa-dialog" hidden></div>`;
 
@@ -334,6 +337,14 @@ function renderWork() {
   $('#pa-ungroup').addEventListener('click', doUngroup);
   $('#pa-edit').addEventListener('click', openEditDialog);
   $('#pa-clear').addEventListener('click', clearSelection);
+  // The touch-friendly stand-in for holding Shift/Ctrl/Cmd (see toggleSelect).
+  $('#pa-multi').addEventListener('click', () => {
+    multiMode = !multiMode;
+    const b = $('#pa-multi');
+    b.classList.toggle('on', multiMode);
+    b.setAttribute('aria-pressed', String(multiMode));
+  });
+  $('#pa-multi').classList.toggle('on', multiMode);
   wireKeys();
   if (showAudio) {
     $('#pa-play').addEventListener('click', () => {
@@ -396,7 +407,7 @@ function renderUnit(id, nodeLabel = '') {
   badge.querySelector('.pa-caret').addEventListener('click', (e) => { e.stopPropagation(); commit(toggleCollapse(state, id)); });
   const gplay = badge.querySelector('.pa-rowplay');
   if (gplay) gplay.addEventListener('click', (e) => { e.stopPropagation(); playSpan(+gplay.dataset.s, +gplay.dataset.e); });
-  badge.addEventListener('click', () => toggleSelect(id));
+  badge.addEventListener('click', (e) => toggleSelect(id, e));
   el.appendChild(badge);
   if (collapsed) {
     for (const line of summaryOf(state, id)) {
@@ -452,14 +463,31 @@ function renderLineRow(id, nodeLabel = '') {
   if (play) play.addEventListener('click', (e) => { e.stopPropagation(); playSpan(l.start, l.end); });
   const wave = row.querySelector('canvas');
   if (wave) wireScrub(wave, l.start, l.end);
-  row.addEventListener('click', () => toggleSelect(id));
+  row.addEventListener('click', (e) => toggleSelect(id, e));
   return row;
 }
 
 /* ---------------- selection + actions ---------------- */
 
-function toggleSelect(id) {
-  if (selection.has(id)) selection.delete(id); else selection.add(id);
+/* SELECTION (Seth, 2026-08-04): a plain click REPLACES the selection; Shift-click or
+ * Ctrl/Cmd-click ADDS to it. Selection used to be purely additive, which quietly accumulated
+ * units as the user explored and left Edit/Ungroup permanently unusable — the "ungroup does
+ * nothing" report. Replace-by-default means the selection is always what you last clicked.
+ *
+ * `multiMode` is the SAME thing as holding a modifier, exposed as a toolbar toggle, because a
+ * touch device has no modifier keys — without it, tablets could select one unit and could
+ * therefore never group anything. */
+let multiMode = false;
+
+function toggleSelect(id, ev) {
+  const additive = multiMode || !!(ev && (ev.shiftKey || ev.ctrlKey || ev.metaKey));
+  if (additive) {
+    if (selection.has(id)) selection.delete(id); else selection.add(id);
+  } else if (selection.size === 1 && selection.has(id)) {
+    selection = new Set();                     // clicking the only selected unit again clears it
+  } else {
+    selection = new Set([id]);                 // plain click: this one, and only this one
+  }
   root.querySelectorAll('.pa-row, .pa-group').forEach((el) => {
     if (el.dataset.unit) el.classList.toggle('sel', selection.has(el.dataset.unit));
   });
@@ -504,6 +532,7 @@ function refreshActionButtons() {
   const info = $('#pa-selinfo');
   if (info) {
     info.textContent = g ? t('para.selGroup', { name: groupTitle(g) })
+      : ids.length === 1 ? t('para.selOne')
       : ids.length ? t('para.selCount', { n: ids.length })
       : '';
   }

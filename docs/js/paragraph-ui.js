@@ -19,6 +19,7 @@ import { parseSfm, markerInventory, detectMapping as detectSfmMapping, sfmToText
 import {
   validateFxpa, serializeFxpa, groupUnits, ungroup, editGroup, toggleCollapse,
   topUnits, levelOf, spanOf, leavesOf, summaryOf, isGroupId, nodeById,
+  isBlankLine, visibleTopUnits, withBlanksBetween,
 } from './paragraph-model.js';
 
 const WORKING_KEY = 'fxpa:working';
@@ -674,6 +675,7 @@ function renderWork() {
           <option value="free-only">${esc(t('para.layerFreeOnly'))}</option>
         </select>
         <label class="check-label pa-inline"><input type="checkbox" id="pa-free"> ${esc(t('para.showFree'))}</label>
+        <label class="check-label pa-inline" title="${esc(t('para.hideBlankTip'))}"><input type="checkbox" id="pa-blank"> ${esc(t('para.hideBlank'))}</label>
         ${state.audio ? `<label class="check-label pa-inline"><input type="checkbox" id="pa-audio"> ${esc(t('para.showAudio'))}</label>
         <select id="pa-waves" title="${esc(t('para.wavesTip'))}">
           <option value="compact">${esc(t('para.wavesCompact'))}</option>
@@ -707,6 +709,7 @@ function renderWork() {
 
   $('#pa-layer').value = v.layer;
   $('#pa-free').checked = v.free !== false;
+  $('#pa-blank').checked = v.hideBlank !== false;      // ON by default: blank lines are not analysis
   // free-only requires free on; disable the free checkbox there (it is the whole display).
   $('#pa-free').disabled = v.layer === 'free-only';
   if (state.audio) {
@@ -715,6 +718,11 @@ function renderWork() {
   }
   $('#pa-layer').addEventListener('change', (e) => setView({ layer: e.target.value, ...(e.target.value === 'free-only' ? { free: true } : {}) }));
   $('#pa-free').addEventListener('change', (e) => setView({ free: e.target.checked }));
+  $('#pa-blank').addEventListener('change', (e) => {
+    // Hiding a line must never hide a SELECTION the user cannot then clear.
+    if (e.target.checked) selection = new Set([...selection].filter((id) => isGroupId(id) || !isBlankLine(nodeById(state, id))));
+    setView({ hideBlank: e.target.checked });
+  });
   if (state.audio) {
     $('#pa-audio').addEventListener('change', (e) => setView({ audio: e.target.checked }));
     $('#pa-waves')?.addEventListener('change', (e) => setView({ waves: e.target.value }));
@@ -750,7 +758,7 @@ function renderWork() {
     wireOverviewScrub($('#pa-ov'));
   }
   const tree = $('#pa-tree');
-  for (const id of topUnits(state)) tree.appendChild(renderUnit(id));
+  for (const id of visibleTopUnits(state, v.hideBlank !== false)) tree.appendChild(renderUnit(id));
   refreshActionButtons();
   drawAllWaves();
   startTicker();
@@ -809,7 +817,11 @@ function renderUnit(id, nodeLabel = '') {
       el.appendChild(s);
     }
   } else {
-    for (const c of g.children) el.appendChild(renderUnit(c, (g.labels || {})[c] || ''));
+    const hideBlank = state.view.hideBlank !== false;
+    for (const c of g.children) {
+      if (hideBlank && !isGroupId(c) && isBlankLine(nodeById(state, c))) continue;   // silence inside a group
+      el.appendChild(renderUnit(c, (g.labels || {})[c] || ''));
+    }
     // HEAD marker on the head child's container/row.
     if (g.joinType === 'asym') {
       const headEl = [...el.children].find((ch) => ch.dataset && ch.dataset.unit === g.head);
@@ -958,7 +970,12 @@ function unitLabel(id) {
 
 function openGroupDialog() {
   if (selection.size < 2) return alert(t('para.needTwo'));
-  groupDialog({ ids: [...selection] });
+  // With blanks hidden, two visible neighbours may have silence between them in the model. Absorb
+  // it, or the model refuses the group as non-adjacent for a reason the user cannot see.
+  const top = topUnits(state);
+  const ids = withBlanksBetween(state, [...selection], state.view.hideBlank !== false)
+    .sort((a, b) => top.indexOf(a) - top.indexOf(b));
+  groupDialog({ ids });
 }
 
 function openEditDialog() {

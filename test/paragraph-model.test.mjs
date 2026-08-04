@@ -2,11 +2,14 @@
 import {
   validateFxpa, serializeFxpa, groupUnits, ungroup, editGroup, toggleCollapse,
   topUnits, levelOf, spanOf, leavesOf, summaryOf, summaryLineOf, parentOf,
+  isBlankLine, visibleTopUnits, withBlanksBetween,
 } from '../docs/js/paragraph-model.js';
 
 let failures = 0;
 const ok = (c, m) => { console.log((c ? '  ok    ' : '  FAIL  ') + m); if (!c) failures++; };
 const throws = (fn, m) => { try { fn(); ok(false, m + ' (did not throw)'); } catch { ok(true, m); } };
+const eq = (a, b, m) => ok(JSON.stringify(a) === JSON.stringify(b),
+  `${m}${JSON.stringify(a) === JSON.stringify(b) ? '' : `\n        got:  ${JSON.stringify(a)}\n        want: ${JSON.stringify(b)}`}`);
 
 const base = () => validateFxpa({
   format: 'flextext-paragraph-analysis', version: 1, title: 'T', vernLang: 'fau', analLang: 'id',
@@ -141,6 +144,45 @@ console.log('labels — group, members, both, neither (all optional)');
     lines: [{ id: 'L1', baseline: 'a' }, { id: 'L2', baseline: 'b' }],
     tree: [{ id: 'G1', level: 1, children: ['L1', 'L2'], joinType: 'sym', labels: { L1: '   ' } }] });
   ok(blank.ok === true && !('labels' in blank.data.tree[0]), 'blank labels in a file normalize away');
+}
+
+/* BLANK LINES (Seth, 2026-08-05): skipped in the paragraph app, but HIDDEN — never deleted.
+ * Skipping cannot misalign audio, because alignment is not positional: every line carries its own
+ * explicit start/end, so the lines that remain keep their exact times. The risk is elsewhere, and
+ * these assertions pin both halves of it: the file must keep the blanks, and grouping across a
+ * hidden blank must still work. */
+console.log('blank lines are HIDDEN, never deleted');
+{
+  const withBlanks = validateFxpa({
+    format: 'flextext-paragraph-analysis', version: 1, title: 'T',
+    lines: [
+      { id: 'L1', start: 0, end: 1000, baseline: 'one', words: [{ txt: 'one' }] },
+      { id: 'L2', start: 1000, end: 2000, baseline: '  ', words: [], free: '' },      // silence
+      { id: 'L3', start: 2000, end: 3000, baseline: 'three', words: [{ txt: 'three' }] },
+      { id: 'L4', start: 3000, end: 4000, baseline: '', words: [{ txt: '  ' }] },      // also blank
+    ],
+    tree: [],
+  }).data;
+
+  ok(isBlankLine(withBlanks.lines[1]), 'a line with only whitespace is blank');
+  ok(isBlankLine(withBlanks.lines[3]), 'so is one whose only word is whitespace');
+  ok(!isBlankLine(withBlanks.lines[0]), 'a line with text is not');
+  eq(visibleTopUnits(withBlanks, true), ['L1', 'L3'], 'hidden view skips the blanks');
+  eq(visibleTopUnits(withBlanks, false), ['L1', 'L2', 'L3', 'L4'], 'and shows them again when off');
+  eq(withBlanks.lines.length, 4, 'THE DATA STILL HAS ALL FOUR — hiding is a view, not a delete');
+  eq(withBlanks.lines[1].start, 1000, 'and the hidden line keeps its exact times');
+
+  // Grouping two VISIBLE neighbours with silence between them.
+  const ids = withBlanksBetween(withBlanks, ['L1', 'L3'], true);
+  eq(ids.sort(), ['L1', 'L2', 'L3'], 'the hidden blank between them is absorbed into the selection');
+  const grouped = groupUnits(withBlanks, ids, { joinType: 'sym' });
+  eq(grouped.tree[0].children.sort(), ['L1', 'L2', 'L3'],
+     'so the group is CONTIGUOUS in the model — it would otherwise be refused as non-adjacent');
+  eq(spanOf(grouped, 'G1'), { start: 0, end: 3000 }, 'and its span covers the silence it contains');
+  eq(withBlanksBetween(withBlanks, ['L1', 'L3'], false), ['L1', 'L3'], 'with blanks shown, nothing is absorbed');
+  // Never absorb real content.
+  const ids2 = withBlanksBetween(withBlanks, ['L1', 'L4'], true);
+  ok(!ids2.includes('L3'), 'a line with TEXT between the ends is never swept in');
 }
 
 console.log('round-trip');

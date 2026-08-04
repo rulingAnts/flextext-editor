@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v184';
+export const ENGINE_VERSION = 'v185';
 
 const S = {
 en: {
@@ -1018,13 +1018,13 @@ internet after the first time.</p>
   'para.appName': 'Flextext Paragraph Analysis Tool',
   'para.openHint': 'Group the lines of an interlinear text into phrases, clauses, sentences, and paragraphs — building the discourse structure level by level.',
   'para.dropHere': 'Drop a file here',
-  'para.dropKinds': 'a .fxpa file (from the editor’s save bundle) · a .flextext file · an ELAN .eaf file · a Toolbox / SFM file (.txt, .db, .sfm — any extension). Drop the audio file in at the same time to get waveforms and playback.',
+  'para.dropKinds': 'a .fxpa file (from the editor’s save bundle) · a .flextext file · an ELAN/SayMore .eaf file · a Toolbox / SFM file (.txt, .db, .sfm — any extension). Drop the audio file in at the same time to get waveforms and playback.',
   'para.chooseFiles': 'Choose files…',
   'para.textOnlyNote': 'A text without audio or time alignment works too — there are simply no waveforms or play buttons. ELAN files with several speakers are merged into one text, with every line labelled by speaker.',
   'para.errNoUsableFile': 'No usable file — drop a .fxpa, .flextext or ELAN .eaf file.',
   'para.errNoTiers': 'That ELAN file has no tiers in it.',
   // ELAN import wizard — ANY .eaf, from any source; the app proposes, the user decides.
-  'para.eafTitle': 'ELAN file — what is on each tier?',
+  'para.eafTitle': 'ELAN / SayMore file — what is on each tier?',
   'para.eafIntro': 'Opening “{file}”. Check that each row points at the right tier, then press Open. Each tier shows how many annotations it has, ⏱ if it is time-aligned, and a sample of its content.',
   'para.eafWantsAudio': 'This ELAN file refers to the recording “{name}”. To get waveforms and playback, drop that audio file in together with the .eaf — otherwise the text opens without audio.',
   'para.eafAudioMismatch': 'The ELAN file names the recording “{eaf}”, but you dropped “{got}”. It will be used anyway — make sure it really is the same recording, or the times will not line up.',
@@ -1069,6 +1069,8 @@ internet after the first time.</p>
   'para.layerBaseline': 'Baseline text',
   'para.layerFreeOnly': 'Free translation only',
   'para.showFree': 'Free translation',
+  'para.hideBlank': 'Hide blank lines',
+  'para.hideBlankTip': 'Blank lines are usually silence between utterances. Hiding them only affects this view — they stay in the file with their times, and a group that spans them still covers them.',
   'para.showAudio': 'Audio',
   'para.wavesTip': 'Waveform size on each line',
   'para.wavesCompact': 'Compact waves',
@@ -2137,12 +2139,12 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.appName': 'Alat Analisis Paragraf Flextext',
   'para.openHint': 'Kelompokkan baris-baris teks interlinear menjadi frasa, klausa, kalimat, dan paragraf — membangun struktur wacana tingkat demi tingkat.',
   'para.dropHere': 'Letakkan file di sini',
-  'para.dropKinds': 'file .fxpa (dari bundel simpanan editor) · file .flextext · file ELAN .eaf · file Toolbox / SFM (.txt, .db, .sfm — ekstensi apa pun). Letakkan file audionya sekaligus agar ada gelombang suara dan pemutaran.',
+  'para.dropKinds': 'file .fxpa (dari bundel simpanan editor) · file .flextext · file ELAN/SayMore .eaf · file Toolbox / SFM (.txt, .db, .sfm — ekstensi apa pun). Letakkan file audionya sekaligus agar ada gelombang suara dan pemutaran.',
   'para.chooseFiles': 'Pilih file…',
   'para.textOnlyNote': 'Teks tanpa audio atau penyelarasan waktu juga bisa — hanya saja tanpa gelombang suara dan tombol putar. File ELAN dengan beberapa penutur digabung menjadi satu teks, dengan tiap baris diberi label penutur.',
   'para.errNoUsableFile': 'Tidak ada file yang bisa dipakai — letakkan file .fxpa, .flextext, atau ELAN .eaf.',
   'para.errNoTiers': 'File ELAN itu tidak memiliki tier.',
-  'para.eafTitle': 'File ELAN — apa isi tiap tier?',
+  'para.eafTitle': 'File ELAN / SayMore — apa isi tiap tier?',
   'para.eafIntro': 'Membuka “{file}”. Periksa setiap baris menunjuk ke tier yang benar, lalu tekan Buka. Tiap tier menampilkan jumlah anotasi, ⏱ bila selaras waktu, dan contoh isinya.',
   'para.eafWantsAudio': 'File ELAN ini merujuk rekaman “{name}”. Untuk gelombang suara dan pemutaran, letakkan file audio itu bersama .eaf — jika tidak, teks dibuka tanpa audio.',
   'para.eafAudioMismatch': 'File ELAN menyebut rekaman “{eaf}”, tetapi Anda meletakkan “{got}”. Tetap dipakai — pastikan itu rekaman yang sama, atau waktunya tidak akan cocok.',
@@ -2184,6 +2186,10 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.layerBaseline': 'Teks dasar',
   'para.layerFreeOnly': 'Hanya terjemahan bebas',
   'para.showFree': 'Terjemahan bebas',
+  'para.hideBlank': 'Hide blank lines',
+  'para.hideBlankTip': 'Blank lines are usually silence between utterances. Hiding them only affects this view — they stay in the file with their times, and a group that spans them still covers them.',
+  'para.hideBlank': 'Sembunyikan baris kosong',
+  'para.hideBlankTip': 'Baris kosong biasanya adalah keheningan antar ujaran. Menyembunyikannya hanya memengaruhi tampilan ini — barisnya tetap ada di file beserta waktunya, dan kelompok yang melintasinya tetap mencakupnya.',
   'para.showAudio': 'Audio',
   'para.wavesTip': 'Ukuran gelombang suara pada tiap baris',
   'para.wavesCompact': 'Gelombang kecil',

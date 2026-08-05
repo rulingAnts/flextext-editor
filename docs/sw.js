@@ -2,7 +2,7 @@
 
 // Bump VERSION on every deploy: clients check for a changed sw.js whenever
 // they load / regain focus / come online, and offer the user an update.
-const VERSION = 'v219';
+const VERSION = 'v220';
 // On localhost the SW serves NETWORK-FIRST so code edits show up immediately during dev
 // (cache-first would keep serving a stale build until every file's VERSION is bumped). The
 // SW stays registered (PWA + localStorage behave normally); production stays offline-first.
@@ -138,5 +138,14 @@ self.addEventListener('fetch', (e) => {
         return resp;
       });
     }))
+      /* ⚠ NEVER let respondWith REJECT. A rejected handler makes the browser report "A ServiceWorker
+       * intercepted the request and encountered an unexpected error" against sw.js — which points at
+       * the worker rather than at the real cause, and looks identical whether the device is offline,
+       * the DNS failed, or the request was aborted. Seth hit it on an asset the app shell asked for
+       * (2026-08-05); it cost a round of debugging pointed at the wrong file.
+       *
+       * A synthetic 504 is the honest answer instead: the PAGE sees a failed request, which is what
+       * actually happened, and the failure is attributed where it belongs. */
+      .catch(() => new Response('', { status: 504, statusText: 'offline or unreachable' }))
   );
 });

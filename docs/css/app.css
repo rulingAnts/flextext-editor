@@ -1259,7 +1259,7 @@ main {
 .pa-free-empty .pa-freetext { color: var(--muted); font-style: italic; opacity: .7; }
 .pa-freeedit { border: 0; background: transparent; color: var(--muted); cursor: pointer;
   font-size: 12px; padding: 1px 5px; border-radius: 5px; opacity: 0; }
-.pa-row:hover .pa-freeedit, .pa-row.sel .pa-freeedit, .pa-free-empty .pa-freeedit { opacity: .75; }
+.pa-row.sel .pa-freeedit { opacity: .75; }
 .pa-freeedit:hover { background: var(--panel); color: var(--blue); opacity: 1; }
 .pa-freeinput { flex: 1; min-width: 0; font: italic 15px/1.4 inherit; color: var(--fg);
   padding: 3px 7px; border: 1px solid var(--blue); border-radius: 6px; background: #fff; }
@@ -1276,7 +1276,12 @@ main {
   padding: 2px 6px; border: 1px solid transparent; border-radius: 6px; background: transparent; }
 .pa-propedit:hover { border-color: var(--border); }
 .pa-propedit:focus { border-color: var(--blue); background: #fff; color: var(--fg); outline: none; }
-.pa-propimp, .pa-propdel { border: 0; background: transparent; color: var(--muted); cursor: pointer;
+/* A WORD, not a glyph (Seth, 2026-08-05: "empty quotes vs parenthesis icon isn't very intuitive").
+   The chip states what the proposition IS; the tooltip says what clicking will do. */
+.pa-propimp { border: 1px solid var(--border); background: var(--panel); color: var(--muted); cursor: pointer;
+  font-size: 11px; padding: 1px 7px; border-radius: 999px; opacity: 0; letter-spacing: .01em; }
+.pa-propimp.on { border-color: var(--blue); color: var(--blue); background: #eef3fb; }
+.pa-propdel { border: 0; background: transparent; color: var(--muted); cursor: pointer;
   font-size: 12px; padding: 2px 4px; border-radius: 5px; opacity: 0; }
 .pa-prop:hover .pa-propimp, .pa-prop:hover .pa-propdel, .pa-propedit:focus ~ .pa-propimp { opacity: 1; }
 .pa-propimp:hover, .pa-propdel:hover { background: var(--panel); color: var(--fg); }
@@ -1294,7 +1299,10 @@ main {
 .pa-linetext.pa-empty { color: var(--muted); font-style: italic; opacity: .6; }
 .pa-lineedit { border: 0; background: transparent; color: var(--muted); cursor: pointer;
   font-size: 12px; padding: 1px 5px; border-radius: 5px; opacity: 0; }
-.pa-row:hover .pa-lineedit, .pa-row.sel .pa-lineedit, .pa-empty + .pa-lineedit { opacity: .75; }
+.pa-row.sel .pa-lineedit, .pa-row.sel .pa-linedel { opacity: .75; }
+.pa-linedel { border: 0; background: transparent; color: var(--muted); cursor: pointer;
+  font-size: 12px; padding: 1px 5px; border-radius: 5px; opacity: 0; }
+.pa-linedel:hover { background: var(--panel); color: #a33; opacity: 1; }
 .pa-lineedit:hover { background: var(--panel); color: var(--blue); opacity: 1; }
 
 /* The shared in-place editor (free translation, authored line, word+gloss). */
@@ -1308,8 +1316,10 @@ main {
 .pa-inline-ok:hover { background: #e8f6ec; }
 .pa-inline-cancel:hover, .pa-inline-del:hover { background: var(--bg); }
 /* A word is clickable to correct — say so quietly on hover rather than with permanent chrome. */
-.w-edit { cursor: pointer; border-radius: 5px; }
-.w-edit:hover { background: #eef3fb; outline: 1px solid var(--border); }
+/* A word only LOOKS clickable once its row is selected — see 'select first, edit second'. */
+.w-edit { border-radius: 5px; }
+.pa-row.sel .w-edit { cursor: pointer; }
+.pa-row.sel .w-edit:hover { background: #eef3fb; outline: 1px solid var(--border); }
 /* ELAN import wizard: role → tier, with a live preview so a wrong choice is caught before import. */
 .pa-wizard { max-width: 760px; text-align: left; padding-bottom: 40px; }
 .pa-wizard h1 { text-align: center; }
@@ -1351,6 +1361,10 @@ main {
 .pa-inline { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 
 .pa-player { position: sticky; top: 46px; z-index: 29; background: var(--bg); border-bottom: 1px solid var(--border); padding: 6px 12px; }
+/* A segment's waveform gets the same treatment as the overview: a positioned wrapper so its own
+   playhead can sit over it (Seth, 2026-08-05). */
+.pa-wavewrap { position: relative; }
+.pa-rowcur { position: absolute; top: 0; bottom: 0; width: 2px; background: #c33; pointer-events: none; display: none; }
 .pa-ovwrap { position: relative; height: 48px; }
 .pa-ovwrap canvas { width: 100%; height: 100%; display: block; touch-action: none; cursor: pointer; }
 .pa-cur { position: absolute; top: 0; bottom: 0; width: 2px; background: #c33; pointer-events: none; }
@@ -1413,14 +1427,25 @@ main {
 .pa-summary { padding: 2px 8px 2px 24px; font-style: italic; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Group/edit dialog */
+/* ⚠ THE MODAL MUST FIT THE SCREEN AND ITS BUTTONS MUST STAY REACHABLE (Seth, 2026-08-05: "our
+   export modal being too tall and running off the page... buttons running off and almost or
+   completely out of reach"). The export dialog grew a lot of controls, and a dialog that is taller
+   than the viewport puts OK and Cancel below the fold with nothing to scroll — the one part of a
+   dialog that must never be unreachable.
+   So: the modal is capped at the viewport, its BODY scrolls, and the actions are pinned to the
+   bottom of the modal rather than to the end of the content. */
 #pa-dialog { position: fixed; inset: 0; background: rgba(20,26,34,.45); z-index: 60; display: flex; align-items: center; justify-content: center; padding: 16px; }
-.pa-modal { background: var(--bg); border-radius: 12px; padding: 18px 20px; width: min(440px, 94vw); box-shadow: 0 6px 30px rgba(0,0,0,.25); }
-.pa-modal h3 { margin-bottom: 10px; }
-.pa-modal-body { display: flex; flex-direction: column; gap: 10px; }
+.pa-modal { background: var(--bg); border-radius: 12px; padding: 18px 20px; width: min(440px, 94vw);
+  box-shadow: 0 6px 30px rgba(0,0,0,.25); max-height: min(88vh, 100% - 8px); display: flex; flex-direction: column; }
+.pa-modal h3 { margin-bottom: 10px; flex: 0 0 auto; }
+.pa-modal-body { display: flex; flex-direction: column; gap: 10px; flex: 1 1 auto; overflow-y: auto;
+  overscroll-behavior: contain; min-height: 0; padding-right: 2px; }
 .pa-field { display: flex; flex-direction: column; gap: 4px; }
 .pa-field > span { font-size: 13px; color: var(--muted); }
 .pa-field select, .pa-field input { padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 15px; }
-.pa-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+/* Pinned: always on screen, with a hairline so it reads as a floor when the body scrolls under it. */
+.pa-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; flex: 0 0 auto;
+  padding-top: 12px; border-top: 1px solid var(--border); background: var(--bg); }
 
 /* Member list inside the join dialog: HEAD choice + each member's own label, in reading order.
    The head column disappears entirely for a symmetrical join (which has no head by definition). */

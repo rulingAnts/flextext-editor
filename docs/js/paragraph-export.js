@@ -466,10 +466,29 @@ export function ssaLayout(data, opts = {}) {
    * beyond the right edge, invisible. Now `textWidth` is what the user asks for, the canvas is
    * whatever that needs, and the HTML wrapper scrolls. Wrapping keeps any single row from running
    * away; `levelWidth` lets a deep tree be tightened instead of truncated. */
+  /* ⚠ THE LEAF LINE RUNS ALL THE WAY TO THE TEXT (Seth, 2026-08-05: terminal nodes should "have
+   * the line go all the way to almost touching the text data itself"). It used to stop at a
+   * reserved label column, leaving a gap — line, gap, label, gap, text — so the eye had to jump
+   * twice to get from a branch to the words it points at, which on a tall diagram means losing
+   * your place. The role label now floats ABOVE the end of its own line instead of occupying a
+   * column, so there is nothing between the branch and the text, and the reserved column's width
+   * is reclaimed (a narrower diagram into the bargain). */
   const treeWidth = (maxDepth + 1) * o.levelWidth;
   const labelX = o.pad + treeWidth + o.gutter;
-  const textX = labelX + o.labelWidth + o.gutter;
-  const textWidth = Math.max(120, o.textWidth || (o.width - textX - o.pad));
+  const textX = labelX + o.gutter;
+  /* WRAPPING IS THE USER'S CALL (Seth, 2026-08-05: "enable or disable wrapping, which would
+   * include the interlinear text"). With wrapping ON the column is the width they asked for and
+   * long rows fold into it. With it OFF nothing folds — so the column has to be as wide as the
+   * longest row, or the text would simply run off the canvas, which is the bug we just fixed at
+   * the other end. Interlinear obeys the same switch: unwrapped, a line's words stay on one row
+   * however many there are. */
+  const wrap = opts.wrap !== false;
+  // 'auto' = as wide as the longest row (Seth's auto-fit). Otherwise the width asked for, with the
+  // longest row as a FLOOR when nothing may wrap — or the text would run off the canvas again.
+  const auto = o.textWidth === 'auto';
+  const asked = auto ? 0 : Math.max(120, o.textWidth || (o.width - textX - o.pad));
+  const natural = (auto || !wrap) ? Math.max(0, ...rows.map((r) => naturalWidth(r.content, o, measure))) : 0;
+  const textWidth = auto ? Math.max(120, natural) : (wrap ? asked : Math.max(asked, natural));
   const width = Math.max(o.width, textX + textWidth + o.pad);
 
   const glossSize = o.fontSize * 0.78;
@@ -479,7 +498,7 @@ export function ssaLayout(data, opts = {}) {
     r.text = r.content.kind === 'interlinear'
       ? r.content.words.map((w) => w.txt).join(' ')
       : (r.content.text || '');
-    r.blocks = layoutContent(r.content, textWidth, o, measure);
+    r.blocks = layoutContent(r.content, wrap ? textWidth : Infinity, o, measure);
     r.y = y;
     r.height = Math.max(o.lineHeight, r.blocks.height);
     r.midY = y + r.height / 2;
@@ -497,8 +516,22 @@ export function ssaLayout(data, opts = {}) {
   };
   roots.forEach(anchor);
 
-  return { rows, roots, opts: o, labelX, textX, textWidth, treeWidth, maxDepth, glossSize,
+  return { rows, roots, opts: o, labelX, textX, textWidth, treeWidth, maxDepth, glossSize, wrap,
            height: y + o.pad, width, measure };
+}
+
+/* How wide this row would be if nothing wrapped — used to size the column when wrapping is off. */
+function naturalWidth(content, o, measure) {
+  const c = content || { kind: 'text', text: '' };
+  const glossSize = o.fontSize * 0.78;
+  let w = 0;
+  if (c.kind === 'interlinear') {
+    const gap = Math.max(8, o.fontSize * 0.6);
+    for (const word of c.words) w += Math.max(measure(word.txt || '', o.fontSize), measure(word.gls || '', glossSize)) + gap;
+  } else {
+    w = measure(c.text || '', o.fontSize);
+  }
+  return Math.max(w, c.free ? measure(c.free, glossSize) : 0);
 }
 
 /* One row's drawable content, measured. Returns { items[], height } where each item is a piece
@@ -588,8 +621,8 @@ export function buildSsaSvg(data, opts = {}) {
 
   const draw = (n) => {
     if (n.kind === 'leaf') {
-      // the leaf's own line runs from its depth column to the label column
-      line(xOf(n.depth), L.rows[n.row].midY, L.labelX - 6, L.rows[n.row].midY, n.head ? 2.4 : 1.2, false);
+      // ...to just short of the text, so the branch and the words it names are visually one thing.
+      line(xOf(n.depth), L.rows[n.row].midY, L.textX - 8, L.rows[n.row].midY, n.head ? 2.4 : 1.2, false);
       return;
     }
     const x = xOf(n.depth), xc = xOf(n.depth + 1);
@@ -635,11 +668,12 @@ export function buildSsaSvg(data, opts = {}) {
     const items = r.blocks.items;
     const top = r.y + Math.max(0, (r.height - r.blocks.height) / 2);
     const firstY = top + o.fontSize * 0.9;
+    // Right-aligned to the end of the leaf's line, above it — so the role names the row it touches.
     if (r.label && showRoles) {
-      const lab = fitToLength(r.label, o.labelWidth, 12, measure);
-      parts.push(`<text x="${L.labelX}" y="${firstY}" font-size="12" font-weight="${r.head ? 700 : 600}" fill="${r.head ? '#2a6e2a' : '#163a6b'}">${esc(lab)}</text>`);
+      const lab = fitToLength(r.label, Math.max(60, L.textX - L.opts.pad - 8), 12, measure);
+      parts.push(`<text x="${L.textX - 10}" y="${r.midY - 5}" text-anchor="end" font-size="12" font-weight="${r.head ? 700 : 600}" fill="${r.head ? '#2a6e2a' : '#163a6b'}">${esc(lab)}</text>`);
     }
-    if (r.speaker) parts.push(`<text x="${L.labelX}" y="${firstY + 13}" font-size="10" fill="#6b21a8">${esc(r.speaker)}</text>`);
+    if (r.speaker) parts.push(`<text x="${L.textX - 10}" y="${r.midY + 13}" text-anchor="end" font-size="10" fill="#6b21a8">${esc(r.speaker)}</text>`);
     const nLines = items.filter((it) => it.type === 'line').length;
     let seen = 0;
     for (const it of items) {

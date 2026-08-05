@@ -1537,7 +1537,14 @@ async function renderInstanceCard(it, deviceCount) {
    * banner, but the top banner says "this PANEL is retiring" while this says "THIS DEVICE is still
    * on the old apps", which is the thing the researcher actually has to act on, one device at a
    * time. */
-  const isLegacyDevice = estateOfRecord(it) === 'pages';
+  /* ⚠ EXPLICIT 'pages' ONLY — deliberately NOT estateOfRecord(), which defaults a MISSING estate to
+   * 'pages'. That default is right for building LINKS (never invent a migration for a record whose
+   * estate we do not know) and wrong for a WARNING, where it converts "unknown" into an accusation:
+   * every row rendered from a cached dashboard, or served by a worker predating the column, was
+   * flagged "old address" — including devices that are not (Seth, 2026-08-05).
+   *
+   * Absence of evidence is not evidence. No estate ⇒ no badge. */
+  const isLegacyDevice = it.estate === 'pages';
   const legacyBadge = isLegacyDevice
     ? ` <span class="rp-badge rp-badge-legacy">${esc(t('panel.inst.legacyBadge'))}</span>` : '';
   return `<div class="rp-card rp-inst${collapsed ? ' rp-inst-collapsed' : ''}">

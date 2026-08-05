@@ -120,11 +120,46 @@ export function isCardCollapsed(stored, instanceId, deviceCount) {
   return (v === undefined || v === null) ? deviceCount > 1 : !!v;
 }
 
-// Absolute paths (NOT derived from location.pathname): invite links must point at the editor /
-// recorder even though this code usually runs inside the researcher app at /flextext-researcher/.
-const EDITOR_BASE = location.origin + '/flextext-editor/';
-const RECORDER_BASE = location.origin + '/text-recorder/';
-const CROWD_BASE = location.origin + '/crowd-recorder/';
+/* ⚠ TWO ESTATES RUN IN PARALLEL (Seth, 2026-08-05): the Cloudflare apps are production for NEW
+ * installs, while existing GitHub Pages installs keep working and keep syncing. So an invite link
+ * cannot be built from `location.origin` + a Pages sub-path any more.
+ *
+ * On a Cloudflare-hosted panel that would produce https://research.flextext.app/flextext-editor/ —
+ * a path that EXISTS (build.sh copies the engine there as asset storage) but is NOT the editor
+ * app. Opening it would install a third, bogus PWA at that scope, on the wrong origin, with its
+ * own empty database. Hence an explicit map rather than string concatenation.
+ *
+ * Both estates stay addressable: a researcher adding a SECOND device for someone already on Pages
+ * needs the legacy link, or that person ends up with two installs and half their work in each. */
+const ESTATES = {
+  cloud: {
+    editor: 'https://app.flextext.app/',
+    recorder: 'https://record.flextext.app/',
+    crowd: 'https://crowd.flextext.app/',
+    researcher: 'https://research.flextext.app/',
+  },
+  pages: {
+    editor: 'https://rulingants.github.io/flextext-editor/',
+    recorder: 'https://rulingants.github.io/text-recorder/',
+    crowd: 'https://rulingants.github.io/crowd-recorder/',
+    researcher: 'https://rulingants.github.io/flextext-researcher/',
+  },
+};
+
+// Which estate is THIS panel part of? On localhost the dev rig serves both apps under the Pages
+// sub-paths, so it keeps using same-origin links and never points a developer at production.
+export function estateOf(origin = location.origin) {
+  if (/^https?:\/\/localhost(:\d+)?$/.test(origin)) {
+    return { editor: origin + '/flextext-editor/', recorder: origin + '/text-recorder/',
+             crowd: origin + '/crowd-recorder/', researcher: origin + '/flextext-researcher/', local: true };
+  }
+  return /\.flextext\.app$/.test(new URL(origin).hostname) ? ESTATES.cloud : ESTATES.pages;
+}
+
+const HOME = estateOf();
+const EDITOR_BASE = HOME.editor;
+const RECORDER_BASE = HOME.recorder;
+const CROWD_BASE = HOME.crowd;
 // Approx capture bytes/sec per format (mono 48 kHz worst-case) — MIRRORS the
 // worker's CROWD_BPS: the submit cap is estimate×1.5+overhead, platform-clamped
 // at ~95 MB (a public submission is one POST). The live estimate below keeps the
@@ -639,11 +674,11 @@ async function fetchLiveVersion(path) {
   } catch { return null; }
 }
 async function refreshLiveVersions() {
-  const o = location.origin;
+  // The panel reports on ITS OWN estate — mixing the two would show a version nobody is running.
   const [editor, recorder, researcher] = await Promise.all([
-    fetchLiveVersion(o + '/flextext-editor/sw.js'),
-    fetchLiveVersion(o + '/text-recorder/sw.js'),
-    fetchLiveVersion(o + '/flextext-researcher/sw.js'),
+    fetchLiveVersion(HOME.editor + 'sw.js'),
+    fetchLiveVersion(HOME.recorder + 'sw.js'),
+    fetchLiveVersion(HOME.researcher + 'sw.js'),
   ]);
   liveVersions = (editor == null && recorder == null && researcher == null) ? null : { editor, recorder, researcher };
   paintLiveVersions();

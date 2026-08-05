@@ -19,8 +19,8 @@
  * they are. Editing ENGINE is also what makes these bytes change, which is what makes the
  * browser fetch and install this worker at all. */
 
-const VERSION = 'v159';
-const ENGINE = 'v223';   // editor ENGINE_VERSION this was built against — must match; see version-sync test
+const VERSION = 'v160';
+const ENGINE = 'v224';   // editor ENGINE_VERSION this was built against — must match; see version-sync test
 const CACHE = 'flextext-researcher-' + VERSION;
 const SHELL = [
   './',
@@ -124,7 +124,7 @@ self.addEventListener('fetch', (e) => {
       /* Help pages are real pages, not app routes — see docs/sw.js for the full note. The shell
        * fallback below never touches the network, so without this test every navigation to
        * help/*.html returned the APP SHELL with a 200. */
-      if (e.request.mode === 'navigate' && !/\/help\/[^/]+\.html$/.test(url.pathname)) {
+      if (e.request.mode === 'navigate' && !/\/help\//.test(url.pathname)) {
         return c.match('index.html').then(shell => shell || fetch(e.request));
       }
       return fetch(e.request).then(resp => {

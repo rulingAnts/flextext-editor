@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS instance (
   instance_id   TEXT PRIMARY KEY,             -- GUID
   researcher_id TEXT NOT NULL,
   type          TEXT NOT NULL CHECK (type IN ('editor','recorder','')),  -- '' = unified device (runs either/both apps); see migrate-instance-type-unified.sql
+  estate        TEXT NOT NULL DEFAULT 'pages',  -- which app URLs this instance's links use: 'pages' (legacy github.io) | 'cloud' (*.flextext.app). NEW rows are stamped 'cloud' by the worker; the DEFAULT exists so pre-migration rows are correct. See migrate-estate.sql.
   nickname      TEXT NOT NULL,                -- required device label, e.g. "Barnabas' Android Phone"
   desired_blob  TEXT,                         -- {settings:{}, commands:[{seq,...}]} opaque
   desired_rev   INTEGER NOT NULL DEFAULT 0,   -- bumped on every command/settings push
@@ -93,6 +94,7 @@ CREATE TABLE IF NOT EXISTS invite (
 CREATE TABLE IF NOT EXISTS crowd_recorder (
   crowd_id        TEXT PRIMARY KEY,
   researcher_id   TEXT NOT NULL,
+  estate          TEXT NOT NULL DEFAULT 'pages',  -- 'pages' | 'cloud' — which public URL this recorder's link uses, for its whole life. See migrate-estate.sql.
   label           TEXT NOT NULL DEFAULT '',
   enabled         INTEGER NOT NULL DEFAULT 1,
   config_json     TEXT NOT NULL DEFAULT '{}',  -- plaintext by design: the keyless public page must read it

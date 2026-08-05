@@ -157,9 +157,26 @@ export function estateOf(origin = location.origin) {
 }
 
 const HOME = estateOf();
-const EDITOR_BASE = HOME.editor;
-const RECORDER_BASE = HOME.recorder;
-const CROWD_BASE = HOME.crowd;
+
+/* ⚠ EVERY LINK COMES FROM THE RECORD'S ESTATE, never from where the panel happens to be running
+ * (Seth, 2026-08-05: a legacy crowd recorder shown from the Cloudflare panel produced
+ * https://research.flextext.app/crowd-recorder/?c=… — a 404, because the satellites are not copied
+ * to that origin. The editor invite was worse: it returned 200 and a working editor, being the
+ * engine asset copy, so claiming it would have installed a THIRD PWA on the wrong origin with its
+ * own empty database and looked entirely fine).
+ *
+ * `estate` is stamped on the row by the worker — 'pages' for everything that existed before the
+ * migration, 'cloud' for everything created since. So an old coworker keeps their old links for
+ * good, and a new one gets Cloudflare, with nothing asked of the researcher.
+ *
+ * On localhost the dev rig wins regardless: a developer must never be handed production links. */
+function basesFor(estate) {
+  if (HOME.local) return HOME;
+  return estate === 'pages' ? ESTATES.pages : ESTATES.cloud;
+}
+// A record with no estate at all is pre-migration data seen by a newer client: treat it as legacy,
+// which is what it is. Never default an UNKNOWN record to 'cloud' — that invents a migration.
+const estateOfRecord = (rec) => (rec && rec.estate) || 'pages';
 // Approx capture bytes/sec per format (mono 48 kHz worst-case) — MIRRORS the
 // worker's CROWD_BPS: the submit cap is estimate×1.5+overhead, platform-clamped
 // at ~95 MB (a public submission is one POST). The live estimate below keeps the
@@ -1549,7 +1566,16 @@ async function inviteModal(instanceId) {
     // editor + recorder share one identity, so opening either binds the SAME device — one claim, one
     // consent, one approval, even if both links are sent.
     const invite = await Researcher.mintInvite(instanceId);
-    const urls = { editor: Researcher.inviteUrl(EDITOR_BASE, invite), recorder: Researcher.inviteUrl(RECORDER_BASE, invite) };
+    /* THIS instance's estate, from the MINT RESPONSE — server truth. The cached dashboard is not
+     * good enough: a brand-new device is not in it yet, the lookup missed, and estateOfRecord(undefined)
+     * fell back to 'pages' — which sent every new coworker to the legacy apps even though the row
+     * said 'cloud' (Seth, 2026-08-05; confirmed against D1). The cache is only a fallback now, and
+     * an unknown instance is an ERROR rather than a guess: guessing legacy is exactly the bug. */
+    const cached = ((lastData && lastData.instances) || []).find((x) => x.instance_id === instanceId);
+    const estate = invite.estate || (cached && cached.estate);
+    if (!estate) throw new Error('Could not determine which app this device should install — reload the panel and try again.');
+    const B = basesFor(estate);
+    const urls = { editor: Researcher.inviteUrl(B.editor, invite), recorder: Researcher.inviteUrl(B.recorder, invite) };
     const exp = invite.expires_at ? new Date(invite.expires_at).toLocaleString() : '';
     const row = (label, key) => `
       <div class="rp-field"><span>${esc(label)}</span>
@@ -1896,11 +1922,15 @@ function crowdEditModal(rec) {
 // Share & Embed — patterned on inviteModal (readonly boxes + Copy). Three integration tiers, most
 // robust first; the notes are the field-tested embedding pitfalls (allow="microphone", CMS stripping).
 function crowdShareModal(rec) {
-  const link = CROWD_BASE + '?c=' + encodeURIComponent(rec.crowd_id);
+  /* THIS recorder's estate. Its public link may already be embedded on somebody's website, so it
+   * must keep the address it was created with for the rest of its life — showing a second URL for
+   * one recorder is how a researcher ends up handing out two. */
+  const CB = basesFor(estateOfRecord(rec)).crowd;
+  const link = CB + '?c=' + encodeURIComponent(rec.crowd_id);
   const snips = {
     link,
     iframe: `<iframe src="${link}&embed=1" allow="microphone; autoplay" style="width:100%;max-width:480px;height:640px;border:0;border-radius:12px" title="Voice recorder" loading="lazy"></iframe>`,
-    script: `<script async src="${CROWD_BASE}embed.js" data-recorder="${rec.crowd_id}"><\/script>`,
+    script: `<script async src="${CB}embed.js" data-recorder="${rec.crowd_id}"><\/script>`,
   };
   const block = (key, titleKey, noteKey, rows, share) => `
     <div class="rp-field"><span>${esc(t(titleKey))}</span>

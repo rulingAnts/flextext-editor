@@ -172,9 +172,17 @@ const HOME = estateOf();
 /* Always the CLOUD copy: this link has to outlive the estate it describes, and a link to
  * rulingants.github.io/…/help/migrate.html dies the moment Pages is retired — which is precisely
  * when someone is most likely to be reading it. */
-const MIGRATE_DOC = ESTATES.cloud.editor + 'help/migrate.html';
+const MIGRATE_DOC = ESTATES.cloud.researcher + 'help/migrate.html';
 const LEGACY_PANEL_HOST = 'rulingants.github.io';
-const onLegacyHost = () => location.hostname === LEGACY_PANEL_HOST;
+const LEGACY_PANEL_PATH = '/flextext-researcher/';
+/* ⚠ HOST **AND** PATH. Gating on the host alone also caught the EDITOR opened with
+ * ?mode=researcher — putting a site-wide deprecation warning in front of end users on the app they
+ * work in, which is the opposite of the intent (Seth, 2026-08-05: "That warning is meant for
+ * researchers, NOT end users. The site-wide warning banner should appear only on
+ * https://rulingants.github.io/flextext-researcher/"). The researcher APP is the surface being
+ * retired; the panel merely being open is not. */
+const onLegacyHost = () =>
+  location.hostname === LEGACY_PANEL_HOST && location.pathname.startsWith(LEGACY_PANEL_PATH);
 // Page-load scoped on purpose: no storage, so it returns next launch. A deprecation notice that can
 // be dismissed forever stops being a deprecation notice; one that cannot be dismissed at all is a
 // permanent tax on every screen of the panel.

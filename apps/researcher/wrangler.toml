@@ -18,18 +18,18 @@
 name = "flextext-researcher"
 main = "shell.js"
 compatibility_date = "2026-06-01"
-# ⚠ BOTH KEYS, and preview_urls is NOT optional here. `preview_urls` DEFAULTS TO THE VALUE OF
-# `workers_dev`, so setting workers_dev=false alone would also switch off the staging-*.workers.dev
-# preview aliases — the dev surface, silently, as a side effect of tidying the production one.
+# ⚠ workers_dev STAYS TRUE — deliberate (Seth, 2026-08-05). Each app therefore answers at BOTH its
+# custom domain and <name>.68mh29kgsd.workers.dev, and both are listed in the connectivity worker's
+# ALLOWED_ORIGINS so sign-in works at either. Turning it off was considered and rejected: the
+# workers.dev host is a useful direct-to-Worker address that bypasses custom-domain DNS when
+# diagnosing.
 #
-# workers_dev=false removes ONLY the <name>.<account>.workers.dev production URL. Custom domains are
-# a separate routing mechanism and are unaffected, so the *.flextext.app sites keep serving.
-#
-# Why turn it off at all (Seth, 2026-08-05): the workers.dev host is a second, unadvertised address
-# for the same app that nobody should be using, and it is NOT in the connectivity worker's
-# ALLOWED_ORIGINS — so signing in there dropped the return origin and bounced the researcher to the
-# legacy GitHub Pages panel. One app, one address.
-workers_dev = false
+# ⚠ IF YOU EVER SET workers_dev = false, YOU MUST ALSO SET preview_urls = true EXPLICITLY.
+# `preview_urls` DEFAULTS TO THE VALUE OF `workers_dev`, so flipping one silently switches off the
+# staging-*.workers.dev preview aliases — the dev surface, as a side effect of tidying production.
+# (workers_dev=false would remove only the workers.dev URL; custom domains are separate routing and
+# are unaffected either way.)
+workers_dev = true
 preview_urls = true
 
 [build]

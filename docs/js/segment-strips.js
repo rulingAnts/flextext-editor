@@ -25,6 +25,13 @@ import { peakPlan } from './seg-exports.js';
 
 let deps = null;      // { container, textarea, getPlayer, getDoc, getParagraphs, setParagraphs, persist, t }
 let peaksCache = { docId: null, peaks: null, durationMs: 0 };
+/* ⚠ A WAVE DRAWN BEFORE THE PEAKS EXISTED MUST REDRAW WHEN THEY ARRIVE (Seth, 2026-08-05: "the
+ * first time a text with audio segmentation loads, we get no waveform until we close and re-open
+ * the text"). The ResizeObserver and fixStaleWave below only compare WIDTHS — so a canvas drawn at
+ * exactly the right width, but with peaks still null, matches on width forever and is never
+ * redrawn. This counter closes that hole: every canvas records which generation of peaks it was
+ * drawn with, and the ticker redraws anything drawn with an older one. */
+let peaksGen = 0;
 let rafId = 0;
 
 export function initStrips(d) { deps = d; }
@@ -69,6 +76,7 @@ export async function ensurePeaks(docId, blob, playerBuf) {
     }
     peaksCache = { docId, peaks, durationMs: Math.round(buf.duration * 1000),
                    msPerBucket: (per / buf.sampleRate) * 1000, fromPlayer: !!playerBuf };
+    peaksGen++;      // whatever was drawn without these is now stale, whatever its width
     try { ctx && ctx.close(); } catch { /* noop */ }
   } catch (e) {
     // Undecodable (or no Web Audio) → strips render without waveforms. WARN rather than vanish:
@@ -113,7 +121,8 @@ function observeWave(canvas, redraw) {
 function fixStaleWave(canvas) {
   if (!canvas || !canvas.__redrawWave) return;
   const want = Math.round(canvas.clientWidth * (window.devicePixelRatio || 1));
-  if (want > 0 && canvas.width !== want) canvas.__redrawWave();
+  // Stale by WIDTH (raced layout) or by PEAKS (drawn before the audio finished decoding).
+  if (want > 0 && (canvas.width !== want || canvas.__peaksGen !== peaksGen)) canvas.__redrawWave();
 }
 
 /* ---------------- segment state on the doc ---------------- */
@@ -290,6 +299,7 @@ function setBoundaryAt(i) {
 
 function drawStrip(canvas, seg, durationMs) {
   observeWave(canvas, () => drawStrip(canvas, seg, durationMs));
+  canvas.__peaksGen = peaksGen;      // what this drawing was based on
   const dpr = window.devicePixelRatio || 1;
   const w = canvas.clientWidth || 300;
   // Scale BOTH axes by devicePixelRatio. The vertical buffer used to stay at CSS pixels, which

@@ -15,7 +15,8 @@ import * as db from './db.js';
 import { parseFlextext, segmentsFromOffsets, esc } from './flextext.js';
 import { buildFxpa, peakPlan } from './seg-exports.js';
 import { readEaf, describeTiers, detectMapping, detectStacks, looksMultiSpeaker, eafToLines } from './eaf-read.js';
-import { parseSfm, markerInventory, detectMapping as detectSfmMapping, sfmToTexts } from './sfm.js';
+import { parseSfm, markerInventory, detectMapping as detectSfmMapping, sfmToTexts,
+         normalizePastedSfm, looksLikeSfm, alignmentRisk, titleFromSfm } from './sfm.js';
 import { buildParagraphPreviewHtml, buildSsaSvg, buildSsaDiagramHtml } from './paragraph-export.js';
 import { parseDelimited, looksLikeHeader, columnsOf, detectMapping as detectCsvMapping, csvToLines, templateCsv } from './csv.js';
 import {
@@ -36,6 +37,7 @@ let pendingEaf = null;            // an .eaf awaiting its tier mapping (see rend
 let pendingSfm = null;            // a Toolbox/SFM file awaiting its marker mapping
 let pendingCsv = null;            // a CSV/TSV file awaiting its column mapping
 let focusLineId = null;           // after a re-render, put the cursor back where the user was
+let pendingPaste = '';           // a paste being edited, so a warning does not lose the user's text
 let focusPropId = null;           // ...and into the proposition just added ('new' = the last one)
 let followRow = null;             // the line the playhead is in, so we only auto-scroll on a change
 let selection = new Set();        // selected unit ids (lines or groups)
@@ -74,14 +76,19 @@ function renderOpen(errors) {
         <p><b>${esc(t('para.dropHere'))}</b></p>
         <p class="tab-hint">${esc(t('para.dropKinds'))}</p>
         <button class="primary-btn" id="pa-pick">${esc(t('para.chooseFiles'))}</button>
-        <!-- NO accept filter, deliberately (Seth, 2026-08-05: "it could be any number of file
-             extensions. .db and .txt are among them"). Toolbox files come as .txt, .db, .sfm,
-             .tbt and whatever a project chose, so a filter would HIDE the user's own data in the
-             picker. The format is detected from the file's CONTENT instead. -->
-        <input type="file" id="pa-file" multiple hidden>
+        <!-- RESTRICTIVE AGAIN, and it can be (Seth, 2026-08-05): the picker only had to accept
+             anything because Toolbox files arrive as .txt/.db/.sfm/.tbt. SFM now comes in by
+             PASTE, so the picker can name exactly the formats it really opens — which is also
+             what stops someone dropping a Word document onto a .flextext importer. -->
+        <input type="file" id="pa-file" multiple hidden
+               accept=".flextext,.eaf,.fxpa,.csv,.tsv,.txt,audio/*">
       </div>
       ${errors && errors.length ? `<div class="banner warn-banner"><span>${esc(errors.join(' '))}</span></div>` : ''}
       <p class="note">${esc(t('para.textOnlyNote'))}</p>
+      <div class="pa-scratch">
+        <p class="tab-hint">${esc(t('para.sfmPasteIntro'))}</p>
+        <button class="secondary-btn" id="pa-paste">${esc(t('para.sfmPasteBtn'))}</button>
+      </div>
       <div class="pa-scratch">
         <p class="tab-hint">${esc(t('para.scratchIntro'))}</p>
         <button class="secondary-btn" id="pa-new">${esc(t('para.scratchBtn'))}</button>
@@ -90,6 +97,7 @@ function renderOpen(errors) {
   const drop = $('#pa-drop');
   const input = $('#pa-file');
   $('#pa-pick').addEventListener('click', () => input.click());
+  $('#pa-paste').addEventListener('click', () => renderSfmPaste());
   $('#pa-new').addEventListener('click', () => {
     // Ask for the name up front (Seth, 2026-08-05): it is what every save and export will be named
     // after, and naming it now beats discovering "New Diagram.fxpa" in Downloads later. Cancelling
@@ -154,25 +162,16 @@ async function handleFiles(files) {
         }
       }
     }
-    // Toolbox / SFM. Detected by CONTENT (a backslash-marker line), not extension: these files
-    // come as .txt, .sfm, .db, .tbt and anything else a project chose. Checked AFTER the XML/JSON
-    // formats so it can never shadow them.
-    const maybeSfm = files.find((f) => !/\.(fxpa|eaf|flextext)$/i.test(f.name) && !/^audio\//.test(f.type));
-    if (maybeSfm) {
-      const txt = await maybeSfm.text().catch(() => '');
-      if (/^\\\S+/m.test(txt)) {
-        const fields = parseSfm(txt);
-        const mapping = rememberedSfmMapping(detectSfmMapping(fields), fields);
-        const { texts } = sfmToTexts(fields, mapping);
-        if (!texts.length) return renderOpen([t('para.errSfmNoTexts')]);
-        pendingSfm = {
-          fields, mapping, texts, textIndex: 0,
-          inv: markerInventory(fields),
-          audioFile: audioOf(files) || null,
-          name: maybeSfm.name.replace(/\.[^.]+$/, ''),
-        };
-        return renderSfmMapping();
-      }
+    /* ⚠ SFM IS NOT IMPORTED FROM A FILE ANY MORE (Seth's executive decision, 2026-08-05) — it is
+     * PASTED. But someone will still drag their Toolbox file here out of habit, so recognise it
+     * and TEACH rather than fail with a generic "unusable file": the no-silently-disabled-controls
+     * rule applied to an import. Deliberately NOT pre-filled from the dropped file — choosing the
+     * one story out of the corpus is the user's step, and doing it for them would reinstate the
+     * very problem pasting removes. */
+    const droppedSfm = files.find((f) => !/\.(fxpa|eaf|flextext)$/i.test(f.name) && !/^audio\//.test(f.type));
+    if (droppedSfm) {
+      const txt = await droppedSfm.text().catch(() => '');
+      if (looksLikeSfm(txt)) return renderSfmPaste(null, { droppedName: droppedSfm.name });
     }
     const ft = files.find((f) => /\.flextext$/i.test(f.name));
     if (!ft) return renderOpen([t('para.errNoUsableFile')]);
@@ -423,6 +422,77 @@ function currentSfmMapping() {
   return m;
 }
 
+/* ---------------- SFM by paste ----------------
+ *
+ * Seth, 2026-08-05: "provide a text box to paste the SFM code for a single text from whatever
+ * source document it's in... I want our SFM import to work that way from here on out."
+ *
+ * Two problems disappear with the file: coworkers keep SFM inside RTF/DOC/DOCX where there is no
+ * .sfm to give us, and picking one story out of a corpus becomes the user's own selection — which
+ * anyone who has used Toolbox can do. What paste costs is whitespace fidelity, so this screen
+ * checks for the damage that matters (see alignmentRisk) instead of trusting the clipboard.
+ */
+function renderSfmPaste(errors, opts = {}) {
+  stopAudio();
+  const prior = pendingPaste || '';
+  root.innerHTML = `
+    <div class="pa-open pa-wizard">
+      <h1>${esc(t('para.sfmPasteTitle'))}</h1>
+      ${opts.droppedName ? `<div class="banner warn-banner"><span>${esc(t('para.sfmDropped', { file: opts.droppedName }))}</span></div>` : ''}
+      <p class="tab-hint">${esc(t('para.sfmPasteHelp'))}</p>
+      ${errors && errors.length ? `<div class="banner warn-banner"><span>${esc(errors.join(' '))}</span></div>` : ''}
+      <textarea id="pa-paste-box" class="pa-pastebox" spellcheck="false"
+                placeholder="${esc(t('para.sfmPastePh'))}">${esc(prior)}</textarea>
+      <details class="pa-help">
+        <summary>${esc(t('para.sfmPasteHowTitle'))}</summary>
+        <div class="pa-helpbody">
+          <ol>
+            <li>${esc(t('para.sfmPasteHow1'))}</li>
+            <li>${esc(t('para.sfmPasteHow2'))}</li>
+            <li>${esc(t('para.sfmPasteHow3'))}</li>
+          </ol>
+          <p class="note">${esc(t('para.sfmPasteHowNote'))}</p>
+        </div>
+      </details>
+      <div class="pa-modal-actions">
+        <button class="secondary-btn" id="pa-paste-cancel">${esc(t('para.cancel'))}</button>
+        <button class="primary-btn" id="pa-paste-go">${esc(t('para.sfmPasteGo'))}</button>
+      </div>
+    </div>`;
+  const box = $('#pa-paste-box');
+  box.addEventListener('input', () => { pendingPaste = box.value; });
+  $('#pa-paste-cancel').addEventListener('click', () => { pendingPaste = ''; renderOpen(); });
+  $('#pa-paste-go').addEventListener('click', () => readPastedSfm(box.value));
+  box.focus();
+}
+
+function readPastedSfm(raw) {
+  const text = normalizePastedSfm(raw);
+  if (!text.trim()) return renderSfmPaste([t('para.sfmPasteEmpty')]);
+  if (!looksLikeSfm(text)) return renderSfmPaste([t('para.sfmPasteNotSfm')]);
+
+  const fields = parseSfm(text);
+  const mapping = rememberedSfmMapping(detectSfmMapping(fields), fields);
+  const { texts } = sfmToTexts(fields, mapping);
+  if (!texts.length) return renderSfmPaste([t('para.errSfmNoTexts')]);
+  /* ⚠ SEVERAL TEXTS PASTED → SAY SO AND STOP (Seth agreed, 2026-08-05). Not a picker, and above
+   * all not a silent "we took the first one": the whole point of pasting is that the user chooses
+   * the story, so the honest response is to tell them what we found and let them narrow it. */
+  if (texts.length > 1) {
+    pendingPaste = raw;
+    return renderSfmPaste([t('para.sfmPasteManyTexts', { n: texts.length })]);
+  }
+  pendingSfm = {
+    fields, mapping, texts, textIndex: 0,
+    inv: markerInventory(fields),
+    audioFile: null,                       // pasted text brings no audio with it
+    name: titleFromSfm(fields, mapping) || t('para.sfmPastedName'),
+    risk: alignmentRisk(fields, mapping),  // shown in the wizard; never blocks
+  };
+  pendingPaste = '';
+  renderSfmMapping();
+}
+
 function renderSfmMapping(errors) {
   stopAudio();
   const P = pendingSfm;
@@ -433,14 +503,16 @@ function renderSfmMapping(errors) {
       `<option value="${esc(e.marker)}"${e.marker === cur ? ' selected' : ''}>${esc(label(e))}</option>`).join('');
     return `<select id="pa-sfm-${role}">${allowNone ? `<option value=""${cur ? '' : ' selected'}>${esc(t('para.mapNone'))}</option>` : ''}${opts}</select>`;
   };
-  const many = P.texts.length > 1;
+  const many = false;      // a PASTE is one text by contract — several are refused before we get here
   root.innerHTML = `
     <div class="pa-open pa-wizard">
       <h1>${esc(t('para.sfmTitle'))}</h1>
-      <p class="tab-hint">${esc(t('para.sfmIntro', { file: P.name }))}</p>
+      <p class="tab-hint">${esc(t('para.sfmPastedIntro', { title: P.name }))}</p>
       ${errors && errors.length ? `<div class="banner warn-banner"><span>${esc(errors.join(' '))}</span></div>` : ''}
       <div class="banner warn-banner"><span>${esc(t('para.sfmNew'))}
         <button class="link-btn" id="pa-sfm-report2">${esc(t('para.reportBtn'))}</button></span></div>
+      ${P.risk ? `<div class="banner warn-banner"><span>${esc(t(P.risk.reason === 'single-spaced' ? 'para.sfmRiskFlat' : 'para.sfmRiskLopsided'))}
+        ${P.risk.sample ? `<code class="pa-risksample">${esc(String(P.risk.sample[0]).slice(0, 60))}</code>` : ''}</span></div>` : ''}
       ${many ? `<div class="banner"><span>${esc(t('para.sfmManyTexts', { n: P.texts.length }))}</span></div>
       <label class="pa-maprow"><span>${esc(t('para.sfmWhichText'))}</span>
         <select id="pa-sfm-text">${P.texts.map((tx, i) =>
@@ -475,7 +547,7 @@ function renderSfmMapping(errors) {
   };
   for (const r of SFM_ROLES) $('#pa-sfm-' + r).addEventListener('change', reparse);
   if (many) $('#pa-sfm-text').addEventListener('change', (e) => { P.textIndex = +e.target.value; drawSfmPreview(); });
-  $('#pa-sfm-cancel').addEventListener('click', () => { pendingSfm = null; renderOpen(); });
+  $('#pa-sfm-cancel').addEventListener('click', () => { pendingSfm = null; renderOpen(); });   // paste is cleared on success
   $('#pa-sfm-go').addEventListener('click', sfmConfirm);
   $('#pa-sfm-report').addEventListener('click', reportSfmProblem);
   $('#pa-sfm-report2').addEventListener('click', reportSfmProblem);

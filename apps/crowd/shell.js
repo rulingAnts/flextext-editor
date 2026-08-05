@@ -35,11 +35,20 @@ export default {
     // ghost. Serving it as a real script is what lets Firefox drop it too.
     if (url.pathname === '/sw.js') return new Response(KILL, { headers: HEADERS });
 
-    /* The editor ghost was registered from `/`, but the old build also exposed the engine under
-     * /flextext-editor/. Send those back to the app rather than serving a second copy of the
-     * editor from this origin — one origin, one app. */
+    /* The editor ghost was registered from `/`, but the old build also exposed a whole EDITOR under
+     * /flextext-editor/. Send a browser that NAVIGATES there back to the app — one origin, one app.
+     *
+     * ⚠ NAVIGATIONS ONLY, and this is not a nicety. The crowd shell loads the engine cross-path
+     * (`/flextext-editor/css/app.css`, `/flextext-editor/js/app.js`) and build.sh copies docs/ to
+     * exactly that prefix, so those files DO exist here. Redirecting the whole prefix answered every
+     * stylesheet and module request with the HTML page, and the site rendered as two unstyled
+     * elements (Seth, 2026-08-05). Sec-Fetch-Dest separates "the user typed this URL" from "the page
+     * is fetching its own engine"; when it is absent, only bare/HTML-ish paths are treated as
+     * navigations, so an asset is never swallowed. */
     if (url.pathname === '/flextext-editor' || url.pathname.startsWith('/flextext-editor/')) {
-      return Response.redirect(url.origin + '/', 302);
+      const dest = request.headers.get('sec-fetch-dest');
+      const navigating = dest ? dest === 'document' : !/\.[a-z0-9]+$/i.test(url.pathname);
+      if (navigating) return Response.redirect(url.origin + '/', 302);
     }
 
     return env.ASSETS.fetch(request);

@@ -90,22 +90,10 @@ export function validateFxpa(obj) {
       if (seenChild.has(c)) errors.push(`Unit ${c} has two parents.`);
       seenChild.add(c);
     }
-    /* ⚠ A GROUP MAY NOT MIX LEVELS. Propositions live beneath their own line, so every child must
-     * belong to the SAME line — or none of them may belong to a line at all. A child that is
-     * itself a group is resolved to whatever IT holds, so a group of propositions grouped again
-     * with a sibling proposition is legitimate; only genuinely mixed levels are rejected.
-     * The `seen` set makes a malformed file with a cycle terminate rather than hang. */
-    const ownerOf = (id, seen = new Set()) => {
-      if (isPropId(id)) return lineOfPropId(id);
-      if (!isGroupId(id) || seen.has(id)) return null;
-      seen.add(id);
-      const kid = data.tree.find((x) => x.id === id);
-      return kid && kid.children.length ? ownerOf(kid.children[0], seen) : null;
-    };
-    const owners = new Set((g.children || []).map((c) => ownerOf(c)));
-    if (owners.size > 1) {
-      errors.push(`Group ${g.id}: mixes propositions with other units, or propositions from different lines.`);
-    }
+    /* No same-line rule any more (Seth, 2026-08-05): propositions and lines share ONE surface, so a
+     * group may hold a proposition beside a proposition from the next line, or beside a whole
+     * line. What still cannot happen is a crossing bracket — and that is guaranteed by adjacency
+     * plus single-parent, which are checked above and in groupUnits, not here. */
     if (g.joinType !== 'sym' && g.joinType !== 'asym') errors.push(`Group ${g.id}: joinType must be sym|asym.`);
     if (g.joinType === 'asym' && !(g.children || []).includes(g.head)) errors.push(`Group ${g.id}: asym needs a head from its children.`);
     if (g.joinType === 'sym' && g.head) errors.push(`Group ${g.id}: sym groups have no head.`);
@@ -359,13 +347,26 @@ export function withBlanksBetween(data, ids, hideBlank) {
   return out;
 }
 
-/* The DOCUMENT-level surface. A group that lives inside a line (its leaves are that line's
- * propositions) is deliberately excluded — it is not a unit of the document, it is a unit of the
- * line, and it appears through propUnits() instead. */
+/* ⚠ ONE FLAT SURFACE (Seth, 2026-08-05, replacing the per-line surfaces of v205): "we do need to
+ * be able to group a proposition with another line (or an adjacent proposition from another
+ * line)". He is right linguistically — audio segmentation is a recording artifact and semantic
+ * structure has no obligation to respect it.
+ *
+ * So the document has ONE ordered leaf sequence: each line contributes ITSELF when it has no
+ * written propositions, or ITS PROPOSITIONS when it has them. Groups form over any adjacent run of
+ * that sequence, whatever line the members came from. Brackets still cannot cross — adjacency plus
+ * single-parent does that work, exactly as before.
+ *
+ * A line with propositions is therefore no longer a tree unit. It remains a HEADER: it owns the
+ * audio span, the waveform and the playback, which is why nothing about playback changes. */
 export function topUnits(data) {
   const units = [];
-  for (const l of data.lines) if (!parentOf(data, l.id)) units.push(l.id);
-  for (const g of data.tree) if (!parentOf(data, g.id) && !ownerLineOf(data, g.id)) units.push(g.id);
+  for (const l of data.lines) {
+    const written = (l.props || []).filter((p) => String(p.text || '').trim());
+    if (!written.length) { if (!parentOf(data, l.id)) units.push(l.id); continue; }
+    for (const pr of written) if (!parentOf(data, pr.id)) units.push(pr.id);
+  }
+  for (const g of data.tree) if (!parentOf(data, g.id)) units.push(g.id);
   return units.sort((a, b) => orderIndex(data, leavesOf(data, a)[0]) - orderIndex(data, leavesOf(data, b)[0]));
 }
 
@@ -451,19 +452,11 @@ export function groupUnits(data, ids, { joinType, head, relation = '', labels = 
     if (!nodeById(data, id)) throw new Error(`Unknown unit ${id}.`);
     if (parentOf(data, id)) throw new Error('A selected unit is already inside a group — ungroup it first.');
   }
-  /* WHICH SURFACE are these units on? The document's, or one line's propositions? Adjacency only
-   * means anything within a surface, and mixing surfaces is exactly the structure that must not
-   * exist: a group may not hold propositions from two different lines, nor a proposition beside a
-   * line. Propositions live BENEATH the raw language data (Seth, 2026-08-05) and grouping them
-   * cannot lift them out of their line. */
-  const owners = new Set(ids.map((id) => ownerLineOf(data, id)));
-  if (owners.size > 1) {
-    throw new Error('Propositions can only be grouped with other propositions of the same line.');
-  }
-  const owner = [...owners][0] || null;
-  const surface = owner ? propUnits(data, owner) : topUnits(data);
+  // One surface, so adjacency is the only question — a proposition may join a proposition from the
+  // next line, or a whole line, as long as the run is unbroken.
+  const surface = topUnits(data);
   const idx = ids.map((id) => surface.indexOf(id)).sort((a, b) => a - b);
-  if (idx[0] < 0) throw new Error('Those units are not on the same level.');
+  if (idx[0] < 0) throw new Error('Those units are not all on the surface — ungroup first.');
   for (let k = 1; k < idx.length; k++) {
     if (idx[k] !== idx[k - 1] + 1) throw new Error('Units must be adjacent to group.');
   }

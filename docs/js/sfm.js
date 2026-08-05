@@ -235,3 +235,92 @@ export function sfmToTexts(fields, mapping = {}) {
   }
   return { texts: texts.filter((t) => t.lines.length) };
 }
+
+/* ---------------- clipboard-paste support (SFM arrives PASTED, not as a file) ----------------
+ *
+ * Seth's executive decision, 2026-08-05: "don't import SFM through SFM files, provide a text box to
+ * paste the SFM code for a single text from whatever source document it's in." Coworkers keep
+ * their SFM inside RTF/DOC/DOCX, so there is often no .sfm file to hand us at all — and pasting
+ * dissolves the "pick one story out of a corpus" step, because the user selects the story.
+ *
+ * What pasting COSTS is fidelity of whitespace, and this module pairs glosses to words by COLUMN
+ * POSITION. So these helpers exist to notice when a paste cannot be trusted and say so, rather
+ * than silently mis-pairing every gloss in the text — the failure mode that quietly corrupts data
+ * and is nearly invisible afterwards. */
+
+/* Word processors mangle whitespace in ways that destroy column alignment. Normalize what is
+ * safely normalizable (line endings, NBSP, a BOM) and leave everything else alone — in particular
+ * never touch runs of spaces, which ARE the alignment. */
+export function normalizePastedSfm(text) {
+  return String(text || '')
+    .replace(/^\uFEFF/, '')            // BOM from a Windows editor
+    .replace(/\r\n?/g, '\n')           // CRLF (Windows) and CR (old Mac) → LF
+    .replace(/\u00A0/g, ' ')           // non-breaking space: Word inserts these silently
+    .replace(/[\u2028\u2029]/g, '\n');  // Unicode line/paragraph separators
+}
+
+// Does this look like SFM at all? One backslash marker at the start of a line is the whole test.
+export const looksLikeSfm = (text) => /^\\\S+/m.test(String(text || ''));
+
+/* ⚠ CAN THE GLOSS COLUMNS BE TRUSTED?
+ *
+ * Column alignment survives a copy only if the source really used spaces or tabs to line the gloss
+ * up under its word. Two things defeat it, and BOTH are common in a Word document:
+ *   - the gloss line is single-spaced, so nothing lines up with anything (there is no geometry to
+ *     read, and every gloss lands on the first word it happens to start under);
+ *   - the source was displayed in a PROPORTIONAL font, so it looked aligned on screen while the
+ *     character columns never matched.
+ * We cannot detect the font. We CAN detect the first case, and we can detect a pairing that comes
+ * out lopsided — far fewer glossed words than gloss tokens means the tokens bunched onto one word,
+ * which is exactly what a mis-aligned paste produces.
+ *
+ * Returns null when it looks fine, else { reason, sample } for the wizard to show. Never blocks:
+ * the user may know better, and the fix (editing words and glosses) is available in the app. */
+export function alignmentRisk(fields, mapping = {}) {
+  const bMark = String(mapping.baseline || '').toLowerCase();
+  const gMark = String(mapping.gloss || '').toLowerCase();
+  if (!bMark || !gMark) return null;                 // no glosses mapped: nothing to mis-pair
+
+  const pairs = [];
+  let pending = null;
+  for (const f of fields) {
+    const m = f.marker.toLowerCase();
+    if (m === bMark) pending = f.value;
+    else if (m === gMark && pending != null) { pairs.push([pending, f.value]); pending = null; }
+  }
+  if (!pairs.length) return null;
+
+  const sample = pairs.slice(0, 12);
+  const hasGeometry = sample.some(([b, g]) => /\t/.test(b) || /\t/.test(g) || /\s{2,}/.test(b) || /\s{2,}/.test(g));
+  if (!hasGeometry) {
+    return { reason: 'single-spaced', sample: sample[0] };
+  }
+
+  // Pairing sanity: how many words actually received a gloss?
+  let words = 0, glossed = 0;
+  for (const [b, g] of sample) {
+    const tabs = /\t/.test(b) || /\t/.test(g);
+    const out = alignBlock(b, g, { tabs });
+    words += out.length;
+    glossed += out.filter((w) => w.gls).length;
+  }
+  if (words >= 6 && glossed / words < 0.5) {
+    return { reason: 'lopsided', sample: sample[0], words, glossed };
+  }
+  return null;
+}
+
+/* A title for a pasted text, which has no filename to fall back on. `\id` is the Toolbox/USFM
+ * convention; a mapped title marker wins over it because the user said so explicitly. */
+export function titleFromSfm(fields, mapping = {}) {
+  const wanted = String(mapping.title || '').toLowerCase();
+  if (wanted) {
+    const hit = fields.find((f) => f.marker.toLowerCase() === wanted && String(f.value || '').trim());
+    if (hit) return String(hit.value).trim().slice(0, 120);
+  }
+  for (const m of ['id', 'h', 'title', 'name', 't']) {
+    const hit = fields.find((f) => f.marker.toLowerCase() === m && String(f.value || '').trim());
+    if (hit) return String(hit.value).trim().slice(0, 120);
+  }
+  return '';
+}

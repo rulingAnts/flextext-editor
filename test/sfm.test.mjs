@@ -6,7 +6,7 @@
  *
  * Run: node test/sfm.test.mjs
  */
-import { parseSfm, markerInventory, detectMapping, tokensWithColumns, alignBlock, parseSfmTime, sfmToTexts } from '../docs/js/sfm.js';
+import { normalizePastedSfm, looksLikeSfm, alignmentRisk, titleFromSfm, parseSfm, markerInventory, detectMapping, tokensWithColumns, alignBlock, parseSfmTime, sfmToTexts } from '../docs/js/sfm.js';
 
 let fail = 0;
 const ok = (c, m) => { console.log(`  ${c ? 'ok  ' : 'FAIL'}  ${m}`); if (!c) fail++; };
@@ -183,6 +183,47 @@ console.log('\nhostile / sloppy input degrades instead of throwing');
   eq(t[0].lines.length, 2, 'with NO reference marker, each baseline field starts its own line');
   const unmapped = sfmToTexts(parseSfm('\\ref r\n\\tx a\n\\zz junk\n'), { baseline: 'tx', ref: 'ref' }).texts;
   eq(unmapped[0].lines[0].words.map((w) => w.txt), ['a'], 'unmapped markers are ignored, not crashed on');
+}
+
+/* SFM NOW ARRIVES PASTED, NOT AS A FILE (Seth's executive decision, 2026-08-05). What pasting
+ * costs is whitespace fidelity — and this module pairs glosses to words by COLUMN POSITION — so
+ * the job of these helpers is to NOTICE a paste that cannot be trusted rather than silently
+ * mis-pairing every gloss. */
+console.log('\npasted SFM — normalization, detection, and whether the columns can be trusted');
+{
+  // Word processors mangle line endings and spaces. Normalize those, and NOTHING else: runs of
+  // spaces ARE the alignment, so touching them would destroy the very thing we read.
+  eq(normalizePastedSfm('\\tx a\r\n\\gl b\r\n'), '\\tx a\n\\gl b\n', 'CRLF becomes LF');
+  eq(normalizePastedSfm('\\tx a\r\\gl b'), '\\tx a\n\\gl b', 'bare CR becomes LF');
+  eq(normalizePastedSfm('\uFEFF\\tx a'), '\\tx a', 'a BOM is dropped');
+  eq(normalizePastedSfm('\\tx a\u00A0b'), '\\tx a b', 'a non-breaking space becomes an ordinary one');
+  eq(normalizePastedSfm('\\tx a   b'), '\\tx a   b', 'runs of spaces are LEFT ALONE — they are the alignment');
+
+  ok(looksLikeSfm('\\ref 1.1\n\\tx ana bete'), 'a backslash marker is what makes it SFM');
+  ok(!looksLikeSfm('text,translation\nana,he went'), 'a CSV is not SFM');
+  ok(!looksLikeSfm(''), 'empty is not SFM');
+
+  // Properly column-aligned: no complaint.
+  const good = parseSfm('\\tx ana   bete   kabo\n\\gl 3SG   go     out\n');
+  eq(alignmentRisk(good, { baseline: 'tx', gloss: 'gl' }), null, 'aligned columns raise no risk');
+
+  // Single-spaced: there is no geometry to read, so the pairing is a guess.
+  const flat = parseSfm('\\tx ana bete kabo\n\\gl 3SG go out\n');
+  const r1 = alignmentRisk(flat, { baseline: 'tx', gloss: 'gl' });
+  ok(r1 && r1.reason === 'single-spaced', 'a single-spaced gloss line is reported as untrustworthy');
+
+  // Tabs are geometry too.
+  const tabbed = parseSfm('\\tx ana\tbete\tkabo\n\\gl 3SG\tgo\tout\n');
+  eq(alignmentRisk(tabbed, { baseline: 'tx', gloss: 'gl' }), null, 'tab-separated columns are fine');
+
+  // No glosses mapped: nothing can be mis-paired.
+  eq(alignmentRisk(good, { baseline: 'tx' }), null, 'no gloss mapping, no risk');
+
+  // A title for a text that has no filename to fall back on.
+  eq(titleFromSfm(parseSfm('\\id GEN Genesis\n\\tx a')), 'GEN Genesis', 'the \\id line names the text');
+  eq(titleFromSfm(parseSfm('\\ref 1\n\\tx a'), {}), '', 'nothing to go on returns empty, so the app can ask');
+  eq(titleFromSfm(parseSfm('\\id GEN\n\\ti The Real Title\n\\tx a'), { title: 'ti' }), 'The Real Title',
+     'an explicitly mapped title marker beats the \\id convention');
 }
 
 console.log(fail ? `\nFAILED (${fail})\n` : '\nPASS: the SFM reader holds.\n');

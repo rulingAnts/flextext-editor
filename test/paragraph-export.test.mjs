@@ -6,7 +6,7 @@
  *
  * Run: node test/paragraph-export.test.mjs
  */
-import { validateFxpa, groupUnits, addProp, spanOf } from '../docs/js/paragraph-model.js';
+import { validateFxpa, groupUnits, addProp, spanOf, topUnits } from '../docs/js/paragraph-model.js';
 import { buildParagraphPreviewHtml, buildSsaSvg, buildSsaDiagramHtml, ssaLayout, leavesOfLine, topUnitsOf, leafLineIds, summaryText } from '../docs/js/paragraph-export.js';
 
 let fail = 0;
@@ -305,6 +305,42 @@ console.log('\nthe diagram draws a line\'s proposition tree');
 
   // ⚠ NOT INDEPENDENT AUDIO: the whole proposition tree still spans exactly its line.
   eq(spanOf(d, 'L1'), { start: 0, end: 2000 }, 'the line\'s span is unchanged by grouping inside it');
+}
+
+/* ⚠ ANTI-DRIFT GUARD (Seth, 2026-08-05: "I'm very afraid of multiple duplicate copies of code that
+ * are out of sync"). paragraph-export.js RESTATES the flat-surface rule — which units are on the
+ * surface, and in what order — because a format module may import only other format modules and so
+ * cannot import paragraph-model.js. Two statements of one rule is exactly what drifts, so this
+ * test asserts they agree on documents shaped to exercise every branch of it. */
+console.log('\nthe model and the export must agree on what the surface IS');
+{
+  const shapes = [];
+
+  // plain lines only
+  let a = validateFxpa({ format: 'flextext-paragraph-analysis', version: 1,
+    lines: [{ id: 'L1', free: 'a' }, { id: 'L2', free: 'b' }, { id: 'L3', free: 'c' }], tree: [] }).data;
+  shapes.push(['plain lines', a]);
+  shapes.push(['with a group', groupUnits(a, ['L1', 'L2'], { joinType: 'sym' })]);
+
+  // propositions replace their line on the surface
+  let b = addProp(addProp(a, 'L1', 'one'), 'L1', 'two');
+  shapes.push(['a line with propositions', b]);
+
+  // a BLANK proposition does not count — the line stays the unit
+  shapes.push(['a blank proposition only', addProp(a, 'L2', '   ')]);
+
+  // a cross-line group
+  const p2 = b.lines[0].props[1].id;
+  shapes.push(['a cross-line group', groupUnits(b, [p2, 'L2'], { joinType: 'sym' })]);
+
+  // a blank LINE among them
+  let c = validateFxpa({ format: 'flextext-paragraph-analysis', version: 1,
+    lines: [{ id: 'L1', free: 'a' }, { id: 'L2', baseline: '' }, { id: 'L3', free: 'c' }], tree: [] }).data;
+  shapes.push(['a blank line', addProp(c, 'L1', 'p')]);
+
+  for (const [name, d] of shapes) {
+    eq(topUnitsOf(d), topUnits(d), `export and model agree on the surface: ${name}`);
+  }
 }
 
 console.log(fail ? `\nFAILED (${fail})\n` : '\nPASS: the paragraph exports hold.\n');

@@ -6,7 +6,7 @@
  *
  * Run: node test/paragraph-export.test.mjs
  */
-import { validateFxpa, groupUnits } from '../docs/js/paragraph-model.js';
+import { validateFxpa, groupUnits, addProp, spanOf, topUnits } from '../docs/js/paragraph-model.js';
 import { buildParagraphPreviewHtml, buildSsaSvg, buildSsaDiagramHtml, ssaLayout, leavesOfLine, topUnitsOf, leafLineIds, summaryText } from '../docs/js/paragraph-export.js';
 
 let fail = 0;
@@ -271,6 +271,76 @@ console.log('\nSSA SVG + the scrollable page');
   ok(page.startsWith('<!DOCTYPE html>') && page.includes('<svg'), 'the diagram page inlines the SVG');
   ok(/class="scroll"[^>]*>|\.scroll \{ overflow:auto/.test(page), 'and it scrolls rather than squashing a wide diagram');
   ok(/background:#fff/.test(page) && /color-scheme:light/.test(page), 'and is readable in dark mode');
+}
+
+/* PROPOSITION GROUPS ARE DRAWN AS TREE NODES (Seth, 2026-08-05: propositions "need to function as
+ * leaves on the tree for the diagram, but not as independent audio segments"). */
+console.log('\nthe diagram draws a line\'s proposition tree');
+{
+  let d = validateFxpa({ format: 'flextext-paragraph-analysis', version: 1,
+    lines: [{ id: 'L1', start: 0, end: 2000, baseline: 'ana bete', free: 'He went out' },
+            { id: 'L2', start: 2000, end: 3000, baseline: 'u sa', free: 'and I went home' }],
+    tree: [] }).data;
+  d = addProp(d, 'L1', 'the man went outside');
+  d = addProp(d, 'L1', 'the child had laughed');
+  d = addProp(d, 'L1', 'he was ashamed', { implicit: true });
+  const [p1, p2, p3] = d.lines[0].props.map((x) => x.id);
+  d = groupUnits(d, [p2, p3], { joinType: 'asym', head: p2, relation: 'cause–EFFECT',
+                                labels: { [p2]: 'cause', [p3]: 'EFFECT' } });
+  const inner = d.tree[0].id;
+  d = groupUnits(d, [p1, inner], { joinType: 'asym', head: p1, relation: 'EVENT–reason',
+                                   labels: { [p1]: 'EVENT', [inner]: 'reason' } });
+
+  const L = ssaLayout(d, { layer: 'free' });
+  eq(L.rows.map((r) => r.text),
+     ['the man went outside', 'the child had laughed', 'he was ashamed', 'and I went home'],
+     'every proposition is its own row, and the other line is untouched');
+  eq(L.rows.map((r) => r.label), ['EVENT', 'cause', 'EFFECT', ''], 'each member carries its own role');
+  ok(L.rows[1].depth > L.rows[0].depth, 'the nested pair sits deeper than its sibling');
+  ok(L.rows[2].implicit, 'the implied proposition is still marked implied');
+
+  const svg = buildSsaSvg(d, { layer: 'free' });
+  ok(svg.includes('EVENT–reason') && svg.includes('cause–EFFECT'), 'both relations reach the SVG');
+  ok(/\(he was ashamed\)/.test(svg.replace(/<[^>]+>/g, '')), 'and the implied one is bracketed');
+
+  // ⚠ NOT INDEPENDENT AUDIO: the whole proposition tree still spans exactly its line.
+  eq(spanOf(d, 'L1'), { start: 0, end: 2000 }, 'the line\'s span is unchanged by grouping inside it');
+}
+
+/* ⚠ ANTI-DRIFT GUARD (Seth, 2026-08-05: "I'm very afraid of multiple duplicate copies of code that
+ * are out of sync"). paragraph-export.js RESTATES the flat-surface rule — which units are on the
+ * surface, and in what order — because a format module may import only other format modules and so
+ * cannot import paragraph-model.js. Two statements of one rule is exactly what drifts, so this
+ * test asserts they agree on documents shaped to exercise every branch of it. */
+console.log('\nthe model and the export must agree on what the surface IS');
+{
+  const shapes = [];
+
+  // plain lines only
+  let a = validateFxpa({ format: 'flextext-paragraph-analysis', version: 1,
+    lines: [{ id: 'L1', free: 'a' }, { id: 'L2', free: 'b' }, { id: 'L3', free: 'c' }], tree: [] }).data;
+  shapes.push(['plain lines', a]);
+  shapes.push(['with a group', groupUnits(a, ['L1', 'L2'], { joinType: 'sym' })]);
+
+  // propositions replace their line on the surface
+  let b = addProp(addProp(a, 'L1', 'one'), 'L1', 'two');
+  shapes.push(['a line with propositions', b]);
+
+  // a BLANK proposition does not count — the line stays the unit
+  shapes.push(['a blank proposition only', addProp(a, 'L2', '   ')]);
+
+  // a cross-line group
+  const p2 = b.lines[0].props[1].id;
+  shapes.push(['a cross-line group', groupUnits(b, [p2, 'L2'], { joinType: 'sym' })]);
+
+  // a blank LINE among them
+  let c = validateFxpa({ format: 'flextext-paragraph-analysis', version: 1,
+    lines: [{ id: 'L1', free: 'a' }, { id: 'L2', baseline: '' }, { id: 'L3', free: 'c' }], tree: [] }).data;
+  shapes.push(['a blank line', addProp(c, 'L1', 'p')]);
+
+  for (const [name, d] of shapes) {
+    eq(topUnitsOf(d), topUnits(d), `export and model agree on the surface: ${name}`);
+  }
 }
 
 console.log(fail ? `\nFAILED (${fail})\n` : '\nPASS: the paragraph exports hold.\n');

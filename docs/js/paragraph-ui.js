@@ -22,9 +22,9 @@ import { parseDelimited, looksLikeHeader, columnsOf, detectMapping as detectCsvM
 import {
   validateFxpa, serializeFxpa, groupUnits, ungroup, editGroup, toggleCollapse, setCollapsedAll,
   topUnits, levelOf, spanOf, leavesOf, summaryOf, isGroupId, nodeById,
-  isBlankLine, visibleTopUnits, withBlanksBetween,
+  isBlankLine, visibleTopUnits, withBlanksBetween, isPropId, lineOfPropId, ownerLineOf,
   addProp, setPropText, setPropImplicit, deleteProp,
-  newAuthoredDoc, addLine, setLineText, deleteLine, setLineFree, setLineImplicit, setTitle,
+  newAuthoredDoc, addLine, setLineText, deleteLine, setLineFree, setLineImplicit, setTitle, splitLine,
   setWordText, setWordGloss, deleteWord,
 } from './paragraph-model.js';
 
@@ -927,7 +927,7 @@ function renderWorkInner() {
   });
   $('#pa-blank').addEventListener('change', (e) => {
     // Hiding a line must never hide a SELECTION the user cannot then clear.
-    if (e.target.checked) { selection = new Set([...selection].filter((id) => isGroupId(id) || !isBlankLine(nodeById(state, id)))); anchor = null; }
+    if (e.target.checked) { selection = new Set([...selection].filter((id) => !isHiddenBlank(id))); anchor = null; }
     setView({ hideBlank: e.target.checked });
   });
   if (state.audio) {
@@ -976,6 +976,7 @@ function renderWorkInner() {
     wireOverviewScrub($('#pa-ov'));
   }
   const tree = $('#pa-tree');
+  lastHeaderLine = null;
   for (const id of visibleTopUnits(state, v.hideBlank !== false)) tree.appendChild(renderUnit(id));
   refreshActionButtons();
   drawAllWaves();
@@ -1059,8 +1060,22 @@ function setView(patch) {
 // children for free-translation summary rows (the model computes them).
 // `nodeLabel` is this unit's ROLE in its parent group's relation (from the PARENT's labels map —
 // a role is held relative to one relation, so the parent owns it). Optional everywhere.
+/* ⚠ HEADERS ARE INTERLEAVED, NOT NESTED (the flat-surface redo). A group may now span a line
+ * boundary, so a line's language data cannot be a container around its propositions — it is a
+ * HEADER row emitted wherever the owning line changes, including in the middle of a group. The
+ * header keeps the audio span, waveform, play button and cursor, which is why playback, playheads
+ * and follow-scroll are untouched by any of this. */
+let lastHeaderLine = null;
+
 function renderUnit(id, nodeLabel = '', depth = 0) {
-  if (!isGroupId(id)) return renderLineRow(id, nodeLabel);
+  if (isPropId(id)) {
+    const owner = lineOfPropId(id);
+    const frag = document.createDocumentFragment();
+    if (owner !== lastHeaderLine) { lastHeaderLine = owner; frag.appendChild(renderLineRow(owner, '', true)); }
+    frag.appendChild(renderPropRow(id, owner, nodeLabel));
+    return frag;
+  }
+  if (!isGroupId(id)) { lastHeaderLine = id; return renderLineRow(id, nodeLabel, false); }
   const g = nodeById(state, id);
   const el = document.createElement('div');
   el.className = 'pa-group' + (selection.has(id) ? ' sel' : '');
@@ -1098,7 +1113,7 @@ function renderUnit(id, nodeLabel = '', depth = 0) {
   } else {
     const hideBlank = state.view.hideBlank !== false;
     for (const c of g.children) {
-      if (hideBlank && !isGroupId(c) && isBlankLine(nodeById(state, c))) continue;   // silence inside a group
+      if (hideBlank && isHiddenBlank(c)) continue;   // silence inside a group
       el.appendChild(renderUnit(c, (g.labels || {})[c] || '', depth + 1));
     }
     // HEAD marker on the head child's container/row.
@@ -1180,8 +1195,12 @@ function openLineEditor(row, lineId) {
     fields: [{ key: 'txt', value: original, placeholder: t('para.scratchPlaceholder') }],
     onSave: ({ txt }) => commit(commitText(txt)),
     onEnter: ({ txt }) => {
+      /* Enter SPLITS AT THE CURSOR (Seth, 2026-08-05). At the end of the text that is the same
+       * thing as adding a line, so the fast type-Enter-type-Enter flow is unchanged; in the middle
+       * it divides the proposition, which is what you meant if you put the cursor there. */
+      const caret = input.selectionStart ?? txt.length;
       const withText = commitText(txt);
-      const next = addLine(withText, lineId);
+      const next = caret >= txt.trimEnd().length ? addLine(withText, lineId) : splitLine(withText, lineId, caret);
       focusLineId = next._added;
       commit(next);
     },
@@ -1223,14 +1242,68 @@ function openFreeEditor(row, lineId) {
   input.setSelectionRange(input.value.length, input.value.length);
 }
 
+/* ONE proposition, as a row of the document. Groups are drawn by renderUnit like any other group,
+ * so this no longer recurses — a proposition is simply a leaf that happens to be editable. */
+function renderPropRow(propId, lineId, nodeLabel = '') {
+  const pr = nodeById(state, propId) || { id: propId, text: '' };
+  const br = state.view.brackets !== false && pr.implicit;
+  const el = document.createElement('div');
+  el.className = 'pa-row pa-proprow' + (pr.implicit ? ' implied' : '') + (selection.has(propId) ? ' sel' : '');
+  el.dataset.unit = propId;
+  el.innerHTML = `${nodeLabel ? `<span class="pa-nodelabel">${esc(nodeLabel)}</span>` : ''}
+    <div class="pa-cell pa-prop${pr.implicit ? ' implicit' : ''}">
+      ${br ? '<span class="pa-brk">(</span>' : ''}
+      <input class="pa-propedit" data-line="${esc(lineId)}" data-prop="${esc(propId)}"
+             size="${propSize(pr.text)}" value="${esc(pr.text || '')}" placeholder="${esc(t('para.propPlaceholder'))}">
+      ${br ? '<span class="pa-brk">)</span>' : ''}
+      <button class="pa-propimp${pr.implicit ? ' on' : ''}" data-line="${esc(lineId)}" data-prop="${esc(propId)}"
+              title="${esc(t(pr.implicit ? 'para.propStated' : 'para.propImplied'))}">${esc(t(pr.implicit ? 'para.implicit' : 'para.explicit'))}</button>
+      <button class="pa-propdel" data-line="${esc(lineId)}" data-prop="${esc(propId)}"
+              title="${esc(t('para.propDelete'))}">✕</button>
+    </div>`;
+  wirePropControls(el);
+  el.addEventListener('click', (e) => {
+    if (e.target.closest('button, input')) return;
+    toggleSelect(propId, e);
+  });
+  return el;
+}
+
+/* The per-proposition controls, shared by wherever a proposition is drawn. */
+function wirePropControls(scope) {
+  scope.querySelectorAll('.pa-propdel, .pa-propimp').forEach((b) => {
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const { line, prop } = b.dataset;
+      if (b.classList.contains('pa-propdel')) commit(deleteProp(state, line, prop));
+      else {
+        const cur = (nodeById(state, line).props || []).find((x) => x.id === prop);
+        commit(setPropImplicit(state, line, prop, !(cur && cur.implicit)));
+      }
+    });
+  });
+  scope.querySelectorAll('.pa-propedit').forEach((inp) => {
+    inp.addEventListener('click', (e) => e.stopPropagation());
+    inp.addEventListener('input', () => {
+      inp.size = propSize(inp.value);
+      state = setPropText(state, inp.dataset.line, inp.dataset.prop, inp.value);
+      persistWorking();
+    });
+    inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); focusPropId = 'new'; focusLineId = inp.dataset.line; commit(addProp(state, inp.dataset.line)); }
+      if (e.key === 'Backspace' && !inp.value) { e.preventDefault(); commit(deleteProp(state, inp.dataset.line, inp.dataset.prop)); }
+    });
+  });
+}
+
 // An <input>'s `size` is in characters — the cheapest content-sized text box there is.
 const propSize = (text) => Math.max(24, Math.min(90, String(text || '').length + 2));
 
-function renderLineRow(id, nodeLabel = '') {
+function renderLineRow(id, nodeLabel = '', header = false) {
   const l = nodeById(state, id);
   const v = state.view;
   const row = document.createElement('div');
-  row.className = 'pa-row' + (selection.has(id) ? ' sel' : '') + (l.implicit ? ' implied' : '');
+  row.className = 'pa-row' + (header ? ' pa-header' : '') + (selection.has(id) ? ' sel' : '') + (l.implicit ? ' implied' : '');
   row.dataset.unit = id;
   const timed = typeof l.start === 'number' && typeof l.end === 'number';
   if (timed) { row.dataset.s = l.start; row.dataset.e = l.end; }
@@ -1296,24 +1369,7 @@ function renderLineRow(id, nodeLabel = '') {
    * the line, never edits to it: the baseline, words, glosses and free translation above are
    * untouched, which is why these are offered on IMPORTED texts too.
    * Bracketed when implicit — the SSA convention — and the brackets are a setting. */
-  const props = Array.isArray(l.props) ? l.props : [];
-  if (props.length) {
-    body.push('<div class="pa-props">');
-    for (const p of props) {
-      const br = v.brackets !== false && p.implicit;
-      body.push(`<div class="pa-prop${p.implicit ? ' implicit' : ''}">
-        ${br ? '<span class="pa-brk">(</span>' : ''}
-        <input class="pa-propedit" data-line="${esc(id)}" data-prop="${esc(p.id)}"
-               size="${propSize(p.text)}" value="${esc(p.text || '')}" placeholder="${esc(t('para.propPlaceholder'))}">
-        ${br ? '<span class="pa-brk">)</span>' : ''}
-        <button class="pa-propimp${p.implicit ? ' on' : ''}" data-line="${esc(id)}" data-prop="${esc(p.id)}"
-                title="${esc(t(p.implicit ? 'para.propStated' : 'para.propImplied'))}">${esc(t(p.implicit ? 'para.implicit' : 'para.explicit'))}</button>
-        <button class="pa-propdel" data-line="${esc(id)}" data-prop="${esc(p.id)}"
-                title="${esc(t('para.propDelete'))}">✕</button>
-      </div>`);
-    }
-    body.push('</div>');
-  }
+
   /* NOT on a from-scratch chart (Seth, 2026-08-05): "our new blank chart is ONLY propositions", so
    * every line there already IS one and a control to add a proposition beneath it is nonsense.
    * Propositions exist to break IMPORTED language data into what it semantically expresses. */
@@ -1352,6 +1408,10 @@ function renderLineRow(id, nodeLabel = '') {
     if (hadEditor) renderWork(); else paintSelection();
     return true;
   };
+  /* PROPOSITIONS ARE UNITS OF THE TREE (Seth, 2026-08-05), so they render through the same
+   * recursive walk as everything else — a proposition group nests visually exactly like a line
+   * group, one level in from its line. They are selectable, so Group / Ungroup / Edit group work
+   * on them without knowing they are propositions. */
   const freeBtn = row.querySelector('.pa-freeedit');
   if (freeBtn) freeBtn.addEventListener('click', (e) => {
     if (selectFirst(e)) return;
@@ -1427,7 +1487,17 @@ function renderLineRow(id, nodeLabel = '') {
       if (e.key === 'Backspace' && !inp.value) { e.preventDefault(); commit(deleteProp(state, inp.dataset.line, inp.dataset.prop)); }
     });
   });
-  row.addEventListener('click', (e) => toggleSelect(id, e));
+  row.addEventListener('click', (e) => {
+    if (!header) return toggleSelect(id, e);
+    /* SHORTCUT (Seth, 2026-08-05): a line with propositions is not a unit, so clicking its header
+     * selects ALL of its propositions as a run. Pressing Group then makes exactly one node over
+     * them — which IS "the line as a unit", but created explicitly rather than conjured. */
+    const mine = (nodeById(state, id).props || []).filter((p) => String(p.text || '').trim()).map((p) => p.id);
+    if (!mine.length) return toggleSelect(id, e);
+    selection = new Set(mine);
+    anchor = mine[0];
+    if (anyEditorOpen()) renderWork(); else paintSelection();
+  });
   return row;
 }
 
@@ -1461,11 +1531,18 @@ let multiMode = false;
 let anchor = null;                 // the fixed end of the range; a plain click moves it
 
 // The ordered sibling list a unit belongs to, as the user SEES it (hidden blanks excluded).
+/* "Is this a hidden blank line?" — a question that may only be asked about LINES. Groups and
+ * propositions are never blank lines, and treating them as such silently drops them from member
+ * lists, selections and renders (Seth found the dialog listing no members at all). */
+const isHiddenBlank = (id) => !isGroupId(id) && !isPropId(id) && isBlankLine(nodeById(state, id));
+
 function siblingsOf(id) {
   const hideBlank = state.view.hideBlank !== false;
   const parent = state.tree.find((g) => g.children.includes(id)) || null;
+  // Three surfaces now, not two: inside a group, a line's PROPOSITIONS, or the document.
+  // One surface (the flat-surface redo): inside a group, or the document.
   const list = parent ? parent.children : visibleTopUnits(state, false);
-  return list.filter((x) => !hideBlank || isGroupId(x) || !isBlankLine(nodeById(state, x)));
+  return list.filter((x) => !hideBlank || !isHiddenBlank(x));
 }
 
 // The contiguous run between two units, or null when they are not siblings.
@@ -1477,7 +1554,8 @@ function rangeBetween(a, b) {
 }
 
 function paintSelection() {
-  root.querySelectorAll('.pa-row, .pa-group').forEach((el) => {
+  // .pa-prop is here because propositions are selectable units too (Seth, 2026-08-05).
+  root.querySelectorAll('.pa-row, .pa-group, .pa-prop').forEach((el) => {
     if (el.dataset.unit) el.classList.toggle('sel', selection.has(el.dataset.unit));
   });
   refreshActionButtons();
@@ -1597,6 +1675,10 @@ function wireKeys() {
 }
 
 function unitLabel(id) {
+  if (isPropId(id)) {
+    const pr = nodeById(state, id);
+    return ((pr && pr.text) || t('para.propPlaceholder')).slice(0, 40);
+  }
   if (!isGroupId(id)) {
     const l = nodeById(state, id);
     return (l.free || l.baseline || id).slice(0, 40);
@@ -1619,9 +1701,11 @@ function openGroupDialog() {
   if (selection.size < 2) return alert(t('para.needTwo'));
   // With blanks hidden, two visible neighbours may have silence between them in the model. Absorb
   // it, or the model refuses the group as non-adjacent for a reason the user cannot see.
-  const top = topUnits(state);
-  const ids = withBlanksBetween(state, [...selection], state.view.hideBlank !== false)
-    .sort((a, b) => top.indexOf(a) - top.indexOf(b));
+  const picked = [...selection];
+  const surface = topUnits(state);
+  // Blank-line absorption is about LINES; a run that is already all propositions has none to bridge.
+  const ids = withBlanksBetween(state, picked, state.view.hideBlank !== false)
+    .sort((a, b) => surface.indexOf(a) - surface.indexOf(b));
   groupDialog({ ids });
 }
 
@@ -1651,8 +1735,12 @@ function groupDialog({ ids, gid, joinType = 'sym', head, relation = '', labels =
    * The current head is always shown even if invisible, so a group made before this fix can still
    * be seen and reassigned rather than becoming uneditable. */
   const hideBlank = state.view.hideBlank !== false;
-  const shown = ids.filter((id) => isGroupId(id) || id === head
-    || !(hideBlank && isBlankLine(nodeById(state, id))));
+  /* ⚠ A PROPOSITION IS NEVER A "BLANK LINE" (Seth, 2026-08-05: "the UI isn't showing individual
+   * roles for propositions"). isBlankLine() looks for baseline/free/words — a proposition has
+   * none of those, so every one of them looked blank and was filtered out of the member list,
+   * leaving the dialog with a Members heading and nothing under it. The blank-line rule is about
+   * LINES; it must never be asked about anything else. */
+  const shown = ids.filter((id) => id === head || !(hideBlank && isHiddenBlank(id)));
   const members = shown.map((id) => `
     <div class="pa-member">
       <label class="pa-headpick" title="${esc(t('para.headTip'))}">

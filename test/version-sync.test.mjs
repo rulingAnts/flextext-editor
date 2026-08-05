@@ -91,19 +91,36 @@ for (const [name, path] of SATELLITE_SW) {
  * branch; production (pat.flextext.app) must only ever be written by productionWeb builds.
  * That routing lives in paragraph-analysis/deploy.sh + the build.sh guard — these assertions
  * make removing or renaming any piece of it fail the release, not fade from memory. */
-console.log('\nthe paragraph-analysis Cloudflare deploy contract holds');
+/* EVERY Cloudflare deploy folder, not just PAT's (Seth spotted this in a crowd.flextext.app build
+ * log: "It mentions 'paragraph-analysis-tool contract' which doesn't sound right"). He was right —
+ * the shared test only ever checked PAT, so a wrong Worker name or a missing guard in any of the
+ * four new apps would have deployed happily. Each folder must name ITS OWN Worker and keep both
+ * guards, or a misconfiguration reaches production silently. */
+console.log('\nevery Cloudflare deploy folder keeps its contract');
 {
-  const toml = read('../paragraph-analysis/wrangler.toml');
-  ok(/^name = "paragraph-analysis-tool"$/m.test(toml),
-     'wrangler.toml names the connected Worker exactly (paragraph-analysis-tool)');
-  ok(/command = "bash build\.sh"/.test(toml),
-     'wrangler.toml keeps the [build] hook (assembly + guard can never be skipped)');
-  const dep = read('../paragraph-analysis/deploy.sh');
-  ok(/versions upload --preview-alias/.test(dep) && /wrangler deploy/.test(dep)
-     && /WORKERS_CI_BRANCH/.test(dep) && /productionWeb/.test(dep),
-     'deploy.sh routes productionWeb → deploy, other branches → preview alias');
-  ok(/FX_CI_ROUTED/.test(dep) && /FX_CI_ROUTED/.test(read('../paragraph-analysis/build.sh')),
-     'build.sh refuses unrouted non-production builds (FX_CI_ROUTED handshake)');
+  const APPS = [
+    ['../paragraph-analysis', 'paragraph-analysis-tool'],
+    ['../apps/editor',        'flextext-editor'],
+    ['../apps/recorder',      'flextext-recorder'],
+    ['../apps/researcher',    'flextext-researcher'],
+    ['../apps/crowd',         'flextext-crowd'],
+  ];
+  for (const [dir, worker] of APPS) {
+    const toml = read(dir + '/wrangler.toml');
+    ok(new RegExp('^name = "' + worker + '"$', 'm').test(toml),
+       `${dir}: wrangler.toml names its OWN Worker (${worker})`);
+    ok(/command = "bash build\.sh"/.test(toml),
+       `${dir}: keeps the [build] hook, so assembly + guard can never be skipped`);
+    const dep = read(dir + '/deploy.sh');
+    ok(/versions upload --preview-alias/.test(dep) && /wrangler deploy/.test(dep)
+       && /WORKERS_CI_BRANCH/.test(dep) && /productionWeb/.test(dep),
+       `${dir}: deploy.sh routes productionWeb → deploy, other branches → preview alias`);
+    ok(/FX_CI_ROUTED/.test(dep) && /FX_CI_ROUTED/.test(read(dir + '/build.sh')),
+       `${dir}: build.sh refuses unrouted non-production builds`);
+  }
+  // ⚠ No two folders may claim the same Worker — that is how one app overwrites another.
+  const names = APPS.map(([, w]) => w);
+  ok(new Set(names).size === names.length, 'no two deploy folders target the same Worker name');
 }
 
 console.log(fail ? `\nFAILED (${fail}) — a version has drifted.\n`

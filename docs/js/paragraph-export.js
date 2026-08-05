@@ -23,7 +23,32 @@ import { esc } from './flextext.js';
 /* ---------------- the unit walk everything renders from ---------------- */
 
 const isGroup = (id) => /^G\d+$/.test(String(id));
-const node = (data, id) => (isGroup(id) ? data.tree.find((g) => g.id === id) : data.lines.find((l) => l.id === id)) || null;
+const isProp = (id) => /^L\d+p\d+$/.test(String(id));
+const lineOfProp = (id) => String(id).split('p')[0];
+const propOf = (data, id) => {
+  const l = data.lines.find((x) => x.id === lineOfProp(id));
+  return (l && (l.props || []).find((p) => p.id === id)) || null;
+};
+/* The units at a line's proposition level: its written propositions, with any inside a group
+ * replaced by that group. Mirrors the model's propUnits — the export module may not import it
+ * (format modules import only format modules), so this is the same rule stated once more. */
+const propSurface = (data, line) => {
+  const written = (line.props || []).filter((p) => String(p.text || '').trim());
+  const out = [], seen = new Set();
+  for (const p of written) {
+    let top = p.id;
+    for (;;) {
+      const par = data.tree.find((g) => g.children.includes(top));
+      if (!par) break;
+      top = par.id;
+    }
+    if (!seen.has(top)) { seen.add(top); out.push(top); }
+  }
+  return out;
+};
+const node = (data, id) => (isGroup(id) ? data.tree.find((g) => g.id === id)
+  : isProp(id) ? propOf(data, id)
+  : data.lines.find((l) => l.id === id)) || null;
 const parentOf = (data, id) => data.tree.find((g) => g.children.includes(id)) || null;
 
 // A line's leaves: its authored propositions when it has them, otherwise the line itself.
@@ -41,19 +66,46 @@ export function leavesOfLine(line) {
     : [{ id: line.id, text: null, lineId: line.id, isProp: false, implicit: !!line.implicit }];
 }
 
+/* ONE flat surface, mirroring the model: a line contributes itself, or its written propositions.
+ * Stated again here because a format module may import only other format modules. */
+const orderOf = (data, id) => {
+  const lineId = isProp(id) ? lineOfProp(id) : id;
+  const li = data.lines.findIndex((l) => l.id === lineId);
+  if (li < 0) return -1;
+  if (!isProp(id)) return li * 1000;
+  const pi = (data.lines[li].props || []).findIndex((p) => p.id === id);
+  return li * 1000 + (pi < 0 ? 0 : pi + 1);
+};
+
 export function topUnitsOf(data) {
-  const pos = new Map(data.lines.map((l, i) => [l.id, i]));
-  const firstLine = (id) => {
+  const firstLeaf = (id) => {
     if (!isGroup(id)) return id;
     const g = node(data, id);
-    return g && g.children.length ? firstLine(g.children[0]) : id;
+    return g && g.children.length ? firstLeaf(g.children[0]) : id;
   };
   const units = [];
-  for (const l of data.lines) if (!parentOf(data, l.id)) units.push(l.id);
+  for (const l of data.lines) {
+    // ALL propositions — identical to the model's surface (the anti-drift test enforces that).
+    // A blank one is skipped when a ROW is built, not when the surface is described.
+    const props = l.props || [];
+    if (!props.length) { if (!parentOf(data, l.id)) units.push(l.id); continue; }
+    for (const pr of props) if (!parentOf(data, pr.id)) units.push(pr.id);
+  }
   for (const g of data.tree) if (!parentOf(data, g.id)) units.push(g.id);
-  return units.sort((a, b) => (pos.get(firstLine(a)) ?? 0) - (pos.get(firstLine(b)) ?? 0));
+  return units.sort((a, b) => orderOf(data, firstLeaf(a)) - orderOf(data, firstLeaf(b)));
 }
 
+/* ⚠ ASK THIS ONLY ABOUT LINES. A proposition has no baseline, free translation or words, so it
+ * answers "yes, blank" and disappears — the same trap that hid propositions in the UI and in the
+ * model (Seth: "Do remember the isBlankLine() fix in the redo"). Take the ID, not the node, so the
+ * kind is always checked first. */
+const blankUnit = (data, id) => {
+  if (isGroup(id)) return false;
+  if (isProp(id)) { const p = node(data, id); return !p || !String(p.text || '').trim(); }
+  const l = node(data, id);
+  return !!l && !String(l.baseline || '').trim() && !String(l.free || '').trim()
+    && !(l.words || []).some((w) => String(w.txt || '').trim());
+};
 const blank = (l) => !!l && !String(l.baseline || '').trim() && !String(l.free || '').trim()
   && !(l.words || []).some((w) => String(w.txt || '').trim());
 
@@ -127,7 +179,7 @@ export function buildParagraphPreviewHtml(data, opts = {}) {
       ${sp && audioB64 ? `<button class="play" data-s="${sp.start}" data-e="${sp.end}">▶</button>` : ''}
     </div>`;
     const kids = g.children.map((c) => {
-      if (hideBlank && !isGroup(c) && blank(node(data, c))) return '';
+      if (hideBlank && blankUnit(data, c)) return '';
       const kidLabel = (g.labels || {})[c] || '';
       const el = renderUnit(c, kidLabel, depth + 1);
       return (g.joinType === 'asym' && g.head === c && el) ? el.replace(/^<div class="/, '<div class="head ') : el;
@@ -418,7 +470,7 @@ export function ssaLayout(data, opts = {}) {
       }
       const kids = [];
       for (const c of g.children) {
-        if (hideBlank && !isGroup(c) && blank(node(data, c))) continue;
+        if (hideBlank && blankUnit(data, c)) continue;
         const kid = build(c, depth + 1, (g.labels || {})[c] || '', g.joinType === 'asym' && g.head === c);
         if (kid) kids.push(kid);
       }
@@ -426,29 +478,25 @@ export function ssaLayout(data, opts = {}) {
       return { kind: 'group', depth, kids, relation: g.relation || '', joinType: g.joinType,
                headIndex: kids.findIndex((k) => k.head), label: roleLabel, head: !!isHead };
     }
+    /* A PROPOSITION IS ITS OWN LEAF on the flat surface. */
+    if (isProp(id)) {
+      const pr = node(data, id);
+      if (!pr || !String(pr.text || '').trim()) return null;
+      const owner = data.lines.find((x) => x.id === lineOfProp(id));
+      rows.push({ depth, label: roleLabel, head: !!isHead, implicit: !!pr.implicit,
+                  speaker: (owner && owner.speaker) || '',
+                  content: { kind: 'prop', text: pr.text || '', implicit: !!pr.implicit, free: '' } });
+      return { kind: 'leaf', depth, row: rows.length - 1, label: roleLabel, head: !!isHead };
+    }
     const l = node(data, id);
     if (!l) return null;
-    /* Several propositions from one line behave as an implicit cluster standing where the line
-     * stood. ⚠ THE LINE'S ROLE BELONGS TO THAT CLUSTER, NOT TO EACH MEMBER — labelling every
-     * proposition "orienter" claims each one separately plays that role in the parent, which is
-     * false and reads as a repeated label down the margin. The cluster carries it once, and its
-     * members sit one level deeper, so the implicit grouping is visible as a grouping. */
-    const units = leavesOfLine(l);
-    const many = units.length > 1;
-    const leaves = units.map((leaf) => {
-      rows.push({ depth: depth + (many ? 1 : 0), label: '', content: contentOf(l, leaf),
-                  head: !many && !!isHead, implicit: !!leaf.implicit, speaker: l.speaker || '' });
-      return { kind: 'leaf', depth: depth + (many ? 1 : 0), row: rows.length - 1, label: '', head: false };
-    });
-    if (!many) {
-      rows[leaves[0].row].label = roleLabel;
-      leaves[0].label = roleLabel;
-      leaves[0].head = !!isHead;
-      return leaves[0];
-    }
-    maxDepth = Math.max(maxDepth, depth + 1);
-    return { kind: 'group', depth, kids: leaves, relation: '', joinType: 'sym', headIndex: -1,
-             label: roleLabel, head: !!isHead, segment: true };
+    /* ONE FLAT SURFACE (the redo): a proposition is surfaced in its own right, so a line that has
+     * propositions never reaches here as a unit — and a line that does reach here is a plain leaf.
+     * Nothing needs to expand anything. */
+    const leaf = leavesOfLine(l)[0];
+    rows.push({ depth, label: roleLabel, content: contentOf(l, leaf), head: !!isHead,
+                implicit: !!leaf.implicit, speaker: l.speaker || '' });
+    return { kind: 'leaf', depth, row: rows.length - 1, label: roleLabel, head: !!isHead };
   };
 
   const roots = [];

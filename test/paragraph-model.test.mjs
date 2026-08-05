@@ -5,7 +5,8 @@ import {
   isBlankLine, visibleTopUnits, withBlanksBetween,
   newAuthoredDoc, addLine, setLineText, deleteLine, setCollapsedAll,
   addProp, setPropText, setPropImplicit, deleteProp, setLineFree,
-  setWordText, setWordGloss, deleteWord,
+  isPropId, propUnits, ownerLineOf, orderIndex,
+  setWordText, setWordGloss, deleteWord, splitLine,
 } from '../docs/js/paragraph-model.js';
 
 let failures = 0;
@@ -408,6 +409,79 @@ console.log('\nblank lines from FLEx never surface as phantom members');
   eq(summaryOf(e, 'G1'), [''], 'all-blank group summarizes as ONE empty placeholder');
 }
 
+/* PROPOSITIONS ARE TREE UNITS (Seth, 2026-08-05: "I need to be able to apply groupings to semantic
+ * component propositions. They need to function as leaves on the tree for the diagram, but not as
+ * independent audio segments") — groupable and sub-groupable, but only BENEATH their own line. */
+console.log('\npropositions are leaves of ONE flat document surface');
+{
+  let d = base();
+  d = addProp(d, 'L1', 'the man went outside');
+  d = addProp(d, 'L1', 'the child had laughed');
+  const [p1, p2] = d.lines[0].props.map((p) => p.id);
+
+  /* ⚠ A LINE WITH PROPOSITIONS IS NO LONGER A UNIT — its propositions are. It stays a HEADER that
+   * owns the audio, which is why playback is unaffected. */
+  eq(topUnits(d), [p1, p2, 'L2', 'L3', 'L4'],
+     'the line is replaced on the surface by its propositions; other lines are unchanged');
+  eq(ownerLineOf(d, p1), 'L1', 'a proposition still knows the line that owns its audio');
+
+  // The case that forced the redesign: a proposition grouped with the NEXT LINE.
+  d = groupUnits(d, [p2, 'L2'], { joinType: 'asym', head: 'L2', relation: 'reason–RESULT',
+                                  labels: { [p2]: 'reason', L2: 'RESULT' } });
+  const g = d.tree[0];
+  eq(g.children, [p2, 'L2'], 'a proposition can be grouped with an adjacent LINE');
+  ok(validateFxpa(d).ok, 'and the result is a valid document');
+  eq(topUnits(d), [p1, g.id, 'L3', 'L4'], 'the surface reflects it');
+
+  // ...and with a proposition of the next line.
+  let e = base();
+  e = addProp(e, 'L1', 'first');
+  e = addProp(e, 'L2', 'second');
+  const a = e.lines[0].props[0].id, b = e.lines[1].props[0].id;
+  eq(topUnits(e), [a, b, 'L3', 'L4'], 'propositions of adjacent lines are adjacent on the surface');
+  e = groupUnits(e, [a, b], { joinType: 'sym', relation: 'sequence' });
+  ok(validateFxpa(e).ok, 'a proposition can be grouped with a proposition of the NEXT line');
+
+  // ⚠ STILL NOT INDEPENDENT AUDIO: a proposition resolves to its LINE's span, so a cross-line
+  // group spans the union of the lines it touches — it can never invent or narrow a span.
+  eq(spanOf(e, e.tree[0].id), { start: 0, end: 2000 }, 'a cross-line group spans both lines, exactly');
+  eq(spanOf(e, a), { start: 0, end: 1000 }, 'and one proposition still spans its whole line');
+
+  // Crossing brackets remain impossible — adjacency does that work, not the old same-line rule.
+  let f = base();
+  f = addProp(f, 'L1', 'x');
+  f = addProp(f, 'L3', 'y');
+  const fa = f.lines[0].props[0].id, fb = f.lines[2].props[0].id;
+  throws(() => groupUnits(f, [fa, fb], { joinType: 'sym' }),
+         'non-adjacent units still cannot group, whatever kind they are');
+}
+
+console.log('\ndeleting a grouped proposition repairs the tree');
+{
+  let d = base();
+  d = addProp(d, 'L1', 'one');
+  d = addProp(d, 'L1', 'two');
+  d = addProp(d, 'L1', 'three');
+  const [p1, p2, p3] = d.lines[0].props.map((p) => p.id);
+  d = groupUnits(d, [p1, p2], { joinType: 'asym', head: p1, labels: { [p2]: 'support' } });
+  const gid = d.tree[0].id;
+  d = groupUnits(d, [gid, p3], { joinType: 'sym' });
+
+  // Removing one member of the inner pair leaves it with a single child — which must DISSOLVE,
+  // or the file becomes one that validateFxpa refuses to reopen.
+  d = deleteProp(d, 'L1', p2);
+  ok(validateFxpa(d).ok, 'still valid after deleting a grouped proposition');
+  ok(d.tree.every((x) => x.children.length >= 2), 'no one-child group is left behind');
+  ok(!JSON.stringify(d.tree).includes(p2), 'no dangling reference to the deleted proposition');
+  ok(!JSON.stringify(d.tree).includes('"support"'), 'and its member label went with it');
+
+  // Deleting the rest empties the line back to a plain line.
+  d = deleteProp(deleteProp(d, 'L1', p1), 'L1', p3);
+  ok(!('props' in d.lines[0]), 'the line is a plain line again');
+  eq(d.tree, [], 'and the tree is empty rather than holding ghosts');
+  ok(validateFxpa(d).ok, 'valid at the end');
+}
+
 console.log('\ncollapse/expand ALL — whole document, or one subtree when something is selected');
 {
   // L1 L2 grouped (G1), L3 L4 grouped (G2), then G1+G2 grouped (G3) — three levels.
@@ -435,6 +509,38 @@ console.log('\ncollapse/expand ALL — whole document, or one subtree when somet
   ok(setCollapsedAll(d, true, ['L1', 'G2']).view.collapsed.join(',') === 'G2', 'a mixed selection acts on the groups in it');
   ok(setCollapsedAll(d, true, ['G9']).view.collapsed.length === 0, 'an unknown id is ignored, not crashed on');
   ok(validateFxpa(setCollapsedAll(d, true)).ok, 'the result is still a valid document');
+}
+
+/* Seth, 2026-08-05: "If you press enter in the middle of a line, it should split it at the
+ * cursor's place" — in the blank/new diagram, where a line IS a typed proposition. */
+console.log('\nsplitting a typed line at the cursor (authored documents only)');
+{
+  let d = validateFxpa(newAuthoredDoc('T')).data;
+  d = setLineText(d, 'L1', 'he went outside because the child laughed');
+  d = splitLine(d, 'L1', 'he went outside'.length);
+  eq(d.lines.map((l) => l.baseline), ['he went outside', 'because the child laughed'],
+     'the text divides at the cursor, with the whitespace at the seam tidied');
+  ok(d._added === d.lines[1].id, 'the new line is named, so the cursor can follow it');
+  ok(validateFxpa(d).ok, 'valid');
+
+  // ⚠ A SPLIT INSIDE A BRACKET must not drop half the text out of the analysis.
+  let g = validateFxpa(newAuthoredDoc('T')).data;
+  g = setLineText(g, 'L1', 'first part second part');
+  g = addLine(g); g = setLineText(g, g.lines[1].id, 'another');
+  g = groupUnits(g, [g.lines[0].id, g.lines[1].id], { joinType: 'sym', relation: 'x' });
+  g = splitLine(g, 'L1', 'first part'.length);
+  eq(g.tree[0].children.length, 3, 'the new half joins its sibling group');
+  eq(g.tree[0].children[1], g._added, 'immediately after the line it came from, so the run stays contiguous');
+  ok(validateFxpa(g).ok, 'still valid');
+
+  // Splitting at the very end is just "add a line" — the fast typing flow is unchanged.
+  let e = validateFxpa(newAuthoredDoc('T')).data;
+  e = setLineText(e, 'L1', 'whole thing');
+  e = splitLine(e, 'L1', 'whole thing'.length);
+  eq(e.lines.map((l) => l.baseline), ['whole thing', ''], 'a split at the end leaves an empty new line');
+
+  // IMPORTED text is not splittable here — that is the audio-boundary feature, and it is separate.
+  throws(() => splitLine(base(), 'L1', 2), 'an imported line cannot be split this way');
 }
 
 if (failures) { console.error(`\n${failures} FAILURE(S)`); process.exit(1); }

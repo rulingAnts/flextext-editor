@@ -120,11 +120,63 @@ export function isCardCollapsed(stored, instanceId, deviceCount) {
   return (v === undefined || v === null) ? deviceCount > 1 : !!v;
 }
 
-// Absolute paths (NOT derived from location.pathname): invite links must point at the editor /
-// recorder even though this code usually runs inside the researcher app at /flextext-researcher/.
-const EDITOR_BASE = location.origin + '/flextext-editor/';
-const RECORDER_BASE = location.origin + '/text-recorder/';
-const CROWD_BASE = location.origin + '/crowd-recorder/';
+/* ⚠ TWO ESTATES RUN IN PARALLEL (Seth, 2026-08-05): the Cloudflare apps are production for NEW
+ * installs, while existing GitHub Pages installs keep working and keep syncing. So an invite link
+ * cannot be built from `location.origin` + a Pages sub-path any more.
+ *
+ * On a Cloudflare-hosted panel that would produce https://research.flextext.app/flextext-editor/ —
+ * a path that EXISTS (build.sh copies the engine there as asset storage) but is NOT the editor
+ * app. Opening it would install a third, bogus PWA at that scope, on the wrong origin, with its
+ * own empty database. Hence an explicit map rather than string concatenation.
+ *
+ * Both estates stay addressable: a researcher adding a SECOND device for someone already on Pages
+ * needs the legacy link, or that person ends up with two installs and half their work in each. */
+const ESTATES = {
+  cloud: {
+    editor: 'https://app.flextext.app/',
+    recorder: 'https://record.flextext.app/',
+    crowd: 'https://crowd.flextext.app/',
+    researcher: 'https://research.flextext.app/',
+  },
+  pages: {
+    editor: 'https://rulingants.github.io/flextext-editor/',
+    recorder: 'https://rulingants.github.io/text-recorder/',
+    crowd: 'https://rulingants.github.io/crowd-recorder/',
+    researcher: 'https://rulingants.github.io/flextext-researcher/',
+  },
+};
+
+// Which estate is THIS panel part of? On localhost the dev rig serves both apps under the Pages
+// sub-paths, so it keeps using same-origin links and never points a developer at production.
+export function estateOf(origin = location.origin) {
+  if (/^https?:\/\/localhost(:\d+)?$/.test(origin)) {
+    return { editor: origin + '/flextext-editor/', recorder: origin + '/text-recorder/',
+             crowd: origin + '/crowd-recorder/', researcher: origin + '/flextext-researcher/', local: true };
+  }
+  return /\.flextext\.app$/.test(new URL(origin).hostname) ? ESTATES.cloud : ESTATES.pages;
+}
+
+const HOME = estateOf();
+
+/* ⚠ EVERY LINK COMES FROM THE RECORD'S ESTATE, never from where the panel happens to be running
+ * (Seth, 2026-08-05: a legacy crowd recorder shown from the Cloudflare panel produced
+ * https://research.flextext.app/crowd-recorder/?c=… — a 404, because the satellites are not copied
+ * to that origin. The editor invite was worse: it returned 200 and a working editor, being the
+ * engine asset copy, so claiming it would have installed a THIRD PWA on the wrong origin with its
+ * own empty database and looked entirely fine).
+ *
+ * `estate` is stamped on the row by the worker — 'pages' for everything that existed before the
+ * migration, 'cloud' for everything created since. So an old coworker keeps their old links for
+ * good, and a new one gets Cloudflare, with nothing asked of the researcher.
+ *
+ * On localhost the dev rig wins regardless: a developer must never be handed production links. */
+function basesFor(estate) {
+  if (HOME.local) return HOME;
+  return estate === 'pages' ? ESTATES.pages : ESTATES.cloud;
+}
+// A record with no estate at all is pre-migration data seen by a newer client: treat it as legacy,
+// which is what it is. Never default an UNKNOWN record to 'cloud' — that invents a migration.
+const estateOfRecord = (rec) => (rec && rec.estate) || 'pages';
 // Approx capture bytes/sec per format (mono 48 kHz worst-case) — MIRRORS the
 // worker's CROWD_BPS: the submit cap is estimate×1.5+overhead, platform-clamped
 // at ~95 MB (a public submission is one POST). The live estimate below keeps the
@@ -639,11 +691,11 @@ async function fetchLiveVersion(path) {
   } catch { return null; }
 }
 async function refreshLiveVersions() {
-  const o = location.origin;
+  // The panel reports on ITS OWN estate — mixing the two would show a version nobody is running.
   const [editor, recorder, researcher] = await Promise.all([
-    fetchLiveVersion(o + '/flextext-editor/sw.js'),
-    fetchLiveVersion(o + '/text-recorder/sw.js'),
-    fetchLiveVersion(o + '/flextext-researcher/sw.js'),
+    fetchLiveVersion(HOME.editor + 'sw.js'),
+    fetchLiveVersion(HOME.recorder + 'sw.js'),
+    fetchLiveVersion(HOME.researcher + 'sw.js'),
   ]);
   liveVersions = (editor == null && recorder == null && researcher == null) ? null : { editor, recorder, researcher };
   paintLiveVersions();
@@ -1514,7 +1566,10 @@ async function inviteModal(instanceId) {
     // editor + recorder share one identity, so opening either binds the SAME device — one claim, one
     // consent, one approval, even if both links are sent.
     const invite = await Researcher.mintInvite(instanceId);
-    const urls = { editor: Researcher.inviteUrl(EDITOR_BASE, invite), recorder: Researcher.inviteUrl(RECORDER_BASE, invite) };
+    // THIS instance's estate — an extra device for a coworker on Pages must join them on Pages.
+    const inst = ((lastData && lastData.instances) || []).find((x) => x.instance_id === instanceId);
+    const B = basesFor(estateOfRecord(inst));
+    const urls = { editor: Researcher.inviteUrl(B.editor, invite), recorder: Researcher.inviteUrl(B.recorder, invite) };
     const exp = invite.expires_at ? new Date(invite.expires_at).toLocaleString() : '';
     const row = (label, key) => `
       <div class="rp-field"><span>${esc(label)}</span>
@@ -1861,11 +1916,15 @@ function crowdEditModal(rec) {
 // Share & Embed — patterned on inviteModal (readonly boxes + Copy). Three integration tiers, most
 // robust first; the notes are the field-tested embedding pitfalls (allow="microphone", CMS stripping).
 function crowdShareModal(rec) {
-  const link = CROWD_BASE + '?c=' + encodeURIComponent(rec.crowd_id);
+  /* THIS recorder's estate. Its public link may already be embedded on somebody's website, so it
+   * must keep the address it was created with for the rest of its life — showing a second URL for
+   * one recorder is how a researcher ends up handing out two. */
+  const CB = basesFor(estateOfRecord(rec)).crowd;
+  const link = CB + '?c=' + encodeURIComponent(rec.crowd_id);
   const snips = {
     link,
     iframe: `<iframe src="${link}&embed=1" allow="microphone; autoplay" style="width:100%;max-width:480px;height:640px;border:0;border-radius:12px" title="Voice recorder" loading="lazy"></iframe>`,
-    script: `<script async src="${CROWD_BASE}embed.js" data-recorder="${rec.crowd_id}"><\/script>`,
+    script: `<script async src="${CB}embed.js" data-recorder="${rec.crowd_id}"><\/script>`,
   };
   const block = (key, titleKey, noteKey, rows, share) => `
     <div class="rp-field"><span>${esc(t(titleKey))}</span>

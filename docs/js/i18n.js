@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v203';
+export const ENGINE_VERSION = 'v204';
 
 const S = {
 en: {
@@ -1177,6 +1177,8 @@ internet after the first time.</p>
   'para.glossPh': 'gloss',
   'para.wordDelete': 'Delete this word',
   'para.splitNote': 'Splitting or joining lines is not done here — use the FlexText editor or ELAN for that, then re-import.',
+  'para.sfmPasteWay': 'From Toolbox, or SFM kept in a Word or RTF document.',
+  'para.scratchWay': 'Type the propositions yourself — no recording or language data needed.',
   'para.sfmPasteIntro': 'Working from Toolbox or SFM? Paste the text instead — it can come from a .doc, .rtf, .txt or anywhere else.',
   'para.sfmPasteBtn': 'Paste Toolbox / SFM text',
   'para.sfmPasteTitle': 'Paste Toolbox / SFM text',
@@ -2419,6 +2421,10 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.glossPh': 'glos',
   'para.wordDelete': 'Hapus kata ini',
   'para.splitNote': 'Memecah atau menggabung baris tidak dilakukan di sini — pakai editor FlexText atau ELAN, lalu impor ulang.',
+  'para.sfmPasteWay': 'From Toolbox, or SFM kept in a Word or RTF document.',
+  'para.scratchWay': 'Type the propositions yourself — no recording or language data needed.',
+  'para.sfmPasteWay': 'Dari Toolbox, atau SFM yang tersimpan di dokumen Word atau RTF.',
+  'para.scratchWay': 'Ketik sendiri proposisinya — tanpa rekaman atau data bahasa.',
   'para.sfmPasteIntro': 'Memakai Toolbox atau SFM? Tempel teksnya saja — boleh dari .doc, .rtf, .txt atau mana pun.',
   'para.sfmPasteBtn': 'Tempel teks Toolbox / SFM',
   'para.sfmPasteTitle': 'Tempel teks Toolbox / SFM',

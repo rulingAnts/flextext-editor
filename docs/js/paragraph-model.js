@@ -687,8 +687,25 @@ function withLine(data, lineId, fn) {
   return { ...data, lines };
 }
 
+/* ⚠ WHEN A LINE GAINS PROPOSITIONS, THE PROPOSITIONS TAKE ITS PLACE IN THE TREE — not the line
+ * (Seth, 2026-08-05: "if we create sub-propositions, the propositions, rather than the audio segment
+ * line, are supposed to be what goes in the tree").
+ *
+ * topUnits() already did this substitution at TOP level but nothing did it INSIDE a group, so a
+ * proposition added to an already-grouped line had no parent at all: it fell out of the group,
+ * became a top-level unit, and rendered at the BOTTOM of the document instead of under its line.
+ * Seth found it; the group's children still read ["L1"] while the surface had moved on to "L1p1".
+ *
+ * Substitution is positional: the first proposition replaces the line where the line sat, and later
+ * ones are inserted immediately after their siblings, so grouping order never jumps around. */
 export function addProp(data, lineId, text = '', opts = {}) {
-  return withLine(data, lineId, (l) => {
+  /* ⚠ "Is this line in a group?" must ask about the line OR ANY OF ITS EXISTING PROPOSITIONS.
+   * After the first substitution the line is no longer in the tree — its proposition is — so a
+   * lineId-only test says "not grouped" from the SECOND proposition onward, and every later one
+   * silently escaped the group. Caught by the add-two-then-check test below. */
+  const existingProps = ((nodeById(data, lineId) || {}).props || []).map((x) => x.id);
+  const wasGrouped = !!parentOf(data, lineId) || existingProps.some((id) => !!parentOf(data, id));
+  const out = withLine(data, lineId, (l) => {
     const props = propsOf(l);
     // Ids are unique WITHIN the line and never reused, so a reference cannot silently re-point.
     let n = props.length + 1;
@@ -698,6 +715,20 @@ export function addProp(data, lineId, text = '', opts = {}) {
     const at = Number.isInteger(opts.index) ? Math.max(0, Math.min(props.length, opts.index)) : props.length;
     return { ...l, props: [...props.slice(0, at), p, ...props.slice(at)] };
   });
+
+  if (!wasGrouped) return out;                     // top level: topUnits() already substitutes
+  const line = nodeById(out, lineId);
+  const ids = (line.props || []).map((x) => x.id);
+  return {
+    ...out,
+    tree: out.tree.map((g) => {
+      // The line's slot is wherever the line itself, or any of its propositions, currently sits.
+      const at = g.children.findIndex((c) => c === lineId || ids.includes(c));
+      if (at < 0) return g;
+      const kept = g.children.filter((c) => c !== lineId && !ids.includes(c));
+      return { ...g, children: [...kept.slice(0, at), ...ids, ...kept.slice(at)] };
+    }),
+  };
 }
 
 export function setPropText(data, lineId, propId, text) {
@@ -733,7 +764,20 @@ export function deleteProp(data, lineId, propId) {
     delete q.props;
     return q;
   });
-  return pruneTree(next, propId);
+  /* ⚠ RESTORE THE LINE when its last proposition is deleted. The propositions took the line's slot
+   * in the tree (see addProp); if they all go and nothing takes their place, the line silently
+   * leaves the group it was grouped into. */
+  const stillHasProps = ((nodeById(next, lineId) || {}).props || []).length > 0;
+  const restored = stillHasProps ? next : {
+    ...next,
+    tree: next.tree.map((g) => {
+      const at = g.children.indexOf(propId);
+      if (at < 0) return g;
+      const children = [...g.children]; children[at] = lineId;
+      return { ...g, children };
+    }),
+  };
+  return pruneTree(restored, propId);
 }
 
 /* Remove a unit from the tree and heal what that leaves behind. */

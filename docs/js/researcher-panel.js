@@ -179,7 +179,9 @@ function deprecationBanner() {
   if (!onLegacyHost() || deprecationDismissed) return '';
   return `<div class="warn-banner rp-deprecated">
     <span>${esc(t('panel.deprecated.msg'))}
-      <a href="${ESTATES.cloud.researcher}" target="_blank" rel="noopener">${esc(t('panel.deprecated.link'))}</a></span>
+      <a href="${ESTATES.cloud.researcher}" target="_blank" rel="noopener">${esc(t('panel.deprecated.link'))}</a>
+      &nbsp;·&nbsp;
+      <a href="${ESTATES.pages.editor}help/migrate.html" target="_blank" rel="noopener">${esc(t('panel.deprecated.coworkers'))}</a></span>
     <button class="banner-dismiss" data-act="deprecated-dismiss" aria-label="${esc(t('panel.deprecated.dismiss'))}" title="${esc(t('panel.deprecated.dismiss'))}">&times;</button>
   </div>`;
 }
@@ -369,16 +371,6 @@ export function initResearcherPanel(d) {
     const b = e.target.closest && e.target.closest('#rp-install');
     if (b) { b.remove(); if (deps.doInstall) deps.doInstall(); }
   });
-  // ⌃⌥E — reveal the advanced link-estate picker. Deliberately undiscoverable: ordinary
-  // researchers must never be offered a choice of which app URLs their coworkers get.
-  document.addEventListener('keydown', (e) => {
-    if (!root || root.hidden) return;
-    if (e.ctrlKey && e.altKey && !e.metaKey && (e.key === 'e' || e.key === 'E')) {
-      e.preventDefault();
-      advancedShown = !advancedShown || linkMode() !== 'auto';  // cannot hide an ACTIVE override
-      route();
-    }
-  }, true);
   root.addEventListener('change', (e) => {
     const sel = e.target.closest && e.target.closest('#rp-adv-links');
     if (sel) setLinkMode(sel.value);
@@ -397,6 +389,25 @@ export function initResearcherPanel(d) {
   // Regained connectivity → recover immediately instead of waiting for the next timer: refresh the
   // dashboard if it's up, otherwise re-attempt sign-in/bootstrap (drives the reconnecting screen).
   window.addEventListener('online', () => { if (!root || root.hidden) return; if (dashPoll) { refreshLiveVersions(); pollDashboard(); } else route(); });
+  /* CONSOLE ENTRY POINT — `fxLinks()`. Replaces a ⌃⌥E shortcut that could never have worked on a
+   * Mac: Option+E is the dead key that composes an acute accent, so `e.key` is never 'e' and the
+   * handler never fired (Seth, 2026-08-05). A console function is the better shape anyway — there
+   * is nothing for an ordinary researcher to discover, and nothing to collide with a dead key,
+   * an IME, or a screen reader.
+   *
+   * Sibling of window.fxUpdate() in app.js. Both are recorded in DEVELOPERS.md. */
+  if (typeof window !== 'undefined') {
+    window.fxLinks = (mode) => {
+      if (mode === undefined) {
+        advancedShown = true; route();
+        return `links: ${linkMode()} — call fxLinks('auto'|'cloud'|'pages'|'origin') to change. ` +
+               `Affects the URLs printed in invite/share links only, never where a device is registered.`;
+      }
+      if (!LINK_MODES.includes(mode)) return `unknown mode ${JSON.stringify(mode)} — use ${LINK_MODES.join(' | ')}`;
+      setLinkMode(mode);
+      return `links: ${linkMode()}${mode === 'auto' ? '' : ' (OVERRIDE ACTIVE — the panel shows a badge while it is on)'}`;
+    };
+  }
   return { open, close, isSignedUp: () => Researcher.isSignedUp(), onInstallable };
 }
 

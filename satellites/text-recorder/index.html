@@ -22,6 +22,16 @@
 <script>window.__MODE = 'record';</script>
 </head>
 <body>
+  <!-- STAGING ribbon — IDENTICAL to the editor's in docs/index.html, deliberately duplicated rather
+       than shared: it is inline with no engine dependency, so it still shows when app.js fails to
+       load, which is exactly when knowing which site you are on matters most. Runtime hostname
+       detection, so this same file ships to production unchanged. -->
+  <script>
+    if (/\.(pages|workers)\.dev$/.test(location.hostname)) {
+      document.write('<div style="position:sticky;top:0;z-index:9999;background:repeating-linear-gradient(45deg,#b45309,#b45309 12px,#92400e 12px,#92400e 24px);color:#fff;text-align:center;font:600 13px/1.5 system-ui;padding:4px 8px;">STAGING — test site \u00b7 situs uji — not production / bukan produksi</div>');
+    }
+  </script>
+
 
 <header id="topbar">
   <div id="topbar-home" class="topbar-row">

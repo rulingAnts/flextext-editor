@@ -38,7 +38,7 @@ export function leavesOfLine(line) {
   const written = (Array.isArray(line.props) ? line.props : []).filter((p) => String(p.text || '').trim());
   return written.length
     ? written.map((p) => ({ ...p, lineId: line.id, isProp: true }))
-    : [{ id: line.id, text: null, lineId: line.id, isProp: false }];
+    : [{ id: line.id, text: null, lineId: line.id, isProp: false, implicit: !!line.implicit }];
 }
 
 export function topUnitsOf(data) {
@@ -97,7 +97,7 @@ export function buildParagraphPreviewHtml(data, opts = {}) {
       if (leaf.isProp) {
         inner.push(`<div class="prop${leaf.implicit ? ' implicit' : ''}">${esc(leaf.text || '')}</div>`);
       } else if (layer === 'baseline') {
-        inner.push(`<div class="bl">${esc(l.baseline || '')}</div>`);
+        inner.push(`<div class="bl${leaf.implicit ? ' implicit' : ''}">${esc(l.baseline || '')}</div>`);
       } else if (layer === 'interlinear') {
         inner.push(`<div class="wds">${(l.words || []).map((w) => w.punct
           ? `<span class="w"><span class="wt punct">${esc(w.txt)}</span></span>`
@@ -489,7 +489,12 @@ export function ssaLayout(data, opts = {}) {
   const asked = auto ? 0 : Math.max(120, o.textWidth || (o.width - textX - o.pad));
   const natural = (auto || !wrap) ? Math.max(0, ...rows.map((r) => naturalWidth(r.content, o, measure))) : 0;
   const textWidth = auto ? Math.max(120, natural) : (wrap ? asked : Math.max(asked, natural));
-  const width = Math.max(o.width, textX + textWidth + o.pad);
+  /* ⚠ THE CANVAS IS EXACTLY WHAT THE CONTENT NEEDS — no minimum (Seth, 2026-08-05: "I don't see any
+   * difference with the various settings"). `o.width` used to act as a 1000px FLOOR, so narrowing
+   * the language-data column did not narrow the diagram; it only added whitespace on the right,
+   * and "auto — fit the longest line" produced the same wide picture as everything else. The width
+   * now follows the settings, which is the whole point of having them. */
+  const width = textX + textWidth + o.pad;
 
   const glossSize = o.fontSize * 0.78;
   let y = o.pad;

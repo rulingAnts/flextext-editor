@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v201';
+export const ENGINE_VERSION = 'v202';
 
 const S = {
 en: {
@@ -1108,7 +1108,7 @@ internet after the first time.</p>
   'para.ungroup': 'Ungroup',
   // Edit/Ungroup act on ONE group heading. The buttons stay clickable and say this, rather than
   // sitting disabled and looking broken (Seth, 2026-08-04).
-  'para.selectTip': 'Click a line or a group heading to select it. To select a run of them, Shift-click (or Ctrl/Cmd-click, or switch on “↔ Extend”) at the other end — the selection always stretches from where you started, so it is always a single unbroken run. Then press Group. Edit group and Ungroup work on one group heading.',
+  'para.selectTip': 'Click a line or a group heading to select it. To select a run of them, Ctrl-click or Cmd-click (or switch on “↔ Extend”) at the other end — the selection always stretches from where you started, so it is always a single unbroken run. Then press Group. Edit group and Ungroup work on one group heading.',
   'para.multi': '↔ Extend',
   'para.multiTip': 'Make the next click stretch the selection to it — the same as holding Shift or Ctrl/Cmd (use this on a touch screen)',
   'para.headingTip': 'Click to select this group — then use Edit group or Ungroup',
@@ -1150,16 +1150,24 @@ internet after the first time.</p>
   'para.propImplied': 'This proposition is EXPLICIT — click to mark it implicit (shown in brackets)',
   'para.propStated': 'This proposition is IMPLICIT — click to mark it explicit',
   'para.brackets': 'Brackets on implied propositions',
+  'para.autoScroll': 'Follow playback',
+  'para.autoScrollTip': 'Scroll to the line being played, and to the line you click on the player. Never while you are scrolling or editing.',
   'para.freeEdit': 'Edit this free translation',
   'para.freeSave': 'Save this wording',
   'para.freeCancel': 'Leave it as it was',
   'para.freeNone': 'no free translation yet',
   'para.freePlaceholder': 'free translation in the analysis language…',
+  'para.saveAsPrompt': 'Save as — this browser has no Save dialog, so name the file here (it goes to your Downloads folder):',
   'para.fxpaFile': 'Paragraph analysis',
   'para.svgFile': 'SSA diagram (SVG)',
   'para.diagramFile': 'SSA diagram (web page)',
   'para.previewFile': 'Interactive preview',
   'para.csvFile': 'Spreadsheet template',
+  'para.slimTip': 'Collapse the toolbar (the player stays, just slimmer)',
+  'para.titleEdit': 'Rename — this is what saves and exports are named after',
+  'para.titlePrompt': 'Name for this analysis (saves and exports are named after it):',
+  'para.newChartPrompt': 'Name for this diagram:',
+  'para.untitled': 'Untitled',
   'para.lineEdit': 'Edit this line',
   'para.lineDelete': 'Delete this line',
   'para.lineDeleteLast': 'This is the only line left — a diagram needs at least one.',
@@ -2365,16 +2373,24 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.propImplied': 'Proposisi ini TERSURAT — klik untuk menandainya tersirat (ditampilkan dalam kurung)',
   'para.propStated': 'Proposisi ini TERSIRAT — klik untuk menandainya tersurat',
   'para.brackets': 'Kurung pada proposisi tersirat',
+  'para.autoScroll': 'Ikuti pemutaran',
+  'para.autoScrollTip': 'Gulir ke baris yang sedang diputar, dan ke baris yang Anda klik pada pemutar. Tidak pernah saat Anda menggulir atau menyunting.',
   'para.freeEdit': 'Ubah terjemahan bebas ini',
   'para.freeSave': 'Simpan rumusan ini',
   'para.freeCancel': 'Biarkan seperti semula',
   'para.freeNone': 'belum ada terjemahan bebas',
   'para.freePlaceholder': 'terjemahan bebas dalam bahasa analisis…',
+  'para.saveAsPrompt': 'Simpan sebagai — peramban ini tidak punya dialog Simpan, jadi beri nama di sini (file masuk ke folder Unduhan):',
   'para.fxpaFile': 'Analisis paragraf',
   'para.svgFile': 'Diagram SSA (SVG)',
   'para.diagramFile': 'Diagram SSA (halaman web)',
   'para.previewFile': 'Pratinjau interaktif',
   'para.csvFile': 'Templat lembar kerja',
+  'para.slimTip': 'Ciutkan bilah alat (pemutar tetap ada, hanya lebih tipis)',
+  'para.titleEdit': 'Ganti nama — nama ini dipakai untuk menyimpan dan mengekspor',
+  'para.titlePrompt': 'Nama untuk analisis ini (dipakai saat menyimpan dan mengekspor):',
+  'para.newChartPrompt': 'Nama untuk diagram ini:',
+  'para.untitled': 'Tanpa judul',
   'para.lineEdit': 'Ubah baris ini',
   'para.lineDelete': 'Hapus baris ini',
   'para.lineDeleteLast': 'Ini satu-satunya baris yang tersisa — diagram perlu minimal satu.',

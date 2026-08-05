@@ -1569,6 +1569,9 @@ function applyWarmGate() {
 }
 
 async function warmUpMic() {
+  // Structural guard, not just a DOM check: these apps have no recording feature at all, so there
+  // is no path on which opening the microphone could ever be correct.
+  if (PARAGRAPH_MODE || RESEARCHER_MODE) return;
   if (warmMic || warmMicPending || rec?.recording) return;
   // Only the AudioWorklet path benefits: native capture opens its own device, and MediaRecorder
   // cannot pre-roll (its chunks are encoded and not safely splittable).
@@ -1598,10 +1601,19 @@ function releaseWarmMic() {
   if (!rec?.recording) stopMeter();
 }
 
-// Never hold an open mic behind another app.
+/* Never hold an open mic behind another app.
+ *
+ * ⚠ THE ELEMENT MUST EXIST BEFORE ITS `hidden` MEANS ANYTHING (Seth, 2026-08-05: "our paragraph
+ * analysis tool is still requesting microphone permissions it doesn't need"). The old test was
+ * `!$('#record-modal')?.hidden` — and in an app that HAS no record modal that is `!undefined`,
+ * i.e. TRUE. So every time the Paragraph Analysis tool (or the researcher panel) regained focus,
+ * it warmed the mic and the browser asked for permission. Nothing was ever recorded; the prompt
+ * alone is the harm, and asking for a permission you cannot use is how apps teach people to click
+ * "allow" without reading. */
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden && !rec?.recording) releaseWarmMic();
-  else if (!document.hidden && !$('#record-modal')?.hidden && !rec?.recording) warmUpMic();
+  if (document.hidden && !rec?.recording) { releaseWarmMic(); return; }
+  const modal = $('#record-modal');
+  if (modal && !modal.hidden && !rec?.recording) warmUpMic();
 });
 
 function openRecordModal() {

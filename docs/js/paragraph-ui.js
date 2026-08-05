@@ -927,7 +927,7 @@ function renderWorkInner() {
   });
   $('#pa-blank').addEventListener('change', (e) => {
     // Hiding a line must never hide a SELECTION the user cannot then clear.
-    if (e.target.checked) { selection = new Set([...selection].filter((id) => isGroupId(id) || !isBlankLine(nodeById(state, id)))); anchor = null; }
+    if (e.target.checked) { selection = new Set([...selection].filter((id) => !isHiddenBlank(id))); anchor = null; }
     setView({ hideBlank: e.target.checked });
   });
   if (state.audio) {
@@ -1098,7 +1098,7 @@ function renderUnit(id, nodeLabel = '', depth = 0) {
   } else {
     const hideBlank = state.view.hideBlank !== false;
     for (const c of g.children) {
-      if (hideBlank && !isGroupId(c) && isBlankLine(nodeById(state, c))) continue;   // silence inside a group
+      if (hideBlank && isHiddenBlank(c)) continue;   // silence inside a group
       el.appendChild(renderUnit(c, (g.labels || {})[c] || '', depth + 1));
     }
     // HEAD marker on the head child's container/row.
@@ -1508,6 +1508,11 @@ let multiMode = false;
 let anchor = null;                 // the fixed end of the range; a plain click moves it
 
 // The ordered sibling list a unit belongs to, as the user SEES it (hidden blanks excluded).
+/* "Is this a hidden blank line?" — a question that may only be asked about LINES. Groups and
+ * propositions are never blank lines, and treating them as such silently drops them from member
+ * lists, selections and renders (Seth found the dialog listing no members at all). */
+const isHiddenBlank = (id) => !isGroupId(id) && !isPropId(id) && isBlankLine(nodeById(state, id));
+
 function siblingsOf(id) {
   const hideBlank = state.view.hideBlank !== false;
   const parent = state.tree.find((g) => g.children.includes(id)) || null;
@@ -1516,7 +1521,7 @@ function siblingsOf(id) {
   const list = parent ? parent.children
     : owner ? propUnits(state, owner)
     : visibleTopUnits(state, false);
-  return list.filter((x) => !hideBlank || isGroupId(x) || isPropId(x) || !isBlankLine(nodeById(state, x)));
+  return list.filter((x) => !hideBlank || !isHiddenBlank(x));
 }
 
 // The contiguous run between two units, or null when they are not siblings.
@@ -1711,8 +1716,12 @@ function groupDialog({ ids, gid, joinType = 'sym', head, relation = '', labels =
    * The current head is always shown even if invisible, so a group made before this fix can still
    * be seen and reassigned rather than becoming uneditable. */
   const hideBlank = state.view.hideBlank !== false;
-  const shown = ids.filter((id) => isGroupId(id) || id === head
-    || !(hideBlank && isBlankLine(nodeById(state, id))));
+  /* ⚠ A PROPOSITION IS NEVER A "BLANK LINE" (Seth, 2026-08-05: "the UI isn't showing individual
+   * roles for propositions"). isBlankLine() looks for baseline/free/words — a proposition has
+   * none of those, so every one of them looked blank and was filtered out of the member list,
+   * leaving the dialog with a Members heading and nothing under it. The blank-line rule is about
+   * LINES; it must never be asked about anything else. */
+  const shown = ids.filter((id) => id === head || !(hideBlank && isHiddenBlank(id)));
   const members = shown.map((id) => `
     <div class="pa-member">
       <label class="pa-headpick" title="${esc(t('para.headTip'))}">

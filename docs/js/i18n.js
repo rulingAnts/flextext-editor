@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v198';
+export const ENGINE_VERSION = 'v199';
 
 const S = {
 en: {
@@ -1146,6 +1146,11 @@ internet after the first time.</p>
   'para.propImplied': 'Mark as IMPLIED rather than stated (shown in brackets)',
   'para.propStated': 'Mark as STATED rather than implied',
   'para.brackets': 'Brackets on implied propositions',
+  'para.freeEdit': 'Edit this free translation',
+  'para.freeSave': 'Save this wording',
+  'para.freeCancel': 'Leave it as it was',
+  'para.freeNone': 'no free translation yet',
+  'para.freePlaceholder': 'free translation in the analysis language…',
   'para.collapseAll': 'Collapse all',
   'para.expandAll': 'Expand all',
   'para.collapseAllTip': 'Collapse every group in the text',
@@ -2338,6 +2343,11 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.propImplied': 'Tandai sebagai TERSIRAT, bukan tersurat (ditampilkan dalam kurung)',
   'para.propStated': 'Tandai sebagai TERSURAT, bukan tersirat',
   'para.brackets': 'Kurung pada proposisi tersirat',
+  'para.freeEdit': 'Ubah terjemahan bebas ini',
+  'para.freeSave': 'Simpan rumusan ini',
+  'para.freeCancel': 'Biarkan seperti semula',
+  'para.freeNone': 'belum ada terjemahan bebas',
+  'para.freePlaceholder': 'terjemahan bebas dalam bahasa analisis…',
   'para.collapseAll': 'Tutup semua',
   'para.expandAll': 'Buka semua',
   'para.collapseAllTip': 'Tutup semua kelompok dalam teks',

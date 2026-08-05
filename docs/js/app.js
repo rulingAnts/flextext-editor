@@ -90,7 +90,14 @@ const DEFAULT_RELAY_TOKEN = '7a93cb82d8ad2bd533a75ddf03bebc92501494ca57dab46c5b9
 // PRODUCTION worker never needs localhost in its allowlist. An explicit
 // settings.relayWorker always wins (e.g. a researcher's own R2, or a VM dev URL).
 const LOCAL_WORKER = 'http://localhost:8787';                 // `wrangler dev` default
-const TURNSTILE_SITE_KEY = '0x4AAAAAADo0TdBBVpldATJ6';        // production widget (rulingants.github.io)
+/* ONE production widget serves BOTH estates — github.io AND the *.flextext.app origins — which is
+ * what keeps a single site key in the client with no per-origin branching.
+ * ⚠ Turnstile site keys are HOSTNAME-LOCKED in the dashboard, and that list is invisible from here.
+ * A new origin whose hostname is not on it renders "Unable to connect to website" and every upload
+ * fails, while the identical code works on github.io (crowd.flextext.app, 2026-08-05). Adding an
+ * origin to the suite means adding its hostname to this widget — it is a THIRD place, alongside the
+ * Worker's ALLOWED_ORIGINS and wrangler.toml. */
+const TURNSTILE_SITE_KEY = '0x4AAAAAADo0TdBBVpldATJ6';
 const TURNSTILE_TEST_SITE_KEY = '1x00000000000000000000AA';  // Cloudflare always-pass key (local dev only)
 function isLocalDev() { return /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname); }
 // The Cloudflare STAGING site counts as a dev host for the researcher-panel ENTRY only

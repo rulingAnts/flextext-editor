@@ -568,10 +568,55 @@ export function groupUnits(data, ids, { joinType, head, relation = '', labels = 
 export function ungroup(data, gid) {
   const g = nodeById(data, gid);
   if (!g || !isGroupId(gid)) throw new Error('Not a group.');
-  if (parentOf(data, gid)) throw new Error('Ungroup its parent first (dissolve top-down).');
+
+  /* ⚠ A NESTED GROUP MAY BE DISSOLVED IN PLACE. This used to refuse any group that had a parent —
+   * "Ungroup its parent first (dissolve top-down)" — which meant unwinding had to start at the
+   * outermost group, so changing one nested join cost the whole hierarchy above it (Seth,
+   * 2026-08-06: "It appears to mean that I can only ungroup if I start all the way at the top. And
+   * I definitely don't want that to be the case.").
+   *
+   * The constraint existed because deleting a nested group from `tree` alone would leave its parent
+   * still naming it in `children` — a dangling reference. That is a real hazard, but the answer is
+   * to handle it, not to forbid the operation: the group's children take its place in the parent,
+   * in order, so the parent keeps exactly the same span and nothing dangles. */
+  const parent = parentOf(data, gid);
+  const tree = data.tree.filter((x) => x.id !== gid).map((x) => {
+    if (!parent || x.id !== parent.id) return x;
+    const at = x.children.indexOf(gid);
+    const children = [...x.children.slice(0, at), ...g.children, ...x.children.slice(at + 1)];
+    const y = { ...x, children };
+    /* An asymmetrical parent whose HEAD was this group must name a surviving child instead — and
+     * the right one is the DISSOLVED GROUP'S OWN HEAD when it had one. Prominence was asserted at
+     * both levels: "the head of the head" is still the most prominent surviving unit, whereas
+     * defaulting to the first grandchild silently relocates prominence to whatever happened to come
+     * first. Only when the dissolved group was symmetrical (no head to inherit) is the first child
+     * a genuine choice rather than a guess.
+     *
+     * ⚠ REVISIT WHEN MULTIPLE HEADS LAND (backlog: "Multiple HEADs in a group"). With 2+ heads this
+     * inheritance must decide whether they all become the parent's heads or only one does — a
+     * semantic question, not a mechanical one. Today it cannot arise: exactly one head on an
+     * asymmetrical join, none on a symmetrical one, enforced in groupUnits.
+     *
+     * Seth's two options for then (2026-08-06), both viable:
+     *   (1) ALLOW MULTIPLE HEADS — a to-do anyway, and then the grandchildren's heads simply all
+     *       become the parent's heads. Nothing is lost and no choice has to be invented.
+     *   (2) AUTO-DEMOTE to non-head when inheriting grandchildren — safe and predictable, but note
+     *       it is not free TODAY: an asymmetrical group REQUIRES exactly one head, so demoting all
+     *       of them would force the parent to become symmetrical, which changes the analyst's
+     *       assertion about the join rather than just its members. Option 1 avoids that. */
+    if (y.joinType === 'asym' && y.head === gid) {
+      y.head = (g.joinType === 'asym' && g.head) ? g.head : g.children[0];
+    }
+    // A label addressed to the dissolved group no longer addresses anything.
+    if (y.labels && gid in y.labels) {
+      const { [gid]: _gone, ...rest } = y.labels;
+      if (Object.keys(rest).length) y.labels = rest; else delete y.labels;
+    }
+    return y;
+  });
   return {
     ...data,
-    tree: data.tree.filter((x) => x.id !== gid),
+    tree,
     view: { ...data.view, collapsed: (data.view.collapsed || []).filter((id) => id !== gid) },
   };
 }

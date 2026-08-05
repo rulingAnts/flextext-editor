@@ -71,7 +71,8 @@ console.log('grouping — the default join builds structure, never merges');
   throws(() => groupUnits(d, ['L1', 'L2'], { joinType: 'asym', head: 'L3' }), 'head outside members rejected');
   throws(() => groupUnits(d, ['L1', 'L2'], { joinType: 'sym', head: 'L1' }), 'sym with head rejected');
   const g = groupUnits(d, ['L1', 'L2'], { joinType: 'sym', relation: '' });
-  throws(() => groupUnits(g, ['L1', 'L3'], { joinType: 'sym' }), 'unit already inside a group cannot re-group');
+  throws(() => groupUnits(g, ['L1', 'L3'], { joinType: 'sym' }),
+         'units under DIFFERENT parents cannot group (L1 is inside G1, L3 is not) — sub-grouping siblings IS allowed');
 }
 
 console.log('ungroup / edit');
@@ -79,7 +80,14 @@ console.log('ungroup / edit');
   let d = base();
   d = groupUnits(d, ['L1', 'L2'], { joinType: 'sym', relation: '' });
   d = groupUnits(d, ['G1', 'L3'], { joinType: 'asym', head: 'G1', relation: '' });
-  throws(() => ungroup(d, 'G1'), 'cannot dissolve a group that has a parent (top-down only)');
+  /* WAS: 'cannot dissolve a group that has a parent (top-down only)'. That refusal was removed
+   * deliberately on 2026-08-06 — a nested group now dissolves into its parent. See the
+   * 'ungroup works at any depth' block below for the replacement coverage. */
+  {
+    const inner = ungroup(d, 'G1');
+    eq(inner.tree.find((g) => g.id === 'G2').children, ['L1', 'L2', 'L3'],
+       'a nested group dissolves into its parent instead of being refused');
+  }
   d = ungroup(d, 'G2');
   ok(d.tree.length === 1 && topUnits(d).join(',') === 'G1,L3,L4', 'ungroup releases children to the surface');
   d = editGroup(d, 'G1', { joinType: 'asym', head: 'L1', relation: 'idea' });
@@ -583,6 +591,45 @@ console.log('sub-grouping inside an existing group');
   b = groupUnits(b, ['L3', 'L4'], { joinType: 'sym' });
   throws(() => groupUnits(b, ['L2', 'L3'], { joinType: 'sym' }), 'units in DIFFERENT groups are still refused');
   throws(() => groupUnits(b, ['G1', 'L3'], { joinType: 'sym' }), 'mixing a group with a unit inside another group is refused');
+}
+
+
+/* ── Dissolving a NESTED group in place (Seth, 2026-08-06) ───────────────────────────────────────
+ * "It appears to mean that I can only ungroup if I start all the way at the top. And I definitely
+ * don't want that to be the case." The old refusal existed only because deleting a nested group
+ * would leave its parent naming a child that no longer existed. */
+console.log('ungroup works at any depth');
+{
+  const five = () => validateFxpa({
+    format: 'flextext-paragraph-analysis', version: 1, title: 'T', vernLang: 'fau', analLang: 'id',
+    lines: [1, 2, 3, 4, 5].map((n) => ({ id: 'L' + n, baseline: 'w' + n, words: [] })), tree: [],
+  }).data;
+
+  let d = groupUnits(five(), ['L1', 'L2', 'L3', 'L4'], { joinType: 'sym' });
+  d = groupUnits(d, ['L1', 'L2'], { joinType: 'sym' });
+  d = ungroup(d, 'G2');
+  eq(d.tree.find((g) => g.id === 'G1').children, ['L1', 'L2', 'L3', 'L4'],
+     'a nested group dissolves INTO its parent, children spliced back in order');
+  eq(d.tree.length, 1, 'and the group itself is gone');
+  const refs = d.tree.flatMap((g) => g.children);
+  const known = new Set([...d.lines.map((l) => l.id), ...d.tree.map((g) => g.id)]);
+  ok(refs.every((c) => known.has(c)), 'no dangling reference is left behind');
+
+  // Prominence: the parent inherits the dissolved group's OWN head, not just its first child.
+  let a = groupUnits(five(), ['L1', 'L2'], { joinType: 'asym', head: 'L2' });
+  a = groupUnits(a, ['G1', 'L3'], { joinType: 'asym', head: 'G1' });
+  a = ungroup(a, 'G1');
+  eq(a.tree[0].head, 'L2', "an asym parent inherits the dissolved group's HEAD (the head of the head)");
+
+  // A symmetrical inner group has no head to inherit, so the first child is a real choice.
+  let b = groupUnits(five(), ['L1', 'L2'], { joinType: 'sym' });
+  b = groupUnits(b, ['G1', 'L3'], { joinType: 'asym', head: 'G1' });
+  b = ungroup(b, 'G1');
+  eq(b.tree[0].head, 'L1', 'a symmetrical inner group leaves the first child as head');
+
+  // Top-level ungroup is unchanged.
+  let c = groupUnits(five(), ['L1', 'L2'], { joinType: 'sym' });
+  eq(ungroup(c, 'G1').tree, [], 'a top-level group still simply dissolves');
 }
 
 if (failures) { console.error(`\n${failures} FAILURE(S)`); process.exit(1); }

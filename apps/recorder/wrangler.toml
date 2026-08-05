@@ -18,7 +18,19 @@
 name = "flextext-recorder"
 main = "shell.js"
 compatibility_date = "2026-06-01"
-workers_dev = true
+# ⚠ BOTH KEYS, and preview_urls is NOT optional here. `preview_urls` DEFAULTS TO THE VALUE OF
+# `workers_dev`, so setting workers_dev=false alone would also switch off the staging-*.workers.dev
+# preview aliases — the dev surface, silently, as a side effect of tidying the production one.
+#
+# workers_dev=false removes ONLY the <name>.<account>.workers.dev production URL. Custom domains are
+# a separate routing mechanism and are unaffected, so the *.flextext.app sites keep serving.
+#
+# Why turn it off at all (Seth, 2026-08-05): the workers.dev host is a second, unadvertised address
+# for the same app that nobody should be using, and it is NOT in the connectivity worker's
+# ALLOWED_ORIGINS — so signing in there dropped the return origin and bounced the researcher to the
+# legacy GitHub Pages panel. One app, one address.
+workers_dev = false
+preview_urls = true
 
 [build]
 command = "bash build.sh"

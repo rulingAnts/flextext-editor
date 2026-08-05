@@ -636,6 +636,42 @@ console.log('ungroup works at any depth');
   eq(ungroup(c, 'G1').tree, [], 'a top-level group still simply dissolves');
 }
 
+
+/* ── Hidden blank lines INSIDE a group (Seth, 2026-08-06) ────────────────────────────────────────
+ * A FLEx export carries empty phrases. With "Hide blank lines" on they are invisible, so two rows
+ * that look consecutive can have one between them. withBlanksBetween() absorbs those blanks — but
+ * it only looked at topUnits(), so once sub-grouping inside a group was allowed the selection was
+ * not in that list and grouping failed with "Units must be adjacent" naming a line the researcher
+ * could not see. */
+console.log('hidden blanks are absorbed at any depth');
+{
+  const withBlank = () => validateFxpa({
+    format: 'flextext-paragraph-analysis', version: 1, title: 'T', vernLang: 'grc', analLang: 'en',
+    lines: [
+      { id: 'L1', baseline: 'En arche', free: 'a', words: [] },
+      { id: 'L2', baseline: '', free: '', words: [] },          // the invisible one
+      { id: 'L3', baseline: 'kai', free: 'b', words: [] },
+      { id: 'L4', baseline: 'kai theos', free: 'c', words: [] },
+    ], tree: [],
+  }).data;
+
+  // top level still works (this was never broken)
+  eq(withBlanksBetween(withBlank(), ['L1', 'L3'], true).sort(), ['L1', 'L2', 'L3'],
+     'a hidden blank between top-level units is absorbed');
+
+  // and now inside a group
+  const g = groupUnits(withBlank(), ['L1', 'L2', 'L3', 'L4'], { joinType: 'sym' });
+  const picked = withBlanksBetween(g, ['L1', 'L3'], true);
+  eq([...picked].sort(), ['L1', 'L2', 'L3'], 'a hidden blank between SIBLINGS inside a group is absorbed too');
+  const sub = groupUnits(g, picked, { joinType: 'sym' });
+  eq(sub.tree.find((x) => x.id === 'G2').children, ['L1', 'L2', 'L3'], 'so the sub-group forms');
+
+  // it must never drag in real content
+  const g2 = groupUnits(withBlank(), ['L1', 'L2', 'L3', 'L4'], { joinType: 'sym' });
+  eq([...withBlanksBetween(g2, ['L1', 'L4'], true)].sort(), ['L1', 'L2', 'L4'],
+     'only blanks are added — L3 has content and is never pulled in silently');
+}
+
 if (failures) { console.error(`\n${failures} FAILURE(S)`); process.exit(1); }
 console.log('\nPASS: the paragraph model holds its invariants.');
 

@@ -389,15 +389,27 @@ export function visibleTopUnits(data, hideBlank) {
  * them "non-adjacent" and the group would be refused for a reason the user cannot see. So the
  * selection absorbs any hidden blanks that fall between its own ends — the group stays contiguous
  * in the model and the silence simply comes along, which is what it is anyway. */
+/* ⚠ JUDGED AMONG SIBLINGS, NOT ONLY AT THE TOP LEVEL. A FLEx export carries empty phrases, and with
+ * "Hide blank lines" on they are invisible — so two rows that look consecutive can have a blank
+ * between them. This adds those blanks to the run so the grouping the researcher SEES is the
+ * grouping they get.
+ *
+ * It used to look only in topUnits(). Once sub-grouping inside a group was allowed (v232), a
+ * selection of group CHILDREN was not in that list at all: every index came back -1, the blanks
+ * were never added, and grouping failed with "Units must be adjacent" pointing at a line the
+ * researcher could not see (Seth, 2026-08-06, building a tree from a .flextext import). */
 export function withBlanksBetween(data, ids, hideBlank) {
   if (!hideBlank || !Array.isArray(ids) || ids.length < 2) return ids;
-  const top = topUnits(data);
-  const idx = ids.map((id) => top.indexOf(id)).filter((i) => i >= 0);
+  const parent = parentOf(data, ids[0]);
+  // Only meaningful when they are siblings; mixed parents cannot group anyway.
+  if (ids.some((id) => ((parentOf(data, id) || {}).id || null) !== ((parent || {}).id || null))) return ids;
+  const sibs = parent ? parent.children : topUnits(data);
+  const idx = ids.map((id) => sibs.indexOf(id)).filter((i) => i >= 0);
   if (!idx.length) return ids;
   const lo = Math.min(...idx), hi = Math.max(...idx);
   const out = [...ids];
   for (let i = lo; i <= hi; i++) {
-    const id = top[i];
+    const id = sibs[i];
     if (out.includes(id)) continue;
     if (isHiddenBlankUnit(data, id)) out.push(id);   // only blanks, never real content
   }

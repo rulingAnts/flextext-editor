@@ -1821,6 +1821,38 @@ function groupDialog({ ids, gid, joinType = 'sym', head, relation = '', labels =
   });
 }
 
+/* CONSOLE ENTRY POINT — `fxTree()`. Prints what the MODEL actually holds: the selection, each
+ * group's children IN ORDER, and, for the current selection, whether its members are adjacent among
+ * their siblings and why not if they are not.
+ *
+ * Exists because "units must be adjacent" is judged on the SIBLING ORDER, which the screen only
+ * implies — a line renders as a header above its propositions, so two rows that look consecutive
+ * may have another unit between them in the tree, and two that look separated may not. Reading the
+ * data beats inferring it from the layout (Seth, 2026-08-06). Sibling of fxUpdate/fxLinks/fxDevices;
+ * recorded in DEVELOPERS.md. */
+if (typeof window !== 'undefined') {
+  window.fxTree = () => {
+    if (!state) return 'no document open';
+    const sel = [...selection];
+    console.log('selection:', sel.length ? sel : '(none)');
+    console.table(state.tree.map((g) => ({ group: g.id, join: g.joinType, head: g.head || '', children: g.children.join('  ') })));
+    console.table(topUnits(state).map((id) => ({ topLevel: id })));
+    if (sel.length < 2) return 'select two or more units, then run fxTree() again to see why they can or cannot group';
+    const parents = sel.map((id) => (parentOf(state, id) || {}).id || '(top level)');
+    if (new Set(parents).size > 1) {
+      return `those units have DIFFERENT parents (${parents.join(', ')}) — only siblings can group`;
+    }
+    const parent = parentOf(state, sel[0]);
+    const siblings = parent ? parent.children : topUnits(state);
+    const idx = sel.map((id) => siblings.indexOf(id)).sort((a, b) => a - b);
+    const between = siblings.slice(idx[0], idx[idx.length - 1] + 1).filter((c) => !sel.includes(c));
+    console.log('siblings in order:', siblings.join('  '));
+    return between.length
+      ? `NOT adjacent — these sit between them: ${between.join(', ')}`
+      : 'adjacent — grouping should succeed';
+  };
+}
+
 function doUngroup() {
   const g = selectedGroup();
   if (!g) return alert(t('para.needGroupHeading'));

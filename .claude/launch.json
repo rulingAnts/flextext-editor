@@ -62,15 +62,6 @@
         "/Users/Seth/GIT/locate/public"
       ],
       "port": 8099
-    },
-    {
-      "name": "paragraph-dev",
-      "runtimeExecutable": "bash",
-      "runtimeArgs": [
-        "dev-serve.sh",
-        "8013"
-      ],
-      "port": 8013
     }
   ]
 }

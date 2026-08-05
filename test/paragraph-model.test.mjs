@@ -4,7 +4,7 @@ import {
   topUnits, levelOf, spanOf, leavesOf, summaryOf, summaryLineOf, parentOf,
   isBlankLine, visibleTopUnits, withBlanksBetween,
   newAuthoredDoc, addLine, setLineText, deleteLine, setCollapsedAll,
-  addProp, setPropText, setPropImplicit, deleteProp,
+  addProp, setPropText, setPropImplicit, deleteProp, setLineFree,
 } from '../docs/js/paragraph-model.js';
 
 let failures = 0;
@@ -262,6 +262,35 @@ console.log('round-trip');
 /* Authored propositions: SSA is semantic, so a line often expresses several propositions. They
  * live INSIDE the line because the line owns the audio span, and they are ADDITIONS beside the
  * record — never edits to imported wording, which is why they are allowed on any document. */
+/* Seth, 2026-08-05: "not words, glosses, or splits yet, but the text of the free translation
+ * should be changeable." A deliberate, narrow exception to "imported wording is sacred" — the free
+ * translation is the analyst's own rendering into the analysis language, not observed data. */
+console.log('\nthe free translation is editable — and it is the ONLY imported field that is');
+{
+  let d = base();
+  const before = JSON.stringify(d.lines[0]);
+  d = setLineFree(d, 'L1', 'the first one');
+  ok(d.lines[0].free === 'the first one', 'the free translation changes');
+
+  // Everything the vernacular record consists of comes back untouched.
+  const l = { ...d.lines[0] }; l.free = JSON.parse(before).free;
+  eq(JSON.stringify(l), before, 'baseline, words, glosses, times and speaker are all untouched');
+
+  // A line that never had one can be given one — SSA states its propositions in this language.
+  let e = setLineFree(base(), 'L3', 'the third one');
+  ok(e.lines[2].free === 'the third one', 'a line with no free translation can be given one');
+
+  // Cleared means ABSENT, not an empty string, so it matches a line that never had one.
+  e = setLineFree(e, 'L3', '   ');
+  ok(!('free' in e.lines[2]), 'clearing it removes the key rather than leaving an empty string');
+  ok(validateFxpa(e).ok, 'still valid either way');
+  throws(() => setLineFree(d, 'L9', 'x'), 'an unknown line is refused');
+
+  // It feeds everything downstream, which is the point of being able to fix it.
+  let g = groupUnits(setLineFree(base(), 'L1', 'FIXED WORDING'), ['L1', 'L2'], { joinType: 'sym' });
+  ok(summaryOf(g, 'G1')[0] === 'FIXED WORDING', 'the corrected wording reaches the collapsed summary');
+}
+
 console.log('\nauthored propositions — semantic daughters of a line');
 {
   let d = base();

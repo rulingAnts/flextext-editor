@@ -409,6 +409,29 @@ export function setCollapsedAll(data, collapsed, roots = null) {
   return { ...data, view: { ...data.view, collapsed: [...set] } };
 }
 
+/* THE FREE TRANSLATION IS EDITABLE — and it is the ONLY imported field that is (Seth, 2026-08-05:
+ * "not words, glosses, or splits yet, but the text of the free translation should be changeable").
+ *
+ * This is a deliberate, narrow exception to "imported wording is sacred", and it is narrow for a
+ * reason: the free translation is the analyst's own rendering into the analysis language, not
+ * observed language data. SSA states its propositions in that language, so a clumsy or missing
+ * free translation is the one piece of an imported text the analysis genuinely needs to fix.
+ * Baseline text, words, glosses, speakers and times remain untouchable, and there is still no way
+ * to split or join a line.
+ *
+ * Deliberately NOT gated on `authored` — that gate exists to protect the vernacular record, and
+ * this field is not part of it. */
+export function setLineFree(data, lineId, text) {
+  const i = data.lines.findIndex((l) => l.id === lineId);
+  if (i < 0) throw new Error(`Unknown line ${lineId}.`);
+  const lines = data.lines.slice();
+  const s = String(text ?? '');
+  const l = { ...lines[i] };
+  if (s.trim()) l.free = s; else delete l.free;     // cleared → absent, not an empty string
+  lines[i] = l;
+  return { ...data, lines };
+}
+
 /* ---------------- authored propositions (SSA is semantic, not grammatical) ----------------
  *
  * Seth, 2026-08-05: "SSA is semantic, rather than grammatical analysis, which at times requires us

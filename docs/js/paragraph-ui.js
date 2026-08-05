@@ -23,7 +23,7 @@ import {
   topUnits, levelOf, spanOf, leavesOf, summaryOf, isGroupId, nodeById,
   isBlankLine, visibleTopUnits, withBlanksBetween,
   addProp, setPropText, setPropImplicit, deleteProp,
-  newAuthoredDoc, addLine, setLineText, deleteLine,
+  newAuthoredDoc, addLine, setLineText, deleteLine, setLineFree,
 } from './paragraph-model.js';
 
 const WORKING_KEY = 'fxpa:working';
@@ -904,6 +904,35 @@ function renderUnit(id, nodeLabel = '', depth = 0) {
   return el;
 }
 
+/* Swap the free-translation line for an editor, in place. Deliberately NOT a re-render: the row
+ * keeps its selection, its waveform and its scroll position while the box is open, and only the
+ * tick writes anything to the document. Escape or ✕ abandons the edit; Enter is the tick. */
+function openFreeEditor(row, lineId) {
+  const holder = row.querySelector('.pa-free');
+  if (!holder || holder.querySelector('.pa-freeinput')) return;
+  const l = nodeById(state, lineId);
+  const original = l.free || '';
+  holder.innerHTML = `<input class="pa-freeinput" value="${esc(original)}" placeholder="${esc(t('para.freePlaceholder'))}">
+    <button class="pa-freeok" title="${esc(t('para.freeSave'))}">✓</button>
+    <button class="pa-freecancel" title="${esc(t('para.freeCancel'))}">✕</button>`;
+  const input = holder.querySelector('.pa-freeinput');
+  const close = () => { renderWork(); };
+  const save = () => {
+    if (input.value === original) return close();     // nothing changed — do not dirty the doc
+    commit(setLineFree(state, lineId, input.value));
+  };
+  holder.querySelector('.pa-freeok').addEventListener('click', (e) => { e.stopPropagation(); save(); });
+  holder.querySelector('.pa-freecancel').addEventListener('click', (e) => { e.stopPropagation(); close(); });
+  input.addEventListener('click', (e) => e.stopPropagation());
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); save(); }
+    // Esc is the app-wide "clear selection" key — swallow it here so it cancels the edit instead.
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+  });
+  input.focus();
+  input.setSelectionRange(input.value.length, input.value.length);
+}
+
 // An <input>'s `size` is in characters — the cheapest content-sized text box there is.
 const propSize = (text) => Math.max(24, Math.min(90, String(text || '').length + 2));
 
@@ -942,7 +971,19 @@ function renderLineRow(id, nodeLabel = '') {
       : `<span class="w"><span class="wt">${esc(w.txt)}</span><span class="wg">${esc(w.gls || ' ')}</span></span>`).join('');
     body.push(`<div class="pa-words">${words}</div>`);
   }
-  if ((v.free !== false || v.layer === 'free-only') && l.free) {
+  /* The free translation is EDITABLE — the one imported field that is (Seth, 2026-08-05). A pencil
+   * opens a box, a green tick commits it. It is an explicit two-step rather than a live-typing
+   * field like the authored lines, because this text came from somewhere: changing it should be a
+   * decision, not something that happens while the cursor is passing through.
+   * The row is offered even when there is NO free translation yet, since SSA states its
+   * propositions in the analysis language and an imported line may simply lack one. */
+  const showFree = v.free !== false || v.layer === 'free-only';
+  if (showFree && !state.authored) {
+    body.push(`<div class="pa-free${l.free ? '' : ' pa-free-empty'}" data-line="${esc(id)}">
+      <span class="pa-freetext">${esc(l.free || t('para.freeNone'))}</span>
+      <button class="pa-freeedit" data-line="${esc(id)}" title="${esc(t('para.freeEdit'))}">✎</button>
+    </div>`);
+  } else if (showFree && l.free) {
     body.push(`<div class="pa-free">${esc(l.free)}</div>`);
   }
   /* AUTHORED PROPOSITIONS — the semantic daughters of this line (Seth, 2026-08-05). Text boxes,
@@ -980,6 +1021,8 @@ function renderLineRow(id, nodeLabel = '') {
   if (play) play.addEventListener('click', (e) => { e.stopPropagation(); playSpan(l.start, l.end); });
   const wave = row.querySelector('canvas');
   if (wave) wireScrub(wave, l.start, l.end);
+  const freeBtn = row.querySelector('.pa-freeedit');
+  if (freeBtn) freeBtn.addEventListener('click', (e) => { e.stopPropagation(); openFreeEditor(row, id); });
   // Proposition controls must not select/deselect the row underneath them.
   row.querySelectorAll('.pa-propadd, .pa-propdel, .pa-propimp').forEach((b) => {
     b.addEventListener('click', (e) => {

@@ -543,6 +543,48 @@ console.log('\nsplitting a typed line at the cursor (authored documents only)');
   throws(() => splitLine(base(), 'L1', 2), 'an imported line cannot be split this way');
 }
 
+
+/* ── SUB-GROUPING: nesting must not require dismantling the tree (Seth, 2026-08-06) ──────────────
+ * "It seems like any sub-grouping doesn't work if members are already part of a group. And we
+ * REALLY don't want our model to have that constraint… I do not have to want to redo the entire
+ * tree every time I have to modify a sub level." */
+console.log('sub-grouping inside an existing group');
+{
+  const four = () => validateFxpa({
+    format: 'flextext-paragraph-analysis', version: 1, title: 'T', vernLang: 'fau', analLang: 'id',
+    lines: [1, 2, 3, 4].map((n) => ({ id: 'L' + n, baseline: 'w' + n, words: [] })), tree: [],
+  }).data;
+
+  // TOP-DOWN: one big group, then carve sub-groups out of it without touching the parent.
+  let d = groupUnits(four(), ['L1', 'L2', 'L3', 'L4'], { joinType: 'sym' });
+  d = groupUnits(d, ['L1', 'L2'], { joinType: 'sym' });
+  eq(d.tree.find((g) => g.id === 'G1').children, ['G2', 'L3', 'L4'], "the sub-group takes the run's place in its parent");
+  eq(d.tree.find((g) => g.id === 'G2').children, ['L1', 'L2'], 'and holds the grouped units');
+  eq(topUnits(d), ['G1'], 'the root is unchanged — nothing had to be dismantled');
+  eq(levelOf(d, 'G1'), 2, 'the ancestor deepens');
+
+  // level is DERIVED, never stored — no parallel copy to drift.
+  ok(d.tree.every((g) => !('level' in g)), 'no group stores a level');
+  const reloaded = validateFxpa(JSON.parse(serializeFxpa(d))).data;
+  ok(reloaded.tree.every((g) => !('level' in g)), 'and a saved file carries none either');
+  eq(levelOf(reloaded, 'G1'), 2, 'depth survives the round trip by derivation alone');
+  const stale = validateFxpa({ format: 'flextext-paragraph-analysis', version: 1, title: 'T', vernLang: 'fau', analLang: 'id',
+    lines: [{ id: 'L1', baseline: 'a', words: [] }, { id: 'L2', baseline: 'b', words: [] }],
+    tree: [{ id: 'G1', level: 99, children: ['L1', 'L2'], joinType: 'sym' }] }).data;
+  ok(!('level' in stale.tree[0]), 'an OLD file\'s stale stored level is stripped on load');
+
+  // An asymmetrical parent whose HEAD is absorbed must follow it into the new group.
+  let a = groupUnits(four(), ['L1', 'L2', 'L3'], { joinType: 'asym', head: 'L2' });
+  a = groupUnits(a, ['L2', 'L3'], { joinType: 'sym' });
+  eq(a.tree.find((g) => g.id === 'G1').head, 'G2', 'an absorbed HEAD is re-pointed at the new sub-group');
+
+  // Still refused: a run spanning two parents would be a re-parenting, not a nesting.
+  let b = groupUnits(four(), ['L1', 'L2'], { joinType: 'sym' });
+  b = groupUnits(b, ['L3', 'L4'], { joinType: 'sym' });
+  throws(() => groupUnits(b, ['L2', 'L3'], { joinType: 'sym' }), 'units in DIFFERENT groups are still refused');
+  throws(() => groupUnits(b, ['G1', 'L3'], { joinType: 'sym' }), 'mixing a group with a unit inside another group is refused');
+}
+
 if (failures) { console.error(`\n${failures} FAILURE(S)`); process.exit(1); }
 console.log('\nPASS: the paragraph model holds its invariants.');
 

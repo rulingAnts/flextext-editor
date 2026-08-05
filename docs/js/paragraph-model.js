@@ -404,9 +404,13 @@ export function withBlanksBetween(data, ids, hideBlank) {
 export function topUnits(data) {
   const units = [];
   for (const l of data.lines) {
-    const written = (l.props || []).filter((p) => String(p.text || '').trim());
-    if (!written.length) { if (!parentOf(data, l.id)) units.push(l.id); continue; }
-    for (const pr of written) if (!parentOf(data, pr.id)) units.push(pr.id);
+    /* ⚠ ALL propositions, including EMPTY ones. A proposition the analyst has just added has no
+     * text yet, and if the surface excluded it the editor would render nothing — "+ proposition"
+     * would appear to do nothing at all (Seth, 2026-08-05). Blank ones are skipped when DRAWING a
+     * diagram, which is a rendering decision, not a question about what exists. */
+    const props = l.props || [];
+    if (!props.length) { if (!parentOf(data, l.id)) units.push(l.id); continue; }
+    for (const pr of props) if (!parentOf(data, pr.id)) units.push(pr.id);
   }
   for (const g of data.tree) if (!parentOf(data, g.id)) units.push(g.id);
   return units.sort((a, b) => orderIndex(data, leavesOf(data, a)[0]) - orderIndex(data, leavesOf(data, b)[0]));

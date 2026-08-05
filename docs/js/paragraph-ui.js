@@ -22,7 +22,7 @@ import { parseDelimited, looksLikeHeader, columnsOf, detectMapping as detectCsvM
 import {
   validateFxpa, serializeFxpa, groupUnits, ungroup, editGroup, toggleCollapse, setCollapsedAll,
   topUnits, levelOf, spanOf, leavesOf, summaryOf, isGroupId, nodeById,
-  isBlankLine, visibleTopUnits, withBlanksBetween,
+  isBlankLine, visibleTopUnits, withBlanksBetween, isPropId, propUnits, ownerLineOf,
   addProp, setPropText, setPropImplicit, deleteProp,
   newAuthoredDoc, addLine, setLineText, deleteLine, setLineFree, setLineImplicit, setTitle,
   setWordText, setWordGloss, deleteWord,
@@ -1223,6 +1223,61 @@ function openFreeEditor(row, lineId) {
   input.setSelectionRange(input.value.length, input.value.length);
 }
 
+/* One proposition, or a group of them. Mirrors renderUnit for lines, at the level beneath. */
+function renderPropUnit(unitId, lineId, depth) {
+  if (isGroupId(unitId)) {
+    const g = nodeById(state, unitId);
+    const el = document.createElement('div');
+    el.className = 'pa-group pa-pgroup' + (selection.has(unitId) ? ' sel' : '');
+    el.dataset.unit = unitId;
+    el.dataset.depth = (depth + 3) % 6;      // offset so a prop group never colour-matches its line
+    const badge = document.createElement('div');
+    badge.className = 'pa-badge';
+    badge.innerHTML = `<span class="pa-jt">${g.joinType === 'asym' ? '⊳' : '⊕'}</span>
+      ${g.relation ? `<span class="pa-rel">${esc(g.relation)}</span>`
+                   : `<span class="pa-rel pa-rel-empty">${esc(t('para.noRelation'))}</span>`}`;
+    badge.addEventListener('click', (e) => { e.stopPropagation(); toggleSelect(unitId, e); });
+    badge.addEventListener('mouseenter', () => el.classList.add('trace'));
+    badge.addEventListener('mouseleave', () => el.classList.remove('trace'));
+    el.appendChild(badge);
+    for (const c of g.children) {
+      const kid = renderPropUnit(c, lineId, depth + 1);
+      const role = (g.labels || {})[c];
+      if (role) {
+        const tag = document.createElement('span');
+        tag.className = 'pa-nodelabel';
+        tag.textContent = role;
+        kid.prepend(tag);
+      }
+      if (g.joinType === 'asym' && g.head === c) kid.classList.add('pa-head');
+      el.appendChild(kid);
+    }
+    return el;
+  }
+  const pr = nodeById(state, unitId) || { id: unitId, text: '' };
+  const br = state.view.brackets !== false && pr.implicit;
+  const el = document.createElement('div');
+  el.className = 'pa-prop' + (pr.implicit ? ' implicit' : '') + (selection.has(unitId) ? ' sel' : '');
+  el.dataset.unit = unitId;
+  el.innerHTML = `${br ? '<span class="pa-brk">(</span>' : ''}
+    <input class="pa-propedit" data-line="${esc(lineId)}" data-prop="${esc(unitId)}"
+           size="${propSize(pr.text)}" value="${esc(pr.text || '')}" placeholder="${esc(t('para.propPlaceholder'))}">
+    ${br ? '<span class="pa-brk">)</span>' : ''}
+    <button class="pa-propimp${pr.implicit ? ' on' : ''}" data-line="${esc(lineId)}" data-prop="${esc(unitId)}"
+            title="${esc(t(pr.implicit ? 'para.propStated' : 'para.propImplied'))}">${esc(t(pr.implicit ? 'para.implicit' : 'para.explicit'))}</button>
+    <button class="pa-propdel" data-line="${esc(lineId)}" data-prop="${esc(unitId)}"
+            title="${esc(t('para.propDelete'))}">✕</button>`;
+  /* Clicking the proposition (but not its controls) SELECTS it, so it can be grouped. It MUST
+   * stop there: the row underneath has its own click handler, and letting this bubble meant the
+   * line was selected a moment after the proposition, so nothing ever stayed selected. */
+  el.addEventListener('click', (e) => {
+    if (e.target !== el) return;
+    e.stopPropagation();
+    toggleSelect(unitId, e);
+  });
+  return el;
+}
+
 // An <input>'s `size` is in characters — the cheapest content-sized text box there is.
 const propSize = (text) => Math.max(24, Math.min(90, String(text || '').length + 2));
 
@@ -1297,23 +1352,7 @@ function renderLineRow(id, nodeLabel = '') {
    * untouched, which is why these are offered on IMPORTED texts too.
    * Bracketed when implicit — the SSA convention — and the brackets are a setting. */
   const props = Array.isArray(l.props) ? l.props : [];
-  if (props.length) {
-    body.push('<div class="pa-props">');
-    for (const p of props) {
-      const br = v.brackets !== false && p.implicit;
-      body.push(`<div class="pa-prop${p.implicit ? ' implicit' : ''}">
-        ${br ? '<span class="pa-brk">(</span>' : ''}
-        <input class="pa-propedit" data-line="${esc(id)}" data-prop="${esc(p.id)}"
-               size="${propSize(p.text)}" value="${esc(p.text || '')}" placeholder="${esc(t('para.propPlaceholder'))}">
-        ${br ? '<span class="pa-brk">)</span>' : ''}
-        <button class="pa-propimp${p.implicit ? ' on' : ''}" data-line="${esc(id)}" data-prop="${esc(p.id)}"
-                title="${esc(t(p.implicit ? 'para.propStated' : 'para.propImplied'))}">${esc(t(p.implicit ? 'para.implicit' : 'para.explicit'))}</button>
-        <button class="pa-propdel" data-line="${esc(id)}" data-prop="${esc(p.id)}"
-                title="${esc(t('para.propDelete'))}">✕</button>
-      </div>`);
-    }
-    body.push('</div>');
-  }
+  if (props.length) body.push(`<div class="pa-props" data-propline="${esc(id)}"></div>`);
   /* NOT on a from-scratch chart (Seth, 2026-08-05): "our new blank chart is ONLY propositions", so
    * every line there already IS one and a control to add a proposition beneath it is nonsense.
    * Propositions exist to break IMPORTED language data into what it semantically expresses. */
@@ -1352,6 +1391,14 @@ function renderLineRow(id, nodeLabel = '') {
     if (hadEditor) renderWork(); else paintSelection();
     return true;
   };
+  /* PROPOSITIONS ARE UNITS OF THE TREE (Seth, 2026-08-05), so they render through the same
+   * recursive walk as everything else — a proposition group nests visually exactly like a line
+   * group, one level in from its line. They are selectable, so Group / Ungroup / Edit group work
+   * on them without knowing they are propositions. */
+  const propHost = row.querySelector('.pa-props');
+  if (propHost) {
+    for (const u of propUnits(state, id)) propHost.appendChild(renderPropUnit(u, id, 0));
+  }
   const freeBtn = row.querySelector('.pa-freeedit');
   if (freeBtn) freeBtn.addEventListener('click', (e) => {
     if (selectFirst(e)) return;
@@ -1464,8 +1511,12 @@ let anchor = null;                 // the fixed end of the range; a plain click 
 function siblingsOf(id) {
   const hideBlank = state.view.hideBlank !== false;
   const parent = state.tree.find((g) => g.children.includes(id)) || null;
-  const list = parent ? parent.children : visibleTopUnits(state, false);
-  return list.filter((x) => !hideBlank || isGroupId(x) || !isBlankLine(nodeById(state, x)));
+  // Three surfaces now, not two: inside a group, a line's PROPOSITIONS, or the document.
+  const owner = ownerLineOf(state, id);
+  const list = parent ? parent.children
+    : owner ? propUnits(state, owner)
+    : visibleTopUnits(state, false);
+  return list.filter((x) => !hideBlank || isGroupId(x) || isPropId(x) || !isBlankLine(nodeById(state, x)));
 }
 
 // The contiguous run between two units, or null when they are not siblings.
@@ -1477,7 +1528,8 @@ function rangeBetween(a, b) {
 }
 
 function paintSelection() {
-  root.querySelectorAll('.pa-row, .pa-group').forEach((el) => {
+  // .pa-prop is here because propositions are selectable units too (Seth, 2026-08-05).
+  root.querySelectorAll('.pa-row, .pa-group, .pa-prop').forEach((el) => {
     if (el.dataset.unit) el.classList.toggle('sel', selection.has(el.dataset.unit));
   });
   refreshActionButtons();
@@ -1597,6 +1649,10 @@ function wireKeys() {
 }
 
 function unitLabel(id) {
+  if (isPropId(id)) {
+    const pr = nodeById(state, id);
+    return ((pr && pr.text) || t('para.propPlaceholder')).slice(0, 40);
+  }
   if (!isGroupId(id)) {
     const l = nodeById(state, id);
     return (l.free || l.baseline || id).slice(0, 40);
@@ -1619,9 +1675,13 @@ function openGroupDialog() {
   if (selection.size < 2) return alert(t('para.needTwo'));
   // With blanks hidden, two visible neighbours may have silence between them in the model. Absorb
   // it, or the model refuses the group as non-adjacent for a reason the user cannot see.
-  const top = topUnits(state);
-  const ids = withBlanksBetween(state, [...selection], state.view.hideBlank !== false)
-    .sort((a, b) => top.indexOf(a) - top.indexOf(b));
+  const picked = [...selection];
+  // Blank-line absorption applies to the DOCUMENT surface only — a line's propositions have no
+  // hidden blanks between them to bridge.
+  const onProps = picked.some((id) => ownerLineOf(state, id));
+  const surface = onProps ? propUnits(state, ownerLineOf(state, picked[0])) : topUnits(state);
+  const ids = (onProps ? picked : withBlanksBetween(state, picked, state.view.hideBlank !== false))
+    .sort((a, b) => surface.indexOf(a) - surface.indexOf(b));
   groupDialog({ ids });
 }
 

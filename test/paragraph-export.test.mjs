@@ -6,7 +6,7 @@
  *
  * Run: node test/paragraph-export.test.mjs
  */
-import { validateFxpa, groupUnits } from '../docs/js/paragraph-model.js';
+import { validateFxpa, groupUnits, addProp, spanOf } from '../docs/js/paragraph-model.js';
 import { buildParagraphPreviewHtml, buildSsaSvg, buildSsaDiagramHtml, ssaLayout, leavesOfLine, topUnitsOf, leafLineIds, summaryText } from '../docs/js/paragraph-export.js';
 
 let fail = 0;
@@ -271,6 +271,40 @@ console.log('\nSSA SVG + the scrollable page');
   ok(page.startsWith('<!DOCTYPE html>') && page.includes('<svg'), 'the diagram page inlines the SVG');
   ok(/class="scroll"[^>]*>|\.scroll \{ overflow:auto/.test(page), 'and it scrolls rather than squashing a wide diagram');
   ok(/background:#fff/.test(page) && /color-scheme:light/.test(page), 'and is readable in dark mode');
+}
+
+/* PROPOSITION GROUPS ARE DRAWN AS TREE NODES (Seth, 2026-08-05: propositions "need to function as
+ * leaves on the tree for the diagram, but not as independent audio segments"). */
+console.log('\nthe diagram draws a line\'s proposition tree');
+{
+  let d = validateFxpa({ format: 'flextext-paragraph-analysis', version: 1,
+    lines: [{ id: 'L1', start: 0, end: 2000, baseline: 'ana bete', free: 'He went out' },
+            { id: 'L2', start: 2000, end: 3000, baseline: 'u sa', free: 'and I went home' }],
+    tree: [] }).data;
+  d = addProp(d, 'L1', 'the man went outside');
+  d = addProp(d, 'L1', 'the child had laughed');
+  d = addProp(d, 'L1', 'he was ashamed', { implicit: true });
+  const [p1, p2, p3] = d.lines[0].props.map((x) => x.id);
+  d = groupUnits(d, [p2, p3], { joinType: 'asym', head: p2, relation: 'cause–EFFECT',
+                                labels: { [p2]: 'cause', [p3]: 'EFFECT' } });
+  const inner = d.tree[0].id;
+  d = groupUnits(d, [p1, inner], { joinType: 'asym', head: p1, relation: 'EVENT–reason',
+                                   labels: { [p1]: 'EVENT', [inner]: 'reason' } });
+
+  const L = ssaLayout(d, { layer: 'free' });
+  eq(L.rows.map((r) => r.text),
+     ['the man went outside', 'the child had laughed', 'he was ashamed', 'and I went home'],
+     'every proposition is its own row, and the other line is untouched');
+  eq(L.rows.map((r) => r.label), ['EVENT', 'cause', 'EFFECT', ''], 'each member carries its own role');
+  ok(L.rows[1].depth > L.rows[0].depth, 'the nested pair sits deeper than its sibling');
+  ok(L.rows[2].implicit, 'the implied proposition is still marked implied');
+
+  const svg = buildSsaSvg(d, { layer: 'free' });
+  ok(svg.includes('EVENT–reason') && svg.includes('cause–EFFECT'), 'both relations reach the SVG');
+  ok(/\(he was ashamed\)/.test(svg.replace(/<[^>]+>/g, '')), 'and the implied one is bracketed');
+
+  // ⚠ NOT INDEPENDENT AUDIO: the whole proposition tree still spans exactly its line.
+  eq(spanOf(d, 'L1'), { start: 0, end: 2000 }, 'the line\'s span is unchanged by grouping inside it');
 }
 
 console.log(fail ? `\nFAILED (${fail})\n` : '\nPASS: the paragraph exports hold.\n');

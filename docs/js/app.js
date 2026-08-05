@@ -93,10 +93,15 @@ const LOCAL_WORKER = 'http://localhost:8787';                 // `wrangler dev` 
 /* ONE production widget serves BOTH estates — github.io AND the *.flextext.app origins — which is
  * what keeps a single site key in the client with no per-origin branching.
  * ⚠ Turnstile site keys are HOSTNAME-LOCKED in the dashboard, and that list is invisible from here.
- * A new origin whose hostname is not on it renders "Unable to connect to website" and every upload
- * fails, while the identical code works on github.io (crowd.flextext.app, 2026-08-05). Adding an
- * origin to the suite means adding its hostname to this widget — it is a THIRD place, alongside the
- * Worker's ALLOWED_ORIGINS and wrangler.toml. */
+ * A hostname that is not on it renders "Unable to connect to website" and the upload can never
+ * start, while the identical code works elsewhere (crowd.flextext.app, 2026-08-05).
+ *
+ * ⚠ ONLY CROWD-RECORDER ORIGINS NEED A SLOT. This is the entire Turnstile surface: it is rendered
+ * only by the crowd upload path below (`crowd-turnstile`, gated on CROWD_CFG.turnstile). The editor
+ * and recorder upload to Drive through the worker with a relay token; the researcher panel and the
+ * paragraph tool never touch it. The widget's name ("FlexText signup") suggests wider use than it
+ * has — do not infer from it. The dashboard caps a widget at 10 hostnames, so listing origins that
+ * never render the widget is what makes that cap bite. */
 const TURNSTILE_SITE_KEY = '0x4AAAAAADo0TdBBVpldATJ6';
 const TURNSTILE_TEST_SITE_KEY = '1x00000000000000000000AA';  // Cloudflare always-pass key (local dev only)
 function isLocalDev() { return /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname); }

@@ -73,8 +73,7 @@ const orderOf = (data, id) => {
   const li = data.lines.findIndex((l) => l.id === lineId);
   if (li < 0) return -1;
   if (!isProp(id)) return li * 1000;
-  const written = (data.lines[li].props || []).filter((p) => String(p.text || '').trim());
-  const pi = written.findIndex((p) => p.id === id);
+  const pi = (data.lines[li].props || []).findIndex((p) => p.id === id);
   return li * 1000 + (pi < 0 ? 0 : pi + 1);
 };
 
@@ -86,9 +85,11 @@ export function topUnitsOf(data) {
   };
   const units = [];
   for (const l of data.lines) {
-    const written = (l.props || []).filter((p) => String(p.text || '').trim());
-    if (!written.length) { if (!parentOf(data, l.id)) units.push(l.id); continue; }
-    for (const pr of written) if (!parentOf(data, pr.id)) units.push(pr.id);
+    // ALL propositions — identical to the model's surface (the anti-drift test enforces that).
+    // A blank one is skipped when a ROW is built, not when the surface is described.
+    const props = l.props || [];
+    if (!props.length) { if (!parentOf(data, l.id)) units.push(l.id); continue; }
+    for (const pr of props) if (!parentOf(data, pr.id)) units.push(pr.id);
   }
   for (const g of data.tree) if (!parentOf(data, g.id)) units.push(g.id);
   return units.sort((a, b) => orderOf(data, firstLeaf(a)) - orderOf(data, firstLeaf(b)));
@@ -99,7 +100,8 @@ export function topUnitsOf(data) {
  * model (Seth: "Do remember the isBlankLine() fix in the redo"). Take the ID, not the node, so the
  * kind is always checked first. */
 const blankUnit = (data, id) => {
-  if (isGroup(id) || isProp(id)) return false;
+  if (isGroup(id)) return false;
+  if (isProp(id)) { const p = node(data, id); return !p || !String(p.text || '').trim(); }
   const l = node(data, id);
   return !!l && !String(l.baseline || '').trim() && !String(l.free || '').trim()
     && !(l.words || []).some((w) => String(w.txt || '').trim());

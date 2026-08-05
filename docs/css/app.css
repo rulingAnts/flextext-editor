@@ -1506,3 +1506,14 @@ main {
   background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px;
   max-width: 16ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+
+/* Advanced link-estate override (⌃⌥E). Normally absent; when ACTIVE it is deliberately loud —
+   an invisible mode that rewrites every invite link is how a dev pairing reaches a real coworker. */
+.rp-advlinks select { font-size: 12px; max-width: 190px; }
+.rp-advlinks-on { background: #fdf3d7; border: 1px solid #e4c95b; border-radius: 6px; padding: 2px 6px; }
+.rp-advlinks-on b { color: #6b5310; font-size: 12px; margin-right: 4px; }
+
+/* Legacy-estate flags in the dashboard: a device still on the GitHub Pages apps. Amber, not red —
+   nothing is broken and nothing is urgent; it is a "move this when convenient" marker. */
+.rp-badge-legacy { background: #fdf3d7; color: #6b5310; border: 1px solid #e4c95b; }
+.rp-legacy-tip { font-size: 13px; margin: 0 0 10px; display: block; }

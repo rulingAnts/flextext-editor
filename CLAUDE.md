@@ -244,8 +244,11 @@ python3 -m http.server 8011         # plain HTTP — fine for most testing (loca
 
 Dev affordances: `FLEXTEXT_DOCS=<path>/docs bash dev-serve.sh <port>` serves ANY checkout (e.g. a
 `git worktree` of `staging` — the pattern for Seth's local test rig on :8012); mirrors are
-per-port so instances can't re-point each other. In the app: `fxUpdate()` in the console forces a
-service-worker update check/activation (the ⌃/⌥+U flow); `?devreset` wipes the origin. Bump
+per-port so instances can't re-point each other. In the app, the console entry points are `fxUpdate()` (forces a service-worker update
+check/activation — the ⌃/⌥+U flow) and, in the researcher panel, `fxLinks()` (advanced link-estate
+override for pairing a dev app; prints a different URL, never changes the stored estate). The full
+list lives in DEVELOPERS.md — add new ones THERE, and never as a keyboard shortcut (a ⌃⌥E binding
+could never fire on a Mac: Option+E is a dead key). `?devreset` wipes the origin. Bump
 versions ONLY via `./bump-version.sh vNNN` (explicit-set, fails loudly — see DEVELOPERS.md).
 
 ### `dev-serve.sh` — the stable no-cache rig (preferred)

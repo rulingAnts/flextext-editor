@@ -158,6 +158,38 @@ export function estateOf(origin = location.origin) {
 
 const HOME = estateOf();
 
+/* DEPRECATION NOTICE — the legacy GitHub Pages panel only (Seth, 2026-08-05).
+ *
+ * ⚠ Matched on the EXACT hostname, not on `HOME === ESTATES.pages`. estateOf() returns the pages
+ * map for anything that is not *.flextext.app or localhost, which includes the *.workers.dev
+ * STAGING previews — and staging is the dev site, not a deprecated address. An estate-based test
+ * would have nagged every preview build.
+ *
+ * Researcher-panel only, deliberately: a researcher's account, coworkers and texts live server-side
+ * in D1, so re-installing costs them nothing. The FIELD apps are the opposite — their texts and
+ * audio are in per-origin IndexedDB, and telling a field worker to reinstall before they upload
+ * would destroy work. Do not copy this banner into the editor or recorder. */
+/* Always the CLOUD copy: this link has to outlive the estate it describes, and a link to
+ * rulingants.github.io/…/help/migrate.html dies the moment Pages is retired — which is precisely
+ * when someone is most likely to be reading it. */
+const MIGRATE_DOC = ESTATES.cloud.editor + 'help/migrate.html';
+const LEGACY_PANEL_HOST = 'rulingants.github.io';
+const onLegacyHost = () => location.hostname === LEGACY_PANEL_HOST;
+// Page-load scoped on purpose: no storage, so it returns next launch. A deprecation notice that can
+// be dismissed forever stops being a deprecation notice; one that cannot be dismissed at all is a
+// permanent tax on every screen of the panel.
+let deprecationDismissed = false;
+function deprecationBanner() {
+  if (!onLegacyHost() || deprecationDismissed) return '';
+  return `<div class="warn-banner rp-deprecated">
+    <span>${esc(t('panel.deprecated.msg'))}
+      <a href="${ESTATES.cloud.researcher}" target="_blank" rel="noopener">${esc(t('panel.deprecated.link'))}</a>
+      &nbsp;·&nbsp;
+      <a href="${MIGRATE_DOC}" target="_blank" rel="noopener">${esc(t('panel.deprecated.coworkers'))}</a></span>
+    <button class="banner-dismiss" data-act="deprecated-dismiss" aria-label="${esc(t('panel.deprecated.dismiss'))}" title="${esc(t('panel.deprecated.dismiss'))}">&times;</button>
+  </div>`;
+}
+
 /* ⚠ EVERY LINK COMES FROM THE RECORD'S ESTATE, never from where the panel happens to be running
  * (Seth, 2026-08-05: a legacy crowd recorder shown from the Cloudflare panel produced
  * https://research.flextext.app/crowd-recorder/?c=… — a 404, because the satellites are not copied
@@ -171,8 +203,66 @@ const HOME = estateOf();
  *
  * On localhost the dev rig wins regardless: a developer must never be handed production links. */
 function basesFor(estate) {
+  const ov = linkOverride();
+  if (ov) return ov;
   if (HOME.local) return HOME;
   return estate === 'pages' ? ESTATES.pages : ESTATES.cloud;
+}
+
+/* ADVANCED: override which estate's URLs the panel PRINTS (Seth, 2026-08-05).
+ *
+ * Seth: "Don't let the researcher manually choose which site/url to use for new instances... And
+ * that should be true regardless of which researcher URL is used (there should be a keyboard
+ * shortcut way to expose more advanced options so I can do things like pair a dev app)." And:
+ * "But don't present those choices to ordinary users."
+ *
+ * ⚠ This changes the LINK ONLY, never the stored estate. The worker stamps the row 'cloud' at
+ * creation and that stays true, so a dev pairing cannot quietly re-home a real coworker or leave a
+ * row disagreeing with the apps it was paired to. The estate remains a property of the record, not
+ * a question put to the researcher — the override just prints a different door to the same house.
+ *
+ * ⚠ NEVER SILENT. While an override is active the picker STAYS visible with a live badge, because
+ * a hidden mode that rewrites every invite link is exactly the sort of thing you forget is on and
+ * then hand to a real coworker.
+ *
+ * sessionStorage, not localStorage: it survives the reloads a dev pairing needs, and dies with the
+ * tab, so it can never persist into a later real session. */
+const LINK_OVERRIDE_KEY = 'flextext-rp-link-estate';
+const LINK_MODES = ['auto', 'cloud', 'pages', 'origin'];
+function linkMode() {
+  try { const v = sessionStorage.getItem(LINK_OVERRIDE_KEY); return LINK_MODES.includes(v) ? v : 'auto'; }
+  catch { return 'auto'; }
+}
+function setLinkMode(v) {
+  try { if (v === 'auto') sessionStorage.removeItem(LINK_OVERRIDE_KEY); else sessionStorage.setItem(LINK_OVERRIDE_KEY, v); }
+  catch { /* private mode — the override simply will not stick */ }
+  advancedShown = true;   // stay visible: an active override must never be invisible
+  route();
+}
+function sameOriginBases() {
+  const o = location.origin;
+  return { editor: o + '/flextext-editor/', recorder: o + '/text-recorder/',
+           crowd: o + '/crowd-recorder/', researcher: o + '/flextext-researcher/', local: true };
+}
+function linkOverride() {
+  const m = linkMode();
+  if (m === 'cloud') return ESTATES.cloud;
+  if (m === 'pages') return ESTATES.pages;
+  if (m === 'origin') return sameOriginBases();
+  return null;
+}
+// Hidden by default; ⌃⌥E reveals it. Auto-revealed whenever an override is already active.
+let advancedShown = false;
+function advancedPicker() {
+  if (!advancedShown && linkMode() === 'auto') return '';
+  const m = linkMode();
+  const opt = (v, label) => `<option value="${v}"${m === v ? ' selected' : ''}>${esc(label)}</option>`;
+  return `<span class="rp-advlinks${m === 'auto' ? '' : ' rp-advlinks-on'}" title="${esc(t('panel.adv.links.help'))}">
+    ${m === 'auto' ? '' : `<b>${esc(t('panel.adv.links.on'))}</b>`}
+    <select id="rp-adv-links" aria-label="${esc(t('panel.adv.links.label'))}">
+      ${opt('auto', t('panel.adv.links.auto'))}${opt('cloud', t('panel.adv.links.cloud'))}
+      ${opt('pages', t('panel.adv.links.pages'))}${opt('origin', t('panel.adv.links.origin'))}
+    </select></span>`;
 }
 // A record with no estate at all is pre-migration data seen by a newer client: treat it as legacy,
 // which is what it is. Never default an UNKNOWN record to 'cloud' — that invents a migration.
@@ -285,12 +375,43 @@ export function initResearcherPanel(d) {
     const b = e.target.closest && e.target.closest('#rp-install');
     if (b) { b.remove(); if (deps.doInstall) deps.doInstall(); }
   });
+  root.addEventListener('change', (e) => {
+    const sel = e.target.closest && e.target.closest('#rp-adv-links');
+    if (sel) setLinkMode(sel.value);
+  });
+  // Delegated: the banner is re-rendered by every screen, so a per-render listener would leak.
+  root.addEventListener('click', (e) => {
+    const d = e.target.closest && e.target.closest('[data-act="deprecated-dismiss"]');
+    if (!d) return;
+    deprecationDismissed = true;
+    const b = d.closest('.rp-deprecated');
+    if (b) b.remove();
+  });
   // Returning to a backgrounded tab → refresh the dashboard + the LIVE-version banner right away rather
   // than waiting for the next poll tick (only fires while the dashboard is actively polling).
   document.addEventListener('visibilitychange', () => { if (!document.hidden && dashPoll) { refreshLiveVersions(); pollDashboard(); } });
   // Regained connectivity → recover immediately instead of waiting for the next timer: refresh the
   // dashboard if it's up, otherwise re-attempt sign-in/bootstrap (drives the reconnecting screen).
   window.addEventListener('online', () => { if (!root || root.hidden) return; if (dashPoll) { refreshLiveVersions(); pollDashboard(); } else route(); });
+  /* CONSOLE ENTRY POINT — `fxLinks()`. Replaces a ⌃⌥E shortcut that could never have worked on a
+   * Mac: Option+E is the dead key that composes an acute accent, so `e.key` is never 'e' and the
+   * handler never fired (Seth, 2026-08-05). A console function is the better shape anyway — there
+   * is nothing for an ordinary researcher to discover, and nothing to collide with a dead key,
+   * an IME, or a screen reader.
+   *
+   * Sibling of window.fxUpdate() in app.js. Both are recorded in DEVELOPERS.md. */
+  if (typeof window !== 'undefined') {
+    window.fxLinks = (mode) => {
+      if (mode === undefined) {
+        advancedShown = true; route();
+        return `links: ${linkMode()} — call fxLinks('auto'|'cloud'|'pages'|'origin') to change. ` +
+               `Affects the URLs printed in invite/share links only, never where a device is registered.`;
+      }
+      if (!LINK_MODES.includes(mode)) return `unknown mode ${JSON.stringify(mode)} — use ${LINK_MODES.join(' | ')}`;
+      setLinkMode(mode);
+      return `links: ${linkMode()}${mode === 'auto' ? '' : ' (OVERRIDE ACTIVE — the panel shows a badge while it is on)'}`;
+    };
+  }
   return { open, close, isSignedUp: () => Researcher.isSignedUp(), onInstallable };
 }
 
@@ -429,11 +550,12 @@ function header(titleKey, withLock) {
   // (the dashboard Lock button is the way out — it signs out → sign-in screen).
   const exitBtn = deps && deps.standalone ? ''
     : `<button class="icon-btn rp-exit" data-act="exit" title="${esc(t('panel.exit'))}">&#8592;</button>`;
-  return `<div class="rp-head">
+  return deprecationBanner() + `<div class="rp-head">
     ${exitBtn}
     <span class="rp-title">${esc(t(titleKey))}</span>
     <span class="rp-spacer"></span>
     ${deps && deps.canInstall && deps.canInstall() ? `<button class="secondary-btn rp-install" id="rp-install">${esc(t('install.btn'))}</button>` : ''}
+    ${advancedPicker()}
     <select id="rp-lang" title="${esc(t('research.lang'))}">
       <option value="en"${getLang() === 'en' ? ' selected' : ''}>English</option>
       <option value="id"${getLang() === 'id' ? ' selected' : ''}>Indonesia</option>
@@ -1401,17 +1523,28 @@ async function renderInstanceCard(it, deviceCount) {
   // Warning badges that must NOT be hidden behind the collapse.
   const warnBadges = `${anyWipe ? ` <span class="rp-badge rp-badge-warn">${esc(t('panel.inst.wipeBadge'))}</span>` : ''}`
                    + `${anyStale ? ` <span class="rp-badge rp-badge-stale">${esc(t('panel.dev.stale'))}</span>` : ''}`;
+  /* LEGACY-ESTATE FLAG (Seth, 2026-08-05: "with ANY researcher app, devices listed that use a
+   * legacy URL should be flagged with a warning tip/banner that has a link to the migration
+   * instructions"). Shown from BOTH panels, deliberately: on the legacy panel it duplicates the top
+   * banner, but the top banner says "this PANEL is retiring" while this says "THIS DEVICE is still
+   * on the old apps", which is the thing the researcher actually has to act on, one device at a
+   * time. */
+  const isLegacyDevice = estateOfRecord(it) === 'pages';
+  const legacyBadge = isLegacyDevice
+    ? ` <span class="rp-badge rp-badge-legacy">${esc(t('panel.inst.legacyBadge'))}</span>` : '';
   return `<div class="rp-card rp-inst${collapsed ? ' rp-inst-collapsed' : ''}">
     <div class="rp-inst-top">
       <button class="rp-inst-toggle" data-iact="collapse" data-i="${esc(it.instance_id)}"
               aria-expanded="${collapsed ? 'false' : 'true'}" aria-controls="${esc(bodyId)}"
               title="${esc(t(collapsed ? 'panel.inst.expand' : 'panel.inst.collapse'))}">
         <span class="rp-caret" aria-hidden="true">▾</span>
-        <span class="rp-inst-name">${esc(it.nickname || '?')} ${runs ? `<span class="rp-badge rp-badge-type">${esc(runs)}</span>` : ''} ${status}${warnBadges}</span>
+        <span class="rp-inst-name">${esc(it.nickname || '?')} ${runs ? `<span class="rp-badge rp-badge-type">${esc(runs)}</span>` : ''} ${status}${warnBadges}${legacyBadge}</span>
         <span class="rp-inst-count">${esc(t('panel.inst.texts', { n: textCount }))}</span>
       </button>
     </div>
     <div class="rp-inst-body" id="${esc(bodyId)}"${collapsed ? ' hidden' : ''}>
+      ${isLegacyDevice ? `<p class="banner warn-banner rp-legacy-tip">${esc(t('panel.inst.legacyTip'))}
+        <a href="${MIGRATE_DOC}" target="_blank" rel="noopener">${esc(t('panel.deprecated.coworkers'))}</a></p>` : ''}
       ${installsHtml || `<p class="note">${esc(t('panel.inst.noInstall'))}</p>`}
       <div class="rp-inst-actions">
         <button class="secondary-btn" data-iact="settings" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}">${esc(t('panel.inst.settings'))}</button>

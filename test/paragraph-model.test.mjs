@@ -6,7 +6,7 @@ import {
   newAuthoredDoc, addLine, setLineText, deleteLine, setCollapsedAll,
   addProp, setPropText, setPropImplicit, deleteProp, setLineFree,
   isPropId, propUnits, ownerLineOf, orderIndex,
-  setWordText, setWordGloss, deleteWord,
+  setWordText, setWordGloss, deleteWord, splitLine,
 } from '../docs/js/paragraph-model.js';
 
 let failures = 0;
@@ -509,6 +509,38 @@ console.log('\ncollapse/expand ALL — whole document, or one subtree when somet
   ok(setCollapsedAll(d, true, ['L1', 'G2']).view.collapsed.join(',') === 'G2', 'a mixed selection acts on the groups in it');
   ok(setCollapsedAll(d, true, ['G9']).view.collapsed.length === 0, 'an unknown id is ignored, not crashed on');
   ok(validateFxpa(setCollapsedAll(d, true)).ok, 'the result is still a valid document');
+}
+
+/* Seth, 2026-08-05: "If you press enter in the middle of a line, it should split it at the
+ * cursor's place" — in the blank/new diagram, where a line IS a typed proposition. */
+console.log('\nsplitting a typed line at the cursor (authored documents only)');
+{
+  let d = validateFxpa(newAuthoredDoc('T')).data;
+  d = setLineText(d, 'L1', 'he went outside because the child laughed');
+  d = splitLine(d, 'L1', 'he went outside'.length);
+  eq(d.lines.map((l) => l.baseline), ['he went outside', 'because the child laughed'],
+     'the text divides at the cursor, with the whitespace at the seam tidied');
+  ok(d._added === d.lines[1].id, 'the new line is named, so the cursor can follow it');
+  ok(validateFxpa(d).ok, 'valid');
+
+  // ⚠ A SPLIT INSIDE A BRACKET must not drop half the text out of the analysis.
+  let g = validateFxpa(newAuthoredDoc('T')).data;
+  g = setLineText(g, 'L1', 'first part second part');
+  g = addLine(g); g = setLineText(g, g.lines[1].id, 'another');
+  g = groupUnits(g, [g.lines[0].id, g.lines[1].id], { joinType: 'sym', relation: 'x' });
+  g = splitLine(g, 'L1', 'first part'.length);
+  eq(g.tree[0].children.length, 3, 'the new half joins its sibling group');
+  eq(g.tree[0].children[1], g._added, 'immediately after the line it came from, so the run stays contiguous');
+  ok(validateFxpa(g).ok, 'still valid');
+
+  // Splitting at the very end is just "add a line" — the fast typing flow is unchanged.
+  let e = validateFxpa(newAuthoredDoc('T')).data;
+  e = setLineText(e, 'L1', 'whole thing');
+  e = splitLine(e, 'L1', 'whole thing'.length);
+  eq(e.lines.map((l) => l.baseline), ['whole thing', ''], 'a split at the end leaves an empty new line');
+
+  // IMPORTED text is not splittable here — that is the audio-boundary feature, and it is separate.
+  throws(() => splitLine(base(), 'L1', 2), 'an imported line cannot be split this way');
 }
 
 if (failures) { console.error(`\n${failures} FAILURE(S)`); process.exit(1); }

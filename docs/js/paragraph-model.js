@@ -189,6 +189,41 @@ export function setLineImplicit(data, id, implicit) {
   return { ...data, lines };
 }
 
+/* SPLIT A TEXT LINE AT THE CURSOR (Seth, 2026-08-05: "If you press enter in the middle of a line,
+ * it should split it at the cursor's place"). Authored documents only — this is the from-scratch
+ * diagram, where a "line" IS a proposition someone typed, so splitting one is just editing text.
+ *
+ * ⚠ NOT the same thing as splitting an audio-segmented line, which is a separate feature and is
+ * deliberately harder: that one has to place a boundary in the AUDIO, which must be observed at
+ * the playhead and never computed. Here there is no audio to divide.
+ *
+ * The new line inherits nothing but the tail of the text: no implicit flag, no propositions.
+ * Returns the document with `_added` naming the new line, so the caller can put the cursor in it. */
+export function splitLine(data, id, at) {
+  requireAuthored(data);
+  const i = data.lines.findIndex((l) => l.id === id);
+  if (i < 0) throw new Error(`Unknown line ${id}.`);
+  const text = String(data.lines[i].baseline || '');
+  const cut = Math.max(0, Math.min(text.length, Number(at) || 0));
+  const head = text.slice(0, cut).replace(/\s+$/, '');
+  const tail = text.slice(cut).replace(/^\s+/, '');
+  const newId = nextLineId(data);
+  const lines = data.lines.slice();
+  lines[i] = { ...lines[i], baseline: head };
+  lines.splice(i + 1, 0, { id: newId, baseline: tail, words: [] });
+  /* ⚠ THE NEW LINE MUST JOIN ITS SIBLING'S GROUP, or a split inside a bracket would silently drop
+   * half the text out of the analysis. It goes in immediately after the line it came from, so the
+   * run stays contiguous and the bracket still covers everything it did before. */
+  const tree = data.tree.map((g) => {
+    const k = g.children.indexOf(id);
+    if (k < 0) return g;
+    const children = g.children.slice();
+    children.splice(k + 1, 0, newId);
+    return { ...g, children };
+  });
+  return { ...data, lines, tree, _added: newId };
+}
+
 export function deleteLine(data, id) {
   requireAuthored(data);
   if (data.lines.length <= 1) throw new Error('A text needs at least one line.');
@@ -317,6 +352,13 @@ export function levelOf(data, id) {
  * and must never be destroyed — but for GROUPING they are noise, so the paragraph app hides them
  * (Seth, 2026-08-05). Hidden, never deleted: the .fxpa keeps them, the times stay exactly as they
  * were, and turning the setting off brings them straight back. */
+/* "Is this a hidden blank line?" may only be asked about LINES. A GROUP has no baseline, and
+ * neither does a PROPOSITION — so asking isBlankLine about either returns TRUE and silently
+ * removes it (Seth, having been bitten once in the UI: "Do remember the isBlankLine() fix in the
+ * redo"). Every filter goes through this instead. */
+export const isHiddenBlankUnit = (data, id) =>
+  !isGroupId(id) && !isPropId(id) && isBlankLine(nodeById(data, id));
+
 export const isBlankLine = (l) =>
   !!l && !isGroupId(l.id) && !String(l.baseline || '').trim() && !String(l.free || '').trim()
   && !(l.words || []).some((w) => String(w.txt || '').trim());
@@ -325,7 +367,7 @@ export const isBlankLine = (l) =>
 export function visibleTopUnits(data, hideBlank) {
   const units = topUnits(data);
   if (!hideBlank) return units;
-  return units.filter((id) => isGroupId(id) || !isBlankLine(nodeById(data, id)));
+  return units.filter((id) => !isHiddenBlankUnit(data, id));
 }
 
 /* Grouping needs CONTIGUOUS units, but a hidden blank sitting between two visible ones would make
@@ -342,7 +384,7 @@ export function withBlanksBetween(data, ids, hideBlank) {
   for (let i = lo; i <= hi; i++) {
     const id = top[i];
     if (out.includes(id)) continue;
-    if (!isGroupId(id) && isBlankLine(nodeById(data, id))) out.push(id);   // only blanks, never real content
+    if (isHiddenBlankUnit(data, id)) out.push(id);   // only blanks, never real content
   }
   return out;
 }

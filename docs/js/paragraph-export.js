@@ -66,19 +66,44 @@ export function leavesOfLine(line) {
     : [{ id: line.id, text: null, lineId: line.id, isProp: false, implicit: !!line.implicit }];
 }
 
+/* ONE flat surface, mirroring the model: a line contributes itself, or its written propositions.
+ * Stated again here because a format module may import only other format modules. */
+const orderOf = (data, id) => {
+  const lineId = isProp(id) ? lineOfProp(id) : id;
+  const li = data.lines.findIndex((l) => l.id === lineId);
+  if (li < 0) return -1;
+  if (!isProp(id)) return li * 1000;
+  const written = (data.lines[li].props || []).filter((p) => String(p.text || '').trim());
+  const pi = written.findIndex((p) => p.id === id);
+  return li * 1000 + (pi < 0 ? 0 : pi + 1);
+};
+
 export function topUnitsOf(data) {
-  const pos = new Map(data.lines.map((l, i) => [l.id, i]));
-  const firstLine = (id) => {
+  const firstLeaf = (id) => {
     if (!isGroup(id)) return id;
     const g = node(data, id);
-    return g && g.children.length ? firstLine(g.children[0]) : id;
+    return g && g.children.length ? firstLeaf(g.children[0]) : id;
   };
   const units = [];
-  for (const l of data.lines) if (!parentOf(data, l.id)) units.push(l.id);
+  for (const l of data.lines) {
+    const written = (l.props || []).filter((p) => String(p.text || '').trim());
+    if (!written.length) { if (!parentOf(data, l.id)) units.push(l.id); continue; }
+    for (const pr of written) if (!parentOf(data, pr.id)) units.push(pr.id);
+  }
   for (const g of data.tree) if (!parentOf(data, g.id)) units.push(g.id);
-  return units.sort((a, b) => (pos.get(firstLine(a)) ?? 0) - (pos.get(firstLine(b)) ?? 0));
+  return units.sort((a, b) => orderOf(data, firstLeaf(a)) - orderOf(data, firstLeaf(b)));
 }
 
+/* ⚠ ASK THIS ONLY ABOUT LINES. A proposition has no baseline, free translation or words, so it
+ * answers "yes, blank" and disappears — the same trap that hid propositions in the UI and in the
+ * model (Seth: "Do remember the isBlankLine() fix in the redo"). Take the ID, not the node, so the
+ * kind is always checked first. */
+const blankUnit = (data, id) => {
+  if (isGroup(id) || isProp(id)) return false;
+  const l = node(data, id);
+  return !!l && !String(l.baseline || '').trim() && !String(l.free || '').trim()
+    && !(l.words || []).some((w) => String(w.txt || '').trim());
+};
 const blank = (l) => !!l && !String(l.baseline || '').trim() && !String(l.free || '').trim()
   && !(l.words || []).some((w) => String(w.txt || '').trim());
 
@@ -152,7 +177,7 @@ export function buildParagraphPreviewHtml(data, opts = {}) {
       ${sp && audioB64 ? `<button class="play" data-s="${sp.start}" data-e="${sp.end}">▶</button>` : ''}
     </div>`;
     const kids = g.children.map((c) => {
-      if (hideBlank && !isGroup(c) && blank(node(data, c))) return '';
+      if (hideBlank && blankUnit(data, c)) return '';
       const kidLabel = (g.labels || {})[c] || '';
       const el = renderUnit(c, kidLabel, depth + 1);
       return (g.joinType === 'asym' && g.head === c && el) ? el.replace(/^<div class="/, '<div class="head ') : el;
@@ -443,7 +468,7 @@ export function ssaLayout(data, opts = {}) {
       }
       const kids = [];
       for (const c of g.children) {
-        if (hideBlank && !isGroup(c) && blank(node(data, c))) continue;
+        if (hideBlank && blankUnit(data, c)) continue;
         const kid = build(c, depth + 1, (g.labels || {})[c] || '', g.joinType === 'asym' && g.head === c);
         if (kid) kids.push(kid);
       }
@@ -451,55 +476,25 @@ export function ssaLayout(data, opts = {}) {
       return { kind: 'group', depth, kids, relation: g.relation || '', joinType: g.joinType,
                headIndex: kids.findIndex((k) => k.head), label: roleLabel, head: !!isHead };
     }
-    const l = node(data, id);
-    if (!l) return null;
-    /* Several propositions from one line behave as an implicit cluster standing where the line
-     * stood. ⚠ THE LINE'S ROLE BELONGS TO THAT CLUSTER, NOT TO EACH MEMBER — labelling every
-     * proposition "orienter" claims each one separately plays that role in the parent, which is
-     * false and reads as a repeated label down the margin. The cluster carries it once, and its
-     * members sit one level deeper, so the implicit grouping is visible as a grouping. */
-    /* ⚠ A LINE'S PROPOSITIONS ARE A TREE, NOT A LIST (Seth, 2026-08-05: they "need to function as
-     * leaves on the tree for the diagram"). So walk the line's own proposition surface with the
-     * same recursion used for the document — a proposition group draws exactly like any other
-     * group, one level in from its line. A line with no written propositions is still one leaf. */
-    const surface = propSurface(data, l);
-    if (!surface.length) {
-      const leaf = leavesOfLine(l)[0];
-      rows.push({ depth, label: roleLabel, content: contentOf(l, leaf), head: !!isHead,
-                  implicit: !!leaf.implicit, speaker: l.speaker || '' });
+    /* A PROPOSITION IS ITS OWN LEAF on the flat surface. */
+    if (isProp(id)) {
+      const pr = node(data, id);
+      if (!pr || !String(pr.text || '').trim()) return null;
+      const owner = data.lines.find((x) => x.id === lineOfProp(id));
+      rows.push({ depth, label: roleLabel, head: !!isHead, implicit: !!pr.implicit,
+                  speaker: (owner && owner.speaker) || '',
+                  content: { kind: 'prop', text: pr.text || '', implicit: !!pr.implicit, free: '' } });
       return { kind: 'leaf', depth, row: rows.length - 1, label: roleLabel, head: !!isHead };
     }
-    const buildProp = (pid, d, role, isH) => {
-      maxDepth = Math.max(maxDepth, d);
-      if (isGroup(pid)) {
-        const pg = node(data, pid);
-        if (!pg) return null;
-        const kids = [];
-        for (const c of pg.children) {
-          const kid = buildProp(c, d + 1, (pg.labels || {})[c] || '', pg.joinType === 'asym' && pg.head === c);
-          if (kid) kids.push(kid);
-        }
-        if (!kids.length) return null;
-        return { kind: 'group', depth: d, kids, relation: pg.relation || '', joinType: pg.joinType,
-                 headIndex: kids.findIndex((k) => k.head), label: role, head: !!isH };
-      }
-      const pr = node(data, pid);
-      if (!pr) return null;
-      rows.push({ depth: d, label: role, head: !!isH, implicit: !!pr.implicit, speaker: l.speaker || '',
-                  content: { kind: 'prop', text: pr.text || '', implicit: !!pr.implicit, free: '' } });
-      return { kind: 'leaf', depth: d, row: rows.length - 1, label: role, head: !!isH };
-    };
-    if (surface.length === 1) {
-      const only = buildProp(surface[0], depth, roleLabel, isHead);
-      if (only) return only;
-    }
-    // Several units at the line's level behave as one implicit cluster standing where the line
-    // stood — the line's ROLE belongs to that cluster, never repeated on each member.
-    const kids = surface.map((u) => buildProp(u, depth + 1, '', false)).filter(Boolean);
-    if (!kids.length) return null;
-    maxDepth = Math.max(maxDepth, depth + 1);
-    return { kind: 'group', depth, kids, relation: '', joinType: 'sym', headIndex: -1,
-             label: roleLabel, head: !!isHead, segment: true };
+    const l = node(data, id);
+    if (!l) return null;
+    /* ONE FLAT SURFACE (the redo): a proposition is surfaced in its own right, so a line that has
+     * propositions never reaches here as a unit — and a line that does reach here is a plain leaf.
+     * Nothing needs to expand anything. */
+    const leaf = leavesOfLine(l)[0];
+    rows.push({ depth, label: roleLabel, content: contentOf(l, leaf), head: !!isHead,
+                implicit: !!leaf.implicit, speaker: l.speaker || '' });
+    return { kind: 'leaf', depth, row: rows.length - 1, label: roleLabel, head: !!isHead };
   };
 
   const roots = [];

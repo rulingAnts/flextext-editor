@@ -578,3 +578,28 @@ console.log('propositions take the line\'s slot in the tree');
   ok(!!d2.lines.find((l) => l.id === 'L1'), 'the line itself always survives — audio/player depend on it');
   ok(!!a3.lines.find((l) => l.id === 'L1'), 'including while its propositions stand in for it');
 }
+
+/* ⚠ THE CASE THE FIRST FIX MISSED (v230, reverted). Its tests all passed because they only ever
+ * built CONSISTENT trees — so a fix whose flaw was assuming consistency could not be caught.
+ * A line's propositions can end up in DIFFERENT groups (a file saved by the version that orphaned
+ * them, then grouped). v230 re-inserted the whole proposition list into every group containing any
+ * of them, duplicating ids across groups; deleting one then emptied both, pruneTree dissolved them,
+ * and lines disappeared from the view. */
+console.log('a malformed tree must not be made worse');
+{
+  const split = validateFxpa({
+    format: 'flextext-paragraph-analysis', version: 1, title: 'T', vernLang: 'fau', analLang: 'id',
+    lines: [
+      { id: 'L1', baseline: 'satu', words: [], props: [{ id: 'L1p1', text: 'a' }, { id: 'L1p2', text: 'b' }] },
+      { id: 'L2', baseline: 'dua', words: [] }, { id: 'L3', baseline: 'tiga', words: [] },
+    ],
+    tree: [{ id: 'G1', level: 1, children: ['L1p1', 'L2'], joinType: 'sym' },
+           { id: 'G2', level: 1, children: ['L1p2', 'L3'], joinType: 'sym' }],
+  }).data;
+  const after = addProp(split, 'L1');
+  const all = after.tree.flatMap((g) => g.children);
+  eq(all.length, new Set(all).size, 'no id is a child of two groups after adding a proposition');
+  eq(after.tree.find((g) => g.id === 'G2').children, ['L1p2', 'L3'], 'the OTHER group is left alone');
+  ok(after.tree.find((g) => g.id === 'G1').children.includes('L1p3'), 'the new proposition joins exactly one group');
+  eq(after.lines.map((l) => l.id), ['L1', 'L2', 'L3'], 'and no language-data line is touched');
+}

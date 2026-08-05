@@ -703,8 +703,12 @@ export function addProp(data, lineId, text = '', opts = {}) {
    * After the first substitution the line is no longer in the tree — its proposition is — so a
    * lineId-only test says "not grouped" from the SECOND proposition onward, and every later one
    * silently escaped the group. Caught by the add-two-then-check test below. */
+  /* Which ONE group does this line occupy? After the first substitution the line is no longer in
+   * the tree — its proposition is — so ask about the line OR its existing propositions. */
   const existingProps = ((nodeById(data, lineId) || {}).props || []).map((x) => x.id);
-  const wasGrouped = !!parentOf(data, lineId) || existingProps.some((id) => !!parentOf(data, id));
+  const holder = parentOf(data, lineId)
+    || existingProps.map((id) => parentOf(data, id)).find(Boolean)
+    || null;
   const out = withLine(data, lineId, (l) => {
     const props = propsOf(l);
     // Ids are unique WITHIN the line and never reused, so a reference cannot silently re-point.
@@ -716,17 +720,31 @@ export function addProp(data, lineId, text = '', opts = {}) {
     return { ...l, props: [...props.slice(0, at), p, ...props.slice(at)] };
   });
 
-  if (!wasGrouped) return out;                     // top level: topUnits() already substitutes
-  const line = nodeById(out, lineId);
-  const ids = (line.props || []).map((x) => x.id);
+  if (!holder) return out;                         // top level: topUnits() already substitutes
+
+  /* ⚠ EXACTLY ONE GROUP, and only the NEW id. v230 rebuilt every group that contained ANY of the
+   * line's propositions and re-inserted the WHOLE list, so a line whose propositions had ended up in
+   * two different groups got all of them duplicated into both — "propositions in somewhat random
+   * places" (Seth, 2026-08-06). Deleting one then emptied both, pruneTree dissolved the groups, and
+   * lines vanished from the view. Touch one group, insert one id. */
+  const p = nodeById(out, lineId).props.find((x) => !existingProps.includes(x.id));
   return {
     ...out,
     tree: out.tree.map((g) => {
-      // The line's slot is wherever the line itself, or any of its propositions, currently sits.
-      const at = g.children.findIndex((c) => c === lineId || ids.includes(c));
-      if (at < 0) return g;
-      const kept = g.children.filter((c) => c !== lineId && !ids.includes(c));
-      return { ...g, children: [...kept.slice(0, at), ...ids, ...kept.slice(at)] };
+      if (g.id !== holder.id) return g;
+      const lineAt = g.children.indexOf(lineId);
+      if (lineAt >= 0) {                              // first proposition: it TAKES the line's slot
+        const children = [...g.children];
+        children[lineAt] = p.id;
+        return { ...g, children };
+      }
+      // later ones: immediately after the last sibling of this line already in this group
+      let last = -1;
+      g.children.forEach((c, i) => { if (existingProps.includes(c)) last = i; });
+      if (last < 0) return g;
+      const children = [...g.children];
+      children.splice(last + 1, 0, p.id);
+      return { ...g, children };
     }),
   };
 }

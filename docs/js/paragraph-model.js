@@ -165,6 +165,22 @@ export function setLineText(data, id, text) {
  * with fewer than two children (cascading upward), promoting the survivor to the parent. Without
  * this a delete leaves one-child groups, which validateFxpa rejects — the file would refuse to
  * reopen after an edit that appeared to work. */
+/* A line of a FROM-SCRATCH chart can be marked implicit, exactly like a proposition — because in a
+ * blank chart every line IS a proposition (Seth, 2026-08-05: "we want an implicit/explicit toggle
+ * for each line, but not for actual language data lines in imported-interlinear-text-based
+ * charts"). Hence the authored gate: a recorded line is a thing someone said, and "implied" is not
+ * a claim you can make about it — the claim belongs to a proposition written UNDER it. */
+export function setLineImplicit(data, id, implicit) {
+  requireAuthored(data);
+  const i = data.lines.findIndex((l) => l.id === id);
+  if (i < 0) throw new Error(`Unknown line ${id}.`);
+  const lines = data.lines.slice();
+  const l = { ...lines[i] };
+  if (implicit) l.implicit = true; else delete l.implicit;
+  lines[i] = l;
+  return { ...data, lines };
+}
+
 export function deleteLine(data, id) {
   requireAuthored(data);
   if (data.lines.length <= 1) throw new Error('A text needs at least one line.');
@@ -421,6 +437,14 @@ export function setCollapsedAll(data, collapsed, roots = null) {
  *
  * Deliberately NOT gated on `authored` — that gate exists to protect the vernacular record, and
  * this field is not part of it. */
+/* The title is METADATA, not language data, so it is editable on any document — imported or not.
+ * It is also what every save and export names the file after (Seth, 2026-08-05: "the filename at
+ * the top should be editable, and then that will help with the save/download/export functionality
+ * whenever a file picker save isn't an option"), which is why it matters that it can be corrected. */
+export function setTitle(data, title) {
+  return { ...data, title: String(title ?? '').trim() };
+}
+
 export function setLineFree(data, lineId, text) {
   const i = data.lines.findIndex((l) => l.id === lineId);
   if (i < 0) throw new Error(`Unknown line ${lineId}.`);

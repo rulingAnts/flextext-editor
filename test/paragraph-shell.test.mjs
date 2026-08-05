@@ -9,6 +9,7 @@
  *
  * Run: node test/paragraph-shell.test.mjs
  */
+import { readFileSync } from 'node:fs';
 import shell from '../paragraph-analysis/shell.js';
 
 let fail = 0;
@@ -74,6 +75,22 @@ for (const p of ['/index.html', '/manifest.webmanifest', '/flextext-editor/js/ap
   const res = await get(p);
   const body = await res.text();
   ok(body === 'ASSET:' + p && res.headers.get('cache-control') !== 'no-store', `${p} → served as-is`);
+}
+
+/* ⚠ THE APPS THAT CANNOT RECORD MUST NEVER OPEN A MICROPHONE (Seth, 2026-08-05: "our paragraph
+ * analysis tool is still requesting microphone permissions it doesn't need").
+ * The bug was `!$('#record-modal')?.hidden` — in an app with no record modal that is `!undefined`,
+ * i.e. TRUE, so regaining focus warmed the mic and the browser prompted. Source-level assertions,
+ * because the failure is a permission prompt on someone else's machine. */
+{
+  const app = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
+  ok(/if \(PARAGRAPH_MODE \|\| RESEARCHER_MODE\) return;/.test(app),
+     'warmUpMic refuses outright in the apps that have no recording feature');
+  ok(/const modal = \$\('#record-modal'\);\s*\n\s*if \(modal && !modal\.hidden/.test(app),
+     'the modal must EXIST before its hidden flag is consulted');
+  // The live check that matters: the visibility handler must not warm on a missing element.
+  ok(!/else if \(!document\.hidden && !\$\('#record-modal'\)\?\.hidden/.test(app),
+     'the old "missing element counts as visible" branch is gone from the handler');
 }
 
 console.log(fail ? `\nFAILED (${fail})\n` : '\nPASS: the shell Worker routes correctly.\n');

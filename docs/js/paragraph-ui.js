@@ -23,7 +23,7 @@ import {
   topUnits, levelOf, spanOf, leavesOf, summaryOf, isGroupId, nodeById,
   isBlankLine, visibleTopUnits, withBlanksBetween,
   addProp, setPropText, setPropImplicit, deleteProp,
-  newAuthoredDoc, addLine, setLineText, deleteLine, setLineFree,
+  newAuthoredDoc, addLine, setLineText, deleteLine, setLineFree, setLineImplicit, setTitle,
   setWordText, setWordGloss, deleteWord,
 } from './paragraph-model.js';
 
@@ -37,6 +37,7 @@ let pendingSfm = null;            // a Toolbox/SFM file awaiting its marker mapp
 let pendingCsv = null;            // a CSV/TSV file awaiting its column mapping
 let focusLineId = null;           // after a re-render, put the cursor back where the user was
 let focusPropId = null;           // ...and into the proposition just added ('new' = the last one)
+let followRow = null;             // the line the playhead is in, so we only auto-scroll on a change
 let selection = new Set();        // selected unit ids (lines or groups)
 let root = null;                  // #pa-main
 let audio = null, peaks = null, mpb = 0, durMs = 0, stopAt = 0, activeSpan = null, rafId = 0;
@@ -90,7 +91,12 @@ function renderOpen(errors) {
   const input = $('#pa-file');
   $('#pa-pick').addEventListener('click', () => input.click());
   $('#pa-new').addEventListener('click', () => {
-    const v = validateFxpa(newAuthoredDoc(t('para.scratchTitle')));
+    // Ask for the name up front (Seth, 2026-08-05): it is what every save and export will be named
+    // after, and naming it now beats discovering "New Diagram.fxpa" in Downloads later. Cancelling
+    // the prompt abandons the new chart; an empty name just means Untitled, renameable at the top.
+    const name = prompt(t('para.newChartPrompt'), '');
+    if (name === null) return;
+    const v = validateFxpa(newAuthoredDoc(String(name).trim() || t('para.scratchTitle')));
     if (v.ok) { focusLineId = v.data.lines[0].id; load(v.data); }
   });
   input.addEventListener('change', () => handleFiles([...input.files]));
@@ -650,7 +656,12 @@ function wireScrub(el, s, e) {
   };
   el.addEventListener('pointerdown', (ev) => { ev.preventDefault(); down = true; seek(ev); });
   el.addEventListener('pointermove', (ev) => { if (down) seek(ev); });
-  window.addEventListener('pointerup', () => { down = false; });
+  window.addEventListener('pointerup', () => {
+    // Select on RELEASE, not during the drag: re-selecting on every pointermove would rebuild the
+    // selection dozens of times a second while the user is still deciding where to land.
+    if (down && audio) focusLineAtTime(audio.currentTime * 1000);
+    down = false;
+  });
 }
 
 function playSpan(s, e) {
@@ -664,6 +675,7 @@ function playSpan(s, e) {
 }
 
 function startTicker() {
+  wireFollowGuards();
   cancelAnimationFrame(rafId);
   const tick = () => {
     if (audio) {
@@ -675,9 +687,11 @@ function startTicker() {
       if (time) time.textContent = clock(tNow) + ' / ' + clock(T);
       const mp = $('#pa-play');
       if (mp) mp.textContent = (!audio.paused && !stopAt) ? '⏸' : '▶';
+      let playingRow = null;
       root.querySelectorAll('.pa-row[data-s]').forEach((row) => {
         const s = +row.dataset.s, e = +row.dataset.e;
         const inside = tNow >= s && tNow < e;
+        if (inside) playingRow = row;
         row.classList.toggle('on', inside);
         // The segment's own playhead: placed when the audio is inside this span, hidden otherwise.
         const cur = row.querySelector('.pa-rowcur');
@@ -695,6 +709,25 @@ function startTicker() {
         const s = +b.dataset.s, e = +b.dataset.e;
         b.textContent = (!audio.paused && activeSpan && activeSpan.s === s && activeSpan.e === e && tNow >= s && tNow < e) ? '⏸' : '▶';
       });
+      /* Follow the playing line. Only on a CHANGE of line (scrolling every frame would fight
+       * everything), only while actually playing, only when the user has not just taken the
+       * viewport, never with an editor open, and only if the line is not already on screen. */
+      if (playingRow !== followRow) {
+        followRow = playingRow;
+        const idle = Date.now() - lastUserScroll > FOLLOW_STANDOFF_MS;
+        const wanted = state && state.view && state.view.autoScroll !== false;
+        const sc = scroller();
+        if (wanted && playingRow && sc && !audio.paused && idle && !anyEditorOpen()) {
+          const rowR = playingRow.getBoundingClientRect();
+          const boxR = sc.getBoundingClientRect();
+          const margin = 20;
+          // Only when it is actually out of sight — otherwise the page twitches on every line.
+          if (rowR.top < boxR.top + margin || rowR.bottom > boxR.bottom - margin) {
+            const target = sc.scrollTop + (rowR.top - boxR.top) - (sc.clientHeight - rowR.height) / 2;
+            sc.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
+          }
+        }
+      }
     }
     rafId = requestAnimationFrame(tick);
   };
@@ -715,19 +748,29 @@ const clock = (ms) => {
  * edits are exactly what you do most.
  * Restored synchronously, before the browser paints, so there is no visible jump. The height can
  * change (a group collapsed, a line removed), so the offset is clamped to what now exists. */
+/* ⚠ THE ANALYSIS SCROLLS INSIDE #pa-tree, NOT THE WINDOW. The window never scrolls here at all,
+ * so reading window.scrollY gives 0 forever and "restoring" it does nothing — which is exactly how
+ * the first attempt at this silently failed. Always ask the element that actually scrolls. */
+const scroller = () => (root && root.querySelector('#pa-tree')) || document.scrollingElement;
+
 function renderWork() {
-  const keepY = window.scrollY;
+  const before = scroller();
+  const keepY = before ? before.scrollTop : 0;
   renderWorkInner();
-  const maxY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-  if (keepY) window.scrollTo({ top: Math.min(keepY, maxY), behavior: 'instant' });
+  const after = scroller();
+  if (after && keepY) {
+    after.scrollTop = Math.min(keepY, Math.max(0, after.scrollHeight - after.clientHeight));
+  }
 }
 
 function renderWorkInner() {
   const v = state.view;
   const showAudio = !!(state.audio && v.audio);
   root.innerHTML = `
+    <div class="pa-work${state.view.slim ? ' slim' : ''}">
     <div class="pa-bar">
-      <span class="pa-title" title="${esc(state.title)}">${esc(state.title)}</span>
+      <button id="pa-slim" class="pa-slimbtn" title="${esc(t('para.slimTip'))}">${state.view.slim ? '▾' : '▴'}</button>
+      <span class="pa-titlewrap"><span class="pa-title" title="${esc(state.title)}">${esc(state.title || t('para.untitled'))}</span><button id="pa-title-edit" title="${esc(t('para.titleEdit'))}">✎</button></span>
       <span class="pa-tools">
         <select id="pa-layer" title="${esc(t('para.layerTip'))}">
           <option value="interlinear">${esc(t('para.layerInterlinear'))}</option>
@@ -737,6 +780,7 @@ function renderWorkInner() {
         <label class="check-label pa-inline"><input type="checkbox" id="pa-free"> ${esc(t('para.showFree'))}</label>
         <label class="check-label pa-inline" title="${esc(t('para.hideBlankTip'))}"><input type="checkbox" id="pa-blank"> ${esc(t('para.hideBlank'))}</label>
         <label class="check-label pa-inline" id="pa-brk-wrap" hidden><input type="checkbox" id="pa-brk"> ${esc(t('para.brackets'))}</label>
+        ${state.audio ? `<label class="check-label pa-inline" title="${esc(t('para.autoScrollTip'))}"><input type="checkbox" id="pa-follow"> ${esc(t('para.autoScroll'))}</label>` : ''}
         ${state.audio ? `<label class="check-label pa-inline"><input type="checkbox" id="pa-audio"> ${esc(t('para.showAudio'))}</label>
         <select id="pa-waves" title="${esc(t('para.wavesTip'))}">
           <option value="compact">${esc(t('para.wavesCompact'))}</option>
@@ -770,6 +814,7 @@ function renderWorkInner() {
     </div>` : ''}
     <p class="pa-tip">${esc(state.authored ? t('para.scratchHint') : t('para.selectTip'))}
       ${state.authored ? '' : `<span class="pa-tip-note">${esc(t('para.splitNote'))}</span>`}</p>
+    </div>
     <div class="pa-tree" id="pa-tree"></div>
     <div id="pa-dialog" hidden></div>`;
 
@@ -778,6 +823,7 @@ function renderWorkInner() {
   $('#pa-blank').checked = v.hideBlank !== false;      // ON by default: blank lines are not analysis
   // Brackets only mean something once a document HAS implied propositions — Seth: default on.
   $('#pa-brk').checked = v.brackets !== false;
+  if ($('#pa-follow')) $('#pa-follow').checked = v.autoScroll !== false;
   $('#pa-brk-wrap').hidden = !state.lines.some((l) => (l.props || []).some((p) => p.implicit));
   // free-only requires free on; disable the free checkbox there (it is the whole display).
   $('#pa-free').disabled = v.layer === 'free-only';
@@ -787,6 +833,17 @@ function renderWorkInner() {
   }
   $('#pa-layer').addEventListener('change', (e) => setView({ layer: e.target.value, ...(e.target.value === 'free-only' ? { free: true } : {}) }));
   $('#pa-free').addEventListener('change', (e) => setView({ free: e.target.checked }));
+  if ($('#pa-slim')) $('#pa-slim').addEventListener('click', () => {
+    commit({ ...state, view: { ...state.view, slim: !state.view.slim } });
+  });
+  if ($('#pa-title-edit')) $('#pa-title-edit').addEventListener('click', () => {
+    const name = prompt(t('para.titlePrompt'), state.title || '');
+    if (name === null) return;
+    commit(setTitle(state, name));
+  });
+  if ($('#pa-follow')) $('#pa-follow').addEventListener('change', (e) => {
+    commit({ ...state, view: { ...state.view, autoScroll: e.target.checked } });
+  });
   $('#pa-brk').addEventListener('change', (e) => {
     commit({ ...state, view: { ...state.view, brackets: e.target.checked } });
   });
@@ -861,6 +918,41 @@ function renderWorkInner() {
   }
 }
 
+/* Clicking or scrubbing the big player also SELECTS the line you landed on (Seth, 2026-08-05:
+ * "scrubbing and clicking on the big player should select/focus the relevant line (or the closest
+ * line to the position)"). Landing in a gap between segments picks the nearest line rather than
+ * nothing, because "nothing" is never what you meant by clicking there. */
+function focusLineAtTime(ms) {
+  const timed = state.lines.filter((l) => typeof l.start === 'number' && typeof l.end === 'number');
+  if (!timed.length) return;
+  const inside = timed.find((l) => ms >= l.start && ms < l.end);
+  const target = inside || timed.reduce((best, l) => {
+    const d = ms < l.start ? l.start - ms : ms - l.end;
+    return (!best || d < best.d) ? { l, d } : best;
+  }, null).l;
+  if (!target) return;
+  if (!(selection.size === 1 && selection.has(target.id))) {
+    selection = new Set([target.id]);
+    anchor = target.id;
+    if (anyEditorOpen()) renderWork(); else paintSelection();
+  }
+  bringIntoView(target.id);
+}
+
+// Scroll a unit into view if it is off screen — the same courtesy rules as playback follow.
+function bringIntoView(unitId) {
+  const sc = scroller();
+  const row = root.querySelector(`.pa-row[data-unit="${CSS.escape(unitId)}"]`);
+  if (!sc || !row) return;
+  if (state.view && state.view.autoScroll === false) return;
+  const rowR = row.getBoundingClientRect(), boxR = sc.getBoundingClientRect();
+  const margin = 20;
+  if (rowR.top < boxR.top + margin || rowR.bottom > boxR.bottom - margin) {
+    sc.scrollTo({ top: Math.max(0, sc.scrollTop + (rowR.top - boxR.top) - (sc.clientHeight - rowR.height) / 2),
+                  behavior: 'smooth' });
+  }
+}
+
 function wireOverviewScrub(el) {
   let down = false;
   const seek = (ev) => {
@@ -873,7 +965,12 @@ function wireOverviewScrub(el) {
   };
   el.addEventListener('pointerdown', (ev) => { ev.preventDefault(); down = true; seek(ev); });
   el.addEventListener('pointermove', (ev) => { if (down) seek(ev); });
-  window.addEventListener('pointerup', () => { down = false; });
+  window.addEventListener('pointerup', () => {
+    // Select on RELEASE, not during the drag: re-selecting on every pointermove would rebuild the
+    // selection dozens of times a second while the user is still deciding where to land.
+    if (down && audio) focusLineAtTime(audio.currentTime * 1000);
+    down = false;
+  });
 }
 
 function setView(patch) {
@@ -1055,7 +1152,7 @@ function renderLineRow(id, nodeLabel = '') {
   const l = nodeById(state, id);
   const v = state.view;
   const row = document.createElement('div');
-  row.className = 'pa-row' + (selection.has(id) ? ' sel' : '');
+  row.className = 'pa-row' + (selection.has(id) ? ' sel' : '') + (l.implicit ? ' implied' : '');
   row.dataset.unit = id;
   const timed = typeof l.start === 'number' && typeof l.end === 'number';
   if (timed) { row.dataset.s = l.start; row.dataset.e = l.end; }
@@ -1085,6 +1182,8 @@ function renderLineRow(id, nodeLabel = '') {
      * line the user just created, and by Enter committing and opening the next one. */
     body.push(`<div class="pa-authored" data-line="${esc(id)}">
       <span class="pa-linetext${l.baseline ? '' : ' pa-empty'}">${esc(l.baseline || t('para.scratchPlaceholder'))}</span>
+      <button class="pa-propimp pa-lineimp${l.implicit ? ' on' : ''}" data-line="${esc(id)}"
+              title="${esc(t(l.implicit ? 'para.propStated' : 'para.propImplied'))}">${esc(t(l.implicit ? 'para.implicit' : 'para.explicit'))}</button>
       <button class="pa-lineedit" data-line="${esc(id)}" title="${esc(t('para.lineEdit'))}">✎</button>
       <button class="pa-linedel" data-line="${esc(id)}" title="${esc(t('para.lineDelete'))}">🗑</button>
     </div>`);
@@ -1164,6 +1263,9 @@ function renderLineRow(id, nodeLabel = '') {
    * That also removes by construction the two faults Seth hit: two editors open at once, and a
    * tick that appeared to apply an edit to more than one item. */
   const selectFirst = (e) => {
+    // Holding Ctrl/Cmd is a selection gesture, so it must never fall through into an editor —
+    // even on a line that is already the only one selected (Seth, 2026-08-05).
+    if (e && (e.ctrlKey || e.metaKey)) { e.stopPropagation(); toggleSelect(id, e); return true; }
     if (selection.size === 1 && selection.has(id)) return false;
     e.stopPropagation();
     const hadEditor = anyEditorOpen();
@@ -1193,6 +1295,12 @@ function renderLineRow(id, nodeLabel = '') {
    * Backspace-on-empty only reached a line whose editor was already open and only while it was
    * empty, which is neither of the cases that actually come up. deleteLine also dissolves any
    * group left with fewer than two children, so the tree cannot be left invalid. */
+  const impBtn = row.querySelector('.pa-lineimp');
+  if (impBtn) impBtn.addEventListener('click', (e) => {
+    if (selectFirst(e)) return;
+    e.stopPropagation();
+    commit(setLineImplicit(state, id, !l.implicit));
+  });
   const delBtn = row.querySelector('.pa-linedel');
   if (delBtn) delBtn.addEventListener('click', (e) => {
     if (selectFirst(e)) return;
@@ -1304,11 +1412,37 @@ function paintSelection() {
  * Closing means ABANDONING — an editor only ever writes on its green tick, so discarding an
  * half-typed box can never lose committed work. Re-rendering is the close: it rebuilds the row
  * from the document, which is by definition the last saved state. */
+/* ⚠ AUTO-SCROLL MUST NEVER WRESTLE THE VIEW FROM THE USER (Seth, 2026-08-05: "have it not override
+ * manual scrolling, if the user is editing something or scrolling somewhere manually, don't let
+ * our auto-scroll wrest the control from them, but I DO want it to work if the user isn't editing
+ * or manually scrolling at the moment").
+ * So we record when the user last drove the viewport themselves and stand off for a few seconds
+ * afterwards. Only real input counts — wheel, touch, and the scrolling keys — because our own
+ * scrolling also fires `scroll` events and would otherwise silence the feature permanently. */
+const FOLLOW_STANDOFF_MS = 4000;
+let lastUserScroll = 0;
+let followWired = false;
+function wireFollowGuards() {
+  if (followWired) return;
+  followWired = true;
+  const touched = () => { lastUserScroll = Date.now(); };
+  window.addEventListener('wheel', touched, { passive: true });
+  window.addEventListener('touchmove', touched, { passive: true });
+  /* ⚠ NOT pointerdown. Scrubbing the player or pressing play is a pointerdown, and treating that
+   * as "the user is scrolling" silenced following for several seconds after the very gesture that
+   * means "now follow this". Only gestures that MOVE THE VIEWPORT count. */
+  window.addEventListener('keydown', (e) => {
+    if (['PageUp', 'PageDown', 'Home', 'End', 'ArrowUp', 'ArrowDown', ' '].includes(e.key)) touched();
+  });
+}
+
 const anyEditorOpen = () => !!(root && root.querySelector('.pa-inline-in'));
 const closeEditors = () => { if (anyEditorOpen()) { renderWork(); return true; } return false; };
 
 function toggleSelect(id, ev) {
-  const extend = multiMode || !!(ev && (ev.shiftKey || ev.ctrlKey || ev.metaKey));
+  /* Ctrl/Cmd extends the range; SHIFT no longer does anything (Seth, 2026-08-05). Shift-click is
+   * the browser's own text-selection gesture, so it fought the app on every drag across a line. */
+  const extend = multiMode || !!(ev && (ev.ctrlKey || ev.metaKey));
   if (extend && anchor && anchor !== id) {
     const range = rangeBetween(anchor, id);
     // Not siblings (different groups): start a fresh range here rather than selecting nonsense.
@@ -1850,7 +1984,16 @@ async function saveFile(text, suggestedName, mime, description) {
       // Anything else (permission, sandbox): fall through to the download path rather than fail.
     }
   }
-  downloadFile(text, suggestedName, mime);
+  /* NO SAVE DIALOG HERE (Firefox, Safari) — so at least let the user NAME the file, which is
+   * Seth's own suggestion: "we CAN give the user some way in the UI to edit the filename before
+   * they click save or download." The browser still decides the folder (its download location, or
+   * its own prompt if "always ask where to save" is on), but an auto-generated name is no longer
+   * forced on anybody. Cancelling here saves nothing, exactly as cancelling the real dialog does. */
+  const typed = prompt(t('para.saveAsPrompt'), suggestedName);
+  if (typed === null) return false;
+  let name = String(typed).trim().replace(/[\\/:*?"<>|]+/g, '_') || suggestedName;
+  if (!name.toLowerCase().endsWith(ext.toLowerCase())) name += ext;   // keep the real extension
+  downloadFile(text, name, mime);
   return true;
 }
 

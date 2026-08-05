@@ -1278,12 +1278,17 @@ main {
 .pa-propedit:focus { border-color: var(--blue); background: #fff; color: var(--fg); outline: none; }
 /* A WORD, not a glyph (Seth, 2026-08-05: "empty quotes vs parenthesis icon isn't very intuitive").
    The chip states what the proposition IS; the tooltip says what clicking will do. */
+/* ⚠ ALWAYS VISIBLE (Seth, 2026-08-05: "How do I 'mark as implied' a proposition? I don't see that
+   in the UI"). It was revealed on hover like the bin, but it is not only a control — it STATES
+   whether this proposition is implicit or explicit, which is information the analyst needs to read
+   at a glance without hunting. A hidden state indicator is not an indicator. */
 .pa-propimp { border: 1px solid var(--border); background: var(--panel); color: var(--muted); cursor: pointer;
-  font-size: 11px; padding: 1px 7px; border-radius: 999px; opacity: 0; letter-spacing: .01em; }
+  font-size: 11px; padding: 1px 7px; border-radius: 999px; opacity: .85; letter-spacing: .01em; }
+.pa-propimp:hover { opacity: 1; border-color: var(--blue); }
 .pa-propimp.on { border-color: var(--blue); color: var(--blue); background: #eef3fb; }
 .pa-propdel { border: 0; background: transparent; color: var(--muted); cursor: pointer;
   font-size: 12px; padding: 2px 4px; border-radius: 5px; opacity: 0; }
-.pa-prop:hover .pa-propimp, .pa-prop:hover .pa-propdel, .pa-propedit:focus ~ .pa-propimp { opacity: 1; }
+.pa-prop:hover .pa-propdel { opacity: 1; }
 .pa-propimp:hover, .pa-propdel:hover { background: var(--panel); color: var(--fg); }
 .pa-propadd { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 12px;
   padding: 2px 6px; margin: 2px 0 0 14px; border-radius: 5px; opacity: 0; }
@@ -1294,8 +1299,14 @@ main {
 /* An authored line is TEXT until asked — a permanently-open box swallowed every click, so the row
    could never be selected, and selecting is how you group (Seth, 2026-08-05). */
 .pa-tip-note { display: block; margin-top: 4px; color: var(--muted); }
+.pa-titlewrap { display: inline-flex; align-items: baseline; gap: 4px; }
+#pa-title-edit { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 12px;
+  padding: 1px 4px; border-radius: 5px; opacity: .6; }
+#pa-title-edit:hover { background: var(--bg); color: var(--blue); opacity: 1; }
 .pa-authored { display: flex; align-items: baseline; gap: 6px; }
 .pa-linetext { font: 16px/1.4 inherit; color: var(--vern); }
+.pa-row.implied .pa-linetext { font-style: italic; color: var(--muted); }
+.pa-lineimp { flex: 0 0 auto; }
 .pa-linetext.pa-empty { color: var(--muted); font-style: italic; opacity: .6; }
 .pa-lineedit { border: 0; background: transparent; color: var(--muted); cursor: pointer;
   font-size: 12px; padding: 1px 5px; border-radius: 5px; opacity: 0; }
@@ -1354,7 +1365,21 @@ main {
 .pa-diag { width: 100%; min-height: 160px; margin-top: 8px; font: 12px/1.4 ui-monospace, Menlo, monospace; border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
 .pa-drop .primary-btn { margin-top: 10px; }
 
-.pa-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--panel); position: sticky; top: 0; z-index: 30; }
+/* ⚠ THE CHROME MUST NOT EAT THE DOCUMENT (Seth, 2026-08-05: "our UI elements on the top are taking
+   up quite a lot of the whole UI space... better to make that skinnier/more space-economical. And
+   maybe collapsible as well (except the wav/player wouldn't collapse completely, but rather become
+   skinnier)"). Tighter by default, and a ▴ collapses the view toggles and the hint entirely while
+   the PLAYER only shrinks — you still need to see and scrub the audio. */
+.pa-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 5px 10px; border-bottom: 1px solid var(--border); background: var(--panel); position: sticky; top: 0; z-index: 30; }
+.pa-bar select, .pa-bar .check-label { font-size: 12.5px; }
+.pa-bar .secondary-btn, .pa-bar .primary-btn { padding: 4px 9px; font-size: 13px; }
+.pa-slimbtn { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 12px;
+  padding: 2px 5px; border-radius: 5px; }
+.pa-slimbtn:hover { background: var(--bg); color: var(--fg); }
+.pa-work.slim .pa-tools .check-label, .pa-work.slim #pa-layer { display: none; }
+.pa-work.slim .pa-tip { display: none; }
+.pa-work.slim .pa-ovwrap { height: 22px; }
+.pa-work.slim .pa-player { padding-top: 2px; padding-bottom: 2px; }
 .pa-title { font-weight: 700; max-width: 26ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pa-tools, .pa-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .pa-actions { margin-left: auto; }
@@ -1419,7 +1444,7 @@ main {
 .pa-selinfo { font-size: 12px; color: var(--muted); max-width: 24ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* "+ Add" = a sticky stand-in for Shift/Ctrl/Cmd, so touch screens can multi-select at all. */
 .pa-multi.on { background: var(--blue); border-color: var(--blue); color: #fff; }
-.pa-tip { margin: 0; padding: 5px 14px; font-size: 12.5px; color: var(--muted); background: var(--panel); border-bottom: 1px solid var(--border); }
+.pa-tip { margin: 0; padding: 4px 12px; font-size: 12px; line-height: 1.35; color: var(--muted); background: var(--panel); border-bottom: 1px solid var(--border); }
 .pa-caret { border: none; background: none; cursor: pointer; font-size: 13px; padding: 0 2px; color: var(--muted); }
 .pa-jt { font-weight: 700; color: var(--blue); }
 .pa-rel { font-weight: 600; color: var(--text); }

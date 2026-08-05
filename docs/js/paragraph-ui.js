@@ -85,13 +85,19 @@ function renderOpen(errors) {
       </div>
       ${errors && errors.length ? `<div class="banner warn-banner"><span>${esc(errors.join(' '))}</span></div>` : ''}
       <p class="note">${esc(t('para.textOnlyNote'))}</p>
-      <div class="pa-scratch">
-        <p class="tab-hint">${esc(t('para.sfmPasteIntro'))}</p>
-        <button class="secondary-btn" id="pa-paste">${esc(t('para.sfmPasteBtn'))}</button>
-      </div>
-      <div class="pa-scratch">
-        <p class="tab-hint">${esc(t('para.scratchIntro'))}</p>
-        <button class="secondary-btn" id="pa-new">${esc(t('para.scratchBtn'))}</button>
+      <!-- ⚠ THE OTHER TWO WAYS IN MUST BE VISIBLE WITHOUT SCROLLING (Seth, 2026-08-05: "we need to
+           make it obvious that there's more buttons (new diagram) off screen"). They used to be two
+           stacked blocks, each with its own paragraph, which pushed them below the fold — and a
+           route nobody can see is a route nobody uses. Side by side, one line of explanation each. -->
+      <div class="pa-ways">
+        <div class="pa-way">
+          <button class="secondary-btn" id="pa-paste">${esc(t('para.sfmPasteBtn'))}</button>
+          <p class="tab-hint">${esc(t('para.sfmPasteWay'))}</p>
+        </div>
+        <div class="pa-way">
+          <button class="secondary-btn" id="pa-new">${esc(t('para.scratchBtn'))}</button>
+          <p class="tab-hint">${esc(t('para.scratchWay'))}</p>
+        </div>
       </div>
     </div>`;
   const drop = $('#pa-drop');

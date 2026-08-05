@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v215';
+export const ENGINE_VERSION = 'v216';
 
 const S = {
 en: {
@@ -332,6 +332,13 @@ en: {
   'panel.opt.crowdSec.120': '2 minutes',
   'panel.opt.crowdSec.300': '5 minutes',
   'panel.opt.crowdSec.600': '10 minutes',
+  'panel.adv.links.label': 'Which app addresses to put in links',
+  'panel.adv.links.help': 'Advanced: changes only the addresses printed in invite and share links. It does not change which apps a device is registered to.',
+  'panel.adv.links.on': 'Links overridden:',
+  'panel.adv.links.auto': 'Automatic (correct for each device)',
+  'panel.adv.links.cloud': 'Force new site (flextext.app)',
+  'panel.adv.links.pages': 'Force old site (github.io)',
+  'panel.adv.links.origin': 'Force this same address',
   'panel.deprecated.msg': 'This web address for the Researcher app is being retired. Please install it from its new address and sign in there — your account, your coworkers and their texts are stored on the server, so nothing is lost in the move.',
   'panel.deprecated.link': 'Open research.flextext.app',
   'panel.deprecated.dismiss': 'Hide until next time',
@@ -1596,6 +1603,13 @@ id: {
   'panel.opt.crowdSec.120': '2 menit',
   'panel.opt.crowdSec.300': '5 menit',
   'panel.opt.crowdSec.600': '10 menit',
+  'panel.adv.links.label': 'Alamat aplikasi yang dipakai dalam tautan',
+  'panel.adv.links.help': 'Lanjutan: hanya mengubah alamat yang dicetak pada tautan undangan dan berbagi. Tidak mengubah aplikasi tempat sebuah perangkat terdaftar.',
+  'panel.adv.links.on': 'Tautan ditimpa:',
+  'panel.adv.links.auto': 'Otomatis (sesuai untuk tiap perangkat)',
+  'panel.adv.links.cloud': 'Paksa situs baru (flextext.app)',
+  'panel.adv.links.pages': 'Paksa situs lama (github.io)',
+  'panel.adv.links.origin': 'Paksa alamat yang sama ini',
   'panel.deprecated.msg': 'Alamat web untuk aplikasi Peneliti ini akan dihentikan. Silakan pasang dari alamat barunya dan masuk di sana — akun Anda, rekan kerja Anda, dan teks mereka tersimpan di server, jadi tidak ada yang hilang saat berpindah.',
   'panel.deprecated.link': 'Buka research.flextext.app',
   'panel.deprecated.dismiss': 'Sembunyikan sampai lain kali',

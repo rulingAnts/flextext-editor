@@ -197,8 +197,66 @@ function deprecationBanner() {
  *
  * On localhost the dev rig wins regardless: a developer must never be handed production links. */
 function basesFor(estate) {
+  const ov = linkOverride();
+  if (ov) return ov;
   if (HOME.local) return HOME;
   return estate === 'pages' ? ESTATES.pages : ESTATES.cloud;
+}
+
+/* ADVANCED: override which estate's URLs the panel PRINTS (Seth, 2026-08-05).
+ *
+ * Seth: "Don't let the researcher manually choose which site/url to use for new instances... And
+ * that should be true regardless of which researcher URL is used (there should be a keyboard
+ * shortcut way to expose more advanced options so I can do things like pair a dev app)." And:
+ * "But don't present those choices to ordinary users."
+ *
+ * ⚠ This changes the LINK ONLY, never the stored estate. The worker stamps the row 'cloud' at
+ * creation and that stays true, so a dev pairing cannot quietly re-home a real coworker or leave a
+ * row disagreeing with the apps it was paired to. The estate remains a property of the record, not
+ * a question put to the researcher — the override just prints a different door to the same house.
+ *
+ * ⚠ NEVER SILENT. While an override is active the picker STAYS visible with a live badge, because
+ * a hidden mode that rewrites every invite link is exactly the sort of thing you forget is on and
+ * then hand to a real coworker.
+ *
+ * sessionStorage, not localStorage: it survives the reloads a dev pairing needs, and dies with the
+ * tab, so it can never persist into a later real session. */
+const LINK_OVERRIDE_KEY = 'flextext-rp-link-estate';
+const LINK_MODES = ['auto', 'cloud', 'pages', 'origin'];
+function linkMode() {
+  try { const v = sessionStorage.getItem(LINK_OVERRIDE_KEY); return LINK_MODES.includes(v) ? v : 'auto'; }
+  catch { return 'auto'; }
+}
+function setLinkMode(v) {
+  try { if (v === 'auto') sessionStorage.removeItem(LINK_OVERRIDE_KEY); else sessionStorage.setItem(LINK_OVERRIDE_KEY, v); }
+  catch { /* private mode — the override simply will not stick */ }
+  advancedShown = true;   // stay visible: an active override must never be invisible
+  route();
+}
+function sameOriginBases() {
+  const o = location.origin;
+  return { editor: o + '/flextext-editor/', recorder: o + '/text-recorder/',
+           crowd: o + '/crowd-recorder/', researcher: o + '/flextext-researcher/', local: true };
+}
+function linkOverride() {
+  const m = linkMode();
+  if (m === 'cloud') return ESTATES.cloud;
+  if (m === 'pages') return ESTATES.pages;
+  if (m === 'origin') return sameOriginBases();
+  return null;
+}
+// Hidden by default; ⌃⌥E reveals it. Auto-revealed whenever an override is already active.
+let advancedShown = false;
+function advancedPicker() {
+  if (!advancedShown && linkMode() === 'auto') return '';
+  const m = linkMode();
+  const opt = (v, label) => `<option value="${v}"${m === v ? ' selected' : ''}>${esc(label)}</option>`;
+  return `<span class="rp-advlinks${m === 'auto' ? '' : ' rp-advlinks-on'}" title="${esc(t('panel.adv.links.help'))}">
+    ${m === 'auto' ? '' : `<b>${esc(t('panel.adv.links.on'))}</b>`}
+    <select id="rp-adv-links" aria-label="${esc(t('panel.adv.links.label'))}">
+      ${opt('auto', t('panel.adv.links.auto'))}${opt('cloud', t('panel.adv.links.cloud'))}
+      ${opt('pages', t('panel.adv.links.pages'))}${opt('origin', t('panel.adv.links.origin'))}
+    </select></span>`;
 }
 // A record with no estate at all is pre-migration data seen by a newer client: treat it as legacy,
 // which is what it is. Never default an UNKNOWN record to 'cloud' — that invents a migration.
@@ -310,6 +368,20 @@ export function initResearcherPanel(d) {
   root.addEventListener('click', (e) => {
     const b = e.target.closest && e.target.closest('#rp-install');
     if (b) { b.remove(); if (deps.doInstall) deps.doInstall(); }
+  });
+  // ⌃⌥E — reveal the advanced link-estate picker. Deliberately undiscoverable: ordinary
+  // researchers must never be offered a choice of which app URLs their coworkers get.
+  document.addEventListener('keydown', (e) => {
+    if (!root || root.hidden) return;
+    if (e.ctrlKey && e.altKey && !e.metaKey && (e.key === 'e' || e.key === 'E')) {
+      e.preventDefault();
+      advancedShown = !advancedShown || linkMode() !== 'auto';  // cannot hide an ACTIVE override
+      route();
+    }
+  }, true);
+  root.addEventListener('change', (e) => {
+    const sel = e.target.closest && e.target.closest('#rp-adv-links');
+    if (sel) setLinkMode(sel.value);
   });
   // Delegated: the banner is re-rendered by every screen, so a per-render listener would leak.
   root.addEventListener('click', (e) => {
@@ -468,6 +540,7 @@ function header(titleKey, withLock) {
     <span class="rp-title">${esc(t(titleKey))}</span>
     <span class="rp-spacer"></span>
     ${deps && deps.canInstall && deps.canInstall() ? `<button class="secondary-btn rp-install" id="rp-install">${esc(t('install.btn'))}</button>` : ''}
+    ${advancedPicker()}
     <select id="rp-lang" title="${esc(t('research.lang'))}">
       <option value="en"${getLang() === 'en' ? ' selected' : ''}>English</option>
       <option value="id"${getLang() === 'id' ? ' selected' : ''}>Indonesia</option>

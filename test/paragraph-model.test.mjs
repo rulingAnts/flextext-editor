@@ -615,17 +615,21 @@ console.log('ungroup works at any depth');
   const known = new Set([...d.lines.map((l) => l.id), ...d.tree.map((g) => g.id)]);
   ok(refs.every((c) => known.has(c)), 'no dangling reference is left behind');
 
-  // Prominence: the parent inherits the dissolved group's OWN head, not just its first child.
+  /* Head status is NOT inherited — grandchildren arrive as plain members (Seth, 2026-08-06). When
+   * the parent's own head WAS the dissolved group, an asymmetrical join has nothing left to point
+   * at, so it becomes symmetrical rather than the app inventing a prominence claim. */
   let a = groupUnits(five(), ['L1', 'L2'], { joinType: 'asym', head: 'L2' });
   a = groupUnits(a, ['G1', 'L3'], { joinType: 'asym', head: 'G1' });
   a = ungroup(a, 'G1');
-  eq(a.tree[0].head, 'L2', "an asym parent inherits the dissolved group's HEAD (the head of the head)");
+  eq(a.tree[0].joinType, 'sym', 'a parent whose HEAD was the dissolved group becomes symmetrical');
+  ok(!('head' in a.tree[0]), 'and names no head at all — nothing is invented');
 
-  // A symmetrical inner group has no head to inherit, so the first child is a real choice.
-  let b = groupUnits(five(), ['L1', 'L2'], { joinType: 'sym' });
-  b = groupUnits(b, ['G1', 'L3'], { joinType: 'asym', head: 'G1' });
+  // But a parent whose head is elsewhere keeps it; only the arriving members are plain.
+  let b = groupUnits(five(), ['L1', 'L2'], { joinType: 'asym', head: 'L1' });
+  b = groupUnits(b, ['G1', 'L3'], { joinType: 'asym', head: 'L3' });
   b = ungroup(b, 'G1');
-  eq(b.tree[0].head, 'L1', 'a symmetrical inner group leaves the first child as head');
+  eq(b.tree[0].head, 'L3', 'a parent whose head is elsewhere keeps it');
+  eq(b.tree[0].joinType, 'asym', 'and stays asymmetrical');
 
   // Top-level ungroup is unchanged.
   let c = groupUnits(five(), ['L1', 'L2'], { joinType: 'sym' });

@@ -585,28 +585,23 @@ export function ungroup(data, gid) {
     const at = x.children.indexOf(gid);
     const children = [...x.children.slice(0, at), ...g.children, ...x.children.slice(at + 1)];
     const y = { ...x, children };
-    /* An asymmetrical parent whose HEAD was this group must name a surviving child instead — and
-     * the right one is the DISSOLVED GROUP'S OWN HEAD when it had one. Prominence was asserted at
-     * both levels: "the head of the head" is still the most prominent surviving unit, whereas
-     * defaulting to the first grandchild silently relocates prominence to whatever happened to come
-     * first. Only when the dissolved group was symmetrical (no head to inherit) is the first child
-     * a genuine choice rather than a guess.
+    /* ⚠ GRANDCHILDREN ARRIVE AS PLAIN MEMBERS — head status is NOT inherited (Seth, 2026-08-06:
+     * "probably a better behavior is inheriting daughters as non-heads by default in general. And
+     * trust the user to be able to fix that").
      *
-     * ⚠ REVISIT WHEN MULTIPLE HEADS LAND (backlog: "Multiple HEADs in a group"). With 2+ heads this
-     * inheritance must decide whether they all become the parent's heads or only one does — a
-     * semantic question, not a mechanical one. Today it cannot arise: exactly one head on an
-     * asymmetrical join, none on a symmetrical one, enforced in groupUnits.
+     * That leaves one case the invariants force us to answer: an asymmetrical parent whose head WAS
+     * this group. Nothing may inherit headship, and an asymmetrical join REQUIRES a head — so the
+     * parent becomes SYMMETRICAL. The app declines to invent a prominence claim it was never given;
+     * the analyst re-asserts it if they want one.
      *
-     * Seth's two options for then (2026-08-06), both viable:
-     *   (1) ALLOW MULTIPLE HEADS — a to-do anyway, and then the grandchildren's heads simply all
-     *       become the parent's heads. Nothing is lost and no choice has to be invented.
-     *   (2) AUTO-DEMOTE to non-head when inheriting grandchildren — safe and predictable, but note
-     *       it is not free TODAY: an asymmetrical group REQUIRES exactly one head, so demoting all
-     *       of them would force the parent to become symmetrical, which changes the analyst's
-     *       assertion about the join rather than just its members. Option 1 avoids that. */
-    if (y.joinType === 'asym' && y.head === gid) {
-      y.head = (g.joinType === 'asym' && g.head) ? g.head : g.children[0];
-    }
+     * ⚠ This CHANGES THE JOIN TYPE, which is an assertion about the analysis, so the UI must SAY SO
+     * when it happens rather than let it be discovered later. It is visible (the group renders as
+     * coordinate) but visible is not the same as noticed.
+     *
+     * An earlier version inherited "the head of the head" instead. That preserved more, but it
+     * asserted prominence at a level the analyst never asserted it — precisely the kind of guess
+     * this model should not make. */
+    if (y.joinType === 'asym' && y.head === gid) { y.joinType = 'sym'; delete y.head; }
     // A label addressed to the dissolved group no longer addresses anything.
     if (y.labels && gid in y.labels) {
       const { [gid]: _gone, ...rest } = y.labels;

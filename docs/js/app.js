@@ -5138,7 +5138,12 @@ function setup() {
   // completes there. The standalone shell (window.__MODE='researcher') and local dev keep the
   // panel inline (RESEARCHER_MODE), so they never bounce here.
   if (!RESEARCHER_MODE && new URLSearchParams(location.search).get('mode') === 'researcher') {
-    location.replace('https://rulingants.github.io/flextext-researcher/' + (location.hash || ''));
+    /* Hand off to the researcher app OF THIS ESTATE (Seth, 2026-08-05: the Cloudflare apps and the
+     * GitHub Pages ones run in parallel). Sending a Cloudflare user to the Pages panel would put
+     * their researcher account on a different origin from their editor, with its own database. */
+    const cloud = /\.flextext\.app$/.test(location.hostname);
+    const base = cloud ? 'https://research.flextext.app/' : 'https://rulingants.github.io/flextext-researcher/';
+    location.replace(base + (location.hash || ''));
     return;
   }
   migrateSettings();

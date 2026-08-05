@@ -57,9 +57,26 @@ node test/seg-exports.test.mjs    # the segmentation/export format suite
 Useful dev affordances baked into the app:
 - `?segmentation=on|off` — persist the segmentation setting from a URL.
 - `?mode=researcher` — opens the researcher panel on localhost and the staging host.
-- `fxUpdate()` in the browser console — force a service-worker update check/activation
-  (same flow as the ⌃/⌥+U shortcut).
 - `?devreset` — full local wipe for a clean test.
+
+### Console functions (`window.fx*`) — the complete list
+
+These are the app's deliberate console entry points. They are **not** keyboard shortcuts: a
+shortcut has to survive dead keys, IMEs and screen readers on every platform, and one of these was
+originally a ⌃⌥E binding that could never fire on a Mac, because Option+E is the dead key that
+composes an acute accent. Anything hidden from ordinary users belongs here instead.
+
+| Function | Where | What it does |
+|---|---|---|
+| `fxUpdate()` | any app | Forces a service-worker update check/activation (same flow as the ⌃/⌥+U shortcut). The fix for "I pushed a version but the device still runs the old one". |
+| `fxLinks()` | researcher panel | Shows the current link-estate mode and reveals the advanced picker. |
+| `fxLinks('auto' \| 'cloud' \| 'pages' \| 'origin')` | researcher panel | Overrides which estate's URLs the panel PRINTS in invite and crowd share links — for pairing a dev app. `auto` clears it. |
+
+⚠ `fxLinks` changes the **printed link only, never the stored estate**. The worker stamps every new
+row `'cloud'` at creation and that stays true, so a dev pairing cannot quietly re-home a real
+coworker. It is `sessionStorage`-backed (survives the reloads a dev pairing needs, dies with the
+tab) and while an override is active the panel keeps a highlighted badge visible — an invisible mode
+that rewrites every invite link is exactly what you forget is on and then hand to a real coworker.
 
 ## 3. Repository layout & the engine/satellite model
 

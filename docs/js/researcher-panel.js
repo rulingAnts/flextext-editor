@@ -401,6 +401,27 @@ export function initResearcherPanel(d) {
   // Regained connectivity → recover immediately instead of waiting for the next timer: refresh the
   // dashboard if it's up, otherwise re-attempt sign-in/bootstrap (drives the reconnecting screen).
   window.addEventListener('online', () => { if (!root || root.hidden) return; if (dashPoll) { refreshLiveVersions(); pollDashboard(); } else route(); });
+  /* CONSOLE ENTRY POINT — `fxDevices()`. Prints what the panel ACTUALLY received for each device,
+   * so "why is/isn't this flagged?" is answered with data instead of a theory. Added after two wrong
+   * guesses about the estate badge (Seth, 2026-08-05): the client code and the worker SQL both
+   * looked right, which is exactly when you need to see the payload rather than reason about it. */
+  if (typeof window !== 'undefined') {
+    window.fxDevices = () => {
+      const rows = (lastData && lastData.instances) || [];
+      if (!rows.length) return 'no dashboard data yet — open the dashboard first';
+      const out = rows.map((it) => ({
+        nickname: it.nickname || '?',
+        estate: 'estate' in it ? it.estate : '(FIELD ABSENT)',
+        flagged: it.estate === 'pages',
+      }));
+      console.table(out);
+      const absent = out.filter((r) => r.estate === '(FIELD ABSENT)').length;
+      return absent
+        ? `${absent}/${out.length} rows have NO estate field — the server is not sending it, so no badge can be correct`
+        : `${out.length} rows carry an estate; ${out.filter((r) => r.flagged).length} flagged legacy`;
+    };
+  }
+
   /* CONSOLE ENTRY POINT — `fxLinks()`. Replaces a ⌃⌥E shortcut that could never have worked on a
    * Mac: Option+E is the dead key that composes an acute accent, so `e.key` is never 'e' and the
    * handler never fired (Seth, 2026-08-05). A console function is the better shape anyway — there

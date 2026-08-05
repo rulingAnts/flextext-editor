@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v217';
+export const ENGINE_VERSION = 'v218';
 
 const S = {
 en: {
@@ -342,6 +342,8 @@ en: {
   'panel.deprecated.msg': 'This web address for the Researcher app is being retired. Please install it from its new address and sign in there — your account, your coworkers and their texts are stored on the server, so nothing is lost in the move.',
   'panel.deprecated.link': 'Open research.flextext.app',
   'panel.deprecated.coworkers': 'Moving your coworkers (upload first!)',
+  'panel.inst.legacyBadge': 'old address',
+  'panel.inst.legacyTip': 'This device is still on the old web address. It keeps working and keeps syncing — move it when it suits their workload, and upload everything before you delete anything.',
   'panel.deprecated.dismiss': 'Hide until next time',
   'panel.crowd.turnstile': 'Block bots (Turnstile)',
   'panel.crowd.turnstileNote': 'Invisibly blocks automated abuse; real people only rarely see a quick challenge. Leave it on unless it causes problems.',
@@ -1614,6 +1616,8 @@ id: {
   'panel.deprecated.msg': 'Alamat web untuk aplikasi Peneliti ini akan dihentikan. Silakan pasang dari alamat barunya dan masuk di sana — akun Anda, rekan kerja Anda, dan teks mereka tersimpan di server, jadi tidak ada yang hilang saat berpindah.',
   'panel.deprecated.link': 'Buka research.flextext.app',
   'panel.deprecated.coworkers': 'Memindahkan rekan kerja (kirim dulu!)',
+  'panel.inst.legacyBadge': 'alamat lama',
+  'panel.inst.legacyTip': 'Perangkat ini masih memakai alamat web lama. Perangkat tetap berfungsi dan tetap tersinkronisasi — pindahkan saat sesuai dengan beban kerja mereka, dan kirim semuanya sebelum menghapus apa pun.',
   'panel.deprecated.dismiss': 'Sembunyikan sampai lain kali',
   'panel.crowd.turnstile': 'Blokir bot (Turnstile)',
   'panel.crowd.turnstileNote': 'Memblokir penyalahgunaan otomatis tanpa terlihat; orang sungguhan hanya sesekali melihat tantangan singkat. Biarkan aktif kecuali menimbulkan masalah.',

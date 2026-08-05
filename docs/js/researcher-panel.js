@@ -169,6 +169,10 @@ const HOME = estateOf();
  * in D1, so re-installing costs them nothing. The FIELD apps are the opposite — their texts and
  * audio are in per-origin IndexedDB, and telling a field worker to reinstall before they upload
  * would destroy work. Do not copy this banner into the editor or recorder. */
+/* Always the CLOUD copy: this link has to outlive the estate it describes, and a link to
+ * rulingants.github.io/…/help/migrate.html dies the moment Pages is retired — which is precisely
+ * when someone is most likely to be reading it. */
+const MIGRATE_DOC = ESTATES.cloud.editor + 'help/migrate.html';
 const LEGACY_PANEL_HOST = 'rulingants.github.io';
 const onLegacyHost = () => location.hostname === LEGACY_PANEL_HOST;
 // Page-load scoped on purpose: no storage, so it returns next launch. A deprecation notice that can
@@ -181,7 +185,7 @@ function deprecationBanner() {
     <span>${esc(t('panel.deprecated.msg'))}
       <a href="${ESTATES.cloud.researcher}" target="_blank" rel="noopener">${esc(t('panel.deprecated.link'))}</a>
       &nbsp;·&nbsp;
-      <a href="${ESTATES.pages.editor}help/migrate.html" target="_blank" rel="noopener">${esc(t('panel.deprecated.coworkers'))}</a></span>
+      <a href="${MIGRATE_DOC}" target="_blank" rel="noopener">${esc(t('panel.deprecated.coworkers'))}</a></span>
     <button class="banner-dismiss" data-act="deprecated-dismiss" aria-label="${esc(t('panel.deprecated.dismiss'))}" title="${esc(t('panel.deprecated.dismiss'))}">&times;</button>
   </div>`;
 }
@@ -1519,17 +1523,28 @@ async function renderInstanceCard(it, deviceCount) {
   // Warning badges that must NOT be hidden behind the collapse.
   const warnBadges = `${anyWipe ? ` <span class="rp-badge rp-badge-warn">${esc(t('panel.inst.wipeBadge'))}</span>` : ''}`
                    + `${anyStale ? ` <span class="rp-badge rp-badge-stale">${esc(t('panel.dev.stale'))}</span>` : ''}`;
+  /* LEGACY-ESTATE FLAG (Seth, 2026-08-05: "with ANY researcher app, devices listed that use a
+   * legacy URL should be flagged with a warning tip/banner that has a link to the migration
+   * instructions"). Shown from BOTH panels, deliberately: on the legacy panel it duplicates the top
+   * banner, but the top banner says "this PANEL is retiring" while this says "THIS DEVICE is still
+   * on the old apps", which is the thing the researcher actually has to act on, one device at a
+   * time. */
+  const isLegacyDevice = estateOfRecord(it) === 'pages';
+  const legacyBadge = isLegacyDevice
+    ? ` <span class="rp-badge rp-badge-legacy">${esc(t('panel.inst.legacyBadge'))}</span>` : '';
   return `<div class="rp-card rp-inst${collapsed ? ' rp-inst-collapsed' : ''}">
     <div class="rp-inst-top">
       <button class="rp-inst-toggle" data-iact="collapse" data-i="${esc(it.instance_id)}"
               aria-expanded="${collapsed ? 'false' : 'true'}" aria-controls="${esc(bodyId)}"
               title="${esc(t(collapsed ? 'panel.inst.expand' : 'panel.inst.collapse'))}">
         <span class="rp-caret" aria-hidden="true">▾</span>
-        <span class="rp-inst-name">${esc(it.nickname || '?')} ${runs ? `<span class="rp-badge rp-badge-type">${esc(runs)}</span>` : ''} ${status}${warnBadges}</span>
+        <span class="rp-inst-name">${esc(it.nickname || '?')} ${runs ? `<span class="rp-badge rp-badge-type">${esc(runs)}</span>` : ''} ${status}${warnBadges}${legacyBadge}</span>
         <span class="rp-inst-count">${esc(t('panel.inst.texts', { n: textCount }))}</span>
       </button>
     </div>
     <div class="rp-inst-body" id="${esc(bodyId)}"${collapsed ? ' hidden' : ''}>
+      ${isLegacyDevice ? `<p class="banner warn-banner rp-legacy-tip">${esc(t('panel.inst.legacyTip'))}
+        <a href="${MIGRATE_DOC}" target="_blank" rel="noopener">${esc(t('panel.deprecated.coworkers'))}</a></p>` : ''}
       ${installsHtml || `<p class="note">${esc(t('panel.inst.noInstall'))}</p>`}
       <div class="rp-inst-actions">
         <button class="secondary-btn" data-iact="settings" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}">${esc(t('panel.inst.settings'))}</button>

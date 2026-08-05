@@ -80,8 +80,6 @@ function saveMoves(accountId) {
 }
 
 const PENDING_KEY = 'flextext-rp-pending:';
-  catch { /* quota/private mode — degrades to this session only */ }
-}
 let pendingCmds = new Map();
 function loadPending(accountId) {
   try {

@@ -687,8 +687,29 @@ function withLine(data, lineId, fn) {
   return { ...data, lines };
 }
 
+/* ⚠ WHEN A LINE GAINS PROPOSITIONS, THE PROPOSITIONS TAKE ITS PLACE IN THE TREE — not the line
+ * (Seth, 2026-08-05: "if we create sub-propositions, the propositions, rather than the audio segment
+ * line, are supposed to be what goes in the tree").
+ *
+ * topUnits() already did this substitution at TOP level but nothing did it INSIDE a group, so a
+ * proposition added to an already-grouped line had no parent at all: it fell out of the group,
+ * became a top-level unit, and rendered at the BOTTOM of the document instead of under its line.
+ * Seth found it; the group's children still read ["L1"] while the surface had moved on to "L1p1".
+ *
+ * Substitution is positional: the first proposition replaces the line where the line sat, and later
+ * ones are inserted immediately after their siblings, so grouping order never jumps around. */
 export function addProp(data, lineId, text = '', opts = {}) {
-  return withLine(data, lineId, (l) => {
+  /* ⚠ "Is this line in a group?" must ask about the line OR ANY OF ITS EXISTING PROPOSITIONS.
+   * After the first substitution the line is no longer in the tree — its proposition is — so a
+   * lineId-only test says "not grouped" from the SECOND proposition onward, and every later one
+   * silently escaped the group. Caught by the add-two-then-check test below. */
+  /* Which ONE group does this line occupy? After the first substitution the line is no longer in
+   * the tree — its proposition is — so ask about the line OR its existing propositions. */
+  const existingProps = ((nodeById(data, lineId) || {}).props || []).map((x) => x.id);
+  const holder = parentOf(data, lineId)
+    || existingProps.map((id) => parentOf(data, id)).find(Boolean)
+    || null;
+  const out = withLine(data, lineId, (l) => {
     const props = propsOf(l);
     // Ids are unique WITHIN the line and never reused, so a reference cannot silently re-point.
     let n = props.length + 1;
@@ -698,6 +719,34 @@ export function addProp(data, lineId, text = '', opts = {}) {
     const at = Number.isInteger(opts.index) ? Math.max(0, Math.min(props.length, opts.index)) : props.length;
     return { ...l, props: [...props.slice(0, at), p, ...props.slice(at)] };
   });
+
+  if (!holder) return out;                         // top level: topUnits() already substitutes
+
+  /* ⚠ EXACTLY ONE GROUP, and only the NEW id. v230 rebuilt every group that contained ANY of the
+   * line's propositions and re-inserted the WHOLE list, so a line whose propositions had ended up in
+   * two different groups got all of them duplicated into both — "propositions in somewhat random
+   * places" (Seth, 2026-08-06). Deleting one then emptied both, pruneTree dissolved the groups, and
+   * lines vanished from the view. Touch one group, insert one id. */
+  const p = nodeById(out, lineId).props.find((x) => !existingProps.includes(x.id));
+  return {
+    ...out,
+    tree: out.tree.map((g) => {
+      if (g.id !== holder.id) return g;
+      const lineAt = g.children.indexOf(lineId);
+      if (lineAt >= 0) {                              // first proposition: it TAKES the line's slot
+        const children = [...g.children];
+        children[lineAt] = p.id;
+        return { ...g, children };
+      }
+      // later ones: immediately after the last sibling of this line already in this group
+      let last = -1;
+      g.children.forEach((c, i) => { if (existingProps.includes(c)) last = i; });
+      if (last < 0) return g;
+      const children = [...g.children];
+      children.splice(last + 1, 0, p.id);
+      return { ...g, children };
+    }),
+  };
 }
 
 export function setPropText(data, lineId, propId, text) {
@@ -733,7 +782,20 @@ export function deleteProp(data, lineId, propId) {
     delete q.props;
     return q;
   });
-  return pruneTree(next, propId);
+  /* ⚠ RESTORE THE LINE when its last proposition is deleted. The propositions took the line's slot
+   * in the tree (see addProp); if they all go and nothing takes their place, the line silently
+   * leaves the group it was grouped into. */
+  const stillHasProps = ((nodeById(next, lineId) || {}).props || []).length > 0;
+  const restored = stillHasProps ? next : {
+    ...next,
+    tree: next.tree.map((g) => {
+      const at = g.children.indexOf(propId);
+      if (at < 0) return g;
+      const children = [...g.children]; children[at] = lineId;
+      return { ...g, children };
+    }),
+  };
+  return pruneTree(restored, propId);
 }
 
 /* Remove a unit from the tree and heal what that leaves behind. */

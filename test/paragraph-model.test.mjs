@@ -545,3 +545,61 @@ console.log('\nsplitting a typed line at the cursor (authored documents only)');
 
 if (failures) { console.error(`\n${failures} FAILURE(S)`); process.exit(1); }
 console.log('\nPASS: the paragraph model holds its invariants.');
+
+/* ── Propositions on an ALREADY-GROUPED line (Seth, 2026-08-05) ────────────────────────────────
+ * "if we create sub-propositions, the propositions, rather than the audio segment line, are
+ * supposed to be what goes in the tree."
+ *
+ * The bug: topUnits() substituted propositions for their line at TOP level, but nothing did it
+ * INSIDE a group. A proposition added to a grouped line therefore had no parent, became a
+ * top-level unit, and rendered at the BOTTOM of the document. */
+console.log('propositions take the line\'s slot in the tree');
+{
+  const g0 = groupUnits(base(), ['L1', 'L2'], { joinType: 'sym' });
+  const kids = (d) => d.tree.map((g) => g.children);
+
+  const a1 = addProp(g0, 'L1');
+  eq(kids(a1), [['L1p1', 'L2']], 'first proposition REPLACES its line in the group');
+  ok(!!parentOf(a1, 'L1p1'), 'the proposition has a parent (it did not escape the group)');
+  ok(!topUnits(a1).includes('L1p1'), 'and is NOT a top-level unit (that was the bottom-of-page bug)');
+
+  // ⚠ the regression that my own first fix missed: after substitution the LINE is gone from the
+  // tree, so a lineId-only "is it grouped?" test says no and every later proposition escapes.
+  const a2 = addProp(a1, 'L1');
+  eq(kids(a2), [['L1p1', 'L1p2', 'L2']], 'SECOND proposition joins the group beside the first');
+  const a3 = addProp(a2, 'L2');
+  eq(kids(a3), [['L1p1', 'L1p2', 'L2p1']], 'a sibling line substitutes independently, order kept');
+
+  const d1 = deleteProp(a3, 'L1', 'L1p1');
+  eq(kids(d1), [['L1p2', 'L2p1']], 'deleting one of several just removes it');
+  const d2 = deleteProp(d1, 'L1', 'L1p2');
+  eq(kids(d2), [['L1', 'L2p1']], 'deleting the LAST proposition restores the line to its slot');
+
+  ok(!!d2.lines.find((l) => l.id === 'L1'), 'the line itself always survives — audio/player depend on it');
+  ok(!!a3.lines.find((l) => l.id === 'L1'), 'including while its propositions stand in for it');
+}
+
+/* ⚠ THE CASE THE FIRST FIX MISSED (v230, reverted). Its tests all passed because they only ever
+ * built CONSISTENT trees — so a fix whose flaw was assuming consistency could not be caught.
+ * A line's propositions can end up in DIFFERENT groups (a file saved by the version that orphaned
+ * them, then grouped). v230 re-inserted the whole proposition list into every group containing any
+ * of them, duplicating ids across groups; deleting one then emptied both, pruneTree dissolved them,
+ * and lines disappeared from the view. */
+console.log('a malformed tree must not be made worse');
+{
+  const split = validateFxpa({
+    format: 'flextext-paragraph-analysis', version: 1, title: 'T', vernLang: 'fau', analLang: 'id',
+    lines: [
+      { id: 'L1', baseline: 'satu', words: [], props: [{ id: 'L1p1', text: 'a' }, { id: 'L1p2', text: 'b' }] },
+      { id: 'L2', baseline: 'dua', words: [] }, { id: 'L3', baseline: 'tiga', words: [] },
+    ],
+    tree: [{ id: 'G1', level: 1, children: ['L1p1', 'L2'], joinType: 'sym' },
+           { id: 'G2', level: 1, children: ['L1p2', 'L3'], joinType: 'sym' }],
+  }).data;
+  const after = addProp(split, 'L1');
+  const all = after.tree.flatMap((g) => g.children);
+  eq(all.length, new Set(all).size, 'no id is a child of two groups after adding a proposition');
+  eq(after.tree.find((g) => g.id === 'G2').children, ['L1p2', 'L3'], 'the OTHER group is left alone');
+  ok(after.tree.find((g) => g.id === 'G1').children.includes('L1p3'), 'the new proposition joins exactly one group');
+  eq(after.lines.map((l) => l.id), ['L1', 'L2', 'L3'], 'and no language-data line is touched');
+}

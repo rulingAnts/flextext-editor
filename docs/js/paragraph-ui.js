@@ -677,7 +677,19 @@ function startTicker() {
       if (mp) mp.textContent = (!audio.paused && !stopAt) ? '⏸' : '▶';
       root.querySelectorAll('.pa-row[data-s]').forEach((row) => {
         const s = +row.dataset.s, e = +row.dataset.e;
-        row.classList.toggle('on', tNow >= s && tNow < e);
+        const inside = tNow >= s && tNow < e;
+        row.classList.toggle('on', inside);
+        // The segment's own playhead: placed when the audio is inside this span, hidden otherwise.
+        const cur = row.querySelector('.pa-rowcur');
+        if (cur) {
+          const wrap = cur.parentElement;
+          if (inside && e > s && wrap.clientWidth) {
+            cur.style.display = 'block';
+            cur.style.left = (((tNow - s) / (e - s)) * wrap.clientWidth) + 'px';
+          } else if (cur.style.display !== 'none') {
+            cur.style.display = 'none';
+          }
+        }
       });
       root.querySelectorAll('button.pa-rowplay').forEach((b) => {
         const s = +b.dataset.s, e = +b.dataset.e;
@@ -696,7 +708,21 @@ const clock = (ms) => {
 
 /* ---------------- workspace rendering ---------------- */
 
+/* ⚠ HOLD THE SCROLL POSITION ACROSS A RE-RENDER (Seth, 2026-08-05: "whenever we make any change to
+ * our paragraph analysis DOM, the viewer flashes back to the beginning of the diagram. That will
+ * get very annoying very fast."). Every commit rebuilds the whole tree subtree, which drops the
+ * page to the top — on a long text that means hunting for your place after each edit, and the
+ * edits are exactly what you do most.
+ * Restored synchronously, before the browser paints, so there is no visible jump. The height can
+ * change (a group collapsed, a line removed), so the offset is clamped to what now exists. */
 function renderWork() {
+  const keepY = window.scrollY;
+  renderWorkInner();
+  const maxY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+  if (keepY) window.scrollTo({ top: Math.min(keepY, maxY), behavior: 'instant' });
+}
+
+function renderWorkInner() {
   const v = state.view;
   const showAudio = !!(state.audio && v.audio);
   root.innerHTML = `
@@ -1044,7 +1070,11 @@ function renderLineRow(id, nodeLabel = '') {
   }
   const body = [`<div class="pa-cell">`];
   if (wavesMode !== 'off' && timed) {
-    body.push(`<canvas class="pa-wave ${wavesMode === 'compact' ? 'pa-wave-sm' : ''}" data-s="${l.start}" data-e="${l.end}"></canvas>`);
+    /* Each segment carries its OWN playhead (Seth, 2026-08-05), kept in step with the big player
+     * both ways: the ticker puts it wherever the audio is when the position falls inside this
+     * span, and scrubbing here moves the audio, which moves the big one. So there is one playhead
+     * position in the document, shown wherever it is currently visible. */
+    body.push(`<div class="pa-wavewrap"><canvas class="pa-wave ${wavesMode === 'compact' ? 'pa-wave-sm' : ''}" data-s="${l.start}" data-e="${l.end}"></canvas><div class="pa-rowcur"></div></div>`);
   }
   if (state.authored) {
     /* ⚠ TEXT FIRST, EDITOR ON REQUEST (Seth, 2026-08-05: "with the blank/new chart editor, it's not
@@ -1056,6 +1086,7 @@ function renderLineRow(id, nodeLabel = '') {
     body.push(`<div class="pa-authored" data-line="${esc(id)}">
       <span class="pa-linetext${l.baseline ? '' : ' pa-empty'}">${esc(l.baseline || t('para.scratchPlaceholder'))}</span>
       <button class="pa-lineedit" data-line="${esc(id)}" title="${esc(t('para.lineEdit'))}">✎</button>
+      <button class="pa-linedel" data-line="${esc(id)}" title="${esc(t('para.lineDelete'))}">🗑</button>
     </div>`);
   } else if (v.layer === 'baseline' || !(l.words || []).length) {
     // Fall back to the baseline when a line has no words, or an interlinear view shows nothing.
@@ -1098,8 +1129,8 @@ function renderLineRow(id, nodeLabel = '') {
         <input class="pa-propedit" data-line="${esc(id)}" data-prop="${esc(p.id)}"
                size="${propSize(p.text)}" value="${esc(p.text || '')}" placeholder="${esc(t('para.propPlaceholder'))}">
         ${br ? '<span class="pa-brk">)</span>' : ''}
-        <button class="pa-propimp" data-line="${esc(id)}" data-prop="${esc(p.id)}"
-                title="${esc(t(p.implicit ? 'para.propStated' : 'para.propImplied'))}">${p.implicit ? '( )' : '“ ”'}</button>
+        <button class="pa-propimp${p.implicit ? ' on' : ''}" data-line="${esc(id)}" data-prop="${esc(p.id)}"
+                title="${esc(t(p.implicit ? 'para.propStated' : 'para.propImplied'))}">${esc(t(p.implicit ? 'para.implicit' : 'para.explicit'))}</button>
         <button class="pa-propdel" data-line="${esc(id)}" data-prop="${esc(p.id)}"
                 title="${esc(t('para.propDelete'))}">✕</button>
       </div>`);
@@ -1118,12 +1149,68 @@ function renderLineRow(id, nodeLabel = '') {
   if (play) play.addEventListener('click', (e) => { e.stopPropagation(); playSpan(l.start, l.end); });
   const wave = row.querySelector('canvas');
   if (wave) wireScrub(wave, l.start, l.end);
+  /* ⚠ SELECT FIRST, EDIT SECOND (Seth, 2026-08-05): "make sure it doesn't automatically open the
+   * editor unless the line has been selected first. Click once to select the line/segment, THEN
+   * you can edit a word/gloss pair or free translation."
+   * So on an UNSELECTED row every one of these controls just selects the row — the first click is
+   * always about choosing what you are working on, which is also how grouping starts. Opening an
+   * editor is then a deliberate second click, and a stray click can never put you in a text box
+   * you did not ask for. */
+  /* Editing is allowed only when THIS line is the one and only thing selected (Seth, 2026-08-05:
+   * "only edit items on the currently selected line, and not if multiple lines are selected").
+   * Any other state — nothing selected, a different line, or several lines — means this click
+   * COLLAPSES the selection onto this line and stops there. So the first click always answers
+   * "which line am I working on?", and editing is a deliberate second click on a single line.
+   * That also removes by construction the two faults Seth hit: two editors open at once, and a
+   * tick that appeared to apply an edit to more than one item. */
+  const selectFirst = (e) => {
+    if (selection.size === 1 && selection.has(id)) return false;
+    e.stopPropagation();
+    const hadEditor = anyEditorOpen();
+    selection = new Set([id]);
+    anchor = id;
+    if (hadEditor) renderWork(); else paintSelection();
+    return true;
+  };
   const freeBtn = row.querySelector('.pa-freeedit');
-  if (freeBtn) freeBtn.addEventListener('click', (e) => { e.stopPropagation(); openFreeEditor(row, id); });
+  if (freeBtn) freeBtn.addEventListener('click', (e) => {
+    if (selectFirst(e)) return;
+    e.stopPropagation();
+    closeEditors();
+    const fresh = root.querySelector(`.pa-row[data-unit="${CSS.escape(id)}"]`);
+    if (fresh) openFreeEditor(fresh, id);
+  });
   const lineBtn = row.querySelector('.pa-lineedit');
-  if (lineBtn) lineBtn.addEventListener('click', (e) => { e.stopPropagation(); openLineEditor(row, id); });
+  if (lineBtn) lineBtn.addEventListener('click', (e) => {
+    if (selectFirst(e)) return;
+    e.stopPropagation();
+    closeEditors();
+    const fresh = root.querySelector(`.pa-row[data-unit="${CSS.escape(id)}"]`);
+    if (fresh) openLineEditor(fresh, id);
+  });
+  /* Delete a line outright (Seth, 2026-08-05: "we can't delete a line once we've created it...
+   * like if we accidentally press enter and then have an extra empty line in the middle").
+   * Backspace-on-empty only reached a line whose editor was already open and only while it was
+   * empty, which is neither of the cases that actually come up. deleteLine also dissolves any
+   * group left with fewer than two children, so the tree cannot be left invalid. */
+  const delBtn = row.querySelector('.pa-linedel');
+  if (delBtn) delBtn.addEventListener('click', (e) => {
+    if (selectFirst(e)) return;
+    e.stopPropagation();
+    if (state.lines.length <= 1) return alert(t('para.lineDeleteLast'));
+    if (String(l.baseline || '').trim() && !confirm(t('para.lineDeleteConfirm', { text: l.baseline }))) return;
+    selection.delete(id);
+    commit(deleteLine(state, id));
+  });
   row.querySelectorAll('.w-edit').forEach((w) => {
-    w.addEventListener('click', (e) => { e.stopPropagation(); openWordEditor(w, id, +w.dataset.i); });
+    w.addEventListener('click', (e) => {
+      if (selectFirst(e)) return;
+      e.stopPropagation();
+      const i = +w.dataset.i;
+      closeEditors();
+      const fresh = root.querySelector(`.pa-row[data-unit="${CSS.escape(id)}"] .w-edit[data-i="${i}"]`);
+      if (fresh) openWordEditor(fresh, id, i);
+    });
   });
   // Proposition controls must not select/deselect the row underneath them.
   row.querySelectorAll('.pa-propadd, .pa-propdel, .pa-propimp').forEach((b) => {
@@ -1210,6 +1297,16 @@ function paintSelection() {
   refreshActionButtons();
 }
 
+/* ⚠ ONE EDITOR AT A TIME, AND LEAVING A LINE CLOSES ITS EDITORS (Seth, 2026-08-05: "we should
+ * only be able to edit one editable thing at a time... If you click another one, that should undo
+ * and leave the first one, and a line leaving focus means any open editors on that line also
+ * lose focus / go back to view-only.")
+ * Closing means ABANDONING — an editor only ever writes on its green tick, so discarding an
+ * half-typed box can never lose committed work. Re-rendering is the close: it rebuilds the row
+ * from the document, which is by definition the last saved state. */
+const anyEditorOpen = () => !!(root && root.querySelector('.pa-inline-in'));
+const closeEditors = () => { if (anyEditorOpen()) { renderWork(); return true; } return false; };
+
 function toggleSelect(id, ev) {
   const extend = multiMode || !!(ev && (ev.shiftKey || ev.ctrlKey || ev.metaKey));
   if (extend && anchor && anchor !== id) {
@@ -1222,13 +1319,15 @@ function toggleSelect(id, ev) {
   } else {
     selection = new Set([id]); anchor = id;    // plain click: this one, and it anchors the range
   }
-  paintSelection();
+  // A re-render is needed to drop any open editor; otherwise repaint is enough and much cheaper.
+  if (anyEditorOpen()) renderWork(); else paintSelection();
 }
 
 function clearSelection() {
-  if (!selection.size) return;
+  if (!selection.size) { closeEditors(); return; }
   selection = new Set();
   anchor = null;
+  if (anyEditorOpen()) { renderWork(); return; }
   root.querySelectorAll('.pa-row.sel, .pa-group.sel').forEach((el) => el.classList.remove('sel'));
   refreshActionButtons();
 }
@@ -1522,7 +1621,7 @@ function renderCsvMapping(errors) {
     renderCsvMapping();          // column NAMES change with the header, so redraw the whole form
   });
   $('#pa-csv-template').addEventListener('click', () =>
-    downloadFile(templateCsv(), 'paragraph-analysis-template.csv', 'text/csv'));
+    saveFile(templateCsv(), 'paragraph-analysis-template.csv', 'text/csv', t('para.csvFile')));
   $('#pa-csv-report').addEventListener('click', reportCsvProblem);
   $('#pa-csv-cancel').addEventListener('click', () => { pendingCsv = null; renderOpen(); });
   $('#pa-csv-go').addEventListener('click', csvConfirm);
@@ -1618,6 +1717,7 @@ function openExportDialog() {
         <div id="pa-exp-diagram" hidden>
           <label class="pa-field"><span>${esc(t('para.exportTextWidth'))}</span>
             <select id="pa-exp-tw">
+              <option value="auto">${esc(t('para.widthAuto'))}</option>
               <option value="300">${esc(t('para.widthNarrow'))}</option>
               <option value="440" selected>${esc(t('para.widthMedium'))}</option>
               <option value="640">${esc(t('para.widthWide'))}</option>
@@ -1635,6 +1735,8 @@ function openExportDialog() {
               <option value="relations">${esc(t('para.labelsRelations'))}</option>
               <option value="roles">${esc(t('para.labelsRoles'))}</option>
             </select></label>
+          <label class="check-label"><input type="checkbox" id="pa-exp-wrap" checked>
+            ${esc(t('para.exportWrap'))}</label>
           <label class="check-label"><input type="checkbox" id="pa-exp-view" checked>
             ${esc(t('para.exportMatchView'))}</label>
           <p class="note">${esc(t('para.exportDiagramHint'))}</p>
@@ -1677,17 +1779,20 @@ function runExport() {
     // and guessing it for them was what produced diagrams too wide to use (Seth, 2026-08-05).
     const matchView = dlg.querySelector('#pa-exp-view').checked;
     const diagram = { ...common,
-      textWidth: +dlg.querySelector('#pa-exp-tw').value,
+      textWidth: dlg.querySelector('#pa-exp-tw').value === 'auto' ? 'auto' : +dlg.querySelector('#pa-exp-tw').value,
       levelWidth: +dlg.querySelector('#pa-exp-lw').value,
       labels: dlg.querySelector('#pa-exp-labels').value,
+      // Off = nothing folds, and the column grows to the longest row instead.
+      wrap: dlg.querySelector('#pa-exp-wrap').checked,
       // "matching whatever view settings the user had before they exported" — otherwise the
       // library default (free translation only, the SSA convention).
       layer: matchView ? state.view.layer : 'free',
       free: matchView ? state.view.free !== false : false,
     };
     const out = kind === 'svg' ? buildSsaSvg(state, diagram) : buildSsaDiagramHtml(state, diagram);
-    downloadFile(out, safeName(state.title) + (kind === 'svg' ? '.ssa.svg' : '.ssa.html'),
-                 kind === 'svg' ? 'image/svg+xml' : 'text/html');
+    saveFile(out, safeName(state.title) + (kind === 'svg' ? '.ssa.svg' : '.ssa.html'),
+             kind === 'svg' ? 'image/svg+xml' : 'text/html',
+             t(kind === 'svg' ? 'para.svgFile' : 'para.diagramFile'));
     dlg.hidden = true; dlg.innerHTML = '';
     return;
   }
@@ -1702,7 +1807,7 @@ function runExport() {
     free: state.view.free !== false,
     lang: getLangForExport(),
   });
-  downloadFile(html, safeName(state.title) + '.preview.html', 'text/html');
+  saveFile(html, safeName(state.title) + '.preview.html', 'text/html', t('para.previewFile'));
   dlg.hidden = true; dlg.innerHTML = '';
 }
 
@@ -1719,6 +1824,36 @@ function measureText(text, fontSize) {
 }
 const safeName = (s) => String(s || 'text').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80);
 
+/* ⚠ THE USER NAMES THE FILE AND CHOOSES WHERE IT GOES (Seth, 2026-08-05: "needs to trigger a save
+ * dialog box that lets the user decide the file name and save location... Auto generating
+ * 'New Diagram.fxpa' is not acceptable"). An analysis is a document someone keeps, not a download.
+ *
+ * Where the File System Access API exists (Chromium) that is a real Save dialog, and the file is
+ * written where they put it. Firefox and Safari do not implement it — there is no shim that can
+ * conjure a save dialog, so those fall back to a download with the name as a SUGGESTION, and
+ * Firefox's own "Always ask where to save files" setting gives the same effect.
+ * A cancelled dialog must save nothing and say nothing: AbortError is the user's decision. */
+async function saveFile(text, suggestedName, mime, description) {
+  const ext = '.' + suggestedName.split('.').slice(1).join('.');
+  if (window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName,
+        types: [{ description: description || suggestedName, accept: { [mime]: [ext] } }],
+      });
+      const w = await handle.createWritable();
+      await w.write(new Blob([text], { type: mime }));
+      await w.close();
+      return true;
+    } catch (err) {
+      if (err && err.name === 'AbortError') return false;      // cancelled — not an error
+      // Anything else (permission, sandbox): fall through to the download path rather than fail.
+    }
+  }
+  downloadFile(text, suggestedName, mime);
+  return true;
+}
+
 function downloadFile(text, name, mime) {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([text], { type: mime }));
@@ -1731,9 +1866,5 @@ function downloadFile(text, name, mime) {
 
 function saveFxpa() {
   const name = String(state.title || 'text').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80) + '.fxpa';
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([serializeFxpa(state)], { type: 'application/json' }));
-  a.download = name;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+  saveFile(serializeFxpa(state), name, 'application/json', t('para.fxpaFile'));
 }

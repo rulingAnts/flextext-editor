@@ -432,6 +432,63 @@ export function setLineFree(data, lineId, text) {
   return { ...data, lines };
 }
 
+/* WORDS AND GLOSSES ARE EDITABLE, AND A WORD CAN BE DELETED (Seth, 2026-08-05) — but a line can
+ * still never be SPLIT or JOINED here, and that boundary is deliberate.
+ *
+ * Fixing a mistyped word or a wrong gloss is a correction WITHIN a line: nothing else in the
+ * document depends on it. Splitting or joining lines is a different animal — it changes the unit
+ * the grouping tree references AND it needs an audio boundary, which must be OBSERVED at the
+ * playhead and never computed. That belongs in its own release; until then the user is pointed at
+ * the FlexText editor or ELAN, which already do it properly.
+ *
+ * Deleting the last word does NOT delete the line: a line with no words still holds its time span,
+ * its free translation and its place in the tree. Removing a line is `deleteLine`, and that is
+ * still authored-documents-only.
+ *
+ * The baseline string is kept in step with the words, so the two never disagree — an edited word
+ * that still showed the old spelling in the baseline view would be a silent lie about the data. */
+const withWords = (data, lineId, fn) => {
+  const i = data.lines.findIndex((l) => l.id === lineId);
+  if (i < 0) throw new Error(`Unknown line ${lineId}.`);
+  const lines = data.lines.slice();
+  const words = fn((lines[i].words || []).slice());
+  const line = { ...lines[i], words };
+  // Rebuild the baseline from the words so the two views of the same line agree. A line that had
+  // no words to begin with keeps whatever baseline it had — there is nothing to rebuild from.
+  if ((lines[i].words || []).length) line.baseline = words.map((w) => w.txt || '').join(' ').replace(/\s+/g, ' ').trim();
+  lines[i] = line;
+  return { ...data, lines };
+};
+
+export function setWordText(data, lineId, index, text) {
+  return withWords(data, lineId, (words) => {
+    if (!words[index]) throw new Error('No such word.');
+    const s = String(text ?? '').trim();
+    if (!s) throw new Error('A word cannot be emptied — delete it instead.');
+    words[index] = { ...words[index], txt: s };
+    return words;
+  });
+}
+
+export function setWordGloss(data, lineId, index, gloss) {
+  return withWords(data, lineId, (words) => {
+    if (!words[index]) throw new Error('No such word.');
+    const w = { ...words[index] };
+    const s = String(gloss ?? '').trim();
+    if (s) { w.gls = s; delete w.punct; } else delete w.gls;   // cleared → absent, not empty
+    words[index] = w;
+    return words;
+  });
+}
+
+export function deleteWord(data, lineId, index) {
+  return withWords(data, lineId, (words) => {
+    if (!words[index]) throw new Error('No such word.');
+    words.splice(index, 1);
+    return words;
+  });
+}
+
 /* ---------------- authored propositions (SSA is semantic, not grammatical) ----------------
  *
  * Seth, 2026-08-05: "SSA is semantic, rather than grammatical analysis, which at times requires us

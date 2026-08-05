@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v199';
+export const ENGINE_VERSION = 'v200';
 
 const S = {
 en: {
@@ -1151,6 +1151,12 @@ internet after the first time.</p>
   'para.freeCancel': 'Leave it as it was',
   'para.freeNone': 'no free translation yet',
   'para.freePlaceholder': 'free translation in the analysis language…',
+  'para.lineEdit': 'Edit this line',
+  'para.wordEditTip': 'Click to correct this word or its gloss, or to delete the word',
+  'para.wordPh': 'word',
+  'para.glossPh': 'gloss',
+  'para.wordDelete': 'Delete this word',
+  'para.splitNote': 'Splitting or joining lines is not done here — use the FlexText editor or ELAN for that, then re-import.',
   'para.collapseAll': 'Collapse all',
   'para.expandAll': 'Expand all',
   'para.collapseAllTip': 'Collapse every group in the text',
@@ -2348,6 +2354,12 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.freeCancel': 'Biarkan seperti semula',
   'para.freeNone': 'belum ada terjemahan bebas',
   'para.freePlaceholder': 'terjemahan bebas dalam bahasa analisis…',
+  'para.lineEdit': 'Ubah baris ini',
+  'para.wordEditTip': 'Klik untuk memperbaiki kata ini atau glosnya, atau menghapus katanya',
+  'para.wordPh': 'kata',
+  'para.glossPh': 'glos',
+  'para.wordDelete': 'Hapus kata ini',
+  'para.splitNote': 'Memecah atau menggabung baris tidak dilakukan di sini — pakai editor FlexText atau ELAN, lalu impor ulang.',
   'para.collapseAll': 'Tutup semua',
   'para.expandAll': 'Buka semua',
   'para.collapseAllTip': 'Tutup semua kelompok dalam teks',

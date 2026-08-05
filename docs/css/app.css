@@ -1286,9 +1286,30 @@ main {
 .pa-propadd:hover { background: var(--panel); color: var(--blue); }
 .pa-scratch { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
 /* An authored line IS a text box — imported language data never gets one. */
-.pa-edit { width: 100%; font: 16px/1.4 inherit; color: var(--vern); padding: 4px 6px; border: 1px solid transparent; border-radius: 6px; background: transparent; }
-.pa-edit:hover { border-color: var(--border); }
-.pa-edit:focus { border-color: var(--blue); background: #fff; outline: none; }
+/* An authored line is TEXT until asked — a permanently-open box swallowed every click, so the row
+   could never be selected, and selecting is how you group (Seth, 2026-08-05). */
+.pa-tip-note { display: block; margin-top: 4px; color: var(--muted); }
+.pa-authored { display: flex; align-items: baseline; gap: 6px; }
+.pa-linetext { font: 16px/1.4 inherit; color: var(--vern); }
+.pa-linetext.pa-empty { color: var(--muted); font-style: italic; opacity: .6; }
+.pa-lineedit { border: 0; background: transparent; color: var(--muted); cursor: pointer;
+  font-size: 12px; padding: 1px 5px; border-radius: 5px; opacity: 0; }
+.pa-row:hover .pa-lineedit, .pa-row.sel .pa-lineedit, .pa-empty + .pa-lineedit { opacity: .75; }
+.pa-lineedit:hover { background: var(--panel); color: var(--blue); opacity: 1; }
+
+/* The shared in-place editor (free translation, authored line, word+gloss). */
+.pa-inline { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.pa-inline-in { font: 15px/1.4 inherit; color: var(--fg); padding: 3px 7px;
+  border: 1px solid var(--blue); border-radius: 6px; background: #fff; min-width: 6ch; }
+.pa-inline-2nd { font-size: 13px; color: var(--gloss); }
+.pa-inline-ok, .pa-inline-cancel, .pa-inline-del { border: 1px solid var(--border); background: var(--panel);
+  cursor: pointer; font-size: 13px; padding: 3px 8px; border-radius: 6px; line-height: 1; }
+.pa-inline-ok { color: #1a7a35; border-color: #1a7a35; font-weight: 700; }
+.pa-inline-ok:hover { background: #e8f6ec; }
+.pa-inline-cancel:hover, .pa-inline-del:hover { background: var(--bg); }
+/* A word is clickable to correct — say so quietly on hover rather than with permanent chrome. */
+.w-edit { cursor: pointer; border-radius: 5px; }
+.w-edit:hover { background: #eef3fb; outline: 1px solid var(--border); }
 /* ELAN import wizard: role → tier, with a live preview so a wrong choice is caught before import. */
 .pa-wizard { max-width: 760px; text-align: left; padding-bottom: 40px; }
 .pa-wizard h1 { text-align: center; }

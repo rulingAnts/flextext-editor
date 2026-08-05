@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v233';
+export const ENGINE_VERSION = 'v234';
 
 const S = {
 en: {
@@ -341,6 +341,7 @@ en: {
   'panel.adv.links.origin': 'Force this same address',
   'panel.deprecated.msg': 'This web address for the Researcher app is being retired. Please install it from its new address and sign in there — your account, your coworkers and their texts are stored on the server, so nothing is lost in the move.',
   'panel.deprecated.link': 'Open research.flextext.app',
+  'para.ungroupDemoted': 'That group was the HEAD of the group above it. Its members have joined that group as ordinary members, so the group above is now a symmetrical (coordinate) join with no head. Set a new head there if you want one.',
   'panel.deprecated.coworkers': 'Moving your coworkers (upload first!)',
   'panel.inst.legacyBadge': 'old address',
   'panel.inst.legacyTip': 'This device is still on the old web address. It keeps working and keeps syncing for now — the old addresses will not be supported forever, though no end date is set yet. Move it when it suits their workload, and upload everything before you delete anything.',
@@ -1615,6 +1616,7 @@ id: {
   'panel.adv.links.origin': 'Paksa alamat yang sama ini',
   'panel.deprecated.msg': 'Alamat web untuk aplikasi Peneliti ini akan dihentikan. Silakan pasang dari alamat barunya dan masuk di sana — akun Anda, rekan kerja Anda, dan teks mereka tersimpan di server, jadi tidak ada yang hilang saat berpindah.',
   'panel.deprecated.link': 'Buka research.flextext.app',
+  'para.ungroupDemoted': 'Kelompok itu adalah HEAD dari kelompok di atasnya. Anggotanya kini bergabung sebagai anggota biasa, sehingga kelompok di atas menjadi gabungan simetris (koordinat) tanpa head. Tetapkan head baru di sana jika Anda menginginkannya.',
   'panel.deprecated.coworkers': 'Memindahkan rekan kerja (kirim dulu!)',
   'panel.inst.legacyBadge': 'alamat lama',
   'panel.inst.legacyTip': 'Perangkat ini masih memakai alamat web lama. Untuk saat ini tetap berfungsi dan tersinkronisasi — tetapi alamat lama tidak akan didukung selamanya, walaupun tanggal akhirnya belum ditetapkan. Pindahkan saat sesuai dengan beban kerja mereka, dan kirim semuanya sebelum menghapus apa pun.',

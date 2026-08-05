@@ -21,7 +21,7 @@ import { buildParagraphPreviewHtml, buildSsaSvg, buildSsaDiagramHtml } from './p
 import { parseDelimited, looksLikeHeader, columnsOf, detectMapping as detectCsvMapping, csvToLines, templateCsv } from './csv.js';
 import {
   validateFxpa, serializeFxpa, groupUnits, ungroup, editGroup, toggleCollapse, setCollapsedAll,
-  topUnits, levelOf, spanOf, leavesOf, summaryOf, isGroupId, nodeById,
+  topUnits, levelOf, spanOf, leavesOf, summaryOf, isGroupId, nodeById, parentOf,
   isBlankLine, visibleTopUnits, withBlanksBetween, isPropId, lineOfPropId, ownerLineOf,
   addProp, setPropText, setPropImplicit, deleteProp,
   newAuthoredDoc, addLine, setLineText, deleteLine, setLineFree, setLineImplicit, setTitle, splitLine,
@@ -1825,9 +1825,19 @@ function doUngroup() {
   const g = selectedGroup();
   if (!g) return alert(t('para.needGroupHeading'));
   try {
-    const next = ungroup(state, g.id);   // may refuse (dissolve top-down) — keep the selection then
+    /* ⚠ TELL THE USER IF THE PARENT'S JOIN TYPE CHANGED. Dissolving a group whose PARENT named it as
+     * HEAD leaves that parent with nothing to point at, so the model demotes it to symmetrical
+     * rather than inventing a prominence claim (see ungroup()). That is a change to the analysis,
+     * not just the structure — it is visible in the diagram, but visible is not noticed. Only
+     * announced when it actually happens, so ordinary ungrouping stays silent. */
+    const parentBefore = parentOf(state, g.id);
+    const next = ungroup(state, g.id);
+    const parentAfter = parentBefore && next.tree.find((x) => x.id === parentBefore.id);
     selection = new Set();
     commit(next);
+    if (parentBefore && parentAfter && parentBefore.joinType === 'asym' && parentAfter.joinType === 'sym') {
+      alert(t('para.ungroupDemoted'));
+    }
   } catch (e) { alert(e.message); }
 }
 

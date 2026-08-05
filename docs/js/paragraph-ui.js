@@ -24,6 +24,7 @@ import {
   isBlankLine, visibleTopUnits, withBlanksBetween,
   addProp, setPropText, setPropImplicit, deleteProp,
   newAuthoredDoc, addLine, setLineText, deleteLine, setLineFree,
+  setWordText, setWordGloss, deleteWord,
 } from './paragraph-model.js';
 
 const WORKING_KEY = 'fxpa:working';
@@ -741,7 +742,8 @@ function renderWork() {
       <div class="pa-ovwrap"><canvas id="pa-ov"></canvas><div class="pa-cur" id="pa-ovcur"></div></div>
       <div class="pa-transport"><button class="icon-btn2" id="pa-play">▶</button><span id="pa-time" class="player-time"></span></div>
     </div>` : ''}
-    <p class="pa-tip">${esc(state.authored ? t('para.scratchHint') : t('para.selectTip'))}</p>
+    <p class="pa-tip">${esc(state.authored ? t('para.scratchHint') : t('para.selectTip'))}
+      ${state.authored ? '' : `<span class="pa-tip-note">${esc(t('para.splitNote'))}</span>`}</p>
     <div class="pa-tree" id="pa-tree"></div>
     <div id="pa-dialog" hidden></div>`;
 
@@ -814,18 +816,21 @@ function renderWork() {
   }
   const tree = $('#pa-tree');
   for (const id of visibleTopUnits(state, v.hideBlank !== false)) tree.appendChild(renderUnit(id));
-  if (state.authored) wireLineEditors();
   refreshActionButtons();
   drawAllWaves();
   startTicker();
   if (focusLineId) {
     // A structural change re-renders, which is exactly when the cursor has to be put back
     // deliberately — into the new proposition when one was just added, else the line editor.
-    const sel = focusPropId
-      ? `.pa-props .pa-prop:last-child .pa-propedit[data-line="${focusLineId}"]`
-      : `.pa-edit[data-line="${focusLineId}"]`;
-    const el = root.querySelector(sel);
-    if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+    if (focusPropId) {
+      const el = root.querySelector(`.pa-props .pa-prop:last-child .pa-propedit[data-line="${focusLineId}"]`);
+      if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+    } else {
+      // Authored lines are text until asked; a line the user just CREATED opens straight into its
+      // editor, so building a chart from scratch stays type-Enter-type-Enter.
+      const row = root.querySelector(`.pa-row[data-unit="${focusLineId}"]`);
+      if (row) openLineEditor(row, focusLineId);
+    }
     focusLineId = null; focusPropId = null;
   }
 }
@@ -904,6 +909,90 @@ function renderUnit(id, nodeLabel = '', depth = 0) {
   return el;
 }
 
+/* ONE in-place editor, used by the free translation, the authored lines and the words (Seth,
+ * 2026-08-05). Fields: one or two boxes, a green tick to commit, ✕ or Escape to abandon, and an
+ * optional bin. It replaces the holder's contents rather than re-rendering, so the row keeps its
+ * selection, waveform and scroll position while it is open, and nothing reaches the document until
+ * the tick. `onEnter` lets a caller keep a fast typing flow (save, then open the next box).
+ * Returns the first input so the caller can focus it. */
+function inlineEdit(holder, { fields, onSave, onDelete, onEnter, deleteTitle } = {}) {
+  const boxes = fields.map((f, i) => `<input class="pa-inline-in${i ? ' pa-inline-2nd' : ''}" data-k="${esc(f.key)}"
+      value="${esc(f.value || '')}" placeholder="${esc(f.placeholder || '')}"${f.size ? ` size="${f.size}"` : ''}>`).join('');
+  holder.innerHTML = `<span class="pa-inline">${boxes}
+    <button class="pa-inline-ok" title="${esc(t('para.freeSave'))}">✓</button>
+    <button class="pa-inline-cancel" title="${esc(t('para.freeCancel'))}">✕</button>
+    ${onDelete ? `<button class="pa-inline-del" title="${esc(deleteTitle || t('para.wordDelete'))}">🗑</button>` : ''}
+  </span>`;
+  const inputs = [...holder.querySelectorAll('.pa-inline-in')];
+  const values = () => Object.fromEntries(inputs.map((i) => [i.dataset.k, i.value]));
+  const cancel = () => renderWork();
+  const save = () => onSave(values());
+  holder.querySelector('.pa-inline-ok').addEventListener('click', (e) => { e.stopPropagation(); save(); });
+  holder.querySelector('.pa-inline-cancel').addEventListener('click', (e) => { e.stopPropagation(); cancel(); });
+  const del = holder.querySelector('.pa-inline-del');
+  if (del) del.addEventListener('click', (e) => { e.stopPropagation(); onDelete(); });
+  for (const inp of inputs) {
+    inp.addEventListener('click', (e) => e.stopPropagation());
+    inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); (onEnter || save)(values()); }
+      // Esc is the app-wide "clear selection" key — swallow it so it cancels the edit instead.
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancel(); }
+      if (e.key === 'Tab' && !e.shiftKey && inp === inputs[inputs.length - 1]) { /* let it leave */ }
+    });
+  }
+  inputs[0].focus();
+  inputs[0].setSelectionRange(inputs[0].value.length, inputs[0].value.length);
+  return inputs[0];
+}
+
+/* A word and its gloss are edited TOGETHER — they are one unit, and correcting a word while its
+ * gloss still says the old thing is how an interlinear text quietly goes wrong. The bin removes
+ * the word entirely; the line survives even if it loses every word (it still owns a time span). */
+function openWordEditor(el, lineId, index) {
+  const w = (nodeById(state, lineId).words || [])[index];
+  if (!w) return;
+  inlineEdit(el, {
+    fields: [
+      { key: 'txt', value: w.txt || '', placeholder: t('para.wordPh'), size: Math.max(6, (w.txt || '').length + 1) },
+      { key: 'gls', value: w.gls || '', placeholder: t('para.glossPh'), size: Math.max(6, (w.gls || '').length + 1) },
+    ],
+    deleteTitle: t('para.wordDelete'),
+    onSave: ({ txt, gls }) => {
+      try {
+        let next = String(txt).trim() === String(w.txt || '').trim() ? state : setWordText(state, lineId, index, txt);
+        next = setWordGloss(next, lineId, index, gls);
+        commit(next);
+      } catch (e) { alert(e.message); }
+    },
+    onDelete: () => commit(deleteWord(state, lineId, index)),
+  });
+}
+
+/* The authored line editor. Enter commits and opens the NEXT line, so building a chart from
+ * scratch is still type-Enter-type-Enter; Backspace on an empty line removes it. */
+function openLineEditor(row, lineId) {
+  const holder = row.querySelector('.pa-authored');
+  if (!holder || holder.querySelector('.pa-inline-in')) return;
+  const original = nodeById(state, lineId).baseline || '';
+  const commitText = (v) => (v === original ? state : setLineText(state, lineId, v));
+  const input = inlineEdit(holder, {
+    fields: [{ key: 'txt', value: original, placeholder: t('para.scratchPlaceholder') }],
+    onSave: ({ txt }) => commit(commitText(txt)),
+    onEnter: ({ txt }) => {
+      const withText = commitText(txt);
+      const next = addLine(withText, lineId);
+      focusLineId = next._added;
+      commit(next);
+    },
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Backspace' && !input.value && state.lines.length > 1) {
+      e.preventDefault();
+      commit(deleteLine(state, lineId));
+    }
+  });
+}
+
 /* Swap the free-translation line for an editor, in place. Deliberately NOT a re-render: the row
  * keeps its selection, its waveform and its scroll position while the box is open, and only the
  * tick writes anything to the document. Escape or ✕ abandons the edit; Enter is the tick. */
@@ -958,18 +1047,26 @@ function renderLineRow(id, nodeLabel = '') {
     body.push(`<canvas class="pa-wave ${wavesMode === 'compact' ? 'pa-wave-sm' : ''}" data-s="${l.start}" data-e="${l.end}"></canvas>`);
   }
   if (state.authored) {
-    // AUTHORED text only. Imported language data has no editor at all (Seth, 2026-08-05), which
-    // the model enforces too — setLineText/addLine/deleteLine refuse a non-authored document.
-    body.push(`<input class="pa-edit" data-line="${esc(id)}" value="${esc(l.baseline || '')}"
-                 placeholder="${esc(t('para.scratchPlaceholder'))}">`);
+    /* ⚠ TEXT FIRST, EDITOR ON REQUEST (Seth, 2026-08-05: "with the blank/new chart editor, it's not
+     * easy to select lines instead of editing them"). A permanently-open text box swallows every
+     * click, so the row could never be SELECTED — and selecting is how you group, which is the
+     * whole point of the tool. Now the line shows as text and a pencil opens the box, exactly like
+     * the free translation. The fast typing flow is kept by opening the editor automatically on a
+     * line the user just created, and by Enter committing and opening the next one. */
+    body.push(`<div class="pa-authored" data-line="${esc(id)}">
+      <span class="pa-linetext${l.baseline ? '' : ' pa-empty'}">${esc(l.baseline || t('para.scratchPlaceholder'))}</span>
+      <button class="pa-lineedit" data-line="${esc(id)}" title="${esc(t('para.lineEdit'))}">✎</button>
+    </div>`);
   } else if (v.layer === 'baseline' || !(l.words || []).length) {
     // Fall back to the baseline when a line has no words, or an interlinear view shows nothing.
     body.push(`<div class="pa-baseline">${esc(l.baseline || '')}</div>`);
   } else if (v.layer === 'interlinear') {
-    const words = (l.words || []).map((w) => w.punct
-      ? `<span class="w punct"><span class="wt">${esc(w.txt)}</span></span>`
-      : `<span class="w"><span class="wt">${esc(w.txt)}</span><span class="wg">${esc(w.gls || ' ')}</span></span>`).join('');
-    body.push(`<div class="pa-words">${words}</div>`);
+    // Each word is individually editable (Seth, 2026-08-05) — click opens a box for the word AND
+    // its gloss together, because the two are one unit; the bin removes the word entirely.
+    const words = (l.words || []).map((w, i) => w.punct
+      ? `<span class="w punct" data-i="${i}"><span class="wt">${esc(w.txt)}</span></span>`
+      : `<span class="w w-edit" data-i="${i}" title="${esc(t('para.wordEditTip'))}"><span class="wt">${esc(w.txt)}</span><span class="wg">${esc(w.gls || ' ')}</span></span>`).join('');
+    body.push(`<div class="pa-words" data-line="${esc(id)}">${words}</div>`);
   }
   /* The free translation is EDITABLE — the one imported field that is (Seth, 2026-08-05). A pencil
    * opens a box, a green tick commits it. It is an explicit two-step rather than a live-typing
@@ -1023,6 +1120,11 @@ function renderLineRow(id, nodeLabel = '') {
   if (wave) wireScrub(wave, l.start, l.end);
   const freeBtn = row.querySelector('.pa-freeedit');
   if (freeBtn) freeBtn.addEventListener('click', (e) => { e.stopPropagation(); openFreeEditor(row, id); });
+  const lineBtn = row.querySelector('.pa-lineedit');
+  if (lineBtn) lineBtn.addEventListener('click', (e) => { e.stopPropagation(); openLineEditor(row, id); });
+  row.querySelectorAll('.w-edit').forEach((w) => {
+    w.addEventListener('click', (e) => { e.stopPropagation(); openWordEditor(w, id, +w.dataset.i); });
+  });
   // Proposition controls must not select/deselect the row underneath them.
   row.querySelectorAll('.pa-propadd, .pa-propdel, .pa-propimp').forEach((b) => {
     b.addEventListener('click', (e) => {
@@ -1060,29 +1162,6 @@ function renderLineRow(id, nodeLabel = '') {
  * keystroke would take the cursor away mid-word. The model is updated in place and persisted, and
  * only STRUCTURAL changes (adding or deleting a line) re-render — which is also when the cursor
  * has to be put back deliberately, via focusLineId. */
-function wireLineEditors() {
-  root.querySelectorAll('.pa-edit').forEach((el) => {
-    const id = el.dataset.line;
-    el.addEventListener('input', () => {
-      state = setLineText(state, id, el.value);
-      persistWorking();
-    });
-    el.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        const next = addLine(state, id);
-        focusLineId = next._added;
-        commit(next);
-      } else if (e.key === 'Backspace' && el.value === '' && state.lines.length > 1) {
-        e.preventDefault();
-        const i = state.lines.findIndex((l) => l.id === id);
-        focusLineId = (state.lines[i - 1] || state.lines[i + 1] || {}).id || null;
-        try { commit(deleteLine(state, id)); } catch (err) { alert(err.message); }
-      }
-    });
-    el.addEventListener('click', (e) => e.stopPropagation());   // clicking the box must not select the row
-  });
-}
 
 /* ---------------- selection + actions ---------------- */
 

@@ -5,6 +5,7 @@ import {
   isBlankLine, visibleTopUnits, withBlanksBetween,
   newAuthoredDoc, addLine, setLineText, deleteLine, setCollapsedAll,
   addProp, setPropText, setPropImplicit, deleteProp, setLineFree,
+  setWordText, setWordGloss, deleteWord,
 } from '../docs/js/paragraph-model.js';
 
 let failures = 0;
@@ -289,6 +290,50 @@ console.log('\nthe free translation is editable — and it is the ONLY imported 
   // It feeds everything downstream, which is the point of being able to fix it.
   let g = groupUnits(setLineFree(base(), 'L1', 'FIXED WORDING'), ['L1', 'L2'], { joinType: 'sym' });
   ok(summaryOf(g, 'G1')[0] === 'FIXED WORDING', 'the corrected wording reaches the collapsed summary');
+}
+
+/* Seth, 2026-08-05: editing and deleting words and glosses ships now; splitting and joining lines
+ * is saved for later (the user is pointed at the FlexText editor or ELAN meanwhile). The split is
+ * principled: a word correction stays INSIDE a line, whereas splitting changes the unit the tree
+ * references and needs an audio boundary that must be observed, never computed. */
+console.log('\nwords and glosses are editable; lines still cannot be split or joined');
+{
+  let d = base();
+  d = setWordText(d, 'L1', 0, 'satú');
+  ok(d.lines[0].words[0].txt === 'satú', 'a word can be corrected');
+  ok(d.lines[0].baseline === 'satú', 'and the baseline is kept in step, so the two views cannot disagree');
+  ok(d.lines[0].words[0].gls === 'one', 'its gloss is untouched by a text edit');
+
+  d = setWordGloss(d, 'L1', 0, 'ONE');
+  ok(d.lines[0].words[0].gls === 'ONE', 'a gloss can be corrected');
+  d = setWordGloss(d, 'L1', 0, '   ');
+  ok(!('gls' in d.lines[0].words[0]), 'clearing a gloss removes the key rather than leaving an empty string');
+
+  // A word with two words in the line, then delete one.
+  let e = validateFxpa({ format: 'flextext-paragraph-analysis', version: 1,
+    lines: [{ id: 'L1', start: 0, end: 1000, baseline: 'ana bete kabo', free: 'he went out',
+              words: [{ txt: 'ana', gls: '3SG' }, { txt: 'bete', gls: 'go' }, { txt: 'kabo', gls: 'out' }] }],
+    tree: [] }).data;
+  e = deleteWord(e, 'L1', 1);
+  eq(e.lines[0].words.map((w) => w.txt), ['ana', 'kabo'], 'a word can be deleted');
+  eq(e.lines[0].words.map((w) => w.gls), ['3SG', 'out'], 'the remaining glosses stay with THEIR OWN words');
+  ok(e.lines[0].baseline === 'ana kabo', 'the baseline follows the deletion');
+
+  // ⚠ Deleting every word must NOT destroy the line: it still holds a time span, a free
+  // translation and a place in the grouping tree.
+  e = deleteWord(deleteWord(e, 'L1', 0), 'L1', 0);
+  ok(e.lines.length === 1 && e.lines[0].words.length === 0, 'the line survives losing all its words');
+  ok(e.lines[0].start === 0 && e.lines[0].end === 1000 && e.lines[0].free === 'he went out',
+     'and keeps its time span and free translation');
+  ok(validateFxpa(e).ok, 'still a valid document');
+
+  throws(() => setWordText(base(), 'L1', 0, '   '), 'a word cannot be silently emptied — delete it instead');
+  throws(() => setWordText(base(), 'L1', 9, 'x'), 'an out-of-range word is refused');
+  throws(() => deleteWord(base(), 'L9', 0), 'an unknown line is refused');
+
+  // The boundary that has NOT moved: nothing here splits or joins a line.
+  ok(base().lines.length === 4 && deleteWord(setWordText(base(), 'L1', 0, 'x'), 'L1', 0).lines.length === 4,
+     'editing and deleting words never changes how many lines there are');
 }
 
 console.log('\nauthored propositions — semantic daughters of a line');

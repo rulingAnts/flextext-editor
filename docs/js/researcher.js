@@ -268,7 +268,11 @@ export async function renameInstance(instanceId, nickname) {
 
 export async function mintInvite(instanceId, ttlSeconds) {
   const r = await api('POST', `/v1/instances/${encodeURIComponent(instanceId)}/invite`, { body: ttlSeconds ? { ttlSeconds } : {}, retry: false }); // non-idempotent: avoid minting duplicate invites
-  return { invite_id: r.invite_id, secret: r.secret, expires_at: r.expires_at };
+  /* ⚠ PASS `estate` THROUGH. This wrapper enumerates fields rather than returning the response, so
+   * a field added on the server is invisible to the panel until it is named here — which is
+   * exactly what happened: the worker returned the instance's estate, this dropped it, and the
+   * panel refused to build a link at all (Seth, 2026-08-05). */
+  return { invite_id: r.invite_id, secret: r.secret, expires_at: r.expires_at, estate: r.estate };
 }
 
 // Build the one-time field link. The secret rides the URL FRAGMENT (never sent to a

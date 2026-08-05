@@ -54,6 +54,25 @@ export function validateFxpa(obj) {
     const timed = typeof l.start === 'number' && typeof l.end === 'number';
     if ((typeof l.start === 'number') !== (typeof l.end === 'number')) errors.push(`Line ${l.id}: start/end must come together.`);
     if (timed && l.end <= l.start) errors.push(`Line ${l.id}: end before start.`);
+    // Authored propositions (optional). Normalized here so every renderer can trust the shape:
+    // an empty or malformed list becomes no list at all, which is the same file as one that never
+    // had propositions — leavesOfLine then falls back to the line with no special case.
+    if ('props' in l) {
+      if (!Array.isArray(l.props)) { errors.push(`Line ${l.id}: props must be a list.`); continue; }
+      const seen = new Set();
+      const kept = [];
+      for (const p of l.props) {
+        if (!p || typeof p !== 'object') { errors.push(`Line ${l.id}: a proposition is not an object.`); continue; }
+        const pid = String(p.id || '');
+        if (!pid) { errors.push(`Line ${l.id}: a proposition has no id.`); continue; }
+        if (seen.has(pid)) { errors.push(`Line ${l.id}: duplicate proposition id ${pid}.`); continue; }
+        seen.add(pid);
+        const q = { id: pid, text: String(p.text ?? '') };
+        if (p.implicit) q.implicit = true;
+        kept.push(q);
+      }
+      if (kept.length) l.props = kept; else delete l.props;
+    }
   }
   for (const g of data.tree) {
     if (!g.id || ids.has(g.id)) errors.push(`Group id ${g.id || '(missing)'} duplicate or missing.`);
@@ -388,6 +407,78 @@ export function setCollapsedAll(data, collapsed, roots = null) {
   const set = new Set((data.view.collapsed || []).filter((id) => known.has(id)));
   for (const id of target) { if (collapsed) set.add(id); else set.delete(id); }
   return { ...data, view: { ...data.view, collapsed: [...set] } };
+}
+
+/* ---------------- authored propositions (SSA is semantic, not grammatical) ----------------
+ *
+ * Seth, 2026-08-05: "SSA is semantic, rather than grammatical analysis, which at times requires us
+ * to split up segments into component semantic propositions... add virtual daughter leaves to
+ * segments that would be just text boxes where the user could type in component semantic
+ * propositions of that segment."
+ *
+ * They live INSIDE the line, because THE LINE OWNS THE AUDIO SPAN. A proposition has no time of
+ * its own — it inherits its line's — which is also why playback highlights lines and never
+ * propositions: several propositions under one span would all light up at once, meaning nothing.
+ *
+ * This is NOT text editing of imported data. A proposition is new authored content sitting beside
+ * the record; the line's baseline, words, glosses and free translation are never touched, so the
+ * "imported wording is sacred" rule holds exactly as before — which is what makes this safe to
+ * offer on any document rather than only on authored ones.
+ *
+ * `implicit` marks a proposition that is implied rather than stated — bracketed by convention when
+ * displayed (a setting, default on). */
+const propsOf = (line) => (Array.isArray(line.props) ? line.props : []);
+
+function withLine(data, lineId, fn) {
+  const i = data.lines.findIndex((l) => l.id === lineId);
+  if (i < 0) throw new Error(`Unknown line ${lineId}.`);
+  const lines = data.lines.slice();
+  lines[i] = fn(lines[i]);
+  return { ...data, lines };
+}
+
+export function addProp(data, lineId, text = '', opts = {}) {
+  return withLine(data, lineId, (l) => {
+    const props = propsOf(l);
+    // Ids are unique WITHIN the line and never reused, so a reference cannot silently re-point.
+    let n = props.length + 1;
+    while (props.some((p) => p.id === `${lineId}p${n}`)) n++;
+    const p = { id: `${lineId}p${n}`, text: String(text || '') };
+    if (opts.implicit) p.implicit = true;
+    const at = Number.isInteger(opts.index) ? Math.max(0, Math.min(props.length, opts.index)) : props.length;
+    return { ...l, props: [...props.slice(0, at), p, ...props.slice(at)] };
+  });
+}
+
+export function setPropText(data, lineId, propId, text) {
+  return withLine(data, lineId, (l) => ({
+    ...l, props: propsOf(l).map((p) => (p.id === propId ? { ...p, text: String(text ?? '') } : p)),
+  }));
+}
+
+export function setPropImplicit(data, lineId, propId, implicit) {
+  return withLine(data, lineId, (l) => ({
+    ...l,
+    props: propsOf(l).map((p) => {
+      if (p.id !== propId) return p;
+      const q = { ...p };
+      if (implicit) q.implicit = true; else delete q.implicit;
+      return q;
+    }),
+  }));
+}
+
+/* Removing the LAST proposition drops the `props` key entirely, so the line goes back to being one
+ * leaf — the file is then byte-identical in shape to one that never had propositions, and every
+ * renderer's `leavesOfLine` falls back without a special case. */
+export function deleteProp(data, lineId, propId) {
+  return withLine(data, lineId, (l) => {
+    const rest = propsOf(l).filter((p) => p.id !== propId);
+    if (rest.length) return { ...l, props: rest };
+    const q = { ...l };
+    delete q.props;
+    return q;
+  });
 }
 
 export function toggleCollapse(data, gid) {

@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v195';
+export const ENGINE_VERSION = 'v196';
 
 const S = {
 en: {
@@ -1139,6 +1139,13 @@ internet after the first time.</p>
   'para.labelsRoles': 'Roles only',
   'para.exportMatchView': 'Show what I am looking at (interlinear, glosses, free translation)',
   'para.exportDiagramHint': 'A deep analysis makes a wide diagram — it scrolls rather than squeezing the text. Tighten the indent to narrow it.',
+  'para.propAdd': '+ proposition',
+  'para.propAddTip': 'Add a semantic proposition inside this line (SSA often needs a line split into the propositions it expresses)',
+  'para.propPlaceholder': 'a proposition this line expresses…',
+  'para.propDelete': 'Remove this proposition',
+  'para.propImplied': 'Mark as IMPLIED rather than stated (shown in brackets)',
+  'para.propStated': 'Mark as STATED rather than implied',
+  'para.brackets': 'Brackets on implied propositions',
   'para.collapseAll': 'Collapse all',
   'para.expandAll': 'Expand all',
   'para.collapseAllTip': 'Collapse every group in the text',
@@ -2324,6 +2331,13 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.labelsRoles': 'Peran saja',
   'para.exportMatchView': 'Tampilkan seperti yang saya lihat (interlinear, gloss, terjemahan bebas)',
   'para.exportDiagramHint': 'Analisis yang dalam menghasilkan diagram lebar — diagram digulir, teks tidak dipadatkan. Rapatkan lekuk untuk mempersempit.',
+  'para.propAdd': '+ proposisi',
+  'para.propAddTip': 'Tambah proposisi semantis di dalam baris ini (SSA sering perlu satu baris dipecah menjadi proposisi-proposisinya)',
+  'para.propPlaceholder': 'proposisi yang dinyatakan baris ini…',
+  'para.propDelete': 'Hapus proposisi ini',
+  'para.propImplied': 'Tandai sebagai TERSIRAT, bukan tersurat (ditampilkan dalam kurung)',
+  'para.propStated': 'Tandai sebagai TERSURAT, bukan tersirat',
+  'para.brackets': 'Kurung pada proposisi tersirat',
   'para.collapseAll': 'Tutup semua',
   'para.expandAll': 'Buka semua',
   'para.collapseAllTip': 'Tutup semua kelompok dalam teks',

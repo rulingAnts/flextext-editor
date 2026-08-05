@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v226';
+export const ENGINE_VERSION = 'v227';
 
 const S = {
 en: {
@@ -343,7 +343,6 @@ en: {
   'panel.deprecated.link': 'Open research.flextext.app',
   'panel.deprecated.coworkers': 'Moving your coworkers (upload first!)',
   'panel.inst.legacyBadge': 'old address',
-  'panel.inst.legacyDismiss': 'Don\u2019t remind me about this device',
   'panel.inst.legacyTip': 'This device is still on the old web address. It keeps working and keeps syncing for now — the old addresses will not be supported forever, though no end date is set yet. Move it when it suits their workload, and upload everything before you delete anything.',
   'panel.deprecated.dismiss': 'Hide until next time',
   'panel.crowd.turnstile': 'Block bots (Turnstile)',
@@ -1618,7 +1617,6 @@ id: {
   'panel.deprecated.link': 'Buka research.flextext.app',
   'panel.deprecated.coworkers': 'Memindahkan rekan kerja (kirim dulu!)',
   'panel.inst.legacyBadge': 'alamat lama',
-  'panel.inst.legacyDismiss': 'Jangan ingatkan saya tentang perangkat ini',
   'panel.inst.legacyTip': 'Perangkat ini masih memakai alamat web lama. Untuk saat ini tetap berfungsi dan tersinkronisasi — tetapi alamat lama tidak akan didukung selamanya, walaupun tanggal akhirnya belum ditetapkan. Pindahkan saat sesuai dengan beban kerja mereka, dan kirim semuanya sebelum menghapus apa pun.',
   'panel.deprecated.dismiss': 'Sembunyikan sampai lain kali',
   'panel.crowd.turnstile': 'Blokir bot (Turnstile)',

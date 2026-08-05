@@ -102,7 +102,7 @@ export function buildParagraphPreviewHtml(data, opts = {}) {
     return `<div class="row"${sp}>${parts.join('')}<div class="cell">${body.join('')}</div></div>`;
   };
 
-  const renderUnit = (id, label) => {
+  const renderUnit = (id, label, depth = 0) => {
     if (!isGroup(id)) {
       const l = node(data, id);
       if (hideBlank && blank(l)) return '';
@@ -122,14 +122,14 @@ export function buildParagraphPreviewHtml(data, opts = {}) {
     const kids = g.children.map((c) => {
       if (hideBlank && !isGroup(c) && blank(node(data, c))) return '';
       const kidLabel = (g.labels || {})[c] || '';
-      const el = renderUnit(c, kidLabel);
+      const el = renderUnit(c, kidLabel, depth + 1);
       return (g.joinType === 'asym' && g.head === c && el) ? el.replace(/^<div class="/, '<div class="head ') : el;
     }).join('');
     // ALWAYS emit the summary; CSS shows it only while collapsed. The reader can collapse groups
     // in the exported page too, and a collapsed bracket with nothing under it reads as broken —
     // the app shows a free-translation summary there and the export must match.
     const summary = `<div class="summary">${esc(summaryText(data, id))}</div>`;
-    return `<div class="grp${isCollapsed ? ' collapsed' : ''}">${head}${summary}<div class="kids">${kids}</div></div>`;
+    return `<div class="grp${isCollapsed ? ' collapsed' : ''}" data-depth="${depth % 6}">${head}${summary}<div class="kids">${kids}</div></div>`;
   };
 
   const units = topUnitsOf(data).filter((id) => !only || only.has(id));
@@ -173,7 +173,16 @@ main { padding:10px 14px 40vh; }
 .prop { font-size:16px; }
 .prop.implicit { color:var(--muted); font-style:italic; }
 .brackets .prop.implicit::before { content:"("; } .brackets .prop.implicit::after { content:")"; }
-.grp { border-left:3px solid var(--blue); border-radius:6px 0 0 6px; margin:6px 0 6px 2px; padding-left:8px; }
+/* Stacked brackets are colour-coded BY DEPTH and traceable on hover — identical parallel bars
+   were hard to follow, and this page is read by the same eyes as the app (Seth, 2026-08-05). */
+.grp { border-left:3px solid var(--blue); border-radius:8px 0 0 8px; margin:8px 0 8px 2px; padding-left:14px; }
+.grp[data-depth="0"] { border-left-color:#1f4f8f; }
+.grp[data-depth="1"] { border-left-color:#2a6e2a; }
+.grp[data-depth="2"] { border-left-color:#8a5a00; }
+.grp[data-depth="3"] { border-left-color:#6b21a8; }
+.grp[data-depth="4"] { border-left-color:#0e7490; }
+.grp[data-depth="5"] { border-left-color:#a33; }
+.grp:has(> .badge:hover) { border-left-width:6px; padding-left:11px; background:rgba(31,79,143,.05); }
 .grp.head, .row.head { box-shadow:inset 3px 0 0 var(--gloss); }
 .badge { display:flex; align-items:center; gap:6px; padding:3px 6px; border-radius:6px; font-size:13px; color:var(--muted); background:var(--panel); }
 .jt { font-weight:700; color:var(--blue); }

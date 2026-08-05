@@ -108,6 +108,26 @@ console.log('\nblank lines, collapsed state and selection are honoured');
   ok(part.includes('toto') && !part.includes('grounds–CONCLUSION'), 'only the selected unit is exported');
 }
 
+/* Seth, 2026-08-05: "this app is going to be used by a number of older eyes. Our current rendering
+ * of stacked brackets in the left margin is a bit busy and hard to keep track of." Every level was
+ * the same colour, so a deep analysis was N identical parallel bars. */
+console.log('\nstacked brackets are tellable apart');
+{
+  let deep = validateFxpa({ format: 'flextext-paragraph-analysis', version: 1,
+    lines: [{ id: 'L1', free: 'a' }, { id: 'L2', free: 'b' }, { id: 'L3', free: 'c' }, { id: 'L4', free: 'd' }],
+    tree: [] }).data;
+  deep = groupUnits(deep, ['L1', 'L2'], { joinType: 'sym' });
+  deep = groupUnits(deep, ['G1', 'L3'], { joinType: 'sym' });
+  deep = groupUnits(deep, ['G2', 'L4'], { joinType: 'sym' });
+  const html = buildParagraphPreviewHtml(deep, { title: 'T' });
+  const depths = [...html.matchAll(/class="grp[^"]*" data-depth="(\d)"/g)].map((m) => m[1]);
+  eq(depths, ['0', '1', '2'], 'each nesting level is tagged with its depth');
+  ok(/\.grp\[data-depth="0"\] \{ border-left-color:#1f4f8f/.test(html)
+     && /\.grp\[data-depth="2"\] \{ border-left-color:#8a5a00/.test(html),
+     'and the CSS gives each depth its own colour');
+  ok(/\.grp:has\(> \.badge:hover\)/.test(html), 'pointing at a heading traces its own bracket');
+}
+
 console.log('\ndisplay modes carry over');
 {
   const bl = buildParagraphPreviewHtml(doc, { title: 'T', layer: 'baseline' });

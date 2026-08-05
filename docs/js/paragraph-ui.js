@@ -853,11 +853,14 @@ function setView(patch) {
 // children for free-translation summary rows (the model computes them).
 // `nodeLabel` is this unit's ROLE in its parent group's relation (from the PARENT's labels map —
 // a role is held relative to one relation, so the parent owns it). Optional everywhere.
-function renderUnit(id, nodeLabel = '') {
+function renderUnit(id, nodeLabel = '', depth = 0) {
   if (!isGroupId(id)) return renderLineRow(id, nodeLabel);
   const g = nodeById(state, id);
   const el = document.createElement('div');
   el.className = 'pa-group' + (selection.has(id) ? ' sel' : '');
+  // Depth drives the bracket's COLOUR and weight — see the CSS note. Cycling at 6 is far more
+  // than any real analysis nests, so in practice each level on screen is a distinct colour.
+  el.dataset.depth = depth % 6;
   el.dataset.unit = id;
   const collapsed = (state.view.collapsed || []).includes(id);
   const badge = document.createElement('div');
@@ -874,6 +877,10 @@ function renderUnit(id, nodeLabel = '') {
   const gplay = badge.querySelector('.pa-rowplay');
   if (gplay) gplay.addEventListener('click', (e) => { e.stopPropagation(); playSpan(+gplay.dataset.s, +gplay.dataset.e); });
   badge.addEventListener('click', (e) => toggleSelect(id, e));
+  // Pointing at a heading traces THAT bracket down its whole length. With several levels stacked
+  // in the margin, working out which bar belongs to which heading is the hard part.
+  badge.addEventListener('mouseenter', () => el.classList.add('trace'));
+  badge.addEventListener('mouseleave', () => el.classList.remove('trace'));
   el.appendChild(badge);
   if (collapsed) {
     for (const line of summaryOf(state, id)) {
@@ -886,7 +893,7 @@ function renderUnit(id, nodeLabel = '') {
     const hideBlank = state.view.hideBlank !== false;
     for (const c of g.children) {
       if (hideBlank && !isGroupId(c) && isBlankLine(nodeById(state, c))) continue;   // silence inside a group
-      el.appendChild(renderUnit(c, (g.labels || {})[c] || ''));
+      el.appendChild(renderUnit(c, (g.labels || {})[c] || '', depth + 1));
     }
     // HEAD marker on the head child's container/row.
     if (g.joinType === 'asym') {

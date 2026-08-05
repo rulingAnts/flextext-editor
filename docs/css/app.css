@@ -1338,7 +1338,26 @@ main {
 .pa-rowplay:hover { border-color: var(--blue); color: var(--blue); }
 
 /* The bracket: one nested container per group; deeper levels indent naturally. */
-.pa-group { border-left: 3px solid var(--blue); border-radius: 6px 0 0 6px; margin: 6px 0 6px 2px; padding-left: 8px; }
+/* ⚠ STACKED BRACKETS MUST BE TELLABLE APART (Seth, 2026-08-05: "this app is going to be used by a
+   number of older eyes... the stacked brackets in the left margin are a bit busy and hard to keep
+   track of even for younger eyes"). Every level used to be the SAME 3px blue bar 8px apart, so a
+   five-deep analysis was five identical parallel lines and the eye had nothing to hold on to.
+   Three cheap changes, no layout rewrite:
+     - COLOUR BY DEPTH, cycling through six calm, distinguishable hues;
+     - MORE ROOM between levels, so the bars are separated rather than crowded;
+     - TRACING: pointing at a heading thickens and tints its own bracket down its whole length,
+       which is the actual question being asked ("which bar is this heading?").
+   Depth colours stay dark enough for contrast on white and are distinguishable without relying on
+   hue alone — the trace and the weight difference carry it for anyone who cannot separate them. */
+.pa-group { border-left: 3px solid var(--blue); border-radius: 8px 0 0 8px; margin: 8px 0 8px 2px; padding-left: 14px; }
+.pa-group[data-depth="0"] { border-left-color: #1f4f8f; }
+.pa-group[data-depth="1"] { border-left-color: #2a6e2a; }
+.pa-group[data-depth="2"] { border-left-color: #8a5a00; }
+.pa-group[data-depth="3"] { border-left-color: #6b21a8; }
+.pa-group[data-depth="4"] { border-left-color: #0e7490; }
+.pa-group[data-depth="5"] { border-left-color: #a33; }
+.pa-group.trace { border-left-width: 6px; padding-left: 11px; background: rgba(31,79,143,.05); }
+.pa-group.trace > .pa-badge { background: #e8f0fb; }
 .pa-group.pa-head, .pa-row.pa-head { box-shadow: inset 3px 0 0 var(--gloss); }
 /* The group HEADING is the group's handle: clicking it selects the group, and Edit/Ungroup act on
    exactly that. So it has to LOOK like a control — a bar with its own surface and a hover state —

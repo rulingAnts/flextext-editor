@@ -7,8 +7,9 @@
  *
  * THE MODEL OWNS THE INVARIANTS (same doctrine as segments.js): every tree mutation routes
  * through here and either returns a valid new state or throws with a human-readable message.
- * Invariants: units group only when ADJACENT and PARENTLESS (trees build bottom-up); every unit
- * has at most one parent; a group's level = 1 + max(child levels), lines are level 0; joinType is
+ * Invariants: units group only when ADJACENT and under the SAME PARENT (so trees may be built
+ * top-down or bottom-up, and a sub-level can be changed without dismantling the rest); every unit
+ * has at most one parent; a group's level is DERIVED as 1 + max(child levels) and never stored; joinType is
  * 'sym' | 'asym'; asym has EXACTLY ONE head (∈ children), sym has NONE; brackets can never cross
  * by construction (adjacency + single-parent). The DEFAULT join is GROUPING — nothing here ever
  * merges audio segments or text (Seth: destructive merges are a separate, explicit v1.1 feature).
@@ -42,7 +43,8 @@ export function validateFxpa(obj) {
 
   const data = { ...obj };
   data.lines = obj.lines.map((l, i) => ({ ...l, id: String(l.id || 'L' + (i + 1)) }));
-  data.tree = Array.isArray(obj.tree) ? obj.tree.map((g) => ({ ...g, children: [...(g.children || [])] })) : [];
+  // `level` is DERIVED (see stripDerived) — drop it from any file that still carries the stale copy.
+  data.tree = Array.isArray(obj.tree) ? obj.tree.map((g) => stripDerived({ ...g, children: [...(g.children || [])] })) : [];
   data.view = { layer: 'interlinear', free: true, audio: true, waves: 'compact', collapsed: [], ...(obj.view || {}) };
   if (!Array.isArray(data.view.collapsed)) data.view.collapsed = [];
   if (!data.audio || !data.audio.b64) { delete data.audio; data.view.audio = false; }
@@ -272,6 +274,19 @@ export const isGroupId = (id) => /^G\d+$/.test(String(id));
  * lines. Nothing about grouping changes that.
  *
  * Ids are `<lineId>p<n>` (minted by addProp), so a proposition names its own line. */
+/* ⚠ `level` IS DERIVED, NEVER STORED (Seth, 2026-08-06): "we want to avoid storing things and
+ * keeping two separate parallel copies of information or structure that trust our app/code to keep
+ * them in sync. That's always a less preferable design whenever possible."
+ *
+ * It used to be written onto each group at creation and then went stale the moment anything nested
+ * — the group's depth changed but the field did not. Nothing ever read it (levelOf() recurses over
+ * the tree), so it was pure drift waiting to mislead. Old files are stripped on load.
+ *
+ * ⚠ The counter-case, so this is not over-applied: audio times ARE stored, because they are
+ * OBSERVED, not derivable. "Never invent a time" is the segmentation engine's absolute rule. Derive
+ * what can be derived; store what was measured. */
+export const stripDerived = (g) => { const { level, ...rest } = g; return rest; };
+
 export const isPropId = (id) => /^L\d+p\d+$/.test(String(id));
 export const lineOfPropId = (id) => String(id).split('p')[0];
 
@@ -494,28 +509,60 @@ function cleanLabels(children, labels) {
 // OPTIONAL: `relation` on the group, `labels` on its members, either, both, or neither.
 export function groupUnits(data, ids, { joinType, head, relation = '', labels = null } = {}) {
   if (!Array.isArray(ids) || ids.length < 2) throw new Error('Select at least two units to group.');
-  for (const id of ids) {
-    if (!nodeById(data, id)) throw new Error(`Unknown unit ${id}.`);
-    if (parentOf(data, id)) throw new Error('A selected unit is already inside a group — ungroup it first.');
+  for (const id of ids) if (!nodeById(data, id)) throw new Error(`Unknown unit ${id}.`);
+
+  /* ⚠ SUB-GROUPING IS ALLOWED. This used to refuse any unit that already had a parent —
+   * "already inside a group, ungroup it first" — which made nesting impossible and forced the
+   * researcher to dismantle a hierarchy to change any part of it. Seth, 2026-08-06: "We should be
+   * able to work from the top down… or the bottom up… without having to dismantle and redo the
+   * entire hierarchy. And we REALLY don't want our model to have that constraint."
+   *
+   * What IS still required is a single parent: every selected unit must sit at the SAME level, so
+   * grouping is a local edit to one parent's children. Grouping across two different groups would
+   * have to steal children from one and give them to another, which is not a sub-grouping at all —
+   * it is a re-parenting, and it would break the single-parent invariant the tree depends on. */
+  const parents = ids.map((id) => parentOf(data, id));
+  if (new Set(parents.map((p) => (p ? p.id : ''))).size > 1) {
+    throw new Error('Those units are in different groups — group units that sit side by side at the same level.');
   }
-  // One surface, so adjacency is the only question — a proposition may join a proposition from the
-  // next line, or a whole line, as long as the run is unbroken.
-  const surface = topUnits(data);
-  const idx = ids.map((id) => surface.indexOf(id)).sort((a, b) => a - b);
-  if (idx[0] < 0) throw new Error('Those units are not all on the surface — ungroup first.');
+  const parent = parents[0] || null;
+  // Adjacency is judged among SIBLINGS: the parent's own children, or the top surface.
+  const siblings = parent ? parent.children : topUnits(data);
+  const idx = ids.map((id) => siblings.indexOf(id)).sort((a, b) => a - b);
+  if (idx[0] < 0) throw new Error('Those units are not all at the same level.');
   for (let k = 1; k < idx.length; k++) {
     if (idx[k] !== idx[k - 1] + 1) throw new Error('Units must be adjacent to group.');
   }
   if (joinType !== 'sym' && joinType !== 'asym') throw new Error('Choose symmetrical or asymmetrical.');
   if (joinType === 'asym' && !ids.includes(head)) throw new Error('An asymmetrical join needs one of its members as HEAD.');
   if (joinType === 'sym' && head) throw new Error('A symmetrical join has no head.');
-  const ordered = idx.map((i) => surface[i]);
+  const ordered = idx.map((i) => siblings[i]);
   const lab = cleanLabels(ordered, labels);
   const g = { id: nextGroupId(data), children: ordered, joinType, relation: String(relation || '').trim() };
   if (joinType === 'asym') g.head = head;
   if (lab) g.labels = lab;
-  g.level = 1 + Math.max(...ordered.map((c) => levelOf(data, c)));
-  return { ...data, tree: [...data.tree, g] };
+  if (!parent) return { ...data, tree: [...data.tree, g] };
+
+  /* The new group TAKES THE RUN'S PLACE among its parent's children, so order is preserved and the
+   * parent keeps exactly the same span. Two details that are wrong if forgotten:
+   *  - an asymmetrical parent whose HEAD was one of the absorbed children must now point at the new
+   *    group, or it is left naming a child it no longer has;
+   *  - the parent's labels for absorbed children no longer address anything, so they are dropped —
+   *    the same healing pruneTree does. */
+  const first = idx[0], last = idx[idx.length - 1];
+  const tree = [...data.tree, g].map((x) => {
+    if (x.id !== parent.id) return x;
+    const children = [...x.children.slice(0, first), g.id, ...x.children.slice(last + 1)];
+    const y = { ...x, children };
+    if (y.joinType === 'asym' && ordered.includes(y.head)) y.head = g.id;
+    if (y.labels) {
+      const kept = {};
+      for (const [k, v] of Object.entries(y.labels)) if (children.includes(k)) kept[k] = v;
+      if (Object.keys(kept).length) y.labels = kept; else delete y.labels;
+    }
+    return y;
+  });
+  return { ...data, tree };
 }
 
 export function ungroup(data, gid) {

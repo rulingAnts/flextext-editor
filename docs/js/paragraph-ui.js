@@ -638,6 +638,20 @@ function load(data, { persist = true } = {}) {
 
 function commit(next) {
   state = next;
+  /* ⚠ DROP SELECTED IDS THAT NO LONGER EXIST. Every mutation can remove units — deleting a
+   * proposition, dissolving a group, pruning a thinned group — and the selection used to survive
+   * them, holding a ghost id that pointed at nothing. The next action then validated that ghost and
+   * threw a confusing error ("already inside a group", "unknown unit") about a unit the researcher
+   * could no longer see. Seth, 2026-08-06: "it has some sort of cached memory of a proposition that
+   * is no longer there… if I fiddle around, it works" — because re-selecting rebuilt the set from
+   * live ids.
+   *
+   * Pruning here, in the one place state changes, means no caller has to remember. */
+  if (selection.size) {
+    const live = new Set([...selection].filter((id) => !!nodeById(state, id)));
+    if (live.size !== selection.size) selection = live;
+  }
+  if (anchor && !nodeById(state, anchor)) anchor = null;
   persistWorking();
   renderWork();
 }

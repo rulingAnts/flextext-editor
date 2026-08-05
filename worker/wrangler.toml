@@ -67,7 +67,7 @@ bucket_name = "flextext-back-end"
 # The four *.flextext.app origins are the Cloudflare-hosted apps (apps/ in this repo), which run
 # ALONGSIDE the GitHub Pages estate rather than replacing it — both sets must be allowed while
 # devices exist on both.
-ALLOWED_ORIGINS = "https://rulingants.github.io,https://localhost,https://flextext-editor-dev.68mh29kgsd.workers.dev,https://app.flextext.app,https://record.flextext.app,https://research.flextext.app,https://crowd.flextext.app"
+ALLOWED_ORIGINS = "https://rulingants.github.io,https://localhost,https://flextext-editor-dev.68mh29kgsd.workers.dev,https://app.flextext.app,https://record.flextext.app,https://research.flextext.app,https://crowd.flextext.app,https://staging-flextext-editor.68mh29kgsd.workers.dev,https://staging-flextext-recorder.68mh29kgsd.workers.dev,https://staging-flextext-researcher.68mh29kgsd.workers.dev,https://staging-flextext-crowd.68mh29kgsd.workers.dev,https://staging-paragraph-analysis-tool.68mh29kgsd.workers.dev"
 MAX_FILE_BYTES  = "536870912"     # 512 MB per-file ceiling (Cloudflare cache limit)
 MAX_TOTAL_BYTES = "9500000000"    # ~9.5 GB total — stops BEFORE the 10 GB free tier
 # (RELAY_URL removed 2026-07-13: the Apps Script relay upload leg is retired —

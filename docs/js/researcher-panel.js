@@ -1566,9 +1566,15 @@ async function inviteModal(instanceId) {
     // editor + recorder share one identity, so opening either binds the SAME device — one claim, one
     // consent, one approval, even if both links are sent.
     const invite = await Researcher.mintInvite(instanceId);
-    // THIS instance's estate — an extra device for a coworker on Pages must join them on Pages.
-    const inst = ((lastData && lastData.instances) || []).find((x) => x.instance_id === instanceId);
-    const B = basesFor(estateOfRecord(inst));
+    /* THIS instance's estate, from the MINT RESPONSE — server truth. The cached dashboard is not
+     * good enough: a brand-new device is not in it yet, the lookup missed, and estateOfRecord(undefined)
+     * fell back to 'pages' — which sent every new coworker to the legacy apps even though the row
+     * said 'cloud' (Seth, 2026-08-05; confirmed against D1). The cache is only a fallback now, and
+     * an unknown instance is an ERROR rather than a guess: guessing legacy is exactly the bug. */
+    const cached = ((lastData && lastData.instances) || []).find((x) => x.instance_id === instanceId);
+    const estate = invite.estate || (cached && cached.estate);
+    if (!estate) throw new Error('Could not determine which app this device should install — reload the panel and try again.');
+    const B = basesFor(estate);
     const urls = { editor: Researcher.inviteUrl(B.editor, invite), recorder: Researcher.inviteUrl(B.recorder, invite) };
     const exp = invite.expires_at ? new Date(invite.expires_at).toLocaleString() : '';
     const row = (label, key) => `

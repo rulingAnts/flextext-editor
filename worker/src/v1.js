@@ -1235,7 +1235,12 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       const expires_at = now + ttl * 1000;
       await env.DB.prepare('INSERT INTO invite (invite_id, instance_id, secret_hash, expires_at, created_at) VALUES (?,?,?,?,?)')
         .bind(invite_id, instanceId, await sha256hex(secret), expires_at, now).run();
-      return j({ invite_id, secret, expires_at }, 200, origin, env);
+      /* ⚠ RETURN THE ESTATE WITH THE INVITE. The panel used to look the instance up in its cached
+       * dashboard, which a BRAND-NEW device is not in yet — so the lookup missed and the link fell
+       * back to 'pages', sending new coworkers to the legacy apps (Seth, 2026-08-05). Server truth
+       * at mint time cannot miss. */
+      const ie = await env.DB.prepare('SELECT estate FROM instance WHERE instance_id=?').bind(instanceId).first();
+      return j({ invite_id, secret, expires_at, estate: (ie && ie.estate) || 'pages' }, 200, origin, env);
     }
 
     // POST .../command — append a command to `desired` (CAS, §E.2). Enforce id+type (§F.5).

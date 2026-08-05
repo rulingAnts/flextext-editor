@@ -416,8 +416,14 @@ export function initResearcherPanel(d) {
       }));
       console.table(out);
       const absent = out.filter((r) => r.estate === '(FIELD ABSENT)').length;
+      /* ⚠ This reads lastData, which is ALREADY transformed by Researcher.listView(). So an absent
+       * field means "it did not reach the panel" — NOT "the server did not send it". Saying the
+       * latter sent me to redeploy the worker when the loss was in listView's enumerated rebuild
+       * (2026-08-05). Name both suspects. */
       return absent
-        ? `${absent}/${out.length} rows have NO estate field — the server is not sending it, so no badge can be correct`
+        ? `${absent}/${out.length} rows have no estate by the time the panel sees it — check BOTH `
+          + `the server response (GET /v1/researcher) and Researcher.listView(), which rebuilds each `
+          + `instance field-by-field and silently drops anything not named there`
         : `${out.length} rows carry an estate; ${out.filter((r) => r.flagged).length} flagged legacy`;
     };
   }

@@ -158,6 +158,32 @@ export function estateOf(origin = location.origin) {
 
 const HOME = estateOf();
 
+/* DEPRECATION NOTICE — the legacy GitHub Pages panel only (Seth, 2026-08-05).
+ *
+ * ⚠ Matched on the EXACT hostname, not on `HOME === ESTATES.pages`. estateOf() returns the pages
+ * map for anything that is not *.flextext.app or localhost, which includes the *.workers.dev
+ * STAGING previews — and staging is the dev site, not a deprecated address. An estate-based test
+ * would have nagged every preview build.
+ *
+ * Researcher-panel only, deliberately: a researcher's account, coworkers and texts live server-side
+ * in D1, so re-installing costs them nothing. The FIELD apps are the opposite — their texts and
+ * audio are in per-origin IndexedDB, and telling a field worker to reinstall before they upload
+ * would destroy work. Do not copy this banner into the editor or recorder. */
+const LEGACY_PANEL_HOST = 'rulingants.github.io';
+const onLegacyHost = () => location.hostname === LEGACY_PANEL_HOST;
+// Page-load scoped on purpose: no storage, so it returns next launch. A deprecation notice that can
+// be dismissed forever stops being a deprecation notice; one that cannot be dismissed at all is a
+// permanent tax on every screen of the panel.
+let deprecationDismissed = false;
+function deprecationBanner() {
+  if (!onLegacyHost() || deprecationDismissed) return '';
+  return `<div class="warn-banner rp-deprecated">
+    <span>${esc(t('panel.deprecated.msg'))}
+      <a href="${ESTATES.cloud.researcher}" target="_blank" rel="noopener">${esc(t('panel.deprecated.link'))}</a></span>
+    <button class="banner-dismiss" data-act="deprecated-dismiss" aria-label="${esc(t('panel.deprecated.dismiss'))}" title="${esc(t('panel.deprecated.dismiss'))}">&times;</button>
+  </div>`;
+}
+
 /* ⚠ EVERY LINK COMES FROM THE RECORD'S ESTATE, never from where the panel happens to be running
  * (Seth, 2026-08-05: a legacy crowd recorder shown from the Cloudflare panel produced
  * https://research.flextext.app/crowd-recorder/?c=… — a 404, because the satellites are not copied
@@ -284,6 +310,14 @@ export function initResearcherPanel(d) {
   root.addEventListener('click', (e) => {
     const b = e.target.closest && e.target.closest('#rp-install');
     if (b) { b.remove(); if (deps.doInstall) deps.doInstall(); }
+  });
+  // Delegated: the banner is re-rendered by every screen, so a per-render listener would leak.
+  root.addEventListener('click', (e) => {
+    const d = e.target.closest && e.target.closest('[data-act="deprecated-dismiss"]');
+    if (!d) return;
+    deprecationDismissed = true;
+    const b = d.closest('.rp-deprecated');
+    if (b) b.remove();
   });
   // Returning to a backgrounded tab → refresh the dashboard + the LIVE-version banner right away rather
   // than waiting for the next poll tick (only fires while the dashboard is actively polling).
@@ -429,7 +463,7 @@ function header(titleKey, withLock) {
   // (the dashboard Lock button is the way out — it signs out → sign-in screen).
   const exitBtn = deps && deps.standalone ? ''
     : `<button class="icon-btn rp-exit" data-act="exit" title="${esc(t('panel.exit'))}">&#8592;</button>`;
-  return `<div class="rp-head">
+  return deprecationBanner() + `<div class="rp-head">
     ${exitBtn}
     <span class="rp-title">${esc(t(titleKey))}</span>
     <span class="rp-spacer"></span>

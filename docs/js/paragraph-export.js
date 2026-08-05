@@ -28,9 +28,16 @@ const parentOf = (data, id) => data.tree.find((g) => g.children.includes(id)) ||
 
 // A line's leaves: its authored propositions when it has them, otherwise the line itself.
 // This is the single place that will change when propositions land.
+/* ⚠ ONLY PROPOSITIONS WITH TEXT REPLACE THE LINE (Seth, 2026-08-05: "the second line of source text
+ * isn't showing in the diagram"). A line's propositions stand IN PLACE OF the line — that is the
+ * point of them — but an EMPTY one is a box the analyst has just opened and not yet typed into,
+ * and letting it stand in for the line makes the line's own text vanish from the diagram. Blank
+ * propositions are therefore ignored here, and a line whose propositions are all blank renders as
+ * itself. Nothing is deleted: the empty box stays in the editor, waiting to be filled. */
 export function leavesOfLine(line) {
-  return (Array.isArray(line.props) && line.props.length)
-    ? line.props.map((p) => ({ ...p, lineId: line.id, isProp: true }))
+  const written = (Array.isArray(line.props) ? line.props : []).filter((p) => String(p.text || '').trim());
+  return written.length
+    ? written.map((p) => ({ ...p, lineId: line.id, isProp: true }))
     : [{ id: line.id, text: null, lineId: line.id, isProp: false }];
 }
 
@@ -421,14 +428,27 @@ export function ssaLayout(data, opts = {}) {
     }
     const l = node(data, id);
     if (!l) return null;
-    const leaves = leavesOfLine(l).map((leaf) => {
-      rows.push({ depth, label: roleLabel, content: contentOf(l, leaf), head: !!isHead,
-                  implicit: !!leaf.implicit, speaker: l.speaker || '' });
-      return { kind: 'leaf', depth, row: rows.length - 1, label: roleLabel, head: !!isHead };
+    /* Several propositions from one line behave as an implicit cluster standing where the line
+     * stood. ⚠ THE LINE'S ROLE BELONGS TO THAT CLUSTER, NOT TO EACH MEMBER — labelling every
+     * proposition "orienter" claims each one separately plays that role in the parent, which is
+     * false and reads as a repeated label down the margin. The cluster carries it once, and its
+     * members sit one level deeper, so the implicit grouping is visible as a grouping. */
+    const units = leavesOfLine(l);
+    const many = units.length > 1;
+    const leaves = units.map((leaf) => {
+      rows.push({ depth: depth + (many ? 1 : 0), label: '', content: contentOf(l, leaf),
+                  head: !many && !!isHead, implicit: !!leaf.implicit, speaker: l.speaker || '' });
+      return { kind: 'leaf', depth: depth + (many ? 1 : 0), row: rows.length - 1, label: '', head: false };
     });
-    // Several propositions from one segment behave as an implicit grouping of that segment.
-    return leaves.length === 1 ? leaves[0]
-      : { kind: 'group', depth, kids: leaves, relation: '', joinType: 'sym', headIndex: -1, label: roleLabel, head: !!isHead, segment: true };
+    if (!many) {
+      rows[leaves[0].row].label = roleLabel;
+      leaves[0].label = roleLabel;
+      leaves[0].head = !!isHead;
+      return leaves[0];
+    }
+    maxDepth = Math.max(maxDepth, depth + 1);
+    return { kind: 'group', depth, kids: leaves, relation: '', joinType: 'sym', headIndex: -1,
+             label: roleLabel, head: !!isHead, segment: true };
   };
 
   const roots = [];
@@ -593,9 +613,11 @@ export function buildSsaSvg(data, opts = {}) {
      * They now occupy different bands of the trunk: the relation ABOVE the line, the role BELOW
      * it. Different bands rather than different x, so they cannot overprint however long they get.
      * `labels` chooses which are drawn: published SSA displays often show only one or the other. */
-    if (!n.segment) {
+    {
       const room = o.levelWidth - 12;
-      if (n.relation && showRelations) {
+      // A segment cluster (one line's propositions) has no relation of its own, but it DOES carry
+      // the line's role — that is the only place that role can now be written.
+      if (n.relation && showRelations && !n.segment) {
         const lab = fitToLength(n.relation, room, 11, measure);
         if (lab) parts.push(`<text x="${x + 5}" y="${n.anchorY - 5}" font-size="11" fill="#163a6b">${esc(lab)}</text>`);
       }

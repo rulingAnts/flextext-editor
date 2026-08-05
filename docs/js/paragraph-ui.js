@@ -968,7 +968,12 @@ function renderLineRow(id, nodeLabel = '') {
     }
     body.push('</div>');
   }
-  body.push(`<button class="pa-propadd" data-line="${esc(id)}" title="${esc(t('para.propAddTip'))}">${esc(t('para.propAdd'))}</button>`);
+  /* NOT on a from-scratch chart (Seth, 2026-08-05): "our new blank chart is ONLY propositions", so
+   * every line there already IS one and a control to add a proposition beneath it is nonsense.
+   * Propositions exist to break IMPORTED language data into what it semantically expresses. */
+  if (!state.authored) {
+    body.push(`<button class="pa-propadd" data-line="${esc(id)}" title="${esc(t('para.propAddTip'))}">${esc(t('para.propAdd'))}</button>`);
+  }
   body.push('</div>');
   row.innerHTML = parts.join('') + body.join('');
   const play = row.querySelector('.pa-rowplay');

@@ -942,7 +942,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     let pending;
     if (approved) {
       insts = (await env.DB.prepare(
-        'SELECT instance_id, type, nickname, desired_rev, revoked FROM instance WHERE researcher_id=? AND revoked=0'
+        'SELECT instance_id, type, nickname, desired_rev, revoked, estate FROM instance WHERE researcher_id=? AND revoked=0'
       ).bind(r.researcher_id).all()).results || [];
       for (const it of insts) {
         it.installs = (await env.DB.prepare(
@@ -1182,10 +1182,16 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     if (type !== '' && type !== 'editor' && type !== 'recorder') return j({ error: 'bad_type' }, 400, origin, env);
     if (!nickname) return j({ error: 'nickname_required' }, 400, origin, env);
     const instance_id = crypto.randomUUID();
+    /* ⚠ ESTATE IS STAMPED 'cloud' UNCONDITIONALLY (Seth, 2026-08-05). Every NEW instance belongs to
+     * the Cloudflare apps — that is a policy decision, not an observation, so it is deliberately
+     * NOT inferred from the request Origin. An origin header describes which panel happened to
+     * make the call (a researcher may still be using the old one, and it is client-controlled
+     * anyway); it is the wrong source of truth for what a new coworker should install.
+     * Existing rows keep 'pages' via the column default — see migrate-estate.sql. */
     await env.DB.prepare(
-      'INSERT INTO instance (instance_id, researcher_id, type, nickname, desired_blob, desired_rev, revoked, created_at) VALUES (?,?,?,?,?,0,0,?)'
-    ).bind(instance_id, r.researcher_id, type, nickname, JSON.stringify({ settings: {}, commands: [] }), now).run();
-    return j({ instance_id, type, nickname }, 200, origin, env);
+      'INSERT INTO instance (instance_id, researcher_id, type, nickname, desired_blob, desired_rev, revoked, created_at, estate) VALUES (?,?,?,?,?,0,0,?,?)'
+    ).bind(instance_id, r.researcher_id, type, nickname, JSON.stringify({ settings: {}, commands: [] }), now, 'cloud').run();
+    return j({ instance_id, type, nickname, estate: 'cloud' }, 200, origin, env);
   }
 
   // Routes under /v1/instances/<id>/...
@@ -1871,7 +1877,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
       if (!isApproved(r, env)) return j({ error: 'pending_approval' }, 403, origin, env);
       const rows = (await env.DB.prepare(
-        'SELECT crowd_id, label, enabled, created_at, config_json, drive_folder, oauth_folder_id, submit_count, bytes_total, day_key, day_count, max_per_day, max_bytes_total FROM crowd_recorder WHERE researcher_id=? ORDER BY created_at'
+        'SELECT crowd_id, label, enabled, created_at, config_json, drive_folder, oauth_folder_id, submit_count, bytes_total, day_key, day_count, max_per_day, max_bytes_total, estate FROM crowd_recorder WHERE researcher_id=? ORDER BY created_at'
       ).bind(r.researcher_id).all()).results || [];
       const today = new Date(now).toISOString().slice(0, 10);
       for (const row of rows) {
@@ -1891,10 +1897,12 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       const label = String(body.label || '').trim().slice(0, 80);
       if (!label) return j({ error: 'label_required' }, 400, origin, env);
       const crowd_id = crypto.randomUUID();
+      // Same rule as a new instance: a recorder created now is a Cloudflare recorder, and its
+      // public link must keep saying so for the rest of its life even if the panel moves.
       await env.DB.prepare(
-        'INSERT INTO crowd_recorder (crowd_id, researcher_id, label, enabled, config_json, drive_folder, created_at) VALUES (?,?,?,?,?,?,?)'
-      ).bind(crowd_id, r.researcher_id, label, 1, JSON.stringify(normCrowdConfig(body.config)), '', now).run();
-      return j({ crowd_id }, 200, origin, env);
+        'INSERT INTO crowd_recorder (crowd_id, researcher_id, label, enabled, config_json, drive_folder, created_at, estate) VALUES (?,?,?,?,?,?,?,?)'
+      ).bind(crowd_id, r.researcher_id, label, 1, JSON.stringify(normCrowdConfig(body.config)), '', now, 'cloud').run();
+      return j({ crowd_id, estate: 'cloud' }, 200, origin, env);
     }
 
     // Everything below addresses one recorder.

@@ -80,6 +80,30 @@ function saveMoves(accountId) {
 }
 
 const PENDING_KEY = 'flextext-rp-pending:';
+/* LEGACY-NOTICE DISMISSALS — instanceId[] the researcher has waved off, per account (Seth,
+ * 2026-08-05: "the researcher can delete the warning permanently if they think they don't need it.
+ * For a given device").
+ *
+ * ⚠ Dismissal hides the NOTICE, never the fact. The device stays on the legacy estate and its links
+ * still come from its own record, so waving off the reminder cannot mis-route anyone. It is a
+ * "yes, I know" — the panel should not keep telling a researcher something they have already
+ * decided about, once per device, forever.
+ *
+ * Deliberately local and per-account rather than server-side: it is a personal reading preference,
+ * not corpus state, and it should not follow the record to another researcher who has not yet been
+ * told. */
+const LEGACY_DISMISS_KEY = 'flextext-rp-legacy-ok:';
+let legacyDismissed = new Set();
+function loadLegacyDismissed(accountId) {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LEGACY_DISMISS_KEY + (accountId || 'anon')) || '[]');
+    legacyDismissed = new Set(Array.isArray(raw) ? raw : []);
+  } catch { legacyDismissed = new Set(); }
+}
+function saveLegacyDismissed(accountId) {
+  try { localStorage.setItem(LEGACY_DISMISS_KEY + (accountId || 'anon'), JSON.stringify([...legacyDismissed])); }
+  catch { /* quota/private mode — degrades to this session only */ }
+}
 let pendingCmds = new Map();
 function loadPending(accountId) {
   try {
@@ -895,6 +919,7 @@ async function renderDashboard(prefetched) {
   lastData = data;   // cache for an instant local re-render after an action (no refetch)
   const insts = data.instances || [];
   loadPending(Researcher.currentAccountId());
+  loadLegacyDismissed(Researcher.currentAccountId());
   loadMoves(Researcher.currentAccountId());
   // Advance in-flight moves on every poll (a stage transition is visible in exactly one report —
   // same reasoning as the History observer): destination reports the doc → fire the upload-first
@@ -1571,7 +1596,7 @@ async function renderInstanceCard(it, deviceCount) {
    * flagged "old address" — including devices that are not (Seth, 2026-08-05).
    *
    * Absence of evidence is not evidence. No estate ⇒ no badge. */
-  const isLegacyDevice = it.estate === 'pages';
+  const isLegacyDevice = it.estate === 'pages' && !legacyDismissed.has(it.instance_id);
   const legacyBadge = isLegacyDevice
     ? ` <span class="rp-badge rp-badge-legacy">${esc(t('panel.inst.legacyBadge'))}</span>` : '';
   return `<div class="rp-card rp-inst${collapsed ? ' rp-inst-collapsed' : ''}">
@@ -1586,7 +1611,8 @@ async function renderInstanceCard(it, deviceCount) {
     </div>
     <div class="rp-inst-body" id="${esc(bodyId)}"${collapsed ? ' hidden' : ''}>
       ${isLegacyDevice ? `<p class="banner warn-banner rp-legacy-tip">${esc(t('panel.inst.legacyTip'))}
-        <a href="${MIGRATE_DOC}" target="_blank" rel="noopener">${esc(t('panel.deprecated.coworkers'))}</a></p>` : ''}
+        <a href="${MIGRATE_DOC}" target="_blank" rel="noopener">${esc(t('panel.deprecated.coworkers'))}</a>
+        <button class="link-btn rp-legacy-ok" data-iact="legacy-ok" data-i="${esc(it.instance_id)}">${esc(t('panel.inst.legacyDismiss'))}</button></p>` : ''}
       ${installsHtml || `<p class="note">${esc(t('panel.inst.noInstall'))}</p>`}
       <div class="rp-inst-actions">
         <button class="secondary-btn" data-iact="settings" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}">${esc(t('panel.inst.settings'))}</button>
@@ -1604,6 +1630,21 @@ async function instanceAction(el) {
   const id = el.dataset.i, installId = el.dataset.id, type = el.dataset.type;
   const act = el.dataset.iact;
   try {
+    if (act === 'legacy-ok') {
+      /* "Yes, I know" for ONE device, kept forever. Hides the notice, never the fact: the record
+       * stays on its estate and its links still come from it, so this cannot mis-route anyone.
+       * A DOM removal rather than a re-render, same reasoning as 'collapse' below. */
+      const id = el.dataset.i;
+      if (!id) return;
+      legacyDismissed.add(id);
+      saveLegacyDismissed(Researcher.currentAccountId());
+      const card = el.closest('.rp-inst');
+      const tip = el.closest('.rp-legacy-tip');
+      if (tip) tip.remove();
+      const badge = card && card.querySelector('.rp-badge-legacy');
+      if (badge) badge.remove();
+      return;
+    }
     if (act === 'collapse') {
       // ⚠ A DOM FLIP, DELIBERATELY NOT A RE-RENDER. renderDashboard() would refetch and rebuild
       // every card just to hide one; the state is re-derived on the next 12s poll anyway, so the

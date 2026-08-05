@@ -78,13 +78,33 @@ export function validateFxpa(obj) {
     if (!g.id || ids.has(g.id)) errors.push(`Group id ${g.id || '(missing)'} duplicate or missing.`);
     ids.add(g.id);
   }
+  // Every proposition id in the document — group children may reference these as well as lines.
+  const propIds = new Set();
+  for (const l of data.lines) for (const pr of (l.props || [])) propIds.add(pr.id);
   const seenChild = new Set();
   for (const g of data.tree) {
     if (!Array.isArray(g.children) || g.children.length < 2) errors.push(`Group ${g.id}: needs 2+ children.`);
     for (const c of g.children || []) {
-      if (!ids.has(c)) errors.push(`Group ${g.id}: unknown child ${c}.`);
+      const known = ids.has(c) || (isPropId(c) && propIds.has(c));
+      if (!known) errors.push(`Group ${g.id}: unknown child ${c}.`);
       if (seenChild.has(c)) errors.push(`Unit ${c} has two parents.`);
       seenChild.add(c);
+    }
+    /* ⚠ A GROUP MAY NOT MIX LEVELS. Propositions live beneath their own line, so every child must
+     * belong to the SAME line — or none of them may belong to a line at all. A child that is
+     * itself a group is resolved to whatever IT holds, so a group of propositions grouped again
+     * with a sibling proposition is legitimate; only genuinely mixed levels are rejected.
+     * The `seen` set makes a malformed file with a cycle terminate rather than hang. */
+    const ownerOf = (id, seen = new Set()) => {
+      if (isPropId(id)) return lineOfPropId(id);
+      if (!isGroupId(id) || seen.has(id)) return null;
+      seen.add(id);
+      const kid = data.tree.find((x) => x.id === id);
+      return kid && kid.children.length ? ownerOf(kid.children[0], seen) : null;
+    };
+    const owners = new Set((g.children || []).map((c) => ownerOf(c)));
+    if (owners.size > 1) {
+      errors.push(`Group ${g.id}: mixes propositions with other units, or propositions from different lines.`);
     }
     if (g.joinType !== 'sym' && g.joinType !== 'asym') errors.push(`Group ${g.id}: joinType must be sym|asym.`);
     if (g.joinType === 'asym' && !(g.children || []).includes(g.head)) errors.push(`Group ${g.id}: asym needs a head from its children.`);
@@ -212,24 +232,90 @@ export function deleteLine(data, id) {
 
 export const isGroupId = (id) => /^G\d+$/.test(String(id));
 
+/* ---------------- PROPOSITIONS AS TREE UNITS ----------------
+ *
+ * Seth, 2026-08-05: "I need to be able to apply groupings to semantic component propositions. They
+ * need to function as leaves on the tree for the diagram, but not as independent audio segments."
+ * And on where they may group: "beneath the level of the raw phonetic data."
+ *
+ * So a proposition is a first-class unit of the tree — groupable, sub-groupable, able to carry a
+ * role and to sit in a group with a relation — with ONE structural restriction: **a group may not
+ * mix propositions from different lines, nor mix propositions with lines.** A proposition belongs
+ * to the line that owns the audio span; letting one group across lines would assert a structure
+ * above the level it lives at, and would make `spanOf` meaningless.
+ *
+ * That restriction is what keeps "not independent audio segments" true by construction: a
+ * proposition has no time of its own, it inherits its line's, and playback only ever addresses
+ * lines. Nothing about grouping changes that.
+ *
+ * Ids are `<lineId>p<n>` (minted by addProp), so a proposition names its own line. */
+export const isPropId = (id) => /^L\d+p\d+$/.test(String(id));
+export const lineOfPropId = (id) => String(id).split('p')[0];
+
+const propById = (data, id) => {
+  const line = data.lines.find((l) => l.id === lineOfPropId(id));
+  return (line && (line.props || []).find((p) => p.id === id)) || null;
+};
+
 export function nodeById(data, id) {
-  return isGroupId(id) ? data.tree.find((g) => g.id === id) || null
-                       : data.lines.find((l) => l.id === id) || null;
+  if (isGroupId(id)) return data.tree.find((g) => g.id === id) || null;
+  if (isPropId(id)) return propById(data, id);
+  return data.lines.find((l) => l.id === id) || null;
 }
 
+/* A proposition's parent is a GROUP when one holds it, otherwise its LINE — which is implicit,
+ * never written in the tree. Returning the line here would make every caller that expects a group
+ * wrong, so the line case is reported separately by `ownerLineOf`. */
 export function parentOf(data, id) {
   return data.tree.find((g) => g.children.includes(id)) || null;
 }
 
-// Ordered leaf line ids under any unit (a line = itself).
+// The line a unit ultimately sits under, or null for units at the document level.
+export function ownerLineOf(data, id) {
+  if (isPropId(id)) return lineOfPropId(id);
+  if (isGroupId(id)) {
+    const g = nodeById(data, id);
+    return g && g.children.length ? ownerLineOf(data, g.children[0]) : null;
+  }
+  return null;                        // a LINE is not inside a line
+}
+
+// Ordered LEAF ids under any unit: line ids, or proposition ids where a line has been split.
 export function leavesOf(data, id) {
   if (!isGroupId(id)) return [id];
   const g = nodeById(data, id);
   if (!g) return [];
   const out = [];
   for (const c of g.children) out.push(...leavesOf(data, c));
-  const pos = new Map(data.lines.map((l, i) => [l.id, i]));
-  return out.sort((a, b) => pos.get(a) - pos.get(b));
+  return out.sort((a, b) => orderIndex(data, a) - orderIndex(data, b));
+}
+
+/* One ordering for every kind of unit: line position, then proposition position within the line.
+ * Adjacency, sorting and "is this a single unbroken run" all read from this, so there is exactly
+ * one definition of what comes before what. */
+export function orderIndex(data, id) {
+  const lineId = isPropId(id) ? lineOfPropId(id) : id;
+  const li = data.lines.findIndex((l) => l.id === lineId);
+  if (li < 0) return -1;
+  if (!isPropId(id)) return li * 1000;
+  const line = data.lines[li];
+  const pi = (line.props || []).findIndex((p) => p.id === id);
+  return li * 1000 + (pi < 0 ? 0 : pi + 1);
+}
+
+/* The units at a LINE's proposition level: its propositions, with any that are inside a group
+ * replaced by that group — the same "surface" idea as topUnits, one level down. */
+export function propUnits(data, lineId) {
+  const line = data.lines.find((l) => l.id === lineId);
+  if (!line || !(line.props || []).length) return [];
+  const out = [];
+  const seen = new Set();
+  for (const p of line.props) {
+    let top = p.id;
+    for (let par = parentOf(data, top); par; par = parentOf(data, top)) top = par.id;
+    if (!seen.has(top)) { seen.add(top); out.push(top); }
+  }
+  return out;
 }
 
 export function levelOf(data, id) {
@@ -273,18 +359,24 @@ export function withBlanksBetween(data, ids, hideBlank) {
   return out;
 }
 
+/* The DOCUMENT-level surface. A group that lives inside a line (its leaves are that line's
+ * propositions) is deliberately excluded — it is not a unit of the document, it is a unit of the
+ * line, and it appears through propUnits() instead. */
 export function topUnits(data) {
-  const pos = new Map(data.lines.map((l, i) => [l.id, i]));
   const units = [];
   for (const l of data.lines) if (!parentOf(data, l.id)) units.push(l.id);
-  for (const g of data.tree) if (!parentOf(data, g.id)) units.push(g.id);
-  return units.sort((a, b) => pos.get(leavesOf(data, a)[0]) - pos.get(leavesOf(data, b)[0]));
+  for (const g of data.tree) if (!parentOf(data, g.id) && !ownerLineOf(data, g.id)) units.push(g.id);
+  return units.sort((a, b) => orderIndex(data, leavesOf(data, a)[0]) - orderIndex(data, leavesOf(data, b)[0]));
 }
 
 // Aggregate time span of a unit's leaves — null when nothing under it is aligned.
+/* ⚠ A PROPOSITION HAS NO TIME OF ITS OWN — it inherits its line's span, which is what "not
+ * independent audio segments" means in the data rather than only in the UI. Grouping propositions
+ * therefore cannot invent, narrow or widen any span. */
 export function spanOf(data, id) {
   let start = null, end = null;
-  for (const lid of leavesOf(data, id)) {
+  for (const leaf of leavesOf(data, id)) {
+    const lid = isPropId(leaf) ? lineOfPropId(leaf) : leaf;
     const l = nodeById(data, lid);
     if (l && typeof l.start === 'number' && typeof l.end === 'number') {
       start = start === null ? l.start : Math.min(start, l.start);
@@ -300,6 +392,10 @@ export function spanOf(data, id) {
  * compact line per member. A unit with no free translation falls back to its baseline. */
 
 export function summaryLineOf(data, id) {
+  if (isPropId(id)) {
+    const p = nodeById(data, id);
+    return p ? String(p.text || '') : '';
+  }
   if (!isGroupId(id)) {
     const l = nodeById(data, id);
     return l ? (l.free || l.baseline || '') : '';
@@ -355,15 +451,26 @@ export function groupUnits(data, ids, { joinType, head, relation = '', labels = 
     if (!nodeById(data, id)) throw new Error(`Unknown unit ${id}.`);
     if (parentOf(data, id)) throw new Error('A selected unit is already inside a group — ungroup it first.');
   }
-  const top = topUnits(data);
-  const idx = ids.map((id) => top.indexOf(id)).sort((a, b) => a - b);
+  /* WHICH SURFACE are these units on? The document's, or one line's propositions? Adjacency only
+   * means anything within a surface, and mixing surfaces is exactly the structure that must not
+   * exist: a group may not hold propositions from two different lines, nor a proposition beside a
+   * line. Propositions live BENEATH the raw language data (Seth, 2026-08-05) and grouping them
+   * cannot lift them out of their line. */
+  const owners = new Set(ids.map((id) => ownerLineOf(data, id)));
+  if (owners.size > 1) {
+    throw new Error('Propositions can only be grouped with other propositions of the same line.');
+  }
+  const owner = [...owners][0] || null;
+  const surface = owner ? propUnits(data, owner) : topUnits(data);
+  const idx = ids.map((id) => surface.indexOf(id)).sort((a, b) => a - b);
+  if (idx[0] < 0) throw new Error('Those units are not on the same level.');
   for (let k = 1; k < idx.length; k++) {
     if (idx[k] !== idx[k - 1] + 1) throw new Error('Units must be adjacent to group.');
   }
   if (joinType !== 'sym' && joinType !== 'asym') throw new Error('Choose symmetrical or asymmetrical.');
   if (joinType === 'asym' && !ids.includes(head)) throw new Error('An asymmetrical join needs one of its members as HEAD.');
   if (joinType === 'sym' && head) throw new Error('A symmetrical join has no head.');
-  const ordered = idx.map((i) => top[i]);
+  const ordered = idx.map((i) => surface[i]);
   const lab = cleanLabels(ordered, labels);
   const g = { id: nextGroupId(data), children: ordered, joinType, relation: String(relation || '').trim() };
   if (joinType === 'asym') g.head = head;
@@ -575,14 +682,45 @@ export function setPropImplicit(data, lineId, propId, implicit) {
 /* Removing the LAST proposition drops the `props` key entirely, so the line goes back to being one
  * leaf — the file is then byte-identical in shape to one that never had propositions, and every
  * renderer's `leavesOfLine` falls back without a special case. */
+/* Deleting a proposition must REPAIR THE TREE, exactly as deleting a line does: pull it out of any
+ * group, then dissolve a group left with fewer than two children (cascading), and repair a
+ * dangling asymmetrical head. Without this, deleting one member of a pair leaves a one-child group
+ * that validateFxpa rejects — so the file would refuse to reopen after an edit that looked fine. */
 export function deleteProp(data, lineId, propId) {
-  return withLine(data, lineId, (l) => {
+  const next = withLine(data, lineId, (l) => {
     const rest = propsOf(l).filter((p) => p.id !== propId);
     if (rest.length) return { ...l, props: rest };
     const q = { ...l };
     delete q.props;
     return q;
   });
+  return pruneTree(next, propId);
+}
+
+/* Remove a unit from the tree and heal what that leaves behind. */
+function pruneTree(data, goneId) {
+  let tree = data.tree.map((g) => ({ ...g, children: g.children.filter((c) => c !== goneId) }));
+  for (;;) {
+    const thin = tree.find((g) => g.children.length < 2);
+    if (!thin) break;
+    const survivor = thin.children[0] || null;
+    tree = tree.filter((g) => g.id !== thin.id).map((g) => ({
+      ...g,
+      children: g.children.flatMap((c) => (c === thin.id ? (survivor ? [survivor] : []) : [c])),
+    }));
+  }
+  tree = tree.map((g) => {
+    const h = { ...g };
+    if (h.joinType === 'asym' && !h.children.includes(h.head)) h.head = h.children[0];
+    if (h.labels) {
+      const kept = {};
+      for (const [k, v] of Object.entries(h.labels)) if (h.children.includes(k)) kept[k] = v;
+      if (Object.keys(kept).length) h.labels = kept; else delete h.labels;
+    }
+    return h;
+  });
+  const live = new Set(tree.map((g) => g.id));
+  return { ...data, tree, view: { ...data.view, collapsed: (data.view.collapsed || []).filter((id) => live.has(id)) } };
 }
 
 export function toggleCollapse(data, gid) {

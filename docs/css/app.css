@@ -1410,6 +1410,7 @@ main {
 .pa-tree { flex: 1; overflow: auto; padding: 10px 14px 40vh; }
 .pa-row { display: flex; align-items: flex-start; gap: 8px; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
 .pa-row.on { background: #eef4ff; }
+.pa-prop.sel { background: #dbe7fa; outline: 2px solid var(--blue); outline-offset: -2px; border-radius: 6px; }
 .pa-row.sel, .pa-group.sel > .pa-badge { background: #dbe7fa; outline: 2px solid var(--blue); outline-offset: -2px; }
 .pa-cell { flex: 1; min-width: 0; }
 .pa-wave { width: 100%; height: 44px; display: block; touch-action: none; cursor: pointer; }

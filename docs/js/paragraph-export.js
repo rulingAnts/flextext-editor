@@ -23,7 +23,32 @@ import { esc } from './flextext.js';
 /* ---------------- the unit walk everything renders from ---------------- */
 
 const isGroup = (id) => /^G\d+$/.test(String(id));
-const node = (data, id) => (isGroup(id) ? data.tree.find((g) => g.id === id) : data.lines.find((l) => l.id === id)) || null;
+const isProp = (id) => /^L\d+p\d+$/.test(String(id));
+const lineOfProp = (id) => String(id).split('p')[0];
+const propOf = (data, id) => {
+  const l = data.lines.find((x) => x.id === lineOfProp(id));
+  return (l && (l.props || []).find((p) => p.id === id)) || null;
+};
+/* The units at a line's proposition level: its written propositions, with any inside a group
+ * replaced by that group. Mirrors the model's propUnits — the export module may not import it
+ * (format modules import only format modules), so this is the same rule stated once more. */
+const propSurface = (data, line) => {
+  const written = (line.props || []).filter((p) => String(p.text || '').trim());
+  const out = [], seen = new Set();
+  for (const p of written) {
+    let top = p.id;
+    for (;;) {
+      const par = data.tree.find((g) => g.children.includes(top));
+      if (!par) break;
+      top = par.id;
+    }
+    if (!seen.has(top)) { seen.add(top); out.push(top); }
+  }
+  return out;
+};
+const node = (data, id) => (isGroup(id) ? data.tree.find((g) => g.id === id)
+  : isProp(id) ? propOf(data, id)
+  : data.lines.find((l) => l.id === id)) || null;
 const parentOf = (data, id) => data.tree.find((g) => g.children.includes(id)) || null;
 
 // A line's leaves: its authored propositions when it has them, otherwise the line itself.
@@ -433,21 +458,47 @@ export function ssaLayout(data, opts = {}) {
      * proposition "orienter" claims each one separately plays that role in the parent, which is
      * false and reads as a repeated label down the margin. The cluster carries it once, and its
      * members sit one level deeper, so the implicit grouping is visible as a grouping. */
-    const units = leavesOfLine(l);
-    const many = units.length > 1;
-    const leaves = units.map((leaf) => {
-      rows.push({ depth: depth + (many ? 1 : 0), label: '', content: contentOf(l, leaf),
-                  head: !many && !!isHead, implicit: !!leaf.implicit, speaker: l.speaker || '' });
-      return { kind: 'leaf', depth: depth + (many ? 1 : 0), row: rows.length - 1, label: '', head: false };
-    });
-    if (!many) {
-      rows[leaves[0].row].label = roleLabel;
-      leaves[0].label = roleLabel;
-      leaves[0].head = !!isHead;
-      return leaves[0];
+    /* ⚠ A LINE'S PROPOSITIONS ARE A TREE, NOT A LIST (Seth, 2026-08-05: they "need to function as
+     * leaves on the tree for the diagram"). So walk the line's own proposition surface with the
+     * same recursion used for the document — a proposition group draws exactly like any other
+     * group, one level in from its line. A line with no written propositions is still one leaf. */
+    const surface = propSurface(data, l);
+    if (!surface.length) {
+      const leaf = leavesOfLine(l)[0];
+      rows.push({ depth, label: roleLabel, content: contentOf(l, leaf), head: !!isHead,
+                  implicit: !!leaf.implicit, speaker: l.speaker || '' });
+      return { kind: 'leaf', depth, row: rows.length - 1, label: roleLabel, head: !!isHead };
     }
+    const buildProp = (pid, d, role, isH) => {
+      maxDepth = Math.max(maxDepth, d);
+      if (isGroup(pid)) {
+        const pg = node(data, pid);
+        if (!pg) return null;
+        const kids = [];
+        for (const c of pg.children) {
+          const kid = buildProp(c, d + 1, (pg.labels || {})[c] || '', pg.joinType === 'asym' && pg.head === c);
+          if (kid) kids.push(kid);
+        }
+        if (!kids.length) return null;
+        return { kind: 'group', depth: d, kids, relation: pg.relation || '', joinType: pg.joinType,
+                 headIndex: kids.findIndex((k) => k.head), label: role, head: !!isH };
+      }
+      const pr = node(data, pid);
+      if (!pr) return null;
+      rows.push({ depth: d, label: role, head: !!isH, implicit: !!pr.implicit, speaker: l.speaker || '',
+                  content: { kind: 'prop', text: pr.text || '', implicit: !!pr.implicit, free: '' } });
+      return { kind: 'leaf', depth: d, row: rows.length - 1, label: role, head: !!isH };
+    };
+    if (surface.length === 1) {
+      const only = buildProp(surface[0], depth, roleLabel, isHead);
+      if (only) return only;
+    }
+    // Several units at the line's level behave as one implicit cluster standing where the line
+    // stood — the line's ROLE belongs to that cluster, never repeated on each member.
+    const kids = surface.map((u) => buildProp(u, depth + 1, '', false)).filter(Boolean);
+    if (!kids.length) return null;
     maxDepth = Math.max(maxDepth, depth + 1);
-    return { kind: 'group', depth, kids: leaves, relation: '', joinType: 'sym', headIndex: -1,
+    return { kind: 'group', depth, kids, relation: '', joinType: 'sym', headIndex: -1,
              label: roleLabel, head: !!isHead, segment: true };
   };
 

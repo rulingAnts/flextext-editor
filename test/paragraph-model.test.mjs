@@ -5,6 +5,7 @@ import {
   isBlankLine, visibleTopUnits, withBlanksBetween,
   newAuthoredDoc, addLine, setLineText, deleteLine, setCollapsedAll,
   addProp, setPropText, setPropImplicit, deleteProp, setLineFree,
+  isPropId, propUnits, ownerLineOf, orderIndex,
   setWordText, setWordGloss, deleteWord,
 } from '../docs/js/paragraph-model.js';
 
@@ -406,6 +407,92 @@ console.log('\nblank lines from FLEx never surface as phantom members');
     lines: [{ id: 'L1', baseline: ' ' }, { id: 'L2', baseline: '' }], tree: [] }).data;
   e = groupUnits(e, ['L1', 'L2'], { joinType: 'sym' });
   eq(summaryOf(e, 'G1'), [''], 'all-blank group summarizes as ONE empty placeholder');
+}
+
+/* PROPOSITIONS ARE TREE UNITS (Seth, 2026-08-05: "I need to be able to apply groupings to semantic
+ * component propositions. They need to function as leaves on the tree for the diagram, but not as
+ * independent audio segments") — groupable and sub-groupable, but only BENEATH their own line. */
+console.log('\nproposition grouping — leaves on the tree, never independent audio');
+{
+  let d = base();
+  d = addProp(d, 'L1', 'the speaker left');
+  d = addProp(d, 'L1', 'he was in a hurry');
+  d = addProp(d, 'L1', 'and he said nothing');
+  const [p1, p2, p3] = d.lines[0].props.map((p) => p.id);
+  ok(isPropId(p1) && !isPropId('L1') && !isPropId('G1'), 'proposition ids are recognisable');
+  eq(ownerLineOf(d, p1), 'L1', 'a proposition knows the line it belongs to');
+
+  // The line's own surface, one level beneath the document.
+  eq(propUnits(d, 'L1'), [p1, p2, p3], 'a line surfaces its propositions');
+  eq(topUnits(d), ['L1', 'L2', 'L3', 'L4'], 'and propositions are NOT document-level units');
+
+  // Group two of them. The group belongs to the line, not to the document.
+  d = groupUnits(d, [p1, p2], { joinType: 'asym', head: p2, relation: 'reason–RESULT',
+                                labels: { [p1]: 'reason', [p2]: 'RESULT' } });
+  const g = d.tree.find((x) => x.children.includes(p1));
+  ok(!!g, 'propositions can be grouped');
+  eq(g.labels[p1], 'reason', 'each member takes its own role');
+  eq(topUnits(d), ['L1', 'L2', 'L3', 'L4'], 'the new group is NOT a document-level unit — it lives in the line');
+  eq(propUnits(d, 'L1'), [g.id, p3], 'the line now surfaces the group and the remaining proposition');
+  ok(validateFxpa(d).ok, 'the document is valid');
+
+  // Sub-group: the group joins the third proposition, still inside the line.
+  d = groupUnits(d, [g.id, p3], { joinType: 'sym', relation: 'sequence' });
+  const outer = d.tree.find((x) => x.children.includes(g.id));
+  ok(!!outer, 'a proposition group can be grouped again');
+  eq(propUnits(d, 'L1'), [outer.id], 'the line surfaces one unit again');
+  eq(leavesOf(d, outer.id), [p1, p2, p3], 'leaves come back in text order');
+  ok(validateFxpa(d).ok, 'still valid two levels down');
+
+  // ⚠ NOT INDEPENDENT AUDIO: a proposition inherits its LINE's span, so a group of them spans the
+  // line and nothing more. Grouping can never invent, narrow or widen a span.
+  eq(spanOf(d, outer.id), { start: 0, end: 1000 }, 'a proposition group spans exactly its line');
+  eq(spanOf(d, p1), { start: 0, end: 1000 }, 'and one proposition spans its whole line, not a slice of it');
+}
+
+console.log('\npropositions cannot escape their line');
+{
+  let d = base();
+  d = addProp(d, 'L1', 'first');
+  d = addProp(d, 'L2', 'second');
+  const a = d.lines[0].props[0].id, b = d.lines[1].props[0].id;
+  throws(() => groupUnits(d, [a, b], { joinType: 'sym' }),
+         'propositions of DIFFERENT lines cannot be grouped together');
+  throws(() => groupUnits(d, [a, 'L2'], { joinType: 'sym' }),
+         'a proposition cannot be grouped with a line');
+
+  // The same rule, enforced on a file that arrives already broken.
+  const bad = validateFxpa({ format: 'flextext-paragraph-analysis', version: 1,
+    lines: [{ id: 'L1', baseline: 'a', props: [{ id: 'L1p1', text: 'x' }] },
+            { id: 'L2', baseline: 'b', props: [{ id: 'L2p1', text: 'y' }] }],
+    tree: [{ id: 'G1', children: ['L1p1', 'L2p1'], joinType: 'sym', relation: '' }] });
+  ok(!bad.ok, 'a file mixing propositions from two lines is REJECTED, not quietly loaded');
+}
+
+console.log('\ndeleting a grouped proposition repairs the tree');
+{
+  let d = base();
+  d = addProp(d, 'L1', 'one');
+  d = addProp(d, 'L1', 'two');
+  d = addProp(d, 'L1', 'three');
+  const [p1, p2, p3] = d.lines[0].props.map((p) => p.id);
+  d = groupUnits(d, [p1, p2], { joinType: 'asym', head: p1, labels: { [p2]: 'support' } });
+  const gid = d.tree[0].id;
+  d = groupUnits(d, [gid, p3], { joinType: 'sym' });
+
+  // Removing one member of the inner pair leaves it with a single child — which must DISSOLVE,
+  // or the file becomes one that validateFxpa refuses to reopen.
+  d = deleteProp(d, 'L1', p2);
+  ok(validateFxpa(d).ok, 'still valid after deleting a grouped proposition');
+  ok(d.tree.every((x) => x.children.length >= 2), 'no one-child group is left behind');
+  ok(!JSON.stringify(d.tree).includes(p2), 'no dangling reference to the deleted proposition');
+  ok(!JSON.stringify(d.tree).includes('"support"'), 'and its member label went with it');
+
+  // Deleting the rest empties the line back to a plain line.
+  d = deleteProp(deleteProp(d, 'L1', p1), 'L1', p3);
+  ok(!('props' in d.lines[0]), 'the line is a plain line again');
+  eq(d.tree, [], 'and the tree is empty rather than holding ghosts');
+  ok(validateFxpa(d).ok, 'valid at the end');
 }
 
 console.log('\ncollapse/expand ALL — whole document, or one subtree when something is selected');

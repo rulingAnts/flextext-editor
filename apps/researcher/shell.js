@@ -26,6 +26,17 @@ export default {
       const res = await env.ASSETS.fetch(request);
       const out = new Response(res.body, res);
       out.headers.set('Cache-Control', 'no-store');
+      /* ⚠ CORS on sw.js is REQUIRED now that each app owns its origin. The researcher panel reads
+       * every app's sw.js to show which version is live. On GitHub Pages all four apps share one
+       * origin, so that read was same-origin and needed nothing; on Cloudflare it is cross-origin
+       * and the browser blocked it outright (Seth, 2026-08-05: research.flextext.app could not read
+       * app.flextext.app/sw.js). The estate split turned a same-origin read into a cross-origin one
+       * — nothing about the panel changed.
+       *
+       * `*` is correct here rather than lax: sw.js is a world-readable static file containing a
+       * version string, the request carries no credentials, and the alternative is enumerating every
+       * origin that may ever host the panel (both estates, every preview alias, localhost). */
+      out.headers.set('Access-Control-Allow-Origin', '*');
       return out;
     }
     /* ASSETS pass, DOCUMENTS bounce. build.sh copies docs/ to /flextext-editor/ so this app's shell

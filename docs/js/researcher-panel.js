@@ -172,9 +172,17 @@ const HOME = estateOf();
 /* Always the CLOUD copy: this link has to outlive the estate it describes, and a link to
  * rulingants.github.io/…/help/migrate.html dies the moment Pages is retired — which is precisely
  * when someone is most likely to be reading it. */
-const MIGRATE_DOC = ESTATES.cloud.editor + 'help/migrate.html';
+const MIGRATE_DOC = ESTATES.cloud.researcher + 'help/migrate.html';
 const LEGACY_PANEL_HOST = 'rulingants.github.io';
-const onLegacyHost = () => location.hostname === LEGACY_PANEL_HOST;
+const LEGACY_PANEL_PATH = '/flextext-researcher/';
+/* ⚠ HOST **AND** PATH. Gating on the host alone also caught the EDITOR opened with
+ * ?mode=researcher — putting a site-wide deprecation warning in front of end users on the app they
+ * work in, which is the opposite of the intent (Seth, 2026-08-05: "That warning is meant for
+ * researchers, NOT end users. The site-wide warning banner should appear only on
+ * https://rulingants.github.io/flextext-researcher/"). The researcher APP is the surface being
+ * retired; the panel merely being open is not. */
+const onLegacyHost = () =>
+  location.hostname === LEGACY_PANEL_HOST && location.pathname.startsWith(LEGACY_PANEL_PATH);
 // Page-load scoped on purpose: no storage, so it returns next launch. A deprecation notice that can
 // be dismissed forever stops being a deprecation notice; one that cannot be dismissed at all is a
 // permanent tax on every screen of the panel.
@@ -1529,7 +1537,14 @@ async function renderInstanceCard(it, deviceCount) {
    * banner, but the top banner says "this PANEL is retiring" while this says "THIS DEVICE is still
    * on the old apps", which is the thing the researcher actually has to act on, one device at a
    * time. */
-  const isLegacyDevice = estateOfRecord(it) === 'pages';
+  /* ⚠ EXPLICIT 'pages' ONLY — deliberately NOT estateOfRecord(), which defaults a MISSING estate to
+   * 'pages'. That default is right for building LINKS (never invent a migration for a record whose
+   * estate we do not know) and wrong for a WARNING, where it converts "unknown" into an accusation:
+   * every row rendered from a cached dashboard, or served by a worker predating the column, was
+   * flagged "old address" — including devices that are not (Seth, 2026-08-05).
+   *
+   * Absence of evidence is not evidence. No estate ⇒ no badge. */
+  const isLegacyDevice = it.estate === 'pages';
   const legacyBadge = isLegacyDevice
     ? ` <span class="rp-badge rp-badge-legacy">${esc(t('panel.inst.legacyBadge'))}</span>` : '';
   return `<div class="rp-card rp-inst${collapsed ? ' rp-inst-collapsed' : ''}">

@@ -11,8 +11,8 @@
  * list IDENTICAL to the editor's sw.js (app.js resolves its whole static import graph at load,
  * even though paragraph mode uses only part of it). */
 
-const VERSION = 'v52';
-const ENGINE = 'v220';   // editor ENGINE_VERSION this was built against — must match; see version-sync test
+const VERSION = 'v54';
+const ENGINE = 'v222';   // editor ENGINE_VERSION this was built against — must match; see version-sync test
 const CACHE = 'flextext-paragraph-' + VERSION;
 
 /* ⚠ THE GHOST (2026-08-04). This site's first deployment served the EDITOR at the origin root, so
@@ -139,7 +139,10 @@ self.addEventListener('fetch', (e) => {
   e.respondWith(
     caches.open(CACHE).then(c => c.match(e.request, { ignoreSearch: e.request.mode === 'navigate' }).then(hit => {
       if (hit) return hit;
-      if (e.request.mode === 'navigate') {
+      /* Help pages are real pages, not app routes — see docs/sw.js for the full note. The shell
+       * fallback below never touches the network, so without this test every navigation to
+       * help/*.html returned the APP SHELL with a 200. */
+      if (e.request.mode === 'navigate' && !/\/help\/[^/]+\.html$/.test(url.pathname)) {
         return c.match('index.html').then(shell => shell || fetch(e.request));
       }
       return fetch(e.request).then(resp => {
@@ -147,5 +150,8 @@ self.addEventListener('fetch', (e) => {
         return resp;
       });
     }))
+      /* ⚠ NEVER let respondWith REJECT — it makes the browser blame sw.js for what is really an
+       * offline/DNS/abort failure. See docs/sw.js. */
+      .catch(() => new Response('', { status: 504, statusText: 'offline or unreachable' }))
   );
 });

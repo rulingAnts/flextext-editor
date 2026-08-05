@@ -1,0 +1,30 @@
+# The "flextext-crowd" Cloudflare Worker — the crowd recorder embed at the ROOT of its own origin.
+# Production: https://crowd.flextext.app/ — built by Cloudflare's git-connected build from branch
+# `productionWeb`, root directory `apps/crowd/`.
+#
+# ⚠ BRANCH ROUTING LIVES IN GIT, NOT THE DASHBOARD (Seth's rule). Point BOTH dashboard commands
+# at the router:
+#   Deploy command:              bash deploy.sh
+#   Non-production ("Version"):  bash deploy.sh
+# productionWeb → `wrangler deploy`; any other branch → `wrangler versions upload
+# --preview-alias <branch>`, which leaves production untouched.
+#
+# SAFETY NET: even if a dashboard command is reset to raw `npx wrangler deploy`, the [build] hook
+# runs build.sh, which REFUSES to build a non-production branch outside deploy.sh.
+#
+# ⚠ THIS RUNS ALONGSIDE THE LEGACY GITHUB PAGES BUILD, it does not replace it. A new origin is a
+# DIFFERENT PWA to the browser (identity is origin + scope + manifest id), so installed copies on
+# rulingants.github.io keep working and keep updating from Pages. New invitations point here.
+name = "flextext-crowd"
+main = "shell.js"
+compatibility_date = "2026-06-01"
+workers_dev = true
+
+[build]
+command = "bash build.sh"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+# Route through shell.js BEFORE the asset fast-path so sw.js is never served from the CDN cache.
+run_worker_first = true

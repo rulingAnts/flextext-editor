@@ -23,3 +23,4 @@ electron/src/build-flags.json
 tasks/
 corpus-manager/PLAN.md
 worker/docs/approved-domains.md
+apps/*/public/

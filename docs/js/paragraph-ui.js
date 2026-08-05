@@ -22,6 +22,7 @@ import {
   validateFxpa, serializeFxpa, groupUnits, ungroup, editGroup, toggleCollapse, setCollapsedAll,
   topUnits, levelOf, spanOf, leavesOf, summaryOf, isGroupId, nodeById,
   isBlankLine, visibleTopUnits, withBlanksBetween,
+  addProp, setPropText, setPropImplicit, deleteProp,
   newAuthoredDoc, addLine, setLineText, deleteLine,
 } from './paragraph-model.js';
 
@@ -34,6 +35,7 @@ let pendingEaf = null;            // an .eaf awaiting its tier mapping (see rend
 let pendingSfm = null;            // a Toolbox/SFM file awaiting its marker mapping
 let pendingCsv = null;            // a CSV/TSV file awaiting its column mapping
 let focusLineId = null;           // after a re-render, put the cursor back where the user was
+let focusPropId = null;           // ...and into the proposition just added ('new' = the last one)
 let selection = new Set();        // selected unit ids (lines or groups)
 let root = null;                  // #pa-main
 let audio = null, peaks = null, mpb = 0, durMs = 0, stopAt = 0, activeSpan = null, rafId = 0;
@@ -707,6 +709,7 @@ function renderWork() {
         </select>
         <label class="check-label pa-inline"><input type="checkbox" id="pa-free"> ${esc(t('para.showFree'))}</label>
         <label class="check-label pa-inline" title="${esc(t('para.hideBlankTip'))}"><input type="checkbox" id="pa-blank"> ${esc(t('para.hideBlank'))}</label>
+        <label class="check-label pa-inline" id="pa-brk-wrap" hidden><input type="checkbox" id="pa-brk"> ${esc(t('para.brackets'))}</label>
         ${state.audio ? `<label class="check-label pa-inline"><input type="checkbox" id="pa-audio"> ${esc(t('para.showAudio'))}</label>
         <select id="pa-waves" title="${esc(t('para.wavesTip'))}">
           <option value="compact">${esc(t('para.wavesCompact'))}</option>
@@ -745,6 +748,9 @@ function renderWork() {
   $('#pa-layer').value = v.layer;
   $('#pa-free').checked = v.free !== false;
   $('#pa-blank').checked = v.hideBlank !== false;      // ON by default: blank lines are not analysis
+  // Brackets only mean something once a document HAS implied propositions — Seth: default on.
+  $('#pa-brk').checked = v.brackets !== false;
+  $('#pa-brk-wrap').hidden = !state.lines.some((l) => (l.props || []).some((p) => p.implicit));
   // free-only requires free on; disable the free checkbox there (it is the whole display).
   $('#pa-free').disabled = v.layer === 'free-only';
   if (state.audio) {
@@ -753,6 +759,9 @@ function renderWork() {
   }
   $('#pa-layer').addEventListener('change', (e) => setView({ layer: e.target.value, ...(e.target.value === 'free-only' ? { free: true } : {}) }));
   $('#pa-free').addEventListener('change', (e) => setView({ free: e.target.checked }));
+  $('#pa-brk').addEventListener('change', (e) => {
+    commit({ ...state, view: { ...state.view, brackets: e.target.checked } });
+  });
   $('#pa-blank').addEventListener('change', (e) => {
     // Hiding a line must never hide a SELECTION the user cannot then clear.
     if (e.target.checked) { selection = new Set([...selection].filter((id) => isGroupId(id) || !isBlankLine(nodeById(state, id)))); anchor = null; }
@@ -810,9 +819,14 @@ function renderWork() {
   drawAllWaves();
   startTicker();
   if (focusLineId) {
-    const el = root.querySelector(`.pa-edit[data-line="${focusLineId}"]`);
+    // A structural change re-renders, which is exactly when the cursor has to be put back
+    // deliberately — into the new proposition when one was just added, else the line editor.
+    const sel = focusPropId
+      ? `.pa-props .pa-prop:last-child .pa-propedit[data-line="${focusLineId}"]`
+      : `.pa-edit[data-line="${focusLineId}"]`;
+    const el = root.querySelector(sel);
     if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
-    focusLineId = null;
+    focusLineId = null; focusPropId = null;
   }
 }
 
@@ -839,11 +853,14 @@ function setView(patch) {
 // children for free-translation summary rows (the model computes them).
 // `nodeLabel` is this unit's ROLE in its parent group's relation (from the PARENT's labels map —
 // a role is held relative to one relation, so the parent owns it). Optional everywhere.
-function renderUnit(id, nodeLabel = '') {
+function renderUnit(id, nodeLabel = '', depth = 0) {
   if (!isGroupId(id)) return renderLineRow(id, nodeLabel);
   const g = nodeById(state, id);
   const el = document.createElement('div');
   el.className = 'pa-group' + (selection.has(id) ? ' sel' : '');
+  // Depth drives the bracket's COLOUR and weight — see the CSS note. Cycling at 6 is far more
+  // than any real analysis nests, so in practice each level on screen is a distinct colour.
+  el.dataset.depth = depth % 6;
   el.dataset.unit = id;
   const collapsed = (state.view.collapsed || []).includes(id);
   const badge = document.createElement('div');
@@ -860,6 +877,10 @@ function renderUnit(id, nodeLabel = '') {
   const gplay = badge.querySelector('.pa-rowplay');
   if (gplay) gplay.addEventListener('click', (e) => { e.stopPropagation(); playSpan(+gplay.dataset.s, +gplay.dataset.e); });
   badge.addEventListener('click', (e) => toggleSelect(id, e));
+  // Pointing at a heading traces THAT bracket down its whole length. With several levels stacked
+  // in the margin, working out which bar belongs to which heading is the hard part.
+  badge.addEventListener('mouseenter', () => el.classList.add('trace'));
+  badge.addEventListener('mouseleave', () => el.classList.remove('trace'));
   el.appendChild(badge);
   if (collapsed) {
     for (const line of summaryOf(state, id)) {
@@ -872,7 +893,7 @@ function renderUnit(id, nodeLabel = '') {
     const hideBlank = state.view.hideBlank !== false;
     for (const c of g.children) {
       if (hideBlank && !isGroupId(c) && isBlankLine(nodeById(state, c))) continue;   // silence inside a group
-      el.appendChild(renderUnit(c, (g.labels || {})[c] || ''));
+      el.appendChild(renderUnit(c, (g.labels || {})[c] || '', depth + 1));
     }
     // HEAD marker on the head child's container/row.
     if (g.joinType === 'asym') {
@@ -882,6 +903,9 @@ function renderUnit(id, nodeLabel = '') {
   }
   return el;
 }
+
+// An <input>'s `size` is in characters — the cheapest content-sized text box there is.
+const propSize = (text) => Math.max(24, Math.min(90, String(text || '').length + 2));
 
 function renderLineRow(id, nodeLabel = '') {
   const l = nodeById(state, id);
@@ -921,12 +945,65 @@ function renderLineRow(id, nodeLabel = '') {
   if ((v.free !== false || v.layer === 'free-only') && l.free) {
     body.push(`<div class="pa-free">${esc(l.free)}</div>`);
   }
+  /* AUTHORED PROPOSITIONS — the semantic daughters of this line (Seth, 2026-08-05). Text boxes,
+   * because they are written by the analyst, not read off the recording. They are additions beside
+   * the line, never edits to it: the baseline, words, glosses and free translation above are
+   * untouched, which is why these are offered on IMPORTED texts too.
+   * Bracketed when implicit — the SSA convention — and the brackets are a setting. */
+  const props = Array.isArray(l.props) ? l.props : [];
+  if (props.length) {
+    body.push('<div class="pa-props">');
+    for (const p of props) {
+      const br = v.brackets !== false && p.implicit;
+      body.push(`<div class="pa-prop${p.implicit ? ' implicit' : ''}">
+        ${br ? '<span class="pa-brk">(</span>' : ''}
+        <input class="pa-propedit" data-line="${esc(id)}" data-prop="${esc(p.id)}"
+               size="${propSize(p.text)}" value="${esc(p.text || '')}" placeholder="${esc(t('para.propPlaceholder'))}">
+        ${br ? '<span class="pa-brk">)</span>' : ''}
+        <button class="pa-propimp" data-line="${esc(id)}" data-prop="${esc(p.id)}"
+                title="${esc(t(p.implicit ? 'para.propStated' : 'para.propImplied'))}">${p.implicit ? '( )' : '“ ”'}</button>
+        <button class="pa-propdel" data-line="${esc(id)}" data-prop="${esc(p.id)}"
+                title="${esc(t('para.propDelete'))}">✕</button>
+      </div>`);
+    }
+    body.push('</div>');
+  }
+  body.push(`<button class="pa-propadd" data-line="${esc(id)}" title="${esc(t('para.propAddTip'))}">${esc(t('para.propAdd'))}</button>`);
   body.push('</div>');
   row.innerHTML = parts.join('') + body.join('');
   const play = row.querySelector('.pa-rowplay');
   if (play) play.addEventListener('click', (e) => { e.stopPropagation(); playSpan(l.start, l.end); });
   const wave = row.querySelector('canvas');
   if (wave) wireScrub(wave, l.start, l.end);
+  // Proposition controls must not select/deselect the row underneath them.
+  row.querySelectorAll('.pa-propadd, .pa-propdel, .pa-propimp').forEach((b) => {
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const { line, prop } = b.dataset;
+      if (b.classList.contains('pa-propadd')) { focusPropId = 'new'; focusLineId = line; commit(addProp(state, line)); }
+      else if (b.classList.contains('pa-propdel')) commit(deleteProp(state, line, prop));
+      else {
+        const cur = (nodeById(state, line).props || []).find((p) => p.id === prop);
+        commit(setPropImplicit(state, line, prop, !(cur && cur.implicit)));
+      }
+    });
+  });
+  row.querySelectorAll('.pa-propedit').forEach((inp) => {
+    inp.addEventListener('click', (e) => e.stopPropagation());
+    // Typing updates state IN PLACE and never re-renders — the same rule as the authored line
+    // editor, or the cursor jumps out of the word being typed.
+    inp.addEventListener('input', () => {
+      // Grow with the text, so a closing bracket hugs the words instead of stranding itself at
+      // the right-hand edge of the row.
+      inp.size = propSize(inp.value);
+      state = setPropText(state, inp.dataset.line, inp.dataset.prop, inp.value);
+      persistWorking();
+    });
+    inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); focusPropId = 'new'; focusLineId = inp.dataset.line; commit(addProp(state, inp.dataset.line)); }
+      if (e.key === 'Backspace' && !inp.value) { e.preventDefault(); commit(deleteProp(state, inp.dataset.line, inp.dataset.prop)); }
+    });
+  });
   row.addEventListener('click', (e) => toggleSelect(id, e));
   return row;
 }
@@ -1411,6 +1488,30 @@ function openExportDialog() {
           </select></label>
         <label class="check-label"><input type="checkbox" id="pa-exp-audio" ${state.audio ? 'checked' : 'disabled'}>
           ${esc(t('para.exportWithAudio'))}</label>
+        <div id="pa-exp-diagram" hidden>
+          <label class="pa-field"><span>${esc(t('para.exportTextWidth'))}</span>
+            <select id="pa-exp-tw">
+              <option value="300">${esc(t('para.widthNarrow'))}</option>
+              <option value="440" selected>${esc(t('para.widthMedium'))}</option>
+              <option value="640">${esc(t('para.widthWide'))}</option>
+              <option value="900">${esc(t('para.widthVeryWide'))}</option>
+            </select></label>
+          <label class="pa-field"><span>${esc(t('para.exportIndent'))}</span>
+            <select id="pa-exp-lw">
+              <option value="70">${esc(t('para.indentTight'))}</option>
+              <option value="120" selected>${esc(t('para.indentNormal'))}</option>
+              <option value="180">${esc(t('para.indentRoomy'))}</option>
+            </select></label>
+          <label class="pa-field"><span>${esc(t('para.exportLabels'))}</span>
+            <select id="pa-exp-labels">
+              <option value="both" selected>${esc(t('para.labelsBoth'))}</option>
+              <option value="relations">${esc(t('para.labelsRelations'))}</option>
+              <option value="roles">${esc(t('para.labelsRoles'))}</option>
+            </select></label>
+          <label class="check-label"><input type="checkbox" id="pa-exp-view" checked>
+            ${esc(t('para.exportMatchView'))}</label>
+          <p class="note">${esc(t('para.exportDiagramHint'))}</p>
+        </div>
         ${collapsedCount ? `<div class="banner warn-banner"><span>${esc(t('para.exportCollapsedWarn', { n: collapsedCount }))}</span></div>` : ''}
       </div>
       <div class="pa-modal-actions">
@@ -1424,6 +1525,7 @@ function openExportDialog() {
       t(k === 'preview' ? 'para.exportPreviewNote' : k === 'diagram' ? 'para.exportDiagramNote' : 'para.exportSvgNote');
     // Audio only means anything for the interactive page; a diagram is a picture.
     dlg.querySelector('#pa-exp-audio').disabled = k !== 'preview' || !state.audio;
+    dlg.querySelector('#pa-exp-diagram').hidden = k === 'preview';
   });
   dlg.querySelector('#pa-exp-cancel').addEventListener('click', () => { dlg.hidden = true; dlg.innerHTML = ''; });
   dlg.querySelector('#pa-exp-go').addEventListener('click', runExport);
@@ -1444,7 +1546,19 @@ function runExport() {
     measure: measureText,
   };
   if (kind === 'diagram' || kind === 'svg') {
-    const out = kind === 'svg' ? buildSsaSvg(state, common) : buildSsaDiagramHtml(state, common);
+    // Diagram geometry is the user's call — a long line or a deep analysis needs different room,
+    // and guessing it for them was what produced diagrams too wide to use (Seth, 2026-08-05).
+    const matchView = dlg.querySelector('#pa-exp-view').checked;
+    const diagram = { ...common,
+      textWidth: +dlg.querySelector('#pa-exp-tw').value,
+      levelWidth: +dlg.querySelector('#pa-exp-lw').value,
+      labels: dlg.querySelector('#pa-exp-labels').value,
+      // "matching whatever view settings the user had before they exported" — otherwise the
+      // library default (free translation only, the SSA convention).
+      layer: matchView ? state.view.layer : 'free',
+      free: matchView ? state.view.free !== false : false,
+    };
+    const out = kind === 'svg' ? buildSsaSvg(state, diagram) : buildSsaDiagramHtml(state, diagram);
     downloadFile(out, safeName(state.title) + (kind === 'svg' ? '.ssa.svg' : '.ssa.html'),
                  kind === 'svg' ? 'image/svg+xml' : 'text/html');
     dlg.hidden = true; dlg.innerHTML = '';

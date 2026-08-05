@@ -4,6 +4,7 @@ import {
   topUnits, levelOf, spanOf, leavesOf, summaryOf, summaryLineOf, parentOf,
   isBlankLine, visibleTopUnits, withBlanksBetween,
   newAuthoredDoc, addLine, setLineText, deleteLine, setCollapsedAll,
+  addProp, setPropText, setPropImplicit, deleteProp,
 } from '../docs/js/paragraph-model.js';
 
 let failures = 0;
@@ -258,6 +259,51 @@ console.log('round-trip');
 /* FLEx exports routinely carry whitespace-only phrases (Jn1_1-3-glossed.flextext: four of eleven).
  * They are real timed spans and stay in the tree, but they must never surface as units the user
  * has to think about — Seth: "our app should be able to handle that without troubling the user". */
+/* Authored propositions: SSA is semantic, so a line often expresses several propositions. They
+ * live INSIDE the line because the line owns the audio span, and they are ADDITIONS beside the
+ * record — never edits to imported wording, which is why they are allowed on any document. */
+console.log('\nauthored propositions — semantic daughters of a line');
+{
+  let d = base();
+  const before = JSON.stringify(d.lines[0]);
+  d = addProp(d, 'L1', 'the speaker left the house');
+  d = addProp(d, 'L1', 'he was in a hurry', { implicit: true });
+  eq(d.lines[0].props.map((p) => [p.text, !!p.implicit]),
+     [['the speaker left the house', false], ['he was in a hurry', true]], 'propositions are added in order, with the implicit flag');
+  ok(d.lines[0].props[0].id !== d.lines[0].props[1].id, 'ids are distinct');
+
+  // ⚠ THE LINE ITSELF IS UNTOUCHED — this is not a text editor for imported data.
+  const l = d.lines[0];
+  const stripped = { ...l }; delete stripped.props;
+  eq(JSON.stringify(stripped), before, 'the line\'s own baseline, words, glosses, times and free translation are untouched');
+
+  d = setPropText(d, 'L1', l.props[0].id, 'the speaker went outside');
+  eq(d.lines[0].props[0].text, 'the speaker went outside', 'text edits apply');
+  d = setPropImplicit(d, 'L1', l.props[0].id, true);
+  ok(d.lines[0].props[0].implicit === true, 'a proposition can be marked implied');
+  d = setPropImplicit(d, 'L1', l.props[0].id, false);
+  ok(!('implicit' in d.lines[0].props[0]), 'and back to stated, with no leftover key');
+
+  ok(validateFxpa(d).ok, 'a document with propositions validates');
+
+  // Deleting the LAST one removes the key, so the file is shaped exactly like one that never had
+  // any — every renderer's leavesOfLine fallback then needs no special case.
+  d = deleteProp(d, 'L1', l.props[0].id);
+  ok(d.lines[0].props.length === 1, 'one deleted, one left');
+  d = deleteProp(d, 'L1', l.props[1].id);
+  ok(!('props' in d.lines[0]), 'deleting the last proposition removes the key entirely');
+
+  throws(() => addProp(d, 'L9', 'x'), 'an unknown line is refused');
+
+  // Validation normalizes junk rather than trusting it into the renderers.
+  const messy = validateFxpa({ format: 'flextext-paragraph-analysis', version: 1,
+    lines: [{ id: 'L1', baseline: 'a', props: [{ id: 'p1', text: 'ok' }, { id: 'p1', text: 'dup' }] }], tree: [] });
+  ok(!messy.ok, 'duplicate proposition ids are rejected');
+  const empty = validateFxpa({ format: 'flextext-paragraph-analysis', version: 1,
+    lines: [{ id: 'L1', baseline: 'a', props: [] }], tree: [] });
+  ok(empty.ok && !('props' in empty.data.lines[0]), 'an empty props list is dropped, not carried');
+}
+
 console.log('\nblank lines from FLEx never surface as phantom members');
 {
   let d = validateFxpa({

@@ -1252,6 +1252,23 @@ main {
 .pa-open h1 { font-size: 26px; margin-bottom: 6px; }
 .pa-drop { border: 2px dashed var(--border); border-radius: 14px; padding: 36px 20px; margin: 18px 0; background: var(--panel); }
 .pa-drop.over { border-color: var(--blue); background: #e8f0fb; }
+/* Authored propositions: daughters of a line, visibly secondary to it — indented, smaller, and
+   in the analyst's own voice rather than the language data's. */
+.pa-props { margin: 2px 0 0 14px; border-left: 2px solid var(--border); padding-left: 8px; }
+.pa-prop { display: flex; align-items: center; gap: 4px; margin: 2px 0; }
+.pa-prop .pa-brk { color: var(--muted); font-size: 15px; }
+.pa-propedit { flex: 0 1 auto; max-width: 100%; min-width: 8ch; font: italic 14px/1.4 inherit; color: var(--muted);
+  padding: 2px 6px; border: 1px solid transparent; border-radius: 6px; background: transparent; }
+.pa-propedit:hover { border-color: var(--border); }
+.pa-propedit:focus { border-color: var(--blue); background: #fff; color: var(--fg); outline: none; }
+.pa-propimp, .pa-propdel { border: 0; background: transparent; color: var(--muted); cursor: pointer;
+  font-size: 12px; padding: 2px 4px; border-radius: 5px; opacity: 0; }
+.pa-prop:hover .pa-propimp, .pa-prop:hover .pa-propdel, .pa-propedit:focus ~ .pa-propimp { opacity: 1; }
+.pa-propimp:hover, .pa-propdel:hover { background: var(--panel); color: var(--fg); }
+.pa-propadd { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 12px;
+  padding: 2px 6px; margin: 2px 0 0 14px; border-radius: 5px; opacity: 0; }
+.pa-row:hover .pa-propadd, .pa-row.sel .pa-propadd { opacity: 1; }
+.pa-propadd:hover { background: var(--panel); color: var(--blue); }
 .pa-scratch { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
 /* An authored line IS a text box — imported language data never gets one. */
 .pa-edit { width: 100%; font: 16px/1.4 inherit; color: var(--vern); padding: 4px 6px; border: 1px solid transparent; border-radius: 6px; background: transparent; }
@@ -1321,7 +1338,26 @@ main {
 .pa-rowplay:hover { border-color: var(--blue); color: var(--blue); }
 
 /* The bracket: one nested container per group; deeper levels indent naturally. */
-.pa-group { border-left: 3px solid var(--blue); border-radius: 6px 0 0 6px; margin: 6px 0 6px 2px; padding-left: 8px; }
+/* ⚠ STACKED BRACKETS MUST BE TELLABLE APART (Seth, 2026-08-05: "this app is going to be used by a
+   number of older eyes... the stacked brackets in the left margin are a bit busy and hard to keep
+   track of even for younger eyes"). Every level used to be the SAME 3px blue bar 8px apart, so a
+   five-deep analysis was five identical parallel lines and the eye had nothing to hold on to.
+   Three cheap changes, no layout rewrite:
+     - COLOUR BY DEPTH, cycling through six calm, distinguishable hues;
+     - MORE ROOM between levels, so the bars are separated rather than crowded;
+     - TRACING: pointing at a heading thickens and tints its own bracket down its whole length,
+       which is the actual question being asked ("which bar is this heading?").
+   Depth colours stay dark enough for contrast on white and are distinguishable without relying on
+   hue alone — the trace and the weight difference carry it for anyone who cannot separate them. */
+.pa-group { border-left: 3px solid var(--blue); border-radius: 8px 0 0 8px; margin: 8px 0 8px 2px; padding-left: 14px; }
+.pa-group[data-depth="0"] { border-left-color: #1f4f8f; }
+.pa-group[data-depth="1"] { border-left-color: #2a6e2a; }
+.pa-group[data-depth="2"] { border-left-color: #8a5a00; }
+.pa-group[data-depth="3"] { border-left-color: #6b21a8; }
+.pa-group[data-depth="4"] { border-left-color: #0e7490; }
+.pa-group[data-depth="5"] { border-left-color: #a33; }
+.pa-group.trace { border-left-width: 6px; padding-left: 11px; background: rgba(31,79,143,.05); }
+.pa-group.trace > .pa-badge { background: #e8f0fb; }
 .pa-group.pa-head, .pa-row.pa-head { box-shadow: inset 3px 0 0 var(--gloss); }
 /* The group HEADING is the group's handle: clicking it selects the group, and Edit/Ungroup act on
    exactly that. So it has to LOOK like a control — a bar with its own surface and a hover state —

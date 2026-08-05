@@ -259,7 +259,7 @@ export async function createInstance(nickname) {
     throw e;
   }
   kiCache.set(r.instance_id, Ki);
-  return { instance_id: r.instance_id, type: r.type, nickname: r.nickname };
+  return { instance_id: r.instance_id, type: r.type, nickname: r.nickname, estate: r.estate };   // estate: same enumerated-rebuild trap as listView()
 }
 
 export async function renameInstance(instanceId, nickname) {
@@ -470,7 +470,13 @@ export async function listView() {
         inventory,
       });
     }
-    instances.push({ instance_id: inst.instance_id, type: inst.type, nickname: inst.nickname, desired_rev: inst.desired_rev, installs });
+    /* ⚠ ENUMERATED REBUILD — a field the server adds is INVISIBLE to the panel until it is named
+     * here. `estate` was dropped exactly this way and cost a wasted worker redeploy: the SQL, the
+     * response and the panel all looked correct, because the loss happened in between (2026-08-05).
+     * This is the SECOND time — mintInvite() below lost the same field the same way. Add new server
+     * fields HERE as well as at the call site. */
+    instances.push({ instance_id: inst.instance_id, type: inst.type, nickname: inst.nickname,
+                     desired_rev: inst.desired_rev, estate: inst.estate, installs });
   }
   return { settings_rev: v.settings_rev, instances, isOwner: ownerSelf, pending: v.pending || [] };
 }

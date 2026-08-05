@@ -2,7 +2,7 @@
 
 // Bump VERSION on every deploy: clients check for a changed sw.js whenever
 // they load / regain focus / come online, and offer the user an update.
-const VERSION = 'v223';
+const VERSION = 'v229';
 // On localhost the SW serves NETWORK-FIRST so code edits show up immediately during dev
 // (cache-first would keep serving a stale build until every file's VERSION is bumped). The
 // SW stays registered (PWA + localStorage behave normally); production stays offline-first.
@@ -129,8 +129,13 @@ self.addEventListener('fetch', (e) => {
        * installed device, which is why help links "worked" in a fresh browser and not in the app).
        *
        * Help pages therefore fall through to the normal cache-then-network path below: served from
-       * cache when present, fetched and cached on first visit, and available offline thereafter. */
-      if (e.request.mode === 'navigate' && !/\/help\/[^/]+\.html$/.test(url.pathname)) {
+       * cache when present, fetched and cached on first visit, and available offline thereafter.
+       *
+       * ⚠ Matches the whole /help/ PREFIX, not `*.html`. Cloudflare's static-asset html_handling
+       * serves these EXTENSIONLESS — /help/migrate.html 307s to /help/migrate — so an extension test
+       * passes on GitHub Pages and fails on the exact origin the link now points at. The apps have
+       * no /help/ routes of their own, so the prefix is unambiguous. */
+      if (e.request.mode === 'navigate' && !/\/help\//.test(url.pathname)) {
         return c.match('index.html').then(shell => shell || fetch(e.request));
       }
       return fetch(e.request).then(resp => {

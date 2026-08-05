@@ -224,6 +224,91 @@ Three constants move together on an engine change:
 Bump the version **up**, never down — a lower number will not reliably
 re-trigger a service-worker update.
 
+## Self-hosting: everything you must configure
+
+The apps run as **static files with no build step**, so a plain fork serves fine from any static
+host. Everything below is only needed for the **connectivity backend** — device sync, researcher
+accounts, Drive uploads, crowd recording. Without it the editor, recorder and paragraph tool still
+work fully offline; they simply cannot sync.
+
+**No secrets from this deployment appear in this repository.** Every value below is a placeholder;
+real secrets are set with `wrangler secret put` and never committed.
+
+### 1. Client constants — `docs/js/app.js`
+
+| Constant | What it is | Change to |
+|---|---|---|
+| `DEFAULT_WORKER` | Base URL of your connectivity Worker | `https://<your-worker-domain>` |
+| `DEFAULT_RELAY_TOKEN` | **Deliberately public** read token, shipped in the client. Proxies public Drive files only; grants no write | any random hex string of your own |
+| `TURNSTILE_SITE_KEY` | Your Turnstile widget's public site key | from your Cloudflare Turnstile widget |
+| `LOCAL_WORKER` | Where `wrangler dev` listens | usually leave as-is |
+
+### 2. App URLs — `docs/js/researcher-panel.js`
+
+`ESTATES` maps each app to its public URL; the panel builds every invite and share link from it.
+`LEGACY_PANEL_HOST` and `MIGRATE_DOC` exist only for this project's GitHub Pages → Cloudflare
+migration — a fresh deployment should reduce `ESTATES` to a single estate and drop both.
+
+### 3. Worker vars — `worker/wrangler.toml`
+
+| Var | Purpose |
+|---|---|
+| `ALLOWED_ORIGINS` | **Exact-match**, comma-separated list of every origin allowed to call the Worker. No trailing slashes. Also gates the OAuth return origin |
+| `MAX_FILE_BYTES` / `MAX_TOTAL_BYTES` | Upload caps. The defaults stop below Cloudflare's free-tier limits |
+| `ALLOWED_RESEARCHERS` | Optional allowlist of researcher e-mails / domains |
+| `ALERT_EMAIL`, `RESET_FROM` | Addresses for operational mail |
+
+Also yours to change: the Worker `name`, `[[routes]]`, the D1 `database_name` + `database_id`, the
+R2 `bucket_name`, and the `SIGNUP_LIMIT` rate-limit binding.
+
+### 4. Worker secrets — `wrangler secret put <NAME>`, never committed
+
+| Secret | Purpose |
+|---|---|
+| `TURNSTILE_SECRET` | Pairs with the client's `TURNSTILE_SITE_KEY` |
+| `RELAY_SECRET` | **Must equal the client's `DEFAULT_RELAY_TOKEN`** or every Drive download 401s |
+| `RELAY_WRITE_SECRET` | Optional; enables R2 uploads |
+| `SERVER_HMAC_KEY` | Server-side HMAC for opaque identifiers |
+| `ESCROW_PUBLIC_KEY` / `ESCROW_PRIVATE_KEY` | Operator-recoverable key escrow |
+| `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` | Google Sign-In + Drive |
+| `RESEND_API_KEY` | Transactional e-mail |
+
+⚠ Leave `DEV_ECHO_RESET` **unset in production** — it is a local-dev affordance only.
+
+For local development copy `worker/.dev.vars.example` → `worker/.dev.vars` (gitignored). It is
+overlaid by `wrangler dev` and ignored by `wrangler deploy`.
+
+### 5. Third-party consoles
+
+- **Cloudflare** — Workers (one per app, plus the connectivity Worker), D1 database, R2 bucket,
+  custom domains, and a **Turnstile widget**. The widget is hostname-locked: list every hostname
+  that will render it. Wildcards are not accepted, but adding a domain covers its subdomains, and a
+  free widget allows 10 hostnames.
+- **Google Cloud** — an OAuth 2.0 client with Drive scope, and one authorized redirect URI:
+  `https://<your-worker-domain>/v1/oauth/google/callback`. Note this is the **Worker's** URL, not
+  any app's — so adding an app origin needs no Google change.
+- **Resend** (or any provider, if you replace the mail code) — for reset/alert e-mail.
+- **GitHub** — Pages if you publish there; `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` repo
+  secrets if you use the bundled deploy workflows.
+
+### 6. ⚠ The values that must MATCH across files
+
+These are the ones that cost real debugging time, because each fails in a way that points somewhere
+else:
+
+| Must match | Symptom when they don't |
+|---|---|
+| client `DEFAULT_RELAY_TOKEN` == worker `RELAY_SECRET` | Every Drive download returns 401 |
+| every app origin ∈ worker `ALLOWED_ORIGINS` | Requests refused by CORS — looks like a broken app |
+| the panel's origin ∈ `ALLOWED_ORIGINS` | Sign-in completes, then returns to the wrong app |
+| every crowd-recorder host ∈ Turnstile widget hostnames | Widget shows "Unable to connect to website"; upload can never start |
+| client `TURNSTILE_SITE_KEY` pairs with worker `TURNSTILE_SECRET` | Crowd uploads rejected server-side |
+| Google redirect URI == `<worker>/v1/oauth/google/callback` | `redirect_uri_mismatch` on sign-in |
+
+**Adding a new app origin touches three places** — `ALLOWED_ORIGINS`, the Turnstile widget
+hostnames (only if it serves a crowd recorder), and nothing in Google. Getting that list wrong is
+the single most common way to break a working deployment.
+
 ## Deployment
 
 **`main` is development — in progress, and possibly broken at any given moment.

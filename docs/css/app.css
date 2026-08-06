@@ -1479,11 +1479,22 @@ main {
 /* ⚠ The connector stays SHORT. It sits BESIDE text, and lengthening it reads as a strikethrough
    (Seth: "I don't want what is in effect a strikethrough styling"). Reach belongs to the brace
    arms, which live in the margin above and below the content. */
-.pa-group.pa-support::before, .pa-row.pa-support::before {
+/* ⚠ ROWS ONLY. A GROUP's ::before is already the top brace arm — naming it here made one
+   pseudo-element serve two purposes and it drew the connector's position with the arm's width,
+   straight through the role label. The group's connector lives on its role line, below. */
+.pa-row.pa-support::before {
   content: ""; position: absolute; left: -14px; top: 1.05em; width: 10px;
   border-top: 1px dotted #9aa3ad; }
-/* A group as a member hangs its connector beside the heading badge, which is the group's handle. */
-.pa-group.pa-support::before { top: 14px; left: -17px; width: 14px; }
+/* ⚠ A SUPPORT GROUP'S CONNECTOR HANGS OFF ITS ROLE LINE, not off the group box. It used to reuse
+   `.pa-group::before` — the same pseudo-element as the top BRACE ARM — so the two rules cascaded
+   into one line: the connector's `top:14px` with the arm's 21% width, drawn straight through the
+   role label as a strikethrough (Seth, 2026-08-06). One pseudo-element cannot be two things.
+   Hanging it off the role line is also more correct: it points at the group's heading, which is
+   what it is connecting to. */
+.pa-group.pa-support > .pa-roleline { position: relative; }
+.pa-group.pa-support > .pa-roleline::before {
+  content: ""; position: absolute; left: -31px; top: 50%; width: 14px;
+  border-top: 1px dotted #9aa3ad; }
 
 /* ── BRACE ARMS: the group's boundary, top and bottom ─────────────────────────────────────────
    The SPINE stays solid — it is what the eye traces down a long group — and only the ARMS are

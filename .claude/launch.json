@@ -67,8 +67,8 @@
       "name": "paragraph-dev",
       "runtimeExecutable": "bash",
       "runtimeArgs": [
-        "dev-serve.sh",
-        "8013"
+        "-c",
+        "FLEXTEXT_DOCS=\"$PWD/docs\" exec bash dev-serve.sh 8013"
       ],
       "port": 8013
     }

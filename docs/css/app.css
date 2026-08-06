@@ -1408,10 +1408,23 @@ main {
 .pa-transport { display: flex; align-items: center; gap: 10px; margin-top: 2px; }
 
 .pa-tree { flex: 1; overflow: auto; padding: 10px 14px 40vh; }
-.pa-row { display: flex; align-items: flex-start; gap: 8px; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
+/* ⚠ THE ROLE STACKS ABOVE THE CONTENT (Seth, 2026-08-06). It used to sit in a column beside the
+   content, which meant either a fixed gutter — an empty column on every unlabelled row, and a
+   clipped chip when a role was long — or labels trailing after text of varying length. Giving the
+   label a full-width flex basis puts it on its own line with no markup change and nothing reserved:
+   a unit with no role simply has no first line. */
+.pa-row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 4px 8px; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
+.pa-break { flex: 0 0 100%; height: 0; margin: 0; }   /* forces the content onto the next line */
+/* A VERY slight indent of the content under its label, so the label reads as a heading for the
+   thing beneath rather than as a separate row. Adjacent-sibling only, so it indents the content
+   once — not every item that lands on that line. */
+.pa-break + * { margin-left: 10px; }
+.pa-roleline > .pa-nodelabel { flex: 0 0 auto; }   /* groups: the role sits beside the handle */
+/* The group's role line: role first, then the handle. */
+.pa-roleline { display: flex; align-items: center; gap: 8px; }
 .pa-row.on { background: #eef4ff; }
 .pa-prop.sel { background: #dbe7fa; outline: 2px solid var(--blue); outline-offset: -2px; border-radius: 6px; }
-.pa-row.sel, .pa-group.sel > .pa-badge { background: #dbe7fa; outline: 2px solid var(--blue); outline-offset: -2px; }
+.pa-row.sel, .pa-group.sel > .pa-roleline > .pa-badge { background: #dbe7fa; outline: 2px solid var(--blue); outline-offset: -2px; }
 .pa-cell { flex: 1; min-width: 0; }
 .pa-wave { width: 100%; height: 44px; display: block; touch-action: none; cursor: pointer; }
 .pa-wave-sm { height: 14px; }
@@ -1440,7 +1453,7 @@ main {
 .pa-group { position: relative; border-left: 3px solid currentColor; color: var(--blue);
              border-radius: 8px 0 0 8px; margin: 10px 0 10px 2px; padding-left: 16px; }
 .pa-group.trace { border-left-width: 6px; padding-left: 13px; background: rgba(31,79,143,.05); }   /* 6+13 = 3+16, so tracing never shifts the text */
-.pa-group.trace > .pa-badge { background: #e8f0fb; }
+.pa-group.trace > .pa-roleline > .pa-badge { background: #e8f0fb; }
 /* ── PROMINENCE IS POSITION (Seth, 2026-08-06) ────────────────────────────────────────────────
    The head used to carry `box-shadow: inset 3px 0 0` — a LEFT BAR, which is exactly what a group
    bracket looks like, so the prominent member read as one more level of nesting ("putting a bracket
@@ -1449,7 +1462,19 @@ main {
    every support steps aside: indented ~22px and hanging off a short dotted connector. One rule for
    a line, a proposition or a whole group — and it scales to multiple heads for free, since two
    heads is simply two members not indented. */
-.pa-group.pa-head, .pa-row.pa-head { font-weight: 600; }
+/* ⚠ A HEAD ROW bolds THROUGHOUT; a HEAD GROUP bolds only its own labels. font-weight INHERITS, so
+   putting it on the group made every line inside it bold — including supports nested below, which
+   says the wrong thing entirely (Seth, 2026-08-06: "HEAD groups are bolding EVERYTHING in the
+   group. We don't want that"). A group's prominence is carried by its spine and its own heading. */
+.pa-row.pa-head { font-weight: 600; }
+.pa-group.pa-head > .pa-roleline > .pa-nodelabel { font-weight: 600; }
+/* A HEAD group carries two extra cues beyond sitting on the trunk: a THICKER SPINE and a BOLD
+   relation label. Both survive skimming, and the spine works for a reader who cannot separate the
+   depth hues. Padding drops to match (6+13 = 3+16) so thickening never shifts the text.
+   ⚠ Trace-on-hover also uses 6px, so a traced support group and an untraced head group are briefly
+   the same weight; trace additionally tints its background, which is what keeps them apart. */
+.pa-group.pa-head { border-left-width: 6px; padding-left: 13px; }
+.pa-group.pa-head > .pa-roleline > .pa-badge .pa-rel { font-weight: 700; color: #1b1f24; }
 .pa-group.pa-support, .pa-row.pa-support { margin-left: 22px; position: relative; }
 /* ⚠ The connector stays SHORT. It sits BESIDE text, and lengthening it reads as a strikethrough
    (Seth: "I don't want what is in effect a strikethrough styling"). Reach belongs to the brace
@@ -1549,7 +1574,7 @@ main {
   color: var(--muted); font-weight: 400; background: none; border: 0; padding: 0 0 0 2px;
   max-width: 18ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.pa-head > .pa-nodelabel, .pa-head > .pa-badge > .pa-nodelabel {
+.pa-head > .pa-nodelabel, .pa-head > .pa-roleline > .pa-nodelabel {
   text-transform: uppercase; letter-spacing: .05em; font-weight: 600;
   color: var(--gloss); background: #f0f7f0; border: 1px solid #b7d4b7;
   border-radius: 10px; padding: 1px 8px;

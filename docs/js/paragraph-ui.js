@@ -1102,8 +1102,11 @@ function renderUnit(id, nodeLabel = '', depth = 0) {
   badge.className = 'pa-badge';
   badge.title = t('para.headingTip');   // this bar IS the group's handle — Edit/Ungroup act on it
   const span = spanOf(state, id);
+  /* ⚠ THE ROLE SITS OUTSIDE THE BADGE, to its LEFT. The badge is the group's HANDLE (clicking it
+   * selects the group); the role is what this group is TO ITS PARENT. Two different things, so the
+   * role is no longer drawn inside the handle — a head's chip nested inside the grey pill also read
+   * as a control rather than a label. */
   badge.innerHTML = `
-    ${nodeLabel ? `<span class="pa-nodelabel" title="${esc(nodeLabel)}">${esc(nodeLabel)}</span>` : ''}
     <button class="pa-caret" title="${esc(t(collapsed ? 'para.expand' : 'para.collapse'))}">${collapsed ? '▸' : '▾'}</button>
     <span class="pa-jt" title="${esc(t(g.joinType === 'asym' ? 'para.asym' : 'para.sym'))}">${g.joinType === 'asym' ? '⊳' : '⊕'}</span>
     ${g.relation ? `<span class="pa-rel">${esc(g.relation)}</span>` : `<span class="pa-rel pa-rel-empty">${esc(t('para.noRelation'))}</span>`}
@@ -1116,7 +1119,19 @@ function renderUnit(id, nodeLabel = '', depth = 0) {
   // in the margin, working out which bar belongs to which heading is the hard part.
   badge.addEventListener('mouseenter', () => el.classList.add('trace'));
   badge.addEventListener('mouseleave', () => el.classList.remove('trace'));
-  el.appendChild(badge);
+  /* Role line: the role, then the badge. Same shape as a row, so a group-as-member lines up with
+   * the rows around it. */
+  const roleline = document.createElement('div');
+  roleline.className = 'pa-roleline';
+  if (nodeLabel) {
+    const lb = document.createElement('span');
+    lb.className = 'pa-nodelabel';
+    lb.title = nodeLabel;
+    lb.textContent = nodeLabel;
+    roleline.appendChild(lb);
+  }
+  roleline.appendChild(badge);
+  el.appendChild(roleline);
   if (collapsed) {
     for (const line of summaryOf(state, id)) {
       const s = document.createElement('div');
@@ -1157,8 +1172,15 @@ function renderUnit(id, nodeLabel = '', depth = 0) {
         const chip = document.createElement('span');
         chip.className = 'pa-nodelabel pa-nodelabel-fallback';
         chip.textContent = t('para.head');
-        const badge = headEl.querySelector('.pa-badge');
-        (badge || headEl).appendChild(chip);
+        /* ⚠ FIRST CHILD, not appended. The role takes a full-width flex line on a ROW, so appending
+         * would put the chip BELOW the content instead of above it. */
+        const line = headEl.querySelector('.pa-roleline');
+        if (line) { line.insertBefore(chip, line.firstChild); }
+        else {
+          const br = document.createElement('i'); br.className = 'pa-break';
+          headEl.insertBefore(br, headEl.firstChild);
+          headEl.insertBefore(chip, headEl.firstChild);
+        }
       }
     }
   }
@@ -1290,7 +1312,7 @@ function renderPropRow(propId, lineId, nodeLabel = '') {
   const el = document.createElement('div');
   el.className = 'pa-row pa-proprow' + (pr.implicit ? ' implied' : '') + (selection.has(propId) ? ' sel' : '');
   el.dataset.unit = propId;
-  el.innerHTML = `${nodeLabel ? `<span class="pa-nodelabel">${esc(nodeLabel)}</span>` : ''}
+  el.innerHTML = `${nodeLabel ? `<span class="pa-nodelabel">${esc(nodeLabel)}</span><i class="pa-break"></i>` : ''}
     <div class="pa-cell pa-prop${pr.implicit ? ' implicit' : ''}">
       ${br ? '<span class="pa-brk">(</span>' : ''}
       <input class="pa-propedit" data-line="${esc(lineId)}" data-prop="${esc(propId)}"
@@ -1350,7 +1372,11 @@ function renderLineRow(id, nodeLabel = '', header = false) {
   const showAudio = !!(state.audio && v.audio);
   const wavesMode = showAudio ? (v.waves || 'compact') : 'off';
   const parts = [];
-  if (nodeLabel) parts.push(`<span class="pa-nodelabel" title="${esc(nodeLabel)}">${esc(nodeLabel)}</span>`);
+  /* ⚠ The label is followed by a zero-height full-width flex item — the standard flex LINE BREAK.
+   * `flex-basis:100%` on the label itself does not work: it is capped by the label's own max-width,
+   * so the content still fits beside it. And the chip must keep hugging its text, so the label
+   * cannot simply be stretched. */
+  if (nodeLabel) parts.push(`<span class="pa-nodelabel" title="${esc(nodeLabel)}">${esc(nodeLabel)}</span><i class="pa-break"></i>`);
   // Who said this line (conversations only — absent in a single-speaker text).
   if (l.speaker) parts.push(`<span class="pa-speaker" title="${esc(l.speaker)}">${esc(l.speaker)}</span>`);
   if (showAudio && timed) {

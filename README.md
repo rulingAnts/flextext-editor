@@ -206,6 +206,28 @@ origin's settings/storage for a clean test.
 The service worker is skipped on `localhost` so you always see fresh files
 (add `?sw=1` to test offline behaviour deliberately).
 
+### Console functions (`window.fx*`) — the built-in diagnostics
+
+Type these into the browser console in the running app. They are **deliberately not in the UI**: an
+ordinary user should never meet them, and they are how you answer "why is it doing that?" without
+guessing.
+
+| Function | Where | What it tells you |
+|---|---|---|
+| `fxUpdate()` | any app | Forces a service-worker update check and activation. The fix for "I deployed a new version but this device still runs the old one" — the single most useful one to know. |
+| `fxTree()` | Paragraph Analysis | The current selection, every group's children **in order**, the top-level units, and whether the selection is adjacent among its siblings — naming exactly what sits between them if not. Answers "why won't these group?". |
+| `fxBlanks()` | Paragraph Analysis | Every hidden blank line, where it sits in sibling order, and which group holds it. FLEx exports carry empty phrases; they are hidden and absorbed automatically, so a selection can look adjacent on screen and not be. |
+| `fxDevices()` | Researcher panel | What the panel actually received for each device — nickname, `estate`, and whether it is flagged as being on the legacy address. Answers "why is/isn't this device flagged?". |
+| `fxLinks()` | Researcher panel | The current link-estate mode, and reveals the advanced picker. |
+| `fxLinks('auto'\|'cloud'\|'pages'\|'origin')` | Researcher panel | Overrides which estate's URLs the panel **prints** in invite and share links — for pairing a dev app. `auto` clears it. Changes the printed link only, never where a device is registered, and the panel shows a badge the whole time it is active. |
+
+Why console functions and not keyboard shortcuts: a shortcut must survive dead keys, IMEs and screen
+readers on every platform. One of these began as a ⌃⌥E binding that could never fire on a Mac,
+because Option+E is the dead key that composes an acute accent. New hidden affordances go in this
+table, not on the keyboard.
+
+Also available: `?devreset` (wipe this origin), `?segmentation=on|off`, `?mode=researcher`.
+
 **Key files:** `docs/js/flextext.js` is the format engine (parse / serialize /
 tokenize / segment / reconcile); `docs/js/app.js` is the UI; `docs/js/db.js` is
 IndexedDB storage; `docs/js/native-audio.js` is the **only** file allowed to

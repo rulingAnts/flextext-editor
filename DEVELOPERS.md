@@ -70,6 +70,7 @@ composes an acute accent. Anything hidden from ordinary users belongs here inste
 |---|---|---|
 | `fxUpdate()` | any app | Forces a service-worker update check/activation (same flow as the ⌃/⌥+U shortcut). The fix for "I pushed a version but the device still runs the old one". |
 | `fxLinks()` | researcher panel | Shows the current link-estate mode and reveals the advanced picker. |
+| `fxBlanks()` | paragraph tool | Lists hidden blank lines — where each sits in sibling order and which group holds it. FLEx exports carry empty phrases; they are hidden and auto-absorbed, so a selection can look adjacent on screen and not be. Console-only by design: analysts should not have to think about them. |
 | `fxTree()` | paragraph tool | Prints the selection, every group's children in order, the top-level units, and — for the current selection — whether its members are adjacent among their siblings, naming what sits between them if not. The answer to "why won't these group?". |
 | `fxDevices()` | researcher panel | Prints what the panel actually received per device — nickname, `estate` (or `(FIELD ABSENT)`), and whether it is flagged legacy. The answer to "why is/isn't this device flagged?". |
 | `fxLinks('auto' \| 'cloud' \| 'pages' \| 'origin')` | researcher panel | Overrides which estate's URLs the panel PRINTS in invite and crowd share links — for pairing a dev app. `auto` clears it. |

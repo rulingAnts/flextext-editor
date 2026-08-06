@@ -1853,6 +1853,33 @@ if (typeof window !== 'undefined') {
   };
 }
 
+/* CONSOLE ENTRY POINT — `fxBlanks()`. Lists the hidden blank lines: where each one sits in sibling
+ * order and which group holds it.
+ *
+ * ⚠ DELIBERATELY NOT IN THE UI. Seth, 2026-08-06, on whether the Group dialog should announce
+ * "includes 1 hidden blank line": "Don't add that visibility, except maybe give us a fx...()
+ * function… but not normally display in production for normal users." Blank lines are noise an
+ * analyst should not have to think about — the app absorbs them silently and that is correct. This
+ * exists for the case where something refuses to group and the reason is invisible.
+ *
+ * The blanks themselves can already be SEEN by unchecking "Hide blank lines"; what that view does
+ * not give you is their position among siblings, which is what adjacency is judged on. */
+if (typeof window !== 'undefined') {
+  window.fxBlanks = () => {
+    if (!state) return 'no document open';
+    const rows = [];
+    const scan = (ids, where) => ids.forEach((id, i) => {
+      if (isHiddenBlank(id)) rows.push({ blank: id, position: i, within: where, absorbedInto: where });
+    });
+    scan(topUnits(state), '(top level)');
+    for (const g of state.tree) scan(g.children, g.id);
+    if (!rows.length) return 'no hidden blank lines in this document';
+    console.table(rows);
+    return `${rows.length} hidden blank line(s). They are absorbed into a group automatically when they sit `
+         + 'between selected units — that is why a selection can look adjacent on screen and not be.';
+  };
+}
+
 function doUngroup() {
   const g = selectedGroup();
   if (!g) return alert(t('para.needGroupHeading'));

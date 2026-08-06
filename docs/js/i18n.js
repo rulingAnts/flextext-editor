@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v265';
+export const ENGINE_VERSION = 'v266';
 
 const S = {
 en: {
@@ -1263,6 +1263,14 @@ internet after the first time.</p>
   'para.previewHide': 'Hide preview',
   'para.previewOnlyDiagram': 'The preview shows the diagram. Choose “SSA diagram” or “Diagram (HTML)” above to see it — the interactive page has nothing to preview here.',
   'para.previewFailed': 'The preview could not be drawn:',
+  'para.exportPng': 'Diagram image (.png)',
+  'para.exportJpg': 'Diagram image (.jpg)',
+  'para.exportRes': 'Resolution',
+  'para.exportQuality': 'JPEG quality',
+  'para.exportSizeCalc': 'Measuring file size…',
+  'para.exportSizeIs': '{w}×{h} pixels · about {size}',
+  'para.pngFile': 'PNG image saved',
+  'para.jpgFile': 'JPEG image saved',
   'para.menuFile': 'File', 'para.menuView': 'View', 'para.menuAudio': 'Audio',
   'para.zoomLabel': 'Zoom',
   'para.summary': 'Summary (optional)',
@@ -2580,6 +2588,14 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.previewHide': 'Sembunyikan pratinjau',
   'para.previewOnlyDiagram': 'Pratinjau menampilkan diagram. Pilih “Diagram SSA” atau “Diagram (HTML)” di atas untuk melihatnya — halaman interaktif tidak punya pratinjau di sini.',
   'para.previewFailed': 'Pratinjau tidak dapat digambar:',
+  'para.exportPng': 'Gambar diagram (.png)',
+  'para.exportJpg': 'Gambar diagram (.jpg)',
+  'para.exportRes': 'Resolusi',
+  'para.exportQuality': 'Kualitas JPEG',
+  'para.exportSizeCalc': 'Menghitung ukuran berkas…',
+  'para.exportSizeIs': '{w}×{h} piksel · sekitar {size}',
+  'para.pngFile': 'Gambar PNG tersimpan',
+  'para.jpgFile': 'Gambar JPEG tersimpan',
   'para.menuFile': 'Berkas', 'para.menuView': 'Tampilan', 'para.menuAudio': 'Audio',
   'para.zoomLabel': 'Perbesaran',
   'para.summary': 'Ringkasan (opsional)',

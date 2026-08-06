@@ -1041,3 +1041,51 @@ footer { padding:10px 14px; color:#5b6470; font-size:12px; border-top:1px solid 
 </body>
 </html>`;
 }
+
+
+/* ---------------- raster export (PNG / JPEG) ----------------
+ * Seth, 2026-08-06: PNG and JPG, with a resolution slider and a live size estimate.
+ *
+ * ⚠ THE SVG IS RASTERISED IN THE BROWSER, not re-drawn. Re-implementing the diagram against a canvas
+ * API would be a second renderer, and two renderers drift — the picture you export would slowly stop
+ * matching the picture you previewed. Drawing the SVG into a canvas keeps exactly one drawing path.
+ *
+ * ⚠ ENCODED AS A data: URL, NOT a blob: URL. A blob: URL would need revoking and, more importantly,
+ * some browsers taint a canvas drawn from one, which makes toBlob throw a security error at the last
+ * step. A self-contained SVG (which ours is — no external fonts, no images) is safe inline.
+ *
+ * ⚠ JPEG IS FLATTENED ONTO WHITE. JPEG has no alpha, so an unpainted canvas exports as black. The
+ * SVG already paints a white background rect, but the canvas is filled anyway: relying on the
+ * content to cover every pixel is the kind of assumption that breaks the first time a margin
+ * changes. */
+export function rasterizeSsa(svgText, { scale = 2, type = 'image/png', quality = 0.92 } = {}) {
+  return new Promise((resolve, reject) => {
+    const m = /<svg[^>]*\swidth="([\d.]+)"[^>]*\sheight="([\d.]+)"/.exec(svgText);
+    if (!m) return reject(new Error('Could not read the diagram size.'));
+    const w = Math.max(1, Math.round(+m[1] * scale));
+    const h = Math.max(1, Math.round(+m[2] * scale));
+    /* ⚠ A HARD PIXEL CEILING. Canvases have per-browser limits (often ~16k a side, and an area cap);
+     * past them toBlob returns null or a blank image with NO error, so an unchecked slider silently
+     * produces a broken file. Refusing with a message beats exporting something empty. */
+    const MAX_SIDE = 12000, MAX_AREA = 60e6;
+    if (w > MAX_SIDE || h > MAX_SIDE || w * h > MAX_AREA) {
+      return reject(new Error(`That resolution would be ${w}×${h}px, which is too large to render. Use a smaller scale.`));
+    }
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        const ctx = c.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        c.toBlob((b) => (b ? resolve({ blob: b, width: w, height: h })
+                           : reject(new Error('The browser could not encode that image.'))),
+                 type, quality);
+      } catch (e) { reject(e); }
+    };
+    img.onerror = () => reject(new Error('The diagram could not be drawn for export.'));
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgText);
+  });
+}

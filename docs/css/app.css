@@ -1612,3 +1612,13 @@ main {
    rows that have one. Same width as .pa-rowplay; no border, no hit area, invisible to screen
    readers. See the note at its use site in paragraph-ui.js. */
 .pa-playgap { flex: none; width: 30px; height: 1px; }
+
+/* Adjusting a group's edges, inside the Edit dialog. Set apart from the member list because it
+   changes MEMBERSHIP rather than labels, and it acts immediately rather than on OK. */
+.pa-edges { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.pa-edgehint { margin: 0 0 8px; }
+.pa-edgerow { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.pa-edge { font-size: 13px; }
+.pa-edge-none { font-style: italic; color: var(--muted); align-self: center; }
+.pa-edge-warn { margin: 6px 0 0; color: #6b5310; background: #fdf3d7;
+                border: 1px solid #e4c95b; border-radius: 6px; padding: 6px 8px; }

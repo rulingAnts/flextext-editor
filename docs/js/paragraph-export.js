@@ -688,6 +688,19 @@ export function ssaLayout(data, opts = {}) {
     const anchors = headYs.length ? headYs : ys;
     n.anchorY = anchors.reduce((a, b) => a + b, 0) / anchors.length;
     n.top = Math.min(...ys); n.bottom = Math.max(...ys);
+    /* ⚠ THE FULL EXTENT OF THE ROWS, kept alongside the anchor extent and used by NOTHING except a
+     * collapsed 'bracket' group (Seth, 2026-08-06, marked-up screenshot: the bracket ended inside
+     * the first and last rows instead of enclosing them). Anchors are midpoints, so a joiner drawn
+     * between them stops half a row short at each end — invisible on a normal group, where the
+     * bracket only has to reach its members' connector stubs, but wrong for a bracket whose whole
+     * job is to say "this entire range is one constituent".
+     * ⚠ Every other group keeps drawing between anchors. Seth: "The rest of the diagram formatting
+     * should remain unchanged for all other things." */
+    const ext = n.kids.map((k) => (k.kind === 'leaf'
+      ? [rows[k.row].y, rows[k.row].y + rows[k.row].height]
+      : [k.spanTop, k.spanBottom]));
+    n.spanTop = Math.min(...ext.map((e) => e[0]));
+    n.spanBottom = Math.max(...ext.map((e) => e[1]));
     return n.anchorY;
   };
   roots.forEach(anchor);
@@ -815,7 +828,16 @@ export function buildSsaSvg(data, opts = {}) {
     }
     const x = xOf(n.depth), xc = xOf(n.depth + 1);
     // the vertical joiner across this group's children
-    parts.push(`<path d="M ${xc} ${n.top} V ${n.bottom}" stroke="#1f4f8f" stroke-width="1.4" fill="none"${n.asym ? '' : ' stroke-dasharray="4 3"'}/>`);
+    /* A collapsed 'bracket' group encloses its WHOLE range and gets end arms, so it reads as a
+     * boundary around the run rather than a spine with stubs. Everything else is unchanged. */
+    const encl = !!n.collapsed;
+    const jTop = encl ? n.spanTop : n.top;
+    const jBot = encl ? n.spanBottom : n.bottom;
+    parts.push(`<path d="M ${xc} ${jTop} V ${jBot}" stroke="#1f4f8f" stroke-width="1.4" fill="none"${n.asym ? '' : ' stroke-dasharray="4 3"'}/>`);
+    if (encl) {
+      const arm = 16;
+      parts.push(`<path d="M ${xc} ${jTop} H ${xc + arm} M ${xc} ${jBot} H ${xc + arm}" stroke="#1f4f8f" stroke-width="1.4" fill="none"/>`);
+    }
     // each child's connector into the joiner
     for (const k of n.kids) {
       const ky = k.kind === 'leaf' ? L.rows[k.row].midY : k.anchorY;
@@ -894,9 +916,11 @@ export function buildSsaSvg(data, opts = {}) {
            * tolerance, with a floor so an ordinary slot name ("Stage setting", "Episode 1") always
            * fits whatever the span: a short group still shows a readable label, and only a genuinely
            * long one is ellipsised instead of climbing into its neighbour. */
-          const mid = (n.top + n.bottom) / 2;
+          const top = n.collapsed ? n.spanTop : n.top;
+          const bot = n.collapsed ? n.spanBottom : n.bottom;
+          const mid = (top + bot) / 2;
           const sx = xc - 7;
-          const lab = fitToLength(n.slot, Math.max(112, (n.bottom - n.top) + 46), 12, measure);
+          const lab = fitToLength(n.slot, Math.max(112, (bot - top) + 46), 12, measure);
           if (lab) parts.push(`<text x="${sx}" y="${mid}" font-size="12" font-weight="700" fill="#6b21a8" text-anchor="middle" transform="rotate(-90 ${sx} ${mid})">${esc(lab)}</text>`);
         } else {
           const lab = fitToLength(n.slot, room + o.levelWidth, 12.5, measure);

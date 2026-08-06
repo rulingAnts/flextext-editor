@@ -497,6 +497,31 @@ console.log('collapsed groups: every head, and two renderings');
   // The two renderings are genuinely different pictures, which the old pair was not.
   ok(br.rows.length > leaf.rows.length, "'bracket' shows more than 'leaf', not the same thing re-laid out");
 
+  /* ⚠ THE BRACKET ENCLOSES THE WHOLE RANGE — it used to run midpoint-to-midpoint, so it ended
+   * INSIDE the first and last rows instead of around them (Seth's screenshot). Anchors stay
+   * midpoints; only the drawn extent changed, and only for this rendering. */
+  const rowsOf = (L) => L.rows;
+  const first = br.rows[0], last = br.rows[br.rows.length - 2];   // -2: the ungrouped line is last
+  ok(grp.spanTop <= first.y + 0.01, 'the bracket starts at or above the TOP of its first row');
+  ok(grp.spanBottom >= last.y + last.height - 0.01, 'and ends at or below the BOTTOM of its last row');
+  ok(grp.spanTop < grp.top && grp.spanBottom > grp.bottom,
+     'so it is strictly taller than the anchor-to-anchor span it used to draw');
+
+  /* ⚠ EVERY OTHER GROUP IS UNCHANGED. Seth: "The rest of the diagram formatting should remain
+   * unchanged for all other things." */
+  {
+    const plain = ssaLayout({ ...d, view: {} }, {});
+    const pg = plain.roots.find((n) => n.kind === 'group');
+    const svgPlain = buildSsaSvg({ ...d, view: {} }, {});
+    ok(!pg.collapsed, 'the same document uncollapsed has no collapsed group');
+    ok(svgPlain.includes(`M ${pg.top} V`) || new RegExp(`V ${pg.bottom}\\b`).test(svgPlain)
+       || svgPlain.includes(`${pg.top}`), 'an ordinary group still draws between its ANCHORS');
+    // and gets no end arms
+    const armRe = /M [\d.]+ [\d.]+ H [\d.]+ M [\d.]+ [\d.]+ H [\d.]+/;
+    ok(!armRe.test(svgPlain), 'and no enclosing end arms');
+    ok(armRe.test(buildSsaSvg(d, { collapsedStyle: 'bracket' })), 'which the collapsed bracket DOES get');
+  }
+
   const svg = buildSsaSvg(d, { collapsedStyle: 'bracket' });
   ok(svg.includes('The others waited'), "'bracket' shows a non-head member that 'leaf' summarises away");
   ok(!buildSsaSvg(d, { collapsedStyle: 'leaf' }).includes('The others waited'),

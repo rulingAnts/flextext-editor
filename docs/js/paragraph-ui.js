@@ -2510,6 +2510,11 @@ function openExportDialog() {
             ${esc(t('para.exportMatchView'))}</label>
           <label class="check-label"><input type="checkbox" id="pa-exp-ctx" checked>
             ${esc(t('para.exportLineContext'))}</label>
+          <label>${esc(t('para.exportCollapsed'))}
+            <select id="pa-exp-coll">
+              <option value="leaf">${esc(t('para.exportCollLeaf'))}</option>
+              <option value="summary">${esc(t('para.exportCollSummary'))}</option>
+            </select></label>
           <p class="note">${esc(t('para.exportDiagramHint'))}</p>
         </div>
         ${collapsedCount ? `<div class="banner warn-banner"><span>${esc(t('para.exportCollapsedWarn', { n: collapsedCount }))}</span></div>` : ''}
@@ -2564,6 +2569,9 @@ function runExport() {
        * diagram — the line is omitted where it has propositions, and stands in for itself where it
        * has none. */
       lineContext: dlg.querySelector('#pa-exp-ctx').checked,
+      /* Collapsing a group in the editor IS how you produce a big-picture chart: a collapsed group
+       * is one node here however much is inside it. This chooses how that node reads. */
+      collapsedStyle: dlg.querySelector('#pa-exp-coll').value,
     };
     const out = kind === 'svg' ? buildSsaSvg(state, diagram) : buildSsaDiagramHtml(state, diagram);
     saveFile(out, safeName(state.title) + (kind === 'svg' ? '.ssa.svg' : '.ssa.html'),

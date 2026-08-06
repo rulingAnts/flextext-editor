@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v249';
+export const ENGINE_VERSION = 'v250';
 
 const S = {
 en: {
@@ -1154,7 +1154,7 @@ internet after the first time.</p>
   'para.labelsRoles': 'Roles only',
   'para.exportWrap': 'Wrap long lines (off = one line each, column grows to fit)',
   'para.exportMatchView': 'Show what I am looking at (interlinear, glosses, free translation)',
-  'para.exportDiagramHint': 'A deep analysis makes a wide diagram — it scrolls rather than squeezing the text. Tighten the indent to narrow it.',
+  'para.exportDiagramHint': 'A deep analysis makes a wide diagram — it scrolls rather than squeezing the text. Tighten the indent to narrow it. To chart the big picture, collapse the groups you want summarised before exporting: a collapsed group becomes a single node, however much is inside it.',
   'para.propAdd': '+ proposition',
   'para.propAddTip': 'Add a semantic proposition inside this line (SSA often needs a line split into the propositions it expresses)',
   'para.propPlaceholder': 'a proposition this line expresses…',
@@ -1257,6 +1257,9 @@ internet after the first time.</p>
   'para.refusedCorrupt': 'That edit was not applied, because it would have damaged the document:\n\n{detail}\n\nYour work is unchanged. Please report this — run fxReport() in the browser console for a pre-filled issue link.',
   'para.repairOffer': 'This document has some damage from an earlier version:\n\n{problems}\n\nRepair it?\n\n{plan}\n\nNothing is deleted — propositions and lines are only put back where they belong.',
   'para.repairPartial': 'This document has damage that cannot be repaired automatically:\n\n{problems}\n\nIt will open as it is. Please report it — nothing has been changed.',
+  'para.exportCollapsed': 'Collapsed groups',
+  'para.exportCollLeaf': 'One summary line',
+  'para.exportCollSummary': 'Summary lines, as the editor shows them',
   'para.exportLineContext': 'Show the original line where it has propositions (unconnected)',
   'para.zoomTip': 'Zoom the analysis in or out — text re-flows, so nothing blurs',
   'para.zoomIn': 'Zoom in', 'para.zoomOut': 'Zoom out',
@@ -2443,7 +2446,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.labelsRoles': 'Peran saja',
   'para.exportWrap': 'Bungkus baris panjang (mati = satu baris, kolom melebar menyesuaikan)',
   'para.exportMatchView': 'Tampilkan seperti yang saya lihat (interlinear, gloss, terjemahan bebas)',
-  'para.exportDiagramHint': 'Analisis yang dalam menghasilkan diagram lebar — diagram digulir, teks tidak dipadatkan. Rapatkan lekuk untuk mempersempit.',
+  'para.exportDiagramHint': 'Analisis yang dalam menghasilkan diagram lebar — diagram digulir, teks tidak dipadatkan. Rapatkan lekuk untuk mempersempit. Untuk membuat bagan gambaran besar, ciutkan grup yang ingin diringkas sebelum mengekspor: grup yang diciutkan menjadi satu simpul, sebanyak apa pun isinya.',
   'para.propAdd': '+ proposisi',
   'para.propAddTip': 'Tambah proposisi semantis di dalam baris ini (SSA sering perlu satu baris dipecah menjadi proposisi-proposisinya)',
   'para.propPlaceholder': 'proposisi yang dinyatakan baris ini…',
@@ -2548,6 +2551,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.refusedCorrupt': 'Perubahan itu tidak diterapkan karena akan merusak dokumen:\n\n{detail}\n\nPekerjaan Anda tidak berubah. Mohon laporkan — jalankan fxReport() di konsol peramban untuk tautan isu yang sudah terisi.',
   'para.repairOffer': 'Dokumen ini mengalami kerusakan dari versi sebelumnya:\n\n{problems}\n\nPerbaiki?\n\n{plan}\n\nTidak ada yang dihapus — proposisi dan baris hanya dikembalikan ke tempatnya.',
   'para.repairPartial': 'Dokumen ini mengalami kerusakan yang tidak dapat diperbaiki otomatis:\n\n{problems}\n\nDokumen tetap dibuka apa adanya. Mohon laporkan — tidak ada yang diubah.',
+  'para.exportCollapsed': 'Grup yang diciutkan',
+  'para.exportCollLeaf': 'Satu baris ringkasan',
+  'para.exportCollSummary': 'Baris ringkasan, seperti di editor',
   'para.exportLineContext': 'Tampilkan baris asli jika ada proposisi (tanpa garis)',
   'para.zoomTip': 'Perbesar atau perkecil analisis — teks ditata ulang, jadi tidak buram',
   'para.zoomIn': 'Perbesar', 'para.zoomOut': 'Perkecil',

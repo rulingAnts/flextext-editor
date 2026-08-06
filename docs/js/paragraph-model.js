@@ -507,7 +507,12 @@ export function summaryLineOf(data, id) {
   }
   const g = nodeById(data, id);
   if (!g) return '';
-  if (isAsym(g)) return summaryLineOf(data, g.heads[0]);
+  /* ⚠ EVERY HEAD, NOT heads[0] (fixed 2026-08-06, after multi-head groups landed). A collapsed
+   * group stands for what is PROMINENT in it, and a two-head group has two prominent members —
+   * summarising it by the first silently discards the analyst's second choice, and does so in
+   * exactly the view meant to give the big picture. Single-head groups are unaffected: the join of
+   * one string is that string. */
+  if (isAsym(g)) return g.heads.map((h) => summaryLineOf(data, h)).filter((s) => s.trim()).join('  ·  ');
   return g.children.map((c) => summaryLineOf(data, c)).filter((s) => s.trim()).join('  ·  ');
 }
 
@@ -520,7 +525,11 @@ export function summaryLineOf(data, id) {
 export function summaryOf(data, id) {
   const g = nodeById(data, id);
   if (!g || !isGroupId(id)) return [summaryLineOf(data, id)];
-  if (isAsym(g)) return [summaryLineOf(data, g.heads[0])];
+  // Every head gets its own summary line — see summaryLineOf. One head still yields one line.
+  if (isAsym(g)) {
+    const hs = g.heads.map((h) => summaryLineOf(data, h)).filter((s) => s.trim());
+    return hs.length ? hs : [''];
+  }
   const lines = g.children.map((c) => summaryLineOf(data, c)).filter((s) => s.trim());
   return lines.length ? lines : [''];      // all-blank group: ONE placeholder, not one per member
 }

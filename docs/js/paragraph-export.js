@@ -391,8 +391,19 @@ function summaryText(data, id) {
   }
   const g = node(data, id);
   if (!g) return '';
-  if (isAsym(g)) return summaryText(data, g.heads[0]);
+  // ⚠ EVERY head, not heads[0] — see summaryLineOf in paragraph-model.js for why.
+  if (isAsym(g)) return g.heads.map((h) => summaryText(data, h)).filter(Boolean).join('  ·  ');
   return g.children.map((c) => summaryText(data, c)).filter(Boolean).join('  ·  ');
+}
+
+/* A collapsed group's summary as SEPARATE LINES rather than one joined string — the shape the UI
+ * shows when you collapse a group. Mirrors summaryOf() in paragraph-model.js. */
+function summaryLines(data, id) {
+  if (!isGroup(id)) { const t = summaryText(data, id); return t ? [t] : []; }
+  const g = node(data, id);
+  if (!g) return [];
+  const parts = isAsym(g) ? g.heads : g.children;
+  return parts.map((c) => summaryText(data, c)).filter(Boolean);
 }
 
 export { leafLineIds, summaryText };
@@ -486,6 +497,7 @@ export function ssaLayout(data, opts = {}) {
    * Turning this OFF is the "propositions only" export: the line is omitted when it has
    * propositions, and a line with none contributes its own text as before. */
   const rows = [];
+  const collapsedStyle = opts.collapsedStyle === 'summary' ? 'summary' : 'leaf';
   const showLineContext = opts.lineContext !== false;
   const contextDone = new Set();
   const emitContext = (lineId) => {
@@ -508,8 +520,20 @@ export function ssaLayout(data, opts = {}) {
       const g = node(data, id);
       if (!g) return null;
       if (collapsed.has(id)) {
-        rows.push({ depth, label: roleLabel, content: { kind: 'text', text: summaryText(data, id), free: '' },
-                    head: !!isHead, collapsed: true });
+        /* ⚠ COLLAPSING IS HOW YOU PRODUCE A BIG-PICTURE CHART. A collapsed group is ONE node in the
+         * diagram — one bracket, no internal structure — whatever is inside it. Two renderings of
+         * that node, because they answer different questions:
+         *   'leaf'    (default) — the summary as ONE line. Densest; best when the chart is about
+         *                         the shape of the discourse and the text is just a reminder.
+         *   'summary'           — the summary as SEPARATE lines, exactly what the UI shows when you
+         *                         collapse. Still one node and one bracket; only the text is taller.
+         * Either way the group's own relation and role labels are drawn as usual, so the collapsed
+         * node still says what it is and how it relates. */
+        const lines = collapsedStyle === 'summary' ? summaryLines(data, id) : null;
+        const content = lines && lines.length > 1
+          ? { kind: 'text', text: lines.join('\n'), free: '', lines }
+          : { kind: 'text', text: (lines ? lines.join('') : summaryText(data, id)), free: '' };
+        rows.push({ depth, label: roleLabel, content, head: !!isHead, collapsed: true });
         return { kind: 'leaf', depth, row: rows.length - 1, label: roleLabel, head: !!isHead };
       }
       const kids = [];
@@ -708,17 +732,25 @@ function layoutContent(content, maxWidth, o, measure) {
   return { items, height: Math.max(o.lineHeight, y + 6) };
 }
 
+/* ⚠ A NEWLINE IS A HARD BREAK, not whitespace. Splitting the whole string on /\s+/ swallowed them,
+ * so any text carrying deliberate line structure — a collapsed group's per-head summary, a free
+ * translation typed across two lines — was reflowed into one paragraph. Each segment is wrapped on
+ * its own and the results concatenated, so a break the user put there survives and soft wrapping
+ * still happens inside it. */
 function wrapText(text, maxWidth, fontSize, measure) {
-  const words = String(text || '').split(/\s+/).filter(Boolean);
-  if (!words.length) return [''];
+  const segments = String(text || '').split('\n');
   const out = [];
-  let cur = '';
-  for (const w of words) {
-    const next = cur ? cur + ' ' + w : w;
-    if (cur && measure(next, fontSize) > maxWidth) { out.push(cur); cur = w; } else cur = next;
+  for (const seg of segments) {
+    const words = seg.split(/\s+/).filter(Boolean);
+    if (!words.length) { if (segments.length === 1) out.push(''); continue; }
+    let cur = '';
+    for (const w of words) {
+      const next = cur ? cur + ' ' + w : w;
+      if (cur && measure(next, fontSize) > maxWidth) { out.push(cur); cur = w; } else cur = next;
+    }
+    if (cur) out.push(cur);
   }
-  if (cur) out.push(cur);
-  return out;
+  return out.length ? out : [''];
 }
 
 // Shorten text until it fits, ending with an ellipsis; '' when there is no room at all.

@@ -6,7 +6,7 @@
  *
  * Run: node test/paragraph-export.test.mjs
  */
-import { validateFxpa, groupUnits, addProp, spanOf, topUnits } from '../docs/js/paragraph-model.js';
+import { validateFxpa, groupUnits, addProp, spanOf, topUnits, summaryLineOf, summaryOf } from '../docs/js/paragraph-model.js';
 import { buildParagraphPreviewHtml, buildSsaSvg, buildSsaDiagramHtml, ssaLayout, leavesOfLine, topUnitsOf, leafLineIds, summaryText } from '../docs/js/paragraph-export.js';
 
 let fail = 0;
@@ -441,6 +441,62 @@ console.log('A line with propositions still appears — as context, unconnected'
   ok(svg.includes('He went out.'), 'the context line reaches the SVG');
   ok(!buildSsaSvg(base, { lineContext: false }).includes('He went out.'),
      'and is absent from a propositions-only SVG');
+}
+
+console.log('collapsed groups: every head, and two renderings');
+{
+  const d = {
+    format: 'flextext-paragraph-analysis', version: 1, title: 'T', vernLang: 'f', analLang: 'e',
+    lines: [
+      { id: 'L1', baseline: 'b1', free: 'He arrived', words: [] },
+      { id: 'L2', baseline: 'b2', free: 'He sat down', words: [] },
+      { id: 'L3', baseline: 'b3', free: 'The others waited', words: [] },
+      { id: 'L4', baseline: 'b4', free: 'and I went home', words: [] },
+    ],
+    tree: [{ id: 'G1', children: ['L1', 'L2', 'L3'], heads: ['L1', 'L2'], relation: 'r',
+             labels: { L1: 'FIRST', L2: 'SECOND', L3: 'setting' } }],
+    view: { collapsed: ['G1'] },
+  };
+
+  /* ⚠ The regression this pins: summaries resolved an asym group through heads[0], so the SECOND
+   * head of a multi-head group was silently dropped — in the very view meant to give the big
+   * picture. */
+  eq(summaryText(d, 'G1'), 'He arrived  ·  He sat down',
+     'a collapsed multi-head group summarises by EVERY head, not just the first');
+  eq(summaryLineOf(d, 'G1'), 'He arrived  ·  He sat down', 'and the model agrees (anti-drift)');
+  eq(summaryOf(d, 'G1'), ['He arrived', 'He sat down'], 'summaryOf gives one entry per head');
+
+  // A single head is unchanged — the join of one string is that string.
+  const one = { ...d, tree: [{ ...d.tree[0], heads: ['L1'] }] };
+  eq(summaryText(one, 'G1'), 'He arrived', 'a single-head group is unaffected');
+  eq(summaryOf(one, 'G1'), ['He arrived'], 'and so is its summaryOf');
+
+  // Rendering 1 — one summary line (the default).
+  const leaf = ssaLayout(d, { collapsedStyle: 'leaf' });
+  eq(leaf.rows.map((r) => r.text), ['He arrived  ·  He sat down', 'and I went home'],
+     "'leaf': the collapsed group is ONE row");
+  ok(leaf.rows[0].collapsed, 'and it is marked collapsed');
+  ok(leaf.rows[0].blocks.items.filter((i) => i.type === 'line').length === 1,
+     "'leaf' draws it as a single text line");
+
+  // Rendering 2 — the summary lines the editor shows. STILL ONE NODE.
+  const summ = ssaLayout(d, { collapsedStyle: 'summary' });
+  eq(summ.rows.length, 2, "'summary' is still ONE row for the group — one node, one bracket");
+  eq(summ.rows[0].blocks.items.filter((i) => i.type === 'line').map((i) => i.text),
+     ['He arrived', 'He sat down'],
+     "...drawn as SEPARATE lines, which is what the editor shows when collapsed");
+  ok(summ.rows[0].height > leaf.rows[0].height, 'so the row is taller, not wider');
+
+  // The collapsed node still says what it is and how it relates.
+  const svg = buildSsaSvg(d, { collapsedStyle: 'summary' });
+  ok(svg.includes('He arrived') && svg.includes('He sat down'), 'both heads reach the SVG');
+  ok(!svg.includes('The others waited'), 'and the collapsed group hides its non-head members');
+
+  // A newline is a HARD break now — the mechanism the summary rendering rides on.
+  const two = ssaLayout({ ...d, view: {},
+    lines: [{ id: 'L1', baseline: '', free: 'one\ntwo', words: [] }], tree: [] }, { layer: 'free' });
+  eq(two.rows[0].blocks.items.filter((i) => i.type === 'line').map((i) => i.text), ['one', 'two'],
+     'a newline in ordinary text is honoured as a line break, not eaten as whitespace');
 }
 
 console.log(fail ? `\nFAILED (${fail})\n` : '\nPASS: the paragraph exports hold.\n');

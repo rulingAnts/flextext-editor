@@ -427,7 +427,10 @@ export { leafLineIds, summaryText };
  * authored propositions land — no change to this function.
  */
 
-const DEFAULTS_SSA = { width: 1000, fontSize: 15, lineHeight: 24, levelWidth: 120, labelWidth: 120, pad: 16, gutter: 12 };
+/* `runGap` is the whitespace ABOVE and BELOW a collapsed bracket's run — outside the bracket, so the
+ * enclosure still hugs its own text and is merely separated from the lines that are NOT in it. */
+const DEFAULTS_SSA = { width: 1000, fontSize: 15, lineHeight: 24, levelWidth: 120, labelWidth: 120,
+                       pad: 16, gutter: 12, runGap: 12 };
 
 /* Build the analysis as a LEFT-GROWING TREE (Seth, 2026-08-05: "our diagram should look more
  * tree-like, just like original SSA diagrams... instead of JUST brackets"). SIL describes the SSA
@@ -548,6 +551,15 @@ export function ssaLayout(data, opts = {}) {
             if (kid) kids.push(kid);
           }
           if (!kids.length) return null;
+          /* ⚠ BREATHING ROOM OUTSIDE THE ENCLOSURE (Seth, 2026-08-06, from a screenshot: the bottom
+           * arm was almost touching the next line). A boundary drawn hard against its neighbours
+           * reads as ambiguous — the row below looks like it might be inside. The gap is added
+           * BEFORE the first row and AFTER the last, so it sits OUTSIDE the bracket: the enclosure
+           * still hugs its own text exactly, and is simply separated from what is not in it. */
+          const firstRow = kids[0].kind === 'leaf' ? rows[kids[0].row] : null;
+          const lastRow = kids[kids.length - 1].kind === 'leaf' ? rows[kids[kids.length - 1].row] : null;
+          if (firstRow) firstRow.runStart = true;
+          if (lastRow) lastRow.runEnd = true;
           /* A run of ONE is not a bracket. Falling through to the group node would draw a bracket
            * around a single line, which says "constituent" about nothing. */
           if (kids.length === 1) { kids[0].label = roleLabel; kids[0].head = !!isHead; return kids[0]; }
@@ -662,10 +674,12 @@ export function ssaLayout(data, opts = {}) {
       ? r.content.words.map((w) => w.txt).join(' ')
       : (r.content.text || '');
     r.blocks = layoutContent(r.content, wrap ? textWidth : Infinity, o, measure);
+    if (r.runStart) y += o.runGap;          // space above a collapsed run, outside its bracket
     r.y = y;
     r.height = Math.max(o.lineHeight, r.blocks.height);
     r.midY = y + r.height / 2;
     y += r.height;
+    if (r.runEnd) y += o.runGap;            // and below it
   }
 
   // Anchor: where a node's line leaves toward its parent. PROMINENCE IS THE TRUNK — an asymmetrical

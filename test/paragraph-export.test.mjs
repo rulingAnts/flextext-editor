@@ -549,6 +549,23 @@ console.log('collapsed groups: every head, and two renderings');
        'and the run adds no extra indent level, since its leaves have no stems to indent');
   }
 
+  /* ⚠ THE GAP IS OUTSIDE THE BRACKET. A boundary drawn hard against the next line reads as
+   * ambiguous — the row below looks like it might be inside it. */
+  {
+    const G = ssaLayout(d, { collapsedStyle: 'bracket' });
+    const gg = G.roots.find((n) => n.kind === 'group');
+    const after = G.rows[G.rows.length - 1];         // the ungrouped line below the run
+    ok(after.y - gg.spanBottom >= 11,
+       'there is real whitespace between the bracket and the next line');
+    ok(gg.spanBottom <= G.rows[G.rows.length - 2].y + G.rows[G.rows.length - 2].height + 0.01,
+       'and the bracket still hugs its OWN last row — the gap is outside it, not inside');
+    // it costs height only where a collapsed run exists
+    ok(G.height > ssaLayout(d, { collapsedStyle: 'bracket', runGap: 0 }).height,
+       'runGap is what creates it, and is tunable');
+    eq(ssaLayout({ ...d, view: {} }, {}).rows.some((r) => r.runStart || r.runEnd), false,
+       'an uncollapsed document gets no run gaps at all');
+  }
+
   const svg = buildSsaSvg(d, { collapsedStyle: 'bracket' });
   ok(svg.includes('The others waited'), "'bracket' shows a non-head member that 'leaf' summarises away");
   ok(!buildSsaSvg(d, { collapsedStyle: 'leaf' }).includes('The others waited'),

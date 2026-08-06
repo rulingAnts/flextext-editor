@@ -347,5 +347,28 @@ console.log('\nthe model and the export must agree on what the surface IS');
   }
 }
 
+/* ── The mother line enters at the MEAN y of the prominent members (Seth, 2026-08-06) ────────────
+ * "treat the HEADS in a multi-head group as a range and center the mother-line to that group on
+ * AVERAGE relative to the HEADS."
+ * One expression, three cases: 1 head → its own y (unchanged); 2+ → midway; 0 → the span midpoint
+ * (also unchanged). These pin all three so the single-head case can never silently drift. */
+console.log('SSA anchor: mean of the prominent members');
+{
+  const doc = (heads) => ({
+    format: 'flextext-paragraph-analysis', version: 1, title: 'T', vernLang: 'f', analLang: 'e',
+    lines: [1, 2, 3].map((n) => ({ id: 'L' + n, baseline: 'b' + n, free: 'free ' + n, words: [] })),
+    tree: [{ id: 'G1', children: ['L1', 'L2', 'L3'], heads, relation: 'r' }], view: {},
+  });
+  // the horizontal paths are the member stubs and then the mother line; the 4th is the anchor
+  const anchor = (heads) => [...buildSsaSvg(doc(heads)).matchAll(/<path d="M [\d.]+ ([\d.]+) H/g)].map((m) => +m[1])[3];
+
+  eq(anchor(['L1']), 31, 'ONE head at the top: the line enters at the head, not the middle');
+  eq(anchor(['L2']), 61, 'one head in the middle');
+  eq(anchor(['L3']), 91, 'one head at the bottom');
+  eq(anchor(['L1', 'L2']), 46, 'two adjacent heads: midway between them');
+  eq(anchor(['L1', 'L3']), 61, 'two NON-adjacent heads: the mean, which lands on the support between');
+  eq(anchor([]), 61, 'no heads: the midpoint of the whole span, as before');
+}
+
 console.log(fail ? `\nFAILED (${fail})\n` : '\nPASS: the paragraph exports hold.\n');
 process.exit(fail ? 1 : 0);

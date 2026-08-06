@@ -21,7 +21,7 @@ import { buildParagraphPreviewHtml, buildSsaSvg, buildSsaDiagramHtml } from './p
 import { parseDelimited, looksLikeHeader, columnsOf, detectMapping as detectCsvMapping, csvToLines, templateCsv } from './csv.js';
 import {
   validateFxpa, serializeFxpa, groupUnits, ungroup, editGroup, toggleCollapse, setCollapsedAll,
-  topUnits, levelOf, spanOf, leavesOf, summaryOf, isGroupId, nodeById, parentOf,
+  topUnits, levelOf, spanOf, leavesOf, summaryOf, isGroupId, nodeById, parentOf, isAsym,
   isBlankLine, visibleTopUnits, withBlanksBetween, isPropId, lineOfPropId, ownerLineOf,
   addProp, setPropText, setPropImplicit, deleteProp,
   newAuthoredDoc, addLine, setLineText, deleteLine, setLineFree, setLineImplicit, setTitle, splitLine,
@@ -849,6 +849,7 @@ function renderWork() {
   const before = scroller();
   const keepY = before ? before.scrollTop : 0;
   renderWorkInner();
+  renderReportLinks();   // rebuilt each render so the diagnostics describe the CURRENT document
   const after = scroller();
   if (after && keepY) {
     after.scrollTop = Math.min(keepY, Math.max(0, after.scrollHeight - after.clientHeight));
@@ -1108,7 +1109,7 @@ function renderUnit(id, nodeLabel = '', depth = 0) {
    * as a control rather than a label. */
   badge.innerHTML = `
     <button class="pa-caret" title="${esc(t(collapsed ? 'para.expand' : 'para.collapse'))}">${collapsed ? '▸' : '▾'}</button>
-    <span class="pa-jt" title="${esc(t(g.joinType === 'asym' ? 'para.asym' : 'para.sym'))}">${g.joinType === 'asym' ? '⊳' : '⊕'}</span>
+    <span class="pa-jt" title="${esc(t(isAsym(g) ? 'para.asym' : 'para.sym'))}">${isAsym(g) ? '⊳' : '⊕'}</span>
     ${g.relation ? `<span class="pa-rel">${esc(g.relation)}</span>` : `<span class="pa-rel pa-rel-empty">${esc(t('para.noRelation'))}</span>`}
     ${span && state.audio && state.view.audio ? `<button class="pa-rowplay" data-s="${span.start}" data-e="${span.end}">▶</button>` : ''}`;
   badge.querySelector('.pa-caret').addEventListener('click', (e) => { e.stopPropagation(); commit(toggleCollapse(state, id)); });
@@ -1156,19 +1157,21 @@ function renderUnit(id, nodeLabel = '', depth = 0) {
      *
      * ⚠ Blank lines absorbed for contiguity are NOT members: they get neither class, so no
      * connector and no role. They are silence kept so the run is unbroken, not something analysed. */
-    if (g.joinType === 'asym') {
+    if (isAsym(g)) {
       for (const ch of el.children) {
         const uid = ch.dataset && ch.dataset.unit;
         if (!uid || isHiddenBlank(uid)) continue;
-        ch.classList.add(uid === g.head ? 'pa-head' : 'pa-support');
+        ch.classList.add(g.heads.includes(uid) ? 'pa-head' : 'pa-support');
       }
-      const headEl = [...el.children].find((ch) => ch.dataset && ch.dataset.unit === g.head);
+      /* ⚠ EVERY head gets the chip, not just the first — with multiple heads they all sit on the
+       * trunk, which is what makes the styling scale without new vocabulary. */
+      for (const headEl of [...el.children].filter((ch) => ch.dataset && g.heads.includes(ch.dataset.unit))) {
       /* The chip carries the head's ROLE; with no role yet it falls back to the word HEAD. Roles are
        * filled in gradually and the head is usually named LAST, so without the fallback the head
        * would look like an unindented support for most of the analysis.
        * ⚠ The word comes from i18n, never hardcoded — Longacre/Hwang name their nucleus differently
        * and PAT is meant to serve more than one tradition. */
-      if (headEl && !headEl.querySelector('.pa-nodelabel')) {
+      if (!headEl.querySelector('.pa-nodelabel')) {
         const chip = document.createElement('span');
         chip.className = 'pa-nodelabel pa-nodelabel-fallback';
         chip.textContent = t('para.head');
@@ -1181,6 +1184,7 @@ function renderUnit(id, nodeLabel = '', depth = 0) {
           headEl.insertBefore(br, headEl.firstChild);
           headEl.insertBefore(chip, headEl.firstChild);
         }
+      }
       }
     }
   }
@@ -1778,7 +1782,7 @@ function openGroupDialog() {
 function openEditDialog() {
   const g = selectedGroup();
   if (!g) return alert(t('para.needGroupHeading'));
-  groupDialog({ ids: g.children, gid: g.id, joinType: g.joinType, head: g.head,
+  groupDialog({ ids: g.children, gid: g.id, heads: g.heads || [],
                 relation: g.relation, labels: g.labels || {} });
 }
 
@@ -1789,7 +1793,12 @@ function openEditDialog() {
 // both, and each one is optional. So the members list carries a label box per member, the group
 // label sits under it, and the HEAD choice moved from a separate dropdown INTO that same list —
 // one place showing every per-member decision, in reading order.
-function groupDialog({ ids, gid, joinType = 'sym', head, relation = '', labels = {} }) {
+/* ⚠ NO SYM/ASYM RADIO ANY MORE. The join type is DERIVED from whether any member is a head, so the
+ * dialog asks the only real question — WHICH MEMBERS ARE HEADS — with a checkbox each, unchecked by
+ * default (Seth, 2026-08-06). Ticking none leaves a symmetrical group; ticking one is the classic
+ * head+support; ticking several is the multi-head case the model already represents. Nothing has to
+ * be kept in agreement with anything else. */
+function groupDialog({ ids, gid, heads = [], relation = '', labels = {} }) {
   const dlg = $('#pa-dialog');
   dlg.hidden = false;
   /* ⚠ ONLY LIST MEMBERS THE USER CAN SEE (Seth, 2026-08-05: "extra group item labels for lines
@@ -1806,11 +1815,11 @@ function groupDialog({ ids, gid, joinType = 'sym', head, relation = '', labels =
    * none of those, so every one of them looked blank and was filtered out of the member list,
    * leaving the dialog with a Members heading and nothing under it. The blank-line rule is about
    * LINES; it must never be asked about anything else. */
-  const shown = ids.filter((id) => id === head || !(hideBlank && isHiddenBlank(id)));
+  const shown = ids.filter((id) => heads.includes(id) || !(hideBlank && isHiddenBlank(id)));
   const members = shown.map((id) => `
     <div class="pa-member">
       <label class="pa-headpick" title="${esc(t('para.headTip'))}">
-        <input type="radio" name="pa-head" value="${esc(id)}" ${id === head ? 'checked' : ''}></label>
+        <input type="checkbox" name="pa-head" value="${esc(id)}" ${heads.includes(id) ? 'checked' : ''}></label>
       <span class="pa-memtext" title="${esc(unitLabel(id))}">${esc(unitLabel(id))}</span>
       <input class="pa-memlabel" data-for="${esc(id)}" value="${esc(labels[id] || '')}"
              placeholder="${esc(t('para.nodeLabelPh'))}">
@@ -1819,12 +1828,9 @@ function groupDialog({ ids, gid, joinType = 'sym', head, relation = '', labels =
     <div class="pa-modal">
       <h3>${esc(t(gid ? 'para.editGroup' : 'para.group'))}</h3>
       <div class="pa-modal-body">
-        <label class="check-label"><input type="radio" name="pa-jt" value="sym" ${joinType !== 'asym' ? 'checked' : ''}>
-          ${esc(t('para.symLong'))}</label>
-        <label class="check-label"><input type="radio" name="pa-jt" value="asym" ${joinType === 'asym' ? 'checked' : ''}>
-          ${esc(t('para.asymLong'))}</label>
+        <p class="note pa-labelhint">${esc(t('para.headHint'))}</p>
         <p class="note pa-labelhint">${esc(t('para.labelHint'))}</p>
-        <div class="pa-members ${joinType === 'asym' ? '' : 'no-head'}" id="pa-members">
+        <div class="pa-members" id="pa-members">
           <div class="pa-member pa-memhead">
             <span class="pa-headpick">${esc(t('para.head'))}</span>
             <span>${esc(t('para.members'))}</span>
@@ -1840,29 +1846,19 @@ function groupDialog({ ids, gid, joinType = 'sym', head, relation = '', labels =
         <button class="primary-btn" id="pa-ok">${esc(t('para.ok'))}</button>
       </div>
     </div>`;
-  // The head column only exists for an asymmetrical join; switching TO asym pre-picks the first
-  // member so the common case needs no extra click (the model still refuses a headless asym).
-  dlg.querySelectorAll('input[name="pa-jt"]').forEach((r) => r.addEventListener('change', () => {
-    const asym = dlg.querySelector('input[name="pa-jt"]:checked').value === 'asym';
-    dlg.querySelector('#pa-members').classList.toggle('no-head', !asym);
-    if (asym && !dlg.querySelector('input[name="pa-head"]:checked')) {
-      dlg.querySelector('input[name="pa-head"]').checked = true;
-    }
-  }));
   dlg.querySelector('#pa-cancel').addEventListener('click', () => { dlg.hidden = true; dlg.innerHTML = ''; });
   dlg.querySelector('#pa-ok').addEventListener('click', () => {
-    const jt = dlg.querySelector('input[name="pa-jt"]:checked').value;
     // Always send `labels` (even empty): the model then clears labels the user emptied out.
     const labelsOut = {};
     dlg.querySelectorAll('.pa-memlabel').forEach((inp) => {
       const v = inp.value.trim();
       if (v) labelsOut[inp.dataset.for] = v;
     });
-    const opts = { joinType: jt, relation: dlg.querySelector('#pa-rel').value.trim(), labels: labelsOut };
-    if (jt === 'asym') opts.head = dlg.querySelector('input[name="pa-head"]:checked')?.value;
+    const headsOut = [...dlg.querySelectorAll('input[name="pa-head"]:checked')].map((c) => c.value);
+    const opts = { heads: headsOut, relation: dlg.querySelector('#pa-rel').value.trim(), labels: labelsOut };
     try {
       const next = gid
-        ? editGroup(state, gid, { joinType: opts.joinType, head: opts.head, relation: opts.relation, labels: opts.labels })
+        ? editGroup(state, gid, { heads: opts.heads, relation: opts.relation, labels: opts.labels })
         : groupUnits(state, ids, opts);
       selection = new Set(gid ? [gid] : []);
       dlg.hidden = true; dlg.innerHTML = '';
@@ -1871,6 +1867,64 @@ function groupDialog({ ids, gid, joinType = 'sym', head, relation = '', labels =
       alert(e.message);   // the model's message is the user message
     }
   });
+}
+
+/* REPORT A PROBLEM / SUGGEST A FEATURE — straight into a scoped GitHub issue.
+ *
+ * ⚠ THE DIAGNOSTICS GO BELOW A DIVIDER, under blank space (Seth, 2026-08-06: "underneath blank
+ * space for the user to type in their specific complaint"). A form that opens with a wall of
+ * machine text invites the reporter to type above it, around it, or not at all; an empty first line
+ * with the technical detail out of the way underneath is the difference between a usable report and
+ * "it broke".
+ *
+ * ⚠ NEVER THE DOCUMENT'S CONTENT. Counts and versions only — a GitHub issue is PUBLIC, and an
+ * analyst's texts are exactly the thing that must not leave their machine. Shape is enough to
+ * reproduce nearly anything: how many lines, groups, propositions, and whether audio is attached.
+ *
+ * ⚠ Feature requests carry NO diagnostics (Seth: "feature suggestions don't need diagnostics") —
+ * they are about what the tool should do, not what it did. */
+const ISSUE_BASE = 'https://github.com/rulingAnts/flextext-editor/issues/new';
+
+function diagnosticBlock() {
+  const d = state || {};
+  const groups = (d.tree || []).length;
+  const props = (d.lines || []).reduce((n, l) => n + ((l.props || []).length), 0);
+  const heads = (d.tree || []).reduce((n, g) => n + ((g.heads || []).length), 0);
+  const ver = (document.getElementById('app-version') || {}).textContent || 'unknown';
+  return [
+    '', '', '',
+    '--------- diagnostic info (please keep) ---------',
+    `app: ${ver}`,
+    `browser: ${navigator.userAgent}`,
+    d.lines ? `document: ${d.lines.length} lines, ${groups} groups, ${props} propositions, ${heads} heads`
+            : 'document: none open',
+    d.audio ? 'audio: attached' : 'audio: none',
+    '(no text from your document is included)',
+  ].join('\n');
+}
+
+function issueUrl(kind) {
+  const bug = kind === 'bug';
+  const q = new URLSearchParams({
+    labels: bug ? 'bug,paragraph-analysis' : 'enhancement,paragraph-analysis',
+    title: bug ? '[Paragraph Analysis] ' : '[Paragraph Analysis] Feature: ',
+    body: bug ? diagnosticBlock() : '',
+  });
+  return `${ISSUE_BASE}?${q}`;
+}
+
+/* Prominent enough to find, quiet enough not to clutter: beside the version footer, not in the
+ * toolbar (Seth agreed). Rebuilt on every render so the diagnostics are current. */
+function renderReportLinks() {
+  let box = document.getElementById('pa-report');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'pa-report'; box.className = 'pa-report';
+    (document.body || document.documentElement).appendChild(box);
+  }
+  box.innerHTML = `<a href="${issueUrl('bug')}" target="_blank" rel="noopener">${esc(t('para.reportBug'))}</a>
+    <span aria-hidden="true">·</span>
+    <a href="${issueUrl('feature')}" target="_blank" rel="noopener">${esc(t('para.reportFeature'))}</a>`;
 }
 
 /* CONSOLE ENTRY POINT — `fxTree()`. Prints what the MODEL actually holds: the selection, each
@@ -1887,7 +1941,7 @@ if (typeof window !== 'undefined') {
     if (!state) return 'no document open';
     const sel = [...selection];
     console.log('selection:', sel.length ? sel : '(none)');
-    console.table(state.tree.map((g) => ({ group: g.id, join: g.joinType, head: g.head || '', children: g.children.join('  ') })));
+    console.table(state.tree.map((g) => ({ group: g.id, join: isAsym(g) ? 'asym' : 'sym', heads: (g.heads || []).join(' '), children: g.children.join('  ') })));
     console.table(topUnits(state).map((id) => ({ topLevel: id })));
     if (sel.length < 2) return 'select two or more units, then run fxTree() again to see why they can or cannot group';
     const parents = sel.map((id) => (parentOf(state, id) || {}).id || '(top level)');

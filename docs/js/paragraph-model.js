@@ -20,6 +20,9 @@
  *   - `labels`   — { childId: "grounds", … }, each member's ROLE in that relation. This is the
  *     SSA convention (the prominent member's role in CAPS, the supporting member's in lowercase)
  *     and it belongs on the GROUP, not on the unit: a role is held relative to ONE relation.
+ *   - `summary` — OPTIONAL free text standing for the whole group when it is collapsed. Absent by
+ *     default, in which case the summary is DERIVED from the group's head(s). Authored text wins
+ *     wherever a summary is shown, because a head lifted out of context is a poor sentence.
  *   - `slot` — the group's DISCOURSE SLOT (Seth, 2026-08-06): "Stage setting", "Episode 1",
  *     "Peak". A different order of thing from `relation`, and ⚠ DELIBERATELY A SEPARATE FIELD.
  *     `relation` is SEMANTIC — how this group's members relate to each other (grounds–CONCLUSION).
@@ -514,6 +517,12 @@ export function summaryLineOf(data, id) {
   }
   const g = nodeById(data, id);
   if (!g) return '';
+  /* ⚠ AN AUTHORED SUMMARY WINS (Seth, 2026-08-07). The derived summary — the head's text, recursively
+   * — is a good default and a poor sentence: it is a line lifted out of context, standing for a whole
+   * constituent. When the analyst has written what this group actually says, that is the better
+   * answer everywhere a summary appears, so it is resolved HERE, in the one function every summary
+   * path goes through, rather than at each call site. */
+  if (String(g.summary || '').trim()) return String(g.summary).trim();
   /* ⚠ EVERY HEAD, NOT heads[0] (fixed 2026-08-06, after multi-head groups landed). A collapsed
    * group stands for what is PROMINENT in it, and a two-head group has two prominent members —
    * summarising it by the first silently discards the analyst's second choice, and does so in
@@ -532,6 +541,7 @@ export function summaryLineOf(data, id) {
 export function summaryOf(data, id) {
   const g = nodeById(data, id);
   if (!g || !isGroupId(id)) return [summaryLineOf(data, id)];
+  if (String(g.summary || '').trim()) return [String(g.summary).trim()];   // authored wins — see above
   // Every head gets its own summary line — see summaryLineOf. One head still yields one line.
   if (isAsym(g)) {
     const hs = g.heads.map((h) => summaryLineOf(data, h)).filter((s) => s.trim());
@@ -578,7 +588,7 @@ function cleanLabels(children, labels, heads = []) {
 // The DEFAULT join: create a grouping node over 2+ adjacent parentless units. Never touches
 // lines, audio, or text — grouping is metadata by construction. Both kinds of label are
 // OPTIONAL: `relation` on the group, `labels` on its members, either, both, or neither.
-export function groupUnits(data, ids, { heads, joinType, head, relation = '', slot = '', labels = null } = {}) {
+export function groupUnits(data, ids, { heads, joinType, head, relation = '', slot = '', summary = '', labels = null } = {}) {
   if (!Array.isArray(ids) || ids.length < 2) throw new Error('Select at least two units to group.');
   for (const id of ids) if (!nodeById(data, id)) throw new Error(`Unknown unit ${id}.`);
 
@@ -615,6 +625,8 @@ export function groupUnits(data, ids, { heads, joinType, head, relation = '', sl
   // Absent rather than empty when unset — a slot is optional and most groups never have one.
   const sl = String(slot || '').trim();
   if (sl) g.slot = sl;
+  const sm = String(summary || '').trim();
+  if (sm) g.summary = sm;
   if (lab) g.labels = lab;
   if (!parent) return { ...data, tree: [...data.tree, g] };
 
@@ -722,6 +734,10 @@ export function editGroup(data, gid, patch = {}) {
   if ('slot' in patch) {
     const sl = String(patch.slot ?? '').trim();
     if (sl) next.slot = sl; else delete next.slot;      // clearing it removes the key
+  }
+  if ('summary' in patch) {
+    const sm = String(patch.summary ?? '').trim();
+    if (sm) next.summary = sm; else delete next.summary;
   }
   if ('labels' in patch) {
     const lab = cleanLabels(g.children, patch.labels, next.heads);

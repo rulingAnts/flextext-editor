@@ -1579,7 +1579,15 @@ main {
 /* Member list inside the join dialog: HEAD choice + each member's own label, in reading order.
    The head column disappears entirely for a symmetrical join (which has no head by definition). */
 .pa-labelhint { margin: 2px 0 0; }
-.pa-members { display: flex; flex-direction: column; gap: 4px; max-height: 40vh; overflow: auto; }
+/* ⚠ flex: 0 0 auto IS LOAD-BEARING — this is the SECOND time this exact trap has bitten (the export
+   preview pane was the first). .pa-modal-body is a COLUMN FLEX container, so its children shrink by
+   default, and `overflow: auto` here sets this item's automatic minimum size to ZERO — meaning the
+   members list can be squeezed to nothing with no warning. It stayed invisible while the dialog was
+   short, then appeared as "the Edit group modal lost its items and checkboxes" once the Slot and
+   Summary fields and their hints made the modal tall enough to need the room. The list must keep its
+   height and let the BODY scroll, which the body is already set up to do. */
+.pa-members { display: flex; flex-direction: column; gap: 4px; max-height: 40vh; overflow: auto;
+  flex: 0 0 auto; }
 .pa-member { display: grid; grid-template-columns: 3.2em minmax(0, 1fr) 12ch; gap: 8px; align-items: center; }
 .pa-members.no-head .pa-member { grid-template-columns: minmax(0, 1fr) 12ch; }
 .pa-members.no-head .pa-headpick { display: none; }

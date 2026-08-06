@@ -1141,6 +1141,26 @@ function renderUnit(id, nodeLabel = '', depth = 0) {
   // than any real analysis nests, so in practice each level on screen is a distinct colour.
   el.dataset.depth = depth % 6;
   el.dataset.unit = id;
+  /* ⚠ A CLICKABLE SPINE. The bracket is drawn as a `border-left`, and a border cannot receive
+   * events — so selecting a group meant finding its heading badge, which on a long group can be far
+   * off screen. Seth, 2026-08-06: "clicking on the bracket should select the label and highlight the
+   * group too… we've got a narrow view window on large groups and it's hard to see the big picture."
+   *
+   * This is a real element sitting over the border, the full height of the group, so the whole
+   * bracket is a hit target — click anywhere down it, at any scroll position, and the group is
+   * selected. It is aria-hidden and never focusable: the heading badge remains the accessible
+   * handle, this is a convenience for the pointer. */
+  const spine = document.createElement('span');
+  spine.className = 'pa-spine';
+  spine.setAttribute('aria-hidden', 'true');
+  spine.title = t('para.spineTip');
+  spine.addEventListener('click', (e) => {
+    e.stopPropagation();     // the bracket belongs to THIS group, not to whatever it encloses
+    selection = new Set([id]);
+    anchor = id;
+    paintSelection();
+  });
+  el.appendChild(spine);
   const collapsed = (state.view.collapsed || []).includes(id);
   const badge = document.createElement('div');
   badge.className = 'pa-badge';

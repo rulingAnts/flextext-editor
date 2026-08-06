@@ -1622,3 +1622,20 @@ main {
 .pa-edge-none { font-style: italic; color: var(--muted); align-self: center; }
 .pa-edge-warn { margin: 6px 0 0; color: #6b5310; background: #fdf3d7;
                 border: 1px solid #e4c95b; border-radius: 6px; padding: 6px 8px; }
+
+/* ── SELECTING A GROUP SHOWS ITS WHOLE EXTENT ───────────────────────────────────────────────────
+   Seth, 2026-08-06: "we've got a narrow view window on large groups and it's hard to see the big
+   picture… that highlight would [help] (because they could select the group and scroll down)."
+   So the tint is the POINT: it survives scrolling, which a highlighted heading does not. Kept very
+   light — it must not compete with the interlinear colours or with row selection inside it. */
+.pa-group.sel { background: rgba(31, 79, 143, .055); border-radius: 8px 6px 6px 8px; }
+.pa-group.sel > .pa-badge { background: #dbe7fa; border-color: var(--blue); }
+/* ⚠ Only the OUTERMOST selected group tints. Nesting two translucent layers doubles the wash and
+   the deeper one reads as a different colour rather than the same selection. */
+.pa-group.sel .pa-group.sel { background: none; }
+
+/* The clickable bracket. Sits over the border-left, full height, so a long group can be selected
+   from anywhere down its length rather than only at its heading. */
+.pa-spine { position: absolute; left: -3px; top: 0; bottom: 0; width: 11px; cursor: pointer;
+            border-radius: 3px; }
+.pa-spine:hover { background: rgba(31, 79, 143, .12); }

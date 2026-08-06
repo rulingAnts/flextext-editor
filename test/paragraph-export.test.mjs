@@ -6,7 +6,7 @@
  *
  * Run: node test/paragraph-export.test.mjs
  */
-import { validateFxpa, groupUnits, addProp, spanOf, topUnits } from '../docs/js/paragraph-model.js';
+import { validateFxpa, groupUnits, editGroup, addProp, spanOf, topUnits, summaryLineOf, summaryOf } from '../docs/js/paragraph-model.js';
 import { buildParagraphPreviewHtml, buildSsaSvg, buildSsaDiagramHtml, ssaLayout, leavesOfLine, topUnitsOf, leafLineIds, summaryText } from '../docs/js/paragraph-export.js';
 
 let fail = 0;
@@ -296,12 +296,22 @@ console.log('\nthe diagram draws a line\'s proposition tree');
                                    labels: { [p1]: 'EVENT', [inner]: 'reason' } });
 
   const L = ssaLayout(d, { layer: 'free' });
+  /* ⚠ ROW 0 IS THE LINE ITSELF, as unconnected context (changed 2026-08-06). It used to VANISH once
+   * it had propositions — these expectations were written against that. The propositions are the
+   * analyst's restatement of the sentence, so the sentence has to be visible to check them against. */
   eq(L.rows.map((r) => r.text),
+     ['He went out', 'the man went outside', 'the child had laughed', 'he was ashamed', 'and I went home'],
+     'the line appears first as context, then every proposition is its own row');
+  ok(L.rows[0].context && !L.rows.slice(1).some((r) => r.context), 'only row 0 is context');
+  eq(L.rows.map((r) => r.label), ['', 'EVENT', 'cause', 'EFFECT', ''],
+     'each member carries its own role; the context row carries none');
+  ok(L.rows[2].depth > L.rows[1].depth, 'the nested pair sits deeper than its sibling');
+  ok(L.rows[3].implicit, 'the implied proposition is still marked implied');
+
+  // The same document, propositions only — the old picture, now on request.
+  eq(ssaLayout(d, { layer: 'free', lineContext: false }).rows.map((r) => r.text),
      ['the man went outside', 'the child had laughed', 'he was ashamed', 'and I went home'],
-     'every proposition is its own row, and the other line is untouched');
-  eq(L.rows.map((r) => r.label), ['EVENT', 'cause', 'EFFECT', ''], 'each member carries its own role');
-  ok(L.rows[1].depth > L.rows[0].depth, 'the nested pair sits deeper than its sibling');
-  ok(L.rows[2].implicit, 'the implied proposition is still marked implied');
+     'propositions-only reproduces the previous output exactly');
 
   const svg = buildSsaSvg(d, { layer: 'free' });
   ok(svg.includes('EVENT–reason') && svg.includes('cause–EFFECT'), 'both relations reach the SVG');
@@ -368,6 +378,177 @@ console.log('SSA anchor: mean of the prominent members');
   eq(anchor(['L1', 'L2']), 46, 'two adjacent heads: midway between them');
   eq(anchor(['L1', 'L3']), 61, 'two NON-adjacent heads: the mean, which lands on the support between');
   eq(anchor([]), 61, 'no heads: the midpoint of the whole span, as before');
+}
+
+console.log('A line with propositions still appears — as context, unconnected');
+{
+  /* The bug this fixes: the line VANISHED once it had propositions, so a reader had the analyst's
+   * restatement and no sentence to check it against. It now appears in place with no branch. */
+  const base = {
+    format: 'flextext-paragraph-analysis', version: 1, title: 'T', vernLang: 'f', analLang: 'e',
+    lines: [
+      { id: 'L1', baseline: 'ana bete', free: 'He went out.', words: [],
+        props: [{ id: 'L1p1', text: 'He left the house' }, { id: 'L1p2', text: 'He walked away' }] },
+      { id: 'L2', baseline: 'u sa', free: 'I went.', words: [] },
+    ],
+    tree: [{ id: 'G1', children: ['L1p1', 'L1p2'], heads: ['L1p1'], relation: 'sequence' }], view: {},
+  };
+  const L = ssaLayout(base, {});
+  const texts = L.rows.map((r) => r.text);
+  eq(texts, ['He went out.', 'He left the house', 'He walked away', 'I went.'],
+     'the line sits IN SITU — immediately above the propositions that restate it');
+  ok(L.rows[0].context === true, 'and it is marked as context, not as a node');
+  ok(!L.rows[1].context && !L.rows[3].context, 'the propositions and a plain line are NOT context');
+
+  // Unconnected: every row index the tree references, vs the context row's index.
+  const referenced = new Set();
+  const walk = (n) => { if (n.kind === 'leaf') referenced.add(n.row); else n.kids.forEach(walk); };
+  L.roots.forEach(walk);
+  ok(!referenced.has(0), 'NO branch is drawn to it — nothing in the tree references its row');
+  ok(referenced.has(1) && referenced.has(2), 'the propositions ARE connected');
+
+  // The context row lands INSIDE the group's vertical span (Seth: "inside the top level of that
+  // group"), which falls out of the ordering rather than needing a rule.
+  ok(L.rows[0].y < L.rows[1].y, 'it precedes its first proposition');
+
+  // "Propositions only" — the old behaviour, now an explicit option.
+  const P = ssaLayout(base, { lineContext: false });
+  eq(P.rows.map((r) => r.text), ['He left the house', 'He walked away', 'I went.'],
+     'lineContext:false omits the line where it has propositions...');
+  ok(P.rows.every((r) => !r.context), '...and emits no context rows at all');
+
+  // A line with NO propositions is untouched either way — it stands in for itself.
+  ok(texts.includes('I went.') && P.rows.map((r) => r.text).includes('I went.'),
+     'a line with no propositions contributes its own text in both modes');
+
+  // One context row per line, however many propositions it has.
+  const many = { ...base, lines: [{ ...base.lines[0],
+    props: [{ id: 'L1p1', text: 'a' }, { id: 'L1p2', text: 'b' }, { id: 'L1p3', text: 'c' }] }, base.lines[1]],
+    tree: [{ id: 'G1', children: ['L1p1', 'L1p2', 'L1p3'], heads: ['L1p1'], relation: 'r' }] };
+  eq(ssaLayout(many, {}).rows.filter((r) => r.context).length, 1,
+     'exactly ONE context row per line, not one per proposition');
+
+  // A blank proposition never stands in for the line, so no context row is emitted for a line
+  // that is rendering itself already.
+  const blankProps = { ...base, lines: [{ ...base.lines[0], props: [{ id: 'L1p1', text: '   ' }] }, base.lines[1]], tree: [] };
+  const B = ssaLayout(blankProps, {});
+  eq(B.rows.map((r) => r.text), ['He went out.', 'I went.'],
+     'all-blank propositions: the line renders as ITSELF, and is not also duplicated as context');
+  ok(B.rows.every((r) => !r.context), 'and no context row is emitted');
+
+  // It reaches the SVG.
+  const svg = buildSsaSvg(base, {});
+  ok(svg.includes('He went out.'), 'the context line reaches the SVG');
+  ok(!buildSsaSvg(base, { lineContext: false }).includes('He went out.'),
+     'and is absent from a propositions-only SVG');
+}
+
+console.log('collapsed groups: every head, and two renderings');
+{
+  const d = {
+    format: 'flextext-paragraph-analysis', version: 1, title: 'T', vernLang: 'f', analLang: 'e',
+    lines: [
+      { id: 'L1', baseline: 'b1', free: 'He arrived', words: [] },
+      { id: 'L2', baseline: 'b2', free: 'He sat down', words: [] },
+      { id: 'L3', baseline: 'b3', free: 'The others waited', words: [] },
+      { id: 'L4', baseline: 'b4', free: 'and I went home', words: [] },
+    ],
+    tree: [{ id: 'G1', children: ['L1', 'L2', 'L3'], heads: ['L1', 'L2'], relation: 'r',
+             labels: { L1: 'FIRST', L2: 'SECOND', L3: 'setting' } }],
+    view: { collapsed: ['G1'] },
+  };
+
+  /* ⚠ The regression this pins: summaries resolved an asym group through heads[0], so the SECOND
+   * head of a multi-head group was silently dropped — in the very view meant to give the big
+   * picture. */
+  eq(summaryText(d, 'G1'), 'He arrived  ·  He sat down',
+     'a collapsed multi-head group summarises by EVERY head, not just the first');
+  eq(summaryLineOf(d, 'G1'), 'He arrived  ·  He sat down', 'and the model agrees (anti-drift)');
+  eq(summaryOf(d, 'G1'), ['He arrived', 'He sat down'], 'summaryOf gives one entry per head');
+
+  // A single head is unchanged — the join of one string is that string.
+  const one = { ...d, tree: [{ ...d.tree[0], heads: ['L1'] }] };
+  eq(summaryText(one, 'G1'), 'He arrived', 'a single-head group is unaffected');
+  eq(summaryOf(one, 'G1'), ['He arrived'], 'and so is its summaryOf');
+
+  // Rendering 1 — one summary line (the default).
+  const leaf = ssaLayout(d, { collapsedStyle: 'leaf' });
+  eq(leaf.rows.map((r) => r.text), ['He arrived  ·  He sat down', 'and I went home'],
+     "'leaf': the collapsed group is ONE row");
+  ok(leaf.rows[0].collapsed, 'and it is marked collapsed');
+  ok(leaf.rows[0].blocks.items.filter((i) => i.type === 'line').length === 1,
+     "'leaf' draws it as a single text line");
+
+  // Rendering 2 — the summary lines the editor shows. STILL ONE NODE.
+  const summ = ssaLayout(d, { collapsedStyle: 'summary' });
+  eq(summ.rows.length, 2, "'summary' is still ONE row for the group — one node, one bracket");
+  eq(summ.rows[0].blocks.items.filter((i) => i.type === 'line').map((i) => i.text),
+     ['He arrived', 'He sat down'],
+     "...drawn as SEPARATE lines, which is what the editor shows when collapsed");
+  ok(summ.rows[0].height > leaf.rows[0].height, 'so the row is taller, not wider');
+
+  // The collapsed node still says what it is and how it relates.
+  const svg = buildSsaSvg(d, { collapsedStyle: 'summary' });
+  ok(svg.includes('He arrived') && svg.includes('He sat down'), 'both heads reach the SVG');
+  ok(!svg.includes('The others waited'), 'and the collapsed group hides its non-head members');
+
+  // A newline is a HARD break now — the mechanism the summary rendering rides on.
+  const two = ssaLayout({ ...d, view: {},
+    lines: [{ id: 'L1', baseline: '', free: 'one\ntwo', words: [] }], tree: [] }, { layer: 'free' });
+  eq(two.rows[0].blocks.items.filter((i) => i.type === 'line').map((i) => i.text), ['one', 'two'],
+     'a newline in ordinary text is honoured as a line break, not eaten as whitespace');
+}
+
+console.log('discourse slots are a THIRD, independent label');
+{
+  let d = validateFxpa({
+    format: 'flextext-paragraph-analysis', version: 1, title: 'T', vernLang: 'f', analLang: 'e',
+    lines: [1, 2, 3].map((n) => ({ id: 'L' + n, baseline: 'b' + n, free: 'free ' + n, words: [] })),
+    tree: [], view: {},
+  }).data;
+  d = groupUnits(d, ['L1', 'L2'], { heads: ['L1'], relation: 'orienter–CONTENT',
+                                    slot: 'Stage setting', labels: { L1: 'CONTENT', L2: 'orienter' } });
+  const g = d.tree[0];
+
+  /* ⚠ THE POINT OF THE FEATURE: a group carries a SEMANTIC relation and a POSITIONAL slot at the
+   * same time. Merging them into one field would force the analyst to choose between an SSA
+   * relation and Longacre-style plot structure. */
+  eq(g.relation, 'orienter–CONTENT', 'the relation is untouched by the slot');
+  eq(g.slot, 'Stage setting', 'and the slot is stored beside it');
+  eq(g.labels, { L1: 'CONTENT', L2: 'orienter' }, 'member roles are untouched too');
+
+  // Absent, not empty, when unset — most groups never have one.
+  const bare = groupUnits(d, ['L3', g.id], { heads: [g.id], relation: 'r' });
+  ok(!('slot' in bare.tree.find((x) => x.id !== g.id)), 'a group with no slot has NO slot key');
+
+  // Editing one never disturbs the other.
+  let e = editGroup(d, g.id, { relation: 'grounds–CONCLUSION' });
+  eq(e.tree[0].slot, 'Stage setting', 'editing the relation leaves the slot alone');
+  e = editGroup(d, g.id, { slot: 'Episode 1' });
+  eq(e.tree[0].relation, 'orienter–CONTENT', 'editing the slot leaves the relation alone');
+  eq(e.tree[0].labels, { L1: 'CONTENT', L2: 'orienter' }, 'and leaves the roles alone');
+
+  // Clearing removes the key rather than storing ''.
+  ok(!('slot' in editGroup(d, g.id, { slot: '   ' }).tree[0]), 'clearing the slot REMOVES the key');
+
+  // Survives a save/open round trip.
+  eq(validateFxpa(JSON.parse(JSON.stringify(d))).data.tree[0].slot, 'Stage setting',
+     'the slot survives serialize → validate');
+
+  // Reaches the diagram, both ways, and can be turned off.
+  const stacked = buildSsaSvg(d, { slotStyle: 'stacked' });
+  ok(stacked.includes('Stage setting') && stacked.includes('orienter–CONTENT'),
+     'stacked: BOTH the slot and the relation are drawn — neither overprints the other');
+  ok(!/rotate\(/.test(stacked), 'stacked draws no rotation');
+  const rotated = buildSsaSvg(d, { slotStyle: 'rotated' });
+  ok(rotated.includes('Stage setting') && /rotate\(-90/.test(rotated), 'rotated sets it vertically');
+  ok(rotated.includes('orienter–CONTENT'), 'and still draws the relation');
+  ok(!buildSsaSvg(d, { slots: false }).includes('Stage setting'), 'slots:false hides them');
+
+  /* ⚠ Slots are NOT governed by `labels` — a plot-structure chart may want slots and no semantic
+   * labels at all. */
+  const noSemantic = buildSsaSvg(d, { labels: 'roles' });
+  ok(noSemantic.includes('Stage setting'), 'hiding relations does not hide slots');
 }
 
 console.log(fail ? `\nFAILED (${fail})\n` : '\nPASS: the paragraph exports hold.\n');

@@ -391,8 +391,19 @@ function summaryText(data, id) {
   }
   const g = node(data, id);
   if (!g) return '';
-  if (isAsym(g)) return summaryText(data, g.heads[0]);
+  // ⚠ EVERY head, not heads[0] — see summaryLineOf in paragraph-model.js for why.
+  if (isAsym(g)) return g.heads.map((h) => summaryText(data, h)).filter(Boolean).join('  ·  ');
   return g.children.map((c) => summaryText(data, c)).filter(Boolean).join('  ·  ');
+}
+
+/* A collapsed group's summary as SEPARATE LINES rather than one joined string — the shape the UI
+ * shows when you collapse a group. Mirrors summaryOf() in paragraph-model.js. */
+function summaryLines(data, id) {
+  if (!isGroup(id)) { const t = summaryText(data, id); return t ? [t] : []; }
+  const g = node(data, id);
+  if (!g) return [];
+  const parts = isAsym(g) ? g.heads : g.children;
+  return parts.map((c) => summaryText(data, c)).filter(Boolean);
 }
 
 export { leafLineIds, summaryText };
@@ -466,7 +477,40 @@ export function ssaLayout(data, opts = {}) {
     return { kind: 'text', text: line.free || line.baseline || '', free: '' };
   };
 
+  /* ⚠ A LINE WITH PROPOSITIONS STILL APPEARS — AS CONTEXT (Seth, 2026-08-06: the language-data line
+   * should be "in situ but unconnected" when it has propositions). Until now its propositions stood
+   * in place of it and the line VANISHED from the diagram, which is right about the analysis and
+   * wrong about the reader: the propositions are the analyst's restatement, and without the sentence
+   * they restate there is nothing to check them against.
+   *
+   * So the line is drawn at its own position among its propositions, with NO branch into the tree.
+   * That is the whole distinction: a node is connected, context is not. The mechanism is simply that
+   * nothing in the node tree references this row — rows are laid out in array order and branches are
+   * drawn from the tree, so an unreferenced row occupies its slot and receives no line.
+   *
+   * ⚠ IT GOES BEFORE THE FIRST PROPOSITION OF ITS LINE, wherever that lands. If all of a line's
+   * propositions sit inside one group, the context row lands inside that group's span — which is
+   * Seth's "the line rendered inside the top level of that group" — and it falls out of the ordering
+   * rather than needing a rule of its own. If the propositions were split across groups, the line
+   * appears once, above the first of them.
+   *
+   * Turning this OFF is the "propositions only" export: the line is omitted when it has
+   * propositions, and a line with none contributes its own text as before. */
   const rows = [];
+  const collapsedStyle = opts.collapsedStyle === 'summary' ? 'summary' : 'leaf';
+  const showLineContext = opts.lineContext !== false;
+  const contextDone = new Set();
+  const emitContext = (lineId) => {
+    if (!showLineContext || contextDone.has(lineId)) return;
+    contextDone.add(lineId);
+    const l = data.lines.find((x) => x.id === lineId);
+    if (!l) return;
+    const c = contentOf(l, { id: l.id, text: null, lineId: l.id, isProp: false, implicit: !!l.implicit });
+    if (!c || !(c.words ? c.words.length : String(c.text || '').trim())) return;
+    rows.push({ depth: 0, label: '', content: c, head: false, implicit: !!l.implicit,
+                speaker: l.speaker || '', context: true });
+  };
+
   let maxDepth = 0;
 
   // Build a node tree; leaves push a row and remember its index.
@@ -476,8 +520,20 @@ export function ssaLayout(data, opts = {}) {
       const g = node(data, id);
       if (!g) return null;
       if (collapsed.has(id)) {
-        rows.push({ depth, label: roleLabel, content: { kind: 'text', text: summaryText(data, id), free: '' },
-                    head: !!isHead, collapsed: true });
+        /* ⚠ COLLAPSING IS HOW YOU PRODUCE A BIG-PICTURE CHART. A collapsed group is ONE node in the
+         * diagram — one bracket, no internal structure — whatever is inside it. Two renderings of
+         * that node, because they answer different questions:
+         *   'leaf'    (default) — the summary as ONE line. Densest; best when the chart is about
+         *                         the shape of the discourse and the text is just a reminder.
+         *   'summary'           — the summary as SEPARATE lines, exactly what the UI shows when you
+         *                         collapse. Still one node and one bracket; only the text is taller.
+         * Either way the group's own relation and role labels are drawn as usual, so the collapsed
+         * node still says what it is and how it relates. */
+        const lines = collapsedStyle === 'summary' ? summaryLines(data, id) : null;
+        const content = lines && lines.length > 1
+          ? { kind: 'text', text: lines.join('\n'), free: '', lines }
+          : { kind: 'text', text: (lines ? lines.join('') : summaryText(data, id)), free: '' };
+        rows.push({ depth, label: roleLabel, content, head: !!isHead, collapsed: true });
         return { kind: 'leaf', depth, row: rows.length - 1, label: roleLabel, head: !!isHead };
       }
       const kids = [];
@@ -487,14 +543,34 @@ export function ssaLayout(data, opts = {}) {
         if (kid) kids.push(kid);
       }
       if (!kids.length) return null;
-      return { kind: 'group', depth, kids, relation: g.relation || '', asym: isAsym(g),
+      return { kind: 'group', depth, kids, relation: g.relation || '', slot: g.slot || '', asym: isAsym(g),
                headIndex: kids.findIndex((k) => k.head), label: roleLabel, head: !!isHead };
     }
     /* A PROPOSITION IS ITS OWN LEAF on the flat surface. */
     if (isProp(id)) {
       const pr = node(data, id);
-      if (!pr || !String(pr.text || '').trim()) return null;
       const owner = data.lines.find((x) => x.id === lineOfProp(id));
+      if (!pr || !String(pr.text || '').trim()) {
+        /* ⚠ AN EMPTY PROPOSITION BOX MUST NOT SWALLOW ITS LINE. `leavesOfLine` already says that
+         * only propositions WITH TEXT stand in for the line — an empty one is a box the analyst
+         * has opened and not yet typed into. But units are surfaced as propositions, so the row
+         * builder reached the blank prop directly, returned null, and the line disappeared from the
+         * diagram: exactly the "second line of source text isn't showing" report that rule was
+         * written to fix, still live on this path.
+         * So when NONE of a line's propositions have text, the line renders as ITSELF here — a
+         * normal connected node, not the muted context row, because there is no analysis standing
+         * in front of it. Once any proposition is written, this stops firing and the line becomes
+         * context instead. */
+        const written = (owner && owner.props || []).some((x) => String(x.text || '').trim());
+        if (written || !owner || contextDone.has(owner.id)) return null;
+        contextDone.add(owner.id);   // one row for the line, however many empty boxes it has
+        const leaf = leavesOfLine(owner)[0];
+        if (leaf.isProp) return null;
+        rows.push({ depth, label: roleLabel, content: contentOf(owner, leaf), head: !!isHead,
+                    implicit: !!leaf.implicit, speaker: owner.speaker || '' });
+        return { kind: 'leaf', depth, row: rows.length - 1, label: roleLabel, head: !!isHead };
+      }
+      emitContext(lineOfProp(id));   // the line itself, in situ and unconnected — see above
       rows.push({ depth, label: roleLabel, head: !!isHead, implicit: !!pr.implicit,
                   speaker: (owner && owner.speaker) || '',
                   content: { kind: 'prop', text: pr.text || '', implicit: !!pr.implicit, free: '' } });
@@ -656,17 +732,25 @@ function layoutContent(content, maxWidth, o, measure) {
   return { items, height: Math.max(o.lineHeight, y + 6) };
 }
 
+/* ⚠ A NEWLINE IS A HARD BREAK, not whitespace. Splitting the whole string on /\s+/ swallowed them,
+ * so any text carrying deliberate line structure — a collapsed group's per-head summary, a free
+ * translation typed across two lines — was reflowed into one paragraph. Each segment is wrapped on
+ * its own and the results concatenated, so a break the user put there survives and soft wrapping
+ * still happens inside it. */
 function wrapText(text, maxWidth, fontSize, measure) {
-  const words = String(text || '').split(/\s+/).filter(Boolean);
-  if (!words.length) return [''];
+  const segments = String(text || '').split('\n');
   const out = [];
-  let cur = '';
-  for (const w of words) {
-    const next = cur ? cur + ' ' + w : w;
-    if (cur && measure(next, fontSize) > maxWidth) { out.push(cur); cur = w; } else cur = next;
+  for (const seg of segments) {
+    const words = seg.split(/\s+/).filter(Boolean);
+    if (!words.length) { if (segments.length === 1) out.push(''); continue; }
+    let cur = '';
+    for (const w of words) {
+      const next = cur ? cur + ' ' + w : w;
+      if (cur && measure(next, fontSize) > maxWidth) { out.push(cur); cur = w; } else cur = next;
+    }
+    if (cur) out.push(cur);
   }
-  if (cur) out.push(cur);
-  return out;
+  return out.length ? out : [''];
 }
 
 // Shorten text until it fits, ending with an ellipsis; '' when there is no room at all.
@@ -691,6 +775,10 @@ export function buildSsaSvg(data, opts = {}) {
   const labelMode = opts.labels || 'both';
   const showRelations = labelMode !== 'roles';
   const showRoles = labelMode !== 'relations';
+  /* Slots are their own axis, so they are NOT governed by `labels` (which chooses between the two
+   * SEMANTIC labels). A plot-structure chart may want slots and nothing else. */
+  const showSlots = opts.slots !== false;
+  const slotStyle = opts.slotStyle === 'rotated' ? 'rotated' : 'stacked';
   const xOf = (depth) => o.pad + depth * o.levelWidth;
   const parts = [];
   parts.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${L.width}" height="${Math.round(L.height)}" viewBox="0 0 ${L.width} ${Math.round(L.height)}" font-family="Helvetica, Arial, sans-serif">`);
@@ -727,17 +815,57 @@ export function buildSsaSvg(data, opts = {}) {
      * it. Different bands rather than different x, so they cannot overprint however long they get.
      * `labels` chooses which are drawn: published SSA displays often show only one or the other. */
     {
+      /* ⚠ A ROTATED SLOT NEEDS ITS OWN COLUMN. Drawn in the same band as the relation it overhung
+       * short brackets and printed straight through "orienter–CONTENT" — the same overprinting trap
+       * that once hid group roles. When rotation is on, every horizontal label shifts right by the
+       * width of that column, so the two can never collide however long either gets. */
+      const slotCol = (slotStyle === 'rotated' && showSlots) ? 17 : 0;
+      const lx = x + 5 + slotCol;
+      /* ⚠ `room` is NOT reduced by the column. Subtracting it truncated relation names that fit
+       * perfectly well before rotation was switched on — a display option must not silently shorten
+       * the analyst's labels. The label may now overhang the next level by the column width, which
+       * it could already do at full length anyway. */
       const room = o.levelWidth - 12;
       // A segment cluster (one line's propositions) has no relation of its own, but it DOES carry
       // the line's role — that is the only place that role can now be written.
       if (n.relation && showRelations && !n.segment) {
         const lab = fitToLength(n.relation, room, 11, measure);
-        if (lab) parts.push(`<text x="${x + 5}" y="${n.anchorY - 5}" font-size="11" fill="#163a6b">${esc(lab)}</text>`);
+        if (lab) parts.push(`<text x="${lx}" y="${n.anchorY - 5}" font-size="11" fill="#163a6b">${esc(lab)}</text>`);
+      }
+      /* ⚠ THE DISCOURSE SLOT IS A THIRD, INDEPENDENT LABEL and needs its own space — the same trap
+       * that made a group's role invisible when it also had a relation. It is a higher-order thing
+       * than either (what part this group plays in the whole text, not how its members relate), so
+       * it is drawn LARGER and in its own place rather than competing in the same band.
+       *
+       * Two renderings, because this is a judgement call best made by looking:
+       *   'stacked'  (default) — a heading above the relation. Reads left-to-right like everything
+       *                          else, costs a little vertical room, never truncates.
+       *   'rotated'            — set vertically along the group's own bracket, where it labels the
+       *                          full extent of the span it names. Striking on a big chart, but it
+       *                          costs horizontal space and is harder to read.
+       * ⚠ ROTATED IS DRAWN ON THE JOINER, NOT THE TRUNK — the joiner spans the group's members, so
+       * the label sits beside exactly the stretch it describes. On the trunk it would be a tick at
+       * one y with nothing to say how far the slot reaches. */
+      if (n.slot && showSlots) {
+        if (slotStyle === 'rotated') {
+          /* ⚠ NOT TRUNCATED TO THE SPAN. Fitting the label into the group's height seemed right —
+           * the bracket is its budget — but a two-member group is barely one line tall, so
+           * "Stage setting" was cut to nothing and the slot silently disappeared from the diagram.
+           * A vertical label that runs a little past the ends of its bracket is still perfectly
+           * readable and still unambiguously attached to that bracket; a label that is not there
+           * at all is a lost analysis. It is centred on the span, so any overhang is symmetrical. */
+          const mid = (n.top + n.bottom) / 2;
+          const sx = x + 8;
+          if (n.slot) parts.push(`<text x="${sx}" y="${mid}" font-size="12" font-weight="700" fill="#6b21a8" text-anchor="middle" transform="rotate(-90 ${sx} ${mid})">${esc(n.slot)}</text>`);
+        } else {
+          const lab = fitToLength(n.slot, room + o.levelWidth, 12.5, measure);
+          if (lab) parts.push(`<text x="${lx}" y="${n.anchorY - (n.relation && showRelations && !n.segment ? 19 : 5)}" font-size="12.5" font-weight="700" fill="#6b21a8">${esc(lab)}</text>`);
+        }
       }
       if (n.label && showRoles) {
         const lab = fitToLength(n.label, room, 10.5, measure);
         // A prominent member is written in caps by convention; colour marks it here too.
-        if (lab) parts.push(`<text x="${x + 5}" y="${n.anchorY + 12}" font-size="10.5" font-weight="${n.head ? 700 : 600}" fill="${n.head ? '#2a6e2a' : '#5b6470'}">${esc(lab)}</text>`);
+        if (lab) parts.push(`<text x="${lx}" y="${n.anchorY + 12}" font-size="10.5" font-weight="${n.head ? 700 : 600}" fill="${n.head ? '#2a6e2a' : '#5b6470'}">${esc(lab)}</text>`);
       }
     }
     n.kids.forEach(draw);
@@ -749,7 +877,7 @@ export function buildSsaSvg(data, opts = {}) {
     const top = r.y + Math.max(0, (r.height - r.blocks.height) / 2);
     const firstY = top + o.fontSize * 0.9;
     // Right-aligned to the end of the leaf's line, above it — so the role names the row it touches.
-    if (r.label && showRoles) {
+    if (r.label && showRoles && !r.context) {
       const lab = fitToLength(r.label, Math.max(60, L.textX - L.opts.pad - 8), 12, measure);
       parts.push(`<text x="${L.textX - 10}" y="${r.midY - 5}" text-anchor="end" font-size="12" font-weight="${r.head ? 700 : 600}" fill="${r.head ? '#2a6e2a' : '#163a6b'}">${esc(lab)}</text>`);
     }
@@ -761,7 +889,7 @@ export function buildSsaSvg(data, opts = {}) {
       if (it.type === 'words') {
         // A word sits over its gloss; the pair was measured as one cell so it never splits.
         for (const c of it.cells) {
-          parts.push(`<text x="${L.textX + c.x}" y="${y}" font-size="${o.fontSize}" fill="#1a4d8f">${esc(c.txt)}</text>`);
+          parts.push(`<text x="${L.textX + c.x}" y="${y}" font-size="${o.fontSize}" fill="${r.context ? '#8892a0' : '#1a4d8f'}">${esc(c.txt)}</text>`);
           if (c.gls) parts.push(`<text x="${L.textX + c.x}" y="${y + L.glossSize * 1.35}" font-size="${L.glossSize}" fill="#2a6e2a">${esc(c.gls)}</text>`);
         }
       } else if (it.type === 'free') {
@@ -770,7 +898,7 @@ export function buildSsaSvg(data, opts = {}) {
         const txt = (it.implicit && showBrackets)
           ? ((seen === 0 ? '(' : '') + it.text + (seen === nLines - 1 ? ')' : '')) : it.text;
         seen++;
-        parts.push(`<text x="${L.textX}" y="${y}" font-size="${o.fontSize}" fill="${it.implicit ? '#5b6470' : '#1a1d21'}"${it.implicit ? ' font-style="italic"' : ''}>${esc(txt)}</text>`);
+        parts.push(`<text x="${L.textX}" y="${y}" font-size="${o.fontSize}" fill="${r.context ? '#8892a0' : it.implicit ? '#5b6470' : '#1a1d21'}"${it.implicit ? ' font-style="italic"' : ''}>${esc(txt)}</text>`);
       }
     }
   }

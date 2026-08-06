@@ -629,12 +629,112 @@ function blobToB64(blob) {
 
 /* ---------------- state / persistence ---------------- */
 
+/* ── ZOOM ───────────────────────────────────────────────────────────────────────────────────────
+ * Seth: "a zoom in/out view could be good as well" — the same problem D addresses, from the other
+ * side: D helps you see where a group ENDS, zoom helps you see MORE of the document at once.
+ *
+ * ⚠ A FONT-SIZE SCALE, NOT A CSS TRANSFORM. `transform: scale()` would blur text on non-integer
+ * factors, break hit-testing against the real layout, and leave the scrollbar describing the
+ * untransformed size. Scaling the root font size lets everything re-lay out honestly: the waveform
+ * canvases keep their own pixel ratio, click targets stay where they appear, and text stays crisp.
+ *
+ * ⚠ NOT PERSISTED IN THE DOCUMENT — zoom is how one person is looking at it right now, not a
+ * property of the analysis. It lives in the view state, which is per-session. */
+const ZOOM_STEPS = [60, 70, 80, 90, 100, 115, 130, 150];
+let zoomPct = 100;
+function applyZoom(next) {
+  zoomPct = ZOOM_STEPS.includes(next) ? next : 100;
+  const tree = $('#pa-tree');
+  if (tree) tree.style.fontSize = zoomPct === 100 ? '' : `${zoomPct}%`;
+  const label = $('#pa-zoom-level');
+  if (label) label.textContent = zoomPct + '%';
+}
+function stepZoom(dir) {
+  const i = ZOOM_STEPS.indexOf(zoomPct);
+  const next = ZOOM_STEPS[Math.max(0, Math.min(ZOOM_STEPS.length - 1, i + dir))];
+  if (next === zoomPct) { alert(t(dir < 0 ? 'para.zoomMin' : 'para.zoomMax')); return; }
+  applyZoom(next);
+}
+
+/* ⚠ REGISTERED ONCE, on document, NOT per render — attaching in a render function would stack a
+ * new listener on every redraw and undo would walk back several steps per keypress.
+ * ⚠ Ignored while typing: an editor open in a text box owns ⌘Z for its own text, and stealing it
+ * would undo a grouping when the user meant to undo a character. */
+if (typeof window !== 'undefined') {
+  document.addEventListener('keydown', (e) => {
+    if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+    if (String(e.key).toLowerCase() !== 'z') return;
+    const el = document.activeElement;
+    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+    if (!state) return;
+    e.preventDefault();
+    if (e.shiftKey) doRedo(); else doUndo();
+  }, true);
+}
+
+/* ── UNDO / REDO ────────────────────────────────────────────────────────────────────────────────
+ * Two properties of this app make history cheap, and both are worth stating because they are why
+ * this is a ring buffer rather than a command-replay engine:
+ *   - the MODEL IS IMMUTABLE — every operation returns a new document rather than mutating one, so
+ *     a past state is simply a reference we already had;
+ *   - commit() is the SINGLE CHOKE POINT every mutation passes through, so there is exactly one
+ *     place to record.
+ *
+ * ⚠ SELECTION IS RESTORED WITH THE STATE. Undoing a group and finding nothing selected leaves you
+ * hunting for what you just changed; restoring the selection puts you back where you were. Ids that
+ * no longer exist are dropped on the way in, the same rule commit() applies.
+ *
+ * ⚠ NOT PERSISTED. History is a session convenience, not part of the document — writing it into the
+ * .fxpa would bloat the file with every intermediate state and confuse a colleague opening it. It
+ * clears when a different document is opened, because undoing across two documents is meaningless. */
+const HISTORY_MAX = 50;
+let history = [];      // past states, oldest first
+let future = [];       // states undone, most recently undone first
+
+function pushHistory(prev, prevSelection) {
+  history.push({ state: prev, selection: new Set(prevSelection) });
+  if (history.length > HISTORY_MAX) history.shift();
+  future = [];         // a new edit forks the timeline: anything undone is no longer reachable
+  refreshUndoButtons();
+}
+
+function applyHistory(entry) {
+  state = entry.state;
+  selection = new Set([...entry.selection].filter((id) => !!nodeById(state, id)));
+  if (anchor && !nodeById(state, anchor)) anchor = null;
+  persistWorking();
+  renderWork();
+  refreshUndoButtons();
+}
+
+function doUndo() {
+  if (!history.length) return;
+  future.unshift({ state, selection: new Set(selection) });
+  applyHistory(history.pop());
+}
+
+function doRedo() {
+  if (!future.length) return;
+  history.push({ state, selection: new Set(selection) });
+  applyHistory(future.shift());
+}
+
+function refreshUndoButtons() {
+  const u = $('#pa-undo'), r = $('#pa-redo');
+  /* ⚠ Never DISABLED — Seth's standing rule that a disabled control reads as broken. They stay
+   * clickable and say what they would do, or that there is nothing to do. */
+  if (u) u.title = history.length ? t('para.undoTip', { n: history.length }) : t('para.undoNone');
+  if (r) r.title = future.length ? t('para.redoTip', { n: future.length }) : t('para.redoNone');
+}
+
 function load(data, { persist = true } = {}) {
   state = data;
   selection = new Set();
+  history = []; future = [];   // a different document — undoing across two is meaningless
   if (persist) persistWorking();
   setupAudio();
   renderWork();
+  refreshUndoButtons();
 }
 
 /* ⚠ EVERY MUTATION IS CHECKED BEFORE IT IS ACCEPTED (Seth, 2026-08-06, after a real corruption:
@@ -680,6 +780,9 @@ function commit(next) {
     alert(t('para.refusedCorrupt', { detail: '• ' + detail }));
     return;   // state untouched — the document is exactly as it was
   }
+  /* Recorded only AFTER the guard accepts: a refused mutation never enters history, so undo can
+   * never walk back into a corrupt state. */
+  pushHistory(state, selection);
   state = next;
   /* ⚠ DROP SELECTED IDS THAT NO LONGER EXIST. Every mutation can remove units — deleting a
    * proposition, dissolving a group, pruning a thinned group — and the selection used to survive
@@ -892,6 +995,7 @@ function renderWork() {
   const before = scroller();
   const keepY = before ? before.scrollTop : 0;
   renderWorkInner();
+  applyZoom(zoomPct);   // the tree element is new after every render
   renderReportLinks();   // rebuilt each render so the diagnostics describe the CURRENT document
   const after = scroller();
   if (after && keepY) {
@@ -934,6 +1038,13 @@ function renderWorkInner() {
         <button class="secondary-btn" id="pa-collapse-all">${esc(t('para.collapseAll'))}</button>
         <button class="secondary-btn" id="pa-expand-all">${esc(t('para.expandAll'))}</button>
         <button class="secondary-btn" id="pa-clear" disabled title="${esc(t('para.clearSelTip'))}">${esc(t('para.clearSel'))}</button>
+        <button class="secondary-btn" id="pa-undo" title="${esc(t('para.undoNone'))}">${esc(t('para.undo'))}</button>
+        <button class="secondary-btn" id="pa-redo" title="${esc(t('para.redoNone'))}">${esc(t('para.redo'))}</button>
+        <span class="pa-zoom" title="${esc(t('para.zoomTip'))}">
+          <button class="secondary-btn" id="pa-zoom-out" aria-label="${esc(t('para.zoomOut'))}">−</button>
+          <span id="pa-zoom-level">100%</span>
+          <button class="secondary-btn" id="pa-zoom-in" aria-label="${esc(t('para.zoomIn'))}">+</button>
+        </span>
         ${state.authored ? `<button class="secondary-btn" id="pa-addline">${esc(t('para.scratchAddLine'))}</button>` : ''}
         <button class="secondary-btn" id="pa-export">${esc(t('para.exportBtn'))}</button>
         <button class="primary-btn" id="pa-save">${esc(t('para.save'))}</button>
@@ -1011,6 +1122,12 @@ function renderWorkInner() {
   $('#pa-ungroup').addEventListener('click', doUngroup);
   $('#pa-edit').addEventListener('click', openEditDialog);
   $('#pa-clear').addEventListener('click', clearSelection);
+  $('#pa-undo').addEventListener('click', () => (history.length ? doUndo() : alert(t('para.undoNone'))));
+  $('#pa-zoom-out').addEventListener('click', () => stepZoom(-1));
+  $('#pa-zoom-in').addEventListener('click', () => stepZoom(1));
+  applyZoom(zoomPct);   // survive a re-render: the tree element is rebuilt each time
+  $('#pa-redo').addEventListener('click', () => (future.length ? doRedo() : alert(t('para.redoNone'))));
+  refreshUndoButtons();
   $('#pa-collapse-all').addEventListener('click', () => collapseAllAction(true));
   $('#pa-expand-all').addEventListener('click', () => collapseAllAction(false));
   // The touch-friendly stand-in for holding Shift/Ctrl/Cmd (see toggleSelect).
@@ -1173,6 +1290,7 @@ function renderUnit(id, nodeLabel = '', depth = 0) {
   badge.innerHTML = `
     <button class="pa-caret" title="${esc(t(collapsed ? 'para.expand' : 'para.collapse'))}">${collapsed ? '▸' : '▾'}</button>
     <span class="pa-jt" title="${esc(t(isAsym(g) ? 'para.asym' : 'para.sym'))}">${isAsym(g) ? '⊳' : '⊕'}</span>
+    ${g.slot ? `<span class="pa-slot">${esc(g.slot)}</span>` : ''}
     ${g.relation ? `<span class="pa-rel">${esc(g.relation)}</span>` : `<span class="pa-rel pa-rel-empty">${esc(t('para.noRelation'))}</span>`}
     ${span && state.audio && state.view.audio ? `<button class="pa-rowplay" data-s="${span.start}" data-e="${span.end}">▶</button>` : ''}`;
   badge.querySelector('.pa-caret').addEventListener('click', (e) => { e.stopPropagation(); commit(toggleCollapse(state, id)); });
@@ -1918,7 +2036,7 @@ function openEditDialog() {
   const g = selectedGroup();
   if (!g) return alert(t('para.needGroupHeading'));
   groupDialog({ ids: g.children, gid: g.id, heads: g.heads || [],
-                relation: g.relation, labels: g.labels || {} });
+                relation: g.relation, slot: g.slot || '', labels: g.labels || {} });
 }
 
 // The join dialog — GROUPING is the default and only action here (Seth: destructive merges are a
@@ -1933,7 +2051,7 @@ function openEditDialog() {
  * default (Seth, 2026-08-06). Ticking none leaves a symmetrical group; ticking one is the classic
  * head+support; ticking several is the multi-head case the model already represents. Nothing has to
  * be kept in agreement with anything else. */
-function groupDialog({ ids, gid, heads = [], relation = '', labels = {} }) {
+function groupDialog({ ids, gid, heads = [], relation = '', slot = '', labels = {} }) {
   const dlg = $('#pa-dialog');
   dlg.hidden = false;
   /* ⚠ ONLY LIST MEMBERS THE USER CAN SEE (Seth, 2026-08-05: "extra group item labels for lines
@@ -1975,6 +2093,9 @@ function groupDialog({ ids, gid, heads = [], relation = '', labels = {} }) {
         </div>
         <label class="pa-field"><span>${esc(t('para.relation'))}</span>
           <input id="pa-rel" value="${esc(relation)}" placeholder="${esc(t('para.relationPh'))}"></label>
+        <label class="pa-field"><span>${esc(t('para.slot'))}</span>
+          <input id="pa-slot" value="${esc(slot)}" placeholder="${esc(t('para.slotPh'))}"></label>
+        <p class="note pa-labelhint">${esc(t('para.slotHint'))}</p>
         ${gid ? edgeControls(gid) : ''}
       </div>
       <div class="pa-modal-actions">
@@ -1992,10 +2113,11 @@ function groupDialog({ ids, gid, heads = [], relation = '', labels = {} }) {
       if (v) labelsOut[inp.dataset.for] = v;
     });
     const headsOut = [...dlg.querySelectorAll('input[name="pa-head"]:checked')].map((c) => c.value);
-    const opts = { heads: headsOut, relation: dlg.querySelector('#pa-rel').value.trim(), labels: labelsOut };
+    const opts = { heads: headsOut, relation: dlg.querySelector('#pa-rel').value.trim(),
+                   slot: dlg.querySelector('#pa-slot').value.trim(), labels: labelsOut };
     try {
       const next = gid
-        ? editGroup(state, gid, { heads: opts.heads, relation: opts.relation, labels: opts.labels })
+        ? editGroup(state, gid, { heads: opts.heads, relation: opts.relation, slot: opts.slot, labels: opts.labels })
         : groupUnits(state, ids, opts);
       selection = new Set(gid ? [gid] : []);
       dlg.hidden = true; dlg.innerHTML = '';
@@ -2391,12 +2513,27 @@ function openExportDialog() {
             ${esc(t('para.exportWrap'))}</label>
           <label class="check-label"><input type="checkbox" id="pa-exp-view" checked>
             ${esc(t('para.exportMatchView'))}</label>
+          <label class="check-label"><input type="checkbox" id="pa-exp-ctx" checked>
+            ${esc(t('para.exportLineContext'))}</label>
+          <label>${esc(t('para.exportSlotStyle'))}
+            <select id="pa-exp-slot">
+              <option value="stacked">${esc(t('para.slotStacked'))}</option>
+              <option value="rotated">${esc(t('para.slotRotated'))}</option>
+              <option value="off">${esc(t('para.slotHide'))}</option>
+            </select></label>
+          <label>${esc(t('para.exportCollapsed'))}
+            <select id="pa-exp-coll">
+              <option value="leaf">${esc(t('para.exportCollLeaf'))}</option>
+              <option value="summary">${esc(t('para.exportCollSummary'))}</option>
+            </select></label>
           <p class="note">${esc(t('para.exportDiagramHint'))}</p>
         </div>
         ${collapsedCount ? `<div class="banner warn-banner"><span>${esc(t('para.exportCollapsedWarn', { n: collapsedCount }))}</span></div>` : ''}
       </div>
+      <div class="pa-exp-preview" id="pa-exp-prev" hidden></div>
       <div class="pa-modal-actions">
         <button class="secondary-btn" id="pa-exp-cancel">${esc(t('para.cancel'))}</button>
+        <button class="secondary-btn" id="pa-exp-preview">${esc(t('para.previewShow'))}</button>
         <button class="primary-btn" id="pa-exp-go">${esc(t('para.exportGo'))}</button>
       </div>
     </div>`;
@@ -2410,6 +2547,87 @@ function openExportDialog() {
   });
   dlg.querySelector('#pa-exp-cancel').addEventListener('click', () => { dlg.hidden = true; dlg.innerHTML = ''; });
   dlg.querySelector('#pa-exp-go').addEventListener('click', runExport);
+  /* ⚠ LIVE, on any option change — a preview you have to ask for again after every adjustment is a
+   * preview you stop trusting. Cheap enough to do on every input: the layout is pure arithmetic over
+   * rows already in memory. */
+  const prevBtn = dlg.querySelector('#pa-exp-preview');
+  prevBtn.addEventListener('click', () => {
+    const pane = dlg.querySelector('#pa-exp-prev');
+    const kind = dlg.querySelector('#pa-exp-what').value;
+    // Seth's rule: a control that cannot act SAYS why, it does not sit there looking broken.
+    if (kind === 'preview') { alert(t('para.previewOnlyDiagram')); return; }
+    pane.hidden = !pane.hidden;
+    prevBtn.textContent = pane.hidden ? t('para.previewShow') : t('para.previewHide');
+    renderDiagramPreview(dlg);
+    /* ⚠ SCROLL IT INTO VIEW. The options list is longer than the dialog, so the pane opens BELOW
+     * the fold — pressing Preview appeared to do nothing at all, which reads as a broken button. */
+    /* ⚠ THE MODAL WIDENS AND GOES TWO-COLUMN while previewing. Inline under the options the pane
+     * sat ~900px down a 480px scroller: pressing Preview appeared to do nothing, and the flex column
+     * then shrank it to 18px around a 736x322 picture. Options left, diagram right — so a knob and
+     * its effect are on screen together, which is the entire point of previewing. */
+    dlg.querySelector('.pa-modal').classList.toggle('previewing', !pane.hidden);
+  });
+  dlg.addEventListener('input', () => renderDiagramPreview(dlg));
+  dlg.addEventListener('change', () => renderDiagramPreview(dlg));
+}
+
+/* ⚠ ONE READER FOR THE DIAGRAM OPTIONS, used by BOTH the preview and the export. A preview that
+ * builds its options separately is a preview of something else — it would drift from the file the
+ * user actually gets, silently, and the whole value of previewing is that what you see is what you
+ * save. */
+function diagramOpts(dlg) {
+  // Diagram geometry is the user's call — a long line or a deep analysis needs different room,
+  // and guessing it for them was what produced diagrams too wide to use (Seth, 2026-08-05).
+  const matchView = dlg.querySelector('#pa-exp-view').checked;
+  const slotSel = dlg.querySelector('#pa-exp-slot').value;
+  return {
+    textWidth: dlg.querySelector('#pa-exp-tw').value === 'auto' ? 'auto' : +dlg.querySelector('#pa-exp-tw').value,
+    levelWidth: +dlg.querySelector('#pa-exp-lw').value,
+    labels: dlg.querySelector('#pa-exp-labels').value,
+    // Off = nothing folds, and the column grows to the longest row instead.
+    wrap: dlg.querySelector('#pa-exp-wrap').checked,
+    // "matching whatever view settings the user had before they exported" — otherwise the
+    // library default (free translation only, the SSA convention).
+    layer: matchView ? state.view.layer : 'free',
+    free: matchView ? state.view.free !== false : false,
+    /* On (default): a line that has propositions still appears, in place and unconnected, so the
+     * propositions can be read against the sentence they restate. Off: the "propositions only"
+     * diagram. */
+    lineContext: dlg.querySelector('#pa-exp-ctx').checked,
+    /* Collapsing a group in the editor IS how you produce a big-picture chart: a collapsed group is
+     * one node here however much is inside it. This chooses how that node reads. */
+    collapsedStyle: dlg.querySelector('#pa-exp-coll').value,
+    // Slots are their own axis, not one of the two semantic labels — hence a separate control.
+    slots: slotSel !== 'off',
+    slotStyle: slotSel,
+  };
+}
+
+/* ⚠ SEE IT BEFORE YOU SAVE IT (Seth's idea, and it earns its place now rather than earlier: this
+ * cycle added line-context, collapsed-group style and slot style on top of width, indent, labels and
+ * wrapping. That is seven interacting knobs, and the only way to know what they do together is to
+ * look). Renders the REAL SVG from the REAL option reader, live, at natural size in a scrolling
+ * pane — the diagram is often wider than any dialog, and squashing it to fit would preview a
+ * picture the export never produces. */
+function renderDiagramPreview(dlg) {
+  const pane = dlg.querySelector('#pa-exp-prev');
+  if (!pane || pane.hidden) return;
+  const kind = dlg.querySelector('#pa-exp-what').value;
+  if (kind === 'preview') return;
+  try {
+    pane.innerHTML = buildSsaSvg(state, {
+      title: state.title,
+      only: dlg.querySelector('#pa-exp-scope').value === 'sel' ? [...selection] : null,
+      collapsed: state.view.collapsed || [],
+      hideBlank: state.view.hideBlank !== false,
+      measure: measureText,
+      ...diagramOpts(dlg),
+    });
+  } catch (e) {
+    // A preview must never take the dialog down with it — the user can still export.
+    pane.textContent = t('para.previewFailed') + ' ' + e.message;
+    console.error('[pa] diagram preview failed', e);
+  }
 }
 
 function runExport() {
@@ -2427,20 +2645,7 @@ function runExport() {
     measure: measureText,
   };
   if (kind === 'diagram' || kind === 'svg') {
-    // Diagram geometry is the user's call — a long line or a deep analysis needs different room,
-    // and guessing it for them was what produced diagrams too wide to use (Seth, 2026-08-05).
-    const matchView = dlg.querySelector('#pa-exp-view').checked;
-    const diagram = { ...common,
-      textWidth: dlg.querySelector('#pa-exp-tw').value === 'auto' ? 'auto' : +dlg.querySelector('#pa-exp-tw').value,
-      levelWidth: +dlg.querySelector('#pa-exp-lw').value,
-      labels: dlg.querySelector('#pa-exp-labels').value,
-      // Off = nothing folds, and the column grows to the longest row instead.
-      wrap: dlg.querySelector('#pa-exp-wrap').checked,
-      // "matching whatever view settings the user had before they exported" — otherwise the
-      // library default (free translation only, the SSA convention).
-      layer: matchView ? state.view.layer : 'free',
-      free: matchView ? state.view.free !== false : false,
-    };
+    const diagram = { ...common, ...diagramOpts(dlg) };
     const out = kind === 'svg' ? buildSsaSvg(state, diagram) : buildSsaDiagramHtml(state, diagram);
     saveFile(out, safeName(state.title) + (kind === 'svg' ? '.ssa.svg' : '.ssa.html'),
              kind === 'svg' ? 'image/svg+xml' : 'text/html',

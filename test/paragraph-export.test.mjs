@@ -479,18 +479,37 @@ console.log('collapsed groups: every head, and two renderings');
   ok(leaf.rows[0].blocks.items.filter((i) => i.type === 'line').length === 1,
      "'leaf' draws it as a single text line");
 
-  // Rendering 2 — the summary lines the editor shows. STILL ONE NODE.
-  const summ = ssaLayout(d, { collapsedStyle: 'summary' });
-  eq(summ.rows.length, 2, "'summary' is still ONE row for the group — one node, one bracket");
-  eq(summ.rows[0].blocks.items.filter((i) => i.type === 'line').map((i) => i.text),
-     ['He arrived', 'He sat down'],
-     "...drawn as SEPARATE lines, which is what the editor shows when collapsed");
-  ok(summ.rows[0].height > leaf.rows[0].height, 'so the row is taller, not wider');
+  /* Rendering 2 — 'bracket': EVERY line still shows, inside ONE bracket, with no internal
+   * structure. Seth's analogy is the syntax-tree triangle: same job (mark the larger constituent,
+   * suppress the detail below it), drawn as a bracket so the text stays readable. */
+  const br = ssaLayout(d, { collapsedStyle: 'bracket' });
+  eq(br.rows.map((r) => r.text), ['He arrived', 'He sat down', 'The others waited', 'and I went home'],
+     "'bracket' keeps EVERY line, including the non-head members 'leaf' hides");
+  eq(br.roots.length, 2, 'the group is still ONE node beside the ungrouped line');
+  const grp = br.roots.find((n) => n.kind === 'group');
+  eq(grp.kids.length, 3, 'one bracket spans all three of its lines');
+  ok(grp.kids.every((k) => k.kind === 'leaf'), 'and every child is a LEAF — no internal sub-brackets');
+  ok(grp.kids.every((k) => !k.label && !k.head),
+     'member roles and heads are suppressed: that is the lower-level detail being ignored');
+  eq(grp.relation, 'r', "but the group's OWN relation survives — it must still say how it relates");
+  ok(grp.collapsed, 'and it is marked collapsed');
 
-  // The collapsed node still says what it is and how it relates.
-  const svg = buildSsaSvg(d, { collapsedStyle: 'summary' });
-  ok(svg.includes('He arrived') && svg.includes('He sat down'), 'both heads reach the SVG');
-  ok(!svg.includes('The others waited'), 'and the collapsed group hides its non-head members');
+  // The two renderings are genuinely different pictures, which the old pair was not.
+  ok(br.rows.length > leaf.rows.length, "'bracket' shows more than 'leaf', not the same thing re-laid out");
+
+  const svg = buildSsaSvg(d, { collapsedStyle: 'bracket' });
+  ok(svg.includes('The others waited'), "'bracket' shows a non-head member that 'leaf' summarises away");
+  ok(!buildSsaSvg(d, { collapsedStyle: 'leaf' }).includes('The others waited'),
+     "...and 'leaf' still hides it");
+
+  /* ⚠ A run of ONE is not a bracket — a bracket around a single line says "constituent" about
+   * nothing, so the line is promoted in place and keeps the group's role. */
+  const single = { ...d, tree: [{ id: 'G1', children: ['L1', 'L2'], heads: ['L1'], relation: 'r',
+                                  labels: { L1: 'ONLY' } }],
+                   lines: [d.lines[0], { id: 'L2', baseline: '', free: '', words: [] }, d.lines[3]],
+                   view: { collapsed: ['G1'] } };
+  const solo = ssaLayout(single, { collapsedStyle: 'bracket', hideBlank: true });
+  ok(solo.roots.every((n) => n.kind === 'leaf'), 'a collapsed group with one visible line draws no bracket');
 
   // A newline is a HARD break now — the mechanism the summary rendering rides on.
   const two = ssaLayout({ ...d, view: {},
@@ -542,7 +561,12 @@ console.log('discourse slots are a THIRD, independent label');
   ok(!/rotate\(/.test(stacked), 'stacked draws no rotation');
   const rotated = buildSsaSvg(d, { slotStyle: 'rotated' });
   ok(rotated.includes('Stage setting') && /rotate\(-90/.test(rotated), 'rotated sets it vertically');
-  ok(rotated.includes('orienter–CONTENT'), 'and still draws the relation');
+  /* ⚠ The relation is still DRAWN, but rotation reserves a column so a long name may be ellipsised
+   * at the default indent — that is the deliberate trade (see the `room` note in the export). It
+   * must never be dropped, and must never be printed through the rotated label. */
+  ok(/orienter/.test(rotated), 'and still draws the relation, though rotation may shorten it');
+  ok(buildSsaSvg(d, { slotStyle: 'rotated', levelWidth: 200 }).includes('orienter–CONTENT'),
+     'a wider indent buys the full relation name back');
   ok(!buildSsaSvg(d, { slots: false }).includes('Stage setting'), 'slots:false hides them');
 
   /* ⚠ Slots are NOT governed by `labels` — a plot-structure chart may want slots and no semantic

@@ -1640,7 +1640,45 @@ main {
             border-radius: 3px; }
 .pa-spine:hover { background: rgba(31, 79, 143, .12); }
 
-/* Zoom: a font-size scale on the tree, so text re-flows crisply instead of being transformed. */
+/* ── ZOOM ──────────────────────────────────────────────────────────────────────────────────────
+   ⚠ SCOPED TO .pa-tree ONLY (Seth, 2026-08-06: "It should only apply to the analysis UI, not the
+   sticky interface at the top"). The toolbar is outside the tree, so it is untouched by
+   construction — nothing here can reach it.
+
+   ⚠ EVERY SIZE IN THE TREE IS DRIVEN BY --pa-z, not just the root font-size. The first version set
+   font-size on .pa-tree and called it done; every rule below hard-codes px, so nothing inherited
+   and zoom "didn't do much" — which is exactly what Seth reported. Text, the indent that carries
+   structural meaning, the connectors and the play buttons all scale together now, so zooming out
+   genuinely fits more analysis on screen instead of just shaving the type.
+
+   Still a size scale, NOT transform: scale() — text stays crisp, hit-testing matches what you see,
+   and the waveform canvases keep their own device pixel ratio. */
+.pa-tree { --pa-z: 1; }
+.pa-tree .pa-baseline   { font-size: calc(17px * var(--pa-z)); }
+.pa-tree .pa-words .wt  { font-size: calc(16px * var(--pa-z)); }
+.pa-tree .pa-words .wg  { font-size: calc(13px * var(--pa-z)); }
+.pa-tree .pa-words      { gap: calc(2px * var(--pa-z)) calc(12px * var(--pa-z)); }
+.pa-tree .pa-free       { font-size: calc(14px * var(--pa-z)); }
+.pa-tree .pa-linetext   { font: calc(16px * var(--pa-z))/1.4 inherit; }
+.pa-tree .pa-prop .pa-brk { font-size: calc(15px * var(--pa-z)); }
+.pa-tree .pa-badge      { font-size: calc(13px * var(--pa-z)); padding: calc(3px * var(--pa-z)) calc(6px * var(--pa-z)); }
+.pa-tree .pa-nodelabel  { font-size: calc(11px * var(--pa-z)); max-width: 18ch; }
+.pa-tree .pa-slot       { font-size: calc(12px * var(--pa-z)); }
+.pa-tree .pa-row        { gap: calc(4px * var(--pa-z)) calc(8px * var(--pa-z));
+                          padding: calc(6px * var(--pa-z)) calc(8px * var(--pa-z)); }
+.pa-tree .pa-roleline   { gap: calc(8px * var(--pa-z)); }
+/* Indent carries meaning here (head on the trunk, supports indented), so it scales with the text —
+   otherwise zooming out leaves the structure as wide as ever and saves nothing. */
+.pa-tree .pa-group      { margin: calc(10px * var(--pa-z)) 0 calc(10px * var(--pa-z)) 2px;
+                          padding-left: calc(16px * var(--pa-z)); }
+.pa-tree .pa-group.trace,
+.pa-tree .pa-group.pa-head { padding-left: calc(13px * var(--pa-z)); }
+.pa-tree .pa-group.pa-support,
+.pa-tree .pa-row.pa-support { margin-left: calc(22px * var(--pa-z)); }
+/* The play button keeps its circle: scaling width, height and glyph together. */
+.pa-tree .pa-rowplay    { width: calc(30px * var(--pa-z)); height: calc(30px * var(--pa-z));
+                          font-size: calc(13px * var(--pa-z)); }
+
 .pa-zoom { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; }
 .pa-zoom button { min-width: 28px; padding: 2px 6px; font-size: 15px; line-height: 1; }
 #pa-zoom-level { font-size: 12px; color: var(--muted); min-width: 4ch; text-align: center; }
@@ -1676,3 +1714,9 @@ main {
   .pa-modal.previewing { display: flex; width: min(440px, 94vw); }
   .pa-modal.previewing > .pa-exp-preview { max-height: 34vh; margin-top: 10px; flex: 0 0 auto; }
 }
+
+/* Chart view: an overlay INSIDE the tree's scroller, so toggling back keeps scroll and selection.
+   The editor rows stay mounted underneath — hidden, not destroyed. */
+.pa-tree.charting > *:not(#pa-chartview) { display: none; }
+#pa-chartview { overflow: auto; padding: 4px 0 24px; }
+#pa-chartview svg { display: block; }

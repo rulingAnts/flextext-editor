@@ -629,12 +629,85 @@ function blobToB64(blob) {
 
 /* ---------------- state / persistence ---------------- */
 
+/* ⚠ REGISTERED ONCE, on document, NOT per render — attaching in a render function would stack a
+ * new listener on every redraw and undo would walk back several steps per keypress.
+ * ⚠ Ignored while typing: an editor open in a text box owns ⌘Z for its own text, and stealing it
+ * would undo a grouping when the user meant to undo a character. */
+if (typeof window !== 'undefined') {
+  document.addEventListener('keydown', (e) => {
+    if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+    if (String(e.key).toLowerCase() !== 'z') return;
+    const el = document.activeElement;
+    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+    if (!state) return;
+    e.preventDefault();
+    if (e.shiftKey) doRedo(); else doUndo();
+  }, true);
+}
+
+/* ── UNDO / REDO ────────────────────────────────────────────────────────────────────────────────
+ * Two properties of this app make history cheap, and both are worth stating because they are why
+ * this is a ring buffer rather than a command-replay engine:
+ *   - the MODEL IS IMMUTABLE — every operation returns a new document rather than mutating one, so
+ *     a past state is simply a reference we already had;
+ *   - commit() is the SINGLE CHOKE POINT every mutation passes through, so there is exactly one
+ *     place to record.
+ *
+ * ⚠ SELECTION IS RESTORED WITH THE STATE. Undoing a group and finding nothing selected leaves you
+ * hunting for what you just changed; restoring the selection puts you back where you were. Ids that
+ * no longer exist are dropped on the way in, the same rule commit() applies.
+ *
+ * ⚠ NOT PERSISTED. History is a session convenience, not part of the document — writing it into the
+ * .fxpa would bloat the file with every intermediate state and confuse a colleague opening it. It
+ * clears when a different document is opened, because undoing across two documents is meaningless. */
+const HISTORY_MAX = 50;
+let history = [];      // past states, oldest first
+let future = [];       // states undone, most recently undone first
+
+function pushHistory(prev, prevSelection) {
+  history.push({ state: prev, selection: new Set(prevSelection) });
+  if (history.length > HISTORY_MAX) history.shift();
+  future = [];         // a new edit forks the timeline: anything undone is no longer reachable
+  refreshUndoButtons();
+}
+
+function applyHistory(entry) {
+  state = entry.state;
+  selection = new Set([...entry.selection].filter((id) => !!nodeById(state, id)));
+  if (anchor && !nodeById(state, anchor)) anchor = null;
+  persistWorking();
+  renderWork();
+  refreshUndoButtons();
+}
+
+function doUndo() {
+  if (!history.length) return;
+  future.unshift({ state, selection: new Set(selection) });
+  applyHistory(history.pop());
+}
+
+function doRedo() {
+  if (!future.length) return;
+  history.push({ state, selection: new Set(selection) });
+  applyHistory(future.shift());
+}
+
+function refreshUndoButtons() {
+  const u = $('#pa-undo'), r = $('#pa-redo');
+  /* ⚠ Never DISABLED — Seth's standing rule that a disabled control reads as broken. They stay
+   * clickable and say what they would do, or that there is nothing to do. */
+  if (u) u.title = history.length ? t('para.undoTip', { n: history.length }) : t('para.undoNone');
+  if (r) r.title = future.length ? t('para.redoTip', { n: future.length }) : t('para.redoNone');
+}
+
 function load(data, { persist = true } = {}) {
   state = data;
   selection = new Set();
+  history = []; future = [];   // a different document — undoing across two is meaningless
   if (persist) persistWorking();
   setupAudio();
   renderWork();
+  refreshUndoButtons();
 }
 
 /* ⚠ EVERY MUTATION IS CHECKED BEFORE IT IS ACCEPTED (Seth, 2026-08-06, after a real corruption:
@@ -680,6 +753,9 @@ function commit(next) {
     alert(t('para.refusedCorrupt', { detail: '• ' + detail }));
     return;   // state untouched — the document is exactly as it was
   }
+  /* Recorded only AFTER the guard accepts: a refused mutation never enters history, so undo can
+   * never walk back into a corrupt state. */
+  pushHistory(state, selection);
   state = next;
   /* ⚠ DROP SELECTED IDS THAT NO LONGER EXIST. Every mutation can remove units — deleting a
    * proposition, dissolving a group, pruning a thinned group — and the selection used to survive
@@ -934,6 +1010,8 @@ function renderWorkInner() {
         <button class="secondary-btn" id="pa-collapse-all">${esc(t('para.collapseAll'))}</button>
         <button class="secondary-btn" id="pa-expand-all">${esc(t('para.expandAll'))}</button>
         <button class="secondary-btn" id="pa-clear" disabled title="${esc(t('para.clearSelTip'))}">${esc(t('para.clearSel'))}</button>
+        <button class="secondary-btn" id="pa-undo" title="${esc(t('para.undoNone'))}">${esc(t('para.undo'))}</button>
+        <button class="secondary-btn" id="pa-redo" title="${esc(t('para.redoNone'))}">${esc(t('para.redo'))}</button>
         ${state.authored ? `<button class="secondary-btn" id="pa-addline">${esc(t('para.scratchAddLine'))}</button>` : ''}
         <button class="secondary-btn" id="pa-export">${esc(t('para.exportBtn'))}</button>
         <button class="primary-btn" id="pa-save">${esc(t('para.save'))}</button>
@@ -1011,6 +1089,9 @@ function renderWorkInner() {
   $('#pa-ungroup').addEventListener('click', doUngroup);
   $('#pa-edit').addEventListener('click', openEditDialog);
   $('#pa-clear').addEventListener('click', clearSelection);
+  $('#pa-undo').addEventListener('click', () => (history.length ? doUndo() : alert(t('para.undoNone'))));
+  $('#pa-redo').addEventListener('click', () => (future.length ? doRedo() : alert(t('para.redoNone'))));
+  refreshUndoButtons();
   $('#pa-collapse-all').addEventListener('click', () => collapseAllAction(true));
   $('#pa-expand-all').addEventListener('click', () => collapseAllAction(false));
   // The touch-friendly stand-in for holding Shift/Ctrl/Cmd (see toggleSelect).

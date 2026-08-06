@@ -1,5 +1,5 @@
 /* Paragraph Analysis model: grouping invariants, adversarial. Pure node — no DOM. */
-import {
+import { derivedGroupLabel,
   validateFxpa, serializeFxpa, groupUnits, ungroup, editGroup, toggleCollapse,
   topUnits, levelOf, spanOf, leavesOf, summaryOf, summaryLineOf, parentOf,
   isBlankLine, visibleTopUnits, withBlanksBetween,
@@ -858,7 +858,6 @@ console.log('invariants: corruption is detected, and repaired without loss');
   ok(!r2.data.tree[0].children.includes('L99'), 'it just drops the reference to nothing');
 }
 
-if (failures) { console.error(`\n${failures} FAILURE(S)`); process.exit(1); }
 console.log('\nPASS: the paragraph model holds its invariants.');
 
 /* ── Propositions on an ALREADY-GROUPED line (Seth, 2026-08-05) ────────────────────────────────
@@ -918,3 +917,25 @@ console.log('a malformed tree must not be made worse');
   ok(after.tree.find((g) => g.id === 'G1').children.includes('L1p3'), 'the new proposition joins exactly one group');
   eq(after.lines.map((l) => l.id), ['L1', 'L2', 'L3'], 'and no language-data line is touched');
 }
+
+console.log('\nderived group labels (UI display only — never the diagram)');
+{
+  const mk = (roles) => ({ children: roles.map((_, i) => 'c' + i),
+                           labels: Object.fromEntries(roles.map((r, i) => ['c' + i, r])) });
+  const dl = (roles) => derivedGroupLabel(mk(roles));
+  eq(dl(['grounds', 'CONCLUSION']), 'grounds-CONCLUSION', 'roles join with hyphens, case preserved');
+  eq(dl(['conjoining', 'conjoining', 'conjoining']), 'conjoining', 'identical roles collapse to one');
+  eq(dl(['step1', 'step2', 'GOAL']), 'step-GOAL', 'a NUMBERED SERIES collapses to its stem');
+  eq(dl(['step1']), 'step1', 'a lone numbered role KEEPS its number — nothing was deduplicated');
+  eq(dl(['step 1', 'step 2']), 'step', 'a space before the number is the same stem');
+  eq(dl(['step-1', 'step-2']), 'step', 'and so is a hyphen');
+  eq(dl(['setting', 'EVENT', 'setting']), 'setting-EVENT', 'a later repeat is dropped, order kept');
+  eq(dl(['CONJOINING', 'conjoining']), 'CONJOINING', 'dedup is case-insensitive, first spelling wins');
+  eq(dl([]), '', 'no roles: nothing to derive');
+  eq(dl(['orienter', '']), 'orienter', 'a member with no role is skipped, not an empty segment');
+  /* ⚠ Roles that are ONLY digits have no stem to collapse to, so they stay distinct. Collapsing
+   * "1" and "2" to "1" would INVENT a label rather than remove repetition. */
+  eq(dl(['1', '2']), '1-2', 'digit-only roles have no stem and stay separate');
+}
+
+if (failures) { console.error(`\n${failures} FAILURE(S)`); process.exit(1); }

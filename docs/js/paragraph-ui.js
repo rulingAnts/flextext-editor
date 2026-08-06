@@ -26,7 +26,7 @@ import {
   isBlankLine, visibleTopUnits, withBlanksBetween, isPropId, lineOfPropId, ownerLineOf,
   addProp, setPropText, setPropImplicit, deleteProp,
   newAuthoredDoc, addLine, setLineText, deleteLine, setLineFree, setLineImplicit, setTitle, splitLine,
-  setWordText, setWordGloss, deleteWord,
+  setWordText, setWordGloss, deleteWord, derivedGroupLabel,
 } from './paragraph-model.js';
 
 const WORKING_KEY = 'fxpa:working';
@@ -1460,7 +1460,10 @@ function renderUnit(id, nodeLabel = '', depth = 0) {
     <button class="pa-caret" title="${esc(t(collapsed ? 'para.expand' : 'para.collapse') + ' ' + t('para.collapseChartHint'))}">${collapsed ? '▸' : '▾'}</button>
     <span class="pa-jt" title="${esc(t(isAsym(g) ? 'para.asym' : 'para.sym'))}">${isAsym(g) ? '⊳' : '⊕'}</span>
     ${g.slot ? `<span class="pa-slot">${esc(g.slot)}</span>` : ''}
-    ${g.relation ? `<span class="pa-rel">${esc(g.relation)}</span>` : `<span class="pa-rel pa-rel-empty">${esc(t('para.noRelation'))}</span>`}
+    ${(() => { const d = g.relation || derivedGroupLabel(g);
+        // A derived label is shown in the muted style: it is a description, not something authored.
+        return d ? `<span class="pa-rel${g.relation ? '' : ' pa-rel-derived'}" title="${esc(g.relation ? d : t('para.derivedLabelTip'))}">${esc(d)}</span>`
+                 : `<span class="pa-rel pa-rel-empty">${esc(t('para.noRelation'))}</span>`; })()}
     ${span && state.audio && state.view.audio ? `<button class="pa-rowplay" data-s="${span.start}" data-e="${span.end}">▶</button>` : ''}`;
   badge.querySelector('.pa-caret').addEventListener('click', (e) => { e.stopPropagation(); commit(toggleCollapse(state, id)); });
   const gplay = badge.querySelector('.pa-rowplay');
@@ -2077,8 +2080,15 @@ function selectedGroup() {
 }
 
 // What a group is called in a message/tooltip: its own label, else its summary line, else its id.
+/* What to CALL a group in the interface: its own label, else the roles it is made of, else its slot,
+ * else its summary, else its id. Every step is something the analyst wrote or implied; the id is the
+ * last resort and means "nothing here is named yet". */
 function groupTitle(g) {
-  return g.relation || (summaryOf(state, g.id)[0] || '').slice(0, 40) || g.id;
+  return g.relation
+    || derivedGroupLabel(g)
+    || g.slot
+    || (summaryOf(state, g.id)[0] || '').slice(0, 40)
+    || g.id;
 }
 
 /* ⚠ THE BUTTONS STAY ENABLED (Seth, 2026-08-04). They used to disable themselves whenever the
@@ -2383,7 +2393,9 @@ function groupDialog({ ids, gid, heads = [], relation = '', slot = '', summary =
           ${members}
         </div>
         <label class="pa-field"><span>${esc(t('para.relation'))}</span>
-          <input id="pa-rel" value="${esc(relation)}" placeholder="${esc(t('para.relationPh'))}"></label>
+          <input id="pa-rel" value="${esc(relation)}" placeholder="${esc(t('para.relationPh'))}"
+                 required aria-required="true"></label>
+        <p class="note pa-labelhint" id="pa-rel-hint"></p>
         <label class="pa-field"><span>${esc(t('para.slot'))}</span>
           <input id="pa-slot" value="${esc(slot)}" placeholder="${esc(t('para.slotPh'))}"></label>
         <p class="note pa-labelhint">${esc(t('para.slotHint'))}</p>
@@ -2397,6 +2409,24 @@ function groupDialog({ ids, gid, heads = [], relation = '', slot = '', summary =
         <button class="primary-btn" id="pa-ok">${esc(t('para.ok'))}</button>
       </div>
     </div>`;
+  /* ⚠ SHOWN, NOT PREFILLED. Putting the derived label in the box would mean pressing OK silently
+   * freezes a live derivation into a stored string that then goes stale when roles change. */
+  {
+    const relEl = dlg.querySelector('#pa-rel'), hint = dlg.querySelector('#pa-rel-hint');
+    const sync = () => {
+      const derived = derivedGroupLabel({ children: ids, labels: currentLabels() });
+      hint.textContent = relEl.value.trim() ? ''
+        : derived ? t('para.relationDerivedHint', { name: derived })
+        : t('para.relationNeeded');
+    };
+    const currentLabels = () => {
+      const out = {};
+      dlg.querySelectorAll('.pa-memlabel').forEach((inp) => { const v = inp.value.trim(); if (v) out[inp.dataset.for] = v; });
+      return out;
+    };
+    dlg.addEventListener('input', sync);
+    sync();
+  }
   if (gid) wireEdgeControls(dlg, gid);
   dlg.querySelector('#pa-cancel').addEventListener('click', () => { dlg.hidden = true; dlg.innerHTML = ''; });
   dlg.querySelector('#pa-ok').addEventListener('click', () => {
@@ -2406,6 +2436,18 @@ function groupDialog({ ids, gid, heads = [], relation = '', slot = '', summary =
       const v = inp.value.trim();
       if (v) labelsOut[inp.dataset.for] = v;
     });
+    /* ⚠ REQUIRED IN THE FORM ONLY (Seth, 2026-08-07: "not something we validate ... in the data
+     * model"). groupUnits/editGroup still accept an empty relation, so every existing document,
+     * every import and every programmatic caller keeps working — this is a prompt to the person
+     * typing, not a rule about what a .fxpa may contain.
+     * ⚠ AND IT DOES NOT DISABLE OK (Seth's standing rule). The button stays clickable and says what
+     * is missing, then focuses the field; a greyed-out OK would just read as broken. */
+    const relEl = dlg.querySelector('#pa-rel');
+    if (!relEl.value.trim()) {
+      alert(t('para.relationRequired'));
+      relEl.focus();
+      return;
+    }
     const headsOut = [...dlg.querySelectorAll('input[name="pa-head"]:checked')].map((c) => c.value);
     const opts = { heads: headsOut, relation: dlg.querySelector('#pa-rel').value.trim(),
                    slot: dlg.querySelector('#pa-slot').value.trim(),

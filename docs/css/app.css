@@ -1812,3 +1812,7 @@ main {
   box-shadow: 0 8px 26px rgba(0,0,0,.18); display: flex; flex-direction: column; gap: 2px; }
 .pa-ctxmenu .pa-menuitem { display: flex; justify-content: space-between; align-items: baseline; gap: 18px; }
 .pa-accel { color: var(--muted); font-size: 12px; }
+
+/* A derived group label is a description, not something the analyst wrote — muted and italic so the
+   difference is visible at a glance without a second control to explain it. */
+.pa-rel-derived { font-style: italic; opacity: .8; }

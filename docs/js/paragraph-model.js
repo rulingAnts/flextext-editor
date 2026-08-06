@@ -551,6 +551,48 @@ export function summaryOf(data, id) {
   return lines.length ? lines : [''];      // all-blank group: ONE placeholder, not one per member
 }
 
+/* ⚠ A DERIVED LABEL FOR THE UI ONLY — never for the diagram, and never stored (Seth, 2026-08-07).
+ * A group with no relation used to read "(no label)", which tells you nothing about a group you are
+ * trying to navigate by. Its members' ROLES already describe it, so they are joined with hyphens:
+ * grounds + CONCLUSION reads "grounds-CONCLUSION", and the case convention makes the prominent
+ * member obvious for free.
+ *
+ * ⚠ DEDUPLICATED, INCLUDING NUMBERED SERIES. Three coordinate members would give
+ * "conjoining-conjoining-conjoining", and a numbered series "step1-step2-GOAL" — both noise. Roles
+ * are compared by STEM (trailing digits removed), so the first collapses to "conjoining" and the
+ * second to "step-GOAL".
+ * ⚠ The stem is only SHOWN when it actually merged two or more members. A lone "step1" keeps its
+ * number, because there stripping it would be discarding information rather than removing
+ * repetition.
+ *
+ * ⚠ LIVES HERE, NOT IN THE UI, ONLY SO IT CAN BE TESTED. It is pure — a group object in, a string
+ * out — and testing it from node would otherwise need a mirrored copy in the test file, which is
+ * exactly how two statements of one rule drift apart. It is DISPLAY-ONLY: nothing in the export
+ * path may call it, because the diagram must show what the analyst wrote, not a description of it.
+ *
+ * ⚠ DERIVED, NOT STORED. It is recomputed from the roles every time, so editing a member's role
+ * updates the label. Writing it into the document would freeze it and let it go stale — the same
+ * reason `level` and sym/asym are derived. It is also NOT prefilled into the dialog: pressing OK
+ * would silently turn a live derivation into a fixed string. */
+export function derivedGroupLabel(g) {
+  const labels = g.labels || {};
+  const roles = (g.children || []).map((c) => String(labels[c] || '').trim()).filter(Boolean);
+  if (!roles.length) return '';
+  const stemOf = (r) => r.replace(/[\s_-]*\d+$/, '') || r;
+  const counts = new Map();
+  for (const r of roles) { const k = stemOf(r).toLowerCase(); counts.set(k, (counts.get(k) || 0) + 1); }
+  const seen = new Set();
+  const parts = [];
+  for (const r of roles) {
+    const stem = stemOf(r), key = stem.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    parts.push(counts.get(key) > 1 ? stem : r);   // only drop the number when it deduplicated
+  }
+  return parts.join('-');
+}
+
+
 /* ---------------- mutations (throw on invariant violation) ---------------- */
 
 function nextGroupId(data) {

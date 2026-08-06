@@ -1749,3 +1749,8 @@ main {
 .pa-tip-toggle.on { background: var(--blue); color: #fff; border-color: var(--blue); }
 .pa-tip-more { margin: 8px 0 0; }
 .pa-tip-more a { font-size: 13px; }
+
+/* Icon-only toolbar buttons: square, so a glyph does not sit in a button shaped for a word.
+   ⚠ Every one carries title AND aria-label — an icon with no accessible name is a mystery to a
+   screen reader and to anyone who has not memorised it. */
+.pa-bar .pa-iconbtn { padding: 2px 0; width: 30px; text-align: center; font-size: 15px; line-height: 1.25; }

@@ -642,11 +642,20 @@ const HELP_URL = new URL('../help/paragraph-analysis.html', import.meta.url).hre
  * the analysis, so it never touches state or the .fxpa. */
 const HELP_KEY = 'flextext-pa-help-open';
 function wireHelpDisclosure() {
-  const d = $('#pa-tip-wrap');
-  if (!d) return;
-  try { d.open = localStorage.getItem(HELP_KEY) === '1'; } catch (_) { /* private mode */ }
-  d.addEventListener('toggle', () => {
-    try { localStorage.setItem(HELP_KEY, d.open ? '1' : '0'); } catch (_) { /* ignore */ }
+  const btn = $('#pa-tip-btn'), tip = $('#pa-tip');
+  if (!btn || !tip) return;
+  const show = (on) => {
+    tip.hidden = !on;
+    btn.setAttribute('aria-expanded', on ? 'true' : 'false');
+    btn.classList.toggle('on', on);
+  };
+  let open = false;
+  try { open = localStorage.getItem(HELP_KEY) === '1'; } catch (_) { /* private mode */ }
+  show(open);
+  btn.addEventListener('click', () => {
+    open = tip.hidden;
+    show(open);
+    try { localStorage.setItem(HELP_KEY, open ? '1' : '0'); } catch (_) { /* ignore */ }
   });
 }
 
@@ -1124,6 +1133,8 @@ function renderWorkInner() {
         </span>
         <span class="pa-zoom">
           <button class="secondary-btn" id="pa-chart" title="${esc(t('para.chartTip'))}">${esc(t('para.chartShow'))}</button>
+          <button class="pa-tip-toggle" id="pa-tip-btn" title="${esc(t('para.helpTip'))}"
+                  aria-label="${esc(t('para.helpTip'))}" aria-expanded="false">?</button>
         </span>
         ${state.authored ? `<button class="secondary-btn" id="pa-addline">${esc(t('para.scratchAddLine'))}</button>` : ''}
         <button class="secondary-btn" id="pa-export">${esc(t('para.exportBtn'))}</button>
@@ -1135,23 +1146,26 @@ function renderWorkInner() {
       </span>
     </div>
     ${showAudio ? `
+    <!-- ⚠ TRANSPORT AND WAVEFORM ON ONE ROW. They were stacked, so the play button and clock cost a
+         whole band of a header that is already several rows tall. Side by side they cost nothing:
+         the controls are narrow and the wave simply fills what is left. -->
     <div class="pa-player">
-      <div class="pa-ovwrap"><canvas id="pa-ov"></canvas><div class="pa-cur" id="pa-ovcur"></div></div>
       <div class="pa-transport"><button class="icon-btn2" id="pa-play">▶</button><span id="pa-time" class="player-time"></span></div>
+      <div class="pa-ovwrap"><canvas id="pa-ov"></canvas><div class="pa-cur" id="pa-ovcur"></div></div>
     </div>` : ''}
     <!-- ⚠ COLLAPSED BY DEFAULT behind a ? button (Seth, 2026-08-06). This text is onboarding: it
          answers a question you have once and then never again, but it sat above the analysis
          permanently, costing four lines of vertical room on every screen forever. The open state is
          remembered per device so someone still learning keeps it up, and the full manual is one
          click further on. -->
-    <details class="pa-tip-wrap" id="pa-tip-wrap">
-      <summary class="pa-tip-toggle" title="${esc(t('para.helpTip'))}"
-               aria-label="${esc(t('para.helpTip'))}">?</summary>
-      <div class="pa-tip">${esc(state.authored ? t('para.scratchHint') : t('para.selectTip'))}
-        ${state.authored ? '' : `<span class="pa-tip-note">${esc(t('para.splitNote'))}</span>`}
-        <p class="pa-tip-more"><a href="${esc(HELP_URL)}" target="_blank" rel="noopener">${esc(t('para.helpFull'))}</a></p>
-      </div>
-    </details>
+    <!-- ⚠ THE TRIGGER LIVES IN THE TOOLBAR, the text below it. As a <details> the ? sat on a row of
+         its own purely to host content that is hidden almost all the time — a whole band spent on a
+         26px button. Splitting trigger from content lets the button join the buttons and the text
+         still appear full-width underneath. -->
+    <div class="pa-tip" id="pa-tip" hidden>${esc(state.authored ? t('para.scratchHint') : t('para.selectTip'))}
+      ${state.authored ? '' : `<span class="pa-tip-note">${esc(t('para.splitNote'))}</span>`}
+      <p class="pa-tip-more"><a href="${esc(HELP_URL)}" target="_blank" rel="noopener">${esc(t('para.helpFull'))}</a></p>
+    </div>
     </div>
     <div class="pa-tree" id="pa-tree"></div>
     <div id="pa-dialog" hidden></div>`;

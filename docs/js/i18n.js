@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v260';
+export const ENGINE_VERSION = 'v261';
 
 const S = {
 en: {
@@ -1125,9 +1125,7 @@ internet after the first time.</p>
   // sitting disabled and looking broken (Seth, 2026-08-04).
   'para.helpTip': 'How this tool works',
   'para.helpFull': 'Full guide to the Paragraph Analysis Tool →',
-  'para.selectTip': 'Click a line or a group heading to select it. To select a run of them, Ctrl-click or Cmd-click (or switch on “↔ Extend”) at the other end — the selection always stretches from where you started, so it is always a single unbroken run. Then press Group. Edit group and Ungroup work on one group heading.',
-  'para.multi': '↔ Extend',
-  'para.multiTip': 'Make the next click stretch the selection to it — the same as holding Shift or Ctrl/Cmd (use this on a touch screen)',
+  'para.selectTip': 'Click a line or a group heading to select it. To select a run of them, Shift-click, Ctrl-click or Cmd-click at the other end — the selection always stretches from where you started, so it is always a single unbroken run. Then press Group. With one group heading selected, that same button becomes Edit group, and Ungroup applies.',
   'para.headingTip': 'Click to select this group — then use Edit group or Ungroup',
   'para.needGroupHeading': 'Select one group heading first — the bar at the top of a group, showing ⊕ or ⊳ — and nothing else. If other things are still selected, press “Clear selection”.',
   'para.needGroupHeadingTip': 'Select one group heading (the ⊕/⊳ bar) to use this',
@@ -1243,7 +1241,8 @@ internet after the first time.</p>
   'para.exportWithAudio': 'Include the audio (a much larger file)',
   'para.exportCollapsedWarn': 'You have {n} collapsed group(s). They will be exported COLLAPSED, exactly as you see them — expand them first if you want the whole structure visible.',
   'para.exportGo': 'Export',
-  'para.save': 'Save (.fxpa)',
+  'para.save': '💾',
+  'para.saveTip': 'Save this analysis as a .fxpa file',
   'para.close': 'Close document',
   'para.closeTip': 'Close this document and clear it from this browser. Your analysis stays open here — even if you close the window or lose connection — until you close it with this button.',
   'para.closeConfirm': 'Close this document? Save it first if you want to keep your grouping — this browser keeps ONE analysis in progress, and closing discards it.',
@@ -1275,8 +1274,9 @@ internet after the first time.</p>
   'para.exportCollLeaf': 'One summary line (hides the rest)',
   'para.exportCollBracket': 'All its lines, inside one bracket',
   'para.exportLineContext': 'Show language-data lines that are not in the tree (those with propositions)',
-  'para.chartShow': '◫ Chart',
-  'para.chartHide': '◫ Back to editing',
+  'para.chartShow': '◫',
+  'para.chartHide': '◫',
+  'para.chartHideTip': 'Back to editing',
   'para.chartTip': 'Switch to the SSA diagram for a quick look at the shape of the analysis — nothing is changed or saved',
   'para.zoomTip': 'Zoom the analysis in or out — text re-flows, so nothing blurs',
   'para.zoomIn': 'Zoom in', 'para.zoomOut': 'Zoom out',
@@ -2434,9 +2434,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.ungroup': 'Bubarkan',
   'para.helpTip': 'Cara kerja alat ini',
   'para.helpFull': 'Panduan lengkap Alat Analisis Paragraf →',
-  'para.selectTip': 'Klik satu baris atau judul kelompok untuk memilihnya. Untuk memilih serangkaian, Shift-klik (atau Ctrl/Cmd-klik, atau aktifkan “↔ Perluas”) di ujung yang lain — pilihan selalu merentang dari titik awal, jadi selalu satu rangkaian utuh. Lalu tekan Kelompokkan. Ubah kelompok dan Bubarkan berlaku untuk satu judul kelompok.',
-  'para.multi': '↔ Perluas',
-  'para.multiTip': 'Buat klik berikutnya merentangkan pilihan sampai ke sana — sama seperti menahan Shift atau Ctrl/Cmd (pakai ini di layar sentuh)',
+  'para.selectTip': 'Klik satu baris atau judul kelompok untuk memilihnya. Untuk memilih serangkaian, Shift-klik, Ctrl-klik, atau Cmd-klik di ujung yang lain — pilihan selalu merentang dari titik awal, jadi selalu satu rangkaian utuh. Lalu tekan Kelompokkan. Bila satu judul kelompok dipilih, tombol yang sama menjadi Ubah kelompok, dan Bubarkan berlaku.',
   'para.headingTip': 'Klik untuk memilih kelompok ini — lalu pakai Ubah kelompok atau Bubarkan',
   'para.needGroupHeading': 'Pilih satu judul kelompok dulu — batang di bagian atas kelompok, bertanda ⊕ atau ⊳ — dan tidak ada yang lain. Jika masih ada yang terpilih, tekan “Batalkan pilihan”.',
   'para.needGroupHeadingTip': 'Pilih satu judul kelompok (batang ⊕/⊳) untuk memakai ini',
@@ -2554,7 +2552,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.exportWithAudio': 'Sertakan audio (file jauh lebih besar)',
   'para.exportCollapsedWarn': 'Ada {n} kelompok yang terlipat. Semuanya akan diekspor TERLIPAT, persis seperti yang Anda lihat — bentangkan dulu jika ingin seluruh strukturnya terlihat.',
   'para.exportGo': 'Ekspor',
-  'para.save': 'Simpan (.fxpa)',
+  'para.save': '💾',
+  'para.saveTip': 'Simpan analisis ini sebagai berkas .fxpa',
   'para.close': 'Tutup dokumen',
   'para.closeTip': 'Tutup dokumen ini dan hapus dari peramban ini. Analisis Anda tetap terbuka di sini — walau jendela ditutup atau koneksi putus — sampai Anda menutupnya dengan tombol ini.',
   'para.closeConfirm': 'Tutup dokumen ini? Simpan dulu jika ingin menyimpan pengelompokan Anda — peramban ini menyimpan SATU analisis yang sedang berjalan, dan menutup akan membuangnya.',
@@ -2586,8 +2585,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.exportCollLeaf': 'Satu baris ringkasan (sisanya disembunyikan)',
   'para.exportCollBracket': 'Semua barisnya, dalam satu kurung',
   'para.exportLineContext': 'Tampilkan baris data bahasa yang tidak ada di pohon (yang punya proposisi)',
-  'para.chartShow': '◫ Bagan',
-  'para.chartHide': '◫ Kembali menyunting',
+  'para.chartShow': '◫',
+  'para.chartHide': '◫',
+  'para.chartHideTip': 'Kembali menyunting',
   'para.chartTip': 'Beralih ke diagram SSA untuk melihat bentuk analisis sekilas — tidak ada yang diubah atau disimpan',
   'para.zoomTip': 'Perbesar atau perkecil analisis — teks ditata ulang, jadi tidak buram',
   'para.zoomIn': 'Perbesar', 'para.zoomOut': 'Perkecil',

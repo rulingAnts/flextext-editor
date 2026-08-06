@@ -698,7 +698,8 @@ function renderChart() {
 function setChart(on) {
   chartOn = !!on;
   const btn = $('#pa-chart');
-  if (btn) btn.textContent = t(chartOn ? 'para.chartHide' : 'para.chartShow');
+  if (btn) { btn.textContent = t(chartOn ? 'para.chartHide' : 'para.chartShow');
+             btn.title = btn.ariaLabel = t(chartOn ? 'para.chartHideTip' : 'para.chartTip'); }
   const tree = $('#pa-tree');
   if (tree) tree.classList.toggle('charting', chartOn);
   let host = $('#pa-chartview');
@@ -1116,8 +1117,6 @@ function renderWorkInner() {
       </span>
       <span class="pa-actions">
         <span class="pa-selinfo" id="pa-selinfo"></span>
-        <button class="secondary-btn pa-multi" id="pa-multi" aria-pressed="${multiMode}"
-                title="${esc(t('para.multiTip'))}">${esc(t('para.multi'))}</button>
         <!-- ⚠ ONE BUTTON FOR GROUP / EDIT GROUP. They are MUTUALLY EXCLUSIVE BY SELECTION — Group
              needs a run of two or more units, Edit group needs exactly one group heading — so both
              can never be valid at once, and showing both always left one of them inapplicable. The
@@ -1135,13 +1134,15 @@ function renderWorkInner() {
           <button class="secondary-btn" id="pa-zoom-in" aria-label="${esc(t('para.zoomIn'))}">+</button>
         </span>
         <span class="pa-zoom">
-          <button class="secondary-btn" id="pa-chart" title="${esc(t('para.chartTip'))}">${esc(t('para.chartShow'))}</button>
+          <button class="secondary-btn pa-iconbtn" id="pa-chart" title="${esc(t('para.chartTip'))}"
+                  aria-label="${esc(t('para.chartTip'))}">${esc(t('para.chartShow'))}</button>
           <button class="pa-tip-toggle" id="pa-tip-btn" title="${esc(t('para.helpTip'))}"
                   aria-label="${esc(t('para.helpTip'))}" aria-expanded="false">?</button>
         </span>
         ${state.authored ? `<button class="secondary-btn" id="pa-addline">${esc(t('para.scratchAddLine'))}</button>` : ''}
         <button class="secondary-btn" id="pa-export">${esc(t('para.exportBtn'))}</button>
-        <button class="primary-btn" id="pa-save">${esc(t('para.save'))}</button>
+        <button class="primary-btn pa-iconbtn" id="pa-save" title="${esc(t('para.saveTip'))}"
+                aria-label="${esc(t('para.saveTip'))}">${esc(t('para.save'))}</button>
         <!-- Far right, and LABELLED: a bare ✕ read as "close the toolbar/banner", not "put this
              document away" — and it is the one control that discards the working copy. -->
         <button class="secondary-btn pa-closebtn" id="pa-close" title="${esc(t('para.closeTip'))}">
@@ -1241,14 +1242,6 @@ function renderWorkInner() {
   $('#pa-redo').addEventListener('click', () => (future.length ? doRedo() : alert(t('para.redoNone'))));
   refreshUndoButtons();
   $('#pa-collapse-all').addEventListener('click', () => collapseAllAction(!allCollapsed()));
-  // The touch-friendly stand-in for holding Shift/Ctrl/Cmd (see toggleSelect).
-  $('#pa-multi').addEventListener('click', () => {
-    multiMode = !multiMode;
-    const b = $('#pa-multi');
-    b.classList.toggle('on', multiMode);
-    b.setAttribute('aria-pressed', String(multiMode));
-  });
-  $('#pa-multi').classList.toggle('on', multiMode);
   wireKeys();
   if (showAudio) {
     $('#pa-play').addEventListener('click', () => {
@@ -1910,9 +1903,13 @@ function renderLineRow(id, nodeLabel = '', header = false) {
  * can never straddle a group boundary. Anchor and target in different parents means the click
  * simply becomes a new anchor.
  *
- * `multiMode` is the toolbar stand-in for holding a modifier, because a touch device has none.
+ * ⚠ EXTENDING NEEDS A REAL MODIFIER (Seth, 2026-08-07 — the "↔ Extend" toolbar toggle is removed).
+ * Shift, Ctrl or Cmd all work; Shift is the convention everywhere else and the Indonesian UI string
+ * already promised it, so it is honoured here rather than only Ctrl/Cmd.
+ * ⚠ KNOWN CONSEQUENCE: a touch device has no modifier key, so range selection is now keyboard-only.
+ * That was exactly what the removed toggle existed for. Removing it is Seth's call; if tablet users
+ * turn up, a long-press-to-extend gesture is the natural replacement.
  */
-let multiMode = false;
 let anchor = null;                 // the fixed end of the range; a plain click moves it
 
 // The ordered sibling list a unit belongs to, as the user SEES it (hidden blanks excluded).
@@ -1983,7 +1980,7 @@ const closeEditors = () => { if (anyEditorOpen()) { renderWork(); return true; }
 function toggleSelect(id, ev) {
   /* Ctrl/Cmd extends the range; SHIFT no longer does anything (Seth, 2026-08-05). Shift-click is
    * the browser's own text-selection gesture, so it fought the app on every drag across a line. */
-  const extend = multiMode || !!(ev && (ev.ctrlKey || ev.metaKey));
+  const extend = !!(ev && (ev.ctrlKey || ev.metaKey || ev.shiftKey));
   if (extend && anchor && anchor !== id) {
     const range = rangeBetween(anchor, id);
     // Not siblings (different groups): start a fresh range here rather than selecting nonsense.

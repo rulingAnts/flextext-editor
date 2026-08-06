@@ -629,6 +629,33 @@ function blobToB64(blob) {
 
 /* ---------------- state / persistence ---------------- */
 
+/* ── ZOOM ───────────────────────────────────────────────────────────────────────────────────────
+ * Seth: "a zoom in/out view could be good as well" — the same problem D addresses, from the other
+ * side: D helps you see where a group ENDS, zoom helps you see MORE of the document at once.
+ *
+ * ⚠ A FONT-SIZE SCALE, NOT A CSS TRANSFORM. `transform: scale()` would blur text on non-integer
+ * factors, break hit-testing against the real layout, and leave the scrollbar describing the
+ * untransformed size. Scaling the root font size lets everything re-lay out honestly: the waveform
+ * canvases keep their own pixel ratio, click targets stay where they appear, and text stays crisp.
+ *
+ * ⚠ NOT PERSISTED IN THE DOCUMENT — zoom is how one person is looking at it right now, not a
+ * property of the analysis. It lives in the view state, which is per-session. */
+const ZOOM_STEPS = [60, 70, 80, 90, 100, 115, 130, 150];
+let zoomPct = 100;
+function applyZoom(next) {
+  zoomPct = ZOOM_STEPS.includes(next) ? next : 100;
+  const tree = $('#pa-tree');
+  if (tree) tree.style.fontSize = zoomPct === 100 ? '' : `${zoomPct}%`;
+  const label = $('#pa-zoom-level');
+  if (label) label.textContent = zoomPct + '%';
+}
+function stepZoom(dir) {
+  const i = ZOOM_STEPS.indexOf(zoomPct);
+  const next = ZOOM_STEPS[Math.max(0, Math.min(ZOOM_STEPS.length - 1, i + dir))];
+  if (next === zoomPct) { alert(t(dir < 0 ? 'para.zoomMin' : 'para.zoomMax')); return; }
+  applyZoom(next);
+}
+
 /* ⚠ REGISTERED ONCE, on document, NOT per render — attaching in a render function would stack a
  * new listener on every redraw and undo would walk back several steps per keypress.
  * ⚠ Ignored while typing: an editor open in a text box owns ⌘Z for its own text, and stealing it
@@ -968,6 +995,7 @@ function renderWork() {
   const before = scroller();
   const keepY = before ? before.scrollTop : 0;
   renderWorkInner();
+  applyZoom(zoomPct);   // the tree element is new after every render
   renderReportLinks();   // rebuilt each render so the diagnostics describe the CURRENT document
   const after = scroller();
   if (after && keepY) {
@@ -1012,6 +1040,11 @@ function renderWorkInner() {
         <button class="secondary-btn" id="pa-clear" disabled title="${esc(t('para.clearSelTip'))}">${esc(t('para.clearSel'))}</button>
         <button class="secondary-btn" id="pa-undo" title="${esc(t('para.undoNone'))}">${esc(t('para.undo'))}</button>
         <button class="secondary-btn" id="pa-redo" title="${esc(t('para.redoNone'))}">${esc(t('para.redo'))}</button>
+        <span class="pa-zoom" title="${esc(t('para.zoomTip'))}">
+          <button class="secondary-btn" id="pa-zoom-out" aria-label="${esc(t('para.zoomOut'))}">−</button>
+          <span id="pa-zoom-level">100%</span>
+          <button class="secondary-btn" id="pa-zoom-in" aria-label="${esc(t('para.zoomIn'))}">+</button>
+        </span>
         ${state.authored ? `<button class="secondary-btn" id="pa-addline">${esc(t('para.scratchAddLine'))}</button>` : ''}
         <button class="secondary-btn" id="pa-export">${esc(t('para.exportBtn'))}</button>
         <button class="primary-btn" id="pa-save">${esc(t('para.save'))}</button>
@@ -1090,6 +1123,9 @@ function renderWorkInner() {
   $('#pa-edit').addEventListener('click', openEditDialog);
   $('#pa-clear').addEventListener('click', clearSelection);
   $('#pa-undo').addEventListener('click', () => (history.length ? doUndo() : alert(t('para.undoNone'))));
+  $('#pa-zoom-out').addEventListener('click', () => stepZoom(-1));
+  $('#pa-zoom-in').addEventListener('click', () => stepZoom(1));
+  applyZoom(zoomPct);   // survive a re-render: the tree element is rebuilt each time
   $('#pa-redo').addEventListener('click', () => (future.length ? doRedo() : alert(t('para.redoNone'))));
   refreshUndoButtons();
   $('#pa-collapse-all').addEventListener('click', () => collapseAllAction(true));

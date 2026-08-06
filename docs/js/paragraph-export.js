@@ -391,6 +391,8 @@ function summaryText(data, id) {
   }
   const g = node(data, id);
   if (!g) return '';
+  // ⚠ An AUTHORED summary wins over the derived one — see summaryLineOf in paragraph-model.js.
+  if (String(g.summary || '').trim()) return String(g.summary).trim();
   // ⚠ EVERY head, not heads[0] — see summaryLineOf in paragraph-model.js for why.
   if (isAsym(g)) return g.heads.map((h) => summaryText(data, h)).filter(Boolean).join('  ·  ');
   return g.children.map((c) => summaryText(data, c)).filter(Boolean).join('  ·  ');
@@ -500,7 +502,10 @@ export function ssaLayout(data, opts = {}) {
    * Turning this OFF is the "propositions only" export: the line is omitted when it has
    * propositions, and a line with none contributes its own text as before. */
   const rows = [];
-  const collapsedStyle = opts.collapsedStyle === 'bracket' ? 'bracket' : 'leaf';
+  /* ⚠ DEFAULT IS 'bracket' (Seth, 2026-08-07). Showing every line inside one bracket keeps the text
+   * readable while still marking the constituent; 'leaf' hides everything but a summary, which is a
+   * bigger claim to make on the user's behalf. */
+  const collapsedStyle = opts.collapsedStyle === 'leaf' ? 'leaf' : 'bracket';
   const showLineContext = opts.lineContext !== false;
   const contextDone = new Set();
   const emitContext = (lineId) => {

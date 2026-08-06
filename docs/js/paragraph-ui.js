@@ -1120,9 +1120,11 @@ function renderWorkInner() {
   const v = state.view;
   const showAudio = !!(state.audio && v.audio);
   root.innerHTML = `
-    <div class="pa-work${state.view.slim ? ' slim' : ''}">
+    <!-- ⚠ The "slim" toggle is gone (Seth, 2026-08-07): with the menu bar the whole toolbar fits on
+         one line, so a control whose only job was to hide toolbar rows has nothing left to hide. A
+         a stored view.slim in an older .fxpa is simply ignored — never an error. -->
+    <div class="pa-work">
     <div class="pa-bar">
-      <button id="pa-slim" class="pa-slimbtn" title="${esc(t('para.slimTip'))}">${state.view.slim ? '▾' : '▴'}</button>
       <span class="pa-titlewrap"><span class="pa-title" title="${esc(state.title)}">${esc(state.title || t('para.untitled'))}</span><button id="pa-title-edit" title="${esc(t('para.titleEdit'))}">✎</button></span>
 
       <!-- ⚠ MENUS HOLD THE OCCASIONAL COMMANDS; THE CORE LOOP STAYS ON THE BAR. Grouping IS the work
@@ -1249,9 +1251,6 @@ function renderWorkInner() {
   }
   $('#pa-layer').addEventListener('change', (e) => setView({ layer: e.target.value, ...(e.target.value === 'free-only' ? { free: true } : {}) }));
   $('#pa-free').addEventListener('change', (e) => setView({ free: e.target.checked }));
-  if ($('#pa-slim')) $('#pa-slim').addEventListener('click', () => {
-    commit({ ...state, view: { ...state.view, slim: !state.view.slim } });
-  });
   if ($('#pa-title-edit')) $('#pa-title-edit').addEventListener('click', () => {
     const name = prompt(t('para.titlePrompt'), state.title || '');
     if (name === null) return;
@@ -1458,7 +1457,7 @@ function renderUnit(id, nodeLabel = '', depth = 0) {
    * role is no longer drawn inside the handle — a head's chip nested inside the grey pill also read
    * as a control rather than a label. */
   badge.innerHTML = `
-    <button class="pa-caret" title="${esc(t(collapsed ? 'para.expand' : 'para.collapse'))}">${collapsed ? '▸' : '▾'}</button>
+    <button class="pa-caret" title="${esc(t(collapsed ? 'para.expand' : 'para.collapse') + ' ' + t('para.collapseChartHint'))}">${collapsed ? '▸' : '▾'}</button>
     <span class="pa-jt" title="${esc(t(isAsym(g) ? 'para.asym' : 'para.sym'))}">${isAsym(g) ? '⊳' : '⊕'}</span>
     ${g.slot ? `<span class="pa-slot">${esc(g.slot)}</span>` : ''}
     ${g.relation ? `<span class="pa-rel">${esc(g.relation)}</span>` : `<span class="pa-rel pa-rel-empty">${esc(t('para.noRelation'))}</span>`}
@@ -2131,9 +2130,13 @@ function refreshActionButtons() {
   const cb = $('#pa-collapse-all');
   const willCollapse = !allCollapsed();
   cb.textContent = t(willCollapse ? 'para.collapseAll' : 'para.expandAll');
-  cb.title = willCollapse
+  /* ⚠ THE TOOLTIP SAYS COLLAPSING SHAPES THE CHART. Collapsing is the summarising mechanism — a
+   * collapsed group is one node in the exported diagram — and nothing on screen said so, so the
+   * feature was discoverable only by reading the docs. */
+  cb.title = (willCollapse
     ? (scoped ? t('para.collapseSelTip', { name: scoped }) : t('para.collapseAllTip'))
-    : (scoped ? t('para.expandSelTip', { name: scoped }) : t('para.expandAllTip'));
+    : (scoped ? t('para.expandSelTip', { name: scoped }) : t('para.expandAllTip')))
+    + ' ' + t('para.collapseChartHint');
   const info = $('#pa-selinfo');
   if (info) {
     info.textContent = g ? t('para.selGroup', { name: groupTitle(g) })
@@ -2318,7 +2321,7 @@ function openEditDialog() {
   const g = selectedGroup();
   if (!g) return alert(t('para.needGroupHeading'));
   groupDialog({ ids: g.children, gid: g.id, heads: g.heads || [],
-                relation: g.relation, slot: g.slot || '', labels: g.labels || {} });
+                relation: g.relation, slot: g.slot || '', summary: g.summary || '', labels: g.labels || {} });
 }
 
 // The join dialog — GROUPING is the default and only action here (Seth: destructive merges are a
@@ -2333,7 +2336,7 @@ function openEditDialog() {
  * default (Seth, 2026-08-06). Ticking none leaves a symmetrical group; ticking one is the classic
  * head+support; ticking several is the multi-head case the model already represents. Nothing has to
  * be kept in agreement with anything else. */
-function groupDialog({ ids, gid, heads = [], relation = '', slot = '', labels = {} }) {
+function groupDialog({ ids, gid, heads = [], relation = '', slot = '', summary = '', labels = {} }) {
   const dlg = $('#pa-dialog');
   dlg.hidden = false;
   /* ⚠ ONLY LIST MEMBERS THE USER CAN SEE (Seth, 2026-08-05: "extra group item labels for lines
@@ -2378,6 +2381,9 @@ function groupDialog({ ids, gid, heads = [], relation = '', slot = '', labels = 
         <label class="pa-field"><span>${esc(t('para.slot'))}</span>
           <input id="pa-slot" value="${esc(slot)}" placeholder="${esc(t('para.slotPh'))}"></label>
         <p class="note pa-labelhint">${esc(t('para.slotHint'))}</p>
+        <label class="pa-field"><span>${esc(t('para.summary'))}</span>
+          <input id="pa-summary" value="${esc(summary)}" placeholder="${esc(t('para.summaryPh'))}"></label>
+        <p class="note pa-labelhint">${esc(t('para.summaryHint'))}</p>
         ${gid ? edgeControls(gid) : ''}
       </div>
       <div class="pa-modal-actions">
@@ -2396,10 +2402,12 @@ function groupDialog({ ids, gid, heads = [], relation = '', slot = '', labels = 
     });
     const headsOut = [...dlg.querySelectorAll('input[name="pa-head"]:checked')].map((c) => c.value);
     const opts = { heads: headsOut, relation: dlg.querySelector('#pa-rel').value.trim(),
-                   slot: dlg.querySelector('#pa-slot').value.trim(), labels: labelsOut };
+                   slot: dlg.querySelector('#pa-slot').value.trim(),
+                   summary: dlg.querySelector('#pa-summary').value.trim(), labels: labelsOut };
     try {
       const next = gid
-        ? editGroup(state, gid, { heads: opts.heads, relation: opts.relation, slot: opts.slot, labels: opts.labels })
+        ? editGroup(state, gid, { heads: opts.heads, relation: opts.relation, slot: opts.slot,
+                                  summary: opts.summary, labels: opts.labels })
         : groupUnits(state, ids, opts);
       selection = new Set(gid ? [gid] : []);
       dlg.hidden = true; dlg.innerHTML = '';
@@ -2806,8 +2814,8 @@ function openExportDialog() {
             </select></label>
           <label class="pa-field"><span>${esc(t('para.exportCollapsed'))}</span>
             <select id="pa-exp-coll">
-              <option value="leaf">${esc(t('para.exportCollLeaf'))}</option>
               <option value="bracket">${esc(t('para.exportCollBracket'))}</option>
+              <option value="leaf">${esc(t('para.exportCollLeaf'))}</option>
             </select></label>
           <p class="note">${esc(t('para.exportDiagramHint'))}</p>
         </div>

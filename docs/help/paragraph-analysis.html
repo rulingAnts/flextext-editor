@@ -255,12 +255,20 @@ big-picture chart of a long text is: collapse the groups you want summarised, th
 
 <p>The export offers two ways to draw a collapsed group:</p>
 <ul>
-  <li><strong>One summary line</strong> — the group becomes a single row of summary text, taken from
-      its head (or every head, if it has several). Densest; the rest of its content is hidden.</li>
-  <li><strong>All its lines, inside one bracket</strong> — every line still shows, with one bracket
-      around the whole run, no internal structure, no member roles. Same job as the triangle in a
-      generative syntax tree: highlight the larger constituent, ignore the detail below it.</li>
+  <li><strong>All its lines, inside one bracket</strong> (default) — every line still shows, with one
+      bracket around the whole run, no internal structure, no member roles. Same job as the triangle
+      in a generative syntax tree: highlight the larger constituent, ignore the detail below it.</li>
+  <li><strong>One summary line</strong> — the group becomes a single row of summary text and the rest
+      is hidden. Densest, and a bigger claim to make on your behalf, which is why it is not the
+      default.</li>
 </ul>
+
+<h3>Writing your own summary</h3>
+<p>By default a collapsed group is summarised by its head's text — a reasonable guess, but a line
+lifted out of context often makes a poor sentence. The Group dialog has an optional
+<strong>Summary</strong> field: whatever you write there is used wherever the group appears
+collapsed, both in the editor and in the "One summary line" chart option. Leave it blank and the
+head's own text is used.</p>
 
 <h2 id="view">Looking at your work</h2>
 

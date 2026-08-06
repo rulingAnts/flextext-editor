@@ -237,10 +237,15 @@ console.log('\nSSA layout');
     ok(buildSsaSvg(n, { labels: 'roles' }).includes('>CONTENT<'), 'labels:roles keeps the roles');
   }
 
-  // Collapsed groups collapse in the diagram too — one row, the summary.
+  /* ⚠ THE DEFAULT COLLAPSED RENDERING IS 'bracket' (changed 2026-08-07): every line still shows,
+   * inside one bracket. 'leaf' — one summary row, the rest hidden — is the bigger claim to make on
+   * the user's behalf, so it is opt-in. These assertions were written against the old default. */
   const col = ssaLayout(doc, { collapsed: ['G1'] });
-  eq(col.rows.length, 2, 'a collapsed group becomes ONE row');
-  ok(col.rows[0].collapsed && /village/.test(col.rows[0].text), 'showing its summary');
+  ok(col.rows.length > 2, 'by DEFAULT a collapsed group keeps its lines, inside one bracket');
+  ok(col.roots.some((n) => n.kind === 'group' && n.collapsed), 'and is marked collapsed');
+  const colLeaf = ssaLayout(doc, { collapsed: ['G1'], collapsedStyle: 'leaf' });
+  eq(colLeaf.rows.length, 2, "'leaf' still reduces it to ONE row");
+  ok(colLeaf.rows[0].collapsed && /village/.test(colLeaf.rows[0].text), 'showing its summary');
 }
 
 console.log('\nSSA SVG + the scrollable page');
@@ -642,6 +647,37 @@ console.log('discourse slots are a THIRD, independent label');
    * labels at all. */
   const noSemantic = buildSsaSvg(d, { labels: 'roles' });
   ok(noSemantic.includes('Stage setting'), 'hiding relations does not hide slots');
+}
+
+console.log('an authored summary overrides the derived one');
+{
+  let d = validateFxpa({
+    format: 'flextext-paragraph-analysis', version: 1, title: 'T', vernLang: 'f', analLang: 'e',
+    lines: [1, 2].map((n) => ({ id: 'L' + n, baseline: 'b' + n, free: 'free ' + n, words: [] })),
+    tree: [], view: {},
+  }).data;
+  d = groupUnits(d, ['L1', 'L2'], { heads: ['L1'], relation: 'r' });
+  const gid = d.tree[0].id;
+
+  eq(summaryLineOf(d, gid), 'free 1', 'with no authored summary it derives from the head');
+  const withSum = editGroup(d, gid, { summary: 'The whole episode in one line' });
+  eq(summaryLineOf(withSum, gid), 'The whole episode in one line',
+     'an authored summary wins in the model');
+  eq(summaryOf(withSum, gid), ['The whole episode in one line'], 'and in summaryOf');
+  eq(summaryText(withSum, gid), 'The whole episode in one line',
+     'and in the export — the anti-drift pair agree');
+
+  // It reaches the 'leaf' rendering, which is what the option is for.
+  const L = ssaLayout({ ...withSum, view: { collapsed: [gid] } }, { collapsedStyle: 'leaf' });
+  eq(L.rows.map((r) => r.text), ['The whole episode in one line'],
+     "the collapsed 'leaf' row shows the authored text, not the head's");
+
+  // Absent unless set; clearing removes the key rather than storing ''.
+  ok(!('summary' in d.tree[0]), 'a group with no summary has NO summary key');
+  ok(!('summary' in editGroup(withSum, gid, { summary: '  ' }).tree[0]), 'clearing REMOVES the key');
+  // and it survives a round trip
+  eq(validateFxpa(JSON.parse(JSON.stringify(withSum))).data.tree[0].summary,
+     'The whole episode in one line', 'it survives serialize → validate');
 }
 
 console.log(fail ? `\nFAILED (${fail})\n` : '\nPASS: the paragraph exports hold.\n');

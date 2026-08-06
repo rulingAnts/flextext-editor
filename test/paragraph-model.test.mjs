@@ -7,6 +7,7 @@ import {
   addProp, setPropText, setPropImplicit, deleteProp, setLineFree,
   isPropId, propUnits, ownerLineOf, orderIndex,
   setWordText, setWordGloss, deleteWord, splitLine,
+  isAsym, headsOf, migrateGroup,
 } from '../docs/js/paragraph-model.js';
 
 let failures = 0;
@@ -50,7 +51,8 @@ console.log('grouping — the default join builds structure, never merges');
 {
   let d = base();
   d = groupUnits(d, ['L1', 'L2'], { joinType: 'asym', head: 'L2', relation: 'grounds' });
-  ok(d.tree.length === 1 && d.tree[0].id === 'G1' && d.tree[0].head === 'L2', 'asym group with head created');
+  ok(d.tree.length === 1 && d.tree[0].id === 'G1' && d.tree[0].heads.join() === 'L2', 'asym group created, its head recorded in heads');
+  ok(isAsym(d.tree[0]), 'and it DERIVES as asymmetrical');
   ok(d.lines.length === 4 && d.lines[0].baseline === 'satu', 'lines untouched by grouping (no merge)');
   ok(levelOf(d, 'G1') === 1, 'first group is level 1');
   ok(topUnits(d).join(',') === 'G1,L3,L4', 'topUnits reflects the new surface, in order');
@@ -67,9 +69,12 @@ console.log('grouping — the default join builds structure, never merges');
   const d = base();
   throws(() => groupUnits(d, ['L1'], { joinType: 'sym' }), 'single unit cannot group');
   throws(() => groupUnits(d, ['L1', 'L3'], { joinType: 'sym' }), 'NON-ADJACENT units cannot group (no crossing by construction)');
-  throws(() => groupUnits(d, ['L1', 'L2'], { joinType: 'asym' }), 'asym without head rejected');
+  /* WAS: 'asym without head rejected'. There is no joinType to disagree with heads any more —
+     asking for asym with no head simply produces a group with no heads, which IS symmetrical. */
+  ok(!isAsym(groupUnits(d, ['L1', 'L2'], { joinType: 'asym' }).tree[0]), 'asym-without-a-head is just symmetrical now, not an error');
   throws(() => groupUnits(d, ['L1', 'L2'], { joinType: 'asym', head: 'L3' }), 'head outside members rejected');
-  throws(() => groupUnits(d, ['L1', 'L2'], { joinType: 'sym', head: 'L1' }), 'sym with head rejected');
+  /* WAS: 'sym with head rejected'. Also unrepresentable: naming a head MAKES it asymmetrical. */
+  ok(isAsym(groupUnits(d, ['L1', 'L2'], { heads: ['L1'] }).tree[0]), 'naming a head is what makes a group asymmetrical');
   const g = groupUnits(d, ['L1', 'L2'], { joinType: 'sym', relation: '' });
   throws(() => groupUnits(g, ['L1', 'L3'], { joinType: 'sym' }),
          'units under DIFFERENT parents cannot group (L1 is inside G1, L3 is not) — sub-grouping siblings IS allowed');
@@ -91,7 +96,7 @@ console.log('ungroup / edit');
   d = ungroup(d, 'G2');
   ok(d.tree.length === 1 && topUnits(d).join(',') === 'G1,L3,L4', 'ungroup releases children to the surface');
   d = editGroup(d, 'G1', { joinType: 'asym', head: 'L1', relation: 'idea' });
-  ok(d.tree[0].head === 'L1' && d.tree[0].relation === 'idea', 'editGroup patches type/head/relation');
+  ok(d.tree[0].heads.join() === 'L1' && d.tree[0].relation === 'idea', 'editGroup patches heads/relation');
   d = editGroup(d, 'G1', { joinType: 'sym' });
   ok(!('head' in d.tree[0]), 'switching to sym drops the head');
   throws(() => editGroup(d, 'G1', { joinType: 'asym', head: 'L9' }), 'editGroup validates head membership');
@@ -249,7 +254,7 @@ console.log('deleting an authored line keeps the tree valid');
   e = groupUnits(e, eids, { joinType: 'asym', head: eids[0], relation: 'x' });
   e = deleteLine(e, eids[0]);
   ok(validateFxpa(JSON.parse(serializeFxpa(e))).ok, 'still valid after deleting the head');
-  ok(e.tree[0].children.includes(e.tree[0].head), 'the head points at a member that still exists');
+  ok(e.tree[0].heads.every((h) => e.tree[0].children.includes(h)), 'every head still points at a member that exists');
 
   throws(() => deleteLine(validateFxpa(newAuthoredDoc('T3')).data, 'L1'), 'the last line cannot be deleted');
 }
@@ -584,7 +589,7 @@ console.log('sub-grouping inside an existing group');
   // An asymmetrical parent whose HEAD is absorbed must follow it into the new group.
   let a = groupUnits(four(), ['L1', 'L2', 'L3'], { joinType: 'asym', head: 'L2' });
   a = groupUnits(a, ['L2', 'L3'], { joinType: 'sym' });
-  eq(a.tree.find((g) => g.id === 'G1').head, 'G2', 'an absorbed HEAD is re-pointed at the new sub-group');
+  eq(a.tree.find((g) => g.id === 'G1').heads, ['G2'], 'an absorbed HEAD is re-pointed at the new sub-group');
 
   // Still refused: a run spanning two parents would be a re-parenting, not a nesting.
   let b = groupUnits(four(), ['L1', 'L2'], { joinType: 'sym' });
@@ -621,15 +626,15 @@ console.log('ungroup works at any depth');
   let a = groupUnits(five(), ['L1', 'L2'], { joinType: 'asym', head: 'L2' });
   a = groupUnits(a, ['G1', 'L3'], { joinType: 'asym', head: 'G1' });
   a = ungroup(a, 'G1');
-  eq(a.tree[0].joinType, 'sym', 'a parent whose HEAD was the dissolved group becomes symmetrical');
-  ok(!('head' in a.tree[0]), 'and names no head at all — nothing is invented');
+  ok(!isAsym(a.tree[0]), 'a parent whose HEAD was the dissolved group is left with none — symmetrical by derivation');
+  eq(a.tree[0].heads, [], 'nothing is invented in its place');
 
   // But a parent whose head is elsewhere keeps it; only the arriving members are plain.
   let b = groupUnits(five(), ['L1', 'L2'], { joinType: 'asym', head: 'L1' });
   b = groupUnits(b, ['G1', 'L3'], { joinType: 'asym', head: 'L3' });
   b = ungroup(b, 'G1');
-  eq(b.tree[0].head, 'L3', 'a parent whose head is elsewhere keeps it');
-  eq(b.tree[0].joinType, 'asym', 'and stays asymmetrical');
+  eq(b.tree[0].heads, ['L3'], 'a parent whose head is elsewhere keeps it');
+  ok(isAsym(b.tree[0]), 'and stays asymmetrical');
 
   // Top-level ungroup is unchanged.
   let c = groupUnits(five(), ['L1', 'L2'], { joinType: 'sym' });
@@ -670,6 +675,62 @@ console.log('hidden blanks are absorbed at any depth');
   const g2 = groupUnits(withBlank(), ['L1', 'L2', 'L3', 'L4'], { joinType: 'sym' });
   eq([...withBlanksBetween(g2, ['L1', 'L4'], true)].sort(), ['L1', 'L2', 'L4'],
      'only blanks are added — L3 has content and is never pulled in silently');
+}
+
+
+/* ── HEADS MODEL: sym/asym is DERIVED, never stored (Seth, 2026-08-06) ───────────────────────────
+ * "Have our basic data model be not whether a group is symmetrical or asymmetrical fundamentally.
+ * Have that be a DERIVED status from whether or not the group has one or more HEADs."
+ *
+ * These are written BEFORE the change, migration first, because the migration is the step that can
+ * lose an analyst's work. Every existing .fxpa stores joinType + head. */
+console.log('heads model: migration from joinType/head');
+{
+  const load = (tree) => validateFxpa({
+    format: 'flextext-paragraph-analysis', version: 1, title: 'T', vernLang: 'fau', analLang: 'id',
+    lines: [1, 2, 3].map((n) => ({ id: 'L' + n, baseline: 'w' + n, words: [] })), tree,
+  });
+
+  // OLD asymmetrical → one head
+  const a = load([{ id: 'G1', children: ['L1', 'L2'], joinType: 'asym', head: 'L2' }]);
+  ok(a.ok, 'an OLD asym group still loads');
+  eq(a.data.tree[0].heads, ['L2'], 'asym + head migrates to heads:[head]');
+  ok(!('joinType' in a.data.tree[0]), 'joinType is no longer stored');
+  ok(!('head' in a.data.tree[0]), 'nor is head');
+
+  // OLD symmetrical → no heads
+  const s2 = load([{ id: 'G1', children: ['L1', 'L2'], joinType: 'sym' }]);
+  ok(s2.ok, 'an OLD sym group still loads');
+  eq(s2.data.tree[0].heads, [], 'sym migrates to heads:[]');
+
+  // derived status
+  eq(isAsym(a.data.tree[0]), true, 'one head reads as asymmetrical');
+  eq(isAsym(s2.data.tree[0]), false, 'no heads reads as symmetrical');
+
+  // a head naming a non-member is dropped rather than accepted
+  const bad = load([{ id: 'G1', children: ['L1', 'L2'], joinType: 'asym', head: 'L3' }]);
+  ok(!bad.ok || !(bad.data.tree[0].heads || []).includes('L3'),
+     'a head that is not a member is rejected or dropped, never carried through');
+
+  // round trip: written in the new shape, read back identically
+  const rt = validateFxpa(JSON.parse(serializeFxpa(a.data)));
+  ok(rt.ok, 'the migrated document round-trips');
+  eq(rt.data.tree[0].heads, ['L2'], 'and keeps its heads');
+  ok(!/"joinType"/.test(serializeFxpa(a.data)), 'the saved file no longer contains joinType');
+}
+
+console.log('heads model: multiple heads are representable');
+{
+  const d = validateFxpa({
+    format: 'flextext-paragraph-analysis', version: 1, title: 'T', vernLang: 'fau', analLang: 'id',
+    lines: [1, 2, 3].map((n) => ({ id: 'L' + n, baseline: 'w' + n, words: [] })),
+    tree: [{ id: 'G1', children: ['L1', 'L2', 'L3'], heads: ['L1', 'L3'] }],
+  });
+  ok(d.ok, 'a group may carry TWO heads — the model stays permissive');
+  eq(d.data.tree[0].heads, ['L1', 'L3'], 'both are kept');
+  eq(isAsym(d.data.tree[0]), true, 'and it reads as asymmetrical');
+  // ⚠ The per-document "one head only" rule belongs at the EDIT surface, not here, so switching a
+  // document's mode can never invalidate data already stored.
 }
 
 if (failures) { console.error(`\n${failures} FAILURE(S)`); process.exit(1); }

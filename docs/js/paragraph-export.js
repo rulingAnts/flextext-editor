@@ -20,6 +20,18 @@
 
 import { esc } from './flextext.js';
 
+/* ⚠ SYM/ASYM IS DERIVED FROM `heads`, NEVER STORED (the 2026-08-06 model change). A local copy of
+ * the predicate rather than an import: this is a pure format module that deliberately depends on
+ * almost nothing, and one expression is cheaper than a coupling.
+ *
+ * ⚠ MULTIPLE HEADS: for 0 or 1 head this behaves exactly as the old joinType/head did. With 2+,
+ * every head is MARKED correctly, but the diagram's ANCHOR still uses the first — the SSA trunk
+ * assumes one prominent member and two trunks in one cluster is a genuine layout question, not a
+ * marking one. Seth, 2026-08-06: "once our model and UI have enabled multiple heads… we'll need to
+ * consider the impact of that on our diagram exports." Decide that before enabling multi-head. */
+const isAsym = (g) => !!g && Array.isArray(g.heads) && g.heads.length > 0;
+const isHeadChild = (g, c) => !!g && Array.isArray(g.heads) && g.heads.includes(c);
+
 /* ---------------- the unit walk everything renders from ---------------- */
 
 const isGroup = (id) => /^G\d+$/.test(String(id));
@@ -174,7 +186,7 @@ export function buildParagraphPreviewHtml(data, opts = {}) {
     const head = `<div class="badge">
       <button class="caret" aria-expanded="${!isCollapsed}">${isCollapsed ? '▸' : '▾'}</button>
       ${label ? `<span class="lbl">${esc(label)}</span>` : ''}
-      <span class="jt">${g.joinType === 'asym' ? '⊳' : '⊕'}</span>
+      <span class="jt">${isAsym(g) ? '⊳' : '⊕'}</span>
       ${g.relation ? `<span class="rel">${esc(g.relation)}</span>` : ''}
       ${sp && audioB64 ? `<button class="play" data-s="${sp.start}" data-e="${sp.end}">▶</button>` : ''}
     </div>`;
@@ -182,7 +194,7 @@ export function buildParagraphPreviewHtml(data, opts = {}) {
       if (hideBlank && blankUnit(data, c)) return '';
       const kidLabel = (g.labels || {})[c] || '';
       const el = renderUnit(c, kidLabel, depth + 1);
-      return (g.joinType === 'asym' && g.head === c && el) ? el.replace(/^<div class="/, '<div class="head ') : el;
+      return (isHeadChild(g, c) && el) ? el.replace(/^<div class="/, '<div class="head ') : el;
     }).join('');
     // ALWAYS emit the summary; CSS shows it only while collapsed. The reader can collapse groups
     // in the exported page too, and a collapsed bracket with nothing under it reads as broken —
@@ -379,7 +391,7 @@ function summaryText(data, id) {
   }
   const g = node(data, id);
   if (!g) return '';
-  if (g.joinType === 'asym' && g.head) return summaryText(data, g.head);
+  if (isAsym(g)) return summaryText(data, g.heads[0]);
   return g.children.map((c) => summaryText(data, c)).filter(Boolean).join('  ·  ');
 }
 
@@ -471,11 +483,11 @@ export function ssaLayout(data, opts = {}) {
       const kids = [];
       for (const c of g.children) {
         if (hideBlank && blankUnit(data, c)) continue;
-        const kid = build(c, depth + 1, (g.labels || {})[c] || '', g.joinType === 'asym' && g.head === c);
+        const kid = build(c, depth + 1, (g.labels || {})[c] || '', isHeadChild(g, c));
         if (kid) kids.push(kid);
       }
       if (!kids.length) return null;
-      return { kind: 'group', depth, kids, relation: g.relation || '', joinType: g.joinType,
+      return { kind: 'group', depth, kids, relation: g.relation || '', asym: isAsym(g),
                headIndex: kids.findIndex((k) => k.head), label: roleLabel, head: !!isHead };
     }
     /* A PROPOSITION IS ITS OWN LEAF on the flat surface. */
@@ -563,7 +575,7 @@ export function ssaLayout(data, opts = {}) {
   const anchor = (n) => {
     if (n.kind === 'leaf') return rows[n.row].midY;
     const ys = n.kids.map(anchor);
-    n.anchorY = (n.joinType === 'asym' && n.headIndex >= 0) ? ys[n.headIndex] : (Math.min(...ys) + Math.max(...ys)) / 2;
+    n.anchorY = (n.asym && n.headIndex >= 0) ? ys[n.headIndex] : (Math.min(...ys) + Math.max(...ys)) / 2;
     n.top = Math.min(...ys); n.bottom = Math.max(...ys);
     return n.anchorY;
   };
@@ -680,7 +692,7 @@ export function buildSsaSvg(data, opts = {}) {
     }
     const x = xOf(n.depth), xc = xOf(n.depth + 1);
     // the vertical joiner across this group's children
-    parts.push(`<path d="M ${xc} ${n.top} V ${n.bottom}" stroke="#1f4f8f" stroke-width="1.4" fill="none"${n.joinType === 'sym' ? ' stroke-dasharray="4 3"' : ''}/>`);
+    parts.push(`<path d="M ${xc} ${n.top} V ${n.bottom}" stroke="#1f4f8f" stroke-width="1.4" fill="none"${n.asym ? '' : ' stroke-dasharray="4 3"'}/>`);
     // each child's connector into the joiner
     for (const k of n.kids) {
       const ky = k.kind === 'leaf' ? L.rows[k.row].midY : k.anchorY;

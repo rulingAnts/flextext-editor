@@ -44,7 +44,8 @@ export function validateFxpa(obj) {
   const data = { ...obj };
   data.lines = obj.lines.map((l, i) => ({ ...l, id: String(l.id || 'L' + (i + 1)) }));
   // `level` is DERIVED (see stripDerived) — drop it from any file that still carries the stale copy.
-  data.tree = Array.isArray(obj.tree) ? obj.tree.map((g) => stripDerived({ ...g, children: [...(g.children || [])] })) : [];
+  // `level` is DERIVED (stripDerived) and so is sym/asym (migrateGroup): neither is stored.
+  data.tree = Array.isArray(obj.tree) ? obj.tree.map((g) => migrateGroup(stripDerived({ ...g, children: [...(g.children || [])] }))) : [];
   data.view = { layer: 'interlinear', free: true, audio: true, waves: 'compact', collapsed: [], ...(obj.view || {}) };
   if (!Array.isArray(data.view.collapsed)) data.view.collapsed = [];
   if (!data.audio || !data.audio.b64) { delete data.audio; data.view.audio = false; }
@@ -96,9 +97,10 @@ export function validateFxpa(obj) {
      * group may hold a proposition beside a proposition from the next line, or beside a whole
      * line. What still cannot happen is a crossing bracket — and that is guaranteed by adjacency
      * plus single-parent, which are checked above and in groupUnits, not here. */
-    if (g.joinType !== 'sym' && g.joinType !== 'asym') errors.push(`Group ${g.id}: joinType must be sym|asym.`);
-    if (g.joinType === 'asym' && !(g.children || []).includes(g.head)) errors.push(`Group ${g.id}: asym needs a head from its children.`);
-    if (g.joinType === 'sym' && g.head) errors.push(`Group ${g.id}: sym groups have no head.`);
+    /* Only ONE fact to check now: every head must be a member. There is no "asym needs a head" or
+       "sym has no head" — those combinations cannot be expressed. */
+    if (!Array.isArray(g.heads)) errors.push(`Group ${g.id}: heads must be a list.`);
+    else for (const h of g.heads) if (!(g.children || []).includes(h)) errors.push(`Group ${g.id}: head ${h} is not one of its members.`);
     // Member labels: optional, but when present every key must be a member of THIS group.
     if (g.labels !== undefined && g.labels !== null) {
       if (typeof g.labels !== 'object' || Array.isArray(g.labels)) {
@@ -244,11 +246,9 @@ export function deleteLine(data, id) {
       break;
     }
   }
-  // A head that was deleted (or promoted away) must not dangle.
-  tree = tree.map((g) => {
-    if (g.joinType !== 'asym' || g.children.includes(g.head)) return g;
-    return { ...g, head: g.children[0] };
-  });
+  /* A head that was deleted must not dangle. It is simply no longer a head — and a group left with
+     none IS symmetrical, so nothing is promoted in its place. */
+  tree = tree.map((g) => ({ ...g, heads: (g.heads || []).filter((h) => g.children.includes(h)) }));
   const collapsed = (data.view.collapsed || []).filter((c) => tree.some((g) => g.id === c));
   return { ...data, lines, tree, view: { ...data.view, collapsed } };
 }
@@ -285,6 +285,37 @@ export const isGroupId = (id) => /^G\d+$/.test(String(id));
  * ⚠ The counter-case, so this is not over-applied: audio times ARE stored, because they are
  * OBSERVED, not derivable. "Never invent a time" is the segmentation engine's absolute rule. Derive
  * what can be derived; store what was measured. */
+/* ⚠ SYMMETRICAL vs ASYMMETRICAL IS DERIVED FROM `heads`, NEVER STORED (Seth, 2026-08-06: "have
+ * that be a DERIVED status from whether or not the group has one or more HEADs").
+ *
+ * It used to be a stored `joinType` PLUS a `head`, two facts that had to agree, with validation
+ * enforcing the agreement ("asym needs a head", "sym has no head"). That is redundant state by
+ * definition — the same trap as the stored `level`. With one fact the disagreement is
+ * unrepresentable, and three things fall out for free:
+ *   - removing a head leaves zero heads, which IS symmetrical: no demotion code, no conversion
+ *     message, because nothing converts (this replaces the v234 special case);
+ *   - MULTIPLE HEADS needs no new concept, including heads mixed with supports;
+ *   - the per-document "one head only" rule becomes a single check at the EDIT surface, leaving the
+ *     model permissive so switching a document's mode never invalidates stored data.
+ *
+ * ⚠ `heads` is a SET ordered by `children`; nothing should rely on its own order. */
+export const isAsym = (g) => !!g && Array.isArray(g.heads) && g.heads.length > 0;
+export const headsOf = (g) => (g && Array.isArray(g.heads) ? g.heads : []);
+
+/* Migration for every .fxpa written before the change: joinType+head → heads. Total and
+ * unambiguous, which is what makes it safe — no information is lost and no judgement is made. A
+ * head naming a non-member is DROPPED rather than carried through, because it addressed nothing. */
+export function migrateGroup(g) {
+  const children = [...(g.children || [])];
+  if (Array.isArray(g.heads)) {
+    const { joinType, head, ...rest } = g;
+    return { ...rest, children, heads: g.heads.filter((h) => children.includes(h)) };
+  }
+  const heads = (g.joinType === 'asym' && children.includes(g.head)) ? [g.head] : [];
+  const { joinType, head, ...rest } = g;
+  return { ...rest, children, heads };
+}
+
 export const stripDerived = (g) => { const { level, ...rest } = g; return rest; };
 
 export const isPropId = (id) => /^L\d+p\d+$/.test(String(id));
@@ -476,7 +507,7 @@ export function summaryLineOf(data, id) {
   }
   const g = nodeById(data, id);
   if (!g) return '';
-  if (g.joinType === 'asym') return summaryLineOf(data, g.head);
+  if (isAsym(g)) return summaryLineOf(data, g.heads[0]);
   return g.children.map((c) => summaryLineOf(data, c)).filter((s) => s.trim()).join('  ·  ');
 }
 
@@ -489,7 +520,7 @@ export function summaryLineOf(data, id) {
 export function summaryOf(data, id) {
   const g = nodeById(data, id);
   if (!g || !isGroupId(id)) return [summaryLineOf(data, id)];
-  if (g.joinType === 'asym') return [summaryLineOf(data, g.head)];
+  if (isAsym(g)) return [summaryLineOf(data, g.heads[0])];
   const lines = g.children.map((c) => summaryLineOf(data, c)).filter((s) => s.trim());
   return lines.length ? lines : [''];      // all-blank group: ONE placeholder, not one per member
 }
@@ -516,14 +547,14 @@ function nextGroupId(data) {
  * backlog item), this normalisation belongs BEHIND it — SSA on, others off — so the document
  * declares the convention rather than the app imposing it. Keep this function the single place it
  * happens, so switching it off later is one edit. */
-function cleanLabels(children, labels, head = null) {
+function cleanLabels(children, labels, heads = []) {
   if (labels == null) return null;
   if (typeof labels !== 'object' || Array.isArray(labels)) throw new Error('Member labels must be an object.');
   const out = {};
   for (const [k, v] of Object.entries(labels)) {
     if (!children.includes(k)) throw new Error('A label was given for a unit that is not in this group.');
     const s = String(v ?? '').trim();
-    if (s) out[k] = head && k === head ? s.toUpperCase() : s.toLowerCase();
+    if (s) out[k] = (heads || []).includes(k) ? s.toUpperCase() : s.toLowerCase();
   }
   return Object.keys(out).length ? out : null;
 }
@@ -531,7 +562,7 @@ function cleanLabels(children, labels, head = null) {
 // The DEFAULT join: create a grouping node over 2+ adjacent parentless units. Never touches
 // lines, audio, or text — grouping is metadata by construction. Both kinds of label are
 // OPTIONAL: `relation` on the group, `labels` on its members, either, both, or neither.
-export function groupUnits(data, ids, { joinType, head, relation = '', labels = null } = {}) {
+export function groupUnits(data, ids, { heads, joinType, head, relation = '', labels = null } = {}) {
   if (!Array.isArray(ids) || ids.length < 2) throw new Error('Select at least two units to group.');
   for (const id of ids) if (!nodeById(data, id)) throw new Error(`Unknown unit ${id}.`);
 
@@ -557,13 +588,14 @@ export function groupUnits(data, ids, { joinType, head, relation = '', labels = 
   for (let k = 1; k < idx.length; k++) {
     if (idx[k] !== idx[k - 1] + 1) throw new Error('Units must be adjacent to group.');
   }
-  if (joinType !== 'sym' && joinType !== 'asym') throw new Error('Choose symmetrical or asymmetrical.');
-  if (joinType === 'asym' && !ids.includes(head)) throw new Error('An asymmetrical join needs one of its members as HEAD.');
-  if (joinType === 'sym' && head) throw new Error('A symmetrical join has no head.');
   const ordered = idx.map((i) => siblings[i]);
-  const lab = cleanLabels(ordered, labels, joinType === 'asym' ? head : null);
-  const g = { id: nextGroupId(data), children: ordered, joinType, relation: String(relation || '').trim() };
-  if (joinType === 'asym') g.head = head;
+  /* `heads` is the one fact. joinType/head are still accepted from callers not yet migrated, and
+   * are translated here — the same mapping migrateGroup() applies to a stored file. */
+  const wanted = Array.isArray(heads) ? heads : (joinType === 'asym' && head ? [head] : []);
+  for (const h of wanted) if (!ordered.includes(h)) throw new Error('A HEAD must be one of the group\'s members.');
+  const hs = ordered.filter((c) => wanted.includes(c));   // ordered by children; heads is a SET
+  const lab = cleanLabels(ordered, labels, hs);
+  const g = { id: nextGroupId(data), children: ordered, heads: hs, relation: String(relation || '').trim() };
   if (lab) g.labels = lab;
   if (!parent) return { ...data, tree: [...data.tree, g] };
 
@@ -578,7 +610,14 @@ export function groupUnits(data, ids, { joinType, head, relation = '', labels = 
     if (x.id !== parent.id) return x;
     const children = [...x.children.slice(0, first), g.id, ...x.children.slice(last + 1)];
     const y = { ...x, children };
-    if (y.joinType === 'asym' && ordered.includes(y.head)) y.head = g.id;
+    /* A head absorbed into the new sub-group: the SUB-GROUP inherits its headship, because the
+     * parent's assertion was about that member's prominence and the member is still there, one
+     * level down. With multiple heads this maps naturally — several absorbed heads collapse to the
+     * single sub-group that now stands for them. */
+    if ((y.heads || []).some((h) => ordered.includes(h))) {
+      y.heads = [...new Set(y.heads.map((h) => (ordered.includes(h) ? g.id : h)))];
+      y.heads = y.children.filter((c) => y.heads.includes(c));
+    }
     if (y.labels) {
       const kept = {};
       for (const [k, v] of Object.entries(y.labels)) if (children.includes(k)) kept[k] = v;
@@ -625,7 +664,10 @@ export function ungroup(data, gid) {
      * An earlier version inherited "the head of the head" instead. That preserved more, but it
      * asserted prominence at a level the analyst never asserted it — precisely the kind of guess
      * this model should not make. */
-    if (y.joinType === 'asym' && y.head === gid) { y.joinType = 'sym'; delete y.head; }
+    /* Head status is NOT inherited: the dissolved group simply stops being a head. With sym/asym
+     * derived, a parent left with no heads IS symmetrical — nothing converts, so there is no
+     * special case here any more (it replaces the v234 demotion). */
+    y.heads = (y.heads || []).filter((h) => h !== gid);
     // A label addressed to the dissolved group no longer addresses anything.
     if (y.labels && gid in y.labels) {
       const { [gid]: _gone, ...rest } = y.labels;
@@ -644,12 +686,21 @@ export function editGroup(data, gid, patch = {}) {
   const g = nodeById(data, gid);
   if (!g || !isGroupId(gid)) throw new Error('Not a group.');
   const next = { ...g, ...patch };
-  if (next.joinType !== 'sym' && next.joinType !== 'asym') throw new Error('joinType must be sym|asym.');
-  if (next.joinType === 'asym' && !g.children.includes(next.head)) throw new Error('HEAD must be one of the group\'s members.');
-  if (next.joinType === 'sym') delete next.head;
+  /* One fact: which members are heads. `joinType`/`head` from an unmigrated caller are translated. */
+  if (!('heads' in patch) && ('joinType' in patch || 'head' in patch)) {
+    next.heads = (patch.joinType === 'asym' && patch.head) ? [patch.head] : [];
+  }
+  delete next.joinType; delete next.head;
+  /* ⚠ Validate BEFORE filtering, and validate whatever the caller actually asked for — `heads`, or a
+   * translated `head`. Filtering first would silently swallow a head that names a non-member, which
+   * is a caller bug worth reporting rather than quietly ignoring. */
+  const asked = ('heads' in patch) ? patch.heads
+              : ('head' in patch && patch.head) ? [patch.head] : null;
+  if (asked) for (const h of asked) if (!g.children.includes(h)) throw new Error('HEAD must be one of the group\'s members.');
+  next.heads = g.children.filter((c) => (next.heads || []).includes(c));
   if ('relation' in patch) next.relation = String(patch.relation ?? '').trim();
   if ('labels' in patch) {
-    const lab = cleanLabels(g.children, patch.labels, next.joinType === 'asym' ? next.head : null);
+    const lab = cleanLabels(g.children, patch.labels, next.heads);
     if (lab) next.labels = lab; else delete next.labels;   // clearing every label removes the key
   }
   return { ...data, tree: data.tree.map((x) => (x.id === gid ? next : x)) };
@@ -923,7 +974,7 @@ function pruneTree(data, goneId) {
   }
   tree = tree.map((g) => {
     const h = { ...g };
-    if (h.joinType === 'asym' && !h.children.includes(h.head)) h.head = h.children[0];
+    h.heads = (h.heads || []).filter((x) => h.children.includes(x));   // a head that left is simply no longer a head
     if (h.labels) {
       const kept = {};
       for (const [k, v] of Object.entries(h.labels)) if (h.children.includes(k)) kept[k] = v;

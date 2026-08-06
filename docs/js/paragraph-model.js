@@ -504,14 +504,26 @@ function nextGroupId(data) {
 
 // Member labels → a clean object, or null when nothing is labelled. Every key must be a member
 // of the group; blank values are dropped so "unlabelled" is absent, never an empty string.
-function cleanLabels(children, labels) {
+/* ⚠ CASE IS NORMALISED WHEN THE ROLE IS STORED, not only when it is drawn (Seth, 2026-08-06: "I
+ * think we should force normalization throughout if we force it at all"). Half-normalising would let
+ * the SSA diagram and the .fxpa disagree with the screen, which is worse than either choice alone.
+ *
+ * The convention is the app's own — the Group dialog placeholder reads
+ * "grounds–CONCLUSION, orienter–CONTENT": the HEAD's role in caps, supports in lower case.
+ *
+ * ⚠ THIS IS AN SSA CONVENTION, NOT A UNIVERSAL ONE. Longacre does not share it, and PAT deliberately
+ * serves several traditions. When the per-document model setting lands (see the multiple-HEADs
+ * backlog item), this normalisation belongs BEHIND it — SSA on, others off — so the document
+ * declares the convention rather than the app imposing it. Keep this function the single place it
+ * happens, so switching it off later is one edit. */
+function cleanLabels(children, labels, head = null) {
   if (labels == null) return null;
   if (typeof labels !== 'object' || Array.isArray(labels)) throw new Error('Member labels must be an object.');
   const out = {};
   for (const [k, v] of Object.entries(labels)) {
     if (!children.includes(k)) throw new Error('A label was given for a unit that is not in this group.');
     const s = String(v ?? '').trim();
-    if (s) out[k] = s;
+    if (s) out[k] = head && k === head ? s.toUpperCase() : s.toLowerCase();
   }
   return Object.keys(out).length ? out : null;
 }
@@ -549,7 +561,7 @@ export function groupUnits(data, ids, { joinType, head, relation = '', labels = 
   if (joinType === 'asym' && !ids.includes(head)) throw new Error('An asymmetrical join needs one of its members as HEAD.');
   if (joinType === 'sym' && head) throw new Error('A symmetrical join has no head.');
   const ordered = idx.map((i) => siblings[i]);
-  const lab = cleanLabels(ordered, labels);
+  const lab = cleanLabels(ordered, labels, joinType === 'asym' ? head : null);
   const g = { id: nextGroupId(data), children: ordered, joinType, relation: String(relation || '').trim() };
   if (joinType === 'asym') g.head = head;
   if (lab) g.labels = lab;
@@ -637,7 +649,7 @@ export function editGroup(data, gid, patch = {}) {
   if (next.joinType === 'sym') delete next.head;
   if ('relation' in patch) next.relation = String(patch.relation ?? '').trim();
   if ('labels' in patch) {
-    const lab = cleanLabels(g.children, patch.labels);
+    const lab = cleanLabels(g.children, patch.labels, next.joinType === 'asym' ? next.head : null);
     if (lab) next.labels = lab; else delete next.labels;   // clearing every label removes the key
   }
   return { ...data, tree: data.tree.map((x) => (x.id === gid ? next : x)) };

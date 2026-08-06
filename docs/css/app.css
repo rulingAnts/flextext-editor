@@ -1437,16 +1437,53 @@ main {
        which is the actual question being asked ("which bar is this heading?").
    Depth colours stay dark enough for contrast on white and are distinguishable without relying on
    hue alone — the trace and the weight difference carry it for anyone who cannot separate them. */
-.pa-group { border-left: 3px solid var(--blue); border-radius: 8px 0 0 8px; margin: 8px 0 8px 2px; padding-left: 14px; }
-.pa-group[data-depth="0"] { border-left-color: #1f4f8f; }
-.pa-group[data-depth="1"] { border-left-color: #2a6e2a; }
-.pa-group[data-depth="2"] { border-left-color: #8a5a00; }
-.pa-group[data-depth="3"] { border-left-color: #6b21a8; }
-.pa-group[data-depth="4"] { border-left-color: #0e7490; }
-.pa-group[data-depth="5"] { border-left-color: #a33; }
-.pa-group.trace { border-left-width: 6px; padding-left: 11px; background: rgba(31,79,143,.05); }
+.pa-group { position: relative; border-left: 3px solid currentColor; color: var(--blue);
+             border-radius: 8px 0 0 8px; margin: 10px 0 10px 2px; padding-left: 16px; }
+.pa-group.trace { border-left-width: 6px; padding-left: 13px; background: rgba(31,79,143,.05); }   /* 6+13 = 3+16, so tracing never shifts the text */
 .pa-group.trace > .pa-badge { background: #e8f0fb; }
-.pa-group.pa-head, .pa-row.pa-head { box-shadow: inset 3px 0 0 var(--gloss); }
+/* ── PROMINENCE IS POSITION (Seth, 2026-08-06) ────────────────────────────────────────────────
+   The head used to carry `box-shadow: inset 3px 0 0` — a LEFT BAR, which is exactly what a group
+   bracket looks like, so the prominent member read as one more level of nesting ("putting a bracket
+   around the head makes it look like a daughter").
+   Now nothing is drawn beside the head at all. It earns prominence by staying ON THE TRUNK while
+   every support steps aside: indented ~22px and hanging off a short dotted connector. One rule for
+   a line, a proposition or a whole group — and it scales to multiple heads for free, since two
+   heads is simply two members not indented. */
+.pa-group.pa-head, .pa-row.pa-head { font-weight: 600; }
+.pa-group.pa-support, .pa-row.pa-support { margin-left: 22px; position: relative; }
+/* ⚠ The connector stays SHORT. It sits BESIDE text, and lengthening it reads as a strikethrough
+   (Seth: "I don't want what is in effect a strikethrough styling"). Reach belongs to the brace
+   arms, which live in the margin above and below the content. */
+.pa-group.pa-support::before, .pa-row.pa-support::before {
+  content: ""; position: absolute; left: -14px; top: 1.05em; width: 10px;
+  border-top: 1px dotted #9aa3ad; }
+/* A group as a member hangs its connector beside the heading badge, which is the group's handle. */
+.pa-group.pa-support::before { top: 14px; left: -17px; width: 14px; }
+
+/* ── BRACE ARMS: the group's boundary, top and bottom ─────────────────────────────────────────
+   The SPINE stays solid — it is what the eye traces down a long group — and only the ARMS are
+   dotted, so they read as reach rather than as another level.
+   ⚠ STAGGERED BY DEPTH (25 / 21 / 17%, Seth's option B). Concentric groups begin and end at nearly
+   the same vertical position, so equal-length arms stack into one thick dotted band and you cannot
+   tell which arm belongs to which bracket. Each level reaching slightly less far keeps the corners
+   distinct — the same reason the spines are coloured by depth. */
+.pa-group::before, .pa-group::after {
+  content: ""; position: absolute; left: 0; width: 21%;
+  border-top: 2px dotted currentColor; opacity: .7; pointer-events: none; }
+.pa-group::before { top: 0; }
+.pa-group::after { bottom: 0; }
+.pa-group[data-depth="0"] { color: #1f4f8f; }
+.pa-group[data-depth="0"]::before, .pa-group[data-depth="0"]::after { width: 25%; }
+.pa-group[data-depth="1"] { color: #2a6e2a; }
+.pa-group[data-depth="1"]::before, .pa-group[data-depth="1"]::after { width: 21%; }
+.pa-group[data-depth="2"] { color: #8a5a00; }
+.pa-group[data-depth="2"]::before, .pa-group[data-depth="2"]::after { width: 17%; }
+.pa-group[data-depth="3"] { color: #6b21a8; }
+.pa-group[data-depth="3"]::before, .pa-group[data-depth="3"]::after { width: 14%; }
+.pa-group[data-depth="4"] { color: #0e7490; }
+.pa-group[data-depth="4"]::before, .pa-group[data-depth="4"]::after { width: 12%; }
+.pa-group[data-depth="5"] { color: #a33; }
+.pa-group[data-depth="5"]::before, .pa-group[data-depth="5"]::after { width: 10%; }
 /* The group HEADING is the group's handle: clicking it selects the group, and Edit/Ungroup act on
    exactly that. So it has to LOOK like a control — a bar with its own surface and a hover state —
    not like a caption (users could not find it when it was plain text). */
@@ -1500,11 +1537,22 @@ main {
 /* A member's ROLE label, shown at the left edge of that member in the tree (the SSA convention:
    relation labels in a column beside each unit). Sits before the caret/play button so the labels
    line up down the page. */
+/* ⚠ THE HEAD'S ROLE IS A CHIP; A SUPPORT'S IS A PLAIN LABEL. The weight difference reinforces the
+   indentation instead of duplicating it, so prominence survives even when a reader is skimming.
+   Case is forced — CAPS for the head, lowercase for supports — which is already this app's own
+   convention (the Group dialog placeholder reads "grounds–CONCLUSION, orienter–CONTENT").
+   ⚠ Case-as-meaning is an SSA convention. Longacre does not share it, so when the per-document
+   model setting lands this belongs behind it rather than applying to every document. */
 .pa-nodelabel {
   flex: none; align-self: flex-start; margin-top: 2px;
-  font-size: 12px; font-weight: 600; color: var(--blue-dark);
-  background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px;
-  max-width: 16ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 11px; letter-spacing: .02em; text-transform: lowercase;
+  color: var(--muted); font-weight: 400; background: none; border: 0; padding: 0 0 0 2px;
+  max-width: 18ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pa-head > .pa-nodelabel, .pa-head > .pa-badge > .pa-nodelabel {
+  text-transform: uppercase; letter-spacing: .05em; font-weight: 600;
+  color: var(--gloss); background: #f0f7f0; border: 1px solid #b7d4b7;
+  border-radius: 10px; padding: 1px 8px;
 }
 
 /* Advanced link-estate override (⌃⌥E). Normally absent; when ACTIVE it is deliberately loud —

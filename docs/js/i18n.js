@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v261';
+export const ENGINE_VERSION = 'v262';
 
 const S = {
 en: {
@@ -1263,6 +1263,8 @@ internet after the first time.</p>
   'para.previewHide': 'Hide preview',
   'para.previewOnlyDiagram': 'The preview shows the diagram. Choose “SSA diagram” or “Diagram (HTML)” above to see it — the interactive page has nothing to preview here.',
   'para.previewFailed': 'The preview could not be drawn:',
+  'para.menuFile': 'File', 'para.menuView': 'View', 'para.menuAudio': 'Audio',
+  'para.zoomLabel': 'Zoom',
   'para.slot': 'Discourse slot',
   'para.slotPh': 'e.g. Stage setting, Episode 1, Peak',
   'para.slotHint': 'Optional, and separate from the relation: the relation says how these members relate to each other; the slot says what part this group plays in the text as a whole. A group can have both.',
@@ -2574,6 +2576,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.previewHide': 'Sembunyikan pratinjau',
   'para.previewOnlyDiagram': 'Pratinjau menampilkan diagram. Pilih “Diagram SSA” atau “Diagram (HTML)” di atas untuk melihatnya — halaman interaktif tidak punya pratinjau di sini.',
   'para.previewFailed': 'Pratinjau tidak dapat digambar:',
+  'para.menuFile': 'Berkas', 'para.menuView': 'Tampilan', 'para.menuAudio': 'Audio',
+  'para.zoomLabel': 'Perbesaran',
   'para.slot': 'Slot wacana',
   'para.slotPh': 'mis. Latar, Episode 1, Puncak',
   'para.slotHint': 'Opsional, dan terpisah dari relasi: relasi menyatakan hubungan antaranggota; slot menyatakan peran grup ini dalam keseluruhan teks. Sebuah grup bisa punya keduanya.',

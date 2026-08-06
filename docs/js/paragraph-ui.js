@@ -659,6 +659,33 @@ function wireHelpDisclosure() {
   });
 }
 
+/* ── MENUS ────────────────────────────────────────────────────────────────────────────────────
+ * <details> rather than a hand-rolled popup: it is a real disclosure, so keyboard and screen-reader
+ * behaviour come for free and there is no focus trap to get wrong. What <details> does NOT give is
+ * the three things people expect of a menu bar, so they are added here:
+ *   - opening one closes the others (otherwise two panels overlap),
+ *   - a click anywhere else closes them,
+ *   - Escape closes them and returns focus to the summary that opened it.
+ * ⚠ The outside-click listener is attached ONCE per render and removed with the bar it belongs to;
+ * stacking one per render is how a listener leak turns into N handlers per click. */
+function closeMenus(except) {
+  document.querySelectorAll('.pa-menu[open]').forEach((d) => { if (d !== except) d.open = false; });
+}
+let menuOutsideHandler = null;
+function wireMenus() {
+  const menus = [...document.querySelectorAll('.pa-menu')];
+  if (!menus.length) return;
+  menus.forEach((d) => d.addEventListener('toggle', () => { if (d.open) closeMenus(d); }));
+  if (menuOutsideHandler) document.removeEventListener('click', menuOutsideHandler, true);
+  menuOutsideHandler = (e) => { if (!e.target.closest || !e.target.closest('.pa-menu')) closeMenus(); };
+  document.addEventListener('click', menuOutsideHandler, true);
+  menus.forEach((d) => d.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && d.open) { d.open = false; d.querySelector('summary').focus(); }
+  }));
+  // A command inside a panel closes it; a setting (checkbox, select) leaves it open to change more.
+  document.querySelectorAll('.pa-menuitem').forEach((b) => b.addEventListener('click', () => closeMenus()));
+}
+
 /* ── CHART VIEW ───────────────────────────────────────────────────────────────────────────────
  * ⚠ A DIFFERENT THING FROM THE EXPORT PREVIEW, and both are wanted (Seth, 2026-08-06: he likes the
  * export preview and wants to keep it, but what he actually meant was "an instant rapid chart
@@ -1097,56 +1124,88 @@ function renderWorkInner() {
     <div class="pa-bar">
       <button id="pa-slim" class="pa-slimbtn" title="${esc(t('para.slimTip'))}">${state.view.slim ? '▾' : '▴'}</button>
       <span class="pa-titlewrap"><span class="pa-title" title="${esc(state.title)}">${esc(state.title || t('para.untitled'))}</span><button id="pa-title-edit" title="${esc(t('para.titleEdit'))}">✎</button></span>
-      <span class="pa-tools">
-        <select id="pa-layer" title="${esc(t('para.layerTip'))}">
-          <option value="interlinear">${esc(t('para.layerInterlinear'))}</option>
-          <option value="baseline">${esc(t('para.layerBaseline'))}</option>
-          <option value="free-only">${esc(t('para.layerFreeOnly'))}</option>
-          <option value="props-only">${esc(t('para.layerPropsOnly'))}</option>
-        </select>
-        <label class="check-label pa-inline"><input type="checkbox" id="pa-free"> ${esc(t('para.showFree'))}</label>
-        <label class="check-label pa-inline" title="${esc(t('para.hideBlankTip'))}"><input type="checkbox" id="pa-blank"> ${esc(t('para.hideBlank'))}</label>
-        <label class="check-label pa-inline" id="pa-brk-wrap" hidden><input type="checkbox" id="pa-brk"> ${esc(t('para.brackets'))}</label>
-        ${state.audio ? `<label class="check-label pa-inline" title="${esc(t('para.autoScrollTip'))}"><input type="checkbox" id="pa-follow"> ${esc(t('para.autoScroll'))}</label>` : ''}
-        ${state.audio ? `<label class="check-label pa-inline"><input type="checkbox" id="pa-audio"> ${esc(t('para.showAudio'))}</label>
-        <select id="pa-waves" title="${esc(t('para.wavesTip'))}">
-          <option value="compact">${esc(t('para.wavesCompact'))}</option>
-          <option value="normal">${esc(t('para.wavesNormal'))}</option>
-          <option value="off">${esc(t('para.wavesOff'))}</option>
-        </select>` : ''}
-      </span>
+
+      <!-- ⚠ MENUS HOLD THE OCCASIONAL COMMANDS; THE CORE LOOP STAYS ON THE BAR. Grouping IS the work
+           here — Group/Ungroup/Undo/Redo run dozens of times per text — so burying them behind a menu
+           would tax every operation to buy back one row. File/View/Audio are things you set once and
+           forget, which is exactly what a menu is for. -->
+      <nav class="pa-menus">
+        <details class="pa-menu" id="pa-menu-file">
+          <summary>${esc(t('para.menuFile'))}</summary>
+          <div class="pa-menupanel">
+            <button class="pa-menuitem" id="pa-save">${esc(t('para.saveTip'))}</button>
+            <button class="pa-menuitem" id="pa-export">${esc(t('para.exportBtn'))}</button>
+            ${state.authored ? `<button class="pa-menuitem" id="pa-addline">${esc(t('para.scratchAddLine'))}</button>` : ''}
+            <hr>
+            <button class="pa-menuitem" id="pa-close">${esc(t('para.close'))}</button>
+          </div>
+        </details>
+
+        <details class="pa-menu" id="pa-menu-view">
+          <summary>${esc(t('para.menuView'))}</summary>
+          <div class="pa-menupanel">
+            <label class="pa-menufield"><span>${esc(t('para.layerTip'))}</span>
+              <select id="pa-layer">
+                <option value="interlinear">${esc(t('para.layerInterlinear'))}</option>
+                <option value="baseline">${esc(t('para.layerBaseline'))}</option>
+                <option value="free-only">${esc(t('para.layerFreeOnly'))}</option>
+                <option value="props-only">${esc(t('para.layerPropsOnly'))}</option>
+              </select></label>
+            <label class="check-label pa-menucheck"><input type="checkbox" id="pa-free"> ${esc(t('para.showFree'))}</label>
+            <label class="check-label pa-menucheck" title="${esc(t('para.hideBlankTip'))}"><input type="checkbox" id="pa-blank"> ${esc(t('para.hideBlank'))}</label>
+            <label class="check-label pa-menucheck" id="pa-brk-wrap" hidden><input type="checkbox" id="pa-brk"> ${esc(t('para.brackets'))}</label>
+            <hr>
+            <button class="pa-menuitem" id="pa-collapse-all">${esc(t('para.collapseAll'))}</button>
+            <button class="pa-menuitem" id="pa-chart-menu">${esc(t('para.chartTip'))}</button>
+            <hr>
+            <div class="pa-menufield pa-zoom" title="${esc(t('para.zoomTip'))}">
+              <span>${esc(t('para.zoomLabel'))}</span>
+              <span class="pa-zoomctl">
+                <button class="secondary-btn" id="pa-zoom-out" aria-label="${esc(t('para.zoomOut'))}">−</button>
+                <span id="pa-zoom-level">100%</span>
+                <button class="secondary-btn" id="pa-zoom-in" aria-label="${esc(t('para.zoomIn'))}">+</button>
+              </span>
+            </div>
+          </div>
+        </details>
+
+        ${state.audio ? `
+        <details class="pa-menu" id="pa-menu-audio">
+          <summary>${esc(t('para.menuAudio'))}</summary>
+          <div class="pa-menupanel">
+            <label class="check-label pa-menucheck"><input type="checkbox" id="pa-audio"> ${esc(t('para.showAudio'))}</label>
+            <label class="check-label pa-menucheck" title="${esc(t('para.autoScrollTip'))}"><input type="checkbox" id="pa-follow"> ${esc(t('para.autoScroll'))}</label>
+            <label class="pa-menufield"><span>${esc(t('para.wavesTip'))}</span>
+              <select id="pa-waves">
+                <option value="compact">${esc(t('para.wavesCompact'))}</option>
+                <option value="normal">${esc(t('para.wavesNormal'))}</option>
+                <option value="off">${esc(t('para.wavesOff'))}</option>
+              </select></label>
+          </div>
+        </details>` : ''}
+      </nav>
+
       <span class="pa-actions">
         <span class="pa-selinfo" id="pa-selinfo"></span>
-        <!-- ⚠ ONE BUTTON FOR GROUP / EDIT GROUP. They are MUTUALLY EXCLUSIVE BY SELECTION — Group
-             needs a run of two or more units, Edit group needs exactly one group heading — so both
-             can never be valid at once, and showing both always left one of them inapplicable. The
-             label follows the selection and says which it will do. -->
+        <!-- ⚠ ONE BUTTON FOR GROUP / EDIT GROUP — mutually exclusive by selection, so both can never
+             apply at once. The label follows the selection and says which it will do. -->
         <button class="secondary-btn" id="pa-group">${esc(t('para.group'))}</button>
         <button class="secondary-btn" id="pa-ungroup">${esc(t('para.ungroup'))}</button>
-        <!-- Likewise one toggle: with anything expanded it offers Collapse all, otherwise Expand all. -->
-        <button class="secondary-btn" id="pa-collapse-all">${esc(t('para.collapseAll'))}</button>
         <button class="secondary-btn" id="pa-clear" disabled title="${esc(t('para.clearSelTip'))}">${esc(t('para.clearSel'))}</button>
         <button class="secondary-btn" id="pa-undo" title="${esc(t('para.undoNone'))}">${esc(t('para.undo'))}</button>
         <button class="secondary-btn" id="pa-redo" title="${esc(t('para.redoNone'))}">${esc(t('para.redo'))}</button>
-        <span class="pa-zoom" title="${esc(t('para.zoomTip'))}">
-          <button class="secondary-btn" id="pa-zoom-out" aria-label="${esc(t('para.zoomOut'))}">−</button>
-          <span id="pa-zoom-level">100%</span>
-          <button class="secondary-btn" id="pa-zoom-in" aria-label="${esc(t('para.zoomIn'))}">+</button>
-        </span>
-        <span class="pa-zoom">
-          <button class="secondary-btn pa-iconbtn" id="pa-chart" title="${esc(t('para.chartTip'))}"
-                  aria-label="${esc(t('para.chartTip'))}">${esc(t('para.chartShow'))}</button>
-          <button class="pa-tip-toggle" id="pa-tip-btn" title="${esc(t('para.helpTip'))}"
-                  aria-label="${esc(t('para.helpTip'))}" aria-expanded="false">?</button>
-        </span>
-        ${state.authored ? `<button class="secondary-btn" id="pa-addline">${esc(t('para.scratchAddLine'))}</button>` : ''}
-        <button class="secondary-btn" id="pa-export">${esc(t('para.exportBtn'))}</button>
-        <button class="primary-btn pa-iconbtn" id="pa-save" title="${esc(t('para.saveTip'))}"
+        <button class="secondary-btn pa-iconbtn" id="pa-chart" title="${esc(t('para.chartTip'))}"
+                aria-label="${esc(t('para.chartTip'))}">${esc(t('para.chartShow'))}</button>
+        <button class="pa-tip-toggle" id="pa-tip-btn" title="${esc(t('para.helpTip'))}"
+                aria-label="${esc(t('para.helpTip'))}" aria-expanded="false">?</button>
+        <button class="primary-btn pa-iconbtn" id="pa-save-icon" title="${esc(t('para.saveTip'))}"
                 aria-label="${esc(t('para.saveTip'))}">${esc(t('para.save'))}</button>
-        <!-- Far right, and LABELLED: a bare ✕ read as "close the toolbar/banner", not "put this
-             document away" — and it is the one control that discards the working copy. -->
-        <button class="secondary-btn pa-closebtn" id="pa-close" title="${esc(t('para.closeTip'))}">
-          ${esc(t('para.close'))} <span aria-hidden="true">✕</span></button>
+        <!-- ⚠ A BARE ✕ IS ONLY SAFE NOW THAT File > Close document EXISTS. On its own it read as
+             "close the toolbar", not "put this document away" — and it is the control that discards
+             the working copy. The menu carries the labelled twin, so the icon can be terse. -->
+        <button class="pa-xbtn" id="pa-close-x" title="${esc(t('para.closeTip'))}"
+                aria-label="${esc(t('para.close'))}">✕</button>
+      </span>
       </span>
     </div>
     ${showAudio ? `
@@ -1213,7 +1272,10 @@ function renderWorkInner() {
     $('#pa-audio').addEventListener('change', (e) => setView({ audio: e.target.checked }));
     $('#pa-waves')?.addEventListener('change', (e) => setView({ waves: e.target.value }));
   }
-  $('#pa-save').addEventListener('click', saveFxpa);
+  /* Every command has a menu entry AND, when it is frequent enough, an icon. Both routes run the
+   * same function — a second copy is how the two silently diverge. */
+  const on = (sel, fn) => { const e = $(sel); if (e) e.addEventListener('click', fn); };
+  on('#pa-save', saveFxpa); on('#pa-save-icon', saveFxpa);
   $('#pa-export').addEventListener('click', openExportDialog);
   if (state.authored) {
     $('#pa-addline').addEventListener('click', () => {
@@ -1223,11 +1285,12 @@ function renderWorkInner() {
       commit(next);
     });
   }
-  $('#pa-close').addEventListener('click', () => {
+  const doClose = () => {
     if (!confirm(t('para.closeConfirm'))) return;
     db.deleteMedia(WORKING_KEY).catch(() => {});
     state = null; stopAudio(); renderOpen();
-  });
+  };
+  on('#pa-close', doClose); on('#pa-close-x', doClose);
   /* Routes on the selection, exactly as the label promises: a single group heading means edit it,
    * anything else means try to group. openGroupDialog still reports what to select when neither
    * applies — the button is never inert. */
@@ -1236,13 +1299,16 @@ function renderWorkInner() {
   $('#pa-clear').addEventListener('click', clearSelection);
   $('#pa-undo').addEventListener('click', () => (history.length ? doUndo() : alert(t('para.undoNone'))));
   $('#pa-zoom-out').addEventListener('click', () => stepZoom(-1));
-  $('#pa-chart').addEventListener('click', () => setChart(!chartOn));
+  on('#pa-chart', () => setChart(!chartOn));
+  on('#pa-chart-menu', () => { closeMenus(); setChart(!chartOn); });
+  wireMenus();
   $('#pa-zoom-in').addEventListener('click', () => stepZoom(1));
   applyZoom(zoomPct);   // survive a re-render: the tree element is rebuilt each time
   $('#pa-redo').addEventListener('click', () => (future.length ? doRedo() : alert(t('para.redoNone'))));
   refreshUndoButtons();
   $('#pa-collapse-all').addEventListener('click', () => collapseAllAction(!allCollapsed()));
   wireKeys();
+  wireContextMenu();
   if (showAudio) {
     $('#pa-play').addEventListener('click', () => {
       if (!audio) return;
@@ -2053,13 +2119,13 @@ function refreshActionButtons() {
   const ids = [...selection];
   const g = selectedGroup();
   $('#pa-clear').disabled = !ids.length;
-  $('#pa-ungroup').title = g ? t('para.ungroupNamed', { name: groupTitle(g) }) : t('para.needGroupHeadingTip');
+  $('#pa-ungroup').title = (g ? t('para.ungroupNamed', { name: groupTitle(g) }) : t('para.needGroupHeadingTip')) + accel('U');
   /* The merged button RENAMES ITSELF rather than being disabled: with a group heading selected it is
    * Edit group, otherwise it is Group, and with nothing groupable it still says what to select. */
   const gb = $('#pa-group');
   gb.textContent = g ? t('para.editGroup') : t('para.group');
-  gb.title = g ? t('para.editNamed', { name: groupTitle(g) })
-    : ids.length >= 2 ? t('para.groupTip') : t('para.needTwoTip');
+  gb.title = (g ? t('para.editNamed', { name: groupTitle(g) })
+    : ids.length >= 2 ? t('para.groupTip') : t('para.needTwoTip')) + accel('G');
   // The scope of collapse/expand follows the selection, so the tooltip must say WHICH it will be.
   const scoped = g ? groupTitle(g) : null;
   const cb = $('#pa-collapse-all');
@@ -2081,15 +2147,77 @@ function refreshActionButtons() {
 // clears the selection. Registered ONCE: renderWork() replaces the whole subtree on every
 // commit, so a listener added there would stack up one copy per edit.
 let keysWired = false;
+/* The accelerator text shown in menus and tooltips. ⌘ on a Mac, Ctrl everywhere else — writing
+ * "Ctrl" to a Mac user is wrong in a way they notice immediately. */
+const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
+const MOD = IS_MAC ? '\u2318' : 'Ctrl+';
+const accel = (k) => ` (${MOD}${k})`;
+
 function wireKeys() {
   if (keysWired) return;
   keysWired = true;
   document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape' || !state) return;
-    const dlg = document.getElementById('pa-dialog');
-    if (dlg && !dlg.hidden) { dlg.hidden = true; dlg.innerHTML = ''; return; }
-    clearSelection();
+    if (!state) return;
+    if (e.key === 'Escape') {
+      const dlg = document.getElementById('pa-dialog');
+      if (dlg && !dlg.hidden) { dlg.hidden = true; dlg.innerHTML = ''; return; }
+      closeMenus();
+      clearSelection();
+      return;
+    }
+    /* ⚠ NEVER WHILE TYPING. ⌘G in a text box is not "group these lines", and stealing it there would
+     * make the shortcut feel possessed. Same guard as undo/redo. */
+    const el = document.activeElement;
+    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+    if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+    const k = e.key.toLowerCase();
+    /* ⚠ preventDefault BEFORE acting, and only for keys we genuinely handle. ⌘G is the browser's
+     * find-next and Ctrl+U is view-source; both are preventable from a keydown handler, but only if
+     * we do not first spend time in a dialog. Anything else falls through untouched — silently
+     * swallowing unrelated shortcuts is worse than not having ours. */
+    if (k === 'g') { e.preventDefault(); (selectedGroup() ? openEditDialog : openGroupDialog)(); }
+    else if (k === 'u') { e.preventDefault(); doUngroup(); }
   });
+}
+
+/* ── RIGHT-CLICK MENU (Seth, 2026-08-07) ───────────────────────────────────────────────────────
+ * The same two commands the toolbar offers, where the mouse already is. Right-clicking a unit that
+ * is NOT in the current selection selects it first — otherwise the menu would act on something the
+ * user cannot see, which is the classic context-menu trap. */
+function wireContextMenu() {
+  const tree = $('#pa-tree');
+  if (!tree) return;
+  tree.addEventListener('contextmenu', (e) => {
+    const row = e.target.closest('[data-line], [data-gid], [data-prop]');
+    if (!row) return;
+    e.preventDefault();
+    const id = row.dataset.gid || row.dataset.prop || row.dataset.line;
+    if (id && !selection.has(id)) { selection = new Set([id]); renderWork(); }
+    showContextMenu(e.clientX, e.clientY);
+  });
+}
+function showContextMenu(x, y) {
+  document.querySelectorAll('.pa-ctxmenu').forEach((m) => m.remove());
+  const g = selectedGroup();
+  const m = document.createElement('div');
+  m.className = 'pa-ctxmenu';
+  m.innerHTML = `
+    <button class="pa-menuitem" data-act="group">${esc(g ? t('para.editGroup') : t('para.group'))}<span class="pa-accel">${esc(MOD)}G</span></button>
+    <button class="pa-menuitem" data-act="ungroup">${esc(t('para.ungroup'))}<span class="pa-accel">${esc(MOD)}U</span></button>`;
+  document.body.appendChild(m);
+  // Keep it on screen: flip back inside the viewport rather than running off the edge.
+  const r = m.getBoundingClientRect();
+  m.style.left = Math.min(x, innerWidth - r.width - 8) + 'px';
+  m.style.top = Math.min(y, innerHeight - r.height - 8) + 'px';
+  const close = () => { m.remove(); document.removeEventListener('click', close, true); };
+  m.addEventListener('click', (ev) => {
+    const act = ev.target.closest('[data-act]');
+    if (!act) return;
+    close();
+    if (act.dataset.act === 'group') (selectedGroup() ? openEditDialog : openGroupDialog)();
+    else doUngroup();
+  });
+  setTimeout(() => document.addEventListener('click', close, true), 0);
 }
 
 /* ── ADJUSTING A GROUP'S EDGES (Seth, 2026-08-06) ───────────────────────────────────────────────

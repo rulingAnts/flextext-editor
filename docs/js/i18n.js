@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v241';
+export const ENGINE_VERSION = 'v242';
 
 const S = {
 en: {
@@ -1252,6 +1252,8 @@ internet after the first time.</p>
   'para.symLong': 'Symmetrical — the members are coordinate (addition, alternation, …)',
   'para.asymLong': 'Asymmetrical — one member is the HEAD, the others support it',
   'para.head': 'Head',
+  'para.reportBug': 'Report a problem',
+  'para.reportFeature': 'Suggest a feature',
   'para.headHint': 'Tick any members that are HEAD. Tick none for a symmetrical (coordinate) join.',
   'para.headTip': 'The prominent member — the others support it',
   'para.members': 'Members',
@@ -2513,6 +2515,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.symLong': 'Simetris — anggotanya setara (penambahan, pilihan, …)',
   'para.asymLong': 'Asimetris — satu anggota adalah INTI, yang lain mendukungnya',
   'para.head': 'Inti',
+  'para.reportBug': 'Laporkan masalah',
+  'para.reportFeature': 'Usulkan fitur',
   'para.headHint': 'Centang anggota mana pun yang menjadi INTI. Jangan centang apa pun untuk gabungan simetris (koordinat).',
   'para.headTip': 'Anggota yang menonjol — yang lain mendukungnya',
   'para.members': 'Anggota',

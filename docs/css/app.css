@@ -1601,3 +1601,9 @@ main {
    nothing is broken and nothing is urgent; it is a "move this when convenient" marker. */
 .rp-badge-legacy { background: #fdf3d7; color: #6b5310; border: 1px solid #e4c95b; }
 .rp-legacy-tip { font-size: 13px; margin: 0 0 10px; display: block; }
+
+/* Report links: beside the version footer — findable, not clutter. */
+.pa-report { position: fixed; right: 10px; bottom: 26px; font-size: 11px; color: var(--muted);
+             display: flex; gap: 6px; align-items: center; z-index: 5; }
+.pa-report a { color: var(--muted); text-decoration: underline; text-underline-offset: 2px; }
+.pa-report a:hover { color: var(--blue); }

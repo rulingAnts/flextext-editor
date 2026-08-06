@@ -849,6 +849,7 @@ function renderWork() {
   const before = scroller();
   const keepY = before ? before.scrollTop : 0;
   renderWorkInner();
+  renderReportLinks();   // rebuilt each render so the diagnostics describe the CURRENT document
   const after = scroller();
   if (after && keepY) {
     after.scrollTop = Math.min(keepY, Math.max(0, after.scrollHeight - after.clientHeight));
@@ -1866,6 +1867,64 @@ function groupDialog({ ids, gid, heads = [], relation = '', labels = {} }) {
       alert(e.message);   // the model's message is the user message
     }
   });
+}
+
+/* REPORT A PROBLEM / SUGGEST A FEATURE — straight into a scoped GitHub issue.
+ *
+ * ⚠ THE DIAGNOSTICS GO BELOW A DIVIDER, under blank space (Seth, 2026-08-06: "underneath blank
+ * space for the user to type in their specific complaint"). A form that opens with a wall of
+ * machine text invites the reporter to type above it, around it, or not at all; an empty first line
+ * with the technical detail out of the way underneath is the difference between a usable report and
+ * "it broke".
+ *
+ * ⚠ NEVER THE DOCUMENT'S CONTENT. Counts and versions only — a GitHub issue is PUBLIC, and an
+ * analyst's texts are exactly the thing that must not leave their machine. Shape is enough to
+ * reproduce nearly anything: how many lines, groups, propositions, and whether audio is attached.
+ *
+ * ⚠ Feature requests carry NO diagnostics (Seth: "feature suggestions don't need diagnostics") —
+ * they are about what the tool should do, not what it did. */
+const ISSUE_BASE = 'https://github.com/rulingAnts/flextext-editor/issues/new';
+
+function diagnosticBlock() {
+  const d = state || {};
+  const groups = (d.tree || []).length;
+  const props = (d.lines || []).reduce((n, l) => n + ((l.props || []).length), 0);
+  const heads = (d.tree || []).reduce((n, g) => n + ((g.heads || []).length), 0);
+  const ver = (document.getElementById('app-version') || {}).textContent || 'unknown';
+  return [
+    '', '', '',
+    '--------- diagnostic info (please keep) ---------',
+    `app: ${ver}`,
+    `browser: ${navigator.userAgent}`,
+    d.lines ? `document: ${d.lines.length} lines, ${groups} groups, ${props} propositions, ${heads} heads`
+            : 'document: none open',
+    d.audio ? 'audio: attached' : 'audio: none',
+    '(no text from your document is included)',
+  ].join('\n');
+}
+
+function issueUrl(kind) {
+  const bug = kind === 'bug';
+  const q = new URLSearchParams({
+    labels: bug ? 'bug,paragraph-analysis' : 'enhancement,paragraph-analysis',
+    title: bug ? '[Paragraph Analysis] ' : '[Paragraph Analysis] Feature: ',
+    body: bug ? diagnosticBlock() : '',
+  });
+  return `${ISSUE_BASE}?${q}`;
+}
+
+/* Prominent enough to find, quiet enough not to clutter: beside the version footer, not in the
+ * toolbar (Seth agreed). Rebuilt on every render so the diagnostics are current. */
+function renderReportLinks() {
+  let box = document.getElementById('pa-report');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'pa-report'; box.className = 'pa-report';
+    (document.body || document.documentElement).appendChild(box);
+  }
+  box.innerHTML = `<a href="${issueUrl('bug')}" target="_blank" rel="noopener">${esc(t('para.reportBug'))}</a>
+    <span aria-hidden="true">·</span>
+    <a href="${issueUrl('feature')}" target="_blank" rel="noopener">${esc(t('para.reportFeature'))}</a>`;
 }
 
 /* CONSOLE ENTRY POINT — `fxTree()`. Prints what the MODEL actually holds: the selection, each

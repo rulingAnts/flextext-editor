@@ -22,6 +22,7 @@ import { parseDelimited, looksLikeHeader, columnsOf, detectMapping as detectCsvM
 import {
   validateFxpa, serializeFxpa, groupUnits, ungroup, editGroup, toggleCollapse, setCollapsedAll,
   topUnits, levelOf, spanOf, leavesOf, summaryOf, isGroupId, nodeById, parentOf, isAsym,
+  canExtend, extendGroup, releaseEdge, willDissolve,
   isBlankLine, visibleTopUnits, withBlanksBetween, isPropId, lineOfPropId, ownerLineOf,
   addProp, setPropText, setPropImplicit, deleteProp,
   newAuthoredDoc, addLine, setLineText, deleteLine, setLineFree, setLineImplicit, setTitle, splitLine,
@@ -1757,6 +1758,57 @@ function wireKeys() {
   });
 }
 
+/* ── ADJUSTING A GROUP'S EDGES (Seth, 2026-08-06) ───────────────────────────────────────────────
+ * Add the adjacent sister above or below; pop the first or last member out. Only the edges move, so
+ * a non-contiguous group cannot result — see the model for why that is structural rather than
+ * checked.
+ *
+ * ⚠ EVERY CONTROL NAMES WHAT IT WILL DO, to that unit, by name — "add 'In the beginning…' above",
+ * not "extend". And when an action is unavailable it SAYS WHY rather than sitting disabled: a
+ * disabled button reads as broken (Seth's standing rule, which cost a bug report once).
+ *
+ * Only in the EDIT dialog: a group being created has no edges to adjust yet. */
+function edgeControls(gid) {
+  const g = nodeById(state, gid);
+  if (!g) return '';
+  const before = canExtend(state, gid, 'before');
+  const after = canExtend(state, gid, 'after');
+  const first = g.children[0], last = g.children[g.children.length - 1];
+  const btn = (act, side, label, title) =>
+    `<button type="button" class="secondary-btn pa-edge" data-edge="${act}" data-side="${side}" title="${esc(title)}">${esc(label)}</button>`;
+  const dead = (msg) => `<span class="note pa-edge-none">${esc(msg)}</span>`;
+  return `<div class="pa-edges">
+    <p class="note pa-edgehint">${esc(t('para.edgesHint'))}</p>
+    <div class="pa-edgerow">
+      ${before ? btn('extend', 'before', t('para.extendBefore', { name: unitLabel(before) }), t('para.extendBeforeTip'))
+               : dead(t('para.noneAbove'))}
+      ${after ? btn('extend', 'after', t('para.extendAfter', { name: unitLabel(after) }), t('para.extendAfterTip'))
+              : dead(t('para.noneBelow'))}
+    </div>
+    <div class="pa-edgerow">
+      ${btn('release', 'first', t('para.releaseFirst', { name: unitLabel(first) }), t('para.releaseTip'))}
+      ${btn('release', 'last', t('para.releaseLast', { name: unitLabel(last) }), t('para.releaseTip'))}
+    </div>
+    ${willDissolve(state, gid) ? `<p class="note pa-edge-warn">${esc(t('para.releaseDissolves'))}</p>` : ''}
+  </div>`;
+}
+
+/* The edge actions commit IMMEDIATELY and close the dialog — they change membership, which is what
+ * the rest of the dialog is describing, so leaving it open would show a stale member list. */
+function wireEdgeControls(dlg, gid) {
+  dlg.querySelectorAll('.pa-edge').forEach((b) => b.addEventListener('click', () => {
+    const { edge, side } = b.dataset;
+    try {
+      if (edge === 'release' && willDissolve(state, gid)
+          && !confirm(t('para.confirmDissolve', { name: groupTitle(nodeById(state, gid)) }))) return;
+      const next = edge === 'extend' ? extendGroup(state, gid, side) : releaseEdge(state, gid, side);
+      selection = new Set();
+      dlg.hidden = true; dlg.innerHTML = '';
+      commit(next);
+    } catch (e) { alert(e.message); }
+  }));
+}
+
 function unitLabel(id) {
   if (isPropId(id)) {
     const pr = nodeById(state, id);
@@ -1853,12 +1905,14 @@ function groupDialog({ ids, gid, heads = [], relation = '', labels = {} }) {
         </div>
         <label class="pa-field"><span>${esc(t('para.relation'))}</span>
           <input id="pa-rel" value="${esc(relation)}" placeholder="${esc(t('para.relationPh'))}"></label>
+        ${gid ? edgeControls(gid) : ''}
       </div>
       <div class="pa-modal-actions">
         <button class="secondary-btn" id="pa-cancel">${esc(t('para.cancel'))}</button>
         <button class="primary-btn" id="pa-ok">${esc(t('para.ok'))}</button>
       </div>
     </div>`;
+  if (gid) wireEdgeControls(dlg, gid);
   dlg.querySelector('#pa-cancel').addEventListener('click', () => { dlg.hidden = true; dlg.innerHTML = ''; });
   dlg.querySelector('#pa-ok').addEventListener('click', () => {
     // Always send `labels` (even empty): the model then clears labels the user emptied out.

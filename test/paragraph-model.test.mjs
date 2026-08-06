@@ -7,7 +7,7 @@ import {
   addProp, setPropText, setPropImplicit, deleteProp, setLineFree,
   isPropId, propUnits, ownerLineOf, orderIndex,
   setWordText, setWordGloss, deleteWord, splitLine,
-  isAsym, headsOf, migrateGroup,
+  isAsym, headsOf, migrateGroup, canExtend, extendGroup, releaseEdge, willDissolve,
 } from '../docs/js/paragraph-model.js';
 
 let failures = 0;
@@ -731,6 +731,79 @@ console.log('heads model: multiple heads are representable');
   eq(isAsym(d.data.tree[0]), true, 'and it reads as asymmetrical');
   // ⚠ The per-document "one head only" rule belongs at the EDIT surface, not here, so switching a
   // document's mode can never invalidate data already stored.
+}
+
+
+/* ── EXTEND / RELEASE at the EDGES (Seth, 2026-08-06) ─────────────────────────────────────────────
+ * "add one or more adjacent sister items before or after to be included in the group… and also a
+ * way to pop adjacent items OUT of a group and promote them to sister (without allowing in any way
+ * non-contiguous groups to occur as a result)."
+ *
+ * The whole safety of it: ONLY THE EDGES MOVE. Absorbing anything but the immediate neighbour, or
+ * releasing anything but the first or last child, would leave a gap — so those cases are not
+ * offered rather than being validated after the fact. Tests written before the implementation. */
+console.log('extend / release — non-contiguity is impossible by construction');
+{
+  const five = () => validateFxpa({
+    format: 'flextext-paragraph-analysis', version: 1, title: 'T', vernLang: 'fau', analLang: 'id',
+    lines: [1, 2, 3, 4, 5].map((n) => ({ id: 'L' + n, baseline: 'w' + n, words: [] })), tree: [],
+  }).data;
+  const kids = (d, id) => (d.tree.find((g) => g.id === id) || {}).children;
+
+  // ── EXTEND
+  let d = groupUnits(five(), ['L2', 'L3'], { heads: [] });
+  eq(canExtend(d, 'G1', 'before'), 'L1', 'the candidate before is the immediate sibling');
+  eq(canExtend(d, 'G1', 'after'), 'L4', 'and after, likewise');
+  d = extendGroup(d, 'G1', 'before');
+  eq(kids(d, 'G1'), ['L1', 'L2', 'L3'], 'extending BEFORE puts the sibling at the front');
+  d = extendGroup(d, 'G1', 'after');
+  eq(kids(d, 'G1'), ['L1', 'L2', 'L3', 'L4'], 'extending AFTER puts it at the back');
+  eq(topUnits(d), ['G1', 'L5'], 'the absorbed siblings leave the surface');
+  eq(canExtend(d, 'G1', 'before'), null, 'nothing before the group any more');
+  throws(() => extendGroup(d, 'G1', 'before'), 'and extending that way is refused');
+
+  // an absorbed member arrives PLAIN — head status is never inherited
+  let h = groupUnits(five(), ['L2', 'L3'], { heads: ['L2'] });
+  h = extendGroup(h, 'G1', 'before');
+  eq(h.tree[0].heads, ['L2'], 'absorbing a sibling does not make it a head, and does not disturb the existing one');
+
+  // ── RELEASE
+  let r = groupUnits(five(), ['L1', 'L2', 'L3'], { heads: [] });
+  r = releaseEdge(r, 'G1', 'last');
+  eq(kids(r, 'G1'), ['L1', 'L2'], 'releasing the LAST child pops it out');
+  eq(topUnits(r), ['G1', 'L3', 'L4', 'L5'], 'and it lands beside the group, in order');
+  const r2 = releaseEdge(r, 'G1', 'first');
+  eq(r2.tree.length, 0, 'releasing from a TWO-child group dissolves it — a group of one is not a group');
+  eq(topUnits(r2), ['L1', 'L2', 'L3', 'L4', 'L5'], 'and both members return to the surface in order');
+  eq(willDissolve(r, 'G1'), true, 'willDissolve() warns the UI before it happens');
+
+  // releasing the only head leaves the group symmetrical BY DERIVATION — nothing converts
+  let s2 = groupUnits(five(), ['L1', 'L2', 'L3'], { heads: ['L1'] });
+  ok(isAsym(s2.tree[0]), 'asymmetrical to begin with');
+  s2 = releaseEdge(s2, 'G1', 'first');
+  ok(!isAsym(s2.tree[0]), 'releasing the only head leaves it symmetrical');
+  eq(s2.tree[0].heads, [], 'with no head invented in its place');
+
+  // a released member takes its label with it (the label addressed a membership that has ended)
+  let l = groupUnits(five(), ['L1', 'L2', 'L3'], { heads: [], labels: { L1: 'grounds', L2: 'x' } });
+  l = releaseEdge(l, 'G1', 'first');
+  ok(!(l.tree[0].labels || {}).L1, 'the released member keeps no role in a group it has left');
+
+  /* NESTED. G1 and L3 are siblings INSIDE G2, so extending G1 'after' legitimately absorbs L3 —
+   * my first expectation here was wrong and the implementation corrected it. G2 is then left
+   * holding one child, so it dissolves: a group of one is not a group. */
+  let n = groupUnits(five(), ['L1', 'L2'], { heads: [] });
+  n = groupUnits(n, ['G1', 'L3'], { heads: [] });
+  eq(canExtend(n, 'G1', 'after'), 'L3', 'inside a parent, the candidate is a sibling of the GROUP');
+  n = extendGroup(n, 'G1', 'after');
+  eq(kids(n, 'G1'), ['L1', 'L2', 'L3'], 'it is absorbed');
+  eq(n.tree.length, 1, 'and the parent, left with one child, dissolves');
+  eq(topUnits(n), ['G1', 'L4', 'L5'], 'leaving the group where its parent was');
+
+  // Extending a TOP-LEVEL group cannot reach into another group's members.
+  let x = groupUnits(five(), ['L1', 'L2'], { heads: [] });
+  x = groupUnits(x, ['L3', 'L4'], { heads: [] });
+  eq(canExtend(x, 'G1', 'after'), 'G2', 'the candidate is the neighbouring GROUP, never a member inside it');
 }
 
 if (failures) { console.error(`\n${failures} FAILURE(S)`); process.exit(1); }

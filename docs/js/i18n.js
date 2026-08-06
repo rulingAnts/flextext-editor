@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v243';
+export const ENGINE_VERSION = 'v244';
 
 const S = {
 en: {
@@ -1254,6 +1254,18 @@ internet after the first time.</p>
   'para.head': 'Head',
   'para.reportBug': 'Report a problem',
   'para.reportFeature': 'Suggest a feature',
+  'para.edgesHint': 'Adjust which members this group covers. Only the units directly above and below can be added, and only the first or last member can be released — so a group can never end up with a gap in it.',
+  'para.extendBefore': 'Add “{name}” above',
+  'para.extendAfter': 'Add “{name}” below',
+  'para.extendBeforeTip': 'Bring the unit immediately above into this group',
+  'para.extendAfterTip': 'Bring the unit immediately below into this group',
+  'para.releaseFirst': 'Release “{name}” (first)',
+  'para.releaseLast': 'Release “{name}” (last)',
+  'para.releaseTip': 'Move this member out of the group, alongside it',
+  'para.noneAbove': 'Nothing above this group at the same level',
+  'para.noneBelow': 'Nothing below this group at the same level',
+  'para.releaseDissolves': 'This group has only two members, so releasing one will remove the grouping altogether.',
+  'para.confirmDissolve': 'This group ({name}) has only two members. Releasing one removes the grouping altogether. Continue?',
   'para.headHint': 'Tick any members that are HEAD. Tick none for a symmetrical (coordinate) join.',
   'para.headTip': 'The prominent member — the others support it',
   'para.members': 'Members',
@@ -2517,6 +2529,18 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.head': 'Inti',
   'para.reportBug': 'Laporkan masalah',
   'para.reportFeature': 'Usulkan fitur',
+  'para.edgesHint': 'Atur anggota mana yang dicakup kelompok ini. Hanya unit tepat di atas dan di bawah yang dapat ditambahkan, dan hanya anggota pertama atau terakhir yang dapat dilepas — sehingga kelompok tidak akan pernah berlubang.',
+  'para.extendBefore': 'Tambahkan “{name}” di atas',
+  'para.extendAfter': 'Tambahkan “{name}” di bawah',
+  'para.extendBeforeTip': 'Masukkan unit tepat di atas ke dalam kelompok ini',
+  'para.extendAfterTip': 'Masukkan unit tepat di bawah ke dalam kelompok ini',
+  'para.releaseFirst': 'Lepaskan “{name}” (pertama)',
+  'para.releaseLast': 'Lepaskan “{name}” (terakhir)',
+  'para.releaseTip': 'Pindahkan anggota ini keluar dari kelompok, di sebelahnya',
+  'para.noneAbove': 'Tidak ada apa pun di atas kelompok ini pada tingkat yang sama',
+  'para.noneBelow': 'Tidak ada apa pun di bawah kelompok ini pada tingkat yang sama',
+  'para.releaseDissolves': 'Kelompok ini hanya punya dua anggota, jadi melepas salah satunya akan menghapus pengelompokan sama sekali.',
+  'para.confirmDissolve': 'Kelompok ini ({name}) hanya punya dua anggota. Melepas salah satunya menghapus pengelompokan sama sekali. Lanjutkan?',
   'para.headHint': 'Centang anggota mana pun yang menjadi INTI. Jangan centang apa pun untuk gabungan simetris (koordinat).',
   'para.headTip': 'Anggota yang menonjol — yang lain mendukungnya',
   'para.members': 'Anggota',

@@ -960,6 +960,86 @@ export function deleteProp(data, lineId, propId) {
   return pruneTree(restored, propId);
 }
 
+/* ── EXTEND / RELEASE: adjusting a group's EDGES ────────────────────────────────────────────────
+ * Seth, 2026-08-06: add an adjacent sister into a group, or pop an edge member out — "without
+ * allowing in any way non-contiguous groups to occur as a result".
+ *
+ * ⚠ THE SAFETY IS STRUCTURAL, NOT A CHECK. Only the edges can move: absorbing anything but the
+ * immediate neighbour, or releasing anything but the first or last child, would leave a gap. Those
+ * cases are simply not expressible here, so there is nothing to validate afterwards.
+ *
+ * Both work on the group's OWN sibling list — the parent's children, or the top surface — so a
+ * nested group extends within its parent and can never reach across a parent boundary. */
+
+// The unit a group would absorb on that side, or null when there is none. The UI uses this both to
+// name the candidate ("add 'and the Word was with God' above") and to explain when it cannot.
+export function canExtend(data, gid, side) {
+  const g = nodeById(data, gid);
+  if (!g || !isGroupId(gid)) return null;
+  const parent = parentOf(data, gid);
+  const sibs = parent ? parent.children : topUnits(data);
+  const at = sibs.indexOf(gid);
+  if (at < 0) return null;
+  const cand = side === 'before' ? sibs[at - 1] : sibs[at + 1];
+  return cand || null;
+}
+
+export function extendGroup(data, gid, side = 'after') {
+  const g = nodeById(data, gid);
+  if (!g || !isGroupId(gid)) throw new Error('Not a group.');
+  const cand = canExtend(data, gid, side);
+  if (!cand) throw new Error(side === 'before'
+    ? 'There is nothing above this group at the same level.'
+    : 'There is nothing below this group at the same level.');
+
+  const parent = parentOf(data, gid);
+  const children = side === 'before' ? [cand, ...g.children] : [...g.children, cand];
+  /* ⚠ The newcomer arrives as a PLAIN member. Head status is never inherited or invented — the same
+   * rule as ungroup — so absorbing a sibling cannot silently change which member is prominent. */
+  let tree = data.tree.map((x) => (x.id === gid ? { ...x, children } : x));
+  if (parent) tree = tree.map((x) => (x.id === parent.id
+    ? { ...x, children: x.children.filter((c) => c !== cand) } : x));
+  // The parent may now hold only this group; pruneTree dissolves a group of one.
+  return pruneTree({ ...data, tree }, null);
+}
+
+// True when releasing an edge member would leave fewer than two children — i.e. the group ceases to
+// exist. Seth's rule: that confirmation takes precedence over every other warning.
+export function willDissolve(data, gid) {
+  const g = nodeById(data, gid);
+  return !!g && isGroupId(gid) && g.children.length <= 2;
+}
+
+export function releaseEdge(data, gid, which = 'last') {
+  const g = nodeById(data, gid);
+  if (!g || !isGroupId(gid)) throw new Error('Not a group.');
+  const child = which === 'first' ? g.children[0] : g.children[g.children.length - 1];
+  if (!child) throw new Error('That group has no members to release.');
+
+  const parent = parentOf(data, gid);
+  const rest = g.children.filter((c) => c !== child);
+  /* The released member takes no role with it: its label described a membership that has ended.
+   * And it stops being a head — a group left with none IS symmetrical, by derivation. */
+  const labels = { ...(g.labels || {}) };
+  delete labels[child];
+  const next = { ...g, children: rest, heads: (g.heads || []).filter((h) => h !== child) };
+  if (Object.keys(labels).length) next.labels = labels; else delete next.labels;
+
+  let tree = data.tree.map((x) => (x.id === gid ? next : x));
+  // It lands immediately beside the group it left, so order is preserved.
+  if (parent) {
+    tree = tree.map((x) => {
+      if (x.id !== parent.id) return x;
+      const at = x.children.indexOf(gid);
+      const kids = [...x.children];
+      kids.splice(which === 'first' ? at : at + 1, 0, child);
+      return { ...x, children: kids };
+    });
+  }
+  // A group left with one member is not a group; pruneTree dissolves it and promotes the survivor.
+  return pruneTree({ ...data, tree }, null);
+}
+
 /* Remove a unit from the tree and heal what that leaves behind. */
 function pruneTree(data, goneId) {
   let tree = data.tree.map((g) => ({ ...g, children: g.children.filter((c) => c !== goneId) }));

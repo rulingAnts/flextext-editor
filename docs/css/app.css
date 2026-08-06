@@ -1384,7 +1384,13 @@ main {
    the PLAYER only shrinks — you still need to see and scrub the audio. */
 .pa-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 5px 10px; border-bottom: 1px solid var(--border); background: var(--panel); position: sticky; top: 0; z-index: 30; }
 .pa-bar select, .pa-bar .check-label { font-size: 12.5px; }
-.pa-bar .secondary-btn, .pa-bar .primary-btn { padding: 4px 9px; font-size: 13px; }
+/* ⚠ PADDING ONLY — the font size is deliberately untouched (Seth, 2026-08-07: smaller buttons,
+   NOT smaller text). Shrinking the label is what makes a dense toolbar unreadable, and it works
+   against the larger caret and ? that were just sized UP for legibility. Trimming the box keeps
+   every word exactly as readable while giving back a few px per row — and with the buttons
+   narrower, more of them fit per line, which is where the real saving comes from. */
+.pa-bar .secondary-btn, .pa-bar .primary-btn { padding: 2px 8px; font-size: 13px; border-radius: 6px; }
+.pa-bar { gap: 6px 5px; }
 .pa-slimbtn { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 12px;
   padding: 2px 5px; border-radius: 5px; }
 .pa-slimbtn:hover { background: var(--bg); color: var(--fg); }

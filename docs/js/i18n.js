@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v251';
+export const ENGINE_VERSION = 'v252';
 
 const S = {
 en: {
@@ -1257,6 +1257,10 @@ internet after the first time.</p>
   'para.refusedCorrupt': 'That edit was not applied, because it would have damaged the document:\n\n{detail}\n\nYour work is unchanged. Please report this — run fxReport() in the browser console for a pre-filled issue link.',
   'para.repairOffer': 'This document has some damage from an earlier version:\n\n{problems}\n\nRepair it?\n\n{plan}\n\nNothing is deleted — propositions and lines are only put back where they belong.',
   'para.repairPartial': 'This document has damage that cannot be repaired automatically:\n\n{problems}\n\nIt will open as it is. Please report it — nothing has been changed.',
+  'para.previewShow': 'Preview',
+  'para.previewHide': 'Hide preview',
+  'para.previewOnlyDiagram': 'The preview shows the diagram. Choose “SSA diagram” or “Diagram (HTML)” above to see it — the interactive page has nothing to preview here.',
+  'para.previewFailed': 'The preview could not be drawn:',
   'para.slot': 'Discourse slot',
   'para.slotPh': 'e.g. Stage setting, Episode 1, Peak',
   'para.slotHint': 'Optional, and separate from the relation: the relation says how these members relate to each other; the slot says what part this group plays in the text as a whole. A group can have both.',
@@ -2558,6 +2562,10 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.refusedCorrupt': 'Perubahan itu tidak diterapkan karena akan merusak dokumen:\n\n{detail}\n\nPekerjaan Anda tidak berubah. Mohon laporkan — jalankan fxReport() di konsol peramban untuk tautan isu yang sudah terisi.',
   'para.repairOffer': 'Dokumen ini mengalami kerusakan dari versi sebelumnya:\n\n{problems}\n\nPerbaiki?\n\n{plan}\n\nTidak ada yang dihapus — proposisi dan baris hanya dikembalikan ke tempatnya.',
   'para.repairPartial': 'Dokumen ini mengalami kerusakan yang tidak dapat diperbaiki otomatis:\n\n{problems}\n\nDokumen tetap dibuka apa adanya. Mohon laporkan — tidak ada yang diubah.',
+  'para.previewShow': 'Pratinjau',
+  'para.previewHide': 'Sembunyikan pratinjau',
+  'para.previewOnlyDiagram': 'Pratinjau menampilkan diagram. Pilih “Diagram SSA” atau “Diagram (HTML)” di atas untuk melihatnya — halaman interaktif tidak punya pratinjau di sini.',
+  'para.previewFailed': 'Pratinjau tidak dapat digambar:',
   'para.slot': 'Slot wacana',
   'para.slotPh': 'mis. Latar, Episode 1, Puncak',
   'para.slotHint': 'Opsional, dan terpisah dari relasi: relasi menyatakan hubungan antaranggota; slot menyatakan peran grup ini dalam keseluruhan teks. Sebuah grup bisa punya keduanya.',

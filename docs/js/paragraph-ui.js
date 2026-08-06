@@ -2530,8 +2530,10 @@ function openExportDialog() {
         </div>
         ${collapsedCount ? `<div class="banner warn-banner"><span>${esc(t('para.exportCollapsedWarn', { n: collapsedCount }))}</span></div>` : ''}
       </div>
+      <div class="pa-exp-preview" id="pa-exp-prev" hidden></div>
       <div class="pa-modal-actions">
         <button class="secondary-btn" id="pa-exp-cancel">${esc(t('para.cancel'))}</button>
+        <button class="secondary-btn" id="pa-exp-preview">${esc(t('para.previewShow'))}</button>
         <button class="primary-btn" id="pa-exp-go">${esc(t('para.exportGo'))}</button>
       </div>
     </div>`;
@@ -2545,6 +2547,87 @@ function openExportDialog() {
   });
   dlg.querySelector('#pa-exp-cancel').addEventListener('click', () => { dlg.hidden = true; dlg.innerHTML = ''; });
   dlg.querySelector('#pa-exp-go').addEventListener('click', runExport);
+  /* ⚠ LIVE, on any option change — a preview you have to ask for again after every adjustment is a
+   * preview you stop trusting. Cheap enough to do on every input: the layout is pure arithmetic over
+   * rows already in memory. */
+  const prevBtn = dlg.querySelector('#pa-exp-preview');
+  prevBtn.addEventListener('click', () => {
+    const pane = dlg.querySelector('#pa-exp-prev');
+    const kind = dlg.querySelector('#pa-exp-what').value;
+    // Seth's rule: a control that cannot act SAYS why, it does not sit there looking broken.
+    if (kind === 'preview') { alert(t('para.previewOnlyDiagram')); return; }
+    pane.hidden = !pane.hidden;
+    prevBtn.textContent = pane.hidden ? t('para.previewShow') : t('para.previewHide');
+    renderDiagramPreview(dlg);
+    /* ⚠ SCROLL IT INTO VIEW. The options list is longer than the dialog, so the pane opens BELOW
+     * the fold — pressing Preview appeared to do nothing at all, which reads as a broken button. */
+    /* ⚠ THE MODAL WIDENS AND GOES TWO-COLUMN while previewing. Inline under the options the pane
+     * sat ~900px down a 480px scroller: pressing Preview appeared to do nothing, and the flex column
+     * then shrank it to 18px around a 736x322 picture. Options left, diagram right — so a knob and
+     * its effect are on screen together, which is the entire point of previewing. */
+    dlg.querySelector('.pa-modal').classList.toggle('previewing', !pane.hidden);
+  });
+  dlg.addEventListener('input', () => renderDiagramPreview(dlg));
+  dlg.addEventListener('change', () => renderDiagramPreview(dlg));
+}
+
+/* ⚠ ONE READER FOR THE DIAGRAM OPTIONS, used by BOTH the preview and the export. A preview that
+ * builds its options separately is a preview of something else — it would drift from the file the
+ * user actually gets, silently, and the whole value of previewing is that what you see is what you
+ * save. */
+function diagramOpts(dlg) {
+  // Diagram geometry is the user's call — a long line or a deep analysis needs different room,
+  // and guessing it for them was what produced diagrams too wide to use (Seth, 2026-08-05).
+  const matchView = dlg.querySelector('#pa-exp-view').checked;
+  const slotSel = dlg.querySelector('#pa-exp-slot').value;
+  return {
+    textWidth: dlg.querySelector('#pa-exp-tw').value === 'auto' ? 'auto' : +dlg.querySelector('#pa-exp-tw').value,
+    levelWidth: +dlg.querySelector('#pa-exp-lw').value,
+    labels: dlg.querySelector('#pa-exp-labels').value,
+    // Off = nothing folds, and the column grows to the longest row instead.
+    wrap: dlg.querySelector('#pa-exp-wrap').checked,
+    // "matching whatever view settings the user had before they exported" — otherwise the
+    // library default (free translation only, the SSA convention).
+    layer: matchView ? state.view.layer : 'free',
+    free: matchView ? state.view.free !== false : false,
+    /* On (default): a line that has propositions still appears, in place and unconnected, so the
+     * propositions can be read against the sentence they restate. Off: the "propositions only"
+     * diagram. */
+    lineContext: dlg.querySelector('#pa-exp-ctx').checked,
+    /* Collapsing a group in the editor IS how you produce a big-picture chart: a collapsed group is
+     * one node here however much is inside it. This chooses how that node reads. */
+    collapsedStyle: dlg.querySelector('#pa-exp-coll').value,
+    // Slots are their own axis, not one of the two semantic labels — hence a separate control.
+    slots: slotSel !== 'off',
+    slotStyle: slotSel,
+  };
+}
+
+/* ⚠ SEE IT BEFORE YOU SAVE IT (Seth's idea, and it earns its place now rather than earlier: this
+ * cycle added line-context, collapsed-group style and slot style on top of width, indent, labels and
+ * wrapping. That is seven interacting knobs, and the only way to know what they do together is to
+ * look). Renders the REAL SVG from the REAL option reader, live, at natural size in a scrolling
+ * pane — the diagram is often wider than any dialog, and squashing it to fit would preview a
+ * picture the export never produces. */
+function renderDiagramPreview(dlg) {
+  const pane = dlg.querySelector('#pa-exp-prev');
+  if (!pane || pane.hidden) return;
+  const kind = dlg.querySelector('#pa-exp-what').value;
+  if (kind === 'preview') return;
+  try {
+    pane.innerHTML = buildSsaSvg(state, {
+      title: state.title,
+      only: dlg.querySelector('#pa-exp-scope').value === 'sel' ? [...selection] : null,
+      collapsed: state.view.collapsed || [],
+      hideBlank: state.view.hideBlank !== false,
+      measure: measureText,
+      ...diagramOpts(dlg),
+    });
+  } catch (e) {
+    // A preview must never take the dialog down with it — the user can still export.
+    pane.textContent = t('para.previewFailed') + ' ' + e.message;
+    console.error('[pa] diagram preview failed', e);
+  }
 }
 
 function runExport() {
@@ -2562,31 +2645,7 @@ function runExport() {
     measure: measureText,
   };
   if (kind === 'diagram' || kind === 'svg') {
-    // Diagram geometry is the user's call — a long line or a deep analysis needs different room,
-    // and guessing it for them was what produced diagrams too wide to use (Seth, 2026-08-05).
-    const matchView = dlg.querySelector('#pa-exp-view').checked;
-    const diagram = { ...common,
-      textWidth: dlg.querySelector('#pa-exp-tw').value === 'auto' ? 'auto' : +dlg.querySelector('#pa-exp-tw').value,
-      levelWidth: +dlg.querySelector('#pa-exp-lw').value,
-      labels: dlg.querySelector('#pa-exp-labels').value,
-      // Off = nothing folds, and the column grows to the longest row instead.
-      wrap: dlg.querySelector('#pa-exp-wrap').checked,
-      // "matching whatever view settings the user had before they exported" — otherwise the
-      // library default (free translation only, the SSA convention).
-      layer: matchView ? state.view.layer : 'free',
-      free: matchView ? state.view.free !== false : false,
-      /* On (default): a line that has propositions still appears, in place and unconnected, so the
-       * propositions can be read against the sentence they restate. Off: the "propositions only"
-       * diagram — the line is omitted where it has propositions, and stands in for itself where it
-       * has none. */
-      lineContext: dlg.querySelector('#pa-exp-ctx').checked,
-      /* Collapsing a group in the editor IS how you produce a big-picture chart: a collapsed group
-       * is one node here however much is inside it. This chooses how that node reads. */
-      collapsedStyle: dlg.querySelector('#pa-exp-coll').value,
-      // Slots are their own axis, not one of the two semantic labels — hence a separate control.
-      slots: dlg.querySelector('#pa-exp-slot').value !== 'off',
-      slotStyle: dlg.querySelector('#pa-exp-slot').value,
-    };
+    const diagram = { ...common, ...diagramOpts(dlg) };
     const out = kind === 'svg' ? buildSsaSvg(state, diagram) : buildSsaDiagramHtml(state, diagram);
     saveFile(out, safeName(state.title) + (kind === 'svg' ? '.ssa.svg' : '.ssa.html'),
              kind === 'svg' ? 'image/svg+xml' : 'text/html',

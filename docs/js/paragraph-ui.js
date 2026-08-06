@@ -17,7 +17,7 @@ import { buildFxpa, peakPlan } from './seg-exports.js';
 import { readEaf, describeTiers, detectMapping, detectStacks, looksMultiSpeaker, eafToLines } from './eaf-read.js';
 import { parseSfm, markerInventory, detectMapping as detectSfmMapping, sfmToTexts,
          normalizePastedSfm, looksLikeSfm, alignmentRisk, titleFromSfm } from './sfm.js';
-import { buildParagraphPreviewHtml, buildSsaSvg, buildSsaDiagramHtml } from './paragraph-export.js';
+import { buildParagraphPreviewHtml, buildSsaSvg, buildSsaDiagramHtml, rasterizeSsa } from './paragraph-export.js';
 import { parseDelimited, looksLikeHeader, columnsOf, detectMapping as detectCsvMapping, csvToLines, templateCsv } from './csv.js';
 import {
   validateFxpa, serializeFxpa, groupUnits, ungroup, editGroup, toggleCollapse, setCollapsedAll,
@@ -715,6 +715,7 @@ function renderChart() {
       free: state.view.free !== false,
       lineContext: state.view.layer !== 'props-only',
       measure: measureText,
+      ...chartOptsFromStore(),      // the settings chosen in the export dialog apply here too
     });
   } catch (e) {
     // Never strand the user in a broken view they cannot leave — say so and let them toggle back.
@@ -2774,6 +2775,8 @@ function openExportDialog() {
             <option value="preview">${esc(t('para.exportPreview'))}</option>
             <option value="diagram">${esc(t('para.exportDiagram'))}</option>
             <option value="svg">${esc(t('para.exportSvg'))}</option>
+            <option value="png">${esc(t('para.exportPng'))}</option>
+            <option value="jpg">${esc(t('para.exportJpg'))}</option>
           </select></label>
         <p class="note" id="pa-exp-note">${esc(t('para.exportPreviewNote'))}</p>
         <label class="pa-field"><span>${esc(t('para.exportScope'))}</span>
@@ -2823,6 +2826,14 @@ function openExportDialog() {
               <option value="leaf">${esc(t('para.exportCollLeaf'))}</option>
             </select></label>
           <p class="note">${esc(t('para.exportDiagramHint'))}</p>
+          <!-- ⚠ Only meaningful for PNG/JPG; hidden for the vector formats rather than shown inert. -->
+          <div id="pa-exp-raster" hidden>
+            <label class="pa-field"><span id="pa-exp-res-label">${esc(t('para.exportRes'))}</span>
+              <input type="range" id="pa-exp-res" min="1" max="6" step="0.5" value="2"></label>
+            <label class="pa-field" id="pa-exp-q-wrap" hidden><span>${esc(t('para.exportQuality'))}</span>
+              <input type="range" id="pa-exp-q" min="50" max="100" step="5" value="92"></label>
+            <p class="note" id="pa-exp-size">${esc(t('para.exportSizeCalc'))}</p>
+          </div>
         </div>
         ${collapsedCount ? `<div class="banner warn-banner"><span>${esc(t('para.exportCollapsedWarn', { n: collapsedCount }))}</span></div>` : ''}
       </div>
@@ -2840,7 +2851,35 @@ function openExportDialog() {
     // Audio only means anything for the interactive page; a diagram is a picture.
     dlg.querySelector('#pa-exp-audio').disabled = k !== 'preview' || !state.audio;
     dlg.querySelector('#pa-exp-diagram').hidden = k === 'preview';
+    const raster = k === 'png' || k === 'jpg';
+    dlg.querySelector('#pa-exp-raster').hidden = !raster;
+    dlg.querySelector('#pa-exp-q-wrap').hidden = k !== 'jpg';   // quality is a JPEG idea only
+    if (raster) estimateSize(dlg);
   });
+  /* ⚠ RESTORE BEFORE WIRING, and only for keys that were actually stored — writing every key back
+   * would overwrite a fresh default with a stale one the user never chose. */
+  {
+    const o = storedChartOpts();
+    /* ⚠ ONLY RESTORE A VALUE THE CONTROL ACTUALLY OFFERS. localStorage is arbitrary text — an older
+     * build, a hand-edited value, or a control whose options changed can all leave something the
+     * <select> cannot represent, and assigning it silently blanks the control. A blank select reads
+     * as 0, which then gets stored back, so one bad value poisons the settings permanently. */
+    const set = (sel, val) => {
+      const e = dlg.querySelector(sel);
+      if (!e || val === undefined || val === null) return;
+      const v = String(val);
+      if (e.tagName === 'SELECT' && ![...e.options].some((op) => op.value === v)) return;
+      e.value = v;
+    };
+    const check = (sel, val) => { const e = dlg.querySelector(sel); if (e && typeof val === 'boolean') e.checked = val; };
+    set('#pa-exp-tw', o.textWidth);
+    set('#pa-exp-lw', o.levelWidth);
+    set('#pa-exp-labels', o.labels);
+    check('#pa-exp-wrap', o.wrap);
+    check('#pa-exp-ctx', o.lineContext);
+    set('#pa-exp-coll', o.collapsedStyle);
+    if (o.slots === false) set('#pa-exp-slot', 'off'); else set('#pa-exp-slot', o.slotStyle);
+  }
   dlg.querySelector('#pa-exp-cancel').addEventListener('click', () => { dlg.hidden = true; dlg.innerHTML = ''; });
   dlg.querySelector('#pa-exp-go').addEventListener('click', runExport);
   /* ⚠ LIVE, on any option change — a preview you have to ask for again after every adjustment is a
@@ -2863,14 +2902,37 @@ function openExportDialog() {
      * its effect are on screen together, which is the entire point of previewing. */
     dlg.querySelector('.pa-modal').classList.toggle('previewing', !pane.hidden);
   });
-  dlg.addEventListener('input', () => renderDiagramPreview(dlg));
-  dlg.addEventListener('change', () => renderDiagramPreview(dlg));
+  const remember = () => {
+    try {
+      const o = diagramOpts(dlg);
+      // Never persist a geometry that could not have come from the controls — see the note above.
+      if (!(o.levelWidth > 0)) return;
+      if (o.textWidth !== 'auto' && !(o.textWidth > 0)) return;
+      saveChartOpts(o);
+    } catch (_) { /* dialog mid-render */ }
+  };
+  dlg.addEventListener('input', () => { remember(); renderDiagramPreview(dlg); estimateSize(dlg); });
+  dlg.addEventListener('change', () => { remember(); renderDiagramPreview(dlg); estimateSize(dlg); });
 }
 
 /* ⚠ ONE READER FOR THE DIAGRAM OPTIONS, used by BOTH the preview and the export. A preview that
  * builds its options separately is a preview of something else — it would drift from the file the
  * user actually gets, silently, and the whole value of previewing is that what you see is what you
  * save. */
+/* ⚠ ONE SET OF CHART SETTINGS, PERSISTED (Seth, 2026-08-07: "export settings for ssa charts apply to
+ * our preview chart. Have those settings be persistent"). They describe how you want the diagram to
+ * look, which is a property of the analyst, not of one export — so the ◫ chart view, the export
+ * preview and the exported file all read the same stored values, and a setting you change once
+ * survives a reload. Stored per device, never in the .fxpa: two people sharing an analysis should not
+ * inherit each other's indent preference. */
+const CHART_KEY = 'flextext-pa-chart-opts';
+function storedChartOpts() {
+  try { return JSON.parse(localStorage.getItem(CHART_KEY) || '{}') || {}; } catch (_) { return {}; }
+}
+function saveChartOpts(o) {
+  try { localStorage.setItem(CHART_KEY, JSON.stringify(o)); } catch (_) { /* private mode */ }
+}
+
 function diagramOpts(dlg) {
   // Diagram geometry is the user's call — a long line or a deep analysis needs different room,
   // and guessing it for them was what produced diagrams too wide to use (Seth, 2026-08-05).
@@ -2902,6 +2964,17 @@ function diagramOpts(dlg) {
   };
 }
 
+/* The same options for a caller with no dialog open — the ◫ chart view. Falls back to the library
+ * defaults for anything never set. */
+function chartOptsFromStore() {
+  const o = storedChartOpts();
+  const out = {};
+  for (const k of ['textWidth', 'levelWidth', 'labels', 'wrap', 'lineContext', 'collapsedStyle', 'slots', 'slotStyle']) {
+    if (o[k] !== undefined) out[k] = o[k];
+  }
+  return out;
+}
+
 /* ⚠ SEE IT BEFORE YOU SAVE IT (Seth's idea, and it earns its place now rather than earlier: this
  * cycle added line-context, collapsed-group style and slot style on top of width, indent, labels and
  * wrapping. That is seven interacting knobs, and the only way to know what they do together is to
@@ -2929,6 +3002,45 @@ function renderDiagramPreview(dlg) {
   }
 }
 
+/* ⚠ THE SIZE SHOWN IS MEASURED, NOT ESTIMATED. A guess from pixel count would be wildly wrong for
+ * PNG — a line diagram is mostly flat white and compresses enormously — and telling someone "8 MB"
+ * when the file is 300 KB is worse than saying nothing. So it actually encodes and reports the real
+ * byte count.
+ * ⚠ DEBOUNCED AND SEQUENCED: encoding runs on a trailing timer, and a stale result is discarded by
+ * comparing a token, so dragging the slider cannot land an earlier answer on top of a later one. */
+let sizeToken = 0;
+let sizeTimer = null;
+function estimateSize(dlg) {
+  const box = dlg.querySelector('#pa-exp-size');
+  const kind = dlg.querySelector('#pa-exp-what').value;
+  if (!box || (kind !== 'png' && kind !== 'jpg')) return;
+  const scale = +dlg.querySelector('#pa-exp-res').value;
+  const jpg = kind === 'jpg';
+  dlg.querySelector('#pa-exp-res-label').textContent = t('para.exportRes') + ' — ' + scale + '×';
+  box.textContent = t('para.exportSizeCalc');
+  const mine = ++sizeToken;
+  clearTimeout(sizeTimer);
+  sizeTimer = setTimeout(() => {
+    try {
+    rasterizeSsa(buildSsaSvg(state, { title: state.title, collapsed: state.view.collapsed || [],
+      hideBlank: state.view.hideBlank !== false, measure: measureText, ...diagramOpts(dlg) }), {
+      scale, type: jpg ? 'image/jpeg' : 'image/png',
+      quality: (+dlg.querySelector('#pa-exp-q').value) / 100,
+    }).then(({ blob, width, height }) => {
+      if (mine !== sizeToken) return;                       // a newer request already won
+      box.textContent = t('para.exportSizeIs', { w: width, h: height, size: humanSize(blob.size) });
+    }).catch((e) => { if (mine === sizeToken) box.textContent = e.message; console.error('[pa] size estimate failed', e); });
+    } catch (e) {
+      // A synchronous throw here would otherwise leave the readout stuck on "Measuring…" forever.
+      box.textContent = String(e.message || e);
+      console.error('[pa] size estimate threw', e);
+    }
+  }, 220);
+}
+const humanSize = (n) => (n < 1024 ? n + ' B'
+  : n < 1024 * 1024 ? (n / 1024).toFixed(0) + ' KB'
+  : (n / 1048576).toFixed(1) + ' MB');
+
 function runExport() {
   const dlg = $('#pa-dialog');
   const kind = dlg.querySelector('#pa-exp-what').value;
@@ -2943,6 +3055,20 @@ function runExport() {
     // Real text metrics from the browser, so the diagram wraps where it actually will.
     measure: measureText,
   };
+  if (kind === 'png' || kind === 'jpg') {
+    const diagram = { ...common, ...diagramOpts(dlg) };
+    const jpg = kind === 'jpg';
+    rasterizeSsa(buildSsaSvg(state, diagram), {
+      scale: +dlg.querySelector('#pa-exp-res').value,
+      type: jpg ? 'image/jpeg' : 'image/png',
+      quality: (+dlg.querySelector('#pa-exp-q').value) / 100,
+    }).then(({ blob }) => {
+      saveFile(blob, safeName(state.title) + (jpg ? '.ssa.jpg' : '.ssa.png'),
+               jpg ? 'image/jpeg' : 'image/png', t(jpg ? 'para.jpgFile' : 'para.pngFile'));
+      dlg.hidden = true; dlg.innerHTML = '';
+    }).catch((e) => alert(e.message));   // the rasteriser's messages are already user-facing
+    return;
+  }
   if (kind === 'diagram' || kind === 'svg') {
     const diagram = { ...common, ...diagramOpts(dlg) };
     const out = kind === 'svg' ? buildSsaSvg(state, diagram) : buildSsaDiagramHtml(state, diagram);

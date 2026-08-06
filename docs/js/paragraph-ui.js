@@ -629,6 +629,55 @@ function blobToB64(blob) {
 
 /* ---------------- state / persistence ---------------- */
 
+/* ── CHART VIEW ───────────────────────────────────────────────────────────────────────────────
+ * ⚠ A DIFFERENT THING FROM THE EXPORT PREVIEW, and both are wanted (Seth, 2026-08-06: he likes the
+ * export preview and wants to keep it, but what he actually meant was "an instant rapid chart
+ * preview that just switched to SSA Diagram view temporarily while working on the chart").
+ *   - The EXPORT preview answers "what will the FILE look like" — it lives in the export dialog,
+ *     beside the seven knobs that shape the file, and it is about committing to settings.
+ *   - THIS answers "how is the analysis reading right now" — one click from the toolbar, no dialog,
+ *     no settings, while you are still working. It is a way of LOOKING, not a way of exporting.
+ *
+ * ⚠ IT IS A VIEW, NOT A MODE — the analysis is not touched and nothing is saved. Toggling back
+ * returns to the editor with selection, zoom and scroll intact, because the tree was never
+ * unmounted: the chart is an overlay INSIDE the tree's scroller, and renderWork simply skips
+ * rebuilding the editor rows while it is up.
+ *
+ * ⚠ It follows the VIEWER's current layer and blank-line setting, not the export dialog's — you are
+ * looking at what you are working on. Everything else takes the library defaults. */
+let chartOn = false;
+function renderChart() {
+  const host = $('#pa-chartview');
+  if (!host) return;
+  try {
+    host.innerHTML = buildSsaSvg(state, {
+      title: state.title,
+      collapsed: state.view.collapsed || [],
+      hideBlank: state.view.hideBlank !== false,
+      layer: state.view.layer === 'props-only' ? 'free' : state.view.layer,
+      free: state.view.free !== false,
+      lineContext: state.view.layer !== 'props-only',
+      measure: measureText,
+    });
+  } catch (e) {
+    // Never strand the user in a broken view they cannot leave — say so and let them toggle back.
+    host.textContent = t('para.previewFailed') + ' ' + e.message;
+    console.error('[pa] chart view failed', e);
+  }
+}
+function setChart(on) {
+  chartOn = !!on;
+  const btn = $('#pa-chart');
+  if (btn) btn.textContent = t(chartOn ? 'para.chartHide' : 'para.chartShow');
+  const tree = $('#pa-tree');
+  if (tree) tree.classList.toggle('charting', chartOn);
+  let host = $('#pa-chartview');
+  if (chartOn) {
+    if (!host && tree) { host = document.createElement('div'); host.id = 'pa-chartview'; tree.appendChild(host); }
+    renderChart();
+  } else if (host) host.remove();
+}
+
 /* ── ZOOM ───────────────────────────────────────────────────────────────────────────────────────
  * Seth: "a zoom in/out view could be good as well" — the same problem D addresses, from the other
  * side: D helps you see where a group ENDS, zoom helps you see MORE of the document at once.
@@ -644,8 +693,12 @@ const ZOOM_STEPS = [60, 70, 80, 90, 100, 115, 130, 150];
 let zoomPct = 100;
 function applyZoom(next) {
   zoomPct = ZOOM_STEPS.includes(next) ? next : 100;
+  /* ⚠ SET THE SCALE FACTOR, not a font-size. Every size inside the tree is written as
+   * calc(Npx * var(--pa-z)) — see the ZOOM block in app.css — so one variable moves the text, the
+   * structural indent, the connectors and the play buttons together. Setting font-size alone (the
+   * first attempt) moved almost nothing, because the rules below it hard-code px. */
   const tree = $('#pa-tree');
-  if (tree) tree.style.fontSize = zoomPct === 100 ? '' : `${zoomPct}%`;
+  if (tree) tree.style.setProperty('--pa-z', String(zoomPct / 100));
   const label = $('#pa-zoom-level');
   if (label) label.textContent = zoomPct + '%';
 }
@@ -996,6 +1049,7 @@ function renderWork() {
   const keepY = before ? before.scrollTop : 0;
   renderWorkInner();
   applyZoom(zoomPct);   // the tree element is new after every render
+  if (chartOn) setChart(true);   // the tree is rebuilt each render, so re-mount and redraw the chart
   renderReportLinks();   // rebuilt each render so the diagnostics describe the CURRENT document
   const after = scroller();
   if (after && keepY) {
@@ -1016,6 +1070,7 @@ function renderWorkInner() {
           <option value="interlinear">${esc(t('para.layerInterlinear'))}</option>
           <option value="baseline">${esc(t('para.layerBaseline'))}</option>
           <option value="free-only">${esc(t('para.layerFreeOnly'))}</option>
+          <option value="props-only">${esc(t('para.layerPropsOnly'))}</option>
         </select>
         <label class="check-label pa-inline"><input type="checkbox" id="pa-free"> ${esc(t('para.showFree'))}</label>
         <label class="check-label pa-inline" title="${esc(t('para.hideBlankTip'))}"><input type="checkbox" id="pa-blank"> ${esc(t('para.hideBlank'))}</label>
@@ -1045,6 +1100,9 @@ function renderWorkInner() {
           <span id="pa-zoom-level">100%</span>
           <button class="secondary-btn" id="pa-zoom-in" aria-label="${esc(t('para.zoomIn'))}">+</button>
         </span>
+        <span class="pa-zoom">
+          <button class="secondary-btn" id="pa-chart" title="${esc(t('para.chartTip'))}">${esc(t('para.chartShow'))}</button>
+        </span>
         ${state.authored ? `<button class="secondary-btn" id="pa-addline">${esc(t('para.scratchAddLine'))}</button>` : ''}
         <button class="secondary-btn" id="pa-export">${esc(t('para.exportBtn'))}</button>
         <button class="primary-btn" id="pa-save">${esc(t('para.save'))}</button>
@@ -1073,7 +1131,8 @@ function renderWorkInner() {
   if ($('#pa-follow')) $('#pa-follow').checked = v.autoScroll !== false;
   $('#pa-brk-wrap').hidden = !state.lines.some((l) => (l.props || []).some((p) => p.implicit));
   // free-only requires free on; disable the free checkbox there (it is the whole display).
-  $('#pa-free').disabled = v.layer === 'free-only';
+  // Meaningless in both layers that decide the free translation for themselves.
+  $('#pa-free').disabled = v.layer === 'free-only' || v.layer === 'props-only';
   if (state.audio) {
     $('#pa-audio').checked = v.audio !== false;
     if ($('#pa-waves')) $('#pa-waves').value = v.waves || 'compact';
@@ -1124,6 +1183,7 @@ function renderWorkInner() {
   $('#pa-clear').addEventListener('click', clearSelection);
   $('#pa-undo').addEventListener('click', () => (history.length ? doUndo() : alert(t('para.undoNone'))));
   $('#pa-zoom-out').addEventListener('click', () => stepZoom(-1));
+  $('#pa-chart').addEventListener('click', () => setChart(!chartOn));
   $('#pa-zoom-in').addEventListener('click', () => stepZoom(1));
   applyZoom(zoomPct);   // survive a re-render: the tree element is rebuilt each time
   $('#pa-redo').addEventListener('click', () => (future.length ? doRedo() : alert(t('para.redoNone'))));
@@ -1602,6 +1662,12 @@ function renderLineRow(id, nodeLabel = '', header = false) {
       <button class="pa-lineedit" data-line="${esc(id)}" title="${esc(t('para.lineEdit'))}">✎</button>
       <button class="pa-linedel" data-line="${esc(id)}" title="${esc(t('para.lineDelete'))}">🗑</button>
     </div>`);
+  } else if (v.layer === 'props-only') {
+    /* ⚠ NOTHING FROM THE LINE ITSELF (Seth, 2026-08-06). This view is the analysis on its own — the
+     * propositions, with the language data out of the way. The line's own text is added back below
+     * ONLY when it has no written propositions, because then there is no analysis to show and a
+     * blank row would just be a gap in the argument. Same rule as the diagram's "propositions
+     * only" export, deliberately: the two should agree about what that phrase means. */
   } else if (v.layer === 'baseline' || !(l.words || []).length) {
     // Fall back to the baseline when a line has no words, or an interlinear view shows nothing.
     body.push(`<div class="pa-baseline">${esc(l.baseline || '')}</div>`);
@@ -1619,7 +1685,11 @@ function renderLineRow(id, nodeLabel = '', header = false) {
    * decision, not something that happens while the cursor is passing through.
    * The row is offered even when there is NO free translation yet, since SSA states its
    * propositions in the analysis language and an imported line may simply lack one. */
-  const showFree = v.free !== false || v.layer === 'free-only';
+  const written = (l.props || []).filter((pr) => String(pr.text || '').trim()).length;
+  // props-only: the free translation stands in only for a line with no propositions of its own.
+  const showFree = v.layer === 'props-only'
+    ? !written
+    : (v.free !== false || v.layer === 'free-only');
   if (showFree && !state.authored) {
     body.push(`<div class="pa-free${l.free ? '' : ' pa-free-empty'}" data-line="${esc(id)}">
       <span class="pa-freetext">${esc(l.free || t('para.freeNone'))}</span>
@@ -2513,18 +2583,19 @@ function openExportDialog() {
             ${esc(t('para.exportWrap'))}</label>
           <label class="check-label"><input type="checkbox" id="pa-exp-view" checked>
             ${esc(t('para.exportMatchView'))}</label>
-          <label class="check-label"><input type="checkbox" id="pa-exp-ctx" checked>
+          <label class="check-label"><input type="checkbox" id="pa-exp-ctx"
+                 ${state.view.layer === 'props-only' ? '' : 'checked'}>
             ${esc(t('para.exportLineContext'))}</label>
-          <label>${esc(t('para.exportSlotStyle'))}
+          <label class="pa-field"><span>${esc(t('para.exportSlotStyle'))}</span>
             <select id="pa-exp-slot">
               <option value="stacked">${esc(t('para.slotStacked'))}</option>
               <option value="rotated">${esc(t('para.slotRotated'))}</option>
               <option value="off">${esc(t('para.slotHide'))}</option>
             </select></label>
-          <label>${esc(t('para.exportCollapsed'))}
+          <label class="pa-field"><span>${esc(t('para.exportCollapsed'))}</span>
             <select id="pa-exp-coll">
               <option value="leaf">${esc(t('para.exportCollLeaf'))}</option>
-              <option value="summary">${esc(t('para.exportCollSummary'))}</option>
+              <option value="bracket">${esc(t('para.exportCollBracket'))}</option>
             </select></label>
           <p class="note">${esc(t('para.exportDiagramHint'))}</p>
         </div>
@@ -2588,7 +2659,10 @@ function diagramOpts(dlg) {
     wrap: dlg.querySelector('#pa-exp-wrap').checked,
     // "matching whatever view settings the user had before they exported" — otherwise the
     // library default (free translation only, the SSA convention).
-    layer: matchView ? state.view.layer : 'free',
+    /* ⚠ props-only is a VIEWER layer, not a diagram layer — the diagram expresses the same idea
+     * through lineContext. Mapping it to 'free' keeps the text column readable and lets the
+     * checkbox below carry the "propositions only" meaning, instead of two controls fighting. */
+    layer: matchView ? (state.view.layer === 'props-only' ? 'free' : state.view.layer) : 'free',
     free: matchView ? state.view.free !== false : false,
     /* On (default): a line that has propositions still appears, in place and unconnected, so the
      * propositions can be read against the sentence they restate. Off: the "propositions only"

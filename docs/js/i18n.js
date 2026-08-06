@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v252';
+export const ENGINE_VERSION = 'v253';
 
 const S = {
 en: {
@@ -1109,6 +1109,7 @@ internet after the first time.</p>
   'para.layerInterlinear': 'Words + glosses',
   'para.layerBaseline': 'Baseline text',
   'para.layerFreeOnly': 'Free translation only',
+  'para.layerPropsOnly': 'Propositions only',
   'para.showFree': 'Free translation',
   'para.hideBlank': 'Hide blank lines',
   'para.hideBlankTip': 'Blank lines are usually silence between utterances. Hiding them only affects this view — they stay in the file with their times, and a group that spans them still covers them.',
@@ -1269,9 +1270,12 @@ internet after the first time.</p>
   'para.slotStacked': 'Above the relation',
   'para.slotRotated': 'Rotated along the bracket',
   'para.exportCollapsed': 'Collapsed groups',
-  'para.exportCollLeaf': 'One summary line',
-  'para.exportCollSummary': 'Summary lines, as the editor shows them',
-  'para.exportLineContext': 'Show the original line where it has propositions (unconnected)',
+  'para.exportCollLeaf': 'One summary line (hides the rest)',
+  'para.exportCollBracket': 'All its lines, inside one bracket',
+  'para.exportLineContext': 'Show language-data lines that are not in the tree (those with propositions)',
+  'para.chartShow': '◫ Chart',
+  'para.chartHide': '◫ Back to editing',
+  'para.chartTip': 'Switch to the SSA diagram for a quick look at the shape of the analysis — nothing is changed or saved',
   'para.zoomTip': 'Zoom the analysis in or out — text re-flows, so nothing blurs',
   'para.zoomIn': 'Zoom in', 'para.zoomOut': 'Zoom out',
   'para.zoomMin': 'Already at the smallest size.',
@@ -2412,6 +2416,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.layerInterlinear': 'Kata + glos',
   'para.layerBaseline': 'Teks dasar',
   'para.layerFreeOnly': 'Hanya terjemahan bebas',
+  'para.layerPropsOnly': 'Hanya proposisi',
   'para.showFree': 'Terjemahan bebas',
   'para.hideBlank': 'Hide blank lines',
   'para.hideBlankTip': 'Blank lines are usually silence between utterances. Hiding them only affects this view — they stay in the file with their times, and a group that spans them still covers them.',
@@ -2574,9 +2579,12 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.slotStacked': 'Di atas relasi',
   'para.slotRotated': 'Diputar sepanjang kurung',
   'para.exportCollapsed': 'Grup yang diciutkan',
-  'para.exportCollLeaf': 'Satu baris ringkasan',
-  'para.exportCollSummary': 'Baris ringkasan, seperti di editor',
-  'para.exportLineContext': 'Tampilkan baris asli jika ada proposisi (tanpa garis)',
+  'para.exportCollLeaf': 'Satu baris ringkasan (sisanya disembunyikan)',
+  'para.exportCollBracket': 'Semua barisnya, dalam satu kurung',
+  'para.exportLineContext': 'Tampilkan baris data bahasa yang tidak ada di pohon (yang punya proposisi)',
+  'para.chartShow': '◫ Bagan',
+  'para.chartHide': '◫ Kembali menyunting',
+  'para.chartTip': 'Beralih ke diagram SSA untuk melihat bentuk analisis sekilas — tidak ada yang diubah atau disimpan',
   'para.zoomTip': 'Perbesar atau perkecil analisis — teks ditata ulang, jadi tidak buram',
   'para.zoomIn': 'Perbesar', 'para.zoomOut': 'Perkecil',
   'para.zoomMin': 'Sudah pada ukuran terkecil.',

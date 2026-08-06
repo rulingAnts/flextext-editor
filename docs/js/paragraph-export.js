@@ -497,7 +497,7 @@ export function ssaLayout(data, opts = {}) {
    * Turning this OFF is the "propositions only" export: the line is omitted when it has
    * propositions, and a line with none contributes its own text as before. */
   const rows = [];
-  const collapsedStyle = opts.collapsedStyle === 'summary' ? 'summary' : 'leaf';
+  const collapsedStyle = opts.collapsedStyle === 'bracket' ? 'bracket' : 'leaf';
   const showLineContext = opts.lineContext !== false;
   const contextDone = new Set();
   const emitContext = (lineId) => {
@@ -520,20 +520,40 @@ export function ssaLayout(data, opts = {}) {
       const g = node(data, id);
       if (!g) return null;
       if (collapsed.has(id)) {
-        /* ⚠ COLLAPSING IS HOW YOU PRODUCE A BIG-PICTURE CHART. A collapsed group is ONE node in the
-         * diagram — one bracket, no internal structure — whatever is inside it. Two renderings of
-         * that node, because they answer different questions:
-         *   'leaf'    (default) — the summary as ONE line. Densest; best when the chart is about
-         *                         the shape of the discourse and the text is just a reminder.
-         *   'summary'           — the summary as SEPARATE lines, exactly what the UI shows when you
-         *                         collapse. Still one node and one bracket; only the text is taller.
-         * Either way the group's own relation and role labels are drawn as usual, so the collapsed
-         * node still says what it is and how it relates. */
-        const lines = collapsedStyle === 'summary' ? summaryLines(data, id) : null;
-        const content = lines && lines.length > 1
-          ? { kind: 'text', text: lines.join('\n'), free: '', lines }
-          : { kind: 'text', text: (lines ? lines.join('') : summaryText(data, id)), free: '' };
-        rows.push({ depth, label: roleLabel, content, head: !!isHead, collapsed: true });
+        /* ⚠ COLLAPSING IS HOW YOU PRODUCE A BIG-PICTURE CHART — it marks a constituent and hides
+         * what is inside it. Two renderings, and they are genuinely different pictures:
+         *
+         *   'leaf'    (default) — the group becomes ONE row of summary text. Densest; the chart is
+         *                         about the shape of the discourse and the words are a reminder of
+         *                         which unit you are looking at.
+         *   'bracket'           — EVERY line under the group still appears, with ONE bracket around
+         *                         the whole run and NO internal structure: no sub-brackets, no inner
+         *                         relations, no member roles. Seth's analogy is the triangle in a
+         *                         generative syntax tree — same JOB, highlight the larger constituent
+         *                         and ignore lower-level detail — but drawn as a bracket, and the
+         *                         text stays readable because the lines are still there.
+         *
+         * Either way the group keeps its OWN relation, role and slot labels: the collapsed node must
+         * still say what it is and how it relates to its parent. What is suppressed is what is
+         * BELOW it. */
+        if (collapsedStyle === 'bracket') {
+          const kids = [];
+          for (const leafId of leafLineIds(data, id)) {
+            if (hideBlank && blankUnit(data, leafId)) continue;
+            // depth + 1 so the run sits under this group's own bracket, exactly like real members.
+            // No role label and no head: those are the internal detail being suppressed.
+            const kid = build(leafId, depth + 1, '', false);
+            if (kid) kids.push(kid);
+          }
+          if (!kids.length) return null;
+          /* A run of ONE is not a bracket. Falling through to the group node would draw a bracket
+           * around a single line, which says "constituent" about nothing. */
+          if (kids.length === 1) { kids[0].label = roleLabel; kids[0].head = !!isHead; return kids[0]; }
+          return { kind: 'group', depth, kids, relation: g.relation || '', slot: g.slot || '',
+                   asym: isAsym(g), headIndex: -1, label: roleLabel, head: !!isHead, collapsed: true };
+        }
+        rows.push({ depth, label: roleLabel, head: !!isHead, collapsed: true,
+                    content: { kind: 'text', text: summaryText(data, id), free: '' } });
         return { kind: 'leaf', depth, row: rows.length - 1, label: roleLabel, head: !!isHead };
       }
       const kids = [];
@@ -815,17 +835,23 @@ export function buildSsaSvg(data, opts = {}) {
      * it. Different bands rather than different x, so they cannot overprint however long they get.
      * `labels` chooses which are drawn: published SSA displays often show only one or the other. */
     {
-      /* ⚠ A ROTATED SLOT NEEDS ITS OWN COLUMN. Drawn in the same band as the relation it overhung
-       * short brackets and printed straight through "orienter–CONTENT" — the same overprinting trap
-       * that once hid group roles. When rotation is on, every horizontal label shifts right by the
-       * width of that column, so the two can never collide however long either gets. */
-      const slotCol = (slotStyle === 'rotated' && showSlots) ? 17 : 0;
+      /* ⚠ A ROTATED SLOT NEEDS ITS OWN COLUMN, and the column belongs to the PARENT's joiner — that
+       * is where the label is drawn, and a label sitting on this node's own trunk start is what the
+       * rotated slot of our PARENT occupies. So the shift is unconditional whenever rotation is on:
+       * every horizontal label starts clear of the vertical band, and the two can never collide
+       * however long either gets. */
+      const slotCol = (slotStyle === 'rotated' && showSlots) ? 16 : 0;
       const lx = x + 5 + slotCol;
-      /* ⚠ `room` is NOT reduced by the column. Subtracting it truncated relation names that fit
-       * perfectly well before rotation was switched on — a display option must not silently shorten
-       * the analyst's labels. The label may now overhang the next level by the column width, which
-       * it could already do at full length anyway. */
-      const room = o.levelWidth - 12;
+      /* ⚠ ROTATED SLOTS COST HORIZONTAL ROOM, and there is no way around it. A group's relation is
+       * drawn from its trunk RIGHTWARDS, and its rotated slot sits on its own joiner one level to
+       * the right — the same pixels. Shifting the label around only moves which pair collides
+       * (moving it to the gutter, the first attempt, put it beside the wrong row entirely).
+       * So the band is genuinely reserved: `room` gives up the column, and a long relation name is
+       * ELLIPSISED by fitToLength rather than printed through the label. A visibly shortened label
+       * is honest; two strings on top of each other is not.
+       * The cost is real and the user can pay it back — widening "Indent per level" restores the
+       * room. That trade is why rotation is opt-in and 'stacked' is the default. */
+      const room = o.levelWidth - 12 - slotCol;
       // A segment cluster (one line's propositions) has no relation of its own, but it DOES carry
       // the line's role — that is the only place that role can now be written.
       if (n.relation && showRelations && !n.segment) {
@@ -848,15 +874,30 @@ export function buildSsaSvg(data, opts = {}) {
        * one y with nothing to say how far the slot reaches. */
       if (n.slot && showSlots) {
         if (slotStyle === 'rotated') {
-          /* ⚠ NOT TRUNCATED TO THE SPAN. Fitting the label into the group's height seemed right —
-           * the bracket is its budget — but a two-member group is barely one line tall, so
-           * "Stage setting" was cut to nothing and the slot silently disappeared from the diagram.
-           * A vertical label that runs a little past the ends of its bracket is still perfectly
-           * readable and still unambiguously attached to that bracket; a label that is not there
-           * at all is a lost analysis. It is centred on the span, so any overhang is symmetrical. */
+          /* ⚠ ON THE GROUP'S OWN BRACKET (Seth, 2026-08-06, with a marked-up screenshot). The joiner
+           * is the vertical line spanning this group's members, so a label beside it names exactly
+           * the stretch it describes; parked out in the trunk gutter it read as belonging to
+           * whatever else was on that row.
+           *
+           * ⚠ IT SITS JUST LEFT OF THE JOINER AND THE CHILD LABELS MOVE RIGHT TO CLEAR IT. This is
+           * the collision that drove it into the gutter the first time: child relations are drawn
+           * from the joiner rightwards, so a label on the joiner printed straight through
+           * "orienter–CONTENT". Relocating it hid the problem; reserving a column solves it.
+           *
+           * ⚠ NOT TRUNCATED TO THE SPAN. Fitting it to the group's height seemed right — the bracket
+           * is its budget — but a two-member group is barely one line tall, so "Stage setting" was
+           * cut to nothing and the slot vanished. A label overhanging its bracket is readable; a
+           * missing one is a lost analysis. Centred on the span, so any overhang is symmetrical. */
+          /* ⚠ OVERHANG IS BOUNDED, not unlimited. Clamping to the span exactly cut short groups'
+           * labels to nothing; allowing any length let two SIBLING groups' labels — same depth, so
+           * the same x — run into each other vertically. The budget is the span plus a fixed
+           * tolerance, with a floor so an ordinary slot name ("Stage setting", "Episode 1") always
+           * fits whatever the span: a short group still shows a readable label, and only a genuinely
+           * long one is ellipsised instead of climbing into its neighbour. */
           const mid = (n.top + n.bottom) / 2;
-          const sx = x + 8;
-          if (n.slot) parts.push(`<text x="${sx}" y="${mid}" font-size="12" font-weight="700" fill="#6b21a8" text-anchor="middle" transform="rotate(-90 ${sx} ${mid})">${esc(n.slot)}</text>`);
+          const sx = xc - 7;
+          const lab = fitToLength(n.slot, Math.max(112, (n.bottom - n.top) + 46), 12, measure);
+          if (lab) parts.push(`<text x="${sx}" y="${mid}" font-size="12" font-weight="700" fill="#6b21a8" text-anchor="middle" transform="rotate(-90 ${sx} ${mid})">${esc(lab)}</text>`);
         } else {
           const lab = fitToLength(n.slot, room + o.levelWidth, 12.5, measure);
           if (lab) parts.push(`<text x="${lx}" y="${n.anchorY - (n.relation && showRelations && !n.segment ? 19 : 5)}" font-size="12.5" font-weight="700" fill="#6b21a8">${esc(lab)}</text>`);

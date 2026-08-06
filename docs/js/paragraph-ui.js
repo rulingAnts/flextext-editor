@@ -1118,11 +1118,14 @@ function renderWorkInner() {
         <span class="pa-selinfo" id="pa-selinfo"></span>
         <button class="secondary-btn pa-multi" id="pa-multi" aria-pressed="${multiMode}"
                 title="${esc(t('para.multiTip'))}">${esc(t('para.multi'))}</button>
+        <!-- ⚠ ONE BUTTON FOR GROUP / EDIT GROUP. They are MUTUALLY EXCLUSIVE BY SELECTION — Group
+             needs a run of two or more units, Edit group needs exactly one group heading — so both
+             can never be valid at once, and showing both always left one of them inapplicable. The
+             label follows the selection and says which it will do. -->
         <button class="secondary-btn" id="pa-group">${esc(t('para.group'))}</button>
-        <button class="secondary-btn" id="pa-edit">${esc(t('para.editGroup'))}</button>
         <button class="secondary-btn" id="pa-ungroup">${esc(t('para.ungroup'))}</button>
+        <!-- Likewise one toggle: with anything expanded it offers Collapse all, otherwise Expand all. -->
         <button class="secondary-btn" id="pa-collapse-all">${esc(t('para.collapseAll'))}</button>
-        <button class="secondary-btn" id="pa-expand-all">${esc(t('para.expandAll'))}</button>
         <button class="secondary-btn" id="pa-clear" disabled title="${esc(t('para.clearSelTip'))}">${esc(t('para.clearSel'))}</button>
         <button class="secondary-btn" id="pa-undo" title="${esc(t('para.undoNone'))}">${esc(t('para.undo'))}</button>
         <button class="secondary-btn" id="pa-redo" title="${esc(t('para.redoNone'))}">${esc(t('para.redo'))}</button>
@@ -1224,9 +1227,11 @@ function renderWorkInner() {
     db.deleteMedia(WORKING_KEY).catch(() => {});
     state = null; stopAudio(); renderOpen();
   });
-  $('#pa-group').addEventListener('click', openGroupDialog);
+  /* Routes on the selection, exactly as the label promises: a single group heading means edit it,
+   * anything else means try to group. openGroupDialog still reports what to select when neither
+   * applies — the button is never inert. */
+  $('#pa-group').addEventListener('click', () => (selectedGroup() ? openEditDialog() : openGroupDialog()));
   $('#pa-ungroup').addEventListener('click', doUngroup);
-  $('#pa-edit').addEventListener('click', openEditDialog);
   $('#pa-clear').addEventListener('click', clearSelection);
   $('#pa-undo').addEventListener('click', () => (history.length ? doUndo() : alert(t('para.undoNone'))));
   $('#pa-zoom-out').addEventListener('click', () => stepZoom(-1));
@@ -1235,8 +1240,7 @@ function renderWorkInner() {
   applyZoom(zoomPct);   // survive a re-render: the tree element is rebuilt each time
   $('#pa-redo').addEventListener('click', () => (future.length ? doRedo() : alert(t('para.redoNone'))));
   refreshUndoButtons();
-  $('#pa-collapse-all').addEventListener('click', () => collapseAllAction(true));
-  $('#pa-expand-all').addEventListener('click', () => collapseAllAction(false));
+  $('#pa-collapse-all').addEventListener('click', () => collapseAllAction(!allCollapsed()));
   // The touch-friendly stand-in for holding Shift/Ctrl/Cmd (see toggleSelect).
   $('#pa-multi').addEventListener('click', () => {
     multiMode = !multiMode;
@@ -2020,17 +2024,53 @@ function groupTitle(g) {
  * click, logs nothing, and shows nothing — and because selection is ADDITIVE, a few exploratory
  * clicks silently put the app in that state. Now every button is clickable and SAYS what to
  * select instead, and the toolbar reports what is selected so it is clear what will be acted on. */
+/* Everything in scope already collapsed? Decides which way the single collapse/expand toggle points.
+ * Scope follows the selection, the same rule collapseAllAction uses, so the label cannot promise one
+ * thing and the action do another. A document with no groups counts as NOT all-collapsed, so the
+ * button offers Collapse all and says why nothing happened rather than silently flipping to Expand. */
+function allCollapsed() {
+  /* ⚠ SAME SCOPE RULE AS collapseAllAction — selected group headings if any, otherwise the whole
+   * document, walking descendants either way. Restating the rule differently here is exactly how a
+   * label starts promising one thing while the action does another. */
+  const roots = [...selection].filter((id) => isGroupId(id));
+  const known = new Set(state.tree.map((g) => g.id));
+  let target;
+  if (!roots.length) {
+    target = [...known];
+  } else {
+    const seen = new Set();
+    const walk = (id) => {
+      if (!isGroupId(id) || seen.has(id) || !known.has(id)) return;
+      seen.add(id);
+      const g = state.tree.find((x) => x.id === id);
+      for (const c of (g ? g.children : [])) walk(c);
+    };
+    for (const id of roots) walk(id);
+    target = [...seen];
+  }
+  const set = new Set((state.view && state.view.collapsed) || []);
+  return target.length > 0 && target.every((id) => set.has(id));
+}
+
 function refreshActionButtons() {
   const ids = [...selection];
   const g = selectedGroup();
   $('#pa-clear').disabled = !ids.length;
-  $('#pa-edit').title = g ? t('para.editNamed', { name: groupTitle(g) }) : t('para.needGroupHeadingTip');
   $('#pa-ungroup').title = g ? t('para.ungroupNamed', { name: groupTitle(g) }) : t('para.needGroupHeadingTip');
-  $('#pa-group').title = ids.length >= 2 ? t('para.groupTip') : t('para.needTwoTip');
+  /* The merged button RENAMES ITSELF rather than being disabled: with a group heading selected it is
+   * Edit group, otherwise it is Group, and with nothing groupable it still says what to select. */
+  const gb = $('#pa-group');
+  gb.textContent = g ? t('para.editGroup') : t('para.group');
+  gb.title = g ? t('para.editNamed', { name: groupTitle(g) })
+    : ids.length >= 2 ? t('para.groupTip') : t('para.needTwoTip');
   // The scope of collapse/expand follows the selection, so the tooltip must say WHICH it will be.
   const scoped = g ? groupTitle(g) : null;
-  $('#pa-collapse-all').title = scoped ? t('para.collapseSelTip', { name: scoped }) : t('para.collapseAllTip');
-  $('#pa-expand-all').title = scoped ? t('para.expandSelTip', { name: scoped }) : t('para.expandAllTip');
+  const cb = $('#pa-collapse-all');
+  const willCollapse = !allCollapsed();
+  cb.textContent = t(willCollapse ? 'para.collapseAll' : 'para.expandAll');
+  cb.title = willCollapse
+    ? (scoped ? t('para.collapseSelTip', { name: scoped }) : t('para.collapseAllTip'))
+    : (scoped ? t('para.expandSelTip', { name: scoped }) : t('para.expandAllTip'));
   const info = $('#pa-selinfo');
   if (info) {
     info.textContent = g ? t('para.selGroup', { name: groupTitle(g) })

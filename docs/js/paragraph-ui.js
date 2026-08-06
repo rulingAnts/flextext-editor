@@ -22,7 +22,7 @@ import { parseDelimited, looksLikeHeader, columnsOf, detectMapping as detectCsvM
 import {
   validateFxpa, serializeFxpa, groupUnits, ungroup, editGroup, toggleCollapse, setCollapsedAll,
   topUnits, levelOf, spanOf, leavesOf, summaryOf, isGroupId, nodeById, parentOf, isAsym,
-  canExtend, extendGroup, releaseEdge, willDissolve,
+  canExtend, extendGroup, releaseEdge, willDissolve, checkInvariants, repairDocument,
   isBlankLine, visibleTopUnits, withBlanksBetween, isPropId, lineOfPropId, ownerLineOf,
   addProp, setPropText, setPropImplicit, deleteProp,
   newAuthoredDoc, addLine, setLineText, deleteLine, setLineFree, setLineImplicit, setTitle, splitLine,
@@ -58,7 +58,7 @@ export function initParagraphApp() {
     if (rec && rec.text) {
       try {
         const v = validateFxpa(JSON.parse(rec.text));
-        if (v.ok) { load(v.data, { persist: false }); return; }
+        if (v.ok) { load(checkAndOfferRepair(v.data), { persist: false }); return; }
       } catch { /* fall through to the open screen */ }
     }
     renderOpen();
@@ -129,7 +129,7 @@ async function handleFiles(files) {
     if (fxpaFile) {
       const v = validateFxpa(JSON.parse(await fxpaFile.text()));
       if (!v.ok) return renderOpen(v.errors);
-      return load(v.data);
+      return load(checkAndOfferRepair(v.data));
     }
     const audioOf = (fs) => fs.find((f) => /^audio\//.test(f.type) || /\.(wav|mp3|m4a|aac|ogg|opus|webm|flac)$/i.test(f.name));
     // ELAN. ANY .eaf from ANY source (Seth, 2026-08-04) — ours, SayMore's, or a stranger's with
@@ -637,7 +637,49 @@ function load(data, { persist = true } = {}) {
   renderWork();
 }
 
+/* ⚠ EVERY MUTATION IS CHECKED BEFORE IT IS ACCEPTED (Seth, 2026-08-06, after a real corruption:
+ * opening an old file and ungrouping produced propositions he never created, with daughters
+ * scrambled out of their groups and dumped at the end of the document).
+ *
+ * commit() is the single choke point every state change passes through, so this is the one place
+ * that can refuse. On failure the mutation is DISCARDED and the last good state kept: a bad
+ * operation costs the operation, never the work. The user is told what broke and offered a
+ * pre-filled issue.
+ *
+ * ⚠ The guard is deliberately about STRUCTURE, not taste — dangling references, a unit in two
+ * groups, a line whose propositions were orphaned. Those are corruption. What the analysis MEANS is
+ * never checked here; that is the analyst's. */
+/* ⚠ CHECK AND OFFER REPAIR ON THE WAY IN (Seth: "validation and repair for fxpa files… built into
+ * our import/open process"). Damage is durable: it lives in saved files and in the IndexedDB working
+ * copy, so fixing the operation that caused it does nothing for documents already harmed.
+ *
+ * ⚠ ASKS FIRST, and never repairs silently. Opening a file must not rewrite it behind the analyst's
+ * back — and if they decline, the document still opens, because refusing to show someone their own
+ * work is worse than showing it imperfectly. */
+function checkAndOfferRepair(data) {
+  const problems = checkInvariants(data);
+  if (!problems.length) return data;
+  const { data: repaired, fixed } = repairDocument(data);
+  const still = checkInvariants(repaired);
+  const summary = problems.slice(0, 4).map((x) => '• ' + x).join('\n');
+  const plan = fixed.slice(0, 4).map((x) => '• ' + x).join('\n');
+  if (!still.length && fixed.length && confirm(t('para.repairOffer', { problems: summary, plan }))) {
+    return repaired;
+  }
+  if (still.length) alert(t('para.repairPartial', { problems: summary }));
+  return data;   // opened as-is; nothing is hidden and nothing is lost
+}
+
 function commit(next) {
+  const problems = checkInvariants(next);
+  if (problems.length) {
+    const detail = problems.slice(0, 5).join('\n• ');
+    // eslint-disable-next-line no-console
+    console.error('[paragraph] refused a mutation that would corrupt the document:', problems, { before: state, rejected: next });
+    reportCorruption(problems, next);
+    alert(t('para.refusedCorrupt', { detail: '• ' + detail }));
+    return;   // state untouched — the document is exactly as it was
+  }
   state = next;
   /* ⚠ DROP SELECTED IDS THAT NO LONGER EXIST. Every mutation can remove units — deleting a
    * proposition, dissolving a group, pruning a thinned group — and the selection used to survive
@@ -1818,8 +1860,16 @@ function unitLabel(id) {
     const l = nodeById(state, id);
     return (l.free || l.baseline || id).slice(0, 40);
   }
+  /* ⚠ NEVER LEAD WITH THE RAW ID (Seth, 2026-08-06: "'G1', 'G2', etc in the edit box can be a bit
+   * opaque to the user"). G1 is an internal handle; an analyst recognises a group by what it SAYS —
+   * its relation if it has one, otherwise the text it covers. groupTitle() already resolves exactly
+   * that (relation → summary → id as a last resort), so this reuses it rather than inventing a
+   * second answer that could drift from the one used in messages.
+   *
+   * The member count rides along because two groups can easily share a relation name, and size is
+   * what tells them apart at a glance. Ids remain available in fxTree() for debugging. */
   const g = nodeById(state, id);
-  return `${id}${g.relation ? ' — ' + g.relation : ''}`;
+  return t('para.groupUnit', { name: groupTitle(g), n: g.children.length });
 }
 
 /* Collapse/expand everything, or — when something is selected — that subtree only (Seth,
@@ -1951,6 +2001,32 @@ function groupDialog({ ids, gid, heads = [], relation = '', labels = {} }) {
  * ⚠ Feature requests carry NO diagnostics (Seth: "feature suggestions don't need diagnostics") —
  * they are about what the tool should do, not what it did. */
 const ISSUE_BASE = 'https://github.com/rulingAnts/flextext-editor/issues/new';
+
+/* A refused mutation is exactly the case worth reporting, and the user should not have to describe
+ * it — the invariant names the fault precisely. This pre-fills an issue with the problems and the
+ * document's SHAPE, still never its content. */
+function reportCorruption(problems, rejected) {
+  try {
+    const body = [
+      'The app refused an edit because it would have corrupted the document.',
+      '', 'What I was doing when it happened:', '', '',
+      '--------- what the check found ---------',
+      ...problems.map((x) => '• ' + x),
+      '', '--------- diagnostic info (please keep) ---------',
+      diagnosticBlock().replace(/^[\s\S]*?diagnostic info \(please keep\) ---------\n/, ''),
+      `groups before: ${(state.tree || []).length}, after the refused edit: ${(rejected.tree || []).length}`,
+      '(no text from your document is included)',
+    ].join('\n');
+    const q = new URLSearchParams({ labels: 'bug,paragraph-analysis,corruption',
+      title: '[Paragraph Analysis] Refused edit: document invariant broken', body });
+    lastCorruptionUrl = `${ISSUE_BASE}?${q}`;
+  } catch { lastCorruptionUrl = null; }
+}
+let lastCorruptionUrl = null;
+if (typeof window !== 'undefined') {
+  // The console entry point, so the report survives dismissing the alert.
+  window.fxReport = () => lastCorruptionUrl || 'no refused edit in this session';
+}
 
 function diagnosticBlock() {
   const d = state || {};

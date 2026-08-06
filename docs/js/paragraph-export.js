@@ -540,9 +540,11 @@ export function ssaLayout(data, opts = {}) {
           const kids = [];
           for (const leafId of leafLineIds(data, id)) {
             if (hideBlank && blankUnit(data, leafId)) continue;
-            // depth + 1 so the run sits under this group's own bracket, exactly like real members.
-            // No role label and no head: those are the internal detail being suppressed.
-            const kid = build(leafId, depth + 1, '', false);
+            /* ⚠ SAME depth, not depth + 1. These leaves get no stem of their own — the bracket is
+             * drawn hard against the text instead — so an extra level would only widen the whole
+             * diagram by one indent for connectors that are never drawn.
+             * No role label and no head either: that is the internal detail being suppressed. */
+            const kid = build(leafId, depth, '', false);
             if (kid) kids.push(kid);
           }
           if (!kids.length) return null;
@@ -820,32 +822,10 @@ export function buildSsaSvg(data, opts = {}) {
   const line = (x1, y1, x2, y2, w, dash) =>
     parts.push(`<path d="M ${x1} ${y1} H ${x2}" stroke="#1f4f8f" stroke-width="${w}" fill="none"${dash ? ' stroke-dasharray="4 3"' : ''}/>`);
 
-  const draw = (n) => {
-    if (n.kind === 'leaf') {
-      // ...to just short of the text, so the branch and the words it names are visually one thing.
-      line(xOf(n.depth), L.rows[n.row].midY, L.textX - 8, L.rows[n.row].midY, n.head ? 2.4 : 1.2, false);
-      return;
-    }
-    const x = xOf(n.depth), xc = xOf(n.depth + 1);
-    // the vertical joiner across this group's children
-    /* A collapsed 'bracket' group encloses its WHOLE range and gets end arms, so it reads as a
-     * boundary around the run rather than a spine with stubs. Everything else is unchanged. */
-    const encl = !!n.collapsed;
-    const jTop = encl ? n.spanTop : n.top;
-    const jBot = encl ? n.spanBottom : n.bottom;
-    parts.push(`<path d="M ${xc} ${jTop} V ${jBot}" stroke="#1f4f8f" stroke-width="1.4" fill="none"${n.asym ? '' : ' stroke-dasharray="4 3"'}/>`);
-    if (encl) {
-      const arm = 16;
-      parts.push(`<path d="M ${xc} ${jTop} H ${xc + arm} M ${xc} ${jBot} H ${xc + arm}" stroke="#1f4f8f" stroke-width="1.4" fill="none"/>`);
-    }
-    // each child's connector into the joiner
-    for (const k of n.kids) {
-      const ky = k.kind === 'leaf' ? L.rows[k.row].midY : k.anchorY;
-      line(xc, ky, xc + (k.kind === 'leaf' ? 0 : 0), ky, 1, false);
-      if (k.kind !== 'leaf') line(xc, ky, xOf(k.depth), ky, k.head ? 2.4 : 1.2, false);
-    }
-    // this group's own line toward its parent — the TRUNK, thicker when it is the prominent one
-    line(x, n.anchorY, xc, n.anchorY, n.head ? 2.4 : 1.6, false);
+  /* Shared by BOTH group renderings — an ordinary group and a collapsed bracket must label
+   * themselves identically. `vx` is the x of this group's vertical band (its joiner normally,
+   * its bracket when collapsed), which is where a rotated slot rides. */
+  const drawGroupLabels = (n, x, vx) => {
     /* ⚠ A GROUP CARRIES TWO INDEPENDENT LABELS AND BOTH MUST BE READABLE (Seth, 2026-08-05:
      * "daughter element labels and mother relationship labels are rendered in the same space and
      * when that happens, the relationship label wins and the daughter label doesn't appear at
@@ -856,7 +836,6 @@ export function buildSsaSvg(data, opts = {}) {
      * They now occupy different bands of the trunk: the relation ABOVE the line, the role BELOW
      * it. Different bands rather than different x, so they cannot overprint however long they get.
      * `labels` chooses which are drawn: published SSA displays often show only one or the other. */
-    {
       /* ⚠ A ROTATED SLOT NEEDS ITS OWN COLUMN, and the column belongs to the PARENT's joiner — that
        * is where the label is drawn, and a label sitting on this node's own trunk start is what the
        * rotated slot of our PARENT occupies. So the shift is unconditional whenever rotation is on:
@@ -919,7 +898,7 @@ export function buildSsaSvg(data, opts = {}) {
           const top = n.collapsed ? n.spanTop : n.top;
           const bot = n.collapsed ? n.spanBottom : n.bottom;
           const mid = (top + bot) / 2;
-          const sx = xc - 7;
+          const sx = vx - 7;
           const lab = fitToLength(n.slot, Math.max(112, (bot - top) + 46), 12, measure);
           if (lab) parts.push(`<text x="${sx}" y="${mid}" font-size="12" font-weight="700" fill="#6b21a8" text-anchor="middle" transform="rotate(-90 ${sx} ${mid})">${esc(lab)}</text>`);
         } else {
@@ -932,7 +911,49 @@ export function buildSsaSvg(data, opts = {}) {
         // A prominent member is written in caps by convention; colour marks it here too.
         if (lab) parts.push(`<text x="${lx}" y="${n.anchorY + 12}" font-size="10.5" font-weight="${n.head ? 700 : 600}" fill="${n.head ? '#2a6e2a' : '#5b6470'}">${esc(lab)}</text>`);
       }
+  };
+
+  const draw = (n) => {
+    if (n.kind === 'leaf') {
+      // ...to just short of the text, so the branch and the words it names are visually one thing.
+      line(xOf(n.depth), L.rows[n.row].midY, L.textX - 8, L.rows[n.row].midY, n.head ? 2.4 : 1.2, false);
+      return;
     }
+    const x = xOf(n.depth), xc = xOf(n.depth + 1);
+    // the vertical joiner across this group's children
+    /* ── A COLLAPSED 'bracket' GROUP IS DRAWN COMPLETELY DIFFERENTLY ────────────────────────────
+     * Seth, 2026-08-06, approved from a mockup: "the upstream stem to go all the way to the items,
+     * and then don't have individual stems for each daughter, just the encompassing bracket right
+     * up against them."
+     *
+     * So: ONE stem from the parent running the full width to the text, ONE bracket hard against the
+     * words enclosing the whole range, and NOTHING else — no per-line stems, no inner structure.
+     * That is what makes it read as a single constituent rather than a list of members: there is
+     * literally one line in and one boundary, however many rows are inside.
+     *
+     * ⚠ The bracket spans the rows' FULL extent (spanTop/spanBottom), not the anchor extent — a
+     * boundary that stops half a row inside the thing it bounds is not a boundary. Its arms point
+     * toward the text, so it reads as enclosing the words rather than as a stray spine.
+     * ⚠ It RETURNS — the children are never drawn, which is the whole point. */
+    if (n.collapsed) {
+      const bx = L.textX - 10;
+      const arm = 12;
+      line(x, n.anchorY, bx, n.anchorY, n.head ? 2.4 : 1.6, false);
+      parts.push(`<path d="M ${bx} ${n.spanTop} V ${n.spanBottom}" stroke="#1f4f8f" stroke-width="1.6" fill="none"/>`);
+      parts.push(`<path d="M ${bx} ${n.spanTop} H ${bx + arm} M ${bx} ${n.spanBottom} H ${bx + arm}" stroke="#1f4f8f" stroke-width="1.6" fill="none"/>`);
+      drawGroupLabels(n, x, bx);
+      return;
+    }
+    parts.push(`<path d="M ${xc} ${n.top} V ${n.bottom}" stroke="#1f4f8f" stroke-width="1.4" fill="none"${n.asym ? '' : ' stroke-dasharray="4 3"'}/>`);
+    // each child's connector into the joiner
+    for (const k of n.kids) {
+      const ky = k.kind === 'leaf' ? L.rows[k.row].midY : k.anchorY;
+      line(xc, ky, xc + (k.kind === 'leaf' ? 0 : 0), ky, 1, false);
+      if (k.kind !== 'leaf') line(xc, ky, xOf(k.depth), ky, k.head ? 2.4 : 1.2, false);
+    }
+    // this group's own line toward its parent — the TRUNK, thicker when it is the prominent one
+    line(x, n.anchorY, xc, n.anchorY, n.head ? 2.4 : 1.6, false);
+    drawGroupLabels(n, x, xc);
     n.kids.forEach(draw);
   };
   L.roots.forEach(draw);

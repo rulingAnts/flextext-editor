@@ -1531,7 +1531,16 @@ main {
 /* "+ Add" = a sticky stand-in for Shift/Ctrl/Cmd, so touch screens can multi-select at all. */
 .pa-multi.on { background: var(--blue); border-color: var(--blue); color: #fff; }
 .pa-tip { margin: 0; padding: 4px 12px; font-size: 12px; line-height: 1.35; color: var(--muted); background: var(--panel); border-bottom: 1px solid var(--border); }
-.pa-caret { border: none; background: none; cursor: pointer; font-size: 13px; padding: 0 2px; color: var(--muted); }
+/* ⚠ DELIBERATELY LARGE (Seth, 2026-08-06: "hard to see for older eyes"). This is the control that
+   produces the big-picture chart — collapsing groups IS the summarising mechanism — so it is the
+   last thing that should be a 13px glyph. Bigger type, a real hit area, and darker than the muted
+   grey it was. It scales with zoom like everything else in the tree. */
+.pa-caret { border: none; background: none; cursor: pointer; padding: 0 4px; color: var(--text);
+            font-size: 19px; line-height: 1; min-width: 24px; min-height: 24px;
+            display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; }
+.pa-caret:hover { background: var(--panel); }
+.pa-tree .pa-caret { font-size: calc(19px * var(--pa-z)); min-width: calc(24px * var(--pa-z));
+                     min-height: calc(24px * var(--pa-z)); }
 .pa-jt { font-weight: 700; color: var(--blue); }
 .pa-rel { font-weight: 600; color: var(--text); }
 .pa-rel-empty { font-weight: 400; font-style: italic; }

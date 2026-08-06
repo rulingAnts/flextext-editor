@@ -522,6 +522,33 @@ console.log('collapsed groups: every head, and two renderings');
     ok(armRe.test(buildSsaSvg(d, { collapsedStyle: 'bracket' })), 'which the collapsed bracket DOES get');
   }
 
+  /* ⚠ ONE STEM IN, ONE BRACKET, NO PER-LINE STEMS (Seth, approved from a mockup): "the upstream
+   * stem to go all the way to the items, and then don't have individual stems for each daughter,
+   * just the encompassing bracket right up against them." */
+  {
+    const B = ssaLayout(d, { collapsedStyle: 'bracket' });
+    const g2 = B.roots.find((n) => n.kind === 'group');
+    const svgB = buildSsaSvg(d, { collapsedStyle: 'bracket', textWidth: 300 });
+    const horiz = [...svgB.matchAll(/<path d="M ([\d.]+) ([\d.]+) H ([\d.]+)"/g)]
+      .map((m) => ({ x1: +m[1], y: +m[2], x2: +m[3] }));
+    // The collapsed run has 3 lines; if each still had a stem there would be 3 long horizontals
+    // sharing this group's x. There must be exactly ONE — the stem into the bracket.
+    const stems = horiz.filter((h) => Math.abs(h.y - g2.anchorY) < 0.5 && h.x2 - h.x1 > 100);
+    eq(stems.length, 1, 'exactly ONE stem runs into the collapsed group — not one per daughter');
+    ok(stems[0].x2 > B.textX - 20,
+       'and it runs ALL THE WAY to the items, not stopping an indent short');
+    // the bracket is hard against the text, not out at its own indent level
+    const vert = [...svgB.matchAll(/<path d="M ([\d.]+) ([\d.]+) V ([\d.]+)"/g)].map((m) => +m[1]);
+    ok(vert.some((vx) => vx > B.textX - 20), 'the bracket sits right up against the text');
+    // no leaf stems inside the run: the only other horizontals are the ungrouped line + the arms
+    const inside = horiz.filter((h) => h.y > g2.spanTop + 1 && h.y < g2.spanBottom - 1
+                                       && Math.abs(h.y - g2.anchorY) > 0.5 && h.x2 - h.x1 > 40);
+    eq(inside.length, 0, 'no individual daughter stems are drawn inside the bracket');
+    // ⚠ the collapsed run must not widen the whole diagram with an unused indent level
+    eq(B.maxDepth, ssaLayout(d, { collapsedStyle: 'leaf' }).maxDepth,
+       'and the run adds no extra indent level, since its leaves have no stems to indent');
+  }
+
   const svg = buildSsaSvg(d, { collapsedStyle: 'bracket' });
   ok(svg.includes('The others waited'), "'bracket' shows a non-head member that 'leaf' summarises away");
   ok(!buildSsaSvg(d, { collapsedStyle: 'leaf' }).includes('The others waited'),

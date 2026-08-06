@@ -575,7 +575,22 @@ export function ssaLayout(data, opts = {}) {
   const anchor = (n) => {
     if (n.kind === 'leaf') return rows[n.row].midY;
     const ys = n.kids.map(anchor);
-    n.anchorY = (n.asym && n.headIndex >= 0) ? ys[n.headIndex] : (Math.min(...ys) + Math.max(...ys)) / 2;
+    /* ⚠ THE MOTHER LINE ENTERS AT THE MEAN y OF THE PROMINENT MEMBERS — the heads if there are any,
+     * otherwise all members (Seth, 2026-08-06: "treat the HEADS in a multi-head group as a range and
+     * center the mother-line to that group on AVERAGE relative to the HEADS").
+     *
+     * One expression covers every case, which is why there is no branch on head count:
+     *   1 head  → the mean of one value is that value — identical to the old behaviour;
+     *   2+      → midway between them, so the line serves both rather than picking one;
+     *   0 heads → the prominent set is every member, giving the span's midpoint — also unchanged.
+     *
+     * ⚠ Known and accepted: with NON-ADJACENT heads the mean lands on a support between them, so the
+     * line appears to point at a non-head. Arithmetically right; Seth reviewed it and chose to ship
+     * this rather than a bracket spanning the heads. Revisit if it reads wrong in a real analysis —
+     * the model permits heads in ANY pattern, so the case is reachable whenever multi-head is on. */
+    const headYs = ys.filter((_, i) => n.kids[i] && n.kids[i].head);
+    const anchors = headYs.length ? headYs : ys;
+    n.anchorY = anchors.reduce((a, b) => a + b, 0) / anchors.length;
     n.top = Math.min(...ys); n.bottom = Math.max(...ys);
     return n.anchorY;
   };

@@ -285,7 +285,11 @@ console.log('\nthe diagram draws a line\'s proposition tree');
   d = addProp(d, 'L1', 'the child had laughed');
   d = addProp(d, 'L1', 'he was ashamed', { implicit: true });
   const [p1, p2, p3] = d.lines[0].props.map((x) => x.id);
-  d = groupUnits(d, [p2, p3], { joinType: 'asym', head: p2, relation: 'cause–EFFECT',
+  /* ⚠ head is p3, the EFFECT. The fixture used to declare head: p2 while labelling p2 'cause' and
+   * p3 'EFFECT' — contradicting its own relation name. Harmless while labels were stored verbatim;
+   * once case is normalised at storage (head UPPER, support lower) the contradiction became visible
+   * as CAUSE/effect. Fixed the DATA, not the expectation. */
+  d = groupUnits(d, [p2, p3], { joinType: 'asym', head: p3, relation: 'cause–EFFECT',
                                 labels: { [p2]: 'cause', [p3]: 'EFFECT' } });
   const inner = d.tree[0].id;
   d = groupUnits(d, [p1, inner], { joinType: 'asym', head: p1, relation: 'EVENT–reason',

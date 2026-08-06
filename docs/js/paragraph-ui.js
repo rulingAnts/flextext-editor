@@ -1130,10 +1130,36 @@ function renderUnit(id, nodeLabel = '', depth = 0) {
       if (hideBlank && isHiddenBlank(c)) continue;   // silence inside a group
       el.appendChild(renderUnit(c, (g.labels || {})[c] || '', depth + 1));
     }
-    // HEAD marker on the head child's container/row.
+    /* PROMINENCE IS POSITION, NOT A MARKER (Seth, 2026-08-06: "Putting a bracket around the head
+     * makes it look like a daughter"). The head used to get an inset left BAR — the same shape as a
+     * group bracket — so the prominent member read as one more level of nesting.
+     *
+     * Now: the head stays on the trunk and is marked only by weight, while every SUPPORT is
+     * indented and hangs off a short dotted connector. One rule for every kind of member — a line,
+     * a proposition, or a whole group — and it scales to multiple heads for free, because two heads
+     * is simply two members not indented.
+     *
+     * ⚠ Blank lines absorbed for contiguity are NOT members: they get neither class, so no
+     * connector and no role. They are silence kept so the run is unbroken, not something analysed. */
     if (g.joinType === 'asym') {
+      for (const ch of el.children) {
+        const uid = ch.dataset && ch.dataset.unit;
+        if (!uid || isHiddenBlank(uid)) continue;
+        ch.classList.add(uid === g.head ? 'pa-head' : 'pa-support');
+      }
       const headEl = [...el.children].find((ch) => ch.dataset && ch.dataset.unit === g.head);
-      if (headEl) headEl.classList.add('pa-head');
+      /* The chip carries the head's ROLE; with no role yet it falls back to the word HEAD. Roles are
+       * filled in gradually and the head is usually named LAST, so without the fallback the head
+       * would look like an unindented support for most of the analysis.
+       * ⚠ The word comes from i18n, never hardcoded — Longacre/Hwang name their nucleus differently
+       * and PAT is meant to serve more than one tradition. */
+      if (headEl && !headEl.querySelector('.pa-nodelabel')) {
+        const chip = document.createElement('span');
+        chip.className = 'pa-nodelabel pa-nodelabel-fallback';
+        chip.textContent = t('para.head');
+        const badge = headEl.querySelector('.pa-badge');
+        (badge || headEl).appendChild(chip);
+      }
     }
   }
   return el;

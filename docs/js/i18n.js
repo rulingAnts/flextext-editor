@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v256';
+export const ENGINE_VERSION = 'v257';
 
 const S = {
 en: {
@@ -1123,6 +1123,8 @@ internet after the first time.</p>
   'para.ungroup': 'Ungroup',
   // Edit/Ungroup act on ONE group heading. The buttons stay clickable and say this, rather than
   // sitting disabled and looking broken (Seth, 2026-08-04).
+  'para.helpTip': 'How this tool works',
+  'para.helpFull': 'Full guide to the Paragraph Analysis Tool →',
   'para.selectTip': 'Click a line or a group heading to select it. To select a run of them, Ctrl-click or Cmd-click (or switch on “↔ Extend”) at the other end — the selection always stretches from where you started, so it is always a single unbroken run. Then press Group. Edit group and Ungroup work on one group heading.',
   'para.multi': '↔ Extend',
   'para.multiTip': 'Make the next click stretch the selection to it — the same as holding Shift or Ctrl/Cmd (use this on a touch screen)',
@@ -2430,6 +2432,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.group': 'Kelompokkan',
   'para.editGroup': 'Ubah kelompok',
   'para.ungroup': 'Bubarkan',
+  'para.helpTip': 'Cara kerja alat ini',
+  'para.helpFull': 'Panduan lengkap Alat Analisis Paragraf →',
   'para.selectTip': 'Klik satu baris atau judul kelompok untuk memilihnya. Untuk memilih serangkaian, Shift-klik (atau Ctrl/Cmd-klik, atau aktifkan “↔ Perluas”) di ujung yang lain — pilihan selalu merentang dari titik awal, jadi selalu satu rangkaian utuh. Lalu tekan Kelompokkan. Ubah kelompok dan Bubarkan berlaku untuk satu judul kelompok.',
   'para.multi': '↔ Perluas',
   'para.multiTip': 'Buat klik berikutnya merentangkan pilihan sampai ke sana — sama seperti menahan Shift atau Ctrl/Cmd (pakai ini di layar sentuh)',

@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paragraph Analysis Tool — FlexText</title>
+<style>
+  /* ⚠ THE BACKGROUND IS SET EXPLICITLY AND BOTH SCHEMES ARE STYLED. Setting only `color` leaves the
+     background to the browser, so on a device in dark mode this page rendered near-black text on a
+     near-black background — unreadable. Field users read help at night. */
+  :root {
+    --bg: #ffffff; --fg: #1c2733; --muted: #4a5764; --line: #e3e8ed; --rule: #d7dee5;
+    --panel: #f7f9fb; --code: #eef2f6; --th: #f4f7fa; --kbd: #ffffff; --kbdline: #c3ccd5;
+    --warnbg: #fdf3d7; --warnline: #e5c66a; --notebg: #eef4fb; --noteline: #c9dcf2; --link: #1f4f8f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14181d; --fg: #e6ecf2; --muted: #a9b6c2; --line: #2b333c; --rule: #333c46;
+      --panel: #1b2027; --code: #232a32; --th: #1f262e; --kbd: #232a32; --kbdline: #3d4753;
+      --warnbg: #33290d; --warnline: #7a6520; --notebg: #12212f; --noteline: #26415c; --link: #8db6ea;
+    }
+  }
+  body { font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 780px; margin: 0 auto; padding: 20px 20px 80px; color: var(--fg); background: var(--bg); }
+  a { color: var(--link); }
+  h1 { font-size: 1.55rem; margin-bottom: .2em; }
+  h2 { font-size: 1.2rem; margin-top: 2em; padding-top: .6em; border-top: 1px solid var(--line); }
+  h3 { font-size: 1.02rem; margin-top: 1.5em; }
+  code { background: var(--code); padding: 1px 5px; border-radius: 4px; font-size: .92em; }
+  kbd { background: var(--kbd); border: 1px solid var(--kbdline); border-bottom-width: 2px; border-radius: 4px; padding: 1px 5px; font-size: .85em; }
+  .warn { background: var(--warnbg); border: 1px solid var(--warnline); border-radius: 8px; padding: 12px 14px; }
+  .note { background: var(--notebg); border: 1px solid var(--noteline); border-radius: 8px; padding: 12px 14px; }
+  .lede { color: var(--muted); }
+  table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: 14.5px; display: block; overflow-x: auto; }
+  th, td { border: 1px solid var(--rule); padding: 6px 9px; text-align: left; vertical-align: top; }
+  th { background: var(--th); }
+  ul, ol { padding-left: 22px; } li { margin: .3em 0; }
+  .toc { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; font-size: 14.5px; }
+  .toc ul { margin: .3em 0; } .toc li { margin: .15em 0; }
+  figure { margin: 1.2em 0; } figcaption { color: var(--muted); font-size: 14px; }
+  hr { border: 0; border-top: 1px solid var(--line); margin: 2.2em 0; }
+</style>
+</head>
+<body>
+
+<h1>The Paragraph Analysis Tool</h1>
+<p class="lede">A tool for grouping the lines of a text into a hierarchy — which line supports which,
+and how — and drawing the result as a semantic structure diagram. It reads and writes its own
+<code>.fxpa</code> file and never alters your language data.</p>
+
+<div class="toc">
+  <strong>On this page</strong>
+  <ul>
+    <li><a href="#what">What this tool is for</a></li>
+    <li><a href="#open">Getting a text in</a></li>
+    <li><a href="#select">Selecting and grouping</a></li>
+    <li><a href="#heads">Heads: what is prominent</a></li>
+    <li><a href="#labels">The three labels: relation, role, discourse slot</a></li>
+    <li><a href="#props">Propositions</a></li>
+    <li><a href="#collapse">Collapsing — how you get the big picture</a></li>
+    <li><a href="#view">Looking at your work</a></li>
+    <li><a href="#export">Exporting</a></li>
+    <li><a href="#audio">Audio, blank lines and speakers</a></li>
+    <li><a href="#safety">Safety: what the tool refuses to do</a></li>
+    <li><a href="#fxpa">The .fxpa file</a></li>
+    <li><a href="#console">Console functions</a></li>
+    <li><a href="#trouble">Troubleshooting</a></li>
+  </ul>
+</div>
+
+<h2 id="what">What this tool is for</h2>
+
+<p>Discourse analysis asks how the parts of a text hold together: which sentence sets the scene,
+which one carries the main event, which merely elaborates. This tool lets you build that structure
+over a text you already have, and produce a diagram of it.</p>
+
+<p>It is built around Semantic Structure Analysis (SSA), but it does not force SSA on you. The
+labels are free text, so Longacre-style plot structure, Beekman–Callow relations, or your own scheme
+all work. The tool enforces only <em>structural</em> rules — the ones that keep a hierarchy a
+hierarchy. Everything semantic is yours.</p>
+
+<div class="note"><strong>It never edits your text.</strong> Grouping is metadata. The baseline,
+words, glosses and free translations you imported are not touched by any grouping operation, and no
+grouping operation can merge or split a line or an audio segment. If you need to split or join
+lines, do it in the FlexText editor or ELAN and re-import.</div>
+
+<h2 id="open">Getting a text in</h2>
+
+<p>Three ways to start:</p>
+<ul>
+  <li><strong>Open a <code>.fxpa</code> file</strong> — an analysis you or a colleague saved before.</li>
+  <li><strong>Import a text</strong> — a <code>.flextext</code> from FLEx, or an ELAN
+      <code>.eaf</code>. Each phrase becomes a line you can group.</li>
+  <li><strong>Start a blank chart</strong> — type propositions directly, with no source text. Use
+      this when you are analysing meaning rather than an existing recording.</li>
+</ul>
+
+<p>Every document is validated as it opens (see <a href="#safety">Safety</a>). If the file has
+problems the tool can fix without inventing anything, it repairs them and tells you what it did.</p>
+
+<h2 id="select">Selecting and grouping</h2>
+
+<p>Click a line, or a group heading, to select it. To select a <em>run</em> of them:</p>
+<ul>
+  <li><kbd>Ctrl</kbd>-click or <kbd>Cmd</kbd>-click at the other end of the run, <em>or</em></li>
+  <li>switch on <strong>↔ Extend</strong> and click at the other end — useful on a touchscreen,
+      where modifier keys are awkward.</li>
+</ul>
+
+<p>The selection always stretches from where you started, so it is always a
+<strong>single unbroken run</strong>. You cannot select line 2 and line 7 without lines 3–6.</p>
+
+<div class="note"><strong>Why runs only.</strong> A group is a constituent — a stretch of text that
+behaves as a unit. A "group" of non-adjacent lines would not be a constituent of anything, and every
+diagram convention for drawing it would be a lie about the structure. The restriction is what makes
+the diagram trustworthy.</div>
+
+<p>With a run selected, press <strong>Group</strong>. The dialog lets you set the relation, the
+discourse slot, each member's role, and which members are heads.</p>
+
+<h3>Editing a group you already made</h3>
+<p>Select just its heading, then:</p>
+<ul>
+  <li><strong>Edit group</strong> — change labels, roles, heads.</li>
+  <li><strong>Ungroup</strong> — dissolve it. Its members return to the level above, in place.
+      Nothing is deleted.</li>
+</ul>
+
+<h3>Adjusting a group's edges</h3>
+<p>In the Edit group dialog, <strong>Extend</strong> and <strong>Release</strong> move the group's
+boundaries one unit at a time:</p>
+<ul>
+  <li><strong>Extend</strong> absorbs the adjacent sibling above or below. The newcomer arrives
+      <em>plain</em> — no role, not a head — because the tool will not guess what it is to you.</li>
+  <li><strong>Release</strong> pushes the first or last member back out, beside the group.</li>
+</ul>
+<p>This exists so you can fix a boundary without dismantling the group and rebuilding it. If
+releasing would leave the group with one member, the group dissolves — a group of one is not a
+group, and the tool says so before it happens.</p>
+
+<h3>Nesting</h3>
+<p>Groups can contain groups, to any depth. You can work top-down (group everything, then subdivide)
+or bottom-up (group small units, then group the groups). You never have to dismantle a hierarchy to
+change part of it.</p>
+
+<h2 id="heads">Heads: what is prominent</h2>
+
+<p>In the Group dialog, each member has a <strong>HEAD</strong> checkbox, unchecked by default.</p>
+
+<ul>
+  <li><strong>No heads ticked</strong> — a <em>symmetrical</em> group. The members are equals
+      (a list, a sequence, a paraphrase pair). Drawn with a dashed spine.</li>
+  <li><strong>One or more ticked</strong> — an <em>asymmetrical</em> group. The head is what the
+      group is really asserting; the others support it. Drawn with a solid spine, and the incoming
+      line enters at the head.</li>
+</ul>
+
+<p>Symmetrical versus asymmetrical is <strong>derived</strong> from whether any head is ticked. There
+is no separate switch to get out of step with reality.</p>
+
+<h3>More than one head</h3>
+<p>A group may have several heads — two events of equal weight inside one unit, for example. The
+diagram enters at the <strong>average position of the heads</strong>, so the line visibly serves all
+of them rather than picking one.</p>
+
+<div class="warn"><strong>Known limit.</strong> With heads that are <em>not adjacent</em> — say the
+first and last member — the average lands on a supporting member between them, so the line appears to
+point at a non-head. It is arithmetically correct and was accepted deliberately. If it reads wrong in
+a real analysis, say so and it can be revisited.</div>
+
+<h2 id="labels">The three labels: relation, role, discourse slot</h2>
+
+<p>A group can carry three different labels. They are deliberately separate fields, because they
+answer different questions and you often want more than one at a time.</p>
+
+<table>
+  <tr><th>Label</th><th>Question it answers</th><th>Example</th></tr>
+  <tr><td><strong>Relation</strong><br>(on the group)</td>
+      <td>How do this group's members relate to <em>each other</em>?</td>
+      <td><code>grounds–CONCLUSION</code>, <code>orienter–CONTENT</code>, <code>addition</code></td></tr>
+  <tr><td><strong>Role</strong><br>(on each member)</td>
+      <td>What is <em>this member</em> to the group?</td>
+      <td><code>grounds</code>, <code>CONCLUSION</code>, <code>setting</code></td></tr>
+  <tr><td><strong>Discourse slot</strong><br>(on the group)</td>
+      <td>What part does this group play in the <em>whole text</em>?</td>
+      <td><code>Stage setting</code>, <code>Episode 1</code>, <code>Peak</code></td></tr>
+</table>
+
+<p>A group commonly has all three: an <code>Episode 1</code> that is internally
+<code>orienter–CONTENT</code>, whose members are <code>orienter</code> and <code>CONTENT</code>.
+Merging them into one field would force you to choose between an SSA relation and Longacre-style plot
+structure — so they stay separate.</p>
+
+<p>Roles belong to the <em>group</em>, not the unit: a role is held relative to one relation. The
+same line in a different group would have a different role.</p>
+
+<h3>Capitalisation is normalised</h3>
+<p>The SSA convention writes the prominent member's role in CAPITALS and a supporting member's in
+lower case. The tool enforces this when the label is <em>stored</em>, so what you see on screen, what
+goes in the diagram, and what is written to the file always agree. Type in whatever case you like;
+ticking or unticking HEAD re-cases the role to match.</p>
+
+<h2 id="props">Propositions</h2>
+
+<p>A line of language data says one thing on the surface but may express several propositions. Add
+them under a line with <strong>+ proposition</strong>. Press <kbd>Enter</kbd> in a proposition box to
+add another, <kbd>Backspace</kbd> in an empty one to remove it.</p>
+
+<p>Propositions are <em>additions beside the line</em>, never edits to it — which is why they are
+offered on imported texts. They can be grouped, given roles and made heads, exactly like lines.</p>
+
+<h3>Implied propositions</h3>
+<p>Mark a proposition <em>implied</em> when it is not stated on the surface but is needed for the
+argument. Implied propositions are shown in brackets, the SSA convention. Whether the brackets are
+drawn is a setting.</p>
+
+<h3>What happens to the line itself</h3>
+<p>Once a line has propositions with text in them, the propositions stand in the analysis in place of
+the line. The line still appears in the diagram, <strong>greyed and unconnected</strong>, at its own
+position among its propositions — so you can read the restatement against the sentence it restates.
+Turn this off with <em>Show language-data lines that are not in the tree</em> to get a
+propositions-only diagram.</p>
+
+<p>An <em>empty</em> proposition box never replaces its line — it is a box you have opened and not yet
+typed into.</p>
+
+<h2 id="collapse">Collapsing — how you get the big picture</h2>
+
+<p>Click the <strong>▾ / ▸</strong> caret on a group heading to collapse or expand it.
+<strong>Collapse all</strong> and <strong>Expand all</strong> work on the whole document or on a
+selection.</p>
+
+<div class="note"><strong>Collapsing is the summarising mechanism.</strong> A collapsed group is
+<em>one node</em> in the exported diagram, however much is inside it. So the way to produce a
+big-picture chart of a long text is: collapse the groups you want summarised, then export.</div>
+
+<p>The export offers two ways to draw a collapsed group:</p>
+<ul>
+  <li><strong>One summary line</strong> — the group becomes a single row of summary text, taken from
+      its head (or every head, if it has several). Densest; the rest of its content is hidden.</li>
+  <li><strong>All its lines, inside one bracket</strong> — every line still shows, with one bracket
+      around the whole run, no internal structure, no member roles. Same job as the triangle in a
+      generative syntax tree: highlight the larger constituent, ignore the detail below it.</li>
+</ul>
+
+<h2 id="view">Looking at your work</h2>
+
+<table>
+  <tr><th>Control</th><th>What it does</th></tr>
+  <tr><td><strong>View dropdown</strong></td>
+      <td>Words + glosses, Baseline text, Free translation only, or Propositions only.</td></tr>
+  <tr><td><strong>Free translation</strong></td>
+      <td>Show or hide it alongside. Inert in the two views that decide it for themselves.</td></tr>
+  <tr><td><strong>Hide blank lines</strong></td>
+      <td>Keeps silence out of the way. Blank lines remain in the document either way.</td></tr>
+  <tr><td><strong>− 100% +</strong></td>
+      <td>Zoom the analysis. Scales text, labels, indent and buttons together; the toolbar is
+          unaffected. It is a size change, not a picture stretch, so nothing blurs.</td></tr>
+  <tr><td><strong>◫ Chart</strong></td>
+      <td>Switch the working area to the SSA diagram for a quick look, then back. Nothing is changed
+          or saved, and your selection, zoom and scroll position survive the trip.</td></tr>
+  <tr><td><strong>Undo / Redo</strong></td>
+      <td><kbd>⌘Z</kbd> / <kbd>⌘⇧Z</kbd> (<kbd>Ctrl</kbd> on Windows and Linux). Up to 50 steps,
+          cleared when a different document opens. Ignored while you are typing in a text box, so
+          undo in an editor still undoes your typing.</td></tr>
+</table>
+
+<h2 id="export">Exporting</h2>
+
+<p>Press <strong>Export…</strong> and choose what to produce:</p>
+
+<table>
+  <tr><th>Format</th><th>What it is</th></tr>
+  <tr><td><strong>Interactive page</strong> (HTML)</td>
+      <td>A self-contained page showing the analysis, optionally with the audio embedded so each
+          line can be played. For sharing with someone who does not have the tool.</td></tr>
+  <tr><td><strong>Diagram</strong> (HTML)</td>
+      <td>The SSA diagram as a scrollable web page. Good for a wide diagram.</td></tr>
+  <tr><td><strong>Semantic structure diagram</strong> (SVG)</td>
+      <td>A vector image — drop it into a paper or print it at any size without blurring.</td></tr>
+  <tr><td><strong>Save (.fxpa)</strong></td>
+      <td>The analysis itself, to reopen or hand to a colleague.</td></tr>
+</table>
+
+<h3>Preview before you commit</h3>
+<p>Press <strong>Preview</strong> in the export dialog. The dialog widens and the real diagram appears
+beside the options, redrawing as you change them. What you see is built from exactly the settings the
+export will use, so it cannot drift from the file you get.</p>
+
+<h3>Diagram settings</h3>
+<table>
+  <tr><th>Setting</th><th>Notes</th></tr>
+  <tr><td>Language data column</td><td>How wide the text column is. The canvas grows to hold it —
+      the diagram scrolls rather than squeezing the text.</td></tr>
+  <tr><td>Indent per level</td><td>How far each level of nesting steps right. Tighten it to narrow a
+      deep diagram.</td></tr>
+  <tr><td>Labels to show</td><td>Relations and roles, relations only, or roles only. Published SSA
+      displays often show one or the other.</td></tr>
+  <tr><td>Wrap long lines</td><td>Off means nothing folds and the column grows to the longest row.</td></tr>
+  <tr><td>Show what I am looking at</td><td>Uses your current view (interlinear, glosses, free
+      translation) instead of the SSA default of free translation only.</td></tr>
+  <tr><td>Show language-data lines that are not in the tree</td><td>See
+      <a href="#props">Propositions</a>. Off gives a propositions-only diagram.</td></tr>
+  <tr><td>Slot labels</td><td>Above the relation, rotated along the bracket, or hidden.</td></tr>
+  <tr><td>Collapsed groups</td><td>See <a href="#collapse">Collapsing</a>.</td></tr>
+</table>
+
+<div class="warn"><strong>Rotated slot labels cost horizontal room.</strong> A group's relation is
+drawn rightwards from its trunk and its rotated slot sits on its own bracket — the same space. The
+label wins and a long relation name is shortened with an ellipsis. Widen <em>Indent per level</em> to
+get the full names back, or use the stacked style, which never truncates.</div>
+
+<h2 id="audio">Audio, blank lines and speakers</h2>
+
+<p>If the text came from a recording, each line keeps its time span and gets a play button. Grouping
+never merges or moves audio: a group simply spans its members' time.</p>
+
+<p><strong>Blank lines</strong> — gaps between annotated speech, common in ELAN exports and FLEx
+texts — are real timed spans and stay in the document. <em>Hide blank lines</em> keeps them out of
+sight, and they are skipped in the diagram, but they are never deleted.</p>
+
+<p><strong>Speakers</strong> are carried on the line and shown beside it in the diagram, so a
+multi-speaker text stays readable.</p>
+
+<h2 id="safety">Safety: what the tool refuses to do</h2>
+
+<p>An analysis represents work that can take hours, so the tool is deliberately cautious.</p>
+
+<h3>Every change is checked before it is applied</h3>
+<p>Each operation produces a new document, which is checked for structural problems — a group
+referring to a member that does not exist, a unit in two groups at once, a group of one, a head that
+is not a member, a proposition orphaned from its line. If any check fails, <strong>the change is
+refused</strong> and the document is left exactly as it was. You get a message and a link to report
+it with diagnostics attached.</p>
+
+<p>This is why undo can never take you into a broken state: a refused change never enters the
+history.</p>
+
+<h3>Files are validated and repaired on open</h3>
+<p>An older or damaged <code>.fxpa</code> is checked as it opens. Problems that can be fixed without
+inventing anything are fixed — a group naming a line that has since gained propositions has that line
+replaced by its propositions; dangling references and duplicates are dropped. <strong>Nothing is ever
+deleted and no analysis is invented.</strong> If a file cannot be made sound, you are told rather than
+shown something that looks fine but is not.</p>
+
+<h3>Reporting a problem</h3>
+<p><strong>Report a problem</strong> and <strong>Suggest a feature</strong> at the foot of the window
+open a pre-filled GitHub issue. The problem report includes diagnostics about the document's
+<em>structure</em> — counts, shapes, versions — below a blank space for your description. It never
+includes your language data.</p>
+
+<h2 id="fxpa">The .fxpa file</h2>
+
+<p><code>.fxpa</code> is plain JSON. It holds the lines (with their text, glosses, times and
+speakers), any propositions, and the tree of groups with their labels.</p>
+
+<p>Two things are deliberately <em>not</em> stored, because they are derived and storing them means
+they can drift from the truth:</p>
+<ul>
+  <li><strong>Whether a group is symmetrical or asymmetrical</strong> — derived from whether it has
+      any heads.</li>
+  <li><strong>The nesting level of a group</strong> — derived from where it sits in the tree.</li>
+</ul>
+
+<p>Audio times are the opposite case and <em>are</em> stored: they are observed from a recording, not
+derivable from anything, and the tool never invents one.</p>
+
+<p>Zoom, collapsed state and the help panel are per-device viewing preferences and are not part of
+the analysis.</p>
+
+<h2 id="console">Console functions</h2>
+
+<p>For diagnosis, in the browser console:</p>
+<table>
+  <tr><th>Function</th><th>What it prints</th></tr>
+  <tr><td><code>fxTree()</code></td><td>The group tree as it currently stands — the fastest way to
+      see what an operation actually did.</td></tr>
+  <tr><td><code>fxBlanks()</code></td><td>The blank lines in the document and where they are.</td></tr>
+  <tr><td><code>fxReport()</code></td><td>The diagnostics block that a problem report would carry.</td></tr>
+</table>
+<p>If something goes wrong, run <code>fxTree()</code> <em>immediately</em>, before any other click —
+that captures the state that caused it.</p>
+
+<h2 id="trouble">Troubleshooting</h2>
+
+<h3>"I can't select those two lines together"</h3>
+<p>They are not adjacent. Selection is always one unbroken run — see
+<a href="#select">Selecting and grouping</a>. If a line is in the way, consider whether it belongs in
+the group, or group the whole run and then <em>Release</em> the edge.</p>
+
+<h3>"My line disappeared from the diagram"</h3>
+<p>It probably has propositions, which stand in for it. Switch on <em>Show language-data lines that
+are not in the tree</em> in the export settings.</p>
+
+<h3>"The collapsed-group setting looks like it does nothing"</h3>
+<p>Check the group is actually collapsed — the setting only affects collapsed groups, and an
+expanded document has none.</p>
+
+<h3>"Relation names are being cut short"</h3>
+<p>You have rotated slot labels switched on, which reserves horizontal space. Widen <em>Indent per
+level</em>, or switch slot labels to <em>Above the relation</em>.</p>
+
+<h3>"The app refused my change"</h3>
+<p>The invariant check found a structural problem in the result and kept your document as it was.
+That is the tool protecting your work. Use the report link — the diagnostics are what make it
+fixable.</p>
+
+<h3>"I opened an old file and things looked out of order"</h3>
+<p>Older files predate the current data model. They are repaired on open, and editing them settles
+the ordering. If a file still looks wrong after that, report it with <code>fxTree()</code> output.</p>
+
+<hr>
+<p class="note">This tool is part of the FlexText suite. It does not send your text anywhere: the
+analysis lives on your device until you choose to export or share it.</p>
+
+</body>
+</html>

@@ -629,6 +629,27 @@ function blobToB64(blob) {
 
 /* ---------------- state / persistence ---------------- */
 
+/* ⚠ RESOLVED FROM THIS MODULE'S OWN URL, not written as a relative path. The same engine runs at two
+ * different depths: the editor serves it from /flextext-editor/ (where "help/…" would be right), and
+ * the Paragraph Analysis app is the ROOT of its own origin while still loading the engine cross-path
+ * from /flextext-editor/js/ (where "help/…" resolves to /help/… and 404s — verified). The help
+ * directory is a sibling of js/ in both, so deriving it from import.meta.url is correct in both and
+ * cannot drift if either is ever moved. */
+const HELP_URL = new URL('../help/paragraph-analysis.html', import.meta.url).href;
+
+/* The help disclosure remembers itself per device — someone still learning the selection rules keeps
+ * it open, everyone else gets the room back. Not part of the document: it is about the reader, not
+ * the analysis, so it never touches state or the .fxpa. */
+const HELP_KEY = 'flextext-pa-help-open';
+function wireHelpDisclosure() {
+  const d = $('#pa-tip-wrap');
+  if (!d) return;
+  try { d.open = localStorage.getItem(HELP_KEY) === '1'; } catch (_) { /* private mode */ }
+  d.addEventListener('toggle', () => {
+    try { localStorage.setItem(HELP_KEY, d.open ? '1' : '0'); } catch (_) { /* ignore */ }
+  });
+}
+
 /* ── CHART VIEW ───────────────────────────────────────────────────────────────────────────────
  * ⚠ A DIFFERENT THING FROM THE EXPORT PREVIEW, and both are wanted (Seth, 2026-08-06: he likes the
  * export preview and wants to keep it, but what he actually meant was "an instant rapid chart
@@ -1048,6 +1069,7 @@ function renderWork() {
   const before = scroller();
   const keepY = before ? before.scrollTop : 0;
   renderWorkInner();
+  wireHelpDisclosure();
   applyZoom(zoomPct);   // the tree element is new after every render
   if (chartOn) setChart(true);   // the tree is rebuilt each render, so re-mount and redraw the chart
   renderReportLinks();   // rebuilt each render so the diagnostics describe the CURRENT document
@@ -1117,8 +1139,19 @@ function renderWorkInner() {
       <div class="pa-ovwrap"><canvas id="pa-ov"></canvas><div class="pa-cur" id="pa-ovcur"></div></div>
       <div class="pa-transport"><button class="icon-btn2" id="pa-play">▶</button><span id="pa-time" class="player-time"></span></div>
     </div>` : ''}
-    <p class="pa-tip">${esc(state.authored ? t('para.scratchHint') : t('para.selectTip'))}
-      ${state.authored ? '' : `<span class="pa-tip-note">${esc(t('para.splitNote'))}</span>`}</p>
+    <!-- ⚠ COLLAPSED BY DEFAULT behind a ? button (Seth, 2026-08-06). This text is onboarding: it
+         answers a question you have once and then never again, but it sat above the analysis
+         permanently, costing four lines of vertical room on every screen forever. The open state is
+         remembered per device so someone still learning keeps it up, and the full manual is one
+         click further on. -->
+    <details class="pa-tip-wrap" id="pa-tip-wrap">
+      <summary class="pa-tip-toggle" title="${esc(t('para.helpTip'))}"
+               aria-label="${esc(t('para.helpTip'))}">?</summary>
+      <div class="pa-tip">${esc(state.authored ? t('para.scratchHint') : t('para.selectTip'))}
+        ${state.authored ? '' : `<span class="pa-tip-note">${esc(t('para.splitNote'))}</span>`}
+        <p class="pa-tip-more"><a href="${esc(HELP_URL)}" target="_blank" rel="noopener">${esc(t('para.helpFull'))}</a></p>
+      </div>
+    </details>
     </div>
     <div class="pa-tree" id="pa-tree"></div>
     <div id="pa-dialog" hidden></div>`;

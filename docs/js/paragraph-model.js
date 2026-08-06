@@ -1040,6 +1040,115 @@ export function releaseEdge(data, gid, which = 'last') {
   return pruneTree({ ...data, tree }, null);
 }
 
+/* ── INVARIANT CHECK ────────────────────────────────────────────────────────────────────────────
+ * Seth, 2026-08-06, after a real corruption: "our app should be able to include some kind of
+ * validation that detects when things get knocked out of order and throw an error or crash or undo
+ * when that happens (and also take the user to the issues page with diagnostic info)."
+ *
+ * The occasion: opening an old file and ungrouping produced 4-5 propositions HE NEVER CREATED, with
+ * daughters scrambled out of their groups and dumped at the end of the document. Reproducing it from
+ * the model failed — every operation behaved — so the corruption happens somewhere between the UI
+ * and the model, and only a check at the moment of the mutation can name it.
+ *
+ * ⚠ THIS RETURNS PROBLEMS; IT NEVER THROWS AND NEVER REPAIRS. The caller decides. commit() refuses
+ * the new state and keeps the last good one, so a bad operation costs the operation, never the work.
+ *
+ * Cheap enough to run on every mutation: linear in units, and a paragraph document is small. */
+export function checkInvariants(data) {
+  const problems = [];
+  if (!data || !Array.isArray(data.lines) || !Array.isArray(data.tree)) return ['document is not a paragraph analysis'];
+
+  const lineIds = new Set(data.lines.map((l) => l.id));
+  const propIds = new Set();
+  for (const l of data.lines) for (const pr of (l.props || [])) {
+    if (propIds.has(pr.id)) problems.push(`proposition ${pr.id} is defined twice`);
+    propIds.add(pr.id);
+  }
+  const groupIds = new Set(data.tree.map((g) => g.id));
+  const known = (id) => lineIds.has(id) || propIds.has(id) || groupIds.has(id);
+
+  const seen = new Map();
+  for (const g of data.tree) {
+    if (!Array.isArray(g.children)) { problems.push(`group ${g.id} has no member list`); continue; }
+    if (g.children.length < 2) problems.push(`group ${g.id} has ${g.children.length} member(s) — a group needs at least two`);
+    for (const c of g.children) {
+      if (!known(c)) problems.push(`group ${g.id} names a member that does not exist: ${c}`);
+      if (seen.has(c)) problems.push(`${c} is a member of two groups at once: ${seen.get(c)} and ${g.id}`);
+      seen.set(c, g.id);
+    }
+    for (const h of (g.heads || [])) {
+      if (!g.children.includes(h)) problems.push(`group ${g.id} names a HEAD that is not one of its members: ${h}`);
+    }
+  }
+
+  /* ⚠ THE ONE THAT CAUGHT THE REAL DAMAGE. A line's propositions STAND IN FOR IT on the surface, so
+   * the tree must name one or the other — never the line while its propositions float free. When it
+   * does, the propositions have no parent, become top-level units, and sort after the whole tree:
+   * a line's content appearing dumped at the end of the document, out of order. */
+  for (const l of data.lines) {
+    const ids = (l.props || []).map((pr) => pr.id);
+    if (!ids.length) continue;
+    if (seen.has(l.id)) {
+      problems.push(`line ${l.id} is still a member of ${seen.get(l.id)} even though it has propositions — its propositions have been orphaned`);
+    }
+  }
+
+  return problems;
+}
+
+/* ── REPAIR ─────────────────────────────────────────────────────────────────────────────────────
+ * Seth: "validation and repair for fxpa files would be a very good idea… built into our import/open
+ * process." Damage is durable — it lives in saved .fxpa files and in the IndexedDB working copy — so
+ * fixing the operation that caused it does nothing for documents already harmed.
+ *
+ * ⚠ SEPARATE FROM validateFxpa ON PURPOSE. Loading a file must not silently rewrite it; the UI asks
+ * first, and reports what changed. Validation says what is wrong, repair fixes it, the user decides.
+ *
+ * ⚠ ONLY EVER SUBSTITUTES OR DROPS DANGLING REFERENCES. Never deletes a line, never deletes a
+ * proposition, never invents one. The worst case is a group losing a member it could not have had. */
+export function repairDocument(data) {
+  const fixed = [];
+  let tree = data.tree.map((g) => ({ ...g, children: [...g.children], heads: [...(g.heads || [])] }));
+
+  // 1. A line whose propositions stand in for it must not ALSO be named by a group.
+  for (const l of data.lines) {
+    const ids = (l.props || []).map((pr) => pr.id);
+    if (!ids.length) continue;
+    tree = tree.map((g) => {
+      const at = g.children.indexOf(l.id);
+      if (at < 0) return g;
+      fixed.push(`put ${l.id}'s ${ids.length} proposition(s) back into ${g.id}, where the line itself was`);
+      const kept = g.children.filter((c) => c !== l.id && !ids.includes(c));
+      return { ...g,
+        children: [...kept.slice(0, at), ...ids, ...kept.slice(at)],
+        heads: g.heads.map((h) => (h === l.id ? ids[0] : h)) };
+    });
+  }
+
+  // 2. Drop references to units that do not exist, and duplicates across groups (first wins).
+  const lineIds = new Set(data.lines.map((l) => l.id));
+  const propIds = new Set(data.lines.flatMap((l) => (l.props || []).map((pr) => pr.id)));
+  const groupIds = new Set(tree.map((g) => g.id));
+  const known = (id) => lineIds.has(id) || propIds.has(id) || groupIds.has(id);
+  const claimed = new Set();
+  tree = tree.map((g) => {
+    const children = g.children.filter((c) => {
+      if (!known(c)) { fixed.push(`removed ${c} from ${g.id} — no such unit`); return false; }
+      if (claimed.has(c)) { fixed.push(`removed a duplicate reference to ${c} from ${g.id}`); return false; }
+      claimed.add(c); return true;
+    });
+    return { ...g, children, heads: g.heads.filter((h) => children.includes(h)) };
+  });
+
+  // 3. A group left with fewer than two members is not a group — pruneTree dissolves it upward.
+  let out = { ...data, tree };
+  if (out.tree.some((g) => g.children.length < 2)) {
+    fixed.push('dissolved group(s) left with fewer than two members');
+    out = pruneTree(out, null);
+  }
+  return { data: out, fixed };
+}
+
 /* Remove a unit from the tree and heal what that leaves behind. */
 function pruneTree(data, goneId) {
   let tree = data.tree.map((g) => ({ ...g, children: g.children.filter((c) => c !== goneId) }));

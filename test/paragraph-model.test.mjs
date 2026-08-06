@@ -8,6 +8,7 @@ import {
   isPropId, propUnits, ownerLineOf, orderIndex,
   setWordText, setWordGloss, deleteWord, splitLine,
   isAsym, headsOf, migrateGroup, canExtend, extendGroup, releaseEdge, willDissolve,
+  checkInvariants, repairDocument,
 } from '../docs/js/paragraph-model.js';
 
 let failures = 0;
@@ -804,6 +805,57 @@ console.log('extend / release — non-contiguity is impossible by construction')
   let x = groupUnits(five(), ['L1', 'L2'], { heads: [] });
   x = groupUnits(x, ['L3', 'L4'], { heads: [] });
   eq(canExtend(x, 'G1', 'after'), 'G2', 'the candidate is the neighbouring GROUP, never a member inside it');
+}
+
+
+/* ── INVARIANTS + REPAIR (Seth, 2026-08-06, from a real corruption) ──────────────────────────────
+ * Opening an old file and ungrouping produced propositions he never created, with daughters
+ * scrambled out of their groups and dumped at the END of the document. The operation could not be
+ * reproduced from the model — so the guard exists to catch it at the moment it happens, and the
+ * repair exists because the damage is durable in saved files and the IndexedDB working copy. */
+console.log('invariants: corruption is detected, and repaired without loss');
+{
+  const clean = validateFxpa({
+    format: 'flextext-paragraph-analysis', version: 1, title: 'T', vernLang: 'fau', analLang: 'id',
+    lines: [1, 2, 3].map((n) => ({ id: 'L' + n, baseline: 'w' + n, words: [] })),
+    tree: [{ id: 'G1', children: ['L1', 'L2'], heads: ['L1'] }],
+  }).data;
+  eq(checkInvariants(clean), [], 'a healthy document reports no problems');
+
+  // THE REAL DAMAGE: a line still named by its group while its propositions float free.
+  const hurt = JSON.parse(JSON.stringify(clean));
+  hurt.lines[1].props = [{ id: 'L2p1', text: '' }, { id: 'L2p2', text: '' }];
+  ok(checkInvariants(hurt).some((p) => /orphan/.test(p)), 'orphaned propositions are detected');
+  ok(topUnits(hurt).includes('L2p1'), 'and they really do float to the top level (the visible symptom)');
+
+  const { data: healed, fixed } = repairDocument(hurt);
+  eq(checkInvariants(healed), [], 'repair clears every problem');
+  eq(healed.tree[0].children, ['L1', 'L2p1', 'L2p2'], "the propositions take the line's slot");
+  eq(healed.lines.length, 3, 'no line is lost');
+  eq(healed.lines.flatMap((l) => l.props || []).length, 2, 'no proposition is lost');
+  ok(fixed.length > 0, 'and the repair says what it did');
+
+  // other corruptions the guard must catch
+  const dangling = JSON.parse(JSON.stringify(clean));
+  dangling.tree[0].children.push('L99');
+  ok(checkInvariants(dangling).some((p) => /does not exist/.test(p)), 'a dangling member reference is caught');
+
+  const twice = JSON.parse(JSON.stringify(clean));
+  twice.tree.push({ id: 'G2', children: ['L2', 'L3'], heads: [] });
+  ok(checkInvariants(twice).some((p) => /two groups at once/.test(p)), 'a unit in two groups is caught');
+
+  const thin = JSON.parse(JSON.stringify(clean));
+  thin.tree[0].children = ['L1'];
+  ok(checkInvariants(thin).some((p) => /at least two/.test(p)), 'a group of one is caught');
+
+  const badHead = JSON.parse(JSON.stringify(clean));
+  badHead.tree[0].heads = ['L3'];
+  ok(checkInvariants(badHead).some((p) => /HEAD that is not one of its members/.test(p)), 'a head outside the group is caught');
+
+  // ⚠ repair must never invent or delete
+  const r2 = repairDocument(dangling);
+  eq(r2.data.lines.length, 3, 'repairing a dangling reference does not touch the lines');
+  ok(!r2.data.tree[0].children.includes('L99'), 'it just drops the reference to nothing');
 }
 
 if (failures) { console.error(`\n${failures} FAILURE(S)`); process.exit(1); }

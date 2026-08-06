@@ -1188,7 +1188,6 @@ function renderWorkInner() {
       </nav>
 
       <span class="pa-actions">
-        <span class="pa-selinfo" id="pa-selinfo"></span>
         <!-- ⚠ ONE BUTTON FOR GROUP / EDIT GROUP — mutually exclusive by selection, so both can never
              apply at once. The label follows the selection and says which it will do. -->
         <button class="secondary-btn" id="pa-group">${esc(t('para.group'))}</button>
@@ -2137,12 +2136,18 @@ function refreshActionButtons() {
     ? (scoped ? t('para.collapseSelTip', { name: scoped }) : t('para.collapseAllTip'))
     : (scoped ? t('para.expandSelTip', { name: scoped }) : t('para.expandAllTip')))
     + ' ' + t('para.collapseChartHint');
-  const info = $('#pa-selinfo');
-  if (info) {
-    info.textContent = g ? t('para.selGroup', { name: groupTitle(g) })
+  /* ⚠ THE SELECTION READOUT IS GONE FROM THE TOOLBAR (Seth, 2026-08-07: it wrapped the bar onto a
+   * second line, and space here is precious). The information it carried is NOT lost — it was
+   * always duplicated: the selection is highlighted in the tree, and every action button's tooltip
+   * already names exactly what it will act on ("Edit: start", "Group 3 units into a new group").
+   * It rides on Clear selection instead, which is the one control whose whole job is the selection
+   * and which otherwise said nothing about what it would clear. */
+  const clear = $('#pa-clear');
+  if (clear) {
+    clear.title = g ? t('para.selGroup', { name: groupTitle(g) })
       : ids.length === 1 ? t('para.selOne')
       : ids.length ? t('para.selCount', { n: ids.length })
-      : '';
+      : t('para.clearSelTip');
   }
 }
 

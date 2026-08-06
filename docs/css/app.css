@@ -1729,3 +1729,17 @@ main {
 .pa-tree.charting > *:not(#pa-chartview) { display: none; }
 #pa-chartview { overflow: auto; padding: 4px 0 24px; }
 #pa-chartview svg { display: block; }
+
+/* ── HELP DISCLOSURE ───────────────────────────────────────────────────────────────────────────
+   Collapsed by default: onboarding text answers a question once, then costs vertical room forever.
+   The ? is a real button-sized target, not a tiny glyph — same reasoning as the caret. */
+.pa-tip-wrap { margin: 0; }
+.pa-tip-toggle { list-style: none; cursor: pointer; display: inline-flex; align-items: center;
+  justify-content: center; width: 26px; height: 26px; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--bg); color: var(--muted);
+  font-size: 15px; font-weight: 700; line-height: 1; margin: 2px 0 4px 2px; }
+.pa-tip-toggle::-webkit-details-marker { display: none; }
+.pa-tip-toggle:hover { background: var(--panel); color: var(--text); border-color: var(--muted); }
+.pa-tip-wrap[open] > .pa-tip-toggle { background: var(--panel); color: var(--text); }
+.pa-tip-more { margin: 8px 0 0; }
+.pa-tip-more a { font-size: 13px; }

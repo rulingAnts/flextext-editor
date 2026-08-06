@@ -2508,6 +2508,8 @@ function openExportDialog() {
             ${esc(t('para.exportWrap'))}</label>
           <label class="check-label"><input type="checkbox" id="pa-exp-view" checked>
             ${esc(t('para.exportMatchView'))}</label>
+          <label class="check-label"><input type="checkbox" id="pa-exp-ctx" checked>
+            ${esc(t('para.exportLineContext'))}</label>
           <p class="note">${esc(t('para.exportDiagramHint'))}</p>
         </div>
         ${collapsedCount ? `<div class="banner warn-banner"><span>${esc(t('para.exportCollapsedWarn', { n: collapsedCount }))}</span></div>` : ''}
@@ -2557,6 +2559,11 @@ function runExport() {
       // library default (free translation only, the SSA convention).
       layer: matchView ? state.view.layer : 'free',
       free: matchView ? state.view.free !== false : false,
+      /* On (default): a line that has propositions still appears, in place and unconnected, so the
+       * propositions can be read against the sentence they restate. Off: the "propositions only"
+       * diagram — the line is omitted where it has propositions, and stands in for itself where it
+       * has none. */
+      lineContext: dlg.querySelector('#pa-exp-ctx').checked,
     };
     const out = kind === 'svg' ? buildSsaSvg(state, diagram) : buildSsaDiagramHtml(state, diagram);
     saveFile(out, safeName(state.title) + (kind === 'svg' ? '.ssa.svg' : '.ssa.html'),

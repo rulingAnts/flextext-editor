@@ -296,12 +296,22 @@ console.log('\nthe diagram draws a line\'s proposition tree');
                                    labels: { [p1]: 'EVENT', [inner]: 'reason' } });
 
   const L = ssaLayout(d, { layer: 'free' });
+  /* ⚠ ROW 0 IS THE LINE ITSELF, as unconnected context (changed 2026-08-06). It used to VANISH once
+   * it had propositions — these expectations were written against that. The propositions are the
+   * analyst's restatement of the sentence, so the sentence has to be visible to check them against. */
   eq(L.rows.map((r) => r.text),
+     ['He went out', 'the man went outside', 'the child had laughed', 'he was ashamed', 'and I went home'],
+     'the line appears first as context, then every proposition is its own row');
+  ok(L.rows[0].context && !L.rows.slice(1).some((r) => r.context), 'only row 0 is context');
+  eq(L.rows.map((r) => r.label), ['', 'EVENT', 'cause', 'EFFECT', ''],
+     'each member carries its own role; the context row carries none');
+  ok(L.rows[2].depth > L.rows[1].depth, 'the nested pair sits deeper than its sibling');
+  ok(L.rows[3].implicit, 'the implied proposition is still marked implied');
+
+  // The same document, propositions only — the old picture, now on request.
+  eq(ssaLayout(d, { layer: 'free', lineContext: false }).rows.map((r) => r.text),
      ['the man went outside', 'the child had laughed', 'he was ashamed', 'and I went home'],
-     'every proposition is its own row, and the other line is untouched');
-  eq(L.rows.map((r) => r.label), ['EVENT', 'cause', 'EFFECT', ''], 'each member carries its own role');
-  ok(L.rows[1].depth > L.rows[0].depth, 'the nested pair sits deeper than its sibling');
-  ok(L.rows[2].implicit, 'the implied proposition is still marked implied');
+     'propositions-only reproduces the previous output exactly');
 
   const svg = buildSsaSvg(d, { layer: 'free' });
   ok(svg.includes('EVENT–reason') && svg.includes('cause–EFFECT'), 'both relations reach the SVG');
@@ -368,6 +378,69 @@ console.log('SSA anchor: mean of the prominent members');
   eq(anchor(['L1', 'L2']), 46, 'two adjacent heads: midway between them');
   eq(anchor(['L1', 'L3']), 61, 'two NON-adjacent heads: the mean, which lands on the support between');
   eq(anchor([]), 61, 'no heads: the midpoint of the whole span, as before');
+}
+
+console.log('A line with propositions still appears — as context, unconnected');
+{
+  /* The bug this fixes: the line VANISHED once it had propositions, so a reader had the analyst's
+   * restatement and no sentence to check it against. It now appears in place with no branch. */
+  const base = {
+    format: 'flextext-paragraph-analysis', version: 1, title: 'T', vernLang: 'f', analLang: 'e',
+    lines: [
+      { id: 'L1', baseline: 'ana bete', free: 'He went out.', words: [],
+        props: [{ id: 'L1p1', text: 'He left the house' }, { id: 'L1p2', text: 'He walked away' }] },
+      { id: 'L2', baseline: 'u sa', free: 'I went.', words: [] },
+    ],
+    tree: [{ id: 'G1', children: ['L1p1', 'L1p2'], heads: ['L1p1'], relation: 'sequence' }], view: {},
+  };
+  const L = ssaLayout(base, {});
+  const texts = L.rows.map((r) => r.text);
+  eq(texts, ['He went out.', 'He left the house', 'He walked away', 'I went.'],
+     'the line sits IN SITU — immediately above the propositions that restate it');
+  ok(L.rows[0].context === true, 'and it is marked as context, not as a node');
+  ok(!L.rows[1].context && !L.rows[3].context, 'the propositions and a plain line are NOT context');
+
+  // Unconnected: every row index the tree references, vs the context row's index.
+  const referenced = new Set();
+  const walk = (n) => { if (n.kind === 'leaf') referenced.add(n.row); else n.kids.forEach(walk); };
+  L.roots.forEach(walk);
+  ok(!referenced.has(0), 'NO branch is drawn to it — nothing in the tree references its row');
+  ok(referenced.has(1) && referenced.has(2), 'the propositions ARE connected');
+
+  // The context row lands INSIDE the group's vertical span (Seth: "inside the top level of that
+  // group"), which falls out of the ordering rather than needing a rule.
+  ok(L.rows[0].y < L.rows[1].y, 'it precedes its first proposition');
+
+  // "Propositions only" — the old behaviour, now an explicit option.
+  const P = ssaLayout(base, { lineContext: false });
+  eq(P.rows.map((r) => r.text), ['He left the house', 'He walked away', 'I went.'],
+     'lineContext:false omits the line where it has propositions...');
+  ok(P.rows.every((r) => !r.context), '...and emits no context rows at all');
+
+  // A line with NO propositions is untouched either way — it stands in for itself.
+  ok(texts.includes('I went.') && P.rows.map((r) => r.text).includes('I went.'),
+     'a line with no propositions contributes its own text in both modes');
+
+  // One context row per line, however many propositions it has.
+  const many = { ...base, lines: [{ ...base.lines[0],
+    props: [{ id: 'L1p1', text: 'a' }, { id: 'L1p2', text: 'b' }, { id: 'L1p3', text: 'c' }] }, base.lines[1]],
+    tree: [{ id: 'G1', children: ['L1p1', 'L1p2', 'L1p3'], heads: ['L1p1'], relation: 'r' }] };
+  eq(ssaLayout(many, {}).rows.filter((r) => r.context).length, 1,
+     'exactly ONE context row per line, not one per proposition');
+
+  // A blank proposition never stands in for the line, so no context row is emitted for a line
+  // that is rendering itself already.
+  const blankProps = { ...base, lines: [{ ...base.lines[0], props: [{ id: 'L1p1', text: '   ' }] }, base.lines[1]], tree: [] };
+  const B = ssaLayout(blankProps, {});
+  eq(B.rows.map((r) => r.text), ['He went out.', 'I went.'],
+     'all-blank propositions: the line renders as ITSELF, and is not also duplicated as context');
+  ok(B.rows.every((r) => !r.context), 'and no context row is emitted');
+
+  // It reaches the SVG.
+  const svg = buildSsaSvg(base, {});
+  ok(svg.includes('He went out.'), 'the context line reaches the SVG');
+  ok(!buildSsaSvg(base, { lineContext: false }).includes('He went out.'),
+     'and is absent from a propositions-only SVG');
 }
 
 console.log(fail ? `\nFAILED (${fail})\n` : '\nPASS: the paragraph exports hold.\n');

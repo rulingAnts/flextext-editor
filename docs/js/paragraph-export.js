@@ -466,7 +466,39 @@ export function ssaLayout(data, opts = {}) {
     return { kind: 'text', text: line.free || line.baseline || '', free: '' };
   };
 
+  /* ⚠ A LINE WITH PROPOSITIONS STILL APPEARS — AS CONTEXT (Seth, 2026-08-06: the language-data line
+   * should be "in situ but unconnected" when it has propositions). Until now its propositions stood
+   * in place of it and the line VANISHED from the diagram, which is right about the analysis and
+   * wrong about the reader: the propositions are the analyst's restatement, and without the sentence
+   * they restate there is nothing to check them against.
+   *
+   * So the line is drawn at its own position among its propositions, with NO branch into the tree.
+   * That is the whole distinction: a node is connected, context is not. The mechanism is simply that
+   * nothing in the node tree references this row — rows are laid out in array order and branches are
+   * drawn from the tree, so an unreferenced row occupies its slot and receives no line.
+   *
+   * ⚠ IT GOES BEFORE THE FIRST PROPOSITION OF ITS LINE, wherever that lands. If all of a line's
+   * propositions sit inside one group, the context row lands inside that group's span — which is
+   * Seth's "the line rendered inside the top level of that group" — and it falls out of the ordering
+   * rather than needing a rule of its own. If the propositions were split across groups, the line
+   * appears once, above the first of them.
+   *
+   * Turning this OFF is the "propositions only" export: the line is omitted when it has
+   * propositions, and a line with none contributes its own text as before. */
   const rows = [];
+  const showLineContext = opts.lineContext !== false;
+  const contextDone = new Set();
+  const emitContext = (lineId) => {
+    if (!showLineContext || contextDone.has(lineId)) return;
+    contextDone.add(lineId);
+    const l = data.lines.find((x) => x.id === lineId);
+    if (!l) return;
+    const c = contentOf(l, { id: l.id, text: null, lineId: l.id, isProp: false, implicit: !!l.implicit });
+    if (!c || !(c.words ? c.words.length : String(c.text || '').trim())) return;
+    rows.push({ depth: 0, label: '', content: c, head: false, implicit: !!l.implicit,
+                speaker: l.speaker || '', context: true });
+  };
+
   let maxDepth = 0;
 
   // Build a node tree; leaves push a row and remember its index.
@@ -493,8 +525,28 @@ export function ssaLayout(data, opts = {}) {
     /* A PROPOSITION IS ITS OWN LEAF on the flat surface. */
     if (isProp(id)) {
       const pr = node(data, id);
-      if (!pr || !String(pr.text || '').trim()) return null;
       const owner = data.lines.find((x) => x.id === lineOfProp(id));
+      if (!pr || !String(pr.text || '').trim()) {
+        /* ⚠ AN EMPTY PROPOSITION BOX MUST NOT SWALLOW ITS LINE. `leavesOfLine` already says that
+         * only propositions WITH TEXT stand in for the line — an empty one is a box the analyst
+         * has opened and not yet typed into. But units are surfaced as propositions, so the row
+         * builder reached the blank prop directly, returned null, and the line disappeared from the
+         * diagram: exactly the "second line of source text isn't showing" report that rule was
+         * written to fix, still live on this path.
+         * So when NONE of a line's propositions have text, the line renders as ITSELF here — a
+         * normal connected node, not the muted context row, because there is no analysis standing
+         * in front of it. Once any proposition is written, this stops firing and the line becomes
+         * context instead. */
+        const written = (owner && owner.props || []).some((x) => String(x.text || '').trim());
+        if (written || !owner || contextDone.has(owner.id)) return null;
+        contextDone.add(owner.id);   // one row for the line, however many empty boxes it has
+        const leaf = leavesOfLine(owner)[0];
+        if (leaf.isProp) return null;
+        rows.push({ depth, label: roleLabel, content: contentOf(owner, leaf), head: !!isHead,
+                    implicit: !!leaf.implicit, speaker: owner.speaker || '' });
+        return { kind: 'leaf', depth, row: rows.length - 1, label: roleLabel, head: !!isHead };
+      }
+      emitContext(lineOfProp(id));   // the line itself, in situ and unconnected — see above
       rows.push({ depth, label: roleLabel, head: !!isHead, implicit: !!pr.implicit,
                   speaker: (owner && owner.speaker) || '',
                   content: { kind: 'prop', text: pr.text || '', implicit: !!pr.implicit, free: '' } });
@@ -749,7 +801,7 @@ export function buildSsaSvg(data, opts = {}) {
     const top = r.y + Math.max(0, (r.height - r.blocks.height) / 2);
     const firstY = top + o.fontSize * 0.9;
     // Right-aligned to the end of the leaf's line, above it — so the role names the row it touches.
-    if (r.label && showRoles) {
+    if (r.label && showRoles && !r.context) {
       const lab = fitToLength(r.label, Math.max(60, L.textX - L.opts.pad - 8), 12, measure);
       parts.push(`<text x="${L.textX - 10}" y="${r.midY - 5}" text-anchor="end" font-size="12" font-weight="${r.head ? 700 : 600}" fill="${r.head ? '#2a6e2a' : '#163a6b'}">${esc(lab)}</text>`);
     }
@@ -761,7 +813,7 @@ export function buildSsaSvg(data, opts = {}) {
       if (it.type === 'words') {
         // A word sits over its gloss; the pair was measured as one cell so it never splits.
         for (const c of it.cells) {
-          parts.push(`<text x="${L.textX + c.x}" y="${y}" font-size="${o.fontSize}" fill="#1a4d8f">${esc(c.txt)}</text>`);
+          parts.push(`<text x="${L.textX + c.x}" y="${y}" font-size="${o.fontSize}" fill="${r.context ? '#8892a0' : '#1a4d8f'}">${esc(c.txt)}</text>`);
           if (c.gls) parts.push(`<text x="${L.textX + c.x}" y="${y + L.glossSize * 1.35}" font-size="${L.glossSize}" fill="#2a6e2a">${esc(c.gls)}</text>`);
         }
       } else if (it.type === 'free') {
@@ -770,7 +822,7 @@ export function buildSsaSvg(data, opts = {}) {
         const txt = (it.implicit && showBrackets)
           ? ((seen === 0 ? '(' : '') + it.text + (seen === nLines - 1 ? ')' : '')) : it.text;
         seen++;
-        parts.push(`<text x="${L.textX}" y="${y}" font-size="${o.fontSize}" fill="${it.implicit ? '#5b6470' : '#1a1d21'}"${it.implicit ? ' font-style="italic"' : ''}>${esc(txt)}</text>`);
+        parts.push(`<text x="${L.textX}" y="${y}" font-size="${o.fontSize}" fill="${r.context ? '#8892a0' : it.implicit ? '#5b6470' : '#1a1d21'}"${it.implicit ? ' font-style="italic"' : ''}>${esc(txt)}</text>`);
       }
     }
   }

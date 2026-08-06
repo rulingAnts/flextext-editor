@@ -1316,7 +1316,9 @@ function renderPropRow(propId, lineId, nodeLabel = '') {
   const el = document.createElement('div');
   el.className = 'pa-row pa-proprow' + (pr.implicit ? ' implied' : '') + (selection.has(propId) ? ' sel' : '');
   el.dataset.unit = propId;
-  el.innerHTML = `${nodeLabel ? `<span class="pa-nodelabel">${esc(nodeLabel)}</span><i class="pa-break"></i>` : ''}
+  // A proposition has no span of its own, but it must still line up with the lines around it.
+  const playGap = !!(state.audio && state.view.audio) ? '<span class="pa-playgap" aria-hidden="true"></span>' : '';
+  el.innerHTML = `${nodeLabel ? `<span class="pa-nodelabel">${esc(nodeLabel)}</span><i class="pa-break"></i>` : ''}${playGap}
     <div class="pa-cell pa-prop${pr.implicit ? ' implicit' : ''}">
       ${br ? '<span class="pa-brk">(</span>' : ''}
       <input class="pa-propedit" data-line="${esc(lineId)}" data-prop="${esc(propId)}"
@@ -1383,8 +1385,19 @@ function renderLineRow(id, nodeLabel = '', header = false) {
   if (nodeLabel) parts.push(`<span class="pa-nodelabel" title="${esc(nodeLabel)}">${esc(nodeLabel)}</span><i class="pa-break"></i>`);
   // Who said this line (conversations only — absent in a single-speaker text).
   if (l.speaker) parts.push(`<span class="pa-speaker" title="${esc(l.speaker)}">${esc(l.speaker)}</span>`);
-  if (showAudio && timed) {
-    parts.push(`<button class="pa-rowplay" data-s="${l.start}" data-e="${l.end}">▶</button>`);
+  /* ⚠ RESERVE THE SLOT WHENEVER THIS DOCUMENT HAS AUDIO, even on a row that has no time of its own
+   * (Seth, 2026-08-06: "the play button messes with our UI indentation a bit if there's annotated
+   * audio attached"). The button is a FLEX CHILD, so a row that has one starts its content 30px+gap
+   * further right than a row that does not — and since the redesign, horizontal position carries
+   * meaning (head on the trunk, supports indented). A ragged left edge now reads as structure that
+   * is not there.
+   *
+   * The slot is reserved per DOCUMENT, not globally: a text with no audio loses nothing, and within
+   * a text that has audio every row lines up whether or not that particular row is timed. */
+  if (showAudio) {
+    parts.push(timed
+      ? `<button class="pa-rowplay" data-s="${l.start}" data-e="${l.end}">▶</button>`
+      : '<span class="pa-playgap" aria-hidden="true"></span>');
   }
   const body = [`<div class="pa-cell">`];
   if (wavesMode !== 'off' && timed) {

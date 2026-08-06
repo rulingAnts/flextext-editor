@@ -1607,3 +1607,8 @@ main {
              display: flex; gap: 6px; align-items: center; z-index: 5; }
 .pa-report a { color: var(--muted); text-decoration: underline; text-underline-offset: 2px; }
 .pa-report a:hover { color: var(--blue); }
+
+/* The empty stand-in for a play button, so rows without their own audio span still line up with
+   rows that have one. Same width as .pa-rowplay; no border, no hit area, invisible to screen
+   readers. See the note at its use site in paragraph-ui.js. */
+.pa-playgap { flex: none; width: 30px; height: 1px; }

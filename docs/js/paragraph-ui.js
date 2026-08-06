@@ -1290,6 +1290,7 @@ function renderUnit(id, nodeLabel = '', depth = 0) {
   badge.innerHTML = `
     <button class="pa-caret" title="${esc(t(collapsed ? 'para.expand' : 'para.collapse'))}">${collapsed ? '▸' : '▾'}</button>
     <span class="pa-jt" title="${esc(t(isAsym(g) ? 'para.asym' : 'para.sym'))}">${isAsym(g) ? '⊳' : '⊕'}</span>
+    ${g.slot ? `<span class="pa-slot">${esc(g.slot)}</span>` : ''}
     ${g.relation ? `<span class="pa-rel">${esc(g.relation)}</span>` : `<span class="pa-rel pa-rel-empty">${esc(t('para.noRelation'))}</span>`}
     ${span && state.audio && state.view.audio ? `<button class="pa-rowplay" data-s="${span.start}" data-e="${span.end}">▶</button>` : ''}`;
   badge.querySelector('.pa-caret').addEventListener('click', (e) => { e.stopPropagation(); commit(toggleCollapse(state, id)); });
@@ -2035,7 +2036,7 @@ function openEditDialog() {
   const g = selectedGroup();
   if (!g) return alert(t('para.needGroupHeading'));
   groupDialog({ ids: g.children, gid: g.id, heads: g.heads || [],
-                relation: g.relation, labels: g.labels || {} });
+                relation: g.relation, slot: g.slot || '', labels: g.labels || {} });
 }
 
 // The join dialog — GROUPING is the default and only action here (Seth: destructive merges are a
@@ -2050,7 +2051,7 @@ function openEditDialog() {
  * default (Seth, 2026-08-06). Ticking none leaves a symmetrical group; ticking one is the classic
  * head+support; ticking several is the multi-head case the model already represents. Nothing has to
  * be kept in agreement with anything else. */
-function groupDialog({ ids, gid, heads = [], relation = '', labels = {} }) {
+function groupDialog({ ids, gid, heads = [], relation = '', slot = '', labels = {} }) {
   const dlg = $('#pa-dialog');
   dlg.hidden = false;
   /* ⚠ ONLY LIST MEMBERS THE USER CAN SEE (Seth, 2026-08-05: "extra group item labels for lines
@@ -2092,6 +2093,9 @@ function groupDialog({ ids, gid, heads = [], relation = '', labels = {} }) {
         </div>
         <label class="pa-field"><span>${esc(t('para.relation'))}</span>
           <input id="pa-rel" value="${esc(relation)}" placeholder="${esc(t('para.relationPh'))}"></label>
+        <label class="pa-field"><span>${esc(t('para.slot'))}</span>
+          <input id="pa-slot" value="${esc(slot)}" placeholder="${esc(t('para.slotPh'))}"></label>
+        <p class="note pa-labelhint">${esc(t('para.slotHint'))}</p>
         ${gid ? edgeControls(gid) : ''}
       </div>
       <div class="pa-modal-actions">
@@ -2109,10 +2113,11 @@ function groupDialog({ ids, gid, heads = [], relation = '', labels = {} }) {
       if (v) labelsOut[inp.dataset.for] = v;
     });
     const headsOut = [...dlg.querySelectorAll('input[name="pa-head"]:checked')].map((c) => c.value);
-    const opts = { heads: headsOut, relation: dlg.querySelector('#pa-rel').value.trim(), labels: labelsOut };
+    const opts = { heads: headsOut, relation: dlg.querySelector('#pa-rel').value.trim(),
+                   slot: dlg.querySelector('#pa-slot').value.trim(), labels: labelsOut };
     try {
       const next = gid
-        ? editGroup(state, gid, { heads: opts.heads, relation: opts.relation, labels: opts.labels })
+        ? editGroup(state, gid, { heads: opts.heads, relation: opts.relation, slot: opts.slot, labels: opts.labels })
         : groupUnits(state, ids, opts);
       selection = new Set(gid ? [gid] : []);
       dlg.hidden = true; dlg.innerHTML = '';
@@ -2510,6 +2515,12 @@ function openExportDialog() {
             ${esc(t('para.exportMatchView'))}</label>
           <label class="check-label"><input type="checkbox" id="pa-exp-ctx" checked>
             ${esc(t('para.exportLineContext'))}</label>
+          <label>${esc(t('para.exportSlotStyle'))}
+            <select id="pa-exp-slot">
+              <option value="stacked">${esc(t('para.slotStacked'))}</option>
+              <option value="rotated">${esc(t('para.slotRotated'))}</option>
+              <option value="off">${esc(t('para.slotHide'))}</option>
+            </select></label>
           <label>${esc(t('para.exportCollapsed'))}
             <select id="pa-exp-coll">
               <option value="leaf">${esc(t('para.exportCollLeaf'))}</option>
@@ -2572,6 +2583,9 @@ function runExport() {
       /* Collapsing a group in the editor IS how you produce a big-picture chart: a collapsed group
        * is one node here however much is inside it. This chooses how that node reads. */
       collapsedStyle: dlg.querySelector('#pa-exp-coll').value,
+      // Slots are their own axis, not one of the two semantic labels — hence a separate control.
+      slots: dlg.querySelector('#pa-exp-slot').value !== 'off',
+      slotStyle: dlg.querySelector('#pa-exp-slot').value,
     };
     const out = kind === 'svg' ? buildSsaSvg(state, diagram) : buildSsaDiagramHtml(state, diagram);
     saveFile(out, safeName(state.title) + (kind === 'svg' ? '.ssa.svg' : '.ssa.html'),

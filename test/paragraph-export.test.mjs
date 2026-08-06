@@ -6,7 +6,7 @@
  *
  * Run: node test/paragraph-export.test.mjs
  */
-import { validateFxpa, groupUnits, addProp, spanOf, topUnits, summaryLineOf, summaryOf } from '../docs/js/paragraph-model.js';
+import { validateFxpa, groupUnits, editGroup, addProp, spanOf, topUnits, summaryLineOf, summaryOf } from '../docs/js/paragraph-model.js';
 import { buildParagraphPreviewHtml, buildSsaSvg, buildSsaDiagramHtml, ssaLayout, leavesOfLine, topUnitsOf, leafLineIds, summaryText } from '../docs/js/paragraph-export.js';
 
 let fail = 0;
@@ -497,6 +497,58 @@ console.log('collapsed groups: every head, and two renderings');
     lines: [{ id: 'L1', baseline: '', free: 'one\ntwo', words: [] }], tree: [] }, { layer: 'free' });
   eq(two.rows[0].blocks.items.filter((i) => i.type === 'line').map((i) => i.text), ['one', 'two'],
      'a newline in ordinary text is honoured as a line break, not eaten as whitespace');
+}
+
+console.log('discourse slots are a THIRD, independent label');
+{
+  let d = validateFxpa({
+    format: 'flextext-paragraph-analysis', version: 1, title: 'T', vernLang: 'f', analLang: 'e',
+    lines: [1, 2, 3].map((n) => ({ id: 'L' + n, baseline: 'b' + n, free: 'free ' + n, words: [] })),
+    tree: [], view: {},
+  }).data;
+  d = groupUnits(d, ['L1', 'L2'], { heads: ['L1'], relation: 'orienter–CONTENT',
+                                    slot: 'Stage setting', labels: { L1: 'CONTENT', L2: 'orienter' } });
+  const g = d.tree[0];
+
+  /* ⚠ THE POINT OF THE FEATURE: a group carries a SEMANTIC relation and a POSITIONAL slot at the
+   * same time. Merging them into one field would force the analyst to choose between an SSA
+   * relation and Longacre-style plot structure. */
+  eq(g.relation, 'orienter–CONTENT', 'the relation is untouched by the slot');
+  eq(g.slot, 'Stage setting', 'and the slot is stored beside it');
+  eq(g.labels, { L1: 'CONTENT', L2: 'orienter' }, 'member roles are untouched too');
+
+  // Absent, not empty, when unset — most groups never have one.
+  const bare = groupUnits(d, ['L3', g.id], { heads: [g.id], relation: 'r' });
+  ok(!('slot' in bare.tree.find((x) => x.id !== g.id)), 'a group with no slot has NO slot key');
+
+  // Editing one never disturbs the other.
+  let e = editGroup(d, g.id, { relation: 'grounds–CONCLUSION' });
+  eq(e.tree[0].slot, 'Stage setting', 'editing the relation leaves the slot alone');
+  e = editGroup(d, g.id, { slot: 'Episode 1' });
+  eq(e.tree[0].relation, 'orienter–CONTENT', 'editing the slot leaves the relation alone');
+  eq(e.tree[0].labels, { L1: 'CONTENT', L2: 'orienter' }, 'and leaves the roles alone');
+
+  // Clearing removes the key rather than storing ''.
+  ok(!('slot' in editGroup(d, g.id, { slot: '   ' }).tree[0]), 'clearing the slot REMOVES the key');
+
+  // Survives a save/open round trip.
+  eq(validateFxpa(JSON.parse(JSON.stringify(d))).data.tree[0].slot, 'Stage setting',
+     'the slot survives serialize → validate');
+
+  // Reaches the diagram, both ways, and can be turned off.
+  const stacked = buildSsaSvg(d, { slotStyle: 'stacked' });
+  ok(stacked.includes('Stage setting') && stacked.includes('orienter–CONTENT'),
+     'stacked: BOTH the slot and the relation are drawn — neither overprints the other');
+  ok(!/rotate\(/.test(stacked), 'stacked draws no rotation');
+  const rotated = buildSsaSvg(d, { slotStyle: 'rotated' });
+  ok(rotated.includes('Stage setting') && /rotate\(-90/.test(rotated), 'rotated sets it vertically');
+  ok(rotated.includes('orienter–CONTENT'), 'and still draws the relation');
+  ok(!buildSsaSvg(d, { slots: false }).includes('Stage setting'), 'slots:false hides them');
+
+  /* ⚠ Slots are NOT governed by `labels` — a plot-structure chart may want slots and no semantic
+   * labels at all. */
+  const noSemantic = buildSsaSvg(d, { labels: 'roles' });
+  ok(noSemantic.includes('Stage setting'), 'hiding relations does not hide slots');
 }
 
 console.log(fail ? `\nFAILED (${fail})\n` : '\nPASS: the paragraph exports hold.\n');

@@ -20,6 +20,13 @@
  *   - `labels`   — { childId: "grounds", … }, each member's ROLE in that relation. This is the
  *     SSA convention (the prominent member's role in CAPS, the supporting member's in lowercase)
  *     and it belongs on the GROUP, not on the unit: a role is held relative to ONE relation.
+ *   - `slot` — the group's DISCOURSE SLOT (Seth, 2026-08-06): "Stage setting", "Episode 1",
+ *     "Peak". A different order of thing from `relation`, and ⚠ DELIBERATELY A SEPARATE FIELD.
+ *     `relation` is SEMANTIC — how this group's members relate to each other (grounds–CONCLUSION).
+ *     A slot is POSITIONAL — what part this group plays in the shape of the whole text. One group
+ *     can carry both, and often does: an "Episode 1" that is internally "orienter–CONTENT".
+ *     Merging them into one label field would force the analyst to choose, and would make Longacre-
+ *     style plot structure inexpressible alongside an SSA relation. Same rule as roles vs relations.
  * Keys are validated to be members of that group, values are trimmed, and empties are dropped —
  * so "no label" is genuinely absent rather than an empty string in the saved file.
  */
@@ -571,7 +578,7 @@ function cleanLabels(children, labels, heads = []) {
 // The DEFAULT join: create a grouping node over 2+ adjacent parentless units. Never touches
 // lines, audio, or text — grouping is metadata by construction. Both kinds of label are
 // OPTIONAL: `relation` on the group, `labels` on its members, either, both, or neither.
-export function groupUnits(data, ids, { heads, joinType, head, relation = '', labels = null } = {}) {
+export function groupUnits(data, ids, { heads, joinType, head, relation = '', slot = '', labels = null } = {}) {
   if (!Array.isArray(ids) || ids.length < 2) throw new Error('Select at least two units to group.');
   for (const id of ids) if (!nodeById(data, id)) throw new Error(`Unknown unit ${id}.`);
 
@@ -605,6 +612,9 @@ export function groupUnits(data, ids, { heads, joinType, head, relation = '', la
   const hs = ordered.filter((c) => wanted.includes(c));   // ordered by children; heads is a SET
   const lab = cleanLabels(ordered, labels, hs);
   const g = { id: nextGroupId(data), children: ordered, heads: hs, relation: String(relation || '').trim() };
+  // Absent rather than empty when unset — a slot is optional and most groups never have one.
+  const sl = String(slot || '').trim();
+  if (sl) g.slot = sl;
   if (lab) g.labels = lab;
   if (!parent) return { ...data, tree: [...data.tree, g] };
 
@@ -708,6 +718,11 @@ export function editGroup(data, gid, patch = {}) {
   if (asked) for (const h of asked) if (!g.children.includes(h)) throw new Error('HEAD must be one of the group\'s members.');
   next.heads = g.children.filter((c) => (next.heads || []).includes(c));
   if ('relation' in patch) next.relation = String(patch.relation ?? '').trim();
+  // Independent of `relation` by design — see the LABELLING note at the top of this file.
+  if ('slot' in patch) {
+    const sl = String(patch.slot ?? '').trim();
+    if (sl) next.slot = sl; else delete next.slot;      // clearing it removes the key
+  }
   if ('labels' in patch) {
     const lab = cleanLabels(g.children, patch.labels, next.heads);
     if (lab) next.labels = lab; else delete next.labels;   // clearing every label removes the key

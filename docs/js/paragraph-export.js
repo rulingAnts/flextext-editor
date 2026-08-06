@@ -543,7 +543,7 @@ export function ssaLayout(data, opts = {}) {
         if (kid) kids.push(kid);
       }
       if (!kids.length) return null;
-      return { kind: 'group', depth, kids, relation: g.relation || '', asym: isAsym(g),
+      return { kind: 'group', depth, kids, relation: g.relation || '', slot: g.slot || '', asym: isAsym(g),
                headIndex: kids.findIndex((k) => k.head), label: roleLabel, head: !!isHead };
     }
     /* A PROPOSITION IS ITS OWN LEAF on the flat surface. */
@@ -775,6 +775,10 @@ export function buildSsaSvg(data, opts = {}) {
   const labelMode = opts.labels || 'both';
   const showRelations = labelMode !== 'roles';
   const showRoles = labelMode !== 'relations';
+  /* Slots are their own axis, so they are NOT governed by `labels` (which chooses between the two
+   * SEMANTIC labels). A plot-structure chart may want slots and nothing else. */
+  const showSlots = opts.slots !== false;
+  const slotStyle = opts.slotStyle === 'rotated' ? 'rotated' : 'stacked';
   const xOf = (depth) => o.pad + depth * o.levelWidth;
   const parts = [];
   parts.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${L.width}" height="${Math.round(L.height)}" viewBox="0 0 ${L.width} ${Math.round(L.height)}" font-family="Helvetica, Arial, sans-serif">`);
@@ -811,17 +815,57 @@ export function buildSsaSvg(data, opts = {}) {
      * it. Different bands rather than different x, so they cannot overprint however long they get.
      * `labels` chooses which are drawn: published SSA displays often show only one or the other. */
     {
+      /* ⚠ A ROTATED SLOT NEEDS ITS OWN COLUMN. Drawn in the same band as the relation it overhung
+       * short brackets and printed straight through "orienter–CONTENT" — the same overprinting trap
+       * that once hid group roles. When rotation is on, every horizontal label shifts right by the
+       * width of that column, so the two can never collide however long either gets. */
+      const slotCol = (slotStyle === 'rotated' && showSlots) ? 17 : 0;
+      const lx = x + 5 + slotCol;
+      /* ⚠ `room` is NOT reduced by the column. Subtracting it truncated relation names that fit
+       * perfectly well before rotation was switched on — a display option must not silently shorten
+       * the analyst's labels. The label may now overhang the next level by the column width, which
+       * it could already do at full length anyway. */
       const room = o.levelWidth - 12;
       // A segment cluster (one line's propositions) has no relation of its own, but it DOES carry
       // the line's role — that is the only place that role can now be written.
       if (n.relation && showRelations && !n.segment) {
         const lab = fitToLength(n.relation, room, 11, measure);
-        if (lab) parts.push(`<text x="${x + 5}" y="${n.anchorY - 5}" font-size="11" fill="#163a6b">${esc(lab)}</text>`);
+        if (lab) parts.push(`<text x="${lx}" y="${n.anchorY - 5}" font-size="11" fill="#163a6b">${esc(lab)}</text>`);
+      }
+      /* ⚠ THE DISCOURSE SLOT IS A THIRD, INDEPENDENT LABEL and needs its own space — the same trap
+       * that made a group's role invisible when it also had a relation. It is a higher-order thing
+       * than either (what part this group plays in the whole text, not how its members relate), so
+       * it is drawn LARGER and in its own place rather than competing in the same band.
+       *
+       * Two renderings, because this is a judgement call best made by looking:
+       *   'stacked'  (default) — a heading above the relation. Reads left-to-right like everything
+       *                          else, costs a little vertical room, never truncates.
+       *   'rotated'            — set vertically along the group's own bracket, where it labels the
+       *                          full extent of the span it names. Striking on a big chart, but it
+       *                          costs horizontal space and is harder to read.
+       * ⚠ ROTATED IS DRAWN ON THE JOINER, NOT THE TRUNK — the joiner spans the group's members, so
+       * the label sits beside exactly the stretch it describes. On the trunk it would be a tick at
+       * one y with nothing to say how far the slot reaches. */
+      if (n.slot && showSlots) {
+        if (slotStyle === 'rotated') {
+          /* ⚠ NOT TRUNCATED TO THE SPAN. Fitting the label into the group's height seemed right —
+           * the bracket is its budget — but a two-member group is barely one line tall, so
+           * "Stage setting" was cut to nothing and the slot silently disappeared from the diagram.
+           * A vertical label that runs a little past the ends of its bracket is still perfectly
+           * readable and still unambiguously attached to that bracket; a label that is not there
+           * at all is a lost analysis. It is centred on the span, so any overhang is symmetrical. */
+          const mid = (n.top + n.bottom) / 2;
+          const sx = x + 8;
+          if (n.slot) parts.push(`<text x="${sx}" y="${mid}" font-size="12" font-weight="700" fill="#6b21a8" text-anchor="middle" transform="rotate(-90 ${sx} ${mid})">${esc(n.slot)}</text>`);
+        } else {
+          const lab = fitToLength(n.slot, room + o.levelWidth, 12.5, measure);
+          if (lab) parts.push(`<text x="${lx}" y="${n.anchorY - (n.relation && showRelations && !n.segment ? 19 : 5)}" font-size="12.5" font-weight="700" fill="#6b21a8">${esc(lab)}</text>`);
+        }
       }
       if (n.label && showRoles) {
         const lab = fitToLength(n.label, room, 10.5, measure);
         // A prominent member is written in caps by convention; colour marks it here too.
-        if (lab) parts.push(`<text x="${x + 5}" y="${n.anchorY + 12}" font-size="10.5" font-weight="${n.head ? 700 : 600}" fill="${n.head ? '#2a6e2a' : '#5b6470'}">${esc(lab)}</text>`);
+        if (lab) parts.push(`<text x="${lx}" y="${n.anchorY + 12}" font-size="10.5" font-weight="${n.head ? 700 : 600}" fill="${n.head ? '#2a6e2a' : '#5b6470'}">${esc(lab)}</text>`);
       }
     }
     n.kids.forEach(draw);

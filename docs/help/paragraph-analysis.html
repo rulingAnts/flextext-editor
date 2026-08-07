@@ -57,6 +57,7 @@ and how — and drawing the result as a semantic structure diagram. It reads and
     <li><a href="#labels">The three labels: relation, role, discourse slot</a></li>
     <li><a href="#props">Propositions</a></li>
     <li><a href="#collapse">Collapsing — how you get the big picture</a></li>
+    <li><a href="#navigate">Finding your way in a long text</a></li>
     <li><a href="#view">Looking at your work</a></li>
     <li><a href="#export">Exporting</a></li>
     <li><a href="#audio">Audio, blank lines and speakers</a></li>
@@ -213,6 +214,11 @@ structure — so they stay separate.</p>
 <p>Roles belong to the <em>group</em>, not the unit: a role is held relative to one relation. The
 same line in a different group would have a different role.</p>
 
+<h3>Labels are optional</h3>
+<p>None of the three is required. A group with no label of its own is named in the interface by the
+roles of its members, then by its slot, then by its summary — see <a href="#navigate">the path</a>.
+That naming is for the interface only; the diagram shows what you wrote and nothing else.</p>
+
 <h3>Capitalisation is normalised</h3>
 <p>The SSA convention writes the prominent member's role in CAPITALS and a supporting member's in
 lower case. The tool enforces this when the label is <em>stored</em>, so what you see on screen, what
@@ -269,6 +275,34 @@ lifted out of context often makes a poor sentence. The Group dialog has an optio
 <strong>Summary</strong> field: whatever you write there is used wherever the group appears
 collapsed, both in the editor and in the "One summary line" chart option. Leave it blank and the
 head's own text is used.</p>
+
+<h2 id="navigate">Finding your way in a long text</h2>
+
+<p>A deep analysis outgrows the screen quickly. The path exists for that.</p>
+
+<h3>The path</h3>
+<p>With something selected, a single line under the toolbar shows where it sits:
+<code>Whole narrative › Episode 1 › orienter–CONTENT</code>. Each step is a button.</p>
+<ul>
+  <li><strong>Click a step</strong> — go there. It becomes the selection and scrolls into view.</li>
+  <li><strong>Click it again</strong>, once it is selected — <strong>focus that level</strong>. The
+      group's own sub-groups collapse, and so does everything beside it, leaving just that level open.
+      Undo restores it.</li>
+</ul>
+<p>It stays one line however deep the analysis goes. When the path is too long the middle is elided
+(<code>Whole narrative › … › grounds–CONCLUSION</code>) — the root and where you are now are what
+orient you; the steps between are the ones you can afford to lose.</p>
+<p>The path only appears when something is selected: it is a path <em>to</em> something, so with an
+empty selection it would just cost a row. Turn it off entirely with <strong>View → Show the
+path</strong>.</p>
+
+<div class="note"><strong>What each step is called.</strong> A step shows the group's own label. If it
+has none, it shows one worked out from its members' roles — <code>grounds-CONCLUSION</code> — with
+repeats collapsed, so three coordinate members read <code>conjoining</code> rather than
+<code>conjoining-conjoining-conjoining</code>, and a numbered series reads <code>stepN</code> rather
+than <code>step1-step2</code>. Failing that it uses the discourse slot, then the summary, and only
+then <code>unnamed (G4)</code>. <strong>These derived names are for the interface only — the diagram
+always shows exactly what you wrote, and nothing else.</strong></div>
 
 <h2 id="view">Looking at your work</h2>
 

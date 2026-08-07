@@ -701,8 +701,13 @@ function depthLimit() {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 function beyondDepth(level) {
-  const lim = depthLimit();
-  return lim > 0 && level >= lim;
+  /* ⚠ PARKED — returns false so the tree renders exactly as it did before the feature existed.
+   * The real body is one line and is kept here so restoring it is unambiguous:
+   *     const lim = depthLimit(); return lim > 0 && level >= lim;
+   * ⚠ An already-saved view.depthLimit is deliberately IGNORED rather than cleared: someone who set
+   * it before this was parked should not have the tool silently rewrite their document, and their
+   * setting comes back intact if the feature does. */
+  return false;
 }
 
 /* ── PATH BAR (the DOM path) ───────────────────────────────────────────────────────────────────
@@ -742,15 +747,41 @@ function renderPathBar() {
   bar.hidden = false;
   bar.innerHTML = shown.map((st, i) => {
     const gap = (elided && i === 1) ? `<span class="pa-path-gap" title="${esc(t('para.pathElided', { n: steps.length - MAX }))}">…</span>` : '';
-    return gap + `<button class="pa-path-step" data-gid="${esc(st.id)}">${esc(st.label)}</button>`;
+    const isSel = selection.size === 1 && selection.has(st.id);
+    // ⚠ The tip CHANGES once the step is selected, so the second gesture announces itself exactly
+    // when it is available — a static tip describing both would be noise on every other step.
+    const tip = isSel ? t('para.pathStepFocusTip') : t('para.pathStepTip', { name: st.label });
+    return gap + `<button class="pa-path-step" data-gid="${esc(st.id)}" title="${esc(tip)}">${esc(st.label)}</button>`;
   }).join('<span class="pa-path-sep">\u203a</span>');
   bar.querySelectorAll('.pa-path-step').forEach((b) => {
     b.addEventListener('click', () => {
-      // Selecting the step is the navigation: the tree scrolls it into view and highlights it.
-      selection = new Set([b.dataset.gid]);
+      const gid = b.dataset.gid;
+      /* ⚠ TWO GESTURES ON ONE CONTROL, told apart by whether it is ALREADY the selection rather than
+       * by a double-click timer. A timer would make the second gesture depend on how fast you click,
+       * which is exactly the kind of thing that fails for the people this app is for — and it would
+       * make the first click feel laggy while it waited to see if a second was coming.
+       *
+       * FIRST CLICK — go there: select it and scroll it into view.
+       * SECOND CLICK — focus that level: collapse this item's own daughters AND its sisters, so the
+       * clicked group is the only thing open at its level and you see its children as summaries.
+       * ⚠ Only DIRECT daughters are collapsed: a collapsed group already hides everything beneath
+       * it, so walking deeper would add nothing visible while making the undo step much larger. */
+      if (selection.size === 1 && selection.has(gid)) {
+        const g = nodeById(state, gid);
+        if (!g) return;
+        const parent = parentOf(state, gid);
+        const sisters = (parent ? parent.children : topUnits(state)).filter((c) => c !== gid);
+        const shut = [...(g.children || []), ...sisters].filter(isGroupId);
+        if (!shut.length) { alert(t('para.pathNothingToFocus')); return; }
+        const set = new Set(state.view.collapsed || []);
+        shut.forEach((id) => set.add(id));
+        commit({ ...state, view: { ...state.view, collapsed: [...set] } });
+        return;
+      }
+      selection = new Set([gid]);
       anchor = null;
       renderWork();
-      const el = $(`[data-gid="${b.dataset.gid}"]`);
+      const el = $(`[data-gid="${gid}"]`);
       if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     });
   });
@@ -1229,12 +1260,17 @@ function renderWorkInner() {
             <label class="check-label pa-menucheck" title="${esc(t('para.hideBlankTip'))}"><input type="checkbox" id="pa-blank"> ${esc(t('para.hideBlank'))}</label>
             <label class="check-label pa-menucheck" id="pa-brk-wrap" hidden><input type="checkbox" id="pa-brk"> ${esc(t('para.brackets'))}</label>
             <label class="check-label pa-menucheck" title="${esc(t('para.pathTip'))}"><input type="checkbox" id="pa-path"> ${esc(t('para.showPath'))}</label>
+            <!-- ⚠ DEPTH LIMIT PARKED (Seth, 2026-08-07): "not working correctly ... lower priority".
+                 Kept verbatim rather than deleted — the idea is sound and the plumbing below is
+                 intact; only the control and its effect are switched off. To bring it back: restore
+                 this block, the listener, the value-reflect line, and beyondDepth's real body.
             <label class="pa-menufield"><span id="pa-depth-label">${esc(t('para.depthLimit'))}</span>
               <select id="pa-depth">
                 <option value="0">${esc(t('para.depthAll'))}</option>
                 <option value="1">1</option><option value="2">2</option>
                 <option value="3">3</option><option value="4">4</option><option value="5">5</option>
               </select></label>
+            -->
             <hr>
             <button class="pa-menuitem" id="pa-collapse-all">${esc(t('para.collapseAll'))}</button>
             <button class="pa-menuitem" id="pa-chart-menu">${esc(t('para.chartTip'))}</button>
@@ -1318,7 +1354,7 @@ function renderWorkInner() {
 
   $('#pa-layer').value = v.layer;
   $('#pa-path').checked = v.showPath !== false;          // on by default: it is how you keep your place
-  $('#pa-depth').value = String(v.depthLimit || 0);
+  // parked: $('#pa-depth').value = String(v.depthLimit || 0);
   $('#pa-free').checked = v.free !== false;
   $('#pa-blank').checked = v.hideBlank !== false;      // ON by default: blank lines are not analysis
   // Brackets only mean something once a document HAS implied propositions — Seth: default on.
@@ -1335,7 +1371,8 @@ function renderWorkInner() {
   $('#pa-layer').addEventListener('change', (e) => setView({ layer: e.target.value, ...(e.target.value === 'free-only' ? { free: true } : {}) }));
   $('#pa-free').addEventListener('change', (e) => setView({ free: e.target.checked }));
   $('#pa-path').addEventListener('change', (e) => setView({ showPath: e.target.checked }));
-  $('#pa-depth').addEventListener('change', (e) => setView({ depthLimit: +e.target.value }));
+  // parked with the control above:
+  // $('#pa-depth').addEventListener('change', (e) => setView({ depthLimit: +e.target.value }));
   if ($('#pa-title-edit')) $('#pa-title-edit').addEventListener('click', () => {
     const name = prompt(t('para.titlePrompt'), state.title || '');
     if (name === null) return;

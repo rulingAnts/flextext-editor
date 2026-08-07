@@ -290,6 +290,26 @@ ok(/flagSetupProblems\(form, validateDeviceSetup\(collectDeviceSetup\(form\)\), 
 ok(/if \(!send\.includes\('save'\)\) \{/.test(app),
    'the "no way to get work out" check still runs — it warns now instead of blocking');
 
+/* ⚠ AND THE WARNING IS A PROPERTY OF THE STATE, NOT A REACTION TO A KEYSTROKE (Seth, 2026-08-07):
+ * "if I clear it, switch to the text tab, and then switch back, the warning banner is gone. That
+ * validation behavior only BLOCKED me from saving unworkable changes when those changes required a
+ * Save button." A blocking check only had to run at the moment of saving, because nothing broken
+ * could get past it. An advisory one has no such moment — painted only on edit, a half-configured
+ * device looks perfectly fine the next time anyone opens the page. Two places fix that: */
+ok(/flagSetupProblems\(form, validateDeviceSetup\(collectDeviceSetup\(form\)\), showGroup, \{ advisory: true \}\);\s*\n\}/.test(app),
+   'renderDeviceSetup paints the problems on ENTRY, before any edit');
+ok(/function markSetupTabProblems\(\)/.test(app) && /tab\.classList\.toggle\('tab-warn', problems\.length > 0\)/.test(app),
+   'and the Settings TAB carries a dot, so a device left broken says so without being opened');
+ok(/const problems = validateDeviceSetup\(deviceSetupValues\(\)\);/.test(app),
+   'the dot validates STORED settings, so it is right at startup before the form exists');
+ok(/if \(Sync\.hasSession\(\)\) \{ tab\.classList\.remove\('tab-warn'\); return; \}/.test(app),
+   'and a MANAGED device never shows it — those settings are not this device\'s to fix');
+ok(/markSetupTabProblems\(\);/.test(app.match(/function applyResearchVisibility\(\)[\s\S]*?\n\}/)[0]),
+   'refreshed from applyResearchVisibility, which runs at startup AND after every live save');
+ok(/\.top-tab\.tab-warn::after/.test(css), 'the dot is styled');
+ok(!/\.top-tab\.tab-warn \{[^}]*color:/.test(css),
+   'as a DOT, not a colour change — the tab sits on a coloured bar where a tint would vanish');
+
 /* ⚠ THE BANNER GOES BELOW THE TAB ROW. Above it, the row jumps down the instant the banner appears
  * — and the moment it most often appears is mousedown on a tab (pressing it blurs the text field,
  * `change` fires, the save runs). mouseup then lands somewhere else and the tab click is SWALLOWED.
@@ -318,7 +338,7 @@ ok(/is kept either way/.test(offMsg), 'and the reason says the text is kept, so 
 ok(/Tick it to use this text/.test(offMsg), 'and names the exact box to tick');
 
 console.log('\n...and it says so, in both languages');
-for (const k of ['setup.savedLive', 'setup.localNote', 'setup.consentFilePending',
+for (const k of ['setup.savedLive', 'setup.localNote', 'setup.consentFilePending', 'setup.tabWarn',
                  'setup.off.consentMsg', 'setup.offMarkDyn']) {
   ok((i18n.match(new RegExp(`'${k.replace(/\./g, '\\.')}':`, 'g')) || []).length === 2, `${k} is in BOTH en and id`);
 }

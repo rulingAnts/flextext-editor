@@ -80,6 +80,21 @@ main {
   font-weight: 600;
 }
 
+/* This device cannot do its job as configured — see markSetupTabProblems. A DOT, not a colour
+   change: the tab sits on a coloured bar where a tint would be invisible, and it stays legible at
+   the phone size where this is most likely to be missed. `title` carries the count for a mouse;
+   the banner inside the tab is what actually explains it. */
+.top-tab.tab-warn::after {
+  content: "";
+  display: inline-block;
+  width: 8px; height: 8px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: #e5534b;
+  box-shadow: 0 0 0 1.5px rgba(255,255,255,.85);   /* holds up against the dark bar AND the light active tab */
+  vertical-align: 1px;
+}
+
 .doc-title {
   flex: 1 1 140px;
   min-width: 120px;

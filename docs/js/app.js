@@ -4696,6 +4696,19 @@ function renderDeviceSetup() {
   });
 
   fillDeviceSetup();
+  /* ⚠ PAINT THE PROBLEMS ON ENTRY, not only after an edit (Seth, 2026-08-07): "if I clear it,
+   * switch to the text tab, and then switch back, the warning banner is gone. That validation
+   * behavior only BLOCKED me from saving unworkable changes when those changes required a Save
+   * button."
+   *
+   * He is right, and it was the real cost of removing the button. A blocking check needed to run
+   * only at the moment of saving, because nothing broken could get past it. An advisory one has no
+   * such moment — so if it is painted only in response to an edit, a device left half-configured
+   * looks completely fine the next time anybody opens the page. The warning has to be a property of
+   * the STATE, not a reaction to a keystroke; that is what makes it a real replacement for the
+   * refusal rather than a softer version of it. Advisory here too: opening the tab must not seize
+   * a tab or the focus, only show what is wrong. */
+  flagSetupProblems(form, validateDeviceSetup(collectDeviceSetup(form)), showGroup, { advisory: true });
 }
 
 /* ⚠ SETTINGS SAVE THEMSELVES, THE MOMENT THEY CHANGE (Seth, 2026-08-07). There is no Save button.
@@ -5015,7 +5028,25 @@ function applyResearchVisibility() {
     renderDocList();
     show('texts');
   }
+  markSetupTabProblems();
   applyHelpResearchVisibility();
+}
+
+/* ⚠ THE OTHER HALF OF LOSING THE SAVE BUTTON. Painting the banner when the tab is OPEN is not
+ * enough on its own: the old check could not be walked away from, because a broken setup simply
+ * would not save. Nothing now stops someone leaving this device unable to work and never opening
+ * Settings again — so the tab itself has to carry the fact, where it is seen without going to look.
+ * A dot, not a number or a colour alone: it has to survive being small, and it must not read as an
+ * error the user caused just now. Validation runs off STORED settings, not the form, so this is
+ * correct at startup, before the form has ever been built. */
+function markSetupTabProblems() {
+  const tab = $('#topbar-home .top-tab[data-view="research"]');
+  if (!tab) return;
+  if (Sync.hasSession()) { tab.classList.remove('tab-warn'); return; }   // managed: not this device's call
+  const problems = validateDeviceSetup(deviceSetupValues());
+  tab.classList.toggle('tab-warn', problems.length > 0);
+  if (problems.length) tab.title = t('setup.tabWarn', { n: problems.length });
+  else tab.removeAttribute('title');
 }
 
 // In the Help view, hide the "For researchers" guide on devices where the

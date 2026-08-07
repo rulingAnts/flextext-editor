@@ -27,6 +27,21 @@ const app = read('../docs/js/app.js');
 const panel = read('../docs/js/researcher-panel.js');
 const html = read('../docs/index.html');
 const i18n = read('../docs/js/i18n.js');
+/* ⚠ COUNT WITHIN A BLOCK, NOT ACROSS THE FILE. "appears exactly twice" was a fine proxy for
+ * "in both en and id" while those were the only two dictionaries; the moment a third language
+ * (tpi) defines the same key the count becomes 3 and a passing test fails for no real reason.
+ * Worse, it would keep passing if a key were defined twice in en and never in id. */
+const blockOf = (lang) => {
+  const at = i18n.indexOf(`\n${lang}: {`);
+  const rest = i18n.slice(at + 1);
+  const nxt = rest.search(/\n[a-z]{2,3}: \{/);
+  return nxt < 0 ? i18n.slice(at) : i18n.slice(at, at + 1 + nxt);
+};
+const EN_BLOCK = blockOf('en'), ID_BLOCK = blockOf('id');
+const inBoth = (k) => {
+  const re = new RegExp(`^  '${k.replace(/\./g, '\\.')}':`, 'm');
+  return (re.test(EN_BLOCK) ? 1 : 0) + (re.test(ID_BLOCK) ? 1 : 0);
+};
 
 console.log('\nDOWNWARD ONLY — a lossy source can never be offered a lossless container');
 for (const src of ['mp3', 'ogg', 'aiff', null]) {
@@ -147,7 +162,7 @@ const KEYS = ['convert.h', 'convert.note2', 'convert.pick', 'convert.go', 'conve
               'convert.fmtUnknown', 'convert.before', 'convert.after', 'convert.chanHint', 'convert.play',
               'convert.working', 'convert.done', 'convert.failed', 'recfmt.helpLink'];
 for (const k of KEYS) {
-  const n = (i18n.match(new RegExp(`'${k.replace(/\./g, '\\.')}':`, 'g')) || []).length;
+  const n = inBoth(k);
   ok(n === 2, `${k} is in BOTH en and id (found ${n})`);
 }
 // The format labels are built by concatenation — t('convert.fmt.' + value) — so expand them against
@@ -157,7 +172,7 @@ for (const [f, b] of [['wav', 32], ['wav', 24], ['wav', 16], ['mp3', null], ['fl
   for (const o of validOutputs(f, b)) produced.add(o.value);
 }
 for (const v of produced) {
-  const n = (i18n.match(new RegExp(`'convert\\.fmt\\.${v}':`, 'g')) || []).length;
+  const n = inBoth('convert.fmt.' + v);
   ok(n === 2, `convert.fmt.${v} (a format validOutputs can emit) is in BOTH en and id (found ${n})`);
 }
 

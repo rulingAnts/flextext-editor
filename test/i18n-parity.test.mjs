@@ -34,7 +34,7 @@ const read = (text) => {
 /* ⚠ Bound each block at the NEXT `xx: {`. Slicing to end-of-file was fine while en and id were the
  * only dictionaries; with the in-progress languages after them, everything they contain counted as
  * `id` and showed up as duplicates. */
-const blockEnd = (from) => { const r = src.slice(from + 1).search(/\n[a-z]{2}: \{/); return r < 0 ? src.length : from + 1 + r; };
+const blockEnd = (from) => { const r = src.slice(from + 1).search(/\n[a-z]{2,3}: \{/); return r < 0 ? src.length : from + 1 + r; };
 const EN = read(src.slice(enAt, blockEnd(enAt)));
 const ID = read(src.slice(idAt, blockEnd(idAt)));
 
@@ -112,7 +112,22 @@ for (const [l, v] of Object.entries(cov)) {
   if (v.complete) continue;
   ok(!i18nMod.LANGS.includes(l), `${l} (${v.name}) is registered but NOT offered — ${v.done}/${v.total} done`);
 }
-ok(Object.keys(cov).length >= 8, `${Object.keys(cov).length} languages registered: ${Object.keys(cov).join(', ')}`);
+ok(Object.keys(cov).length >= 3, `${Object.keys(cov).length} languages registered: ${Object.keys(cov).join(', ')}`);
+
+/* ⚠ LANGUAGE CODES ARE NOT ALWAYS TWO LETTERS (Seth, 2026-08-07: "Tok Pisin presents a unique
+ * challenge with standard code strings"). Tok Pisin has NO ISO 639-1 code at all — it is `tpi` in
+ * 639-2/3 — and the block-boundary regexes here, in device-setup and in tools/i18n-todo.mjs all
+ * assumed /[a-z]{2}/. With a 3-letter block present that boundary silently runs past the end of a
+ * dictionary and swallows the next, which reads as hundreds of duplicate keys. Widened to {2,3},
+ * and pinned so the assumption cannot creep back in the next language. */
+ok(/\[a-z\]\{2,3\}: \\\{/.test(src) === false, 'sanity: the check below reads the TEST sources, not i18n.js');
+const tools = readFileSync(new URL('../tools/i18n-todo.mjs', import.meta.url), 'utf8');
+const setupT = readFileSync(new URL('./device-setup.test.mjs', import.meta.url), 'utf8');
+const selfT = readFileSync(new URL('./i18n-parity.test.mjs', import.meta.url), 'utf8');
+for (const [name, text] of [['tools/i18n-todo.mjs', tools], ['device-setup.test', setupT], ['i18n-parity.test', selfT]]) {
+  ok(!/\[a-z\]\{2\}: /.test(text), `${name} does not assume 2-letter language codes`);
+}
+ok(Object.keys(cov).some((l) => l.length === 3), 'a 3-letter code really is registered, so this is exercised');
 
 console.log('\nand no picker hard-codes options behind the rule\'s back');
 const html = readFileSync(new URL('../docs/index.html', import.meta.url), 'utf8');

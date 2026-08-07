@@ -26,7 +26,7 @@ function blockAt(s, lang) {
   if (at < 0) return null;
   const after = at + 1;
   const rest = s.slice(after + 1);
-  const nxt = rest.search(/\n[a-z]{2}: \{/);
+  const nxt = rest.search(/\n[a-z]{2,3}: \{/);
   return { start: after, end: nxt < 0 ? s.indexOf('\n};', after) + 1 : after + 1 + nxt };
 }
 
@@ -49,7 +49,7 @@ const escape = (v) => String(v).replace(/\\/g, '\\\\').replace(/'/g, "\\'").repl
 
 const enB = blockAt(src, 'en');
 const EN = keysIn(src.slice(enB.start, enB.end));
-const LANGS = [...src.matchAll(/^([a-z]{2}): \{$/gm)].map((m) => m[1]);
+const LANGS = [...src.matchAll(/^([a-z]{2,3}): \{$/gm)].map((m) => m[1]);
 
 const [lang, ...rest] = process.argv.slice(2);
 const flag = (name, dflt) => { const i = rest.indexOf('--' + name); return i < 0 ? dflt : rest[i + 1]; };

@@ -72,6 +72,19 @@ ok(/Researcher\.fetchDriveFile\(df\.dataset\.drivefile\)/.test(panel), 'and it f
  * --------------------------------------------------------------------------------------------- */
 const i18n = readFileSync(new URL('../docs/js/i18n.js', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../docs/css/app.css', import.meta.url), 'utf8');
+/* ⚠ Count inside the en/id BLOCKS, not across the file: a third language (tpi) translating this key
+ * would push a file-wide count to 3 and fail a test that has found nothing wrong. */
+const i18nBlock = (lang) => {
+  const at = i18n.indexOf(`\n${lang}: {`);
+  const rest = i18n.slice(at + 1);
+  const nxt = rest.search(/\n[a-z]{2,3}: \{/);
+  return nxt < 0 ? i18n.slice(at) : i18n.slice(at, at + 1 + nxt);
+};
+const inEnAndId = (k) => {
+  const re = new RegExp(`^  '${k.replace(/\./g, '\\.')}':`, 'm');
+  return (re.test(i18nBlock('en')) ? 1 : 0) + (re.test(i18nBlock('id')) ? 1 : 0);
+};
+
 const app = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
 
 console.log('\nthe invite modal warns the RESEARCHER before the link is sent');
@@ -79,7 +92,7 @@ ok(/rp-invite-warn">\$\{esc\(t\('panel\.invite\.overrideWarn'\)\)\}/.test(panel)
    'the warning is rendered in the invite modal');
 ok(/panel\.invite\.overrideWarn[\s\S]{0,80}\$\{row\(t\('panel\.invite\.editorLink'\)/.test(panel),
    'and ABOVE the links — after them it would be read too late, if at all');
-ok((i18n.match(/'panel\.invite\.overrideWarn':/g) || []).length === 2, 'translated in BOTH languages');
+ok(inEnAndId('panel.invite.overrideWarn') === 2, 'translated in BOTH languages');
 const en = (i18n.match(/'panel\.invite\.overrideWarn': '([^']*)'/) || [])[1] || '';
 ok(/takes over the device/i.test(en), 'it says the device is taken over');
 ok(/Settings tab is hidden/i.test(en), 'and that the device loses its own Settings tab');

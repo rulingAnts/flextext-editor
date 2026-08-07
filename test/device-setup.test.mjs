@@ -38,6 +38,23 @@ const i18n = read('../docs/js/i18n.js');
 const html = read('../docs/index.html');
 const css = read('../docs/css/app.css');
 
+/* ⚠ COUNT WITHIN A BLOCK, NOT ACROSS THE FILE. "appears exactly twice" was a fine proxy for "in
+ * both en and id" while those were the only dictionaries. It is a TIME BOMB now that a third
+ * language exists: every key Tok Pisin translates would push the count to 3 and fail a test that
+ * has found nothing wrong. (It would also keep passing if a key were defined twice in en and never
+ * in id — the very bug these lines exist to catch.) */
+const blockOf = (lang) => {
+  const at = i18n.indexOf(`\n${lang}: {`);
+  const rest = i18n.slice(at + 1);
+  const nxt = rest.search(/\n[a-z]{2,3}: \{/);
+  return nxt < 0 ? i18n.slice(at) : i18n.slice(at, at + 1 + nxt);
+};
+const EN_BLOCK = blockOf('en'), ID_BLOCK = blockOf('id');
+const inBoth = (k) => {
+  const re = new RegExp(`^  '${k.replace(/\./g, '\\.')}':`, 'm');
+  return (re.test(EN_BLOCK) ? 1 : 0) + (re.test(ID_BLOCK) ? 1 : 0);
+};
+
 // Lift both real specs out of the real files — a regex over field names would pass on a spec that
 // no longer parses, which is the failure this is meant to catch.
 const lift = (src, name, args, vals) => {
@@ -340,7 +357,7 @@ ok(/Tick it to use this text/.test(offMsg), 'and names the exact box to tick');
 console.log('\n...and it says so, in both languages');
 for (const k of ['setup.savedLive', 'setup.localNote', 'setup.consentFilePending', 'setup.tabWarn',
                  'setup.off.consentMsg', 'setup.offMarkDyn']) {
-  ok((i18n.match(new RegExp(`'${k.replace(/\./g, '\\.')}':`, 'g')) || []).length === 2, `${k} is in BOTH en and id`);
+  ok(inBoth(k) === 2, `${k} is in BOTH en and id`);
 }
 ok(!/press Save settings/.test(i18n) && !/tekan Simpan pengaturan/.test(i18n),
    'no string still tells the user to press a button that does not exist');
@@ -403,7 +420,7 @@ console.log('\n⚠ NO KEY IS DEFINED TWICE INSIDE ONE LANGUAGE BLOCK');
    * while en and id were the only dictionaries; the in-progress languages now sit after them, and
    * everything they contain was being counted as a duplicate `id` key. */
   const ei = i18n.indexOf('\nen: {'), ii = i18n.indexOf('\nid: {');
-  const endOf = (from) => { const r = i18n.slice(from + 1).search(/\n[a-z]{2}: \{/); return r < 0 ? i18n.length : from + 1 + r; };
+  const endOf = (from) => { const r = i18n.slice(from + 1).search(/\n[a-z]{2,3}: \{/); return r < 0 ? i18n.length : from + 1 + r; };
   for (const [name, blk] of [['en', i18n.slice(ei, endOf(ei))], ['id', i18n.slice(ii, endOf(ii))]]) {
     const seen = new Map();
     for (const m of blk.matchAll(/^\s*'([a-zA-Z0-9_.]+)':/gm)) seen.set(m[1], (seen.get(m[1]) || 0) + 1);
@@ -423,12 +440,12 @@ const KEYS = ['setup.h1', 'setup.intro', 'setup.localNote', 'setup.managed', 'se
               ...new Set(allFields(SETUP_GROUPS).map((f) => f.off).filter(Boolean)),
               ...SETUP_GROUPS.map((g) => g.detailsOff).filter(Boolean)];
 for (const key of KEYS) {
-  const n = (i18n.match(new RegExp(`'${key.replace(/\./g, '\\.')}':`, 'g')) || []).length;
+  const n = inBoth(key);
   ok(n === 2, `${key} is defined in BOTH en and id (found ${n})`);
 }
 // Every field label the form prints must exist too, or a row renders as its raw key.
 for (const k of setupKeys) {
-  const n = (i18n.match(new RegExp(`'panel\\.f\\.${k}':`, 'g')) || []).length;
+  const n = inBoth('panel.f.' + k);
   ok(n === 2, `panel.f.${k} (the label) is defined in BOTH en and id (found ${n})`);
 }
 /* ⚠ EVERY OPTION LABEL, EXPANDED. The form builds these by concatenation — t(f.optPrefix + o) —
@@ -439,14 +456,14 @@ for (const f of allFields(SETUP_GROUPS)) {
   if (!f.optPrefix || !f.opts) continue;
   for (const o of f.opts) {
     const key = f.optPrefix + o;
-    const n = (i18n.match(new RegExp(`'${key.replace(/\./g, '\\.')}':`, 'g')) || []).length;
+    const n = inBoth(key);
     ok(n === 2, `${key} (option label for ${f.k}) is in BOTH en and id (found ${n})`);
   }
 }
 // Group headings are built the same way.
 for (const g of SETUP_GROUPS) {
   for (const key of [`panel.grp.${g.id}`, g.legend, g.note].filter(Boolean)) {
-    const n = (i18n.match(new RegExp(`'${key.replace(/\./g, '\\.')}':`, 'g')) || []).length;
+    const n = inBoth(key);
     ok(n === 2, `${key} is in BOTH en and id (found ${n})`);
   }
 }

@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v305';
+export const ENGINE_VERSION = 'v306';
 
 const S = {
 en: {
@@ -1013,6 +1013,7 @@ internet after the first time.</p>
   'panel.opt.appLang.follow': 'Don’t change it (let the device choose)',
   'panel.opt.appLang.en': 'English',
   'panel.opt.appLang.id': 'Indonesian (Bahasa Indonesia)',
+  'panel.opt.appLang.tpi': 'Tok Pisin',
   'panel.opt.appLang.ko': 'Korean (한국어)',
   'panel.opt.appLang.nl': 'Dutch (Nederlands)',
   'panel.opt.appLang.pt': 'Portuguese (Português)',
@@ -2408,6 +2409,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.opt.appLang.follow': 'Jangan ubah (biarkan perangkat memilih)',
   'panel.opt.appLang.en': 'Inggris',
   'panel.opt.appLang.id': 'Indonesia (Bahasa Indonesia)',
+  'panel.opt.appLang.tpi': 'Tok Pisin',
   'panel.opt.appLang.ko': 'Korea (한국어)',
   'panel.opt.appLang.nl': 'Belanda (Nederlands)',
   'panel.opt.appLang.pt': 'Portugis (Português)',
@@ -2812,51 +2814,45 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.assign.needUrl': 'Tambahkan tautan audio atau flextext — judul saja tidak mengirim tugas apa pun.',
 },
 
-ko: {
-  /* Korean / 한국어 — IN PROGRESS, and therefore NOT OFFERED anywhere in the UI. LANG_COMPLETE computes the
-     picker from coverage, so this language becomes selectable by itself on the commit that
-     completes it, and cannot be reached before then. Fill it with
-     `node tools/i18n-todo.mjs ko --n 40` / `--apply`. */
-},
 
-nl: {
-  /* Dutch / Nederlands — IN PROGRESS, and therefore NOT OFFERED anywhere in the UI. LANG_COMPLETE computes the
-     picker from coverage, so this language becomes selectable by itself on the commit that
-     completes it, and cannot be reached before then. Fill it with
-     `node tools/i18n-todo.mjs nl --n 40` / `--apply`. */
-},
 
-pt: {
-  /* Portuguese / Português — IN PROGRESS, and therefore NOT OFFERED anywhere in the UI. LANG_COMPLETE computes the
-     picker from coverage, so this language becomes selectable by itself on the commit that
-     completes it, and cannot be reached before then. Fill it with
-     `node tools/i18n-todo.mjs pt --n 40` / `--apply`. */
-},
 
-es: {
-  /* Spanish / Español — IN PROGRESS, and therefore NOT OFFERED anywhere in the UI. LANG_COMPLETE computes the
-     picker from coverage, so this language becomes selectable by itself on the commit that
-     completes it, and cannot be reached before then. Fill it with
-     `node tools/i18n-todo.mjs es --n 40` / `--apply`. */
-},
 
-de: {
-  /* German / Deutsch — IN PROGRESS, and therefore NOT OFFERED anywhere in the UI. LANG_COMPLETE computes the
-     picker from coverage, so this language becomes selectable by itself on the commit that
-     completes it, and cannot be reached before then. Fill it with
-     `node tools/i18n-todo.mjs de --n 40` / `--apply`. */
-},
 
-fr: {
-  /* French / Français — IN PROGRESS, and therefore NOT OFFERED anywhere in the UI. LANG_COMPLETE computes the
-     picker from coverage, so this language becomes selectable by itself on the commit that
-     completes it, and cannot be reached before then. Fill it with
-     `node tools/i18n-todo.mjs fr --n 40` / `--apply`. */
-  'tabs.texts': 'Textes',
-  'tabs.research': 'Paramètres',
-  'tabs.utilities': 'Utilitaires',
-  'tabs.baseline': 'Ligne de base',
-  'tabs.gloss': 'Glose',
+
+tpi: {
+  /* Tok Pisin — IN PROGRESS, and therefore NOT OFFERED anywhere in the UI. LANG_COMPLETE computes
+     the picker from coverage, so this becomes selectable by itself on the commit that completes
+     it. Fill it with `node tools/i18n-todo.mjs tpi --n 40` / `--apply`. */
+  'tabs.texts': 'Ol Teks',
+  'tabs.research': 'Ol Seting',
+  'tabs.utilities': 'Ol Tul',
+  'tabs.baseline': 'Rait',
+  'tabs.gloss': 'Glos',
+  'btn.save': 'Seivim',
+  'btn.saveSend': 'Seivim na salim…',
+  'btn.done': 'Pinis — salim…',
+  'btn.back': 'Go bek long ol teks',
+  'btn.help': 'Halivim',
+  'texts.new': '+ Nupela teks',
+  'texts.newAudio': '+ Nupela teks long saun…',
+  'texts.open': 'Opim wanpela .flextext fail…',
+  'record.btn': 'Rekodim nupela teks…',
+  'untitled': 'Teks i no gat nem',
+  'player.play': 'Pilai / stopim',
+  'player.back3': 'Go bek 3 sekan',
+  'player.speed': 'Hariap bilong pilai',
+  'player.zoom': 'Mekim bikpela',
+  'player.remove': 'Rausim saun long dispela teks',
+  'player.attach': 'Putim saun…',
+  'research.lang': 'Tokples / Language',
+  'baseline.placeholder': 'Raitim teks hia long tokples…',
+  'toast.saved': 'Em i seiv pinis.',
+  'share.title': 'Seivim na salim',
+  'share.share': 'Serim…',
+  'share.upload': 'Salim i go antap',
+  'share.saveas': 'Seivim long wanpela fail…',
+  'convert.h': 'Masin bilong senisim saun',
 },
 };
 
@@ -2865,12 +2861,7 @@ fr: {
 export const LANG_NAMES = {
   en: 'English',
   id: 'Indonesia',
-  ko: '\ud55c\uad6d\uc5b4',
-  nl: 'Nederlands',
-  pt: 'Portugu\u00eas',
-  es: 'Espa\u00f1ol',
-  de: 'Deutsch',
-  fr: 'Fran\u00e7ais',
+  tpi: 'Tok Pisin',
 };
 
 /* ⚠ A LANGUAGE IS NOT OFFERED UNTIL IT IS FINISHED (Seth, 2026-08-07): "incremental translation, but

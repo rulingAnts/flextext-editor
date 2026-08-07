@@ -73,6 +73,19 @@ ok(/canvas\.__peaksGen !== peaksGen/.test(src),
 const app = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
 const html = readFileSync(new URL('../docs/index.html', import.meta.url), 'utf8');
 const i18n = readFileSync(new URL('../docs/js/i18n.js', import.meta.url), 'utf8');
+/* ⚠ Count inside the en/id BLOCKS, not across the file: a third language (tpi) translating this key
+ * would push a file-wide count to 3 and fail a test that has found nothing wrong. */
+const i18nBlock = (lang) => {
+  const at = i18n.indexOf(`\n${lang}: {`);
+  const rest = i18n.slice(at + 1);
+  const nxt = rest.search(/\n[a-z]{2,3}: \{/);
+  return nxt < 0 ? i18n.slice(at) : i18n.slice(at, at + 1 + nxt);
+};
+const inEnAndId = (k) => {
+  const re = new RegExp(`^  '${k.replace(/\./g, '\\.')}':`, 'm');
+  return (re.test(i18nBlock('en')) ? 1 : 0) + (re.test(i18nBlock('id')) ? 1 : 0);
+};
+
 
 console.log('\nthe strips stay hidden until the peaks are in');
 ok(/\$\('#segment-strips'\)\.hidden = true;\s*\n\s*\$\('#baseline-text'\)\.hidden = true;\s*\n\s*\$\('#seg-loading'\)\.hidden = false;/.test(app),
@@ -80,7 +93,7 @@ ok(/\$\('#segment-strips'\)\.hidden = true;\s*\n\s*\$\('#baseline-text'\)\.hidde
 ok(/await ensurePeaks\([\s\S]{0,220}?\$\('#seg-loading'\)\.hidden = true;\s*\n\s*\$\('#segment-strips'\)\.hidden = false;\s*\n\s*renderStrips\(\);/.test(app),
    'and they are revealed only AFTER ensurePeaks resolves');
 ok(/id="seg-loading"[^>]*hidden[^>]*data-i18n="seg\.loadingAudio"/.test(html), 'the placeholder exists in the markup');
-ok((i18n.match(/'seg\.loadingAudio':/g) || []).length === 2, 'and is translated in BOTH languages');
+ok(inEnAndId('seg.loadingAudio') === 2, 'and is translated in BOTH languages');
 
 console.log('\nno audio at all falls back to the classic editor');
 ok(/if \(!media \|\| !media\.blob\) \{/.test(app), 'the no-media case is handled explicitly');

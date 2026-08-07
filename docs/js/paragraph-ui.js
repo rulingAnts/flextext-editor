@@ -2183,7 +2183,11 @@ function groupTitle(g) {
     || derivedGroupLabel(g)
     || g.slot
     || (summaryOf(state, g.id)[0] || '').slice(0, 40)
-    || g.id;
+    /* ⚠ "unnamed (G1)", not "undefined (G1)" and not a bare id (Seth, 2026-08-07: "undefined could
+     * be misunderstood to be worse than just not labeled"). An unlabelled group is a perfectly
+     * ordinary state — often a deliberate one mid-analysis — and the last-resort text should say
+     * that rather than look like something went wrong. */
+    || t('para.unnamedGroup', { id: g.id });
 }
 
 /* ⚠ THE BUTTONS STAY ENABLED (Seth, 2026-08-04). They used to disable themselves whenever the
@@ -2488,8 +2492,7 @@ function groupDialog({ ids, gid, heads = [], relation = '', slot = '', summary =
           ${members}
         </div>
         <label class="pa-field"><span>${esc(t('para.relation'))}</span>
-          <input id="pa-rel" value="${esc(relation)}" placeholder="${esc(t('para.relationPh'))}"
-                 required aria-required="true"></label>
+          <input id="pa-rel" value="${esc(relation)}" placeholder="${esc(t('para.relationPh'))}"></label>
         <p class="note pa-labelhint" id="pa-rel-hint"></p>
         <label class="pa-field"><span>${esc(t('para.slot'))}</span>
           <input id="pa-slot" value="${esc(slot)}" placeholder="${esc(t('para.slotPh'))}"></label>
@@ -2512,7 +2515,7 @@ function groupDialog({ ids, gid, heads = [], relation = '', slot = '', summary =
       const derived = derivedGroupLabel({ children: ids, labels: currentLabels() });
       hint.textContent = relEl.value.trim() ? ''
         : derived ? t('para.relationDerivedHint', { name: derived })
-        : t('para.relationNeeded');
+        : '';
     };
     const currentLabels = () => {
       const out = {};
@@ -2531,18 +2534,10 @@ function groupDialog({ ids, gid, heads = [], relation = '', slot = '', summary =
       const v = inp.value.trim();
       if (v) labelsOut[inp.dataset.for] = v;
     });
-    /* ⚠ REQUIRED IN THE FORM ONLY (Seth, 2026-08-07: "not something we validate ... in the data
-     * model"). groupUnits/editGroup still accept an empty relation, so every existing document,
-     * every import and every programmatic caller keeps working — this is a prompt to the person
-     * typing, not a rule about what a .fxpa may contain.
-     * ⚠ AND IT DOES NOT DISABLE OK (Seth's standing rule). The button stays clickable and says what
-     * is missing, then focuses the field; a greyed-out OK would just read as broken. */
-    const relEl = dlg.querySelector('#pa-rel');
-    if (!relEl.value.trim()) {
-      alert(t('para.relationRequired'));
-      relEl.focus();
-      return;
-    }
+    /* ⚠ THE LABEL IS OPTIONAL AGAIN (Seth reversed this, 2026-08-07: "DON'T require a label. Our
+     * fallback behavior is good enough"). Blocking OK on an empty field made every legacy group a
+     * toll booth — you could not tick a HEAD without first inventing a name — to buy something the
+     * fallback chain already provides. */
     const headsOut = [...dlg.querySelectorAll('input[name="pa-head"]:checked')].map((c) => c.value);
     const opts = { heads: headsOut, relation: dlg.querySelector('#pa-rel').value.trim(),
                    slot: dlg.querySelector('#pa-slot').value.trim(),

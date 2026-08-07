@@ -298,7 +298,7 @@ function closeHelp() {
     if (current) { switchTab(helpReturnView); return; }
     helpReturnView = 'texts';
   }
-  if (helpReturnView === 'research') { fillWsForm(); show('research'); }
+  if (helpReturnView === 'research') { renderDeviceSetup(); show('research'); }
   else { renderDocList(); show('texts'); }
 }
 
@@ -2802,7 +2802,7 @@ function applyLiveSettings() {
   settings = loadSettings();
   if (RECORD_MODE) { renderRecordView(); renderRecordList(); }   // recorder paints its own Delete-All (gated) in renderRecordView
   else {
-    applyResearchVisibility(); applyAllowedButtons(); fillWsForm(); renderDocList(); applyDeleteAllButton(); applyInviteButton(); applyDoneButton();
+    applyResearchVisibility(); applyAllowedButtons(); fillDeviceSetup(); renderDocList(); applyDeleteAllButton(); applyInviteButton(); applyDoneButton();
     // A pushed segmentation toggle takes effect LIVE if the coworker is sitting in the editor:
     // re-enter the visible tab so strips appear/hide without a reload. Gated on the actual flag
     // changing — a plain settings broadcast must never yank the caret mid-typing. currentView()
@@ -3876,81 +3876,465 @@ async function doUpload(researcher = false) {
 
 function closeShareMenu() { $('#share-menu').hidden = true; applyUpdateIfSafe(); }
 
-/* ---------------- Research tab ---------------- */
+/* ---------------- Settings tab: DEVICE SETUP ----------------------------------------------------
+ *
+ * The Settings tab IS the device-setup surface. It carries the same fields a researcher would push
+ * to a managed device, so somebody can set up a STANDALONE app for their own use — no researcher
+ * account, no pairing, no Google sign-in. It REPLACES the older hand-rolled ws-form /
+ * recformat-form, which covered a subset of the same stored keys.
+ *
+ * ⚠ MODELLED ON js/researcher-panel.js, DELIBERATELY NOT SHARED WITH IT. That module is also loaded
+ * by the standalone Researcher app, so routing an editor screen through it would put every
+ * satellite's settings form on the critical path of an editor change. The cost is a field list that
+ * has to be kept in step BY HAND: when GROUPS changes in researcher-panel.js, mirror it in
+ * SETUP_GROUPS below. test/device-setup.test.mjs pins the overlap so the drift is loud.
+ *
+ * FOUR RULES SHAPE WHAT IS HERE (Seth, 2026-08-07):
+ *
+ * 1. SETUP ONLY. These settings configure how the app BEHAVES on this device. Anything about WHICH
+ *    TEXTS a worker handles — assignments, upload targets, corpus operations — is management, and
+ *    there is nobody managing a standalone device. None of it appears here.
+ *
+ * 2. UNPAIRED ONLY. A paired device is configured by its researcher (pushed, encrypted). A second
+ *    editable surface for the same values is a second source of truth, and the two would silently
+ *    disagree the moment either side changed. applyResearchVisibility() already hides the whole
+ *    Settings tab while Sync.hasSession(); renderDeviceSetup() ALSO refuses to build the form for a
+ *    paired device, so the rule survives any future route that reaches the tab another way.
+ *
+ * 3. UPLOAD CANNOT BE CHOSEN HERE. Uploading rides the researcher's Google account; a standalone
+ *    device has no OAuth to use, and openShareMenu() already hides the Upload button whenever
+ *    Sync.workerUploadTarget() is null. Offering the checkbox would be offering a lie.
+ *
+ * 4. ⚠ BUT IT IS NOT A DISABLED CHECKBOX. A control that cannot act must SAY what is missing, never
+ *    sit there greyed out looking broken (Seth's standing rule, from a real field report). So every
+ *    upload-dependent control is REPLACED by a sentence naming what is missing, with the action that
+ *    would supply it — the invite-paste pairing flow — attached to it.
+ *
+ * Panel fields deliberately NOT mirrored, and why:
+ *   appLang          — the topbar language selector is the live control; a second one is a no-op.
+ *   deleteAllEnabled — deleteAllAllowed() is already true on every unpaired device.
+ *   allowDelete      — allowDeleteOn() is already true on every unpaired device.
+ *   doneEnabled      — "Done" reports to a researcher and auto-uploads; neither exists here.
+ *   recordWelcome    — it is the heading on the RECORDER's welcome screen, which the editor never
+ *                      renders, so on this device it would configure nothing anyone can see.
+ */
 
-function fillWsForm() {
-  const f = $('#ws-form');
-  // Codes only — the name/font fields are gone (2026-07-13): names were display
-  // sugar and fonts device cosmetics; neither belongs in the FLEx export. Legacy
-  // stored values keep working where still read (welcome text, doc fonts).
-  for (const key of ['vernLang', 'analLang']) {
-    if (f.elements[key]) f.elements[key].value = settings[key] || '';
+const SETUP_AGC_OPTS = ['off', 'on', 'auto'];
+const SETUP_SEND_OPTS = ['share', 'upload', 'save', 'download'];
+/* Send options an UNPAIRED device cannot choose (rule 3). Named once because two places must agree:
+ * the renderer that replaces them with an explanation, and readDeviceSetup(), which carries the
+ * STORED value through untouched — an unofferable control is not a control set to "off". */
+const SETUP_PAIR_ONLY_SEND = ['upload'];
+/* The annotation exports whose UNSET value follows Audio Segmentation Mode (see buildBundleFor).
+ * They live in the same group as the mode switch here, so both get flipped in one save — which is
+ * exactly where "unset follows the mode" is easiest to break. */
+const SETUP_EXPORT_KEYS = ['exportEaf', 'exportSaymore', 'exportPreview', 'exportJson'];
+/* Bytes per second per recording format, for the max-length size readout. Mirrors CROWD_BPS in
+ * researcher-panel.js; approximate on purpose — it answers "will this fit on a phone?", not "how
+ * many bytes exactly". */
+const SETUP_BPS = { mp3: 8000, opus: 6000, webmpcm: 187500, wav16: 96000, wav24: 144000, wav32: 192000, flac24: 110000 };
+
+/* The setup groups, in tab order. Same ids, labels and option lists as the researcher panel's
+ * GROUPS, minus the fields listed in the header comment above. */
+const SETUP_GROUPS = [
+  { id: 'languages', legend: 'panel.legend.languages', note: 'research.note', fields: [
+    // Codes ONLY — the name/font fields went in 2026-07-13 (names were display sugar, fonts device
+    // cosmetics; neither belongs in the FLEx export). tip = the case-sensitivity warning.
+    { k: 'vernLang', type: 'text', ph: 'fau', tip: 'research.wsCase', note: 'research.wsCase' },
+    { k: 'analLang', type: 'text', ph: 'en', tip: 'research.wsCase' },
+  ] },
+  { id: 'recording', notice: 'pwaAudio', fields: [
+    { k: 'recordFormat', type: 'select', opts: Object.keys(REC_FORMATS), optPrefix: 'panel.opt.fmt.', help: 'recfmt' },
+    { k: 'maxRecordSeconds', type: 'range' },   // auto-stop cap (0 = no limit) + live size readout
+    { k: 'agc', type: 'select', opts: SETUP_AGC_OPTS, optPrefix: 'panel.opt.agc.', note: 'recformat.agcNote' },
+    { k: 'nr', type: 'checkbox' }, { k: 'echo', type: 'checkbox' }, { k: 'norm', type: 'checkbox' },
+    // One-tap archive-grade capture: 24-bit WAV with EVERY processing stage off (AGC/NR/echo/
+    // normalization are prohibited on preservation masters).
+    { k: 'archivalDefaults', type: 'action' },
+  ] },
+  { id: 'consent', legend: 'consent.legend', fields: [
+    // Consent is multi-select: any combination of prompts + confirmations, all required together.
+    { k: 'consentAsk', type: 'multicheck', opts: ['text', 'audio'], optPrefix: 'panel.opt.ask.' },
+    { k: 'consentMsg', type: 'textarea' },
+    { k: 'consentAudioUrl', type: 'text', note: 'panel.f.consentAudioNote' },
+    { k: 'consentConfirm', type: 'multicheck', opts: ['yesno', 'record', 'signature'], optPrefix: 'panel.opt.conf.', note: 'consent.note' },
+  ] },
+  { id: 'sending', legend: 'research.sendLegend', details: ['relay.summary', 'relay.note'], fields: [
+    // gateOpts: Upload is replaced by an explanation on an unpaired device (rules 3 + 4).
+    { k: 'sendOptions', type: 'multicheck', opts: SETUP_SEND_OPTS, optPrefix: 'panel.opt.send.', gateOpts: SETUP_PAIR_ONLY_SEND },
+    { k: 'autoDel', type: 'checkbox', note: 'research.autoDelNote' },
+    // needsPair: auto-backup IS an upload — autoBackupSweep() bails on !Sync.workerUploadTarget(),
+    // so on an unpaired device the switch could only ever be dead. Say so instead of offering it.
+    // Its companion autoBackupMins goes with it: an interval qualifying a switch that is not on
+    // offer qualifies nothing.
+    { k: 'autoBackup', type: 'checkbox', needsPair: true },
+  ] },
+  { id: 'buttons', fields: [
+    { k: 'buttons', type: 'multicheck', opts: ALL_BUTTONS, optPrefix: 'panel.opt.btn.' },
+    // Audio Segmentation Mode: the Baseline/Gloss tabs become time-aligned waveform strips.
+    // Default OFF — the classic textarea workflow is untouched unless deliberately enabled.
+    { k: 'segmentation', type: 'checkbox', note: 'panel.f.segmentationNote' },
+    // Which annotation exports ride the bundles. An UNSET value follows the mode, so
+    // deviceSetupValues prefills the EFFECTIVE value (see buildBundleFor) — a box reading "off" for
+    // an export the device actually writes would be a lie about what leaves this machine.
+    { k: 'exportEaf', type: 'checkbox' },
+    { k: 'exportSaymore', type: 'checkbox' },
+    { k: 'exportPreview', type: 'checkbox' },
+    // .fxpa: local saves only, never uploads (bandwidth).
+    { k: 'exportJson', type: 'checkbox', note: 'panel.f.exportsNote' },
+  ] },
+];
+
+const setupFmtDur = (secs) => { const m = Math.floor(secs / 60), s = secs % 60; return s ? `${m} min ${s} s` : `${m} min`; };
+const setupMb = (bytes) => { const mb = bytes / 1048576; return mb >= 10 ? String(Math.round(mb)) : mb.toFixed(1); };
+
+/* ⚠ NOT a disabled control (rule 4). The full explanation — what is missing, and the action that
+ * would supply it — is stated ONCE per group, because a group can hold several upload-dependent
+ * controls and repeating the same paragraph beside each one reads as noise, which is how a warning
+ * stops being read. `data-sact="pair"` opens the same invite-paste flow the Texts toolbar offers. */
+function setupPairWhyHtml() {
+  return `<p class="note setup-gate-why">${esc(t('setup.needsPair'))} `
+       + `<button type="button" class="link-btn" data-sact="pair">${esc(t('setup.needsPairAction'))}</button></p>`;
+}
+// ...and each affected control still says it for itself, short, right where the reader is looking.
+function setupPairMarkHtml() { return `<span class="setup-gate-mark">${esc(t('setup.needsPairShort'))}</span>`; }
+// Does this group hold anything the pair gate applies to? Decides whether it gets the explanation.
+function setupGroupGated(g) { return g.fields.some((f) => f.needsPair || (f.gateOpts && f.gateOpts.length)); }
+
+// One field → its markup. `data-sf` (not the panel's `data-f`) so the two forms can never select
+// into each other if the researcher panel is opened while the Settings tab is in the DOM.
+function setupFieldHtml(f) {
+  const label = esc(t('panel.f.' + f.k));
+  const tip = f.tip ? ` title="${esc(t(f.tip))}"` : '';
+  const note = f.note ? `<p class="note">${t(f.note)}</p>` : '';
+  if (f.needsPair) return `<div class="rp-field setup-gated"><span>${label}</span> ${setupPairMarkHtml()}</div>`;
+  if (f.type === 'checkbox') return `<label class="check-label"><input type="checkbox" data-sf="${f.k}"> ${label}</label>${note}`;
+  if (f.type === 'multicheck') {
+    const gated = f.gateOpts || [];
+    const boxes = f.opts.map((o) => gated.includes(o)
+      // The gated option keeps its PLACE in the row — it has not been removed, it is unavailable —
+      // but it is a <span>, not an input, so there is nothing to click and nothing to grey out.
+      ? `<span class="check-label rp-inline setup-optgate">${esc(t((f.optPrefix || '') + o))}</span>`
+      : `<label class="check-label rp-inline"><input type="checkbox" data-sf="${f.k}" data-v="${o}"> ${esc(t((f.optPrefix || '') + o))}</label>`).join('');
+    return `<div class="rp-field"><span>${label}</span><div class="rp-multi">${boxes}</div></div>${note}`;
   }
-  const cAsk = consentAskList();
-  f.elements.askText.checked = cAsk.includes('text');
-  f.elements.askAudio.checked = cAsk.includes('audio');
-  f.elements.consentMsg.value = settings.consentMsg || '';
-  f.elements.consentAudioUrl.value = settings.consentAudioUrl || '';
-  const cConf = consentConfirmList();
-  f.elements.confYesno.checked = cConf.includes('yesno');
-  f.elements.confRecord.checked = cConf.includes('record');
-  f.elements.confSign.checked = cConf.includes('signature');
-  f.elements.autoDel.checked = !!settings.autoDelUploaded;
-  updateConsentFields(f);
-}
-
-// Show the written-reminder message field when "written reminder" is checked, the audio field when
-// "spoken reminder" is checked (consent is multi-select; both can be on).
-function updateConsentFields(f) {
-  f.querySelector('.consent-text-field').hidden = !f.elements.askText.checked;
-  f.querySelector('.consent-audio-field').hidden = !f.elements.askAudio.checked;
-}
-
-// Read the whole Research form into `settings` and persist it. NO validation
-// gate (unlike the Save submit, which the browser blocks when a required field
-// is empty). Returns the raw upload / consent-audio inputs so callers can warn
-// on bad values. Used by Save AND by the copy-link buttons — so a generated
-// link always reflects the CURRENT form, not just whatever was last saved.
-function applyResearchFormToSettings(f) {
-  for (const key of ['vernLang', 'analLang']) {
-    settings[key] = f.elements[key].value.trim();
+  if (f.type === 'action') {
+    return `<div class="rp-field"><button type="button" class="secondary-btn" data-sact="${f.k}">${label}</button></div>`
+         + `<p class="note">${esc(t('panel.f.archivalNote'))}</p>`;
   }
-  const cAsk = [];
-  if (f.elements.askText.checked) cAsk.push('text');
-  if (f.elements.askAudio.checked) cAsk.push('audio');
-  settings.consentAsk = cAsk;
-  delete settings.consentMode;   // superseded by the consentAsk array
-  settings.consentMsg = f.elements.consentMsg.value.trim();
-  const cConf = [];
-  if (f.elements.confYesno.checked) cConf.push('yesno');
-  if (f.elements.confRecord.checked) cConf.push('record');
-  if (f.elements.confSign.checked) cConf.push('signature');
-  settings.consentConfirm = cConf;
-  delete settings.consentResp;   // superseded by the consentConfirm array
-  const rawConsentAudio = f.elements.consentAudioUrl.value.trim();
-  settings.consentAudioUrl = rawConsentAudio;
-  settings.consentAudio = resolveAudioInput(rawConsentAudio);
-  settings.autoDelUploaded = !!f.elements.autoDel.checked;
-  saveSettings(settings);
-  return { rawConsentAudio };
+  if (f.type === 'range') {
+    return `<label class="rp-field"><span>${label} — <span id="ds-maxrec-lbl"></span></span>`
+         + `<input type="range" data-sf="${f.k}" min="0" max="3600" step="10"></label><p class="note" id="ds-maxrec-est"></p>`;
+  }
+  if (f.type === 'select') {
+    const opts = f.opts.map((o) => `<option value="${esc(o)}">${esc(f.optPrefix ? t(f.optPrefix + o) : o)}</option>`).join('');
+    // The recording format is the one setting whose consequences are invisible here — whether the
+    // result can be called an archival master at all is not guessable from a name in a dropdown.
+    const help = f.help === 'recfmt'
+      ? `<p class="note"><button type="button" class="link-btn" data-sact="recfmtHelp">${esc(t('recfmt.helpLink'))}</button></p>` : '';
+    return `<label class="rp-field"><span>${label}</span><select data-sf="${f.k}">${opts}</select></label>${help}${note}`;
+  }
+  if (f.type === 'textarea') return `<label class="rp-field"><span>${label}</span><textarea data-sf="${f.k}" rows="2"></textarea></label>${note}`;
+  const ph = f.ph ? ` placeholder="${esc(f.ph)}"` : '';
+  return `<label class="rp-field"${tip}><span>${label}</span><input data-sf="${f.k}" spellcheck="false"${ph}${tip}></label>${note}`;
 }
 
-function setupResearch() {
-  const f = $('#ws-form');
-  f.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const { rawConsentAudio } = applyResearchFormToSettings(f);
-    if (rawConsentAudio && !settings.consentAudio) toast(t('task.badAudio'), 6000);
-    renderWsBanner();
+// The archive-quality warning heading the Recording group. A website-installed (PWA) device cannot
+// make archive-grade recordings, and it is the single most consequential thing someone can get
+// wrong here without ever being told.
+function setupNoticeHtml(kind) {
+  if (kind !== 'pwaAudio') return '';
+  return `<div class="rp-notice"><b>${esc(t('panel.notice.audioTitle'))}</b>${t('panel.notice.audioBody')}`
+       + `<p class="note">${esc(t('panel.notice.audioSoon'))}</p></div>`;
+}
+
+function setupGroupHtml(g) {
+  const notice = g.notice ? setupNoticeHtml(g.notice) : '';
+  const note = g.note ? `<p class="note">${t(g.note)}</p>` : '';
+  const details = g.details
+    ? `<details class="advanced"><summary>${esc(t(g.details[0]))}</summary><div class="note">${t(g.details[1])}</div></details>` : '';
+  const gate = setupGroupGated(g) ? setupPairWhyHtml() : '';
+  const fields = g.fields.map(setupFieldHtml).join('');
+  return `<div class="rp-group" id="ds-grp-${g.id}" role="tabpanel" aria-labelledby="ds-tab-${g.id}" data-group="${g.id}" hidden>`
+       + `${notice}${note}<fieldset class="rp-fieldset"><legend>${esc(t(g.legend || 'panel.grp.' + g.id))}</legend>${gate}${fields}${details}</fieldset></div>`;
+}
+
+// Stored settings → the form's canonical values.
+function deviceSetupValues() {
+  const s = settings || {};
+  const v = {};
+  for (const g of SETUP_GROUPS) for (const f of g.fields) {
+    if (f.type === 'action' || f.needsPair) continue;
+    // sendOptions / toolbarButtons: absent or empty means "all of them" to allowedSend() and
+    // allowedButtons(), so show all of them ticked rather than an empty row that reads as "none".
+    if (f.k === 'sendOptions') v.sendOptions = s.sendOptions?.length ? s.sendOptions : SETUP_SEND_OPTS.slice();
+    else if (f.k === 'buttons') v.buttons = Array.isArray(s.toolbarButtons) ? s.toolbarButtons : ALL_BUTTONS.slice();
+    else if (f.k === 'consentAsk') v.consentAsk = consentAskList();
+    else if (f.k === 'consentConfirm') v.consentConfirm = consentConfirmList();
+    else if (f.k === 'autoDel') v.autoDel = !!s.autoDelUploaded;                       // stored as autoDelUploaded
+    // Unset export toggles follow Audio Segmentation Mode — show the EFFECTIVE value.
+    else if (SETUP_EXPORT_KEYS.includes(f.k)) v[f.k] = s[f.k] ?? segmentationEnabled();
+    else if (f.k === 'recordFormat') v.recordFormat = recordFormatPref();
+    else if (f.k === 'agc') v.agc = SETUP_AGC_OPTS.includes(s.agc) ? s.agc : 'off';
+    else if (f.type === 'checkbox') v[f.k] = !!s[f.k];
+    else if (f.type === 'range') v[f.k] = parseInt(s[f.k], 10) || 0;
+    else if (f.type === 'select') v[f.k] = s[f.k] || f.opts[0];
+    else v[f.k] = s[f.k] || '';
+  }
+  return v;
+}
+
+function fillDeviceSetup() {
+  const box = $('#device-setup');
+  if (!box || !box.querySelector('[data-sf]')) return;   // not built (no Settings tab, or paired)
+  const v = deviceSetupValues();
+  box.querySelectorAll('[data-sf]').forEach((el) => {
+    const k = el.dataset.sf;
+    if (el.type === 'checkbox') el.checked = el.dataset.v ? (Array.isArray(v[k]) && v[k].includes(el.dataset.v)) : !!v[k];
+    else el.value = v[k] != null ? v[k] : '';
+  });
+  updateSetupConditionals(box);
+}
+
+// Collect the form keyed by field id. Shared by the save and the validation gate.
+function collectDeviceSetup(box) {
+  const raw = {};
+  box.querySelectorAll('[data-sf]').forEach((el) => {
+    const k = el.dataset.sf;
+    if (el.type === 'checkbox' && el.dataset.v) { (raw[k] = raw[k] || []); if (el.checked) raw[k].push(el.dataset.v); }
+    else if (el.type === 'checkbox') raw[k] = el.checked;
+    else raw[k] = (el.value || '').trim();
+  });
+  return raw;
+}
+
+/* Form → a settings patch. Only keys whose control is actually IN the form are written: a field
+ * this surface drops (auto-backup and its interval) must keep whatever is stored, never be reset to
+ * a default the user was never shown. */
+function readDeviceSetup(box) {
+  const raw = collectDeviceSetup(box);
+  const patch = {};
+  const has = (k) => !!box.querySelector(`[data-sf="${k}"]`);
+  // Keys whose stored name or type differs from the form field are written explicitly below.
+  const SPECIAL = ['sendOptions', 'buttons', 'autoDel', 'consentAudioUrl', 'maxRecordSeconds', 'recordFormat', 'agc',
+                   ...SETUP_EXPORT_KEYS];
+  for (const g of SETUP_GROUPS) for (const f of g.fields) {
+    if (f.type === 'action' || f.needsPair || SPECIAL.includes(f.k) || !has(f.k)) continue;
+    patch[f.k] = raw[f.k];
+  }
+  /* ⚠ Exports: store an override ONLY when it DIFFERS from what Audio Segmentation Mode implies,
+   * and store `undefined` (the save then deletes the key) when it matches again. Writing all four
+   * every time would pin them the moment anybody opened this page — so turning the mode on and
+   * saving in one go would silently write the exports OFF, and the .eaf files the mode promises
+   * would never appear with nothing anywhere to explain it. */
+  const segOn = !!raw.segmentation;
+  for (const k of SETUP_EXPORT_KEYS) if (has(k)) patch[k] = (!!raw[k] === segOn) ? undefined : !!raw[k];
+  patch.autoDelUploaded = !!raw.autoDel;                                  // the key the field client reads
+  patch.maxRecordSeconds = parseInt(raw.maxRecordSeconds, 10) || 0;       // 0 = no limit
+  patch.recordFormat = normRecFormat(raw.recordFormat);
+  patch.agc = SETUP_AGC_OPTS.includes(raw.agc) ? raw.agc : 'off';
+  patch.toolbarButtons = raw.buttons || [];
+  // Consent audio: store the raw link AND the resolved URL the device actually plays.
+  patch.consentAudioUrl = raw.consentAudioUrl || '';
+  patch.consentAudio = resolveAudioInput(patch.consentAudioUrl);
+  /* ⚠ The Upload option is not OFFERED here, so it must not be silently REMOVED either. Carry the
+   * stored value through — mirroring allowedSend()'s "absent or empty means all four" — or a device
+   * that is later paired would come up with uploading switched off and nothing to explain it. */
+  patch.sendOptions = raw.sendOptions || [];
+  const before = new Set(settings.sendOptions?.length ? settings.sendOptions : SETUP_SEND_OPTS);
+  for (const o of SETUP_PAIR_ONLY_SEND) if (before.has(o) && !patch.sendOptions.includes(o)) patch.sendOptions.push(o);
+  return patch;
+}
+
+/* Minimal-usable check: flag anything blank that would BREAK this device, so nobody can save a
+ * setup that cannot work. Required: both writing-system codes (the WS is built only when vernLang
+ * is set, and analLang silently falls back to 'en' — wrong for non-English work); the consent audio
+ * link IF a spoken reminder is asked for; the consent message IF a written one is. Everything else
+ * has a safe default. Returns [{ group, field, msg }] — empty means OK. */
+function validateDeviceSetup(raw) {
+  const blank = (v) => !v || !String(v).trim();
+  const out = [];
+  if (blank(raw.vernLang)) out.push({ group: 'languages', field: 'vernLang', msg: t('panel.val.vernLang') });
+  if (blank(raw.analLang)) out.push({ group: 'languages', field: 'analLang', msg: t('panel.val.analLang') });
+  const ask = Array.isArray(raw.consentAsk) ? raw.consentAsk : [];
+  if (ask.includes('audio') && blank(raw.consentAudioUrl)) out.push({ group: 'consent', field: 'consentAudioUrl', msg: t('panel.val.consentAudio') });
+  if (ask.includes('text') && blank(raw.consentMsg)) out.push({ group: 'consent', field: 'consentMsg', msg: t('panel.val.consentMsg') });
+  return out;
+}
+
+// Paint validation errors where they cannot be missed: a banner listing every blocked field WITH
+// its tab (each entry jumps there), a red dot on each offending tab, an inline "why" on the field,
+// and focus on the first. Cleared and recomputed on every save attempt. Same shape — and the same
+// CSS — as the researcher panel's flagProblems, so an error looks the same in both places.
+function flagSetupProblems(box, problems, showGroup) {
+  box.querySelectorAll('.rp-invalid').forEach((el) => el.classList.remove('rp-invalid'));
+  box.querySelectorAll('.rp-fielderr').forEach((el) => el.remove());
+  box.querySelectorAll('.rp-tab.rp-tab-err').forEach((el) => el.classList.remove('rp-tab-err'));
+  const old = box.querySelector('.rp-valbanner'); if (old) old.remove();
+  if (!problems.length) return;
+
+  const labelFor = (p) => t('panel.val.fieldAtTab', { field: t('panel.f.' + p.field), tab: t('panel.grp.' + p.group) });
+  for (const p of problems) {
+    const el = box.querySelector(`[data-sf="${p.field}"]`);
+    if (el) {
+      const wrap = el.closest('.rp-field, .check-label') || el;
+      wrap.classList.add('rp-invalid');
+      const err = document.createElement('div');
+      err.className = 'rp-fielderr';
+      err.textContent = p.msg;
+      wrap.appendChild(err);
+    }
+    const tab = box.querySelector(`.rp-tab[data-tab="${p.group}"]`);
+    if (tab) tab.classList.add('rp-tab-err');   // errors on other tabs stay visible too
+  }
+  const banner = document.createElement('div');
+  banner.className = 'rp-valbanner';
+  banner.innerHTML = `<strong>${esc(t('panel.val.bannerTitle'))}</strong><ul>${problems.map((p) =>
+    `<li><button type="button" class="rp-valjump" data-grp="${esc(p.group)}" data-fld="${esc(p.field)}">${esc(labelFor(p))}</button></li>`).join('')}</ul>`;
+  const tabs = box.querySelector('.rp-tabs');
+  if (tabs && tabs.parentNode) tabs.parentNode.insertBefore(banner, tabs); else box.prepend(banner);
+  banner.querySelectorAll('.rp-valjump').forEach((btn) => btn.addEventListener('click', () => {
+    showGroup(btn.dataset.grp);
+    const f = box.querySelector(`[data-sf="${btn.dataset.fld}"]`);
+    if (f) { try { f.focus(); } catch { /* noop */ } }
+  }));
+  showGroup(problems[0].group);
+  const first = box.querySelector(`[data-sf="${problems[0].field}"]`);
+  if (first) { try { first.focus(); } catch { /* noop */ } }
+  const firstLabel = labelFor(problems[0]);
+  toast(problems.length === 1
+    ? t('panel.val.summaryOne', { field: firstLabel })
+    : t('panel.val.summaryMany', { field: firstLabel, more: problems.length - 1 }), 6000);
+}
+
+/* Audio Segmentation Mode was just toggled. Move the export boxes that are STILL FOLLOWING it
+ * (no stored value of their own) so the form shows what the device would actually write. An export
+ * the user has deliberately set is an override and is left exactly where they put it. */
+function syncSetupExports(box) {
+  const seg = box.querySelector('[data-sf="segmentation"]');
+  if (!seg) return;
+  for (const k of SETUP_EXPORT_KEYS) {
+    if (settings[k] !== undefined) continue;
+    const el = box.querySelector(`[data-sf="${k}"]`);
+    if (el) el.checked = seg.checked;
+  }
+}
+
+// Live bits that depend on other fields: the consent message / audio rows only matter when their
+// reminder is actually asked for, and the max-length readout tracks both the slider and the format.
+function updateSetupConditionals(box) {
+  const checked = (k, v) => !!box.querySelector(`[data-sf="${k}"][data-v="${v}"]:checked`);
+  // Hide the field AND the note that explains it — the note is a sibling AFTER the label, so
+  // hiding the label alone leaves an orphan sentence about a field nobody can see.
+  const setRow = (k, on) => {
+    const el = box.querySelector(`[data-sf="${k}"]`);
+    const r = el && el.closest('.rp-field');
+    if (!r) return;
+    r.hidden = !on;
+    const n = r.nextElementSibling;
+    if (n && n.classList.contains('note')) n.hidden = !on;
+  };
+  setRow('consentMsg', checked('consentAsk', 'text'));
+  setRow('consentAudioUrl', checked('consentAsk', 'audio'));
+  const slider = box.querySelector('[data-sf="maxRecordSeconds"]');
+  const lbl = box.querySelector('#ds-maxrec-lbl'), est = box.querySelector('#ds-maxrec-est');
+  if (slider && lbl && est) {
+    const secs = parseInt(slider.value, 10) || 0;
+    const fmtSel = box.querySelector('[data-sf="recordFormat"]');
+    const bps = SETUP_BPS[fmtSel ? fmtSel.value : DEFAULT_REC_FORMAT] || SETUP_BPS[DEFAULT_REC_FORMAT];
+    lbl.textContent = secs ? setupFmtDur(secs) : t('panel.f.maxRecUnlimited');
+    est.textContent = secs ? t('panel.crowd.estimate', { mb: setupMb(bps * secs) })
+                           : t('panel.f.perMinEstimate', { mb: setupMb(bps * 60) });
+  }
+}
+
+/* Build the Settings tab's form. Called on every entry to the tab (and after a live settings
+ * change), so the language, the stored values and the pairing state are always current.
+ *
+ * ⚠ RULE 2 IS ENFORCED HERE, not only by the tab's visibility: a paired device gets NO editable
+ * surface, because its settings come from its researcher and a second one would disagree. */
+function renderDeviceSetup() {
+  const box = $('#device-setup');
+  if (!box) return;                                   // satellite shells have no Settings tab
+  if (Sync.hasSession()) { box.replaceChildren(); box.innerHTML = `<p class="note">${esc(t('setup.managed'))}</p>`; return; }
+
+  /* ⚠ The listeners below are delegated to `form`, a FRESH element on every render, and installed
+   * by replacing #device-setup's children. Attaching them to #device-setup itself would stack a new
+   * set on every entry to the Settings tab — that element survives a re-render, so one Save click
+   * would eventually save N times. Discarding the wrapper discards its listeners with it. */
+  const form = document.createElement('div');
+  form.innerHTML = `
+    <div class="rp-tabs" role="tablist">${SETUP_GROUPS.map((g, i) =>
+      `<button type="button" class="rp-tab${i === 0 ? ' on' : ''}" role="tab" id="ds-tab-${g.id}" aria-controls="ds-grp-${g.id}" aria-selected="${i === 0}" data-tab="${g.id}">${esc(t('panel.grp.' + g.id))}</button>`).join('')}</div>
+    <div class="rp-groups">${SETUP_GROUPS.map(setupGroupHtml).join('')}</div>
+    <p class="note rp-enc">${esc(t('setup.localNote'))}</p>
+    <div class="toolbar"><button type="button" class="primary-btn" data-sact="save">${esc(t('research.save'))}</button></div>`;
+  box.replaceChildren(form);
+
+  const groups = form.querySelectorAll('.rp-group');
+  const showGroup = (id) => {
+    groups.forEach((g) => { g.hidden = g.dataset.group !== id; });
+    form.querySelectorAll('.rp-tab').forEach((b) => {
+      const on = b.dataset.tab === id;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-selected', String(on));
+    });
+  };
+  form.querySelectorAll('.rp-tab').forEach((b) => b.addEventListener('click', () => showGroup(b.dataset.tab)));
+  showGroup(SETUP_GROUPS[0].id);
+
+  form.addEventListener('change', (e) => {
+    // Only when the MODE switch itself moves: re-deriving on every change would undo an export the
+    // user had just clicked off.
+    if (e.target && e.target.dataset && e.target.dataset.sf === 'segmentation') syncSetupExports(form);
+    updateSetupConditionals(form);
+  });
+  form.addEventListener('input', (e) => { if (e.target.type === 'range') updateSetupConditionals(form); });
+  form.addEventListener('click', (e) => {
+    const act = e.target.closest('[data-sact]');
+    if (!act) return;
+    const which = act.dataset.sact;
+    // Rule 4's action: the same invite-paste flow the Texts toolbar offers, reached FROM the
+    // explanation of what is missing rather than from somewhere the reader has to go and find.
+    if (which === 'pair') { showInvitePasteModal(); return; }
+    if (which === 'recfmtHelp') { const m = $('#recformat-help-modal'); if (m) m.hidden = false; return; }
+    if (which === 'archivalDefaults') {
+      const set = (k, v) => { const el = form.querySelector(`[data-sf="${k}"]`); if (el) el.value = v; };
+      set('recordFormat', 'wav24');
+      set('agc', 'off');
+      for (const k of ['nr', 'echo', 'norm']) { const el = form.querySelector(`[data-sf="${k}"]`); if (el) el.checked = false; }
+      updateSetupConditionals(form);
+      toast(t('panel.f.archivalSet'), 4000);
+      return;
+    }
+    if (which !== 'save') return;
+    const problems = validateDeviceSetup(collectDeviceSetup(form));
+    if (problems.length) { flagSetupProblems(form, problems, showGroup); return; }
+    flagSetupProblems(form, [], showGroup);      // clear leftover markers from an earlier attempt
+    const patch = readDeviceSetup(form);
+    Object.assign(settings, patch);
+    // An undefined in the patch means "go back to having no stored value" (the export toggles that
+    // are following the mode). Object.assign would leave the key present-but-undefined, which is
+    // NOT the same thing to `??` once it has been through JSON.
+    for (const k of Object.keys(patch)) if (patch[k] === undefined) delete settings[k];
+    delete settings.consentMode;                 // superseded by the consentAsk array
+    delete settings.consentResp;                 // superseded by the consentConfirm array
+    saveSettings(settings);
+    settings = loadSettings();
+    if (patch.consentAudioUrl && !patch.consentAudio) toast(t('task.badAudio'), 6000);
+    // Everything the changed settings drive, repainted in place: toolbar button visibility, the
+    // writing-system banner, the doc list, and a live segmentation flip if a text is open.
+    applyLiveSettings();
     syncConsentAudio();
     toast(t('toast.settingsSaved'));
   });
 
-  ['askText', 'askAudio'].forEach((n) => $('#ws-form').elements[n].addEventListener('change', () => updateConsentFields($('#ws-form'))));
+  fillDeviceSetup();
+}
 
-  // Lock down the coworker's interface in person: hide the Research tab on THIS
-  // device. The confirm spells out the touch-friendly recovery so nobody gets
-  // stranded on a phone with no keyboard.
+function setupResearch() {
+  // Lock down the coworker's interface in person: hide the Settings tab on THIS device. The confirm
+  // spells out the touch-friendly recovery so nobody gets stranded on a phone with no keyboard.
   $('#btn-hide-research').addEventListener('click', () => {
     if (!confirm(t('research.hideHereConfirm'))) return;
     localStorage.setItem(RESEARCH_HIDDEN_KEY, '1');
@@ -3958,41 +4342,13 @@ function setupResearch() {
     toast(t('research.disabled'));
   });
 
-  // Recording format (archival capture) — default 32-bit WAV. Travels with links;
-  // the recorder app reads it from the link (applyUrlSettings), not this control.
-  const rfSel = $('#recformat-select');
-  if (rfSel) {
-    rfSel.value = recordFormatPref();
-    rfSel.addEventListener('change', () => {
-      settings.recordFormat = normRecFormat(rfSel.value);
-      saveSettings(settings);
-    });
-  }
-  // Recording-format help modal (researcher-facing archival guidance).
+  // Recording-format help modal (researcher-facing archival guidance), opened from the Recording
+  // group's "which format should I choose?" link.
   const rfHelpModal = $('#recformat-help-modal');
   if (rfHelpModal) {
-    $('#recformat-help')?.addEventListener('click', () => { rfHelpModal.hidden = false; });
     $('#recformat-help-close')?.addEventListener('click', () => { rfHelpModal.hidden = true; });
     rfHelpModal.addEventListener('click', (e) => { if (e.target === rfHelpModal) rfHelpModal.hidden = true; });
   }
-  // AGC mode select — 'off' (faithful) by default; travels with
-  // links as its own param so the right clip-protection default follows the device.
-  const agcSel = $('#agc-mode');
-  if (agcSel) {
-    agcSel.value = ['on', 'off', 'auto'].includes(settings.agc) ? settings.agc : 'off';
-    agcSel.addEventListener('change', () => {
-      settings.agc = ['on', 'off', 'auto'].includes(agcSel.value) ? agcSel.value : 'off';
-      saveSettings(settings);
-    });
-  }
-  // Optional microphone-processing toggles — all off by default, each flagged
-  // not-for-archiving. Travel with links.
-  [['#dsp-nr', 'nr'], ['#dsp-echo', 'echo'], ['#dsp-norm', 'norm']].forEach(([sel, key]) => {
-    const cb = $(sel);
-    if (!cb) return;
-    cb.checked = !!settings[key];
-    cb.addEventListener('change', () => { settings[key] = cb.checked; saveSettings(settings); });
-  });
 
   // Audio converter (any recording → small task-ready MP3) — the send-to-assistant
   // distribution format, separate from the recording (capture) format above.
@@ -5207,6 +5563,9 @@ function setup() {
       if (RECORD_MODE) { renderRecordView(); renderRecordList(); return; }
       applyHelpResearchVisibility();
       renderDocList();
+      // The Settings tab's labels are baked by t() at build time, not by data-i18n attributes, so
+      // applyI18n() cannot reach them — rebuild it or it stays in the previous language.
+      renderDeviceSetup();
       if (!$('#view-gloss').hidden) renderGloss();
     });
   }
@@ -5244,7 +5603,7 @@ function setup() {
 
   // ----- Full editor wiring -----
   $$('#topbar-home .top-tab').forEach(b => b.addEventListener('click', () => {
-    if (b.dataset.view === 'research') { fillWsForm(); show('research'); }
+    if (b.dataset.view === 'research') { renderDeviceSetup(); show('research'); }
     else { renderDocList(); show('texts'); }
   }));
   $$('#topbar-editor .top-tab').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
@@ -5334,11 +5693,14 @@ function setup() {
     goHome: () => { renderDocList(); show('texts'); },
     eraseAllData: () => eraseAllData(),
     onSignedUp: () => { const b = $('#btn-researcher'); if (b) b.hidden = !researcherPanelApi.isSignedUp(); },
+    // A signed-up researcher saving THEIR OWN device's settings from the panel. It writes the same
+    // stored keys the Settings tab edits, so the tab must be repainted or the two surfaces would
+    // show different values for the same setting until a reload.
     onLocalSettingsSaved: () => {
       settings = loadSettings();
       applyResearchVisibility();
       applyAllowedButtons();
-      fillWsForm();
+      fillDeviceSetup();
       renderDocList();
     },
   });

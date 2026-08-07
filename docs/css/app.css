@@ -1234,6 +1234,24 @@ main {
 .rp-fieldset { position: relative; }
 .rp-group > .rp-field { margin-bottom: 28px; }   /* breathing room between an outside field (App language) and the codes box */
 .rp-legend-help { position: absolute; top: 0; right: 12px; transform: translateY(-55%); background: #fff; padding: 0 6px; font-size: 13px; white-space: nowrap; }
+/* ---------------- Settings tab = device setup ----------------
+   The form reuses the researcher panel's .rp-* field styling so the same settings look the same in
+   both places. Only the two things the panel has no equivalent for are defined here.
+
+   ⚠ NEITHER OF THESE IS A DISABLED CONTROL. On an unpaired device the upload settings cannot act,
+   and Seth's standing rule (from a field report about a greyed-out button nobody could explain) is
+   that such a control must SAY what is missing rather than sit there looking broken. So the option
+   keeps its place in the row as plain text — visibly present, visibly not a checkbox — and the
+   sentence underneath names what is missing and offers the action that would supply it. Do NOT
+   "restore" these to inputs with [disabled]; that is the bug, not the tidy-up. */
+.device-setup { margin-bottom: 18px; }
+.device-setup .rp-groups { overflow: visible; }        /* full page, not a height-capped modal card */
+.setup-optgate { color: var(--muted); font-style: italic; cursor: default; }
+.setup-gate-mark { color: var(--muted); font-style: italic; font-weight: 400; font-size: 13px; }
+.setup-gate-why { border-left: 3px solid var(--border); padding-left: 10px; margin: 6px 0 0; }
+.setup-gate-why .link-btn { padding: 0 2px; font-size: inherit; }
+.setup-gated > span { font-weight: 500; }
+
 .invite-paste-box { width: 100%; box-sizing: border-box; font-size: 14px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; }
 
 /* "Recorded with: a USB microphone" under the review player. Informational by default; only turns

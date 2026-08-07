@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v285';
+export const ENGINE_VERSION = 'v286';
 
 const S = {
 en: {
@@ -231,6 +231,15 @@ en: {
   'research.wsCase': 'Case-sensitive: must match the FLEx Code exactly — fau and FAU are different codes.',
   'research.name': 'Name',
   'research.font': 'Font',
+  /* ---- Settings tab = device setup (unpaired devices) ---- */
+  'setup.h1': 'Set up this device',
+  'setup.intro': 'Everything that decides how this app behaves here: writing systems, recording, speaker permission, which buttons appear, and what a finished text is saved as. Nothing on this page is sent anywhere \u2014 it stays on this device.',
+  'setup.localNote': 'Saved on this device only.',
+  'setup.managed': 'This device is set up by the researcher it is linked to, so these settings are not edited here \u2014 they arrive from them.',
+  // Rule 4: a control that cannot act SAYS what is missing. Never phrase these as a refusal.
+  'setup.needsPair': 'Uploading goes through a researcher\u2019s Google Drive, and this device is not linked to a researcher \u2014 so there is no Drive account to upload to. Everything else on this page works without one.',
+  'setup.needsPairAction': 'Link this device with an invite\u2026',
+  'setup.needsPairShort': 'needs a linked researcher',
   'research.save': 'Save settings',
   'research.copyLink': 'Copy setup link for coworker',
   'research.checkerH': 'Writing system checker',
@@ -1600,6 +1609,14 @@ id: {
   'research.wsCase': 'Peka huruf besar/kecil: harus sama persis dengan Code di FLEx — fau dan FAU adalah kode yang berbeda.',
   'research.name': 'Nama',
   'research.font': 'Fon (huruf)',
+  /* ---- Tab Pengaturan = penyiapan perangkat (perangkat tanpa tautan) ---- */
+  'setup.h1': 'Siapkan perangkat ini',
+  'setup.intro': 'Semua yang menentukan cara aplikasi ini bekerja di sini: sistem tulisan, perekaman, izin penutur, tombol yang tampak, dan bentuk teks yang sudah selesai saat disimpan. Tidak ada di halaman ini yang dikirim ke mana pun \u2014 semuanya tetap di perangkat ini.',
+  'setup.localNote': 'Disimpan di perangkat ini saja.',
+  'setup.managed': 'Perangkat ini disiapkan oleh peneliti yang menautkannya, jadi pengaturan ini tidak diubah di sini \u2014 pengaturannya datang dari mereka.',
+  'setup.needsPair': 'Unggahan berjalan lewat Google Drive milik peneliti, dan perangkat ini belum tertaut ke peneliti mana pun \u2014 jadi tidak ada akun Drive tujuan unggahan. Semua hal lain di halaman ini tetap berfungsi tanpa itu.',
+  'setup.needsPairAction': 'Tautkan perangkat ini dengan undangan\u2026',
+  'setup.needsPairShort': 'perlu peneliti yang tertaut',
   'research.save': 'Simpan pengaturan',
   'research.copyLink': 'Salin tautan pengaturan untuk rekan kerja',
   'research.checkerH': 'Pemeriksa sistem tulisan',

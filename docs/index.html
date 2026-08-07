@@ -130,86 +130,21 @@
   <p id="gloss-empty" class="empty-note" data-i18n-html="gloss.empty" hidden></p>
 </section>
 
-<!-- ===== Settings tab ===== -->
+<!-- ===== Settings tab — DEVICE SETUP =====
+     The five setup groups a researcher would otherwise push to a managed device, exposed here so
+     someone can set up a STANDALONE app for their own use with no researcher account and no
+     pairing. Built by js/app.js (renderDeviceSetup) from SETUP_GROUPS — see the long header comment
+     there for what is deliberately NOT here and why. Modelled on the researcher panel's per-device
+     settings form, but implemented in app.js: js/researcher-panel.js is also loaded by the
+     standalone Researcher app, so an editor screen must not reach into it. -->
 <section id="view-research" class="view" hidden>
-  <h2 data-i18n="research.h1">Language &amp; writing system setup</h2>
-  <p class="note" data-i18n-html="research.note"></p>
+  <h2 data-i18n="setup.h1">Set up this device</h2>
+  <p class="note" data-i18n-html="setup.intro"></p>
 
-  <form id="ws-form" class="ws-form">
-    <fieldset>
-      <legend data-i18n="research.vernLegend">Vernacular (text language)</legend>
-      <label><span data-i18n="research.code" data-i18n-title="research.wsCase">Code</span> <input name="vernLang" placeholder="fau" required spellcheck="false" data-i18n-title="research.wsCase"></label>
-      <p class="note" data-i18n="research.wsCase">Case-sensitive: must match the FLEx Code exactly — fau and FAU are different codes.</p>
-    </fieldset>
-    <fieldset>
-      <legend data-i18n="research.analLegend">Analysis (gloss / translation language)</legend>
-      <label><span data-i18n="research.code" data-i18n-title="research.wsCase">Code</span> <input name="analLang" placeholder="en" required spellcheck="false" data-i18n-title="research.wsCase"></label>
-    </fieldset>
-    <fieldset>
-      <legend data-i18n="research.sendLegend">Saving &amp; sending on THIS device</legend>
-      <p class="note" data-i18n="research.sendNote">These choose where this device uploads its texts and whether it deletes them after upload.</p>
-      <label class="check-label wide"><input type="checkbox" name="autoDel"> <span data-i18n="research.autoDel">Delete each text from the device after it uploads to Drive</span></label>
-      <p class="note" data-i18n="research.autoDelNote">Best for collecting recordings on a phone — frees storage and keeps the list to what still needs sending. Leave OFF if coworkers edit texts over several sessions. (The Flextext Recorder app deletes after upload by default.)</p>
-      <details class="advanced">
-        <summary data-i18n="relay.summary">Advanced: audio files larger than ~500 MB</summary>
-        <div class="note" data-i18n-html="relay.note"></div>
-      </details>
-    </fieldset>
-    <fieldset>
-      <legend data-i18n="consent.legend">Speaker permission before recording</legend>
-      <p class="note" data-i18n="consent.askLabel">When the coworker records a new text, show… (check any — every checked one is shown)</p>
-      <label class="check-label"><input type="checkbox" name="askText"> <span data-i18n="consent.modeText">Show a written reminder</span></label>
-      <label class="wide consent-text-field"><span data-i18n="consent.msg">Written reminder shown to the coworker</span>
-        <textarea name="consentMsg" rows="2" placeholder="e.g. Have you asked the speaker if we may record and share their words?"></textarea></label>
-      <label class="check-label"><input type="checkbox" name="askAudio"> <span data-i18n="consent.modeAudio">Play a spoken reminder (audio)</span></label>
-      <label class="wide consent-audio-field"><span data-i18n="consent.audioUrl">Spoken reminder audio (Drive share link or direct MP3 URL)</span>
-        <input name="consentAudioUrl" spellcheck="false" placeholder="https://drive.google.com/file/d/…"></label>
-      <p class="note" data-i18n="consent.confirmLabel">How the coworker confirms — check any. EVERY checked one is required (they operate together).</p>
-      <label class="check-label"><input type="checkbox" name="confYesno"> <span data-i18n="consent.respYesNo">Tap Yes / No</span></label>
-      <label class="check-label"><input type="checkbox" name="confRecord"> <span data-i18n="consent.respRecord">Record the speaker saying yes (kept in the bundle)</span></label>
-      <label class="check-label"><input type="checkbox" name="confSign"> <span data-i18n="consent.respSignature">Type the speaker's name as a signature</span></label>
-      <p class="note" data-i18n="consent.note">This reminder appears on the coworker's device before each new recording. A recorded "yes" is saved alongside the text (in the zip), never inside the transcription audio.</p>
-    </fieldset>
-    <div class="toolbar">
-      <button type="submit" class="primary-btn" data-i18n="research.save">Save settings</button>
-    </div>
-    <button type="button" id="btn-hide-research" class="secondary-btn" data-i18n="research.hideHere">Hide the Settings tab on THIS device now</button>
-    <p class="note" data-i18n="research.hideHereNote">Use this when you set up a coworker's own phone in person. To bring the Settings tab back: tap the ? (Help) button 7 times (or press Ctrl+Alt+R on a keyboard).</p>
-  </form>
+  <div id="device-setup" class="device-setup"></div>
 
-  <hr>
-
-  <h2 data-i18n="recformat.h">Recording format</h2>
-  <p class="note" data-i18n-html="recformat.note"></p>
-  <form id="recformat-form" class="ws-form">
-    <fieldset>
-      <label><span data-i18n="recformat.label">Format for new recordings</span>
-        <select name="recFormat" id="recformat-select">
-          <option value="wav24" data-i18n="recformat.wav24">WAV · 24-bit (recommended)</option>
-          <option value="wav16" data-i18n="recformat.wav16">WAV · 16-bit (smaller)</option>
-          <option value="wav32" data-i18n="recformat.wav32">WAV · 32-bit float (expert — pro hardware)</option>
-          <option value="flac24" data-i18n="recformat.flac24">FLAC · 24-bit (lossless, smaller — for limited bandwidth)</option>
-          <option value="webmpcm" data-i18n="recformat.webmpcm">WebM · 32-bit PCM (lossless; best for long recordings)</option>
-          <option value="opus" data-i18n="recformat.opus">WebM · Opus (compressed — smaller &amp; better than MP3)</option>
-          <option value="mp3" data-i18n="recformat.mp3">MP3 (compressed — not for archiving)</option>
-        </select></label>
-    </fieldset>
-    <p class="note"><button type="button" id="recformat-help" class="link-btn" data-i18n="recfmt.helpLink">Which format should I choose?</button></p>
-    <label><span data-i18n="recformat.agcLabel">Automatic gain control (AGC)</span>
-      <select id="agc-mode">
-        <option value="off" data-i18n="recformat.agcOff">Off — faithful capture; watch the meter (best for archival)</option>
-        <option value="on" data-i18n="recformat.agcOn">On — auto-gain prevents clipping (if archival quality isn't needed)</option>
-        <option value="auto" data-i18n="recformat.agcAuto">Automatic — on for Chrome/Edge, off for Firefox</option>
-      </select></label>
-    <p class="note" data-i18n-html="recformat.agcNote"></p>
-    <fieldset class="dsp-options">
-      <legend data-i18n="recformat.dspLegend">Microphone processing (off by default)</legend>
-      <p class="note" data-i18n-html="recformat.dspNote"></p>
-      <label class="check-label"><input type="checkbox" id="dsp-nr"> <span data-i18n-html="recformat.dspNr"></span></label>
-      <label class="check-label"><input type="checkbox" id="dsp-echo"> <span data-i18n-html="recformat.dspEcho"></span></label>
-      <label class="check-label"><input type="checkbox" id="dsp-norm"> <span data-i18n-html="recformat.dspNorm"></span></label>
-    </fieldset>
-  </form>
+  <button type="button" id="btn-hide-research" class="secondary-btn" data-i18n="research.hideHere">Hide the Settings tab on THIS device now</button>
+  <p class="note" data-i18n="research.hideHereNote">Use this when you set up a coworker's own phone in person. To bring the Settings tab back: tap the ? (Help) button 7 times (or press Ctrl+Alt+R on a keyboard).</p>
 
   <hr>
 

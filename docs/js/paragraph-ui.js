@@ -829,6 +829,10 @@ function setChart(on) {
   const btn = $('#pa-chart');
   if (btn) { btn.textContent = t(chartOn ? 'para.chartHide' : 'para.chartShow');
              btn.title = btn.ariaLabel = t(chartOn ? 'para.chartHideTip' : 'para.chartTip'); }
+  // The menu item says the same thing in words; the toolbar button is the icon alone.
+  const mi = $('#pa-chart-menu');
+  if (mi) { mi.textContent = t(chartOn ? 'para.chartHideMenu' : 'para.chartShowMenu');
+            mi.title = t(chartOn ? 'para.chartHideTip' : 'para.chartTip'); }
   const tree = $('#pa-tree');
   if (tree) tree.classList.toggle('charting', chartOn);
   let host = $('#pa-chartview');
@@ -1272,8 +1276,16 @@ function renderWorkInner() {
               </select></label>
             -->
             <hr>
+            <!-- ⚠ TWO ITEMS, NOT ONE TOGGLE (Seth, 2026-08-07). Merging them was wrong: the toggle
+                 chose its direction from "is everything collapsed?", so a MIXED document — some
+                 groups open, some shut, which is the normal state — could only ever offer Collapse
+                 all. Expand all was unreachable without collapsing everything first. Both actions
+                 are always legitimate, because both also scope to a selected group. -->
             <button class="pa-menuitem" id="pa-collapse-all">${esc(t('para.collapseAll'))}</button>
-            <button class="pa-menuitem" id="pa-chart-menu">${esc(t('para.chartTip'))}</button>
+            <button class="pa-menuitem" id="pa-expand-all">${esc(t('para.expandAll'))}</button>
+            <!-- ⚠ The title is set HERE as well as in setChart: setChart only runs when the view is
+                 toggled, so on first render the item had a label and no explanation at all. -->
+            <button class="pa-menuitem" id="pa-chart-menu" title="${esc(t('para.chartTip'))}">${esc(t('para.chartShowMenu'))}</button>
             <hr>
             <div class="pa-menufield pa-zoom" title="${esc(t('para.zoomTip'))}">
               <span>${esc(t('para.zoomLabel'))}</span>
@@ -1427,7 +1439,8 @@ function renderWorkInner() {
   applyZoom(zoomPct);   // survive a re-render: the tree element is rebuilt each time
   $('#pa-redo').addEventListener('click', () => (future.length ? doRedo() : alert(t('para.redoNone'))));
   refreshUndoButtons();
-  $('#pa-collapse-all').addEventListener('click', () => collapseAllAction(!allCollapsed()));
+  $('#pa-collapse-all').addEventListener('click', () => { closeMenus(); collapseAllAction(true); });
+  $('#pa-expand-all').addEventListener('click', () => { closeMenus(); collapseAllAction(false); });
   wireKeys();
   wireContextMenu();
   if (showAudio) {
@@ -2232,33 +2245,7 @@ function groupTitle(g) {
  * click, logs nothing, and shows nothing — and because selection is ADDITIVE, a few exploratory
  * clicks silently put the app in that state. Now every button is clickable and SAYS what to
  * select instead, and the toolbar reports what is selected so it is clear what will be acted on. */
-/* Everything in scope already collapsed? Decides which way the single collapse/expand toggle points.
- * Scope follows the selection, the same rule collapseAllAction uses, so the label cannot promise one
- * thing and the action do another. A document with no groups counts as NOT all-collapsed, so the
- * button offers Collapse all and says why nothing happened rather than silently flipping to Expand. */
-function allCollapsed() {
-  /* ⚠ SAME SCOPE RULE AS collapseAllAction — selected group headings if any, otherwise the whole
-   * document, walking descendants either way. Restating the rule differently here is exactly how a
-   * label starts promising one thing while the action does another. */
-  const roots = [...selection].filter((id) => isGroupId(id));
-  const known = new Set(state.tree.map((g) => g.id));
-  let target;
-  if (!roots.length) {
-    target = [...known];
-  } else {
-    const seen = new Set();
-    const walk = (id) => {
-      if (!isGroupId(id) || seen.has(id) || !known.has(id)) return;
-      seen.add(id);
-      const g = state.tree.find((x) => x.id === id);
-      for (const c of (g ? g.children : [])) walk(c);
-    };
-    for (const id of roots) walk(id);
-    target = [...seen];
-  }
-  const set = new Set((state.view && state.view.collapsed) || []);
-  return target.length > 0 && target.every((id) => set.has(id));
-}
+
 
 function refreshActionButtons() {
   const ids = [...selection];
@@ -2273,30 +2260,15 @@ function refreshActionButtons() {
     : ids.length >= 2 ? t('para.groupTip') : t('para.needTwoTip')) + accel('G');
   // The scope of collapse/expand follows the selection, so the tooltip must say WHICH it will be.
   const scoped = g ? groupTitle(g) : null;
-  const cb = $('#pa-collapse-all');
-  const willCollapse = !allCollapsed();
-  cb.textContent = t(willCollapse ? 'para.collapseAll' : 'para.expandAll');
-  /* ⚠ THE TOOLTIP SAYS COLLAPSING SHAPES THE CHART. Collapsing is the summarising mechanism — a
-   * collapsed group is one node in the exported diagram — and nothing on screen said so, so the
-   * feature was discoverable only by reading the docs. */
-  cb.title = (willCollapse
-    ? (scoped ? t('para.collapseSelTip', { name: scoped }) : t('para.collapseAllTip'))
-    : (scoped ? t('para.expandSelTip', { name: scoped }) : t('para.expandAllTip')))
+  const cb = $('#pa-collapse-all'), eb = $('#pa-expand-all');
+  /* Each item keeps its own verb; only the SCOPE changes with the selection, so the tooltip has to
+   * say which it will be. Neither is ever disabled — with no groups at all they still act and
+   * explain, per the standing rule. */
+  if (cb) cb.title = (scoped ? t('para.collapseSelTip', { name: scoped }) : t('para.collapseAllTip'))
     + ' ' + t('para.collapseChartHint');
-  /* ⚠ THE SELECTION READOUT IS GONE FROM THE TOOLBAR (Seth, 2026-08-07: it wrapped the bar onto a
-   * second line, and space here is precious). The information it carried is NOT lost — it was
-   * always duplicated: the selection is highlighted in the tree, and every action button's tooltip
-   * already names exactly what it will act on ("Edit: start", "Group 3 units into a new group").
-   * It rides on Clear selection instead, which is the one control whose whole job is the selection
-   * and which otherwise said nothing about what it would clear. */
-  const clear = $('#pa-clear');
-  if (clear) {
-    clear.title = g ? t('para.selGroup', { name: groupTitle(g) })
-      : ids.length === 1 ? t('para.selOne')
-      : ids.length ? t('para.selCount', { n: ids.length })
-      : t('para.clearSelTip');
-  }
+  if (eb) eb.title = scoped ? t('para.expandSelTip', { name: scoped }) : t('para.expandAllTip');
 }
+
 
 // Esc — the companion to the Clear button: closes the join dialog if one is open, otherwise
 // clears the selection. Registered ONCE: renderWork() replaces the whole subtree on every

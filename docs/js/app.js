@@ -738,8 +738,6 @@ function switchTab(tab) {
       // but hidden — switching the researcher setting off returns the classic editor with the
       // same paragraphs (segments are retained on the doc, only the UI hides).
       healFlatSegments(current && current.doc);
-      $('#baseline-text').hidden = true;
-      $('#segment-strips').hidden = false;
       show('baseline');
       refreshPlayer();
       initStrips({
@@ -751,10 +749,44 @@ function switchTab(tab) {
         persist: () => schedulePersist(),
         t,
       });
+      /* ⚠ THE STRIPS DO NOT EXIST UNTIL THE AUDIO DOES (Seth, 2026-08-07): "can we actually have
+       * that UI element not load until the audio finishes loading?"
+       *
+       * They used to be revealed immediately and rendered against whatever was known at that
+       * instant — which, on the "New text from audio" path, is NOTHING: newDocFromAudio enters the
+       * editor BEFORE it awaits attachAudioFile. The seed then had no duration, so the one span was
+       * written `timePending` — the "⋯" button and the flat line — and nothing re-rendered when the
+       * decode finally landed. It healed only on re-entry, which is exactly the reported
+       * "until I refresh or exit and come back".
+       * It hid on short files because the decode won the race; Seth's 6:02 recording in Firefox
+       * loses it every time, and four repro attempts at 7s and 90s all missed it for that reason.
+       *
+       * Waiting is also the HONEST shape: a span seeded before the duration is known is not a
+       * placeholder, it is a wrong alignment written to the doc. Better to show nothing yet. */
+      const stripsFor = current && current.id;
+      $('#segment-strips').hidden = true;
+      $('#baseline-text').hidden = true;
+      $('#seg-loading').hidden = false;
       (async () => {
-        let media = current ? await db.getMedia(current.id).catch(() => null) : null;
-        media = await segWorkingMedia(current && current.id, media);   // same WAV the player uses
-        await ensurePeaks(current && current.id, media && media.blob, (current && playerReadyFor === current.id && player && player.decodedBuffer) ? player.decodedBuffer() : null);
+        let media = stripsFor ? await db.getMedia(stripsFor).catch(() => null) : null;
+        media = await segWorkingMedia(stripsFor, media);   // same WAV the player uses
+        if (!current || current.id !== stripsFor || !isEditorTab(activeTab)) return;  // doc switched under us
+        /* ⚠ NO AUDIO ⇒ THE CLASSIC EDITOR (Seth): "our app should fall back on the basic editor if
+         * there's no attached audio file." Strips over a doc with no recording are all pending by
+         * construction — every line a "⋯" and a flat slab, and no way to ever fix one, because
+         * there is no timeline to align to. The textarea can at least be typed in. */
+        if (!media || !media.blob) {
+          $('#seg-loading').hidden = true;
+          $('#segment-strips').hidden = true;
+          $('#baseline-text').value = getBaselineParagraphs(current.doc).join('\n');
+          if (settings.vernFont) $('#baseline-text').style.fontFamily = quoteFont(settings.vernFont);
+          $('#baseline-text').hidden = false;   // ⚠ LAST: applyBaseline reads DOM truth, so the
+          return;                               //    value must be in place before it is visible.
+        }
+        await ensurePeaks(stripsFor, media.blob, (playerReadyFor === stripsFor && player && player.decodedBuffer) ? player.decodedBuffer() : null);
+        if (!current || current.id !== stripsFor || !isEditorTab(activeTab)) return;
+        $('#seg-loading').hidden = true;
+        $('#segment-strips').hidden = false;
         renderStrips();
       })();
     } else {
@@ -2123,6 +2155,13 @@ async function attachAudioFile(file) {
   await persist();
   if (player) player.loadedFor = null;
   refreshPlayer();
+  /* ⚠ THE STRIPS MUST BE REBUILT, NOT JUST THE PLAYER. newDocFromAudio enters the editor BEFORE it
+   * awaits this function, so when the Baseline tab first set itself up there was no media at all —
+   * segmentation mode has nothing to show and correctly says so. This is the moment that stops
+   * being true, and nothing else will notice: attaching audio is not a tab switch and not a
+   * settings change. Without this the "Loading the recording…" line sits there for good on every
+   * new text made from a file. */
+  if (segmentationEnabled() && isEditorTab(activeTab)) switchTab(activeTab);
 }
 
 // Mark a finished download on the doc record (idempotent). Runs from the

@@ -54,5 +54,46 @@ ok(/fixStaleWave\(row\.querySelector\('\.seg-wave'\)\);/.test(body),
 ok(/canvas\.__peaksGen !== peaksGen/.test(src),
    'and the staleness test is the peaks GENERATION, not just width (a right-sized blank canvas)');
 
+/* ---------------------------------------------------------------------------------------------
+ * AND THE STRIPS DO NOT EXIST UNTIL THE AUDIO DOES (Seth, 2026-08-07).
+ *
+ * THE ACTUAL BUG, reproduced at last with a 6:02 recording (his, in Firefox; four earlier attempts
+ * at 7s and 90s all missed it because the decode won the race every time):
+ *   t+0.3s .. t+20s   doc.segments = [{ timePending: true }]   — the "⋯" button and the flat line
+ *   after leave+return [{ start: 0, end: 362000 }]             — healed, which is the workaround
+ *
+ * newDocFromAudio enters the editor BEFORE it awaits attachAudioFile, so the Baseline tab set
+ * itself up with NO media, seeded a span with no duration — `timePending` — and nothing re-rendered
+ * when the decode finally landed.
+ *
+ * The fix is Seth's: don't show the UI until the audio is ready. That is also the honest shape — a
+ * span seeded before the duration is known is not a placeholder, it is a wrong alignment written to
+ * the doc.
+ * --------------------------------------------------------------------------------------------- */
+const app = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
+const html = readFileSync(new URL('../docs/index.html', import.meta.url), 'utf8');
+const i18n = readFileSync(new URL('../docs/js/i18n.js', import.meta.url), 'utf8');
+
+console.log('\nthe strips stay hidden until the peaks are in');
+ok(/\$\('#segment-strips'\)\.hidden = true;\s*\n\s*\$\('#baseline-text'\)\.hidden = true;\s*\n\s*\$\('#seg-loading'\)\.hidden = false;/.test(app),
+   'entering the tab shows the loading line, NOT an empty strip list');
+ok(/await ensurePeaks\([\s\S]{0,220}?\$\('#seg-loading'\)\.hidden = true;\s*\n\s*\$\('#segment-strips'\)\.hidden = false;\s*\n\s*renderStrips\(\);/.test(app),
+   'and they are revealed only AFTER ensurePeaks resolves');
+ok(/id="seg-loading"[^>]*hidden[^>]*data-i18n="seg\.loadingAudio"/.test(html), 'the placeholder exists in the markup');
+ok((i18n.match(/'seg\.loadingAudio':/g) || []).length === 2, 'and is translated in BOTH languages');
+
+console.log('\nno audio at all falls back to the classic editor');
+ok(/if \(!media \|\| !media\.blob\) \{/.test(app), 'the no-media case is handled explicitly');
+ok(/\$\('#baseline-text'\)\.value = getBaselineParagraphs\(current\.doc\)\.join\('\\n'\);[\s\S]{0,160}\$\('#baseline-text'\)\.hidden = false;/.test(app),
+   '⚠ the value is set BEFORE it is unhidden — applyBaseline is gated on DOM truth, and an unhidden '
+   + 'empty textarea would be read as "the user cleared the text" and WIPE the doc');
+
+console.log('\nattaching audio rebuilds the strips — nothing else would notice');
+const attach = app.match(/async function attachAudioFile\(file\) \{[\s\S]*?\n\}/);
+ok(!!attach && /if \(segmentationEnabled\(\) && isEditorTab\(activeTab\)\) switchTab\(activeTab\);/.test(attach[0]),
+   'attachAudioFile re-enters the tab (it is not a tab switch and not a settings change)');
+ok(/const stripsFor = current && current\.id;/.test(app) && (app.match(/current\.id !== stripsFor/g) || []).length >= 2,
+   'and the async build bails if the doc changed under it, on both sides of the await');
+
 console.log(fail ? `\nFAILED (${fail})\n` : '\nPASSED\n');
 process.exit(fail ? 1 : 0);

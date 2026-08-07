@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v302';
+export const ENGINE_VERSION = 'v303';
 
 const S = {
 en: {
@@ -237,6 +237,7 @@ en: {
   'setup.intro': 'Everything that decides how this app behaves here: writing systems, recording, speaker permission, which buttons appear, and what a finished text is saved as. Nothing on this page is sent anywhere \u2014 it stays on this device.',
   'setup.localNote': 'Changes are saved as you make them. Saved on this device only.',
   'setup.savedLive': 'Saved \u2713',
+  'seg.loadingAudio': 'Loading the recording\u2026 the lines appear once it is ready.',
   'setup.tabWarn': 'This device is not ready to use: {n} setting(s) need attention.',
   'panel.f.consentAudioFile': 'Spoken reminder \u2014 sound file on this device',
   /* ⚠ Every one of these is shown UNDER its disabled control and toasted when it is clicked. A
@@ -1639,6 +1640,7 @@ id: {
   'setup.intro': 'Semua yang menentukan cara aplikasi ini bekerja di sini: sistem tulisan, perekaman, izin penutur, tombol yang tampak, dan bentuk teks yang sudah selesai saat disimpan. Tidak ada di halaman ini yang dikirim ke mana pun \u2014 semuanya tetap di perangkat ini.',
   'setup.localNote': 'Perubahan disimpan sambil Anda membuatnya. Disimpan di perangkat ini saja.',
   'setup.savedLive': 'Tersimpan ✓',
+  'seg.loadingAudio': 'Memuat rekaman\u2026 barisnya muncul setelah siap.',
   'setup.tabWarn': 'Perangkat ini belum siap dipakai: {n} pengaturan perlu diperhatikan.',
   'panel.f.consentAudioFile': 'Pengingat lisan \u2014 berkas suara di perangkat ini',
   'setup.offMark': '(tidak berlaku untuk aplikasi mandiri)',

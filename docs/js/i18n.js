@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v266';
+export const ENGINE_VERSION = 'v268';
 
 const S = {
 en: {
@@ -1110,6 +1110,11 @@ internet after the first time.</p>
   'para.layerBaseline': 'Baseline text',
   'para.layerFreeOnly': 'Free translation only',
   'para.layerPropsOnly': 'Propositions only',
+  'para.showPath': 'Show the path',
+  'para.pathTip': 'A clickable path to whatever is selected — one line however deep the analysis goes. Click a step to jump to it.',
+  'para.depthLimit': 'Show levels',
+  'para.depthAll': 'All',
+  'para.pathElided': '{n} more level(s) between',
   'para.showFree': 'Free translation',
   'para.hideBlank': 'Hide blank lines',
   'para.hideBlankTip': 'Blank lines are usually silence between utterances. Hiding them only affects this view — they stay in the file with their times, and a group that spans them still covers them.',
@@ -1321,8 +1326,12 @@ internet after the first time.</p>
   'para.members': 'Members',
   'para.nodeLabels': 'Its label (optional)',
   'para.nodeLabelPh': 'e.g. grounds',
-  'para.labelHint': 'Label the group, its members, or both — every label is optional.',
-  'para.relation': 'Label for the whole group (optional)',
+  'para.labelHint': 'The group needs a label. Member labels are optional.',
+  'para.relation': 'Label for the whole group',
+  'para.relationRequired': 'Give this group a label before saving. It is how the group is named everywhere else in the app — in the tree, in the path at the top, and in the diagram.',
+  'para.relationDerivedHint': 'Needed. Without one this group is shown as “{name}”, worked out from its members\u2019 roles.',
+  'para.relationNeeded': 'Needed. This is how the group is named in the tree, the path and the diagram.',
+  'para.derivedLabelTip': 'Worked out from the members\u2019 roles — this group has no label of its own yet.',
   'para.relationPh': 'e.g. grounds–CONCLUSION, orienter–CONTENT',
   'para.cancel': 'Cancel',
   'para.ok': 'OK',
@@ -2433,6 +2442,11 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.layerBaseline': 'Teks dasar',
   'para.layerFreeOnly': 'Hanya terjemahan bebas',
   'para.layerPropsOnly': 'Hanya proposisi',
+  'para.showPath': 'Tampilkan jalur',
+  'para.pathTip': 'Jalur yang bisa diklik menuju bagian terpilih — satu baris sedalam apa pun analisisnya. Klik satu langkah untuk melompat ke sana.',
+  'para.depthLimit': 'Tampilkan tingkat',
+  'para.depthAll': 'Semua',
+  'para.pathElided': '{n} tingkat lagi di antaranya',
   'para.showFree': 'Terjemahan bebas',
   'para.hideBlank': 'Hide blank lines',
   'para.hideBlankTip': 'Blank lines are usually silence between utterances. Hiding them only affects this view — they stay in the file with their times, and a group that spans them still covers them.',
@@ -2646,8 +2660,12 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.members': 'Anggota',
   'para.nodeLabels': 'Labelnya (opsional)',
   'para.nodeLabelPh': 'mis. dasar',
-  'para.labelHint': 'Beri label pada kelompok, pada anggotanya, atau keduanya — semua label bersifat opsional.',
-  'para.relation': 'Label untuk seluruh kelompok (opsional)',
+  'para.labelHint': 'Kelompok wajib punya label. Label anggota bersifat opsional.',
+  'para.relation': 'Label untuk seluruh kelompok',
+  'para.relationRequired': 'Beri label pada kelompok ini sebelum menyimpan. Label inilah yang dipakai di mana-mana — di pohon, di jalur atas, dan di diagram.',
+  'para.relationDerivedHint': 'Wajib. Tanpa label, kelompok ini ditampilkan sebagai “{name}”, hasil turunan dari peran anggotanya.',
+  'para.relationNeeded': 'Wajib. Label ini dipakai di pohon, di jalur, dan di diagram.',
+  'para.derivedLabelTip': 'Diturunkan dari peran anggota — kelompok ini belum punya label sendiri.',
   'para.relationPh': 'mis. dasar–KESIMPULAN, pengarah–ISI',
   'para.cancel': 'Batal',
   'para.ok': 'OK',

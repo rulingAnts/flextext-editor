@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v272';
+export const ENGINE_VERSION = 'v273';
 
 const S = {
 en: {
@@ -1297,6 +1297,8 @@ internet after the first time.</p>
   'para.exportCollBracket': 'All its lines, inside one bracket',
   'para.exportLineContext': 'Show language-data lines that are not in the tree (those with propositions)',
   'para.chartShow': '◫',
+  'para.chartShowMenu': '◫  Chart view',
+  'para.chartHideMenu': '◫  Back to editing',
   'para.chartHide': '◫',
   'para.chartHideTip': 'Back to editing',
   'para.chartTip': 'Switch to the SSA diagram for a quick look at the shape of the analysis — nothing is changed or saved',
@@ -2633,6 +2635,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.exportCollBracket': 'Semua barisnya, dalam satu kurung',
   'para.exportLineContext': 'Tampilkan baris data bahasa yang tidak ada di pohon (yang punya proposisi)',
   'para.chartShow': '◫',
+  'para.chartShowMenu': '◫  Tampilan bagan',
+  'para.chartHideMenu': '◫  Kembali menyunting',
   'para.chartHide': '◫',
   'para.chartHideTip': 'Kembali menyunting',
   'para.chartTip': 'Beralih ke diagram SSA untuk melihat bentuk analisis sekilas — tidak ada yang diubah atau disimpan',

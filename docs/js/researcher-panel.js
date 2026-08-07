@@ -146,14 +146,38 @@ const ESTATES = {
   },
 };
 
-// Which estate is THIS panel part of? On localhost the dev rig serves both apps under the Pages
-// sub-paths, so it keeps using same-origin links and never points a developer at production.
+/* Which estate is THIS panel part of?
+ *
+ * ⚠ THE DEFAULT IS CLOUD, AND PAGES IS NAMED EXPLICITLY (Seth, 2026-08-07). It used to be the other
+ * way round — anything that was not *.flextext.app or localhost fell back to the PAGES map — and
+ * that quietly made every unrecognised origin part of the legacy estate. The STAGING worker
+ * (*.workers.dev) is the case that bit: a staging panel linked to production Pages apps, and
+ * refreshLiveVersions() fetched PRODUCTION Pages sw.js files, so staging devices were compared
+ * against production versions. Nothing failed; the numbers were simply about a different estate.
+ * A wrong fallback is worse than an unknown one, so the legacy estate now has to be recognised by
+ * name and everything else lands on the current one.
+ *
+ * ⚠ STAGING IS SMARTER STILL, because it can be: the staging worker serves ./docs at its own ROOT,
+ * so the editor is right there on the same origin — and the panel is that same deployment reached
+ * with ?mode=researcher. Test-driving must never hand anyone a production link (the same rule that
+ * already protected localhost). The satellites are published only from productionWeb, so there is
+ * no staging recorder or crowd app; those keep the real, current URLs rather than a broken guess.
+ */
 export function estateOf(origin = location.origin) {
-  if (/^https?:\/\/localhost(:\d+)?$/.test(origin)) {
+  const host = new URL(origin).hostname;
+  // The dev rig serves every app under the Pages sub-paths on one origin.
+  if (/^(localhost|127\.0\.0\.1|\[::1\])$/.test(host)) {
     return { editor: origin + '/flextext-editor/', recorder: origin + '/text-recorder/',
              crowd: origin + '/crowd-recorder/', researcher: origin + '/flextext-researcher/', local: true };
   }
-  return /\.flextext\.app$/.test(new URL(origin).hostname) ? ESTATES.cloud : ESTATES.pages;
+  // Staging / preview builds: the editor IS this origin's root, and so is this panel.
+  if (/\.(workers|pages)\.dev$/.test(host)) {
+    return { editor: origin + '/', researcher: origin + '/',
+             recorder: ESTATES.cloud.recorder, crowd: ESTATES.cloud.crowd, staging: true };
+  }
+  // The LEGACY estate, by name. Everything else is the current one.
+  if (/(^|\.)rulingants\.github\.io$/.test(host)) return ESTATES.pages;
+  return ESTATES.cloud;
 }
 
 const HOME = estateOf();

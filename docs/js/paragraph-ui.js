@@ -764,33 +764,50 @@ function pathOf(id) {
  * if it can and only limit slightly padded from that"). Two thirds was throwing away hierarchy that
  * had somewhere to go — on a wide screen a deep path fits easily, and the whole point of this bar is
  * depth. The margin left is for the padding and the lead label, not a reserved third. */
-const CRUMB_WIDTH_PAD = 24;
+/* ⚠ ZERO. scrollWidth NEVER reports less than clientWidth — a flex container's scroll width is at
+ * least its own box — so subtracting any margin at all makes `scrollWidth > budget` true even when
+ * the content fits with room to spare. That is the last of the three compounding measurement faults
+ * behind "only two levels ever show": the wrap, the un-laid-out bar, and this. The overflow test has
+ * to be exact. */
+const CRUMB_WIDTH_PAD = 0;
 function fitCrumbInto(bar, leadHtml, steps, renderStep, elidedTitle) {
   /* ⚠ MEASURED AGAINST THE BAR'S OWN WIDTH, and the bar must NOT wrap — see the CSS. With
    * `flex-wrap: wrap` the content re-flows onto a second line instead of overflowing, so scrollWidth
    * never exceeds clientWidth, the comparison below is meaningless, and the loop ran on garbage. That
    * is why the bar collapsed to "… deepest-item" no matter how much room there was. */
-  const budget = () => Math.max(120, bar.clientWidth - CRUMB_WIDTH_PAD);
+  const budget = () => bar.clientWidth - CRUMB_WIDTH_PAD;
   const paint = (list, elided) => {
     const mark = `<span class="pa-path-gap" title="${esc(elidedTitle(steps.length - list.length))}">…</span>`;
-    // The gap is drawn at the point the steps were removed from — the middle — not at either end.
+    // The gap is drawn where the steps were actually removed from — the middle — not at an end.
     const at = elided ? Math.floor(list.length / 2) : -1;
     bar.innerHTML = leadHtml + list.map((st, i) => (i === at ? mark : '') + renderStep(st, i)).join('');
   };
+
   paint(steps, false);
+
+  /* ⚠ DO NOT ELIDE ON AN UNMEASURABLE BAR. This is the bug behind every previous attempt: the bar is
+   * laid out in the same frame it is filled, and at that moment clientWidth can be a few pixels —
+   * measured 24px here — so `scrollWidth > budget` was ALWAYS true and the loop ran to its floor,
+   * leaving two steps no matter how much room existed. Every elision strategy I tried on top of that
+   * was doomed, which is why changing the strategy never helped.
+   *
+   * So: if the bar has no believable width yet, show the WHOLE path and re-fit on the next frame,
+   * once layout has happened. Showing too much briefly is harmless; throwing away the hierarchy is
+   * not — a breadcrumb showing one or two levels is no use at all. */
+  if (bar.clientWidth < 80) {
+    requestAnimationFrame(() => { if (bar.isConnected && bar.clientWidth >= 80) fitCrumbInto(bar, leadHtml, steps, renderStep, elidedTitle); });
+    return;
+  }
+
+  /* ⚠ ELIDE FROM THE MIDDLE (Seth), and only while genuinely overflowing. The two ends orient you —
+   * the ROOT says which analysis this is, the LAST step says where you are — so the steps nearest the
+   * centre are the ones that can be spared. Each pass drops one, so the path shortens evenly rather
+   * than losing a whole end. */
   let shown = steps.slice();
   let guard = 0;
-  /* ⚠ ELIDE FROM THE MIDDLE (Seth, 2026-08-07: "elision should happen roughly mid-way... true for
-   * both breadcrumb bars"). The two ends are what orient you — the ROOT says which analysis this is,
-   * the LAST step says where you actually are — and the steps between them are the ones you can
-   * afford to lose. Each pass removes the step nearest the centre, so the path shortens evenly from
-   * the middle outwards rather than losing one whole end.
-   * ⚠ This only works now that the bars do not WRAP. While they wrapped, content re-flowed onto a
-   * second line instead of overflowing, scrollWidth never exceeded clientWidth, and this loop ran on
-   * a meaningless comparison — which is why the bar collapsed to "… deepest-item" however much room
-   * there was. */
   while (shown.length > 2 && bar.scrollWidth > budget() && guard++ < 64) {
-    shown = shown.slice(0, Math.floor(shown.length / 2)).concat(shown.slice(Math.floor(shown.length / 2) + 1));
+    const mid = Math.floor(shown.length / 2);
+    shown = shown.slice(0, mid).concat(shown.slice(mid + 1));
     paint(shown, true);
   }
 }

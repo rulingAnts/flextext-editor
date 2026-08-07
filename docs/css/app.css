@@ -1903,3 +1903,13 @@ main {
   font-size: 11px; display: inline-flex; align-items: center; justify-content: center;
   flex: 0 0 auto; margin-right: 6px; }
 .pa-path-clear:hover { background: var(--panel); color: var(--text); border-color: var(--muted); }
+
+
+/* ⚠ BREADCRUMB STEPS MUST NOT SHRINK. As ordinary flex children they shrank to fit instead of
+   overflowing, so the bar's scrollWidth could never exceed its clientWidth — and the width fitter,
+   which detects overflow by exactly that comparison, saw "overflowing" every single time and elided
+   down to two steps regardless of available room. That, not the elision strategy, is why every
+   attempt showed only the first and last levels. */
+.pa-path-step, .pa-crumb-step, .pa-path-lead, .pa-path-gap, .pa-path-clear {
+  flex: 0 0 auto; white-space: nowrap;
+}

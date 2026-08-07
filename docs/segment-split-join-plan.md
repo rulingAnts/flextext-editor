@@ -1,121 +1,39 @@
-# Splitting and joining segments — design (PLAN ONLY, not built)
+# Splitting and joining units in the PARAGRAPH ANALYSIS TOOL — design (PLAN ONLY, not built)
 
-Seth, 2026-08-07: a guided split ("divorce court") that asks where to cut the **audio**, the
-**interlinear line**, the **free translation**, and the **daughter elements**, plus the inverse
-join — *"the main thing is to make sure not to skip intervening 'gap' (like unannotated audio space)
-or silent/empty line/hidden audio… so that whatever happens audio and written data don't end up out
-of sync."*
+> ## ⚠⚠ SCOPE: PAT ONLY. THE EDITOR'S SPLIT/JOIN ALREADY WORKS AND IS NOT TO BE TOUCHED.
+>
+> Seth, 2026-08-07: *"the editor's split/join ALREADY WORKS!!! Don't mess with that!!! This is a
+> split/join function for PAT ONLY we're talking about."*
+>
+> Enter/Backspace in the editor's segmentation mode split and join today, correctly, and are not in
+> scope for anything in this document. `docs/js/segments.js` and `docs/js/segment-strips.js` are
+> **not to be modified** by this feature.
+>
+> **NOTHING HERE IS IMPLEMENTED.** As of v310 the only files this plan has touched are this document
+> and the version stamps.
 
-Nothing here is implemented. Open questions are at the end and I do have several.
+Seth's original brief: a guided split ("divorce court") that asks where to cut the **audio**, the
+**text line**, the **free translation**, and the **daughter elements (propositions)**, plus the
+inverse join — *"the main thing is to make sure not to skip intervening 'gap' (like unannotated
+audio space) or silent/empty line/hidden audio… so that whatever happens audio and written data
+don't end up out of sync."*
 
 ---
 
-## What already exists, and why this is not a rewrite
+## What PAT has today
 
-Segmentation mode already splits and joins — Enter breaks text at the cursor and time at the
-playhead; Backspace/Delete merges. `segments.js` has `splitSegment`, `mergeSegments`,
-`boundaryAtPlayhead`, `normalizeSegments`, `syncToLines`, and they hold the ordering invariants.
+`docs/js/paragraph-model.js` is pure and node-tested, and already has:
 
-**This feature is a WIZARD OVER THOSE PRIMITIVES, not a replacement.** What Enter cannot do is make
-four independent decisions at once — it splits text at one point and time at another and guesses
-the rest. That is fine while transcribing and wrong when repairing an already-glossed line, which is
-exactly when a mistake is expensive.
+- `splitLine(data, id, at)` — splits the baseline at a character offset, inserts the new line
+  immediately after, and ⚠ **already handles group membership** ("the new line must join its
+  sibling's group, or a split inside a bracket would silently drop half the text out of the
+  analysis"). It does **not** handle propositions.
+- `deleteLine`, `addLine`, `setLineText`, `addProp`, `checkInvariants`, `repairDocument`.
 
-## The model, because the whole design turns on it
+So this feature is **a wizard over `splitLine`, plus the proposition handling `splitLine` lacks,
+plus a join that does not exist yet.**
 
-```
-doc
-├── paragraphs[]      { guid, segments[] }
-│   └── segments[]    PHRASES: { attrs{guid}, baseline, words[], free, freeLang,
-│   │                            preItemsXML[], postItemsXML[] }
-│   └── words[]       { guid, punct, phrase, txt, gls, preservedXML[] }
-│                       ⚠ preservedXML = morphemes, POS, unknown children — the DAUGHTER TREE
-└── segments[]        TIME SPANS, one per paragraph: { start, end, timePending?, timeEstimated? }
-```
-
-⚠ **`doc.segments` and `doc.paragraphs` are parallel arrays indexed together** — in segmentation
-mode one line = one paragraph = one phrase = one time span. **Everything Seth is worried about is
-this one fact.** A split must add exactly one entry to BOTH arrays; a join must remove one from
-BOTH. If an operation can ever fail halfway, every line below the edit is attached to the wrong
-audio — silently, and the text still looks perfect.
-
-**So: the operation is computed as a whole new `{paragraphs, segments}` pair and swapped in with one
-assignment.** No in-place `splice` on either array. A thrown exception then leaves the doc exactly
-as it was rather than half-edited. This is the single most important rule in the document.
-
----
-
-## Split — the four questions
-
-Modal, one screen, four blocks; each pre-answers itself from the current playhead/caret so the
-common case is "looks right, confirm".
-
-### (a) Where in the audio
-The segment's waveform at full width with a draggable handle, the ⇥ set-boundary control, and
-nudge buttons (±10 ms / ±100 ms). Live "play just the left part / just the right part" — the only
-way to actually judge a cut.
-
-Constraint: `seg.start < t < seg.end`, strictly. Not equal to either — a zero-length span is a
-segment that can never be played, selected, or repaired.
-
-If the segment is `timePending` (never aligned), **the audio block is disabled with a reason**, per
-the standing rule: the text can still be split; the two halves are both pending afterwards.
-
-### (b) Where in the interlinear line
-The words as clickable chips with insertion points between them. **Word-level only** — a word is the
-unit that carries a gloss and a morpheme tree, and splitting inside one orphans all of it.
-
-If the user genuinely needs to break a word, that is a different operation (split the word first,
-then the segment) and the modal should say so rather than silently allowing it.
-
-`baseline` is regenerated from the resulting `words` on each side, never string-sliced independently
-— two representations of the same thing must not be edited separately.
-
-### (c) Where in the free translation
-A caret position in the free-translation text, defaulting to proportional to the word split.
-
-⚠ **Free translation does not align to words, and pretending otherwise is the trap here.** A free
-translation is a whole-utterance rendering; its clauses may be in a different order than the
-vernacular. So the wizard must offer, plainly:
-
-- **split at the caret** (default when there is an obvious clause boundary);
-- **keep it all on the first half** and leave the second empty;
-- **copy it to both** and let the user trim later — honest for a tight couplet;
-- **leave it on the first half and flag the second** for review.
-
-Whatever is chosen, the ORIGINAL free text is preserved verbatim in the undo record.
-
-### (d) Daughter elements — the Paragraph Analysis tree
-
-> ⚠⚠ **SCOPE CORRECTION (2026-08-07, after checking rather than assuming): THIS BLOCK DOES NOT
-> BELONG TO THE EDITOR.** The editor never holds a `.fxpa` — it GENERATES one at export time
-> (`buildFxpa(rec.doc, …)`, app.js), writes it into the save bundle, and keeps nothing. PAT is a
-> separate Worker on a separate origin with its own storage, and the file moves between them by
-> export/import.
->
-> **So propositions do not exist in the editor's model at all**, and the editor's split/join needs
-> blocks (a), (b) and (c) only. The analysis below is correct but belongs to **PAT's own split/join**
-> — where `splitLine()` already handles group membership and does NOT yet handle proposition
-> renumbering.
->
-> The editor's real obligation is a WARNING, not an update: after any line-count change, a
-> previously exported `.fxpa` describes a different document, and the editor cannot repair a file it
-> does not hold. ⚠ **That risk exists today, without this feature** — Enter and Backspace already
-> change the line count. See "The `.fxpa` staleness warning" below.
->
-> ⚠ These two features are COUPLED: if the backlog item ".fxpa read/edit in the editor" ever lands,
-> this block returns to the editor and the concurrency question becomes real. Split/join is much
-> simpler if it ships first.
-
-
-⚠ **CORRECTED after Seth clarified: "the daughters I meant were other group members, like
-propositions. But maybe it's only the virtual, manually added propositions that would add a problem
-here…?"** He is right, and the reason is sharper than "they are manual": it is that **a proposition
-has no text of its own that the app can locate in the line**, and **its identity encodes its
-parent**.
-
-The FLEx word tree (`word.preservedXML` — morphemes, POS) is genuinely a non-question: it travels
-with its word once (b) is decided. The real problem is the `.fxpa` model:
+## The model
 
 ```
 data.lines[]   { id: 'L1', baseline, words[] }        ← owns the audio span
@@ -124,7 +42,49 @@ propositions   id 'L1p2'  ⚠ THE ID ENCODES THE LINE (isPropId /^L\d+p\d+$/,
                               lineOfPropId('L1p2') === 'L1')
 ```
 
-Two facts make this the hardest part of the feature:
+⚠ **A proposition has no time of its own — it inherits its line's**, because the LINE owns the audio
+span. That is why playback highlights lines, and it is why a split that moves propositions between
+lines silently re-times them.
+
+**The whole operation is computed as a new `data` object and swapped in with one assignment** — no
+in-place mutation of `lines` or `tree`. A throw then leaves the analysis exactly as it was rather
+than half-edited. `paragraph-model.js` is already written this way (`{ ...data, lines, tree }`), so
+this is following the existing grain, not imposing something new.
+
+---
+
+## Split — the questions
+
+### (a) Where in the audio
+Only meaningful if the line is time-aligned. The `.fxpa` carries the audio and per-line offsets, so
+the wizard shows the line's waveform with a draggable handle and "play left / play right".
+
+Constraint: strictly inside the span. A zero-length span is a line that can never be played.
+
+If the line has no times, the audio block is **disabled with a reason** — the text still splits, and
+both halves stay untimed.
+
+### (b) Where in the text line
+`splitLine` already takes a character offset. The wizard should offer **word boundaries** as the
+click targets rather than a raw caret, because a split inside a word is almost never what is meant —
+while still allowing a raw offset for the case where it is.
+
+### (c) Where in the free translation
+⚠ **Free translation does not align to words, and pretending otherwise is the trap.** Its clauses may
+be ordered differently from the vernacular. Offer, plainly:
+
+- **split at the caret** (default when there is an obvious clause boundary);
+- **keep it all on the first half**, second empty;
+- **copy to both** and trim later;
+- **first half only, flag the second** for review.
+
+The ORIGINAL free text is preserved verbatim in the undo record whatever is chosen.
+
+### (d) Daughter elements — the Paragraph Analysis tree
+
+Seth: *"the daughters I meant were other group members, like propositions. But maybe it's only the
+virtual, manually added propositions that would add a problem here…?"* — right, and the reason is
+sharper than "they are manual". Two facts make this the hardest part of the feature:
 
 1. **Propositions are AUTHORED, not derived.** `addProp(data, lineId, text)` — the analyst types a
    semantic decomposition. SSA is semantic, not grammatical, so a proposition's text is not a slice
@@ -202,23 +162,6 @@ partly invented, which the model is specifically built never to do.
 
 ---
 
-## The `.fxpa` staleness warning (editor)
-
-Independent of split/join, and arguably overdue: the editor exports a `.fxpa` whose line ids are
-positional. Any later line-count change — Enter, Backspace, or this wizard — makes a previously
-exported `.fxpa` describe a document that no longer exists, and re-importing it into PAT would
-attach an analysis to the wrong lines.
-
-The editor cannot fix that file. It can, cheaply:
-
-- stamp the exported `.fxpa` with the doc's `modified` timestamp and line count (it already carries
-  a version field), so PAT can compare on import and say "this analysis was made against 47 lines;
-  this text now has 49";
-- warn at export time when the doc has changed since the last `.fxpa` export.
-
-The first is the one that matters — it puts the detection where the damage would occur, in PAT, and
-does not depend on anyone reading a warning in the editor weeks earlier.
-
 ## Undo
 
 ⚠ **A wizard that gets it wrong is worse than no wizard**, because the user will have accepted it.
@@ -228,13 +171,18 @@ scoped to this feature, where the risk is.
 
 ## Where it lives
 
-- `docs/js/segments.js` — extend the primitives; keep it pure and node-testable.
-- New `docs/js/segment-splitjoin.js` — the pure planner: takes the doc slice + the four decisions,
-  returns a new slice. **No DOM.** This is what gets tested exhaustively.
-- `docs/js/segment-strips.js` — the modal and the wiring.
-- ⚠ A new top-level import in `app.js` is **a new SHELL entry in the editor AND all three satellite
-  `sw.js` files, in the same commit** (the v108 outage). Importing it from `segment-strips.js`
-  instead avoids that entirely — prefer that.
+- `docs/js/paragraph-model.js` — extend `splitLine` for propositions; add `joinLines`. Pure and
+  already node-tested, which is where the invariants belong.
+- New `docs/js/paragraph-splitjoin.js` — the pure planner: takes `data` + the decisions, returns a
+  new `data`. **No DOM.** This is what gets tested exhaustively.
+- `docs/js/paragraph-ui.js` — the modal and the wiring.
+- ⚠ **NOT `segments.js` and NOT `segment-strips.js`** — those are the editor's working split/join,
+  which already works and is out of scope.
+- ⚠ A new module must be imported by **`paragraph-ui.js`**, not by `app.js`. A new top-level
+  `app.js` import is a new SHELL entry in the editor AND all three satellite `sw.js` files in the
+  same commit (the v108 outage). PAT's own `sw.js` still needs the new path in its SHELL — it
+  deploys atomically with its engine copy so it cannot 404, but a missing entry leaves it dead
+  offline.
 
 ## Order of work
 

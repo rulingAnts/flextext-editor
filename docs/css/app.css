@@ -1440,7 +1440,12 @@ main {
 .pa-row.on { background: #eef4ff; }
 .pa-prop.sel { background: #dbe7fa; outline: 2px solid var(--blue); outline-offset: -2px; border-radius: 6px; }
 .pa-row.sel, .pa-group.sel > .pa-roleline > .pa-badge { background: #dbe7fa; outline: 2px solid var(--blue); outline-offset: -2px; }
-.pa-cell { flex: 1; min-width: 0; }
+/* ⚠ SHRINK TO CONTENT, do not fill the row. `flex: 1` made the cell claim all remaining width, which
+   pushed the trailing + button to the far right edge of the window — a control marooned an inch or
+   more from the text it belongs to. `0 1 auto` lets the cell be as wide as its content and no wider,
+   so anything after it sits just past the words. It still SHRINKS (min-width: 0) so long lines wrap
+   inside the cell rather than overflowing the row. */
+.pa-cell { flex: 0 1 auto; min-width: 0; }
 .pa-wave { width: 100%; height: 44px; display: block; touch-action: none; cursor: pointer; }
 .pa-wave-sm { height: 14px; }
 .pa-baseline { font-size: 17px; color: var(--vern); }
@@ -1918,7 +1923,10 @@ main {
    In the left gutter it wedged between the play button and the words and read as crowded. It costs
    no vertical space either way; that was the point of moving it off its own row.
    Quiet until the row is hovered or selected, so it never competes with the text. */
-.pa-propadd-end { flex: none; margin-left: auto; align-self: flex-start;
+/* ⚠ A SMALL GAP, NOT margin-left:auto (Seth: "almost flush with the end of the text/content, with a
+   reasonable amount of padding" — not the far end). `auto` eats every spare pixel and strands it at
+   the window edge. */
+.pa-propadd-end { flex: none; margin-left: 10px; align-self: flex-start;
   width: 22px; height: 22px; border: 1px solid var(--border); border-radius: 50%;
   background: var(--bg); color: var(--muted); cursor: pointer; padding: 0;
   font-size: 14px; line-height: 1; opacity: .3; transition: opacity .12s; }

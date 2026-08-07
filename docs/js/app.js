@@ -249,7 +249,7 @@ function toast(msg, ms = 2600) {
 
 /* ---------------- View switching ---------------- */
 
-const VIEWS = ['texts', 'baseline', 'gloss', 'research', 'help', 'record', 'researcher'];
+const VIEWS = ['texts', 'baseline', 'gloss', 'research', 'utilities', 'help', 'record', 'researcher'];
 
 // The researcher panel is a SEPARATE full-screen view. Its standalone home is the "Flextext
 // Researcher" app (RESEARCHER_MODE); inside the editor it's reachable only via the managed-install
@@ -2862,7 +2862,12 @@ function refreshLiveLists() {
 // longer use), re-render (the device is standalone again → the Settings tab returns), and tell the user.
 function onSyncRevoked() {
   const s = loadSettings();
-  for (const k of ['uploadFolder', 'uploadUrl', 'consentAudio', 'consentAudioUrl']) delete s[k];
+  /* ⚠ consentAudioFile goes too. While this device was managed, the researcher's Drive prompt was
+   * fetched into the SAME media key a locally-picked file uses, overwriting it. So a leftover
+   * consentAudioFile record would name a file whose bytes are no longer there — the Settings tab
+   * would claim a local prompt is in force and play the ex-researcher's audio. Drop the claim; the
+   * user re-picks a file, which is honest and takes one tap. */
+  for (const k of ['uploadFolder', 'uploadUrl', 'consentAudio', 'consentAudioUrl', 'consentAudioFile']) delete s[k];
   saveSettings(s);
   settings = loadSettings();
   applyLiveSettings();
@@ -3910,13 +3915,21 @@ function closeShareMenu() { $('#share-menu').hidden = true; applyUpdateIfSafe();
  *    upload-dependent control is REPLACED by a sentence naming what is missing, with the action that
  *    would supply it — the invite-paste pairing flow — attached to it.
  *
- * Panel fields deliberately NOT mirrored, and why:
- *   appLang          — the topbar language selector is the live control; a second one is a no-op.
- *   deleteAllEnabled — deleteAllAllowed() is already true on every unpaired device.
- *   allowDelete      — allowDeleteOn() is already true on every unpaired device.
- *   doneEnabled      — "Done" reports to a researcher and auto-uploads; neither exists here.
- *   recordWelcome    — it is the heading on the RECORDER's welcome screen, which the editor never
- *                      renders, so on this device it would configure nothing anyone can see.
+ * ⚠ EVERY PANEL FIELD IS PRESENT (Seth, 2026-08-07, revising the first cut). The first version
+ * DROPPED the fields that do nothing on a standalone device. That was worse, not better: a
+ * researcher who knows the panel came here, found fields missing, and could not tell whether they
+ * had been removed, renamed, or were a bug. So the form now mirrors the panel field for field, and
+ * anything inert is DISABLED WITH ITS OWN REASON attached (`off:` below) rather than absent.
+ *
+ * ⚠ AND "DISABLED" HERE STILL HAS TO SPEAK. Seth's standing rule is that a control which cannot act
+ * must say what is missing rather than sit there greyed out looking broken. A disabled control
+ * satisfies it ONLY because every one carries a visible reason underneath AND answers a click with
+ * that same reason (setupOffHtml + the `.setup-off` click handler). Strip either half and this is
+ * back to the bug the rule exists to prevent.
+ *
+ * The ONE deliberate divergence from the panel: consent audio. A paired device receives a Drive URL
+ * from its researcher and keeps doing so; a STANDALONE app has no researcher and no reason to route
+ * a local file through Drive, so it gets a file picker in that field's place. See SETUP_CONSENT_FILE.
  */
 
 const SETUP_AGC_OPTS = ['off', 'on', 'auto'];
@@ -3934,14 +3947,37 @@ const SETUP_EXPORT_KEYS = ['exportEaf', 'exportSaymore', 'exportPreview', 'expor
  * many bytes exactly". */
 const SETUP_BPS = { mp3: 8000, opus: 6000, webmpcm: 187500, wav16: 96000, wav24: 144000, wav32: 192000, flac24: 110000 };
 
-/* The setup groups, in tab order. Same ids, labels and option lists as the researcher panel's
- * GROUPS, minus the fields listed in the header comment above. */
+/* The setup groups, in tab order — the researcher panel's GROUPS, field for field.
+ *
+ * `off: '<i18n key>'`  the field is inert on an unpaired device: rendered DISABLED, with that key
+ *                      as the reason shown under it and toasted when it is clicked.
+ * `offOpts: [...]`     same, for individual options inside a multicheck.
+ * `standalone: true`   this field exists ONLY here, never in the panel (the consent file picker).
+ */
 const SETUP_GROUPS = [
   { id: 'languages', legend: 'panel.legend.languages', note: 'research.note', fields: [
+    // The panel pushes this to a managed device. Here the toolbar's own language selector is the
+    // live control, so a second one could only disagree with it.
+    { k: 'appLang', type: 'select', opts: ['follow', 'en', 'id'], optPrefix: 'panel.opt.appLang.', off: 'setup.off.appLang' },
     // Codes ONLY — the name/font fields went in 2026-07-13 (names were display sugar, fonts device
     // cosmetics; neither belongs in the FLEx export). tip = the case-sensitivity warning.
     { k: 'vernLang', type: 'text', ph: 'fau', tip: 'research.wsCase', note: 'research.wsCase' },
     { k: 'analLang', type: 'text', ph: 'en', tip: 'research.wsCase' },
+  ] },
+  /* Audio Segmentation Mode + the exports it governs, on their own tab (Seth, 2026-08-07). They
+   * were the tail of the Buttons tab, which filed a mode that rewrites both editing tabs — and the
+   * annotation files a text ships with — under a heading about which buttons show. */
+  { id: 'segmentation', fields: [
+    // Default OFF — the classic textarea workflow is untouched unless deliberately enabled.
+    { k: 'segmentation', type: 'checkbox', note: 'panel.f.segmentationNote' },
+    // An UNSET export follows the mode, so deviceSetupValues prefills the EFFECTIVE value (see
+    // buildBundleFor) — a box reading "off" for an export the device actually writes would be a lie
+    // about what leaves this machine.
+    { k: 'exportEaf', type: 'checkbox' },
+    { k: 'exportSaymore', type: 'checkbox' },
+    { k: 'exportPreview', type: 'checkbox' },
+    // .fxpa: local saves only, never uploads (bandwidth).
+    { k: 'exportJson', type: 'checkbox', note: 'panel.f.exportsNote' },
   ] },
   { id: 'recording', notice: 'pwaAudio', fields: [
     { k: 'recordFormat', type: 'select', opts: Object.keys(REC_FORMATS), optPrefix: 'panel.opt.fmt.', help: 'recfmt' },
@@ -3954,52 +3990,80 @@ const SETUP_GROUPS = [
   ] },
   { id: 'consent', legend: 'consent.legend', fields: [
     // Consent is multi-select: any combination of prompts + confirmations, all required together.
+    // ⚠ NOTHING HERE IS HIDDEN UNTIL ITS BOX IS TICKED any more. The first cut carried the old
+    // ws-form's progressive disclosure across, and the result read as "the consent tab has
+    // checkboxes and no fields" — Seth looked at it and reported the fields missing. The panel shows
+    // them all, always; so does this.
     { k: 'consentAsk', type: 'multicheck', opts: ['text', 'audio'], optPrefix: 'panel.opt.ask.' },
     { k: 'consentMsg', type: 'textarea' },
-    { k: 'consentAudioUrl', type: 'text', note: 'panel.f.consentAudioNote' },
+    // THE ONE DIVERGENCE FROM THE PANEL — a file picker where the panel has a Drive URL box.
+    { k: 'consentAudioFile', type: 'file', accept: 'audio/*', standalone: true, note: 'setup.consentFileNote' },
     { k: 'consentConfirm', type: 'multicheck', opts: ['yesno', 'record', 'signature'], optPrefix: 'panel.opt.conf.', note: 'consent.note' },
   ] },
-  { id: 'sending', legend: 'research.sendLegend', details: ['relay.summary', 'relay.note'], fields: [
-    // gateOpts: Upload is replaced by an explanation on an unpaired device (rules 3 + 4).
-    { k: 'sendOptions', type: 'multicheck', opts: SETUP_SEND_OPTS, optPrefix: 'panel.opt.send.', gateOpts: SETUP_PAIR_ONLY_SEND },
-    { k: 'autoDel', type: 'checkbox', note: 'research.autoDelNote' },
-    // needsPair: auto-backup IS an upload — autoBackupSweep() bails on !Sync.workerUploadTarget(),
-    // so on an unpaired device the switch could only ever be dead. Say so instead of offering it.
-    // Its companion autoBackupMins goes with it: an interval qualifying a switch that is not on
-    // offer qualifies nothing.
-    { k: 'autoBackup', type: 'checkbox', needsPair: true },
+  { id: 'sending', legend: 'research.sendLegend', details: ['relay.summary', 'relay.note'], detailsOff: 'setup.off.relay', fields: [
+    // Upload rides the researcher's Google Drive (see notes/uploadoauthdriveplan): a standalone
+    // device holds no OAuth, and openShareMenu() already hides the button when there is no target.
+    { k: 'sendOptions', type: 'multicheck', opts: SETUP_SEND_OPTS, optPrefix: 'panel.opt.send.',
+      offOpts: SETUP_PAIR_ONLY_SEND, offOptsWhy: 'setup.off.upload' },
+    // Both of these are downstream of an upload that cannot happen: autoBackupSweep() bails on
+    // !Sync.workerUploadTarget(), and deleteAfterUpload() is only ever consulted once an upload
+    // has succeeded. Dead switches, so they say so.
+    { k: 'autoDel', type: 'checkbox', off: 'setup.off.autoDel', note: 'research.autoDelNote' },
+    { k: 'autoBackup', type: 'checkbox', off: 'setup.off.autoBackup' },
+    { k: 'autoBackupMins', type: 'select', opts: ['5', '15', '30', '60'], optPrefix: 'panel.opt.abm.', off: 'setup.off.autoBackup' },
+    // Left ENABLED on purpose: it is the Recorder's welcome heading, which this app does not paint —
+    // but the same origin opened with ?mode=record does, so it is not inert, just not visible here.
+    { k: 'recordWelcome', type: 'text' },
   ] },
-  { id: 'buttons', fields: [
+  { id: 'other', fields: [
     { k: 'buttons', type: 'multicheck', opts: ALL_BUTTONS, optPrefix: 'panel.opt.btn.' },
-    // Audio Segmentation Mode: the Baseline/Gloss tabs become time-aligned waveform strips.
-    // Default OFF — the classic textarea workflow is untouched unless deliberately enabled.
-    { k: 'segmentation', type: 'checkbox', note: 'panel.f.segmentationNote' },
-    // Which annotation exports ride the bundles. An UNSET value follows the mode, so
-    // deviceSetupValues prefills the EFFECTIVE value (see buildBundleFor) — a box reading "off" for
-    // an export the device actually writes would be a lie about what leaves this machine.
-    { k: 'exportEaf', type: 'checkbox' },
-    { k: 'exportSaymore', type: 'checkbox' },
-    { k: 'exportPreview', type: 'checkbox' },
-    // .fxpa: local saves only, never uploads (bandwidth).
-    { k: 'exportJson', type: 'checkbox', note: 'panel.f.exportsNote' },
+    // deleteAllAllowed() and allowDeleteOn() both short-circuit on !Sync.hasSession(), so on a
+    // standalone app these are already ON and cannot be turned off — the switch would be a lie.
+    { k: 'deleteAllEnabled', type: 'checkbox', off: 'setup.off.deleteAllEnabled' },
+    { k: 'allowDelete', type: 'checkbox', off: 'setup.off.allowDelete' },
+    // "Done" reports to a researcher and auto-uploads. Neither end exists here.
+    { k: 'doneEnabled', type: 'checkbox', off: 'setup.off.doneEnabled' },
   ] },
 ];
+
+/* CONSENT AUDIO ON A STANDALONE APP — a picked file, not a Drive link.
+ *
+ * ⚠ THIS ADDS NO NEW ROUTE THROUGH THE CONSENT FLOW, and that is the whole design. requestConsentThen
+ * already reads the prompt as:
+ *     ensureAsset('asset:consent-prompt', settings.consentAudio, …) || getAsset('asset:consent-prompt')
+ * ensureAsset returns null the moment there is no URL, so a blob written straight into that same
+ * media key is picked up by the EXISTING fallback — playback, the IRB freeze of the exact prompt
+ * that was played, and the copy bundled beside the response all keep working untouched.
+ *
+ * ⚠ URL AND FILE CANNOT BOTH BE LIVE: ensureAsset re-fetches into that one key and would overwrite
+ * the picked file. So a URL always WINS — `consentLocalAudio()` reports a local file only while
+ * settings.consentAudio is empty. That is what makes a later pairing safe: the researcher pushes a
+ * Drive URL, it takes precedence with no migration step, and nothing here has to notice.
+ *
+ * The picked File is held in memory until Save, so cancelling a half-edited form cannot replace the
+ * prompt a device is already using.
+ */
+let pendingConsentFile = null;
+// The local consent prompt in force, or null. A pushed Drive URL silently outranks it (see above).
+function consentLocalAudio() {
+  return (!settings.consentAudio && settings.consentAudioFile) ? settings.consentAudioFile : null;
+}
 
 const setupFmtDur = (secs) => { const m = Math.floor(secs / 60), s = secs % 60; return s ? `${m} min ${s} s` : `${m} min`; };
 const setupMb = (bytes) => { const mb = bytes / 1048576; return mb >= 10 ? String(Math.round(mb)) : mb.toFixed(1); };
 
-/* ⚠ NOT a disabled control (rule 4). The full explanation — what is missing, and the action that
- * would supply it — is stated ONCE per group, because a group can hold several upload-dependent
- * controls and repeating the same paragraph beside each one reads as noise, which is how a warning
- * stops being read. `data-sact="pair"` opens the same invite-paste flow the Texts toolbar offers. */
-function setupPairWhyHtml() {
-  return `<p class="note setup-gate-why">${esc(t('setup.needsPair'))} `
-       + `<button type="button" class="link-btn" data-sact="pair">${esc(t('setup.needsPairAction'))}</button></p>`;
+/* A field that cannot act on a standalone device. Renders the reason UNDER the control, always
+ * visible — and the `.setup-off` click handler toasts the same sentence, because a subtle line is
+ * easy to miss and a click is exactly what someone does when a control refuses them.
+ *
+ * ⚠ The visible reason is not decoration. A bare `disabled` attribute reads as "broken", which is
+ * the bug Seth's standing rule exists to prevent; the reason is what makes disabling honest instead.
+ * Never render an `off:` field without it. */
+function setupOffHtml(why) {
+  return `<p class="note setup-off-why">${esc(t(why))}</p>`;
 }
-// ...and each affected control still says it for itself, short, right where the reader is looking.
-function setupPairMarkHtml() { return `<span class="setup-gate-mark">${esc(t('setup.needsPairShort'))}</span>`; }
-// Does this group hold anything the pair gate applies to? Decides whether it gets the explanation.
-function setupGroupGated(g) { return g.fields.some((f) => f.needsPair || (f.gateOpts && f.gateOpts.length)); }
+// The short marker that sits inline with the label, so the row reads as unavailable at a glance.
+function setupOffMark() { return `<span class="setup-off-mark">${esc(t('setup.offMark'))}</span>`; }
 
 // One field → its markup. `data-sf` (not the panel's `data-f`) so the two forms can never select
 // into each other if the researcher panel is opened while the Settings tab is in the DOM.
@@ -4007,16 +4071,26 @@ function setupFieldHtml(f) {
   const label = esc(t('panel.f.' + f.k));
   const tip = f.tip ? ` title="${esc(t(f.tip))}"` : '';
   const note = f.note ? `<p class="note">${t(f.note)}</p>` : '';
-  if (f.needsPair) return `<div class="rp-field setup-gated"><span>${label}</span> ${setupPairMarkHtml()}</div>`;
-  if (f.type === 'checkbox') return `<label class="check-label"><input type="checkbox" data-sf="${f.k}"> ${label}</label>${note}`;
+  // An inert field keeps its real control, disabled, plus a reason. `data-off` carries the reason
+  // to the click handler; `.setup-off` is what CSS greys and what the handler listens for.
+  const off = f.off ? ' disabled' : '';
+  const offWrap = (inner) => (f.off
+    ? `<div class="setup-off" data-off="${esc(f.off)}">${inner}${setupOffHtml(f.off)}</div>` : inner);
+
+  if (f.type === 'checkbox') {
+    return offWrap(`<label class="check-label"><input type="checkbox" data-sf="${f.k}"${off}> ${label}${f.off ? ' ' + setupOffMark() : ''}</label>${note}`);
+  }
   if (f.type === 'multicheck') {
-    const gated = f.gateOpts || [];
-    const boxes = f.opts.map((o) => gated.includes(o)
-      // The gated option keeps its PLACE in the row — it has not been removed, it is unavailable —
-      // but it is a <span>, not an input, so there is nothing to click and nothing to grey out.
-      ? `<span class="check-label rp-inline setup-optgate">${esc(t((f.optPrefix || '') + o))}</span>`
-      : `<label class="check-label rp-inline"><input type="checkbox" data-sf="${f.k}" data-v="${o}"> ${esc(t((f.optPrefix || '') + o))}</label>`).join('');
-    return `<div class="rp-field"><span>${label}</span><div class="rp-multi">${boxes}</div></div>${note}`;
+    const offOpts = f.offOpts || [];
+    const boxes = f.opts.map((o) => {
+      const dis = offOpts.includes(o);
+      // ⚠ The option keeps its real checkbox, disabled — NOT a <span>. The first cut rendered it as
+      // italic text and Seth read that as the control having gone missing rather than being off.
+      return `<label class="check-label rp-inline${dis ? ' setup-off' : ''}"${dis ? ` data-off="${esc(f.offOptsWhy)}"` : ''}>`
+           + `<input type="checkbox" data-sf="${f.k}" data-v="${o}"${dis ? ' disabled' : ''}> ${esc(t((f.optPrefix || '') + o))}</label>`;
+    }).join('');
+    const why = offOpts.length ? setupOffHtml(f.offOptsWhy) : '';
+    return `<div class="rp-field"><span>${label}</span><div class="rp-multi">${boxes}</div>${why}</div>${note}`;
   }
   if (f.type === 'action') {
     return `<div class="rp-field"><button type="button" class="secondary-btn" data-sact="${f.k}">${label}</button></div>`
@@ -4026,17 +4100,25 @@ function setupFieldHtml(f) {
     return `<label class="rp-field"><span>${label} — <span id="ds-maxrec-lbl"></span></span>`
          + `<input type="range" data-sf="${f.k}" min="0" max="3600" step="10"></label><p class="note" id="ds-maxrec-est"></p>`;
   }
+  /* The consent prompt as a LOCAL FILE (standalone only — a paired device is handed a Drive URL by
+   * its researcher). `data-sfile`, deliberately NOT `data-sf`: a file input's .value is a fake path,
+   * so it must stay out of collectDeviceSetup/fillDeviceSetup entirely. */
+  if (f.type === 'file') {
+    return `<div class="rp-field"><span>${label}</span>`
+         + `<input type="file" data-sfile="${f.k}" accept="${esc(f.accept || '')}">`
+         + `<p class="note ds-consent-file" id="ds-consent-file"></p></div>${note}`;
+  }
   if (f.type === 'select') {
     const opts = f.opts.map((o) => `<option value="${esc(o)}">${esc(f.optPrefix ? t(f.optPrefix + o) : o)}</option>`).join('');
     // The recording format is the one setting whose consequences are invisible here — whether the
     // result can be called an archival master at all is not guessable from a name in a dropdown.
     const help = f.help === 'recfmt'
       ? `<p class="note"><button type="button" class="link-btn" data-sact="recfmtHelp">${esc(t('recfmt.helpLink'))}</button></p>` : '';
-    return `<label class="rp-field"><span>${label}</span><select data-sf="${f.k}">${opts}</select></label>${help}${note}`;
+    return offWrap(`<label class="rp-field"><span>${label}${f.off ? ' ' + setupOffMark() : ''}</span><select data-sf="${f.k}"${off}>${opts}</select></label>`) + help + note;
   }
   if (f.type === 'textarea') return `<label class="rp-field"><span>${label}</span><textarea data-sf="${f.k}" rows="2"></textarea></label>${note}`;
   const ph = f.ph ? ` placeholder="${esc(f.ph)}"` : '';
-  return `<label class="rp-field"${tip}><span>${label}</span><input data-sf="${f.k}" spellcheck="false"${ph}${tip}></label>${note}`;
+  return offWrap(`<label class="rp-field"${tip}><span>${label}${f.off ? ' ' + setupOffMark() : ''}</span><input data-sf="${f.k}" spellcheck="false"${ph}${tip}${off}></label>`) + note;
 }
 
 // The archive-quality warning heading the Recording group. A website-installed (PWA) device cannot
@@ -4051,12 +4133,16 @@ function setupNoticeHtml(kind) {
 function setupGroupHtml(g) {
   const notice = g.notice ? setupNoticeHtml(g.notice) : '';
   const note = g.note ? `<p class="note">${t(g.note)}</p>` : '';
-  const details = g.details
-    ? `<details class="advanced"><summary>${esc(t(g.details[0]))}</summary><div class="note">${t(g.details[1])}</div></details>` : '';
-  const gate = setupGroupGated(g) ? setupPairWhyHtml() : '';
+  // detailsOff: the disclosure is about a route this device does not have (the >500 MB upload
+  // note). Greyed and unopenable, with the same reason treatment as any other inert control —
+  // removing it would leave a researcher wondering where the guidance went.
+  const details = !g.details ? ''
+    : (g.detailsOff
+        ? `<div class="setup-off" data-off="${esc(g.detailsOff)}"><p class="advanced-off">${esc(t(g.details[0]))} ${setupOffMark()}</p>${setupOffHtml(g.detailsOff)}</div>`
+        : `<details class="advanced"><summary>${esc(t(g.details[0]))}</summary><div class="note">${t(g.details[1])}</div></details>`);
   const fields = g.fields.map(setupFieldHtml).join('');
   return `<div class="rp-group" id="ds-grp-${g.id}" role="tabpanel" aria-labelledby="ds-tab-${g.id}" data-group="${g.id}" hidden>`
-       + `${notice}${note}<fieldset class="rp-fieldset"><legend>${esc(t(g.legend || 'panel.grp.' + g.id))}</legend>${gate}${fields}${details}</fieldset></div>`;
+       + `${notice}${note}<fieldset class="rp-fieldset"><legend>${esc(t(g.legend || 'panel.grp.' + g.id))}</legend>${fields}${details}</fieldset></div>`;
 }
 
 // Stored settings → the form's canonical values.
@@ -4064,7 +4150,10 @@ function deviceSetupValues() {
   const s = settings || {};
   const v = {};
   for (const g of SETUP_GROUPS) for (const f of g.fields) {
-    if (f.type === 'action' || f.needsPair) continue;
+    // ⚠ An `off:` field is still filled from the stored value. Disabled means "you cannot change
+    // this here", never "this shows nothing" — a greyed box displaying a blank where a real setting
+    // lives would misreport the device.
+    if (f.type === 'action' || f.type === 'file') continue;
     // sendOptions / toolbarButtons: absent or empty means "all of them" to allowedSend() and
     // allowedButtons(), so show all of them ticked rather than an empty row that reads as "none".
     if (f.k === 'sendOptions') v.sendOptions = s.sendOptions?.length ? s.sendOptions : SETUP_SEND_OPTS.slice();
@@ -4116,10 +4205,13 @@ function readDeviceSetup(box) {
   const patch = {};
   const has = (k) => !!box.querySelector(`[data-sf="${k}"]`);
   // Keys whose stored name or type differs from the form field are written explicitly below.
-  const SPECIAL = ['sendOptions', 'buttons', 'autoDel', 'consentAudioUrl', 'maxRecordSeconds', 'recordFormat', 'agc',
+  const SPECIAL = ['sendOptions', 'buttons', 'autoDel', 'maxRecordSeconds', 'recordFormat', 'agc',
                    ...SETUP_EXPORT_KEYS];
   for (const g of SETUP_GROUPS) for (const f of g.fields) {
-    if (f.type === 'action' || f.needsPair || SPECIAL.includes(f.k) || !has(f.k)) continue;
+    /* ⚠ `f.off` fields are DISPLAYED but never WRITTEN. They show the stored value greyed; writing
+     * it back would let this surface silently re-assert a setting the user was told it does not
+     * control — and would clobber whatever a researcher pushes the moment the device is paired. */
+    if (f.type === 'action' || f.type === 'file' || f.off || SPECIAL.includes(f.k) || !has(f.k)) continue;
     patch[f.k] = raw[f.k];
   }
   /* ⚠ Exports: store an override ONLY when it DIFFERS from what Audio Segmentation Mode implies,
@@ -4134,9 +4226,14 @@ function readDeviceSetup(box) {
   patch.recordFormat = normRecFormat(raw.recordFormat);
   patch.agc = SETUP_AGC_OPTS.includes(raw.agc) ? raw.agc : 'off';
   patch.toolbarButtons = raw.buttons || [];
-  // Consent audio: store the raw link AND the resolved URL the device actually plays.
-  patch.consentAudioUrl = raw.consentAudioUrl || '';
-  patch.consentAudio = resolveAudioInput(patch.consentAudioUrl);
+  /* Consent audio: this surface only ever sets a LOCAL FILE. It deliberately does not touch
+   * consentAudioUrl / consentAudio — those belong to the researcher-pushed Drive route, and a
+   * standalone device that is later paired must receive them intact. The blob itself is written to
+   * the media store by the Save handler; this records only what it is, for display and validation. */
+  if (pendingConsentFile) {
+    patch.consentAudioFile = { name: pendingConsentFile.name, size: pendingConsentFile.size,
+                               mime: pendingConsentFile.type || 'audio/mpeg' };
+  }
   /* ⚠ The Upload option is not OFFERED here, so it must not be silently REMOVED either. Carry the
    * stored value through — mirroring allowedSend()'s "absent or empty means all four" — or a device
    * that is later paired would come up with uploading switched off and nothing to explain it. */
@@ -4157,7 +4254,10 @@ function validateDeviceSetup(raw) {
   if (blank(raw.vernLang)) out.push({ group: 'languages', field: 'vernLang', msg: t('panel.val.vernLang') });
   if (blank(raw.analLang)) out.push({ group: 'languages', field: 'analLang', msg: t('panel.val.analLang') });
   const ask = Array.isArray(raw.consentAsk) ? raw.consentAsk : [];
-  if (ask.includes('audio') && blank(raw.consentAudioUrl)) out.push({ group: 'consent', field: 'consentAudioUrl', msg: t('panel.val.consentAudio') });
+  // A spoken reminder needs SOMETHING to play: a file picked just now, one already stored, or a
+  // Drive URL a researcher pushed before this device was unpaired again.
+  const haveAudio = !!(pendingConsentFile || consentLocalAudio() || settings.consentAudio);
+  if (ask.includes('audio') && !haveAudio) out.push({ group: 'consent', field: 'consentAudioFile', msg: t('setup.val.consentFile') });
   if (ask.includes('text') && blank(raw.consentMsg)) out.push({ group: 'consent', field: 'consentMsg', msg: t('panel.val.consentMsg') });
   return out;
 }
@@ -4166,6 +4266,12 @@ function validateDeviceSetup(raw) {
 // its tab (each entry jumps there), a red dot on each offending tab, an inline "why" on the field,
 // and focus on the first. Cleared and recomputed on every save attempt. Same shape — and the same
 // CSS — as the researcher panel's flagProblems, so an error looks the same in both places.
+/* ⚠ Finds a field by EITHER attribute. The consent file picker is `data-sfile` (a file input's
+ * .value is a fake path, so it has to stay out of collect/fill) — and a validation problem naming
+ * it would otherwise attach to nothing: the banner appeared, the field said nothing, and the form
+ * looked like it was refusing for no reason. Caught by the browser test, not by reading. */
+const setupFieldEl = (box, k) => box.querySelector(`[data-sf="${k}"], [data-sfile="${k}"]`);
+
 function flagSetupProblems(box, problems, showGroup) {
   box.querySelectorAll('.rp-invalid').forEach((el) => el.classList.remove('rp-invalid'));
   box.querySelectorAll('.rp-fielderr').forEach((el) => el.remove());
@@ -4175,7 +4281,7 @@ function flagSetupProblems(box, problems, showGroup) {
 
   const labelFor = (p) => t('panel.val.fieldAtTab', { field: t('panel.f.' + p.field), tab: t('panel.grp.' + p.group) });
   for (const p of problems) {
-    const el = box.querySelector(`[data-sf="${p.field}"]`);
+    const el = setupFieldEl(box, p.field);
     if (el) {
       const wrap = el.closest('.rp-field, .check-label') || el;
       wrap.classList.add('rp-invalid');
@@ -4195,11 +4301,11 @@ function flagSetupProblems(box, problems, showGroup) {
   if (tabs && tabs.parentNode) tabs.parentNode.insertBefore(banner, tabs); else box.prepend(banner);
   banner.querySelectorAll('.rp-valjump').forEach((btn) => btn.addEventListener('click', () => {
     showGroup(btn.dataset.grp);
-    const f = box.querySelector(`[data-sf="${btn.dataset.fld}"]`);
+    const f = setupFieldEl(box, btn.dataset.fld);
     if (f) { try { f.focus(); } catch { /* noop */ } }
   }));
   showGroup(problems[0].group);
-  const first = box.querySelector(`[data-sf="${problems[0].field}"]`);
+  const first = setupFieldEl(box, problems[0].field);
   if (first) { try { first.focus(); } catch { /* noop */ } }
   const firstLabel = labelFor(problems[0]);
   toast(problems.length === 1
@@ -4220,22 +4326,11 @@ function syncSetupExports(box) {
   }
 }
 
-// Live bits that depend on other fields: the consent message / audio rows only matter when their
-// reminder is actually asked for, and the max-length readout tracks both the slider and the format.
+/* Live bits that depend on other fields. ⚠ The consent message / audio rows are NOT hidden until
+ * their reminder is ticked any more — the panel shows them always, and hiding them here read as
+ * "the consent tab has no fields" (Seth, 2026-08-07). Only the max-length readout is live now,
+ * plus the line naming the consent audio actually in force. */
 function updateSetupConditionals(box) {
-  const checked = (k, v) => !!box.querySelector(`[data-sf="${k}"][data-v="${v}"]:checked`);
-  // Hide the field AND the note that explains it — the note is a sibling AFTER the label, so
-  // hiding the label alone leaves an orphan sentence about a field nobody can see.
-  const setRow = (k, on) => {
-    const el = box.querySelector(`[data-sf="${k}"]`);
-    const r = el && el.closest('.rp-field');
-    if (!r) return;
-    r.hidden = !on;
-    const n = r.nextElementSibling;
-    if (n && n.classList.contains('note')) n.hidden = !on;
-  };
-  setRow('consentMsg', checked('consentAsk', 'text'));
-  setRow('consentAudioUrl', checked('consentAsk', 'audio'));
   const slider = box.querySelector('[data-sf="maxRecordSeconds"]');
   const lbl = box.querySelector('#ds-maxrec-lbl'), est = box.querySelector('#ds-maxrec-est');
   if (slider && lbl && est) {
@@ -4245,6 +4340,18 @@ function updateSetupConditionals(box) {
     lbl.textContent = secs ? setupFmtDur(secs) : t('panel.f.maxRecUnlimited');
     est.textContent = secs ? t('panel.crowd.estimate', { mb: setupMb(bps * secs) })
                            : t('panel.f.perMinEstimate', { mb: setupMb(bps * 60) });
+  }
+  const cf = box.querySelector('#ds-consent-file');
+  if (cf) {
+    const local = consentLocalAudio();
+    /* Three states, and they must be distinguishable: a file chosen but not yet saved, a file
+     * already in force, or nothing. The unsaved case matters — the blob is not written to the media
+     * store until Save, so a user who picks a file and leaves has changed nothing. */
+    if (pendingConsentFile) cf.textContent = t('setup.consentFilePending', { name: pendingConsentFile.name });
+    else if (local) cf.textContent = t('setup.consentFileCurrent', { name: local.name });
+    // A researcher-pushed Drive URL outranks any local file, so say so rather than showing "none".
+    else if (settings.consentAudio) cf.textContent = t('setup.consentFileFromResearcher');
+    else cf.textContent = t('setup.consentFileNone');
   }
 }
 
@@ -4271,6 +4378,7 @@ function renderDeviceSetup() {
     <div class="toolbar"><button type="button" class="primary-btn" data-sact="save">${esc(t('research.save'))}</button></div>`;
   box.replaceChildren(form);
 
+  pendingConsentFile = null;   // a rebuild discards an unsaved pick, same as leaving the page would
   const groups = form.querySelectorAll('.rp-group');
   const showGroup = (id) => {
     groups.forEach((g) => { g.hidden = g.dataset.group !== id; });
@@ -4287,9 +4395,30 @@ function renderDeviceSetup() {
     // Only when the MODE switch itself moves: re-deriving on every change would undo an export the
     // user had just clicked off.
     if (e.target && e.target.dataset && e.target.dataset.sf === 'segmentation') syncSetupExports(form);
+    /* The consent prompt file. HELD IN MEMORY until Save — writing the media store on pick would
+     * replace the prompt a device is already using the instant someone opened the file dialog to
+     * look, with no way back. */
+    if (e.target && e.target.dataset && e.target.dataset.sfile === 'consentAudioFile') {
+      const file = e.target.files && e.target.files[0];
+      if (file) {
+        // Refuse a non-audio pick HERE rather than at play time, when the speaker is waiting.
+        if (file.type && !/^audio\//.test(file.type)) {
+          e.target.value = '';
+          toast(t('setup.consentFileNotAudio', { name: file.name }), 6000);
+        } else pendingConsentFile = file;
+      }
+    }
     updateSetupConditionals(form);
   });
   form.addEventListener('input', (e) => { if (e.target.type === 'range') updateSetupConditionals(form); });
+  /* ⚠ THE HALF THAT MAKES DISABLING HONEST. A disabled control is what someone clicks when it
+   * refuses them, so the click has to answer. Capture phase and a listener on the CONTAINER,
+   * because a disabled <input> dispatches no events of its own — the click lands on the wrapping
+   * label/div, which is exactly what carries data-off. */
+  form.addEventListener('click', (e) => {
+    const off = e.target.closest('.setup-off');
+    if (off && off.dataset.off) { toast(t(off.dataset.off), 7000); return; }
+  }, true);
   form.addEventListener('click', (e) => {
     const act = e.target.closest('[data-sact]');
     if (!act) return;
@@ -4308,10 +4437,36 @@ function renderDeviceSetup() {
       return;
     }
     if (which !== 'save') return;
+    saveDeviceSetup(form, showGroup);
+  });
+
+  fillDeviceSetup();
+}
+
+// The Save action, lifted out so it can await the media write.
+async function saveDeviceSetup(form, showGroup) {
+  {
     const problems = validateDeviceSetup(collectDeviceSetup(form));
     if (problems.length) { flagSetupProblems(form, problems, showGroup); return; }
     flagSetupProblems(form, [], showGroup);      // clear leftover markers from an earlier attempt
     const patch = readDeviceSetup(form);
+    /* Commit the picked prompt to the media store under the key requestConsentThen already falls
+     * back to. Done BEFORE the settings write so a failure here (quota, private mode) leaves the
+     * old prompt AND the old setting in place rather than a setting pointing at nothing. */
+    if (pendingConsentFile) {
+      const f = pendingConsentFile;
+      try {
+        await db.putMedia('asset:consent-prompt', {
+          blob: f, name: f.name, mimeType: f.type || 'audio/mpeg',
+          // sourceId marks WHICH file this is, the same role a Drive id plays for the URL route.
+          sourceId: `local:${f.name}:${f.size}:${f.lastModified || 0}`,
+        });
+        pendingConsentFile = null;
+      } catch (err) {
+        toast(t('setup.consentFileFailed', { msg: err.message }), 8000);
+        return;
+      }
+    }
     Object.assign(settings, patch);
     // An undefined in the patch means "go back to having no stored value" (the export toggles that
     // are following the mode). Object.assign would leave the key present-but-undefined, which is
@@ -4321,15 +4476,13 @@ function renderDeviceSetup() {
     delete settings.consentResp;                 // superseded by the consentConfirm array
     saveSettings(settings);
     settings = loadSettings();
-    if (patch.consentAudioUrl && !patch.consentAudio) toast(t('task.badAudio'), 6000);
     // Everything the changed settings drive, repainted in place: toolbar button visibility, the
     // writing-system banner, the doc list, and a live segmentation flip if a text is open.
     applyLiveSettings();
     syncConsentAudio();
+    fillDeviceSetup();      // repaint the "audio in force" line now the pick has been committed
     toast(t('toast.settingsSaved'));
-  });
-
-  fillDeviceSetup();
+  }
 }
 
 function setupResearch() {
@@ -5604,6 +5757,7 @@ function setup() {
   // ----- Full editor wiring -----
   $$('#topbar-home .top-tab').forEach(b => b.addEventListener('click', () => {
     if (b.dataset.view === 'research') { renderDeviceSetup(); show('research'); }
+    else if (b.dataset.view === 'utilities') { show('utilities'); }   // static markup — nothing to build
     else { renderDocList(); show('texts'); }
   }));
   $$('#topbar-editor .top-tab').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));

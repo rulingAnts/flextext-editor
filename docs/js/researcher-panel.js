@@ -307,6 +307,25 @@ const GROUPS = [
     { k: 'vernLang', type: 'text', tip: 'research.wsCase' },
     { k: 'analLang', type: 'text', tip: 'research.wsCase' },
   ] },
+  /* Audio Segmentation Mode and the exports it governs, on their OWN tab between Languages and
+   * Recording (Seth, 2026-08-07). They were the tail of the Buttons tab, which put a mode that
+   * rewrites both editing tabs — and the annotation files a text ships with — behind a heading about
+   * which buttons show. The exports come with it: their own note says they follow this mode and
+   * only apply to texts that have time alignment, so reading them apart from it was never possible. */
+  { id: 'segmentation', fields: [
+    // Default OFF — the classic textarea workflow is untouched unless the researcher deliberately
+    // enables it; the note tells them to trial it with one worker first. Turning it off later hides
+    // the UI but never deletes segments.
+    { k: 'segmentation', type: 'checkbox', note: 'panel.f.segmentationNote' },
+    // Which annotation exports ride the bundles (Seth, 2026-08-03): each is researcher-selectable;
+    // an UNSET value follows the mode. toFormValues prefils these with the EFFECTIVE value so the
+    // checkboxes never lie about what the device actually exports.
+    { k: 'exportEaf', type: 'checkbox' },
+    { k: 'exportSaymore', type: 'checkbox' },
+    { k: 'exportPreview', type: 'checkbox' },
+    // .fxpa: the Paragraph Analysis app's interchange. Local saves only — never uploads (bandwidth).
+    { k: 'exportJson', type: 'checkbox', note: 'panel.f.exportsNote' },
+  ] },
   { id: 'recording', helpModal: 'recfmt', notice: 'pwaAudio', fields: [
     { k: 'recordFormat', type: 'select', opts: REC_KEYS, optPrefix: 'panel.opt.fmt.' },  // the permanent recording format
     { k: 'maxRecordSeconds', type: 'range' },   // auto-stop cap (0 = no limit) + live size readout
@@ -332,7 +351,7 @@ const GROUPS = [
     { k: 'autoBackupMins', type: 'select', opts: ['5', '15', '30', '60'], optPrefix: 'panel.opt.abm.' },
     { k: 'recordWelcome', type: 'text' },
   ] },
-  { id: 'buttons', fields: [
+  { id: 'other', fields: [
     { k: 'buttons', type: 'multicheck', opts: BTN_OPTS, optPrefix: 'panel.opt.btn.' },
     // Let the coworker fully wipe THIS device (Delete All). Off by default for managed devices; standalone
     // apps always have it. deviceOnly → not shown in the researcher's own local-settings modal.
@@ -343,21 +362,6 @@ const GROUPS = [
     // Show the coworker an optional "Done" button on each text; marking done auto-uploads
     // and surfaces a "done" badge to the researcher. Off by default.
     { k: 'doneEnabled', type: 'checkbox' },
-    // Audio Segmentation Mode: the Baseline/Gloss tabs become time-aligned waveform strips with
-    // per-line playback and Enter-at-playhead line breaks. Default OFF — the classic textarea
-    // workflow is untouched unless the researcher deliberately enables it; the note tells them to
-    // trial it with one worker first. Turning it off later hides the UI but never deletes segments.
-    { k: 'segmentation', type: 'checkbox', note: 'panel.f.segmentationNote' },
-    // Which annotation exports ride the bundles (Seth, 2026-08-03): each is researcher-selectable;
-    // an UNSET value follows the mode (basic editor → flextext only; segmentation → all three on).
-    // toFormValues prefils these with the EFFECTIVE value so the checkboxes never lie about what
-    // the device actually exports. All require real time alignment on the text to apply at all.
-    { k: 'exportEaf', type: 'checkbox' },
-    { k: 'exportSaymore', type: 'checkbox' },
-    { k: 'exportPreview', type: 'checkbox' },
-    // .fxpa: the Paragraph Analysis app's interchange (JSON + embedded audio inside a
-    // proprietary extension). Local saves only — never uploads (bandwidth).
-    { k: 'exportJson', type: 'checkbox', note: 'panel.f.exportsNote' },
   ] },
 ];
 

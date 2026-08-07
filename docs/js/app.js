@@ -61,6 +61,9 @@ const PARAGRAPH_MODE = typeof window !== 'undefined' && window.__MODE === 'parag
 
 // The Texts-screen "new text" buttons a researcher can show/hide per link.
 const ALL_BUTTONS = ['new', 'audio', 'record', 'open'];
+/* The send options a device can be given. 'download' is deliberately ABSENT: it is a legacy alias
+ * of 'save' (see allowedSend) and must never be offered or written again. */
+const SEND_OPTIONS = ['share', 'upload', 'save'];
 
 // Default Google Drive relay (docs/drive-relay.gs) used for Drive share links
 // when the researcher hasn't configured their own. The relay is permissionless
@@ -189,7 +192,9 @@ function applyUrlSettings() {
     }
     if (p.has('send')) {
       s.sendOptions = p.get('send').split(',')
-        .filter(o => ['share', 'upload', 'save', 'download'].includes(o));
+        .filter(o => ['share', 'upload', 'save', 'download'].includes(o))
+        // A link minted before v297 may still say `download`; it means `save`.
+        .map(o => (o === 'download' ? 'save' : o));
     }
     // Consent is multi-select. New array params win; legacy single consentMode/consentResp are migrated,
     // preserving "off = off". (Link builders are gone, but legacy links + hand-built URLs still work.)
@@ -2003,7 +2008,7 @@ function recordingProvenance(r) {
     native: nat,
     // Browser-path DSP. These are OUR settings, so they are facts about what we asked the browser
     // for — not a claim about what it actually did, which no web API will tell us.
-    agc: !nat ? agcOn() : undefined,
+    agc: !nat ? effectiveAgc() : undefined,
     nr: !nat ? !!settings.nr : undefined,
     echo: !nat ? !!settings.echo : undefined,
     normalized: !nat ? !!settings.norm : undefined,
@@ -2674,11 +2679,22 @@ function focusNextWordGloss(fromInput, dir) {
 /* ---------------- Save and send ---------------- */
 
 /* Which save/send buttons THIS device shows — settings.sendOptions, set either by a researcher
- * push, a link, or (since v289) the device's own Settings tab. Absent or empty means all four. */
+ * push, a link, or (since v289) the device's own Settings tab. Absent or empty means all of them.
+ *
+ * ⚠ 'download' IS A LEGACY ALIAS OF 'save', NOT A SEPARATE CAPABILITY (Seth, 2026-08-07). They were
+ * two checkboxes that could never both take effect: the share menu showed the file PICKER when the
+ * browser had one and a blind download only when it did not, so the second was a fallback for the
+ * first rather than a peer. Worse, `save` alone on Firefox — which has no showSaveFilePicker —
+ * produced a share menu with NO BUTTONS IN IT, so "Done · Send" appeared to do nothing at all.
+ *
+ * Now ONE setting, one button, and the button quietly uses whichever mechanism the browser has.
+ * The old value is still READ so that devices already carrying it, and any link that still sends
+ * `send=download`, keep working — it must never be written again. */
 function allowedSend() {
-  return new Set(settings.sendOptions?.length
-    ? settings.sendOptions
-    : ['share', 'upload', 'save', 'download']);
+  const stored = settings.sendOptions?.length ? settings.sendOptions : SEND_OPTIONS;
+  const out = new Set(stored);
+  if (out.has('download')) out.add('save');     // legacy alias — a device set up before v297
+  return out;
 }
 
 // Which Texts-screen "new text" buttons THIS device shows. A received link sets
@@ -3347,12 +3363,38 @@ async function buildDocFromFlextextUrl(url, title) {
   return doc;
 }
 
-// Hide the whole "Save and send…" button if the researcher disabled
-// every option this device could offer.
-function updateShareButton() {
+/* Can THIS browser hand a file to another app? Desktop Firefox and Safari cannot — navigator.share
+ * with files is Chromium and mobile only. The menu shares the flextext as text/plain, so a
+ * text/plain probe answers exactly the question the menu will ask. */
+function canShareFiles() {
+  try {
+    return !!(navigator.canShare && navigator.canShare({ files: [new File([''], 'a.txt', { type: 'text/plain' })] }));
+  } catch { return false; }
+}
+
+/* What this device can ACTUALLY do with a finished text, right now — permission AND capability.
+ *
+ * ⚠ ONE FUNCTION, USED BY BOTH the Send button's visibility and the menu it opens. They used to
+ * compute this separately and could therefore disagree, and they did: the button counted
+ * `allow.has('share')` while the menu additionally required navigator.canShare, so a device
+ * permitted only Share showed a Send button that opened an EMPTY MENU. The same shape of bug hit
+ * 'save' on Firefox. A button that opens nothing is the worst version of "cannot act": it does not
+ * even look disabled. Keep these in one place so the two can never drift again. */
+function sendCapabilities() {
   const allow = allowedSend();
-  const any = allow.has('share') || allow.has('save') || allow.has('download') ||
-    (allow.has('upload') && !!Sync.workerUploadTarget());
+  return {
+    share: allow.has('share') && canShareFiles(),
+    upload: allow.has('upload') && !!Sync.workerUploadTarget(),
+    // Always writable when permitted: a file picker where the browser has one, a plain download
+    // where it does not. There is no browser in which this is unavailable.
+    save: allow.has('save'),
+  };
+}
+
+// Hide the whole "Save and send…" button if nothing it opens could actually do anything.
+function updateShareButton() {
+  const c = sendCapabilities();
+  const any = c.share || c.upload || c.save;
   $('#btn-share').hidden = !any;
 }
 
@@ -3637,19 +3679,23 @@ async function openShareMenu() {
   const shareFile = new File([bundle.xmlBlob], bundle.xmlName + '.txt', { type: 'text/plain' });
   const canShare = !!(navigator.canShare && navigator.canShare({ files: [shareFile] }));
   const canPick = !!window.showSaveFilePicker;
-  const allow = allowedSend();
-  const showShare = canShare && allow.has('share');
-  const showUpload = allow.has('upload') && !!Sync.workerUploadTarget();
-  const showSave = canPick && allow.has('save');
-  // Blind download only when no picker is offered (Firefox) or save is off.
-  const showDownload = allow.has('download') && !showSave;
+  const caps = sendCapabilities();                       // the SAME rules the Send button used
+  const showShare = canShare && caps.share;
+  const showUpload = caps.upload;
+  /* ⚠ ONE SAVE BUTTON, AND IT IS NEVER HIDDEN BY A MISSING BROWSER FEATURE. It used to be two —
+   * the picker button, and a blind-download button shown only when the picker was absent. On
+   * Firefox that meant a device allowed ONLY 'save' got an empty share menu, because the picker
+   * button was hidden and the download button was not permitted. The setting was unsatisfiable and
+   * said nothing. Now the permission decides whether the button exists and the BROWSER decides how
+   * it behaves; a writing method always exists, so this can no longer render nothing. */
+  const showSave = caps.save;
   $('#share-share').hidden = !showShare;
   $('#share-upload').hidden = !showUpload;
   $('#share-saveas').hidden = !showSave;
-  $('#share-download').hidden = !showDownload;
+  $('#share-download').hidden = true;                  // retired; the markup stays for older shells
   $('#share-upload').className = showShare ? 'secondary-btn' : 'primary-btn';
   $('#share-saveas').className = (showShare || showUpload) ? 'secondary-btn' : 'primary-btn';
-  $('#share-download').className = (showShare || showUpload || showSave) ? 'secondary-btn' : 'primary-btn';
+  $('#share-saveas').textContent = t(canPick ? 'share.saveas' : 'share.download');
   $('#share-menu').hidden = false;
 
   $('#share-share').onclick = async () => {
@@ -3661,7 +3707,22 @@ async function openShareMenu() {
     }
   };
   $('#share-upload').onclick = () => { closeShareMenu(); doUpload(); };
+  /* ⚠ ONE HANDLER, TWO MECHANISMS, and the fallback is not optional. showSaveFilePicker is
+   * Chromium/Edge only — Firefox and Safari have never had it — so a save path that depends on it
+   * simply does not exist for a large share of users. It picks the best available method and always
+   * writes the file: a picker where there is one (choose folder and name), a plain download where
+   * there is not (straight to Downloads). A researcher configuring a device is choosing WHETHER
+   * this device may write files, never which browser API does it. */
+  const blindDownload = () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(bundle.blob);
+    a.download = bundle.filename;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+    closeShareMenu();
+  };
   $('#share-saveas').onclick = async () => {
+    if (!window.showSaveFilePicker) { blindDownload(); return; }
     try {
       const handle = await window.showSaveFilePicker({
         suggestedName: bundle.filename,
@@ -3675,16 +3736,11 @@ async function openShareMenu() {
       closeShareMenu();
       toast(t('toast.saved'));
     } catch (e) {
-      if (e.name !== 'AbortError') toast(t('toast.saveFailed', { msg: e.message }));
+      if (e.name === 'AbortError') return;                 // the user closed the picker: not a failure
+      /* The picker EXISTED but refused — a cross-origin iframe, a locked-down policy, a quota. The
+       * work still has to leave the device, so fall back rather than report a dead end. */
+      blindDownload();
     }
-  };
-  $('#share-download').onclick = () => {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(bundle.blob);
-    a.download = bundle.filename;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 30000);
-    closeShareMenu();
   };
   $('#share-cancel').onclick = closeShareMenu;
 }
@@ -3998,11 +4054,17 @@ function closeShareMenu() { $('#share-menu').hidden = true; applyUpdateIfSafe();
  */
 
 const SETUP_AGC_OPTS = ['off', 'on', 'auto'];
-const SETUP_SEND_OPTS = ['share', 'upload', 'save', 'download'];
-/* Send options an UNPAIRED device cannot choose (rule 3). Named once because two places must agree:
- * the renderer that replaces them with an explanation, and readDeviceSetup(), which carries the
- * STORED value through untouched — an unofferable control is not a control set to "off". */
-const SETUP_PAIR_ONLY_SEND = ['upload'];
+/* ⚠ NO 'download' HERE. It and 'save' were two checkboxes for ONE capability — the share menu used
+ * a file picker where the browser had one and a blind download where it did not, so the second was
+ * a fallback for the first and they could never both appear. Worse, 'save' alone on Firefox (no
+ * showSaveFilePicker) produced a share menu with no buttons in it. One option now; the button picks
+ * its own mechanism. allowedSend() still READS the old value so existing devices keep working. */
+const SETUP_SEND_OPTS = ['share', 'upload', 'save'];
+/* ⚠ The gated send options now live on the FIELD itself (`offOpts`, a { value: reasonKey } map) and
+ * are extended at render time by setupOffOpts() with anything the BROWSER cannot do — Share on
+ * desktop Firefox and Safari. Kept as one constant would have been a lie the moment the second
+ * source of truth appeared. readDeviceSetup() asks setupOffOpts() for the live list, so a gated
+ * option's stored value is carried through untouched however it came to be gated. */
 /* The annotation exports whose UNSET value follows Audio Segmentation Mode (see buildBundleFor).
  * They live in the same group as the mode switch here, so both get flipped in one save — which is
  * exactly where "unset follows the mode" is easiest to break. */
@@ -4069,7 +4131,7 @@ const SETUP_GROUPS = [
     // Upload rides the researcher's Google Drive (see notes/uploadoauthdriveplan): a standalone
     // device holds no OAuth, and openShareMenu() already hides the button when there is no target.
     { k: 'sendOptions', type: 'multicheck', opts: SETUP_SEND_OPTS, optPrefix: 'panel.opt.send.',
-      offOpts: SETUP_PAIR_ONLY_SEND, offOptsWhy: 'setup.off.upload' },
+      offOpts: { upload: 'setup.off.upload' }, note: 'setup.sendNote' },
     // Both of these are downstream of an upload that cannot happen: autoBackupSweep() bails on
     // !Sync.workerUploadTarget(), and deleteAfterUpload() is only ever consulted once an upload
     // has succeeded. Dead switches, so they say so.
@@ -4127,6 +4189,23 @@ const setupMb = (bytes) => { const mb = bytes / 1048576; return mb >= 10 ? Strin
 function setupOffHtml(why) {
   return `<p class="note setup-off-why">${esc(t(why))}</p>`;
 }
+/* Which options of a multicheck this DEVICE cannot offer, and WHY — { value: reasonKey }.
+ *
+ * Two sources. `f.offOpts` is a fixed rule of the surface (upload needs a paired researcher, which
+ * a standalone app can never have). The rest is asked of the BROWSER, because some of it is not
+ * knowable in advance: desktop Firefox and Safari have no navigator.share for files, so ticking
+ * Share there configures a button that cannot appear.
+ *
+ * ⚠ THIS IS ONLY SOUND BECAUSE THIS FORM CONFIGURES **THIS** DEVICE. The researcher panel must
+ * never capability-gate: it configures OTHER people's devices, whose browsers it cannot see, and
+ * disabling Share there because the RESEARCHER's laptop lacks it would withhold a working feature
+ * from every phone in the field. */
+function setupOffOpts(f) {
+  const out = { ...(f.offOpts || {}) };
+  if (f.k === 'sendOptions' && !canShareFiles()) out.share = 'setup.off.share';
+  return out;
+}
+
 // The short marker that sits inline with the label, so the row reads as unavailable at a glance.
 function setupOffMark() { return `<span class="setup-off-mark">${esc(t('setup.offMark'))}</span>`; }
 
@@ -4146,16 +4225,17 @@ function setupFieldHtml(f) {
     return offWrap(`<label class="check-label"><input type="checkbox" data-sf="${f.k}"${off}> ${label}${f.off ? ' ' + setupOffMark() : ''}</label>${note}`);
   }
   if (f.type === 'multicheck') {
-    const offOpts = f.offOpts || [];
+    const offOpts = setupOffOpts(f);                     // { optionValue: reasonKey }
     const boxes = f.opts.map((o) => {
-      const dis = offOpts.includes(o);
+      const why = offOpts[o];
       // ⚠ The option keeps its real checkbox, disabled — NOT a <span>. The first cut rendered it as
       // italic text and Seth read that as the control having gone missing rather than being off.
-      return `<label class="check-label rp-inline${dis ? ' setup-off' : ''}"${dis ? ` data-off="${esc(f.offOptsWhy)}"` : ''}>`
-           + `<input type="checkbox" data-sf="${f.k}" data-v="${o}"${dis ? ' disabled' : ''}> ${esc(t((f.optPrefix || '') + o))}</label>`;
+      return `<label class="check-label rp-inline${why ? ' setup-off' : ''}"${why ? ` data-off="${esc(why)}"` : ''}>`
+           + `<input type="checkbox" data-sf="${f.k}" data-v="${o}"${why ? ' disabled' : ''}> ${esc(t((f.optPrefix || '') + o))}</label>`;
     }).join('');
-    const why = offOpts.length ? setupOffHtml(f.offOptsWhy) : '';
-    return `<div class="rp-field"><span>${label}</span><div class="rp-multi">${boxes}</div>${why}</div>${note}`;
+    // One reason line per DISTINCT reason — two gated options for the same cause say it once.
+    const whys = [...new Set(Object.values(offOpts))].map(setupOffHtml).join('');
+    return `<div class="rp-field"><span>${label}</span><div class="rp-multi">${boxes}</div>${whys}</div>${note}`;
   }
   if (f.type === 'action') {
     return `<div class="rp-field"><button type="button" class="secondary-btn" data-sact="${f.k}">${label}</button></div>`
@@ -4304,7 +4384,8 @@ function readDeviceSetup(box) {
    * that is later paired would come up with uploading switched off and nothing to explain it. */
   patch.sendOptions = raw.sendOptions || [];
   const before = new Set(settings.sendOptions?.length ? settings.sendOptions : SETUP_SEND_OPTS);
-  for (const o of SETUP_PAIR_ONLY_SEND) if (before.has(o) && !patch.sendOptions.includes(o)) patch.sendOptions.push(o);
+  const gated = Object.keys(setupOffOpts(SETUP_GROUPS.flatMap((g) => g.fields).find((f) => f.k === 'sendOptions')));
+  for (const o of gated) if (before.has(o) && !patch.sendOptions.includes(o)) patch.sendOptions.push(o);
   return patch;
 }
 
@@ -4318,6 +4399,26 @@ function validateDeviceSetup(raw) {
   const out = [];
   if (blank(raw.vernLang)) out.push({ group: 'languages', field: 'vernLang', msg: t('panel.val.vernLang') });
   if (blank(raw.analLang)) out.push({ group: 'languages', field: 'analLang', msg: t('panel.val.analLang') });
+  /* ⚠ A DEVICE MUST HAVE SOME WAY TO GET WORK OUT (Seth, 2026-08-07): "it is definitely possible to
+   * set up an app as a dead end that can't save or send anything outside browser storage." Ticking
+   * nothing here produced exactly that — texts recorded and glossed into IndexedDB with no route to
+   * a file, a phone, or a researcher, and nothing anywhere saying so.
+   *
+   * ⚠ UPLOAD DOES NOT COUNT ON THIS FORM. It is disabled here precisely because a standalone app
+   * has no Drive account, so accepting it as "a way out" would let the dead end back in through the
+   * one control that cannot act. Share is browser-dependent; Save always works (picker or plain
+   * download), so a valid setup always exists. */
+  /* ⚠ SHARE IS NOT A WAY OUT FOR THE WORK, only for the words (Seth, 2026-08-07). Chromium's
+   * navigator.share() accepts an allowlisted set of file types, and neither XML nor ZIP is on it —
+   * so Share sends the bare .flextext renamed .txt and NOTHING else: no audio, no EAF, no .fxpa, no
+   * preview page, no derived WAV. A device permitted only Share can record and gloss and align for
+   * weeks and never get one second of audio off itself. That is the dead end, wearing a working
+   * button. Save always works here (picker, or a plain download where the browser has no picker),
+   * so a valid setup always exists; upload is disabled on this form and cannot count. */
+  const send = Array.isArray(raw.sendOptions) ? raw.sendOptions : [];
+  if (!send.includes('save')) {
+    out.push({ group: 'sending', field: 'sendOptions', msg: t('setup.val.sendNone') });
+  }
   const ask = Array.isArray(raw.consentAsk) ? raw.consentAsk : [];
   // A spoken reminder needs SOMETHING to play: a file picked just now, one already stored, or a
   // Drive URL a researcher pushed before this device was unpaired again.
@@ -4412,8 +4513,14 @@ function updateSetupConditionals(box) {
     /* Three states, and they must be distinguishable: a file chosen but not yet saved, a file
      * already in force, or nothing. The unsaved case matters — the blob is not written to the media
      * store until Save, so a user who picks a file and leaves has changed nothing. */
+    /* ⚠ "Now playing" MUST NOT BE SAID WHEN IT IS NOT PLAYING. A file can be stored while the
+     * Spoken reminder box is unticked, and then nothing plays — Seth picked an mp3, saw this line
+     * claim it was in use, recorded, and got no audio. The file was fine; the sentence was false.
+     * A stored file and an enabled prompt are two different facts, so say which one you have. */
+    const askAudio = !!box.querySelector('[data-sf="consentAsk"][data-v="audio"]:checked');
     if (pendingConsentFile) cf.textContent = t('setup.consentFilePending', { name: pendingConsentFile.name });
-    else if (local) cf.textContent = t('setup.consentFileCurrent', { name: local.name });
+    else if (local && askAudio) cf.textContent = t('setup.consentFileCurrent', { name: local.name });
+    else if (local) cf.textContent = t('setup.consentFileIdle', { name: local.name });
     // A researcher-pushed Drive URL outranks any local file, so say so rather than showing "none".
     else if (settings.consentAudio) cf.textContent = t('setup.consentFileFromResearcher');
     else cf.textContent = t('setup.consentFileNone');

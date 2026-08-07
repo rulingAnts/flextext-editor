@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v296';
+export const ENGINE_VERSION = 'v297';
 
 const S = {
 en: {
@@ -243,6 +243,7 @@ en: {
   'setup.offMark': '(not relevant for a standalone app)',
   'setup.off.appLang': 'Change this app\u2019s language with the selector at the top of the screen. This box is how a researcher pushes a language to a device they manage.',
   'setup.off.upload': 'Uploading goes through a researcher\u2019s Google Drive, and this app is not linked to a researcher \u2014 so there is no Drive account to upload to. Everything else on this page works without one.',
+  'setup.off.share': 'This browser cannot hand a file to another app — Share needs Chrome, Edge, or a phone. On Firefox and Safari for desktop the button would never appear. Use “Save to file”, which works everywhere.',
   'setup.off.autoDel': 'This removes a text once it has safely uploaded. Nothing uploads from a standalone app, so there is nothing for it to do.',
   'setup.off.autoBackup': 'Auto-backup sends changed texts to a researcher\u2019s Google Drive. A standalone app has no Drive account to send them to.',
   'setup.off.deleteAllEnabled': 'A standalone app always has Delete All \u2014 it is your own app, so it is never withheld. A researcher can switch it off on a device they manage.',
@@ -252,11 +253,14 @@ en: {
   'setup.consentFileNote': 'Choose a sound file from this device. The app keeps its own copy, so the reminder keeps working offline and even if you later move or delete the original. A researcher-managed device is given this by its researcher instead.',
   'setup.consentFilePending': 'Chosen: {name} \u2014 press Save settings to start using it.',
   'setup.consentFileCurrent': 'Now playing as the spoken reminder: {name}',
+  'setup.consentFileIdle': 'Stored on this device: {name} — but “Spoken reminder” above is not ticked, so nothing will play. Tick it to use this file.',
   'setup.consentFileFromResearcher': 'A researcher set the spoken reminder for this device. Theirs is used instead of a file chosen here.',
   'setup.consentFileNone': 'No sound file chosen yet.',
   'setup.consentFileNotAudio': '{name} is not a sound file. Choose an audio file \u2014 MP3, WAV, M4A or OGG.',
   'setup.consentFileFailed': 'Could not save the sound file: {msg}. The reminder you were using before is unchanged.',
   'setup.val.consentFile': 'Choose a sound file for the spoken reminder, or turn the spoken reminder off.',
+  'setup.val.sendNone': 'Tick “Save to file”. Without it nothing but the plain text can ever leave this device — not the audio, and none of the annotation files. It always works, on every browser.',
+  'setup.sendNote': '“Share” can only carry the plain text: phones accept a limited set of file types, and neither the .flextext nor the bundle zip is one, so it sends the words alone — no audio, no ELAN/SayMore files, no Paragraph Analysis file. Those travel by Save to file or Upload.',
   'setup.managed': 'This device is set up by the researcher it is linked to, so these settings are not edited here \u2014 they arrive from them.',
   'research.save': 'Save settings',
   'research.copyLink': 'Copy setup link for coworker',
@@ -994,6 +998,7 @@ internet after the first time.</p>
   'panel.val.assentUpload': 'Recorded assent has to be uploaded — add a Google Drive folder on the Sending tab.',
   'panel.val.consentAudio': '\u201cSpoken reminder\u201d is switched on \u2014 add the recording that will be played to the speaker.',
   'panel.val.consentMsg': 'Text consent is on — enter the consent message.',
+  'panel.val.sendNone': 'Tick “Upload” or “Save to file”. Share alone sends only the plain text — no audio and no annotation files — so the device could never deliver a recording.',
   'panel.grp.languages': 'Languages',
   'panel.legend.languages': 'FLEx Writing System Codes',
   'panel.grp.moreInfo': 'more info…',
@@ -1632,6 +1637,7 @@ id: {
   'setup.offMark': '(tidak berlaku untuk aplikasi mandiri)',
   'setup.off.appLang': 'Ubah bahasa aplikasi ini lewat pemilih di bagian atas layar. Kotak ini adalah cara peneliti mengirim bahasa ke perangkat yang mereka kelola.',
   'setup.off.upload': 'Unggahan berjalan lewat Google Drive milik peneliti, dan aplikasi ini belum tertaut ke peneliti mana pun \u2014 jadi tidak ada akun Drive tujuan unggahan. Semua hal lain di halaman ini tetap berfungsi tanpa itu.',
+  'setup.off.share': 'Peramban ini tidak dapat menyerahkan berkas ke aplikasi lain — Bagikan memerlukan Chrome, Edge, atau ponsel. Di Firefox dan Safari desktop tombolnya tidak akan pernah muncul. Gunakan “Simpan ke berkas”, yang berfungsi di mana saja.',
   'setup.off.autoDel': 'Ini menghapus teks setelah terunggah dengan aman. Tidak ada yang diunggah dari aplikasi mandiri, jadi tidak ada yang perlu dilakukan.',
   'setup.off.autoBackup': 'Cadangan otomatis mengirim teks yang berubah ke Google Drive peneliti. Aplikasi mandiri tidak punya akun Drive tujuan.',
   'setup.off.deleteAllEnabled': 'Aplikasi mandiri selalu punya Hapus Semua \u2014 ini aplikasi Anda sendiri, jadi tidak pernah ditahan. Peneliti dapat mematikannya di perangkat yang mereka kelola.',
@@ -1641,11 +1647,14 @@ id: {
   'setup.consentFileNote': 'Pilih berkas suara dari perangkat ini. Aplikasi menyimpan salinannya sendiri, jadi pengingat tetap berfungsi luring dan bahkan jika berkas aslinya nanti dipindah atau dihapus. Perangkat yang dikelola peneliti menerimanya dari peneliti.',
   'setup.consentFilePending': 'Dipilih: {name} \u2014 tekan Simpan pengaturan untuk mulai memakainya.',
   'setup.consentFileCurrent': 'Kini diputar sebagai pengingat lisan: {name}',
+  'setup.consentFileIdle': 'Tersimpan di perangkat ini: {name} — tetapi “Pengingat lisan” di atas belum dicentang, jadi tidak ada yang akan diputar. Centang untuk memakai berkas ini.',
   'setup.consentFileFromResearcher': 'Peneliti telah mengatur pengingat lisan untuk perangkat ini. Milik mereka dipakai, bukan berkas yang dipilih di sini.',
   'setup.consentFileNone': 'Belum ada berkas suara yang dipilih.',
   'setup.consentFileNotAudio': '{name} bukan berkas suara. Pilih berkas audio \u2014 MP3, WAV, M4A, atau OGG.',
   'setup.consentFileFailed': 'Tidak dapat menyimpan berkas suara: {msg}. Pengingat yang Anda pakai sebelumnya tidak berubah.',
   'setup.val.consentFile': 'Pilih berkas suara untuk pengingat lisan, atau matikan pengingat lisan.',
+  'setup.val.sendNone': 'Centang “Simpan ke berkas”. Tanpa itu, tidak ada yang bisa keluar dari perangkat ini selain teks biasa — bukan audionya, dan bukan berkas anotasinya. Ini selalu berfungsi di semua peramban.',
+  'setup.sendNote': '“Bagikan” hanya dapat membawa teks biasa: ponsel hanya menerima sebagian jenis berkas, dan .flextext maupun zip bundelnya tidak termasuk, jadi yang terkirim hanya kata-katanya — tanpa audio, tanpa berkas ELAN/SayMore, tanpa berkas Analisis Paragraf. Semua itu lewat Simpan ke berkas atau Unggah.',
   'setup.managed': 'Perangkat ini disiapkan oleh peneliti yang menautkannya, jadi pengaturan ini tidak diubah di sini \u2014 pengaturannya datang dari mereka.',
   'research.save': 'Simpan pengaturan',
   'research.copyLink': 'Salin tautan pengaturan untuk rekan kerja',
@@ -2372,6 +2381,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.val.assentUpload': 'Persetujuan terekam harus diunggah — tambahkan folder Google Drive di tab Pengiriman.',
   'panel.val.consentAudio': '\u201cPengingat lisan\u201d aktif \u2014 tambahkan rekaman yang akan diputar untuk penutur.',
   'panel.val.consentMsg': 'Izin teks aktif — masukkan pesan izin.',
+  'panel.val.sendNone': 'Centang “Unggah” atau “Simpan ke berkas”. “Bagikan” saja hanya mengirim teks biasa — tanpa audio dan tanpa berkas anotasi — sehingga perangkat tidak akan pernah bisa mengirimkan rekaman.',
   'panel.grp.languages': 'Bahasa',
   'panel.legend.languages': 'Kode Sistem Penulisan FLEx',
   'panel.grp.moreInfo': 'info selengkapnya…',
@@ -2523,8 +2533,6 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.pathStepFocusTip': 'Klik sekali lagi untuk memusatkan tingkat ini — subkelompoknya dan semua yang di sebelahnya diciutkan, hanya ini yang terbuka. Bisa dibatalkan.',
   'para.pathNothingToFocus': 'Tidak ada yang bisa diciutkan — kelompok ini tidak punya subkelompok dan tidak ada yang di sebelahnya.',
   'para.showFree': 'Terjemahan bebas',
-  'para.hideBlank': 'Hide blank lines',
-  'para.hideBlankTip': 'Blank lines are usually silence between utterances. Hiding them only affects this view — they stay in the file with their times, and a group that spans them still covers them.',
   'para.hideBlank': 'Sembunyikan baris kosong',
   'para.hideBlankTip': 'Baris kosong biasanya adalah keheningan antar ujaran. Menyembunyikannya hanya memengaruhi tampilan ini — barisnya tetap ada di file beserta waktunya, dan kelompok yang melintasinya tetap mencakupnya.',
   'para.showAudio': 'Audio',
@@ -2606,8 +2614,6 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.glossPh': 'glos',
   'para.wordDelete': 'Hapus kata ini',
   'para.splitNote': 'Memecah atau menggabung baris tidak dilakukan di sini — pakai editor FlexText atau ELAN, lalu impor ulang.',
-  'para.sfmPasteWay': 'From Toolbox, or SFM kept in a Word or RTF document.',
-  'para.scratchWay': 'Type the propositions yourself — no recording or language data needed.',
   'para.sfmPasteWay': 'Dari Toolbox, atau SFM yang tersimpan di dokumen Word atau RTF.',
   'para.scratchWay': 'Ketik sendiri proposisinya — tanpa rekaman atau data bahasa.',
   'para.sfmPasteIntro': 'Memakai Toolbox atau SFM? Tempel teksnya saja — boleh dari .doc, .rtf, .txt atau mana pun.',

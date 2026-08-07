@@ -338,7 +338,10 @@ const AGC_OPTS = ['off', 'on', 'auto'];
 const CONSENT_MODES = ['off', 'text', 'audio'];
 const CONSENT_RESP = ['yesno', 'record', 'signature'];
 const BTN_OPTS = ['new', 'audio', 'record', 'open'];
-const SEND_OPTS = ['share', 'upload', 'save', 'download'];
+/* ⚠ NO 'download': it and 'save' were two checkboxes for one capability (picker where the browser
+ * has one, plain download where it does not). See allowedSend() in app.js — the old value is still
+ * read so devices set up before v297 keep working, but it is never offered or written again. */
+const SEND_OPTS = ['share', 'upload', 'save'];
 
 /* The 5 settings groups (canonical field ids; local↔device key mapping handled in
  * fillForm/readForm). This is the reusable settings-form component. */
@@ -388,7 +391,7 @@ const GROUPS = [
     { k: 'consentConfirm', type: 'multicheck', opts: ['yesno', 'record', 'signature'], optPrefix: 'panel.opt.conf.' },
   ] },
   { id: 'sending', fields: [
-    { k: 'sendOptions', type: 'multicheck', opts: SEND_OPTS, optPrefix: 'panel.opt.send.' },
+    { k: 'sendOptions', type: 'multicheck', opts: SEND_OPTS, optPrefix: 'panel.opt.send.', note: 'setup.sendNote' },
     { k: 'autoDel', type: 'checkbox' },
     // Auto-backup: a text changed since its last upload is auto-uploaded once it's been quiet for
     // autoBackupMins (device engine feature; each backup is a NEW timestamped Drive copy).
@@ -3117,6 +3120,17 @@ function validateDeviceSettings(raw, opts = {}) {
   if (blank(raw.analLang)) out.push({ group: 'languages', field: 'analLang', msg: t('panel.val.analLang') });
   // No upload-folder requirement any more: linked devices stream into the
   // researcher's own Drive automatically (the relay leg is retired).
+  /* ⚠ A DEVICE MUST HAVE SOME WAY TO GET WORK OUT. With nothing ticked the coworker records and
+   * glosses into IndexedDB and can never send any of it anywhere — a dead end that looks like a
+   * working app. Here upload DOES count: a managed device really can upload. */
+  /* ⚠ SHARE ALONE IS NOT ENOUGH. navigator.share() only accepts an allowlisted set of file types —
+   * not XML, not ZIP — so it sends the bare .flextext renamed .txt and nothing else: no audio, no
+   * EAF, no .fxpa, no preview page. A device permitted only Share can never get one second of audio
+   * off itself. Upload and Save both carry the whole bundle, so one of those is required. */
+  const send = Array.isArray(raw.sendOptions) ? raw.sendOptions : [];
+  if (!send.includes('save') && !send.includes('upload')) {
+    out.push({ group: 'sending', field: 'sendOptions', msg: t('panel.val.sendNone') });
+  }
   const ask = Array.isArray(raw.consentAsk) ? raw.consentAsk : [];
   if (ask.includes('audio') && blank(raw.consentAudioUrl)) out.push({ group: 'consent', field: 'consentAudioUrl', msg: t('panel.val.consentAudio') });
   if (ask.includes('text') && blank(raw.consentMsg)) out.push({ group: 'consent', field: 'consentMsg', msg: t('panel.val.consentMsg') });

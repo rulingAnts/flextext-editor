@@ -148,17 +148,34 @@ ok(/if \(f\.type === 'action' \|\| f\.type === 'file'\) continue;/.test(app),
 ok(/if \(f\.type === 'action' \|\| f\.type === 'file' \|\| f\.off \|\| SPECIAL\.includes\(f\.k\) \|\| !has\(f\.k\)\) continue;/.test(app),
    'readDeviceSetup skips every `off` field, so this surface cannot re-assert what it says it does not control');
 
-console.log('\nUPLOAD is gated as an OPTION, and named once');
-ok(/const SETUP_PAIR_ONLY_SEND = \['upload'\];/.test(app), 'the gated send option is named once');
-ok(JSON.stringify(fieldOf(SETUP_GROUPS, 'sendOptions').offOpts) === '["upload"]',
-   'sendOptions disables exactly the upload option');
+console.log('\nUPLOAD is gated, and so is SHARE where the BROWSER cannot do it');
+/* Two sources of gating, deliberately. `offOpts` on the field is a rule of the surface (upload needs
+ * a paired researcher, which a standalone app can never have). setupOffOpts() adds what the BROWSER
+ * cannot do — desktop Firefox and Safari have no navigator.share for files, so ticking Share there
+ * configures a button that can never appear. That second kind is only sound because THIS form
+ * configures THIS device. */
+ok(JSON.stringify(fieldOf(SETUP_GROUPS, 'sendOptions').offOpts) === '{"upload":"setup.off.upload"}',
+   'the field declares upload gated, with its reason');
 ok(fieldOf(SETUP_GROUPS, 'sendOptions').opts.includes('upload'),
    'and upload is still IN the option list — unavailable, not removed');
-ok(/dis \? ' disabled' : ''/.test(fieldSrc), 'the gated option is a real disabled checkbox, not decorative text');
+ok(/function setupOffOpts\(f\) \{[\s\S]*?if \(f\.k === 'sendOptions' && !canShareFiles\(\)\) out\.share = 'setup\.off\.share';/.test(app),
+   'Share is gated when this browser cannot hand a file to another app');
+ok(/function canShareFiles\(\) \{[\s\S]*?navigator\.canShare\(\{ files: \[new File/.test(app),
+   'and that is MEASURED with a text\/plain probe, the same type the menu actually shares');
+ok(/dis \? ' disabled' : ''/.test(fieldSrc) || /why \? ' disabled' : ''/.test(fieldSrc),
+   'a gated option is a real disabled checkbox, not decorative text');
+ok(/\[\.\.\.new Set\(Object\.values\(offOpts\)\)\]\.map\(setupOffHtml\)/.test(fieldSrc),
+   'and two options gated for the SAME reason say it once, not twice');
+/* ⚠ The panel must NOT do this. It configures OTHER people's devices, whose browsers it cannot
+ * see; disabling Share because the RESEARCHER's laptop lacks it would withhold a working feature
+ * from every phone in the field. */
+ok(!/canShareFiles/.test(panel),
+   '⚠ the researcher panel does NOT capability-gate — it configures devices it cannot measure');
 
 console.log('\nan un-offered control must never REWRITE what it could not show');
-ok(/for \(const o of SETUP_PAIR_ONLY_SEND\) if \(before\.has\(o\) && !patch\.sendOptions\.includes\(o\)\) patch\.sendOptions\.push\(o\);/.test(app),
-   'a stored upload option survives a save made on a form that could not offer it');
+ok(/const gated = Object\.keys\(setupOffOpts\(/.test(app) &&
+   /for \(const o of gated\) if \(before\.has\(o\) && !patch\.sendOptions\.includes\(o\)\) patch\.sendOptions\.push\(o\);/.test(app),
+   'a gated option\'s stored value survives a save, however it came to be gated');
 ok(/const before = new Set\(settings\.sendOptions\?\.length \? settings\.sendOptions : SETUP_SEND_OPTS\);/.test(app),
    'and "absent means all four" is read the same way allowedSend() reads it');
 
@@ -250,6 +267,25 @@ ok(/data-sfile="\$\{f\.k\}"/.test(fieldSrc),
    'the file input uses data-sfile — a file input\'s .value is a fake path and must stay out of collect/fill');
 ok(/id="ds-tab-\$\{g\.id\}"/.test(app) && /id="ds-grp-\$\{g\.id\}"/.test(app),
    'and its tab/panel ids are ds-* — the panel modal may be in the DOM at the same time');
+
+console.log('\n⚠ NO KEY IS DEFINED TWICE INSIDE ONE LANGUAGE BLOCK');
+/* A duplicate is a SILENT overwrite: the later entry wins and the earlier one is dead. It bit twice
+ * in one session — an id-block entry landed in the en block, so the English UI rendered Indonesian
+ * text; and four para.* keys had an English straggler sitting above the real translation, harmless
+ * only because the translation happened to come second. Neither throws, and both are invisible to a
+ * check that merely counts a key across the whole file. */
+{
+  const ei = i18n.indexOf('\nen: {'), ii = i18n.indexOf('\nid: {');
+  for (const [name, blk] of [['en', i18n.slice(ei, ii)], ['id', i18n.slice(ii)]]) {
+    const seen = new Map();
+    for (const m of blk.matchAll(/^\s*'([a-zA-Z0-9_.]+)':/gm)) seen.set(m[1], (seen.get(m[1]) || 0) + 1);
+    const dupes = [...seen].filter(([, n]) => n > 1).map(([k]) => k);
+    ok(dupes.length === 0, `${name} block has no duplicated key${dupes.length ? ': ' + dupes.join(', ') : ''}`);
+  }
+  // ...and the two blocks must not have swapped contents: a known English string must be in `en`.
+  ok(/'setup\.off\.upload': 'Uploading goes through/.test(i18n.slice(ei, ii)),
+     'the en block really holds English (a misplaced insert would put the id text here)');
+}
 
 console.log('\nevery string is translated, and every `off` reason exists');
 const KEYS = ['setup.h1', 'setup.intro', 'setup.localNote', 'setup.managed', 'setup.offMark',

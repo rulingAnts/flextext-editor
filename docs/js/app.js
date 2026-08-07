@@ -9,13 +9,14 @@ import {
 import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS, ENGINE_VERSION } from './i18n.js';
 import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl, ensureAsset, getAsset, fetchFileViaUrl } from './audio.js';
-import { convertToMp3 } from './convert.js';
+import { convertToMp3, convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
 // NATIVE BRIDGE — the ONLY import of native code in this engine. Everything Android-specific
 // lives behind js/native-audio.js and is INERT in a browser. See that file's header before
 // changing anything here; ./check-native-containment.sh enforces the boundary.
 import { isNativeShell, nativeAudioAvailable, NativeRecorder, releaseCapture, nativePlatform, nativeEngineInfo, describeCapture } from './native-audio.js';
 import { losslessSupported, recFormatSupported, PCMRecorder, encodeWav, encodeRecording, normalizePeak, reduceChannels,
          normRecFormat, REC_FORMATS, DEFAULT_REC_FORMAT, pcmRamBudgetBytes, pcmCapStatus } from './record-pcm.js';
+import WaveSurfer from './vendor/wavesurfer.esm.js';
 import { makeZip } from './zip.js';
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay } from './segment-strips.js';
 import { serializeEaf, serializeEafPrefs, buildSegPreviewHtml, wavWithBext, buildFxpa } from './seg-exports.js';
@@ -4485,6 +4486,125 @@ async function saveDeviceSetup(form, showGroup) {
   }
 }
 
+/* ---------------- Utilities: the audio converter ------------------------------------------------
+ *
+ * ⚠ MIRRORS researcher-panel.js audioConverterModal() FEATURE FOR FEATURE, and is deliberately not
+ * shared with it (same reason as SETUP_GROUPS: that module is also the standalone Researcher app's,
+ * so an editor screen must not route through it). Before this, the editor offered MP3 only, at a
+ * fixed bitrate and sample rate — so a standalone researcher simply could not reach conversions the
+ * panel performs. Keep the two in step by hand; test/audio-converter.test.mjs makes drift loud.
+ *
+ * ⚠ WHAT validOutputs() ENFORCES, AND WHY IT IS NOT A UI DETAIL: only DOWNWARD conversions are ever
+ * offered. A lossy source can become a smaller MP3 and nothing else — never WAV or FLAC, because
+ * that produces a file which LOOKS archival and is not ("fake lossless"; the lossy damage is
+ * permanent). The option list comes from the source's real format and bit depth, so the UI cannot
+ * offer a conversion the rules forbid. Never widen this list from the UI side.
+ */
+function ucFmtLabel(v) { const s = t('convert.fmt.' + v); return s === 'convert.fmt.' + v ? v : s; }
+
+/* A small WaveSurfer player. split:true stacks one waveform PER CHANNEL, so a stereo file shows
+ * both — which is what makes the "left"/"right" mono options meaningful: you can SEE which channel
+ * carries the voice before choosing. normalize is off when split, so a near-silent channel reads as
+ * flat (honest) instead of being boosted to look like signal. */
+function ucMakePlayer(host, url, split) {
+  host.innerHTML = `<button type="button" class="player-play cv-play" aria-label="${esc(t('convert.play'))}">▶</button><div class="cv-wave"></div>`;
+  host.hidden = false;
+  const ws = WaveSurfer.create({
+    container: host.querySelector('.cv-wave'),
+    url, height: split ? 38 : 54, normalize: !split,
+    waveColor: '#9db4d4', progressColor: '#1f4f8f', cursorColor: '#c0392b', cursorWidth: 2,
+    dragToSeek: true, splitChannels: split ? true : undefined,
+  });
+  const btn = host.querySelector('.cv-play');
+  btn.onclick = () => { try { ws.playPause(); } catch { /* not ready */ } };
+  ws.on('play', () => { btn.textContent = '⏸'; });
+  ws.on('pause', () => { btn.textContent = '▶'; });
+  ws.on('finish', () => { btn.textContent = '▶'; });
+  ws.on('error', (e) => { console.warn('converter player:', e); });
+  return ws;
+}
+
+function wireAudioConverter() {
+  if (!$('#uc-file')) return;                    // satellite shells have no Utilities tab
+  let srcBuf = null, srcInfo = null, srcName = '', srcSize = 0;
+  let srcWs = null, outWs = null, srcUrl = null, outUrl = null;
+  const status = $('#uc-status'), form = $('#uc-form'), fmtSel = $('#uc-fmt'),
+        monoRow = $('#uc-mono-row'), mp3opts = $('#uc-mp3opts');
+  // Players hold a decoded buffer and an object URL each; drop both before making new ones, or a
+  // few conversions in a row leave the tab holding every file it has opened.
+  const destroyPlayers = () => {
+    for (const w of [srcWs, outWs]) { try { w && w.destroy(); } catch { /* noop */ } }
+    for (const u of [srcUrl, outUrl]) { try { u && URL.revokeObjectURL(u); } catch { /* noop */ } }
+    srcWs = outWs = srcUrl = outUrl = null;
+  };
+  const syncMp3Vis = () => {
+    const o = (srcInfo && srcInfo.outs.find((x) => x.value === fmtSel.value)) || {};
+    mp3opts.hidden = o.format !== 'mp3';         // bitrate/rate mean nothing for WAV or FLAC
+  };
+  const setStereoUi = (stereo) => { monoRow.hidden = !stereo; $('#uc-chan-hint').hidden = !stereo; };
+
+  $('#uc-pick').addEventListener('click', () => $('#uc-file').click());
+  $('#uc-help').addEventListener('click', () => { const m = $('#recformat-help-modal'); if (m) m.hidden = false; });
+  fmtSel.addEventListener('change', syncMp3Vis);
+
+  $('#uc-file').addEventListener('change', async (e) => {
+    const file = e.target.files[0]; e.target.value = ''; if (!file) return;
+    destroyPlayers();
+    $('#uc-out-wrap').hidden = true; status.hidden = true;
+    srcName = file.name; srcSize = file.size;
+    try { srcBuf = await file.arrayBuffer(); }
+    catch (err) { status.hidden = false; status.textContent = t('convert.failed', { msg: err.message }); return; }
+    const fmt = detectFormat(srcBuf);
+    let bits = null, chans = null, rate = null;
+    if (fmt === 'wav') { const h = readWavHeader(srcBuf); if (h) { bits = h.bitsPerSample; chans = h.channels; rate = h.sampleRate; } }
+    const outs = validOutputs(fmt, bits);
+    srcInfo = { fmt, bits, chans, outs };
+    // What we cheaply know about the source. textContent, not innerHTML — a file name is untrusted.
+    const parts = [fmt ? fmt.toUpperCase() : t('convert.fmtUnknown')];
+    if (bits) parts.push(t('convert.bit', { n: bits }));
+    if (chans) parts.push(chans >= 2 ? t('convert.stereo') : t('convert.monoSrc'));
+    if (rate) parts.push(rate + ' Hz');
+    parts.push(sizeFmt(srcSize));
+    $('#uc-src').textContent = t('convert.src', { name: srcName, detail: parts.join(' · ') });
+    fmtSel.innerHTML = outs.map((o) => `<option value="${esc(o.value)}">${esc(ucFmtLabel(o.value))}</option>`).join('');
+    setStereoUi(chans == null || chans >= 2);    // assume stereo until the decoded count says otherwise
+    $('#uc-before-cap').hidden = false;
+    form.hidden = false; syncMp3Vis();
+    srcUrl = URL.createObjectURL(file);
+    srcWs = ucMakePlayer($('#uc-src-player'), srcUrl, true);
+    // The DECODED channel count is the authority — it covers sources we cannot header-sniff.
+    srcWs.on('ready', () => {
+      let nch = chans || 1;
+      try { const d = srcWs.getDecodedData(); if (d) nch = d.numberOfChannels; } catch { /* noop */ }
+      setStereoUi(nch >= 2);
+    });
+  });
+
+  $('#uc-go').addEventListener('click', async () => {
+    if (!srcBuf || !srcInfo) return;
+    const o = srcInfo.outs.find((x) => x.value === fmtSel.value); if (!o) return;
+    const opts = { format: o.format, mono: monoRow.hidden ? 'keep' : $('#uc-mono').value };
+    if (o.format === 'wav') opts.wavBits = o.wavBits;
+    if (o.format === 'flac') opts.flacBits = o.flacBits;
+    if (o.format === 'mp3') { opts.kbps = parseInt($('#uc-kbps').value, 10); opts.sampleRate = parseInt($('#uc-rate').value, 10); }
+    status.hidden = false; status.textContent = t('convert.working', { pct: 0 });
+    try {
+      const res = await convertAudio(srcBuf, opts, (f) => { status.textContent = t('convert.working', { pct: Math.round(f * 100) }); });
+      const outName = srcName.replace(/\.[^.]+$/, '') + '.' + res.ext;
+      const dlUrl = URL.createObjectURL(res.blob);
+      const a = document.createElement('a'); a.href = dlUrl; a.download = outName; a.click();
+      setTimeout(() => URL.revokeObjectURL(dlUrl), 30000);
+      status.textContent = t('convert.done', { name: outName, out: sizeFmt(res.blob.size), in: sizeFmt(srcSize) });
+      try { if (outWs) outWs.destroy(); } catch { /* noop */ }
+      try { if (outUrl) URL.revokeObjectURL(outUrl); } catch { /* noop */ }
+      outUrl = URL.createObjectURL(res.blob);
+      $('#uc-out-wrap').hidden = false;
+      outWs = ucMakePlayer($('#uc-out-player'), outUrl, false);
+      window.__lastConvert = { size: res.blob.size, ext: res.ext };
+    } catch (err) { status.textContent = t('convert.failed', { msg: err.message }); }
+  });
+}
+
 function setupResearch() {
   // Lock down the coworker's interface in person: hide the Settings tab on THIS device. The confirm
   // spells out the touch-friendly recovery so nobody gets stranded on a phone with no keyboard.
@@ -4503,53 +4623,7 @@ function setupResearch() {
     rfHelpModal.addEventListener('click', (e) => { if (e.target === rfHelpModal) rfHelpModal.hidden = true; });
   }
 
-  // Audio converter (any recording → small task-ready MP3) — the send-to-assistant
-  // distribution format, separate from the recording (capture) format above.
-  const cf = $('#convert-form');
-  const convPrefs = settings.convert || {};
-  if (convPrefs.kbps) cf.elements.convKbps.value = String(convPrefs.kbps);
-  if (convPrefs.rate) cf.elements.convRate.value = String(convPrefs.rate);
-  cf.addEventListener('change', () => {
-    settings.convert = {
-      kbps: parseInt(cf.elements.convKbps.value, 10),
-      rate: parseInt(cf.elements.convRate.value, 10),
-      mono: true, // always mono — a single voice on one mic gains nothing from stereo
-    };
-    saveSettings(settings);
-  });
-  $('#btn-convert').addEventListener('click', () => $('#convert-file').click());
-  $('#convert-file').addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    e.target.value = '';
-    if (!file) return;
-    const status = $('#convert-status');
-    status.hidden = false;
-    status.textContent = t('convert.working', { pct: 0 });
-    try {
-      const opts = {
-        kbps: parseInt(cf.elements.convKbps.value, 10),
-        sampleRate: parseInt(cf.elements.convRate.value, 10),
-        mono: true, // always mono
-      };
-      const res = await convertToMp3(file, opts, (f) => {
-        status.textContent = t('convert.working', { pct: Math.round(f * 100) });
-      });
-      const outName = file.name.replace(/\.[^.]+$/, '') + '.mp3';
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(res.blob);
-      a.download = outName;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 30000);
-      status.textContent = t('convert.done', {
-        name: outName,
-        out: sizeFmt(res.blob.size),
-        in: sizeFmt(file.size),
-      });
-      window.__lastConvert = { size: res.blob.size, duration: res.duration, channels: res.channels };
-    } catch (err) {
-      status.textContent = t('convert.failed', { msg: err.message });
-    }
-  });
+  wireAudioConverter();
 
   // Writing system checker
   let wsState = null; // { dom, rows, filename }

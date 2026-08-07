@@ -215,12 +215,13 @@ ok(/id="btn-hide-research"/.test(html), 'the hide-tab button stays with Settings
  * this device. They shared the Settings screen only because it used to be the one admin surface. */
 ok(/<section id="view-utilities"/.test(html), 'there is a Utilities view');
 ok(/data-view="utilities"/.test(html), 'and a top-level tab that reaches it');
-ok(/id="convert-form"/.test(html) && /id="wscheck-file"/.test(html), 'both tools survived the move');
+// The converter's own ids are uc-* since it was rebuilt to match the panel (see audio-converter.test).
+ok(/id="uc-file"/.test(html) && /id="wscheck-file"/.test(html), 'both tools survived the move');
 const utilSection = (html.match(/<section id="view-utilities"[\s\S]*?<\/section>/) || [''])[0];
-ok(/id="convert-form"/.test(utilSection) && /id="wscheck-rows"/.test(utilSection),
+ok(/id="uc-fmt"/.test(utilSection) && /id="wscheck-rows"/.test(utilSection),
    'and they are INSIDE Utilities, not left behind in Settings');
 const setupSection = (html.match(/<section id="view-research"[\s\S]*?<\/section>/) || [''])[0];
-ok(!/id="convert-form"/.test(setupSection) && !/id="wscheck-rows"/.test(setupSection),
+ok(!/id="uc-fmt"/.test(setupSection) && !/id="wscheck-rows"/.test(setupSection),
    'Settings no longer carries them');
 ok(/const VIEWS = \[[^\]]*'utilities'/.test(app), 'show() knows the view (else the tab would blank the screen)');
 ok(/'tabs\.utilities':/.test(i18n), 'the tab is labelled');

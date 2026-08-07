@@ -156,31 +156,44 @@
      "Tools" grouping in notes/audiotoolsandsettingsplan §B. -->
 <section id="view-utilities" class="view" hidden>
   <h2 data-i18n="convert.h">Audio converter</h2>
-  <p class="note" data-i18n-html="convert.note"></p>
-  <form id="convert-form" class="ws-form">
-    <fieldset>
-      <label><span data-i18n="convert.kbps">Quality (bitrate)</span>
-        <select name="convKbps">
-          <option value="32">32 kbps</option>
-          <option value="48">48 kbps</option>
-          <option value="64" selected>64 kbps</option>
-          <option value="96">96 kbps</option>
-          <option value="128">128 kbps</option>
+  <p class="note" data-i18n="convert.note2"></p>
+  <!-- ⚠ MIRRORS the researcher panel's audioConverterModal() feature for feature: source
+       inspection, the output formats validOutputs() actually permits for that source, the mono mode,
+       and the MP3-only bitrate/rate. It was an MP3-ONLY form here, so a standalone researcher had no
+       way to reach a conversion the panel offers. Inline rather than a modal — this is a tab, not a
+       dashboard action. Same ids as the panel's are deliberately NOT reused: cv- there, uc- here. -->
+  <div class="ws-form">
+    <button type="button" id="uc-pick" class="primary-btn" data-i18n="convert.pick">Choose audio file &amp; convert&hellip;</button>
+    <button type="button" id="uc-help" class="link-btn" data-i18n="recfmt.helpLink">Which format should I choose?</button>
+    <input type="file" id="uc-file" accept="audio/*,.wav,.aif,.aiff,.mp3,.m4a,.flac,.ogg" hidden>
+    <div id="uc-form" hidden>
+      <p class="note rp-cv-src" id="uc-src"></p>
+      <p class="note cv-cap" id="uc-before-cap" data-i18n="convert.before" hidden></p>
+      <div id="uc-src-player" class="cv-player" hidden></div>
+      <p class="note cv-cap" id="uc-chan-hint" data-i18n="convert.chanHint" hidden></p>
+      <label class="rp-field"><span data-i18n="convert.outFmt">Output format</span><select id="uc-fmt"></select></label>
+      <label class="rp-field" id="uc-mono-row"><span data-i18n="convert.monoMode">Channels</span>
+        <select id="uc-mono">
+          <option value="keep" data-i18n="convert.mono.keep"></option>
+          <option value="auto" selected data-i18n="convert.mono.auto"></option>
+          <option value="mix" data-i18n="convert.mono.mix"></option>
+          <option value="left" data-i18n="convert.mono.left"></option>
+          <option value="right" data-i18n="convert.mono.right"></option>
         </select></label>
-      <label><span data-i18n="convert.rate">Sample rate</span>
-        <select name="convRate">
-          <option value="16000">16 kHz</option>
-          <option value="22050" selected>22.05 kHz</option>
-          <option value="44100">44.1 kHz</option>
-        </select></label>
-      <p class="note conv-mono" data-i18n="convert.mono"></p>
-    </fieldset>
-    <div class="toolbar">
-      <button type="button" id="btn-convert" class="primary-btn" data-i18n="convert.pick">Choose audio file &amp; convert&hellip;</button>
-      <input type="file" id="convert-file" accept="audio/*,.wav,.aif,.aiff,.mp3,.m4a,.flac,.ogg" hidden>
+      <div id="uc-mp3opts">
+        <label class="rp-field"><span data-i18n="convert.kbps">Quality (bitrate)</span>
+          <select id="uc-kbps"><option value="32">32</option><option value="48">48</option><option value="64" selected>64</option><option value="96">96</option><option value="128">128</option></select></label>
+        <label class="rp-field"><span data-i18n="convert.rate">Sample rate</span>
+          <select id="uc-rate"><option value="16000">16000</option><option value="22050" selected>22050</option><option value="44100">44100</option></select></label>
+      </div>
+      <div class="toolbar"><button type="button" id="uc-go" class="primary-btn" data-i18n="convert.go">Convert &amp; download</button></div>
     </div>
-    <p id="convert-status" class="note" hidden></p>
-  </form>
+    <p class="note" id="uc-status" hidden></p>
+    <div id="uc-out-wrap" hidden>
+      <p class="note cv-cap" data-i18n="convert.after"></p>
+      <div id="uc-out-player" class="cv-player"></div>
+    </div>
+  </div>
 
   <hr>
 

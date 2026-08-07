@@ -130,7 +130,22 @@ export function validateFxpa(obj) {
   return errors.length ? { ok: false, errors } : { ok: true, data };
 }
 
-export function serializeFxpa(data) {
+/* ⚠ `opts.audio === false` DROPS THE RECORDING from the written file, and nothing else. The lines
+ * keep their start/end offsets, so the analysis keeps its alignment and the timings are still there
+ * for anyone who later opens it beside the original media — only the embedded bytes go.
+ *
+ * ⚠ IT MUST NOT MUTATE `data`. The document in the app still has its audio; this is a choice about
+ * one written file, not an edit to the open document. A shallow copy with `audio` removed is enough
+ * because nothing else in the document references it.
+ *
+ * ⚠ `view.audio` is forced off in the written copy too. Leaving it true would produce a file that
+ * opens asking for a player it has no sound for — validateFxpa already corrects that on load, but a
+ * file should not need correcting to be right. */
+export function serializeFxpa(data, opts = {}) {
+  if (opts.audio === false && data && data.audio) {
+    const { audio, ...rest } = data;
+    return JSON.stringify({ ...rest, view: { ...(data.view || {}), audio: false } });
+  }
   return JSON.stringify(data);
 }
 

@@ -1313,6 +1313,7 @@ function renderWorkInner() {
           <summary>${esc(t('para.menuFile'))}</summary>
           <div class="pa-menupanel">
             <button class="pa-menuitem" id="pa-save">${esc(t('para.saveTip'))}</button>
+            <button class="pa-menuitem" id="pa-save-noaudio" hidden>${esc(t('para.saveNoAudio'))}</button>
             <button class="pa-menuitem" id="pa-export">${esc(t('para.exportBtn'))}</button>
             ${state.authored ? `<button class="pa-menuitem" id="pa-addline">${esc(t('para.scratchAddLine'))}</button>` : ''}
             <hr>
@@ -1483,7 +1484,21 @@ function renderWorkInner() {
   /* Every command has a menu entry AND, when it is frequent enough, an icon. Both routes run the
    * same function — a second copy is how the two silently diverge. */
   const on = (sel, fn) => { const e = $(sel); if (e) e.addEventListener('click', fn); };
-  on('#pa-save', saveFxpa); on('#pa-save-icon', saveFxpa);
+  /* ⚠ Bound with an explicit `true`. Passing saveFxpa directly makes the CLICK EVENT the first
+   * argument, and an event object is truthy — which happens to work, but only by accident, and would
+   * silently invert if the default ever changed. */
+  on('#pa-save', () => saveFxpa(true)); on('#pa-save-icon', () => saveFxpa(true));
+  on('#pa-save-noaudio', () => { closeMenus(); saveFxpa(false); });
+  {
+    /* Offered only when there IS audio to leave out — otherwise it is a control that does exactly
+     * what the one above it does, which teaches the user that the menu lies. */
+    const nb = $('#pa-save-noaudio');
+    if (nb) {
+      const has = !!(state.audio && state.audio.b64);
+      nb.hidden = !has;
+      if (has) nb.title = t('para.saveNoAudioTip', { size: humanSize(Math.round(state.audio.b64.length * 0.75)) });
+    }
+  }
   $('#pa-export').addEventListener('click', openExportDialog);
   if (state.authored) {
     $('#pa-addline').addEventListener('click', () => {
@@ -3443,7 +3458,10 @@ function downloadFile(text, name, mime) {
 
 /* ---------------- save ---------------- */
 
-function saveFxpa() {
-  const name = String(state.title || 'text').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80) + '.fxpa';
-  saveFile(serializeFxpa(state), name, 'application/json', t('para.fxpaFile'));
+function saveFxpa(withAudio = true) {
+  const base = String(state.title || 'text').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80);
+  /* ⚠ A DIFFERENT FILENAME when the audio is left out, so the two cannot be confused in a folder a
+   * year later. The suffix is part of the name, not a silent difference in byte count. */
+  const name = base + (withAudio ? '' : '.no-audio') + '.fxpa';
+  saveFile(serializeFxpa(state, { audio: withAudio }), name, 'application/json', t('para.fxpaFile'));
 }

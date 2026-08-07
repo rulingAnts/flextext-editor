@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v275';
+export const ENGINE_VERSION = 'v276';
 
 const S = {
 en: {
@@ -1299,6 +1299,8 @@ internet after the first time.</p>
   'para.exportCollLeaf': 'One summary line (hides the rest)',
   'para.exportCollBracket': 'All its lines, inside one bracket',
   'para.exportLineContext': 'Show language-data lines that are not in the tree (those with propositions)',
+  'para.saveNoAudio': 'Save without the audio…',
+  'para.saveNoAudioTip': 'Writes the same analysis with the recording left out — about {size} smaller. Line timings are kept, so it still lines up with the original media. Saved as “…​.no-audio.fxpa”.',
   'para.fullEnter': 'Full screen — hide the browser’s toolbars',
   'para.fullExit': 'Leave full screen',
   'para.fullFailed': 'The browser would not go full screen:',
@@ -2643,6 +2645,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.exportCollLeaf': 'Satu baris ringkasan (sisanya disembunyikan)',
   'para.exportCollBracket': 'Semua barisnya, dalam satu kurung',
   'para.exportLineContext': 'Tampilkan baris data bahasa yang tidak ada di pohon (yang punya proposisi)',
+  'para.saveNoAudio': 'Simpan tanpa audio…',
+  'para.saveNoAudioTip': 'Menulis analisis yang sama tanpa rekaman — sekitar {size} lebih kecil. Waktu tiap baris tetap disimpan, jadi masih cocok dengan media aslinya. Disimpan sebagai “…​.no-audio.fxpa”.',
   'para.fullEnter': 'Layar penuh — sembunyikan bilah peramban',
   'para.fullExit': 'Keluar dari layar penuh',
   'para.fullFailed': 'Peramban tidak dapat masuk layar penuh:',

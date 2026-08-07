@@ -943,4 +943,41 @@ console.log('\nderived group labels (UI display only — never the diagram)');
   eq(dl(['1', '2']), '1-2', 'digit-only roles have no stem and stay separate');
 }
 
+console.log('\nsaving without the audio');
+{
+  const withAudio = validateFxpa({
+    format: 'flextext-paragraph-analysis', version: 1, title: 'T', vernLang: 'f', analLang: 'e',
+    lines: [{ id: 'L1', start: 0, end: 2000, baseline: 'a', free: 'A', words: [] },
+            { id: 'L2', start: 2000, end: 4000, baseline: 'b', free: 'B', words: [] }],
+    tree: [], view: { audio: true },
+    audio: { b64: 'A'.repeat(4000), mime: 'audio/wav', name: 'rec.wav' },
+  }).data;
+
+  const full = serializeFxpa(withAudio);
+  const bare = serializeFxpa(withAudio, { audio: false });
+  ok(bare.length < full.length / 2, 'the audio-free file is dramatically smaller');
+
+  const back = validateFxpa(JSON.parse(bare)).data;
+  ok(!back.audio, 'it carries no audio');
+  eq(back.view.audio, false, 'and does not ask for a player it has no sound for');
+
+  /* ⚠ THE ANALYSIS AND THE TIMINGS MUST SURVIVE. Only the media is dropped — a file that also lost
+   * its offsets could never be re-paired with the original recording. */
+  eq(back.lines.map((l) => [l.id, l.start, l.end]), [['L1', 0, 2000], ['L2', 2000, 4000]],
+     'every line keeps its start and end offsets');
+  eq(back.lines.map((l) => l.free), ['A', 'B'], 'and its text');
+
+  // ⚠ It must not mutate the open document: the app still has its audio afterwards.
+  ok(!!withAudio.audio && withAudio.audio.b64.length === 4000, 'the in-app document is untouched');
+  eq(withAudio.view.audio, true, 'including its view setting');
+
+  // A document with no audio serialises identically either way.
+  const noAudio = validateFxpa({
+    format: 'flextext-paragraph-analysis', version: 1, title: 'T', vernLang: 'f', analLang: 'e',
+    lines: [{ id: 'L1', baseline: 'a', free: 'A', words: [] }], tree: [], view: {},
+  }).data;
+  eq(serializeFxpa(noAudio, { audio: false }), serializeFxpa(noAudio),
+     'a document with no audio is unaffected by the option');
+}
+
 if (failures) { console.error(`\n${failures} FAILURE(S)`); process.exit(1); }

@@ -766,23 +766,31 @@ function pathOf(id) {
  * depth. The margin left is for the padding and the lead label, not a reserved third. */
 const CRUMB_WIDTH_PAD = 24;
 function fitCrumbInto(bar, leadHtml, steps, renderStep, elidedTitle) {
-  const budget = () => Math.max(120,
-    (bar.parentElement ? bar.parentElement.clientWidth : bar.clientWidth) - CRUMB_WIDTH_PAD);
+  /* ⚠ MEASURED AGAINST THE BAR'S OWN WIDTH, and the bar must NOT wrap — see the CSS. With
+   * `flex-wrap: wrap` the content re-flows onto a second line instead of overflowing, so scrollWidth
+   * never exceeds clientWidth, the comparison below is meaningless, and the loop ran on garbage. That
+   * is why the bar collapsed to "… deepest-item" no matter how much room there was. */
+  const budget = () => Math.max(120, bar.clientWidth - CRUMB_WIDTH_PAD);
   const paint = (list, elided) => {
     const mark = `<span class="pa-path-gap" title="${esc(elidedTitle(steps.length - list.length))}">…</span>`;
-    bar.innerHTML = leadHtml + (elided ? mark : '') + list.map(renderStep).join('');
+    // The gap is drawn at the point the steps were removed from — the middle — not at either end.
+    const at = elided ? Math.floor(list.length / 2) : -1;
+    bar.innerHTML = leadHtml + list.map((st, i) => (i === at ? mark : '') + renderStep(st, i)).join('');
   };
   paint(steps, false);
   let shown = steps.slice();
   let guard = 0;
-  /* ⚠ DEPTH IS WHAT BOTH BARS ARE FOR (Seth, 2026-08-07: "just needs a lot more levels of
-   * hierarchical detail... on both"). So elision always drops the OUTERMOST ancestors first and
-   * keeps the deepest steps — the innermost group, or the selected item, is what you are actually
-   * working with, and the outer levels matter less the further out they are.
-   * The earlier rule kept the ROOT and the last step and threw away everything between, which on a
-   * deep analysis produced exactly two steps: the least informative answer available. */
-  while (shown.length > 1 && bar.scrollWidth > budget() && guard++ < 64) {
-    shown = shown.slice(1);
+  /* ⚠ ELIDE FROM THE MIDDLE (Seth, 2026-08-07: "elision should happen roughly mid-way... true for
+   * both breadcrumb bars"). The two ends are what orient you — the ROOT says which analysis this is,
+   * the LAST step says where you actually are — and the steps between them are the ones you can
+   * afford to lose. Each pass removes the step nearest the centre, so the path shortens evenly from
+   * the middle outwards rather than losing one whole end.
+   * ⚠ This only works now that the bars do not WRAP. While they wrapped, content re-flowed onto a
+   * second line instead of overflowing, scrollWidth never exceeded clientWidth, and this loop ran on
+   * a meaningless comparison — which is why the bar collapsed to "… deepest-item" however much room
+   * there was. */
+  while (shown.length > 2 && bar.scrollWidth > budget() && guard++ < 64) {
+    shown = shown.slice(0, Math.floor(shown.length / 2)).concat(shown.slice(Math.floor(shown.length / 2) + 1));
     paint(shown, true);
   }
 }
@@ -827,6 +835,13 @@ function renderPathBar() {
 
   const clr = bar.querySelector('#pa-path-clear');
   if (clr) clr.addEventListener('click', () => { selection = new Set(); anchor = null; renderWork(); });
+  wireCrumbSteps(bar);
+}
+
+/* ⚠ ONE IMPLEMENTATION FOR BOTH BREADCRUMB BARS (Seth, 2026-08-07). They offer the same two
+ * gestures — go there, then click again to focus that level — and two copies is exactly how those
+ * quietly diverge. Extracted rather than duplicated for the 'Currently visible' bar. */
+function wireCrumbSteps(bar) {
   bar.querySelectorAll('.pa-path-leaf').forEach((b) => {
     b.addEventListener('click', () => scrollUnitToTop(b.dataset.leaf));
   });
@@ -2375,10 +2390,15 @@ function updateScrollCrumb() {
   chain.reverse();
   bar.hidden = false;
   const lead = `<span class="pa-path-lead">${esc(t('para.crumbLead'))}</span>`;
+  /* ⚠ CLICKABLE, WITH THE SAME TWO GESTURES as the "Selected:" bar (Seth). It was plain text on the
+   * grounds that it moves as you scroll — but it only moves WHILE you scroll, and once you stop it is
+   * the handiest grip on the hierarchy you are looking at. Two breadcrumb bars answering the same
+   * click differently would be worse than either choice, so they share one implementation. */
   fitCrumbInto(bar, lead, chain, (gid) => {
     const g = nodeById(state, gid);
-    return `<span class="pa-crumb-step">${esc(g ? groupTitle(g) : gid)}</span>`;
+    return `<button class="pa-path-step pa-crumb-step" data-gid="${esc(gid)}">${esc(g ? groupTitle(g) : gid)}</button>`;
   }, (n) => t('para.crumbMore', { n }));
+  wireCrumbSteps(bar);
 }
 function scheduleCrumb() {
   if (crumbRaf) return;

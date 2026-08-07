@@ -249,6 +249,26 @@ for (const k of setupKeys) {
   const n = (i18n.match(new RegExp(`'panel\\.f\\.${k}':`, 'g')) || []).length;
   ok(n === 2, `panel.f.${k} (the label) is defined in BOTH en and id (found ${n})`);
 }
+/* ⚠ EVERY OPTION LABEL, EXPANDED. The form builds these by concatenation — t(f.optPrefix + o) —
+ * so a missing one is invisible to any check that only looks at literal t('x') calls: the control
+ * renders its raw key ("panel.opt.abm.30") instead of a label. That fails silently, and it fails in
+ * Indonesian first, because that is the side nobody reads while developing. */
+for (const f of allFields(SETUP_GROUPS)) {
+  if (!f.optPrefix || !f.opts) continue;
+  for (const o of f.opts) {
+    const key = f.optPrefix + o;
+    const n = (i18n.match(new RegExp(`'${key.replace(/\./g, '\\.')}':`, 'g')) || []).length;
+    ok(n === 2, `${key} (option label for ${f.k}) is in BOTH en and id (found ${n})`);
+  }
+}
+// Group headings are built the same way.
+for (const g of SETUP_GROUPS) {
+  for (const key of [`panel.grp.${g.id}`, g.legend, g.note].filter(Boolean)) {
+    const n = (i18n.match(new RegExp(`'${key.replace(/\./g, '\\.')}':`, 'g')) || []).length;
+    ok(n === 2, `${key} is in BOTH en and id (found ${n})`);
+  }
+}
+
 // The copy side of the rule: a reason EXPLAINS what is missing; it never merely refuses.
 const upload = (i18n.match(/'setup\.off\.upload': '([^']*)'/) || [])[1] || '';
 ok(/not linked to a researcher/.test(upload), 'the upload reason names the missing thing');

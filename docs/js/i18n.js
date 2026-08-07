@@ -2547,6 +2547,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.ungroup': 'Bubarkan',
   'para.helpTip': 'Cara kerja alat ini',
   'para.helpFull': 'Panduan lengkap Alat Analisis Paragraf →',
+  'para.helpTitle': 'Cara kerja Alat Analisis Paragraf',
+  'para.helpNewTab': 'Buka panduan di tab baru',
   'para.selectTip': 'Klik satu baris atau judul kelompok untuk memilihnya. Untuk memilih serangkaian, Shift-klik, Ctrl-klik, atau Cmd-klik di ujung yang lain — pilihan selalu merentang dari titik awal, jadi selalu satu rangkaian utuh. Lalu tekan Kelompokkan. Bila satu judul kelompok dipilih, tombol yang sama menjadi Ubah kelompok, dan Bubarkan berlaku.',
   'para.headingTip': 'Klik untuk memilih kelompok ini — lalu pakai Ubah kelompok atau Bubarkan',
   'para.needGroupHeading': 'Pilih satu judul kelompok dulu — batang di bagian atas kelompok, bertanda ⊕ atau ⊳ — dan tidak ada yang lain. Jika masih ada yang terpilih, tekan “Batalkan pilihan”.',

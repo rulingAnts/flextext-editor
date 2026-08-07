@@ -753,16 +753,31 @@ function pathOf(id) {
   return out;
 }
 
-/* Is the current selection scrolled out of the tree's visible box? */
-function selectionOffscreen() {
-  const tree = $('#pa-tree');
-  const sel = [...selection][0];
-  if (!tree || !sel) return false;
-  const el = tree.querySelector(`[data-unit="${CSS.escape(sel)}"]`);
-  if (!el) return false;
-  const t0 = tree.getBoundingClientRect(), r = el.getBoundingClientRect();
-  return r.bottom < t0.top + 2 || r.top > t0.bottom - 2;
+
+/* ⚠ ELISION IS BY WIDTH, NOT BY DEPTH (Seth, 2026-08-07: "full path for both until it takes up about
+ * 2/3 of the window/toolbar width"). A fixed depth throws away steps that would have fitted on a wide
+ * screen and still overflows on a narrow one — the constraint is the space, so the space is what is
+ * measured. Renders the full path, then drops middle steps one at a time until it fits, keeping the
+ * ROOT and the current end: those two orient you, the ones between are what you can afford to lose.
+ * Bounded by the step count, so it always terminates. */
+const CRUMB_WIDTH_SHARE = 2 / 3;
+function fitCrumbInto(bar, leadHtml, steps, renderStep, elidedTitle) {
+  const budget = () => (bar.parentElement ? bar.parentElement.clientWidth : bar.clientWidth) * CRUMB_WIDTH_SHARE;
+  const paint = (list, elided) => {
+    bar.innerHTML = leadHtml + list.map((st, i) => {
+      const gap = (elided && i === 1) ? `<span class="pa-path-gap" title="${esc(elidedTitle(steps.length - list.length))}">…</span>` : '';
+      return gap + renderStep(st, i);
+    }).join('');
+  };
+  paint(steps, false);
+  let shown = steps.slice();
+  let guard = 0;
+  while (shown.length > 2 && bar.scrollWidth > budget() && guard++ < 64) {
+    shown = [shown[0], ...shown.slice(2)];   // drop the step just after the root
+    paint(shown, true);
+  }
 }
+
 function renderPathBar() {
   const bar = $('#pa-path-bar');
   if (!bar) return;
@@ -771,25 +786,21 @@ function renderPathBar() {
   if (!on || !sel) { bar.hidden = true; bar.innerHTML = ''; return; }
   const steps = pathOf(sel);
   if (!steps.length) { bar.hidden = true; bar.innerHTML = ''; return; }
-  const MAX = 4;
-  let shown = steps;
-  let elided = false;
-  if (steps.length > MAX) { shown = [steps[0], ...steps.slice(-(MAX - 1))]; elided = true; }
   bar.hidden = false;
-  /* ⚠ WHEN THE SELECTION IS OFF-SCREEN, BOTH BARS SHOW (Seth's exception) — the crumb says where you
-   * are LOOKING, this says what you have SELECTED, and they legitimately disagree. So this one is
-   * labelled: without it, two ancestry lines saying different things is just confusing. */
-  /* ⚠ ALWAYS LABELLED (Seth). It began as a disambiguator shown only when the scroll crumb was also
-   * visible, but the two bars look alike and occupy the same place, so which one you are reading must
-   * be unambiguous EVERY time — not only in the case I happened to anticipate. */
-  const lead = `<span class="pa-path-lead">${esc(t('para.pathSelectionLead'))}</span>`;
-  bar.innerHTML = lead + shown.map((st, i) => {
-    const gap = (elided && i === 1) ? `<span class="pa-path-gap" title="${esc(t('para.pathElided', { n: steps.length - MAX }))}">…</span>` : '';
+  /* ⚠ ALWAYS LABELLED (Seth). The two bars look alike and sit in the same place, so which one you are
+   * reading has to be unambiguous every time. */
+  /* ⚠ A DESELECT BUTTON ON THE BAR ITSELF (Seth). Clearing the selection is what makes this bar go
+   * away, so the control belongs on the thing it dismisses — not only in the toolbar, where you have
+   * to go looking for it. */
+  const lead = `<button class="pa-path-clear" id="pa-path-clear" title="${esc(t('para.clearSelTip'))}"
+                  aria-label="${esc(t('para.clearSelTip'))}">✕</button>`
+    + `<span class="pa-path-lead">${esc(t('para.pathSelectionLead'))}</span>`;
+  fitCrumbInto(bar, lead, steps, (st) => {
+    if (st.leaf) {
+      return `<button class="pa-path-step pa-path-leaf" data-leaf="${esc(st.id)}"
+               title="${esc(t('para.pathLeafTip'))}">${esc(st.label)}</button>`;
+    }
     const isSel = selection.size === 1 && selection.has(st.id);
-    // ⚠ The tip CHANGES once the step is selected, so the second gesture announces itself exactly
-    // when it is available — a static tip describing both would be noise on every other step.
-    /* The selected step's tip names which way the toggle will go, worked out the same way the click
-     * does — so the tip cannot promise one thing while the click does the other. */
     let tip;
     if (isSel) {
       const g = nodeById(state, st.id);
@@ -802,15 +813,11 @@ function renderPathBar() {
     } else {
       tip = t('para.pathStepTip', { name: st.label });
     }
-    if (st.leaf) {
-      /* An endpoint, not a group: clicking it scrolls back to it — genuinely useful when the
-       * selection is off-screen, which is exactly when this step matters most — but it has no
-       * focus gesture, because a line has no daughters or sisters to collapse. */
-      return gap + `<button class="pa-path-step pa-path-leaf" data-leaf="${esc(st.id)}"
-                     title="${esc(t('para.pathLeafTip'))}">${esc(st.label)}</button>`;
-    }
-    return gap + `<button class="pa-path-step" data-gid="${esc(st.id)}" title="${esc(tip)}">${esc(st.label)}</button>`;
-  }).join('<span class="pa-path-sep">\u203a</span>');
+    return `<button class="pa-path-step" data-gid="${esc(st.id)}" title="${esc(tip)}">${esc(st.label)}</button>`;
+  }, (n) => t('para.pathElided', { n }));
+
+  const clr = bar.querySelector('#pa-path-clear');
+  if (clr) clr.addEventListener('click', () => { selection = new Set(); anchor = null; renderWork(); });
   bar.querySelectorAll('.pa-path-leaf').forEach((b) => {
     b.addEventListener('click', () => scrollUnitToTop(b.dataset.leaf));
   });
@@ -2316,48 +2323,58 @@ function rangeBetween(a, b) {
  * ⚠ DELIBERATELY NOT CLICKABLE. It moves as you scroll, so a click target here would slide out from
  * under the pointer — the same reason the path steps are two separate clicks rather than a
  * double-click. Navigation is the path bar's job. */
-const CRUMB_DEPTH = 3;
 let crumbRaf = 0;
 function updateScrollCrumb() {
   const tree = $('#pa-tree'), bar = $('#pa-crumbview');
   if (!tree || !bar) return;
-  /* ⚠ Normally hidden while something is selected — the path bar covers that case. THE EXCEPTION is
-   * a selection scrolled out of view: then the path bar is describing somewhere you cannot see, and
-   * you still need to know where you ARE. Both show, and the path bar labels itself. */
+  /* ⚠ BOTH BARS SHOW, ALWAYS (Seth, 2026-08-07 — simplified from a mutual-exclusion rule plus an
+   * off-screen exception). Each carries its own label, "Currently visible:" and "Selected:", so
+   * there is nothing to disambiguate by hiding one; and each has its own View toggle, so a user who
+   * wants only one says so once instead of the app guessing per scroll position. The exclusion rule
+   * also meant the bars appeared and vanished as you scrolled, which is its own kind of noise. */
   if (state.view.stickyHeads === false) { bar.hidden = true; return; }
-  if (selection.size && !selectionOffscreen()) { bar.hidden = true; return; }
   const top = tree.getBoundingClientRect().top;
-  /* The first unit whose bottom is still below the top of the viewport — i.e. the one the reader is
-   * looking at. Reading the DOM rather than the model because what matters is what is ON SCREEN:
-   * collapsed and hidden units simply are not there. */
-  let firstVisible = null;
-  for (const el of tree.querySelectorAll('[data-unit]')) {
-    const r = el.getBoundingClientRect();
-    if (r.bottom > top + 2) { firstVisible = el; break; }
+  /* ⚠ THE ANCHOR IS THE LAST GROUP HEADING YOU HAVE SCROLLED PAST (Seth, 2026-08-07: "every time we
+   * scroll past another heading, that heading becomes the anchor... and the one above it if we're
+   * scrolling up"). One rule covers both directions: the LAST heading at or above the top of the
+   * viewport. Scrolling down, each heading you pass becomes the newest such; scrolling up, the
+   * previous one takes over again. No direction tracking and no hysteresis needed.
+   *
+   * ⚠ HEADINGS, not leaf rows and not group boxes. Scanning [data-unit] matched group CONTAINERS,
+   * whose boxes span all their members — so the outermost group always qualified and the bar showed
+   * one step forever. Scanning leaves and walking up was my next attempt and is subtly wrong too:
+   * it answers "what is the first thing I can see", not "which heading did I last pass", and those
+   * differ exactly when a group's members are tall. */
+  /* ⚠ THE DEEPEST GROUP STRADDLING THE TOP OF THE VIEWPORT (Seth, 2026-08-07: "the lowest-level,
+   * currently in-view at the top of the viewer (even if partially) group"). Every ancestor of that
+   * group also straddles the top, and in document order a parent precedes its children — so the LAST
+   * straddling group in the list is the innermost one. That is the group you are actually inside.
+   *
+   * ⚠ Two earlier rules were both subtly wrong and worth naming: scanning [data-unit] matched group
+   * BOXES and always returned the outermost; anchoring on "the last heading scrolled past" answers a
+   * different question, and diverges exactly when a group's members are tall enough that you are
+   * deep inside it long after passing its heading. */
+  let anchorId = null;
+  for (const gEl of tree.querySelectorAll('.pa-group[data-unit]')) {
+    const r = gEl.getBoundingClientRect();
+    if (r.top <= top + 2 && r.bottom > top + 2) anchorId = gEl.dataset.unit;
   }
-  if (!firstVisible) { bar.hidden = true; return; }
-  // Walk up from it, collecting the groups that contain it.
-  const chain = [];
-  let id = firstVisible.dataset.unit;
-  if (isGroupId(id)) chain.push(id);
-  for (let p = parentOf(state, id); p; p = parentOf(state, p.id)) chain.push(p.id);
+  if (!anchorId) { bar.hidden = true; return; }
+  // That group and every parent above it.
+  const chain = [anchorId];
+  for (let p = parentOf(state, anchorId); p; p = parentOf(state, p.id)) chain.push(p.id);
   chain.reverse();
-  if (!chain.length) { bar.hidden = true; return; }
-  const shown = chain.slice(-CRUMB_DEPTH);
-  const hidden = chain.length - shown.length;
   bar.hidden = false;
-  bar.innerHTML = (hidden ? `<span class="pa-crumb-more" title="${esc(t('para.crumbMore', { n: hidden }))}">…</span>` : '')
-    + shown.map((gid) => {
-        const g = nodeById(state, gid);
-        return `<span class="pa-crumb-step">${esc(g ? groupTitle(g) : gid)}</span>`;
-      }).join('<span class="pa-crumb-sep">›</span>');
+  const lead = `<span class="pa-path-lead">${esc(t('para.crumbLead'))}</span>`;
+  fitCrumbInto(bar, lead, chain, (gid) => {
+    const g = nodeById(state, gid);
+    return `<span class="pa-crumb-step">${esc(g ? groupTitle(g) : gid)}</span>`;
+  }, (n) => t('para.crumbMore', { n }));
 }
 function scheduleCrumb() {
   if (crumbRaf) return;
-  /* ⚠ The PATH BAR is redrawn too, not just the crumb: whether the selection is off-screen changes
-   * as you scroll, and that decides both whether the crumb appears AND whether the path bar wears
-   * its "Selection" label. Updating one without the other would leave them contradicting. */
-  crumbRaf = requestAnimationFrame(() => { crumbRaf = 0; updateScrollCrumb(); renderPathBar(); });
+  // Only the crumb depends on scroll position now; the path bar depends solely on the selection.
+  crumbRaf = requestAnimationFrame(() => { crumbRaf = 0; updateScrollCrumb(); });
 }
 
 /* How far down the tree's scroll box a heading must land to clear the crumb pinned above it. */

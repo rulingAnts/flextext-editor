@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v278';
+export const ENGINE_VERSION = 'v279';
 
 const S = {
 en: {
@@ -1110,18 +1110,19 @@ internet after the first time.</p>
   'para.layerBaseline': 'Baseline text',
   'para.layerFreeOnly': 'Free translation only',
   'para.layerPropsOnly': 'Propositions only',
-  'para.showPath': 'Show the path',
+  'para.showPath': 'Show “Selected”',
   'para.pathTip': 'A clickable path to whatever is selected — one line however deep the analysis goes. Click a step to jump to it.',
   'para.depthLimit': 'Show levels',
   'para.depthAll': 'All',
   'para.pathElided': '{n} more level(s) between',
   'para.pathStepTip': 'Go to “{name}”. Then find it here again and click it a second time to collapse everything around it. Two separate clicks — not a double-click.',
   'para.crumbMore': '{n} more level(s) above this',
-  'para.pathSelectionLead': 'Selection:',
+  'para.pathSelectionLead': 'Selected:',
+  'para.crumbLead': 'Currently visible:',
   'para.pathLeafTip': 'Scroll back to the selected line',
   'para.leafLine': 'this line',
   'para.leafProp': 'this proposition',
-  'para.stickyHeads': 'Show where I am while scrolling',
+  'para.stickyHeads': 'Show “Currently visible”',
   'para.stickyTip': 'While you scroll, a strip at the top of the tree names the groups you are currently inside — three deep, with “…” for anything above that. It appears only when nothing is selected; when you do have a selection, the navigable path replaces it.',
   'para.pathStepExpandTip': 'Click once more to open this level back up — its sub-groups and everything beside it expand again.',
   'para.pathStepFocusTip': 'Click once more to focus this level — its own sub-groups and everything beside it collapse, so only this stays open. Undo restores it.',
@@ -2459,18 +2460,19 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.layerBaseline': 'Teks dasar',
   'para.layerFreeOnly': 'Hanya terjemahan bebas',
   'para.layerPropsOnly': 'Hanya proposisi',
-  'para.showPath': 'Tampilkan jalur',
+  'para.showPath': 'Tampilkan “Dipilih”',
   'para.pathTip': 'Jalur yang bisa diklik menuju bagian terpilih — satu baris sedalam apa pun analisisnya. Klik satu langkah untuk melompat ke sana.',
   'para.depthLimit': 'Tampilkan tingkat',
   'para.depthAll': 'Semua',
   'para.pathElided': '{n} tingkat lagi di antaranya',
   'para.pathStepTip': 'Ke “{name}”. Lalu cari lagi di sini dan klik kedua kalinya untuk menciutkan sekelilingnya. Dua klik terpisah — bukan klik ganda.',
   'para.crumbMore': '{n} tingkat lagi di atas ini',
-  'para.pathSelectionLead': 'Pilihan:',
+  'para.pathSelectionLead': 'Dipilih:',
+  'para.crumbLead': 'Sedang terlihat:',
   'para.pathLeafTip': 'Gulir kembali ke baris yang dipilih',
   'para.leafLine': 'baris ini',
   'para.leafProp': 'proposisi ini',
-  'para.stickyHeads': 'Tampilkan posisi saat menggulir',
+  'para.stickyHeads': 'Tampilkan “Sedang terlihat”',
   'para.stickyTip': 'Saat menggulir, sebuah strip di atas pohon menyebut kelompok yang sedang Anda masuki — tiga tingkat, dengan “…” untuk yang di atasnya. Hanya muncul bila tidak ada yang dipilih; bila ada pilihan, jalur navigasi menggantikannya.',
   'para.pathStepExpandTip': 'Klik sekali lagi untuk membuka kembali tingkat ini — subkelompok dan semua di sebelahnya mengembang lagi.',
   'para.pathStepFocusTip': 'Klik sekali lagi untuk memusatkan tingkat ini — subkelompoknya dan semua yang di sebelahnya diciutkan, hanya ini yang terbuka. Bisa dibatalkan.',

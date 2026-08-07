@@ -42,6 +42,31 @@ console.log('\n...and it is equally plain when the settings were not archival');
   ok(/peak-normalised after capture - an edit/.test(h), 'normalisation is called an edit');
   ok(/requantised from float to 16-bit \(irreversible\)/.test(h), '16-bit is irreversible, not "faithful"');
 }
+/* ⚠ AGC ARRIVES IN TWO SHAPES, and getting one backwards is the worst single error this file can
+ * make. `settings.agc` is the TRISTATE STRING 'off' | 'on' | 'auto'; effectiveAgc() resolves it to
+ * a boolean before recordingProvenance() passes it in. A bare `p.agc ? …` reads the string 'off' as
+ * TRUE — so a caller who wires the setting straight through (the obvious thing, and what anything
+ * outside app.js would naturally write) stamps "AGC ON - auto-gain alters dynamics" onto the take
+ * whose entire point was that auto-gain was OFF.
+ * A researcher who turned AGC off FOR archival quality would get a master permanently claiming the
+ * opposite, and no later listener could tell. Both shapes are pinned, in both directions. */
+console.log('\nAGC reads correctly whether it arrives resolved or as the raw setting');
+for (const v of [false, 'off', undefined, null]) {
+  const h = captureBext({ mode: 'browser', bits: 24, agc: v }).codingHistory;
+  ok(/AGC off/.test(h) && !/AGC ON/.test(h), `agc=${JSON.stringify(v)} → "AGC off", never ON`);
+}
+for (const v of [true, 'on']) {
+  const h = captureBext({ mode: 'browser', bits: 24, agc: v }).codingHistory;
+  ok(/AGC ON - auto-gain alters dynamics/.test(h), `agc=${JSON.stringify(v)} → "AGC ON"`);
+}
+{
+  // 'auto' is browser-conditional and unresolved here. Say that, rather than pick a side of it.
+  const h = captureBext({ mode: 'browser', bits: 24, agc: 'auto' }).codingHistory;
+  ok(/AGC left to the browser default - not recorded for this take/.test(h),
+     'agc="auto" is reported as unknown, not silently as on or off');
+  ok(!/AGC ON|AGC off/.test(h), 'and never as either of the two it is not');
+}
+
 console.log('\n...and does not invent an edit that did not happen');
 {
   const h = captureBext({ mode: 'browser', bits: 32, agc: false }).codingHistory;

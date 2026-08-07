@@ -614,8 +614,20 @@ export function captureBext(prov = {}) {
      * depth imply a capture depth it cannot have had. */
     lines.push(`A=PCM,F=${F},W=32,M=${M},T=captured through Web Audio, which is 32-bit float by specification`
              + `${p.micLabel ? ` (input: ${p.micLabel})` : ''}`);
+    /* ⚠ agc ARRIVES IN TWO SHAPES and a bare truthiness test gets one of them exactly backwards.
+     * `settings.agc` is a TRISTATE STRING ('off' | 'on' | 'auto'); effectiveAgc() resolves it to a
+     * boolean before recordingProvenance() passes it here. `p.agc ? …` reads the string 'off' as
+     * TRUE — so wiring the setting straight through (the obvious thing to do, and what a caller
+     * outside app.js would naturally write) stamps "AGC ON - auto-gain alters dynamics" onto a take
+     * whose whole point was that AGC was off.
+     * That is the worst field in the file to be wrong in: a researcher who turned auto-gain off FOR
+     * archival quality gets a master that permanently claims their audio was auto-gained, and no
+     * later listener can tell it is a lie. Accept both shapes, and name the unresolved 'auto' case
+     * rather than picking a side of it. */
     const dsp = [];
-    dsp.push(p.agc ? 'AGC ON - auto-gain alters dynamics' : 'AGC off');
+    const agcOn = p.agc === true || p.agc === 'on';
+    dsp.push(p.agc === 'auto' ? 'AGC left to the browser default - not recorded for this take'
+           : agcOn ? 'AGC ON - auto-gain alters dynamics' : 'AGC off');
     if (p.nr) dsp.push('noise reduction ON');
     if (p.echo) dsp.push('echo cancellation ON');
     if (p.normalized) dsp.push('peak-normalised after capture - an edit');

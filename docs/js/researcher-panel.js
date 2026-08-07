@@ -1300,7 +1300,18 @@ function findInventoryItem(instanceId, docId) {
 
 /* Download-everything-as-one-ZIP: every byte routes through the Worker with the RESEARCHER'S own
  * token and connection — this control must never exist on a field device. Built client-side because
- * Drive has no "folder as zip" URL. */
+ * Drive has no "folder as zip" URL — the web UI's folder download is an internal, cookie-
+ * authenticated route, not something the Drive API offers an OAuth client, so there is nothing to
+ * delegate the zipping to.
+ *
+ * ⚠ BUT A FOLDER HOLDING ONE FILE MUST NOT BE RE-ZIPPED (Seth, 2026-08-07). A device uploads its
+ * text as a single BUNDLE .zip, so a text uploaded once has exactly one file in its folder — and
+ * wrapping that gave a zip whose only member was another zip. On a Mac that errors outright; where
+ * it does not, it is worse, because it quietly works: "the flextext files are inside the inner zip
+ * file", and the people this suite is for are precisely the ones who will not distinguish a folder
+ * from an archive and will report that the app cannot find their text.
+ * One file → hand over that file, under its own name. The zip earns its place only when it is
+ * actually bundling several things. */
 async function downloadAllZip(btn) {
   const iid = btn.dataset.i, docId = btn.dataset.id;
   const title = (btn.dataset.title || 'text').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80);
@@ -1325,9 +1336,13 @@ async function downloadAllZip(btn) {
       entries.push({ name, data: await Researcher.fetchDriveFile(f.id) });
     }
     if (!entries.length) throw new Error('empty');
-    const blob = await makeZip(entries);
+    /* One file: give them the file. Its own name is also the RIGHT name — a bundle is already
+     * "<title> <timestamp>.zip", so renaming it to the bare title would drop which upload it is. */
+    const single = entries.length === 1;
+    const blob = single ? entries[0].data : await makeZip(entries);
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = title + '.zip';
+    a.href = URL.createObjectURL(blob);
+    a.download = single ? entries[0].name : title + '.zip';
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 60000);
     nameEl.textContent = orig;

@@ -720,6 +720,21 @@ function beyondDepth(level) {
  * instead would remove the very thing you are looking at.
  * ⚠ Each step uses groupTitle(), so it shows the group's own label, else the label derived from its
  * members' roles, else its slot or summary — never a bare "G4" unless nothing at all is named. */
+/* What to call a selected LINE or PROPOSITION in the path (Seth, 2026-08-07): its ROLE if it has one,
+ * otherwise its own words, truncated. The role is preferred because it says what the unit IS to the
+ * analysis, which is what a path is for; the text is the fallback for a unit not yet given a role. */
+function leafPathLabel(id) {
+  const parent = parentOf(state, id);
+  const role = parent && parent.labels ? String(parent.labels[id] || '').trim() : '';
+  if (role) return role;
+  const n = nodeById(state, id);
+  const text = isPropId(id) ? String((n && n.text) || '')
+    : String((n && (n.free || n.baseline)) || '');
+  const clean = text.trim().replace(/\s+/g, ' ');
+  if (!clean) return isPropId(id) ? t('para.leafProp') : t('para.leafLine');
+  return clean.length > 32 ? clean.slice(0, 31) + '…' : clean;
+}
+
 function pathOf(id) {
   const out = [];
   let cur = id;
@@ -730,7 +745,23 @@ function pathOf(id) {
     const parent = parentOf(state, cur);
     cur = parent ? parent.id : null;
   }
+  /* ⚠ THE SELECTED LEAF IS A STEP TOO. A path that stopped at the containing group could not tell
+   * you WHICH line you had selected — and with a group selected the last step was the group itself,
+   * so the two cases read identically. Marked `leaf` so it renders as an endpoint, not as another
+   * group you can focus. */
+  if (!isGroupId(id)) out.push({ id, label: leafPathLabel(id), leaf: true });
   return out;
+}
+
+/* Is the current selection scrolled out of the tree's visible box? */
+function selectionOffscreen() {
+  const tree = $('#pa-tree');
+  const sel = [...selection][0];
+  if (!tree || !sel) return false;
+  const el = tree.querySelector(`[data-unit="${CSS.escape(sel)}"]`);
+  if (!el) return false;
+  const t0 = tree.getBoundingClientRect(), r = el.getBoundingClientRect();
+  return r.bottom < t0.top + 2 || r.top > t0.bottom - 2;
 }
 function renderPathBar() {
   const bar = $('#pa-path-bar');
@@ -745,7 +776,13 @@ function renderPathBar() {
   let elided = false;
   if (steps.length > MAX) { shown = [steps[0], ...steps.slice(-(MAX - 1))]; elided = true; }
   bar.hidden = false;
-  bar.innerHTML = shown.map((st, i) => {
+  /* ⚠ WHEN THE SELECTION IS OFF-SCREEN, BOTH BARS SHOW (Seth's exception) — the crumb says where you
+   * are LOOKING, this says what you have SELECTED, and they legitimately disagree. So this one is
+   * labelled: without it, two ancestry lines saying different things is just confusing. */
+  const both = selectionOffscreen() && state.view.stickyHeads !== false;
+  bar.classList.toggle('pa-path-labelled', both);
+  const lead = both ? `<span class="pa-path-lead">${esc(t('para.pathSelectionLead'))}</span>` : '';
+  bar.innerHTML = lead + shown.map((st, i) => {
     const gap = (elided && i === 1) ? `<span class="pa-path-gap" title="${esc(t('para.pathElided', { n: steps.length - MAX }))}">…</span>` : '';
     const isSel = selection.size === 1 && selection.has(st.id);
     // ⚠ The tip CHANGES once the step is selected, so the second gesture announces itself exactly
@@ -764,9 +801,19 @@ function renderPathBar() {
     } else {
       tip = t('para.pathStepTip', { name: st.label });
     }
+    if (st.leaf) {
+      /* An endpoint, not a group: clicking it scrolls back to it — genuinely useful when the
+       * selection is off-screen, which is exactly when this step matters most — but it has no
+       * focus gesture, because a line has no daughters or sisters to collapse. */
+      return gap + `<button class="pa-path-step pa-path-leaf" data-leaf="${esc(st.id)}"
+                     title="${esc(t('para.pathLeafTip'))}">${esc(st.label)}</button>`;
+    }
     return gap + `<button class="pa-path-step" data-gid="${esc(st.id)}" title="${esc(tip)}">${esc(st.label)}</button>`;
   }).join('<span class="pa-path-sep">\u203a</span>');
-  bar.querySelectorAll('.pa-path-step').forEach((b) => {
+  bar.querySelectorAll('.pa-path-leaf').forEach((b) => {
+    b.addEventListener('click', () => scrollUnitToTop(b.dataset.leaf));
+  });
+  bar.querySelectorAll('.pa-path-step[data-gid]').forEach((b) => {
     b.addEventListener('click', () => {
       const gid = b.dataset.gid;
       /* ⚠ TWO GESTURES ON ONE CONTROL, told apart by whether it is ALREADY the selection rather than
@@ -804,8 +851,6 @@ function renderPathBar() {
        * buttons. Looking up [data-gid] found the BUTTON and scrolled that into view, so the first
        * click selected without ever navigating (Seth: it "should not only select it, but also
        * navigate to that label"). Scoped to the tree so it cannot match the path bar again. */
-      // markSticky first, so the inset is measured from the headings that will actually be pinned.
-      markStickyHeadings();
       scrollUnitToTop(gid);
     });
   });
@@ -1282,7 +1327,7 @@ function renderWork() {
   const keepY = before ? before.scrollTop : 0;
   renderWorkInner();
   renderPathBar();
-  markStickyHeadings();
+  updateScrollCrumb();
   wireHelpDisclosure();
   applyZoom(zoomPct);   // the tree element is new after every render
   if (chartOn) setChart(true);   // the tree is rebuilt each render, so re-mount and redraw the chart
@@ -1313,6 +1358,7 @@ function renderWorkInner() {
           <summary>${esc(t('para.menuFile'))}</summary>
           <div class="pa-menupanel">
             <button class="pa-menuitem" id="pa-save">${esc(t('para.saveTip'))}</button>
+            <button class="pa-menuitem" id="pa-save-noaudio" hidden>${esc(t('para.saveNoAudio'))}</button>
             <button class="pa-menuitem" id="pa-export">${esc(t('para.exportBtn'))}</button>
             ${state.authored ? `<button class="pa-menuitem" id="pa-addline">${esc(t('para.scratchAddLine'))}</button>` : ''}
             <hr>
@@ -1434,7 +1480,7 @@ function renderWorkInner() {
     <!-- ⚠ ONE LINE WHATEVER THE DEPTH — the reason this replaced sticky group headings, which stack
          without bound in a deep hierarchy (Seth). It is also the navigator: each step selects. -->
     <nav class="pa-path" id="pa-path-bar" hidden></nav>
-    <div class="pa-tree" id="pa-tree"></div>
+    <div class="pa-tree" id="pa-tree"><div class="pa-crumbview" id="pa-crumbview" hidden></div></div>
     <div id="pa-dialog" hidden></div>`;
 
   $('#pa-layer').value = v.layer;
@@ -1483,7 +1529,21 @@ function renderWorkInner() {
   /* Every command has a menu entry AND, when it is frequent enough, an icon. Both routes run the
    * same function — a second copy is how the two silently diverge. */
   const on = (sel, fn) => { const e = $(sel); if (e) e.addEventListener('click', fn); };
-  on('#pa-save', saveFxpa); on('#pa-save-icon', saveFxpa);
+  /* ⚠ Bound with an explicit `true`. Passing saveFxpa directly makes the CLICK EVENT the first
+   * argument, and an event object is truthy — which happens to work, but only by accident, and would
+   * silently invert if the default ever changed. */
+  on('#pa-save', () => saveFxpa(true)); on('#pa-save-icon', () => saveFxpa(true));
+  on('#pa-save-noaudio', () => { closeMenus(); saveFxpa(false); });
+  {
+    /* Offered only when there IS audio to leave out — otherwise it is a control that does exactly
+     * what the one above it does, which teaches the user that the menu lies. */
+    const nb = $('#pa-save-noaudio');
+    if (nb) {
+      const has = !!(state.audio && state.audio.b64);
+      nb.hidden = !has;
+      if (has) nb.title = t('para.saveNoAudioTip', { size: humanSize(Math.round(state.audio.b64.length * 0.75)) });
+    }
+  }
   $('#pa-export').addEventListener('click', openExportDialog);
   if (state.authored) {
     $('#pa-addline').addEventListener('click', () => {
@@ -2217,61 +2277,73 @@ function rangeBetween(a, b) {
   return sibs.slice(Math.min(i, j), Math.max(i, j) + 1);
 }
 
-/* ── STICKY HEADINGS, BOUNDED TO TWO ────────────────────────────────────────────────────────────
- * Seth asked for the current group and its IMMEDIATE PARENT to stick — and the bound is the whole
- * point. Sticking every ancestor is what made plain sticky headings unusable: in a five-deep
- * analysis five bars pile up at the top and the text you are reading is pushed off the screen,
- * precisely when you most need room. Two is enough to say "you are here, inside that".
+/* ── THE SCROLL CRUMB ──────────────────────────────────────────────────────────────────────────
+ * A pinned strip at the top of the tree saying which groups you are currently INSIDE, based on where
+ * you have SCROLLED TO — not on what is selected (Seth, 2026-08-07). The two are different questions
+ * and they get different answers:
+ *   - the PATH BAR is about the SELECTION: navigable, appears when something is selected;
+ *   - the SCROLL CRUMB is about the VIEW: not navigable, appears when nothing is selected.
  *
- * ⚠ THE PATH BAR AND THESE ARE COMPLEMENTARY, NOT REDUNDANT. The path names the whole ancestry in
- * one line and lets you jump; these two keep the group you are actually working in visible as you
- * scroll through it. One answers "where am I", the other "what am I inside right now".
+ * ⚠ THEY ARE MUTUALLY EXCLUSIVE BY DESIGN. Showing both would put two ancestry lines on screen
+ * saying different things — one about a selection you may have made minutes ago, one about where you
+ * happen to be looking — which is worse than either alone. Selection wins, because it is the thing
+ * you acted on deliberately.
  *
- * ⚠ APPLIED BY CLASS, NOT BY DEPTH. Only the selected group and its parent get it, so the number of
- * sticky bars can never grow with the document. The stacking offsets are set inline because the
- * parent must sit ABOVE the current group and both must clear the toolbar and the path bar, whose
- * heights vary with wrapping and with whether the path is shown at all. */
-function markStickyHeadings() {
-  const tree = $('#pa-tree');
-  if (!tree) return;
-  tree.querySelectorAll('.sticky-1, .sticky-2').forEach((b) => {
-    b.classList.remove('sticky-1', 'sticky-2');
-    b.style.top = '';
-  });
-  if (state.view.stickyHeads === false) return;
-  const sel = [...selection][0];
-  if (!sel) return;
-  const own = isGroupId(sel) ? nodeById(state, sel) : parentOf(state, sel);
-  if (!own) return;
-  const up = parentOf(state, own.id);
-  /* ⚠ THE ROLELINE STICKS, NOT THE BADGE. A sticky element moves within its CONTAINING BLOCK, and
-   * the badge's parent (.pa-roleline) is exactly the badge's own height — zero room, so `position:
-   * sticky` computed correctly and did nothing at all. The roleline is a direct child of .pa-group,
-   * which spans the whole group, so there is somewhere to stick to.
-   *
-   * ⚠ OFFSETS ARE RELATIVE TO .pa-tree, THE SCROLLER — not to the page. The first version added the
-   * toolbar and path-bar heights, but those sit OUTSIDE the tree, whose top edge is already below
-   * them; the result was a heading pinned ~300px down inside the scroll box, i.e. never visible
-   * where it was wanted. The parent pins at 0 and the current group directly beneath it. */
-  const lineOf = (gid) => {
-    const gEl = tree.querySelector(`[data-unit="${CSS.escape(gid)}"]`);
-    return gEl ? gEl.querySelector(':scope > .pa-roleline') : null;
-  };
-  const upL = up ? lineOf(up.id) : null;
-  const ownL = lineOf(own.id);
-  if (upL) { upL.classList.add('sticky-1'); upL.style.top = '0px'; }
-  if (ownL) {
-    ownL.classList.add('sticky-2');
-    ownL.style.top = (upL ? upL.offsetHeight : 0) + 'px';
+ * ⚠ THREE DEEP, WITH A LEADING ELLIPSIS. Unbounded is what makes ordinary sticky headings unusable:
+ * a five-deep analysis piles five bars at the top and pushes the text off screen exactly when you
+ * need it. Three is enough to know where you are; "…" says honestly that there is more above.
+ *
+ * ⚠ DELIBERATELY NOT CLICKABLE. It moves as you scroll, so a click target here would slide out from
+ * under the pointer — the same reason the path steps are two separate clicks rather than a
+ * double-click. Navigation is the path bar's job. */
+const CRUMB_DEPTH = 3;
+let crumbRaf = 0;
+function updateScrollCrumb() {
+  const tree = $('#pa-tree'), bar = $('#pa-crumbview');
+  if (!tree || !bar) return;
+  /* ⚠ Normally hidden while something is selected — the path bar covers that case. THE EXCEPTION is
+   * a selection scrolled out of view: then the path bar is describing somewhere you cannot see, and
+   * you still need to know where you ARE. Both show, and the path bar labels itself. */
+  if (state.view.stickyHeads === false) { bar.hidden = true; return; }
+  if (selection.size && !selectionOffscreen()) { bar.hidden = true; return; }
+  const top = tree.getBoundingClientRect().top;
+  /* The first unit whose bottom is still below the top of the viewport — i.e. the one the reader is
+   * looking at. Reading the DOM rather than the model because what matters is what is ON SCREEN:
+   * collapsed and hidden units simply are not there. */
+  let firstVisible = null;
+  for (const el of tree.querySelectorAll('[data-unit]')) {
+    const r = el.getBoundingClientRect();
+    if (r.bottom > top + 2) { firstVisible = el; break; }
   }
+  if (!firstVisible) { bar.hidden = true; return; }
+  // Walk up from it, collecting the groups that contain it.
+  const chain = [];
+  let id = firstVisible.dataset.unit;
+  if (isGroupId(id)) chain.push(id);
+  for (let p = parentOf(state, id); p; p = parentOf(state, p.id)) chain.push(p.id);
+  chain.reverse();
+  if (!chain.length) { bar.hidden = true; return; }
+  const shown = chain.slice(-CRUMB_DEPTH);
+  const hidden = chain.length - shown.length;
+  bar.hidden = false;
+  bar.innerHTML = (hidden ? `<span class="pa-crumb-more" title="${esc(t('para.crumbMore', { n: hidden }))}">…</span>` : '')
+    + shown.map((gid) => {
+        const g = nodeById(state, gid);
+        return `<span class="pa-crumb-step">${esc(g ? groupTitle(g) : gid)}</span>`;
+      }).join('<span class="pa-crumb-sep">›</span>');
+}
+function scheduleCrumb() {
+  if (crumbRaf) return;
+  /* ⚠ The PATH BAR is redrawn too, not just the crumb: whether the selection is off-screen changes
+   * as you scroll, and that decides both whether the crumb appears AND whether the path bar wears
+   * its "Selection" label. Updating one without the other would leave them contradicting. */
+  crumbRaf = requestAnimationFrame(() => { crumbRaf = 0; updateScrollCrumb(); renderPathBar(); });
 }
 
-/* How far down the tree's scroll box a heading must land to clear whatever is pinned above it. */
+/* How far down the tree's scroll box a heading must land to clear the crumb pinned above it. */
 function stickyInset() {
-  const tree = $('#pa-tree');
-  if (!tree || state.view.stickyHeads === false) return 0;
-  const a = tree.querySelector('.sticky-1'), b = tree.querySelector('.sticky-2');
-  return (a ? a.offsetHeight : 0) + (b ? b.offsetHeight : 0);
+  const bar = $('#pa-crumbview');
+  return (bar && !bar.hidden) ? bar.offsetHeight : 0;
 }
 
 /* ⚠ SCROLLS THE TREE'S OWN SCROLL BOX, and puts the heading AT THE TOP (Seth: "scroll to/focus the
@@ -2293,7 +2365,7 @@ function paintSelection() {
    * a bar refreshed only by renderWork would sit there describing a selection that no longer
    * exists. */
   renderPathBar();
-  markStickyHeadings();
+  updateScrollCrumb();
   // .pa-prop is here because propositions are selectable units too (Seth, 2026-08-05).
   root.querySelectorAll('.pa-row, .pa-group, .pa-prop').forEach((el) => {
     if (el.dataset.unit) el.classList.toggle('sel', selection.has(el.dataset.unit));
@@ -3443,7 +3515,10 @@ function downloadFile(text, name, mime) {
 
 /* ---------------- save ---------------- */
 
-function saveFxpa() {
-  const name = String(state.title || 'text').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80) + '.fxpa';
-  saveFile(serializeFxpa(state), name, 'application/json', t('para.fxpaFile'));
+function saveFxpa(withAudio = true) {
+  const base = String(state.title || 'text').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80);
+  /* ⚠ A DIFFERENT FILENAME when the audio is left out, so the two cannot be confused in a folder a
+   * year later. The suffix is part of the name, not a silent difference in byte count. */
+  const name = base + (withAudio ? '' : '.no-audio') + '.fxpa';
+  saveFile(serializeFxpa(state, { audio: withAudio }), name, 'application/json', t('para.fxpaFile'));
 }

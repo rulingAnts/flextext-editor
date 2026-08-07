@@ -680,5 +680,25 @@ console.log('an authored summary overrides the derived one');
      'The whole episode in one line', 'it survives serialize → validate');
 }
 
+console.log('the DIAGRAM never shows a derived label');
+{
+  /* ⚠ Seth, 2026-08-07: the roles-derived label is "only a fall back for UI display/navigation, NOT
+   * for the diagram. The Diagram does what it always did with labels or no labels." The diagram must
+   * show what the analyst WROTE — a description invented from the roles would look authored and
+   * would quietly become part of a published figure. */
+  const d = {
+    format: 'flextext-paragraph-analysis', version: 1, title: 'T', vernLang: 'f', analLang: 'e',
+    lines: [{ id: 'L1', baseline: 'a', free: 'A', words: [] }, { id: 'L2', baseline: 'b', free: 'B', words: [] }],
+    // no `relation` — but the members DO have roles, which is exactly what the UI would derive from
+    tree: [{ id: 'G1', children: ['L1', 'L2'], heads: ['L1'], labels: { L1: 'GOAL', L2: 'step1' } }],
+    view: {},
+  };
+  const svg = buildSsaSvg(d, { layer: 'free' });
+  ok(!/GOAL-step|stepN|GOAL-stepN/.test(svg), 'no derived group label is drawn');
+  ok(svg.includes('GOAL') && svg.includes('step1'), 'the member ROLES are still drawn, verbatim');
+  // the source of truth: the export module must not even import it
+  ok(!/derivedGroupLabel/.test(String(buildSsaSvg)), 'buildSsaSvg does not reference it');
+}
+
 console.log(fail ? `\nFAILED (${fail})\n` : '\nPASS: the paragraph exports hold.\n');
 process.exit(fail ? 1 : 0);

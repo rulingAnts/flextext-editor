@@ -1416,7 +1416,13 @@ main {
 .pa-cur { position: absolute; top: 0; bottom: 0; width: 2px; background: #c33; pointer-events: none; }
 .pa-transport { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
 
-.pa-tree { flex: 1; overflow: auto; padding: 10px 14px 40vh; }
+/* ⚠ NO TOP PADDING. A sticky child positions against the scroll container's PADDING box, not its
+   border box — so with padding-top:10px the crumb pinned 10px down and read as floating free of the
+   chrome above it, which is exactly what Seth reported. A negative margin cannot fix that: it moves
+   the element in flow, not the sticky offset. The 10px is given back below, by whichever element is
+   actually first. */
+.pa-tree { flex: 1; overflow: auto; padding: 0 14px 40vh; }
+.pa-crumbview[hidden] + * { margin-top: 10px; }
 /* ⚠ THE ROLE STACKS ABOVE THE CONTENT (Seth, 2026-08-06). It used to sit in a column beside the
    content, which meant either a fixed gutter — an empty column on every unlabelled row, and a
    clipped chip when a role was long — or labels trailing after text of varying length. Giving the
@@ -1849,3 +1855,29 @@ main {
 
 /* Fullscreen toggle: same affordance as a video player. `.on` marks that we are already there. */
 .pa-bar #pa-full.on { background: var(--blue); color: #fff; border-color: var(--blue); }
+
+/* The scroll crumb: pinned to the top of the tree's scroll box, saying which groups you are inside.
+   ⚠ Not clickable by design — it moves as you scroll, so a target here would slide out from under
+   the pointer. Navigation is the path bar's job. */
+/* ⚠ FLUSH AGAINST WHATEVER IS ABOVE IT (Seth, 2026-08-07: "glued to the top UI, not with a huge
+   gap"). It is the first child of .pa-tree and sticks at top:0 of that scroll box, so it lands
+   immediately under the path bar if there is one, the audio player if not, and the toolbar if
+   neither. The negative top margin cancels .pa-tree's own top padding — without it the tree's 10px
+   padding sits ABOVE the sticky element and reads as it floating free of the chrome. No bottom
+   margin: the strip should touch the content it labels. */
+.pa-crumbview { position: sticky; top: 0; z-index: 22; display: flex; flex-wrap: wrap;
+  align-items: baseline; gap: 0 6px; padding: 4px 8px; margin: 0 -14px;
+  background: var(--bg); border-bottom: 1px solid var(--border);
+  font-size: 12px; color: var(--muted); user-select: none; }
+/* The first real row then keeps a little breathing room from the strip, without the strip itself
+   carrying a margin that would show as a gap while it is pinned. */
+.pa-crumbview:not([hidden]) + * { margin-top: 8px; }
+.pa-crumb-step { font-weight: 600; color: var(--text); }
+.pa-crumb-sep, .pa-crumb-more { color: var(--muted); }
+.pa-crumb-more { cursor: help; }
+
+/* "Selection" label — only worn when the scroll crumb is also on screen, so the two ancestry lines
+   cannot be mistaken for each other. */
+.pa-path-lead { font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--muted); margin-right: 4px; flex: 0 0 auto; }
+.pa-path-leaf { font-style: italic; }

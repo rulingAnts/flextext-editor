@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v276';
+export const ENGINE_VERSION = 'v277';
 
 const S = {
 en: {
@@ -1116,8 +1116,13 @@ internet after the first time.</p>
   'para.depthAll': 'All',
   'para.pathElided': '{n} more level(s) between',
   'para.pathStepTip': 'Go to “{name}”. Then find it here again and click it a second time to collapse everything around it. Two separate clicks — not a double-click.',
-  'para.stickyHeads': 'Keep the current heading in view',
-  'para.stickyTip': 'While you scroll, the group you are working in and the one above it stay pinned at the top — never more than two, so they cannot crowd out the text.',
+  'para.crumbMore': '{n} more level(s) above this',
+  'para.pathSelectionLead': 'Selection',
+  'para.pathLeafTip': 'Scroll back to the selected line',
+  'para.leafLine': 'this line',
+  'para.leafProp': 'this proposition',
+  'para.stickyHeads': 'Show where I am while scrolling',
+  'para.stickyTip': 'While you scroll, a strip at the top of the tree names the groups you are currently inside — three deep, with “…” for anything above that. It appears only when nothing is selected; when you do have a selection, the navigable path replaces it.',
   'para.pathStepExpandTip': 'Click once more to open this level back up — its sub-groups and everything beside it expand again.',
   'para.pathStepFocusTip': 'Click once more to focus this level — its own sub-groups and everything beside it collapse, so only this stays open. Undo restores it.',
   'para.pathNothingToFocus': 'Nothing to collapse here — this group has no sub-groups and nothing beside it.',
@@ -2460,8 +2465,13 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.depthAll': 'Semua',
   'para.pathElided': '{n} tingkat lagi di antaranya',
   'para.pathStepTip': 'Ke “{name}”. Lalu cari lagi di sini dan klik kedua kalinya untuk menciutkan sekelilingnya. Dua klik terpisah — bukan klik ganda.',
-  'para.stickyHeads': 'Judul kelompok tetap terlihat',
-  'para.stickyTip': 'Saat menggulir, kelompok yang sedang dikerjakan dan satu di atasnya tetap tersemat — maksimal dua, agar tidak menghabiskan ruang teks.',
+  'para.crumbMore': '{n} tingkat lagi di atas ini',
+  'para.pathSelectionLead': 'Pilihan',
+  'para.pathLeafTip': 'Gulir kembali ke baris yang dipilih',
+  'para.leafLine': 'baris ini',
+  'para.leafProp': 'proposisi ini',
+  'para.stickyHeads': 'Tampilkan posisi saat menggulir',
+  'para.stickyTip': 'Saat menggulir, sebuah strip di atas pohon menyebut kelompok yang sedang Anda masuki — tiga tingkat, dengan “…” untuk yang di atasnya. Hanya muncul bila tidak ada yang dipilih; bila ada pilihan, jalur navigasi menggantikannya.',
   'para.pathStepExpandTip': 'Klik sekali lagi untuk membuka kembali tingkat ini — subkelompok dan semua di sebelahnya mengembang lagi.',
   'para.pathStepFocusTip': 'Klik sekali lagi untuk memusatkan tingkat ini — subkelompoknya dan semua yang di sebelahnya diciutkan, hanya ini yang terbuka. Bisa dibatalkan.',
   'para.pathNothingToFocus': 'Tidak ada yang bisa diciutkan — kelompok ini tidak punya subkelompok dan tidak ada yang di sebelahnya.',

@@ -760,20 +760,29 @@ function pathOf(id) {
  * measured. Renders the full path, then drops middle steps one at a time until it fits, keeping the
  * ROOT and the current end: those two orient you, the ones between are what you can afford to lose.
  * Bounded by the step count, so it always terminates. */
-const CRUMB_WIDTH_SHARE = 2 / 3;
+/* ⚠ THE BUDGET IS NEARLY THE FULL WIDTH (Seth, 2026-08-07: "have it take up the whole window width
+ * if it can and only limit slightly padded from that"). Two thirds was throwing away hierarchy that
+ * had somewhere to go — on a wide screen a deep path fits easily, and the whole point of this bar is
+ * depth. The margin left is for the padding and the lead label, not a reserved third. */
+const CRUMB_WIDTH_PAD = 24;
 function fitCrumbInto(bar, leadHtml, steps, renderStep, elidedTitle) {
-  const budget = () => (bar.parentElement ? bar.parentElement.clientWidth : bar.clientWidth) * CRUMB_WIDTH_SHARE;
+  const budget = () => Math.max(120,
+    (bar.parentElement ? bar.parentElement.clientWidth : bar.clientWidth) - CRUMB_WIDTH_PAD);
   const paint = (list, elided) => {
-    bar.innerHTML = leadHtml + list.map((st, i) => {
-      const gap = (elided && i === 1) ? `<span class="pa-path-gap" title="${esc(elidedTitle(steps.length - list.length))}">…</span>` : '';
-      return gap + renderStep(st, i);
-    }).join('');
+    const mark = `<span class="pa-path-gap" title="${esc(elidedTitle(steps.length - list.length))}">…</span>`;
+    bar.innerHTML = leadHtml + (elided ? mark : '') + list.map(renderStep).join('');
   };
   paint(steps, false);
   let shown = steps.slice();
   let guard = 0;
-  while (shown.length > 2 && bar.scrollWidth > budget() && guard++ < 64) {
-    shown = [shown[0], ...shown.slice(2)];   // drop the step just after the root
+  /* ⚠ DEPTH IS WHAT BOTH BARS ARE FOR (Seth, 2026-08-07: "just needs a lot more levels of
+   * hierarchical detail... on both"). So elision always drops the OUTERMOST ancestors first and
+   * keeps the deepest steps — the innermost group, or the selected item, is what you are actually
+   * working with, and the outer levels matter less the further out they are.
+   * The earlier rule kept the ROOT and the last step and threw away everything between, which on a
+   * deep analysis produced exactly two steps: the least informative answer available. */
+  while (shown.length > 1 && bar.scrollWidth > budget() && guard++ < 64) {
+    shown = shown.slice(1);
     paint(shown, true);
   }
 }

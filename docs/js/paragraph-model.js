@@ -578,19 +578,42 @@ export function derivedGroupLabel(g) {
   const labels = g.labels || {};
   const roles = (g.children || []).map((c) => String(labels[c] || '').trim()).filter(Boolean);
   if (!roles.length) return '';
-  const stemOf = (r) => r.replace(/[\s_-]*\d+$/, '') || r;
-  const counts = new Map();
-  for (const r of roles) { const k = stemOf(r).toLowerCase(); counts.set(k, (counts.get(k) || 0) + 1); }
+  /* Split a role into stem + separator + trailing number, so "step 1" and "step-2" are recognised as
+   * the same series and the separator can be reproduced. A role that is ONLY digits has no stem, so
+   * it is left alone rather than becoming empty. */
+  const NUM = /^(.*?)([\s_-]*)(\d+)$/;
+  const parse = (r) => {
+    const m = NUM.exec(r);
+    return (m && m[1]) ? { stem: m[1], sep: m[2], numbered: true } : { stem: r, sep: '', numbered: false };
+  };
+  const info = roles.map(parse);
+  const byStem = new Map();
+  info.forEach((p) => {
+    const k = p.stem.toLowerCase();
+    const e = byStem.get(k) || { n: 0, numbered: false };
+    e.n += 1; e.numbered = e.numbered || p.numbered;
+    byStem.set(k, e);
+  });
   const seen = new Set();
   const parts = [];
-  for (const r of roles) {
-    const stem = stemOf(r), key = stem.toLowerCase();
-    if (seen.has(key)) continue;
+  info.forEach((p, i) => {
+    const key = p.stem.toLowerCase();
+    if (seen.has(key)) return;
     seen.add(key);
-    parts.push(counts.get(key) > 1 ? stem : r);   // only drop the number when it deduplicated
-  }
+    const e = byStem.get(key);
+    /* ⚠ A COLLAPSED NUMBERED SERIES KEEPS AN EXPLICIT "N" (Seth, 2026-08-07: "instead of
+     * step1-step2-GOAL, we want stepN-GOAL"). Dropping the number entirely would say "step", which
+     * reads as a single step; "stepN" says there is a series here without naming its length — which
+     * is the fact worth carrying, since the length changes as members are added.
+     * The original separator is reproduced, so "step 1"/"step 2" gives "step N", not "stepN".
+     * ⚠ Only when it ACTUALLY merged AND the members were numbered: repeated identical roles with no
+     * digits collapse to the plain role ("conjoining"), and a lone "step1" keeps its own number,
+     * because there the digit is information rather than repetition. */
+    parts.push(e.n > 1 ? (e.numbered ? p.stem + p.sep + 'N' : p.stem) : roles[i]);
+  });
   return parts.join('-');
 }
+
 
 
 /* ---------------- mutations (throw on invariant violation) ---------------- */

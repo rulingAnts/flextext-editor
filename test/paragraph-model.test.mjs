@@ -925,10 +925,15 @@ console.log('\nderived group labels (UI display only — never the diagram)');
   const dl = (roles) => derivedGroupLabel(mk(roles));
   eq(dl(['grounds', 'CONCLUSION']), 'grounds-CONCLUSION', 'roles join with hyphens, case preserved');
   eq(dl(['conjoining', 'conjoining', 'conjoining']), 'conjoining', 'identical roles collapse to one');
-  eq(dl(['step1', 'step2', 'GOAL']), 'step-GOAL', 'a NUMBERED SERIES collapses to its stem');
+  eq(dl(['step1', 'step2', 'GOAL']), 'stepN-GOAL', 'a NUMBERED SERIES collapses to stem + N');
   eq(dl(['step1']), 'step1', 'a lone numbered role KEEPS its number — nothing was deduplicated');
-  eq(dl(['step 1', 'step 2']), 'step', 'a space before the number is the same stem');
-  eq(dl(['step-1', 'step-2']), 'step', 'and so is a hyphen');
+  eq(dl(['step 1', 'step 2']), 'step N', 'the original separator is reproduced before the N');
+  eq(dl(['step-1', 'step-2']), 'step-N', 'and so is a hyphen');
+  /* ⚠ "N" appears ONLY when a numbered series actually merged. Repeated identical roles with no
+   * digits collapse to the plain role — "conjoiningN" would claim a series that is not there. */
+  eq(dl(['conjoining', 'conjoining']), 'conjoining', 'a non-numbered repeat gets NO N');
+  eq(dl(['step1', 'step']), 'stepN', 'a numbered and an unnumbered member still count as a series');
+  eq(dl(['STEP1', 'STEP2']), 'STEPN', 'the N follows an upper-case role');
   eq(dl(['setting', 'EVENT', 'setting']), 'setting-EVENT', 'a later repeat is dropped, order kept');
   eq(dl(['CONJOINING', 'conjoining']), 'CONJOINING', 'dedup is case-insensitive, first spelling wins');
   eq(dl([]), '', 'no roles: nothing to derive');

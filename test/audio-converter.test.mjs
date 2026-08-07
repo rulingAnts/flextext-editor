@@ -96,6 +96,32 @@ console.log('\nresources are released — a converter is opened repeatedly in on
 ok(/const destroyPlayers = \(\) => \{[\s\S]*?URL\.revokeObjectURL/.test(app), 'players and object URLs are torn down');
 ok(/destroyPlayers\(\);\s*\n\s*\$\('#uc-out-wrap'\)\.hidden = true;/.test(app), 'and on every new file, before the next pair is made');
 
+console.log('\nA CONVERTED WAV IS HONEST IN THE BYTES AND IN THE NAME — both, not either');
+const conv = read('../docs/js/convert.js');
+/* A filename is the first thing to be lost: files get renamed, re-downloaded and handed on, and
+ * the next person has only the bytes. So the bext chunk is the label that survives — and the name
+ * is what someone reads first. Neither alone is enough, which is why both are asserted. */
+ok(/import \{ wavWithBext \} from '\.\/seg-exports\.js';/.test(conv), 'convert.js writes a BWF bext chunk');
+ok(/wavWithBext\(await wav\.arrayBuffer\(\)/.test(conv), 'and stamps the WAV it just encoded');
+ok(/ext: 'wav', mime: 'audio\/wav', derived: true/.test(conv), 'a WAV result is flagged derived');
+ok(/res\.derived \? '-converted' : ''/.test(app), 'the editor marks the filename from that flag');
+ok(/res\.derived \? '-converted' : ''/.test(panel), 'and so does the panel — same converter, same honesty');
+ok(/catch \{ \/\* stamping is honesty, not correctness: never fail the conversion over it \*\/ \}/.test(conv),
+   'a stamping failure never loses the user their conversion');
+
+console.log('\n...and the history does NOT overstate what was done');
+/* Overstating is the same failure as hiding: a reader who meets one false warning stops trusting
+ * the true ones. 32f->24 is a FAITHFUL reduction by the standards (float32 carries a 24-bit
+ * mantissa); only a real drop in resolution may be called irreversible. */
+ok(/float-to-24-bit reduction \(faithful\)/.test(conv), '32-bit float to 24-bit is called faithful');
+ok(/requantised \$\{srcBits\}-bit to \$\{outBits\}-bit \(irreversible\)/.test(conv),
+   'a genuine requantisation is called irreversible');
+ok(/if \(mono && mono !== 'keep' && outChans < srcChans\)/.test(conv),
+   'a channel EDIT is recorded only when the channel count actually changed (auto on a stereo file is not an edit)');
+ok(/re-wrapped, samples unchanged/.test(conv), 'and a no-op conversion says exactly that');
+ok(/const srcChans = chans\.length;[\s\S]{0,200}if \(opts\.mono && opts\.mono !== 'keep'\) chans = pickMono/.test(conv),
+   'the source facts are captured BEFORE pickMono rewrites them');
+
 console.log('\nno new precached file was needed for any of this');
 /* wavesurfer.esm.js is already in every sw.js SHELL (audio.js imports it) and convert.js was already
  * imported here — so this feature adds NO SHELL entry. A new precached module would have to be added

@@ -14,6 +14,7 @@
  * every app's SW shell, so no new shell files are introduced here.
  */
 
+import { wavWithBext } from './seg-exports.js';
 import { encodeWav, reduceChannels } from './record-pcm.js';
 import { encodeFlac } from './flac.js';
 
@@ -287,6 +288,37 @@ async function encodeMp3FromChannels(chans, sampleRate, kbps, onProgress) {
  * @param {(fraction:number)=>void} [onProgress]
  * @returns {Promise<{blob:Blob, ext:string, mime:string}>}
  */
+/* What was DONE to the audio, as an EBU CodingHistory (Tech 3285) plus a plain-language
+ * Description. Written into the WAV itself, because a filename is the first thing to be lost:
+ * files get renamed, re-downloaded, and handed on, and the next person has only the bytes.
+ *
+ * ⚠ IT MUST NOT OVERSTATE OR UNDERSTATE. A 32-bit-float source written to 24-bit integer is a
+ * FAITHFUL reduction (float32 carries a 24-bit mantissa) and standards accept it — calling that
+ * "not archival" would be a lie in the cautious direction, and a researcher who sees a false
+ * warning learns to ignore the true ones. Dropping to 16-bit IS genuine quantisation, and picking
+ * or mixing channels IS an edit; those say so. Bit depth is also container, not resolution: a
+ * phone ADC gives ~16 real bits whatever the file says, so the history states the CHAIN, never a
+ * quality claim. See notes/audiotoolsandsettingsplan §0/§0b. */
+function conversionHistory({ srcBits, srcChans, srcRate, outBits, outChans, mono }) {
+  const lines = [];
+  const src = srcBits ? `W=${srcBits}` : 'W=?';
+  lines.push(`A=PCM,F=${srcRate || '?'},${src},M=${srcChans >= 2 ? 'stereo' : 'mono'},T=source as opened`);
+  const acts = [];
+  if (srcBits && outBits && outBits < srcBits) {
+    acts.push(outBits >= 24 && srcBits === 32
+      ? 'float-to-24-bit reduction (faithful)'
+      : `requantised ${srcBits}-bit to ${outBits}-bit (irreversible)`);
+  }
+  /* ⚠ Only when the channel count ACTUALLY changed. 'auto' leaves a genuinely stereo file alone, and
+   * claiming an edit that did not happen is the same failure as hiding one that did — it teaches the
+   * reader that this line cannot be trusted either way. */
+  if (mono && mono !== 'keep' && outChans < srcChans) acts.push(`channels: ${mono} (an edit, not a transfer)`);
+  if (!acts.length) acts.push('re-wrapped, samples unchanged');
+  lines.push(`A=PCM,F=${srcRate || '?'},W=${outBits},M=${outChans >= 2 ? 'stereo' : 'mono'},`
+           + `T=DERIVED by FlexText Editor - ${acts.join('; ')}`);
+  return lines.join('\n');
+}
+
 export async function convertAudio(input, opts = {}, onProgress) {
   const raw = input instanceof ArrayBuffer ? input : await input.arrayBuffer();
   const srcFmt = detectFormat(raw);
@@ -301,14 +333,35 @@ export async function convertAudio(input, opts = {}, onProgress) {
     sampleRate = decoded.sampleRate; chans = [];
     for (let c = 0; c < decoded.numberOfChannels; c++) chans.push(decoded.getChannelData(c).slice());
   }
+  // Source facts, captured BEFORE pickMono rewrites `chans` — the history describes what came in.
+  const srcChans = chans.length;
+  const srcBits = srcFmt === 'wav' ? ((readWavHeader(raw) || {}).bitsPerSample || null) : null;
   if (opts.mono && opts.mono !== 'keep') chans = pickMono(chans, opts.mono);
 
   const fmt = opts.format || 'mp3';
-  if (fmt === 'wav') return { blob: encodeWav(chans, sampleRate, opts.wavBits || 16), ext: 'wav', mime: 'audio/wav' };
-  if (fmt === 'flac') return { blob: await encodeFlac(chans, sampleRate, opts.flacBits || 24, onProgress), ext: 'flac', mime: 'audio/flac' };
+  if (fmt === 'wav') {
+    /* ⚠ A CONVERTED WAV IS STAMPED AND RENAMED, BOTH (Seth, 2026-08-07). WAV is the one output that
+     * can be mistaken for the master it came from — same extension, same look, and (before this)
+     * the same filename, so a 24-bit reduction could sit in a folder beside its 32-bit source and
+     * be indistinguishable. `derived` tells the caller to mark the name; the bext chunk is what
+     * survives a rename, which is why both are needed rather than either. */
+    const outBits = opts.wavBits || 16;
+    const wav = encodeWav(chans, sampleRate, outBits);
+    let out = wav;
+    try {
+      const stamped = wavWithBext(await wav.arrayBuffer(), {
+        description: `DERIVED audio produced by the FlexText Editor converter - not the original file`,
+        codingHistory: conversionHistory({ srcBits, srcChans, srcRate: sampleRate, outBits,
+                                           outChans: chans.length, mono: opts.mono }),
+      });
+      out = new Blob([stamped], { type: 'audio/wav' });
+    } catch { /* stamping is honesty, not correctness: never fail the conversion over it */ }
+    return { blob: out, ext: 'wav', mime: 'audio/wav', derived: true };
+  }
+  if (fmt === 'flac') return { blob: await encodeFlac(chans, sampleRate, opts.flacBits || 24, onProgress), ext: 'flac', mime: 'audio/flac', derived: true };
   const dstRate = opts.sampleRate || 22050;
   chans = await resampleChannels(chans, sampleRate, dstRate);
-  return { blob: await encodeMp3FromChannels(chans, dstRate, opts.kbps || 64, onProgress), ext: 'mp3', mime: 'audio/mpeg' };
+  return { blob: await encodeMp3FromChannels(chans, dstRate, opts.kbps || 64, onProgress), ext: 'mp3', mime: 'audio/mpeg', derived: true };
 }
 
 // The valid DOWNWARD output options for a given source (never upscale). Returns an array of

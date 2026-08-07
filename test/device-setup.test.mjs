@@ -162,6 +162,23 @@ ok(/for \(const o of SETUP_PAIR_ONLY_SEND\) if \(before\.has\(o\) && !patch\.sen
 ok(/const before = new Set\(settings\.sendOptions\?\.length \? settings\.sendOptions : SETUP_SEND_OPTS\);/.test(app),
    'and "absent means all four" is read the same way allowedSend() reads it');
 
+console.log('\n⚠ A SAVED SETTING MUST SURVIVE THE NEXT PAGE LOAD');
+/* This is not hypothetical. v289 made sendOptions user-editable again while migrateSettings still
+ * moved it into linkSendOptions and DELETED it — so the user's send-button choice was thrown away on
+ * the very next reload, silently, with each piece of code self-consistent on its own. The rule that
+ * prevents a repeat: no migration may move a key the UI can also write. */
+ok(!/delete s\.sendOptions/.test(app),
+   'migrateSettings does not delete sendOptions — the Settings tab writes that key');
+ok(!/s\.linkSendOptions = s\.sendOptions/.test(app),
+   'and does not move it into the dead link-template key');
+ok(/if \(s\.linkSendOptions === undefined && s\.linkButtons === undefined\) return;/.test(app),
+   'it only ever CLEANS UP the dead keys, and no-ops when there is nothing to clean');
+for (const k of setupKeys) {
+  // Any key this form writes must be absent from every delete in migrateSettings.
+  const mig = (app.match(/function migrateSettings\(\) \{[\s\S]*?\n\}/) || [''])[0];
+  ok(!new RegExp(`delete s\\.${k}\\b`).test(mig), `migrateSettings does not delete ${k}`);
+}
+
 console.log('\nCONSENT: the fields are always visible, and the audio is a local file');
 ok(!/setRow\('consentMsg'/.test(app) && !/setRow\('consentAudioUrl'/.test(app),
    'the consent rows are NOT hidden until their box is ticked (that read as "the tab has no fields")');

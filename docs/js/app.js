@@ -130,18 +130,31 @@ function saveSettings(s) {
   db.broadcastLive('settings');   // live-sync settings to other same-origin windows/apps
 }
 
-// One-time normalization. Older builds stored the researcher's send-option
-// checkboxes in `sendOptions`, which doubled as a restriction on THIS device.
-// Now the checkboxes are a link TEMPLATE (`linkSendOptions`) and a device is
-// only restricted by a limit it RECEIVED via a link. Move the old value to the
-// template and clear the self-restriction. Runs before any link is processed.
+/* One-time cleanup of two DEAD keys.
+ *
+ * ⚠ THIS FUNCTION USED TO DESTROY DATA, and the bug arrived by a change somewhere else entirely.
+ * It moved `sendOptions` into `linkSendOptions` and deleted it, because in that design the
+ * checkboxes were a "link template" and a device could only be restricted by a limit it RECEIVED
+ * through a link. v289 made sendOptions a real, user-editable device setting again (the Settings
+ * tab) — and this migration, untouched and still running on every load until the key existed, threw
+ * the user's choice away on the very next reload. Nothing errored; the setting simply came back
+ * different. Found by reloading the page in a browser test, not by reading either piece of code:
+ * each was self-consistent, and the incompatibility lived only in the pair.
+ *
+ * `linkSendOptions` / `linkButtons` were never READ by anything, in any app, ever — a template with
+ * no consumer. So they are deleted rather than migrated back: reinstating them as a device
+ * restriction would newly restrict devices whose owners never asked for one, and the old migration
+ * had already cleared the self-restriction they came from. Absent means "all four allowed", which
+ * is the safe direction.
+ *
+ * ⚠ Do not reintroduce either key without a reader, and never write a migration that moves a key
+ * the UI can also write. */
 function migrateSettings() {
   const s = loadSettings();
-  if (s.linkSendOptions === undefined) {
-    if (s.sendOptions?.length) s.linkSendOptions = s.sendOptions;
-    delete s.sendOptions;
-    saveSettings(s);
-  }
+  if (s.linkSendOptions === undefined && s.linkButtons === undefined) return;
+  delete s.linkSendOptions;
+  delete s.linkButtons;
+  saveSettings(s);
 }
 
 // Apply settings arriving via shared setup URL (?vern=fau&vernName=Fayu...&lang=id),
@@ -2613,9 +2626,8 @@ function focusNextWordGloss(fromInput, dir) {
 
 /* ---------------- Save and send ---------------- */
 
-// Which save/send buttons THIS device shows. Restricted only by a limit the
-// device RECEIVED through a link (settings.sendOptions); a researcher composing
-// links is never restricted by their own checkboxes (those are linkSendOptions).
+/* Which save/send buttons THIS device shows — settings.sendOptions, set either by a researcher
+ * push, a link, or (since v289) the device's own Settings tab. Absent or empty means all four. */
 function allowedSend() {
   return new Set(settings.sendOptions?.length
     ? settings.sendOptions
@@ -4590,7 +4602,11 @@ function wireAudioConverter() {
     status.hidden = false; status.textContent = t('convert.working', { pct: 0 });
     try {
       const res = await convertAudio(srcBuf, opts, (f) => { status.textContent = t('convert.working', { pct: Math.round(f * 100) }); });
-      const outName = srcName.replace(/\.[^.]+$/, '') + '.' + res.ext;
+      /* ⚠ NAME IT AS DERIVED. Without this a 32-bit master converted to 24-bit downloads under the
+       * SAME filename — same extension, same folder, indistinguishable from the original it was
+       * made from. The bext chunk inside survives a rename; the name is what someone reads first.
+       * Both, deliberately: neither alone is enough. */
+      const outName = srcName.replace(/\.[^.]+$/, '') + (res.derived ? '-converted' : '') + '.' + res.ext;
       const dlUrl = URL.createObjectURL(res.blob);
       const a = document.createElement('a'); a.href = dlUrl; a.download = outName; a.click();
       setTimeout(() => URL.revokeObjectURL(dlUrl), 30000);
@@ -5921,16 +5937,9 @@ function setup() {
     goHome: () => { renderDocList(); show('texts'); },
     eraseAllData: () => eraseAllData(),
     onSignedUp: () => { const b = $('#btn-researcher'); if (b) b.hidden = !researcherPanelApi.isSignedUp(); },
-    // A signed-up researcher saving THEIR OWN device's settings from the panel. It writes the same
-    // stored keys the Settings tab edits, so the tab must be repainted or the two surfaces would
-    // show different values for the same setting until a reload.
-    onLocalSettingsSaved: () => {
-      settings = loadSettings();
-      applyResearchVisibility();
-      applyAllowedButtons();
-      fillDeviceSetup();
-      renderDocList();
-    },
+    /* No onLocalSettingsSaved any more: the panel's "This device" settings modal is gone (Seth,
+     * 2026-08-07). A researcher's own device is UNPAIRED, so it already has this app's Settings tab
+     * — which does the same job standalone and, unlike the modal, actually worked. */
   });
   const researcherBtn = $('#btn-researcher');
   if (researcherBtn) {

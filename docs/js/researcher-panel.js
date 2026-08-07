@@ -298,9 +298,8 @@ const SEND_OPTS = ['share', 'upload', 'save', 'download'];
  * fillForm/readForm). This is the reusable settings-form component. */
 const GROUPS = [
   { id: 'languages', legend: 'panel.legend.languages', helpModal: 'wscodes', fields: [
-    // Interface language pushed to THIS device (setting D). deviceOnly → hidden in the researcher's own
-    // local-settings modal (where the live #lang-select toggle already covers it).
-    { k: 'appLang', type: 'select', opts: ['follow', 'en', 'id'], optPrefix: 'panel.opt.appLang.', deviceOnly: true, outside: true },   // sits ABOVE the codes fieldset
+    // Interface language pushed to THIS device (setting D).
+    { k: 'appLang', type: 'select', opts: ['follow', 'en', 'id'], optPrefix: 'panel.opt.appLang.', outside: true },   // sits ABOVE the codes fieldset
     // Codes ONLY (2026-07-13): the name/font fields are gone — names were display
     // sugar, fonts device cosmetics; neither belongs in the FLEx export. tip =
     // hover tooltip (fieldHtml) warning that FLEx codes are case-sensitive.
@@ -354,8 +353,8 @@ const GROUPS = [
   { id: 'other', fields: [
     { k: 'buttons', type: 'multicheck', opts: BTN_OPTS, optPrefix: 'panel.opt.btn.' },
     // Let the coworker fully wipe THIS device (Delete All). Off by default for managed devices; standalone
-    // apps always have it. deviceOnly → not shown in the researcher's own local-settings modal.
-    { k: 'deleteAllEnabled', type: 'checkbox', deviceOnly: true },
+    // apps always have it.
+    { k: 'deleteAllEnabled', type: 'checkbox' },
     // Let the coworker delete individual texts. Default ON (absent = allowed) so existing
     // devices keep the delete button until the researcher deliberately turns it off.
     { k: 'allowDelete', type: 'checkbox' },
@@ -997,7 +996,6 @@ async function renderDashboard(prefetched) {
     <div class="rp-card rp-self">
       <div class="rp-inst-top">
         <span class="rp-inst-name">${esc(t('panel.dash.thisDevice'))} <span class="rp-badge rp-badge-you">${esc(t('panel.dash.you'))}</span></span>
-        <button class="secondary-btn" data-act="self-settings">${esc(t('panel.inst.settings'))}</button>
       </div>
       <p class="note">${esc(t('panel.dash.thisDeviceNote', { n: localDocs.length }))}</p>
       ${myDevice.text ? `<div class="note rp-devinfo${myDevice.stale ? ' rp-devinfo-stale' : ''}">${esc(myDevice.text)}${myDevice.stale ? ` <span class="rp-badge rp-badge-stale">${esc(t('panel.dev.stale'))}</span>` : ''}</div>` : ''}
@@ -1014,7 +1012,6 @@ async function renderDashboard(prefetched) {
     history: () => historyModal(),
     utilities: () => utilitiesModal(),
     account: () => accountModal(),
-    'self-settings': () => openSettingsModal({ kind: 'local' }),
   });
   // per-card actions are delegated:
   wireDownloadMenus();
@@ -2756,7 +2753,8 @@ function audioConverterModal() {
     status.hidden = false; status.textContent = t('convert.working', { pct: 0 });
     try {
       const res = await convertAudio(srcBuf, opts, (f) => { status.textContent = t('convert.working', { pct: Math.round(f * 100) }); });
-      const outName = srcName.replace(/\.[^.]+$/, '') + '.' + res.ext;
+      // Marked derived for the same reason as the editor's copy — see the note there.
+      const outName = srcName.replace(/\.[^.]+$/, '') + (res.derived ? '-converted' : '') + '.' + res.ext;
       const dlUrl = URL.createObjectURL(res.blob);
       const a = document.createElement('a'); a.href = dlUrl; a.download = outName; a.click();
       setTimeout(() => URL.revokeObjectURL(dlUrl), 30000);
@@ -2940,9 +2938,11 @@ function fieldHtml(f) {
   return input;
 }
 
-// Hide deviceOnly fields (e.g. appLang) in the researcher's OWN local-settings modal — there the live
-// #lang-select toggle already covers the UI language, so a duplicate control would be a confusing no-op.
-function groupFields(g, mode) { return g.fields.filter((f) => !(f.deviceOnly && mode === 'local')); }
+/* Every field, always. The `deviceOnly` filter existed for ONE caller — the researcher's own
+ * "This device" modal — which is gone (Seth, 2026-08-07): a researcher's own device is unpaired, so
+ * it already has the editor's Settings tab, which does this properly and standalone. What is left
+ * here only ever configures ANOTHER device, where every field applies. */
+function groupFields(g) { return g.fields; }
 // A prominent, plain-language warning box at the top of a settings group. Used to tell a
 // researcher that a website-installed (PWA) device cannot make archive-quality recordings —
 // the single most consequential thing they can get wrong without ever being told.
@@ -2954,7 +2954,7 @@ function noticeHtml(kind) {
   return `<div class="rp-notice"><b>${esc(t('panel.notice.audioTitle'))}</b>${t('panel.notice.audioBody')}${link}</div>`;
 }
 
-function groupHtml(g, mode) {
+function groupHtml(g) {
   // The TAB label (panel.grp.<id>) and the fieldset heading may differ (g.legend):
   // e.g. the Languages tab's fieldset is headed "FLEx Writing System Codes".
   // g.helpModal renders an inline "more info…" that opens the in-panel help modal —
@@ -2962,7 +2962,7 @@ function groupHtml(g, mode) {
   // any non-precached in-scope URL, so same-scope help pages can't be linked from
   // inside the PWA. The modal also works offline and follows the panel language.
   const help = g.helpModal ? `<button type="button" class="link-btn rp-legend-help" data-ghelp="${g.helpModal}">${esc(t('panel.grp.moreInfo'))}</button>` : '';
-  const fields = groupFields(g, mode);
+  const fields = groupFields(g);
   const outside = fields.filter((f) => f.outside).map(fieldHtml).join('');   // e.g. appLang sits above the codes fieldset
   const inside = fields.filter((f) => !f.outside).map(fieldHtml).join('');
   const notice = g.notice ? noticeHtml(g.notice) : '';
@@ -2970,13 +2970,13 @@ function groupHtml(g, mode) {
 }
 
 // Map stored settings → canonical form values (mode-aware on the divergent fields).
-function toFormValues(s, mode) {
+function toFormValues(s) {
   s = s || {};
   const v = {};
-  for (const g of GROUPS) for (const f of groupFields(g, mode)) {
+  for (const g of GROUPS) for (const f of groupFields(g)) {
     if (f.type === 'action') continue;
-    if (f.k === 'sendOptions') v.sendOptions = (mode === 'local' ? s.linkSendOptions : s.sendOptions) || [];
-    else if (f.k === 'buttons') v.buttons = (mode === 'local' ? s.linkButtons : s.toolbarButtons) || [];
+    if (f.k === 'sendOptions') v.sendOptions = s.sendOptions || [];
+    else if (f.k === 'buttons') v.buttons = s.toolbarButtons || [];
     // Consent multi-select: prefer the new arrays; else migrate the old single consentMode/consentResp.
     else if (f.k === 'consentAsk') v.consentAsk = Array.isArray(s.consentAsk) ? s.consentAsk
       : (s.consentMode && s.consentMode !== 'off' ? [s.consentMode] : []);
@@ -3023,11 +3023,11 @@ function collectRaw(box) {
 }
 
 // Read the form → a settings patch (mode-aware on divergent keys).
-function readForm(box, mode) {
+function readForm(box) {
   const raw = collectRaw(box);
   const patch = {};
   const SPECIAL = ['sendOptions', 'buttons', 'autoDel', 'consentAudioUrl', 'autoBackupMins', 'maxRecordSeconds'];
-  for (const g of GROUPS) for (const f of groupFields(g, mode)) {
+  for (const g of GROUPS) for (const f of groupFields(g)) {
     if (SPECIAL.includes(f.k) || f.type === 'action') continue;
     patch[f.k] = raw[f.k];
   }
@@ -3042,13 +3042,11 @@ function readForm(box, mode) {
   // Consent audio: store the raw link AND the resolved URL the device actually plays.
   patch.consentAudioUrl = raw.consentAudioUrl || '';
   patch.consentAudio = (raw.consentAudioUrl && deps.resolveAudioInput) ? deps.resolveAudioInput(raw.consentAudioUrl) : '';
-  if (mode === 'local') {
-    patch.linkSendOptions = raw.sendOptions || [];
-    patch.linkButtons = raw.buttons || [];
-  } else {
-    patch.sendOptions = raw.sendOptions || [];
-    patch.toolbarButtons = raw.buttons || [];
-  }
+  /* ⚠ linkSendOptions / linkButtons are GONE with the "This device" modal, which was their only
+   * writer — and nothing ever read them. They were a "link template" from a design that never
+   * shipped a consumer. Do not reintroduce them without a reader. */
+  patch.sendOptions = raw.sendOptions || [];
+  patch.toolbarButtons = raw.buttons || [];
   return patch;
 }
 
@@ -3143,14 +3141,12 @@ function flagProblems(box, problems, showGroup) {
 }
 
 async function openSettingsModal(target, opts = {}) {
-  const mode = target.kind;
-  const titleKey = mode === 'local' ? 'panel.set.titleLocal' : 'panel.set.title';
   const m = modal(`
-    <div class="rp-set-head"><h3>${esc(mode === 'local' ? t('panel.set.titleLocal') : t('panel.set.title', { name: (target.instance && target.instance.nickname) || '' }))}</h3></div>
+    <div class="rp-set-head"><h3>${esc(t('panel.set.title', { name: (target.instance && target.instance.nickname) || '' }))}</h3></div>
     <div class="rp-tabs" role="tablist">${GROUPS.map((g, i) => `<button class="rp-tab${i === 0 ? ' on' : ''}" role="tab" id="rp-tab-${g.id}" aria-controls="rp-grp-${g.id}" aria-selected="${i === 0}" data-tab="${g.id}">${esc(t('panel.grp.' + g.id))}</button>`).join('')}</div>
-    <div class="rp-groups">${GROUPS.map((g) => groupHtml(g, mode)).join('')}</div>
-    <p class="note rp-enc">${esc(t(mode === 'local' ? 'panel.set.localNote' : 'panel.set.encNote'))}</p>
-    <button class="primary-btn" data-m="save">${esc(t(mode === 'local' ? 'panel.set.save' : 'panel.set.push'))}</button>
+    <div class="rp-groups">${GROUPS.map((g) => groupHtml(g)).join('')}</div>
+    <p class="note rp-enc">${esc(t('panel.set.encNote'))}</p>
+    <button class="primary-btn" data-m="save">${esc(t('panel.set.push'))}</button>
     <button class="link-btn" data-m="cancel">${esc(t('panel.set.cancel'))}</button>`, true);
 
   const box = m.el;
@@ -3169,10 +3165,9 @@ async function openSettingsModal(target, opts = {}) {
   // prefill — for a device, prefer the researcher's own last-pushed snapshot (available even before
   // the device has reported back); fall back to whatever the device last reported.
   let source = {};
-  if (mode === 'local') source = deps.loadSettings();
-  else source = (target.instance && await Researcher.getInstanceSettings(target.instance.instance_id).catch(() => null))
+  source = (target.instance && await Researcher.getInstanceSettings(target.instance.instance_id).catch(() => null))
     || (target.instance && firstInventorySettings(target.instance)) || {};
-  fillForm(box, toFormValues(source, mode));
+  fillForm(box, toFormValues(source));
   // Group help buttons → the matching in-panel help modal (stacks over settings,
   // same pattern as the WS utility's "?" button).
   box.querySelectorAll('[data-ghelp]').forEach((b) => b.addEventListener('click', () => {
@@ -3222,16 +3217,10 @@ async function openSettingsModal(target, opts = {}) {
     // Block save/push until minimal usable settings are present (offending fields flagged inline).
     const problems = validateDeviceSettings(collectRaw(box), { parseFolder: deps.parseDriveFolder, uploadIsUrl: true });
     if (problems.length) { flagProblems(box, problems, showGroup); return; }
-    const patch = readForm(box, mode);
+    const patch = readForm(box);
     try {
-      if (mode === 'local') {
-        const s = deps.loadSettings(); Object.assign(s, patch); deps.saveSettings(s);
-        deps.onLocalSettingsSaved && deps.onLocalSettingsSaved();
-        m.close(); deps.toast(t('panel.set.saved'), 4000);
-      } else {
-        await Researcher.changeSettings(target.instance.instance_id, patch);
-        m.close(); deps.toast(t('panel.set.pushed'), 4000);
-      }
+      await Researcher.changeSettings(target.instance.instance_id, patch);
+      m.close(); deps.toast(t('panel.set.pushed'), 4000);
     } catch (err) { errToast(err); }
   });
 

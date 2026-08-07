@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v290';
+export const ENGINE_VERSION = 'v291';
 
 const S = {
 en: {
@@ -881,7 +881,7 @@ internet after the first time.</p>
   'panel.dash.account': 'Account',
   'panel.dash.thisDevice': 'This device',
   'panel.dash.you': 'You',
-  'panel.dash.thisDeviceNote': 'Your own device — {n} text(s) stored locally. Settings apply here directly.',
+  'panel.dash.thisDeviceNote': 'Your own device — {n} text(s) stored locally. Set this device up in its own Settings tab.',
   'panel.dash.empty': 'No devices yet. Add one to send an invite link to a field worker.',
   'panel.inst.pending': 'pending approval',
   'panel.inst.linked': 'linked',
@@ -980,14 +980,10 @@ internet after the first time.</p>
   'panel.account.stay': 'Stay signed in on this device',
   'panel.account.stayNote': 'Off by default: when you close the app it locks, and you sign in again next time. Turn on only on a device that is yours alone.',
   'panel.set.title': 'Settings — {name}',
-  'panel.set.titleLocal': 'Settings — this device',
   'panel.set.cancel': 'Cancel',
-  'panel.set.save': 'Save',
   'panel.set.push': 'Push to device',
-  'panel.set.saved': 'Settings saved.',
   'panel.set.pushed': 'Settings sent to the device.',
   'panel.set.encNote': 'Sent encrypted to the device.',
-  'panel.set.localNote': 'Applies to this device.',
   'panel.val.bannerTitle': 'Can’t save yet — please fill in these required settings:',
   'panel.val.fieldAtTab': '{field} — {tab} tab',
   'panel.val.summaryOne': 'Can’t save — required: {field}.',
@@ -2266,7 +2262,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.dash.account': 'Akun',
   'panel.dash.thisDevice': 'Perangkat ini',
   'panel.dash.you': 'Anda',
-  'panel.dash.thisDeviceNote': 'Perangkat Anda sendiri — {n} teks tersimpan lokal. Pengaturan berlaku langsung di sini.',
+  'panel.dash.thisDeviceNote': 'Perangkat Anda sendiri — {n} teks tersimpan lokal. Siapkan perangkat ini di tab Pengaturannya sendiri.',
   'panel.dash.empty': 'Belum ada perangkat. Tambahkan satu untuk mengirim tautan undangan ke pekerja lapangan.',
   'panel.inst.pending': 'menunggu persetujuan',
   'panel.inst.linked': 'terhubung',
@@ -2363,14 +2359,10 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.account.stay': 'Tetap masuk di perangkat ini',
   'panel.account.stayNote': 'Mati secara bawaan: saat Anda menutup aplikasi, ia terkunci dan Anda masuk lagi berikutnya. Aktifkan hanya pada perangkat yang hanya milik Anda.',
   'panel.set.title': 'Pengaturan — {name}',
-  'panel.set.titleLocal': 'Pengaturan — perangkat ini',
   'panel.set.cancel': 'Batal',
-  'panel.set.save': 'Simpan',
   'panel.set.push': 'Kirim ke perangkat',
-  'panel.set.saved': 'Pengaturan disimpan.',
   'panel.set.pushed': 'Pengaturan dikirim ke perangkat.',
   'panel.set.encNote': 'Dikirim terenkripsi ke perangkat.',
-  'panel.set.localNote': 'Berlaku untuk perangkat ini.',
   'panel.val.bannerTitle': 'Belum bisa disimpan — lengkapi pengaturan wajib ini:',
   'panel.val.fieldAtTab': '{field} — tab {tab}',
   'panel.val.summaryOne': 'Belum bisa disimpan — wajib: {field}.',

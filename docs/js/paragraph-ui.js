@@ -804,11 +804,57 @@ function renderPathBar() {
        * buttons. Looking up [data-gid] found the BUTTON and scrolled that into view, so the first
        * click selected without ever navigating (Seth: it "should not only select it, but also
        * navigate to that label"). Scoped to the tree so it cannot match the path bar again. */
-      const el = $('#pa-tree').querySelector(`[data-unit="${CSS.escape(gid)}"]`);
-      if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      // markSticky first, so the inset is measured from the headings that will actually be pinned.
+      markStickyHeadings();
+      scrollUnitToTop(gid);
     });
   });
 }
+
+/* ── FULLSCREEN ───────────────────────────────────────────────────────────────────────────────
+ * The ⛶ toggle everyone knows from video players. On a long analysis the browser's own chrome —
+ * tab strip, address bar, bookmarks — is often taller than the app's toolbar, and this is the one
+ * control that reclaims it.
+ *
+ * ⚠ HIDDEN WHEN INSTALLED AS A PWA (Seth). A standalone window has no browser chrome to hide, so the
+ * button would toggle between two states that look nearly identical — a control that appears to do
+ * nothing. Detected by display-mode, plus Safari's non-standard navigator.standalone.
+ * ⚠ ALSO HIDDEN IF THE API IS UNAVAILABLE — some embedded webviews expose no Fullscreen API at all,
+ * and offering a button that throws is worse than not offering one.
+ * ⚠ The label follows the ACTUAL state via the fullscreenchange event, not the click: the user can
+ * leave fullscreen with Esc or the system control without going near this button, and an icon that
+ * then still says "enter" is lying about where you are. */
+function inStandalonePWA() {
+  /* ⚠ display-mode: fullscreen is deliberately NOT treated as "installed". It matches whenever the
+   * page IS full screen — including because this very button put it there — so counting it would
+   * hide the button the moment you used it, leaving no way back out except Esc. Only standalone and
+   * minimal-ui mean an installed window. */
+  return (window.matchMedia && (matchMedia('(display-mode: standalone)').matches
+                             || matchMedia('(display-mode: minimal-ui)').matches))
+      || navigator.standalone === true;
+}
+function syncFullscreenBtn() {
+  const b = $('#pa-full');
+  if (!b) return;
+  const on = !!document.fullscreenElement;
+  b.textContent = on ? '⛶' : '⛶';
+  b.classList.toggle('on', on);
+  b.title = b.ariaLabel = t(on ? 'para.fullExit' : 'para.fullEnter');
+}
+function wireFullscreen() {
+  const b = $('#pa-full');
+  if (!b) return;
+  const supported = !!(document.documentElement.requestFullscreen && document.exitFullscreen);
+  b.hidden = inStandalonePWA() || !supported;
+  if (b.hidden) return;
+  b.addEventListener('click', () => {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    else document.documentElement.requestFullscreen().catch((e) => alert(t('para.fullFailed') + ' ' + e.message));
+  });
+  syncFullscreenBtn();
+}
+// Registered ONCE, on document — the button is rebuilt every render, the listener must not be.
+document.addEventListener('fullscreenchange', syncFullscreenBtn);
 
 /* ── CHART VIEW ───────────────────────────────────────────────────────────────────────────────
  * ⚠ A DIFFERENT THING FROM THE EXPORT PREVIEW, and both are wanted (Seth, 2026-08-06: he likes the
@@ -1347,6 +1393,8 @@ function renderWorkInner() {
         <button class="secondary-btn" id="pa-clear" disabled title="${esc(t('para.clearSelTip'))}">${esc(t('para.clearSel'))}</button>
         <button class="secondary-btn" id="pa-undo" title="${esc(t('para.undoNone'))}">${esc(t('para.undo'))}</button>
         <button class="secondary-btn" id="pa-redo" title="${esc(t('para.redoNone'))}">${esc(t('para.redo'))}</button>
+        <button class="secondary-btn pa-iconbtn" id="pa-full" hidden
+                title="${esc(t('para.fullEnter'))}" aria-label="${esc(t('para.fullEnter'))}">⛶</button>
         <button class="secondary-btn pa-iconbtn" id="pa-chart" title="${esc(t('para.chartTip'))}"
                 aria-label="${esc(t('para.chartTip'))}">${esc(t('para.chartShow'))}</button>
         <button class="pa-tip-toggle" id="pa-tip-btn" title="${esc(t('para.helpTip'))}"
@@ -1460,6 +1508,7 @@ function renderWorkInner() {
   $('#pa-undo').addEventListener('click', () => (history.length ? doUndo() : alert(t('para.undoNone'))));
   $('#pa-zoom-out').addEventListener('click', () => stepZoom(-1));
   on('#pa-chart', () => setChart(!chartOn));
+  wireFullscreen();
   on('#pa-chart-menu', () => { closeMenus(); setChart(!chartOn); });
   wireMenus();
   $('#pa-zoom-in').addEventListener('click', () => stepZoom(1));
@@ -2185,33 +2234,57 @@ function rangeBetween(a, b) {
 function markStickyHeadings() {
   const tree = $('#pa-tree');
   if (!tree) return;
-  tree.querySelectorAll('.pa-badge.sticky-1, .pa-badge.sticky-2').forEach((b) => {
+  tree.querySelectorAll('.sticky-1, .sticky-2').forEach((b) => {
     b.classList.remove('sticky-1', 'sticky-2');
     b.style.top = '';
   });
   if (state.view.stickyHeads === false) return;
   const sel = [...selection][0];
   if (!sel) return;
-  // The group in question: the selection itself if it is a group, otherwise the group holding it.
   const own = isGroupId(sel) ? nodeById(state, sel) : parentOf(state, sel);
   if (!own) return;
   const up = parentOf(state, own.id);
-  const bar = $('#pa-path-bar');
-  const base = ($('.pa-bar')?.offsetHeight || 46) + ((bar && !bar.hidden) ? bar.offsetHeight : 0);
-  /* ⚠ :scope, and NOT a plain descendant selector. The badge sits inside .pa-roleline, so a direct-
-   * child selector found nothing; but a bare descendant selector would match the badge of any NESTED
-   * group and pin the wrong heading. Both shapes are matched, scoped to this group's own level. */
-  const badgeOf = (gid) => {
+  /* ⚠ THE ROLELINE STICKS, NOT THE BADGE. A sticky element moves within its CONTAINING BLOCK, and
+   * the badge's parent (.pa-roleline) is exactly the badge's own height — zero room, so `position:
+   * sticky` computed correctly and did nothing at all. The roleline is a direct child of .pa-group,
+   * which spans the whole group, so there is somewhere to stick to.
+   *
+   * ⚠ OFFSETS ARE RELATIVE TO .pa-tree, THE SCROLLER — not to the page. The first version added the
+   * toolbar and path-bar heights, but those sit OUTSIDE the tree, whose top edge is already below
+   * them; the result was a heading pinned ~300px down inside the scroll box, i.e. never visible
+   * where it was wanted. The parent pins at 0 and the current group directly beneath it. */
+  const lineOf = (gid) => {
     const gEl = tree.querySelector(`[data-unit="${CSS.escape(gid)}"]`);
-    return gEl ? gEl.querySelector(':scope > .pa-roleline > .pa-badge, :scope > .pa-badge') : null;
+    return gEl ? gEl.querySelector(':scope > .pa-roleline') : null;
   };
-  const upB = up ? badgeOf(up.id) : null;
-  const ownB = badgeOf(own.id);
-  if (upB) { upB.classList.add('sticky-1'); upB.style.top = base + 'px'; }
-  if (ownB) {
-    ownB.classList.add('sticky-2');
-    ownB.style.top = (base + (upB ? upB.offsetHeight : 0)) + 'px';
+  const upL = up ? lineOf(up.id) : null;
+  const ownL = lineOf(own.id);
+  if (upL) { upL.classList.add('sticky-1'); upL.style.top = '0px'; }
+  if (ownL) {
+    ownL.classList.add('sticky-2');
+    ownL.style.top = (upL ? upL.offsetHeight : 0) + 'px';
   }
+}
+
+/* How far down the tree's scroll box a heading must land to clear whatever is pinned above it. */
+function stickyInset() {
+  const tree = $('#pa-tree');
+  if (!tree || state.view.stickyHeads === false) return 0;
+  const a = tree.querySelector('.sticky-1'), b = tree.querySelector('.sticky-2');
+  return (a ? a.offsetHeight : 0) + (b ? b.offsetHeight : 0);
+}
+
+/* ⚠ SCROLLS THE TREE'S OWN SCROLL BOX, and puts the heading AT THE TOP (Seth: "scroll to/focus the
+ * collapsible heading/label at the top of the group at the top of the window"). scrollIntoView was
+ * wrong twice over: `block: 'center'` parks it in the middle, and it can choose to scroll an
+ * outer container instead. Setting scrollTop directly is unambiguous, and subtracting the pinned
+ * headings' height stops the target landing underneath them. */
+function scrollUnitToTop(id) {
+  const tree = $('#pa-tree');
+  const el = tree && tree.querySelector(`[data-unit="${CSS.escape(id)}"]`);
+  if (!tree || !el) return;
+  const top = el.getBoundingClientRect().top - tree.getBoundingClientRect().top + tree.scrollTop;
+  tree.scrollTo({ top: Math.max(0, top - stickyInset() - 4), behavior: 'smooth' });
 }
 
 function paintSelection() {

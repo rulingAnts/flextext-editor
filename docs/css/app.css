@@ -1836,12 +1836,16 @@ main {
 .pa-path-sep, .pa-path-gap { color: var(--muted); flex: none; }
 .pa-path-gap { padding: 0 2px; }
 
-/* Sticky group headings — AT MOST TWO, applied by class from JS, never by depth. Sticking every
-   ancestor is what makes plain sticky headings unusable: in a deep analysis the pile of bars pushes
-   the text off screen exactly when you need it. `top` is set inline because it depends on the
-   toolbar and path-bar heights, which vary with wrapping. */
-.pa-badge.sticky-1, .pa-badge.sticky-2 {
-  position: sticky; z-index: 20; background: var(--panel);
-  box-shadow: 0 1px 0 var(--border), 0 2px 6px rgba(0,0,0,.06);
+/* Sticky group headings — AT MOST TWO, applied by class from JS, never by depth.
+   ⚠ The ROLELINE sticks, not the badge: a sticky element moves within its containing block, and the
+   badge's parent is exactly the badge's height, so sticking the badge did nothing. Offsets are
+   relative to .pa-tree, the scroll box. */
+.pa-roleline.sticky-1, .pa-roleline.sticky-2 {
+  position: sticky; z-index: 20; background: var(--bg);
+  box-shadow: 0 1px 0 var(--border), 0 3px 8px rgba(0,0,0,.07);
+  margin-left: -4px; padding-left: 4px; border-radius: 6px;
 }
-.pa-badge.sticky-1 { z-index: 21; }   /* the parent sits above the current group */
+.pa-roleline.sticky-1 { z-index: 21; }   /* the parent pins above the current group */
+
+/* Fullscreen toggle: same affordance as a video player. `.on` marks that we are already there. */
+.pa-bar #pa-full.on { background: var(--blue); color: #fff; border-color: var(--blue); }

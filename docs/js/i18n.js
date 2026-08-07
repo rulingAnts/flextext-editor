@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v269';
+export const ENGINE_VERSION = 'v270';
 
 const S = {
 en: {
@@ -1326,11 +1326,10 @@ internet after the first time.</p>
   'para.members': 'Members',
   'para.nodeLabels': 'Its label (optional)',
   'para.nodeLabelPh': 'e.g. grounds',
-  'para.labelHint': 'The group needs a label. Member labels are optional.',
-  'para.relation': 'Label for the whole group',
-  'para.relationRequired': 'Give this group a label before saving. It is how the group is named everywhere else in the app — in the tree, in the path at the top, and in the diagram.',
-  'para.relationDerivedHint': 'Needed. Without one this group is shown as “{name}”, worked out from its members\u2019 roles.',
-  'para.relationNeeded': 'Needed. This is how the group is named in the tree, the path and the diagram.',
+  'para.labelHint': 'Label the group, its members, or both — every label is optional.',
+  'para.relation': 'Label for the whole group (optional)',
+  'para.relationDerivedHint': 'Optional. Without one this group is shown as “{name}”, worked out from its members\u2019 roles.',
+  'para.unnamedGroup': 'unnamed ({id})',
   'para.derivedLabelTip': 'Worked out from the members\u2019 roles — this group has no label of its own yet.',
   'para.relationPh': 'e.g. grounds–CONCLUSION, orienter–CONTENT',
   'para.cancel': 'Cancel',
@@ -2660,11 +2659,10 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.members': 'Anggota',
   'para.nodeLabels': 'Labelnya (opsional)',
   'para.nodeLabelPh': 'mis. dasar',
-  'para.labelHint': 'Kelompok wajib punya label. Label anggota bersifat opsional.',
-  'para.relation': 'Label untuk seluruh kelompok',
-  'para.relationRequired': 'Beri label pada kelompok ini sebelum menyimpan. Label inilah yang dipakai di mana-mana — di pohon, di jalur atas, dan di diagram.',
-  'para.relationDerivedHint': 'Wajib. Tanpa label, kelompok ini ditampilkan sebagai “{name}”, hasil turunan dari peran anggotanya.',
-  'para.relationNeeded': 'Wajib. Label ini dipakai di pohon, di jalur, dan di diagram.',
+  'para.labelHint': 'Beri label pada kelompok, pada anggotanya, atau keduanya — semua label bersifat opsional.',
+  'para.relation': 'Label untuk seluruh kelompok (opsional)',
+  'para.relationDerivedHint': 'Opsional. Tanpa label, kelompok ini ditampilkan sebagai “{name}”, hasil turunan dari peran anggotanya.',
+  'para.unnamedGroup': 'tanpa nama ({id})',
   'para.derivedLabelTip': 'Diturunkan dari peran anggota — kelompok ini belum punya label sendiri.',
   'para.relationPh': 'mis. dasar–KESIMPULAN, pengarah–ISI',
   'para.cancel': 'Batal',

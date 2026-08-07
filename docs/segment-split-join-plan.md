@@ -87,6 +87,27 @@ Whatever is chosen, the ORIGINAL free text is preserved verbatim in the undo rec
 
 ### (d) Daughter elements — the Paragraph Analysis tree
 
+> ⚠⚠ **SCOPE CORRECTION (2026-08-07, after checking rather than assuming): THIS BLOCK DOES NOT
+> BELONG TO THE EDITOR.** The editor never holds a `.fxpa` — it GENERATES one at export time
+> (`buildFxpa(rec.doc, …)`, app.js), writes it into the save bundle, and keeps nothing. PAT is a
+> separate Worker on a separate origin with its own storage, and the file moves between them by
+> export/import.
+>
+> **So propositions do not exist in the editor's model at all**, and the editor's split/join needs
+> blocks (a), (b) and (c) only. The analysis below is correct but belongs to **PAT's own split/join**
+> — where `splitLine()` already handles group membership and does NOT yet handle proposition
+> renumbering.
+>
+> The editor's real obligation is a WARNING, not an update: after any line-count change, a
+> previously exported `.fxpa` describes a different document, and the editor cannot repair a file it
+> does not hold. ⚠ **That risk exists today, without this feature** — Enter and Backspace already
+> change the line count. See "The `.fxpa` staleness warning" below.
+>
+> ⚠ These two features are COUPLED: if the backlog item ".fxpa read/edit in the editor" ever lands,
+> this block returns to the editor and the concurrency question becomes real. Split/join is much
+> simpler if it ships first.
+
+
 ⚠ **CORRECTED after Seth clarified: "the daughters I meant were other group members, like
 propositions. But maybe it's only the virtual, manually added propositions that would add a problem
 here…?"** He is right, and the reason is sharper than "they are manual": it is that **a proposition
@@ -181,6 +202,23 @@ partly invented, which the model is specifically built never to do.
 
 ---
 
+## The `.fxpa` staleness warning (editor)
+
+Independent of split/join, and arguably overdue: the editor exports a `.fxpa` whose line ids are
+positional. Any later line-count change — Enter, Backspace, or this wizard — makes a previously
+exported `.fxpa` describe a document that no longer exists, and re-importing it into PAT would
+attach an analysis to the wrong lines.
+
+The editor cannot fix that file. It can, cheaply:
+
+- stamp the exported `.fxpa` with the doc's `modified` timestamp and line count (it already carries
+  a version field), so PAT can compare on import and say "this analysis was made against 47 lines;
+  this text now has 49";
+- warn at export time when the doc has changed since the last `.fxpa` export.
+
+The first is the one that matters — it puts the detection where the damage would occur, in PAT, and
+does not depend on anyone reading a warning in the editor weeks earlier.
+
 ## Undo
 
 ⚠ **A wizard that gets it wrong is worse than no wizard**, because the user will have accepted it.
@@ -223,11 +261,11 @@ scoped to this feature, where the risk is.
    The gloss tab already has join buttons.
 5. ~~The `.fxpa` question~~ — **ANSWERED by your clarification: (c), update it.** That is what
    block (d) now is. Two things I still need from you:
-   - **When a line with propositions is split, is "all propositions stay with the first half" the
-     right default?** It is the safe one (nothing is renumbered unless asked), but if analysts
-     usually split precisely because the propositions have diverged, a proportional default might
-     save more clicks than it costs.
-   - **Should a split be offered at all while the `.fxpa` is open in the Paragraph Analysis tool?**
-     Two surfaces editing one tree is the "two sources of truth" problem again.
+   - ✅ **"All propositions stay with the first half" is the default** (Seth) — "a good default as
+     long as it is just a default", so every proposition is individually overridable.
+   - ✅ ~~Should a split be offered while the `.fxpa` is open in PAT?~~ **Moot — the premise was
+     wrong.** The editor holds no `.fxpa` and PAT is a separate origin, so there is no shared live
+     state to desynchronise. What replaces it is the staleness problem above, which is about a FILE
+     going out of date, not about concurrent editing.
 6. **Is there a maximum sensible range for a join?** Guarding against a fat-fingered "join lines
    1–400" seems worth a confirmation step at some threshold.

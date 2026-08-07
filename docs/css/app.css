@@ -1816,3 +1816,22 @@ main {
 /* A derived group label is a description, not something the analyst wrote — muted and italic so the
    difference is visible at a glance without a second control to explain it. */
 .pa-rel-derived { font-style: italic; opacity: .8; }
+
+/* ── PATH BAR ─────────────────────────────────────────────────────────────────────────────────
+   One line at any depth — which is why it replaced sticky headings, which stack without bound.
+   It never wraps: the middle is elided in JS instead, so the bar cannot start eating the analysis. */
+/* ⚠ flex: 0 0 auto — THIRD time this trap has bitten (export preview, group members, now this).
+   .pa-work is a column flex container and `overflow: hidden` here zeroes this item's automatic
+   minimum size, so the bar collapsed to 7px around its own content. Any child of a column-flex
+   parent that sets its own overflow needs an explicit flex. */
+.pa-path { display: flex; align-items: center; gap: 2px; flex-wrap: nowrap; overflow: hidden;
+  flex: 0 0 auto;
+  padding: 3px 12px; border-bottom: 1px solid var(--border); background: var(--bg);
+  font-size: 12.5px; position: sticky; top: 46px; z-index: 28; }
+.pa-path-step { border: 0; background: none; cursor: pointer; color: var(--blue); padding: 2px 4px;
+  border-radius: 5px; font-size: 12.5px; max-width: 22ch; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
+.pa-path-step:hover { background: var(--panel); text-decoration: underline; }
+.pa-path-step:last-child { color: var(--text); font-weight: 600; }
+.pa-path-sep, .pa-path-gap { color: var(--muted); flex: none; }
+.pa-path-gap { padding: 0 2px; }

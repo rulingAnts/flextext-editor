@@ -686,6 +686,76 @@ function wireMenus() {
   document.querySelectorAll('.pa-menuitem').forEach((b) => b.addEventListener('click', () => closeMenus()));
 }
 
+/* ── DEPTH LIMIT ──────────────────────────────────────────────────────────────────────────────
+ * "Show levels 1–2" — the big picture in one control, with no clicking (Seth's #1).
+ *
+ * ⚠ IT IS A VIEW, NOT AN EDIT. It collapses nothing and stores nothing in the document: groups
+ * deeper than the limit are simply not rendered open. Turning it off restores exactly what you had,
+ * including which groups you had genuinely collapsed by hand. Implementing it by actually collapsing
+ * groups would have destroyed that hand-made state the first time anyone dragged the control.
+ *
+ * ⚠ 0 MEANS NO LIMIT, not "show nothing" — a depth limit of zero levels would render an empty
+ * document, which is never what anyone wants from a control labelled "show all". */
+function depthLimit() {
+  const n = +((state.view && state.view.depthLimit) || 0);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+function beyondDepth(level) {
+  const lim = depthLimit();
+  return lim > 0 && level >= lim;
+}
+
+/* ── PATH BAR (the DOM path) ───────────────────────────────────────────────────────────────────
+ * Seth, after XLingPaper: a clickable path — "Whole narrative › Episode 1 › line 12" — that both
+ * says where you are and navigates. It replaced sticky group headings, which stack without bound as
+ * the hierarchy deepens; a path is ONE LINE at any depth.
+ *
+ * ⚠ THE MIDDLE IS ELIDED, NOT THE ENDS. When the path is too long the root and the immediate parent
+ * are what orient you; the steps between are the ones you can afford to lose. Dropping the tail
+ * instead would remove the very thing you are looking at.
+ * ⚠ Each step uses groupTitle(), so it shows the group's own label, else the label derived from its
+ * members' roles, else its slot or summary — never a bare "G4" unless nothing at all is named. */
+function pathOf(id) {
+  const out = [];
+  let cur = id;
+  let guard = 0;
+  while (cur && guard++ < 200) {
+    const g = isGroupId(cur) ? nodeById(state, cur) : null;
+    if (g) out.unshift({ id: cur, label: groupTitle(g) });
+    const parent = parentOf(state, cur);
+    cur = parent ? parent.id : null;
+  }
+  return out;
+}
+function renderPathBar() {
+  const bar = $('#pa-path-bar');
+  if (!bar) return;
+  const on = state.view.showPath !== false;
+  const sel = [...selection][0];
+  if (!on || !sel) { bar.hidden = true; bar.innerHTML = ''; return; }
+  const steps = pathOf(sel);
+  if (!steps.length) { bar.hidden = true; bar.innerHTML = ''; return; }
+  const MAX = 4;
+  let shown = steps;
+  let elided = false;
+  if (steps.length > MAX) { shown = [steps[0], ...steps.slice(-(MAX - 1))]; elided = true; }
+  bar.hidden = false;
+  bar.innerHTML = shown.map((st, i) => {
+    const gap = (elided && i === 1) ? `<span class="pa-path-gap" title="${esc(t('para.pathElided', { n: steps.length - MAX }))}">…</span>` : '';
+    return gap + `<button class="pa-path-step" data-gid="${esc(st.id)}">${esc(st.label)}</button>`;
+  }).join('<span class="pa-path-sep">\u203a</span>');
+  bar.querySelectorAll('.pa-path-step').forEach((b) => {
+    b.addEventListener('click', () => {
+      // Selecting the step is the navigation: the tree scrolls it into view and highlights it.
+      selection = new Set([b.dataset.gid]);
+      anchor = null;
+      renderWork();
+      const el = $(`[data-gid="${b.dataset.gid}"]`);
+      if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    });
+  });
+}
+
 /* ── CHART VIEW ───────────────────────────────────────────────────────────────────────────────
  * ⚠ A DIFFERENT THING FROM THE EXPORT PREVIEW, and both are wanted (Seth, 2026-08-06: he likes the
  * export preview and wants to keep it, but what he actually meant was "an instant rapid chart
@@ -1107,6 +1177,7 @@ function renderWork() {
   const before = scroller();
   const keepY = before ? before.scrollTop : 0;
   renderWorkInner();
+  renderPathBar();
   wireHelpDisclosure();
   applyZoom(zoomPct);   // the tree element is new after every render
   if (chartOn) setChart(true);   // the tree is rebuilt each render, so re-mount and redraw the chart
@@ -1157,6 +1228,13 @@ function renderWorkInner() {
             <label class="check-label pa-menucheck"><input type="checkbox" id="pa-free"> ${esc(t('para.showFree'))}</label>
             <label class="check-label pa-menucheck" title="${esc(t('para.hideBlankTip'))}"><input type="checkbox" id="pa-blank"> ${esc(t('para.hideBlank'))}</label>
             <label class="check-label pa-menucheck" id="pa-brk-wrap" hidden><input type="checkbox" id="pa-brk"> ${esc(t('para.brackets'))}</label>
+            <label class="check-label pa-menucheck" title="${esc(t('para.pathTip'))}"><input type="checkbox" id="pa-path"> ${esc(t('para.showPath'))}</label>
+            <label class="pa-menufield"><span id="pa-depth-label">${esc(t('para.depthLimit'))}</span>
+              <select id="pa-depth">
+                <option value="0">${esc(t('para.depthAll'))}</option>
+                <option value="1">1</option><option value="2">2</option>
+                <option value="3">3</option><option value="4">4</option><option value="5">5</option>
+              </select></label>
             <hr>
             <button class="pa-menuitem" id="pa-collapse-all">${esc(t('para.collapseAll'))}</button>
             <button class="pa-menuitem" id="pa-chart-menu">${esc(t('para.chartTip'))}</button>
@@ -1232,10 +1310,15 @@ function renderWorkInner() {
       <p class="pa-tip-more"><a href="${esc(HELP_URL)}" target="_blank" rel="noopener">${esc(t('para.helpFull'))}</a></p>
     </div>
     </div>
+    <!-- ⚠ ONE LINE WHATEVER THE DEPTH — the reason this replaced sticky group headings, which stack
+         without bound in a deep hierarchy (Seth). It is also the navigator: each step selects. -->
+    <nav class="pa-path" id="pa-path-bar" hidden></nav>
     <div class="pa-tree" id="pa-tree"></div>
     <div id="pa-dialog" hidden></div>`;
 
   $('#pa-layer').value = v.layer;
+  $('#pa-path').checked = v.showPath !== false;          // on by default: it is how you keep your place
+  $('#pa-depth').value = String(v.depthLimit || 0);
   $('#pa-free').checked = v.free !== false;
   $('#pa-blank').checked = v.hideBlank !== false;      // ON by default: blank lines are not analysis
   // Brackets only mean something once a document HAS implied propositions — Seth: default on.
@@ -1251,6 +1334,8 @@ function renderWorkInner() {
   }
   $('#pa-layer').addEventListener('change', (e) => setView({ layer: e.target.value, ...(e.target.value === 'free-only' ? { free: true } : {}) }));
   $('#pa-free').addEventListener('change', (e) => setView({ free: e.target.checked }));
+  $('#pa-path').addEventListener('change', (e) => setView({ showPath: e.target.checked }));
+  $('#pa-depth').addEventListener('change', (e) => setView({ depthLimit: +e.target.value }));
   if ($('#pa-title-edit')) $('#pa-title-edit').addEventListener('click', () => {
     const name = prompt(t('para.titlePrompt'), state.title || '');
     if (name === null) return;
@@ -1447,7 +1532,10 @@ function renderUnit(id, nodeLabel = '', depth = 0) {
     paintSelection();
   });
   el.appendChild(spine);
-  const collapsed = (state.view.collapsed || []).includes(id);
+  /* ⚠ THE DEPTH LIMIT COLLAPSES FOR DISPLAY ONLY — it is OR-ed in here rather than written into
+   * view.collapsed, so it never touches the groups you collapsed by hand and turning it off restores
+   * them exactly. `level` is derived from position, so this follows the tree automatically. */
+  const collapsed = (state.view.collapsed || []).includes(id) || beyondDepth(levelOf(state, id));
   const badge = document.createElement('div');
   badge.className = 'pa-badge';
   badge.title = t('para.headingTip');   // this bar IS the group's handle — Edit/Ungroup act on it
@@ -2004,6 +2092,11 @@ function rangeBetween(a, b) {
 }
 
 function paintSelection() {
+  /* ⚠ THE PATH BAR FOLLOWS THE SELECTION, so it must update HERE too. Selection changes that do not
+   * rebuild the tree — clicking a row, Clear selection, Esc — go through this function alone, and
+   * a bar refreshed only by renderWork would sit there describing a selection that no longer
+   * exists. */
+  renderPathBar();
   // .pa-prop is here because propositions are selectable units too (Seth, 2026-08-05).
   root.querySelectorAll('.pa-row, .pa-group, .pa-prop').forEach((el) => {
     if (el.dataset.unit) el.classList.toggle('sel', selection.has(el.dataset.unit));
@@ -2069,6 +2162,8 @@ function clearSelection() {
   anchor = null;
   if (anyEditorOpen()) { renderWork(); return; }
   root.querySelectorAll('.pa-row.sel, .pa-group.sel').forEach((el) => el.classList.remove('sel'));
+  // ⚠ This path bypasses paintSelection for speed, so the path bar has to be told separately.
+  renderPathBar();
   refreshActionButtons();
 }
 

@@ -1236,21 +1236,34 @@ main {
 .rp-legend-help { position: absolute; top: 0; right: 12px; transform: translateY(-55%); background: #fff; padding: 0 6px; font-size: 13px; white-space: nowrap; }
 /* ---------------- Settings tab = device setup ----------------
    The form reuses the researcher panel's .rp-* field styling so the same settings look the same in
-   both places. Only the two things the panel has no equivalent for are defined here.
+   both places. Only what the panel has no equivalent for is defined here.
 
-   ⚠ NEITHER OF THESE IS A DISABLED CONTROL. On an unpaired device the upload settings cannot act,
-   and Seth's standing rule (from a field report about a greyed-out button nobody could explain) is
-   that such a control must SAY what is missing rather than sit there looking broken. So the option
-   keeps its place in the row as plain text — visibly present, visibly not a checkbox — and the
-   sentence underneath names what is missing and offers the action that would supply it. Do NOT
-   "restore" these to inputs with [disabled]; that is the bug, not the tidy-up. */
+   ⚠ A DISABLED CONTROL HERE IS ALWAYS ACCOMPANIED BY ITS REASON. Seth's standing rule is that a
+   control which cannot act must SAY what is missing rather than sit there greyed out looking
+   broken; greying is only acceptable because `.setup-off-why` states the reason underneath and the
+   container answers a click with the same sentence. If you ever style a disabled field without
+   that, you have reintroduced the bug the rule exists to prevent.
+
+   ⚠ pointer-events on the inputs is LOAD-BEARING, not cosmetic. A disabled <input> dispatches no
+   mouse events at all, so without this the click never reaches `.setup-off` and the explanation
+   never fires — the control would refuse silently, which is exactly the failure being avoided. */
 .device-setup { margin-bottom: 18px; }
 .device-setup .rp-groups { overflow: visible; }        /* full page, not a height-capped modal card */
-.setup-optgate { color: var(--muted); font-style: italic; cursor: default; }
-.setup-gate-mark { color: var(--muted); font-style: italic; font-weight: 400; font-size: 13px; }
-.setup-gate-why { border-left: 3px solid var(--border); padding-left: 10px; margin: 6px 0 0; }
-.setup-gate-why .link-btn { padding: 0 2px; font-size: inherit; }
-.setup-gated > span { font-weight: 500; }
+.setup-off { cursor: help; }
+.setup-off input, .setup-off select, .setup-off textarea { pointer-events: none; }
+.setup-off > label, .setup-off .rp-field > span, .setup-off > .rp-field { color: var(--muted); }
+.setup-off input:disabled, .setup-off select:disabled { opacity: .55; background: var(--panel); }
+.setup-off-mark { color: var(--muted); font-style: italic; font-weight: 400; font-size: 13px; }
+.setup-off-why { border-left: 3px solid var(--border); padding-left: 10px; margin: 4px 0 10px; }
+.advanced-off { color: var(--muted); margin: 6px 0 0; }
+/* The consent prompt file picker + the line naming which audio is actually in force. */
+.device-setup input[type="file"] { font-size: 13px; max-width: 100%; }
+.ds-consent-file { margin: 6px 0 0; font-weight: 500; }
+/* Multi-check chips: let the ROW wrap, never the label. Squeezed by flex they broke mid-phrase
+   ("Written / reminder", "Tap / Yes / / No"), which reads as three options where there is one.
+   Scoped to .device-setup so the researcher panel's narrower modal keeps its own layout. */
+.device-setup .rp-multi { gap: 4px 20px; }
+.device-setup .rp-multi .check-label { white-space: nowrap; flex: 0 0 auto; }
 
 .invite-paste-box { width: 100%; box-sizing: border-box; font-size: 14px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; }
 

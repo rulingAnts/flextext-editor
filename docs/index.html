@@ -38,6 +38,7 @@
     <nav class="top-tabs" role="tablist">
       <button class="top-tab" data-view="texts" data-i18n="tabs.texts" aria-selected="true">Texts</button>
       <button class="top-tab" data-view="research" data-i18n="tabs.research" aria-selected="false">Settings</button>
+      <button class="top-tab" data-view="utilities" data-i18n="tabs.utilities" aria-selected="false">Utilities</button>
     </nav>
   </div>
   <div id="topbar-editor" class="topbar-row" hidden>
@@ -146,8 +147,14 @@
   <button type="button" id="btn-hide-research" class="secondary-btn" data-i18n="research.hideHere">Hide the Settings tab on THIS device now</button>
   <p class="note" data-i18n="research.hideHereNote">Use this when you set up a coworker's own phone in person. To bring the Settings tab back: tap the ? (Help) button 7 times (or press Ctrl+Alt+R on a keyboard).</p>
 
-  <hr>
+</section>
 
+<!-- ===== Utilities — TOOLS, not settings =====
+     The audio converter and the writing-system checker are things you RUN on a file, not things
+     that configure this device. They sat under Settings only because that was the one admin screen;
+     with Settings now being the device-setup form they had no business sharing it. Own tab, per the
+     "Tools" grouping in notes/audiotoolsandsettingsplan §B. -->
+<section id="view-utilities" class="view" hidden>
   <h2 data-i18n="convert.h">Audio converter</h2>
   <p class="note" data-i18n-html="convert.note"></p>
   <form id="convert-form" class="ws-form">

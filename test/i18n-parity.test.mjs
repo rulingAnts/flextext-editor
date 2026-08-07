@@ -112,7 +112,7 @@ for (const [l, v] of Object.entries(cov)) {
   if (v.complete) continue;
   ok(!i18nMod.LANGS.includes(l), `${l} (${v.name}) is registered but NOT offered — ${v.done}/${v.total} done`);
 }
-ok(Object.keys(cov).length >= 3, `${Object.keys(cov).length} languages registered: ${Object.keys(cov).join(', ')}`);
+ok(Object.keys(cov).length >= 2, `${Object.keys(cov).length} languages registered: ${Object.keys(cov).join(', ')}`);
 
 /* ⚠ LANGUAGE CODES ARE NOT ALWAYS TWO LETTERS (Seth, 2026-08-07: "Tok Pisin presents a unique
  * challenge with standard code strings"). Tok Pisin has NO ISO 639-1 code at all — it is `tpi` in
@@ -127,7 +127,15 @@ const selfT = readFileSync(new URL('./i18n-parity.test.mjs', import.meta.url), '
 for (const [name, text] of [['tools/i18n-todo.mjs', tools], ['device-setup.test', setupT], ['i18n-parity.test', selfT]]) {
   ok(!/\[a-z\]\{2\}: /.test(text), `${name} does not assume 2-letter language codes`);
 }
-ok(Object.keys(cov).some((l) => l.length === 3), 'a 3-letter code really is registered, so this is exercised');
+/* ⚠ THE {2,3} WIDENING STAYS EVEN WITH NO 3-LETTER LANGUAGE REGISTERED, and that is deliberate.
+ * It was found the honest way — Tok Pisin (`tpi`, no ISO 639-1 code at all) was added, the boundary
+ * regexes silently swallowed the next dictionary, and hundreds of phantom duplicate keys appeared.
+ * Tok Pisin is parked on branch tok-pisin-l10n, but the NEXT language may equally have no 2-letter
+ * code, and reverting these regexes to /[a-z]{2}/ because "nothing uses 3 letters" would reintroduce
+ * a bug already paid for once. The assertions above read the test sources, so they hold regardless
+ * of which languages happen to be registered today. */
+ok(Object.keys(cov).every((l) => l.length >= 2 && l.length <= 3),
+   `registered codes are all 2-3 letters: ${Object.keys(cov).join(', ')}`);
 
 console.log('\nand no picker hard-codes options behind the rule\'s back');
 const html = readFileSync(new URL('../docs/index.html', import.meta.url), 'utf8');

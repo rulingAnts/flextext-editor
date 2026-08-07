@@ -7,7 +7,7 @@ import {
   surveyWritingSystems, remapWritingSystems,
 } from './flextext.js';
 import * as db from './db.js';
-import { t, getLang, setLang, applyI18n, LANGS, ENGINE_VERSION } from './i18n.js';
+import { t, getLang, setLang, applyI18n, LANGS, LANG_NAMES, langCoverage, ENGINE_VERSION } from './i18n.js';
 import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl, ensureAsset, getAsset, fetchFileViaUrl } from './audio.js';
 import { convertToMp3, convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
 // NATIVE BRIDGE — the ONLY import of native code in this engine. Everything Android-specific
@@ -282,6 +282,16 @@ function currentView() {
 
 // Tolerant of missing elements: the Flextext Recorder shell (text-recorder/index.html)
 // only contains a subset of the views and topbars, so every lookup is guarded.
+/* Build every language <select> from i18n's LANGS — the list of languages whose dictionary is
+ * COMPLETE. Hard-coded <option>s are how a half-translated language reaches a user; deriving them
+ * means a language appears the moment its last string lands and not one commit sooner. */
+function fillLangPickers() {
+  for (const sel of $$('#lang-select')) {
+    sel.innerHTML = LANGS.map((l) => `<option value="${esc(l)}">${esc(LANG_NAMES[l] || l)}</option>`).join('');
+    sel.value = getLang();
+  }
+}
+
 function show(view) {
   /* ⚠ The single chokepoint for LEAVING the Settings tab, and therefore where a half-typed field is
    * committed. Every route out goes through here — the top tabs, opening a text, the help screen —
@@ -4128,7 +4138,9 @@ const SETUP_GROUPS = [
   { id: 'languages', legend: 'panel.legend.languages', note: 'research.note', fields: [
     // The panel pushes this to a managed device. Here the toolbar's own language selector is the
     // live control, so a second one could only disagree with it.
-    { k: 'appLang', type: 'select', opts: ['follow', 'en', 'id'], optPrefix: 'panel.opt.appLang.', off: 'setup.off.appLang' },
+    // Derived from LANGS for the same reason the pickers are: a researcher must not be able to push
+    // a language to a device that cannot render it.
+    { k: 'appLang', type: 'select', opts: ['follow', ...LANGS], optPrefix: 'panel.opt.appLang.', off: 'setup.off.appLang' },
     // Codes ONLY — the name/font fields went in 2026-07-13 (names were display sugar, fonts device
     // cosmetics; neither belongs in the FLEx export). tip = the case-sensitivity warning.
     { k: 'vernLang', type: 'text', ph: 'fau', tip: 'research.wsCase', note: 'research.wsCase' },
@@ -6213,6 +6225,8 @@ function setup() {
     setupRecordMode();
     return;
   }
+
+  fillLangPickers();
 
   // ----- Full editor wiring -----
   $$('#topbar-home .top-tab').forEach(b => b.addEventListener('click', () => {

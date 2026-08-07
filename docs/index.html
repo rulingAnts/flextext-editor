@@ -29,10 +29,10 @@
 <header id="topbar">
   <div id="topbar-home" class="topbar-row">
     <span class="app-title"><img src="icons/icon.svg" alt="" class="app-logo">Flextext Editor</span>
-    <select id="lang-select" data-i18n-title="research.lang">
-      <option value="en">English</option>
-      <option value="id">Indonesia</option>
-    </select>
+    <!-- ⚠ OPTIONS ARE BUILT AT RUNTIME from i18n's LANGS (see fillLangPickers). Hard-coding them
+         here is how a language gets offered before it is translated — the list must come from the
+         one place that knows whether a dictionary is complete. -->
+    <select id="lang-select" data-i18n-title="research.lang"></select>
     <button id="btn-help-home" class="icon-btn help-btn" data-i18n-title="btn.help">?</button>
     <button id="btn-researcher" class="secondary-btn" data-i18n="panel.entry" hidden>Researcher</button>
     <nav class="top-tabs" role="tablist">

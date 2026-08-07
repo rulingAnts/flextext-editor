@@ -4,13 +4,8 @@
  */
 
 const LANG_KEY = 'flextext-lang';
-export const LANGS = ['en', 'id'];
 
-// The TRUE version of the engine code actually executing (what the browser loaded), reported to the
-// researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
-// body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
-// KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v304';
+export const ENGINE_VERSION = 'v305';
 
 const S = {
 en: {
@@ -1018,6 +1013,12 @@ internet after the first time.</p>
   'panel.opt.appLang.follow': 'Don’t change it (let the device choose)',
   'panel.opt.appLang.en': 'English',
   'panel.opt.appLang.id': 'Indonesian (Bahasa Indonesia)',
+  'panel.opt.appLang.ko': 'Korean (한국어)',
+  'panel.opt.appLang.nl': 'Dutch (Nederlands)',
+  'panel.opt.appLang.pt': 'Portuguese (Português)',
+  'panel.opt.appLang.es': 'Spanish (Español)',
+  'panel.opt.appLang.de': 'German (Deutsch)',
+  'panel.opt.appLang.fr': 'French (Français)',
   'panel.f.vernLang': 'Vernacular code',
   'panel.f.vernName': 'Vernacular name',
   'panel.f.vernFont': 'Vernacular font',
@@ -2407,6 +2408,12 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.opt.appLang.follow': 'Jangan ubah (biarkan perangkat memilih)',
   'panel.opt.appLang.en': 'Inggris',
   'panel.opt.appLang.id': 'Indonesia (Bahasa Indonesia)',
+  'panel.opt.appLang.ko': 'Korea (한국어)',
+  'panel.opt.appLang.nl': 'Belanda (Nederlands)',
+  'panel.opt.appLang.pt': 'Portugis (Português)',
+  'panel.opt.appLang.es': 'Spanyol (Español)',
+  'panel.opt.appLang.de': 'Jerman (Deutsch)',
+  'panel.opt.appLang.fr': 'Prancis (Français)',
   'panel.f.vernLang': 'Kode bahasa daerah',
   'panel.f.vernName': 'Nama bahasa daerah',
   'panel.f.vernFont': 'Font bahasa daerah',
@@ -2804,7 +2811,109 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.opt.fmt.mp3': 'MP3 (terkompresi)',
   'panel.assign.needUrl': 'Tambahkan tautan audio atau flextext — judul saja tidak mengirim tugas apa pun.',
 },
+
+ko: {
+  /* Korean / 한국어 — IN PROGRESS, and therefore NOT OFFERED anywhere in the UI. LANG_COMPLETE computes the
+     picker from coverage, so this language becomes selectable by itself on the commit that
+     completes it, and cannot be reached before then. Fill it with
+     `node tools/i18n-todo.mjs ko --n 40` / `--apply`. */
+},
+
+nl: {
+  /* Dutch / Nederlands — IN PROGRESS, and therefore NOT OFFERED anywhere in the UI. LANG_COMPLETE computes the
+     picker from coverage, so this language becomes selectable by itself on the commit that
+     completes it, and cannot be reached before then. Fill it with
+     `node tools/i18n-todo.mjs nl --n 40` / `--apply`. */
+},
+
+pt: {
+  /* Portuguese / Português — IN PROGRESS, and therefore NOT OFFERED anywhere in the UI. LANG_COMPLETE computes the
+     picker from coverage, so this language becomes selectable by itself on the commit that
+     completes it, and cannot be reached before then. Fill it with
+     `node tools/i18n-todo.mjs pt --n 40` / `--apply`. */
+},
+
+es: {
+  /* Spanish / Español — IN PROGRESS, and therefore NOT OFFERED anywhere in the UI. LANG_COMPLETE computes the
+     picker from coverage, so this language becomes selectable by itself on the commit that
+     completes it, and cannot be reached before then. Fill it with
+     `node tools/i18n-todo.mjs es --n 40` / `--apply`. */
+},
+
+de: {
+  /* German / Deutsch — IN PROGRESS, and therefore NOT OFFERED anywhere in the UI. LANG_COMPLETE computes the
+     picker from coverage, so this language becomes selectable by itself on the commit that
+     completes it, and cannot be reached before then. Fill it with
+     `node tools/i18n-todo.mjs de --n 40` / `--apply`. */
+},
+
+fr: {
+  /* French / Français — IN PROGRESS, and therefore NOT OFFERED anywhere in the UI. LANG_COMPLETE computes the
+     picker from coverage, so this language becomes selectable by itself on the commit that
+     completes it, and cannot be reached before then. Fill it with
+     `node tools/i18n-todo.mjs fr --n 40` / `--apply`. */
+  'tabs.texts': 'Textes',
+  'tabs.research': 'Paramètres',
+  'tabs.utilities': 'Utilitaires',
+  'tabs.baseline': 'Ligne de base',
+  'tabs.gloss': 'Glose',
+},
 };
+
+/* Every language the suite has a dictionary for, with its ENDONYM — the name in its own language,
+ * because a picker that says "Korean" is no use to someone who only reads Korean. */
+export const LANG_NAMES = {
+  en: 'English',
+  id: 'Indonesia',
+  ko: '\ud55c\uad6d\uc5b4',
+  nl: 'Nederlands',
+  pt: 'Portugu\u00eas',
+  es: 'Espa\u00f1ol',
+  de: 'Deutsch',
+  fr: 'Fran\u00e7ais',
+};
+
+/* ⚠ A LANGUAGE IS NOT OFFERED UNTIL IT IS FINISHED (Seth, 2026-08-07): "incremental translation, but
+ * don't list a language as a choice until its translation has been finished."
+ *
+ * COMPUTED, never hand-maintained. The rule is one line — a language is offered when its dictionary
+ * covers every English key — so the picker cannot drift from the truth, a half-done language cannot
+ * be selected by anyone (not from the picker, not from ?lang=, not by browser auto-detect, since
+ * all three test LANGS), and a language APPEARS BY ITSELF the moment its last string lands. Nobody
+ * has to remember to add it, and nobody can add it early.
+ *
+ * The alternative — a hand-kept list plus partial dictionaries — relies on English fallback to hide
+ * the gaps, which means shipping a UI that is half one language and half another. For a field
+ * worker who reads only the target language that is not a softer failure than a missing language,
+ * it is a worse one: the app appears to speak to them until, halfway down the screen, it stops. */
+export const LANG_COMPLETE = (() => {
+  const base = Object.keys(S.en);
+  return Object.keys(LANG_NAMES).filter((l) => {
+    const d = S[l];
+    return !!d && base.every((k) => typeof d[k] === 'string' && d[k] !== '');
+  });
+})();
+export const LANGS = LANG_COMPLETE;
+
+/* What a translator (or a later session) still owes each language. Not used by the UI — this is for
+ * the coverage test and for `fxLangs()` in the console, so "how far along is French" has an answer
+ * that is measured rather than remembered. */
+export function langCoverage() {
+  const base = Object.keys(S.en);
+  const out = {};
+  for (const l of Object.keys(LANG_NAMES)) {
+    const d = S[l] || {};
+    const missing = base.filter((k) => typeof d[k] !== 'string' || d[k] === '');
+    out[l] = { name: LANG_NAMES[l], done: base.length - missing.length, total: base.length,
+               complete: missing.length === 0, missing };
+  }
+  return out;
+}
+
+// The TRUE version of the engine code actually executing (what the browser loaded), reported to the
+// researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
+// body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
+// KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
 
 let cur = detect();
 

@@ -13,7 +13,7 @@
  */
 
 import * as Researcher from './researcher.js';
-import { t, getLang, setLang, applyI18n, ENGINE_VERSION } from './i18n.js';
+import { t, getLang, setLang, applyI18n, ENGINE_VERSION, LANGS, LANG_NAMES } from './i18n.js';
 import { REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { importPublicKeyB64, publicKeyFingerprint } from './crypto.js';
 import { esc, parseFlextext, surveyWritingSystems, remapWritingSystems } from './flextext.js';
@@ -348,7 +348,8 @@ const SEND_OPTS = ['share', 'upload', 'save'];
 const GROUPS = [
   { id: 'languages', legend: 'panel.legend.languages', helpModal: 'wscodes', fields: [
     // Interface language pushed to THIS device (setting D).
-    { k: 'appLang', type: 'select', opts: ['follow', 'en', 'id'], optPrefix: 'panel.opt.appLang.', outside: true },   // sits ABOVE the codes fieldset
+    // opts from LANGS: a researcher must not be able to push a language a device cannot render.
+    { k: 'appLang', type: 'select', opts: ['follow', ...LANGS], optPrefix: 'panel.opt.appLang.', outside: true },   // sits ABOVE the codes fieldset
     // Codes ONLY (2026-07-13): the name/font fields are gone — names were display
     // sugar, fonts device cosmetics; neither belongs in the FLEx export. tip =
     // hover tooltip (fieldHtml) warning that FLEx codes are case-sensitive.
@@ -643,10 +644,8 @@ function header(titleKey, withLock) {
     <span class="rp-spacer"></span>
     ${deps && deps.canInstall && deps.canInstall() ? `<button class="secondary-btn rp-install" id="rp-install">${esc(t('install.btn'))}</button>` : ''}
     ${advancedPicker()}
-    <select id="rp-lang" title="${esc(t('research.lang'))}">
-      <option value="en"${getLang() === 'en' ? ' selected' : ''}>English</option>
-      <option value="id"${getLang() === 'id' ? ' selected' : ''}>Indonesia</option>
-    </select>
+    <select id="rp-lang" title="${esc(t('research.lang'))}">${LANGS.map((l) =>
+      `<option value="${esc(l)}"${getLang() === l ? ' selected' : ''}>${esc(LANG_NAMES[l] || l)}</option>`).join('')}</select>
     <button class="icon-btn rp-helpbtn" data-act="help" title="${esc(t('panel.help.btn'))}" aria-label="${esc(t('panel.help.btn'))}">?</button>
     ${withLock ? `<button class="secondary-btn rp-lock" data-act="lock">${esc(t('panel.lock'))}</button>` : ''}
   </div>`;

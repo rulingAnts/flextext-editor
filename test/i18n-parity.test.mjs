@@ -31,8 +31,12 @@ const read = (text) => {
   for (const k of found) { if (set.has(k)) dup.push(k); set.add(k); }
   return { set, dup, n: found.length };
 };
-const EN = read(src.slice(enAt, idAt));
-const ID = read(src.slice(idAt));
+/* ⚠ Bound each block at the NEXT `xx: {`. Slicing to end-of-file was fine while en and id were the
+ * only dictionaries; with the in-progress languages after them, everything they contain counted as
+ * `id` and showed up as duplicates. */
+const blockEnd = (from) => { const r = src.slice(from + 1).search(/\n[a-z]{2}: \{/); return r < 0 ? src.length : from + 1 + r; };
+const EN = read(src.slice(enAt, blockEnd(enAt)));
+const ID = read(src.slice(idAt, blockEnd(idAt)));
 
 console.log('\nno key is defined twice in either language');
 /* A duplicate is not a style problem: the LATER definition silently wins, so the string a reader
@@ -82,6 +86,48 @@ ok(same.length === 0,
 // The allowlist must not outlive its entries — a stale name here would hide a real gap later.
 const stale = Object.keys(SAME_ON_PURPOSE).filter((k) => !EN.set.has(k));
 ok(stale.length === 0, `every allowlisted key still exists${stale.length ? ': ' + stale.join(', ') : ''}`);
+
+/* ---------------------------------------------------------------------------------------------
+ * A LANGUAGE IS NOT OFFERED UNTIL IT IS FINISHED (Seth, 2026-08-07).
+ *
+ * The offered list is COMPUTED from coverage, not hand-kept, so these assertions are about the rule
+ * rather than about today's list: a half-done language must be unreachable by every route (picker,
+ * ?lang=, browser auto-detect, a researcher push), and a finished one must appear without anybody
+ * remembering to add it.
+ * --------------------------------------------------------------------------------------------- */
+const i18nMod = await import('../docs/js/i18n.js');
+const cov = i18nMod.langCoverage();
+
+console.log('\nthe offered list is derived, not declared');
+ok(/export const LANG_COMPLETE = \(\(\) => \{/.test(src), 'LANG_COMPLETE is computed at load');
+ok(/export const LANGS = LANG_COMPLETE;/.test(src), 'and LANGS is exactly that — no second, editable list');
+ok(!/export const LANGS = \[/.test(src), 'the old hard-coded array is gone');
+
+console.log('\nevery offered language is genuinely complete');
+for (const l of i18nMod.LANGS) {
+  ok(cov[l] && cov[l].complete, `${l} (${cov[l] && cov[l].name}) covers all ${EN.set.size} keys`);
+}
+console.log('\n...and every incomplete one is offered nowhere');
+for (const [l, v] of Object.entries(cov)) {
+  if (v.complete) continue;
+  ok(!i18nMod.LANGS.includes(l), `${l} (${v.name}) is registered but NOT offered — ${v.done}/${v.total} done`);
+}
+ok(Object.keys(cov).length >= 8, `${Object.keys(cov).length} languages registered: ${Object.keys(cov).join(', ')}`);
+
+console.log('\nand no picker hard-codes options behind the rule\'s back');
+const html = readFileSync(new URL('../docs/index.html', import.meta.url), 'utf8');
+const panel = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
+const appjs = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
+ok(/<select id="lang-select"[^>]*><\/select>/.test(html), 'the editor picker is empty in the markup and filled from LANGS');
+ok(/function fillLangPickers\(\)/.test(appjs) && /LANGS\.map\(/.test(appjs), 'app.js builds it from LANGS');
+ok(/<select id="rp-lang"[^>]*>\$\{LANGS\.map\(/.test(panel), 'the panel picker too');
+ok(/opts: \['follow', \.\.\.LANGS\]/.test(appjs) && /opts: \['follow', \.\.\.LANGS\]/.test(panel),
+   'and the appLang SETTING, so no researcher can push a language a device cannot render');
+
+console.log('\nevery registered language has a name in its own script');
+for (const [l, v] of Object.entries(cov)) {
+  ok(!!v.name && v.name !== l, `${l} → ${v.name}`);
+}
 
 console.log(fail ? `\nFAILED (${fail})\n` : `\nPASSED\n`);
 process.exit(fail ? 1 : 0);

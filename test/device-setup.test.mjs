@@ -48,11 +48,11 @@ const lift = (src, name, args, vals) => {
 
 const REC_KEYS = Object.keys(REC_FORMATS);
 const SETUP_GROUPS = lift(app, 'SETUP_GROUPS',
-  ['REC_FORMATS', 'SETUP_AGC_OPTS', 'ALL_BUTTONS', 'SETUP_SEND_OPTS', 'SETUP_PAIR_ONLY_SEND'],
-  [REC_FORMATS, ['off', 'on', 'auto'], ['new', 'audio', 'record', 'open'], ['share', 'upload', 'save', 'download'], ['upload']]);
+  ['REC_FORMATS', 'SETUP_AGC_OPTS', 'ALL_BUTTONS', 'SETUP_SEND_OPTS', 'SETUP_PAIR_ONLY_SEND', 'LANGS'],
+  [REC_FORMATS, ['off', 'on', 'auto'], ['new', 'audio', 'record', 'open'], ['share', 'upload', 'save', 'download'], ['upload'], ['en', 'id']]);
 const GROUPS = lift(panel, 'GROUPS',
-  ['REC_KEYS', 'AGC_OPTS', 'BTN_OPTS', 'SEND_OPTS'],
-  [REC_KEYS, ['off', 'on', 'auto'], ['new', 'audio', 'record', 'open'], ['share', 'upload', 'save', 'download']]);
+  ['REC_KEYS', 'AGC_OPTS', 'BTN_OPTS', 'SEND_OPTS', 'LANGS'],
+  [REC_KEYS, ['off', 'on', 'auto'], ['new', 'audio', 'record', 'open'], ['share', 'upload', 'save', 'download'], ['en', 'id']]);
 
 console.log('\nboth specs are findable and parse');
 ok(!!SETUP_GROUPS, 'app.js declares SETUP_GROUPS');
@@ -399,8 +399,12 @@ console.log('\n⚠ NO KEY IS DEFINED TWICE INSIDE ONE LANGUAGE BLOCK');
  * only because the translation happened to come second. Neither throws, and both are invisible to a
  * check that merely counts a key across the whole file. */
 {
+  /* ⚠ Each block ends at the NEXT `xx: {`, not at end-of-file. Slicing id to the end was correct
+   * while en and id were the only dictionaries; the in-progress languages now sit after them, and
+   * everything they contain was being counted as a duplicate `id` key. */
   const ei = i18n.indexOf('\nen: {'), ii = i18n.indexOf('\nid: {');
-  for (const [name, blk] of [['en', i18n.slice(ei, ii)], ['id', i18n.slice(ii)]]) {
+  const endOf = (from) => { const r = i18n.slice(from + 1).search(/\n[a-z]{2}: \{/); return r < 0 ? i18n.length : from + 1 + r; };
+  for (const [name, blk] of [['en', i18n.slice(ei, endOf(ei))], ['id', i18n.slice(ii, endOf(ii))]]) {
     const seen = new Map();
     for (const m of blk.matchAll(/^\s*'([a-zA-Z0-9_.]+)':/gm)) seen.set(m[1], (seen.get(m[1]) || 0) + 1);
     const dupes = [...seen].filter(([, n]) => n > 1).map(([k]) => k);

@@ -750,7 +750,20 @@ function renderPathBar() {
     const isSel = selection.size === 1 && selection.has(st.id);
     // ⚠ The tip CHANGES once the step is selected, so the second gesture announces itself exactly
     // when it is available — a static tip describing both would be noise on every other step.
-    const tip = isSel ? t('para.pathStepFocusTip') : t('para.pathStepTip', { name: st.label });
+    /* The selected step's tip names which way the toggle will go, worked out the same way the click
+     * does — so the tip cannot promise one thing while the click does the other. */
+    let tip;
+    if (isSel) {
+      const g = nodeById(state, st.id);
+      const parent = g ? parentOf(state, st.id) : null;
+      const sisters = g ? (parent ? parent.children : topUnits(state)).filter((c) => c !== st.id) : [];
+      const shut = g ? [...(g.children || []), ...sisters].filter(isGroupId) : [];
+      const set = new Set(state.view.collapsed || []);
+      tip = shut.length && shut.every((id) => set.has(id))
+        ? t('para.pathStepExpandTip') : t('para.pathStepFocusTip');
+    } else {
+      tip = t('para.pathStepTip', { name: st.label });
+    }
     return gap + `<button class="pa-path-step" data-gid="${esc(st.id)}" title="${esc(tip)}">${esc(st.label)}</button>`;
   }).join('<span class="pa-path-sep">\u203a</span>');
   bar.querySelectorAll('.pa-path-step').forEach((b) => {
@@ -773,16 +786,26 @@ function renderPathBar() {
         const sisters = (parent ? parent.children : topUnits(state)).filter((c) => c !== gid);
         const shut = [...(g.children || []), ...sisters].filter(isGroupId);
         if (!shut.length) { alert(t('para.pathNothingToFocus')); return; }
+        /* ⚠ A TOGGLE, and its direction is DERIVED rather than remembered (Seth, 2026-08-07: "we
+         * also want that 'click again' to be a toggle"). If everything it would shut is already
+         * shut, the click opens it instead. Reading the state beats storing a flag: a flag would go
+         * stale the moment the user collapsed one of these groups by hand, and the button would then
+         * do the opposite of what it looked like it would do. */
         const set = new Set(state.view.collapsed || []);
-        shut.forEach((id) => set.add(id));
+        const allShut = shut.every((id) => set.has(id));
+        shut.forEach((id) => (allShut ? set.delete(id) : set.add(id)));
         commit({ ...state, view: { ...state.view, collapsed: [...set] } });
         return;
       }
       selection = new Set([gid]);
       anchor = null;
       renderWork();
-      const el = $(`[data-gid="${gid}"]`);
-      if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      /* ⚠ THE TREE MARKS GROUPS WITH data-unit, NOT data-gid — data-gid exists only on these path
+       * buttons. Looking up [data-gid] found the BUTTON and scrolled that into view, so the first
+       * click selected without ever navigating (Seth: it "should not only select it, but also
+       * navigate to that label"). Scoped to the tree so it cannot match the path bar again. */
+      const el = $('#pa-tree').querySelector(`[data-unit="${CSS.escape(gid)}"]`);
+      if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
     });
   });
 }
@@ -1213,6 +1236,7 @@ function renderWork() {
   const keepY = before ? before.scrollTop : 0;
   renderWorkInner();
   renderPathBar();
+  markStickyHeadings();
   wireHelpDisclosure();
   applyZoom(zoomPct);   // the tree element is new after every render
   if (chartOn) setChart(true);   // the tree is rebuilt each render, so re-mount and redraw the chart
@@ -1264,6 +1288,7 @@ function renderWorkInner() {
             <label class="check-label pa-menucheck" title="${esc(t('para.hideBlankTip'))}"><input type="checkbox" id="pa-blank"> ${esc(t('para.hideBlank'))}</label>
             <label class="check-label pa-menucheck" id="pa-brk-wrap" hidden><input type="checkbox" id="pa-brk"> ${esc(t('para.brackets'))}</label>
             <label class="check-label pa-menucheck" title="${esc(t('para.pathTip'))}"><input type="checkbox" id="pa-path"> ${esc(t('para.showPath'))}</label>
+            <label class="check-label pa-menucheck" title="${esc(t('para.stickyTip'))}"><input type="checkbox" id="pa-sticky"> ${esc(t('para.stickyHeads'))}</label>
             <!-- ⚠ DEPTH LIMIT PARKED (Seth, 2026-08-07): "not working correctly ... lower priority".
                  Kept verbatim rather than deleted — the idea is sound and the plumbing below is
                  intact; only the control and its effect are switched off. To bring it back: restore
@@ -1366,6 +1391,7 @@ function renderWorkInner() {
 
   $('#pa-layer').value = v.layer;
   $('#pa-path').checked = v.showPath !== false;          // on by default: it is how you keep your place
+  $('#pa-sticky').checked = v.stickyHeads !== false;
   // parked: $('#pa-depth').value = String(v.depthLimit || 0);
   $('#pa-free').checked = v.free !== false;
   $('#pa-blank').checked = v.hideBlank !== false;      // ON by default: blank lines are not analysis
@@ -1383,6 +1409,7 @@ function renderWorkInner() {
   $('#pa-layer').addEventListener('change', (e) => setView({ layer: e.target.value, ...(e.target.value === 'free-only' ? { free: true } : {}) }));
   $('#pa-free').addEventListener('change', (e) => setView({ free: e.target.checked }));
   $('#pa-path').addEventListener('change', (e) => setView({ showPath: e.target.checked }));
+  $('#pa-sticky').addEventListener('change', (e) => setView({ stickyHeads: e.target.checked }));
   // parked with the control above:
   // $('#pa-depth').addEventListener('change', (e) => setView({ depthLimit: +e.target.value }));
   if ($('#pa-title-edit')) $('#pa-title-edit').addEventListener('click', () => {
@@ -2141,12 +2168,59 @@ function rangeBetween(a, b) {
   return sibs.slice(Math.min(i, j), Math.max(i, j) + 1);
 }
 
+/* ── STICKY HEADINGS, BOUNDED TO TWO ────────────────────────────────────────────────────────────
+ * Seth asked for the current group and its IMMEDIATE PARENT to stick — and the bound is the whole
+ * point. Sticking every ancestor is what made plain sticky headings unusable: in a five-deep
+ * analysis five bars pile up at the top and the text you are reading is pushed off the screen,
+ * precisely when you most need room. Two is enough to say "you are here, inside that".
+ *
+ * ⚠ THE PATH BAR AND THESE ARE COMPLEMENTARY, NOT REDUNDANT. The path names the whole ancestry in
+ * one line and lets you jump; these two keep the group you are actually working in visible as you
+ * scroll through it. One answers "where am I", the other "what am I inside right now".
+ *
+ * ⚠ APPLIED BY CLASS, NOT BY DEPTH. Only the selected group and its parent get it, so the number of
+ * sticky bars can never grow with the document. The stacking offsets are set inline because the
+ * parent must sit ABOVE the current group and both must clear the toolbar and the path bar, whose
+ * heights vary with wrapping and with whether the path is shown at all. */
+function markStickyHeadings() {
+  const tree = $('#pa-tree');
+  if (!tree) return;
+  tree.querySelectorAll('.pa-badge.sticky-1, .pa-badge.sticky-2').forEach((b) => {
+    b.classList.remove('sticky-1', 'sticky-2');
+    b.style.top = '';
+  });
+  if (state.view.stickyHeads === false) return;
+  const sel = [...selection][0];
+  if (!sel) return;
+  // The group in question: the selection itself if it is a group, otherwise the group holding it.
+  const own = isGroupId(sel) ? nodeById(state, sel) : parentOf(state, sel);
+  if (!own) return;
+  const up = parentOf(state, own.id);
+  const bar = $('#pa-path-bar');
+  const base = ($('.pa-bar')?.offsetHeight || 46) + ((bar && !bar.hidden) ? bar.offsetHeight : 0);
+  /* ⚠ :scope, and NOT a plain descendant selector. The badge sits inside .pa-roleline, so a direct-
+   * child selector found nothing; but a bare descendant selector would match the badge of any NESTED
+   * group and pin the wrong heading. Both shapes are matched, scoped to this group's own level. */
+  const badgeOf = (gid) => {
+    const gEl = tree.querySelector(`[data-unit="${CSS.escape(gid)}"]`);
+    return gEl ? gEl.querySelector(':scope > .pa-roleline > .pa-badge, :scope > .pa-badge') : null;
+  };
+  const upB = up ? badgeOf(up.id) : null;
+  const ownB = badgeOf(own.id);
+  if (upB) { upB.classList.add('sticky-1'); upB.style.top = base + 'px'; }
+  if (ownB) {
+    ownB.classList.add('sticky-2');
+    ownB.style.top = (base + (upB ? upB.offsetHeight : 0)) + 'px';
+  }
+}
+
 function paintSelection() {
   /* ⚠ THE PATH BAR FOLLOWS THE SELECTION, so it must update HERE too. Selection changes that do not
    * rebuild the tree — clicking a row, Clear selection, Esc — go through this function alone, and
    * a bar refreshed only by renderWork would sit there describing a selection that no longer
    * exists. */
   renderPathBar();
+  markStickyHeadings();
   // .pa-prop is here because propositions are selectable units too (Seth, 2026-08-05).
   root.querySelectorAll('.pa-row, .pa-group, .pa-prop').forEach((el) => {
     if (el.dataset.unit) el.classList.toggle('sel', selection.has(el.dataset.unit));

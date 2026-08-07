@@ -841,7 +841,7 @@ function getPlayer() {
       // key in mediaKey; an original has none and keeps the old behaviour.
       onPeaks: (media) => { db.putMedia(media.mediaKey || playerDocId, media).catch(() => {}); },
       onRemove: async () => {
-        if (!current || isAudioLocked(current)) return;
+        if (!canRemoveAudio(current)) return;   // and NOT just hidden — the guard is the real gate
         if (!confirm(t('player.confirmRemove'))) return;
         await db.deleteMedia(current.id);
         playerReadyFor = null;   // the decoded buffer no longer corresponds to ANY stored audio
@@ -862,6 +862,20 @@ function getPlayer() {
 function isAudioLocked(rec) {
   return !!rec.audioLocked ||
     !!(rec.audioSource && /^https?:/i.test(rec.audioSource));
+}
+
+/* May THIS DEVICE delete the recording? Deliberately NOT folded into isAudioLocked, which answers a
+ * different question and is also what decides whether the audio rides the upload/save bundle
+ * (buildBundleFor). Gating that on pairing would stop paired devices uploading their own
+ * recordings — the entire point of a paired device — so the two must stay separate.
+ *
+ * ⚠ A PAIRED DEVICE NEVER OFFERS IT (Seth, 2026-08-07). On a managed device the recording is the
+ * project's, not the handset's: it may be the only copy of a session that cannot be re-recorded,
+ * and the coworker holding the phone is not the person who gets to decide it is expendable. Same
+ * reasoning as allowDeleteOn() and deleteAllAllowed(), which already short-circuit on hasSession().
+ * An UNPAIRED device keeps it — it is the user's own app and their own file. */
+function canRemoveAudio(rec) {
+  return !!rec && !Sync.hasSession() && !isAudioLocked(rec);
 }
 
 // Show/refresh the player for the current doc on the Baseline tab.
@@ -907,7 +921,7 @@ async function refreshPlayer() {
   let media = await db.getMedia(current.id).catch(() => null);
   media = await segWorkingMedia(current.id, media);   // WAV working copy in segmentation mode
   if (current.id !== playerDocId || !isEditorTab(activeTab)) return;
-  p.el.remove.hidden = isAudioLocked(current);
+  p.el.remove.hidden = !canRemoveAudio(current);
   if (media) {
     updateDlControls('done');
     // Re-load only when switching docs (avoid resetting playback position).

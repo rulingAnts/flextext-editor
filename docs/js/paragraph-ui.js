@@ -779,9 +779,10 @@ function renderPathBar() {
   /* ⚠ WHEN THE SELECTION IS OFF-SCREEN, BOTH BARS SHOW (Seth's exception) — the crumb says where you
    * are LOOKING, this says what you have SELECTED, and they legitimately disagree. So this one is
    * labelled: without it, two ancestry lines saying different things is just confusing. */
-  const both = selectionOffscreen() && state.view.stickyHeads !== false;
-  bar.classList.toggle('pa-path-labelled', both);
-  const lead = both ? `<span class="pa-path-lead">${esc(t('para.pathSelectionLead'))}</span>` : '';
+  /* ⚠ ALWAYS LABELLED (Seth). It began as a disambiguator shown only when the scroll crumb was also
+   * visible, but the two bars look alike and occupy the same place, so which one you are reading must
+   * be unambiguous EVERY time — not only in the case I happened to anticipate. */
+  const lead = `<span class="pa-path-lead">${esc(t('para.pathSelectionLead'))}</span>`;
   bar.innerHTML = lead + shown.map((st, i) => {
     const gap = (elided && i === 1) ? `<span class="pa-path-gap" title="${esc(t('para.pathElided', { n: steps.length - MAX }))}">…</span>` : '';
     const isSel = selection.size === 1 && selection.has(st.id);
@@ -842,6 +843,13 @@ function renderPathBar() {
         const allShut = shut.every((id) => set.has(id));
         shut.forEach((id) => (allShut ? set.delete(id) : set.add(id)));
         commit({ ...state, view: { ...state.view, collapsed: [...set] } });
+        /* ⚠ WHERE TO LOOK AFTERWARDS DEPENDS ON WHICH WAY IT WENT (Seth, 2026-08-07). Having just
+         * COLLAPSED the sisters, the thing worth seeing is the PARENT level — this group now sits
+         * among its shut siblings, and that arrangement is the point of the gesture. Having EXPANDED
+         * them, the group's own heading is what you want back under your eye. Scrolling to the same
+         * place either way would half the time show you the thing you just stopped caring about. */
+        const goTo = allShut ? gid : (parentOf(state, gid) || { id: gid }).id;
+        requestAnimationFrame(() => scrollUnitToTop(goTo));
         return;
       }
       selection = new Set([gid]);
@@ -1439,10 +1447,10 @@ function renderWorkInner() {
         <button class="secondary-btn" id="pa-clear" disabled title="${esc(t('para.clearSelTip'))}">${esc(t('para.clearSel'))}</button>
         <button class="secondary-btn" id="pa-undo" title="${esc(t('para.undoNone'))}">${esc(t('para.undo'))}</button>
         <button class="secondary-btn" id="pa-redo" title="${esc(t('para.redoNone'))}">${esc(t('para.redo'))}</button>
-        <button class="secondary-btn pa-iconbtn" id="pa-full" hidden
-                title="${esc(t('para.fullEnter'))}" aria-label="${esc(t('para.fullEnter'))}">⛶</button>
         <button class="secondary-btn pa-iconbtn" id="pa-chart" title="${esc(t('para.chartTip'))}"
                 aria-label="${esc(t('para.chartTip'))}">${esc(t('para.chartShow'))}</button>
+        <button class="secondary-btn pa-iconbtn" id="pa-full" hidden
+                title="${esc(t('para.fullEnter'))}" aria-label="${esc(t('para.fullEnter'))}">⛶</button>
         <button class="pa-tip-toggle" id="pa-tip-btn" title="${esc(t('para.helpTip'))}"
                 aria-label="${esc(t('para.helpTip'))}" aria-expanded="false">?</button>
         <button class="primary-btn pa-iconbtn" id="pa-save-icon" title="${esc(t('para.saveTip'))}"
@@ -1567,6 +1575,18 @@ function renderWorkInner() {
   $('#pa-clear').addEventListener('click', clearSelection);
   $('#pa-undo').addEventListener('click', () => (history.length ? doUndo() : alert(t('para.undoNone'))));
   $('#pa-zoom-out').addEventListener('click', () => stepZoom(-1));
+  /* ⚠ THE SCROLL LISTENER. An earlier edit to attach this silently no-opped, so the crumb — whose
+   * entire purpose is to follow the scroll position — only ever updated on re-render. */
+  $('#pa-tree').addEventListener('scroll', scheduleCrumb, { passive: true });
+  /* ⚠ CLICKING EMPTY SPACE DESELECTS. Without it the only way back to "nothing selected" was the
+   * Clear selection button, so a selection made minutes ago stayed active — invisibly, if it was
+   * off-screen — and kept the path bar up when the user believed nothing was selected. */
+  $('#pa-tree').addEventListener('click', (e) => {
+    if (e.target.closest('[data-unit], [data-line], [data-prop], button, input, .pa-crumbview')) return;
+    if (!selection.size) return;
+    selection = new Set(); anchor = null;
+    renderWork();
+  });
   on('#pa-chart', () => setChart(!chartOn));
   wireFullscreen();
   on('#pa-chart-menu', () => { closeMenus(); setChart(!chartOn); });

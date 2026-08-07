@@ -99,6 +99,34 @@ never said *verify the file is live first*. Both halves are required.
 3. Watch the `Publish satellites` workflow run green, then confirm the mirrors' Pages went live
    (curl each satellite's `/sw.js` for the new version — their Pages rebuild takes ~1 min).
 
+## Hosting: TWO live estates at once — Cloudflare for new users, GitHub Pages for existing ones
+
+⚠ **Both are live and both must keep working.** New users are directed to the **Cloudflare Workers**
+sites; **existing users stay on the legacy GitHub Pages / satellite-repo URLs**, because a PWA's
+identity is its origin — moving someone to a new origin gives them a different installed app with an
+empty IndexedDB. Their data does not follow. So the Pages estate is not deprecated infrastructure to
+be cleaned up; it is where field users already have their work.
+
+**Five Cloudflare Workers, each its own deploy folder with its own `wrangler.toml`, `build.sh` and
+`deploy.sh`:**
+
+| Folder | Worker |
+|---|---|
+| `apps/editor` | `flextext-editor` |
+| `apps/recorder` | `flextext-recorder` |
+| `apps/researcher` | `flextext-researcher` |
+| `apps/crowd` | `flextext-crowd` |
+| `paragraph-analysis` | `paragraph-analysis-tool` (pat.flextext.app) |
+
+Each `deploy.sh` routes `productionWeb` → a real deploy and any other branch → a preview alias, so a
+staging push can never reach production traffic. The integrity guard that runs on every build checks
+all of this — version sync across the editor and all satellites, every SHELL path present, each
+folder naming its own Worker, and no two folders targeting the same Worker name.
+
+**The GitHub Pages estate is unchanged** and is still published by `sync-satellites.yml` on a
+`productionWeb` push, with the same ordering guard (editor live first, every precached path verified
+200, then the mirrors).
+
 ## Developer documentation
 
 **`DEVELOPERS.md` (repo root) is the contributor/adopter-facing technical documentation** —

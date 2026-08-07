@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v273';
+export const ENGINE_VERSION = 'v274';
 
 const S = {
 en: {
@@ -1116,6 +1116,9 @@ internet after the first time.</p>
   'para.depthAll': 'All',
   'para.pathElided': '{n} more level(s) between',
   'para.pathStepTip': 'Go to “{name}”. Then find it here again and click it a second time to collapse everything around it. Two separate clicks — not a double-click.',
+  'para.stickyHeads': 'Keep the current heading in view',
+  'para.stickyTip': 'While you scroll, the group you are working in and the one above it stay pinned at the top — never more than two, so they cannot crowd out the text.',
+  'para.pathStepExpandTip': 'Click once more to open this level back up — its sub-groups and everything beside it expand again.',
   'para.pathStepFocusTip': 'Click once more to focus this level — its own sub-groups and everything beside it collapse, so only this stays open. Undo restores it.',
   'para.pathNothingToFocus': 'Nothing to collapse here — this group has no sub-groups and nothing beside it.',
   'para.showFree': 'Free translation',
@@ -2452,6 +2455,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.depthAll': 'Semua',
   'para.pathElided': '{n} tingkat lagi di antaranya',
   'para.pathStepTip': 'Ke “{name}”. Lalu cari lagi di sini dan klik kedua kalinya untuk menciutkan sekelilingnya. Dua klik terpisah — bukan klik ganda.',
+  'para.stickyHeads': 'Judul kelompok tetap terlihat',
+  'para.stickyTip': 'Saat menggulir, kelompok yang sedang dikerjakan dan satu di atasnya tetap tersemat — maksimal dua, agar tidak menghabiskan ruang teks.',
+  'para.pathStepExpandTip': 'Klik sekali lagi untuk membuka kembali tingkat ini — subkelompok dan semua di sebelahnya mengembang lagi.',
   'para.pathStepFocusTip': 'Klik sekali lagi untuk memusatkan tingkat ini — subkelompoknya dan semua yang di sebelahnya diciutkan, hanya ini yang terbuka. Bisa dibatalkan.',
   'para.pathNothingToFocus': 'Tidak ada yang bisa diciutkan — kelompok ini tidak punya subkelompok dan tidak ada yang di sebelahnya.',
   'para.showFree': 'Terjemahan bebas',

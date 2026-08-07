@@ -3026,28 +3026,33 @@ async function listCachedApps() {
   } catch { return null; }
 }
 
-// Subtle always-on version badge in the bottom-right corner (all three modes). Shows THIS app's OWN
-// version: the editor's is the engine version (same thing); the recorder/researcher show their own
-// shell version (from their cache name) since they ship on their own cadence. Informational only —
-// pointer-events:none so it never intercepts a tap.
+// Subtle always-on version badge in the bottom-right corner (every mode). The editor's shell IS the
+// engine, so it shows one number; the researcher and paragraph apps show "engine/shell" because the
+// engine number is the one every other surface reports; the recorder shows its own shell version,
+// which is what the deploy-order rule is written in. Informational only — pointer-events:none so it
+// never intercepts a tap.
 async function showAppVersion() {
   const name = RESEARCHER_MODE ? 'researcher' : (RECORD_MODE ? 'recorder' : (PARAGRAPH_MODE ? 'paragraph' : 'editor'));
   let ver = ENGINE_VERSION;                                   // editor: shell == engine version
-  // The recorder and researcher are published as SEPARATE mirrors on their own cadence, so their
-  // own shell version is the meaningful identity. The PARAGRAPH app is not: its shell and the
-  // engine copy beside it ship in ONE atomic Cloudflare deployment, so its shell number (v14) is
-  // an internal counter that matches nothing else in the suite and told Seth nothing when he read
-  // it off the screen. Show the ENGINE version there — the number every other surface reports.
-  if (RECORD_MODE || RESEARCHER_MODE) {
+  if (RECORD_MODE) {
     const apps = await listCachedApps().catch(() => null);
-    ver = (apps && (RECORD_MODE ? apps.recorder : apps.researcher)) || '';   // own shell version (cache name)
-  } else if (PARAGRAPH_MODE) {
-    // Show BOTH (Seth): the ENGINE version is the number every other surface reports and the one
-    // a bug report needs; the shell counter is still worth having when diagnosing this app's own
-    // deployment. Engine first, shell after the slash — "paragraph v182/v16".
+    ver = (apps && apps.recorder) || '';                      // own shell version (cache name)
+  } else if (PARAGRAPH_MODE || RESEARCHER_MODE) {
+    /* Show BOTH, engine first — "researcher v295/v231" (Seth, for the panel; the paragraph app has
+     * read this way since v182).
+     *
+     * ⚠ THE SHELL NUMBER ALONE CANNOT BE MATCHED TO ANYTHING. Each satellite's VERSION is its own
+     * counter, bumped +1 per release, so "researcher v231" answers no question a bug report asks:
+     * every other surface in the suite — the live-version strip, a device's reported version, the
+     * stale badge, this changelog — talks in ENGINE versions. Reading v231 off the screen and
+     * trying to place it against v295 is the confusion this removes. The shell counter still earns
+     * its place after the slash: it is what identifies THIS app's own deployment when its mirror
+     * has not caught up with the engine. */
     const apps = await listCachedApps().catch(() => null);
-    const shell = apps && apps.paragraph;
-    if (shell) ver = ENGINE_VERSION + '/' + shell;
+    const shell = apps && (PARAGRAPH_MODE ? apps.paragraph : apps.researcher);
+    // No shell number yet (first load before the SW caches, or a dev server with no SW): the engine
+    // version alone is still the useful half, so show it rather than an empty badge.
+    ver = shell ? ENGINE_VERSION + '/' + shell : ENGINE_VERSION;
   }
   let el = document.getElementById('app-version');
   if (!el) { el = document.createElement('div'); el.id = 'app-version'; el.className = 'app-version'; (document.body || document.documentElement).appendChild(el); }

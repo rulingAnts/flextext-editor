@@ -17,6 +17,8 @@
  * will simply hit that fallback.
  */
 
+import { wavWithBext, captureBext } from './seg-exports.js';
+
 // Cheap synchronous capability check, used to pick the capture path up front.
 // The real proof is start() succeeding; callers still try/catch that and fall
 // back on any failure.
@@ -417,12 +419,30 @@ export function recFormatSupported(format) {
 // Encode captured channels (mono or stereo) to one of the LOSSLESS formats (WAV
 // inline; FLAC via the lazy-loaded encoder). Returns { blob, ext, mime }.
 // Callers handle mp3 separately.
-export async function encodeRecording(channels, sampleRate, format, onProgress) {
+export async function encodeRecording(channels, sampleRate, format, onProgress, provenance) {
   const key = normRecFormat(format);
   const f = REC_FORMATS[key];
   if (f.wavBits) {
     if (onProgress) onProgress(1);
-    return { blob: encodeWav(channels, sampleRate, f.wavBits), ext: f.ext, mime: f.mime };
+    const blob = encodeWav(channels, sampleRate, f.wavBits);
+    /* ⚠ THE ONE CHOKEPOINT EVERY RECORDING PASSES THROUGH — editor, the Recorder satellite and the
+     * crowd recorder all encode here, so stamping here is what makes provenance universal instead
+     * of something each app has to remember. The facts were ALREADY collected (the native shells
+     * report the mic and whether the OS processors were off; the browser path knows its own DSP
+     * settings) and were already shown on screen — they just never reached the file, so they died
+     * with the app. A WAV deposited in an archive years later said nothing about how it was made.
+     *
+     * Stamping is HONESTY, NOT CORRECTNESS: any failure here keeps the unstamped recording rather
+     * than losing a take the user has already decided to keep. */
+    if (provenance) {
+      try {
+        const meta = captureBext({ ...provenance, bits: f.wavBits, sampleRate,
+                                   channels: asChannels(channels).length });
+        return { blob: new Blob([wavWithBext(await blob.arrayBuffer(), meta)], { type: f.mime }),
+                 ext: f.ext, mime: f.mime };
+      } catch { /* fall through to the unstamped take */ }
+    }
+    return { blob, ext: f.ext, mime: f.mime };
   }
   if (f.flacBits) {
     const { encodeFlac } = await import('./flac.js');

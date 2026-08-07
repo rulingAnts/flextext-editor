@@ -19,7 +19,7 @@ import { losslessSupported, recFormatSupported, PCMRecorder, encodeWav, encodeRe
 import WaveSurfer from './vendor/wavesurfer.esm.js';
 import { makeZip } from './zip.js';
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay } from './segment-strips.js';
-import { serializeEaf, serializeEafPrefs, buildSegPreviewHtml, wavWithBext, buildFxpa } from './seg-exports.js';
+import { serializeEaf, serializeEafPrefs, buildSegPreviewHtml, wavWithBext, captureBext, buildFxpa } from './seg-exports.js';
 import { mergeSegments, splitSegment, isAligned } from './segments.js';
 import { initParagraphApp } from './paragraph-ui.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget } from './upload.js';
@@ -1767,7 +1767,13 @@ async function startPcm(fmt, fellBack) {
       throw e;
     }
   }
-  rec = { mode: 'pcm', pcmRec, fmt, fellBack: !!fellBack, recording: true, preRollSec,
+  /* The microphone's own name, straight from the opened track. It is the ONE thing the browser
+   * path can say about the hardware — a USB interface or a headset reports a real label — and it is
+   * gone the moment the stream is stopped, so it is captured here rather than at save time. Not a
+   * quality claim: a label is what the OS calls the device, nothing more. */
+  let micLabel = null;
+  try { micLabel = pcmRec.stream?.getAudioTracks?.()[0]?.label || null; } catch { micLabel = null; }
+  rec = { mode: 'pcm', pcmRec, fmt, fellBack: !!fellBack, recording: true, preRollSec, micLabel,
           // The take already contains preRollSec of audio, so the elapsed clock must start there
           // or the displayed time drifts from the file's real length.
           t0: Date.now() - Math.round(preRollSec * 1000), timer: null, blob: null, url: null };
@@ -1975,6 +1981,36 @@ async function stopRecording() {
   }
 }
 
+/* Everything this environment can HONESTLY say about a recording, for the file's own metadata.
+ *
+ * ⚠ COLLECT, NEVER ASSUME. Each field is either something the platform reported or something this
+ * app did; nothing is inferred to fill a gap, because a confident wrong provenance is worse than a
+ * missing one — it gets trusted. A browser cannot know its microphone's real resolution, so it does
+ * not claim one; only a native shell reporting depthVerified may state a captured depth as fact.
+ *
+ * The native shells are the richer source BY DESIGN (Android AudioRecord / the Electron bridge open
+ * the device themselves), and describeCapture() already normalises what they report — including the
+ * case that matters most, an APK built before a field existed, where absence must read as "not
+ * reported" and never as a negative verdict. ⚠ Read through that function only; js/native-audio.js
+ * is the native contract boundary and is not to be touched from here. */
+function recordingProvenance(r) {
+  const nat = (r && r.mode === 'native') ? describeCapture(r.nativeMeta) : null;
+  return {
+    mode: nat ? 'native' : 'browser',
+    platform: nativePlatform() || (isNativeShell() ? 'native shell' : 'browser'),
+    app: 'FlexText Editor',
+    appVersion: ENGINE_VERSION,
+    native: nat,
+    // Browser-path DSP. These are OUR settings, so they are facts about what we asked the browser
+    // for — not a claim about what it actually did, which no web API will tell us.
+    agc: !nat ? agcOn() : undefined,
+    nr: !nat ? !!settings.nr : undefined,
+    echo: !nat ? !!settings.echo : undefined,
+    normalized: !nat ? !!settings.norm : undefined,
+    micLabel: (!nat && r && r.micLabel) ? r.micLabel : undefined,
+  };
+}
+
 async function saveRecording() {
   if (!rec || (!rec.blob && !rec.channels)) return;
   let title = $('#record-title').value.trim();
@@ -1989,7 +2025,18 @@ async function saveRecording() {
       // Already a finished WAV at the exact format the device really captured — no re-encode.
       // (Auto-normalize is deliberately NOT applied: it would edit an archival master, and the
       // whole reason for the native path is an unmodified capture.)
-      file = new File([rec.blob], `recording-${stamp}.wav`, { type: 'audio/wav' });
+      /* ⚠ The bext chunk is ADDED, and adds nothing to the audio: wavWithBext splices a metadata
+       * chunk after `fmt ` and fixes the RIFF size — not one sample is touched, which is why this
+       * does not contradict "unmodified capture". This is the take with the RICHEST provenance
+       * available anywhere in the suite (real mic, routing, whether the OS processors were off,
+       * whether the depth was verified), so it is the one most worth recording. On any failure the
+       * untouched capture is used. */
+      let natBytes = rec.blob;
+      try {
+        natBytes = new Blob([wavWithBext(await rec.blob.arrayBuffer(), captureBext(recordingProvenance(rec)))],
+                            { type: 'audio/wav' });
+      } catch { natBytes = rec.blob; }
+      file = new File([natBytes], `recording-${stamp}.wav`, { type: 'audio/wav' });
     } else if (rec.mode === 'pcm') {
       // The preview blob has done its job (the review listen) and is a whole extra copy of the
       // take. Release it BEFORE allocating the encode buffer — holding both at once is a large
@@ -2007,7 +2054,7 @@ async function saveRecording() {
       const chans = reduceChannels(rec.channels);
       if (settings.norm) normalizePeak(chans);
       const { blob, ext, mime } = await encodeRecording(chans, rec.sampleRate, rec.fmt,
-        (f) => recordUI('saving', { pct: Math.round(f * 100) }));
+        (f) => recordUI('saving', { pct: Math.round(f * 100) }), recordingProvenance(rec));
       file = new File([blob], `recording-${stamp}.${ext}`, { type: mime });
     } else if (REC_FORMATS[rec.fmt] && REC_FORMATS[rec.fmt].save === 'direct') {
       // WebM/Opus or WebM/PCM: keep the captured blob as-is, no transcode. (Auto-

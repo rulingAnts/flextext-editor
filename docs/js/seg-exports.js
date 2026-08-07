@@ -562,6 +562,83 @@ ${body}
   // the FIRST occurrence, so a title containing the literal marker text hijacked the audio slot.)
 }
 
+/* ---------------- Capture provenance → BWF bext (honesty in the BYTES) ---------------- */
+
+/* Turn what an app could ACTUALLY learn about a recording into a Description + EBU CodingHistory.
+ * Pure, so it is testable in node; the callers collect the facts, this only phrases them.
+ *
+ * WHY THIS EXISTS AT ALL: the provenance was already collected — the native shells report the mic,
+ * the routing and whether the OS processors were off, and the browser path knows its own DSP
+ * settings — and it was already shown in the UI and stored on the doc. None of it reached the audio
+ * file. So it died with the app: the WAV a researcher deposits in an archive years later carried
+ * nothing about how it was made.
+ *
+ * ⚠ THE HARD RULE IS THE ONE FROM notes/audiotoolsandsettingsplan §0b: NEVER CLAIM A CAPTURE DEPTH
+ * THE WEB CANNOT DELIVER. Web Audio is 32-bit float BY SPECIFICATION — `AudioWorkletProcessor`
+ * hands out Float32Array and there is no integer capture path anywhere in it. So a browser-recorded
+ * "24-bit WAV" is a float32 capture WRITTEN to 24-bit, and this must say exactly that. Only a native
+ * shell that reports `depthVerified` may state a captured depth as fact.
+ *
+ * ⚠ AND BIT DEPTH IS NOT RESOLUTION. A phone ADC commonly gives ~16 effective bits whatever the
+ * container says, so the extra depth is HEADROOM, not detail. The history therefore records the
+ * CHAIN — what happened at each step — and never a quality verdict. An archive can judge; we report.
+ */
+export function captureBext(prov = {}) {
+  const p = prov || {};
+  const nat = p.native || null;
+  const mode = (nat && nat.encoding) ? 'native' : (p.mode || 'browser');
+  const rate = p.sampleRate || (nat && nat.sampleRate) || null;
+  const chans = p.channels || (nat && nat.channels) || null;
+  const M = chans >= 2 ? 'stereo' : (chans === 1 ? 'mono' : '?');
+  const F = rate || '?';
+  const lines = [];
+  const notes = [];
+
+  if (mode === 'native') {
+    /* A native shell OPENS the device itself, so it can report the real mic and — where the OS
+     * allows — a genuinely integer capture. depthVerified is what separates "we asked for 24-bit"
+     * from "the hardware gave 24-bit"; without it we say requested, never captured. */
+    const dev = [nat.device, nat.deviceType].filter(Boolean).join(' / ') || nat.label || 'unknown device';
+    const w = nat.encoding && /(\d+)/.test(nat.encoding) ? nat.encoding.match(/(\d+)/)[1] : (p.bits || '?');
+    lines.push(`A=PCM,F=${F},W=${w},M=${M},T=captured by ${dev}${p.platform ? ` via the ${p.platform} shell` : ''}`
+             + `${nat.encoding ? `; encoding ${nat.encoding}` : ''}`
+             + `${nat.depthVerified === true ? '; depth verified by the device'
+                 : nat.depthVerified === false ? '; DEPTH NOT VERIFIED - requested, not confirmed' : ''}`);
+    if (nat.unprocessed === true) notes.push('OS audio processing was off');
+    else if (nat.unprocessed === false) notes.push('OS AUDIO PROCESSING WAS ON - not an unmodified transfer');
+    if (nat.wireless) notes.push('WIRELESS microphone - the link itself may compress');
+    if (nat.substituted) notes.push(`the device substituted a different format${nat.substitutionReason ? ` (${nat.substitutionReason})` : ''}`);
+    if (nat.archival === false && nat.archivalReason) notes.push(nat.archivalReason);
+  } else {
+    /* The browser path. State the specification limit plainly rather than letting the container
+     * depth imply a capture depth it cannot have had. */
+    lines.push(`A=PCM,F=${F},W=32,M=${M},T=captured through Web Audio, which is 32-bit float by specification`
+             + `${p.micLabel ? ` (input: ${p.micLabel})` : ''}`);
+    const dsp = [];
+    dsp.push(p.agc ? 'AGC ON - auto-gain alters dynamics' : 'AGC off');
+    if (p.nr) dsp.push('noise reduction ON');
+    if (p.echo) dsp.push('echo cancellation ON');
+    if (p.normalized) dsp.push('peak-normalised after capture - an edit');
+    notes.push(dsp.join('; '));
+  }
+
+  // What the writer did, if anything.
+  const outW = p.bits || null;
+  if (outW && mode !== 'native') {
+    lines.push(`A=PCM,F=${F},W=${outW},M=${M},T=written by ${p.app || 'FlexText'} as ${outW}-bit PCM`
+             + `${outW === 32 ? ' (the captured float, unconverted)'
+                 : outW >= 24 ? ' - float-to-24-bit reduction (faithful)'
+                 : ` - requantised from float to ${outW}-bit (irreversible)`}`);
+  }
+  if (notes.length) lines.push(`T=${notes.join('; ')}`);
+  if (p.appVersion) lines.push(`T=engine ${p.appVersion}${p.platform ? ` on ${p.platform}` : ''}`);
+
+  const desc = mode === 'native'
+    ? `Field recording captured by ${p.app || 'FlexText'} through a native audio device.`
+    : `Field recording captured by ${p.app || 'FlexText'} in a web browser (32-bit float capture; see CodingHistory).`;
+  return { description: desc, originator: p.app || 'FlexText Editor', codingHistory: lines.join('\n') };
+}
+
 /* ---------------- BWF bext chunk (derived-WAV honesty in the BYTES) ---------------- */
 
 /* Insert a Broadcast Wave `bext` chunk (EBU Tech 3285) into a plain RIFF/WAVE buffer. Filenames

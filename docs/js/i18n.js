@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v291';
+export const ENGINE_VERSION = 'v292';
 
 const S = {
 en: {
@@ -880,8 +880,9 @@ internet after the first time.</p>
   'panel.live.offline': '⚠ Can’t reach the site — you appear to be offline (live version check unavailable).',
   'panel.dash.account': 'Account',
   'panel.dash.thisDevice': 'This device',
+  'panel.dash.openEditor': 'Open FlexText Editor \u2197',
   'panel.dash.you': 'You',
-  'panel.dash.thisDeviceNote': 'Your own device — {n} text(s) stored locally. Set this device up in its own Settings tab.',
+  'panel.dash.thisDeviceNote': 'Your own device. Set it up in the FlexText Editor\u2019s own Settings tab.',
   'panel.dash.empty': 'No devices yet. Add one to send an invite link to a field worker.',
   'panel.inst.pending': 'pending approval',
   'panel.inst.linked': 'linked',
@@ -2261,8 +2262,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.live.offline': '⚠ Tidak dapat menjangkau situs — Anda tampaknya offline (pemeriksaan versi langsung tidak tersedia).',
   'panel.dash.account': 'Akun',
   'panel.dash.thisDevice': 'Perangkat ini',
+  'panel.dash.openEditor': 'Buka FlexText Editor \u2197',
   'panel.dash.you': 'Anda',
-  'panel.dash.thisDeviceNote': 'Perangkat Anda sendiri — {n} teks tersimpan lokal. Siapkan perangkat ini di tab Pengaturannya sendiri.',
+  'panel.dash.thisDeviceNote': 'Perangkat Anda sendiri. Siapkan di tab Pengaturan milik FlexText Editor.',
   'panel.dash.empty': 'Belum ada perangkat. Tambahkan satu untuk mengirim tautan undangan ke pekerja lapangan.',
   'panel.inst.pending': 'menunggu persetujuan',
   'panel.inst.linked': 'terhubung',

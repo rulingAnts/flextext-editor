@@ -953,7 +953,6 @@ async function renderDashboard(prefetched) {
     if (ins.status === 'pending') pending++;
     if (ins.inventory && Array.isArray(ins.inventory.items)) texts += ins.inventory.items.length;
   }
-  const localDocs = await db.listDocs().catch(() => []);
   const myDevice = deviceInfo(navigator.userAgent, await panelCachedApps(), ENGINE_VERSION);
 
   // Crowd recorders ride FULL renders only (initial load / manual refresh / post-action), never the
@@ -996,8 +995,19 @@ async function renderDashboard(prefetched) {
     <div class="rp-card rp-self">
       <div class="rp-inst-top">
         <span class="rp-inst-name">${esc(t('panel.dash.thisDevice'))} <span class="rp-badge rp-badge-you">${esc(t('panel.dash.you'))}</span></span>
+        <!-- ⚠ HOME.editor, NEVER a hard-coded app.flextext.app. Both estates are live, and a PWA's
+             identity IS its origin: sending a researcher whose editor is installed from the Pages
+             origin to the Cloudflare one hands them a DIFFERENT app with an empty IndexedDB, looking
+             entirely fine. HOME is the estate this panel is part of, so the button always opens the
+             editor that belongs with it — and on localhost it stays on the dev rig. -->
+        <a class="secondary-btn rp-open-editor" href="${esc(HOME.editor)}" target="_blank" rel="noopener noreferrer">${esc(t('panel.dash.openEditor'))}</a>
       </div>
-      <p class="note">${esc(t('panel.dash.thisDeviceNote', { n: localDocs.length }))}</p>
+      <!-- ⚠ NO TEXT COUNT HERE, and it is not an oversight. This panel and the editor are on
+           DIFFERENT ORIGINS on the Cloudflare estate (research.flextext.app vs app.flextext.app),
+           and IndexedDB is per-origin — so db.listDocs() here reads the PANEL's database and can
+           never see the editor's texts. The number it printed was not merely stale, it was
+           counting something else entirely. A wrong stat is worse than no stat. -->
+      <p class="note">${esc(t('panel.dash.thisDeviceNote'))}</p>
       ${myDevice.text ? `<div class="note rp-devinfo${myDevice.stale ? ' rp-devinfo-stale' : ''}">${esc(myDevice.text)}${myDevice.stale ? ` <span class="rp-badge rp-badge-stale">${esc(t('panel.dev.stale'))}</span>` : ''}</div>` : ''}
     </div>
     ${insts.length ? cards.join('') : `<p class="note rp-empty">${esc(t('panel.dash.empty'))}</p>`}

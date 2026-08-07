@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v303';
+export const ENGINE_VERSION = 'v304';
 
 const S = {
 en: {
@@ -805,8 +805,9 @@ internet after the first time.</p>
   'panel.dl.wavDerivedSub': 'converted so a waveform can be drawn — not an archival master',
   'panel.dl.flextext': 'FLExText',
   'panel.dl.flextextSub': 'import into FLEx',
-  'panel.dl.bundle': 'FlexText Editor',
-  'panel.dl.bundleSub': 'reopen in this app — text and audio together',
+  'panel.invite.overrideWarn': '\u26a0 Opening this link takes over the device\u2019s setup. Anything already configured on it \u2014 writing systems, recording format, consent prompts, which buttons appear \u2014 is replaced by the settings for this device, and its own Settings tab is hidden while it stays linked. Send it to a device you intend to manage.',
+  'panel.dl.bundle': 'Bundle (.zip)',
+  'panel.dl.bundleSub': 'text and audio together — reopen in FlexText Editor',
   'panel.dl.eafFlex': 'ELAN',
   'panel.dl.eafFlexSub': 'annotation file, tiers named for FLEx',
   'panel.dl.eafSaymore': 'SayMore',
@@ -2199,8 +2200,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.dl.wavDerivedSub': 'dikonversi agar bentuk gelombang bisa digambar — bukan master arsip',
   'panel.dl.flextext': 'FLExText',
   'panel.dl.flextextSub': 'impor ke FLEx',
-  'panel.dl.bundle': 'FlexText Editor',
-  'panel.dl.bundleSub': 'buka lagi di aplikasi ini — teks dan audio sekaligus',
+  'panel.invite.overrideWarn': '\u26a0 Membuka tautan ini mengambil alih penyiapan perangkat. Apa pun yang sudah diatur di sana \u2014 sistem tulisan, format rekaman, permintaan izin, tombol yang tampil \u2014 diganti oleh pengaturan untuk perangkat ini, dan tab Pengaturan miliknya disembunyikan selama masih tertaut. Kirim hanya ke perangkat yang memang akan Anda kelola.',
+  'panel.dl.bundle': 'Bundel (.zip)',
+  'panel.dl.bundleSub': 'teks dan audio sekaligus — buka lagi di FlexText Editor',
   'panel.dl.eafFlex': 'ELAN',
   'panel.dl.eafFlexSub': 'berkas anotasi, nama tier untuk FLEx',
   'panel.dl.eafSaymore': 'SayMore',

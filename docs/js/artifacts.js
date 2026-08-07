@@ -67,16 +67,27 @@ export function uploadedMap(item) {
  * @param item      the inventory item the device reported
  * @param assigned  what was assigned to this text: { audioUrl } — from the History log's
  *                  'assigned' event, the only place the original Drive audio URL is retained.
- * @returns [{ kind, labelKey, url, inferred }] — newest-relevant first, one per kind, never
+ * @returns [{ kind, labelKey, url, id, inferred }] — newest-relevant first, one per kind, never
  *          duplicated. Entries with no resolvable URL are omitted rather than shown dead.
+ *          `id` is the Drive file id when there is one, '' otherwise; a caller with a Worker should
+ *          fetch BY ID and use `url` only as the fallback (see the note on `add`).
  */
 export function resolveArtifacts(item, assigned) {
   const out = [];
   const seen = new Set();
-  const add = (kind, url, inferred) => {
+  /* ⚠ `id` IS THE DRIVE FILE ID, AND IT IS WHAT MAKES THE LINK ACTUALLY WORK. `url` alone is a
+   * DIRECT browser request to drive.usercontent.google.com, which authenticates with whatever
+   * Google session the researcher's browser happens to hold — not the Worker token the rest of the
+   * panel uses. Signed out, signed into another account, or a file placed by the Worker's own
+   * credentials, and the link is simply dead while every Worker-routed row beside it works. That
+   * was the "'FlexText Editor' option doesn't work" report (Seth, 2026-08-07).
+   * With the id exposed, the UI can hand these to Researcher.fetchDriveFile() like the folder rows
+   * do. `url` stays for anything that is NOT a Drive file we can fetch (a researcher-pasted link to
+   * another host), which is why it is not simply replaced. */
+  const add = (kind, url, inferred, id) => {
     if (!url || seen.has(kind)) return;
     seen.add(kind);
-    out.push({ kind, labelKey: ARTIFACT_LABEL[kind] || kind, url, inferred: !!inferred });
+    out.push({ kind, labelKey: ARTIFACT_LABEL[kind] || kind, url, id: id || '', inferred: !!inferred });
   };
 
   // The originally-assigned audio. Retained at assign time (history.js assignedEvent) because the
@@ -89,14 +100,14 @@ export function resolveArtifacts(item, assigned) {
   const a = assigned && assigned.audioUrl;
   if (a && /^https?:\/\//i.test(String(a))) {
     const id = driveIdFrom(a);
-    add('audio', id ? driveLink(id) : String(a));
+    add('audio', id ? driveLink(id) : String(a), false, id);   // id only when it IS a Drive file
   }
 
   const up = uploadedMap(item);
   const legacy = !(item && item.uploaded && typeof item.uploaded === 'object');
   for (const kind of ARTIFACT_KINDS) {
     if (kind === 'audio') continue;                 // assigned audio only; never a Drive-uploaded copy
-    if (up[kind]) add(kind, driveLink(up[kind]), legacy);
+    if (up[kind]) add(kind, driveLink(up[kind]), legacy, up[kind]);
   }
   return out;
 }

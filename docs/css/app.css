@@ -2001,3 +2001,14 @@ main {
 .pa-help-open { font-size: 15px; text-decoration: none; }
 .pa-help-frame { flex: 1 1 auto; width: 100%; border: 1px solid var(--border); border-radius: 8px;
   background: var(--bg); min-height: 0; }
+
+/* The invite-link override warning. Amber, not red: issuing an invite is a normal, intended action
+   — this is a consequence to weigh, not an error to fear. It must not be dismissible or collapsed:
+   it is read once, before a link is sent, and that is the only moment it can do any good. */
+.rp-invite-warn {
+  border-left: 3px solid #b45309;
+  background: rgba(180, 83, 9, .07);
+  padding: 8px 10px;
+  margin: 8px 0 12px;
+  border-radius: 0 4px 4px 0;
+}

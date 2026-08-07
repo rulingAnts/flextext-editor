@@ -1251,7 +1251,19 @@ async function populateFilesMenu(wrap) {
   for (const f of resolveArtifacts(item, null)) {
     if (f.kind === 'audio' || claimed.has(f.kind)) continue;
     claimed.add(f.kind);
-    fileRows.push(`<a class="rp-dl-item" role="menuitem" href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">
+    /* ⚠ THROUGH THE WORKER WHEN WE HAVE AN ID (Seth, 2026-08-07: "the 'FlexText Editor' option on
+     * our Files drop-down doesn't work"). A plain driveLink() href is a DIRECT browser request to
+     * Drive, authenticated by whatever Google session the researcher's browser holds — not the
+     * token the rest of this panel uses. Signed out, signed into another account, or a file placed
+     * under the Worker's own credentials, and it is dead, while the folder rows two lines up keep
+     * working. data-drivefile routes it through fetchDriveFile() exactly as those do.
+     * The href fallback stays for an artifact with no Drive id — a researcher-pasted link to some
+     * other host, which the Worker cannot fetch and must not try to. */
+    const fname = `${title || 'text'} - ${t(f.labelKey)}`.replace(/[\\/:*?"<>|]+/g, '_');
+    fileRows.push(f.id
+      ? `<a class="rp-dl-item" role="menuitem" data-drivefile="${esc(f.id)}" data-fname="${esc(fname)}" href="#">
+      <span class="rp-dl-name">${esc(t(f.labelKey))}</span><span class="rp-dl-sub">${esc(t(f.labelKey + 'Sub'))}</span></a>`
+      : `<a class="rp-dl-item" role="menuitem" href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">
       <span class="rp-dl-name">${esc(t(f.labelKey))}</span><span class="rp-dl-sub">${esc(t(f.labelKey + 'Sub'))}</span></a>`);
   }
 
@@ -1828,6 +1840,15 @@ async function inviteModal(instanceId) {
     m.el.querySelector('.modal-card').innerHTML = `
       <h3>${esc(t('panel.invite.title'))}</h3>
       <p class="note">${esc(t('panel.invite.introUnified'))}</p>
+      <!-- ⚠ WARN THE RESEARCHER, NEVER THE DEVICE USER (Seth, 2026-08-07). Claiming an invite makes
+           the device managed: its Settings tab disappears and everything on it comes from here, so
+           whatever the coworker had set up themselves is superseded the moment they tap the link.
+           The RESEARCHER is the one who can weigh that, and the one issuing the link — so they get
+           told, here, before they send it.
+           The coworker deliberately gets NO such warning: the whole premise of this suite is that
+           they should not be expected to understand what "your local settings will be overridden"
+           means, let alone make an informed decision about it while a speaker waits. -->
+      <p class="note rp-invite-warn">${esc(t('panel.invite.overrideWarn'))}</p>
       ${row(t('panel.invite.editorLink'), 'editor')}
       ${row(t('panel.invite.recorderLink'), 'recorder')}
       ${exp ? `<p class="note">${esc(t('panel.invite.expires', { when: exp }))}</p>` : ''}

@@ -215,16 +215,120 @@ ok(/function consentLocalAudio\(\) \{\s*\n\s*return \(!settings\.consentAudio &&
    'a researcher-pushed Drive URL silently outranks a local file (no migration step needed on pairing)');
 ok(/'consentAudio', 'consentAudioUrl', 'consentAudioFile'\]\) delete s\[k\];/.test(app),
    'and a revoke drops the local-file record too — its bytes were overwritten while managed');
-// Picked in memory, committed on Save: opening the file dialog must not replace a live prompt.
-ok(/let pendingConsentFile = null;/.test(app), 'the pick is held in memory');
-ok(/pendingConsentFile = null;\s*\/\/ a rebuild discards an unsaved pick/.test(app),
-   'and a rebuild discards it, so a half-edited form changes nothing');
+/* A file input's .value is a fake path, so the blob cannot ride through collect/read like every
+ * other field — it is held in a variable for exactly as long as it takes the save on the next line
+ * to write it. The blob write comes BEFORE the settings write, so a failure (quota, private mode)
+ * leaves the old prompt AND the old setting, never a setting pointing at nothing. */
+ok(/let pendingConsentFile = null;/.test(app), 'the picked blob is held in a variable');
+ok(/if \(pendingConsentFile\) \{[\s\S]{0,600}?await db\.putMedia\('asset:consent-prompt'[\s\S]{0,900}?const patch = readDeviceSetup\(form\);/.test(app),
+   'and written to the media store BEFORE the settings patch that names it');
+/* ⚠ AND CLEARED ONLY AFTER. readDeviceSetup READS pendingConsentFile to record which file is now
+ * in force; nulling it inside the putMedia block (as the first cut did) meant the blob landed
+ * correctly but settings.consentAudioFile was never written — consentLocalAudio() returned null and
+ * the chosen prompt was invisible to everything. That is Seth's "Consent audio also doesn't play,
+ * nothing shows up", and it is a one-line ordering bug, so it is pinned by order. */
+ok(/const patch = readDeviceSetup\(form\);\s*\n\s*pendingConsentFile = null;/.test(app),
+   'and the pick is cleared AFTER the patch has recorded it, never before');
 ok(/this surface only ever sets a LOCAL FILE/.test(app),
    'readDeviceSetup does not touch consentAudioUrl/consentAudio — the researcher route stays intact');
 ok(!setupKeys.includes('consentAudioUrl'), 'and there is no URL box here to write one from');
 
-console.log('\nUNPAIRED ONLY — a paired device gets no editable surface');
+/* ---------------------------------------------------------------------------------------------
+ * NO SAVE BUTTON — every change commits itself (Seth, 2026-08-07).
+ *
+ * WHY: "when I select a file for consent prompt, it forgets that I already ticked that box."
+ * It had not forgotten — the tick was live form state, and picking a file triggered a re-render
+ * that rebuilt the form from what was actually STORED, which was still the old value. Every bug of
+ * the shape "it forgot what I set" lives in the gap between changing a control and committing it.
+ * Removing the gap removes the class, not the instance — so the button's absence is the fix, and
+ * the assertions below are what stops it growing back.
+ * --------------------------------------------------------------------------------------------- */
+console.log('\nNO SAVE BUTTON — a change is stored the moment it is made');
 const render = app.match(/function renderDeviceSetup\(\) \{[\s\S]*?\n\}/);
+const rd = render ? render[0] : '';
+ok(!!render, 'renderDeviceSetup is findable');
+ok(!/data-sact="save"/.test(app) && !/function saveDeviceSetup\(/.test(app),
+   'there is no Save button and no Save handler left to click');
+ok(!/'research\.save'/.test(app), 'and nothing renders its label');
+ok(/form\.addEventListener\('change'[\s\S]*?saveDeviceSetupLive\(form, showGroup, \{ immediate: true \}\);/.test(rd),
+   'a committed choice (box, dropdown, blur) saves IMMEDIATELY');
+ok(/form\.addEventListener\('input'[\s\S]*?saveDeviceSetupLive\(form, showGroup\);/.test(rd),
+   'and typing saves too, debounced — a text field left un-blurred is still stored');
+ok(/liveSaveTimer = setTimeout\(/.test(app), 'the debounce exists (a save per keystroke would repaint under the user)');
+
+/* ⚠ THE DEBOUNCE IS THE ONE WINDOW IN WHICH WORK CAN STILL BE LOST, so every way out of the form
+ * flushes it. Missing any one of these re-creates the original bug in a smaller window. */
+ok(/let flushLiveSave = null;/.test(app), 'the pending save is callable early');
+ok(/if \(view !== 'research' && flushLiveSave\) flushLiveSave\(\);/.test(app),
+   'leaving the Settings view flushes it — show() is the chokepoint every route out passes through');
+ok(/if \(flushLiveSave\) flushLiveSave\(\);\s*\/\/ a half-typed field must not wait on a hidden tab/.test(app),
+   'switching tab WITHIN the form flushes it');
+ok(/visibilitychange'[\s\S]{0,120}document\.hidden && flushLiveSave/.test(app),
+   'and backgrounding the page flushes it (the one that actually fires on mobile)');
+ok(/'pagehide'[\s\S]{0,60}flushLiveSave\(\)/.test(app), 'as does closing it');
+
+/* ⚠ A SAVE MUST NOT REWRITE THE FORM IT CAME FROM. applyLiveSettings() repaints every
+ * settings-driven surface and fillDeviceSetup is one of them — so without this guard a save
+ * triggered by typing rewrites the input under the caret and jumps it to the end every keystroke. */
+ok(/^\s*if \(savingLive\) return;/m.test(app.match(/function fillDeviceSetup\(\)[\s\S]*?\n\}/)[0]),
+   'fillDeviceSetup is inert while its own save is applying');
+ok(/savingLive = true;[\s\S]{0,400}?\} finally \{ savingLive = false; \}/.test(app),
+   'and the flag is cleared in a finally, so one throw cannot freeze the form forever');
+ok(/if \(!form\.isConnected\) return;/.test(app),
+   'a timer that fires against a re-rendered (detached) form writes nothing');
+
+/* ⚠ VALIDATION CAN NO LONGER REFUSE — the value is already stored by the time it runs. It must
+ * therefore not behave as though it could: taking the tab, the focus and a toast on every keystroke
+ * is actively hostile. It paints, permanently, and nothing moves. */
+ok(/function flagSetupProblems\(box, problems, showGroup, \{ advisory = false \} = \{\}\)/.test(app),
+   'flagSetupProblems has an advisory mode');
+ok(/if \(advisory\) return;\s*\/\/ never move the tab, the focus or the toast while typing/.test(app),
+   'which paints the banner, the tab dots and the inline reasons — and moves nothing');
+ok(/flagSetupProblems\(form, validateDeviceSetup\(collectDeviceSetup\(form\)\), showGroup, \{ advisory: true \}\);/.test(app),
+   'and the live save uses it');
+// The banner/dots are all that is left of the dead-end guard, so they must still be computed.
+ok(/if \(!send\.includes\('save'\)\) \{/.test(app),
+   'the "no way to get work out" check still runs — it warns now instead of blocking');
+
+/* ⚠ THE BANNER GOES BELOW THE TAB ROW. Above it, the row jumps down the instant the banner appears
+ * — and the moment it most often appears is mousedown on a tab (pressing it blurs the text field,
+ * `change` fires, the save runs). mouseup then lands somewhere else and the tab click is SWALLOWED.
+ * The browser test literally could not reach the consent tab after typing in Languages. */
+ok(/tabs\.parentNode\.insertBefore\(banner, tabs\.nextSibling\)/.test(app),
+   'the validation banner is inserted BELOW the tabs, so the navigation never moves under a click');
+
+console.log('\n"Written reminder" off ⇒ the consent message is inert, and says why');
+/* Disabled, NOT hidden: hiding is what made the consent tab read as having no fields, and a box you
+ * can type a whole consent script into that nothing will ever show is its own quiet lie. */
+ok(/\{ k: 'consentMsg', type: 'textarea', dynOff: 'setup\.off\.consentMsg' \}/.test(app),
+   'consentMsg declares a dynamic off-reason');
+ok(/const askText = !!box\.querySelector\('\[data-sf="consentAsk"\]\[data-v="text"\]:checked'\);\s*\n\s*setupDynOff\(box, 'consentMsg', !askText\);/.test(app),
+   'and it follows the Written-reminder box, live');
+ok(/function setupDynOff\(box, key, off\)/.test(app), 'the toggle is one helper, reusable for the next such pair');
+// Both halves of the rule, same as a structural off: greyed AND answering when clicked.
+ok(/wrap\.classList\.toggle\('setup-off', off\);/.test(app), 'it wears the SAME .setup-off as a structural off');
+ok(/if \(off\) wrap\.dataset\.off = wrap\.dataset\.dynoff; else delete wrap\.dataset\.off;/.test(app),
+   'and data-off appears AND disappears with the state — a stale one would explain an enabled field');
+ok(/if \(ctrl\) ctrl\.disabled = off;/.test(app), 'the control is really disabled, not just tinted');
+ok(/if \(why\) why\.hidden = !off;/.test(app), 'the inline reason shows only while it is off');
+// The text must SURVIVE being switched off — unticking is "ignore this", never "discard this".
+ok(!/consentMsg[^\n]*=\s*''/.test(app), 'nothing clears the message when the box is unticked');
+const offMsg = (i18n.match(/'setup\.off\.consentMsg': '([^']*)'/) || [])[1] || '';
+ok(/is kept either way/.test(offMsg), 'and the reason says the text is kept, so nobody re-types it');
+ok(/Tick it to use this text/.test(offMsg), 'and names the exact box to tick');
+
+console.log('\n...and it says so, in both languages');
+for (const k of ['setup.savedLive', 'setup.localNote', 'setup.consentFilePending',
+                 'setup.off.consentMsg', 'setup.offMarkDyn']) {
+  ok((i18n.match(new RegExp(`'${k.replace(/\./g, '\\.')}':`, 'g')) || []).length === 2, `${k} is in BOTH en and id`);
+}
+ok(!/press Save settings/.test(i18n) && !/tekan Simpan pengaturan/.test(i18n),
+   'no string still tells the user to press a button that does not exist');
+ok(/id="ds-saved" role="status" aria-live="polite"/.test(app),
+   'the confirmation is a live region — without a button there is no other signal a change took');
+ok(/\.ds-saved \{/.test(css), 'and it is styled');
+
+console.log('\nUNPAIRED ONLY — a paired device gets no editable surface');
 ok(!!render && /if \(Sync\.hasSession\(\)\) \{[\s\S]*?setup\.managed/.test(render[0]),
    'renderDeviceSetup refuses to build the form while paired, and says why');
 ok(/const hidden = isResearchHidden\(\) \|\| Sync\.hasSession\(\);/.test(app),
@@ -329,8 +433,10 @@ ok(/not linked to a researcher/.test(upload), 'the upload reason names the missi
 ok(/Everything else on this page works/.test(upload), 'and says what still works, so it does not read as a dead end');
 
 console.log('\nthe inert styling greys, and the reason is what makes that honest');
-ok(/\.setup-off input:disabled, \.setup-off select:disabled \{[^}]*opacity/.test(css),
-   'a disabled control is visibly greyed');
+ok(/\.setup-off input:disabled, \.setup-off select:disabled,\s*\n\.setup-off textarea:disabled \{[^}]*opacity/.test(css),
+   'a disabled control is visibly greyed — inputs, selects AND textareas');
+ok(/\.setup-off input, \.setup-off select, \.setup-off textarea \{ pointer-events: none; \}/.test(css),
+   'and the click falls through to the wrapper (a disabled control dispatches nothing of its own)');
 ok(/\.setup-off-why \{/.test(css) && /\.setup-off-mark \{/.test(css),
    'and both the reason line and the inline marker are styled');
 

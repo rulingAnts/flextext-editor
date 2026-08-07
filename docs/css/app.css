@@ -1252,13 +1252,26 @@ main {
    never fires — the control would refuse silently, which is exactly the failure being avoided. */
 .device-setup { margin-bottom: 18px; }
 .device-setup .rp-groups { overflow: visible; }        /* full page, not a height-capped modal card */
+/* `.setup-off` is worn by BOTH kinds of off — structural (this app has no researcher) and live (the
+   box above it is unticked, `.setup-dyn`) — so the two look and behave identically. */
 .setup-off { cursor: help; }
 .setup-off input, .setup-off select, .setup-off textarea { pointer-events: none; }
 .setup-off > label, .setup-off .rp-field > span, .setup-off > .rp-field { color: var(--muted); }
-.setup-off input:disabled, .setup-off select:disabled { opacity: .55; background: var(--panel); }
+.setup-off input:disabled, .setup-off select:disabled,
+.setup-off textarea:disabled { opacity: .55; background: var(--panel); }
 .setup-off-mark { color: var(--muted); font-style: italic; font-weight: 400; font-size: 13px; }
 .setup-off-why { border-left: 3px solid var(--border); padding-left: 10px; margin: 4px 0 10px; }
 .advanced-off { color: var(--muted); margin: 6px 0 0; }
+/* The live-save confirmation. There is no Save button, so this is the only thing that says a change
+   was kept — but it must not be a toast (one per keystroke) or a permanent badge (which stops being
+   read). It appears where the button used to be, and fades. Reduced-motion keeps the text and drops
+   the fade, because the WORD is the information; the animation is only how it leaves. */
+.ds-saved {
+  min-height: 1.2em; margin: 6px 0 0; color: var(--ok, #2e7d32); font-weight: 600;
+  opacity: 0; transition: opacity .25s ease;
+}
+.ds-saved.on { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .ds-saved { transition: none; } }
 /* The consent prompt file picker + the line naming which audio is actually in force. */
 .device-setup input[type="file"] { font-size: 13px; max-width: 100%; }
 .ds-consent-file { margin: 6px 0 0; font-weight: 500; }

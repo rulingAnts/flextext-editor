@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v297';
+export const ENGINE_VERSION = 'v298';
 
 const S = {
 en: {
@@ -235,12 +235,16 @@ en: {
   /* ---- Settings tab = device setup (unpaired devices) ---- */
   'setup.h1': 'Set up this device',
   'setup.intro': 'Everything that decides how this app behaves here: writing systems, recording, speaker permission, which buttons appear, and what a finished text is saved as. Nothing on this page is sent anywhere \u2014 it stays on this device.',
-  'setup.localNote': 'Saved on this device only.',
+  'setup.localNote': 'Changes are saved as you make them. Saved on this device only.',
+  'setup.savedLive': 'Saved \u2713',
   'panel.f.consentAudioFile': 'Spoken reminder \u2014 sound file on this device',
   /* ⚠ Every one of these is shown UNDER its disabled control and toasted when it is clicked. A
    * disabled control that does not say why reads as broken; that is the whole reason they exist.
    * Write them as an explanation of what is missing, never as a refusal. */
   'setup.offMark': '(not relevant for a standalone app)',
+  // A field switched off by ANOTHER field on this same form, rather than by what this app is.
+  'setup.offMarkDyn': '(not in use)',
+  'setup.off.consentMsg': '“Written reminder” above is not ticked, so no message is shown to the speaker. Tick it to use this text — whatever you have written here is kept either way.',
   'setup.off.appLang': 'Change this app\u2019s language with the selector at the top of the screen. This box is how a researcher pushes a language to a device they manage.',
   'setup.off.upload': 'Uploading goes through a researcher\u2019s Google Drive, and this app is not linked to a researcher \u2014 so there is no Drive account to upload to. Everything else on this page works without one.',
   'setup.off.share': 'This browser cannot hand a file to another app — Share needs Chrome, Edge, or a phone. On Firefox and Safari for desktop the button would never appear. Use “Save to file”, which works everywhere.',
@@ -251,7 +255,7 @@ en: {
   'setup.off.doneEnabled': 'The Finished button reports to a researcher and sends the text to their Drive. A standalone app has neither, so the button would have nothing to do.',
   'setup.off.relay': 'This explains how very large audio files reach a researcher\u2019s Drive. A standalone app does not upload, so it does not apply.',
   'setup.consentFileNote': 'Choose a sound file from this device. The app keeps its own copy, so the reminder keeps working offline and even if you later move or delete the original. A researcher-managed device is given this by its researcher instead.',
-  'setup.consentFilePending': 'Chosen: {name} \u2014 press Save settings to start using it.',
+  'setup.consentFilePending': 'Saving {name} to this device\u2026',
   'setup.consentFileCurrent': 'Now playing as the spoken reminder: {name}',
   'setup.consentFileIdle': 'Stored on this device: {name} — but “Spoken reminder” above is not ticked, so nothing will play. Tick it to use this file.',
   'setup.consentFileFromResearcher': 'A researcher set the spoken reminder for this device. Theirs is used instead of a file chosen here.',
@@ -1632,9 +1636,12 @@ id: {
   /* ---- Tab Pengaturan = penyiapan perangkat (perangkat tanpa tautan) ---- */
   'setup.h1': 'Siapkan perangkat ini',
   'setup.intro': 'Semua yang menentukan cara aplikasi ini bekerja di sini: sistem tulisan, perekaman, izin penutur, tombol yang tampak, dan bentuk teks yang sudah selesai saat disimpan. Tidak ada di halaman ini yang dikirim ke mana pun \u2014 semuanya tetap di perangkat ini.',
-  'setup.localNote': 'Disimpan di perangkat ini saja.',
+  'setup.localNote': 'Perubahan disimpan sambil Anda membuatnya. Disimpan di perangkat ini saja.',
+  'setup.savedLive': 'Tersimpan ✓',
   'panel.f.consentAudioFile': 'Pengingat lisan \u2014 berkas suara di perangkat ini',
   'setup.offMark': '(tidak berlaku untuk aplikasi mandiri)',
+  'setup.offMarkDyn': '(tidak dipakai)',
+  'setup.off.consentMsg': '“Pengingat tertulis” di atas belum dicentang, jadi tidak ada pesan yang ditampilkan kepada penutur. Centang untuk memakai teks ini — apa pun yang Anda tulis di sini tetap disimpan.',
   'setup.off.appLang': 'Ubah bahasa aplikasi ini lewat pemilih di bagian atas layar. Kotak ini adalah cara peneliti mengirim bahasa ke perangkat yang mereka kelola.',
   'setup.off.upload': 'Unggahan berjalan lewat Google Drive milik peneliti, dan aplikasi ini belum tertaut ke peneliti mana pun \u2014 jadi tidak ada akun Drive tujuan unggahan. Semua hal lain di halaman ini tetap berfungsi tanpa itu.',
   'setup.off.share': 'Peramban ini tidak dapat menyerahkan berkas ke aplikasi lain — Bagikan memerlukan Chrome, Edge, atau ponsel. Di Firefox dan Safari desktop tombolnya tidak akan pernah muncul. Gunakan “Simpan ke berkas”, yang berfungsi di mana saja.',
@@ -1645,7 +1652,7 @@ id: {
   'setup.off.doneEnabled': 'Tombol Selesai melapor ke peneliti dan mengirim teks ke Drive mereka. Aplikasi mandiri tidak punya keduanya, jadi tombol itu tidak akan ada gunanya.',
   'setup.off.relay': 'Ini menjelaskan cara berkas audio sangat besar sampai ke Drive peneliti. Aplikasi mandiri tidak mengunggah, jadi tidak berlaku.',
   'setup.consentFileNote': 'Pilih berkas suara dari perangkat ini. Aplikasi menyimpan salinannya sendiri, jadi pengingat tetap berfungsi luring dan bahkan jika berkas aslinya nanti dipindah atau dihapus. Perangkat yang dikelola peneliti menerimanya dari peneliti.',
-  'setup.consentFilePending': 'Dipilih: {name} \u2014 tekan Simpan pengaturan untuk mulai memakainya.',
+  'setup.consentFilePending': 'Menyimpan {name} ke perangkat ini\u2026',
   'setup.consentFileCurrent': 'Kini diputar sebagai pengingat lisan: {name}',
   'setup.consentFileIdle': 'Tersimpan di perangkat ini: {name} — tetapi “Pengingat lisan” di atas belum dicentang, jadi tidak ada yang akan diputar. Centang untuk memakai berkas ini.',
   'setup.consentFileFromResearcher': 'Peneliti telah mengatur pengingat lisan untuk perangkat ini. Milik mereka dipakai, bukan berkas yang dipilih di sini.',

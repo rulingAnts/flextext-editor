@@ -283,6 +283,10 @@ function currentView() {
 // Tolerant of missing elements: the Flextext Recorder shell (text-recorder/index.html)
 // only contains a subset of the views and topbars, so every lookup is guarded.
 function show(view) {
+  /* ⚠ The single chokepoint for LEAVING the Settings tab, and therefore where a half-typed field is
+   * committed. Every route out goes through here — the top tabs, opening a text, the help screen —
+   * so guarding this one place beats patching each caller and missing one. */
+  if (view !== 'research' && flushLiveSave) flushLiveSave();
   for (const v of VIEWS) { const el = $('#view-' + v); if (el) el.hidden = v !== view; }
   const inEditor = view === 'baseline' || view === 'gloss' ||
     (view === 'help' && (helpReturnView === 'baseline' || helpReturnView === 'gloss'));
@@ -4122,7 +4126,11 @@ const SETUP_GROUPS = [
     // checkboxes and no fields" — Seth looked at it and reported the fields missing. The panel shows
     // them all, always; so does this.
     { k: 'consentAsk', type: 'multicheck', opts: ['text', 'audio'], optPrefix: 'panel.opt.ask.' },
-    { k: 'consentMsg', type: 'textarea' },
+    /* ⚠ `dynOff` — greyed while "Written reminder" is UNTICKED (Seth, 2026-08-07), not hidden. The
+     * two are not the same thing: hiding it is what made the tab read as having no fields, and a box
+     * you can type a whole consent script into that nothing will ever show is its own quiet lie.
+     * The text is KEPT while it is off, so unticking and re-ticking does not cost the typing. */
+    { k: 'consentMsg', type: 'textarea', dynOff: 'setup.off.consentMsg' },
     // THE ONE DIVERGENCE FROM THE PANEL — a file picker where the panel has a Drive URL box.
     { k: 'consentAudioFile', type: 'file', accept: 'audio/*', standalone: true, note: 'setup.consentFileNote' },
     { k: 'consentConfirm', type: 'multicheck', opts: ['yesno', 'record', 'signature'], optPrefix: 'panel.opt.conf.', note: 'consent.note' },
@@ -4261,7 +4269,17 @@ function setupFieldHtml(f) {
       ? `<p class="note"><button type="button" class="link-btn" data-sact="recfmtHelp">${esc(t('recfmt.helpLink'))}</button></p>` : '';
     return offWrap(`<label class="rp-field"><span>${label}${f.off ? ' ' + setupOffMark() : ''}</span><select data-sf="${f.k}"${off}>${opts}</select></label>`) + help + note;
   }
-  if (f.type === 'textarea') return `<label class="rp-field"><span>${label}</span><textarea data-sf="${f.k}" rows="2"></textarea></label>${note}`;
+  /* A field that goes on and off with ANOTHER field on the same form. The wrapper, the mark and the
+   * reason line are all rendered up front and toggled by updateSetupConditionals — building them on
+   * demand would mean the enabled state has no `.setup-off` for the click handler to find, which is
+   * the half of the rule that makes a greyed control answer when someone clicks it. */
+  if (f.type === 'textarea') {
+    const body = `<label class="rp-field"><span>${label}${f.dynOff ? ` <span class="setup-off-mark" hidden></span>` : ''}</span>`
+               + `<textarea data-sf="${f.k}" rows="2"></textarea></label>`;
+    if (!f.dynOff) return body + note;
+    return `<div class="setup-dyn" data-dynoff="${esc(f.dynOff)}">${body}`
+         + `<p class="note setup-off-why" hidden>${esc(t(f.dynOff))}</p></div>${note}`;
+  }
   const ph = f.ph ? ` placeholder="${esc(f.ph)}"` : '';
   return offWrap(`<label class="rp-field"${tip}><span>${label}${f.off ? ' ' + setupOffMark() : ''}</span><input data-sf="${f.k}" spellcheck="false"${ph}${tip}${off}></label>`) + note;
 }
@@ -4319,6 +4337,11 @@ function deviceSetupValues() {
 }
 
 function fillDeviceSetup() {
+  /* ⚠ NEVER REFILL THE FORM FROM ITS OWN SAVE — see saveDeviceSetupLive. applyLiveSettings()
+   * repaints every settings-driven surface and this is one of them, so a save triggered by typing
+   * would rewrite the input under the caret and jump it to the end on every keystroke. The form is
+   * already showing exactly what was stored: it is where the value came from. */
+  if (savingLive) return;
   const box = $('#device-setup');
   if (!box || !box.querySelector('[data-sf]')) return;   // not built (no Settings tab, or paired)
   const v = deviceSetupValues();
@@ -4389,8 +4412,10 @@ function readDeviceSetup(box) {
   return patch;
 }
 
-/* Minimal-usable check: flag anything blank that would BREAK this device, so nobody can save a
- * setup that cannot work. Required: both writing-system codes (the WS is built only when vernLang
+/* Minimal-usable check: flag anything blank that would BREAK this device. ⚠ Since the Save button
+ * went, this can no longer REFUSE a setup — the value is already stored by the time it runs — so it
+ * warns, permanently and unmissably, instead. See flagSetupProblems' `advisory`.
+ * Required: both writing-system codes (the WS is built only when vernLang
  * is set, and analLang silently falls back to 'en' — wrong for non-English work); the consent audio
  * link IF a spoken reminder is asked for; the consent message IF a written one is. Everything else
  * has a safe default. Returns [{ group, field, msg }] — empty means OK. */
@@ -4428,17 +4453,24 @@ function validateDeviceSetup(raw) {
   return out;
 }
 
-// Paint validation errors where they cannot be missed: a banner listing every blocked field WITH
-// its tab (each entry jumps there), a red dot on each offending tab, an inline "why" on the field,
-// and focus on the first. Cleared and recomputed on every save attempt. Same shape — and the same
-// CSS — as the researcher panel's flagProblems, so an error looks the same in both places.
+// Paint validation errors where they cannot be missed: a banner listing every problem field WITH
+// its tab (each entry jumps there), a red dot on each offending tab, and an inline "why" on the
+// field. Cleared and recomputed on every save. Same shape — and the same CSS — as the researcher
+// panel's flagProblems, so an error looks the same in both places.
 /* ⚠ Finds a field by EITHER attribute. The consent file picker is `data-sfile` (a file input's
  * .value is a fake path, so it has to stay out of collect/fill) — and a validation problem naming
  * it would otherwise attach to nothing: the banner appeared, the field said nothing, and the form
  * looked like it was refusing for no reason. Caught by the browser test, not by reading. */
 const setupFieldEl = (box, k) => box.querySelector(`[data-sf="${k}"], [data-sfile="${k}"]`);
 
-function flagSetupProblems(box, problems, showGroup) {
+/* ⚠ `advisory` IS THE WHOLE DIFFERENCE THE SAVE BUTTON'S REMOVAL MADE, and it is not cosmetic.
+ * A blocking check ran once, on a deliberate click, and could fairly take the tab, the focus and a
+ * toast — the user had just asked for the form to be judged. A live save re-checks after every
+ * keystroke, and doing any of those things then is actively hostile: it would yank the tab away
+ * mid-edit, pull focus out of the field being typed in, and toast on every character.
+ * So in advisory mode the marks are painted and NOTHING MOVES. The banner and the red tab dots are
+ * permanent and unmissable, which is what has to carry the weight now that nothing can refuse. */
+function flagSetupProblems(box, problems, showGroup, { advisory = false } = {}) {
   box.querySelectorAll('.rp-invalid').forEach((el) => el.classList.remove('rp-invalid'));
   box.querySelectorAll('.rp-fielderr').forEach((el) => el.remove());
   box.querySelectorAll('.rp-tab.rp-tab-err').forEach((el) => el.classList.remove('rp-tab-err'));
@@ -4463,13 +4495,23 @@ function flagSetupProblems(box, problems, showGroup) {
   banner.className = 'rp-valbanner';
   banner.innerHTML = `<strong>${esc(t('panel.val.bannerTitle'))}</strong><ul>${problems.map((p) =>
     `<li><button type="button" class="rp-valjump" data-grp="${esc(p.group)}" data-fld="${esc(p.field)}">${esc(labelFor(p))}</button></li>`).join('')}</ul>`;
+  /* ⚠ BELOW THE TAB ROW, NOT ABOVE IT — and this is a bug fix, not a layout preference.
+   * The panel's banner sits above its tabs safely because it only ever appears on a deliberate Save
+   * click, when nothing else is in flight. Here it can appear at ANY moment, and the moment it most
+   * often does is mousedown on a tab: pressing the tab blurs the text field, `change` fires, the
+   * save runs, the banner is inserted — and if it goes above the tabs the whole row jumps down
+   * between press and release, so mouseup lands somewhere else and THE TAB CLICK IS SWALLOWED.
+   * Caught by the browser test, which could not reach the consent tab after typing in Languages.
+   * Below the row, the navigation never moves; only the fields under it do, which they were about
+   * to anyway. */
   const tabs = box.querySelector('.rp-tabs');
-  if (tabs && tabs.parentNode) tabs.parentNode.insertBefore(banner, tabs); else box.prepend(banner);
+  if (tabs && tabs.parentNode) tabs.parentNode.insertBefore(banner, tabs.nextSibling); else box.prepend(banner);
   banner.querySelectorAll('.rp-valjump').forEach((btn) => btn.addEventListener('click', () => {
     showGroup(btn.dataset.grp);
     const f = setupFieldEl(box, btn.dataset.fld);
     if (f) { try { f.focus(); } catch { /* noop */ } }
   }));
+  if (advisory) return;                 // never move the tab, the focus or the toast while typing
   showGroup(problems[0].group);
   const first = setupFieldEl(box, problems[0].field);
   if (first) { try { first.focus(); } catch { /* noop */ } }
@@ -4492,6 +4534,26 @@ function syncSetupExports(box) {
   }
 }
 
+/* Switch a field that depends on ANOTHER field on this form on or off. It reuses `.setup-off` — the
+ * same class, the same greying, the same click-to-explain — so a control that is off for a live
+ * reason is indistinguishable from one that is off for a structural reason. That is deliberate: to
+ * the person looking at it, "off because you unticked the box above" and "off because this app has
+ * no researcher" are the same question, and both deserve the same answer in the same place. */
+function setupDynOff(box, key, off) {
+  const ctrl = box.querySelector(`[data-sf="${key}"]`);
+  const wrap = ctrl && ctrl.closest('.setup-dyn[data-dynoff]');
+  if (!wrap) return;
+  const why = wrap.querySelector('.setup-off-why');
+  const mark = wrap.querySelector('.setup-off-mark');
+  wrap.classList.toggle('setup-off', off);
+  // `data-off` is what the capture-phase click handler reads, so it must appear and disappear with
+  // the state — left behind, an ENABLED field would toast an explanation for something that is on.
+  if (off) wrap.dataset.off = wrap.dataset.dynoff; else delete wrap.dataset.off;
+  if (ctrl) ctrl.disabled = off;
+  if (why) why.hidden = !off;
+  if (mark) { mark.hidden = !off; mark.textContent = t('setup.offMarkDyn'); }
+}
+
 /* Live bits that depend on other fields. ⚠ The consent message / audio rows are NOT hidden until
  * their reminder is ticked any more — the panel shows them always, and hiding them here read as
  * "the consent tab has no fields" (Seth, 2026-08-07). Only the max-length readout is live now,
@@ -4507,12 +4569,18 @@ function updateSetupConditionals(box) {
     est.textContent = secs ? t('panel.crowd.estimate', { mb: setupMb(bps * secs) })
                            : t('panel.f.perMinEstimate', { mb: setupMb(bps * 60) });
   }
+  /* "Written reminder" off ⇒ the consent message is inert (Seth, 2026-08-07). Same two halves as
+   * every other disabled control here: greyed AND saying why, inline and on click. Turning it back
+   * on restores the text — nothing is cleared, only ignored. */
+  const askText = !!box.querySelector('[data-sf="consentAsk"][data-v="text"]:checked');
+  setupDynOff(box, 'consentMsg', !askText);
+
   const cf = box.querySelector('#ds-consent-file');
   if (cf) {
     const local = consentLocalAudio();
-    /* Three states, and they must be distinguishable: a file chosen but not yet saved, a file
-     * already in force, or nothing. The unsaved case matters — the blob is not written to the media
-     * store until Save, so a user who picks a file and leaves has changed nothing. */
+    /* Three states, and they must be distinguishable: a file being written to the media store right
+     * now, a file already in force, or nothing. The first is brief but not instant — a long prompt
+     * is megabytes — and it is the window in which the file is NOT yet the one that would play. */
     /* ⚠ "Now playing" MUST NOT BE SAID WHEN IT IS NOT PLAYING. A file can be stored while the
      * Spoken reminder box is unticked, and then nothing plays — Seth picked an mp3, saw this line
      * claim it was in use, recorded, and got no audio. The file was fine; the sentence was false.
@@ -4547,12 +4615,15 @@ function renderDeviceSetup() {
       `<button type="button" class="rp-tab${i === 0 ? ' on' : ''}" role="tab" id="ds-tab-${g.id}" aria-controls="ds-grp-${g.id}" aria-selected="${i === 0}" data-tab="${g.id}">${esc(t('panel.grp.' + g.id))}</button>`).join('')}</div>
     <div class="rp-groups">${SETUP_GROUPS.map(setupGroupHtml).join('')}</div>
     <p class="note rp-enc">${esc(t('setup.localNote'))}</p>
-    <div class="toolbar"><button type="button" class="primary-btn" data-sact="save">${esc(t('research.save'))}</button></div>`;
+    <p class="note ds-saved" id="ds-saved" role="status" aria-live="polite"></p>`;
   box.replaceChildren(form);
 
-  pendingConsentFile = null;   // a rebuild discards an unsaved pick, same as leaving the page would
+  /* Only ever non-null between the file dialog closing and the save that immediately follows it.
+   * Cleared on a rebuild so a pick that failed to commit is not re-attempted against a fresh form. */
+  pendingConsentFile = null;
   const groups = form.querySelectorAll('.rp-group');
   const showGroup = (id) => {
+    if (flushLiveSave) flushLiveSave();   // a half-typed field must not wait on a hidden tab
     groups.forEach((g) => { g.hidden = g.dataset.group !== id; });
     form.querySelectorAll('.rp-tab').forEach((b) => {
       const on = b.dataset.tab === id;
@@ -4567,9 +4638,9 @@ function renderDeviceSetup() {
     // Only when the MODE switch itself moves: re-deriving on every change would undo an export the
     // user had just clicked off.
     if (e.target && e.target.dataset && e.target.dataset.sf === 'segmentation') syncSetupExports(form);
-    /* The consent prompt file. HELD IN MEMORY until Save — writing the media store on pick would
-     * replace the prompt a device is already using the instant someone opened the file dialog to
-     * look, with no way back. */
+    /* The consent prompt file. Held in memory only as far as the save on the next line — a file
+     * input's .value is a fake path, so it cannot go through collect/read like every other field.
+     * A pick that fails to commit (quota, private mode) leaves the OLD prompt in place. */
     if (e.target && e.target.dataset && e.target.dataset.sfile === 'consentAudioFile') {
       const file = e.target.files && e.target.files[0];
       if (file) {
@@ -4577,12 +4648,24 @@ function renderDeviceSetup() {
         if (file.type && !/^audio\//.test(file.type)) {
           e.target.value = '';
           toast(t('setup.consentFileNotAudio', { name: file.name }), 6000);
-        } else pendingConsentFile = file;
+          return;
+        }
+        pendingConsentFile = file;
       }
     }
     updateSetupConditionals(form);
+    // A committed choice — a box ticked, a dropdown moved, a text field left. Store it NOW.
+    saveDeviceSetupLive(form, showGroup, { immediate: true });
   });
-  form.addEventListener('input', (e) => { if (e.target.type === 'range') updateSetupConditionals(form); });
+  /* Typing. Debounced, because a save per keystroke would repaint the doc list under the user —
+   * but still a save, so nothing is ever sitting in the form waiting to be lost. `change` fires on
+   * blur for text fields and would cover it, except that a user who types a writing-system code and
+   * closes the tab without leaving the field never blurs. */
+  form.addEventListener('input', (e) => {
+    if (e.target.type === 'range') updateSetupConditionals(form);
+    if (e.target.type === 'file') return;         // handled by `change`, with the blob
+    saveDeviceSetupLive(form, showGroup);
+  });
   /* ⚠ THE HALF THAT MAKES DISABLING HONEST. A disabled control is what someone clicks when it
    * refuses them, so the click has to answer. Capture phase and a listener on the CONTAINER,
    * because a disabled <input> dispatches no events of its own — the click lands on the wrapping
@@ -4606,56 +4689,114 @@ function renderDeviceSetup() {
       for (const k of ['nr', 'echo', 'norm']) { const el = form.querySelector(`[data-sf="${k}"]`); if (el) el.checked = false; }
       updateSetupConditionals(form);
       toast(t('panel.f.archivalSet'), 4000);
+      // Setting .value/.checked from script fires no `change`, so this one has to save itself.
+      saveDeviceSetupLive(form, showGroup, { immediate: true });
       return;
     }
-    if (which !== 'save') return;
-    saveDeviceSetup(form, showGroup);
   });
 
   fillDeviceSetup();
 }
 
-// The Save action, lifted out so it can await the media write.
-async function saveDeviceSetup(form, showGroup) {
-  {
-    const problems = validateDeviceSetup(collectDeviceSetup(form));
-    if (problems.length) { flagSetupProblems(form, problems, showGroup); return; }
-    flagSetupProblems(form, [], showGroup);      // clear leftover markers from an earlier attempt
-    const patch = readDeviceSetup(form);
-    /* Commit the picked prompt to the media store under the key requestConsentThen already falls
-     * back to. Done BEFORE the settings write so a failure here (quota, private mode) leaves the
-     * old prompt AND the old setting in place rather than a setting pointing at nothing. */
-    if (pendingConsentFile) {
-      const f = pendingConsentFile;
-      try {
-        await db.putMedia('asset:consent-prompt', {
-          blob: f, name: f.name, mimeType: f.type || 'audio/mpeg',
-          // sourceId marks WHICH file this is, the same role a Drive id plays for the URL route.
-          sourceId: `local:${f.name}:${f.size}:${f.lastModified || 0}`,
-        });
-        pendingConsentFile = null;
-      } catch (err) {
-        toast(t('setup.consentFileFailed', { msg: err.message }), 8000);
-        return;
-      }
-    }
-    Object.assign(settings, patch);
-    // An undefined in the patch means "go back to having no stored value" (the export toggles that
-    // are following the mode). Object.assign would leave the key present-but-undefined, which is
-    // NOT the same thing to `??` once it has been through JSON.
-    for (const k of Object.keys(patch)) if (patch[k] === undefined) delete settings[k];
-    delete settings.consentMode;                 // superseded by the consentAsk array
-    delete settings.consentResp;                 // superseded by the consentConfirm array
-    saveSettings(settings);
-    settings = loadSettings();
-    // Everything the changed settings drive, repainted in place: toolbar button visibility, the
-    // writing-system banner, the doc list, and a live segmentation flip if a text is open.
-    applyLiveSettings();
-    syncConsentAudio();
-    fillDeviceSetup();      // repaint the "audio in force" line now the pick has been committed
-    toast(t('toast.settingsSaved'));
+/* ⚠ SETTINGS SAVE THEMSELVES, THE MOMENT THEY CHANGE (Seth, 2026-08-07). There is no Save button.
+ *
+ * The Save-button version lost work in a way nobody could see coming: pick a consent file, and the
+ * tick you had already put in "Spoken reminder" was sitting in unsaved form state, one navigation or
+ * re-render away from being gone. Every "did that take?" question, and every bug of the shape "it
+ * forgot what I set", comes from the gap between changing a control and committing it. Removing the
+ * gap removes the whole class rather than the instance.
+ *
+ * VALIDATION BECOMES ADVISORY, and that is the real trade. It used to BLOCK the save, which is what
+ * stopped a half-configured device existing. It can no longer block — the value is already stored —
+ * so the problems are painted as persistent, unmissable warnings instead. That is the honest
+ * position: the researcher is mid-edit, and refusing to remember what they typed does not make the
+ * device more correct, it just loses the typing.
+ *
+ * ⚠ NEVER REFILL THE FORM FROM ITS OWN SAVE. applyLiveSettings() repaints every settings-driven
+ * surface, and fillDeviceSetup() is one of them — so a save triggered by typing would rewrite the
+ * input under the caret and jump it to the end on every keystroke. `savingLive` makes
+ * fillDeviceSetup a no-op for the duration; the form is already showing exactly what was stored,
+ * because it is where the value came from. */
+let savingLive = false;
+let liveSaveTimer = null;
+/* The debounced save, callable early. ⚠ 500ms is short but it is not zero, and "typed the last
+ * character and walked away" is precisely the case this whole change exists to stop losing — so
+ * every way out of the form flushes it: switching tab, hiding the page, closing it. */
+let flushLiveSave = null;
+
+async function saveDeviceSetupLive(form, showGroup, { immediate = false } = {}) {
+  clearTimeout(liveSaveTimer);
+  flushLiveSave = null;
+  if (!immediate) {
+    // Typing: settle first. A save per keystroke would re-render the doc list under the user.
+    flushLiveSave = () => saveDeviceSetupLive(form, showGroup, { immediate: true });
+    liveSaveTimer = setTimeout(() => { if (flushLiveSave) flushLiveSave(); }, 500);
+    return;
   }
+  /* A re-render (leaving and re-entering the Settings tab) replaces the form wrapper. A timer that
+   * fires afterwards holds the DETACHED one, and writing from it would restore whatever it happened
+   * to be showing over the live form's values. */
+  if (!form.isConnected) return;
+  /* Commit a picked prompt to the media key requestConsentThen already falls back to. BEFORE the
+   * settings write, so a failure here (quota, private mode) leaves the old prompt AND the old
+   * setting in place rather than a setting pointing at nothing. */
+  if (pendingConsentFile) {
+    const f = pendingConsentFile;
+    try {
+      await db.putMedia('asset:consent-prompt', {
+        blob: f, name: f.name, mimeType: f.type || 'audio/mpeg',
+        // sourceId marks WHICH file this is, the role a Drive id plays for the URL route.
+        sourceId: `local:${f.name}:${f.size}:${f.lastModified || 0}`,
+      });
+    } catch (err) {
+      toast(t('setup.consentFileFailed', { msg: err.message }), 8000);
+      return;
+    }
+  }
+  /* ⚠ readDeviceSetup READS `pendingConsentFile` — clearing it before this line is why "Consent
+   * audio doesn't play, nothing shows up" (Seth, 2026-08-07). The blob went into the media store
+   * correctly, but `settings.consentAudioFile` was never written, so consentLocalAudio() returned
+   * null and the prompt the user had just chosen was invisible to every consumer of it. Clear it
+   * AFTER the patch has recorded which file is now in force. */
+  const patch = readDeviceSetup(form);
+  pendingConsentFile = null;
+  Object.assign(settings, patch);
+  // An undefined in the patch means "go back to having no stored value" (the export toggles that
+  // follow the mode). Object.assign would leave the key present-but-undefined, which is NOT the
+  // same thing to `??` once it has been through JSON.
+  for (const k of Object.keys(patch)) if (patch[k] === undefined) delete settings[k];
+  delete settings.consentMode;                 // superseded by the consentAsk array
+  delete settings.consentResp;                 // superseded by the consentConfirm array
+  saveSettings(settings);
+  settings = loadSettings();
+  savingLive = true;
+  try {
+    applyLiveSettings();                       // buttons, WS banner, doc list, live segmentation flip
+    syncConsentAudio();
+  } finally { savingLive = false; }
+  // The consent-file line depends on the stored state, and this is the one bit of the form that is
+  // NOT where the value came from — so repaint just that.
+  updateSetupConditionals(form);
+  flagSetupProblems(form, validateDeviceSetup(collectDeviceSetup(form)), showGroup, { advisory: true });
+  markSetupSaved(form);
 }
+
+/* A quiet, non-blocking confirmation. Without the Save button there is no moment of commitment, so
+ * something has to say "that was kept" — but a toast per keystroke would be its own kind of noise. */
+function markSetupSaved(form) {
+  const el = form.querySelector('#ds-saved');
+  if (!el) return;
+  el.textContent = t('setup.savedLive');
+  el.classList.add('on');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('on'), 1800);
+}
+
+/* Leaving the page mid-debounce. `visibilitychange` is the one that actually fires on mobile — a
+ * backgrounded or swiped-away PWA may never get `pagehide` at all, and on iOS never gets `unload`.
+ * The settings write itself is synchronous localStorage, so it completes inside either callback. */
+document.addEventListener('visibilitychange', () => { if (document.hidden && flushLiveSave) flushLiveSave(); });
+window.addEventListener('pagehide', () => { if (flushLiveSave) flushLiveSave(); });
 
 /* ---------------- Utilities: the audio converter ------------------------------------------------
  *

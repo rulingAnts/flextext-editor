@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v271';
+export const ENGINE_VERSION = 'v272';
 
 const S = {
 en: {
@@ -1115,8 +1115,8 @@ internet after the first time.</p>
   'para.depthLimit': 'Show levels',
   'para.depthAll': 'All',
   'para.pathElided': '{n} more level(s) between',
-  'para.pathStepTip': 'Go to “{name}”. Click it again once it is selected to collapse everything around it and see just that level.',
-  'para.pathStepFocusTip': 'Click again to focus this level — its own sub-groups and everything beside it collapse, so only this stays open. Undo restores it.',
+  'para.pathStepTip': 'Go to “{name}”. Then find it here again and click it a second time to collapse everything around it. Two separate clicks — not a double-click.',
+  'para.pathStepFocusTip': 'Click once more to focus this level — its own sub-groups and everything beside it collapse, so only this stays open. Undo restores it.',
   'para.pathNothingToFocus': 'Nothing to collapse here — this group has no sub-groups and nothing beside it.',
   'para.showFree': 'Free translation',
   'para.hideBlank': 'Hide blank lines',
@@ -2449,8 +2449,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.depthLimit': 'Tampilkan tingkat',
   'para.depthAll': 'Semua',
   'para.pathElided': '{n} tingkat lagi di antaranya',
-  'para.pathStepTip': 'Ke “{name}”. Klik lagi setelah terpilih untuk menciutkan sekelilingnya dan melihat hanya tingkat itu.',
-  'para.pathStepFocusTip': 'Klik lagi untuk memusatkan tingkat ini — subkelompoknya dan semua yang di sebelahnya diciutkan, hanya ini yang terbuka. Bisa dibatalkan.',
+  'para.pathStepTip': 'Ke “{name}”. Lalu cari lagi di sini dan klik kedua kalinya untuk menciutkan sekelilingnya. Dua klik terpisah — bukan klik ganda.',
+  'para.pathStepFocusTip': 'Klik sekali lagi untuk memusatkan tingkat ini — subkelompoknya dan semua yang di sebelahnya diciutkan, hanya ini yang terbuka. Bisa dibatalkan.',
   'para.pathNothingToFocus': 'Tidak ada yang bisa diciutkan — kelompok ini tidak punya subkelompok dan tidak ada yang di sebelahnya.',
   'para.showFree': 'Terjemahan bebas',
   'para.hideBlank': 'Hide blank lines',

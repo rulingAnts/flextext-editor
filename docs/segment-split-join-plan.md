@@ -85,19 +85,55 @@ vernacular. So the wizard must offer, plainly:
 
 Whatever is chosen, the ORIGINAL free text is preserved verbatim in the undo record.
 
-### (d) Daughter elements
-Two different problems that the UI must not conflate:
+### (d) Daughter elements — the Paragraph Analysis tree
 
-1. **Word-level daughters** (`word.preservedXML` — morphemes, POS, anything FLEx put under the
-   word). These travel with their word automatically once (b) is decided. **No question needed**,
-   and asking one would invite a wrong answer.
-2. **Phrase-level items** (`preItemsXML` / `postItemsXML` — notes, literal translations,
-   other-language free translations). These belong to the *phrase*, and after a split there are two
-   phrases. They cannot be divided by any rule the app can know.
+⚠ **CORRECTED after Seth clarified: "the daughters I meant were other group members, like
+propositions. But maybe it's only the virtual, manually added propositions that would add a problem
+here…?"** He is right, and the reason is sharper than "they are manual": it is that **a proposition
+has no text of its own that the app can locate in the line**, and **its identity encodes its
+parent**.
 
-For (2), the honest default is **keep with the first half**, with a per-item toggle to move it to
-the second or duplicate it, shown only when such items exist — which for app-authored texts is
-never, and for FLEx-imported ones is the whole reason this feature is being asked for.
+The FLEx word tree (`word.preservedXML` — morphemes, POS) is genuinely a non-question: it travels
+with its word once (b) is decided. The real problem is the `.fxpa` model:
+
+```
+data.lines[]   { id: 'L1', baseline, words[] }        ← owns the audio span
+data.tree[]    { id: 'G1', children: ['L1','L2'], heads?: [...] }
+propositions   id 'L1p2'  ⚠ THE ID ENCODES THE LINE (isPropId /^L\d+p\d+$/,
+                              lineOfPropId('L1p2') === 'L1')
+```
+
+Two facts make this the hardest part of the feature:
+
+1. **Propositions are AUTHORED, not derived.** `addProp(data, lineId, text)` — the analyst types a
+   semantic decomposition. SSA is semantic, not grammatical, so a proposition's text is not a slice
+   of the baseline and there is **no mechanical mapping from a character offset to "which
+   propositions go left"**. The app cannot infer this. Only the analyst knows.
+2. **When a line gains propositions, THE PROPOSITIONS REPLACE THE LINE IN THE TREE** — `data.tree`
+   references `L1p1`, `L1p2`, and no longer `L1` at all. So a split does not just move text; it must
+   rewrite tree membership for ids that are about to be renamed.
+
+**Therefore block (d) is an ASSIGNMENT, not a cut point.** When the line has propositions, show them
+as a list with a left/right toggle each, defaulting to all-left. When it has none — the common case,
+and always for texts with no `.fxpa` — **the block does not appear at all**.
+
+⚠ **Propositions moved to the tail must be RENUMBERED into the new line's namespace** (`L1p3` →
+`L7p1`), and **every reference rewritten in the same operation**: `tree[].children`, `tree[].heads`,
+and anything else holding an id. A rename that updates the proposition but not the `heads` array
+leaves an asymmetric group pointing at an id that no longer exists — and that is exactly the class
+of bug that has already cost two bad guesses in this area (v230, v232).
+
+**The safety net that makes this tractable:** `paragraph-model.js` already exports
+`checkInvariants(data)` and `repairDocument(data)`. So the rule is:
+
+> The planner produces a candidate `.fxpa`, runs `checkInvariants()` on it, and **refuses to commit
+> if it does not pass**. The user sees "this split would break the analysis: <reason>" and nothing
+> changes.
+
+That converts a whole family of silent tree-corruption bugs into a visible refusal, which is the
+only acceptable outcome for a structure the analyst has invested hours in. `repairDocument()` is
+NOT run automatically — repairing a tree the user did not ask to change would hide the very problem
+the check just found.
 
 ⚠ **`attrs.guid`**: the first half KEEPS the original guid, the second gets a new one. Reversing
 that would silently re-point any external reference (an EAF annotation id, a `.fxpa` node) at the
@@ -128,7 +164,18 @@ duration gained so nobody merges a 30-second gap by accident.
 after an opening punctuation word). Free translations join with a space; empties collapse rather
 than leaving "  ". Phrase-level items concatenate in order, first half's first.
 
-**Rule 5 — refuse when the range contains a `timePending` segment**, or join text only and mark the
+**Rule 5 — propositions merge into ONE namespace, in order.** Joining L1 (props p1,p2) with L2
+(props p1,p2) gives L1 with p1,p2,p3,p4 — L2's renumbered — and every `tree[].children` /
+`tree[].heads` reference rewritten in the same operation. Order is array order; reversing it
+reorders the analyst's semantic decomposition silently.
+
+**Rule 6 — ⚠ REFUSE when the lines being joined sit in DIFFERENT groups.** The merged line is one
+unit and cannot be a child of two brackets. Merging the groups is a decision about the ANALYSIS, not
+about the audio, and the wizard must not make it — say which groups conflict and let the analyst
+resolve the tree first. `checkInvariants()` would catch it afterwards, but refusing up front is a
+better error than an undoable one.
+
+**Rule 7 — refuse when the range contains a `timePending` segment**, or join text only and mark the
 whole result pending. Mixing an aligned and an unaligned span produces a span whose boundaries are
 partly invented, which the model is specifically built never to do.
 
@@ -174,9 +221,13 @@ scoped to this feature, where the risk is.
    parallel-array invariant needs restating.
 4. **Gloss tab parity** — should split/join be reachable from the Gloss tab too, or only Baseline?
    The gloss tab already has join buttons.
-5. **The `.fxpa` question**: if a text has an associated Paragraph Analysis file, a split changes
-   the line count under it. Do we (a) refuse while one exists, (b) do nothing and let the `.fxpa`
-   go stale, or (c) update it? This one genuinely needs your call — (c) is a large amount of work
-   and (b) is a silent inconsistency.
+5. ~~The `.fxpa` question~~ — **ANSWERED by your clarification: (c), update it.** That is what
+   block (d) now is. Two things I still need from you:
+   - **When a line with propositions is split, is "all propositions stay with the first half" the
+     right default?** It is the safe one (nothing is renumbered unless asked), but if analysts
+     usually split precisely because the propositions have diverged, a proportional default might
+     save more clicks than it costs.
+   - **Should a split be offered at all while the `.fxpa` is open in the Paragraph Analysis tool?**
+     Two surfaces editing one tree is the "two sources of truth" problem again.
 6. **Is there a maximum sensible range for a join?** Guarding against a fat-fingered "join lines
    1–400" seems worth a confirmation step at some threshold.

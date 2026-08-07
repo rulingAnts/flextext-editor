@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v277';
+export const ENGINE_VERSION = 'v278';
 
 const S = {
 en: {
@@ -1117,7 +1117,7 @@ internet after the first time.</p>
   'para.pathElided': '{n} more level(s) between',
   'para.pathStepTip': 'Go to “{name}”. Then find it here again and click it a second time to collapse everything around it. Two separate clicks — not a double-click.',
   'para.crumbMore': '{n} more level(s) above this',
-  'para.pathSelectionLead': 'Selection',
+  'para.pathSelectionLead': 'Selection:',
   'para.pathLeafTip': 'Scroll back to the selected line',
   'para.leafLine': 'this line',
   'para.leafProp': 'this proposition',
@@ -2466,7 +2466,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'para.pathElided': '{n} tingkat lagi di antaranya',
   'para.pathStepTip': 'Ke “{name}”. Lalu cari lagi di sini dan klik kedua kalinya untuk menciutkan sekelilingnya. Dua klik terpisah — bukan klik ganda.',
   'para.crumbMore': '{n} tingkat lagi di atas ini',
-  'para.pathSelectionLead': 'Pilihan',
+  'para.pathSelectionLead': 'Pilihan:',
   'para.pathLeafTip': 'Gulir kembali ke baris yang dipilih',
   'para.leafLine': 'baris ini',
   'para.leafProp': 'proposisi ini',

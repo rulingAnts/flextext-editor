@@ -823,20 +823,21 @@ function deviceInfo(ua, cachedApps, engineVersion, platform, installId, reported
   const confirmed = known ? staleConfirmed(installId, reportedAt, stale, eng) : stale;
   return { text: segs.join(' · '), stale: confirmed, behindNow: stale, running: eng, live };
 }
-// This panel's OWN cached apps (same parse as the field client's listCachedApps), for the This-device tile.
-async function panelCachedApps() {
-  try {
-    if (typeof caches === 'undefined') return null;
-    const out = {};
-    for (const k of await caches.keys()) {
-      let m;
-      if ((m = k.match(/^flextext-researcher-(.+)$/))) out.researcher = m[1];
-      else if ((m = k.match(/^text-recorder-(.+)$/))) out.recorder = m[1];
-      else if ((m = k.match(/^flextext-(.+)$/))) out.editor = m[1];
-    }
-    return out;
-  } catch { return null; }
-}
+/* ⚠ THERE IS NO panelCachedApps() ANY MORE, and it must not come back in that form.
+ *
+ * It read `caches.keys()` to report which sibling apps this device had installed. That worked only
+ * because the old estate put all four apps on ONE origin (rulingants.github.io): the Cache Storage
+ * API is ORIGIN-SCOPED, so from research.flextext.app it can never see app.flextext.app's caches.
+ * After the Cloudflare migration it silently reported nothing for the editor and the recorder — not
+ * an error, not a stale number, just segments that stopped appearing. Seth saw the versions were
+ * "out of sync" and was right about the cause.
+ *
+ * deviceInfo() itself is FINE and is still used for real devices (renderInstanceCard): there the
+ * cachedApps come from the device's OWN inventory report, enumerated on its own origin, where the
+ * question is answerable. Only asking it about THIS browser was broken.
+ *
+ * If a researcher's own installed-app versions are ever wanted again, they must be reported the way
+ * a device reports them — from inside each app — never sniffed across origins. */
 
 // LIVE (cache-busted) versions currently deployed on the site — the reference the researcher compares
 // devices against (a device reporting an OLDER version, or stale + not reporting, may be stuck/bricked).
@@ -953,7 +954,6 @@ async function renderDashboard(prefetched) {
     if (ins.status === 'pending') pending++;
     if (ins.inventory && Array.isArray(ins.inventory.items)) texts += ins.inventory.items.length;
   }
-  const myDevice = deviceInfo(navigator.userAgent, await panelCachedApps(), ENGINE_VERSION);
 
   // Crowd recorders ride FULL renders only (initial load / manual refresh / post-action), never the
   // 12s poll (worker load stays flat; viewSig excludes them). A fetch failure paints a reconnect
@@ -994,21 +994,14 @@ async function renderDashboard(prefetched) {
     </div>` : ''}
     <div class="rp-card rp-self">
       <div class="rp-inst-top">
-        <span class="rp-inst-name">${esc(t('panel.dash.thisDevice'))} <span class="rp-badge rp-badge-you">${esc(t('panel.dash.you'))}</span></span>
-        <!-- ⚠ HOME.editor, NEVER a hard-coded app.flextext.app. Both estates are live, and a PWA's
+        <span class="rp-inst-name">${esc(t('panel.dash.thisDevice'))}</span>
+        <!-- HOME.editor, NEVER a hard-coded app.flextext.app. Both estates are live and a PWA's
              identity IS its origin: sending a researcher whose editor is installed from the Pages
              origin to the Cloudflare one hands them a DIFFERENT app with an empty IndexedDB, looking
-             entirely fine. HOME is the estate this panel is part of, so the button always opens the
-             editor that belongs with it — and on localhost it stays on the dev rig. -->
+             entirely fine. On the Cloudflare panel this resolves to exactly app.flextext.app; on the
+             legacy panel to the Pages editor; on localhost to the dev rig. -->
         <a class="secondary-btn rp-open-editor" href="${esc(HOME.editor)}" target="_blank" rel="noopener noreferrer">${esc(t('panel.dash.openEditor'))}</a>
       </div>
-      <!-- ⚠ NO TEXT COUNT HERE, and it is not an oversight. This panel and the editor are on
-           DIFFERENT ORIGINS on the Cloudflare estate (research.flextext.app vs app.flextext.app),
-           and IndexedDB is per-origin — so db.listDocs() here reads the PANEL's database and can
-           never see the editor's texts. The number it printed was not merely stale, it was
-           counting something else entirely. A wrong stat is worse than no stat. -->
-      <p class="note">${esc(t('panel.dash.thisDeviceNote'))}</p>
-      ${myDevice.text ? `<div class="note rp-devinfo${myDevice.stale ? ' rp-devinfo-stale' : ''}">${esc(myDevice.text)}${myDevice.stale ? ` <span class="rp-badge rp-badge-stale">${esc(t('panel.dev.stale'))}</span>` : ''}</div>` : ''}
     </div>
     ${insts.length ? cards.join('') : `<p class="note rp-empty">${esc(t('panel.dash.empty'))}</p>`}
     ${Researcher.isApprovedSelf() ? renderCrowdCard(crowdCache) : ''}`;

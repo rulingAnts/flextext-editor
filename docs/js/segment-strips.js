@@ -127,7 +127,10 @@ function fixStaleWave(canvas) {
 
 /* ---------------- segment state on the doc ---------------- */
 
+// ⚠ Tolerates a missing doc. It is called from a requestAnimationFrame loop that can outlive the
+// open document by a frame or two, and throwing there used to kill that loop for good.
 export function docSegments(doc) {
+  if (!doc) return [];
   if (!doc.segments || !Array.isArray(doc.segments)) doc.segments = [];
   return doc.segments;
 }
@@ -418,14 +421,33 @@ function focusStrip(i, caret) {
 
 /* ---------------- playhead cursor across strips ---------------- */
 
+/* ⚠ THIS LOOP IS NOT ONLY THE PLAYHEAD. It is also the ONLY thing that ever redraws a canvas which
+ * was drawn before its peaks existed — fixStaleWave below compares __peaksGen, and nothing else
+ * calls it on the baseline strips. So if this loop stops, a strip that rendered during the decode
+ * stays blank for as long as the tab is open, and the only cure is leaving and coming back, which
+ * runs positionCursor() again.
+ *
+ * ⚠ AND IT COULD BE KILLED BY A SINGLE EXCEPTION. `rafId = requestAnimationFrame(tick)` used to sit
+ * at the END of the body, so anything that threw above it never re-armed the loop — permanently,
+ * silently, with no error visible unless a console was open. docSegments(null) does exactly that
+ * ("Cannot read properties of null (reading 'segments')", thrown on every run of the segmentation
+ * repro when the editor is left), and any future throw in here would do the same.
+ * Both halves are fixed: the doc is checked before it is dereferenced, AND the re-arm moved into a
+ * `finally` so that no exception, present or future, can ever end the loop. A dropped frame is a
+ * dropped frame; a dead ticker is a blank waveform nobody can explain. */
 function positionCursor() {
   cancelAnimationFrame(rafId);
   const tick = () => {
+    try {
+    const doc = deps.getDoc();
+    // The editor was left (or the doc closed) between frames — nothing to paint, but keep the loop
+    // alive: strips can still be in the DOM, and the next entry re-uses it.
+    if (!doc) return;
     const p = deps.getPlayer();
     const t = p?.playheadMs?.();
     const dur = peaksCache.durationMs;
     deps.container.querySelectorAll('.seg-strip').forEach((row, i) => {
-      const seg = docSegments(deps.getDoc())[i];
+      const seg = docSegments(doc)[i];
       fixStaleWave(row.querySelector('.seg-wave'));
       let cur = row.querySelector('.seg-cursor');
       const inSeg = seg && isAligned(seg) && typeof t === 'number' && t >= seg.start && t < seg.end;
@@ -447,7 +469,10 @@ function positionCursor() {
         cur.style.height = wave.offsetHeight + 'px';
       } else if (cur) cur.remove();
     });
-    rafId = requestAnimationFrame(tick);
+    } finally {
+      // ⚠ ALWAYS re-arm. This is the line whose position is the bug — see the note above.
+      rafId = requestAnimationFrame(tick);
+    }
   };
   rafId = requestAnimationFrame(tick);
 }

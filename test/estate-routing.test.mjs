@@ -48,17 +48,30 @@ console.log('\n1. localhost keeps a developer on the dev rig');
   ok(e.local === true, 'and is flagged local');
 }
 
-console.log('\n2. STAGING points at ITSELF — the editor is that origin\'s root');
+console.log('\n2. STAGING resolves to the STAGING apps, from an explicit map');
+/* ⚠ Each staging app is its OWN Worker on its OWN host, so this must NOT be derived from the
+ * current origin. The case that proves it: the panel running as the standalone staging researcher
+ * build would otherwise offer ITSELF as "Open FlexText Editor" — a URL that resolves, serves a
+ * working-looking app, and is the wrong app. Both entry points are checked for exactly that. */
 for (const host of ['https://staging-flextext-editor.68mh29kgsd.workers.dev',
+                    'https://staging-flextext-researcher.68mh29kgsd.workers.dev',
                     'https://deadbeef.flextext-editor.pages.dev']) {
   const e = estateOf(host);
-  ok(e.editor === host + '/', `${new URL(host).hostname} -> ${e.editor}`);
-  ok(e.researcher === host + '/', '  ...and the panel is the same deployment');
+  ok(e.editor === 'https://staging-flextext-editor.68mh29kgsd.workers.dev/',
+     `${new URL(host).hostname}\n           -> editor ${e.editor}`);
+  ok(e.researcher === 'https://staging-flextext-researcher.68mh29kgsd.workers.dev/',
+     '  ...and the staging researcher, which is a SEPARATE worker');
+  /* On the editor's OWN staging host these coincide, and that is correct. The trap is any OTHER
+   * staging origin — chiefly the standalone researcher build — where deriving from the current
+   * origin would hand back the wrong app. */
+  if (!/staging-flextext-editor/.test(host)) {
+    ok(e.editor !== host + '/', '  ⚠ ...and NOT this origin (the standalone-researcher trap)');
+  }
   ok(e.staging === true, '  ...flagged staging');
-  /* The satellites publish only from productionWeb, so there is NO staging recorder or crowd.
-   * They keep the real current URLs rather than a guess at one that does not exist. */
-  ok(e.recorder === 'https://record.flextext.app/', `  ...recorder stays real: ${e.recorder}`);
-  ok(e.crowd === 'https://crowd.flextext.app/', '  ...as does crowd');
+  /* No staging build of either satellite exists — they publish only from a productionWeb push.
+   * Naming the real address is honest; inventing a staging URL that 404s would not be. */
+  ok(e.recorder === 'https://record.flextext.app/', `  ...recorder is the real one: ${e.recorder}`);
+  ok(e.crowd === 'https://crowd.flextext.app/', '  ...as is crowd');
 }
 
 console.log('\n3. the LEGACY estate is recognised BY NAME, never by falling through');

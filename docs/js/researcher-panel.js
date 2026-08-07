@@ -144,6 +144,31 @@ const ESTATES = {
     crowd: 'https://rulingants.github.io/crowd-recorder/',
     researcher: 'https://rulingants.github.io/flextext-researcher/',
   },
+  /* THE STAGING ESTATE (Seth, 2026-08-07) — an explicit map, and it has to be.
+   *
+   * ⚠ NOT `origin + '/'`. Each staging app is its OWN Cloudflare Worker on its OWN *.workers.dev
+   * host, so deriving the editor from wherever the panel happens to be running gets it wrong the
+   * moment the panel is the standalone researcher build: staging-flextext-researcher would offer
+   * ITSELF as "Open FlexText Editor". That is the same mistake as the estate fallback this replaced,
+   * one level down — a URL that resolves, serves a working-looking app, and is the wrong app.
+   *
+   * ⚠ recorder and crowd are the PRODUCTION addresses ON PURPOSE: those satellites are published
+   * only from a productionWeb push, so no staging build of either exists to point at. Naming the
+   * real one is honest; inventing a staging URL that 404s would not be. Revisit if they ever get
+   * their own Workers.
+   *
+   * (The Paragraph Analysis tool has a staging Worker too —
+   * staging-paragraph-analysis-tool.68mh29kgsd.workers.dev — but the panel links no PAT app, and
+   * its version is read from /flextext-editor/js/i18n.js rather than /sw.js, so it is deliberately
+   * not in this map. Add it WITH that difference handled, or the live-version check will read the
+   * wrong file.) */
+  staging: {
+    editor: 'https://staging-flextext-editor.68mh29kgsd.workers.dev/',
+    researcher: 'https://staging-flextext-researcher.68mh29kgsd.workers.dev/',
+    recorder: 'https://record.flextext.app/',
+    crowd: 'https://crowd.flextext.app/',
+    staging: true,
+  },
 };
 
 /* Which estate is THIS panel part of?
@@ -170,11 +195,8 @@ export function estateOf(origin = location.origin) {
     return { editor: origin + '/flextext-editor/', recorder: origin + '/text-recorder/',
              crowd: origin + '/crowd-recorder/', researcher: origin + '/flextext-researcher/', local: true };
   }
-  // Staging / preview builds: the editor IS this origin's root, and so is this panel.
-  if (/\.(workers|pages)\.dev$/.test(host)) {
-    return { editor: origin + '/', researcher: origin + '/',
-             recorder: ESTATES.cloud.recorder, crowd: ESTATES.cloud.crowd, staging: true };
-  }
+  // Staging / preview builds get an EXPLICIT map, never a guess from the current origin.
+  if (/\.(workers|pages)\.dev$/.test(host)) return ESTATES.staging;
   // The LEGACY estate, by name. Everything else is the current one.
   if (/(^|\.)rulingants\.github\.io$/.test(host)) return ESTATES.pages;
   return ESTATES.cloud;

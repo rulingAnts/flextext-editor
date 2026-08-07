@@ -2100,15 +2100,6 @@ function renderLineRow(id, nodeLabel = '', header = false) {
       ? `<button class="pa-rowplay" data-s="${l.start}" data-e="${l.end}">▶</button>`
       : '<span class="pa-playgap" aria-hidden="true"></span>');
   }
-  /* ⚠ ADD-PROPOSITION LIVES IN THE GUTTER (Seth, 2026-08-07). As a control at the END of every line
-   * it cost a whole ROW on every line in the document, used or not — and most lines never get a
-   * proposition. In the gutter it costs nothing vertically and joins the play button, so the gutter
-   * reads as "things you do to this line" rather than one affordance and one stray.
-   * Not offered on an authored chart: there every line already IS a proposition. */
-  if (!state.authored) {
-    parts.push(`<button class="pa-propadd-gutter" data-line="${esc(id)}"
-                 title="${esc(t('para.propAddTip'))}" aria-label="${esc(t('para.propAddTip'))}">+</button>`);
-  }
   const body = [`<div class="pa-cell">`];
   if (wavesMode !== 'off' && timed) {
     /* Each segment carries its OWN playhead (Seth, 2026-08-05), kept in step with the big player
@@ -2178,7 +2169,18 @@ function renderLineRow(id, nodeLabel = '', header = false) {
    * Propositions exist to break IMPORTED language data into what it semantically expresses. */
 
   body.push('</div>');
-  row.innerHTML = parts.join('') + body.join('');
+  /* ⚠ ADD-PROPOSITION SITS AT THE END OF THE LINE (Seth, 2026-08-07), not in the left gutter.
+   * In the gutter it wedged between the play button and the text — crowded, and it pushed the words
+   * away from the structural indent that now carries meaning. At the end it is out of the reading
+   * path entirely. Seth's own verdict: "less intuitive, [but] it works", and the documentation
+   * covers it.
+   * ⚠ Still NOT a row of its own — that is what it was before v283, and it cost a whole line of
+   * height on every line in the document whether or not it was ever used.
+   * Not offered on an authored chart: there every line already IS a proposition. */
+  const tail = state.authored ? '' :
+    `<button class="pa-propadd-end" data-line="${esc(id)}"
+             title="${esc(t('para.propAddTip'))}" aria-label="${esc(t('para.propAddTip'))}">+</button>`;
+  row.innerHTML = parts.join('') + body.join('') + tail;
   const play = row.querySelector('.pa-rowplay');
   if (play) play.addEventListener('click', (e) => { e.stopPropagation(); playSpan(l.start, l.end); });
   const wave = row.querySelector('canvas');
@@ -2260,11 +2262,11 @@ function renderLineRow(id, nodeLabel = '', header = false) {
     });
   });
   // Proposition controls must not select/deselect the row underneath them.
-  row.querySelectorAll('.pa-propadd-gutter, .pa-propdel, .pa-propimp').forEach((b) => {
+  row.querySelectorAll('.pa-propadd-end, .pa-propdel, .pa-propimp').forEach((b) => {
     b.addEventListener('click', (e) => {
       e.stopPropagation();
       const { line, prop } = b.dataset;
-      if (b.classList.contains('pa-propadd-gutter')) { focusPropId = 'new'; focusLineId = line; commit(addProp(state, line)); }
+      if (b.classList.contains('pa-propadd-end')) { focusPropId = 'new'; focusLineId = line; commit(addProp(state, line)); }
       else if (b.classList.contains('pa-propdel')) commit(deleteProp(state, line, prop));
       else {
         const cur = (nodeById(state, line).props || []).find((p) => p.id === prop);

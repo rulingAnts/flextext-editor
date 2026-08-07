@@ -1914,13 +1914,16 @@ main {
   flex: 0 0 auto; white-space: nowrap;
 }
 
-/* The + joins the play button in the left gutter: the gutter is "things you do to this line".
-   Kept quiet until the row is hovered or selected, so it does not compete with the text. */
-.pa-propadd-gutter { flex: none; width: 22px; height: 22px; border: 1px solid var(--border);
-  border-radius: 50%; background: var(--bg); color: var(--muted); cursor: pointer; padding: 0;
-  font-size: 14px; line-height: 1; opacity: .35; transition: opacity .12s; }
-.pa-row:hover .pa-propadd-gutter, .pa-row.sel .pa-propadd-gutter { opacity: 1; }
-.pa-propadd-gutter:hover { background: var(--panel); color: var(--text); border-color: var(--muted); }
+/* ⚠ The + sits at the END of the line, pushed right by margin-left:auto — out of the reading path.
+   In the left gutter it wedged between the play button and the words and read as crowded. It costs
+   no vertical space either way; that was the point of moving it off its own row.
+   Quiet until the row is hovered or selected, so it never competes with the text. */
+.pa-propadd-end { flex: none; margin-left: auto; align-self: flex-start;
+  width: 22px; height: 22px; border: 1px solid var(--border); border-radius: 50%;
+  background: var(--bg); color: var(--muted); cursor: pointer; padding: 0;
+  font-size: 14px; line-height: 1; opacity: .3; transition: opacity .12s; }
+.pa-row:hover .pa-propadd-end, .pa-row.sel .pa-propadd-end { opacity: 1; }
+.pa-propadd-end:hover { background: var(--panel); color: var(--text); border-color: var(--muted); }
 
 /* Help modal: the guide itself in an iframe, so the one file serves both the modal and the page. */
 .pa-helpmodal { width: min(860px, 96vw); height: min(88vh, 900px); display: flex; flex-direction: column; }

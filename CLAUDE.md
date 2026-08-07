@@ -40,6 +40,35 @@ was moved off, and each cherry-pick re-offered the SHELL hunk that caused the v1
 - ⚠ If a branch was ever removed from `main` by revert (as `segmentation` was), **rebase it onto
   `main`, never merge it** — a merge meets the reverts and silently reinstates nothing.
 
+### 🚩 PUSHING `staging` AND `main` BACK-TO-BACK CANCELS ONE OF THE BUILDS (2026-08-07)
+
+**Wait for the staging build to finish before pushing `main` (or vice versa). Do not fire both
+within a couple of minutes.**
+
+Both branches build the **same Cloudflare Worker** per app (`apps/researcher` → `flextext-researcher`,
+and so on). Cloudflare supersedes an in-flight build when a newer one is queued for that Worker, so
+the second push cancels the first — and the survivor publishes to *its own* preview alias:
+
+| pushed branch | alias the build publishes to |
+|---|---|
+| `staging` | `https://staging-<worker>.68mh29kgsd.workers.dev/` |
+| `main` | `https://main-<worker>.68mh29kgsd.workers.dev/` |
+
+**What it looks like when it bites** (v299, and it cost a test round): staging was pushed at 08:39:03
+and `main` seconds later. Only the `main` build finished — its log header reads
+`== PREVIEW upload (branch: main → alias: main) ==` — so `staging-flextext-researcher` was left
+serving **v298** while every local check said v299. The panel's badge read `v298/v234`, which is a
+correctly MATCHED pair, so nothing looked broken; it was simply the previous build.
+
+**How to tell this apart from a stale service worker**, because they present identically:
+`fxUpdate()` reporting *"already on the latest version (vNNN)"* means the SW asked the SERVER and
+the server really is on vNNN. That is an origin that never rebuilt, not a cache — no amount of
+reloading will fix it. A genuinely stale SW updates instead of saying that.
+
+**The fix when it happens:** re-run the cancelled deployment from the Cloudflare dashboard, or push
+one more commit to the branch that lost, on its own. Read the build log's `branch: X → alias: X`
+line before believing any deploy landed.
+
 **Do NOT push to `productionWeb` without the maintainer's explicit OK.** It's the
 live site that real users (field translators in the village) load — a broken push
 breaks their work. Develop and test on `main` first.

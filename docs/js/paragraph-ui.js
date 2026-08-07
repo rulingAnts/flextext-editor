@@ -944,15 +944,6 @@ function wireCrumbSteps(bar) {
  * ⚠ The label follows the ACTUAL state via the fullscreenchange event, not the click: the user can
  * leave fullscreen with Esc or the system control without going near this button, and an icon that
  * then still says "enter" is lying about where you are. */
-function inStandalonePWA() {
-  /* ⚠ display-mode: fullscreen is deliberately NOT treated as "installed". It matches whenever the
-   * page IS full screen — including because this very button put it there — so counting it would
-   * hide the button the moment you used it, leaving no way back out except Esc. Only standalone and
-   * minimal-ui mean an installed window. */
-  return (window.matchMedia && (matchMedia('(display-mode: standalone)').matches
-                             || matchMedia('(display-mode: minimal-ui)').matches))
-      || navigator.standalone === true;
-}
 function syncFullscreenBtn() {
   const b = $('#pa-full');
   if (!b) return;
@@ -965,7 +956,14 @@ function wireFullscreen() {
   const b = $('#pa-full');
   if (!b) return;
   const supported = !!(document.documentElement.requestFullscreen && document.exitFullscreen);
-  b.hidden = inStandalonePWA() || !supported;
+  /* ⚠ NO LONGER HIDDEN IN AN INSTALLED PWA (Seth, 2026-08-07). The original reasoning — a standalone
+   * window has no browser chrome, so the toggle would swap between two near-identical states — was
+   * wrong about what fullscreen actually reclaims here: the OS title bar and the dock/taskbar go too,
+   * which on a laptop is a real slice of a long analysis. Offering it wherever the API exists is
+   * simpler and costs nothing.
+   * ⚠ THE API-SUPPORT CHECK STAYS: some embedded webviews expose no Fullscreen API at all, and a
+   * button that throws is worse than no button. */
+  b.hidden = !supported;
   if (b.hidden) return;
   b.addEventListener('click', () => {
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});

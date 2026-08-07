@@ -10,7 +10,7 @@ export const LANGS = ['en', 'id'];
 // researcher panel for brick/stale detection. A service-worker cache *named* vNN can serve an OLDER
 // body (a racing precache), so the cache name lies; this constant rides INSIDE the engine, so it can't.
 // KEEP THIS EQUAL TO the editor sw.js VERSION on every engine deploy.
-export const ENGINE_VERSION = 'v282';
+export const ENGINE_VERSION = 'v283';
 
 const S = {
 en: {
@@ -1174,6 +1174,8 @@ internet after the first time.</p>
   'para.exportMatchView': 'Show what I am looking at (interlinear, glosses, free translation)',
   'para.exportDiagramHint': 'A deep analysis makes a wide diagram — it scrolls rather than squeezing the text. Tighten the indent to narrow it. To chart the big picture, collapse the groups you want summarised before exporting: a collapsed group becomes a single node, however much is inside it.',
   'para.propAdd': '+ proposition',
+  'para.helpTitle': 'How the Paragraph Analysis Tool works',
+  'para.helpNewTab': 'Open the guide in a new tab',
   'para.propAddTip': 'Add a semantic proposition inside this line (SSA often needs a line split into the propositions it expresses)',
   'para.propPlaceholder': 'a proposition this line expresses…',
   'para.propDelete': 'Remove this proposition',

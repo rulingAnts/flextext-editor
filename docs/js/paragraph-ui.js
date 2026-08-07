@@ -641,22 +641,41 @@ const HELP_URL = new URL('../help/paragraph-analysis.html', import.meta.url).hre
  * it open, everyone else gets the room back. Not part of the document: it is about the reader, not
  * the analysis, so it never touches state or the .fxpa. */
 const HELP_KEY = 'flextext-pa-help-open';
+/* ⚠ THE ? GOES STRAIGHT TO THE FULL GUIDE (Seth, 2026-08-07: "our help button can skip the minimum
+ * panel and just go straight to the documentation page, but open it in a scrollable modal"). The
+ * mini panel duplicated the guide's first section, so it was a tier of help that taught nothing the
+ * next tier did not, at the cost of a control and a stored preference.
+ *
+ * ⚠ IN AN IFRAME, NOT FETCHED AND INJECTED. The guide is a complete document with its own styles and
+ * its own light/dark handling; pasting its body into the app would drop those and let the app's CSS
+ * reach inside it. An iframe keeps it exactly as it renders on its own — and means the SAME file
+ * serves the modal and the standalone page, so they can never disagree.
+ * ⚠ Loaded only when first opened. It is a 2,700-word document nobody reads on most sessions. */
 function wireHelpDisclosure() {
-  const btn = $('#pa-tip-btn'), tip = $('#pa-tip');
-  if (!btn || !tip) return;
-  const show = (on) => {
-    tip.hidden = !on;
-    btn.setAttribute('aria-expanded', on ? 'true' : 'false');
-    btn.classList.toggle('on', on);
-  };
-  let open = false;
-  try { open = localStorage.getItem(HELP_KEY) === '1'; } catch (_) { /* private mode */ }
-  show(open);
-  btn.addEventListener('click', () => {
-    open = tip.hidden;
-    show(open);
-    try { localStorage.setItem(HELP_KEY, open ? '1' : '0'); } catch (_) { /* ignore */ }
-  });
+  const btn = $('#pa-tip-btn');
+  if (!btn) return;
+  btn.addEventListener('click', openHelpModal);
+}
+
+function openHelpModal() {
+  const dlg = $('#pa-dialog');
+  if (!dlg) return;
+  dlg.hidden = false;
+  dlg.innerHTML = `
+    <div class="pa-modal pa-helpmodal">
+      <h3>${esc(t('para.helpTitle'))}
+        <a class="pa-help-open" href="${esc(HELP_URL)}" target="_blank" rel="noopener"
+           title="${esc(t('para.helpNewTab'))}">↗</a></h3>
+      <iframe class="pa-help-frame" src="${esc(HELP_URL)}" title="${esc(t('para.helpTitle'))}"></iframe>
+      <div class="pa-modal-actions">
+        <button class="primary-btn" id="pa-help-close">${esc(t('para.close'))}</button>
+      </div>
+    </div>`;
+  const close = () => { dlg.hidden = true; dlg.innerHTML = ''; };
+  dlg.querySelector('#pa-help-close').addEventListener('click', close);
+  // ⚠ Esc closes it, like every other modal here — a help window you cannot dismiss by reflex is a trap.
+  const onKey = (e) => { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); } };
+  document.addEventListener('keydown', onKey);
 }
 
 /* ── MENUS ────────────────────────────────────────────────────────────────────────────────────
@@ -1519,19 +1538,6 @@ function renderWorkInner() {
       <div class="pa-transport"><button class="icon-btn2" id="pa-play">▶</button><span id="pa-time" class="player-time"></span></div>
       <div class="pa-ovwrap"><canvas id="pa-ov"></canvas><div class="pa-cur" id="pa-ovcur"></div></div>
     </div>` : ''}
-    <!-- ⚠ COLLAPSED BY DEFAULT behind a ? button (Seth, 2026-08-06). This text is onboarding: it
-         answers a question you have once and then never again, but it sat above the analysis
-         permanently, costing four lines of vertical room on every screen forever. The open state is
-         remembered per device so someone still learning keeps it up, and the full manual is one
-         click further on. -->
-    <!-- ⚠ THE TRIGGER LIVES IN THE TOOLBAR, the text below it. As a <details> the ? sat on a row of
-         its own purely to host content that is hidden almost all the time — a whole band spent on a
-         26px button. Splitting trigger from content lets the button join the buttons and the text
-         still appear full-width underneath. -->
-    <div class="pa-tip" id="pa-tip" hidden>${esc(state.authored ? t('para.scratchHint') : t('para.selectTip'))}
-      ${state.authored ? '' : `<span class="pa-tip-note">${esc(t('para.splitNote'))}</span>`}
-      <p class="pa-tip-more"><a href="${esc(HELP_URL)}" target="_blank" rel="noopener">${esc(t('para.helpFull'))}</a></p>
-    </div>
     </div>
     <!-- ⚠ ONE LINE WHATEVER THE DEPTH — the reason this replaced sticky group headings, which stack
          without bound in a deep hierarchy (Seth). It is also the navigator: each step selects. -->
@@ -2094,6 +2100,15 @@ function renderLineRow(id, nodeLabel = '', header = false) {
       ? `<button class="pa-rowplay" data-s="${l.start}" data-e="${l.end}">▶</button>`
       : '<span class="pa-playgap" aria-hidden="true"></span>');
   }
+  /* ⚠ ADD-PROPOSITION LIVES IN THE GUTTER (Seth, 2026-08-07). As a control at the END of every line
+   * it cost a whole ROW on every line in the document, used or not — and most lines never get a
+   * proposition. In the gutter it costs nothing vertically and joins the play button, so the gutter
+   * reads as "things you do to this line" rather than one affordance and one stray.
+   * Not offered on an authored chart: there every line already IS a proposition. */
+  if (!state.authored) {
+    parts.push(`<button class="pa-propadd-gutter" data-line="${esc(id)}"
+                 title="${esc(t('para.propAddTip'))}" aria-label="${esc(t('para.propAddTip'))}">+</button>`);
+  }
   const body = [`<div class="pa-cell">`];
   if (wavesMode !== 'off' && timed) {
     /* Each segment carries its OWN playhead (Seth, 2026-08-05), kept in step with the big player
@@ -2161,9 +2176,7 @@ function renderLineRow(id, nodeLabel = '', header = false) {
   /* NOT on a from-scratch chart (Seth, 2026-08-05): "our new blank chart is ONLY propositions", so
    * every line there already IS one and a control to add a proposition beneath it is nonsense.
    * Propositions exist to break IMPORTED language data into what it semantically expresses. */
-  if (!state.authored) {
-    body.push(`<button class="pa-propadd" data-line="${esc(id)}" title="${esc(t('para.propAddTip'))}">${esc(t('para.propAdd'))}</button>`);
-  }
+
   body.push('</div>');
   row.innerHTML = parts.join('') + body.join('');
   const play = row.querySelector('.pa-rowplay');
@@ -2247,11 +2260,11 @@ function renderLineRow(id, nodeLabel = '', header = false) {
     });
   });
   // Proposition controls must not select/deselect the row underneath them.
-  row.querySelectorAll('.pa-propadd, .pa-propdel, .pa-propimp').forEach((b) => {
+  row.querySelectorAll('.pa-propadd-gutter, .pa-propdel, .pa-propimp').forEach((b) => {
     b.addEventListener('click', (e) => {
       e.stopPropagation();
       const { line, prop } = b.dataset;
-      if (b.classList.contains('pa-propadd')) { focusPropId = 'new'; focusLineId = line; commit(addProp(state, line)); }
+      if (b.classList.contains('pa-propadd-gutter')) { focusPropId = 'new'; focusLineId = line; commit(addProp(state, line)); }
       else if (b.classList.contains('pa-propdel')) commit(deleteProp(state, line, prop));
       else {
         const cur = (nodeById(state, line).props || []).find((p) => p.id === prop);

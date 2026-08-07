@@ -123,9 +123,9 @@ the menu always acts on what you can see. Shortcuts are ignored while you are ty
 <h3>Where the controls live</h3>
 <table>
   <tr><th>Menu</th><th>Holds</th></tr>
-  <tr><td><strong>File</strong></td><td>Save (.fxpa), Export…, Close document</td></tr>
+  <tr><td><strong>File</strong></td><td>Save (.fxpa), Save without the audio…, Export…, Close document</td></tr>
   <tr><td><strong>View</strong></td><td>What each line shows, free translation, hide blank lines,
-      collapse/expand all, the chart view, zoom</td></tr>
+      collapse all, expand all, the chart view, zoom, and the two breadcrumb bars</td></tr>
   <tr><td><strong>Audio</strong></td><td>Show audio, follow playback, waveform size
       (only appears when the text has a recording)</td></tr>
 </table>
@@ -228,7 +228,7 @@ ticking or unticking HEAD re-cases the role to match.</p>
 <h2 id="props">Propositions</h2>
 
 <p>A line of language data says one thing on the surface but may express several propositions. Add
-them under a line with <strong>+ proposition</strong>. Press <kbd>Enter</kbd> in a proposition box to
+them with the <strong>+</strong> in the left gutter, beside the play button. Press <kbd>Enter</kbd> in a proposition box to
 add another, <kbd>Backspace</kbd> in an empty one to remove it.</p>
 
 <p>Propositions are <em>additions beside the line</em>, never edits to it — which is why they are
@@ -280,7 +280,20 @@ head's own text is used.</p>
 
 <p>A deep analysis outgrows the screen quickly. The path exists for that.</p>
 
-<h3>The path</h3>
+<h3>The two breadcrumb bars</h3>
+<p>There are two, and they answer different questions. Each has its own switch under
+<strong>View</strong>.</p>
+<table>
+  <tr><th>Bar</th><th>Answers</th><th>Shows when</th></tr>
+  <tr><td><strong>Selected:</strong></td><td>What have I selected?</td>
+      <td>Something is selected. Carries a ✕ to deselect.</td></tr>
+  <tr><td><strong>Currently visible:</strong></td><td>Where am I looking?</td>
+      <td>You have scrolled past the first group heading. Follows the scroll, not the selection.</td></tr>
+</table>
+<p>Both show as much of the hierarchy as fits the width. When a path is too long the middle is
+elided — the two ends orient you, the steps between are what can be spared.</p>
+
+<h3>Clicking a step</h3>
 <p>With something selected, a single line under the toolbar shows where it sits:
 <code>Whole narrative › Episode 1 › orienter–CONTENT</code>. Each step is a button.</p>
 <ul>
@@ -324,6 +337,11 @@ always shows exactly what you wrote, and nothing else.</strong></div>
   <tr><td><strong>− 100% +</strong></td>
       <td>Zoom the analysis. Scales text, labels, indent and buttons together; the toolbar is
           unaffected. It is a size change, not a picture stretch, so nothing blurs.</td></tr>
+  <tr><td><strong>?</strong></td>
+      <td>Opens this guide in a scrollable window, without leaving your analysis.</td></tr>
+  <tr><td><strong>⛶</strong></td>
+      <td>Full screen — hides the browser's own toolbars. Not shown when the app is installed, since
+          an installed window has no browser chrome to hide.</td></tr>
   <tr><td><strong>◫</strong> (Chart)</td>
       <td>Switch the working area to the SSA diagram for a quick look, then back. Nothing is changed
           or saved, and your selection, zoom and scroll position survive the trip.</td></tr>

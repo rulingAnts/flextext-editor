@@ -233,3 +233,69 @@ analysis.
 ⚠ Also relevant: **NO segnum in EAFs** (standing rule), and ELAN reads display settings from a
 same-basename `.pfsx` — without one, ELAN's remembered `sortAlphabetically` reorders tiers wrongly.
 Both already handled by the editor's exports; a PAT exporter must not rediscover them the hard way.
+
+## Planning notes to chew on (Seth, 2026-08-07) — `.fxed` follow-ons
+
+### ✅ DECIDED: consent material, if it exists, MUST be included
+> "Consent Material if it exists MUST be included."
+
+Supersedes the opt-out proposed in `fxed-format-spec.md` §5.1 — **remove that checkbox from the
+spec when it is implemented.** The reasoning is the stronger one: an IRB record that can be
+separated from the text it documents is worse than one that travels. A `.fxed` is therefore always
+a file containing personal data, and the UI should say so at export rather than offering a way to
+make it not true.
+
+### Writing systems need a JS-object twin of the XML functions — and that is a real tension
+> "we'd need a JavaScript object/data/browserStorage/etc version or adaptation of those functions.
+> And ideally avoid having duplicate things that could diverge easily, but also JSON/browser objects
+> and XML are genuinely different things when it comes to modifying/writing especially."
+
+Both halves are true and they pull against each other, so the resolution should be deliberate:
+
+- `surveyWritingSystems` is a READ. It can stay XML-only if the object side derives its survey from
+  `text.flextext` — one implementation, no twin.
+- `remapWritingSystems` is a WRITE, and this is where a twin becomes hard to avoid: the doc object
+  in `fxed.json` carries WS codes too, and rewriting XML then re-deriving the object is only safe
+  if the derivation is lossless. **It is not** — `parseFlextext` keeps `preservedXML`, but a
+  round-trip through serialise→parse is not proven identical.
+- Suggested shape: **one pure function over a WS-code map** (`{oldCode: newCode}`) with two thin
+  adapters — one that walks a DOM, one that walks the object. The decision logic lives once; only
+  the traversal differs, which is exactly the part that genuinely differs. Test them against each
+  other on the same input.
+
+### Multi-text `.fxed` as an OPTION — and flextext already supports it
+> "having the option of multi-text .fxed is a good idea (as an option). And the flextext format
+> itself already supports this."
+
+Right — a `.flextext` holds several `<interlinear-text>` elements. So `text.flextext` inside the zip
+can carry the whole set with no format change, and `fxed.json` grows from `doc`/`media` to
+`docs[]`/`media{}` keyed by doc id. Worth designing v1 so the singular case is just N=1, rather than
+adding a second shape later.
+
+### ⚠⚠ WHOLE-PROFILE EXPORT, AND THE PAIRING IDENTITY PROBLEM — the important one
+> "exporting an entire browser/PWA profile (corpus/library, consent prompts, settings, and all) and
+> transplanting it… but we would need to think about what to do with the pairing with the researcher
+> app at that point. We shouldn't have the same pairing key/identity pointing to two duplicate app
+> instances. Our whole suite system needs to guard against and handle that somehow."
+
+**This is a suite-wide correctness problem, not a `.fxed` feature**, and it exists TODAY without any
+export: anything that duplicates a profile (a browser profile copy, a device image restore, a
+synced browser) already clones a session. The `.fxed` spec dodges it by refusing to carry the
+session at all (§5) — a whole-profile export cannot dodge it.
+
+Three shapes, roughly in order of honesty:
+
+1. **Move, not copy.** The export invalidates the source's session as it writes, so only one live
+   instance exists by construction. Clean, and unhelpful if the source device is already dead.
+2. **Re-claim on import.** The imported profile arrives UNPAIRED with its texts intact, and the
+   researcher issues a fresh invite. Safe, and costs one round trip with the researcher — probably
+   the right default.
+3. **Server-side detection.** The worker notices two devices presenting one identity (differing
+   install ids, overlapping heartbeats) and flags it in the panel. ⚠ Needed **regardless** of
+   which of the above is chosen, because profile duplication happens without our involvement — and
+   because the failure is currently silent: two devices would each upload, each mark texts done, and
+   the researcher would see one device behaving impossibly.
+
+⚠ Whatever is chosen, **the researcher must be able to see it and act on it.** A duplicated identity
+that only the worker knows about is the same class of problem as everything else this suite has hit
+this week: true, silent, and discovered late.

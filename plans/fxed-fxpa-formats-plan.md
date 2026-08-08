@@ -310,3 +310,63 @@ direction Seth confirmed is useful — FLEx → PAT — is already supported: `p
 4. **Does the Editor's inability to import `.fxpa` need saying out loud** when a user tries? The
    file picker simply will not accept it, which reads as "broken" rather than "wrong app" — the
    same standing rule as every other disabled control.
+
+
+---
+
+## The JSON-vs-zip question, resolved: **use both**
+
+Seth: *"that's an argument for using json with embedded audio. JSON is actually basically just a
+direct JavaScript copy of the browser storage model, variables, objects, etc. Might make it easier
+to faithfully copy from one browser/PWA profile to another."*
+
+The premise is right and it is the strongest argument made for any container so far: an IndexedDB
+record **is** a JS object, so JSON round-trips it with no schema in between, no mapping layer to
+drift, and no field silently lost because a serialiser did not know about it. That is exactly the
+completeness bar. **It should decide the METADATA format.**
+
+⚠ **But it cannot decide the AUDIO, because JSON cannot hold a Blob.**
+
+```js
+JSON.stringify({ blob: someBlob })   // → '{"blob":{}}'
+```
+
+IndexedDB stores the recording as a **Blob** — opaque bytes, natively. `JSON.stringify` does not
+serialise it; it produces an empty object and says nothing. So "a direct JavaScript copy of the
+storage model" holds for every field EXCEPT the one that carries the recording, which must be
+base64'd — reintroducing +33% and the ~278 MB string wall for a 6-minute take.
+
+And base64-in-JSON is arguably the *less* faithful copy: the Blob was never text. A file inside a
+zip is opaque bytes, which is what a Blob is; a base64 string is a re-encoding of something that had
+no encoding to begin with.
+
+### So: a zip whose metadata is JSON
+
+```
+<title>.fxed                        (a zip — the .docx pattern)
+├── store.json        ⚠ THE DOC RECORD AND EVERY MEDIA RECORD, VERBATIM JS OBJECTS,
+│                       minus their .blob fields — whole-record-minus-deny-list, so a
+│                       future field travels by default (see the completeness bar above)
+├── media/<key>.bin     each stripped .blob, raw. store.json names the file per key.
+└── text.flextext       the interchange copy — a genuine .flextext FLEx can import
+```
+
+Every advantage Seth is pointing at survives:
+
+| | |
+|---|---|
+| faithful object copy of storage | ✅ `store.json` is `JSON.stringify` of the real records |
+| no mapping layer to drift | ✅ same — the deny-list is the only hand-kept part |
+| easy "recover directly into another profile" | ✅ `JSON.parse` → `db.putDoc` / `db.putMedia`, with each blob read from its zip entry |
+| no +33%, no string wall | ✅ blobs stay bytes |
+| FLEx escape hatch inside the file | ✅ `text.flextext` |
+
+The blob-stripping is the only real work, and it is small: walk the record, move every `Blob`/`File`
+value into `media/` under a generated name, leave a `{ "$blob": "media/x.bin", "type": "audio/wav" }`
+marker in its place, and reverse it on import. That marker convention is worth writing down once —
+it is the whole contract between exporter and importer.
+
+**If a single-file JSON is still wanted** (no zip reader to write, one `JSON.parse` to import), it
+remains workable — but then the export must refuse, with a clear message, above a size where the
+receiving browser will fail. Discovering that limit as a tab reload on a field phone, holding the
+only copy of a text, is the outcome this whole document is trying to avoid.

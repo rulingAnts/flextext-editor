@@ -227,6 +227,23 @@ console.log('.fxpa (Paragraph Analysis interchange)');
   const fx2 = buildFxpa(d2, { title: 'T', vernLang: 'fau', analLang: 'id' });
   ok(!('audio' in fx2), 'text-only: no audio block');
   ok(fx2.lines.every((l) => !('start' in l)), 'text-only: no spans on any line');
+
+  /* SOURCE STAMP — the discriminator that lets PAT catch a STALE analysis on import.
+   * .fxpa line ids are positional, so an analysis exported before an Enter/Backspace describes a
+   * document that no longer exists; re-importing it re-attaches every group to the WRONG line with
+   * the text still reading perfectly. lineCount is what makes that detectable. */
+  const stamped = buildFxpa(segDoc(), { title: 'T', vernLang: 'fau', analLang: 'id',
+    sourceModified: 1786000000000, engine: 'v317' });
+  ok(stamped.source && stamped.source.lineCount === stamped.lines.length,
+     'source.lineCount equals the line count actually exported');
+  ok(stamped.source.modified === 1786000000000, 'source.modified dates the analysis for a human');
+  ok(stamped.source.engine === 'v317', 'source.engine names the producing engine');
+  // Metadata only: it must never perturb the payload an existing importer reads.
+  const bare = buildFxpa(segDoc(), { title: 'T', vernLang: 'fau', analLang: 'id' });
+  ok(bare.source.modified === null && bare.source.engine === null,
+     'unstamped export nulls the optional fields rather than omitting the block');
+  ok(JSON.stringify({ ...stamped, source: null }) === JSON.stringify({ ...bare, source: null }),
+     'the stamp changes NOTHING else — cannot break an importer that ignores it');
 }
 
 console.log('preview page');

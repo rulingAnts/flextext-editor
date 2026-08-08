@@ -3152,6 +3152,9 @@ async function syncGatherInventory() {
       pendingDelete: upDel.has(d.id),   // panel shows it struck-through/faded until it's gone
       uploadState: backed ? (d.uploadedModified === d.modified ? 'uploaded' : 'changed') : 'local',
       uploadedFileId: d.uploadedFileId || null,
+      // The per-kind map (see the upload stamp). null on a device that has not uploaded since this
+      // shipped — uploadedMap() falls back to the scalar and the old inference for those.
+      uploaded: d.uploaded || null,
       // Which mic this take came from + whether it is archive grade (native captures only; null
       // everywhere else). E2EE like the rest of the inventory. Lets a researcher audit provenance
       // long after the fact, and see at a glance whether a deployed USB mic is actually being used
@@ -3572,6 +3575,9 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
           name: segMediaName, derived: !!segMedia.derived, srcName: segMedia.srcName || '' }
       : null;
     const fxpa = buildFxpa(rec.doc, {
+      // Stamp the source so PAT can detect a stale analysis on import — see buildFxpa's note.
+      sourceModified: rec.modified || null,
+      engine: ENGINE_VERSION,
       title: rec.title || base,
       vernLang: settings.vernLang || rec.doc.vernLang || 'und',
       analLang: settings.analLang || rec.doc.analLang || 'en',
@@ -3704,6 +3710,12 @@ async function uploadDocById(docId) {
   await db.putMedia('upload:' + docId, {
     blob: bundle.blob, name: bundle.filename, mime: bundle.mime,
     total: bundle.blob.size, sent: 0,
+    /* ⚠ WHAT KIND OF FILE THIS IS — a FACT, recorded because the device is the only thing that
+     * knows it. Without it the panel had to GUESS from `hasAudio`, and guessed wrong whenever the
+     * audio was a researcher-ASSIGNED Drive URL the device never uploaded: the text has audio, so
+     * the guess said "bundle", and the researcher clicking "Bundle (.zip)" got bare flextext XML
+     * (Seth, 2026-08-07). buildBundleFor already returns `zipped`; it was simply being discarded. */
+    kind: bundle.zipped ? 'bundle' : 'flextext',
     docModified: rec.modified,
     docDone: !!rec.done,   // auto-delete fires only for FINISHED texts
     // Text identity for the per-text Drive folder ("FlexText Uploads / <device> / <title>").
@@ -3841,6 +3853,12 @@ function uploadState(docId) {
           // `current` back and silently drop these markers.
           const stamp = (d) => {
             if (st.fileId) d.uploadedFileId = st.fileId;
+            /* ⚠ BOTH SHAPES, FOREVER. The scalar stays because a panel on an older engine reads only
+             * that; the map is what retires the inference for panels that understand it. Merged,
+             * not replaced — a text can have uploaded a flextext once and a bundle later, and each
+             * kind keeps its own most-recent id. artifacts.js uploadedMap() already prefers the map
+             * and falls back to the scalar, so this needs no panel change to take effect. */
+            if (st.fileId && st.kind) d.uploaded = { ...(d.uploaded || {}), [st.kind]: String(st.fileId) };
             if (st.folderId) d.driveFolderId = st.folderId;   // next upload echoes it (folder dedupe)
             d.uploadedModified = (st.docModified != null) ? st.docModified : d.modified;
             d.uploadedAt = Date.now();

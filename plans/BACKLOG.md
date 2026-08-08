@@ -187,9 +187,18 @@ Still needing your decisions, which is why the rest is not started:
   separate from the engine's i18n.js and not covered by the parity test.
 
 
-## The exported `.fxpa` can go stale, and nothing says so (found 2026-08-07)
+## ~~The exported `.fxpa` can go stale, and nothing says so~~ — HALF DONE in v319 (found 2026-08-07)
 
-Not part of the PAT split/join feature — a separate, pre-existing risk found while planning it.
+**v319 ships the stamp** (the half that matters). `buildFxpa` now writes
+`source: { lineCount, modified, engine }`, fed from `rec.modified` + `ENGINE_VERSION` at the
+`buildBundleFor` call site. It is metadata only — no consumer must read it, so it cannot break an
+existing importer; `test/seg-exports.test.mjs` pins that the stamp perturbs nothing else in the
+payload. **PAT does not yet READ it** — comparing `source.lineCount` against the text being merged,
+and refusing/warning on a mismatch, is the remaining work and belongs in the PAT importer.
+The export-time warning (second bullet below) is still not built, and is still the lesser half.
+
+Original entry — not part of the PAT split/join feature, a separate pre-existing risk found while
+planning it:
 
 Independent of split/join, and arguably overdue: the editor exports a `.fxpa` whose line ids are
 positional. Any later line-count change — Enter, Backspace, or this wizard — makes a previously
@@ -337,11 +346,11 @@ of genuinely different reliability and does not tell the person clicking which i
 fetch through the Worker on the researcher's stored token and work. `resolveArtifacts` rows are plain
 Drive hrefs authenticated by whatever Google session the browser holds. Half a menu working is worse
 than none of it working, because the failure looks like the app is broken rather than like the link
-was never real. v317 (branch `fix-artifact-kinds-and-fxpa-stamp`) fixes one input to that — the
-device now reports which KIND it uploaded instead of the panel inferring it — and is worth keeping
-regardless, because it makes the data correct for whenever the menu returns.
+was never real. **v319 fixes one input to that** — the device now reports which KIND it uploaded
+instead of the panel inferring it — and is worth keeping regardless, because it makes the data
+correct for whenever the menu returns.
 
-## PARKED: the inferred "Bundle (.zip)" row promised a zip and delivered XML (2026-08-07)
+## ~~PARKED:~~ CAUSE FIXED in v319 — the inferred "Bundle (.zip)" row promised a zip and delivered XML (2026-08-07)
 
 ⚠ **Superseded by the entry above — the whole menu is hidden as of v318, so this row is doubly
 unreachable.** Kept because the diagnosis is still the live one, and the row-level suppression is
@@ -349,7 +358,7 @@ still what protects legacy texts if the menu is ever restored before the device-
 
 
 Seth clicked **"Bundle (.zip, includes audio)"** in the panel's Files menu and got raw `.flextext`
-XML. Row suppressed in v316; the underlying bug is NOT fixed.
+XML. Row suppressed in v316; **v319 fixes the cause on the device — see "What v319 does" below.**
 
 **Cause — a guess that artifacts.js itself predicted.** `uploadedMap()`'s legacy branch has only the
 old report's `hasAudio` flag to work with, and reasons *"the device uploads a ZIP when the text has
@@ -373,9 +382,30 @@ so every older text falls back to the scalar `uploadedFileId` and the inference.
 report per-kind ids RETIRES the inference instead of hiding it, and un-parks the row for free.
 ⚠ Both shapes must stay readable forever: field devices update on their own schedule.
 
+**What v319 does — the above, implemented.** Four one-line changes, no new module and no panel change:
+
+| where | change |
+|---|---|
+| `app.js` `uploadDocById` | the upload queue record stores `kind: bundle.zipped ? 'bundle' : 'flextext'` — `buildBundleFor` already returned `zipped`, it was simply being discarded |
+| `upload.js` `emit()` | carries `kind: this.rec.kind` through to the completion state (one emitter, so simple + chunked uploads both covered) |
+| `app.js` `uploadState` stamp | `d.uploaded = { ...(d.uploaded \|\| {}), [st.kind]: id }` — **merged, not replaced**, so a text that uploaded a flextext once and a bundle later keeps each kind's own most-recent id. The legacy scalar is STILL written beside it |
+| `app.js` `syncGatherInventory` | reports `uploaded: d.uploaded \|\| null` |
+
+**The parked row un-parks itself.** `resolveArtifacts` flags `inferred` from the shape of the report,
+so a device that has uploaded since v319 yields `inferred: false` and the panel's `if (f.inferred)
+continue;` stops skipping it — no second change, no un-parking commit. A device still on an older
+engine keeps the v316 behaviour (suppressed guess) rather than a wrong label, which is the correct
+outcome for it.
+
+⚠ **The v316 suppression stays.** It is not dead code once the device is fixed — it is what protects
+every text uploaded BEFORE v319, and those never gain a per-kind map (`uploadedFileId` is
+proof-of-backup and is never rewritten retroactively). Removing it would restore the original bug for
+exactly the texts that already have it.
+
 Test: `test/artifact-links.test.mjs` pins that inferred artifacts are suppressed, that EXPLICIT
-per-kind artifacts still render with their Drive ids, and that the folder-listing rows and
-Download-all are untouched.
+per-kind artifacts still render with their Drive ids, that the folder-listing rows and Download-all
+are untouched, and now that the device reports the kind, stamps a merged map, keeps writing the
+legacy scalar, and that a modern report resolves to `inferred: false`.
 
 ## Engine-wide drift is worth watching — and modularisation (Seth, 2026-08-07)
 

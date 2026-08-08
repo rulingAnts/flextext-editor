@@ -16,7 +16,20 @@ that user should not be expected to be tech savvy enough to understand what that
 informed decision." A prompt on the device would ask a field worker to arbitrate a question that is
 not theirs, at the worst possible moment.
 
-## Read and edit .fxpa in the FlexText Editor without breaking the analysis (Seth, 2026-08-07)
+## ~~Read and edit .fxpa in the FlexText Editor without breaking the analysis~~ — CANCELLED (Seth, 2026-08-08)
+
+> *"We're moving away from editor able to read fxpa back. We don't actually want that. We don't want
+> PAT to export to FLEx or Editor. EAF maybe, in the future. So fxpa only imports in PAT. It's PAT's
+> save that can open in other PAT instances, or the same one."*
+
+**The flow is ONE-WAY:** `Editor ──.fxpa──▶ PAT ──PAT save──▶ PAT`. The editor's own transfer format
+is `.fxed` (`fxed-format-spec.md`), which can also *export* `.fxpa`. Nothing reads `.fxpa` back.
+
+Kept rather than deleted so it is not re-proposed — and because the hard part it names (keeping the
+tree's invariants across a line split/join) did not go away, it moved: it is now
+`plans/pat-one-tree-model.md`, where every unit is a line and `splitLine` already exists.
+
+### (cancelled — original entry)
 **Not started. Next up after the current settings work.**
 
 The editor should import a .fxpa, expose ONLY lines, free translations and glosses for editing, and

@@ -54,6 +54,29 @@ ok(panel.includes(`const fname = \`\${title || 'text'} - \${t(f.labelKey)}\``)
    && panel.includes(`.replace(/[\\\\/:*?"<>|]+/g, '_')`),
    'and that name is built from the text title and stripped of characters no filesystem accepts');
 
+console.log('\n⚠ PARKED: an INFERRED kind produces NO row — the guess was wrong in the field');
+/* Seth clicked "Bundle (.zip, includes audio)" and got raw flextext XML. uploadedMap()'s legacy
+ * branch guesses the kind from `hasAudio` alone — but hasAudio is ALSO true when the audio is a
+ * researcher-ASSIGNED Drive URL the device never uploaded, so the device had uploaded a bare
+ * .flextext while the row promised a zip with audio in it. */
+ok(/if \(f\.inferred\) continue;/.test(panel), 'the panel skips inferred artifacts');
+{
+  // Legacy scalar + hasAudio → the bad inference. It must still be MARKED inferred by the model...
+  const legacy = resolveArtifacts({ uploadedFileId: 'LEG123abc_456', hasAudio: true }, null);
+  ok(legacy.length === 1 && legacy[0].kind === 'bundle', 'resolveArtifacts still reports it (the model is unchanged)');
+  ok(legacy[0].inferred === true, '...flagged inferred, which is what the panel now filters on');
+}
+{
+  // ...and an EXPLICIT per-kind report is NOT inferred, so those rows survive untouched.
+  const explicit = resolveArtifacts({ uploaded: { bundle: 'REAL123abc_789', 'eaf-flex': 'EAF123abc_00' } }, null);
+  ok(explicit.length === 2, 'an explicit per-kind report still yields its artifacts');
+  ok(explicit.every((f) => f.inferred === false), '...none of them inferred, so none are suppressed');
+  ok(explicit.every((f) => !!f.id), '...and each still carries its Drive id for Worker routing');
+}
+// The rows that come from the Drive FOLDER LISTING are a different code path and untouched.
+ok(/data-drivefile="\$\{esc\(f\.id\)\}" data-fname/.test(panel), 'folder-listing rows still emit data-drivefile');
+ok(/data-zipall/.test(panel), 'and Download-all is untouched — it still fetches everything');
+
 console.log('\nthe handler that receives them is the SAME one the folder rows already use');
 ok(/const df = e\.target\.closest && e\.target\.closest\('\[data-drivefile\]'\);/.test(panel),
    'one delegated handler serves both kinds of row');

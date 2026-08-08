@@ -1249,6 +1249,25 @@ async function populateFilesMenu(wrap) {
   const item = bridge.ids.map((id) => findInventoryItem(iid, id)).find(Boolean);
   for (const f of resolveArtifacts(item, null)) {
     if (f.kind === 'audio' || claimed.has(f.kind)) continue;
+    /* ⚠⚠ PARKED (Seth, 2026-08-07): an INFERRED kind is a GUESS about what a legacy upload was, and
+     * the guess is wrong often enough to be worse than no row. Seth clicked
+     * "Bundle (.zip, includes audio)" and got raw flextext XML.
+     *
+     * Why: uploadedMap()'s legacy branch has only `hasAudio` to go on, and reasons "device uploads a
+     * ZIP when the text has audio attached". But `hasAudio` is ALSO true when the audio is a
+     * researcher-ASSIGNED Drive URL that the device never uploaded — his text's media-files block
+     * points at connect.flextext.app/drive — so the device uploaded a bare .flextext and the row
+     * promised a zip with audio in it.
+     *
+     * artifacts.js already predicted exactly this ("only the label could mislead"); what it got
+     * wrong was calling it harmless. Renaming the row to "Bundle (.zip)" in v304 made the false
+     * promise louder, not the bug newer.
+     *
+     * ⚠ NOT the fix, deliberately — the fix is for the DEVICE to report per-kind ids (the `uploaded`
+     * map uploadedMap already reads), which retires the inference instead of hiding it. Suppressing
+     * the row costs a legacy text nothing: the folder-listing rows above are REAL (they come from
+     * Drive itself), and Download-all still fetches everything. See plans/BACKLOG.md. */
+    if (f.inferred) continue;
     claimed.add(f.kind);
     /* ⚠ THROUGH THE WORKER WHEN WE HAVE AN ID (Seth, 2026-08-07: "the 'FlexText Editor' option on
      * our Files drop-down doesn't work"). A plain driveLink() href is a DIRECT browser request to

@@ -299,3 +299,58 @@ Three shapes, roughly in order of honesty:
 ⚠ Whatever is chosen, **the researcher must be able to see it and act on it.** A duplicated identity
 that only the worker knows about is the same class of problem as everything else this suite has hit
 this week: true, silent, and discovered late.
+
+## PARKED: the inferred "Bundle (.zip)" row promised a zip and delivered XML (2026-08-07)
+
+Seth clicked **"Bundle (.zip, includes audio)"** in the panel's Files menu and got raw `.flextext`
+XML. Row suppressed in v316; the underlying bug is NOT fixed.
+
+**Cause — a guess that artifacts.js itself predicted.** `uploadedMap()`'s legacy branch has only the
+old report's `hasAudio` flag to work with, and reasons *"the device uploads a ZIP when the text has
+audio attached, a bare .flextext otherwise"*. But `hasAudio` is ALSO true when the audio is a
+researcher-**ASSIGNED** Drive URL the device never uploaded — Seth's text's `media-files` block
+points at `connect.flextext.app/drive?src=…`. So the device had uploaded a bare `.flextext` while
+the row promised a zip with audio in it.
+
+artifacts.js already says *"only the label could mislead"* — what it got wrong was calling that
+harmless. Renaming the row to "Bundle (.zip)" in v304 made the false promise louder, not the bug
+newer.
+
+**What v316 does:** the panel skips any artifact with `inferred: true`. Costs a legacy text nothing —
+the folder-listing rows above it are REAL (they come from the Drive listing) and Download-all still
+fetches everything. `resolveArtifacts` is unchanged, so the model still reports the artifact and
+still flags it; only the UI declines to render a guess.
+
+**⚠ THE ACTUAL FIX is on the DEVICE, not in the panel.** `uploadedMap()` already reads an explicit
+per-kind `uploaded` map (`{bundle: id, 'eaf-flex': id, …}`) — the device just does not send one yet,
+so every older text falls back to the scalar `uploadedFileId` and the inference. Making the device
+report per-kind ids RETIRES the inference instead of hiding it, and un-parks the row for free.
+⚠ Both shapes must stay readable forever: field devices update on their own schedule.
+
+Test: `test/artifact-links.test.mjs` pins that inferred artifacts are suppressed, that EXPLICIT
+per-kind artifacts still render with their Drive ids, and that the folder-listing rows and
+Download-all are untouched.
+
+## Engine-wide drift is worth watching — and modularisation (Seth, 2026-08-07)
+
+> "Latent drifts like that (engine wide things that are in the editor code) are worth keeping an eye
+> on. Modularizing our code (shared, engine, various apps, etc) is worth thinking about doing as it
+> makes sense (but carefully, and well planned/tested first)."
+
+**The live example, found in the v315 release audit:** v305 made the editor's language picker derive
+from `LANGS`, but `setup()` returns early for `RECORD_MODE` **before** `fillLangPickers()` runs — and
+`satellites/text-recorder/index.html` and `satellites/crowd-recorder/index.html` each carry their own
+`<select id="lang-select">` with hardcoded `en`/`id` options. Nothing is broken today because
+hardcoded en/id happens to equal `LANGS` exactly. The moment a third language completes, the editor
+gains it and the recorders silently do not — the gating rule leaking round the side.
+
+That is the shape to watch for: **a rule enforced in `app.js` that the satellites reach by a
+different path, or not at all.** Others of the same shape worth auditing when this is picked up:
+`applyI18n` coverage, `allowedButtons`, and anything gated on `RECORD_MODE`/`CROWD_MODE` early
+returns.
+
+On modularisation: the honest constraint is that `app.js` is BOTH the editor and the satellites'
+engine, and the early-return-per-mode pattern is how one file serves four apps. A split (shared
+core / editor / recorder / crowd) would make drift structurally visible rather than something to
+remember — but it touches every sw.js SHELL and the v108 outage is what happens when that goes
+wrong. Plan and test first, exactly as Seth says.

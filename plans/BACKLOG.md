@@ -42,7 +42,22 @@ write it back with the paragraph-analysis tree as close to untouched as possible
   dangling ids) true across a line split/join — checkInvariants and repairDocument already exist in
   paragraph-model.js and are the natural seam.
 
-## ⚠ CONFIRMED: a deleted line's GUID gets adopted by an unrelated new line — and FLEx honours GUIDs (2026-08-08)
+## ✅ FIXED in v320 — a deleted line's GUID was adopted by an unrelated new line (FLEx honours GUIDs) (2026-08-08)
+
+**Implemented** as `sameLineText()` in `flextext.js`, gating `attrs` on the one fuzzy-pair line of
+`reconcileBaseline`. `test/guid-identity.test.mjs` (34th suite) pins every rule below, including the
+measured similarity rows, split/join, and that the transcriber's glosses still carry when identity
+does not. Negative control: reverting the gate fails exactly the four bug assertions.
+
+Cost measured, median-of-9: **+7 ms** on a 500-line suffix edit (the whole-word-prefix rule short-
+circuits the DP) and **+37 ms** on a 500-line wholesale replacement. Single-line editing — what
+typing actually does — runs one comparison. Blast radius is one file: no new import, so **no sw.js
+SHELL change and no satellite impact**, and PAT never calls `reconcileBaseline`.
+
+The diagnosis and the reasoning behind the design are kept below, because the threshold is tunable
+and whoever tunes it needs them.
+
+### (as diagnosed)
 
 **Seth, 2026-08-08: "FLEx honors an incoming guid."** That settles the question below and makes this
 actionable. Two consequences, one good and one not:
@@ -119,7 +134,7 @@ The whole bug is that `attrs: old.attrs` does all three at once. Separate them:
 |---|---|
 | **user work** (`carryWords`, `free`, `freeLang`) | **always carry.** It is word-matched, so it degrades gracefully, and it is the user's typing. |
 | **`guid`** | **gated** on the similarity test above. |
-| **`begin`/`end-time-offset`** | **never carry.** Same `attrs` object, same drift, and a stale offset is a false alignment. |
+| **`begin`/`end-time-offset`** | **the same gate.** ⚠ Revised during implementation: an earlier draft here said *never carry*. That is incoherent — "is this the same line?" is one question and must have one answer. A line edited in place is the same stretch of audio retyped and should keep its alignment; a line that merely inherited the slot must not. Both now ride `sameLineText`. |
 
 ### ⚠ Notes for whoever implements it
 

@@ -602,9 +602,15 @@ export function reconcileBaseline(doc, paragraphTexts, opts = {}) {
     const tokens = tokenize(ns.text);
     const words = old ? carryWords(old.words, tokens) : tokens.map(t => makeWord(t.txt, { punct: t.punct }));
     const seg = makeSegment(ns.text, words, old ? {
+      // USER WORK always carries — it is word-matched (carryWords), so it degrades gracefully, and
+      // it is what the transcriber typed. Only IDENTITY is gated.
       free: old.free, freeLang: old.freeLang,
       preItemsXML: old.preItemsXML, postItemsXML: old.postItemsXML,
-      attrs: old.attrs,
+      /* ⚠ IDENTITY, GATED — see sameLineText. `attrs` carries the FLEx `guid` AND any imported
+       * begin/end-time-offset, so handing it to a line that merely inherited this slot both
+       * mis-identifies it to FLEx and gives it a false alignment. `undefined` makes makeSegment
+       * mint a fresh guid — exactly right for a line that is genuinely new. */
+      attrs: sameLineText(old.baseline, ns.text) ? old.attrs : undefined,
     } : {});
     if (old && old.txtLang) seg.txtLang = old.txtLang;
     return { seg, para: ns.para };
@@ -622,6 +628,70 @@ export function reconcileBaseline(doc, paragraphTexts, opts = {}) {
   doc.paragraphs = newParas.map(p => { delete p.segTexts; return p; });
   if (!doc.paragraphs.length) doc.paragraphs.push({ guid: newGuid(), segments: [] });
   return doc;
+}
+
+/* ⚠ IS A FUZZY-PAIRED OLD LINE THE SAME LINE, EDITED — OR A DIFFERENT LINE THAT LANDED IN ITS SLOT?
+ *
+ * reconcileBaseline's pass 2 pairs leftover-old to unmatched-new BY POSITION, with no notion of
+ * whether they resemble each other. That is right for carrying the transcriber's GLOSSES (carryWords
+ * is word-matched and degrades gracefully) and wrong for carrying IDENTITY.
+ *
+ * ⚠ Because FLEx HONOURS an incoming guid (Seth, 2026-08-08), a mis-assigned guid is not cosmetic:
+ * on re-import FLEx UPDATES the object that guid names, silently re-attaching FLEx-side glossing and
+ * analysis to different text. Demonstrated before this gate existed — editing `one/two/three` into
+ * `two/three/four` handed the brand-new "four" the DELETED "one"'s guid.
+ *
+ * ⚠ Why not simply mint a fresh guid on every fuzzy pair — the obvious reading of "added lines get
+ * new guids", and wrong: pass 2 ALSO catches an ordinary edit-in-place. Fix a typo in line 5 of 20
+ * and LCS matches the other 19, so line 5 lands here exactly like the four/one case. Minting
+ * unconditionally would give every typo fix a new FLEx object and orphan its glossing — a worse
+ * regression than the bug. Hence a similarity gate (Seth: "I agree with the similarity gate").
+ *
+ * ⚠ THE MEASURED WINDOW IS NARROW, which is why the whole-word-prefix rule below is NOT optional:
+ *
+ *     "one"          -> "four"           0.25   different line -> fresh
+ *     "dia pergi"    -> "dia makan"      0.44   different line -> fresh
+ *     "alpha beta"   -> "alpha"  (SPLIT) 0.50   SAME line      -> keep
+ *     "cat"          -> "cot"            0.67   same line      -> keep
+ *     "the dog run"  -> "the dog runs"   0.92   same line      -> keep
+ *
+ * The split case sits exactly ON the threshold. Recognising a whole-word prefix directly takes
+ * split/join out of the threshold's hands entirely, so SAME_LINE_MIN can be retuned later without
+ * silently regressing them. test/guid-identity.test.mjs pins every row above. */
+const SAME_LINE_MIN = 0.5;
+const CMP_CAP = 256;   // bound the O(n*m) DP: a long paragraph must not turn an edit into a freeze
+
+// A split or join leaves one side a WHOLE-WORD prefix of the other ("alpha beta" <-> "alpha").
+// Requiring the space guards against "a" matching inside "abc".
+function wordPrefix(a, b) {
+  const [s, l] = a.length <= b.length ? [a, b] : [b, a];
+  return s.length > 0 && l.startsWith(s) && l[s.length] === ' ';
+}
+
+function levCapped(a, b) {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+export function sameLineText(a, b) {
+  let x = String(a ?? '').replace(/\s+/g, ' ').trim();
+  let y = String(b ?? '').replace(/\s+/g, ' ').trim();
+  if (x === y) return true;                 // includes blank -> blank: a silence marker kept as one
+  if (!x || !y) return false;               // blank <-> text is a different line, not an edit
+  if (wordPrefix(x, y)) return true;
+  // lev is never less than the length difference, so hopeless pairs are rejected without the DP.
+  const hi = Math.max(x.length, y.length), lo = Math.min(x.length, y.length);
+  if (1 - (hi - lo) / hi < SAME_LINE_MIN) return false;
+  if (x.length > CMP_CAP) x = x.slice(0, CMP_CAP);
+  if (y.length > CMP_CAP) y = y.slice(0, CMP_CAP);
+  return 1 - levCapped(x, y) / Math.max(x.length, y.length) >= SAME_LINE_MIN;
 }
 
 // Word-level carry-over inside a changed segment: LCS over token text, where a

@@ -221,6 +221,36 @@ folder naming its own Worker, and no two folders targeting the same Worker name.
 `productionWeb` push, with the same ordering guard (editor live first, every precached path verified
 200, then the mirrors).
 
+## 🚩 CORE DESIGN PRINCIPLE: modularize what is app-specific, generalize what is shared (Seth, 2026-08-08)
+
+> *"With our suite, in general we should move toward modularizing whatever is app specific and
+> generalizing things (whether back end or GUI) that are likely to be used by multiple apps in the
+> suite. That's just a core design principle."*
+
+**The suite is ONE engine wearing different faces.** Every satellite is a 59–141 line shell that
+loads THIS repo's `js/app.js`; what makes them different apps is a `window.__MODE` flag plus their
+own PWA identity (`sw.js`, manifest `id`/`scope`, icons). PAT is the one that also carries engine
+modules of its own (`paragraph-model.js`, `paragraph-ui.js`) and its own data model.
+
+So when adding or changing anything, ask which of two things it is:
+
+- **App-specific** → it belongs behind a `__MODE` branch or in its own module, not sprinkled through
+  shared code. The model to copy is `js/native-audio.js`: one chokepoint, inert everywhere else,
+  with a script (`check-native-containment.sh`) that FAILS if the boundary leaks.
+- **Likely useful to more than one app** → generalize it, engine-side, once. Backend and GUI alike.
+
+⚠ **The corollary that bites: a change to shared code changes every app at once.** Before touching
+anything in `docs/js/`, know its blast radius and say so. Two questions answer most of it:
+- Does it add a top-level `import` to `js/app.js`? Then it is a new SHELL entry in the editor **and
+  every satellite `sw.js`**, in the same commit — that is the v108 outage.
+- Which apps actually reach the code path? (`reconcileBaseline` lives in the engine, but only the
+  editor's baseline editing calls it and PAT never does — so v320's guid gate was one file, no SHELL
+  change, zero satellite impact. That is the kind of answer to have BEFORE merging, not after.)
+
+⚠ **Generalize on the second use, not the first.** A premature abstraction spanning five apps is far
+more expensive to unpick than a duplicated function, because unpicking it means touching all five.
+The live example is in `plans/BACKLOG.md` under *"Engine-wide drift is worth watching"*.
+
 ## Developer documentation
 
 **`DEVELOPERS.md` (repo root) is the contributor/adopter-facing technical documentation** —

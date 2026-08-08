@@ -127,6 +127,68 @@ silent.
 (PAT → FLEx, PAT → Editor) remain dead; this is a different feature that happens to want a similar
 container. Future plan, per Seth.
 
+### The container: Seth's XML proposal, and the one thing that argues against it
+
+> *"Basically fxpe would be flextext with embedded audio. And it could be XML-based and not JSON,
+> basically just actual flextext XML including audio segmentation attributes our app already uses,
+> plus a slightly adjusted header and XML element that embeds the audio binary data as base64 string
+> (if XML supports that)"*
+
+**Yes, XML supports it** — base64 is plain text, and `xs:base64Binary` is a standard schema type. No
+obstacle there. And the proposal's real strength is that **the parser is already written**:
+`parseFlextext()` reads the structure, the segmentation offsets already round-trip, and only the
+audio element would be new. Inventing a JSON shape would throw that away.
+
+⚠ **The cost is memory, and it is worse in XML than in JSON.** `DOMParser.parseFromString()` needs
+the ENTIRE document as one JS string before it builds anything, and JS strings are UTF-16:
+
+| a 6-minute mono 24-bit 48 kHz WAV | |
+|---|---|
+| raw | ~104 MB |
+| base64 (+33%) | ~139 MB |
+| as a JS string (×2, UTF-16) | **~278 MB**, before the DOM makes its own copy of the text node |
+
+That is a normal field recording, and that is a crash on a phone. `.fxpa` has the same exposure via
+`JSON.parse`, and it works today — but `.fxpa` files are made from the same recordings, so this is a
+limit already being approached rather than one being invented.
+
+### The alternative that reuses even more and dodges the wall entirely: make it a ZIP
+
+`.docx`, `.odt`, `.epub` are all zips with a distinct extension. The suite already has `makeZip()`,
+and **the save bundle is already 90% of this file** — flextext + audio + receipts, with segment
+times riding as offsets. `.fxed` would be that bundle plus a `manifest.json` carrying the doc record
+(title, timestamps, `done`, `audioSource`, `audioLocked`, capture provenance, `driveFolderId`).
+
+| | XML + base64 | ZIP |
+|---|---|---|
+| audio overhead | **+33%** | none (stored raw) |
+| peak memory to read | whole file as UTF-16 string, then a DOM | one entry at a time |
+| code to write | new audio element + writer; parser reuse ✅ | `makeZip` exists; a READER does not (zip.js is write-only) |
+| inspectable | in principle — but no editor opens a 139 MB file | unzip it and read the `.flextext` directly |
+| precedent | `.fxpa` | `.docx` / `.odt` / `.epub`, and our own bundle |
+
+The reader is the honest cost of the zip route: `docs/js/zip.js` exports `makeZip` and nothing else,
+so a store-only (no deflate) reader would need writing — perhaps 60 lines, and it would ALSO unlock
+the "flatten inner bundles" fix in the panel's Download-all.
+
+**Recommendation: ZIP.** It reuses more of what exists, has no size cliff, and is the more genuinely
+inspectable of the two. If XML is preferred for other reasons, it is still workable — but the size
+limit should then be enforced at export with a clear message, not discovered by a field user whose
+phone reloads the tab.
+
+### ⚠ Whatever the container: it must not be mistakable for a real `.flextext`
+
+If it keeps the flextext root element and merely adds a child, someone will eventually hand it to
+FLEx — which will either reject it or import it while silently dropping the audio, and the user will
+conclude the recording was lost. A distinct extension is necessary but not sufficient: use a
+distinct root element or namespace too, so the file identifies itself by its CONTENT and not only by
+its name.
+
+### Naming
+
+Both `.fxed` and `.fxpe` have been used for this in conversation. Worth settling on one — `.fxed`
+reads as "FlexText EDitor", which matches what it is (a transfer between Editor installs).
+
 ### What the lock-in concern becomes instead
 
 The concern was real even though the answer was wrong. If no standard format can hold SSA, then the

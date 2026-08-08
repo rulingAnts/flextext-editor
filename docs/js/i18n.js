@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v314';
+export const ENGINE_VERSION = 'v315';
 
 const S = {
 en: {

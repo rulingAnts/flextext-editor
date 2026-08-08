@@ -300,7 +300,53 @@ Three shapes, roughly in order of honesty:
 that only the worker knows about is the same class of problem as everything else this suite has hit
 this week: true, silent, and discovered late.
 
+## PARKED: the whole Files ▾ drop-down is HIDDEN (Seth, 2026-08-08) — supersedes the row-level park below
+
+> "The download files function is kind of all out of whack and needs more attention. I pushed it
+> before it was really working. For now let's hide that drop-down and let researchers go to Google
+> Drive directly until I have time to really develop that feature."
+
+**How:** `const FILES_MENU_ENABLED = false;` in researcher-panel.js, read by `filesMenuHtml` (which
+early-returns `''`, so BOTH call sites — device rows and History rows — go dark from one flag) and by
+`histHasMenu()`. Flip it to `true` to bring the whole feature back.
+
+**⚠ Hidden, NOT deleted.** `populateFilesMenu`, `latestPerKind`, `cleanupCandidates`,
+`downloadAllZip`, the `data-zipall` / `data-cleanup` handlers and all their tests stay live and
+correct. Do not "clean up" the now-unreachable code — it is the feature being deferred, not removed,
+and deleting it turns a one-line restore into a rewrite.
+
+**⚠ The trap that hiding it nearly sprang.** On History rows the plain audio + last-upload links were
+gated on `!(e.instanceId && e.docId)` — meaning *"the menu is showing instead of me"*. Hiding the
+menu without touching that gate would have left those rows with **no link at all**, silently removing
+more than the drop-down. Both now read `!histHasMenu(e)`, which is tied to the flag, so hiding the
+menu restores exactly the pre-menu behaviour. `test/artifact-links.test.mjs` pins this, including
+that the old raw condition is gone (leaving one behind is how a row ends up empty).
+
+**What researchers lose meanwhile:** per-file download from a text's Drive folder, Download-all, and
+the older-backup cleanup. All three are reachable in Drive itself, which is the interim answer.
+
+**Why not replace it with an "Open in Drive" link:** the per-text folder id is not in the inventory
+report — the device stamps `driveFolderId` on the doc but does not send it — so a folder link would
+need the same Worker round-trip the menu already makes, and a link built from anything else would be
+another link that looks authoritative and may not resolve. That is the failure being backed out of,
+so it is not the fix. Reporting `driveFolderId` in the inventory is the cheap enabler if a direct
+folder link is wanted before the menu returns.
+
+**When picking this back up — the design problem to solve, not just the bugs:** the menu mixes rows
+of genuinely different reliability and does not tell the person clicking which is which. Folder rows
+fetch through the Worker on the researcher's stored token and work. `resolveArtifacts` rows are plain
+Drive hrefs authenticated by whatever Google session the browser holds. Half a menu working is worse
+than none of it working, because the failure looks like the app is broken rather than like the link
+was never real. v317 (branch `fix-artifact-kinds-and-fxpa-stamp`) fixes one input to that — the
+device now reports which KIND it uploaded instead of the panel inferring it — and is worth keeping
+regardless, because it makes the data correct for whenever the menu returns.
+
 ## PARKED: the inferred "Bundle (.zip)" row promised a zip and delivered XML (2026-08-07)
+
+⚠ **Superseded by the entry above — the whole menu is hidden as of v318, so this row is doubly
+unreachable.** Kept because the diagnosis is still the live one, and the row-level suppression is
+still what protects legacy texts if the menu is ever restored before the device-side fix ships.
+
 
 Seth clicked **"Bundle (.zip, includes audio)"** in the panel's Files menu and got raw `.flextext`
 XML. Row suppressed in v316; the underlying bug is NOT fixed.

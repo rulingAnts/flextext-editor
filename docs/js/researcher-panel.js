@@ -1119,11 +1119,40 @@ function openDlMenu(wrap) {
   wrap.classList.add('is-open');
   openDl = wrap;
 }
+/* ⚠⚠ THE FILES ▾ MENU IS HIDDEN (Seth, 2026-08-08). Flip this to true to bring it back.
+ *
+ * "The download files function is kind of all out of whack and needs more attention. I pushed it
+ *  before it was really working. For now let's hide that drop-down and let researchers go to Google
+ *  Drive directly until I have time to really develop that feature."
+ *
+ * The menu mixes rows with genuinely different reliability and does not distinguish them for the
+ * person clicking: folder-listing rows fetch through the WORKER on the researcher's stored token
+ * and work; the resolveArtifacts rows are plain Drive hrefs authenticated by whatever Google
+ * session the browser happens to hold, and are dead when it holds the wrong one. On top of that,
+ * the legacy `bundle` row was an INFERENCE that promised a zip and served XML (parked in v316).
+ * Half of it works, which is worse than none of it working, because there is no way to tell from
+ * the menu which half you are clicking.
+ *
+ * ⚠ HIDDEN, NOT DELETED — every function below stays live and tested so this is one flag to
+ * restore. Do not "clean up" the unreachable code; it is the feature being deferred, not removed.
+ * ⚠ The History rows below RESTORE their plain audio/upload links when this is false. They were
+ * suppressed only because the menu superseded them, so hiding the menu without that would take a
+ * working link away too — see the call site. What it does NOT restore is per-file download from a
+ * text's Drive folder: that is deliberate, and the researcher opens Drive themselves meanwhile.
+ *
+ * Picking this back up: plans/BACKLOG.md, "the Files drop-down". */
+const FILES_MENU_ENABLED = false;
+
 /* The Files ▾ control, renderable ANYWHERE a text appears (device rows, History entries). The menu
  * body is a placeholder that populates from the text's Drive FOLDER on first open — the folder is
  * the source of truth for what artifacts exist, so History entries show the same live menu the
  * device row does instead of a snapshot frozen at event time. */
+// Does this History entry actually get a Files ▾ menu? The one predicate both the menu and the
+// plain-link fallback read, so they can never both be hidden (or both shown) by accident.
+function histHasMenu(e) { return FILES_MENU_ENABLED && !!(e.instanceId && e.docId); }
+
 function filesMenuHtml(instanceId, docId, title, audioUrl, fileId) {
+  if (!FILES_MENU_ENABLED) return '';
   if (!docId) return '';
   const au = /^https?:\/\//i.test(String(audioUrl || '')) ? audioUrl : '';
   return `<span class="rp-dl" data-fmenu data-i="${esc(instanceId)}" data-id="${esc(docId)}" data-title="${esc(title || '')}" data-audio="${esc(au)}" data-fileid="${esc(fileId || '')}">
@@ -2558,8 +2587,13 @@ function historyModal() {
         <div class="rp-hist-links">
           ${e.instanceId && e.docId ? filesMenuHtml(e.instanceId, e.docId, e.title || '', e.audioUrl, e.fileId) : ''}
           ${kind === 'deleted' && e.instanceId && e.docId ? `<button class="link-btn rp-revoke rp-histclean" data-histclean data-i="${esc(e.instanceId)}" data-id="${esc(e.docId)}" data-title="${esc(e.title || '')}">${esc(t('panel.hist.removeFolder'))}</button>` : ''}
-          ${audio && !(e.instanceId && e.docId) ? `<a href="${esc(audio)}" target="_blank" rel="noopener noreferrer">${esc(t('panel.hist.audioLink'))}</a>` : ''}
-          ${up && !(e.instanceId && e.docId) ? `<a href="${esc(up)}" target="_blank" rel="noopener noreferrer">${esc(t('panel.hist.uploadLink'))}</a>` : ''}
+          ${/* ⚠ `!hasMenu`, NOT `!(instanceId && docId)`. These plain links predate the Files menu and
+                were suppressed only because the menu SUPERSEDED them — so with the menu hidden
+                (FILES_MENU_ENABLED === false) that same condition would leave a History row with no
+                link at all, silently removing more than the drop-down. Tied to the flag, hiding the
+                menu restores exactly the pre-menu behaviour and nothing else. */''}
+          ${audio && !histHasMenu(e) ? `<a href="${esc(audio)}" target="_blank" rel="noopener noreferrer">${esc(t('panel.hist.audioLink'))}</a>` : ''}
+          ${up && !histHasMenu(e) ? `<a href="${esc(up)}" target="_blank" rel="noopener noreferrer">${esc(t('panel.hist.uploadLink'))}</a>` : ''}
         </div>
       </li>`;
     }).join('')}</ul>`;

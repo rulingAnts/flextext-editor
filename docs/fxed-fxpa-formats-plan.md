@@ -57,54 +57,75 @@ directly. So half the proposed matrix is already built — and the other half is
 
 ---
 
-## The direction that actually matters is not PAT → Editor. It is PAT → FLEx
+## ⚠ CORRECTION: there is no PAT → FLEx, and that changes the conclusion
 
-Seth is right that once PAT can edit content and split/join, nobody needs to go back to the Editor
-*to keep working*. But that is not why the export matters:
+I argued that PAT needed a `.flextext` export so analysis could return to FLEx. **Seth: "Analysis
+done in PAT actually CAN'T go to FLEx, at least not the paragraph/ssa analysis that the whole app
+exists to do. FLEx won't support that."**
 
-1. **FLEx is the destination.** The analyst's work has to land back in FLEx, or in an archive that
-   accepts a standard format. `.flextext` is what FLEx imports; `.fxpa` is not, and never will be.
-   Without a `.flextext` export from PAT, **analysis done in PAT can never return to FLEx** —
-   which makes PAT a place where work goes and does not come back.
-2. **`.fxpa` is a lock-in risk.** It is our JSON, read by one app we maintain. If PAT is abandoned,
-   unavailable offline, or broken by a bad release, a `.fxpa`-only analysis is stranded. A standard
-   export is the insurance policy — and for the SIL/Payap adopters this suite is aimed at, "can we
-   get our data out without your software" is a procurement question, not a nicety.
-3. **The Editor is a fine consumer, incidentally**, since it already opens `.flextext`. That falls
-   out for free rather than being designed for.
+That is decisive, and it kills the argument rather than qualifying it. A `.flextext` export from PAT
+would not be "lossy but useful" — it would drop **precisely the thing PAT exists to produce**. An
+export that discards the product is not an escape hatch; it is a transcription with extra steps.
 
-⚠ **The lossy direction must be labelled as lossy.** A `.flextext` exported from PAT necessarily
-drops the tree and the propositions — there is nowhere in FLEx's schema to put a semantic-analysis
-bracket. So the export must say so ("groups and propositions are not carried into FLEx; keep the
-`.fxpa` as the analysis of record"), and PAT should keep the `.fxpa` alongside rather than treating
-the export as a save.
+So both rationales I offered for `.fxed` are now gone:
 
----
+- ~~PAT → FLEx round trip~~ — impossible in principle. FLEx has no schema for a semantic-analysis
+  bracket, and will not grow one for us.
+- ~~PAT → Editor round trip~~ — Seth: unnecessary once PAT can edit content and split/join.
 
-## The matrix, if `.fxed` is dropped
+**Conclusion: do not build `.fxed`.** There is no direction it serves. If a use case appears later
+it can be argued then, against this record.
+
+### What the lock-in concern becomes instead
+
+The concern was real even though the answer was wrong. If no standard format can hold SSA, then the
+answer is not "export to a standard" — it is **make `.fxpa` itself durable**:
+
+- an OPEN, documented, versioned schema — `FXPA_FORMAT`, `FXPA_VERSION`, `validateFxpa()` already
+  exist, and the whole engine is AGPL, so the format is readable by anyone who wants to write a
+  reader;
+- ⚠ what is missing is the DOCUMENT. The schema lives only in `paragraph-model.js`. For the
+  SIL/Payap adopters this suite is aimed at, "here is the format spec" is the answer to "what
+  happens if you stop maintaining this", and it does not exist yet. **That is the deliverable the
+  `.fxed` idea was really reaching for**, and it is a page of Markdown rather than a new format.
+
+### ⚠ AND A CONSEQUENCE WORTH FACING: PAT BECOMES TERMINAL
+
+If the analysis can go nowhere else, then **the `.fxpa` is the only copy of work that may represent
+many hours**, held in one browser origin's storage, with:
+
+- no researcher-panel sync (that is the editor/recorder estate, not PAT);
+- no upload path;
+- the same "clear site data and it is gone" exposure every browser app has.
+
+The editor mitigates this with uploads, auto-backup and the Drive estate. **PAT has none of it.**
+That is not a formats question, but it is the risk the formats question was standing in front of,
+and it is worth its own plan: at minimum an explicit "save your `.fxpa`" discipline, at most a sync
+path of its own.
+
+## The matrix, as it should stand
 
 | | `.flextext` | `.fxpa` | `.eaf` |
 |---|---|---|---|
-| **Editor** | import ✅ · export ✅ | export ✅ · **import ✗** (Seth: correct — the Editor has nowhere to put a tree) | export ✅ |
-| **PAT** | import ✅ · **export — THE GAP** | import ✅ · export ✅ | import ✅ |
+| **Editor** | import ✅ · export ✅ | export ✅ · **import ✗** (correct — nowhere to put a tree) | export ✅ |
+| **PAT** | **import ✅ (already works)** · export ✗ *(and no longer wanted)* | import ✅ · export ✅ | import ✅ |
 
-One cell to fill. `serializeFlextext` is already pure and lives in `flextext.js`, which PAT loads.
-
-## The matrix, if `.fxed` is kept
-
-Then it needs a purpose the table above cannot serve, and a written answer to "why not extend
-`.flextext`". If that answer exists it should be recorded here before any code — a third format in
-a suite that already has two is a permanent tax on every export path, every test, and every
-adopter's documentation.
+**Nothing to build.** Data flows FLEx → Editor → PAT, and PAT is where analysis lives. The one
+direction Seth confirmed is useful — FLEx → PAT — is already supported: `paragraph-ui.js` accepts
+`.flextext` and reads it directly.
 
 ---
 
 ## Questions
 
-1. **Is there something `.fxed` must carry that `.flextext` cannot?** If yes, what — that is the
-   whole decision. If no, I would drop `.fxed` and add the PAT `.flextext` export instead.
-2. **Should PAT's `.flextext` export be "Export for FLEx"** rather than "Export .flextext"? It names
-   the actual purpose, and makes the lossiness warning land where it is understood.
-3. **Does the Editor's inability to import `.fxpa` need saying out loud** when a user tries? Right
-   now the file picker simply will not accept it, which reads as "broken" rather than "wrong app" —
-   the same standing rule as every other disabled control.
+1. ✅ ~~Is there something `.fxed` must carry that `.flextext` cannot?~~ **Moot — `.fxed` has no
+   direction left to serve. Recommend not building it.**
+2. **Is a written `.fxpa` format spec worth a page?** I think yes, and that it is what the `.fxed`
+   idea was actually reaching for — the answer to an adopter asking "what if you stop maintaining
+   this". Cheap: the schema already exists in code and is already validated and versioned.
+3. **PAT is now terminal for analysis. What is the durability plan?** No sync, no upload, no
+   backup — one browser origin holding the only copy of hours of work. This is the biggest thing
+   the formats discussion surfaced and it deserves its own plan.
+4. **Does the Editor's inability to import `.fxpa` need saying out loud** when a user tries? The
+   file picker simply will not accept it, which reads as "broken" rather than "wrong app" — the
+   same standing rule as every other disabled control.

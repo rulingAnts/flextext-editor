@@ -73,8 +73,59 @@ So both rationales I offered for `.fxed` are now gone:
   bracket, and will not grow one for us.
 - ~~PAT → Editor round trip~~ — Seth: unnecessary once PAT can edit content and split/join.
 
-**Conclusion: do not build `.fxed`.** There is no direction it serves. If a use case appears later
-it can be argued then, against this record.
+~~**Conclusion: do not build `.fxed`.**~~ — **SUPERSEDED THE SAME DAY. Seth found the use case
+neither of us had, and it is a good one:**
+
+> *"our proprietary json format embeds the audio. Which is a useful thing to be able to do. And it is
+> useful to be able to move work (with ALL text-specific browser storage) from one FlexText Editor
+> app install to another (as long as the writing system codes match…)"*
+
+⚠ **THIS IS A TRANSFER FORMAT, NOT A DOCUMENT FORMAT**, and the distinction is what makes it
+legitimate rather than a third interchange format. `.flextext` remains the interchange and archival
+format — the thing FLEx and ELAN read, and the thing the no-proprietary-sidecar rule is about.
+`.fxed` would be a SUITCASE: one file that moves one text, entire, between two installs of the same
+app. Nothing else in the suite can do that, because:
+
+- **`.flextext` cannot embed audio.** It references a media file BY NAME (`<media-files>`), so a
+  `.flextext` alone is a text that has lost its recording. `.fxpa` already embeds audio, which is
+  exactly the precedent Seth is pointing at.
+- **The save bundle is close but not sufficient.** The `.zip` already carries flextext + audio +
+  consent receipt + EAFs, and segment times ride as offsets — so most of the *document* travels
+  today. What does NOT travel is the DOC RECORD: title, created/modified, `done`, `audioSource`,
+  `audioLocked`, `capture` (the recording provenance), `consentReceipt`, `driveFolderId`. Losing
+  those turns a moved text into a text that looks the same and has forgotten where it came from.
+
+### ⚠ What must NOT travel, and this is the important half
+
+A suitcase that carries too much re-creates the two-sources-of-truth problem in a new place:
+
+- **device settings** — the receiving install has its own, chosen for that device and that worker.
+  A transfer that overwrote them would be the invite-link override, unannounced.
+- **pairing / session** — a session belongs to a device, not a text. Carrying it would clone an
+  identity.
+- **upload queue state** — the destination has a different worker target and a different queue.
+
+The rule that falls out: **`.fxed` carries the TEXT and its media. It never carries the DEVICE.**
+
+### Writing systems: the capability is already built
+
+Seth: *"as long as the writing system codes match and adding the ability to check and adjust that one
+way or another isn't difficult"*. It is not difficult, because it already exists and ships in both
+apps: `flextext.js` exports **`surveyWritingSystems(xmlString)`** and
+**`remapWritingSystems(dom, mappings)`**, used today by the editor's Utilities checker and by the
+researcher panel. An import would survey the incoming codes against the destination's settings and
+offer the same remap UI that already exists — no new machinery, just a new caller.
+
+### ⚠ One thing to decide before building: consent receipts are personal data
+
+A `consentReceipt` carries a best-effort IP/location capture. Moving it between the researcher's own
+installs is unremarkable; a `.fxed` handed to someone else is a transfer of a speaker's data. Either
+the export asks, or receipts are excluded by default with an explicit opt-in — but it should not be
+silent.
+
+**Revised conclusion: `.fxed` is worth building, as a transfer format only.** The original rationales
+(PAT → FLEx, PAT → Editor) remain dead; this is a different feature that happens to want a similar
+container. Future plan, per Seth.
 
 ### What the lock-in concern becomes instead
 

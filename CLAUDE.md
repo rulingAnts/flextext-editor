@@ -95,12 +95,24 @@ silently did not ship.
 and in what state. Two clean observations would turn this into a real rule; until then this section
 is deliberately agnostic.
 
-⚠ **This bit on the v318 release (2026-08-08)** — `main` was pushed at 05:18 and `productionWeb`
-seconds later, on the mistaken belief that going second made production the survivor. The Pages
-estate shipped fine (its workflow has its own gate), so *nothing looked wrong*: the satellites
-published green and the legacy site served v318. Only the Cloudflare estate — where NEW users are
-sent — was left in doubt. **A green satellite workflow says nothing about Cloudflare**; they are
-independent estates off the same push, and only one of them has a gate.
+#### Observations so far — the skip is INTERMITTENT, not deterministic
+
+| release | what was done | outcome |
+|---|---|---|
+| v318 (2026-08-08) | `main` pushed 05:18:13, `productionWeb` seconds later | **Every Cloudflare site deployed from `productionWeb`** — verified by Seth on the dashboard across all Workers built from this repo. Pages + all three satellite mirrors green too. |
+
+⚠ **So v318 was NOT a broken release** — do not read the caution above as a post-mortem of one. It
+records a failure mode Seth has *seen*, which v318 then did not reproduce despite being pushed in
+exactly the risky pattern. That is the worst kind of hazard to reason about: it lets a bad habit look
+safe for several releases before it costs one. Keep spacing the pushes and keep verifying; the reason
+is the tail, not the average.
+
+⚠ **What made v318 hard to judge from inside the release**, and is the durable lesson: the Pages
+estate has its own gate (`sync-satellites.yml` waits for the live editor to serve the pushed version
+and 200-checks every precached path before publishing), so it shipped green and *nothing looked
+wrong*. Cloudflare has no equivalent gate. **A green satellite workflow says nothing about
+Cloudflare** — they are independent estates off the same push, and only one of them can fail loudly.
+Check the dashboard; do not infer one estate from the other.
 
 **Do NOT push to `productionWeb` without the maintainer's explicit OK.** It's the
 live site that real users (field translators in the village) load — a broken push

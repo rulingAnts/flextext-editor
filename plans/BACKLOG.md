@@ -88,10 +88,60 @@ Pass 2 exists to preserve **user work** (glosses, free translation) across an ed
 also transfers **identity** — and, incidentally, imported `begin/end-time-offset`. Three things, one
 assignment. Separating "keep the user's glosses" from "this is the same object" is the fix.
 
-⚠ **The trade-off needs a decision, not a patch.** Minting a fresh guid in pass 2 fixes the drift but
-makes a *retyped* line a new FLEx object; inheriting fixes that but keeps the drift. A similarity
-threshold gets both, at the cost of a tuning knob. **Do not pick one without deciding what should
-happen in FLEx when a line is retyped wholesale.**
+### ✅ DECIDED (Seth, 2026-08-08): keep FLEx's `guid` attribute, gate its inheritance on similarity
+
+> *"I think what we should use is FLEx's guid attributes in flextext, but we should be extra careful
+> to make sure we're not falsely applying old guids to deleted/added items… if the user deletes and
+> re-adds something, it gets a new guid. Lines that get deleted or manually added in FlexText Editor
+> should get brand new guids."* — then, on the gate: *"I agree with the similarity gate."*
+
+**Why a gate and not simply "pass 2 always mints fresh".** Pass 2 cannot currently tell *deleted and
+re-added* from *edited in place* — both land there. Fix a typo in line 5 of 20 and LCS matches the
+other 19, so line 5 falls to pass 2 exactly like the `four`/`one` case. Minting unconditionally would
+therefore give **every typo fix a new guid**, and with FLEx honouring guids that means a new FLEx
+object and orphaned glossing on every correction — a worse regression than the bug being fixed.
+
+**The rule:** pass 2 keeps pairing (so the user's glosses still carry), but the **guid** rides only
+when the paired texts actually resemble each other.
+
+| paired old → new | expect |
+|---|---|
+| `"one"` → `"four"` | **fresh guid** — the demonstrated bug |
+| `"the dog run"` → `"the dog runs"` | **keep** — a typo fix stays one FLEx object |
+| `"cat"` → `"cot"` | **keep** — short lines must not be penalised |
+| `"alpha beta"` → `"alpha"` (split) | **keep** — today's correct behaviour, must not regress |
+
+### ⚠ Three things must stop travelling together
+
+The whole bug is that `attrs: old.attrs` does all three at once. Separate them:
+
+| what | on a fuzzy pair |
+|---|---|
+| **user work** (`carryWords`, `free`, `freeLang`) | **always carry.** It is word-matched, so it degrades gracefully, and it is the user's typing. |
+| **`guid`** | **gated** on the similarity test above. |
+| **`begin`/`end-time-offset`** | **never carry.** Same `attrs` object, same drift, and a stale offset is a false alignment. |
+
+### ⚠ Notes for whoever implements it
+
+- **Token overlap alone is wrong.** `"cat"` → `"cot"` shares no tokens but is obviously an edit. Use
+  a character-level normalised similarity (e.g. `1 - editDistance / max(len)`), or a hybrid.
+- ⚠ **The naive threshold's usable window is NARROW — measured, not guessed:**
+
+  | pair | `1 - lev/max(len)` | wanted |
+  |---|---|---|
+  | `"one"` → `"four"` | **0.25** | fresh |
+  | `"alpha beta"` → `"alpha"` (split) | **0.50** | keep |
+  | `"cat"` → `"cot"` | 0.67 | keep |
+  | `"the dog run"` → `"the dog runs"` | 0.92 | keep |
+
+  So a bare threshold must land in **(0.25, 0.50]** — the split case sets the ceiling and the bug
+  sets the floor, with very little air between them. **Treat prefix/word-boundary containment as
+  similar regardless of length ratio** (which is exactly what a split produces) and the split case
+  leaves the threshold's way, giving it room to breathe. Without that, tuning the knob later will
+  silently regress split.
+- ⚠ **The tests are what pin this, not the formula.** Lock all four rows of the table above
+  (plus join) so the threshold can be tuned later without anyone silently regressing split/join.
+  They are pure `reconcileBaseline` calls — node-testable, no DOM.
 
 ⚠ **How likely is this in practice?** It needs a delete and an add in the *same* reconcile pass, then
 a re-export, then a re-import over an earlier one. Plausible, not everyday — which is why it has

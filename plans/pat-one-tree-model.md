@@ -133,8 +133,33 @@ right there. Carry both:
 
 - **`id: "L3"`** — stays. The tree's short, readable reference key, stable within a document, and the
   only identity a from-scratch chart can have.
-- **`guid`** — new. Durable identity of the underlying phrase, stable across exports, edits, and a
-  FLEx round trip.
+- **`guid`** — new. **Use the existing one; mint one when it is absent.** Nothing more elaborate.
+
+### 3.2.1 Why "use existing, mint if blank" is safe — the one-way flow settles it
+
+Seth raised the obvious worry: if PAT writes into the same attribute FLEx uses for its own object
+GUIDs, could that cause problems? Then answered it: *"with the one-way flow, if PAT just uses
+existing GUIDs and creates them if blank, that shouldn't create a collision risk."*
+
+**Correct, and it needs no mitigation.** PAT's output goes to PAT's save and (someday) to EAF — never
+to FLEx and never back to the editor (§4). A guid PAT mints therefore cannot reach a FLEx database at
+all, so there is nothing to collide with. A separate PAT-owned field name would buy exactly nothing
+and add a concept.
+
+⚠ Today **PAT touches guids nowhere** — zero occurrences in `paragraph-model.js` and
+`paragraph-ui.js`. This adds the first use.
+
+### ⚠ 3.2.2 But do not over-trust a carried guid — it can mean less than it looks
+
+Separate from collisions, and it matters for open question §9.1. `reconcileBaseline` **pass 2**
+carries `attrs: old.attrs` onto a new segment **whose text may be completely different** — it is
+ordered fallback pairing, not content matching. So a carried guid means *"this slot descends from
+that slot"*, **not** *"this is the same phrase."*
+
+A FLEx guid does not migrate across content that way. So if re-import matching is ever built on
+guids, it must expect an occasional guid sitting on text that no longer resembles what it identified
+— which argues for showing the user a match and letting them confirm, rather than silently
+re-attaching an analysis.
 
 ⚠ **A stale comment to fix in the same commit.** `buildFxpa`'s header claims *"lines carry STABLE ids
 (L1..Ln, minted here) … so the grouping survives later bottom-level edits."* True **inside** one PAT

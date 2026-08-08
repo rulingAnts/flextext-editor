@@ -42,6 +42,43 @@ write it back with the paragraph-analysis tree as close to untouched as possible
   dangling ids) true across a line split/join — checkInvariants and repairDocument already exist in
   paragraph-model.js and are the natural seam.
 
+## UNEXAMINED: the editor mints FLEx-shaped GUIDs into `guid=` and ships them TO FLEx (found 2026-08-08)
+
+**Not a bug report — a question nobody has answered.** Surfaced while planning the PAT one-tree
+model, where Seth asked whether reusing FLEx's `guid` attribute could cause problems. For PAT the
+answer is no (one-way flow, PAT output never reaches FLEx). **For the editor the path is real**, so
+the question stands there instead.
+
+**What happens today**, verified by running the exporter on a doc authored entirely in the editor
+with no FLEx involvement at all:
+
+```xml
+<interlinear-text guid="c3650e12-04e0-40a8-b329-42879f30e252">
+  <paragraph guid="bc6a158f-bf68-4989-bae2-49f42664537f">
+    <phrase guid="bb5578c3-36cd-4500-b8d8-fe7c13f5362c">
+```
+
+`makeWord`/`makeSegment`/`makeDoc` mint `crypto.randomUUID()` (flextext.js:74, :85, :96, :116),
+`:273` heals any phrase arriving without one, and `pAttrs` (:421) serializes every `seg.attrs` entry
+— so they go out in the XML. It dates to the initial `docs/` restructure (`811f09f`) with **no
+rationale comment anywhere**.
+
+**The open question:** does FLEx *honour* an incoming `guid` on flextext import, or regenerate its
+own? If it honours it, the editor is fabricating FLEx object identities. Nothing has visibly broken,
+which suggests FLEx either regenerates or accepts them harmlessly — but "nothing has broken yet" is
+not an answer, and the failure mode if it honours them (re-importing the same text twice and having
+FLEx merge or overwrite by guid) is the kind that shows up as data loss long after the cause.
+
+⚠ **Do NOT just stop emitting them before checking.** FLEx may *require* `guid` on import; removing
+it could break the primary export path. This needs a test import into real FLEx, not a code change.
+
+⚠ **Two ways ours are weaker than FLEx's, worth knowing whichever way the answer goes:**
+- A **healed** guid is minted at heal time on that device, so two devices holding the same text
+  independently heal to *different* guids.
+- `reconcileBaseline` pass 2 carries `attrs: old.attrs` onto a new segment by ordered fallback
+  pairing, so a guid can land on text that is completely different. Ours means "this slot descends
+  from that slot", not "this is the same phrase".
+
 ## Expand localization across the whole Flextext Editor Suite (Seth, 2026-08-07)
 **Next, after the current settings work ships.**
 

@@ -73,6 +73,10 @@ export class DriveUpload {
       folderId: this.uploadedFolderId,   // per-text Drive folder (remembered for dedupe)
       docModified: this.rec.docModified,
       docDone: this.rec.docDone,   // was the doc marked FINISHED at queue time (gates auto-delete)
+      // WHICH KIND of file this upload was ('bundle' | 'flextext'), recorded at queue time from
+      // buildBundleFor's own `zipped`. The doc stamps it per-kind on completion so the panel reads
+      // a FACT instead of inferring one from hasAudio — see the queue site in app.js.
+      kind: this.rec.kind,
     });
   }
 

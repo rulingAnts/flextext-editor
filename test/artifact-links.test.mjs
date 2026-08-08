@@ -77,6 +77,30 @@ ok(/if \(f\.inferred\) continue;/.test(panel), 'the panel skips inferred artifac
 ok(/data-drivefile="\$\{esc\(f\.id\)\}" data-fname/.test(panel), 'folder-listing rows still emit data-drivefile');
 ok(/data-zipall/.test(panel), 'and Download-all is untouched — it still fetches everything');
 
+console.log('\n⚠ THE ACTUAL FIX: the DEVICE reports the kind, so the panel stops guessing');
+/* The device is the only thing that knows whether it uploaded a zip or a bare flextext —
+ * buildBundleFor already returns `zipped`, and that fact was simply being discarded. Recording it
+ * retires the inference instead of hiding it, and un-parks the row BY ITSELF: a per-kind map makes
+ * resolveArtifacts report inferred:false, which the panel no longer skips. */
+const appjs = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
+const upjs = readFileSync(new URL('../docs/js/upload.js', import.meta.url), 'utf8');
+ok(/kind: bundle\.zipped \? 'bundle' : 'flextext',/.test(appjs), 'the queue records the kind from buildBundleFor\'s own `zipped`');
+ok(/kind: this\.rec\.kind,/.test(upjs), 'the uploader carries it through to the completion state');
+ok(/if \(st\.fileId && st\.kind\) d\.uploaded = \{ \.\.\.\(d\.uploaded \|\| \{\}\), \[st\.kind\]: String\(st\.fileId\) \};/.test(appjs),
+   'and the doc stamps a per-kind MAP, merged so each kind keeps its own most-recent id');
+ok(/uploaded: d\.uploaded \|\| null,/.test(appjs), 'the inventory report carries the map to the panel');
+// ⚠ Both shapes must stay readable forever — field devices update on their own schedule.
+ok(/if \(st\.fileId\) d\.uploadedFileId = st\.fileId;/.test(appjs),
+   'the legacy scalar is STILL written — an older panel reads only that');
+{
+  // The end state: a device that has uploaded since this shipped is no longer inferred, so the
+  // panel renders its row again with no further change.
+  const modern = resolveArtifacts({ uploaded: { bundle: 'NEW123abc_456' }, hasAudio: true }, null);
+  ok(modern.length === 1 && modern[0].inferred === false,
+     'a per-kind report yields inferred:false — the parked row un-parks itself');
+  ok(modern[0].id === 'NEW123abc_456', '...carrying the real id, so it routes through the Worker');
+}
+
 console.log('\nthe handler that receives them is the SAME one the folder rows already use');
 ok(/const df = e\.target\.closest && e\.target\.closest\('\[data-drivefile\]'\);/.test(panel),
    'one delegated handler serves both kinds of row');

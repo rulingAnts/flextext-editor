@@ -100,6 +100,23 @@ export function buildFxpa(doc, opts = {}) {
   if (speakers.length) out.speakers = speakers;
   out.lines = lines;
   out.tree = [];
+  /* ⚠ SOURCE STAMP — so a STALE analysis can be DETECTED ON IMPORT, where the damage would occur.
+   *
+   * .fxpa line ids are POSITIONAL (L1, L2, …). The editor's Enter/Backspace already change the line
+   * count, so an analysis exported before an edit describes a document that no longer exists — and
+   * re-importing it attaches every group and proposition to the WRONG lines, silently, with the
+   * text still reading perfectly. The editor cannot repair a file it does not hold (it generates
+   * .fxpa and keeps nothing), so the only place this can be caught is the importer.
+   *
+   * `lineCount` is the discriminator that matters: PAT can compare it against the text it is being
+   * merged into and say "this analysis was made against 47 lines; this text now has 49" instead of
+   * quietly mis-attaching. `sourceModified` dates it for a human. Both are metadata only — no
+   * consumer is required to read them, so this cannot break an existing importer. */
+  out.source = {
+    lineCount: lines.length,
+    modified: opts.sourceModified || null,
+    engine: opts.engine || null,
+  };
   return out;
 }
 

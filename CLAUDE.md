@@ -73,6 +73,26 @@ line before believing any deploy landed.
 live site that real users (field translators in the village) load — a broken push
 breaks their work. Develop and test on `main` first.
 
+### 🚩 PLANNING DOCS DO NOT GET A VERSION BUMP (Seth, 2026-08-07)
+
+**"Plan changes don't need version bumps or to be tested on staging, if all that's changed is
+plans."**
+
+A version bump exists to make every installed service worker fetch a new shell. A `.md` under
+`docs/` is **not in any sw.js SHELL**, so bumping for one costs a pointless update round-trip on
+every field device and — worse — inflates the number so the staging/production gap reads as far more
+untested code than there is. Between v306 and v315, EIGHT versions carried nothing but Markdown.
+
+- Docs-only commit (planning notes, DEVELOPERS.md, this file) → **commit and push, no bump.**
+- Any change to `docs/js/`, `docs/css/`, `docs/index.html`, or anything a sw.js precaches →
+  **bump**, because that is what a bump is for.
+- The version-sync test only requires the five sites to AGREE; it never requires a bump, so nothing
+  fails when you skip one.
+
+When reporting what is on staging, say which versions carry code and which carry documents. "Eleven
+versions ahead" and "four versions of code ahead" are very different facts to a person deciding
+whether to test.
+
 ### Deploy a stable version to production
 Once the change is committed and tested on `main`:
 

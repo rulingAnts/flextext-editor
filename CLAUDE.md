@@ -69,6 +69,39 @@ reloading will fix it. A genuinely stale SW updates instead of saying that.
 one more commit to the branch that lost, on its own. Read the build log's `branch: X → alias: X`
 line before believing any deploy landed.
 
+#### 🚩🚩 RELEASING: NEVER FIRE `main` AND `productionWeb` TOGETHER — WAIT, THEN **VERIFY** (Seth, 2026-08-08)
+
+**The rule that does not depend on knowing the mechanism: push ONE branch, confirm its deploy
+actually landed, and only then push the other.** Not "wait 5–10 minutes" — a timer is a guess. The
+gate is the Cloudflare log header reading `branch: X → alias: X` for the push you just made, plus
+the live origin serving the new version.
+
+**⚠ Which order is correct is NOT settled — do not write one into a script yet.** What is known:
+
+- Seth: *"push productionWeb first, wait a very long time (like 5–10 minutes), and then push main.
+  Because I think if we push two in a row like that, it skips productionWeb."* Then, immediately:
+  *"Maybe pushing main first and then waiting would work. Or something. I'm really not sure."*
+- Observed behaviour is **not** the clean "second push supersedes the first" of the staging/main case
+  above. `productionWeb` has been seen to **stall or be skipped entirely**, needing a **manual re-run
+  from the Cloudflare dashboard** — which is a different failure from being cancelled by a newer
+  build, and is why the reasoning "push production second so it wins" is unsafe.
+
+⚠ **So do not reason about who wins. Assume any second push within the window can cost you the
+production deploy, and space them by verification.** `main` can sit unpushed indefinitely — the
+commits are identical whenever it goes out, and tidiness is worth nothing against a release that
+silently did not ship.
+
+**Settle it next release:** push one branch, watch the dashboard, and record which deployments appear
+and in what state. Two clean observations would turn this into a real rule; until then this section
+is deliberately agnostic.
+
+⚠ **This bit on the v318 release (2026-08-08)** — `main` was pushed at 05:18 and `productionWeb`
+seconds later, on the mistaken belief that going second made production the survivor. The Pages
+estate shipped fine (its workflow has its own gate), so *nothing looked wrong*: the satellites
+published green and the legacy site served v318. Only the Cloudflare estate — where NEW users are
+sent — was left in doubt. **A green satellite workflow says nothing about Cloudflare**; they are
+independent estates off the same push, and only one of them has a gate.
+
 **Do NOT push to `productionWeb` without the maintainer's explicit OK.** It's the
 live site that real users (field translators in the village) load — a broken push
 breaks their work. Develop and test on `main` first.

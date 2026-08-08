@@ -53,7 +53,8 @@ landed?** If the answer depends on nobody finding the repo, it goes in `notes/` 
 | `BACKLOG.md` | living list of parked work, decisions taken, and diagnosed-but-unfixed bugs |
 | `localization-overlay-plan.md` | in-app translation editing via a D1 overlay — **plan only** |
 | `segment-split-join-plan.md` | guided split/join in the **Paragraph Analysis Tool** — plan only |
-| `fxed-fxpa-formats-plan.md` | `.fxed` as a transfer format; why it is not `.flextext` — plan only |
+| `fxed-fxpa-formats-plan.md` | how the `.fxed` decision was reached, and why the alternatives lost |
+| `fxed-format-spec.md` | **the `.fxed` spec** — container, manifest, what must not travel — plan only |
 
 ⚠ `notes/` stays gitignored and is still the right home for working scratch, task briefs, and
 anything with a real name or a real recording in it.

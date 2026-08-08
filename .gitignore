@@ -24,3 +24,13 @@ tasks/
 corpus-manager/PLAN.md
 worker/docs/approved-domains.md
 apps/*/public/
+
+# ── plans/ IS THE EXCEPTION, and it is tracked ON PURPOSE (Seth, 2026-08-07) ──
+# "Maybe we can make a plans/ folder and exempt it, and make sure that nothing goes in
+# there that's secret. If the code is open source anyway, plans for features, etc won't
+# increase security risk at all. But it would be good to keep them in a specific place."
+# It satisfies the "unless they're specifically meant for public use by others cloning the
+# repository" clause above: design docs an adopter (SIL LSDev, Payap) would want.
+# ⚠ NOT under docs/ — docs/ IS THE WEBSITE, so anything there is SERVED. plans/ is tracked
+# but never published. See plans/README.md for what may and may not go in it.
+!plans/

@@ -171,10 +171,78 @@ The reader is the honest cost of the zip route: `docs/js/zip.js` exports `makeZi
 so a store-only (no deflate) reader would need writing — perhaps 60 lines, and it would ALSO unlock
 the "flatten inner bundles" fix in the panel's Download-all.
 
-**Recommendation: ZIP.** It reuses more of what exists, has no size cliff, and is the more genuinely
-inspectable of the two. If XML is preferred for other reasons, it is still workable — but the size
-limit should then be enforced at export with a clear message, not discovered by a field user whose
-phone reloads the tab.
+### ✅ DECIDED: a ZIP, the `.docx` pattern
+
+Seth, 2026-08-07: *"maybe our fxpe format would be similar to docx — actually a zip file with xml and
+other files (audio for example) inside."*
+
+That is the recommendation and it settles the container. Shape:
+
+```
+<title>.fxed                        (a zip)
+├── text.flextext                   the REAL flextext XML — segmentation offsets and all
+├── manifest.json                   { format, version, docRecord{…}, wsCodes{vern,anal} }
+├── media/<name>.wav                raw bytes, no base64, no +33%
+├── media/<name>.converted-NOT-ARCHIVAL.wav   the segwav working copy, if one exists
+└── consent/…                       receipts + prompt, ONLY if the export opts in (see below)
+```
+
+Why this is better than it first looks:
+
+- **`text.flextext` is a genuine, valid `.flextext`.** Unzip the file and you have something FLEx
+  can import — so the escape hatch is the container's own contents, not a separate export path. That
+  answers the lock-in question more completely than the format spec would have.
+- **Nothing new to parse.** `parseFlextext()` reads the text; the audio is bytes.
+- **No size cliff.** The 278 MB string problem simply does not arise.
+- ⚠ **The one thing to build is a zip READER.** `docs/js/zip.js` exports `makeZip` and nothing else.
+  Store-only (no deflate) is enough for our own files and is perhaps 60 lines — and it also unlocks
+  the "flatten inner bundles" fix the panel's Download-all wants, so it pays for itself twice.
+
+⚠ **Still true, and now easier to satisfy:** the file must not be mistakable for a `.flextext`. A zip
+is not XML, so nothing will hand it to FLEx by accident — the extension and the magic bytes disagree
+with `.flextext` at the first byte, which is exactly the property the XML route could not have.
+
+### The completeness bar: *everything* the app had stored, directly recoverable
+
+Seth: *"containing everything that one flextext editor app had stored with a text in a way that can
+be directly recovered by another session."*
+
+⚠ **That is a stronger requirement than "the document plus its audio", and it is the one that should
+drive the manifest.** The test is not "does it look the same" — it is **would the receiving install
+be in the same state as the sending one**. So the manifest is written from the actual storage, not
+from a list someone remembered:
+
+| what the app stores per text | where | in `.fxed`? |
+|---|---|---|
+| the doc record — title, created, modified, `done` | `db.putDoc` | ✅ manifest |
+| the interlinear content + segment times | doc → `text.flextext` | ✅ (offsets round-trip) |
+| `audioSource`, `audioLocked` | doc record | ✅ manifest |
+| `capture` — recording provenance | doc record | ✅ manifest (it is the point of the bext work) |
+| `driveFolderId` | doc record | ⚠ **decide** — see below |
+| `consentReceipt` | doc record | ⚠ opt-in — personal data |
+| the audio | `db.putMedia(docId)` | ✅ `media/` |
+| the segwav working copy | `db.putMedia('segwav:'+id)` | ✅ `media/` (or regenerate; see below) |
+| the consent prompt + recorded assent | `db.putMedia('consent-prompt:'+id)` etc. | ⚠ opt-in |
+| pending upload blob | `db.putMedia('upload:'+id)` | ❌ never — see below |
+
+**⚠ THE DERIVATION TO WRITE FIRST is the enumeration itself.** A hand-kept list of doc-record fields
+will drift the moment a field is added — the same silent-drift failure the device-setup parity test
+exists to catch. Prefer: serialise the WHOLE doc record minus an explicit deny-list, so a new field
+travels by default and only deliberate exclusions are named. Getting this backwards means a future
+field silently fails to transfer and nobody notices until a text arrives subtly wrong.
+
+**`driveFolderId`** deserves a decision rather than a default. It names a folder in the SENDING
+researcher's Drive. Carried across, the receiving install would upload into a folder it may not own;
+dropped, the next upload mints a fresh folder (the old, pre-v167 behaviour — correct, just untidy).
+Recommend **drop it**, and let the worker's `appProperties` tag search re-find or re-create.
+
+**The segwav copy** is derivable from the original, so including it is a size-vs-time trade: a
+6-minute recording roughly doubles the file to save the receiving device one decode-and-re-encode.
+Recommend **include it when it exists** — the receiving device may be the weaker one, and the
+conversion is exactly what the first-load bug was about.
+
+**Never the upload queue.** It is addressed to a worker the destination may not share, and it is
+device state, not text state — the same line the "carries the TEXT, never the DEVICE" rule draws.
 
 ### ⚠ Whatever the container: it must not be mistakable for a real `.flextext`
 

@@ -381,7 +381,10 @@ paragraph-analysis/  the Paragraph Analysis Tool satellite shell + its Cloudflar
                      deploy.sh routes productionWeb → deploy, other branches → preview alias;
                      build.sh copies docs/ into the same deployment; shell.js serves kill-switch
                      workers at the stale scopes — see its CLAUDE.md). public/ is build output.
-notes/       planning docs, gitignored, never served
+plans/       DESIGN DOCS — tracked in git, NEVER served (deliberately not under docs/, which is
+             the website). The one exception to the "AI/dev markdown is not tracked" rule; see
+             plans/README.md for what may and may not go in it.
+notes/       working scratch + task briefs, gitignored, never served
 ```
 
 - `docs/index.html`, `docs/manifest.webmanifest`, `docs/sw.js` (service worker)

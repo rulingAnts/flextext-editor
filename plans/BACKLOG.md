@@ -42,12 +42,66 @@ write it back with the paragraph-analysis tree as close to untouched as possible
   dangling ids) true across a line split/join — checkInvariants and repairDocument already exist in
   paragraph-model.js and are the natural seam.
 
-## UNEXAMINED: the editor mints FLEx-shaped GUIDs into `guid=` and ships them TO FLEx (found 2026-08-08)
+## ⚠ CONFIRMED: a deleted line's GUID gets adopted by an unrelated new line — and FLEx honours GUIDs (2026-08-08)
 
-**Not a bug report — a question nobody has answered.** Surfaced while planning the PAT one-tree
-model, where Seth asked whether reusing FLEx's `guid` attribute could cause problems. For PAT the
-answer is no (one-way flow, PAT output never reaches FLEx). **For the editor the path is real**, so
-the question stands there instead.
+**Seth, 2026-08-08: "FLEx honors an incoming guid."** That settles the question below and makes this
+actionable. Two consequences, one good and one not:
+
+✅ **The minting is a FEATURE — do not remove it.** Because FLEx honours the guid, re-importing an
+updated export *updates the existing text* instead of creating a duplicate. That is exactly what the
+field workflow wants, and it works today by accident of `makeSegment` minting UUIDs.
+
+❌ **But identity can drift onto the wrong line**, and with FLEx honouring guids that means FLEx-side
+work silently reattaching to different text.
+
+### The demonstration (run against the shipped code, not reasoned)
+
+Start `one / two / three`, then delete `one` and add `four`:
+
+```
+BEFORE:  one 890f9f65 | two 9bf2fd6e | three 67b438ac
+AFTER:   two 9bf2fd6e | three 67b438ac | four 890f9f65
+                                              ^^^^^^^^ the DELETED "one"'s guid
+```
+
+`two` and `three` keep theirs correctly (exact LCS match). `four` — a brand-new line — **inherits the
+deleted line's identity.** On re-import FLEx updates the object that was "one" to now read "four",
+carrying any FLEx-side glossing or analysis with it.
+
+### ✅ Split and join are FINE — this was checked, not assumed
+
+Seth: *"I'm really not sure what happens with guids of split items."*
+
+| edit | behaviour |
+|---|---|
+| split `"alpha beta"` → `"alpha"`, `"beta"` | first half **keeps** the guid, second mints a **fresh** one, neighbours untouched |
+| join `"alpha"` + `"beta"` → `"alpha beta"` | joined line carries **`alpha`'s** guid; `beta`'s is dropped |
+| edit a line's text in place | keeps its guid — arguably correct, same slot retyped |
+| **delete one line + add another** | **the new line adopts the deleted one's guid** ← the bug |
+
+### Root cause: one line of code serving two purposes
+
+`reconcileBaseline` **pass 2** pairs leftover-old to unmatched-new **in order, with no similarity
+check**, and carries `attrs: old.attrs` wholesale.
+
+Pass 2 exists to preserve **user work** (glosses, free translation) across an edit. Carrying `attrs`
+also transfers **identity** — and, incidentally, imported `begin/end-time-offset`. Three things, one
+assignment. Separating "keep the user's glosses" from "this is the same object" is the fix.
+
+⚠ **The trade-off needs a decision, not a patch.** Minting a fresh guid in pass 2 fixes the drift but
+makes a *retyped* line a new FLEx object; inheriting fixes that but keeps the drift. A similarity
+threshold gets both, at the cost of a tuning knob. **Do not pick one without deciding what should
+happen in FLEx when a line is retyped wholesale.**
+
+⚠ **How likely is this in practice?** It needs a delete and an add in the *same* reconcile pass, then
+a re-export, then a re-import over an earlier one. Plausible, not everyday — which is why it has
+never been noticed, and why it will be found late if it is not fixed deliberately.
+
+### (original entry — the question, now answered)
+
+Surfaced while planning the PAT one-tree model, where Seth asked whether reusing FLEx's `guid`
+attribute could cause problems. For PAT the answer is no (one-way flow, PAT output never reaches
+FLEx). **For the editor the path is real**, so the question stood there instead.
 
 **What happens today**, verified by running the exporter on a doc authored entirely in the editor
 with no FLEx involvement at all:
@@ -63,14 +117,9 @@ with no FLEx involvement at all:
 — so they go out in the XML. It dates to the initial `docs/` restructure (`811f09f`) with **no
 rationale comment anywhere**.
 
-**The open question:** does FLEx *honour* an incoming `guid` on flextext import, or regenerate its
-own? If it honours it, the editor is fabricating FLEx object identities. Nothing has visibly broken,
-which suggests FLEx either regenerates or accepts them harmlessly — but "nothing has broken yet" is
-not an answer, and the failure mode if it honours them (re-importing the same text twice and having
-FLEx merge or overwrite by guid) is the kind that shows up as data loss long after the cause.
-
-⚠ **Do NOT just stop emitting them before checking.** FLEx may *require* `guid` on import; removing
-it could break the primary export path. This needs a test import into real FLEx, not a code change.
+⚠ **Do NOT stop emitting them.** Answered above: FLEx honours them, which makes guid-stable
+re-import a feature the field workflow depends on. The fix is upstream, in how `reconcileBaseline`
+assigns them — not in whether they are written.
 
 ⚠ **Two ways ours are weaker than FLEx's, worth knowing whichever way the answer goes:**
 - A **healed** guid is minted at heal time on that device, so two devices holding the same text

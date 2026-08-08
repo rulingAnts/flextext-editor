@@ -285,6 +285,13 @@ start at step 3 because it is the visible one.
    correction means starting over — guids are cheap hygiene worth doing anyway. Not yet decided.
 2. **A join drops a guid** (§3.1). If PAT has grouped or labelled the dropped line, what becomes of
    that node? The only identity case shipped code does *not* already answer.
-3. **`attrs` is passed by reference in `reconcileBaseline` pass 2**, and `attrs` also holds imported
-   `begin/end-time-offset`. Confirm a fuzzy-paired split cannot carry a stale offset onto the wrong
-   half. Suspected pre-existing, unrelated to this plan, but found while tracing it.
+3. ~~**`attrs` is passed by reference in `reconcileBaseline` pass 2**~~ — **CONFIRMED AND PROMOTED
+   OUT OF THIS PLAN.** It is a live editor↔FLEx bug, not a PAT question: a deleted line's guid is
+   adopted by an unrelated new line, and Seth confirms **FLEx honours an incoming guid**, so a
+   re-import can reattach FLEx-side work to different text. Split and join were checked and are
+   fine. Full write-up, demonstration and the decision it needs: `BACKLOG.md`, *"a deleted line's
+   GUID gets adopted by an unrelated new line"*.
+
+   ⚠ **It bears on §9.1 above.** If re-import matching into PAT is ever built on guids, it inherits
+   this weakness — which is the concrete argument for confirming a match with the user rather than
+   silently re-attaching an analysis.

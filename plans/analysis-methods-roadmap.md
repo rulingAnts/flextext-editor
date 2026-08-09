@@ -34,69 +34,110 @@ shared), the methodologies must NOT become five modes with five models. They are
 labelling model**, differing in (a) suggested vocabulary, (b) unit granularity, (c) rendering,
 (d) how text gets in.
 
-## 2. The unifying feature: METHOD PROFILES (vocabulary as data)
+## 2. The unifying feature: METHOD PRESETS (vocabulary + label schema + chart style, as data)
 
-One new concept serves all five methods: a **method profile** — a named, data-only bundle of:
+⚠ **Corrected by Seth (2026-08-08) — the differences between methods are BIGGER than vocabulary:**
 
-- a suggested **relation vocabulary** (datalist-style suggestions; free text stays free — a profile
-  suggests, never restricts);
-- suggested **role pairs** per relation (choose "grounds–CONCLUSION" and the member-role datalist
-  offers "grounds"/"CONCLUSION");
-- suggested **slot vocabulary** (Longacre: Aperture, Stage, Episode, Peak, Dénouement, Closure…);
-- display hints (§4).
+> *"The main differences in these methods is chart-styling. Arcing vs. Longacre paragraph trees vs
+> SSA. And also slot/filler/etc more than just two labels needed for chart nodes (not just role and
+> relation, but also at least one more thing in Longacre/Hwang's model). And also building charts
+> that branch left (not available yet) OR right (already done), ability to break and join segments
+> (in progress or planned next), and I think in Longacre's trees, the upstream lines are just
+> centered, and Head vs non Head is marked other ways."*
 
-Stored **in the PAT save/`.fxpa` by name + inline copy**, so a file opened elsewhere still knows its
-vocabulary (same self-describing principle as `.fxed`). Researcher-selectable; "no profile" =
-today's behaviour exactly.
+So a **method preset** is a named, data-only bundle with THREE parts, not one:
 
-⚠ Profiles are DATA, not code — a JSON structure, node-testable, eventually editable via the same
-D1-overlay pattern planned for localization (a researcher could author a house vocabulary). Do NOT
-build the editor first; ship 3–4 built-in profiles, add authoring on the second real request.
+**(a) Label schema** — which label FIELDS exist, per group and per member, and what they are called.
+Today the model has exactly: `relation` + `slot` per group, ONE free-text role string per member
+(verified: `checkInvariants` coerces member-label values with `String(v)`). SSA fits that.
+**Longacre/Hwang needs at least one more per-node field** — slot *and* filler (the constituent slot
+a unit fills, and the paragraph/clause type filling it) — so member labels must generalize from
+`{ childId: "role" }` to named fields, e.g. `{ childId: { role, filler, … } }`.
+⚠ Do this WITHOUT a second migration: it changes the `.fxpa` shape, so it shares the one-tree
+`version: 2` bump and repair path (`pat-one-tree-model.md` §6) — one migration, not two.
+⚠ Storage stays GENERIC (named fields); the preset only decides which fields the UI offers and
+what it calls them. No per-method storage shapes, ever.
+
+**(b) Vocabulary** — datalist-style suggestions per field (relations, role pairs, slots, fillers).
+Free text stays free: a preset suggests, never restricts, because the field norm is adapted
+terminology.
+
+**(c) Chart style** — the part that actually LOOKS different per method:
+- **branch direction**: right-branching exists today; **left-branching does not** and is a real
+  layout work item in paragraph-ui;
+- **head-marking convention**: SSA marks heads explicitly; in Longacre's trees *"the upstream lines
+  are just centered, and Head vs non Head is marked other ways"* (Seth has a sample chart + sample
+  labels — get those before building the Longacre preset, not after);
+- **renderer family**: bracket tree (exists) / arc (arcing) / sentence-diagram (§4).
+⚠ Style must never change MEANING: the same tree + labels renders under any preset, and switching
+presets must never destroy or invalidate data — a preset is a lens.
+
+**Storage (Seth's design):** the user's preset LIBRARY — customizable, addable — lives in
+**localStorage**; the **currently selected preset is saved WITH the `.fxpa` file** (by value, not
+just by name, so a file opened on another device renders identically — the same self-describing
+principle as `.fxed`). "No preset" = today's behaviour exactly. A D1-pushed house preset is a later
+option on the localization-overlay pattern; do not build preset authoring UI first — ship the four
+built-in presets, add authoring when a second real need appears.
 
 ## 3. Per-method gap analysis
 
-### 3.1 Semantic Structure Analysis (SSA)
+Seth's distance-from-current ranking (2026-08-08), which is the build order inside this section:
+**SSA = what the diagrams are built for today · Longacre = "different but only a little" ·
+Dixon = "probably only subtly different" · Arcing / traditional sentence diagramming = "VERY
+different".**
+
+### 3.1 Semantic Structure Analysis (SSA) — the current chart IS this
 The labels design **is already the SSA convention** (the code comments say so explicitly). Gaps:
-- an SSA relation/role profile (the standard relation inventory as suggestions);
+- an SSA preset (relation inventory + role pairs as suggestions) — vocabulary only, no schema or
+  style work;
 - proposition-level units — **that is exactly what the one-tree plan delivers**: an FT-only line IS
   a proposition, added like any other line. SSA is the first consumer of that plan.
 - `implicit` already exists for implicit information. ✅
 
-### 3.2 Longacre Paragraph Analysis
+### 3.2 Longacre Paragraph Analysis — different, but only a little
 - `slot` was BUILT for Longacre-style macrostructure ("Peak" is the code's own example). ✅
-- Paragraph TYPES (narrative, expository, hortatory…; thesis–antithesis, point–amplification…):
-  expressible today as `relation` on a paragraph-level group; a Longacre profile makes the
-  vocabulary one keystroke instead of remembered.
-- Later, optional: a columnar "Longacre chart" renderer (§4). Not needed to DO the analysis.
+- **Needs the label-schema extension (§2a)**: slot + filler per NODE, beyond one role string.
+- **Needs the style knobs (§2c)**: upstream lines centered; head marked by convention, not by the
+  SSA head styling. ⚠ **Blocked on inputs Seth already has**: *"I have a sample chart and sample
+  labels"* — collect those FIRST; the preset is transcribed from them, not invented.
+- Paragraph TYPES (narrative, expository, hortatory…; thesis–antithesis, point–amplification…) ride
+  the vocabulary part.
 
-### 3.3 Dixon, clause-linking semantics
+### 3.3 Dixon, clause-linking semantics — probably only subtly different
 - The relation typology (temporal succession, cause/result/purpose, possible consequence, addition,
-  disjunction, manner…) is a **profile**, nothing more.
+  disjunction, manner…) is a **preset vocabulary**, little more.
 - Dixon's focal-vs-supporting clause asymmetry maps exactly onto `heads`. ✅
-- Unit granularity is the CLAUSE, below today's line: needs easy clause-splitting. `splitLine`
-  exists; the one-tree model makes the result first-class. Audio-aligned texts: a split clause
-  shares its line's span (0 ms rule) — already decided.
+- Unit granularity is the CLAUSE, below today's line: needs easy clause break/join — **in progress /
+  planned next** (the split/join plan + one-tree). Audio-aligned texts: a split clause shares its
+  line's span (0 ms rule) — already decided.
 
-### 3.4 Arcing / bracketing / exegetical chunking (Biblearc-family)
-- Chunk-to-propositions + labelled nested relations = exactly the tree. The arcing relation set
-  (Ground, Inference, Action–Purpose, Idea–Explanation, Concessive…) = a profile.
-- The genuinely new work is **display**: arcs/brackets along the text rather than the current
-  chart. A renderer over the same tree (§4) — significant UI work, zero model work.
+### 3.4 Arcing / traditional sentence diagramming (Biblearc-family) — VERY different
+- The tree + labels still fit the model; the arcing relation set (Ground, Inference,
+  Action–Purpose, Idea–Explanation, Concessive…) is a preset vocabulary.
+- **Nearly all of the distance is the renderer**: arcs/brackets along the text — and likely
+  LEFT-branching layout — rather than the current bracket chart. Significant UI work, zero model
+  work. Schedule it last among the four, after presets prove out on the near ones.
 - These texts have no audio and no vernacular/gloss pair in the usual sense — the one-tree
   "render on what a line HAS" rule already covers FT-only display.
 
 ### 3.5 What NOT to do
-- ❌ No per-method data models, no per-method file formats. One tree, one `.fxpa`/save.
+- ❌ No per-method data models, no per-method file formats. One tree, one `.fxpa`/save — presets
+  differ in schema-fields-offered, vocabulary, and style, never in storage shape.
 - ❌ No enforced vocabularies — the field norm is adapted terminology; suggestions only.
-- ❌ No method picker gating features — a profile is a lens, and switching profiles must never
-  destroy or invalidate existing labels.
+- ❌ No method picker gating features — a preset is a lens, and switching presets must never
+  destroy or invalidate existing labels (including labels in fields the new preset does not show:
+  hidden, not deleted).
 
 ## 4. Display modes (each a renderer over the SAME tree)
 
-1. **Bracket chart** — exists today.
-2. **Arc view** — arcing convention; new renderer, likely the biggest single UI item here.
-3. **Outline/columnar view** — Longacre chart-style. Cheap once the tree walk is factored for reuse.
-4. Print/share: the self-contained preview-page pattern (like the segmentation preview) applied to
+1. **Bracket chart, right-branching** — exists today (the SSA look).
+2. **Left-branching layout** — does not exist; a preset style knob (§2c) and its own layout work in
+   paragraph-ui. Needed before any method whose convention grows leftward.
+3. **Longacre tree styling** — centered upstream lines, convention-marked heads; transcribed from
+   Seth's sample chart.
+4. **Arc / sentence-diagram view** — arcing convention; new renderer, the biggest single UI item
+   here.
+5. Print/share: the self-contained preview-page pattern (like the segmentation preview) applied to
    a finished analysis — a portable HTML chart. High field value, low risk, reuses a proven pattern.
 
 ## 5. Greek/Hebrew interlinear import
@@ -139,17 +180,22 @@ A small converter (node script or import module) maps: verse → line, word → 
 
 | step | what | depends on |
 |---|---|---|
-| 1 | **One-tree model** (`pat-one-tree-model.md` §7: migration → timeless lines → rendering) | decided; nothing |
-| 2 | **Method profiles** (data + datalist suggestions + stored-in-save) | 1 (proposition units make profiles meaningful) |
-| 3 | **SSA + Dixon + Longacre profiles** shipped built-in | 2 |
-| 4 | **Open-data Greek import** (MACULA/SBLGNT → .fxpa, LTR first) | 1; independent of 2–3 |
-| 5 | **Logos sample → mapping note → importer** | a sample from Seth |
-| 6 | **Arc renderer**; outline renderer; printable chart | 1–2 |
-| 7 | **Hebrew (RTL)** — own plan first | 4 |
+| 0 | **Collect Seth's Longacre sample chart + sample labels** — inputs, not code | nothing |
+| 1 | **One-tree model** (`pat-one-tree-model.md` §7: migration → timeless lines → rendering) — break/join of segments rides here | decided; nothing |
+| 2 | **Label-schema generalization** (named member-label fields, §2a) — ⚠ SAME `version: 2` migration as step 1, never a second one | 1 (same bump) |
+| 3 | **Preset machinery** (library in localStorage; selected preset saved by value in the `.fxpa`; datalist suggestions) + the **SSA preset** (= today's behaviour, named) | 2 |
+| 4 | **Dixon preset** (vocabulary; break/join already in from step 1) → **Longacre preset** (slot/filler fields + centered-upstream styling, from the sample) | 3; Longacre also 0 |
+| 5 | **Left-branching layout** | 3 (a preset style knob) |
+| 6 | **Open-data Greek import** (MACULA/SBLGNT → .fxpa, LTR first) | 1; independent of 2–5 |
+| 7 | **Logos sample → mapping note → importer** | a sample from Seth |
+| 8 | **Arc / sentence-diagram renderer**; printable chart | 3, 5 |
+| 9 | **Hebrew (RTL)** — own plan first | 6 |
 
-Rationale for the order: 1–3 make the tool methodologically useful to a researcher TODAY on texts it
-already opens; 4 brings original-language text in with zero licensing risk; RTL is deliberately last
-because it is the widest-blast-radius engine change in the list (every app renders lines).
+Rationale for the order: it follows Seth's distance ranking (SSA → Longacre/Dixon → arcing), makes
+the tool methodologically useful on texts it already opens before adding import paths, folds both
+schema changes into ONE file-format migration, brings original-language text in with zero licensing
+risk before touching Logos, and keeps the two widest-blast-radius items (the arc renderer and RTL)
+last, where the preset machinery and layout work they depend on already exist.
 
 ## 7. Standing backlog it joins (for one prioritisation view)
 

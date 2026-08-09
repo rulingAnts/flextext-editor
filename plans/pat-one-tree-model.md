@@ -245,7 +245,13 @@ its source line, in prop order.
 3. **Idempotence.** Repair runs on every load; the second pass must be a no-op.
 4. **Key it off `version`, not off sniffing for `props`.** `version: 1` is already a promise. Bump to
    **2** so the migration is explicit and an older PAT refuses a newer file cleanly instead of
-   half-reading it.
+   half-reading it. (`test/fxpa-contract.test.mjs` pins that refusal since v321.)
+
+⚠ **Whatever else changes the `.fxpa` shape rides THIS SAME bump.** The method-presets plan
+(`analysis-methods-roadmap.md` §2a) generalizes member labels from one role string to named fields
+(Longacre/Hwang slot + filler) — that is also a version-2 change. One migration, one repair path,
+one version bump; two migrations arriving a release apart would double every compatibility case for
+no reason.
 
 ⚠ **Keep `isPropId` / `lineOfPropId` (:346–347) as migration-only helpers** even after the model
 drops propositions — they are how an old file gets read at all. Label them so nobody tidies them

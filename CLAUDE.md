@@ -336,7 +336,11 @@ real timed spans (silence) and hold placeholder rows on the Gloss tab.
   the `.fxpa` Paragraph Analysis file, local saves only — panel Buttons group);
   unset values follow the mode — the basic editor exports a CLEAN classic flextext with no
   offsets/notes (`serializeFlextext` `opts.segTimes`), segmentation mode defaults everything on.
-  Imported offsets preserved in `seg.attrs` round-trip verbatim regardless. EAFs ride every
+  Imported offsets preserved in `seg.attrs` round-trip verbatim regardless — ⚠ with ONE exception
+  since v320/v321: a line whose text is replaced WHOLESALE (fails the `sameLineText` similarity
+  gate) mints a fresh guid and sheds its imported offsets and our timing note, because carrying a
+  dead line's identity/alignment onto new text is how FLEx-side analyses got silently reattached
+  (plans/BACKLOG.md, "gate GUID inheritance on similarity"). EAFs ride every
   selected bundle incl. uploads; the preview + bext-stamped derived WAV ride LOCAL bundles only —
   field upload bandwidth never pays for embedded audio.
 - **Lossy sources:** segmentation works on a WAV working copy (`segwav:` key,

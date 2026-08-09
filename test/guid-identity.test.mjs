@@ -197,10 +197,17 @@ console.log('\n⚠ Unicode normalization: NFC vs NFD of the SAME text is the SAM
   // preserving guid AND imported offsets — pre-v321 it fell to fuzzy pairing.
   const d = build([nfc, 'lain']);
   d.paragraphs[0].segments[0].attrs['begin-time-offset'] = '1000';
+  d.paragraphs[0].segments[0].words.forEach((w) => { if (!w.punct) w.gls = 'GL'; });
   const before = lines(d);
   const after = edit(d, [nfd, 'lain']);
   ok(after[0].guid === before[0].guid, 'NFD re-paste of an unchanged line keeps its guid (pass-1 exact keep)');
   ok(after[0].seg.attrs['begin-time-offset'] === '1000', '...and its imported alignment');
+  /* ⚠ This is the assertion that pins norm()'s OWN NFC (not sameLineText's): only a pass-1 exact
+   * keep reuses the whole segment. Without it the line falls to pass 2, where the gate still saves
+   * guid+offsets — but carryWords' token LCS is exact-string, so every accented word's GLOSS is
+   * wiped. The glosses are the proof the segment never left pass 1. */
+  ok(after[0].seg.words.filter((w) => !w.punct).every((w) => w.gls === 'GL'),
+     '...and every word GLOSS — proof the segment took the exact-keep path, not fuzzy pairing');
 }
 
 console.log('\ngate-refused lines keep the SLOT\'s facts, refuse the LINE\'s facts (demoted attrs)');

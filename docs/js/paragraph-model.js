@@ -289,14 +289,16 @@ export const isGroupId = (id) => /^G\d+$/.test(String(id));
  * And on where they may group: "beneath the level of the raw phonetic data."
  *
  * So a proposition is a first-class unit of the tree — groupable, sub-groupable, able to carry a
- * role and to sit in a group with a relation — with ONE structural restriction: **a group may not
- * mix propositions from different lines, nor mix propositions with lines.** A proposition belongs
- * to the line that owns the audio span; letting one group across lines would assert a structure
- * above the level it lives at, and would make `spanOf` meaningless.
+ * role and to sit in a group with a relation. ⚠ There is NO same-line grouping restriction: it was
+ * REMOVED on 2026-08-05 (see the note in checkInvariants) — propositions and lines share ONE
+ * surface, so a group may hold a proposition beside a proposition from the next line, or beside a
+ * whole line. Crossing brackets are prevented by adjacency + single-parent, not by a same-line
+ * rule. (An earlier version of this comment still asserted the removed restriction; that
+ * contradiction is part of why the one-tree plan exists — plans/pat-one-tree-model.md.)
  *
- * That restriction is what keeps "not independent audio segments" true by construction: a
- * proposition has no time of its own, it inherits its line's, and playback only ever addresses
- * lines. Nothing about grouping changes that.
+ * What keeps "not independent audio segments" true by construction: a proposition has no time of
+ * its own, it inherits its line's, and playback only ever addresses lines. Nothing about grouping
+ * changes that.
  *
  * Ids are `<lineId>p<n>` (minted by addProp), so a proposition names its own line. */
 /* ⚠ `level` IS DERIVED, NEVER STORED (Seth, 2026-08-06): "we want to avoid storing things and

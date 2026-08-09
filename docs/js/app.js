@@ -3827,6 +3827,13 @@ async function openShareMenu() {
 // sent, total }); the blobs themselves stay in IndexedDB. status is one of
 // 'waiting' | 'uploading' | 'paused' | 'error'.
 const uploadView = new Map();
+// Per-doc chain serializing the completion STAMP (see below). The stamp is an async
+// read-modify-write on the doc record, and two completions for the SAME doc can interleave
+// (re-sending while an upload is in flight double-starts — pumpUploads' single-slot guard reads
+// uploadView, which uploadDocById just reset to 'waiting'). Unserialized, the second getDoc reads
+// a doc that never saw the first stamp, and the per-kind `uploaded` map silently loses an id
+// (v321 audit, reproduced). Entries self-clean, so the map cannot grow.
+const stampChains = new Map();
 let uploadListOpen = false;
 const RETRY_EVERY_MS = 90000;
 
@@ -3868,7 +3875,10 @@ function uploadState(docId) {
           // Persist the new uploadedFileId, THEN report — so the researcher panel sees the (re)upload
           // land on its very next poll instead of waiting up to a full device-poll cycle (loop-closure:
           // the panel confirms completion by detecting a CHANGED uploadedFileId in the reported inventory).
-          db.getDoc(docId).then(async (d) => {
+          // ⚠ SERIALIZED PER DOC (v321) — each stamp must read its predecessor's write, or the
+          // `uploaded` map's merge loses a kind when two completions interleave (see stampChains).
+          const prevStamp = stampChains.get(docId) || Promise.resolve();
+          const thisStamp = prevStamp.then(() => db.getDoc(docId)).then(async (d) => {
             if (d) { stamp(d); await db.putDoc(d); }
             // A researcher-requested upload-then-delete rides the SAME completion
             // point: the proof-of-backup stamp above is persisted first, so
@@ -3879,6 +3889,8 @@ function uploadState(docId) {
             }
             return Sync.reportNow();
           }).catch(() => {});
+          stampChains.set(docId, thisStamp);
+          thisStamp.finally(() => { if (stampChains.get(docId) === thisStamp) stampChains.delete(docId); });
           toast(t('upload.done', { name: st.name }), 6000);
         }
       }

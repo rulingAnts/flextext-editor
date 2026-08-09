@@ -101,6 +101,20 @@ ok(/if \(st\.fileId\) d\.uploadedFileId = st\.fileId;/.test(appjs),
   ok(modern[0].id === 'NEW123abc_456', '...carrying the real id, so it routes through the Worker');
 }
 
+console.log('\n⚠ the completion stamp is SERIALIZED per doc — the merge must read the previous write');
+/* v321 audit, reproduced: the stamp is an async read-modify-write, and a re-send while an upload is
+ * in flight double-starts (pumpUploads' single-slot guard reads uploadView, which uploadDocById just
+ * reset to 'waiting'). Two interleaved completions of DIFFERENT kinds then both read a doc that saw
+ * neither stamp, and the per-kind `uploaded` map loses an id. The per-doc promise chain makes each
+ * stamp read its predecessor's write. */
+ok(/const stampChains = new Map\(\);/.test(appjs), 'the per-doc chain exists');
+ok(/const prevStamp = stampChains\.get\(docId\) \|\| Promise\.resolve\(\);/.test(appjs),
+   'each completion chains behind the previous one for the SAME doc');
+ok(/prevStamp\.then\(\(\) => db\.getDoc\(docId\)\)/.test(appjs),
+   'the doc is re-read only AFTER the predecessor finished writing');
+ok(/if \(stampChains\.get\(docId\) === thisStamp\) stampChains\.delete\(docId\);/.test(appjs),
+   'chain entries self-clean, so the map cannot grow');
+
 console.log('\nthe handler that receives them is the SAME one the folder rows already use');
 ok(/const df = e\.target\.closest && e\.target\.closest\('\[data-drivefile\]'\);/.test(panel),
    'one delegated handler serves both kinds of row');

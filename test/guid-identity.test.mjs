@@ -140,5 +140,104 @@ console.log('\nevery phrase still HAS a guid — the gate must never leave one u
   ok(new Set(rows.map((r) => r.guid)).size === rows.length, 'and they are all distinct');
 }
 
+/* ================= v321 hardening — every block below pins an AUDIT finding ================= */
+
+console.log('\n⚠ CLASSIC (non-flat) mode: sentence punctuation must not defeat the affix rule');
+{
+  /* THE MAJOR v321 AUDIT FINDING. The classic editor (applyBaseline) calls reconcileBaseline
+   * WITHOUT flatSegments, and segmentText() keeps sentence-final punctuation — so "Alpha beta." is
+   * never a space-boundary prefix of "Alpha beta gamma delta.", and v320's gate minted fresh guids
+   * on EVERY classic-mode sentence join and every early split. Pre-v320 both kept the first
+   * fragment's guid; the DECIDED table says split/join "must not regress". */
+  const segsOf = (d) => d.paragraphs.flatMap((p) => p.segments.map((s) => ({ text: s.baseline, guid: s.attrs.guid })));
+  const c = makeDoc({ vernLang: 'fau', analLang: 'en' });
+  reconcileBaseline(c, ['one two three four five six.']);          // classic: NO flatSegments
+  const cb = segsOf(c);
+  reconcileBaseline(c, ['one two. three four five six.']);         // EARLY split (<50% in fragment 1)
+  const ca = segsOf(c);
+  ok(ca.length === 2, 'classic split: one sentence became two');
+  ok(ca[0].guid === cb[0].guid, 'classic EARLY split: the first fragment KEEPS the guid (punctuation-tolerant prefix)');
+  ok(ca[1].guid !== cb[0].guid, 'classic split: the second fragment mints fresh');
+
+  const j = makeDoc({ vernLang: 'fau', analLang: 'en' });
+  reconcileBaseline(j, ['Alpha beta. Gamma delta.']);
+  const jb = segsOf(j);
+  ok(jb.length === 2, 'join setup: two sentences');
+  reconcileBaseline(j, ['Alpha beta gamma delta.']);
+  const ja = segsOf(j);
+  ok(ja.length === 1 && ja[0].guid === jb[0].guid, 'classic JOIN: the joined sentence keeps the FIRST sentence\'s guid');
+
+  ok(sameLineText('Alpha beta.', 'Alpha beta gamma delta.') === true, 'the punctuated join row, pinned directly');
+  ok(sameLineText('one two three four five six.', 'one two.') === true, 'the punctuated early-split row, pinned directly');
+  ok(sameLineText('satu,', 'satu') === true, 'punctuation-only difference is the same line');
+}
+
+console.log('\nword-SUFFIX containment (prepend-join / words added at the start)');
+{
+  ok(sameLineText('pasar.', 'dia pergi ke pasar.') === true, 'a whole-word SUFFIX keeps identity');
+  ok(sameLineText('dia pergi', 'i') === false, 'a suffix without a word boundary does not ("i" inside "pergi")');
+  ok(sameLineText('a', 'abc') === false, 'prefix still needs a word boundary');
+  // The affix rule's boundary requirement, pinned where the threshold cannot also fire: "alpha" is
+  // a CHARACTER prefix of the long line but not a WORD prefix, and the length ratio rejects it.
+  ok(sameLineText('alpha', 'alphabet gamma delta epsilon zeta') === false,
+     'a character-prefix without a word boundary stays a different line');
+  // ("alpha" -> "alphabet" alone reads as SAME via the 0.625 char similarity — an in-place word
+  //  edit, the threshold's job, unchanged since v320.)
+  ok(sameLineText('alpha', 'alphabet') === true, 'a single word extended in place is the threshold\'s call: same line');
+}
+
+console.log('\n⚠ Unicode normalization: NFC vs NFD of the SAME text is the SAME line');
+{
+  const nfc = 'béré kédé wéné sómó tíní';                          // accent-dense, the failing class
+  const nfd = nfc.normalize('NFD');
+  ok(nfc !== nfd, 'sanity: the two encodings really differ code-point-wise');
+  ok(sameLineText(nfc, nfd) === true, 'the gate normalizes before comparing (accent-dense line)');
+  ok(sameLineText('wéné', 'wéné'.normalize('NFD')) === true, 'short accented word too');
+  // End-to-end: an NFD re-paste of an unchanged accented doc must EXACT-KEEP (norm() is NFC now),
+  // preserving guid AND imported offsets — pre-v321 it fell to fuzzy pairing.
+  const d = build([nfc, 'lain']);
+  d.paragraphs[0].segments[0].attrs['begin-time-offset'] = '1000';
+  const before = lines(d);
+  const after = edit(d, [nfd, 'lain']);
+  ok(after[0].guid === before[0].guid, 'NFD re-paste of an unchanged line keeps its guid (pass-1 exact keep)');
+  ok(after[0].seg.attrs['begin-time-offset'] === '1000', '...and its imported alignment');
+}
+
+console.log('\ngate-refused lines keep the SLOT\'s facts, refuse the LINE\'s facts (demoted attrs)');
+{
+  /* v321 audit: v320 dropped the WHOLE attrs dict, so media-file/speaker/unknown imported
+   * attributes vanished — leaving a retyped line's segmentation export timed-by-index but
+   * unlinked from its media while every neighbour kept media-file. */
+  const d = build(['satu dua', 'tiga']);
+  d.paragraphs[0].segments[0].attrs = { guid: 'OLD-GUID', 'begin-time-offset': '1000',
+    'end-time-offset': '2000', 'media-file': 'media-guid-9', speaker: 'Barnabas', 'x-custom': 'keepme' };
+  const after = edit(d, ['empat lima', 'tiga']);                   // wholesale retype: NOT the same line
+  const a = after[0].seg.attrs;
+  ok(a.guid !== 'OLD-GUID' && a.guid.length > 10, 'identity refused: fresh guid');
+  ok(!a['begin-time-offset'] && !a['end-time-offset'], 'alignment refused: offsets gone');
+  ok(a['media-file'] === 'media-guid-9', 'media-file CARRIES — the slot still belongs to the same media');
+  ok(a.speaker === 'Barnabas' && a['x-custom'] === 'keepme', 'speaker + unknown imported attributes carry');
+}
+
+console.log('\n...and OUR stale timing note is filtered with the refused alignment');
+{
+  /* The note is the VISIBLE carrier of alignment (the line a FLEx user reads). Carrying it while
+   * dropping the offsets ships a phrase whose Note asserts an alignment nothing backs. */
+  const d = build(['satu dua', 'tiga']);
+  d.paragraphs[0].segments[0].postItemsXML = [
+    '<item type="note" lang="en">audio 0:01.000–0:02.000</item>',   // ours — must go with the offsets
+    '<item type="note" lang="en">speaker laughs here</item>',        // the user's — must survive
+  ];
+  const after = edit(d, ['empat lima', 'tiga']);
+  const post = after[0].seg.postItemsXML;
+  ok(!post.some((x) => /audio ~?\d+:\d\d\.\d{3}/.test(x)), 'the stale timing note is gone');
+  ok(post.some((x) => x.includes('speaker laughs here')), 'the user\'s own note carries');
+  // ...but on a KEPT line (typo fix) our note rides untouched, exactly as before.
+  const e = build(['the dog run']);
+  e.paragraphs[0].segments[0].postItemsXML = ['<item type="note" lang="en">audio 0:01.000–0:02.000</item>'];
+  const kept = edit(e, ['the dog runs']);
+  ok(kept[0].seg.postItemsXML.length === 1, 'a kept line keeps its timing note (note and offsets stay in agreement)');
+}
+
 console.log(failures ? `\nFAILED (${failures})\n` : '\nPASSED\n');
 process.exit(failures ? 1 : 0);

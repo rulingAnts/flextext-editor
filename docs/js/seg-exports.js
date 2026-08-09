@@ -53,8 +53,12 @@ export function fmtClock(ms) {
  * paragraph app can carry a grouping TREE + embedded audio in one portable file.
  *
  * Shape: { format, version, title, vernLang, analLang, audio?, lines[], tree[] } —
- * - lines carry STABLE ids (L1..Ln, minted here): tree nodes reference ids, never indexes, so
- *   the grouping survives later bottom-level edits.
+ * - lines carry ids stable WITHIN ONE DOCUMENT (L1..Ln, minted here): tree nodes reference ids,
+ *   never indexes, so the grouping survives edits made INSIDE PAT. ⚠ They are POSITIONAL ACROSS
+ *   EXPORTS — a re-export after an editor line-count edit renumbers, so "L5" then names different
+ *   text. That is why `out.source` (lineCount/modified/engine, below) exists: it is the importer's
+ *   only way to detect a stale analysis. Durable cross-export identity is planned via the phrase
+ *   guid (plans/pat-one-tree-model.md §3).
  * - TEXT-ONLY is first-class: `audio` may be absent, and a line without alignment simply has no
  *   start/end — the app then works without players/waves (a flextext with no segmentation, or
  *   no audio at all, is a legitimate source).

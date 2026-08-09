@@ -42,7 +42,38 @@ write it back with the paragraph-analysis tree as close to untouched as possible
   dangling ids) true across a line split/join — checkInvariants and repairDocument already exist in
   paragraph-model.js and are the natural seam.
 
-## ✅ FIXED in v320 — a deleted line's GUID was adopted by an unrelated new line (FLEx honours GUIDs) (2026-08-08)
+## ✅ FIXED in v320, HARDENED in v321 — a deleted line's GUID was adopted by an unrelated new line (FLEx honours GUIDs) (2026-08-08)
+
+**v321 (audit round, 2026-08-08):** a 12-agent adversarial audit of the untested v319+v320 delta
+confirmed 7 findings (0 refuted), all independently reproduced. Fixed, each pinned by a test with a
+verified negative control:
+
+1. **MAJOR — classic-mode regression.** The classic editor's sentences END IN PUNCTUATION, which the
+   space-only prefix rule could never match — every classic sentence JOIN and every EARLY split
+   minted a fresh guid (flat-mode tests used punctuation-free lines, so it survived to the audit).
+   `wordPrefix` → `wordAffix`: trailing non-word chars stripped, non-word seam accepted, and
+   whole-word SUFFIX containment recognised symmetrically.
+2. **Unicode.** NFC vs NFD of the SAME accented text failed the threshold above ~1/3 accent density
+   (2 edits per composed char). `sameLineText` AND pass-1 `norm()` now NFC-normalize — a
+   normalization-flipped re-paste exact-keeps (guid, offsets, AND glosses; pre-v321 carryWords wiped
+   accented glosses even before the gate existed).
+3. **Demoted, not dropped.** A gate-refused line now keeps the SLOT's facts (`media-file`, `speaker`,
+   unknown imported attrs) while refusing the LINE's facts (guid, offsets) — wholesale drop left a
+   retyped line timed-by-index but unlinked from its media.
+4. **Stale note.** Our own `audio 0:00.000–…` note is filtered when the alignment it asserts is
+   refused (OUR_NOTE hoisted to module scope); user notes always carry.
+5. **Stamp race** (v319): per-doc promise chain serializes the completion stamp — interleaved
+   completions of different kinds could lose one kind's id from the `uploaded` map.
+6. **`test/fxpa-contract.test.mjs`** (35th suite): real `buildFxpa` output through PAT's real
+   `validateFxpa`/`serializeFxpa` — the audit found the contract's two halves only ever tested
+   separately. Also pins that an old PAT REFUSES a version-2 file (the one-tree migration's gate).
+
+**Accepted, documented, NOT fixed** (in-code comments at the sites): CMP_CAP shared-256-char-prefix
+collision (pre-v320 behaviour, pathological trigger); threshold keeping similar-but-different short
+words (`siti`→`sita` — the cat/cot trade-off, decided); prepend-EXPANSION of a short line minting
+fresh (containment ambiguity; only affix-shaped containment keeps).
+
+### (as shipped in v320)
 
 **Implemented** as `sameLineText()` in `flextext.js`, gating `attrs` on the one fuzzy-pair line of
 `reconcileBaseline`. `test/guid-identity.test.mjs` (34th suite) pins every rule below, including the
@@ -192,6 +223,22 @@ assigns them — not in whether they are written.
 - `reconcileBaseline` pass 2 carries `attrs: old.attrs` onto a new segment by ordered fallback
   pairing, so a guid can land on text that is completely different. Ours means "this slot descends
   from that slot", not "this is the same phrase".
+
+## PRE-EXISTING: re-sending a doc whose upload is IN FLIGHT double-starts the upload (found in the v321 audit)
+
+`uploadDocById` unconditionally resets the doc's `uploadView` slot to `'waiting'`, and `pumpUploads`'
+single-slot guard reads `uploadView` — so the in-flight upload no longer counts and a SECOND
+`DriveUpload` starts while the first keeps running. Consequences: the doc uploads twice (bandwidth a
+field connection pays for), and the first completion deletes the second's persisted queue record.
+The codebase already knows the hazard — the `uploadDelete` command handler guards with
+`if (uploadView.has(docId) || getUpload(docId)) break;` under the comment *"Re-queueing would reset
+the entry and double-start"* — but user Send and `triggerUpload` have no such guard.
+
+**v321 fixed the DATA half** (the per-kind stamp is now serialized per doc, so interleaved
+completions can no longer lose an id from the `uploaded` map). **The double-start itself is
+deliberately left** — suppressing or queueing a re-send while one is in flight changes Send-button
+UX, and that is Seth's call, not an audit fix. Options when picked up: no-op with a toast ("already
+uploading"), or queue-behind. The `uploadDelete` guard is the pattern to copy.
 
 ## Expand localization across the whole Flextext Editor Suite (Seth, 2026-08-07)
 **Next, after the current settings work ships.**

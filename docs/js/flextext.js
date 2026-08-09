@@ -22,6 +22,11 @@ export function newGuid() {
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
 export function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ESC[c]); }
 
+// Recognizes OUR OWN timing notes ("audio 0:01.000–0:02.000", "~" = estimated) — used to dedupe
+// them on round trips (serializeFlextext) and to strip a STALE one when the similarity gate
+// refuses a line's alignment (reconcileBaseline pass 2). User notes never match this shape.
+const OUR_NOTE = /type="note"[^>]*>audio ~?\d+:\d\d\.\d{3}/;
+
 /* ---------------- Tokenization & segmentation ---------------- */
 
 // Characters that count as part of a word (letters, marks, digits, common
@@ -82,6 +87,11 @@ export function makeWord(txt, opts = {}) {
 
 export function makeSegment(baselineText, words, opts = {}) {
   return {
+    /* ⚠ The minted guid is REAL FLEx IDENTITY, not decoration: FLEx HONOURS an incoming phrase
+     * guid on import (Seth, 2026-08-08), so re-importing an updated export UPDATES the object this
+     * guid names instead of duplicating the text. Which lines KEEP their guid across an edit and
+     * which mint fresh is decided by the similarity gate in reconcileBaseline (sameLineText) —
+     * design + decision record in plans/BACKLOG.md, "gate GUID inheritance on similarity". */
     attrs: opts.attrs ?? { guid: newGuid() },
     baseline: baselineText,
     words,
@@ -400,7 +410,6 @@ export function serializeFlextext(doc, settings = {}, opts = {}) {
   const spans = (opts.segTimes !== false && Array.isArray(doc.segments)) ? doc.segments : [];
   const hasSpans = spans.some((s) => typeof s.start === 'number' && typeof s.end === 'number' && !s.timePending);
   const clock = (ms) => { const ti = Math.max(0, Math.round(ms)); return `${Math.floor(ti / 60000)}:${String(Math.floor((ti % 60000) / 1000)).padStart(2, '0')}.${String(ti % 1000).padStart(3, '0')}`; };
-  const OUR_NOTE = /type="note"[^>]*>audio ~?\d+:\d\d\.\d{3}/;   // dedupe our own notes on round trips
   const mediaGuid = hasSpans && opts.mediaName && !(doc.mediaXML || []).length
     ? (doc.mediaGuid || (doc.mediaGuid = newGuid())) : null;
   let segnum = 0;
@@ -549,7 +558,11 @@ export function getBaselineParagraphs(doc) {
  */
 export function reconcileBaseline(doc, paragraphTexts, opts = {}) {
   const flat = !!opts.flatSegments;
-  const norm = (s) => s.replace(/\s+/g, ' ').trim();
+  // NFC so canonically equivalent text MATCHES (v321): a paste or IME that returns the same line
+  // in a different Unicode normalization must hit the exact-keep path, not fall to fuzzy pairing —
+  // pre-v321 a normalization flip of an accented doc wiped word glosses (carryWords' token LCS is
+  // exact-string) and, post-gate, would have minted fresh guids for unchanged lines.
+  const norm = (s) => s.normalize('NFC').replace(/\s+/g, ' ').trim();
 
   // Pass 0: paragraphs whose text is unchanged are kept verbatim (object
   // identity), so untouched parts of the text can never degrade. LCS pairing
@@ -601,16 +614,24 @@ export function reconcileBaseline(doc, paragraphTexts, opts = {}) {
     const old = fuzzyPair.get(j);
     const tokens = tokenize(ns.text);
     const words = old ? carryWords(old.words, tokens) : tokens.map(t => makeWord(t.txt, { punct: t.punct }));
+    /* ⚠ IDENTITY, GATED — see sameLineText. `attrs` carries the FLEx `guid` AND any imported
+     * begin/end-time-offset, so handing it wholesale to a line that merely inherited this slot both
+     * mis-identifies it to FLEx and gives it a false alignment. On refusal, demotedAttrs mints a
+     * fresh guid and drops the alignment while keeping the slot's other facts (media-file, speaker,
+     * unknown imported attributes). */
+    const same = old ? sameLineText(old.baseline, ns.text) : false;
     const seg = makeSegment(ns.text, words, old ? {
       // USER WORK always carries — it is word-matched (carryWords), so it degrades gracefully, and
-      // it is what the transcriber typed. Only IDENTITY is gated.
+      // it is what the transcriber typed. Only IDENTITY and ALIGNMENT are gated.
       free: old.free, freeLang: old.freeLang,
-      preItemsXML: old.preItemsXML, postItemsXML: old.postItemsXML,
-      /* ⚠ IDENTITY, GATED — see sameLineText. `attrs` carries the FLEx `guid` AND any imported
-       * begin/end-time-offset, so handing it to a line that merely inherited this slot both
-       * mis-identifies it to FLEx and gives it a false alignment. `undefined` makes makeSegment
-       * mint a fresh guid — exactly right for a line that is genuinely new. */
-      attrs: sameLineText(old.baseline, ns.text) ? old.attrs : undefined,
+      preItemsXML: old.preItemsXML,
+      /* ⚠ One exception inside "user work always carries": OUR OWN timing note. It is the VISIBLE
+       * carrier of the exact alignment the gate just refused (the note line a FLEx user reads), so
+       * carrying it while dropping the offsets would ship a phrase whose Note asserts an alignment
+       * nothing machine-readable backs. Filtered with the offsets; every OTHER note is a user's
+       * and carries (v321 audit). */
+      postItemsXML: same ? old.postItemsXML : (old.postItemsXML || []).filter((x) => !OUR_NOTE.test(x)),
+      attrs: same ? old.attrs : demotedAttrs(old.attrs),
     } : {});
     if (old && old.txtLang) seg.txtLang = old.txtLang;
     return { seg, para: ns.para };
@@ -660,12 +681,30 @@ export function reconcileBaseline(doc, paragraphTexts, opts = {}) {
  * silently regressing them. test/guid-identity.test.mjs pins every row above. */
 const SAME_LINE_MIN = 0.5;
 const CMP_CAP = 256;   // bound the O(n*m) DP: a long paragraph must not turn an edit into a freeze
+/* ⚠ Known, ACCEPTED corner of the cap (v321 audit, verified): two DIFFERENT long lines sharing a
+ * 256-char identical prefix compare as SAME, because only the capped prefix reaches the DP (the
+ * length-ratio exit below uses FULL lengths, so an equal-length pair sails past it). Firing needs a
+ * deleted and an added line sharing 256+ identical leading characters, positionally paired in
+ * pass 2 — pathological for interlinear text — and the pre-v320 behaviour in that corner was the
+ * same (attrs carried unconditionally). Do NOT remove the cap to fix it; if it ever bites in
+ * practice, compare a capped SUFFIX window as well. */
 
-// A split or join leaves one side a WHOLE-WORD prefix of the other ("alpha beta" <-> "alpha").
-// Requiring the space guards against "a" matching inside "abc".
-function wordPrefix(a, b) {
-  const [s, l] = a.length <= b.length ? [a, b] : [b, a];
-  return s.length > 0 && l.startsWith(s) && l[s.length] === ' ';
+/* A split or join leaves one side a WHOLE-WORD prefix of the other ("alpha beta" <-> "alpha") — or
+ * a whole-word SUFFIX (a prepend-join, or words added at the start of a line). ⚠ In the CLASSIC
+ * editor those fragments end in sentence punctuation ("Alpha beta." vs "Alpha beta gamma delta."),
+ * which a space-only boundary test can never match — that made every classic-mode sentence join and
+ * every early split mint a fresh guid (v321 audit, the one MAJOR finding). So trailing non-word
+ * characters are stripped before comparing, and the seam check requires a NON-word character
+ * (space or punctuation alike), so "a" still never matches inside "abc" and a bare character
+ * prefix like "alpha"/"alphabet…" still fails the affix rule. */
+const TRAILING_NONWORD = /[^\p{L}\p{M}\p{N}'’ʼ‘\-_=ʔ]+$/u;   // ⚠ keep in step with WORD_CHAR above
+function wordAffix(a, b) {
+  const xa = a.replace(TRAILING_NONWORD, ''), xb = b.replace(TRAILING_NONWORD, '');
+  const [s, l] = xa.length <= xb.length ? [xa, xb] : [xb, xa];
+  if (!s.length) return false;
+  if (l.length === s.length) return l === s;   // equal modulo trailing punctuation
+  if (l.startsWith(s) && !WORD_CHAR.test(l[s.length])) return true;
+  return l.endsWith(s) && !WORD_CHAR.test(l[l.length - s.length - 1]);
 }
 
 function levCapped(a, b) {
@@ -681,17 +720,35 @@ function levCapped(a, b) {
 }
 
 export function sameLineText(a, b) {
-  let x = String(a ?? '').replace(/\s+/g, ' ').trim();
-  let y = String(b ?? '').replace(/\s+/g, ' ').trim();
+  /* NFC first (v321 audit): the gate compares CODE POINTS, and composed vs decomposed forms of the
+   * SAME accented text differ by 2 edits per accented character — enough to fail the threshold
+   * whenever accents cover more than ~1/3 of a line, which is exactly the tone-marked orthographies
+   * this suite serves. Canonically equivalent text IS the same text; normalize before comparing. */
+  let x = String(a ?? '').normalize('NFC').replace(/\s+/g, ' ').trim();
+  let y = String(b ?? '').normalize('NFC').replace(/\s+/g, ' ').trim();
   if (x === y) return true;                 // includes blank -> blank: a silence marker kept as one
   if (!x || !y) return false;               // blank <-> text is a different line, not an edit
-  if (wordPrefix(x, y)) return true;
+  if (wordAffix(x, y)) return true;
   // lev is never less than the length difference, so hopeless pairs are rejected without the DP.
   const hi = Math.max(x.length, y.length), lo = Math.min(x.length, y.length);
   if (1 - (hi - lo) / hi < SAME_LINE_MIN) return false;
   if (x.length > CMP_CAP) x = x.slice(0, CMP_CAP);
   if (y.length > CMP_CAP) y = y.slice(0, CMP_CAP);
   return 1 - levCapped(x, y) / Math.max(x.length, y.length) >= SAME_LINE_MIN;
+}
+
+/* A gate-refused line is NEW TEXT in an old slot. Identity (guid) and alignment (the imported
+ * begin/end-time-offset) are facts about the old LINE and must not ride — but media-file, speaker,
+ * and unknown imported attributes describe the SLOT and its context, and stay true of whatever
+ * text sits there. v321 audit: dropping the whole dict left a retyped line's export TIMED (offsets
+ * re-emitted by index from doc.segments) but UNLINKED from its media, while every neighbour kept
+ * media-file — an inconsistency, not a policy. */
+function demotedAttrs(attrs) {
+  const rest = { ...(attrs || {}) };
+  delete rest.guid;
+  delete rest['begin-time-offset'];
+  delete rest['end-time-offset'];
+  return { guid: newGuid(), ...rest };
 }
 
 // Word-level carry-over inside a changed segment: LCS over token text, where a

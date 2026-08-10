@@ -40,7 +40,15 @@ at the point the URL field is set/validated.
 flextext URL within one assignment must DIFFER (one file cannot be both; the clipboard failure
 makes this collision likely), and normalize before comparing so the same Drive file id in two URL
 shapes still matches; (2) local — the duplicate-across-texts warning above, from panel state;
-(3) only then the network content sniff below. Never spend a worker round-trip on something a
+(3) only then the network content sniff below.
+**(4) WRITING-SYSTEM match (Seth, 2026-08-08):** once the flextext probe has the file, run the
+EXISTING `surveyWritingSystems()` (flextext.js — the panel's Utilities checker already uses it)
+over the XML and compare the file's baseline/gloss writing systems against the assignment's own
+`vernLang`/`analLang` fields in the same form. WARN on mismatch, never block — and remember FLEx
+codes are CASE-SENSITIVE (the research.wsCase tip), so 'Fau' vs 'fau' is a real mismatch worth
+naming exactly. The warning should point at the existing remap tool (`remapWritingSystems`) as the
+fix path. ⚠ This upgrades the flextext probe from first-bytes to a full fetch — fine, flextext is
+small text XML; the AUDIO probe stays first-bytes. Never spend a worker round-trip on something a
 string compare already answers.
 
 **Plus per-field CONTENT validation (Seth): each field verifies its file really is what the field

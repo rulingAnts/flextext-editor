@@ -36,6 +36,14 @@ already assigned to '<title>'" — converts that silent clipboard failure into a
 one. WARN, never block: the same recording on two texts is a legitimate workflow. Panel-side only,
 at the point the URL field is set/validated.
 
+**Plus per-field CONTENT validation (Seth): each field verifies its file really is what the field
+means.** The audio box fetches the first bytes (through the worker relay, never direct-to-Drive)
+and sniffs audio magic (RIFF/WAVE, fLaC, OggS, ID3/MP3 sync, ftyp/M4A); the flextext box sniffs
+XML with a `<document>` root. Catches the paste-the-wrong-file class outright (including the
+clipboard failure above when the stale URL is the wrong KIND). ⚠ On a glitchy link the probe must
+degrade to "could not verify" — a warning, never a block: Sentani bandwidth must not be able to
+stop an assignment that is actually fine.
+
 ## Warn the researcher that an invite link OVERRIDES a device's existing setup (Seth, 2026-08-07)
 **Where:** researcher-panel.js, the invite-link generation flow. NOT built — deliberately deferred.
 

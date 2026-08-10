@@ -34,3 +34,6 @@ apps/*/public/
 # ⚠ NOT under docs/ — docs/ IS THE WEBSITE, so anything there is SERVED. plans/ is tracked
 # but never published. See plans/README.md for what may and may not go in it.
 !plans/
+
+# npm deps for local test tooling (linkedom for DOM-in-node parser tests) — never served, never committed
+node_modules/

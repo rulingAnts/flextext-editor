@@ -198,10 +198,12 @@ export function renderStrips() {
 
     const play = document.createElement('button');
     play.className = 'seg-play';
-    play.title = deps.t(isAligned(seg) ? 'seg.playTip' : 'seg.pendingTip');
+    // aria-label, NOT title (v322): the native tooltip dropped over the text rows (Seth #10).
+    play.setAttribute('aria-label', deps.t(isAligned(seg) ? 'seg.playTip' : 'seg.pendingTip'));
     play.textContent = isAligned(seg) ? '▶' : '⋯';
     play.addEventListener('click', () => {
       if (!isAligned(seg)) return;
+      deps.onPlayTarget?.(seg);   // v322: Space toggles / ⏮ rewinds the LAST-used player
       const p = deps.getPlayer();
       if (!p) return;
       // Toggle: if THIS segment is the one rolling, pause IN PLACE — the parked playhead is what
@@ -260,6 +262,23 @@ export function renderStrips() {
       row.appendChild(setb);
     }
     host.appendChild(row);
+    /* ⤙⤚ JOIN, between the two rows it joins (v322, Seth's bug list #7). The baseline tab never
+     * had a join button — the ⇥ set-boundary control was being read as one ("join joins the lines
+     * incorrectly" was ⇥ moving a boundary). Same control, same glyph, same semantics as the gloss
+     * tab's, in its own row OUTSIDE both strips so a missed tap hits nothing destructive; it calls
+     * exactly what Backspace calls (mergeAt), so button and key can never disagree. */
+    if (i < paras.length - 1) {
+      const joinRow = document.createElement('div');
+      joinRow.className = 'seg-joinrow';
+      const join = document.createElement('button');
+      join.className = 'gseg-join';
+      join.textContent = '⤙⤚';
+      join.setAttribute('aria-label', deps.t('seg.joinTip'));
+      join.title = deps.t('seg.joinTip');
+      join.addEventListener('click', () => mergeAt(i, i + 1));
+      joinRow.appendChild(join);
+      host.appendChild(joinRow);
+    }
     drawStrip(wave, seg, dur);
   });
   positionCursor();
@@ -457,7 +476,7 @@ function positionCursor() {
         const want = rolling ? '⏸' : '▶';
         if (btn.textContent !== want) {
           btn.textContent = want;
-          btn.title = deps.t(rolling ? 'seg.pauseTip' : 'seg.playTip');
+          btn.setAttribute('aria-label', deps.t(rolling ? 'seg.pauseTip' : 'seg.playTip'));
         }
       }
       if (inSeg) {
@@ -490,9 +509,10 @@ export function drawSpanWave(canvas, seg) {
 /* The strip transport behaviour (toggle pause-in-place, resume-from-playhead, restart near end)
  * as a wire-up any button can adopt — the gloss line buttons must feel IDENTICAL to the baseline
  * ones or the two tabs teach different habits. */
-export function wireSegPlay(btn, seg, getPlayer) {
+export function wireSegPlay(btn, seg, getPlayer, onTarget) {
   btn.addEventListener('click', () => {
     if (!isAligned(seg)) return;
+    onTarget?.(seg);   // v322: Space/⏮ act on the last-used player
     const p = getPlayer();
     if (!p) return;
     const t = p.playheadMs?.();
@@ -515,7 +535,7 @@ export function startGlossTicker(entries, getPlayer, t) {
       if (!isAligned(seg)) continue;
       const rolling = p?.playing?.() && typeof time === 'number' && time >= seg.start && time < seg.end;
       const want = rolling ? '⏸' : '▶';
-      if (btn.textContent !== want) { btn.textContent = want; btn.title = t(rolling ? 'seg.pauseTip' : 'seg.playTip'); }
+      if (btn.textContent !== want) { btn.textContent = want; btn.setAttribute('aria-label', t(rolling ? 'seg.pauseTip' : 'seg.playTip')); }
     }
   }, 300);
 }

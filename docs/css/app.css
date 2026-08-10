@@ -272,8 +272,11 @@ main {
 /* The join control between line-groups: big enough to tap, positional meaning (it sits between
    the two lines it joins), icon-only per the low-literacy design rule. */
 .gseg-join { appearance: none; border: 1px solid var(--border); background: #fff; color: var(--muted);
-             border-radius: 6px; min-width: 44px; height: 24px; font-size: 12px; cursor: pointer;
-             display: block; margin: 6px 0 0 0; }
+             border-radius: 6px; min-width: 44px; height: 24px; font-size: 12px; cursor: pointer; }
+/* v322: the join control lives in its OWN row BETWEEN the two lines it joins — on both tabs. It was
+   the last child of the upper gloss group, 6px under the full-width free-translation input, so an
+   undershot tap joined lines by accident (Seth's field test). Centered and outside both groups. */
+.gseg-joinrow, .seg-joinrow { text-align: center; margin: 2px 0; line-height: 1; }
 .gseg-join:hover { background: #ece3f7; color: #5b3d8a; }
 /* The playhead cursor, drawn on whichever strip contains the current time. */
 .seg-cursor { position: absolute; width: 2px; background: #c9772a; pointer-events: none; }

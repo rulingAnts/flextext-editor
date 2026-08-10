@@ -11,8 +11,8 @@
  * list IDENTICAL to the editor's sw.js (app.js resolves its whole static import graph at load,
  * even though paragraph mode uses only part of it). */
 
-const VERSION = 'v149';
-const ENGINE = 'v318';   // editor ENGINE_VERSION this was built against — must match; see version-sync test
+const VERSION = 'v150';
+const ENGINE = 'v322';   // editor ENGINE_VERSION this was built against — must match; see version-sync test
 const CACHE = 'flextext-paragraph-' + VERSION;
 
 /* ⚠ THE GHOST (2026-08-04). This site's first deployment served the EDITOR at the origin root, so
@@ -76,13 +76,25 @@ const SHELL = [
 // Per-file fetch with retries (resilient on flaky networks), then cache.put — STILL atomic: any file
 // ultimately failing throws, so install never completes and the old version keeps serving. Retried on
 // the next update check. (Matches the editor SW.)
+/* v322 CONSISTENCY GUARD — see the editor's sw.js for the full story. sw.js is no-store while
+ * engine files ride the CDN edge, so a fresh worker could atomically install a STALE mixed-version
+ * shell. ?swv= keys every fetch past the edge to the (atomic) origin; the SENTINEL check on the
+ * editor's i18n.js aborts install on any skew, so the OLD version keeps serving and the update
+ * retries later. */
+const SENTINEL = 'js/i18n.js';
+const SENTINEL_RE = new RegExp("ENGINE_VERSION = '" + ENGINE + "'");
 async function precacheAll(cache, urls) {
   for (const url of urls) {
     let cached = false, lastErr;
     for (let attempt = 0; attempt < 3 && !cached; attempt++) {
       try {
-        const resp = await fetch(url, { cache: 'reload' });
+        const bust = url + (url.includes('?') ? '&' : '?') + 'swv=' + VERSION + '-' + ENGINE;
+        const resp = await fetch(bust, { cache: 'reload' });
         if (!resp.ok) throw new Error('HTTP ' + resp.status + ' ' + url);
+        if (url.endsWith(SENTINEL)) {
+          const body = await resp.clone().text();
+          if (!SENTINEL_RE.test(body)) throw new Error('version skew: ' + url + ' is not ' + ENGINE);
+        }
         await cache.put(url, resp);
         cached = true;
       } catch (err) { lastErr = err; if (attempt < 2) await new Promise(r => setTimeout(r, 500 * (attempt + 1))); }

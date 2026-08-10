@@ -2,7 +2,7 @@
 
 // Bump VERSION on every deploy: clients check for a changed sw.js whenever
 // they load / regain focus / come online, and offer the user an update.
-const VERSION = 'v318';
+const VERSION = 'v322';
 // On localhost the SW serves NETWORK-FIRST so code edits show up immediately during dev
 // (cache-first would keep serving a stale build until every file's VERSION is bumped). The
 // SW stays registered (PWA + localStorage behave normally); production stays offline-first.
@@ -58,13 +58,36 @@ const SHELL = [
 // we throw, so install never completes, this version never activates, and the OLD cached version keeps
 // serving. The app retries the whole install on its next update check (load / focus / online / hourly),
 // so a dropped connection mid-download can never leave a half-installed version.
+/* ⚠ CONSISTENCY, NOT JUST COMPLETENESS (v322 — the field "partial broken update" report).
+ *
+ * Completeness alone was never enough: sw.js is served no-store (the 2026-08-04 CDN fix) while the
+ * engine files ride default edge caching, so a FRESH sw.js could install STALE edge-cached engine
+ * bodies — every fetch 200s, install "succeeds", and the result is a version-MIXED shell served
+ * offline forever. The release gate cannot see it either (it probes with a cache-busting query no
+ * field device uses, and discards bodies). Two defences, both here:
+ *
+ * 1. Every precache fetch carries ?swv=<VERSION>. A version-keyed URL is a cache key the edge has
+ *    never seen for this version, so the body comes from the ORIGIN (which deploys atomically) —
+ *    the edge's stale copy of the bare URL is simply never consulted. Stored under the BARE url,
+ *    so serving is unchanged.
+ * 2. The SENTINEL: js/i18n.js declares ENGINE_VERSION. If the body we fetched does not carry the
+ *    exact version this worker was built against, the deploy has not fully landed where we can see
+ *    it — THROW, so install fails, the OLD version keeps serving, and the normal update cycle
+ *    retries later. An aborted install costs a retry; a mixed install costs a field device. */
+const SENTINEL = 'js/i18n.js';
+const SENTINEL_RE = new RegExp("ENGINE_VERSION = '" + VERSION + "'");
 async function precacheAll(cache, urls) {
   for (const url of urls) {
     let cached = false, lastErr;
     for (let attempt = 0; attempt < 3 && !cached; attempt++) {
       try {
-        const resp = await fetch(url, { cache: 'reload' });
+        const bust = url + (url.includes('?') ? '&' : '?') + 'swv=' + VERSION;
+        const resp = await fetch(bust, { cache: 'reload' });
         if (!resp.ok) throw new Error('HTTP ' + resp.status + ' ' + url);
+        if (url.endsWith(SENTINEL)) {
+          const body = await resp.clone().text();
+          if (!SENTINEL_RE.test(body)) throw new Error('version skew: ' + url + ' is not ' + VERSION);
+        }
         await cache.put(url, resp);
         cached = true;
       } catch (err) { lastErr = err; if (attempt < 2) await new Promise(r => setTimeout(r, 500 * (attempt + 1))); }

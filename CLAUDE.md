@@ -69,6 +69,51 @@ reloading will fix it. A genuinely stale SW updates instead of saying that.
 one more commit to the branch that lost, on its own. Read the build log's `branch: X → alias: X`
 line before believing any deploy landed.
 
+#### 🚩🚩 RELEASING: NEVER FIRE `main` AND `productionWeb` TOGETHER — WAIT, THEN **VERIFY** (Seth, 2026-08-08)
+
+**The rule that does not depend on knowing the mechanism: push ONE branch, confirm its deploy
+actually landed, and only then push the other.** Not "wait 5–10 minutes" — a timer is a guess. The
+gate is the Cloudflare log header reading `branch: X → alias: X` for the push you just made, plus
+the live origin serving the new version.
+
+**⚠ Which order is correct is NOT settled — do not write one into a script yet.** What is known:
+
+- Seth: *"push productionWeb first, wait a very long time (like 5–10 minutes), and then push main.
+  Because I think if we push two in a row like that, it skips productionWeb."* Then, immediately:
+  *"Maybe pushing main first and then waiting would work. Or something. I'm really not sure."*
+- Observed behaviour is **not** the clean "second push supersedes the first" of the staging/main case
+  above. `productionWeb` has been seen to **stall or be skipped entirely**, needing a **manual re-run
+  from the Cloudflare dashboard** — which is a different failure from being cancelled by a newer
+  build, and is why the reasoning "push production second so it wins" is unsafe.
+
+⚠ **So do not reason about who wins. Assume any second push within the window can cost you the
+production deploy, and space them by verification.** `main` can sit unpushed indefinitely — the
+commits are identical whenever it goes out, and tidiness is worth nothing against a release that
+silently did not ship.
+
+**Settle it next release:** push one branch, watch the dashboard, and record which deployments appear
+and in what state. Two clean observations would turn this into a real rule; until then this section
+is deliberately agnostic.
+
+#### Observations so far — the skip is INTERMITTENT, not deterministic
+
+| release | what was done | outcome |
+|---|---|---|
+| v318 (2026-08-08) | `main` pushed 05:18:13, `productionWeb` seconds later | **Every Cloudflare site deployed from `productionWeb`** — verified by Seth on the dashboard across all Workers built from this repo. Pages + all three satellite mirrors green too. |
+
+⚠ **So v318 was NOT a broken release** — do not read the caution above as a post-mortem of one. It
+records a failure mode Seth has *seen*, which v318 then did not reproduce despite being pushed in
+exactly the risky pattern. That is the worst kind of hazard to reason about: it lets a bad habit look
+safe for several releases before it costs one. Keep spacing the pushes and keep verifying; the reason
+is the tail, not the average.
+
+⚠ **What made v318 hard to judge from inside the release**, and is the durable lesson: the Pages
+estate has its own gate (`sync-satellites.yml` waits for the live editor to serve the pushed version
+and 200-checks every precached path before publishing), so it shipped green and *nothing looked
+wrong*. Cloudflare has no equivalent gate. **A green satellite workflow says nothing about
+Cloudflare** — they are independent estates off the same push, and only one of them can fail loudly.
+Check the dashboard; do not infer one estate from the other.
+
 **Do NOT push to `productionWeb` without the maintainer's explicit OK.** It's the
 live site that real users (field translators in the village) load — a broken push
 breaks their work. Develop and test on `main` first.
@@ -175,6 +220,36 @@ folder naming its own Worker, and no two folders targeting the same Worker name.
 **The GitHub Pages estate is unchanged** and is still published by `sync-satellites.yml` on a
 `productionWeb` push, with the same ordering guard (editor live first, every precached path verified
 200, then the mirrors).
+
+## 🚩 CORE DESIGN PRINCIPLE: modularize what is app-specific, generalize what is shared (Seth, 2026-08-08)
+
+> *"With our suite, in general we should move toward modularizing whatever is app specific and
+> generalizing things (whether back end or GUI) that are likely to be used by multiple apps in the
+> suite. That's just a core design principle."*
+
+**The suite is ONE engine wearing different faces.** Every satellite is a 59–141 line shell that
+loads THIS repo's `js/app.js`; what makes them different apps is a `window.__MODE` flag plus their
+own PWA identity (`sw.js`, manifest `id`/`scope`, icons). PAT is the one that also carries engine
+modules of its own (`paragraph-model.js`, `paragraph-ui.js`) and its own data model.
+
+So when adding or changing anything, ask which of two things it is:
+
+- **App-specific** → it belongs behind a `__MODE` branch or in its own module, not sprinkled through
+  shared code. The model to copy is `js/native-audio.js`: one chokepoint, inert everywhere else,
+  with a script (`check-native-containment.sh`) that FAILS if the boundary leaks.
+- **Likely useful to more than one app** → generalize it, engine-side, once. Backend and GUI alike.
+
+⚠ **The corollary that bites: a change to shared code changes every app at once.** Before touching
+anything in `docs/js/`, know its blast radius and say so. Two questions answer most of it:
+- Does it add a top-level `import` to `js/app.js`? Then it is a new SHELL entry in the editor **and
+  every satellite `sw.js`**, in the same commit — that is the v108 outage.
+- Which apps actually reach the code path? (`reconcileBaseline` lives in the engine, but only the
+  editor's baseline editing calls it and PAT never does — so v320's guid gate was one file, no SHELL
+  change, zero satellite impact. That is the kind of answer to have BEFORE merging, not after.)
+
+⚠ **Generalize on the second use, not the first.** A premature abstraction spanning five apps is far
+more expensive to unpick than a duplicated function, because unpicking it means touching all five.
+The live example is in `plans/BACKLOG.md` under *"Engine-wide drift is worth watching"*.
 
 ## Developer documentation
 

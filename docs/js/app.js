@@ -20,7 +20,7 @@ import WaveSurfer from './vendor/wavesurfer.esm.js';
 import { makeZip } from './zip.js';
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay } from './segment-strips.js';
 import { serializeEaf, serializeEafPrefs, buildSegPreviewHtml, wavWithBext, captureBext, buildFxpa } from './seg-exports.js';
-import { mergeSegments, splitSegment, isAligned } from './segments.js';
+import { mergeSegments, splitSegment, isAligned, normalizeSegments } from './segments.js';
 import { initParagraphApp } from './paragraph-ui.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget } from './upload.js';
 import * as Sync from './sync.js';
@@ -411,7 +411,9 @@ async function openDoc(id) {
   const rec = await db.getDoc(id);
   if (!rec) { toast(t('toast.cantOpen')); return; }
   current = rec;
+  resetUndo();
   enterEditor('baseline');
+  maybeEnterMatchMode();   // v323: transcribed-but-unsegmented + audio -> the matching step, no skip
 }
 
 function docStats(doc) {
@@ -738,6 +740,7 @@ function stopGlossCursor() { cancelAnimationFrame(glossRafId); }
  * their words through the reconcile carry-over pool. */
 function glossSplitAt(i, boundary) {
   if (!current) return;
+  captureUndo();
   const doc = current.doc;
   const phrase = doc.paragraphs[i] && doc.paragraphs[i].segments[0];
   if (!phrase || !phrase.words) return;
@@ -786,6 +789,7 @@ function glossSplitAt(i, boundary) {
 
 function glossJoinLines(i) {
   if (!current) return;
+  captureUndo();
   const doc = current.doc;
   const paras = getBaselineParagraphs(doc).slice();
   if (i < 0 || i + 1 >= paras.length) return;
@@ -824,6 +828,7 @@ function switchTab(tab) {
         getParagraphs: (doc) => getBaselineParagraphs(doc),
         setParagraphs: (doc, paras) => { reconcileBaseline(doc, paras.length ? paras : [''], { flatSegments: true }); schedulePersist(); },
         onPlayTarget: (seg) => { lastPlayTarget = seg; },
+        capture: () => captureUndo(),
         persist: () => schedulePersist(),
         t,
       });
@@ -901,6 +906,139 @@ let player = null;
  * dock player. Space toggles it; the dock's ⏮ rewinds it to ITS start. Set by every segment play
  * button and strip scrub; cleared by any dock interaction (the dock then IS the target). */
 let lastPlayTarget = null;
+
+/* ---------------- undo/redo (v323, Seth's bug list #6) ----------------
+ * STRUCTURAL operations only: split/join on both tabs, the classic-textarea commit, word
+ * chain/unchain — and every Matching-mode cut. Typing INSIDE a field keeps the browser's native
+ * undo while the field has focus; a structural op re-renders and ends that scope. Snapshots are
+ * {paragraphs, segments} pairs — the two halves every structural edit writes together, so
+ * restoring one without the other would desynchronise the 1:1 line invariant. */
+const UNDO_CAP = 100;
+let undoStack = [], redoStack = [];
+function captureUndo() {
+  if (!current) return;
+  try {
+    undoStack.push({ p: structuredClone(current.doc.paragraphs), s: structuredClone(current.doc.segments || []) });
+  } catch { return; }
+  if (undoStack.length > UNDO_CAP) undoStack.shift();
+  redoStack = [];
+  updateUndoButtons();
+}
+function resetUndo() { undoStack = []; redoStack = []; updateUndoButtons(); }
+function updateUndoButtons() {
+  const u = $('#btn-undo'), r = $('#btn-redo');
+  if (u) u.disabled = !undoStack.length;
+  if (r) r.disabled = !redoStack.length;
+}
+function applyUndoState(st, onto) {
+  const now = { p: structuredClone(current.doc.paragraphs), s: structuredClone(current.doc.segments || []) };
+  onto.push(now);
+  current.doc.paragraphs = st.p;
+  current.doc.segments = st.s;
+  schedulePersist();
+  // Re-render whatever is showing; switchTab already knows every mode's render path.
+  if (matchMode.active) { matchRender(); } else { switchTab(activeTab); }
+  updateUndoButtons();
+}
+function doUndo() { const st = undoStack.pop(); if (st) applyUndoState(st, redoStack); }
+
+/* ---------------- AUDIO MATCHING MODE (v323; plans/audio-matching-mode.md) ----------------
+ * A text with lines and audio but NO real alignment gets this guided step INSTEAD of the editor:
+ * listen, and at each line-end press Enter (or tap the scissors) — the audio heard since the last
+ * cut becomes that line's span. n lines need n-1 cuts; the last line takes the remainder. No text
+ * editing, no join/split: a wrong cut is Ctrl+Z / ↶ (un-cut). NO SKIP (Seth): the one escape is
+ * the FAILURE path — audio that cannot decode falls through to the editor. Mid-way exits resume
+ * at the first unmatched line. Writes doc.segments ONLY, so glosses and free translations cannot
+ * be disturbed by construction. */
+const matchMode = { active: false };
+const MATCH_MIN_MS = 250;
+
+function matchEligible(doc) {
+  if (!segmentationEnabled() || !current) return false;
+  if (!(current.audioId || current.audioSource || current.pendingAudio)) return false;
+  const lines = getBaselineParagraphs(doc);
+  if (lines.length < 2 || !lines.some((l) => l.trim())) return false;
+  const segs = doc.segments || [];
+  // "No real alignment": nothing CONFIRMED — estimates and pendings are placeholders (the seed).
+  return !segs.some((sg) => typeof sg.start === 'number' && !sg.timeEstimated && !sg.timePending);
+}
+
+function matchedCount(doc) {
+  const segs = doc.segments || [];
+  let k = 0;
+  while (k < segs.length && typeof segs[k].start === 'number' && !segs[k].timeEstimated && !segs[k].timePending) k++;
+  return k;
+}
+
+function maybeEnterMatchMode() {
+  if (!current || !matchEligible(current.doc)) return;
+  const host = $('#match-host');
+  if (!host) return;
+  matchMode.active = true;
+  document.body.classList.add('match-active');
+  matchRender();
+}
+
+function exitMatchMode() {
+  matchMode.active = false;
+  document.body.classList.remove('match-active');
+  const host = $('#match-host');
+  if (host) { host.hidden = true; host.innerHTML = ''; }
+  switchTab(activeTab);
+}
+
+function matchCut() {
+  if (!matchMode.active || !current) return;
+  const doc = current.doc;
+  const dur = player?.durationMs?.();
+  const t2 = player?.playheadMs?.();
+  if (typeof t2 !== 'number' || !dur) return;
+  const lines = getBaselineParagraphs(doc);
+  const k = matchedCount(doc);
+  const last = k > 0 ? doc.segments[k - 1].end : 0;
+  if (t2 < last + MATCH_MIN_MS) { toast(t('match.tooEarly'), 3000); return; }
+  captureUndo();
+  const segs = (doc.segments || []).map((sg) => ({ ...sg }));
+  while (segs.length < lines.length) segs.push({ timePending: true });
+  segs[k] = { start: last, end: t2 };
+  // n-1 cuts for n lines: cutting the second-to-last line gives the last one the remainder.
+  if (k === lines.length - 2) segs[lines.length - 1] = { start: t2, end: dur };
+  doc.segments = normalizeSegments(segs, { duration: dur });
+  schedulePersist();
+  matchRender();
+}
+
+function matchRender() {
+  const host = $('#match-host');
+  if (!host || !current) return;
+  const doc = current.doc;
+  const lines = getBaselineParagraphs(doc);
+  const k = matchedCount(doc);
+  if (k >= lines.length) { toast(t('match.done'), 5000); exitMatchMode(); return; }
+  host.hidden = false;
+  const fmt = (ms) => { const x = Math.round(ms); return Math.floor(x / 60000) + ':' + String(Math.floor((x % 60000) / 1000)).padStart(2, '0'); };
+  const frees = doc.paragraphs.map((p) => (p.segments[0] && p.segments[0].free) || '');
+  host.innerHTML = '<div class="match-head"><h3>' + esc(t('match.title')) + '</h3><p class="note">' + esc(t('match.hint')) + '</p>'
+    + '<button id="match-cut" class="primary-btn">✂ ' + esc(t('match.cut')) + '</button> '
+    + '<span class="note match-progress">' + esc(t('match.progress', { k: String(k + 1), n: String(lines.length) })) + '</span></div>'
+    + '<div class="match-rows">' + lines.map((ln, j) => {
+      const sg = (doc.segments || [])[j];
+      const done = j < k;
+      const span = done ? (fmt(sg.start) + '–' + fmt(sg.end)) : (j === k ? '▶ …' : '');
+      return '<div class="match-row' + (j === k ? ' match-cur' : '') + (done ? ' match-done' : '') + '">'
+        + '<span class="match-span">' + esc(span) + '</span>'
+        + '<span class="match-line">' + esc(ln.trim() || '⌁') + (frees[j] ? '<span class="note"> — ' + esc(frees[j]) + '</span>' : '') + '</span></div>';
+    }).join('') + '</div>';
+  const cutBtn = host.querySelector('#match-cut');
+  if (cutBtn) cutBtn.addEventListener('click', matchCut);
+  const cur = host.querySelector('.match-cur');
+  if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  // FAILURE path, not a skip: no decodable audio once the player settles -> the normal editor.
+  if (!player || !player.durationMs?.()) {
+    setTimeout(() => { if (matchMode.active && (!player || !player.durationMs?.())) { toast(t('match.noAudio'), 6000); exitMatchMode(); } }, 8000);
+  }
+}
+function doRedo() { const st = redoStack.pop(); if (st) applyUndoState(st, undoStack); }
 let playerDocId = null;
 // Which doc's audio the player has FINISHED decoding. decodedBuffer() returns whatever wavesurfer
 // currently holds — during a doc switch that is the PREVIOUS doc's audio, and ensurePeaks trusting
@@ -6204,7 +6342,19 @@ function setupResearcherMode() {
 function wirePlaybackKeys() {
   const PLAY_BTNS = '.player-play, .player-back, .player-home, .seg-play, .gseg-play';
   document.addEventListener('keydown', (e) => {
+    if (matchMode.active && e.key === 'Enter') { e.preventDefault(); matchCut(); return; }
     if (e.key === 'Enter' && e.target.closest && e.target.closest(PLAY_BTNS)) { e.preventDefault(); return; }
+    // Undo/redo (v323): buttons are primary; keys work when focus is not inside a text field
+    // (there the browser's native typing-undo owns Ctrl+Z until the next structural re-render).
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && (e.key === 'z' || e.key === 'Z' || e.key === 'y' || e.key === 'Y')) {
+      const inField = e.target.closest && e.target.closest('input, textarea, [contenteditable]');
+      if (!inField) {
+        e.preventDefault();
+        if (e.key === 'y' || e.key === 'Y' || e.shiftKey) doRedo(); else doUndo();
+        return;
+      }
+    }
     if (e.key !== ' ' || e.repeat) return;
     const t2 = e.target;
     if (t2.closest && (t2.closest('input, textarea, select, button, [contenteditable]'))) return;
@@ -6232,6 +6382,8 @@ function wirePlaybackKeys() {
 
 function setup() {
   wirePlaybackKeys();
+  $('#btn-undo')?.addEventListener('click', doUndo);
+  $('#btn-redo')?.addEventListener('click', doRedo);
   // Crowd mode boots FIRST — before applyUrlSettings/migrateSettings/SW/sync can
   // touch the shared-origin storage a field worker's apps may be using on this
   // same browser profile. Everything crowd needs is fetched or in-memory.

@@ -43,6 +43,8 @@
   </div>
   <div id="topbar-editor" class="topbar-row" hidden>
     <button id="btn-back" class="icon-btn" data-i18n-title="btn.back">&#8592;</button>
+    <button id="btn-undo" class="icon-btn" data-i18n-title="edit.undo" disabled>&#8630;</button>
+    <button id="btn-redo" class="icon-btn" data-i18n-title="edit.redo" disabled>&#8631;</button>
     <input id="doc-title" class="doc-title" data-i18n-ph="untitled" placeholder="Untitled text" spellcheck="false">
     <button id="btn-help-editor" class="icon-btn help-btn" data-i18n-title="btn.help">?</button>
     <nav class="top-tabs" role="tablist">
@@ -126,6 +128,7 @@
        is known is a wrong alignment written to the doc, not a placeholder — see switchTab. -->
   <p id="seg-loading" class="note seg-loading" hidden data-i18n="seg.loadingAudio">Loading the recording…</p>
   <div id="segment-strips" hidden></div>
+    <div id="match-host" class="match-host" hidden></div>
       <textarea id="baseline-text" class="baseline-area" spellcheck="false" data-i18n-ph="baseline.placeholder"></textarea>
 </section>
 

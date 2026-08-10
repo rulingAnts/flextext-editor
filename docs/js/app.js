@@ -2759,10 +2759,13 @@ async function tryDownloadFlextext(rec) {
      * apart — so "not arrived yet, still retrying" hid a permanent configuration failure behind a
      * message promising progress. Still transient (it keeps retrying), but now it says the
      * connection was REFUSED and points at fxCheck(). */
-    if (e.name === 'TypeError' || /networkerror|failed to fetch/i.test(e.message || '')) {
-      toast(t('task.ftBlocked'), 12000);
-      return false;
-    }
+    /* ⚠ v329: SAY WHY, ALWAYS. Every non-fatal failure used to retry in silence behind "the text
+     * has not arrived yet", which promises progress — so an HTTP 401 (wrong relay token), 403
+     * (origin not allow-listed), 404 (file not shared) and a genuine outage were ONE
+     * indistinguishable message, and each guess cost a field round-trip. The real reason is
+     * already in e.message ("HTTP 401", "NetworkError…", "Timed out…") — show it. Still transient
+     * (it keeps retrying); the researcher just learns which of those it is. */
+    toast(t('task.ftRetryReason', { msg: e.message || '?' }), 12000);
     return false; // transient: keep pending for the next retry
   }
   // Populate the placeholder — unless the coworker already started transcribing,

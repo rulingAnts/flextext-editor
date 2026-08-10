@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v325';
+export const ENGINE_VERSION = 'v326';
 
 const S = {
 en: {
@@ -489,6 +489,9 @@ en: {
   'player.back3': 'Back 3 seconds',
   'player.home': 'Rewind to the start',
   'edit.undo': 'Undo (Ctrl+Z)',
+  'gloss.splitTip': 'Split the line here (text and audio)',
+  'task.ftRetrying': 'Fetching the assigned text\u2026',
+  'task.ftStillPending': 'The text has not arrived yet \u2014 it will keep retrying while you are online.',
   'match.title': 'Match the recording to your lines',
   'match.hint': 'Play the recording. When you hear the end of the highlighted line, press Enter or tap the scissors. Undo (\u21b6) fixes a wrong cut.',
   'match.cut': 'Cut here',
@@ -1904,6 +1907,9 @@ id: {
   'player.back3': 'Mundur 3 detik',
   'player.home': 'Kembali ke awal',
   'edit.undo': 'Urungkan (Ctrl+Z)',
+  'gloss.splitTip': 'Pisahkan baris di sini (teks dan audio)',
+  'task.ftRetrying': 'Mengambil teks tugas\u2026',
+  'task.ftStillPending': 'Teks belum diterima \u2014 akan terus dicoba selama Anda online.',
   'match.title': 'Cocokkan rekaman dengan baris teks',
   'match.hint': 'Putar rekaman. Saat baris yang disorot selesai terdengar, tekan Enter atau ketuk gunting. Urungkan (\u21b6) memperbaiki potongan yang salah.',
   'match.cut': 'Potong di sini',

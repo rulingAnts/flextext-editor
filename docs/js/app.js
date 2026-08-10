@@ -413,6 +413,19 @@ async function openDoc(id) {
   current = rec;
   resetUndo();
   enterEditor('baseline');
+  /* v326 (the Sentani "0 sentences" report): a pending assigned flextext used to retry ONLY on
+   * app start / back-online — keep the app open across one glitchy task-time fetch and the
+   * placeholder stayed empty forever, with the audio arriving and nothing saying why. OPENING the
+   * doc is the moment the user is looking at it: retry NOW, tell them when it is still coming,
+   * and only then decide about the matching step (which needs the text to exist). */
+  if (rec.pendingFlextext) {
+    toast(t('task.ftRetrying'), 4000);
+    tryDownloadFlextext(rec).then((got) => {
+      if (!got && current && current.id === rec.id && current.pendingFlextext) toast(t('task.ftStillPending'), 8000);
+      if (got) maybeEnterMatchMode();
+    }).catch(() => {});
+    return;
+  }
   maybeEnterMatchMode();   // v323: transcribed-but-unsegmented + audio -> the matching step, no skip
 }
 
@@ -618,6 +631,7 @@ function decorateGlossSegments() {
     bar.append(btn, waveWrap);
     g.prepend(bar);
     wireSegPlay(btn, seg, () => player, (t2) => { lastPlayTarget = t2; });
+    wave.addEventListener('pointerdown', () => { lastPlayTarget = seg; });   // v326: touch = select
     drawSpanWave(wave, seg);
     // Interactive, same as the baseline strips: click to PARK the playhead, drag to scrub.
     if (isAligned(seg)) {
@@ -653,6 +667,27 @@ function decorateGlossSegments() {
       joinRow.appendChild(join);
       g.insertAdjacentElement('afterend', joinRow);
     }
+    /* SCISSORS under each chain-link (Seth, v326): the chain joins two words into one lexical item
+     * (FLEx-style); the scissors directly below it SPLITS THE LINE at that same word gap -- the
+     * one-click version of Enter at that gloss boundary. Wrapped in a column so the pair reads as
+     * "this gap: join words / split line". Word-gap index = word cells before the link. */
+    g.querySelectorAll('.chain-btn').forEach((link) => {
+      if (link.parentElement && link.parentElement.classList.contains('gap-ctl')) return;
+      const rowEl = link.parentElement;
+      const kids = [...rowEl.children];
+      const before = kids.slice(0, kids.indexOf(link)).filter((el) => el.classList.contains('word-cell')).length;
+      const wrapEl = document.createElement('span');
+      wrapEl.className = 'gap-ctl';
+      link.replaceWith(wrapEl);
+      wrapEl.appendChild(link);
+      const sc = document.createElement('button');
+      sc.className = 'scissor-btn';
+      sc.textContent = '\u2702';
+      sc.setAttribute('aria-label', t('gloss.splitTip'));
+      sc.title = t('gloss.splitTip');
+      sc.addEventListener('click', () => glossSplitAt(i, before));
+      wrapEl.appendChild(sc);
+    });
     // ⚠ ENTER-SPLIT ON WORD-GLOSS FIELDS: caret at the START of a word's gloss box splits BEFORE
     // that word; at the END, AFTER it. Mid-text Enter does nothing (a stray key cannot split).
     // Word index = cell position: renderSegment appends one .word-cell per seg.words entry,
@@ -711,6 +746,11 @@ function decorateGlossSegments() {
 /* The gloss playhead: a cursor over whichever mini wave contains the current time, plus live ▶/⏸
  * glyphs — one rAF loop, the gloss twin of the baseline strips' positionCursor. */
 let glossRafId = 0;
+let glossFollowRow = null;
+let glossLastScroll = 0;
+if (typeof window !== 'undefined') {
+  for (const ev of ['wheel', 'touchmove']) window.addEventListener(ev, () => { glossLastScroll = Date.now(); }, { passive: true });
+}
 function startGlossCursor(entries) {
   cancelAnimationFrame(glossRafId);
   const tick = () => {
@@ -720,7 +760,18 @@ function startGlossCursor(entries) {
       if (!isAligned(en.seg)) continue;
       const inSeg = typeof time === 'number' && time >= en.seg.start && time < en.seg.end;
       const want = rolling && inSeg ? '⏸' : '▶';
-      if (en.btn.textContent !== want) { en.btn.textContent = want; en.btn.title = t(rolling && inSeg ? 'seg.pauseTip' : 'seg.playTip'); }
+      if (en.btn.textContent !== want) { en.btn.textContent = want; en.btn.setAttribute('aria-label', t(rolling && inSeg ? 'seg.pauseTip' : 'seg.playTip')); }
+      /* v326 (Seth #9): highlight the playing line-group; during CONTINUOUS play (no active span)
+       * follow it -- change-of-line only, only when out of sight, 4s user-scroll standoff. */
+      const grp = en.wrap.closest('.segment');
+      if (grp && grp.classList.contains('gseg-on') !== inSeg) grp.classList.toggle('gseg-on', inSeg);
+      if (grp && inSeg && rolling && grp !== glossFollowRow) {
+        glossFollowRow = grp;
+        if (!player._spanTick && Date.now() - glossLastScroll > 4000) {
+          const r = grp.getBoundingClientRect();
+          if (r.top < 60 || r.bottom > (window.innerHeight - 20)) grp.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }
+      }
       let cur = en.wrap.querySelector('.gseg-cursor');
       if (inSeg) {
         if (!cur) { cur = document.createElement('div'); cur.className = 'gseg-cursor'; en.wrap.appendChild(cur); }
@@ -915,16 +966,39 @@ let lastPlayTarget = null;
  * restoring one without the other would desynchronise the 1:1 line invariant. */
 const UNDO_CAP = 100;
 let undoStack = [], redoStack = [];
-function captureUndo() {
-  if (!current) return;
-  try {
-    undoStack.push({ p: structuredClone(current.doc.paragraphs), s: structuredClone(current.doc.segments || []) });
-  } catch { return; }
+function docSnap() {
+  return { p: structuredClone(current.doc.paragraphs), s: structuredClone(current.doc.segments || []) };
+}
+function pushSnap(snap) {
+  undoStack.push(snap);
   if (undoStack.length > UNDO_CAP) undoStack.shift();
   redoStack = [];
   updateUndoButtons();
 }
-function resetUndo() { undoStack = []; redoStack = []; updateUndoButtons(); }
+/* FOCUS-SESSION text undo (Seth, v326): everything typed during ONE focus of a field is ONE undo
+ * step. On focus we snapshot the doc; on blur (or before any structural op, to keep chronology)
+ * the snapshot is pushed IF the field changed. While the field is focused and DIRTY, Ctrl+Z stays
+ * NATIVE (character-level, the browser's); once the field is back to its focus-start value -- or
+ * focus has left -- Ctrl+Z is the app's and steps whole sessions/operations. That answers "native
+ * is not compatible with session-scoping": native owns the inside of a session, the app owns
+ * everything at and beyond its boundary. */
+let fieldUndo = null;   // { el, startValue, snap } for the currently-focused text field
+function commitFieldUndo() {
+  const f = fieldUndo;
+  fieldUndo = null;
+  if (!f || !current) return;
+  const now = (f.el && typeof f.el.value === 'string') ? f.el.value : null;
+  if (now !== null && now === f.startValue) return;   // nothing changed this session
+  pushSnap(f.snap);
+}
+function captureUndo() {
+  if (!current) return;
+  try {
+    commitFieldUndo();          // chronology: the focus-session's BEFORE precedes this op's BEFORE
+    pushSnap(docSnap());
+  } catch { /* snapshot failed -- skip rather than break the edit */ }
+}
+function resetUndo() { fieldUndo = null; undoStack = []; redoStack = []; updateUndoButtons(); }
 function updateUndoButtons() {
   const u = $('#btn-undo'), r = $('#btn-redo');
   if (u) u.disabled = !undoStack.length;
@@ -940,7 +1014,7 @@ function applyUndoState(st, onto) {
   if (matchMode.active) { matchRender(); } else { switchTab(activeTab); }
   updateUndoButtons();
 }
-function doUndo() { const st = undoStack.pop(); if (st) applyUndoState(st, redoStack); }
+function doUndo() { commitFieldUndo(); const st = undoStack.pop(); if (st) applyUndoState(st, redoStack); }
 
 /* ---------------- AUDIO MATCHING MODE (v323; plans/audio-matching-mode.md) ----------------
  * A text with lines and audio but NO real alignment gets this guided step INSTEAD of the editor:
@@ -2717,6 +2791,9 @@ async function tryDownloadFlextext(rec) {
 
 function applyBaseline() {
   if (!current) return;
+  // Matching mode hides the views by CSS class, NOT by the hidden attribute this function's DOM
+  // truth reads — the exact v158 trap shape. Belt: never flush while the mode owns the screen.
+  if (matchMode.active) return;
   // Apply from the textarea only when the textarea IS the live editor — DOM truth, not setting
   // truth. In strip mode the doc is edited directly on every keystroke, and during a LIVE
   // settings flip the setting has already changed while the screen still shows the previous
@@ -6349,9 +6426,18 @@ function wirePlaybackKeys() {
     const mod = e.ctrlKey || e.metaKey;
     if (mod && (e.key === 'z' || e.key === 'Z' || e.key === 'y' || e.key === 'Y')) {
       const inField = e.target.closest && e.target.closest('input, textarea, [contenteditable]');
+      const wantRedo = e.key === 'y' || e.key === 'Y' || e.shiftKey;
       if (!inField) {
         e.preventDefault();
-        if (e.key === 'y' || e.key === 'Y' || e.shiftKey) doRedo(); else doUndo();
+        if (wantRedo) doRedo(); else doUndo();
+        return;
+      }
+      /* HYBRID (v326): in a DIRTY field, native undo owns Ctrl+Z (undoing this session's typing).
+       * In a CLEAN field -- nothing typed this session, or typed and natively undone back to the
+       * start value -- the app takes over and steps prior sessions/operations. */
+      if (!wantRedo && fieldUndo && e.target === fieldUndo.el && e.target.value === fieldUndo.startValue) {
+        e.preventDefault();
+        doUndo();
         return;
       }
     }
@@ -6378,6 +6464,18 @@ function wirePlaybackKeys() {
       else { player.clearSpan(); player.seekMs(0); }
     });
   }
+  // Focus-session boundaries for text undo (segmentation editor only -- Seth's scoping).
+  const UNDO_FIELDS = '.gloss-input, .free-input, .seg-text, #baseline-text';
+  document.addEventListener('focusin', (e) => {
+    if (!segmentationEnabled() || !current) return;
+    const el = e.target.closest && e.target.closest(UNDO_FIELDS);
+    if (!el) return;
+    commitFieldUndo();                       // a previous session still pending? close it first
+    try { fieldUndo = { el, startValue: el.value, snap: docSnap() }; } catch { fieldUndo = null; }
+  });
+  document.addEventListener('focusout', (e) => {
+    if (fieldUndo && e.target === fieldUndo.el) { commitFieldUndo(); updateUndoButtons(); }
+  });
 }
 
 function setup() {

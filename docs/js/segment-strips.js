@@ -33,6 +33,13 @@ let peaksCache = { docId: null, peaks: null, durationMs: 0 };
  * drawn with, and the ticker redraws anything drawn with an older one. */
 let peaksGen = 0;
 let rafId = 0;
+// Follow-playback state (v326): scroll only on a CHANGE of playing line, and stand off for 4s
+// after any user scroll so the view is never fought over (the PAT recipe).
+let followRow = null;
+let lastUserScroll = 0;
+if (typeof window !== 'undefined') {
+  for (const ev of ['wheel', 'touchmove']) window.addEventListener(ev, () => { lastUserScroll = Date.now(); }, { passive: true });
+}
 
 export function initStrips(d) { deps = d; }
 
@@ -234,6 +241,7 @@ export function renderStrips() {
       wave.addEventListener('pointerdown', (ev) => {
         ev.preventDefault();
         try { wave.setPointerCapture(ev.pointerId); } catch { /* capture is drag comfort, not required */ }
+        deps.onPlayTarget?.(seg);   // v326: touching a WAVEFORM selects it for Space/rewind
         seekAt(ev);
         const move = (e2) => seekAt(e2);
         const up = () => { wave.removeEventListener('pointermove', move); wave.removeEventListener('pointerup', up); };
@@ -438,6 +446,19 @@ function positionCursor() {
         if (btn.textContent !== want) {
           btn.textContent = want;
           btn.setAttribute('aria-label', deps.t(rolling ? 'seg.pauseTip' : 'seg.playTip'));
+        }
+      }
+      /* v326 (Seth #9): the playing line is HIGHLIGHTED, and during CONTINUOUS play the view
+       * follows it — only on a line CHANGE, only when actually playing, only when the row is out
+       * of sight, and never within 4s of the user scrolling (the PAT recipe). Span playback also
+       * highlights (it IS the playing line) but never scrolls — the user just clicked it. */
+      const rolling = p?.playing?.() && inSeg;
+      if (row.classList.contains('seg-on') !== inSeg) row.classList.toggle('seg-on', inSeg);
+      if (inSeg && rolling && row !== followRow) {
+        followRow = row;
+        if (!p._spanTick && Date.now() - lastUserScroll > 4000) {
+          const r = row.getBoundingClientRect();
+          if (r.top < 60 || r.bottom > (window.innerHeight - 20)) row.scrollIntoView({ block: 'center', behavior: 'smooth' });
         }
       }
       if (inSeg) {

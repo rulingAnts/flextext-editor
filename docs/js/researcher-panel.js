@@ -1958,11 +1958,15 @@ function assignModal(instanceId) {
         const info = await probeAudioUrl(resolved);
         say('✓ ' + t('task.checkOk', { name: info.name || '?', size: info.size ? fmtSize(info.size) : '?' }), 'ok');
       } catch (err) {
-        // A Drive link is proxied through the SAME-ORIGIN worker/relay, so a failure there is real.
-        // Only a direct NON-Drive host can be cross-origin-blocked (opaque) — there we can't tell a
-        // real outage from a CORS block, so offer "send anyway" rather than a false hard block.
-        const soft = !/script\.google|\/drive/.test(resolved)
-          && (err.name === 'TypeError' || /failed to fetch|networkerror/i.test(err.message || ''));
+        /* v325 (Sentani): a REJECTED fetch (no HTTP response at all — TypeError/NetworkError/our
+         * timeout) degrades to "could not verify -> send anyway" for EVERY host, Drive included.
+         * The old /drive exclusion turned a glitchy link into a HARD BLOCK on a possibly-fine
+         * assignment — exactly what the backlog rule forbids ("Sentani bandwidth must not be able
+         * to stop an assignment that is actually fine"). Worker JSON error codes (not_found,
+         * unauthorized, too_large…) arrive as real HTTP responses, are NOT TypeErrors, and stay
+         * hard blocks — those mean the file genuinely cannot be used. */
+        const soft = err.name === 'TypeError'
+          || /failed to fetch|networkerror|timed out/i.test(err.message || '');
         if (soft) {
           if (!confirm(t('panel.assign.couldNotVerify'))) { say('⚠ ' + t('panel.assign.blockedNoSend'), 'err'); return; }
         } else {

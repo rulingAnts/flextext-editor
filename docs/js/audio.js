@@ -512,6 +512,12 @@ export async function probeAudioUrl(url) {
   try {
     const { value } = await resp.body.getReader().read();
     if (value) head = value.subarray(0, 12);
+  } catch (e) {
+    // v325: the 20s abort covers the WHOLE probe, but the remap above wrapped only fetch() —
+    // so our own timeout during the body read surfaced as a raw "NetworkError" (Sentani field
+    // report). Same remap here: a self-inflicted abort must never read as a network failure.
+    clearTimeout(timer);
+    throw ctl.signal.aborted ? new Error('Timed out — check the connection and try again.') : e;
   } finally {
     clearTimeout(timer);
     ctl.abort();

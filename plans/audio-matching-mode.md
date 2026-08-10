@@ -70,10 +70,15 @@ rest) — this mode adds NO new mutation primitives.
 
 ## 5. Entry and exit
 
-- **Offer, don't trap:** when a doc opens with (≥1 text line) AND (attached audio) AND (no aligned
-  span other than seeds/estimates), the editor offers the step — a plain full-screen offer in the
-  user's language, one button in, one "skip, edit normally" out. Also reachable later from the
-  Baseline tab (button), because "skip" must not be a one-way door.
+- **NO SKIP (Seth, 2026-08-08):** *"the user will likely click 'skip' if it's unfamiliar and then
+  they don't have a way to go back and edit."* When a doc opens with (≥1 text line) AND (attached
+  audio) AND (no aligned span other than seeds/estimates), the matching step IS the way in — a
+  full-screen intro in the user's language with one button: Start. This matches the original
+  framing ("do that BEFORE they go back to editing"); the population is already researcher-gated
+  (settings.segmentation), so everyone who reaches it is meant to align.
+  ⚠ The one escape that must exist is the FAILURE path, not a skip: if the audio cannot decode,
+  the mode must fall through to the normal editor with a plain message — a trap that requires
+  working audio to leave is worse than a skipped alignment.
 - **Exit:** Done → normal editor, segmentation strips now showing the matched spans. Leaving
   mid-way keeps completed spans (they are real `doc.segments` entries) and the rest stays pending —
   re-entering resumes at the first unmatched line.

@@ -1,5 +1,31 @@
 # Backlog additions (2026-08-07) — paste into notes/BACKLOG.md
 
+## 🅿 PARKED BRANCH: `parked-v319-v321` — ALL work newer than productionWeb, off staging (Seth, 2026-08-08)
+
+> *"Can we park all our new, untested PAT features on a feature branch (remove them from staging) so
+> that I can test those later and focus on the flextext editor app right now? … Everything newer
+> than what's on productionWeb … we want to move ANY staging changes that aren't specifically
+> flextext editor to that feature branch."*
+
+**staging was RESET to `productionWeb` (v318)** so Seth's editor test round with a national coworker
+runs on exactly what production runs, with nothing untested underneath. Everything newer is
+preserved, unrevereted, on **`parked-v319-v321`** (head `054ce78` = staging's old head):
+
+- v319 — device reports per-kind upload ids; `.fxpa` source stamp
+- v320 — GUID similarity gate (`sameLineText`)
+- v321 — the 12-agent audit hardening (classic-mode affix fix, NFC, demoted attrs, stale-note
+  filter, serialized stamps, `fxpa-contract` suite) + audit records + the roadmap corrections
+- (the constituent feature branches `fix-artifact-kinds-and-fxpa-stamp`, `guid-identity-gate`,
+  `v321-hardening` also still exist on origin)
+
+⚠ **How to bring it back — NO reverts were used, so there is no revert-poison:** plain
+`git merge --no-ff parked-v319-v321` into staging when Seth is ready to test it. Do NOT rebase it;
+nothing requires it.
+
+⚠ **Version numbering:** v319–v321 are BURNED — Seth's devices saw them on staging during testing.
+New editor work starts at **v322**; the parked work gets renumbered via `./bump-version.sh` when it
+re-merges (same as the v317→v319 renumber before it).
+
 ## Warn the researcher that an invite link OVERRIDES a device's existing setup (Seth, 2026-08-07)
 **Where:** researcher-panel.js, the invite-link generation flow. NOT built — deliberately deferred.
 

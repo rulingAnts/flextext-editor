@@ -36,6 +36,13 @@ already assigned to '<title>'" — converts that silent clipboard failure into a
 one. WARN, never block: the same recording on two texts is a legitimate workflow. Panel-side only,
 at the point the URL field is set/validated.
 
+**Check ORDER (cheapest first, Seth):** (1) LOCAL, instant, offline — the audio URL and the
+flextext URL within one assignment must DIFFER (one file cannot be both; the clipboard failure
+makes this collision likely), and normalize before comparing so the same Drive file id in two URL
+shapes still matches; (2) local — the duplicate-across-texts warning above, from panel state;
+(3) only then the network content sniff below. Never spend a worker round-trip on something a
+string compare already answers.
+
 **Plus per-field CONTENT validation (Seth): each field verifies its file really is what the field
 means.** The audio box fetches the first bytes (through the worker relay, never direct-to-Drive)
 and sniffs audio magic (RIFF/WAVE, fLaC, OggS, ID3/MP3 sync, ftyp/M4A); the flextext box sniffs

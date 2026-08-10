@@ -134,6 +134,17 @@ fires on today.
 
 Also confirmed: *"undo without join may be good enough"* — the §3 correction model stands.
 
+**And the auto-detect is a REQUIREMENT, not a nicety** (Seth): a text that was transcribed — and
+maybe glossed or translated — but never segmented must be recognized on open and offered the mode,
+so the user can match segments to the lines of text. The ⇥ set-boundary button was REMOVED in v323
+(confusing; blast radius too big), so this mode is now the ONLY owner of the fix-up-estimates job.
+
+**RE-segmentation on researcher request** (Seth, 2026-08-08): the researcher can mark a text for
+re-segmentation — a pushed per-text command (same channel as the existing panel→device commands)
+that demotes the text's spans to `timeEstimated` and re-arms the offer, so the device walks the
+matching step again. Demote, don't delete: if the user dismisses, the old alignment still renders
+as estimates rather than vanishing.
+
 ## 9. Open questions for Seth
 
 1. When some (not all) lines already carry imported offsets: offer matching for just the pending

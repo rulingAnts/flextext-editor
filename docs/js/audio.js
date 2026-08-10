@@ -22,7 +22,11 @@ export function driveFileId(text) {
   const s = String(text).trim();
   let m = s.match(/drive\.google\.com\/file\/d\/([\w-]{10,})/);
   if (m) return m[1];
-  m = s.match(/drive\.google\.com\/(?:open|uc|download)\?[^#]*\bid=([\w-]{10,})/);
+  // v327: drive.USERCONTENT.google.com too — the direct-download host driveLink() itself builds.
+  // Without it a pasted download link extracted NO id, so the relay resolve short-circuited and
+  // the device dead-fetched the raw URL (no CORS) — the same retry-forever trap as the share-link
+  // bug, for audio and flextext assignments alike.
+  m = s.match(/drive(?:\.usercontent)?\.google\.com\/(?:open|uc|download)\?[^#]*\bid=([\w-]{10,})/);
   if (m) return m[1];
   if (/^[\w-]{20,}$/.test(s)) return s; // a bare file id
   return null;

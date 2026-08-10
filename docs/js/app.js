@@ -557,6 +557,29 @@ function isEditorTab(tab) { return tab === 'baseline' || tab === 'gloss'; }
 function healFlatSegments(doc) {
   if (!segmentationEnabled() || !doc || !doc.paragraphs) return;
   let changed = false;
+  /* ⚠ FLATTEN MULTI-PHRASE PARAGRAPHS — one phrase per paragraph, each phrase KEEPING its own
+   * offsets (v322; the "gloss join collapsed ALL segments on the first line" field bug).
+   *
+   * Segmentation mode's whole invariant is line == paragraph == phrase == span, 1:1:1:1 — but an
+   * IMPORTED doc can arrive with N phrases in one paragraph (FLEx, or an ELAN round trip). The
+   * gloss tab renders one group per PHRASE while getBaselineParagraphs/doc.segments index per
+   * PARAGRAPH, so every index-driven edit on such a doc addressed the WRONG line — and the first
+   * write's { flatSegments: true } then collapsed each paragraph's phrases into ONE line,
+   * destroying per-phrase alignment wholesale (that was the observed "join button joins ALL
+   * audio segments" — reconcileBaseline got one collapsed string per paragraph).
+   *
+   * Promoting each phrase to its own paragraph BEFORE any edit preserves every phrase as its own
+   * line with its own imported offsets. The paragraph keeps its guid on its FIRST phrase's new
+   * paragraph; the rest mint fresh (FLEx honours guids — a split paragraph is genuinely new
+   * containment, same rule as line identity). Text, words, glosses, free translations are the
+   * same objects, untouched. */
+  if (doc.paragraphs.some((p) => (p.segments || []).length > 1)) {
+    doc.paragraphs = doc.paragraphs.flatMap((p) => (p.segments || []).length > 1
+      ? p.segments.map((s, k) => ({ guid: k === 0 ? p.guid : newGuid(), segments: [s] }))
+      : [p]);
+    doc.segments = [];   // paragraph-indexed envelopes are now wrong; re-derive per phrase below
+    changed = true;
+  }
   for (const p of doc.paragraphs) {
     if (p.segments && !p.segments.length) { p.segments.push(makeSegment('', [])); changed = true; }
   }
@@ -584,7 +607,7 @@ function decorateGlossSegments() {
     const btn = document.createElement('button');
     btn.className = 'gseg-play';
     btn.textContent = seg.timePending ? '⋯' : '▶';
-    btn.title = t(seg.timePending ? 'seg.pendingTip' : 'seg.playTip');
+    btn.setAttribute('aria-label', t(seg.timePending ? 'seg.pendingTip' : 'seg.playTip'));
     const waveWrap = document.createElement('div');
     waveWrap.className = 'gseg-wavewrap';
     const wave = document.createElement('canvas');
@@ -592,7 +615,7 @@ function decorateGlossSegments() {
     waveWrap.appendChild(wave);
     bar.append(btn, waveWrap);
     g.prepend(bar);
-    wireSegPlay(btn, seg, () => player);
+    wireSegPlay(btn, seg, () => player, (t2) => { lastPlayTarget = t2; });
     drawSpanWave(wave, seg);
     // Interactive, same as the baseline strips: click to PARK the playhead, drag to scrub.
     if (isAligned(seg)) {
@@ -612,34 +635,72 @@ function decorateGlossSegments() {
       });
     }
     entries.push({ btn, seg, wave, wrap: waveWrap });
-    if (i < groups.length - 1) {
+    /* ⤙⤚ JOIN — in its OWN ROW BETWEEN the two groups it joins (v322, Seth's bug list #5). It used
+     * to be the group's last child, a 44px tap target 6px under the full-width free-translation
+     * input — an undershot tap meant an accidental join. Outside both groups, a missed tap on the
+     * free translation hits padding, not a destructive control. */
+    if (i < groups.length - 1 && !(g.nextElementSibling && g.nextElementSibling.classList.contains('gseg-joinrow'))) {
+      const joinRow = document.createElement('div');
+      joinRow.className = 'gseg-joinrow';
       const join = document.createElement('button');
       join.className = 'gseg-join';
       join.textContent = '⤙⤚';
+      join.setAttribute('aria-label', t('seg.joinTip'));
       join.title = t('seg.joinTip');
       join.addEventListener('click', () => glossJoinLines(i));
-      g.appendChild(join);
+      joinRow.appendChild(join);
+      g.insertAdjacentElement('afterend', joinRow);
     }
     // ⚠ ENTER-SPLIT ON WORD-GLOSS FIELDS: caret at the START of a word's gloss box splits BEFORE
-    // that word; at the END, AFTER it. Mid-text Enter does nothing (a stray key cannot split), and
-    // Backspace in a gloss field NEVER merges words or segments (Seth's invariant) — words merge
-    // only via the chain-link control, segments join only via the ⤙⤚ button here or Backspace on
-    // the BASELINE strips. Word index = cell position: renderSegment appends one .word-cell per
-    // seg.words entry, punctuation included, so DOM order IS model order.
+    // that word; at the END, AFTER it. Mid-text Enter does nothing (a stray key cannot split).
+    // Word index = cell position: renderSegment appends one .word-cell per seg.words entry,
+    // punctuation included, so DOM order IS model order.
+    //
+    // v322 (Seth's bug list #2/#3) — full BASELINE-TAB KEY PARITY, superseding the old
+    // "Backspace never merges on the gloss tab" rule by Seth's explicit request:
+    //   - Backspace at the VERY START of the FIRST gloss, or of the free translation, JOINS this
+    //     line with the previous one — same key, same result as the baseline strips.
+    //   - Enter at the start/end of the free translation splits like the first/last gloss does
+    //     (an empty silence line before/after, time at the playhead — glossSplitAt boundary 0/N).
+    //   - Both are BOUNDARY-ONLY: mid-text they type/navigate as before, so a stray key cannot
+    //     split or join.
     const phrase = current.doc.paragraphs[i] && current.doc.paragraphs[i].segments[0];
     if (phrase) {
+      const wordCount = () => (phrase.words || []).length;
       [...g.querySelectorAll('.word-cell')].forEach((cell, w) => {
         const gi = cell.querySelector('.gloss-input');
         if (!gi) return;   // punctuation cell
         gi.addEventListener('keydown', (e) => {
-          if (e.key !== 'Enter') return;
           const atStart = gi.selectionStart === 0 && gi.selectionEnd === 0;
           const atEnd = gi.selectionStart === gi.value.length && gi.selectionEnd === gi.value.length;
+          if (e.key === 'Backspace' && atStart && w === 0 && i > 0) {
+            e.preventDefault();
+            glossJoinLines(i - 1);
+            return;
+          }
+          if (e.key !== 'Enter') return;
           if (!atStart && !atEnd) return;
           e.preventDefault();
           glossSplitAt(i, atStart ? w : w + 1);
         });
       });
+      const fi = g.querySelector('.free-input');
+      if (fi) {
+        fi.addEventListener('keydown', (e) => {
+          const atStart = fi.selectionStart === 0 && fi.selectionEnd === 0;
+          const atEnd = fi.selectionStart === fi.value.length && fi.selectionEnd === fi.value.length;
+          if (e.key === 'Backspace' && atStart && i > 0) {
+            e.preventDefault();
+            glossJoinLines(i - 1);
+          } else if (e.key === 'Enter' && atStart) {
+            e.preventDefault();
+            glossSplitAt(i, 0);                    // empty silence line BEFORE this one
+          } else if (e.key === 'Enter' && atEnd) {
+            e.preventDefault();
+            glossSplitAt(i, wordCount());          // empty silence line AFTER this one
+          }
+        });
+      }
     }
   });
   startGlossCursor(entries);
@@ -681,7 +742,11 @@ function glossSplitAt(i, boundary) {
   const phrase = doc.paragraphs[i] && doc.paragraphs[i].segments[0];
   if (!phrase || !phrase.words) return;
   const words = phrase.words;
-  if (boundary <= 0 || boundary >= words.length) return;   // no empty halves
+  /* Boundary 0 and words.length are LEGAL since v322 (baseline-parity, Seth's bug list #3): Enter
+   * at the start of the first gloss / the free translation inserts an EMPTY line BEFORE this one
+   * (a silence span, time split at the playhead — exactly what Enter at the start of a baseline
+   * strip does); at the end, an empty line AFTER. Only a boundary outside the line is refused. */
+  if (boundary < 0 || boundary > words.length) return;
   const free = phrase.free || '';
   // Capture gloss data BEFORE the reconcile: its carry-over pool can attach the original phrase's
   // words to only ONE of the two halves, so the other half would arrive glossless (caught by the
@@ -727,7 +792,9 @@ function glossJoinLines(i) {
   const left = paras[i] ?? '', right = paras[i + 1] ?? '';
   const glue = left && right && !/\s$/.test(left) && !/^\s/.test(right) ? ' ' : '';
   paras.splice(i, 2, left + glue + right);
-  doc.segments = mergeSegments(docSegments(doc), i, {});
+  // duration matters: without it normalizeSegments skips its clamp passes (the baseline path
+  // always passed it; the gloss path forgot — v322 parity fix).
+  doc.segments = mergeSegments(docSegments(doc), i, { duration: player?.durationMs?.() ?? null });
   reconcileBaseline(doc, paras.length ? paras : [''], { flatSegments: true });
   schedulePersist();
   stopGlossCursor();
@@ -756,6 +823,7 @@ function switchTab(tab) {
         getDoc: () => current && current.doc,
         getParagraphs: (doc) => getBaselineParagraphs(doc),
         setParagraphs: (doc, paras) => { reconcileBaseline(doc, paras.length ? paras : [''], { flatSegments: true }); schedulePersist(); },
+        onPlayTarget: (seg) => { lastPlayTarget = seg; },
         persist: () => schedulePersist(),
         t,
       });
@@ -829,6 +897,10 @@ function switchTab(tab) {
 /* ---------------- Audio player (Baseline tab) ---------------- */
 
 let player = null;
+/* v322 (Seth #8/#11): the LAST-USED playback target — a segment span, or null for the whole-file
+ * dock player. Space toggles it; the dock's ⏮ rewinds it to ITS start. Set by every segment play
+ * button and strip scrub; cleared by any dock interaction (the dock then IS the target). */
+let lastPlayTarget = null;
 let playerDocId = null;
 // Which doc's audio the player has FINISHED decoding. decodedBuffer() returns whatever wavesurfer
 // currently holds — during a doc switch that is the PREVIOUS doc's audio, and ensurePeaks trusting
@@ -2677,6 +2749,14 @@ function renderWordCell(seg, w, i, vernFont, analFont) {
   g.addEventListener('input', () => { w.gls = g.value; sizeInput(g); schedulePersist(); });
   g.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
+      /* ⚠ YIELD AT BOUNDARIES IN SEGMENTATION MODE (v322). decorateGlossSegments attaches a second
+       * keydown on this same input that SPLITS the line when the caret is at the start/end — and
+       * both listeners fire (preventDefault does not stop a sibling listener). Pre-v322 this one
+       * moved focus first and the split then re-rendered, discarding it. Boundary Enter belongs to
+       * the split; mid-text Enter keeps the FLEx-style focus walk. */
+      const atStart = g.selectionStart === 0 && g.selectionEnd === 0;
+      const atEnd = g.selectionStart === g.value.length && g.selectionEnd === g.value.length;
+      if (segmentationEnabled() && (atStart || atEnd)) return;
       e.preventDefault();
       focusNextGloss(g, e.shiftKey ? -1 : 1);
     } else if (e.key === 'Tab') {
@@ -5798,8 +5878,11 @@ function setupServiceWorker() {
   // SKIP_WAITING): controllerchange also fires in OTHER tabs (clients.claim) and after an async gap, so
   // a tab that became unsafe (opened a text, started recording) defers its reload until it is safe again.
   navigator.serviceWorker.addEventListener('controllerchange', () => {
+    // v322: forcedApply is ONE-SHOT. It was never reset, so after one manual force this tab
+    // reloaded on ANY later controllerchange (incl. another tab's clients.claim), text open or not.
+    const wasForced = forcedApply; forcedApply = false;
     if (reloading) return;
-    if (!forcedApply && !updateSafeNow()) { reloadPending = true; return; }   // forced (manual shortcut) reloads regardless
+    if (!wasForced && !updateSafeNow()) { reloadPending = true; return; }   // forced (manual shortcut) reloads regardless
     doUpdateReload();
   });
 
@@ -6111,7 +6194,44 @@ function setupResearcherMode() {
   researcherPanelApi.open();
 }
 
+/* v322 global playback keys (Seth #4/#8/#11).
+ * - Enter must NEVER play: a focused native <button> fires click on Enter by UA default — the
+ *   capture handler swallows Enter on play/rewind controls only (joins etc. keep normal button
+ *   behaviour). "Only spacebar does that."
+ * - Space toggles the LAST-USED player when focus is not in a field or on a button (a focused
+ *   button already Space-clicks natively — double-toggling would un-toggle it).
+ * - ⏮ rewinds the last-used target to ITS OWN start: a segment to its span start, the dock to 0. */
+function wirePlaybackKeys() {
+  const PLAY_BTNS = '.player-play, .player-back, .player-home, .seg-play, .gseg-play';
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target.closest && e.target.closest(PLAY_BTNS)) { e.preventDefault(); return; }
+    if (e.key !== ' ' || e.repeat) return;
+    const t2 = e.target;
+    if (t2.closest && (t2.closest('input, textarea, select, button, [contenteditable]'))) return;
+    if (!player) return;
+    e.preventDefault();
+    if (player.playing?.()) { player.pause(); return; }
+    if (lastPlayTarget && typeof lastPlayTarget.start === 'number') {
+      const at = player.playheadMs?.();
+      const inside = typeof at === 'number' && at > lastPlayTarget.start && at < lastPlayTarget.end - 150;
+      player.playSpan(inside ? at : lastPlayTarget.start, lastPlayTarget.end);   // resume-in-span, like the buttons
+    } else { player.clearSpan(); player.ws?.playPause?.(); }
+  }, true);
+  const dock = $('#audio-player');
+  if (dock) {
+    // Any dock interaction makes the whole file the target again…
+    dock.addEventListener('pointerdown', (e) => { if (!e.target.closest('.player-home')) lastPlayTarget = null; });
+    // …except ⏮, which rewinds whatever the CURRENT target is.
+    dock.querySelector('.player-home')?.addEventListener('click', () => {
+      if (!player) return;
+      if (lastPlayTarget && typeof lastPlayTarget.start === 'number') player.playSpan(lastPlayTarget.start, lastPlayTarget.end);
+      else { player.clearSpan(); player.seekMs(0); }
+    });
+  }
+}
+
 function setup() {
+  wirePlaybackKeys();
   // Crowd mode boots FIRST — before applyUrlSettings/migrateSettings/SW/sync can
   // touch the shared-origin storage a field worker's apps may be using on this
   // same browser profile. Everything crowd needs is fetched or in-memory.

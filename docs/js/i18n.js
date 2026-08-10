@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v318';
+export const ENGINE_VERSION = 'v322';
 
 const S = {
 en: {
@@ -487,6 +487,7 @@ en: {
 
   'player.play': 'Play / pause',
   'player.back3': 'Back 3 seconds',
+  'player.home': 'Rewind to the start',
   'player.speed': 'Playback speed',
   'player.zoom': 'Zoom',
   'player.remove': 'Remove audio from this text',
@@ -1893,6 +1894,7 @@ id: {
 
   'player.play': 'Putar / jeda',
   'player.back3': 'Mundur 3 detik',
+  'player.home': 'Kembali ke awal',
   'player.speed': 'Kecepatan putar',
   'player.zoom': 'Perbesar',
   'player.remove': 'Hapus audio dari teks ini',

@@ -3656,7 +3656,10 @@ function resolveAudioInput(input) {
     if (oldId) s = 'https://drive.google.com/file/d/' + oldId + '/view';
   }
   const fileId = driveFileId(s);
-  const isDrive = fileId && (/drive\.google\.com/.test(s) || !isProbablyUrl(s));
+  // v327: drive.USERCONTENT.google.com (the direct-download host driveLink() itself builds) must
+  // also count as Drive — it does not contain the substring "drive.google.com", so a pasted
+  // download link skipped the relay and was fetched directly (no CORS headers → dead fetch).
+  const isDrive = fileId && (/drive(?:\.usercontent)?\.google\.com/.test(s) || !isProbablyUrl(s));
   if (isDrive) {
     const base = workerBase().replace(/\/+$/, '');
     const token = (settings.relayToken || DEFAULT_RELAY_TOKEN).trim();
@@ -3698,7 +3701,14 @@ function analyzeFlextextWs(xmlText) {
 // Download a task-attached flextext, parse it, and return the first
 // interlinear-text doc.
 async function buildDocFromFlextextUrl(url, title) {
-  const file = await fetchFileViaUrl(url);
+  /* ⚠ RESOLVE FIRST (v327 — the real "0 sentences" bug, reproduced with two different texts).
+   * The panel sends the RAW pasted Drive URL (deliberately: raw is durable; each device resolves
+   * with ITS OWN worker base + token at fetch time). The AUDIO pipeline has always done that
+   * resolve (resolveAudioInput) — this flextext path never did, so the device fetched
+   * drive.google.com DIRECTLY: no CORS headers, the fetch REJECTS, the error classifies as
+   * transient, and the assignment retried forever and failed forever, deterministically, while
+   * the audio beside it arrived fine. Same resolver as audio, same relay, same token. */
+  const file = await fetchFileViaUrl(resolveAudioInput(url) || url);
   const xml = await file.blob.text();
   // Same multi-WS selection as importFile: edit this device's WS lines only.
   const { texts, error } = parseFlextext(xml, { vernLang: settings.vernLang, analLang: settings.analLang });

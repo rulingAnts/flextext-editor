@@ -26,6 +26,17 @@ nothing requires it.
 New editor work starts at **v322**; the parked work gets renumbered via `./bump-version.sh` when it
 re-merges (same as the v317→v319 renumber before it).
 
+## Worker: /drive edge-cache put copies Drive headers verbatim (Set-Cookie) — hygiene (2026-08-08 probe)
+
+Found while ruling out the delete-then-reuse audio bug (verdict: NO poisoned state exists — partials
+are docId-keyed and deleted with the doc; the probe is stateless; the only first-vs-second-use
+asymmetry is the worker's 24h edge cache, which makes retry MORE likely to succeed). Remaining
+hygiene: worker/src/index.js caches /drive responses with Drive's headers copied verbatim —
+Cloudflare's Cache API rejects puts carrying Set-Cookie, and the waitUntil'd put + client-side
+stream cancel is the one speculative poisoning shape. Strip hop-by-hop/Set-Cookie before
+caches.default.put and guard the put. ⚠ WORKER change — rides the D1→worker→client release order,
+not an editor cycle. The two CLIENT halves shipped in v325 (probe timeout remap; soft-degrade).
+
 ## Panel: warn when an assigned audio URL is ALREADY assigned to another active text (2026-08-08)
 
 Field incident (Sentani): Drive's "Copy URL" silently failed to copy, the OLD URL stayed on the

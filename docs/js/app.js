@@ -2754,6 +2754,15 @@ async function tryDownloadFlextext(rec) {
       toast(t('task.ftFailed', { msg: e.message }), 10000);
       return false;
     }
+    /* v327: a fetch REJECTION (TypeError — no HTTP response at all) gets its OWN message. It is
+     * the CORS/origin-blocked shape as much as the offline shape, and a browser cannot tell them
+     * apart — so "not arrived yet, still retrying" hid a permanent configuration failure behind a
+     * message promising progress. Still transient (it keeps retrying), but now it says the
+     * connection was REFUSED and points at fxCheck(). */
+    if (e.name === 'TypeError' || /networkerror|failed to fetch/i.test(e.message || '')) {
+      toast(t('task.ftBlocked'), 12000);
+      return false;
+    }
     return false; // transient: keep pending for the next retry
   }
   // Populate the placeholder — unless the coworker already started transcribing,
@@ -6294,6 +6303,41 @@ async function forceUpdateCheck() {
 // NOTE: it cannot bust a stale CDN copy of sw.js — if the SERVER still serves the old version,
 // the "up to date" toast is reporting that truthfully.
 if (typeof window !== 'undefined') window.fxUpdate = forceUpdateCheck;
+
+/* fxCheck('<pasted Drive link>') — WHY a link fails, in one line, from whichever app you run it in.
+ *
+ * ⚠ Exists because the two failure modes are INDISTINGUISHABLE in the UI: a browser reports a
+ * CORS-blocked response and a dead connection identically (a bare TypeError, no status, no body),
+ * and the worker DROPS its Access-Control-Allow-Origin header when an origin is not allow-listed —
+ * so an origin problem looks exactly like Sentani's bandwidth. This asks the same questions the app
+ * asks and prints what actually came back. Run it in the app's console (v327+). */
+if (typeof window !== 'undefined') window.fxCheck = async (input) => {
+  const raw = String(input || '').trim();
+  const id = driveFileId(raw);
+  const resolved = resolveAudioInput(raw) || raw;
+  const out = { input: raw, driveFileId: id || null, resolvedTo: resolved, origin: location.origin,
+                workerBase: workerBase(), tokenPresent: !!(settings.relayToken || DEFAULT_RELAY_TOKEN) };
+  if (!id) out.note = 'NOT recognised as a Drive link — it will be fetched exactly as pasted.';
+  try {
+    const r = await fetch(resolved);
+    out.httpStatus = r.status;
+    out.contentType = r.headers.get('content-type') || '';
+    out.corsHeaderSeen = true;   // a readable response means CORS allowed this origin
+    const body = await r.clone().text().catch(() => '');
+    out.bodyStart = body.slice(0, 160);
+    out.verdict = r.ok
+      ? (/<document/i.test(body) ? 'OK — a real flextext came back'
+        : (out.contentType.startsWith('audio/') ? 'OK — audio came back' : 'Reachable, but the body is neither flextext nor audio'))
+      : ('The worker/Drive REFUSED it: ' + (out.bodyStart || r.status) + '  → the FILE or its sharing is the problem, not CORS');
+  } catch (e) {
+    out.error = e && e.message;
+    out.verdict = 'BLOCKED before any response — either this origin (' + location.origin
+      + ') is missing from the worker ALLOWED_ORIGINS, or the connection failed. '
+      + 'Open ' + resolved + ' in a NEW TAB: if it downloads, it is CORS/origin; if it errors, it is the file or the network.';
+  }
+  console.log('%cfxCheck', 'font-weight:bold', out);
+  return out;
+};
 
 /* ---------------- Wire-up ---------------- */
 

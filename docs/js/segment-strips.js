@@ -250,17 +250,6 @@ export function renderStrips() {
     input.addEventListener('keydown', (e) => onKey(e, i, input));
 
     row.append(play, wave, input);
-    // Estimated/pending lines get the ALIGNMENT control: park the playhead where this line
-    // really ends, tap ⇥, and the boundary moves there — re-timing without re-texting, so a
-    // pre-transcribed doc's glosses and free translations are untouchable by construction.
-    if (seg.timeEstimated || seg.timePending) {
-      const setb = document.createElement('button');
-      setb.className = 'seg-setend';
-      setb.textContent = '⇥';
-      setb.title = deps.t('seg.setEndTip');
-      setb.addEventListener('click', () => setBoundaryAt(i));
-      row.appendChild(setb);
-    }
     host.appendChild(row);
     /* ⤙⤚ JOIN, between the two rows it joins (v322, Seth's bug list #7). The baseline tab never
      * had a join button — the ⇥ set-boundary control was being read as one ("join joins the lines
@@ -290,34 +279,6 @@ export function renderStrips() {
  * ear; its start came from the previously-confirmed chain) and leaves the right one estimated
  * until its own end is confirmed — the natural top-to-bottom listening workflow clears the
  * dashes one line at a time. */
-function setBoundaryAt(i) {
-  const doc = deps.getDoc();
-  const segs = docSegments(doc).map((s) => ({ ...s }));
-  const t = deps.getPlayer()?.playheadMs?.();
-  const cur = segs[i], next = segs[i + 1];
-  if (!cur || typeof t !== 'number') return;
-  const start = (typeof cur.start === 'number' && !cur.timePending) ? cur.start
-    : (i > 0 && isAligned(segs[i - 1]) ? segs[i - 1].end : 0);
-  if (t <= start + 150) return;                                                        // no zero-length line
-  if (next && isAligned(next) && !next.timeEstimated && t >= next.end - 150) return;   // never swallow a CONFIRMED neighbour
-  cur.start = start;
-  cur.end = Math.round(t);
-  delete cur.timePending;
-  delete cur.timeEstimated;
-  if (next) {
-    next.start = Math.round(t);
-    if (next.timePending) {
-      delete next.timePending;
-      next.timeEstimated = true;
-      next.end = typeof next.end === 'number' ? Math.max(next.end, next.start + 500) : (peaksCache.durationMs || next.start + 1000);
-    } else if (next.end <= next.start + 150) {
-      next.end = Math.min(peaksCache.durationMs || next.start + 1000, next.start + 1000);
-    }
-  }
-  doc.segments = normalizeSegments(segs, { duration: peaksCache.durationMs || null });
-  deps.persist();
-  renderStrips();
-}
 
 function drawStrip(canvas, seg, durationMs) {
   observeWave(canvas, () => drawStrip(canvas, seg, durationMs));

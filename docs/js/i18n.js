@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v328';
+export const ENGINE_VERSION = 'v329';
 
 const S = {
 en: {
@@ -491,7 +491,7 @@ en: {
   'edit.undo': 'Undo (Ctrl+Z)',
   'gloss.splitTip': 'Split the line here (text and audio)',
   'task.ftRetrying': 'Fetching the assigned text\u2026',
-  'task.ftBlocked': 'The server refused the connection for the assigned text (not just slow). Ask the researcher to run fxCheck() on the link.',
+  'task.ftRetryReason': 'The assigned text has not arrived: {msg}. It will keep retrying \u2014 the researcher can run fxCheck() on the link.',
   'task.ftStillPending': 'The text has not arrived yet \u2014 it will keep retrying while you are online.',
   'match.title': 'Match the recording to your lines',
   'match.hint': 'Play the recording. When you hear the end of the highlighted line, press Enter or tap the scissors. Undo (\u21b6) fixes a wrong cut.',
@@ -1910,7 +1910,7 @@ id: {
   'edit.undo': 'Urungkan (Ctrl+Z)',
   'gloss.splitTip': 'Pisahkan baris di sini (teks dan audio)',
   'task.ftRetrying': 'Mengambil teks tugas\u2026',
-  'task.ftBlocked': 'Server menolak koneksi untuk teks tugas (bukan sekadar lambat). Minta peneliti menjalankan fxCheck() pada tautan itu.',
+  'task.ftRetryReason': 'Teks tugas belum diterima: {msg}. Akan terus dicoba \u2014 peneliti dapat menjalankan fxCheck() pada tautan itu.',
   'task.ftStillPending': 'Teks belum diterima \u2014 akan terus dicoba selama Anda online.',
   'match.title': 'Cocokkan rekaman dengan baris teks',
   'match.hint': 'Putar rekaman. Saat baris yang disorot selesai terdengar, tekan Enter atau ketuk gunting. Urungkan (\u21b6) memperbaiki potongan yang salah.',

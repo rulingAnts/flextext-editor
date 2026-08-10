@@ -815,6 +815,10 @@ export class Player {
         if (!this.ws) return this.clearSpan();
         if (this.ws.getCurrentTime() >= stopAt) {
           try { this.ws.pause(); } catch { /* noop */ }
+          /* v326 (Seth): a finished SPAN rewinds to ITS OWN start — a playhead parked on the
+           * boundary reads as "on the next segment", and the natural next action is "play this
+           * line again". Whole-file playback (no span) keeps its run-on behaviour. */
+          try { this.ws.setTime(start); } catch { /* noop */ }
           this.clearSpan();
         }
       };

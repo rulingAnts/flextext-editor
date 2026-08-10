@@ -2022,3 +2022,11 @@ main {
 .match-row.match-done { opacity: .75; }
 .match-span { color: var(--muted); font-variant-numeric: tabular-nums; }
 body.match-active #view-baseline, body.match-active #view-gloss, body.match-active .top-tabs { display: none !important; }
+
+/* v326: playback follow-highlight (both tabs) + the chain/scissors word-gap column */
+.seg-strip.seg-on { outline: 2px solid #93c5fd; outline-offset: -2px; border-radius: 6px; }
+.segment.gseg-on { outline: 2px solid #93c5fd; outline-offset: -2px; border-radius: 8px; }
+.gap-ctl { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; }
+.scissor-btn { appearance: none; border: 1px solid var(--border); background: #fff; color: var(--muted);
+               border-radius: 6px; min-width: 26px; height: 20px; font-size: 11px; cursor: pointer; line-height: 1; }
+.scissor-btn:hover { background: #fef2f2; border-color: #fca5a5; }

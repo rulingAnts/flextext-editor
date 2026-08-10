@@ -26,6 +26,16 @@ nothing requires it.
 New editor work starts at **v322**; the parked work gets renumbered via `./bump-version.sh` when it
 re-merges (same as the v317→v319 renumber before it).
 
+## Panel: warn when an assigned audio URL is ALREADY assigned to another active text (2026-08-08)
+
+Field incident (Sentani): Drive's "Copy URL" silently failed to copy, the OLD URL stayed on the
+clipboard, and the researcher pasted the same file into a second text without noticing — the same
+URL sat in both boxes and the resulting confusion looked like an app bug ("Cannot use this audio:
+NetworkError", initially blamed on delete-then-reuse). A cheap paste-time check — "this URL is
+already assigned to '<title>'" — converts that silent clipboard failure into an immediate visible
+one. WARN, never block: the same recording on two texts is a legitimate workflow. Panel-side only,
+at the point the URL field is set/validated.
+
 ## Warn the researcher that an invite link OVERRIDES a device's existing setup (Seth, 2026-08-07)
 **Where:** researcher-panel.js, the invite-link generation flow. NOT built — deliberately deferred.
 

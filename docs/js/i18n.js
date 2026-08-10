@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v323';
+export const ENGINE_VERSION = 'v324';
 
 const S = {
 en: {
@@ -488,6 +488,15 @@ en: {
   'player.play': 'Play / pause',
   'player.back3': 'Back 3 seconds',
   'player.home': 'Rewind to the start',
+  'edit.undo': 'Undo (Ctrl+Z)',
+  'match.title': 'Match the recording to your lines',
+  'match.hint': 'Play the recording. When you hear the end of the highlighted line, press Enter or tap the scissors. Undo (\u21b6) fixes a wrong cut.',
+  'match.cut': 'Cut here',
+  'match.progress': 'line {k} of {n}',
+  'match.done': 'All lines matched!',
+  'match.tooEarly': 'Play a little further first \u2014 this cut would be too close to the last one.',
+  'match.noAudio': 'The audio could not be loaded, so the text opened for editing instead.',
+  'edit.redo': 'Redo (Ctrl+Y)',
   'player.speed': 'Playback speed',
   'player.zoom': 'Zoom',
   'player.remove': 'Remove audio from this text',
@@ -1894,6 +1903,15 @@ id: {
   'player.play': 'Putar / jeda',
   'player.back3': 'Mundur 3 detik',
   'player.home': 'Kembali ke awal',
+  'edit.undo': 'Urungkan (Ctrl+Z)',
+  'match.title': 'Cocokkan rekaman dengan baris teks',
+  'match.hint': 'Putar rekaman. Saat baris yang disorot selesai terdengar, tekan Enter atau ketuk gunting. Urungkan (\u21b6) memperbaiki potongan yang salah.',
+  'match.cut': 'Potong di sini',
+  'match.progress': 'baris {k} dari {n}',
+  'match.done': 'Semua baris sudah cocok!',
+  'match.tooEarly': 'Putar sedikit lebih jauh dulu \u2014 potongan ini terlalu dekat dengan yang sebelumnya.',
+  'match.noAudio': 'Audio tidak dapat dimuat, jadi teks dibuka untuk diedit seperti biasa.',
+  'edit.redo': 'Ulangi (Ctrl+Y)',
   'player.speed': 'Kecepatan putar',
   'player.zoom': 'Perbesar',
   'player.remove': 'Hapus audio dari teks ini',

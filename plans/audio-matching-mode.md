@@ -116,7 +116,25 @@ the read path's falsy-means-off stays byte-identical.
   hint on the Baseline tab when a doc has audio and segmentation is off. Dismiss = never again
   (stored). No modal, no repeat nagging: these are field users mid-work.
 
-## 8. Open questions for Seth
+## 8. ✅ The TRIGGER is the seed path itself (Seth, 2026-08-08)
+
+> *"Our audio segmentation just takes those texts and splits them up randomly--average. If it can
+> recognize that segmentation data/times are missing and supply them averaged out, then it can also
+> recognize that they're missing, and trigger the matching mode instead, right?"*
+
+Right — and it is ONE code path. `reconcile()` in segment-strips.js already detects exactly this
+state (multi-line text + audio + no alignment) and responds with the even-division seed marked
+`timeEstimated`. The Matching mode reuses that detection verbatim: same condition → OFFER the
+matching step instead of silently guessing. The estimate seed remains the FALLBACK when the user
+skips (strips still need spans to draw), and `timeEstimated` spans count as "unmatched" — an
+estimate is a placeholder by definition, so a doc full of dashed seeds still gets the offer. This
+answers old open question 3, and it covers Seth's real fleet: existing devices hold texts done
+before segmentation existed, with no recorded times — those are precisely the docs the seed path
+fires on today.
+
+Also confirmed: *"undo without join may be good enough"* — the §3 correction model stands.
+
+## 9. Open questions for Seth
 
 1. When some (not all) lines already carry imported offsets: offer matching for just the pending
    tail, or only offer when NOTHING is aligned? (Suggest: resume-style — start at the first

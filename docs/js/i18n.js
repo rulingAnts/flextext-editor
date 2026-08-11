@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v329';
+export const ENGINE_VERSION = 'v330';
 
 const S = {
 en: {
@@ -461,6 +461,8 @@ en: {
   'toast.linkCopied': 'Setup link copied — send it to your coworker.',
   'toast.linkCopyManual': 'Copy this link and send it to your coworker.',
   'toast.needVern': 'Enter at least the vernacular code first.',
+  'toast.pairNeedsBoth': 'Choose BOTH files at once: the recording and the .flextext that goes with it.',
+  'toast.pairOpened': 'Opened {text} with {audio} attached.',
   'toast.opened': 'Opened {name}',
   'toast.importedMany': 'Imported {n} texts from {name} — each is now a separate text in the list.',
   'toast.importFailed': 'Import failed: {msg}',
@@ -493,13 +495,6 @@ en: {
   'task.ftRetrying': 'Fetching the assigned text\u2026',
   'task.ftRetryReason': 'The assigned text has not arrived: {msg}. It will keep retrying \u2014 the researcher can run fxCheck() on the link.',
   'task.ftStillPending': 'The text has not arrived yet \u2014 it will keep retrying while you are online.',
-  'match.title': 'Match the recording to your lines',
-  'match.hint': 'Play the recording. When you hear the end of the highlighted line, press Enter or tap the scissors. Undo (\u21b6) fixes a wrong cut.',
-  'match.cut': 'Cut here',
-  'match.progress': 'line {k} of {n}',
-  'match.done': 'All lines matched!',
-  'match.tooEarly': 'Play a little further first \u2014 this cut would be too close to the last one.',
-  'match.noAudio': 'The audio could not be loaded, so the text opened for editing instead.',
   'edit.redo': 'Redo (Ctrl+Y)',
   'player.speed': 'Playback speed',
   'player.zoom': 'Zoom',
@@ -1880,6 +1875,8 @@ id: {
   'toast.linkCopied': 'Tautan pengaturan disalin — kirim ke rekan kerja Anda.',
   'toast.linkCopyManual': 'Salin tautan ini dan kirim ke rekan kerja Anda.',
   'toast.needVern': 'Isi dulu kode bahasa daerah.',
+  'toast.pairNeedsBoth': 'Pilih KEDUA berkas sekaligus: rekaman dan berkas .flextext yang menyertainya.',
+  'toast.pairOpened': 'Membuka {text} dengan {audio} terlampir.',
   'toast.opened': 'Berhasil membuka {name}',
   'toast.importedMany': '{n} teks diimpor dari {name} — masing-masing menjadi teks tersendiri di daftar.',
   'toast.importFailed': 'Impor gagal: {msg}',
@@ -1910,15 +1907,8 @@ id: {
   'edit.undo': 'Urungkan (Ctrl+Z)',
   'gloss.splitTip': 'Pisahkan baris di sini (teks dan audio)',
   'task.ftRetrying': 'Mengambil teks tugas\u2026',
-  'task.ftRetryReason': 'Teks tugas belum diterima: {msg}. Akan terus dicoba \u2014 peneliti dapat menjalankan fxCheck() pada tautan itu.',
+  'task.ftRetryReason': 'Teks tugas belum diterima: {msg}. Akan terus dicoba.',
   'task.ftStillPending': 'Teks belum diterima \u2014 akan terus dicoba selama Anda online.',
-  'match.title': 'Cocokkan rekaman dengan baris teks',
-  'match.hint': 'Putar rekaman. Saat baris yang disorot selesai terdengar, tekan Enter atau ketuk gunting. Urungkan (\u21b6) memperbaiki potongan yang salah.',
-  'match.cut': 'Potong di sini',
-  'match.progress': 'baris {k} dari {n}',
-  'match.done': 'Semua baris sudah cocok!',
-  'match.tooEarly': 'Putar sedikit lebih jauh dulu \u2014 potongan ini terlalu dekat dengan yang sebelumnya.',
-  'match.noAudio': 'Audio tidak dapat dimuat, jadi teks dibuka untuk diedit seperti biasa.',
   'edit.redo': 'Ulangi (Ctrl+Y)',
   'player.speed': 'Kecepatan putar',
   'player.zoom': 'Perbesar',

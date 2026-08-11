@@ -422,11 +422,8 @@ async function openDoc(id) {
     toast(t('task.ftRetrying'), 4000);
     tryDownloadFlextext(rec).then((got) => {
       if (!got && current && current.id === rec.id && current.pendingFlextext) toast(t('task.ftStillPending'), 8000);
-      if (got) maybeEnterMatchMode();
     }).catch(() => {});
-    return;
   }
-  maybeEnterMatchMode();   // v323: transcribed-but-unsegmented + audio -> the matching step, no skip
 }
 
 function docStats(doc) {
@@ -465,6 +462,30 @@ function schedulePersist() {
 
 /* ---------------- Import ---------------- */
 
+/* Import a .flextext AND its recording in ONE step (Seth, v330).
+ *
+ * ⚠ WHY THIS EXISTS: on a PAIRED device the researcher assigns the pair together, so text and audio
+ * arrive attached. An UNPAIRED editor had no equivalent — "Open .flextext file" made a text with no
+ * audio and "New text from audio" made audio with no text, and nothing could marry them afterwards.
+ * That left the whole segmentation workflow unreachable to a standalone user with a recording and a
+ * transcription in hand.
+ *
+ * Order matters and is deliberate: the TEXT is imported first (so a bad flextext fails before any
+ * audio is stored), then the audio is attached to that same record via the existing attachAudioFile
+ * path — the same one the researcher-assigned flow ends in, so conversion, peaks, and the
+ * segmentation seed all behave identically to an assigned text. */
+async function newDocFromPair(files) {
+  const list = [...files];
+  const isText = (f) => /\.(flextext|xml|txt)$/i.test(f.name) || /(xml|text)/i.test(f.type || '');
+  const textFile = list.find(isText);
+  const audioFile = list.find((f) => !isText(f));
+  if (!textFile || !audioFile) { toast(t('toast.pairNeedsBoth'), 7000); return; }
+  await importFile(textFile);           // opens the imported text (single-text file) → `current`
+  if (!current) return;                 // multi-text file or a parse failure: importFile said why
+  await attachAudioFile(audioFile);
+  toast(t('toast.pairOpened', { text: textFile.name, audio: audioFile.name }), 6000);
+}
+
 async function importFile(file) {
   const text = await file.text();
   // Multi-WS imports: edit the lines matching THIS device's writing systems;
@@ -498,12 +519,12 @@ async function importFile(file) {
 // The optional per-text "Done" button (researcher setting doneEnabled): marks the
 // open text finished (togglable), reports at once, and sends it to Drive unless
 // this exact content is already there.
-function applyDoneButton() {
-  const b = $('#btn-done');
-  if (!b) return;
-  b.hidden = !(doneFeatureOn() && current);
-  if (current) b.textContent = current.done ? t('done.btnDone') : t('done.btn');
-}
+/* ⚠ THE IN-EDITOR "Mark done" BUTTON IS GONE (Seth, v330): it duplicated "Done — send…", which
+ * already marks the text finished as part of sending — two buttons, one meaning, side by side in a
+ * topbar that had just gained undo/redo. Un-marking is unaffected: the Texts-list row toggle still
+ * does it (setDocDone works on any text, open or not), which is also where a finished text is
+ * actually reviewed. Kept as a no-op so every caller stays honest about intent without a null dance. */
+function applyDoneButton() { /* no in-editor done button; the Texts-list row toggle owns this */ }
 // Mark ANY text finished/unfinished — driven by the texts-list row toggle AND the
 // in-editor button. Works whether or not the text is the one currently open. Marking
 // done reports to the panel and auto-uploads (unless that exact content is already on
@@ -536,6 +557,10 @@ async function setDocDone(docId, wantDone) {
   Sync.reportNow();
   renderDocList();
 }
+// Kept though the in-editor button is gone (v330): setDocDone is the shared mechanism and this is
+// its "the open text" convenience. The Texts-list row toggle and the Done—send path both route
+// through setDocDone directly; this stays for the researcher-panel/command surfaces that ask for
+// the OPEN doc without knowing its id.
 async function toggleDone() {
   if (current) await setDocDone(current.id, !current.done);
 }
@@ -1011,107 +1036,11 @@ function applyUndoState(st, onto) {
   current.doc.segments = st.s;
   schedulePersist();
   // Re-render whatever is showing; switchTab already knows every mode's render path.
-  if (matchMode.active) { matchRender(); } else { switchTab(activeTab); }
+  switchTab(activeTab);
   updateUndoButtons();
 }
 function doUndo() { commitFieldUndo(); const st = undoStack.pop(); if (st) applyUndoState(st, redoStack); }
 
-/* ---------------- AUDIO MATCHING MODE (v323; plans/audio-matching-mode.md) ----------------
- * A text with lines and audio but NO real alignment gets this guided step INSTEAD of the editor:
- * listen, and at each line-end press Enter (or tap the scissors) — the audio heard since the last
- * cut becomes that line's span. n lines need n-1 cuts; the last line takes the remainder. No text
- * editing, no join/split: a wrong cut is Ctrl+Z / ↶ (un-cut). NO SKIP (Seth): the one escape is
- * the FAILURE path — audio that cannot decode falls through to the editor. Mid-way exits resume
- * at the first unmatched line. Writes doc.segments ONLY, so glosses and free translations cannot
- * be disturbed by construction. */
-const matchMode = { active: false };
-const MATCH_MIN_MS = 250;
-
-function matchEligible(doc) {
-  if (!segmentationEnabled() || !current) return false;
-  if (!(current.audioId || current.audioSource || current.pendingAudio)) return false;
-  const lines = getBaselineParagraphs(doc);
-  if (lines.length < 2 || !lines.some((l) => l.trim())) return false;
-  const segs = doc.segments || [];
-  // "No real alignment": nothing CONFIRMED — estimates and pendings are placeholders (the seed).
-  return !segs.some((sg) => typeof sg.start === 'number' && !sg.timeEstimated && !sg.timePending);
-}
-
-function matchedCount(doc) {
-  const segs = doc.segments || [];
-  let k = 0;
-  while (k < segs.length && typeof segs[k].start === 'number' && !segs[k].timeEstimated && !segs[k].timePending) k++;
-  return k;
-}
-
-function maybeEnterMatchMode() {
-  if (!current || !matchEligible(current.doc)) return;
-  const host = $('#match-host');
-  if (!host) return;
-  matchMode.active = true;
-  document.body.classList.add('match-active');
-  matchRender();
-}
-
-function exitMatchMode() {
-  matchMode.active = false;
-  document.body.classList.remove('match-active');
-  const host = $('#match-host');
-  if (host) { host.hidden = true; host.innerHTML = ''; }
-  switchTab(activeTab);
-}
-
-function matchCut() {
-  if (!matchMode.active || !current) return;
-  const doc = current.doc;
-  const dur = player?.durationMs?.();
-  const t2 = player?.playheadMs?.();
-  if (typeof t2 !== 'number' || !dur) return;
-  const lines = getBaselineParagraphs(doc);
-  const k = matchedCount(doc);
-  const last = k > 0 ? doc.segments[k - 1].end : 0;
-  if (t2 < last + MATCH_MIN_MS) { toast(t('match.tooEarly'), 3000); return; }
-  captureUndo();
-  const segs = (doc.segments || []).map((sg) => ({ ...sg }));
-  while (segs.length < lines.length) segs.push({ timePending: true });
-  segs[k] = { start: last, end: t2 };
-  // n-1 cuts for n lines: cutting the second-to-last line gives the last one the remainder.
-  if (k === lines.length - 2) segs[lines.length - 1] = { start: t2, end: dur };
-  doc.segments = normalizeSegments(segs, { duration: dur });
-  schedulePersist();
-  matchRender();
-}
-
-function matchRender() {
-  const host = $('#match-host');
-  if (!host || !current) return;
-  const doc = current.doc;
-  const lines = getBaselineParagraphs(doc);
-  const k = matchedCount(doc);
-  if (k >= lines.length) { toast(t('match.done'), 5000); exitMatchMode(); return; }
-  host.hidden = false;
-  const fmt = (ms) => { const x = Math.round(ms); return Math.floor(x / 60000) + ':' + String(Math.floor((x % 60000) / 1000)).padStart(2, '0'); };
-  const frees = doc.paragraphs.map((p) => (p.segments[0] && p.segments[0].free) || '');
-  host.innerHTML = '<div class="match-head"><h3>' + esc(t('match.title')) + '</h3><p class="note">' + esc(t('match.hint')) + '</p>'
-    + '<button id="match-cut" class="primary-btn">✂ ' + esc(t('match.cut')) + '</button> '
-    + '<span class="note match-progress">' + esc(t('match.progress', { k: String(k + 1), n: String(lines.length) })) + '</span></div>'
-    + '<div class="match-rows">' + lines.map((ln, j) => {
-      const sg = (doc.segments || [])[j];
-      const done = j < k;
-      const span = done ? (fmt(sg.start) + '–' + fmt(sg.end)) : (j === k ? '▶ …' : '');
-      return '<div class="match-row' + (j === k ? ' match-cur' : '') + (done ? ' match-done' : '') + '">'
-        + '<span class="match-span">' + esc(span) + '</span>'
-        + '<span class="match-line">' + esc(ln.trim() || '⌁') + (frees[j] ? '<span class="note"> — ' + esc(frees[j]) + '</span>' : '') + '</span></div>';
-    }).join('') + '</div>';
-  const cutBtn = host.querySelector('#match-cut');
-  if (cutBtn) cutBtn.addEventListener('click', matchCut);
-  const cur = host.querySelector('.match-cur');
-  if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  // FAILURE path, not a skip: no decodable audio once the player settles -> the normal editor.
-  if (!player || !player.durationMs?.()) {
-    setTimeout(() => { if (matchMode.active && (!player || !player.durationMs?.())) { toast(t('match.noAudio'), 6000); exitMatchMode(); } }, 8000);
-  }
-}
 function doRedo() { const st = redoStack.pop(); if (st) applyUndoState(st, undoStack); }
 let playerDocId = null;
 // Which doc's audio the player has FINISHED decoding. decodedBuffer() returns whatever wavesurfer
@@ -2758,7 +2687,7 @@ async function tryDownloadFlextext(rec) {
      * the CORS/origin-blocked shape as much as the offline shape, and a browser cannot tell them
      * apart — so "not arrived yet, still retrying" hid a permanent configuration failure behind a
      * message promising progress. Still transient (it keeps retrying), but now it says the
-     * connection was REFUSED and points at fxCheck(). */
+     * connection was REFUSED rather than merely slow. */
     /* ⚠ v329: SAY WHY, ALWAYS. Every non-fatal failure used to retry in silence behind "the text
      * has not arrived yet", which promises progress — so an HTTP 401 (wrong relay token), 403
      * (origin not allow-listed), 404 (file not shared) and a genuine outage were ONE
@@ -2803,9 +2732,6 @@ async function tryDownloadFlextext(rec) {
 
 function applyBaseline() {
   if (!current) return;
-  // Matching mode hides the views by CSS class, NOT by the hidden attribute this function's DOM
-  // truth reads — the exact v158 trap shape. Belt: never flush while the mode owns the screen.
-  if (matchMode.active) return;
   // Apply from the textarea only when the textarea IS the live editor — DOM truth, not setting
   // truth. In strip mode the doc is edited directly on every keystroke, and during a LIVE
   // settings flip the setting has already changed while the screen still shows the previous
@@ -3072,6 +2998,10 @@ function applyAllowedButtons() {
   set('#btn-new-audio', 'audio');
   set('#btn-record', 'record');
   set('#btn-import', 'open');
+  /* ⚠ The pair importer follows the 'open' permission — it IS "open a .flextext", with the
+   * recording attached in the same step. Giving it a key of its own would silently appear on
+   * every already-configured device whose researcher had deliberately hidden file opening. */
+  set('#btn-new-pair', 'open');
 }
 
 // Whether a text/recording should be deleted from THIS device once it has
@@ -6307,40 +6237,6 @@ async function forceUpdateCheck() {
 // the "up to date" toast is reporting that truthfully.
 if (typeof window !== 'undefined') window.fxUpdate = forceUpdateCheck;
 
-/* fxCheck('<pasted Drive link>') — WHY a link fails, in one line, from whichever app you run it in.
- *
- * ⚠ Exists because the two failure modes are INDISTINGUISHABLE in the UI: a browser reports a
- * CORS-blocked response and a dead connection identically (a bare TypeError, no status, no body),
- * and the worker DROPS its Access-Control-Allow-Origin header when an origin is not allow-listed —
- * so an origin problem looks exactly like Sentani's bandwidth. This asks the same questions the app
- * asks and prints what actually came back. Run it in the app's console (v327+). */
-if (typeof window !== 'undefined') window.fxCheck = async (input) => {
-  const raw = String(input || '').trim();
-  const id = driveFileId(raw);
-  const resolved = resolveAudioInput(raw) || raw;
-  const out = { input: raw, driveFileId: id || null, resolvedTo: resolved, origin: location.origin,
-                workerBase: workerBase(), tokenPresent: !!(settings.relayToken || DEFAULT_RELAY_TOKEN) };
-  if (!id) out.note = 'NOT recognised as a Drive link — it will be fetched exactly as pasted.';
-  try {
-    const r = await fetch(resolved);
-    out.httpStatus = r.status;
-    out.contentType = r.headers.get('content-type') || '';
-    out.corsHeaderSeen = true;   // a readable response means CORS allowed this origin
-    const body = await r.clone().text().catch(() => '');
-    out.bodyStart = body.slice(0, 160);
-    out.verdict = r.ok
-      ? (/<document/i.test(body) ? 'OK — a real flextext came back'
-        : (out.contentType.startsWith('audio/') ? 'OK — audio came back' : 'Reachable, but the body is neither flextext nor audio'))
-      : ('The worker/Drive REFUSED it: ' + (out.bodyStart || r.status) + '  → the FILE or its sharing is the problem, not CORS');
-  } catch (e) {
-    out.error = e && e.message;
-    out.verdict = 'BLOCKED before any response — either this origin (' + location.origin
-      + ') is missing from the worker ALLOWED_ORIGINS, or the connection failed. '
-      + 'Open ' + resolved + ' in a NEW TAB: if it downloads, it is CORS/origin; if it errors, it is the file or the network.';
-  }
-  console.log('%cfxCheck', 'font-weight:bold', out);
-  return out;
-};
 
 /* ---------------- Wire-up ---------------- */
 
@@ -6476,7 +6372,6 @@ function setupResearcherMode() {
 function wirePlaybackKeys() {
   const PLAY_BTNS = '.player-play, .player-back, .player-home, .seg-play, .gseg-play';
   document.addEventListener('keydown', (e) => {
-    if (matchMode.active && e.key === 'Enter') { e.preventDefault(); matchCut(); return; }
     if (e.key === 'Enter' && e.target.closest && e.target.closest(PLAY_BTNS)) { e.preventDefault(); return; }
     // Undo/redo (v323): buttons are primary; keys work when focus is not inside a text field
     // (there the browser's native typing-undo owns Ctrl+Z until the next structural re-render).
@@ -6680,6 +6575,12 @@ function setup() {
   $('#doc-title').addEventListener('input', schedulePersist);
   $('#btn-new').addEventListener('click', () => newDoc());
   $('#btn-new-audio').addEventListener('click', () => $('#new-audio-file').click());
+  $('#btn-new-pair')?.addEventListener('click', () => $('#new-pair-file').click());
+  $('#new-pair-file')?.addEventListener('change', (e) => {
+    const fs = [...e.target.files];
+    e.target.value = '';
+    if (fs.length) newDocFromPair(fs).catch((err) => toast(t('toast.importFailed', { msg: err.message }), 6000));
+  });
   $('#btn-record').addEventListener('click', () => requestConsentThen(() => openRecordModal()));
   // The researcher can show/hide each Texts-screen button via a link (btns=…).
   applyAllowedButtons();
@@ -6704,7 +6605,6 @@ function setup() {
     toast(t('toast.autoSaved'), 4000);
   });
   $('#btn-share').addEventListener('click', openShareMenu);
-  $('#btn-done')?.addEventListener('click', () => { toggleDone().catch(() => {}); });
 
   $('#audio-player .player-dl-pause').addEventListener('click', () => {
     if (!current) return;

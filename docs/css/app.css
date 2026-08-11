@@ -2010,18 +2010,6 @@ main {
   border-radius: 0 4px 4px 0;
 }
 
-/* Audio Matching mode (v323): full-width guided step under the dock. While active, the tab views
-   are hidden by the body class so the ONLY interactions are play/scrub/cut/undo. */
-.match-host { padding: 10px 8px; }
-.match-head h3 { margin: 4px 0 2px; }
-.match-head .primary-btn { font-size: 18px; padding: 10px 22px; margin: 8px 0; }
-.match-rows { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
-.match-row { display: grid; grid-template-columns: 90px 1fr; gap: 10px; padding: 6px 8px;
-             border: 1px solid var(--border); border-radius: 8px; background: #fff; }
-.match-row.match-cur { border-color: #2563eb; background: #eff6ff; }
-.match-row.match-done { opacity: .75; }
-.match-span { color: var(--muted); font-variant-numeric: tabular-nums; }
-body.match-active #view-baseline, body.match-active #view-gloss, body.match-active .top-tabs { display: none !important; }
 
 /* v326: playback follow-highlight (both tabs) + the chain/scissors word-gap column */
 .seg-strip.seg-on { outline: 2px solid #93c5fd; outline-offset: -2px; border-radius: 6px; }

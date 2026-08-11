@@ -1,5 +1,33 @@
 # Backlog additions (2026-08-07) — paste into notes/BACKLOG.md
 
+## 🅿 PARKED BRANCH: `parked-panel-and-matching` — panel work + segment matching (Seth, 2026-08-08)
+
+> *"We need to park the Researcher Panel improvement and the 'segment matching' features on a
+> feature branch and focus on bug fixes and improvements to the editor UI/UX itself."*
+
+staging keeps the EDITOR cycle (bug list items 1–11 + the two OTHERS); everything panel- or
+matching-shaped moved to **`parked-panel-and-matching`** (head = staging at v329).
+
+**Parked (removed from staging, preserved on the branch):**
+- **Audio Matching mode** (v323/v324) — the guided match-text-to-audio step, its trigger on doc
+  open, host div, CSS, i18n. ⚠ It auto-entered on opening any unaligned text, so it would have sat
+  in front of every editor test.
+- **`fxCheck()`** (v328) — the assign-link diagnostic console helper.
+- `plans/audio-matching-mode.md` stays on staging: it is a PLAN, never served, and the design
+  decisions (no skip, undo-un-cut, seed-path trigger, researcher re-segmentation) must not be lost.
+
+**Deliberately KEPT on staging** — bug fixes, not improvements, and removing them would knowingly
+re-break assignment:
+- v327 `driveFileId`/resolve fix (assigned flextext fetched raw → CORS → retried forever). Verified
+  end-to-end in node against the real field file.
+- v325 soft-degrade (a glitchy link must not hard-block a valid assignment).
+- v329 "say why it has not arrived" (HTTP 401/403/404 vs outage, instead of one silent message).
+
+⚠ **Re-merge is a plain `merge --no-ff`** — the removals were EDITS, not reverts, so nothing is
+revert-poisoned. Expect conflicts in app.js around openDoc/applyUndoState/applyBaseline where the
+matching hooks were removed; take the branch's side for matching-mode lines and staging's side for
+everything else.
+
 ## 🅿 PARKED BRANCH: `parked-v319-v321` — ALL work newer than productionWeb, off staging (Seth, 2026-08-08)
 
 > *"Can we park all our new, untested PAT features on a feature branch (remove them from staging) so

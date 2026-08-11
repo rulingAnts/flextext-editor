@@ -51,7 +51,6 @@
       <button class="top-tab" data-tab="baseline" data-i18n="tabs.baseline" aria-selected="true">Baseline</button>
       <button class="top-tab" data-tab="gloss" data-i18n="tabs.gloss" aria-selected="false">Gloss</button>
     </nav>
-    <button id="btn-done" class="secondary-btn" hidden></button>
     <button id="btn-save" class="primary-btn" data-i18n="btn.save">Save</button>
     <button id="btn-share" class="secondary-btn" data-i18n="btn.done">Sudah selesai (Kirim)&hellip;</button>
   </div>
@@ -76,8 +75,13 @@
     <button id="btn-new-audio" class="secondary-btn" data-i18n="texts.newAudio">+ New text from audio&hellip;</button>
     <button id="btn-record" class="secondary-btn"><span class="rec-dot"></span><span data-i18n="record.btn">Record new text&hellip;</span></button>
     <button id="btn-import" class="secondary-btn" data-i18n="texts.open">Open .flextext file&hellip;</button>
+    <button id="btn-new-pair" class="secondary-btn" data-i18n="texts.newPair">+ Text + audio together&hellip;</button>
     <input type="file" id="import-file" accept=".flextext,.xml,.txt,text/plain,text/xml,application/xml" hidden>
     <input type="file" id="new-audio-file" accept="audio/*,.mp3,.wav,.m4a,.flac,.ogg" hidden>
+    <!-- Standalone (unpaired) editor: ONE picker taking BOTH files at once — a recording and its
+         .flextext — because on an unpaired device there is no researcher to assign the pair, and
+         importing them separately gave no way to attach audio to an imported text. -->
+    <input type="file" id="new-pair-file" accept="audio/*,.mp3,.wav,.m4a,.flac,.ogg,.flextext,.xml,.txt,text/plain,text/xml,application/xml" multiple hidden>
   </div>
   <div id="ws-banner" class="banner" hidden></div>
   <ul id="doc-list" class="doc-list"></ul>
@@ -128,7 +132,6 @@
        is known is a wrong alignment written to the doc, not a placeholder — see switchTab. -->
   <p id="seg-loading" class="note seg-loading" hidden data-i18n="seg.loadingAudio">Loading the recording…</p>
   <div id="segment-strips" hidden></div>
-    <div id="match-host" class="match-host" hidden></div>
       <textarea id="baseline-text" class="baseline-area" spellcheck="false" data-i18n-ph="baseline.placeholder"></textarea>
 </section>
 

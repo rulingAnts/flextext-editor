@@ -169,4 +169,20 @@ MAX_TOTAL_BYTES = "9500000000"
 # Tiny buffer ceiling ON STAGING ONLY, so ordinary test files exercise the big-file TEE cache path
 # (production keeps the 24 MB default and hits the tee path only on genuinely big audio). If a
 # tee-path bug exists, staging finds it with a 3 MB file instead of a field user with a 50 MB WAV.
+# ⚠ This is a CACHING-PATH knob, not a size limit: MAX_FILE_BYTES (512 MB) is what bounds
+# downloads, and both paths serve the whole file. It cannot cause a Drive download to fail.
 DRIVE_CACHE_MAX_BYTES = "2097152"
+
+# ⚠ TOML: every `key = value` above belongs to the [env.staging.vars] table it follows, so any new
+# table header must come AFTER the last var. Adding one in the middle silently moves the vars below
+# it into the wrong table.
+
+# The STAGING database, created 2026-08-11 so /v1 (researcher accounts, enrolment, assignments) can
+# be exercised here instead of only against production. It holds TEST accounts and devices only —
+# expect to re-create a researcher account and re-enrol a test device; that isolation is the point.
+# NEVER point this at `flextext-connectivity` (production).
+# Schema applied with: d1 execute flextext-connectivity-staging --remote --file=schema.sql
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "flextext-connectivity-staging"
+database_id = "95d4f1a1-e7c5-4eb0-a313-10eede8f7893"

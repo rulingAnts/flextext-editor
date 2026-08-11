@@ -776,6 +776,25 @@ export function surveyWritingSystems(xmlString) {
   return { error: null, rows, declared, dom };
 }
 
+/* Split a survey's codes into vernacular vs analysis, for validating a flextext against a
+ * device/instance setup before attaching it. segnum/meta lines are neutral — a number or metadata
+ * WS must not trigger a vern/anal mismatch. Lives here (not app.js) so the researcher panel can
+ * run the same validation on a picked file that the device runs on an arriving one
+ * (assign-by-upload, 2026-08-11). */
+export const WS_VERN_LABELS = new Set(['wsline.baseline', 'wsline.word', 'wsline.punct', 'wsline.morph', 'wsline.cf']);
+export const WS_ANAL_LABELS = new Set(['wsline.wordgloss', 'wsline.pos', 'wsline.morphgloss', 'wsline.msa', 'wsline.free', 'wsline.lit', 'wsline.note']);
+
+export function analyzeFlextextWs(xmlText) {
+  const survey = surveyWritingSystems(xmlText);
+  if (survey.error) return { error: survey.error };
+  const pick = (labels) => {
+    const set = new Set();
+    for (const r of survey.rows) if (labels.has(r.label) && r.lang && r.lang !== '(none)') set.add(r.lang);
+    return [...set];
+  };
+  return { error: null, survey, vernCodes: pick(WS_VERN_LABELS), analCodes: pick(WS_ANAL_LABELS) };
+}
+
 // Apply remappings: list of {selector, fromLang, toLang}. Returns new XML string.
 export function remapWritingSystems(dom, mappings) {
   const claimed = new Set();

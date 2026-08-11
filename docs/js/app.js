@@ -398,10 +398,21 @@ async function renderDocList() {
      * its row still opens -- openDoc retries the fetch and only enters the editor once the text is
      * really here (v332). Showing 0 sentences for an in-flight text is what made an empty
      * placeholder look like a finished import. */
-    li.querySelector('.doc-meta').textContent = d.pendingFlextext
-      ? t('texts.arriving')
-      : t('texts.meta', { n: d.segCount ?? 0, g: d.glossed ?? 0, date });
-    if (d.pendingFlextext) li.classList.add('doc-arriving');
+    const meta = li.querySelector('.doc-meta');
+    if (d.pendingFlextext) {
+      meta.textContent = t('texts.arriving');
+      li.classList.add('doc-arriving');
+    } else if (d.pendingAudio) {
+      // Assigned AUDIO still arriving (assign-by-upload): a real progress bar off the downloader's
+      // own received/total (Range-resume state), painted by the arrival ticker while active.
+      li.classList.add('doc-arriving');
+      li.dataset.arriving = d.id;
+      meta.innerHTML = `<span></span> <span class="doc-dl-bar"><span class="doc-dl-fill"></span></span><span class="doc-dl-pct"></span>`;
+      meta.querySelector('span').textContent = t('texts.arriving');
+      paintArrivalRow(li, d.id);
+    } else {
+      meta.textContent = t('texts.meta', { n: d.segCount ?? 0, g: d.glossed ?? 0, date });
+    }
     li.querySelector('.doc-open').addEventListener('click', () => openDoc(d.id));
 
     // "Completed" toggle (researcher setting doneEnabled): mark a text finished right
@@ -423,7 +434,36 @@ async function renderDocList() {
     } else del.remove();
     ul.appendChild(li);
   }
+  syncArrivalTicker();
   renderWsBanner();
+}
+
+/* Arrival progress (assign-by-upload): the downloader keeps exact received/total for its
+ * Range-resume, so the tile can show REAL byte progress. One light ticker, alive ONLY while a
+ * download is actually moving — an idle list costs nothing. The rows repaint in place (no
+ * re-render: renderDocList rebuilds listeners and would churn once a second). */
+let arrivalTicker = null;
+function paintArrivalRow(li, docId) {
+  const dl = getDownload(docId);
+  const fill = li.querySelector('.doc-dl-fill');
+  const pct = li.querySelector('.doc-dl-pct');
+  if (!fill) return false;
+  const total = (dl && dl.total) || 0;
+  if (total) {
+    const p = Math.min(100, Math.round(((dl.received || 0) / total) * 100));
+    fill.style.width = p + '%';
+    if (pct) pct.textContent = p + '%';
+  } else {
+    fill.style.width = '0%';
+    if (pct) pct.textContent = '';
+  }
+  return !!dl && dl.status === 'downloading';
+}
+function syncArrivalTicker() {
+  const rows = $$('#doc-list li[data-arriving]');
+  const active = rows.filter((li) => paintArrivalRow(li, li.dataset.arriving)).length > 0;
+  if (active && !arrivalTicker) arrivalTicker = setInterval(syncArrivalTicker, 1000);
+  if (!active && arrivalTicker) { clearInterval(arrivalTicker); arrivalTicker = null; }
 }
 
 function renderWsBanner() {
@@ -1276,16 +1316,20 @@ async function newDocFromAudio(file, titleOverride) {
     pendingPromptAudio = null;
   }
   if (current.consentReceipt || current.consentClip || current.consentPromptClip) await persist();
+  // Returned so saveRecording can queue the Lane A media upload for THIS doc — `current` is
+  // cleared below in record mode, so the caller cannot read it back.
+  const newId = current.id;
   if (RECORD_MODE) {
     // No editor in record mode: the recording is saved; return to the list.
     current = null;
     show('record');
     renderRecordList();
     toast(t('record.saved'), 4000);
-    return;
+    return newId;
   }
   $('#doc-title').focus();
   $('#doc-title').select();
+  return newId;
 }
 
 /* ---------------- Speaker-permission (consent) gate ----------------
@@ -2410,8 +2454,12 @@ async function saveRecording() {
     pendingAssent = assent;
     pendingReceipt = receipt;
     pendingPromptAudio = promptAudio;
-    await newDocFromAudio(file, title);
+    const newId = await newDocFromAudio(file, title);
     if (nativePath) await releaseCapture(nativePath);     // now safely in IndexedDB
+    // LANE A (assign-by-upload rule 4): the take + consent artifacts leave ASAP on their own zip.
+    // Linked devices only — a standalone device has no upload target, and queueing would grow a
+    // stuck queue bar it can never drain.
+    if (newId && Sync.workerUploadTarget()) { try { await queueMediaUpload(newId); } catch { /* the Lane B catch-up re-queues it */ } }
   } catch (e) {
     recordUI('review');
     $('#record-status').textContent = t('convert.failed', { msg: e.message });
@@ -3818,6 +3866,22 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
     segMedia = (working && working.blob && working.srcName === media.name) ? working : media;
     segMediaName = segMedia.name || 'audio';
   }
+  /* LANE B (assign-by-upload rule 4): an UPLOAD is the BARE .flextext — never zipped. The
+   * recording + consent artifacts leave on their own Lane A zip the moment a recording is saved
+   * (queueMediaUpload), and the panel builds the EAF/SayMore/preview conversions on demand from
+   * the same shared assembler — so field upload bandwidth pays for the text alone, and the
+   * derived-WAV re-upload leak for assigned texts is gone by construction. An assigned/locked doc
+   * references its ORIGINAL media name (the assigned file itself — a working-copy name would
+   * point at a file that is nowhere in the folder). Local saves (opts.full) are untouched. */
+  if (!opts.full) {
+    const uploadMediaName = (hasAligned && media)
+      ? (isAudioLocked(rec) ? (media.name || 'audio') : segMediaName)
+      : undefined;
+    const bare = serializeDocBlob(rec, uploadMediaName);
+    const bstamp = withTimestamp ? ' ' + fileStamp() : '';
+    return { blob: bare, filename: `${base}${bstamp}.flextext`, mime: 'application/xml',
+      xmlBlob: bare, xmlName: name, zipped: false };
+  }
   // Shared with the panel's Downloads conversions (assign-by-upload): the entries the researcher
   // downloads are built by the SAME function as the entries the device bundles.
   const segEntries = await assembleSegEntries({
@@ -3882,10 +3946,13 @@ function docFilename(rec) {
 async function uploadDocById(docId) {
   const rec = (current && current.id === docId) ? current : await db.getDoc(docId).catch(() => null);
   if (!rec) return false;
-  const bundle = await buildBundleFor(rec, true); // timestamped: Drive never overwrites
+  const bundle = await buildBundleFor(rec, true); // Lane B bare flextext; timestamped: Drive never overwrites
   await db.putMedia('upload:' + docId, {
     blob: bundle.blob, name: bundle.filename, mime: bundle.mime,
     total: bundle.blob.size, sent: 0,
+    // Wire identity: upload.js sends rec.docId when present, else its queue key. Lane B's key IS
+    // the docId, so old queued records (no docId field) keep uploading unchanged after an update.
+    docId,
     docModified: rec.modified,
     docDone: !!rec.done,   // auto-delete fires only for FINISHED texts
     // Text identity for the per-text Drive folder ("FlexText Uploads / <device> / <title>").
@@ -3899,6 +3966,60 @@ async function uploadDocById(docId) {
     docFolderId: rec.driveFolderId || '',
   });
   uploadView.set(docId, { name: bundle.filename, status: 'waiting' });
+  renderUploadQueue();
+  // Lane split catch-up: a text whose media never left the device on ANY lane (recorded before the
+  // split, or a user-attached file) still has to get its recording out — queue Lane A beside this.
+  // Docs with an old zip upload (uploadedFileId) already have their audio inside that bundle.
+  if (!rec.mediaUploaded && !rec.uploadedFileId) { try { await queueMediaUpload(docId); } catch { /* Lane B proceeds regardless */ } }
+  pumpUploads();
+  return true;
+}
+
+/* LANE A (assign-by-upload rule 4): the recording + consent artifacts (clip, prompt, receipt)
+ * leave the device ASAP after a recording is saved, as ONE zip through the same tolerant queue —
+ * zips exist ONLY for this. Queue key 'media:<docId>' (persisted as 'upload:media:<docId>') so it
+ * sits beside the text's own Lane B record; the wire docId rides IN the record (upload.js sends
+ * rec.docId), so the worker files it under the same per-text folder. docDone:false — a media zip
+ * must never trigger auto-delete, and completion stamps mediaUploaded only, never the text's
+ * backup proof (uploadedFileId/uploadedSig certify the TEXT). */
+async function queueMediaUpload(docId) {
+  const rec = (current && current.id === docId) ? current : await db.getDoc(docId).catch(() => null);
+  if (!rec) return false;
+  if (isAudioLocked(rec)) return false;              // assigned-from-Drive audio never re-uploads
+  if (rec.mediaUploaded) return false;
+  const key = 'media:' + docId;
+  if (uploadView.has(key) || await db.getMedia('upload:' + key).catch(() => null)) return false;
+  const media = await db.getMedia(docId).catch(() => null);
+  if (!media || !media.blob) return false;
+  const consent = rec.consentClip ? await db.getMedia('consent:' + docId).catch(() => null) : null;
+  const promptAudio = rec.consentPromptClip ? await db.getMedia('consent-prompt:' + docId).catch(() => null) : null;
+  const receipt = rec.consentReceipt || null;
+  // Same short wait as the full-bundle path: an in-flight IP/location capture gets its window so
+  // the bundled record isn't needlessly "unavailable".
+  if (receipt && consentCapture && consentCapture.receipt === receipt) {
+    await Promise.race([consentCapture.promise, new Promise((r) => setTimeout(r, 5000))]);
+  }
+  const entries = [{ name: media.name || 'audio', data: media.blob }];
+  if (consent?.blob) entries.push({ name: consent.name || rec.consentClip, data: consent.blob });
+  if (promptAudio?.blob) entries.push({ name: promptAudio.name || rec.consentPromptClip, data: promptAudio.blob });
+  if (receipt) {
+    const full = { ...receipt, textTitle: rec.title || '' };
+    entries.push({ name: 'consent-receipt.json', data: new Blob([JSON.stringify(full, null, 2)], { type: 'application/json' }) });
+    entries.push({ name: 'consent-receipt.txt', data: new Blob([consentReceiptText(full)], { type: 'text/plain' }) });
+  }
+  const base = docFilename(rec).replace(/\.flextext$/, '');
+  const filename = `${base} media ${fileStamp()}.zip`;
+  const blob = await makeZip(entries);
+  await db.putMedia('upload:' + key, {
+    blob, name: filename, mime: 'application/zip',
+    total: blob.size, sent: 0,
+    docId, lane: 'media',
+    docModified: rec.modified,
+    docDone: false,
+    docTitle: rec.title || '',
+    docFolderId: rec.driveFolderId || '',
+  });
+  uploadView.set(key, { name: filename, status: 'waiting' });
   renderUploadQueue();
   pumpUploads();
   return true;
@@ -4005,6 +4126,26 @@ function uploadState(docId) {
     if (st.status === 'cancelled' || st.status === 'done') {
       uploadView.delete(docId);
       if (st.status === 'done') {
+        // LANE A ('media:<docId>') completion: the recording + consent zip is on Drive. Stamp the
+        // folder echo + mediaUploaded ONLY — a media zip does not certify the TEXT as backed up,
+        // so uploadedFileId/uploadedSig (the delete-safety proof) stay untouched, and docDone is
+        // always false on these records so the auto-delete branch below can never fire for one.
+        if (String(docId).startsWith('media:')) {
+          const realId = String(docId).slice(6);
+          const stampA = (d) => {
+            if (st.folderId) d.driveFolderId = st.folderId;   // next upload echoes it (folder dedupe)
+            d.mediaUploaded = true;
+          };
+          if (current && current.id === realId) stampA(current);
+          db.getDoc(realId).then(async (d) => {
+            if (d) { stampA(d); await db.putDoc(d); }
+            return Sync.reportNow();
+          }).catch(() => {});
+          toast(t('upload.done', { name: st.name }), 6000);
+          renderUploadQueue();
+          pumpUploads();
+          return;
+        }
         // Once a text is safely on Drive (status 'done' = confirmed by the relay
         // poll), optionally delete it from the device — see deleteAfterUpload()
         // for who decides (researcher link param, else per-app default). This

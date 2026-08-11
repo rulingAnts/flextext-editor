@@ -154,7 +154,10 @@ export class DriveUpload {
           'x-fx-mime': rec.mime || '',
           // Per-text Drive folder identity. Headers, because the body is the raw bytes. A worker
           // that predates them ignores unknown x-fx-* headers, so deploy order cannot break this.
-          'x-fx-doc': this.docId || '',
+          // rec.docId is the WIRE identity: a Lane A record's queue key is 'media:<docId>' but its
+          // bytes belong to <docId>'s folder. Old-format records carry no docId field and fall
+          // back to the key — which for them IS the docId (backward-readable by construction).
+          'x-fx-doc': rec.docId || this.docId || '',
           'x-fx-doctitle': encodeURIComponent(rec.docTitle || ''),
           'x-fx-folder': rec.docFolderId || '',   // remembered per-text folder id (dedupe)
         },
@@ -245,7 +248,9 @@ export class DriveUpload {
           method: 'POST',
           headers: { ...target.headers, 'content-type': 'application/json' },
           body: JSON.stringify({ name: rec.name, mime: rec.mime, size: rec.total,
-                                 docId: this.docId || '', docTitle: rec.docTitle || '',
+                                 // Same wire-identity rule as the single-POST path: rec.docId
+                                 // (lane records) falls back to the queue key (old records).
+                                 docId: rec.docId || this.docId || '', docTitle: rec.docTitle || '',
                                  folderId: rec.docFolderId || '' }),
         });
         out = await r.json().catch(() => null);

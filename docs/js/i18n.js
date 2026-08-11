@@ -684,7 +684,7 @@ internet after the first time.</p>
 <h3>Managing a device</h3>
 <ul>
 <li><b>Settings</b> — change a device's languages, recording format, consent prompt, upload folder, visible buttons, and more. <b>Push to device</b> sends the change; it takes effect next time the device is online.</li>
-<li><b>Assign a text</b> — send a task: a title plus an audio or flextext link for the device to fetch.</li>
+<li><b>Assign a text</b> — pick the actual recording and/or flextext file to send; they are stored privately in your Drive and delivered straight to the device. No links, no sharing settings.</li>
 <li><b>Upload now</b> — pull a finished text in without the coworker pressing anything; the device sends it the next time it is online.</li>
 <li><b>Revoke</b> — cut off a device's access (for example, a lost phone).</li>
 </ul>
@@ -2127,7 +2127,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
 <h3>Mengelola perangkat</h3>
 <ul>
 <li><b>Pengaturan</b> — ubah bahasa, format rekaman, permintaan izin, folder unggah, tombol yang tampak, dan lainnya untuk sebuah perangkat. <b>Kirim ke perangkat</b> mengirim perubahannya; berlaku saat perangkat berikutnya online.</li>
-<li><b>Tugaskan teks</b> — kirim tugas: judul plus tautan audio atau flextext untuk diambil perangkat.</li>
+<li><b>Tugaskan teks</b> — pilih berkas rekaman dan/atau flextext yang akan dikirim; berkas disimpan secara pribadi di Drive Anda dan diantar langsung ke perangkat. Tanpa tautan, tanpa pengaturan berbagi.</li>
 <li><b>Unggah sekarang</b> — tarik teks yang sudah jadi tanpa rekan kerja menekan apa pun; perangkat mengirimnya saat berikutnya online.</li>
 <li><b>Cabut</b> — putuskan akses sebuah perangkat (misalnya HP yang hilang).</li>
 </ul>

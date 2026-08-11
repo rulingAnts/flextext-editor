@@ -286,3 +286,122 @@ command-seq-invariant, audio-converter.
 - Separate audio-segmenting/matching satellite app (adds segmentation to EXISTING texts; NOT mixed
   into the editor; PAT satellite pattern is the model).
 - Re-mint-links action on the files menu; Google Picker composing on top of this design.
+
+## Build log (build session, 2026-08-11 — Claude, autonomous overnight run)
+
+Phases 1–5 built in order, each committed with the full suite + eslint + native-containment green
+(`7922d26` P1, `d1be514` P2, `b24be93` P3, `54c2a95` P4, `4fd58fa` P5, then the i18n/help sweep).
+No version bump, no deploys, no merges — all reserved for the morning session per the brief.
+
+### Done per phase
+
+- **P1** — extractions landed exactly as mapped: `analyzeFlextextWs`+label sets → flextext.js;
+  `assembleSegEntries`+`howToOpenText`+`blobToBase64` → seg-exports.js (blobToBase64 rewritten
+  FileReader-free so the format module stays node-testable; paragraph-ui's `blobToB64` duplicate
+  deleted); `unzipStoreEntry` → zip.js. Device edits 1–3 in: the :2618 allowlist now carries
+  `docId`, `folderId` **and `assigned`** (see deviations), syncDispatch forwards folderId + marks
+  assigned, openUrlTask stamps `driveFolderId`/`assigned` in both branches. Tests:
+  assemble-seg-entries (wants coverage, upload-vs-full parity, source-lift), assign-intake.
+- **P2** — worker: `clampTtlDays` (exported), `mintTextfileUrl` (move endpoint now calls it),
+  `driveEnsureChildFolder` (parent-scoped), `relayDriveChunk` (device endpoint refactored onto it;
+  researcher routes check the DISTINCT `sess.rr` key), the four assignment endpoints
+  (begin / upload/start / upload/chunk / finish, consent-prompt kind targets the device folder),
+  and the files-listing merge (folder rows filtered, assignment/ child merged newest-first,
+  `assignmentFolderId` returned) — that one flagged in-code as STAGING-FIRST per rule 9.
+  Test: assignment-ttl (clamp + full begin→start→chunk×2→finish→`GET /v1/textfile` Range→206 flow
+  against a fake Drive fetch + fake D1, incl. cross-route token refusal, expired-token 401, and
+  the listing merge).
+- **P3** — assign modal reworked to file pickers (probe/soft-CORS ladder + assignCopy call
+  deleted); pure `assignAudioVerdict` + `wsAssignMismatch` with the two-button Send-anyway/Cancel
+  dialog; resilient queue (`assign-upload:<docId>` IndexedDB records with blobs, single-flight
+  runner, begin→chunked uploads→finish→ONLY THEN `Researcher.assign` carrying token URLs +
+  folderId; resume on panel restart + `online`; transient→requeue, 4xx→loud error with Retry;
+  dashboard card inspect/cancel). researcher.js gained
+  assignBegin/assignUploadStart/assignUploadChunk/assignFinish + the 8 MiB chunk loop with
+  persisted session tokens. Consent-prompt upload button on the settings form fills the existing
+  `consentAudioUrl` field with the minted URL. Per-account TTL field in Utilities. Test:
+  assign-modal-verdicts.
+- **P4** — `FILES_MENU_ENABLED = true`; populateFilesMenu rebuilt around the fixed six items with
+  on-click client-side conversions (parseFlextext → segmentsFromOffsets → convertAudio to 16-bit
+  WAV when lossy, same `.converted-NOT-ARCHIVAL.wav` name + bext → the shared assembleSegEntries →
+  makeZip), one-at-a-time, per-menu-open byte cache, ~200 MB decoded-estimate guard. EXT_KIND
+  role kinds + cleanup exclusions for all assignment roles. Tests: text-folder-files extended,
+  assignment-ttl listing section, artifact-links updated (flag now pinned ON — see deviations).
+- **P5** — Lane A `upload:media:<docId>` media+consent zip queued at recording save (linked
+  devices only) with a catch-up in uploadDocById for pre-split texts; completion stamps
+  `mediaUploaded` + folder echo only, never the text's backup proof, docDone pinned false. Lane B:
+  buildBundleFor's non-full path returns the BARE `.flextext`; assigned/locked reference the
+  ORIGINAL media name. upload.js sends `rec.docId || this.docId` (old queue records
+  backward-readable). Arrival progress bar on the text tile from `getDownload()`'s
+  received/total, 1 s ticker only while a download moves. Test: upload-lanes.
+- **P6 (i18n part only)** — every new string in en AND id; dead keys removed (urlPh,
+  checkingAudio, checkingFlextext, couldNotVerify, whyBlocked, whyTimeout, needUrl, the old
+  audio/flextext link labels); panel help HTML's "Assign a text" bullet rewritten in both
+  languages. Bump + staging merge deliberately NOT done.
+
+### Untested by construction (needs the live rig / morning session)
+
+- Everything against REAL Drive/OAuth: the harness fakes Drive's resumable sessions, 308 Range
+  answers and alt=media; Google's actual behaviour (session lifetimes, interstitials, quota) is
+  only exercised live.
+- The P3 gate end-to-end: assign → device adopts docId, stamps folderId, downloads via tokens,
+  edits, uploads → ONE Storyname folder with assignment/ + bare flextext; kill-connection
+  mid-upload → queue persists; panel reload → resumes and the assign command sends itself.
+- The P4 gate: all six items against real files; in-browser decodeAudioData; EAF↔WAV naming in
+  ELAN/SayMore; the .fxpa opening in PAT.
+- The P5 gate: lanes on a real device; a byte-level spot-check that `opts.full` local saves are
+  identical to v333 (the test pins entry names/content parity, not whole-zip bytes).
+- The device classifying an expired-token 401 as PERMANENT (spec risk) — verify on the rig.
+- All new UI (modal, dashboard card, TTL field, consent-upload button, arrival bar) has never
+  been rendered in a browser this session.
+- The staging-first rule for the LISTING change stands: deploy the worker to staging and test the
+  panel against it BEFORE any production worker deploy.
+
+### Deviations from the spec, with reasons
+
+1. **`assigned` added to the :2618 allowlist and the assign dispatch** (spec named only
+   docId/folderId): syncDispatch sets `task.assigned` but the allowlist strip would have dropped
+   it before the openUrlTask stamp — the exact v137 trap the spec warns about, one field over.
+2. **`assembleSegEntries` takes an explicit `base`** alongside `title`: the filename base is
+   sanitized differently from the display title, and deriving it inside the module would have
+   duplicated docFilename's rule (drift risk both ways).
+3. **The assign modal closes after queuing** (toast + the dashboard card carry queued/N%/sent)
+   instead of showing live progress inside the modal — the card is the single live surface, and
+   the modal's job (validate, absorb) is done at that point.
+4. **Lane B is the bare flextext for ALL texts**, not only assigned ones — locked decision 4 says
+   zips exist ONLY for Lane A and flextext uploads are never zipped, so seg exports no longer
+   ride ANY upload; the Downloads menu builds them on demand (that is what it is for). The
+   "assigned/locked → no seg exports" bullet is thereby subsumed. Flagging for Seth since the
+   Changes bullet could be read as assigned-only.
+5. **The Downloads menu keeps the legacy fill rows** (report artifacts, history fileId last
+   resort) after the six fixed items: they only fire for kinds nothing else claimed, legacy texts
+   keep their coverage, and artifact-links.test.mjs pins that machinery.
+6. **artifact-links.test.mjs was updated**: it pinned `FILES_MENU_ENABLED = false` — the exact
+   state this feature un-parks. The one-flag/one-predicate chokepoints stay pinned; only the
+   flag's value assertion flipped.
+7. **The consent-prompt upload uses the assignment routes with a placeholder docId path segment**
+   ('consent-prompt'): the worker ignores the segment for that kind (a prompt is per-device).
+   A dedicated route would have duplicated start/chunk/finish for one caller.
+8. **The P2 gate's live-curl-against-wrangler-dev was replaced** by the module-level fake-Drive +
+   fake-D1 harness (drive-cache-integrity/worker-seclog pattern) — no Google credentials in this
+   session, per the build brief.
+9. **task.badAudio / task.badFlextext / task.ftFetchFailed / task.checkFailed kept** although now
+   unreferenced: the spec's deletion list named the urlPh/checkingAudio/couldNotVerify family
+   only, and pruning beyond it felt like scope creep for a review session to confirm.
+
+### Morning-session checklist (in order)
+
+1. `worker-wrangler.yml` → `deploy --env staging`; read the deploy log and verify it lists ONLY
+   workers.dev routes (the `[env.staging]` routes=[] guard).
+2. Optional: seed the staging D1 with a researcher row if testing against a fresh DB (no schema
+   changes were made — no migration needed).
+3. Local rig e2e (`./devctl.sh start`, panel on :8012): run the P3/P4/P5 gates listed above,
+   including the resilience kills. Verify expired-token 401 classifies permanent on the device.
+4. Review the new Indonesian strings (drafted this session, not native-checked).
+5. `./bump-version.sh vNNN` (docs/ changed → all version sites together; no new SHELL entries
+   were added anywhere — verified by the untouched sw.js files).
+6. Merge `--no-ff` → staging, SPACED from any main push; Seth test-drives with
+   `?devworker=staging`.
+7. Production only after explicit sign-off, runbook order: worker deploy (additive endpoints are
+   straight-to-prod eligible; the files-listing CHANGE must have passed its staging test) →
+   editor `productionWeb` → satellites.

@@ -1,4 +1,4 @@
-import { handleV1 } from './v1.js';
+import { handleV1, originAllows } from './v1.js';
 import { logAuthFailures, secLog } from './seclog.js';
 
 /* flextext-r2-worker — a free-egress relay for the Flextext Editor.
@@ -105,8 +105,9 @@ function driveId(src) {
 function allowedOrigin(origin, env) {
   const list = (env.ALLOWED_ORIGINS || '').split(',').map(o => o.trim()).filter(Boolean);
   if (!origin) return list[0] || '*';
-  if (list.includes('*') || list.includes(origin)) return origin;
-  return null;
+  // originAllows (v1.js) also understands the `*-<worker>.workers.dev` preview-alias patterns that
+  // [env.staging] carries; production's list is exact origins, so nothing changes there.
+  return originAllows(list, origin) ? origin : null;
 }
 
 function corsHeaders(origin, env) {
@@ -116,6 +117,11 @@ function corsHeaders(origin, env) {
     'Access-Control-Allow-Headers': 'content-type, range',
     'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Content-Type, ETag, Accept-Ranges',
     'Access-Control-Max-Age': '3600',
+    // The header can only ever name ONE origin (or `*`), so the allow-list is matched server-side
+    // and the caller's own origin is reflected — which makes this response origin-dependent, and
+    // any shared cache must be told so. /drive is `max-age=86400`, so without this a cache could
+    // hand one app's ACAO to another app.
+    Vary: 'Origin',
   };
   if (allow) h['Access-Control-Allow-Origin'] = allow;
   return h;

@@ -28,11 +28,32 @@ release has to be cherry-picked around it — which happened three times for seg
 was moved off, and each cherry-pick re-offered the SHELL hunk that caused the v108 outage.
 
 - Branch from `main`: `git checkout -b <feature> main`. Push it freely, finished or not.
-- **Test on `staging`** (Seth, 2026-08-04): merge the feature branch `--no-ff` into `staging` —
-  the dev site auto-builds from it, no gates, that is the default fast path. If the staging test
-  FAILS, **roll staging back** (`git revert -m 1 <merge-commit>` on staging) so staging returns to
-  main-plus-working-features; the feature branch keeps the work and can re-merge after fixes.
-  staging is a TEST SURFACE, not a history archive.
+- **Test a MAJOR feature on its OWN branch preview; use `staging` for modest fixes** (Seth,
+  2026-08-11). Every non-`productionWeb` branch already builds its own complete app estate — the
+  `deploy.sh` in each `apps/*` folder routes any other branch to
+  `https://<branch>-<worker>.68mh29kgsd.workers.dev`, so pushing `assign-by-upload` published
+  `assign-by-upload-flextext-editor…`, `…-researcher`, `…-recorder`, `…-crowd` with no extra
+  work. Branch names are lowercased and non-alphanumerics become `-`, capped at 63 chars.
+  - **Why prefer it over staging for big work:** staging holds `main` + other in-progress
+    features, so a failure there is ambiguous and a rollback costs a revert commit. A branch
+    preview is that branch ALONE — nothing else can explain what you see, and abandoning it costs
+    nothing. Merge to `staging` only when the feature is behaving, as the integration check.
+  - The **backend** is separate from the app estate: a branch preview still talks to whatever
+    worker the client points at. `?devworker=staging` (persisted per device; `?devworker=prod`
+    reverts) aims it at `flextext-r2-worker-staging`, which you deploy from any ref with
+    `worker-wrangler.yml` → `deploy --env staging`. Preview origins are pre-authorized there by
+    the `*-flextext-*.68mh29kgsd.workers.dev` entries in `[env.staging].ALLOWED_ORIGINS` — see
+    `originAllows()` in `worker/src/v1.js`: they match branch previews but NOT production origins,
+    so "a field device reached the staging backend" still fails loudly. New branches need no
+    config edit.
+  - ⚠ The same build-cancellation rule applies as for staging/main: **two pushes within a couple
+    of minutes for the same Worker cancel each other.** Push one branch, confirm its build, then
+    push the next.
+- **Test on `staging`** (Seth, 2026-08-04) — the fast path for smaller, self-contained changes:
+  merge the feature branch `--no-ff` into `staging`, which auto-builds the dev site with no gates.
+  If the staging test FAILS, **roll staging back** (`git revert -m 1 <merge-commit>` on staging) so
+  staging returns to main-plus-working-features; the feature branch keeps the work and can re-merge
+  after fixes. staging is a TEST SURFACE, not a history archive.
 - Merge to `main` only when the feature is **complete and tested** — at which point `main` is
   releasable again and a production release is a plain fast-forward with nothing to resolve.
 - Small, self-contained, same-day changes can still go straight to `main`. The test is whether

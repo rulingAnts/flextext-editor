@@ -246,6 +246,37 @@ async function sendResetEmail(env, toEmail, link) {
   } catch { return false; }
 }
 
+/* Origin allow-list matching, shared by the /v1 CORS headers and index.js's /drive gate.
+ *
+ * Entries are EXACT origins, the bare `*`, or a LEADING-STAR pattern matched by suffix:
+ * `*-flextext-researcher.68mh29kgsd.workers.dev` accepts every Cloudflare PREVIEW ALIAS of that
+ * app (`assign-by-upload-…`, `some-branch-…`) — because `deploy.sh` publishes any non-production
+ * branch to `<branch>-<worker>.workers.dev`, and a feature branch tested on its own preview estate
+ * is now the standard workflow for major work (CLAUDE.md).
+ *
+ * ⚠ The leading `-` in the pattern is load-bearing, and is why this is a suffix match rather than
+ * a wildcard subdomain. `https://flextext-researcher.68mh29kgsd.workers.dev` (PRODUCTION) does NOT
+ * end in `-flextext-researcher.…` — nothing precedes its name — so production origins still get NO
+ * CORS header from the staging worker. That was the point of listing staging origins only: a field
+ * device that somehow reaches this backend must fail loudly instead of quietly working. Previews
+ * are additive to that property, not a hole in it.
+ *
+ * Only `[env.staging]` carries star entries. Production's list is exact origins, so its behaviour
+ * is byte-identical to before this function existed. */
+export function originAllows(list, origin) {
+  if (!origin) return false;
+  // A real browser origin only: scheme + host (+ port). Anything with a path/query is not an
+  // Origin header value, and must never suffix-match its way in.
+  if (!/^https?:\/\/[a-z0-9.-]+(:\d+)?$/i.test(origin)) return false;
+  for (const e of list) {
+    if (e === '*' || e === origin) return true;
+    // Star entries are HTTPS-only: an exact entry may name a plaintext dev origin
+    // (http://localhost:8012 in .dev.vars), but nothing gets in by PATTERN over plaintext.
+    if (e.startsWith('*') && e.length > 1 && origin.startsWith('https://') && origin.endsWith(e.slice(1))) return true;
+  }
+  return false;
+}
+
 function v1Cors(origin, env) {
   const list = String(env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
   const h = {
@@ -260,7 +291,7 @@ function v1Cors(origin, env) {
     'Access-Control-Allow-Headers': 'content-type, x-fx-researcher, x-fx-install, x-fx-secret, x-fx-invite-secret, x-fx-turnstile, x-fx-name, x-fx-mime, x-fx-doc, x-fx-doctitle, x-fx-folder, x-fx-upload, x-fx-range, content-range',
   };
   // Reflect a known browser origin; curl/scripts send none → no ACAO needed.
-  if (origin && list.includes(origin)) h['Access-Control-Allow-Origin'] = origin;
+  if (originAllows(list, origin)) h['Access-Control-Allow-Origin'] = origin;
   return h;
 }
 

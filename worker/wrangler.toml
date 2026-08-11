@@ -154,10 +154,16 @@ enabled = true
 head_sampling_rate = 1
 
 [env.staging.vars]
-# ONLY the staging app origins (+ https://localhost for a debug APK pointed here by hand).
+# ONLY the staging app origins, the localhost dev rig, and every FEATURE-BRANCH PREVIEW ALIAS.
+#
 # Production origins are deliberately absent: if a field device ever reaches this worker, that is a
-# misconfiguration and a CORS refusal is the loudest, safest way for it to surface.
-ALLOWED_ORIGINS = "https://localhost,https://staging-flextext-editor.68mh29kgsd.workers.dev,https://staging-flextext-recorder.68mh29kgsd.workers.dev,https://staging-flextext-researcher.68mh29kgsd.workers.dev,https://staging-flextext-crowd.68mh29kgsd.workers.dev,https://staging-paragraph-analysis-tool.68mh29kgsd.workers.dev"
+# misconfiguration and a CORS refusal is the loudest, safest way for it to surface. The `*-` star
+# entries preserve that exactly — see originAllows() in src/v1.js: the leading `-` means
+# `https://<branch>-flextext-editor.…` matches while PRODUCTION `https://flextext-editor.…` does
+# not. They exist because deploy.sh publishes every non-production branch to
+# `<branch>-<worker>.workers.dev`, and testing a major feature on its own preview estate (rather
+# than on staging) is the standard workflow — so a new branch must not need a config edit here.
+ALLOWED_ORIGINS = "https://localhost,https://staging-flextext-editor.68mh29kgsd.workers.dev,https://staging-flextext-recorder.68mh29kgsd.workers.dev,https://staging-flextext-researcher.68mh29kgsd.workers.dev,https://staging-flextext-crowd.68mh29kgsd.workers.dev,https://staging-paragraph-analysis-tool.68mh29kgsd.workers.dev,*-flextext-editor.68mh29kgsd.workers.dev,*-flextext-recorder.68mh29kgsd.workers.dev,*-flextext-researcher.68mh29kgsd.workers.dev,*-flextext-crowd.68mh29kgsd.workers.dev,*-paragraph-analysis-tool.68mh29kgsd.workers.dev"
 MAX_FILE_BYTES  = "536870912"
 MAX_TOTAL_BYTES = "9500000000"
 # Tiny buffer ceiling ON STAGING ONLY, so ordinary test files exercise the big-file TEE cache path

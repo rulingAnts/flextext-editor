@@ -787,7 +787,11 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     const ret = url.searchParams.get('return') || '';
     // Honor a full return URL (path included) as long as its ORIGIN is allow-listed; else a safe default.
     let returnTo = allow.find(o => o.includes('rulingants.github.io')) || allow[0] || 'https://rulingants.github.io';
-    try { const u = new URL(ret); if (allow.includes(u.origin)) returnTo = ret; } catch { /* not a URL → default */ }
+    // originAllows, not allow.includes: a feature-branch PREVIEW origin is admitted by the `*-`
+    // patterns in [env.staging] and would otherwise fail this exact-match test — sending the
+    // researcher, after a successful Google sign-in, to allow[0] (https://localhost on staging)
+    // instead of back to the panel they started from.
+    try { const u = new URL(ret); if (originAllows(allow, u.origin)) returnTo = ret; } catch { /* not a URL → default */ }
     const b64url = (b) => btoa(String.fromCharCode(...b)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
     const challenge = b64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))));

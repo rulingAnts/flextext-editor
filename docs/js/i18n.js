@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v332';
+export const ENGINE_VERSION = 'v333';
 
 const S = {
 en: {
@@ -986,7 +986,9 @@ internet after the first time.</p>
   'panel.assign.sent': 'Task sent.',
   'panel.assign.checkingAudio': 'Checking the audio link…',
   'panel.assign.checkingFlextext': 'Checking the transcription link…',
-  'panel.assign.couldNotVerify': 'Could not check this link from here (the host blocked the check), so it might still fail on the device. Send it anyway?',
+  'panel.assign.couldNotVerify': 'Could not check this link from here ({why}), so it might still fail on the device. Send it anyway?',
+  'panel.assign.whyBlocked': 'the host blocked the check',
+  'panel.assign.whyTimeout': 'the check timed out after 20 seconds — a large file or a slow link',
   'panel.assign.blockedNoSend': 'Nothing was sent — fix the link above, then press Send again.',
   'panel.account.title': 'Account',
   'panel.account.signedInAs': 'Signed in as',
@@ -2392,7 +2394,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.assign.sent': 'Tugas terkirim.',
   'panel.assign.checkingAudio': 'Memeriksa tautan audio…',
   'panel.assign.checkingFlextext': 'Memeriksa tautan transkripsi…',
-  'panel.assign.couldNotVerify': 'Tidak bisa memeriksa tautan ini dari sini (host memblokir pemeriksaan), jadi mungkin tetap gagal di perangkat. Tetap kirim?',
+  'panel.assign.couldNotVerify': 'Tidak bisa memeriksa tautan ini dari sini ({why}), jadi mungkin tetap gagal di perangkat. Tetap kirim?',
+  'panel.assign.whyBlocked': 'host memblokir pemeriksaan',
+  'panel.assign.whyTimeout': 'pemeriksaan habis waktu setelah 20 detik \u2014 file besar atau koneksi lambat',
   'panel.assign.blockedNoSend': 'Tidak ada yang dikirim — perbaiki tautan di atas, lalu tekan Kirim lagi.',
   'panel.account.title': 'Akun',
   'panel.account.signedInAs': 'Masuk sebagai',

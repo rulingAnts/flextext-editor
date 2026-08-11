@@ -28,6 +28,18 @@ import { resolveArtifacts, emptyReason } from './artifacts.js';
 // Byte-size formatter for assign-validation verdicts (mirrors app.js sizeFmt; that one is not exported).
 const fmtSize = (b) => (b < 1048576 ? Math.max(1, Math.round(b / 1024)) + ' KB' : (b / 1048576).toFixed(1) + ' MB');
 
+/* WHICH failure the link check hit, in the researcher's words.
+ *
+ * ⚠ These three are INDISTINGUISHABLE to the browser — a cross-origin refusal, a dead host and our
+ * own 20s abort all surface as a bare TypeError with no status and no body. The confirm used to
+ * name only the first ("the host blocked the check") for all three, so a TIMEOUT read as a CORS
+ * problem and sent Seth looking at worker configuration for a slow download (2026-08-11). Say what
+ * we can actually tell apart, and put the raw error in the console for the rest. */
+function softWhy(err) {
+  console.warn('[flextext] assignment link check failed:', err);
+  return /timed out/i.test(err.message || '') ? t('panel.assign.whyTimeout') : t('panel.assign.whyBlocked');
+}
+
 let deps = null;
 let root = null;
 let dashPoll = null;   // dashboard auto-refresh interval (runs only while the dashboard shows)
@@ -1968,7 +1980,7 @@ function assignModal(instanceId) {
         const soft = err.name === 'TypeError'
           || /failed to fetch|networkerror|timed out/i.test(err.message || '');
         if (soft) {
-          if (!confirm(t('panel.assign.couldNotVerify'))) { say('⚠ ' + t('panel.assign.blockedNoSend'), 'err'); return; }
+          if (!confirm(t('panel.assign.couldNotVerify', { why: softWhy(err) }))) { say('⚠ ' + t('panel.assign.blockedNoSend'), 'err'); return; }
         } else {
           const msg = err.code === 'cantPlay' ? t('task.cantPlay')
             : err.code === 'big' ? t('task.tooBig', { mb: err.mb })
@@ -1993,7 +2005,7 @@ function assignModal(instanceId) {
         const soft = !/script\.google|\/drive/.test(resolved2)
           && (err.name === 'TypeError' || /failed to fetch|networkerror/i.test(err.message || ''));
         if (soft) {
-          if (!confirm(t('panel.assign.couldNotVerify'))) { say('⚠ ' + t('panel.assign.blockedNoSend'), 'err'); return; }
+          if (!confirm(t('panel.assign.couldNotVerify', { why: softWhy(err) }))) { say('⚠ ' + t('panel.assign.blockedNoSend'), 'err'); return; }
           // confirmed → proceed without parsing (xml stays undefined)
         } else { say('⚠ ' + t('task.ftFetchFailed', { msg: err.message }), 'err'); return; }
       }

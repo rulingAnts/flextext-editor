@@ -27,6 +27,72 @@ import { logAuthFailures, secLog } from './seclog.js';
 
 const DRIVE_ID_RE = /^[\w-]{10,}$/;
 
+/* ⚠ THE DRIVE CACHE POISONED ITSELF ON EVERY ABORTED READ (Seth, 2026-08-11 — "it is happening
+ * with a file being used a SECOND time").
+ *
+ * The old code did this:
+ *     const resp = new Response(dr.body, ...);
+ *     ctx.waitUntil(caches.default.put(cacheKey, resp.clone()));   // ← one stream, two consumers
+ *     return withCors(resp, origin, env);
+ *
+ * The researcher panel's link check reads the FIRST CHUNK of the audio and then aborts the request
+ * (probeAudioUrl: it only needs the magic bytes). That abort tears down the client branch of the
+ * tee while the cache branch is still filling — so what landed in `caches.default` was a body
+ * SHORTER than its own Content-Length. Nothing failed at the time; the check passed and the
+ * assignment sent.
+ *
+ * The damage was on the NEXT use of that same Drive file. The cache HIT was served verbatim,
+ * Content-Length promised N bytes, the connection ended early, and the browser reported a bare
+ * `TypeError: NetworkError when attempting to fetch resource` — which is indistinguishable from
+ * "the host is down". That is the "⚠ Cannot use this audio: NetworkError" Seth first reported as a
+ * "random quirk", and the "could not check this link from here" confirm he hit today. One bug, two
+ * faces, and reusing a Drive file is the trigger for both.
+ *
+ * TWO RULES NOW, and they are the whole fix:
+ *   1. NEVER put a body that a client is also reading. Buffer it, verify the length, then store and
+ *      serve two INDEPENDENT copies — atomic by construction, so an abort can truncate nothing.
+ *   2. What cannot be held whole is not cached at all. A streamed put is exactly the thing that
+ *      can be interrupted, and a truncated entry costs a field user their assignment for a whole
+ *      day (max-age=86400). A cache miss costs one Drive fetch.
+ *
+ * CACHE_GEN is in the cache key, so bumping it ABANDONS every entry stored under the old scheme —
+ * without it, already-poisoned files stay broken until their 24h TTL expires. Bump it whenever the
+ * stored shape changes or entries must be dropped. */
+const CACHE_GEN = 2;
+/* Buffer ceiling. Two independent copies of the body exist briefly (stored + served), against a
+ * 128 MB isolate — so this is deliberately well under a third of it. Raise via
+ * DRIVE_CACHE_MAX_BYTES only with that arithmetic in mind: an OOM here is a hard failure for the
+ * device, which is the exact class of bug this code is fixing. */
+const CACHE_MAX_DEFAULT = 25165824;   // 24 MB
+const driveCacheKey = (originUrl, id) =>
+  new Request(`${originUrl}/drive?src=${id}&cv=${CACHE_GEN}`, { method: 'GET' });
+
+/* Headers for the STORED copy.
+ * - set-cookie makes cache.put REJECT outright (Drive sets one on the download host), which silently
+ *   left the cache permanently cold for those files.
+ * - No CORS header is stored: withCors stamps the CURRENT origin's on the way out, and a stored one
+ *   would be a stale answer waiting to be served to a different app. */
+function cacheHeaders(src, len) {
+  const h = new Headers(src);
+  h.delete('set-cookie');
+  h.delete('access-control-allow-origin');
+  h.set('Cache-Control', 'public, max-age=86400');
+  h.set('Accept-Ranges', 'bytes');
+  if (len != null) h.set('content-length', String(len));
+  return h;
+}
+
+/* Store a COMPLETE body under `key`, or store nothing. Returns the buffer so the caller can serve
+ * its own copy. The length check is the belt to the buffering's braces: if Drive's Content-Length
+ * and the bytes we actually received disagree, the truncation happened upstream and caching it
+ * would make one bad download permanent. */
+async function cachePut(ctx, key, buf, headers, expected) {
+  if (expected != null && buf.byteLength !== expected) return false;
+  const stored = new Response(buf, { status: 200, headers: cacheHeaders(headers, buf.byteLength) });
+  ctx.waitUntil(caches.default.put(key, stored).catch(() => { /* caching is an optimisation */ }));
+  return true;
+}
+
 function driveId(src) {
   const s = String(src || '').trim();
   let m = s.match(/drive\.google\.com\/file\/d\/([\w-]{10,})/);
@@ -158,19 +224,25 @@ export default {
       if (path === '/drive' && (request.method === 'GET' || request.method === 'HEAD')) {
         const id = driveId(url.searchParams.get('src'));
         if (!id) return json({ error: 'bad_src' }, 400, origin, env);
-        const cacheKey = new Request(`${url.origin}/drive?src=${id}`, { method: 'GET' });
+        const cacheKey = driveCacheKey(url.origin, id);
         const range = request.headers.get('Range');
         const hit = await caches.default.match(new Request(cacheKey.url, { headers: range ? { Range: range } : {} }));
         if (hit) return withCors(hit, origin, env);
         const dr = await fetchDrive(id);
         const len = parseInt(dr.headers.get('content-length') || '0', 10);
         if (len && len > MAX_FILE) return json({ error: 'too_large', size: len, limit: MAX_FILE }, 413, origin, env);
-        const headers = new Headers(dr.headers);
-        headers.set('Cache-Control', 'public, max-age=86400');
-        headers.set('Accept-Ranges', 'bytes');
-        const resp = new Response(dr.body, { status: 200, headers });
-        ctx.waitUntil(caches.default.put(cacheKey, resp.clone()));
-        return withCors(resp, origin, env);
+        const cacheMax = parseInt(env.DRIVE_CACHE_MAX_BYTES || String(CACHE_MAX_DEFAULT), 10);
+        // Small enough to hold: buffer once, store one copy, serve another. See CACHE_GEN above for
+        // why a tee'd stream must never reach cache.put. HEAD never buffers — there is no body to
+        // serve, so downloading the file to answer it would be pure waste.
+        if (request.method === 'GET' && len && len <= cacheMax) {
+          const buf = await dr.arrayBuffer();
+          await cachePut(ctx, cacheKey, buf, dr.headers, len);
+          return withCors(new Response(buf, { status: 200, headers: cacheHeaders(dr.headers, buf.byteLength) }), origin, env);
+        }
+        // Too big to hold (or a HEAD): stream it through UNCACHED. A streamed put is the one that
+        // can be cut off half-written, and that is what we are here to prevent.
+        return withCors(new Response(dr.body, { status: 200, headers: cacheHeaders(dr.headers, len || null) }), origin, env);
       }
 
       if (path === '/probe' && request.method === 'GET') {
@@ -180,10 +252,16 @@ export default {
         const size = parseInt(dr.headers.get('content-length') || '0', 10);
         const mime = dr.headers.get('content-type') || '';
         const name = (dr.headers.get('content-disposition') || '').match(/filename="?([^"]+)"?/)?.[1] || '';
-        if (size && size <= MAX_FILE) {
-          const cacheKey = new Request(`${url.origin}/drive?src=${id}`, { method: 'GET' });
-          ctx.waitUntil(caches.default.put(cacheKey, new Response(dr.body, { status: 200, headers: dr.headers })));
-        } else { ctx.waitUntil(dr.body?.cancel?.()); }
+        // Warm the cache only with a body we can hold WHOLE — the same rule as /drive, and for the
+        // same reason: this put used to hand cache.put a raw stream (and Drive's set-cookie header,
+        // which made it reject anyway). Anything bigger is dropped rather than half-stored.
+        const probeMax = Math.min(MAX_FILE, parseInt(env.DRIVE_CACHE_MAX_BYTES || String(CACHE_MAX_DEFAULT), 10));
+        if (size && size <= probeMax) {
+          const key = driveCacheKey(url.origin, id);
+          ctx.waitUntil(dr.arrayBuffer()
+            .then((buf) => cachePut(ctx, key, buf, dr.headers, size))
+            .catch(() => { /* the cache stays cold; the next /drive refetches */ }));
+        } else { ctx.waitUntil(Promise.resolve(dr.body?.cancel?.()).catch(() => {})); }
         return json({ name, size, mime, tooLarge: !!(size && size > MAX_FILE), limit: MAX_FILE }, 200, origin, env);
       }
 

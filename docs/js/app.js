@@ -119,6 +119,26 @@ function isLocalDev() { return /^(localhost|127\.0\.0\.1|\[::1\])$/.test(locatio
 // production app). Worker base + Turnstile keys deliberately do NOT follow this: staging
 // talks to the PRODUCTION worker with the real widget (its origin is CORS-allowlisted).
 function isStagingHost() { return /\.(pages|workers)\.dev$/.test(location.hostname); }
+/* The STAGING worker (v333, Seth: "we need a dev worker that we can test before we push it to
+ * production, to make sure if we break it it doesn't break existing users any more than they
+ * already are").
+ *
+ * ⚠ OPT-IN PER DEVICE — `?devworker=staging` — NOT automatic on the staging origins.
+ *
+ * Automatic routing was the obvious design and it is wrong twice over. First, isStagingHost() is
+ * true for the PRODUCTION Cloudflare apps as well (they are *.workers.dev too), so anything built
+ * on it risks pointing real users at a test backend. Second, and decisively: the staging worker
+ * binds NO production D1, so the researcher account and enrolled devices simply are not there.
+ * Flipping staging over wholesale would leave the staging panel unable to log in — making the test
+ * surface WORSE while claiming to make it safer.
+ *
+ * So it rides the existing settings.relayWorker override, which already wins over every other
+ * source and is already persisted and already tested. `?devworker=prod` puts the device back.
+ *
+ * The staging worker is a separate deployment with its own cache, its own (empty) D1 and no R2
+ * binding — see the [env.staging] block in worker/wrangler.toml for why none of those are
+ * inherited, and why that is the point. */
+const STAGING_WORKER = 'https://flextext-r2-worker-staging.68mh29kgsd.workers.dev';
 function workerBase() {
   const explicit = (settings.relayWorker || '').trim();
   return explicit || (isLocalDev() ? LOCAL_WORKER : DEFAULT_WORKER);
@@ -173,6 +193,20 @@ function applyUrlSettings() {
   if (p.has('lang')) setLang(p.get('lang'));
   if (p.get('research') === 'off') localStorage.setItem(RESEARCH_HIDDEN_KEY, '1');
   if (p.get('research') === 'on') localStorage.removeItem(RESEARCH_HIDDEN_KEY);
+  /* ?devworker=staging|prod (v333) — point THIS device at the staging backend, or back at
+   * production. Deliberately a manual per-device flip and not tied to the origin: see
+   * STAGING_WORKER above. Applied before anything reads workerBase(), and persisted, so a reload
+   * or an installed PWA keeps it until it is explicitly turned off. */
+  const dw = p.get('devworker');
+  if (dw) {
+    const s = loadSettings();
+    if (dw === 'staging') s.relayWorker = STAGING_WORKER;
+    else if (dw === 'prod' || dw === 'off') delete s.relayWorker;
+    saveSettings(s);
+    settings = s;
+    console.log('[flextext] backend:', s.relayWorker || DEFAULT_WORKER);
+    try { toast('Backend: ' + (s.relayWorker || DEFAULT_WORKER), 6000); } catch { /* pre-DOM */ }
+  }
   const gotSettings = p.has('vern') || p.has('anal') || p.has('welcome') || p.has('btns') || p.has('editorRec') || p.has('autoDel') || p.has('recFormat') || p.has('dsp') || p.has('agc') || p.has('segmentation');
   let settingsChanged = false;
   if (gotSettings) {

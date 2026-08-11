@@ -99,3 +99,56 @@ name = "SIGNUP_LIMIT"
 type = "ratelimit"
 namespace_id = "1001"
 simple = { limit = 10, period = 60 }
+
+# ============================================================================================
+# STAGING ENVIRONMENT — deploy with:  wrangler deploy --env staging
+# ============================================================================================
+# Seth, 2026-08-11: "We need a dev worker that we can test before we push it to production, to
+# make sure if we break it it doesn't break existing users any more than they already are."
+#
+# Until now the staging APPS talked to the PRODUCTION worker (their origins are in ALLOWED_ORIGINS
+# above, and workerBase() returned DEFAULT_WORKER for every non-localhost host). So there was a
+# staging tier for the editor and none at all for the backend: any worker change went straight to
+# the deployment field devices depend on, and the only pre-production test was `wrangler dev` on
+# the VM.
+#
+# ⚠ WRANGLER ENVIRONMENTS DO NOT INHERIT BINDINGS. r2_buckets, d1_databases, routes and vars are
+# per-environment, and everything NOT repeated below is simply absent here. That is deliberate and
+# is the whole safety property:
+#   - no [[routes]]      → connect.flextext.app is untouched; this is workers.dev only
+#   - no [[r2_buckets]]  → staging CANNOT write to the production bucket (uploads 500 here)
+#   - no [[d1_databases]]→ staging CANNOT read or write production accounts, devices or
+#                          assignments. /v1/* returns 500 until a staging DB is bound (below).
+# Do NOT "fix" those by copying the production bindings down. Point them at staging resources or
+# leave them out; a staging worker holding production's R2 and D1 is not a staging worker.
+#
+# `caches.default` is keyed by request URL, and the URL's origin is this worker's own hostname, so
+# the staging and production Drive caches are already separate with no extra work.
+#
+# SECRETS are per-environment too and are NOT in this file:
+#   wrangler secret put RELAY_SECRET --env staging
+# It must equal the client's DEFAULT_RELAY_TOKEN (app.js) or every /drive request 401s.
+# RELAY_WRITE_SECRET can be left UNSET here: uploads are then disabled outright (403), which is
+# the right posture for a test backend with no bucket.
+#
+# To test /v1 (researcher accounts, enrolment, assignments) on staging, create a SEPARATE database
+# and bind it here — never the production one:
+#   wrangler d1 create flextext-connectivity-staging
+#   (paste the returned id below, then run the migrations against --env staging)
+# Expect to re-create a researcher account and re-enrol a test device: that data is isolated by
+# design, which is the point.
+[env.staging]
+name = "flextext-r2-worker-staging"
+workers_dev = true
+
+[env.staging.observability]
+enabled = true
+head_sampling_rate = 1
+
+[env.staging.vars]
+# ONLY the staging app origins (+ https://localhost for a debug APK pointed here by hand).
+# Production origins are deliberately absent: if a field device ever reaches this worker, that is a
+# misconfiguration and a CORS refusal is the loudest, safest way for it to surface.
+ALLOWED_ORIGINS = "https://localhost,https://staging-flextext-editor.68mh29kgsd.workers.dev,https://staging-flextext-recorder.68mh29kgsd.workers.dev,https://staging-flextext-researcher.68mh29kgsd.workers.dev,https://staging-flextext-crowd.68mh29kgsd.workers.dev,https://staging-paragraph-analysis-tool.68mh29kgsd.workers.dev"
+MAX_FILE_BYTES  = "536870912"
+MAX_TOTAL_BYTES = "9500000000"

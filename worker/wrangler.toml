@@ -112,10 +112,15 @@ simple = { limit = 10, period = 60 }
 # the deployment field devices depend on, and the only pre-production test was `wrangler dev` on
 # the VM.
 #
-# ⚠ WRANGLER ENVIRONMENTS DO NOT INHERIT BINDINGS. r2_buckets, d1_databases, routes and vars are
-# per-environment, and everything NOT repeated below is simply absent here. That is deliberate and
-# is the whole safety property:
-#   - no [[routes]]      → connect.flextext.app is untouched; this is workers.dev only
+# ⚠ WRANGLER ENVIRONMENTS DO NOT INHERIT BINDINGS — BUT THEY DO INHERIT ROUTES (proven the hard
+# way, 2026-08-11: the first `wrangler deploy --env staging` REASSIGNED the connect.flextext.app
+# custom domain from the production worker to this one, taking /v1 sync and the Drive proxy away
+# from every field device for ~20 minutes until worker-deploy.yml was re-run on productionWeb.
+# wrangler prints a warning saying exactly this at deploy time — READ deploy warnings.)
+# r2_buckets, d1_databases and vars are per-environment; everything NOT repeated below is simply
+# absent here. That is deliberate and is the whole safety property:
+#   - routes = []        → REQUIRED. Without it the top-level custom_domain route is
+#                          INHERITED and a staging deploy hijacks connect.flextext.app.
 #   - no [[r2_buckets]]  → staging CANNOT write to the production bucket (uploads 500 here)
 #   - no [[d1_databases]]→ staging CANNOT read or write production accounts, devices or
 #                          assignments. /v1/* returns 500 until a staging DB is bound (below).
@@ -140,6 +145,9 @@ simple = { limit = 10, period = 60 }
 [env.staging]
 name = "flextext-r2-worker-staging"
 workers_dev = true
+# Explicit empty routes: overrides the top-level [[routes]] custom_domain, which IS inherited by
+# environments (see the 2026-08-11 incident note above). Never remove this line.
+routes = []
 
 [env.staging.observability]
 enabled = true

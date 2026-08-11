@@ -55,8 +55,10 @@ export async function listDocs() {
     req.onsuccess = () => {
       const cur = req.result;
       if (cur) {
-        const { id, title, modified, created, segCount, glossed, done } = cur.value;
-        out.push({ id, title, modified, created, segCount, glossed, done });
+        // pendingFlextext rides along (v332) so the list can show "still arriving" and refuse to
+        // open a text whose content is in flight -- without a second read per row.
+        const { id, title, modified, created, segCount, glossed, done, pendingFlextext } = cur.value;
+        out.push({ id, title, modified, created, segCount, glossed, done, pendingFlextext: !!pendingFlextext });
         cur.continue();
       } else {
         out.sort((a, b) => (b.modified || 0) - (a.modified || 0));

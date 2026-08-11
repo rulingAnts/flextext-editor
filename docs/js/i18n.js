@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v331';
+export const ENGINE_VERSION = 'v332';
 
 const S = {
 en: {
@@ -156,6 +156,8 @@ en: {
   'consent.loadingAudio': 'Loading the spoken reminder…',
   'consent.audioFailed': 'Could not load the spoken reminder. You can still continue.',
   'texts.open': 'Open .flextext file…',
+  'texts.newPair': 'Open text + recording together…',
+  'texts.arriving': 'The text is still arriving…',
   'texts.empty': 'No texts yet. Tap <b>New text</b> to start transcribing, or open an existing <code>.flextext</code> file.',
   'texts.deleteTitle': 'Delete',
   'texts.confirmDelete': 'Delete "{title}" from this device?\n(Make sure it has been saved/sent if you need it.)',
@@ -1419,6 +1421,7 @@ internet after the first time.</p>
   'panel.opt.btn.audio': 'New from audio',
   'panel.opt.btn.record': 'Record',
   'panel.opt.btn.open': 'Open file',
+  'panel.opt.btn.pair': 'Open text + recording',
   'panel.opt.send.share': 'Share',
   'panel.opt.send.upload': 'Upload',
   'panel.opt.send.save': 'Save to file',
@@ -1574,6 +1577,8 @@ id: {
   'consent.loadingAudio': 'Memuat pengingat lisan…',
   'consent.audioFailed': 'Tidak bisa memuat pengingat lisan. Anda tetap bisa melanjutkan.',
   'texts.open': 'Buka file .flextext…',
+  'texts.newPair': 'Buka teks + rekaman sekaligus…',
+  'texts.arriving': 'Teks masih dalam perjalanan…',
   'texts.empty': 'Belum ada teks. Tekan <b>Teks baru</b> untuk mulai mengetik, atau buka file <code>.flextext</code> yang sudah ada.',
   'texts.deleteTitle': 'Hapus',
   'texts.confirmDelete': 'Hapus "{title}" dari perangkat ini?\n(Pastikan sudah disimpan/dikirim kalau masih diperlukan.)',
@@ -2814,6 +2819,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.opt.btn.audio': 'Baru dari audio',
   'panel.opt.btn.record': 'Rekam',
   'panel.opt.btn.open': 'Buka berkas',
+  'panel.opt.btn.pair': 'Buka teks + rekaman',
   'panel.opt.send.share': 'Bagikan',
   'panel.opt.send.upload': 'Unggah',
   'panel.opt.send.save': 'Simpan ke berkas',

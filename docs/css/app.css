@@ -213,6 +213,9 @@ main {
 .doc-done.on { color: #1f5d22; }   /* text marked completed */
 .doc-done:hover { background: var(--panel); }
 .doc-pending-del { opacity: .5; }
+/* A text whose transcription is still downloading (v332): the row stays fully tappable — tapping it
+ * is what retries the fetch — so this marks the WAIT, not a disabled control. */
+.doc-arriving .doc-meta { color: #8a5a00; font-style: italic; }
 .doc-pending-del .doc-name { text-decoration: line-through; }
 
 .empty-note { color: var(--muted); margin-top: 24px; text-align: center; }

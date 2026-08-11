@@ -60,7 +60,12 @@ const CROWD_MODE = typeof window !== 'undefined' && window.__MODE === 'crowd';
 const PARAGRAPH_MODE = typeof window !== 'undefined' && window.__MODE === 'paragraph';
 
 // The Texts-screen "new text" buttons a researcher can show/hide per link.
-const ALL_BUTTONS = ['new', 'audio', 'record', 'open'];
+// 'pair' = open a .flextext AND its recording together (v332). Its own key, so a researcher can
+// offer it without offering plain file-opening, and vice versa (Seth). A device configured BEFORE
+// v332 has a stored list with no 'pair' in it and therefore will not show the button until its
+// researcher ticks it — which costs nothing, because the pair button has never been in production
+// (it landed on staging in v330). Unconfigured devices get everything, this list being the default.
+const ALL_BUTTONS = ['new', 'audio', 'record', 'open', 'pair'];
 /* The send options a device can be given. 'download' is deliberately ABSENT: it is a legacy alias
  * of 'save' (see allowedSend) and must never be offered or written again. */
 const SEND_OPTIONS = ['share', 'upload', 'save'];
@@ -355,8 +360,14 @@ async function renderDocList() {
       <button class="doc-done icon-btn"></button>
       <button class="doc-delete icon-btn"></button>`;
     li.querySelector('.doc-name').textContent = (d.done ? '\u2713 ' : '') + (d.title || t('untitled'));
-    li.querySelector('.doc-meta').textContent =
-      t('texts.meta', { n: d.segCount ?? 0, g: d.glossed ?? 0, date });
+    /* A text whose transcription is still downloading shows THAT instead of "0 sentences", and
+     * its row still opens -- openDoc retries the fetch and only enters the editor once the text is
+     * really here (v332). Showing 0 sentences for an in-flight text is what made an empty
+     * placeholder look like a finished import. */
+    li.querySelector('.doc-meta').textContent = d.pendingFlextext
+      ? t('texts.arriving')
+      : t('texts.meta', { n: d.segCount ?? 0, g: d.glossed ?? 0, date });
+    if (d.pendingFlextext) li.classList.add('doc-arriving');
     li.querySelector('.doc-open').addEventListener('click', () => openDoc(d.id));
 
     // "Completed" toggle (researcher setting doneEnabled): mark a text finished right
@@ -408,22 +419,30 @@ async function newDoc() {
 }
 
 async function openDoc(id) {
-  const rec = await db.getDoc(id);
+  let rec = await db.getDoc(id);
   if (!rec) { toast(t('toast.cantOpen')); return; }
+  /* ⚠ DO NOT OPEN A TEXT WHOSE CONTENT IS STILL IN FLIGHT (Seth, v332).
+   *
+   * Opening the placeholder let the coworker start typing into an empty baseline while its real
+   * transcription was still downloading — and then tryDownloadFlextext's own "never clobber work"
+   * guard sees a non-empty doc and DISCARDS the arriving text, permanently. The user cannot know
+   * that; they just typed into what looked like their text.
+   *
+   * So: fetch FIRST, open second. The flextext is a few KB and lands almost instantly, which is
+   * also why it is fetched BEFORE the audio (Seth) — audio is the slow half, and waiting for it
+   * would block the editor for minutes. Audio keeps streaming in behind the open editor exactly as
+   * before; only the TEXT gates the door. A failure leaves the text unopened with the reason
+   * shown, rather than opening an empty editor that quietly eats the assignment. */
+  if (rec.pendingFlextext) {
+    toast(t('task.ftRetrying'), 4000);
+    let got = false;
+    try { got = await tryDownloadFlextext(rec); } catch { /* reported below */ }
+    if (!got) { toast(t('task.ftStillPending'), 9000); renderDocList(); return; }
+    rec = (await db.getDoc(id)) || rec;   // re-read: the download rewrote the record
+  }
   current = rec;
   resetUndo();
   enterEditor('baseline');
-  /* v326 (the Sentani "0 sentences" report): a pending assigned flextext used to retry ONLY on
-   * app start / back-online — keep the app open across one glitchy task-time fetch and the
-   * placeholder stayed empty forever, with the audio arriving and nothing saying why. OPENING the
-   * doc is the moment the user is looking at it: retry NOW, tell them when it is still coming,
-   * and only then decide about the matching step (which needs the text to exist). */
-  if (rec.pendingFlextext) {
-    toast(t('task.ftRetrying'), 4000);
-    tryDownloadFlextext(rec).then((got) => {
-      if (!got && current && current.id === rec.id && current.pendingFlextext) toast(t('task.ftStillPending'), 8000);
-    }).catch(() => {});
-  }
 }
 
 function docStats(doc) {
@@ -2858,6 +2877,7 @@ function renderSegment(seg, segnum, vernFont, analFont) {
       link.addEventListener('click', () => {
         const a = seg.words[i], b = seg.words[i + 1];
         if (!confirm(t('gloss.confirmMerge', { a: a.txt, b: b.txt }))) return;
+        captureUndo();          // v332: chaining words is undoable like every other structural edit
         mergeWords(seg, i);
         schedulePersist();
         renderGloss();
@@ -2936,6 +2956,7 @@ function renderWordCell(seg, w, i, vernFont, analFont) {
     un.title = t('gloss.breakTitle');
     un.textContent = t('gloss.breakLabel');
     un.addEventListener('click', () => {
+      captureUndo();          // v332: unchaining too
       breakPhrase(seg, i);
       schedulePersist();
       renderGloss();
@@ -3002,10 +3023,7 @@ function applyAllowedButtons() {
   set('#btn-new-audio', 'audio');
   set('#btn-record', 'record');
   set('#btn-import', 'open');
-  /* ⚠ The pair importer follows the 'open' permission — it IS "open a .flextext", with the
-   * recording attached in the same step. Giving it a key of its own would silently appear on
-   * every already-configured device whose researcher had deliberately hidden file opening. */
-  set('#btn-new-pair', 'open');
+  set('#btn-new-pair', 'pair');
 }
 
 // Whether a text/recording should be deleted from THIS device once it has
@@ -6406,7 +6424,9 @@ function wirePlaybackKeys() {
     if (lastPlayTarget && typeof lastPlayTarget.start === 'number') {
       const at = player.playheadMs?.();
       const inside = typeof at === 'number' && at > lastPlayTarget.start && at < lastPlayTarget.end - 150;
-      player.playSpan(inside ? at : lastPlayTarget.start, lastPlayTarget.end);   // resume-in-span, like the buttons
+      // resume-in-span, like the buttons — but rewinding to the SEGMENT's start when it finishes
+      // (v332), so replaying after a mid-segment click starts from the top of the segment.
+      player.playSpan(inside ? at : lastPlayTarget.start, lastPlayTarget.end, lastPlayTarget.start);
     } else { player.clearSpan(); player.ws?.playPause?.(); }
   }, true);
   const dock = $('#audio-player');

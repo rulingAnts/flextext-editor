@@ -337,7 +337,7 @@ const REC_KEYS = Object.keys(REC_FORMATS);
 const AGC_OPTS = ['off', 'on', 'auto'];
 const CONSENT_MODES = ['off', 'text', 'audio'];
 const CONSENT_RESP = ['yesno', 'record', 'signature'];
-const BTN_OPTS = ['new', 'audio', 'record', 'open'];
+const BTN_OPTS = ['new', 'audio', 'record', 'open', 'pair'];   // 'pair' = text+recording together (v332)
 /* ⚠ NO 'download': it and 'save' were two checkboxes for one capability (picker where the browser
  * has one, plain download where it does not). See allowedSend() in app.js — the old value is still
  * read so devices set up before v297 keep working, but it is never offered or written again. */

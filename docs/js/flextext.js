@@ -281,9 +281,20 @@ function parsePhrase(phEl, doc, prefs = {}) {
   const txtEl = pickByLang(
     kids.filter((c, i) => c.tagName === 'item' && c.getAttribute('type') === 'txt' && (wordsIdx < 0 || i < wordsIdx)),
     prefs.vernLang);
-  const freeEl = pickByLang(
-    kids.filter((c, i) => c.tagName === 'item' && c.getAttribute('type') === 'gls' && wordsIdx >= 0 && i > wordsIdx),
-    prefs.analLang);
+  /* ⚠ THE FREE TRANSLATION MAY SIT EITHER SIDE OF <words> (v332, Seth's field file).
+   *
+   * This used to require `wordsIdx >= 0 && i > wordsIdx` — a phrase-level gls AFTER the words. Real
+   * FLEx exports also write it BEFORE (`<item type="txt">`, `<item type="gls">`, then `<words>`),
+   * and such a file imported with EVERY free translation silently empty: the item fell through to
+   * preItemsXML, so it round-tripped back out intact and nothing looked lost until a human read the
+   * screen. Not a segmentation-mode bug and not new — any import of that layout was affected.
+   *
+   * After-words still WINS when both exist (that is the position this app writes, so a re-import of
+   * our own export keeps reading its own line). Word-level gls cannot be caught here: `kids` is the
+   * phrase's DIRECT children, and word glosses live inside <word>. */
+  const glsKids = kids.filter((c) => c.tagName === 'item' && c.getAttribute('type') === 'gls');
+  const afterWords = glsKids.filter((c) => wordsIdx >= 0 && kids.indexOf(c) > wordsIdx);
+  const freeEl = pickByLang(afterWords.length ? afterWords : glsKids, prefs.analLang);
 
   let seenWords = false;
   for (const child of kids) {

@@ -725,9 +725,25 @@ export class Player {
         : this.labels.error;
       this.el.status.hidden = false;
     });
-    this.ws.on('play', () => { this.el.play.textContent = '⏸'; });
+    this.ws.on('play', () => { this.el.play.textContent = '⏸'; this._rewound = false; });
     this.ws.on('pause', () => { this.el.play.textContent = '▶'; });
-    this.ws.on('finish', () => { this.el.play.textContent = '▶'; });
+    /* v332 (Seth): reaching the END rewinds to the START of whatever was playing — the span's own
+     * start for a segment, 0 for the whole file. A playhead left parked at the end made the next
+     * Space resume from the last CLICKED position instead of replaying from the top, and pressing
+     * play at the very end reads as "nothing happened". `_spanHome` (not the resume position) is
+     * the target, so "click halfway, play to the end, play again" replays the whole segment.
+     *
+     * ⚠ A span ending exactly at the file's end reaches BOTH: wavesurfer emits a final
+     * timeupdate(duration) and THEN 'finish', so the span watcher has already rewound to the
+     * segment by the time this runs — and clearSpan has dropped `_spanHome`, so recomputing here
+     * would slam the playhead to 0. `_rewound` (reset on every 'play') says "already handled". */
+    this.ws.on('finish', () => {
+      this.el.play.textContent = '▶';
+      if (this._rewound) return;
+      const home = this._spanHome;
+      this.clearSpan();
+      try { this.ws.setTime(Number.isFinite(home) ? home : 0); } catch { /* not ready */ }
+    });
     this.ws.on('timeupdate', () => this.updateTime());
   }
 
@@ -801,11 +817,17 @@ export class Player {
     this.clearSpan();
   }
 
-  playSpan(startMs, endMs) {
+  /* homeMs (v332) is where the span REWINDS to when it finishes, which is not always where it
+   * starts playing: "resume from the parked playhead" calls this with startMs = the click position
+   * but the segment's real start as home, so finishing the segment rewinds to the segment, not to
+   * the click. Omit it and home == start (the old behaviour). */
+  playSpan(startMs, endMs, homeMs) {
     if (!this.ws || !Number.isFinite(startMs)) return;
     this.clearSpan();
     const start = Math.max(0, startMs / 1000);
     const end = Number.isFinite(endMs) && endMs > startMs ? endMs / 1000 : null;
+    const home = Number.isFinite(homeMs) ? Math.max(0, homeMs / 1000) : start;
+    this._spanHome = home;
 
     try { this.ws.setTime(start); } catch { /* seek unsupported/not ready */ }
 
@@ -821,8 +843,10 @@ export class Player {
           try { this.ws.pause(); } catch { /* noop */ }
           /* v326 (Seth): a finished SPAN rewinds to ITS OWN start — a playhead parked on the
            * boundary reads as "on the next segment", and the natural next action is "play this
-           * line again". Whole-file playback (no span) keeps its run-on behaviour. */
-          try { this.ws.setTime(start); } catch { /* noop */ }
+           * line again". v332: to `home`, not to `start` — see the homeMs note above. */
+          try { this.ws.setTime(home); } catch { /* noop */ }
+          this._rewound = true;      // tells the 'finish' handler this run is already parked
+
           this.clearSpan();
         }
       };
@@ -844,6 +868,7 @@ export class Player {
     }
     this._spanTick = null;
     this._spanOff = null;
+    this._spanHome = null;   // v332: back to whole-file semantics — the end rewinds to 0
   }
 
   destroyWs() {

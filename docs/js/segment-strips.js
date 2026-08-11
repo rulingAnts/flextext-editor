@@ -223,7 +223,7 @@ export function renderStrips() {
       // position the user just chose. Restart from the top only when the playhead is outside the
       // segment or has effectively reached its end (within 150ms — "finished" for human purposes).
       const from = (typeof t === 'number' && t > seg.start && t < seg.end - 150) ? t : seg.start;
-      p.playSpan(from, seg.end);
+      p.playSpan(from, seg.end, seg.start);   // v332: finishing rewinds to the SEGMENT, not to `from`
     });
 
     const wave = document.createElement('canvas');
@@ -500,7 +500,7 @@ export function wireSegPlay(btn, seg, getPlayer, onTarget) {
     const t = p.playheadMs?.();
     if (p.playing?.() && typeof t === 'number' && t >= seg.start && t < seg.end) { p.pause(); return; }
     const from = (typeof t === 'number' && t > seg.start && t < seg.end - 150) ? t : seg.start;
-    p.playSpan(from, seg.end);
+    p.playSpan(from, seg.end, seg.start);   // v332: finishing rewinds to the SEGMENT, not to `from`
   });
 }
 

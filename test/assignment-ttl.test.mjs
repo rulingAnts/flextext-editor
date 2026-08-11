@@ -125,7 +125,23 @@ globalThis.fetch = async (input, init = {}) => {
     log.created.push(meta);
     return jr({ id: 'folder-' + meta.name });
   }
-  if (method === 'GET' && u.includes('/drive/v3/files?')) return jr({ files: [] });   // searches miss
+  if (method === 'GET' && u.includes('/drive/v3/files?')) {
+    // The listing fixture: docId 'doc-list' owns a text folder holding an assignment/ child, a
+    // bundle and a bare flextext; the child holds the delivered audio + flextext. Every other
+    // search misses (the begin/start flows above create fresh folders).
+    const q = decodeURIComponent(u.split('q=')[1] || '');
+    if (q.includes("value='doc-list'")) return jr({ files: [{ id: 'tf-list' }] });
+    if (q.includes("'tf-list' in parents")) return jr({ files: [
+      { id: 'sub1', name: 'assignment', mimeType: 'application/vnd.google-apps.folder', modifiedTime: '2026-08-01T00:00:00Z', appProperties: { flextextRole: 'assignment' } },
+      { id: 'f1', name: 'kisah 2026-08-10.zip', mimeType: 'application/zip', size: '10', modifiedTime: '2026-08-10T00:00:00Z' },
+      { id: 'f2', name: 'kisah.flextext', mimeType: 'application/xml', size: '5', modifiedTime: '2026-08-08T00:00:00Z' },
+    ] });
+    if (q.includes("'sub1' in parents")) return jr({ files: [
+      { id: 'a1', name: 'story.mp3', mimeType: 'audio/mpeg', size: '99', modifiedTime: '2026-08-09T00:00:00Z', appProperties: { flextextRole: 'assigned-audio' } },
+      { id: 'x1', name: 'kisah.flextext', mimeType: 'application/xml', size: '7', modifiedTime: '2026-08-11T00:00:00Z', appProperties: { flextextRole: 'assigned-flextext' } },
+    ] });
+    return jr({ files: [] });
+  }
   throw new Error('unexpected fetch: ' + method + ' ' + u);
 };
 
@@ -230,6 +246,18 @@ console.log('\nfinish: clamped TTL is IN the minted token; textfile streams it b
   const stale = await encAtRest(JSON.stringify({ r: 'r1', f: audioFileId, x: '', e: Date.now() - 1000 }));
   const dead = await call('/v1/textfile/' + encodeURIComponent(stale));
   ok(dead.status === 401 && (await dead.json()).error === 'bad_token', 'expired token -> 401 bad_token');
+}
+
+console.log('\nfiles listing (STAGING-FIRST change): folders filtered, assignment/ merged, newest-first');
+{
+  const r = await call('/v1/instances/i1/texts/doc-list/files', { headers: AUTH });
+  const b = await r.json();
+  ok(r.status === 200, 'listing succeeds');
+  ok(b.folderId === 'tf-list' && b.assignmentFolderId === 'sub1', 'text folder + assignment child both reported');
+  ok(!b.files.some((f) => (f.mime || '').includes('folder')), 'folder rows are NEVER listed as files');
+  ok(b.files.map((f) => f.id).join() === 'x1,f1,a1,f2', `newest-first ACROSS the merge (got ${b.files.map((f) => f.id).join()})`);
+  ok(b.files.find((f) => f.id === 'x1').role === 'assigned-flextext'
+     && b.files.find((f) => f.id === 'a1').role === 'assigned-audio', 'each merged file keeps its role tag');
 }
 
 console.log(fail ? `\nFAILED (${fail})` : '\nPASS');

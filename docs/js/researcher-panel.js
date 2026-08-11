@@ -16,12 +16,13 @@ import * as Researcher from './researcher.js';
 import { t, getLang, setLang, applyI18n, ENGINE_VERSION, LANGS, LANG_NAMES } from './i18n.js';
 import { REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { importPublicKeyB64, publicKeyFingerprint } from './crypto.js';
-import { esc, parseFlextext, surveyWritingSystems, remapWritingSystems, analyzeFlextextWs } from './flextext.js';
+import { esc, parseFlextext, surveyWritingSystems, remapWritingSystems, analyzeFlextextWs, segmentsFromOffsets } from './flextext.js';
+import { assembleSegEntries } from './seg-exports.js';
 import { convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
 import WaveSurfer from './vendor/wavesurfer.esm.js';
 import * as db from './db.js';
 import { observeView, recordEvents, loadHistory, clearHistory, assignedEvent, driveLink, driveIdFrom, recordingSince, HISTORY_KINDS } from './history.js';
-import { makeZip } from './zip.js';
+import { makeZip, unzipStoreEntry } from './zip.js';
 import { resolveArtifacts, emptyReason } from './artifacts.js';
 
 // Byte-size formatter for assign-validation verdicts (mirrors app.js sizeFmt; that one is not exported).
@@ -1164,23 +1165,13 @@ function openDlMenu(wrap) {
  *  before it was really working. For now let's hide that drop-down and let researchers go to Google
  *  Drive directly until I have time to really develop that feature."
  *
- * The menu mixes rows with genuinely different reliability and does not distinguish them for the
- * person clicking: folder-listing rows fetch through the WORKER on the researcher's stored token
- * and work; the resolveArtifacts rows are plain Drive hrefs authenticated by whatever Google
- * session the browser happens to hold, and are dead when it holds the wrong one. On top of that,
- * the legacy `bundle` row was an INFERENCE that promised a zip and served XML (parked in v316).
- * Half of it works, which is worse than none of it working, because there is no way to tell from
- * the menu which half you are clicking.
- *
- * ⚠ HIDDEN, NOT DELETED — every function below stays live and tested so this is one flag to
- * restore. Do not "clean up" the unreachable code; it is the feature being deferred, not removed.
- * ⚠ The History rows below RESTORE their plain audio/upload links when this is false. They were
- * suppressed only because the menu superseded them, so hiding the menu without that would take a
- * working link away too — see the call site. What it does NOT restore is per-file download from a
- * text's Drive folder: that is deliberate, and the researcher opens Drive themselves meanwhile.
- *
- * Picking this back up: plans/BACKLOG.md, "the Files drop-down". */
-const FILES_MENU_ENABLED = false;
+ * RESTORED by assign-by-upload (2026-08-11): the menu is now the fixed six-item Downloads list —
+ * original audio (byte-faithful), most recent flextext, on-click ELAN/SayMore zips, the preview
+ * page and the .fxpa, every one either Worker-routed by file id or CONVERTED CLIENT-SIDE from
+ * bytes fetched the same way. The unreliable half that got the menu parked in v316 (plain Drive
+ * hrefs, the inferred-bundle row) stays retired: inferred artifacts are still skipped, and href
+ * rows survive only for external (non-Drive) hosts the Worker cannot fetch. */
+const FILES_MENU_ENABLED = true;
 
 /* The Files ▾ control, renderable ANYWHERE a text appears (device rows, History entries). The menu
  * body is a placeholder that populates from the text's Drive FOLDER on first open — the folder is
@@ -1211,6 +1202,8 @@ function latestPerKind(files) {
   const seen = new Set(); const out = [];
   for (const f of files || []) {
     const kind = f.role === 'assigned-audio' ? 'audio-original'
+      : f.role === 'assigned-flextext' ? 'flextext-assigned'
+      : f.role === 'consent-prompt' ? 'consent-prompt'
       : (EXT_KIND.find(([re]) => re.test(f.name || '')) || [null, 'other'])[1];
     const key = kind === 'other' ? 'other:' + f.name : kind;   // unknown kinds keep every distinct name
     if (seen.has(key)) continue;
@@ -1260,7 +1253,9 @@ function bridgedIds(docId, title) {
  * "backup copy" however old it is. PURE and lifted by test/text-folder-files.test.mjs. */
 function cleanupCandidates(allFiles) {
   const keep = new Set(latestPerKind(allFiles).map((f) => f.id));
-  return (allFiles || []).filter((f) => !keep.has(f.id) && f.role !== 'assigned-audio');
+  // Assignment-role files are NEVER backup copies, however old: the assigned audio/flextext are
+  // what the researcher delivered, and the consent prompt is what the speaker was played.
+  return (allFiles || []).filter((f) => !keep.has(f.id) && !/^(assigned-audio|assigned-flextext|consent-prompt)$/.test(f.role || ''));
 }
 
 async function populateFilesMenu(wrap) {
@@ -1281,27 +1276,37 @@ async function populateFilesMenu(wrap) {
   }));
   const allFiles = lists.flat().sort((a, b) => String(b.modified).localeCompare(String(a.modified)));
   wrap._allFiles = allFiles;                 // the entire-folder ZIP wants EVERYTHING, uncollapsed
-  const files = latestPerKind(allFiles);
+  wrap._cache = new Map();                   // per-menu-open byte cache: one fetch per file per open
+  const latest = latestPerKind(allFiles);
+  const byKind = (k) => latest.find((f) => f.kind === k) || null;
 
-  const claimed = new Set(files.map((f) => f.kind));
+  /* THE FIXED SIX-ITEM LIST (assign-by-upload): 1 original audio · 2 most recent flextext ·
+   * 3 ELAN zip · 4 SayMore zip · 5 preview page · 6 .fxpa. Items 3–6 are CLIENT-SIDE CONVERSIONS
+   * built on click from the same two sources — the panel already carries the whole conversion
+   * engine (convert.js) and the same assembleSegEntries the device bundles with, so what the
+   * researcher downloads is what a device upload would have contained. */
+  const original = byKind('audio-original');
+  const deviceAudio = byKind('audio');
+  // Conversions prefer the assigned ORIGINAL; a device recording covers texts recorded in the field.
+  const audioSrc = original || deviceAudio;
+  // Most recent flextext: newest of the assigned copy / a bare uploaded .flextext; a LEGACY text
+  // whose only uploads are bundle zips still has one INSIDE the newest zip (unzipStoreEntry).
+  const ftDirect = [byKind('flextext-assigned'), byKind('flextext')].filter(Boolean)
+    .sort((a, b) => String(b.modified).localeCompare(String(a.modified)))[0] || null;
+  const ftSrc = ftDirect || (byKind('bundle') ? { ...byKind('bundle'), legacyZip: true } : null);
+  wrap._menuSrc = { audio: audioSrc, ft: ftSrc };
+
+  const claimed = new Set();
   const audioRows = [], fileRows = [], tailRows = [];
-  const KIND_LABEL = { 'audio-original': 'panel.dl.audio', 'audio': 'panel.dl.audioUpload',
-    'flextext': 'panel.dl.flextext', 'bundle': 'panel.dl.bundle',
-    'eaf-flex': 'panel.dl.eafFlex', 'eaf-saymore': 'panel.dl.eafSaymore', 'wav-derived': 'panel.dl.wavDerived' };
 
-  // 1. Folder files — the authoritative source for every kind they cover. The original-audio copy
-  //    sorts to the top so the menu always leads with the recording.
-  for (const f of files) {
-    const label = f.kind === 'other' ? f.name : t(KIND_LABEL[f.kind]);
-    const row = `<a class="rp-dl-item" role="menuitem" data-drivefile="${esc(f.id)}" data-fname="${esc(f.name)}" href="#">
-      <span class="rp-dl-name">${esc(label)}</span><span class="rp-dl-sub">${esc(f.name)}${f.size ? ' · ' + esc(fmtSize(f.size)) : ''}</span></a>`;
-    (f.kind === 'audio-original' ? audioRows : fileRows).push(row);
-  }
-
-  // 2. The cached audio link — if and only if the folder holds no copy. Sources in order: this
-  //    row's own event (data-audio; a history entry recorded before the assigned-events cache
-  //    existed still knows its audio), then the cache.
-  if (!claimed.has('audio-original')) {
+  // 1. ORIGINAL AUDIO — byte-faithful, exact format as uploaded (locked decision 6), through the
+  //    Worker by id. Falls back to the cached assignment link only when the folder holds no copy
+  //    (pre-upload legacy assignments — their audio was never in the researcher's Drive).
+  if (original) {
+    claimed.add('audio-original');
+    audioRows.push(`<a class="rp-dl-item" role="menuitem" data-drivefile="${esc(original.id)}" data-fname="${esc(original.name)}" href="#">
+      <span class="rp-dl-name">${esc(t('panel.dl.audio'))}</span><span class="rp-dl-sub">${esc(original.name)}${original.size ? ' · ' + esc(fmtSize(original.size)) : ''}</span></a>`);
+  } else {
     const cached = wrap.dataset.audio || (assigned && assigned.audioUrl) || bridge.audioUrl || '';
     if (/^https?:\/\//i.test(cached)) {
       claimed.add('audio-original');
@@ -1309,6 +1314,36 @@ async function populateFilesMenu(wrap) {
       audioRows.push(`<a class="rp-dl-item" role="menuitem" href="${esc(gid ? driveLink(gid) : cached)}" target="_blank" rel="noopener noreferrer">
         <span class="rp-dl-name">${esc(t('panel.dl.audio'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.audioSub'))}</span></a>`);
     }
+  }
+  // A device-recorded take listed beside (never instead of) the original — same rule as before.
+  if (deviceAudio) {
+    claimed.add('audio');
+    fileRows.push(`<a class="rp-dl-item" role="menuitem" data-drivefile="${esc(deviceAudio.id)}" data-fname="${esc(deviceAudio.name)}" href="#">
+      <span class="rp-dl-name">${esc(t('panel.dl.audioUpload'))}</span><span class="rp-dl-sub">${esc(deviceAudio.name)}${deviceAudio.size ? ' · ' + esc(fmtSize(deviceAudio.size)) : ''}</span></a>`);
+  }
+
+  // 2. MOST RECENT FLEXTEXT — direct file by id, or extracted from the newest legacy bundle.
+  if (ftSrc) {
+    claimed.add('flextext'); claimed.add('flextext-assigned');
+    if (ftSrc.legacyZip) claimed.add('bundle');
+    fileRows.push(ftSrc.legacyZip
+      ? `<a class="rp-dl-item" role="menuitem" data-conv="flextext" href="#">
+      <span class="rp-dl-name">${esc(t('panel.dl.flextext'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.fromBundle', { name: ftSrc.name }))}</span></a>`
+      : `<a class="rp-dl-item" role="menuitem" data-drivefile="${esc(ftSrc.id)}" data-fname="${esc(ftSrc.name)}" href="#">
+      <span class="rp-dl-name">${esc(t('panel.dl.flextext'))}</span><span class="rp-dl-sub">${esc(ftSrc.name)}${ftSrc.size ? ' · ' + esc(fmtSize(ftSrc.size)) : ''}</span></a>`);
+  }
+
+  // 3–6. On-click conversions: ELAN/SayMore/preview need the audio too; the .fxpa is first-class
+  //      text-only (an unaligned text still groups in the Paragraph Analysis app).
+  if (ftSrc) {
+    const conv = (kind, labelKey) => `<a class="rp-dl-item" role="menuitem" data-conv="${kind}" href="#">
+      <span class="rp-dl-name">${esc(t('panel.dl.' + labelKey))}</span><span class="rp-dl-sub">${esc(t('panel.dl.' + labelKey + 'Sub'))}</span></a>`;
+    if (audioSrc) {
+      fileRows.push(conv('elan', 'elanZip'));
+      fileRows.push(conv('saymore', 'saymoreZip'));
+      fileRows.push(conv('preview', 'preview'));
+    }
+    fileRows.push(conv('fxpa', 'fxpa'));
   }
 
   // 3. Report artifacts (uploadedFileId et al) fill any kind nothing above claimed — this is what
@@ -1381,6 +1416,111 @@ async function populateFilesMenu(wrap) {
   const rows = [...audioRows, ...fileRows, ...tailRows];
   menu.innerHTML = `<span class="rp-dl-head">${esc(t('panel.dl.title'))}</span>`
     + (rows.length ? rows.join('') : `<span class="note rp-dl-loading">${esc(t('panel.dl.noneYet'))}</span>`);
+}
+
+/* ---------------- Downloads-menu client-side conversions (assign-by-upload) ---------------- */
+
+function saveBlobAs(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+}
+
+// Per-menu-open byte cache: converting to ELAN then SayMore fetches the audio ONCE. The cache dies
+// with the menu (wrap._cache resets on repopulate), so a re-opened menu sees fresh Drive truth.
+async function menuFetch(wrap, fileId) {
+  if (!wrap._cache) wrap._cache = new Map();
+  if (!wrap._cache.has(fileId)) wrap._cache.set(fileId, await Researcher.fetchDriveFile(fileId));
+  return wrap._cache.get(fileId);
+}
+
+// The menu's flextext TEXT, from whichever source item 2 resolved: a direct file, or the .flextext
+// entry inside the newest legacy bundle (zip.js unzipStoreEntry — STORE-only zips this suite wrote).
+async function menuFlextextText(wrap) {
+  const src = wrap._menuSrc && wrap._menuSrc.ft;
+  if (!src) return null;
+  const blob = await menuFetch(wrap, src.id);
+  if (!src.legacyZip) return blob.text();
+  const xml = unzipStoreEntry(new Uint8Array(await blob.arrayBuffer()), /\.flextext$/i);
+  return xml ? new TextDecoder().decode(xml) : null;
+}
+
+/* ONE conversion at a time, on-click only. Decoding + base64-embedding a huge recording is the
+ * panel's one real memory hazard (spec risk #1) — refuse above a ~200 MB decoded estimate and
+ * point at the byte-faithful original instead. */
+let convBusy = false;
+const CONV_DECODED_MAX = 200 * 1024 * 1024;
+
+async function runMenuConversion(wrap, kind, itemEl) {
+  if (convBusy) { deps.toast(t('panel.dl.oneAtATime'), 4000); return; }
+  convBusy = true;
+  const sub = itemEl && itemEl.querySelector('.rp-dl-sub');
+  const subWas = sub ? sub.textContent : '';
+  const paint = (msg) => { if (sub) sub.textContent = msg; };
+  try {
+    const title = wrap.dataset.title || 'text';
+    const base = title.replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80) || 'text';
+    paint(t('panel.dl.working'));
+    const xml = await menuFlextextText(wrap);
+    if (!xml) { deps.toast(t('panel.dl.zipFailed'), 5000); return; }
+    if (kind === 'flextext') { saveBlobAs(new Blob([xml], { type: 'application/xml' }), base + '.flextext'); return; }
+    const parsed = parseFlextext(xml);
+    if (parsed.error || !parsed.texts.length) { deps.toast(t('task.ftParseFailed', { msg: parsed.error || t('task.ftNone') }), 6000); return; }
+    // The same derivation the paragraph app does on a dropped flextext (paragraph-ui precedent):
+    // spans from the file's own begin/end-time-offset attributes; none -> a text-only document.
+    const doc = parsed.texts[0];
+    doc.segments = segmentsFromOffsets(doc) || [];
+    const aligned = doc.segments.some((s) => typeof s.start === 'number' && !s.timePending);
+    if (!aligned && kind !== 'fxpa') { deps.toast(t('panel.dl.noAlign'), 7000); return; }
+    // vern/anal from the instance's pushed settings, falling back to the parsed doc's own codes.
+    const codes = (await Researcher.getInstanceSettings(wrap.dataset.i).catch(() => null)) || {};
+    const vern = codes.vernLang || doc.vernLang || 'und';
+    const anal = codes.analLang || doc.analLang || 'en';
+    let media = null, segMedia = null;
+    const af = wrap._menuSrc && wrap._menuSrc.audio;
+    if (af && aligned) {
+      const isWav = /\.wav$/i.test(af.name || '') || /\bwav\b/i.test(af.mime || '');
+      // Lossy decodes to raw PCM at roughly 10x its compressed size before it can be embedded.
+      const est = isWav ? (af.size || 0) : (af.size || 0) * 10;
+      if (est > CONV_DECODED_MAX) { deps.toast(t('panel.dl.tooBigConvert'), 8000); return; }
+      const blob = await menuFetch(wrap, af.id);
+      media = { name: af.name || 'audio', mimeType: af.mime || blob.type || 'audio/*', blob };
+      if (isWav) segMedia = media;
+      else {
+        // Same reason the editor works on a WAV copy: AAC priming makes decode and playback
+        // disagree; ELAN/SayMore get exact alignment against PCM. Same honest name, too.
+        const res = await convertAudio(await blob.arrayBuffer(), { format: 'wav', wavBits: 16 },
+          (f) => paint(t('convert.working', { pct: Math.round(f * 100) })));
+        segMedia = { name: (af.name || 'audio').replace(/\.[^.]+$/, '') + '.converted-NOT-ARCHIVAL.wav',
+          mimeType: 'audio/wav', blob: res.blob, derived: true, srcName: af.name || '' };
+      }
+    }
+    if (kind !== 'fxpa' && !segMedia) { deps.toast(t('panel.dl.noAlign'), 7000); return; }
+    paint(t('panel.dl.working'));
+    const wants = { elan: { eaf: true }, saymore: { saymore: true }, preview: { preview: true }, fxpa: { fxpa: true } }[kind];
+    if (!wants) return;
+    // full: preview + fxpa are the embedded-audio outputs (the same full-bundle-only rule the
+    // device applies); the ELAN/SayMore zips match what an upload bundle carries.
+    const entries = await assembleSegEntries({ doc, title, base, media, segMedia, wants, vern, anal,
+      full: kind === 'preview' || kind === 'fxpa' });
+    if (kind === 'elan' || kind === 'saymore') {
+      // The EAF references the WAV by name; a source that was ALREADY WAV is not "derived", so
+      // assembleSegEntries did not bundle it — it still has to ride the zip.
+      if (segMedia && !entries.some((x) => x.name === segMedia.name)) entries.push({ name: segMedia.name, data: segMedia.blob });
+      saveBlobAs(await makeZip(entries), `${base} ${kind === 'elan' ? 'ELAN' : 'SayMore'}.zip`);
+    } else {
+      const one = entries.find((x) => (kind === 'preview' ? /\.preview\.html$/i : /\.fxpa$/i).test(x.name));
+      if (!one) { deps.toast(t('panel.dl.zipFailed'), 5000); return; }
+      saveBlobAs(one.data, one.name);
+    }
+  } catch (e) {
+    console.warn('[flextext] downloads-menu conversion failed:', e);
+    deps.toast(t('panel.dl.zipFailed'), 5000);
+  } finally {
+    convBusy = false;
+    paint(subWas);
+  }
 }
 
 // The current inventory item for a doc, for the static fallback path.
@@ -1502,6 +1642,13 @@ function wireDownloadMenus(scope) {
             deps.toast(t('panel.hist.folderRemoved', { n: r.trashed }), 6000);
           } catch { deps.toast(t('panel.dl.zipFailed'), 5000); }
         })();
+        return;
+      }
+      const cv = e.target.closest && e.target.closest('[data-conv]');
+      if (cv) {
+        e.preventDefault(); e.stopPropagation();
+        const wrap2 = cv.closest('[data-fmenu]');
+        if (wrap2) runMenuConversion(wrap2, cv.dataset.conv, cv);
         return;
       }
       const df = e.target.closest && e.target.closest('[data-drivefile]');

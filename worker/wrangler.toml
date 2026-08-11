@@ -160,3 +160,7 @@ head_sampling_rate = 1
 ALLOWED_ORIGINS = "https://localhost,https://staging-flextext-editor.68mh29kgsd.workers.dev,https://staging-flextext-recorder.68mh29kgsd.workers.dev,https://staging-flextext-researcher.68mh29kgsd.workers.dev,https://staging-flextext-crowd.68mh29kgsd.workers.dev,https://staging-paragraph-analysis-tool.68mh29kgsd.workers.dev"
 MAX_FILE_BYTES  = "536870912"
 MAX_TOTAL_BYTES = "9500000000"
+# Tiny buffer ceiling ON STAGING ONLY, so ordinary test files exercise the big-file TEE cache path
+# (production keeps the 24 MB default and hits the tee path only on genuinely big audio). If a
+# tee-path bug exists, staging finds it with a 3 MB file instead of a field user with a 50 MB WAV.
+DRIVE_CACHE_MAX_BYTES = "2097152"

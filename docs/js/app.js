@@ -480,8 +480,12 @@ async function newDocFromPair(files) {
   const textFile = list.find(isText);
   const audioFile = list.find((f) => !isText(f));
   if (!textFile || !audioFile) { toast(t('toast.pairNeedsBoth'), 7000); return; }
-  await importFile(textFile);           // opens the imported text (single-text file) → `current`
-  if (!current) return;                 // multi-text file or a parse failure: importFile said why
+  /* ⚠ Attach ONLY to a text this call actually opened. importFile leaves `current` untouched when
+   * the file holds SEVERAL texts (it lists them instead) or fails to parse — so a bare `if
+   * (current)` would happily staple the recording onto whatever doc happened to be open last. */
+  const before = current && current.id;
+  await importFile(textFile);
+  if (!current || (current.id === before)) return;   // nothing new opened: importFile already said why
   await attachAudioFile(audioFile);
   toast(t('toast.pairOpened', { text: textFile.name, audio: audioFile.name }), 6000);
 }

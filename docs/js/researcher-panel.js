@@ -16,8 +16,7 @@ import * as Researcher from './researcher.js';
 import { t, getLang, setLang, applyI18n, ENGINE_VERSION, LANGS, LANG_NAMES } from './i18n.js';
 import { REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { importPublicKeyB64, publicKeyFingerprint } from './crypto.js';
-import { esc, parseFlextext, surveyWritingSystems, remapWritingSystems } from './flextext.js';
-import { probeAudioUrl, fetchFileViaUrl } from './audio.js';
+import { esc, parseFlextext, surveyWritingSystems, remapWritingSystems, analyzeFlextextWs } from './flextext.js';
 import { convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
 import WaveSurfer from './vendor/wavesurfer.esm.js';
 import * as db from './db.js';
@@ -28,16 +27,38 @@ import { resolveArtifacts, emptyReason } from './artifacts.js';
 // Byte-size formatter for assign-validation verdicts (mirrors app.js sizeFmt; that one is not exported).
 const fmtSize = (b) => (b < 1048576 ? Math.max(1, Math.round(b / 1024)) + ' KB' : (b / 1048576).toFixed(1) + ' MB');
 
-/* WHICH failure the link check hit, in the researcher's words.
- *
- * ⚠ These three are INDISTINGUISHABLE to the browser — a cross-origin refusal, a dead host and our
- * own 20s abort all surface as a bare TypeError with no status and no body. The confirm used to
- * name only the first ("the host blocked the check") for all three, so a TIMEOUT read as a CORS
- * problem and sent Seth looking at worker configuration for a slow download (2026-08-11). Say what
- * we can actually tell apart, and put the raw error in the console for the rest. */
-function softWhy(err) {
-  console.warn('[flextext] assignment link check failed:', err);
-  return /timed out/i.test(err.message || '') ? t('panel.assign.whyTimeout') : t('panel.assign.whyBlocked');
+/* Local verdict on a PICKED audio file (assign-by-upload — the whole probe/soft-CORS confirm
+ * ladder is gone with pasted URLs; a file in hand is checked from its own bytes, offline,
+ * deterministically). Mirrors what the device's probe used to block: AIFF (browsers can't play
+ * it), oversize, and obvious non-audio. `buf` is a header slice — detectFormat reads magic bytes
+ * only. PURE; lifted by test/assign-modal-verdicts.test.mjs. */
+const ASSIGN_AUDIO_MAX = 512 * 1024 * 1024;   // the old probe's PROBE_MAX (audio.js) — same ceiling
+function assignAudioVerdict({ buf, name, size }) {
+  const fmt = detectFormat(buf);
+  if (fmt === 'aiff') return { ok: false, code: 'aiff' };
+  if (size > ASSIGN_AUDIO_MAX) return { ok: false, code: 'big', mb: Math.round(size / 1048576) };
+  const extAudio = /\.(wav|mp3|m4a|aac|ogg|oga|opus|webm|flac|3gp|amr)$/i.test(name || '');
+  if (!fmt && !extAudio) return { ok: false, code: 'notAudio' };
+  return { ok: true, fmt: fmt || '' };
+}
+
+/* WS mismatch at assign time (locked decision 5): compare the picked flextext's surveyed codes
+ * against the instance's last-pushed vern/anal settings. Returns null when they match — or when
+ * there is nothing to compare (no snapshot pushed yet, unreadable file): a missing check must be
+ * SILENT, not a false alarm. Else the two sides, for the explicit Send-anyway/Cancel dialog —
+ * never remap, never hard-block. PURE; lifted by test/assign-modal-verdicts.test.mjs. */
+function wsAssignMismatch(analysis, instanceCodes) {
+  if (!analysis || analysis.error || !instanceCodes) return null;
+  const vern = String(instanceCodes.vernLang || '').trim();
+  const anal = String(instanceCodes.analLang || '').trim();
+  if (!vern && !anal) return null;
+  const misVern = !!vern && analysis.vernCodes.length > 0 && !analysis.vernCodes.includes(vern);
+  const misAnal = !!anal && analysis.analCodes.length > 0 && !analysis.analCodes.includes(anal);
+  if (!misVern && !misAnal) return null;
+  return {
+    fileVern: analysis.vernCodes.join(', ') || '?', fileAnal: analysis.analCodes.join(', ') || '?',
+    setupVern: vern || '?', setupAnal: anal || '?',
+  };
 }
 
 let deps = null;
@@ -465,7 +486,7 @@ export function initResearcherPanel(d) {
   document.addEventListener('visibilitychange', () => { if (!document.hidden && dashPoll) { refreshLiveVersions(); pollDashboard(); } });
   // Regained connectivity → recover immediately instead of waiting for the next timer: refresh the
   // dashboard if it's up, otherwise re-attempt sign-in/bootstrap (drives the reconnecting screen).
-  window.addEventListener('online', () => { if (!root || root.hidden) return; if (dashPoll) { refreshLiveVersions(); pollDashboard(); } else route(); });
+  window.addEventListener('online', () => { if (!root || root.hidden) return; sweepAssignUploads(); if (dashPoll) { refreshLiveVersions(); pollDashboard(); } else route(); });
   /* CONSOLE ENTRY POINT — `fxDevices()`. Prints what the panel ACTUALLY received for each device,
    * so "why is/isn't this flagged?" is answered with data instead of a theory. Added after two wrong
    * guesses about the estate badge (Seth, 2026-08-05): the client code and the worker SQL both
@@ -1040,6 +1061,7 @@ async function renderDashboard(prefetched) {
       <button class="link-btn" data-act="utilities">${esc(t('panel.util.btn'))}</button>
       <button class="link-btn" data-act="account">${esc(t('panel.dash.account'))}</button>
     </div>
+    <div id="rp-aq"></div>
     ${(data.isOwner && (data.pending || []).length) ? `
     <div class="rp-card rp-pending-res">
       <div class="rp-inst-name">${esc(t('panel.pending.title', { n: data.pending.length }))}</div>
@@ -1083,6 +1105,11 @@ async function renderDashboard(prefetched) {
   root.querySelectorAll('[data-cact]').forEach((el) => el.addEventListener('click', () => crowdAction(el)));
   lastSig = viewSig(data);
   startDashPoll();
+  // Queued assignment uploads: paint the card, then resume anything interrupted (panel restart is
+  // one of the two resume points; the 'online' listener is the other). Fire-and-forget — the
+  // dashboard must never block on an upload.
+  paintAssignQueue();
+  sweepAssignUploads();
   // Refresh the LIVE-version tip on a full render (initial load / manual refresh), not on every poll tick.
   if (!prefetched) refreshLiveVersions();
 }
@@ -1926,13 +1953,20 @@ async function inviteModal(instanceId) {
   } catch (e) { m.close(); errToast(e); }
 }
 
+/* The assign modal (assign-by-upload, 2026-08-11): the researcher picks the ACTUAL FILES — pasted
+ * URLs are retired entirely, and with them the probe/soft-CORS confirm ladder and the assign-copy
+ * call (the upload IS the copy). Validation is local and deterministic: the audio verdict reads
+ * the file's own bytes, the flextext parses in-panel, and a WS mismatch gets the explicit
+ * Send-anyway/Cancel dialog. Send absorbs the files into IndexedDB FIRST (locked decision 8) and
+ * queues a resilient background upload; the assign command goes out only after the upload
+ * finishes, so a dropped connection can never produce a half-assignment. */
 function assignModal(instanceId) {
   const m = modal(`
     <h3>${esc(t('panel.assign.title'))}</h3>
     <p class="note">${esc(t('panel.assign.intro'))}</p>
     <label class="rp-field"><span>${esc(t('panel.assign.titleField'))}</span><input id="rp-as-title" spellcheck="false"></label>
-    <label class="rp-field"><span>${esc(t('panel.assign.audio'))}</span><input id="rp-as-audio" spellcheck="false" placeholder="${esc(t('panel.assign.urlPh'))}"></label>
-    <label class="rp-field"><span>${esc(t('panel.assign.flextext'))}</span><input id="rp-as-ft" spellcheck="false" placeholder="${esc(t('panel.assign.urlPh'))}"></label>
+    <label class="rp-field"><span>${esc(t('panel.assign.audioFile'))}</span><input type="file" id="rp-as-audio" accept="audio/*,.wav,.mp3,.m4a,.aac,.ogg,.oga,.opus,.webm,.flac,.3gp,.amr"></label>
+    <label class="rp-field"><span>${esc(t('panel.assign.flextextFile'))}</span><input type="file" id="rp-as-ft" accept=".flextext,.xml"></label>
     <div class="rp-notice rp-notice-sm" id="rp-as-ft-warn" hidden><b>${esc(t('panel.assign.roundTripTitle'))}</b>${t('panel.assign.roundTripBody')}</div>
     <p class="rp-as-status" id="rp-as-status" role="status" hidden></p>
     <button class="primary-btn" data-m="send">${esc(t('panel.assign.send'))}</button>
@@ -1942,107 +1976,240 @@ function assignModal(instanceId) {
   // file — showing it on an audio-only assignment is noise that trains people to ignore it.
   const ftInput = m.el.querySelector('#rp-as-ft');
   const ftWarn = m.el.querySelector('#rp-as-ft-warn');
-  const syncFtWarn = () => { ftWarn.hidden = !ftInput.value.trim(); };
-  ftInput.addEventListener('input', syncFtWarn);
+  const syncFtWarn = () => { ftWarn.hidden = !(ftInput.files && ftInput.files.length); };
+  ftInput.addEventListener('change', syncFtWarn);
   syncFtWarn();
   const say = (msg, kind) => {
     const s = m.el.querySelector('#rp-as-status');
     s.hidden = false; s.textContent = msg;
     s.className = 'rp-as-status' + (kind ? ' rp-as-' + kind : '');
   };
-  const resolve = (u) => (deps.resolveAudioInput ? deps.resolveAudioInput(u) : u);
   m.el.querySelector('[data-m="send"]').onclick = (e) => busy(e.target, async () => {
     const title = m.el.querySelector('#rp-as-title').value.trim();
-    const audioUrl = m.el.querySelector('#rp-as-audio').value.trim();
-    const flextextUrl = m.el.querySelector('#rp-as-ft').value.trim();
-    // The field only materializes an assign that carries an audio or flextext resource;
-    // a title alone bumps the rev but creates nothing — so require at least one URL.
-    if (!audioUrl && !flextextUrl) return deps.toast(t('panel.assign.needUrl'), 5000);
+    const audioFile = (m.el.querySelector('#rp-as-audio').files || [])[0] || null;
+    const ftFile = (ftInput.files || [])[0] || null;
+    // The device only materializes an assign that carries a resource; a title alone sends nothing.
+    if (!audioFile && !ftFile) { say('⚠ ' + t('panel.assign.needFile'), 'err'); return; }
 
-    // Validate BEFORE sending — the researcher (not the barely-literate field coworker) finds
-    // out about a folder link / AIFF / oversize / unshared file. Reuses the editor link-builder's
-    // probe + the same field-tested task.* messages. A hard failure NEVER reaches Researcher.assign.
-    if (audioUrl) {
-      const resolved = resolve(audioUrl);
-      if (!resolved) { say('⚠ ' + t('task.badAudio'), 'err'); return; }
-      say(t('panel.assign.checkingAudio'));
-      try {
-        const info = await probeAudioUrl(resolved);
-        say('✓ ' + t('task.checkOk', { name: info.name || '?', size: info.size ? fmtSize(info.size) : '?' }), 'ok');
-      } catch (err) {
-        /* v325 (Sentani): a REJECTED fetch (no HTTP response at all — TypeError/NetworkError/our
-         * timeout) degrades to "could not verify -> send anyway" for EVERY host, Drive included.
-         * The old /drive exclusion turned a glitchy link into a HARD BLOCK on a possibly-fine
-         * assignment — exactly what the backlog rule forbids ("Sentani bandwidth must not be able
-         * to stop an assignment that is actually fine"). Worker JSON error codes (not_found,
-         * unauthorized, too_large…) arrive as real HTTP responses, are NOT TypeErrors, and stay
-         * hard blocks — those mean the file genuinely cannot be used. */
-        const soft = err.name === 'TypeError'
-          || /failed to fetch|networkerror|timed out/i.test(err.message || '');
-        if (soft) {
-          if (!confirm(t('panel.assign.couldNotVerify', { why: softWhy(err) }))) { say('⚠ ' + t('panel.assign.blockedNoSend'), 'err'); return; }
-        } else {
-          const msg = err.code === 'cantPlay' ? t('task.cantPlay')
-            : err.code === 'big' ? t('task.tooBig', { mb: err.mb })
-            : err.code === 'notAudio' ? t('task.notAudio', { mime: err.mime || '?' })
-            : t('task.checkFailed', { msg: err.message });
-          say('⚠ ' + msg, 'err'); return;
-        }
+    // Audio verdict from the file's own header bytes — a hard failure NEVER reaches the queue.
+    if (audioFile) {
+      const head = new Uint8Array(await audioFile.slice(0, 64).arrayBuffer());
+      const v = assignAudioVerdict({ buf: head, name: audioFile.name, size: audioFile.size });
+      if (!v.ok) {
+        say('⚠ ' + (v.code === 'aiff' ? t('task.cantPlay')
+          : v.code === 'big' ? t('task.tooBig', { mb: v.mb })
+          : t('task.notAudio', { mime: audioFile.type || '?' })), 'err');
+        return;
+      }
+      say('✓ ' + t('task.checkOk', { name: audioFile.name, size: fmtSize(audioFile.size) }), 'ok');
+    }
+
+    // The flextext parses HERE, before anything uploads: a SINGLE interlinear text (only the
+    // first would be delivered), then the WS check against this instance's pushed codes.
+    let ftText = null;
+    if (ftFile) {
+      ftText = await ftFile.text();
+      const parsed = parseFlextext(ftText);
+      if (parsed.error || !parsed.texts.length) { say('⚠ ' + t('task.ftParseFailed', { msg: parsed.error || t('task.ftNone') }), 'err'); return; }
+      if (parsed.texts.length > 1) { say('⚠ ' + t('task.ftMultiText', { n: parsed.texts.length }), 'err'); return; }
+      const codes = await Researcher.getInstanceSettings(instanceId).catch(() => null);
+      const mm = wsAssignMismatch(analyzeFlextextWs(ftText), codes);
+      if (mm && !(await wsMismatchConfirm(mm))) {
+        say('⚠ ' + t('panel.assign.blockedNoSend'), 'err');   // Cancel visibly aborts — nothing was sent
+        return;
       }
     }
 
-    // Validate the flextext link too: reachable + a SINGLE interlinear text (only the first is
-    // delivered). Writing-system-code match is deferred (this modal doesn't carry the device's codes).
-    if (flextextUrl) {
-      const resolved2 = resolve(flextextUrl);
-      if (!resolved2) { say('⚠ ' + t('task.badFlextext'), 'err'); return; }
-      say(t('panel.assign.checkingFlextext'));
-      let xml;
-      try { xml = await (await fetchFileViaUrl(resolved2)).blob.text(); }
-      catch (err) {
-        // Same soft-CORS escape as the audio path: a direct (non-Drive) host that blocks the cross-origin
-        // check can't be told apart from a real outage, so offer "send anyway" instead of a false block.
-        const soft = !/script\.google|\/drive/.test(resolved2)
-          && (err.name === 'TypeError' || /failed to fetch|networkerror/i.test(err.message || ''));
-        if (soft) {
-          if (!confirm(t('panel.assign.couldNotVerify', { why: softWhy(err) }))) { say('⚠ ' + t('panel.assign.blockedNoSend'), 'err'); return; }
-          // confirmed → proceed without parsing (xml stays undefined)
-        } else { say('⚠ ' + t('task.ftFetchFailed', { msg: err.message }), 'err'); return; }
-      }
-      if (xml !== undefined) {
-        const parsed = parseFlextext(xml);
-        if (parsed.error || !parsed.texts.length) { say('⚠ ' + t('task.ftParseFailed', { msg: parsed.error || t('task.ftNone') }), 'err'); return; }
-        if (parsed.texts.length > 1) { say('⚠ ' + t('task.ftMultiText', { n: parsed.texts.length }), 'err'); return; }
-      }
-    }
-
-    const fields = { title };
-    if (audioUrl) fields.audioUrl = audioUrl;     // send the RAW url; the device re-resolves it
-    if (flextextUrl) fields.flextextUrl = flextextUrl;
     // The docId is minted HERE, so this is the only place that knows which assignment produced
-    // which text. Record it now: the device's later reports carry the id but never the audio URL,
-    // so if this event is not written the "audio that was assigned" link is unrecoverable.
+    // which text (the history event is written by the queue runner once the assign really sends).
     const docId = crypto.randomUUID();
-    try {
-      await Researcher.assign(instanceId, docId, fields);
-      // Logged only AFTER the assign succeeds — a failed send did not assign anything.
-      const inst = (lastData && (lastData.instances || []).find((x) => x.instance_id === instanceId)) || null;
-      recordEvents(Researcher.currentAccountId(), [assignedEvent({
-        instanceId, device: (inst && inst.nickname) || '', docId, title, audioUrl, flextextUrl,
-      })]);
-      // Best-effort SERVER-side copy of the assigned audio into the text's new Drive folder —
-      // fire-and-forget by design: the assignment has already succeeded, the Worker streams the
-      // public file with the researcher's own token (zero coworker bandwidth), and a failure costs
-      // only the convenience copy. Deliberately NOT awaited: a big recording can take a while and
-      // the modal must not hang on it.
-      if (audioUrl && driveIdFrom(audioUrl)) {
-        Researcher.assignCopy(instanceId, docId, title, audioUrl)
-          .catch(() => console.warn('assign-copy failed (assignment itself succeeded)'));
-      }
-      m.close(); deps.toast(t('panel.assign.sent'), 4000);
-    }
-    catch (err) { errToast(err); }
+    // ABSORB INTO INDEXEDDB BEFORE ANYTHING ELSE (locked decision 8): once this write lands, the
+    // assignment survives connection drops, panel reloads and retries — the queue owns it now.
+    await db.putMedia(AQ_PREFIX + docId, {
+      instanceId, title, ttlDays: assignTtlDays(), state: 'queued', at: Date.now(),
+      audio: audioFile ? { blob: audioFile, name: audioFile.name, mime: audioFile.type || 'application/octet-stream', size: audioFile.size } : null,
+      // Stored as the TEXT we just validated (not the File) — what was checked is what ships.
+      flextext: ftFile ? { blob: new Blob([ftText], { type: 'application/xml' }), name: ftFile.name, mime: 'application/xml', size: ftFile.size } : null,
+    });
+    runAssignUpload(docId);   // deliberately not awaited — the queue reports through the dashboard card
+    m.close();
+    deps.toast(t('panel.assign.queuedToast'), 5000);
+    paintAssignQueue();
   });
+}
+
+// The explicit two-button WS-mismatch dialog (locked decision 5): names BOTH sides, never remaps,
+// never hard-blocks. Resolves true on "Send anyway"; every other close path (Cancel, Escape,
+// backdrop) is a visible abort.
+function wsMismatchConfirm(mm) {
+  return new Promise((resolve) => {
+    const m = modal(`
+      <h3>${esc(t('panel.assign.wsTitle'))}</h3>
+      <p class="note">${esc(t('panel.assign.wsBody', mm))}</p>
+      <button class="primary-btn" data-m="anyway">${esc(t('panel.assign.sendAnyway'))}</button>
+      <button class="link-btn" data-m="cancel">${esc(t('panel.assign.cancel'))}</button>`, false, () => resolve(false));
+    m.el.querySelector('[data-m="anyway"]').onclick = () => { resolve(true); m.close(); };
+    m.el.querySelector('[data-m="cancel"]').onclick = m.close;
+  });
+}
+
+/* ---------------- the resilient assignment-upload queue (assign-by-upload) ----------------
+ * One IndexedDB record per queued assignment ('assign-upload:<docId>', blobs included), a
+ * single-flight runner per docId, and a dashboard card that shows queued/uploading N%/failed.
+ * Resume points: panel restart (renderDashboard sweeps), connectivity return (the 'online'
+ * listener sweeps), and a manual Retry on definitive failures. The assign command is sent ONLY
+ * after finish() succeeds — a dropped connection can never produce a half-assignment. */
+
+const AQ_PREFIX = 'assign-upload:';
+const aqActive = new Map();   // docId -> live view { state: 'uploading'|'sending', sent, total }
+
+// Per-account, researcher-configurable delivery TTL (spec: default 90, server clamps 7–400 —
+// the stored value is a preference, the worker's clampTtlDays is the authority).
+const TTL_KEY = 'flextext-rp-ttl:';
+function assignTtlDays() {
+  let v = NaN;
+  try { v = parseInt(localStorage.getItem(TTL_KEY + (Researcher.currentAccountId() || 'anon')), 10); } catch { /* noop */ }
+  return Number.isFinite(v) && v > 0 ? v : 90;
+}
+function setAssignTtlDays(v) {
+  try { localStorage.setItem(TTL_KEY + (Researcher.currentAccountId() || 'anon'), String(v)); } catch { /* noop */ }
+}
+
+async function listAssignQueue() {
+  const keys = await db.listMediaKeys().catch(() => []);
+  const out = [];
+  for (const k of keys) {
+    if (!String(k).startsWith(AQ_PREFIX)) continue;
+    const rec = await db.getMedia(k).catch(() => null);
+    if (rec) out.push({ docId: String(k).slice(AQ_PREFIX.length), rec });
+  }
+  out.sort((a, b) => (a.rec.at || 0) - (b.rec.at || 0));
+  return out;
+}
+
+async function runAssignUpload(docId) {
+  if (aqActive.has(docId)) return;                      // single-flight per assignment
+  const key = AQ_PREFIX + docId;
+  const rec = await db.getMedia(key).catch(() => null);
+  if (!rec) return;
+  const save = () => db.putMedia(key, rec).catch(() => { /* the in-memory run continues */ });
+  const total = (rec.audio ? rec.audio.size : 0) + (rec.flextext ? rec.flextext.size : 0);
+  const view = { state: 'uploading', sent: 0, total };
+  aqActive.set(docId, view);
+  rec.state = 'uploading'; rec.error = '';
+  await save();
+  paintAssignQueue();
+  try {
+    if (!rec.assignmentFolderId) {
+      const b = await Researcher.assignBegin(rec.instanceId, docId, rec.title, rec.folderId || '');
+      rec.folderId = b.folderId; rec.assignmentFolderId = b.assignmentFolderId;
+      await save();
+    }
+    let done = 0;
+    for (const part of ['audio', 'flextext']) {
+      const p = rec[part];
+      if (!p) continue;
+      if (!rec[part + 'FileId']) {
+        rec[part + 'FileId'] = await Researcher.assignUploadFile(rec.instanceId, docId, {
+          blob: p.blob, name: p.name, mime: p.mime, kind: part === 'audio' ? 'audio' : 'flextext',
+          assignmentFolderId: rec.assignmentFolderId, streamId: rec[part + 'StreamId'] || null,
+        }, {
+          onProgress: (sent) => { view.sent = done + sent; paintAssignQueue(); },
+          // The session token persists in the queue record, so a panel restart resumes MID-FILE.
+          onSession: (id) => { rec[part + 'StreamId'] = id || ''; return save(); },
+        });
+        delete rec[part + 'StreamId'];
+        await save();
+      }
+      done += p.size; view.sent = done;
+      paintAssignQueue();
+    }
+    view.state = 'sending';
+    paintAssignQueue();
+    const fin = await Researcher.assignFinish(rec.instanceId, docId, {
+      ...(rec.audioFileId ? { audioFileId: rec.audioFileId } : {}),
+      ...(rec.flextextFileId ? { flextextFileId: rec.flextextFileId } : {}),
+      ttlDays: rec.ttlDays,
+    });
+    // ONLY NOW does the assign command exist. folderId rides the payload so the device stamps it
+    // from birth (the dedupe search never runs); the device re-uses the same private token URLs.
+    const fields = { title: rec.title, folderId: rec.folderId || '' };
+    if (fin.audioUrl) fields.audioUrl = fin.audioUrl;
+    if (fin.flextextUrl) fields.flextextUrl = fin.flextextUrl;
+    await Researcher.assign(rec.instanceId, docId, fields);
+    const inst = (lastData && (lastData.instances || []).find((x) => x.instance_id === rec.instanceId)) || null;
+    recordEvents(Researcher.currentAccountId(), [assignedEvent({
+      instanceId: rec.instanceId, device: (inst && inst.nickname) || '', docId, title: rec.title,
+      audioUrl: fields.audioUrl || '', flextextUrl: fields.flextextUrl || '',
+    })]);
+    await db.deleteMedia(key).catch(() => { /* the record is spent either way */ });
+    aqActive.delete(docId);
+    paintAssignQueue();
+    deps.toast(t('panel.assign.sent'), 4000);
+  } catch (e) {
+    // TRANSIENT (network, stalled chunks, 5xx) → back to 'queued'; the online/restart sweeps
+    // re-enter with every fileId + session already persisted. DEFINITIVE (4xx — bad auth, revoked
+    // instance) → 'error', loud, with a manual Retry: silent infinite retry on a 403 helps no one.
+    const definitive = e && e.status >= 400 && e.status < 500;
+    rec.state = definitive ? 'error' : 'queued';
+    rec.error = String((e && e.message) || e);
+    await save();
+    aqActive.delete(docId);
+    paintAssignQueue();
+    if (definitive) deps.toast(t('panel.aq.failed', { title: rec.title || '?', msg: rec.error }), 8000);
+  }
+}
+
+let aqSweeping = false;
+async function sweepAssignUploads() {
+  if (aqSweeping || !Researcher.isSignedUp()) return;
+  aqSweeping = true;
+  try {
+    for (const { docId, rec } of await listAssignQueue()) {
+      if (aqActive.has(docId)) continue;
+      if (rec.state === 'error') continue;              // definitive failures wait for the Retry button
+      await runAssignUpload(docId);                     // sequential — gentle on weak connections
+    }
+  } finally { aqSweeping = false; }
+}
+
+function assignQueueHtml(queue) {
+  if (!queue.length) return '';
+  const nick = (iid) => (((lastData && lastData.instances) || []).find((x) => x.instance_id === iid) || {}).nickname || '?';
+  const pct = (v) => (v.total ? Math.min(100, Math.round((v.sent / v.total) * 100)) : 0);
+  return `<div class="rp-card rp-aq-card"><div class="rp-inst-name">${esc(t('panel.aq.title'))}</div>
+    ${queue.map(({ docId, rec }) => {
+      const live = aqActive.get(docId);
+      const status = live
+        ? (live.state === 'sending' ? t('panel.aq.sending') : t('panel.aq.uploading', { pct: pct(live) }))
+        : rec.state === 'error' ? t('panel.aq.failedRow', { msg: rec.error || '?' })
+        : t('panel.aq.queued');
+      return `<div class="rp-install rp-aq-row">
+        <div><div class="invite-name">${esc(rec.title || t('panel.hist.untitled'))}</div>
+        <div class="note">${esc(nick(rec.instanceId))} · ${esc(status)}</div></div>
+        <div class="rp-inst-actions">
+          ${!live && rec.state === 'error' ? `<button class="secondary-btn" data-aqretry="${esc(docId)}">${esc(t('panel.aq.retry'))}</button>` : ''}
+          ${!live ? `<button class="link-btn rp-revoke" data-aqcancel="${esc(docId)}">${esc(t('panel.assign.cancel'))}</button>` : ''}
+        </div>
+      </div>`;
+    }).join('')}</div>`;
+}
+
+async function paintAssignQueue() {
+  const host = root && root.querySelector('#rp-aq');
+  if (!host) return;
+  host.innerHTML = assignQueueHtml(await listAssignQueue());
+  host.querySelectorAll('[data-aqretry]').forEach((b) => b.addEventListener('click', async () => {
+    const id = b.dataset.aqretry;
+    const rec = await db.getMedia(AQ_PREFIX + id).catch(() => null);
+    if (rec) { rec.state = 'queued'; rec.error = ''; await db.putMedia(AQ_PREFIX + id, rec).catch(() => {}); }
+    runAssignUpload(id);
+  }));
+  host.querySelectorAll('[data-aqcancel]').forEach((b) => b.addEventListener('click', async () => {
+    if (!confirm(t('panel.aq.cancelConfirm'))) return;
+    await db.deleteMedia(AQ_PREFIX + b.dataset.aqcancel).catch(() => {});
+    paintAssignQueue();
+  }));
 }
 
 /* ---------------- crowd recorders (public crowd-source recording pages) ----------------
@@ -2667,12 +2834,22 @@ function utilitiesModal() {
     <button class="primary-btn" data-m="audio">${esc(t('panel.util.audio'))}</button>
     <button class="primary-btn" data-m="ws">${esc(t('panel.util.ws'))}</button>
     <hr class="rp-sep">
+    <label class="rp-field"><span>${esc(t('panel.util.ttl'))}</span>
+      <input id="rp-ttl" type="number" min="7" max="400" step="1" value="${assignTtlDays()}"></label>
+    <p class="note">${esc(t('panel.util.ttlNote'))}</p>
+    <hr class="rp-sep">
     <button class="link-btn rp-danger" data-m="erase">${esc(t('panel.erase.btn'))}</button>
     <button class="link-btn" data-m="close">${esc(t('panel.util.close'))}</button>`);
   m.el.querySelector('[data-m="close"]').onclick = m.close;
   m.el.querySelector('[data-m="audio"]').onclick = () => { m.close(); audioConverterModal(); };
   m.el.querySelector('[data-m="ws"]').onclick = () => { m.close(); wsCheckModal(); };
   m.el.querySelector('[data-m="erase"]').onclick = () => { m.close(); eraseDataModal(); };
+  // Delivery-TTL preference: stored per account; the WORKER's clamp (7–400) is authoritative, this
+  // input's min/max is only a courtesy mirror of it.
+  m.el.querySelector('#rp-ttl').addEventListener('change', (e) => {
+    const v = parseInt(e.target.value, 10);
+    if (Number.isFinite(v) && v > 0) { setAssignTtlDays(v); deps.toast(t('panel.util.ttlSaved'), 3000); }
+  });
 }
 
 // Complete local wipe of THIS browser → a blank, no-PWA-installed slate (testing + privacy). Behind a
@@ -3090,6 +3267,14 @@ function fieldHtml(f) {
   // meanings that are NOT obvious from a short label (e.g. consent audio is the prompt PLAYED to
   // the speaker, not their recorded answer).
   const note = f.note ? `<p class="note">${t(f.note)}</p>` : '';
+  // The consent PROMPT is a file upload too (assign-by-upload rule 1): pick the audio, it streams
+  // to the DEVICE folder in the researcher's Drive, and the minted private URL fills this same
+  // field — the settings push carries it exactly as a pasted URL always did (zero wire changes).
+  if (f.k === 'consentAudioUrl') {
+    return `<label class="rp-field"${tip}><span>${label}</span><input data-f="${f.k}" spellcheck="false"></label>
+      <div class="rp-field"><button type="button" class="secondary-btn" data-gact="consentUpload">${esc(t('panel.f.consentUpload'))}</button>
+      <input type="file" id="rp-consent-file" accept="audio/*,.wav,.mp3,.m4a,.aac,.ogg,.opus,.webm,.flac" hidden></div>${note}`;
+  }
   const input = `<label class="rp-field"${tip}><span>${label}</span><input data-f="${f.k}" spellcheck="false"${tip}></label>${note}`;
   return input;
 }
@@ -3354,6 +3539,32 @@ async function openSettingsModal(target, opts = {}) {
     }
     deps.toast(t('panel.f.archivalSet'), 4000);
   }));
+  // Consent-prompt upload (assign-by-upload): stream the picked audio to the DEVICE folder via the
+  // assignment-upload mechanism ('consent-prompt' kind — the docId path segment is a placeholder,
+  // the worker targets the device folder for this kind), then fill the URL field with the minted
+  // private token URL. The researcher still presses Save/Push — nothing is sent behind their back.
+  {
+    const cuBtn = box.querySelector('[data-gact="consentUpload"]');
+    const cuFile = box.querySelector('#rp-consent-file');
+    if (cuBtn && cuFile && target.instance) {
+      cuBtn.addEventListener('click', () => cuFile.click());
+      cuFile.addEventListener('change', (e) => busy(cuBtn, async () => {
+        const file = e.target.files[0]; e.target.value = '';
+        if (!file) return;
+        const iid = target.instance.instance_id;
+        try {
+          cuBtn.textContent = t('panel.f.consentUploading');
+          const fileId = await Researcher.assignUploadFile(iid, 'consent-prompt', {
+            blob: file, name: file.name, mime: file.type || 'audio/mpeg', kind: 'consent-prompt',
+          });
+          const fin = await Researcher.assignFinish(iid, 'consent-prompt', { promptFileId: fileId, ttlDays: assignTtlDays() });
+          const input = box.querySelector('[data-f="consentAudioUrl"]');
+          if (input && fin.promptUrl) input.value = fin.promptUrl;
+          deps.toast(t('panel.f.consentUploaded'), 5000);
+        } catch (err) { errToast(err); }
+      }));
+    }
+  }
   // Live max-duration label + size readout (crowd-editor twin). mbTxt keeps 1dp under 10 MB.
   const mrSlider = box.querySelector('[data-f="maxRecordSeconds"]');
   if (mrSlider) {

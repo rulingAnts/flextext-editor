@@ -361,6 +361,98 @@ export async function fetchDriveFile(fileId) {
   return r.blob();
 }
 
+/* ---------------- assignment uploads (assign-by-upload, 2026-08-11) ----------------
+ * The researcher picks the actual files; these stream them THROUGH the worker into
+ * "<Device>/<Storyname>/assignment/" in their own Drive, then finish() mints the private
+ * /v1/textfile URLs the assign command carries. Nothing is ever link-shared. */
+
+const textsPath = (iid, docId) => `/v1/instances/${encodeURIComponent(iid)}/texts/${encodeURIComponent(docId)}`;
+
+export function assignBegin(instanceId, docId, title, folderId) {
+  return api('POST', textsPath(instanceId, docId) + '/assignment/begin', { body: { title, ...(folderId ? { folderId } : {}) } });
+}
+export function assignUploadStart(instanceId, docId, fields) {
+  // retry:false — a lost response would open a second Drive session; the chunk loop's
+  // session_gone restart is the recovery path, not a blind re-POST.
+  return api('POST', textsPath(instanceId, docId) + '/assignment/upload/start', { body: fields, retry: false });
+}
+export function assignFinish(instanceId, docId, fields) {
+  return api('POST', textsPath(instanceId, docId) + '/assignment/finish', { body: fields });
+}
+
+/* One chunk PUT (or a "bytes star/total" probe with a null body) — raw fetch, because api() is
+ * JSON-only and this body is bytes (the fetchDriveFile precedent). Returns the same shape the
+ * device's upload.js reads off its chunk relay: {done,fileId} | {received} | {gone} | {fail}. */
+export async function assignUploadChunk(instanceId, docId, uploadId, range, body) {
+  const a = loadAuth();
+  if (!a) throw new Error('not_signed_up');
+  const base = (workerBaseFn() || '').replace(/\/+$/, '');
+  let r = null;
+  try {
+    r = await fetch(base + textsPath(instanceId, docId) + '/assignment/upload/chunk', {
+      method: 'PUT',
+      headers: {
+        'x-fx-researcher': a.researcher_id, 'x-fx-secret': a.secret,
+        'x-fx-upload': uploadId, 'x-fx-range': range,
+        ...(body ? { 'content-type': 'application/octet-stream' } : {}),
+      },
+      body,
+    });
+  } catch { return { fail: true }; }
+  const out = await r.json().catch(() => ({}));
+  if (r.ok && out.done && out.fileId) return { done: true, fileId: out.fileId };
+  if (r.ok && out.done === false) return { received: out.received || 0 };
+  if (out.error === 'session_gone' || out.error === 'bad_upload') return { gone: true };
+  return { fail: true };
+}
+
+/* The chunk loop — upload.js's _streamChunked, panel-side: 8 MiB slices, probe-first resume (Drive's
+ * own byte count is the truth), session_gone → one fresh session, transient failures back off then
+ * surface as a TRANSIENT error so the caller's queue re-enters later. part: { blob, name, mime,
+ * kind, assignmentFolderId?, streamId? }. onSession persists the session token into the caller's
+ * queue record (resume across panel restarts); onProgress(sent, total) paints. Returns the fileId. */
+export async function assignUploadFile(instanceId, docId, part, { onProgress, onSession } = {}) {
+  const CHUNK = 8 * 1024 * 1024;
+  const total = part.blob.size;
+  let streamId = part.streamId || null;
+  for (let session = 0; session < 2; session++) {          // at most one session_gone restart per call
+    if (!streamId) {
+      const s = await assignUploadStart(instanceId, docId, {
+        name: part.name, mime: part.mime, size: total,
+        assignmentFolderId: part.assignmentFolderId || '', kind: part.kind,
+      });
+      streamId = s.uploadId;
+      if (onSession) await onSession(streamId);
+    }
+    let waitMs = 2000, strikes = 0;
+    while (strikes < 5) {
+      const probe = await assignUploadChunk(instanceId, docId, streamId, `bytes */${total}`, null);
+      if (probe.done) return probe.fileId;
+      if (probe.gone) { streamId = null; if (onSession) await onSession(null); break; }
+      if (probe.fail) { strikes++; await sleep(waitMs); waitMs = Math.min(waitMs * 2, 60000); continue; }
+      let offset = probe.received || 0;
+      let pushed = true;
+      while (offset < total) {
+        const size = Math.min(CHUNK, total - offset);
+        const res = await assignUploadChunk(instanceId, docId, streamId,
+          `bytes ${offset}-${offset + size - 1}/${total}`, part.blob.slice(offset, offset + size));
+        if (res.done) return res.fileId;
+        if (res.gone) { streamId = null; if (onSession) await onSession(null); pushed = false; break; }
+        if (res.fail) { strikes++; pushed = false; await sleep(waitMs); waitMs = Math.min(waitMs * 2, 60000); break; }
+        strikes = 0; waitMs = 2000;
+        offset = res.received != null ? res.received : offset + size;
+        if (onProgress) onProgress(offset, total);
+      }
+      if (!streamId) break;                                // dead session → outer loop opens a fresh one
+      if (pushed && offset >= total) strikes++;            // all bytes sent, no done yet — the next probe resolves it
+    }
+    if (streamId) break;                                   // strikes exhausted on a LIVE session → hand back to the queue
+  }
+  const e = new Error('assign_upload_stalled');
+  e.transient = true;                                      // the persisted session resumes on the next sweep
+  throw e;
+}
+
 /* Withdraw a queued command the device has not picked up yet.
  * Throws on 409 `already_delivered` — a cancel that quietly failed would be worse than none, since
  * the researcher would walk away believing the request is off when the device is already acting. */

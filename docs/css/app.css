@@ -1143,14 +1143,28 @@ main {
   max-height: 60vh; overflow-y: auto;
 }
 .rp-dl-menu[hidden] { display: none; }
+/* ⚠ min-width:0 IS LOAD-BEARING, not tidying. The menu is a flex COLUMN, and a flex item's default
+   `min-width: auto` refuses to shrink below its content's intrinsic width — so a long sub-line made
+   the row wider than the menu's own max-width and the text ran off the right edge (reported 2026-08-12,
+   after v3 lengthened the sub-lines with the origin label, real filenames and size estimates). The
+   menu's overflow-y:auto then computes overflow-x to auto, so the excess was CLIPPED rather than
+   visibly scrolling — it just looked like missing text. */
+.rp-dl-menu > * { min-width: 0; }
 .rp-dl-head { font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
               color: var(--muted); padding: 4px 8px 6px; }
 .rp-dl-item { display: block; padding: 7px 8px; border-radius: 7px; text-decoration: none; color: inherit; }
 .rp-dl-item:hover, .rp-dl-item:focus-visible { background: var(--panel); text-decoration: none; }
 .rp-dl-name { display: block; font-weight: 600; font-size: 14px; color: var(--blue-dark); }
 /* The sub-line carries the PURPOSE ("import into FLEx", "annotation file, tiers named for
-   SayMore") — it is what makes two .eaf exports distinguishable at a glance. */
+   SayMore") — it is what makes two .eaf exports distinguishable at a glance. Since v3 it also
+   carries real FILENAMES, which can be one long unbroken token: `anywhere` lets those wrap instead
+   of forcing the row wide again by a different route. */
+.rp-dl-name, .rp-dl-sub { overflow-wrap: anywhere; }
 .rp-dl-sub { display: block; font-size: 12px; color: var(--muted); margin-top: 1px; }
+/* A DECLARED file that has not arrived yet: shown, named, and plainly not clickable. */
+.rp-dl-pending { opacity: .6; cursor: default; }
+.rp-dl-pending .rp-dl-name { color: var(--muted); font-weight: 600; }
+.rp-dl-missing { display: block; padding: 4px 8px 6px; font-size: 12px; }
 
 /* History modal — the back-log of texts that are no longer on a device. The kind colours REUSE the
    dashboard's tag palette above on purpose: "uploaded" must look the same here as it does on a live

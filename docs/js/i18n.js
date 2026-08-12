@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v338';
+export const ENGINE_VERSION = 'v339';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v338';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'assign-by-upload v4';
+export const BUILD_TAG = 'panel-refresh v1';
 
 const S = {
 en: {
@@ -819,6 +819,8 @@ internet after the first time.</p>
   'panel.dl.lastUploadSub': 'the last file this text uploaded',
   'panel.dl.all': 'Download all (ZIP)',
   'panel.dl.allSub': 'the folder\u2019s {n} file(s) plus freshly built ELAN, SayMore, listening page and .fxpa',
+  // Pre-manifest texts: the same control, but nothing is generated — say so rather than promising it.
+  'panel.dl.allSubRaw': 'every file in this text\u2019s Drive folder \u2014 {n} file(s)',
   'panel.dl.zipBuilding': 'Building ZIP\u2026',
   /* v3.1: Download-all also BUILDS the ELAN/SayMore/listening/.fxpa files and injects them. */
   'panel.dl.zipConverting': 'Building exports\u2026',
@@ -2290,6 +2292,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.dl.lastUploadSub': 'berkas terakhir yang diunggah teks ini',
   'panel.dl.all': 'Unduh semua (ZIP)',
   'panel.dl.allSub': '{n} berkas di folder ditambah ELAN, SayMore, halaman dengar, dan .fxpa yang baru dibuat',
+  'panel.dl.allSubRaw': 'semua berkas di folder Drive teks ini \u2014 {n} berkas',
   'panel.dl.zipBuilding': 'Membuat ZIP\u2026',
   'panel.dl.zipConverting': 'Membuat berkas ekspor\u2026',
   'panel.dl.allPartial': 'Folder terunduh, tetapi berkas ekspor yang dihasilkan dilewati: {why}',

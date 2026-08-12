@@ -779,6 +779,18 @@ function viewSig(data) {
         ]),
       ]),
       (data.pending || []).map((p) => [p.researcher_id, p.email]),   // owner: re-render when a request lands
+      /* ⚠ CLIENT-SIDE PENDING STATE IS PART OF WHAT THE TILES SHOW (v339). This signature decides
+       * whether the 12s poll re-renders, and it used to be built from SERVER data alone — so a
+       * marker set while the device was offline changed nothing the signature could see, the poll
+       * concluded "nothing to redraw", and the pending row simply never appeared. Seth: assigned
+       * texts and their status refresh "a little slow and not always automatic".
+       *
+       * That is worst in exactly the case the markers exist FOR: an offline device produces no
+       * server-side change at all, so the row that says "waiting for the device" was the one row
+       * guaranteed not to be drawn. Sorted by key so Map insertion order cannot make an unchanged
+       * state look changed and cause a redraw every tick. */
+      [...pendingCmds].sort((a, b) => String(a[0]).localeCompare(String(b[0]))).map(([id, p]) => [id, p.kind, p.seq]),
+      [...pendingMoves].sort((a, b) => String(a[0]).localeCompare(String(b[0]))).map(([id, mv]) => [id, mv.stage]),
     ]);
   } catch { return String(Math.random()); } // unserializable → treat as changed
 }
@@ -1323,10 +1335,28 @@ async function populateFilesMenu(wrap) {
   if (!manifest || typeof manifest !== 'object' || !Array.isArray(manifest.files)) manifest = null;
 
   if (!manifest) {
-    menu.innerHTML = head + (folderId
-      ? `<a class="rp-dl-item" role="menuitem" href="${esc(driveFolderLink(folderId))}" target="_blank" rel="noopener noreferrer">
-          <span class="rp-dl-name">${esc(t('panel.dl.openFolder'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.openFolderSub'))}</span></a>`
-      : `<span class="note rp-dl-loading">${esc(t('panel.dl.noneYet'))}</span>`);
+    /* TWO items, and only these two (Seth, 2026-08-12: "for pre-manifest texts, let's add a
+     * 'Download All' option (not just 'Open in Google Drive')").
+     *
+     * ⚠ This does NOT reopen the deleted heuristic, and the distinction is the whole point. What
+     * was deleted were rows that CLAIMED to be a particular kind of artifact — "Bundle (.zip,
+     * includes audio)" on a file that turned out to be raw XML. Both rows here make no claim about
+     * what any file IS: one opens the folder, the other hands over every byte in it under each
+     * file's own name. Neither can be wrong, which was §8's actual test.
+     *
+     * downloadAllZip needs no manifest: it re-lists the folder itself, and its conversion
+     * injection is already gated on one — so a pre-manifest text simply gets the raw folder, which
+     * is exactly right. */
+    const pre = [];
+    if (allFiles.length) {
+      pre.push(`<button class="rp-dl-item rp-dl-all" data-zipall data-i="${esc(iid)}" data-id="${esc(docId)}" data-title="${esc(title)}">
+        <span class="rp-dl-name">${esc(t('panel.dl.all'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.allSubRaw', { n: allFiles.length }))}</span></button>`);
+    }
+    if (folderId) {
+      pre.push(`<a class="rp-dl-item" role="menuitem" href="${esc(driveFolderLink(folderId))}" target="_blank" rel="noopener noreferrer">
+        <span class="rp-dl-name">${esc(t('panel.dl.openFolder'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.openFolderSub'))}</span></a>`);
+    }
+    menu.innerHTML = head + (pre.length ? pre.join('') : `<span class="note rp-dl-loading">${esc(t('panel.dl.noneYet'))}</span>`);
     return;
   }
 
@@ -2452,6 +2482,9 @@ async function runAssignUpload(docId) {
       pendingCmds.set(docId, { seq: sent.seq, kind: 'assign', instanceId: rec.instanceId,
                                title: rec.title || '', hasAudio: !!rec.audio, at: Date.now() });
       savePending(Researcher.currentAccountId());
+      // Redraw NOW from cached data (no refetch — the marker is client-side): waiting up to 12s to
+      // see the result of your own action is the other half of the "slow refresh" report.
+      renderDashboard(lastData || undefined);
     }
     const inst = (lastData && (lastData.instances || []).find((x) => x.instance_id === rec.instanceId)) || null;
     recordEvents(Researcher.currentAccountId(), [assignedEvent({

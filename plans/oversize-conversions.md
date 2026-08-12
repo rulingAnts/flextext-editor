@@ -58,9 +58,11 @@ single "too big to decode/embed" line. The 150 MB `EMBED_MAX` I floated is **dro
 priming makes decode and playback disagree by ~44 ms. Shipping the lossy original is allowed, but
 the researcher must be told, never silently handed a quietly-misaligned EAF.
 
-**Electron fallback: leave a STUB now.** If running in Electron, hand the oversized conversion to
-the native side; if not, use the original. Seth: *"Fallback on Electron Native (leave a stub for
-that) if running in Electron, but if not running in Electron, then just use the original."*
+**Native fallback: leave STUBS now — Electron AND Capacitor.** If running in a native shell, hand
+the oversized conversion to it; otherwise use the original. Seth: *"Fallback on Electron Native
+(leave a stub for that) if running in Electron, but if not running in Electron, then just use the
+original"*, then: *"we need a Capacitor stub (that only fires when run in a Capacitor environment)
+as well."* Design in its own section below — it touches the hard native boundary.
 
 **On `ZIP_HARD_MAX`** — Seth: *"with THIS app at least, it's exceptionally unlikely we'll ever be
 anywhere near that limit. Lots of other limits (bandwidth, browser storage, memory) would break
@@ -107,12 +109,62 @@ on every row — no new layout.
 total would exceed it, plus a comment stating the ZIP32 `le32` reason so nobody raises it to 4 GiB
 without adding Zip64.
 
-**Electron stub** — one chokepoint, feature-detected, inert in a browser, on the
-`js/native-audio.js` model (⚠ NOT in that file, and it must not touch `window.Capacitor`).
+**`docs/js/native-convert.js`** (new) — the native offload stubs. See the section below; it is the
+one part of this that touches the hard native boundary and it must be got right.
 
 **i18n** — new strings in **en AND id**: fxpa-without-audio, preview-refused, lossy-alignment
 warning, zip-too-large. The blanket `panel.dl.tooBigConvert` is retired; it would be a lie on a row
 that now works.
+
+## The native stubs — Electron AND Capacitor (Seth, 2026-08-12)
+
+⚠ **`docs/js/native-audio.js` is the single chokepoint for BOTH bridges, not just Android.**
+`check-native-containment.sh` greps `docs/js/` for `window.Capacitor|Capacitor.Plugins` **and** for
+`__flextextNative`, failing on any hit outside that one file. So an Electron stub is under exactly
+the same rule as a Capacitor one — a correction to what this plan said in its first draft, which
+treated Electron as unconstrained.
+
+**How the stub stays legal without touching `native-audio.js` at all.** That file already exports
+the detectors this needs — `isNativeShell()`, `nativePlatform()`, `nativeCapabilities()`,
+`nativeEngineInfo()`. `native-convert.js` imports those and never names a global. Detection: free
+and already built.
+
+**What the stub does NOW:** `nativeConvertAvailable()` returns **false**, always. There is no bridge
+method to call yet, on either platform. Every caller therefore takes the browser path, which after
+this change means *use the original* — precisely the behaviour Seth specified. The stub exists so
+the decision point is written down once, in the right place, rather than rediscovered later.
+
+**⚠ Gate on CAPABILITY, never on platform — this is the part that will be got wrong.** Being inside
+Capacitor does not mean the installed APK can convert anything: **the engine auto-updates and the
+APK does not**, so field devices run older plugins indefinitely. If the stub ever graduates to
+`isNativeShell() ? offload() : fallback()`, every pre-feature APK gets asked to convert, fails, and
+the researcher loses the fallback that would have worked — a regression that only appears in the
+field, on the oldest devices, which is the worst place to find one. Gate on the async
+`nativeCapabilities()` (the existing `EXPECTED_CONTRACT` negotiation), and treat "unknown" as no.
+
+**When it graduates, `native-audio.js` DOES get edited — deliberately.** The actual bridge call has
+to live there, and per CLAUDE.md that is the signal to STOP and rebuild + re-test the APK, not
+something to slip in beside a panel feature. Building the stub now costs nothing and touches
+nothing; building the bridge is its own release with its own APK.
+
+### ⚠ The device-side case is the stronger one, and it already exists
+
+`convertAudio` has four call sites, but the one that matters most is not any of them: `app.js`
+**`segWorkingMedia`** does its own inline `decodeAudioData` + `encodeWav` to build the `segwav:`
+working copy — **on the field device, in the editor**, for every lossy recording in segmentation
+mode. And it already ends in:
+
+```js
+} catch { return media; }   // undecodable → play the original; alignment caveat stands
+```
+
+**The fallback Seth just specified for the panel is already the device's behaviour, with the same
+reasoning and the same caveat.** The panel is the outlier that refuses instead of degrading — which
+is further evidence the fix is a degradation ladder, not a bigger ceiling.
+
+It also means a native converter would pay off most on a **phone**, where memory is tightest and a
+big lossy recording silently loses alignment today. Worth remembering when the native side is
+scoped: this plan's panel case is the smaller half.
 
 ## Tests
 
@@ -123,6 +175,12 @@ that now works.
   file, the `.annotations.eaf` matches it, and **no `bext` chunk claims it is derived**.
 - `.fxpa` built with `segMedia: null` parses and has no `audio` key.
 - `makeZip` throws (not truncates) past `ZIP_HARD_MAX`.
+- `./check-native-containment.sh` still passes with `native-convert.js` present — i.e. the new
+  module names neither `window.Capacitor` nor `__flextextNative`. This is the assertion that keeps
+  the stub honest, and it is already automated.
+- `nativeConvertAvailable()` is false in a plain browser **and** false when `isNativeShell()` is
+  true but capabilities are unknown — pin the platform-vs-capability distinction, since that is the
+  failure that would only surface on old field APKs.
 
 ## Not in scope
 

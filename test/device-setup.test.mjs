@@ -222,7 +222,10 @@ for (const k of ['consentAsk', 'consentMsg', 'consentAudioFile', 'consentConfirm
 /* ⚠ The whole point of the file route: it adds NO new path through the consent flow. The prompt is
  * written to the SAME media key requestConsentThen already falls back to, so playback, the IRB
  * freeze of the exact prompt played, and the bundled copy all keep working untouched. */
-ok(/await ensureAsset\('asset:consent-prompt', settings\.consentAudio, consentAudioIdentity\(\)\)\s*\n?\s*\|\| await getAsset\('asset:consent-prompt'\)/.test(app),
+// v3 added a 4th arg (the naming title — the prompt is delivered by a private-token URL too, so
+// without it the cached clip was stored under the delivery token). The SEAM is what matters here:
+// same media key, same fallback to the stored asset.
+ok(/await ensureAsset\('asset:consent-prompt', settings\.consentAudio, consentAudioIdentity\(\)[^)]*\)\s*\n?\s*\|\| await getAsset\('asset:consent-prompt'\)/.test(app),
    'requestConsentThen still falls back to the stored asset (the seam the file route rides on)');
 ok(/db\.putMedia\('asset:consent-prompt', \{/.test(app), 'a picked file is written to that same key');
 ok(/if \(!url\) return null;/.test(read('../docs/js/audio.js')),

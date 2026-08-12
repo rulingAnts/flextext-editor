@@ -97,6 +97,46 @@ assignment folder shape is consistent regardless of how the text was created."*
 picker) → Files menu rebuilt on the new shape (manifest-first, heuristic fallback) → the six
 downloads. Downloads testing is blocked until this lands.
 
+## ⬛ v3 WORK ORDER — from the v336 / `assign-by-upload v2` test drive (2026-08-12)
+
+Seth's v2 results: record ✅, assign ✅, edit+upload ✅ (bare `.flextext` lands in the text folder,
+not `originals/`), consent prompt ✅, join/split ✅. Four items came out of it, in priority order.
+
+**1. GIBBERISH EXPORT FILENAMES — fix first, it is one line of cause.**
+Observed: `bwpX_YzJZRolHdh_.converted-NOT-ARCHIVAL.wav`, `….preview.html`, `….annotations.eaf`.
+Root cause: every downloader names the file from the URL's LAST PATH SEGMENT
+(`decodeURIComponent(url.split('/').pop()…)` — audio.js:104, :372, :536, :557). For an assigned
+text the URL is `/v1/textfile/<token>`, so the name becomes the opaque token. Everything derived
+downstream inherits it.
+Fix BOTH ends:
+  - At download, name the stored media from the story title (`<Storyname>.<ext>`, the same
+    `sanitizeBase` + `extOf` rule the source package uses), falling back to content-disposition,
+    and only then to the URL tail. A token must never become a filename.
+  - At export, derive the base from the STORY TITLE, never from `media.name` — so a text whose
+    media was stored under a bad name before this fix still exports correctly. Applies to the
+    editor's local save AND the Files-menu conversions. Note `docFilename` already sanitises to 80
+    chars while the source package uses 120: pick one rule and share it.
+
+**2. BUILD THE FILES/DOWNLOADS MENU** on the manifest, per §8 above (manifest → six items;
+no manifest → a single "Open the Drive folder ↗" link; the inferred menu is deleted).
+
+**3. A PENDING UPLOAD MUST BE VISIBLE IN THE PANEL.** Seth: an edit-and-upload "just disappears
+until the remote device loads it and then uploads it again". The panel should show a pending/in-
+flight state the way it shows a pending delete, persisting until it lands or is cancelled. Compose
+this with the deferred "Pending actions" modal (a History-like list of everything waiting on a
+device to come online or a transfer to finish).
+
+**4. CONSENT-PROMPT UPLOAD NEEDS PROGRESS, AND MUST NOT ERROR WHILE IT RUNS.** Today "push to
+device" throws an error until the background upload finishes. Show uploading/percentage, and make
+the push either wait for the upload or refuse with a clear "still uploading" state — never an error
+that looks like failure when the thing is simply not done yet.
+
+**Known issue, deliberately not blocking (Seth):** "It's only assigned flextext files that have no
+timing in them that cause glitches with the baseline editor." An assigned flextext with no
+`begin/end-time-offset` attributes seeds no spans, and the baseline strip view misbehaves. He is
+willing to ship without this fixed; investigate when convenient. Test 6 (brand-new device gets
+segmentation by default) was skipped in this round.
+
 ## Why
 
 Assignments today ride hand-shared public Drive URLs. Live verification (2026-08-11, memory

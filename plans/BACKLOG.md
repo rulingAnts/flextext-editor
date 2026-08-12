@@ -647,3 +647,40 @@ engine, and the early-return-per-mode pattern is how one file serves four apps. 
 core / editor / recorder / crowd) would make drift structurally visible rather than something to
 remember — but it touches every sw.js SHELL and the v108 outage is what happens when that goes
 wrong. Plan and test first, exactly as Seth says.
+
+## Google Drive storage footprint — especially for less-well-resourced users (Seth, 2026-08-12)
+
+> "At some point we may have to think about storage space on Google Drive especially for
+> less-well-resourced users."
+
+**Why it is newly urgent:** the assign-by-upload v2 restructure deliberately traded bytes for a
+consistent folder shape. Every text now lands its FULL original audio in `<Storyname>/originals/`
+(previously a recorded text's audio was sealed in one bundle zip and an assigned text's audio was
+never uploaded at all), plus a manifest, plus the consent artifacts. The per-text footprint went UP,
+and it is the audio that dominates — a 24-bit WAV recording is roughly 8 MB/minute. A researcher on
+a free 15 GB Google account shares that quota with Gmail and their own Drive, so a few dozen
+recorded texts can fill it, and the failure mode is a device retrying an upload forever against a
+quota error it cannot fix.
+
+Things worth weighing when this is picked up (nothing decided):
+
+- **Nothing here is a duplicate today, so dedupe is not the lever.** The originals are the archival
+  copy; the derived WAV and the seg exports were deliberately taken OFF uploads in v3-era work
+  (Lane B is the bare `.flextext`; the Downloads menu builds conversions on demand). The remaining
+  growth is real source material plus the `.flextext` backup-copy pileup.
+- **The backup-copy pileup is the cheap win.** Lane B uploads a timestamped `.flextext` per
+  auto-backup, and they accumulate forever. `cleanupCandidates` already computes exactly the older-
+  than-newest set and already refuses to touch assignment-role files — today it is a manual menu
+  action. An automatic or prompted retention rule (keep N, or keep newest + weekly) would reclaim
+  most of it with machinery that already exists and is already tested.
+- **Quota needs to surface as a real state, not a retry loop.** A Drive 403 `storageQuotaExceeded`
+  is PERMANENT for the device — it must classify like the expired-token 401 (stop, report), and the
+  panel should be able to say "this researcher's Drive is full" rather than showing an upload that
+  never lands. That is the piece that actually protects a field worker's day.
+- **Lossy archival is a Seth decision, not an engineering one.** Offering a compressed upload lane
+  would cut the dominant cost by ~10x, but it contradicts the archival stance the native apps exist
+  to serve (see the `js/native-audio.js` boundary and the bext honesty rules). If it is ever offered
+  it must be an explicit researcher choice, named as lossy, and never the default.
+- **Whose Drive is it?** Uploads land in the RESEARCHER's Drive via their OAuth token, so the quota
+  that runs out is theirs, not the device owner's — which is also why the device cannot resolve it
+  and why the panel is the right place to show it.

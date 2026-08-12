@@ -19,7 +19,7 @@ import { losslessSupported, recFormatSupported, PCMRecorder, encodeWav, encodeRe
 import WaveSurfer from './vendor/wavesurfer.esm.js';
 import { makeZip } from './zip.js';
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay } from './segment-strips.js';
-import { wavWithBext, captureBext, assembleSegEntries } from './seg-exports.js';
+import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME } from './seg-exports.js';
 import { mergeSegments, splitSegment, isAligned, normalizeSegments } from './segments.js';
 import { initParagraphApp } from './paragraph-ui.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget } from './upload.js';
@@ -4070,7 +4070,6 @@ async function queueMediaUpload(docId) {
   return true;
 }
 
-const MANIFEST_NAME = 'flextext-manifest.json';
 
 // Drive-safe file base from a story title — the SAME rule the worker uses for the folder name, so
 // "<Storyname>.<ext>" and "<Storyname>/" cannot disagree.

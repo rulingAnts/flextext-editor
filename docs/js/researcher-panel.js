@@ -13,11 +13,11 @@
  */
 
 import * as Researcher from './researcher.js';
-import { t, getLang, setLang, applyI18n, ENGINE_VERSION, LANGS, LANG_NAMES } from './i18n.js';
+import { t, getLang, setLang, applyI18n, ENGINE_VERSION, BUILD_TAG, LANGS, LANG_NAMES } from './i18n.js';
 import { REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { importPublicKeyB64, publicKeyFingerprint } from './crypto.js';
 import { esc, parseFlextext, surveyWritingSystems, remapWritingSystems, analyzeFlextextWs, segmentsFromOffsets } from './flextext.js';
-import { assembleSegEntries } from './seg-exports.js';
+import { assembleSegEntries, MANIFEST_NAME } from './seg-exports.js';
 import { convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
 import WaveSurfer from './vendor/wavesurfer.esm.js';
 import * as db from './db.js';
@@ -2252,6 +2252,36 @@ async function runAssignUpload(docId) {
       rec.folderId = b.folderId; rec.originalsFolderId = b.originalsFolderId;
       await save();
     }
+    /* The manifest goes FIRST, before a single source byte — so that from the moment the folder
+     * exists it declares what SHOULD be in it, and any consumer (the Files menu, a future app) can
+     * compare that list against the folder and NAME what has not arrived rather than guessing.
+     * Written once: if the queue resumes after a restart, manifestFileId is already set. */
+    if (!rec.manifestFileId) {
+      const manifest = {
+        schema: 1,
+        docId,
+        title: rec.title || '',
+        origin: 'assigned',
+        originatedAt: rec.queuedAt || Date.now(),
+        writtenAt: Date.now(),
+        engine: ENGINE_VERSION,
+        buildTag: BUILD_TAG || '',
+        writingSystems: { vern: rec.vernLang || '', anal: rec.analLang || '' },
+        audio: rec.audio ? { name: rec.audio.name, mime: rec.audio.mime, bytes: rec.audio.size, derived: false } : null,
+        files: [
+          { name: MANIFEST_NAME, role: 'manifest', mime: 'application/json', bytes: 0 },
+          ...(rec.audio ? [{ name: rec.audio.name, role: 'source-audio', mime: rec.audio.mime, bytes: rec.audio.size }] : []),
+          ...(rec.flextext ? [{ name: rec.flextext.name, role: 'source-flextext', mime: rec.flextext.mime, bytes: rec.flextext.size }] : []),
+        ],
+        consent: { mode: '', prompt: false, response: false, receipt: false },
+      };
+      const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' });
+      rec.manifestFileId = await Researcher.assignUploadFile(rec.instanceId, docId, {
+        blob, name: MANIFEST_NAME, mime: 'application/json', kind: 'manifest',
+        originalsFolderId: rec.originalsFolderId,
+      }, {});
+      await save();
+    }
     let done = 0;
     for (const part of ['audio', 'flextext']) {
       const p = rec[part];
@@ -3418,8 +3448,15 @@ function fieldHtml(f) {
   // to the DEVICE folder in the researcher's Drive, and the minted private URL fills this same
   // field — the settings push carries it exactly as a pasted URL always did (zero wire changes).
   if (f.k === 'consentAudioUrl') {
-    return `<label class="rp-field"${tip}><span>${label}</span><input data-f="${f.k}" spellcheck="false"></label>
-      <div class="rp-field"><button type="button" class="secondary-btn" data-gact="consentUpload">${esc(t('panel.f.consentUpload'))}</button>
+    /* ⚠ The URL input is a HIDDEN value carrier, not a thing to type in. It stays in the DOM
+     * because fillForm/readForm move the setting through `[data-f]`, and the minted private URL
+     * lands in it — but showing it invited the obvious question ("what is the textbox for?", Seth,
+     * 2026-08-12) and implied a URL was still something a researcher pastes. Since assign-by-upload
+     * there is exactly one way in: pick the file. The status line reports what is stored. */
+    return `<div class="rp-field"${tip}><span>${label}</span>
+      <input data-f="${f.k}" type="hidden">
+      <div class="rp-prompt-state" data-promptstate>${esc(t('panel.f.consentNone'))}</div>
+      <button type="button" class="secondary-btn" data-gact="consentUpload">${esc(t('panel.f.consentUpload'))}</button>
       <input type="file" id="rp-consent-file" accept="audio/*,.wav,.mp3,.m4a,.aac,.ogg,.opus,.webm,.flac" hidden></div>${note}`;
   }
   const input = `<label class="rp-field"${tip}><span>${label}</span><input data-f="${f.k}" spellcheck="false"${tip}></label>${note}`;
@@ -3501,6 +3538,17 @@ function fillForm(box, v) {
       else el.checked = !!v[k];
     } else { el.value = v[k] != null ? v[k] : ''; }
   });
+  paintPromptState(box);
+}
+
+/* The consent prompt's status line — the visible half of a hidden value carrier. A stored value is
+ * a minted private URL, never anything a researcher would read, so report the STATE. */
+function paintPromptState(box) {
+  const el = box.querySelector('[data-promptstate]');
+  if (!el) return;
+  const url = (box.querySelector('[data-f="consentAudioUrl"]') || {}).value || '';
+  el.textContent = url ? t('panel.f.consentHave') : t('panel.f.consentNone');
+  el.classList.toggle('rp-prompt-set', !!url);
 }
 
 // Collect the form's raw values keyed by canonical field id (vernLang, upload, sendOptions, …).
@@ -3713,6 +3761,7 @@ async function openSettingsModal(target, opts = {}) {
           const fin = await Researcher.assignFinish(iid, 'consent-prompt', { promptFileId: fileId, ttlDays: assignTtlDays() });
           const input = box.querySelector('[data-f="consentAudioUrl"]');
           if (input && fin.promptUrl) input.value = fin.promptUrl;
+          paintPromptState(box);   // the hidden carrier changed — the visible state must follow
           deps.toast(t('panel.f.consentUploaded'), 5000);
         } catch (err) { errToast(err); }
       }));

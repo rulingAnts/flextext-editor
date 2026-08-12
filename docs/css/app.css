@@ -2028,3 +2028,8 @@ main {
 .scissor-btn { appearance: none; border: 1px solid var(--border); background: #fff; color: var(--muted);
                border-radius: 6px; min-width: 26px; height: 20px; font-size: 11px; cursor: pointer; line-height: 1; }
 .scissor-btn:hover { background: #fef2f2; border-color: #fca5a5; }
+
+/* Consent-prompt status: the visible half of a hidden value carrier (researcher panel). The stored
+   value is a minted private URL, never something to read, so the field reports STATE instead. */
+.rp-prompt-state { font-size: .9em; opacity: .75; margin: .25rem 0 .4rem; }
+.rp-prompt-state.rp-prompt-set { opacity: 1; color: var(--ok, #1a7f37); }

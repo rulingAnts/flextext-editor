@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v335';
+export const ENGINE_VERSION = 'v336';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v335';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'assign-by-upload v1';
+export const BUILD_TAG = 'assign-by-upload v2';
 
 const S = {
 en: {
@@ -1032,6 +1032,8 @@ internet after the first time.</p>
   'panel.util.ttlNote': 'How long a device has to fetch newly assigned files (7–400 days; the server enforces the bounds). Files already fetched stay on the device.',
   'panel.util.ttlSaved': 'Saved — applies to new assignments.',
   'panel.f.consentUpload': 'Upload a prompt recording…',
+  'panel.f.consentNone': 'No prompt recording uploaded yet.',
+  'panel.f.consentHave': '✓ A prompt recording is stored and will be sent to the device.',
   'panel.f.consentUploading': 'Uploading…',
   'panel.f.consentUploaded': 'Uploaded — the field above now holds your private Drive copy. Save to push it.',
   'panel.account.title': 'Account',
@@ -2465,6 +2467,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.util.ttlNote': 'Berapa lama perangkat punya waktu mengambil berkas yang baru ditugaskan (7–400 hari; server menegakkan batasnya). Berkas yang sudah diambil tetap tersimpan di perangkat.',
   'panel.util.ttlSaved': 'Tersimpan — berlaku untuk penugasan baru.',
   'panel.f.consentUpload': 'Unggah rekaman panduan…',
+  'panel.f.consentNone': 'Belum ada rekaman panduan yang diunggah.',
+  'panel.f.consentHave': '✓ Rekaman panduan tersimpan dan akan dikirim ke perangkat.',
   'panel.f.consentUploading': 'Mengunggah…',
   'panel.f.consentUploaded': 'Terunggah — ruas di atas kini berisi salinan Drive pribadi Anda. Simpan untuk mendorongnya.',
   'panel.account.title': 'Akun',

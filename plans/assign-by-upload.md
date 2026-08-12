@@ -675,3 +675,61 @@ storage footprint; the Drive API answer for a quota readout + cleanup (incl. the
 **today's cleanup reclaims no space until the trash is emptied**, since `usageInDriveTrash` counts
 inside `usage`); a Drive-side text inventory modal with per-text remove and the same Files ▾; and an
 "unassigned" holding place with moves in both directions.
+
+## Build log — v3.1 (v338, `assign-by-upload v4`)
+
+Seth's review round on v337. Both items were real; one was a bug in my v3 work.
+
+### Download-all now builds and injects the exports (Seth: "Is that possible?")
+
+Yes, and it is done. `Download all (ZIP)` now carries the folder's raw bytes PLUS a freshly built
+ELAN `.eaf` + `.pfsx`, the SayMore `.annotations.eaf`, the derived WAV, the listening page and the
+`.fxpa`.
+
+The design point worth keeping: they are built by the **same** `prepareConversionSources` +
+`assembleSegEntries` the individual menu rows use, extracted for this purpose. Two code paths each
+producing "the ELAN export" would drift, and the researcher would have no way to tell which one they
+got.
+
+⚠ **The degradation rule is the load-bearing part.** The raw bytes are what was actually asked for;
+the generated files are a bonus, and a bonus must not be able to take the request down with it — the
+failure modes (audio too big to decode in a tab, no alignment, an unparseable flextext, an outright
+throw) are exactly the texts where a researcher most needs the originals. Every one of them still
+delivers the folder zip and explains what was skipped. `drive-download.test.mjs` asserts each case.
+Name clashes with a real folder file are disambiguated, never overwritten: one copy is the
+researcher's own file, the other is built from the current flextext, and silently losing either
+would be bad.
+
+### The 0%-then-finished upload — my bug, now fixed at the cause
+
+Seth's assumption was right and the code was wrong. `assignUploadFile` was modelled on the device's
+`upload.js _streamChunked` but had flattened its adaptive sizing to a **fixed 8 MiB**, which caused
+two problems sharing one cause:
+
+1. `onProgress` fires once per COMPLETED chunk, so any file under 8 MiB — every spoken consent
+   prompt — was a single chunk and reported nothing until it was already done.
+2. **A failing chunk retried at the same size**, which on a weak field connection is the one thing
+   you must not do. The device path halves on failure precisely because of this. This half was never
+   visible in the test drive and is the more important fix.
+
+Now the same AIMD as `upload.js`: 256 KiB granularity (**Drive requires multiples of 256 KiB for
+every chunk but the last** — a naive "use smaller chunks" fix would 400 on the *second* chunk, so it
+would pass any single-chunk test and fail only on big uploads), doubling under 15 s, halving on
+failure or over 60 s, ceiling 8 MiB (the old fixed size), and a size-aware opening guess aiming at
+~8 slices so a small file shows movement immediately. A resumed upload now paints its true offset
+instead of starting the display at zero.
+
+`assign-chunk-policy.test.mjs` drives the REAL loop against a fake transport (researcher.js imports
+cleanly under node once its worker base and auth storage are supplied).
+
+### Answers to the questions asked
+
+- **The three "worth your attention" items were heads-ups, not decisions**, except one: whether to
+  retire `artifacts.js` (now unimported by the panel). That is optional and can wait indefinitely.
+- **Production version handling is unchanged and correct.** `bump-version.sh` remains the only way
+  versions move; `ENGINE_VERSION` is numeric `vNNN` (v338) so the `engNum` capability gates parse it;
+  `docs/sw.js` VERSION equals it, which is what makes installed PWAs fetch a new shell; each
+  satellite bumped its own VERSION and declares `ENGINE = 'v338'`, enforced by `version-sync`.
+  **The ONLY production-specific step is clearing `BUILD_TAG` to `''`** — `bump-version.sh` prints a
+  warning while it is set, and the badge shows it on screen, so a tagged build reaching production
+  announces itself.

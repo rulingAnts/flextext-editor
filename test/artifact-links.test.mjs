@@ -43,39 +43,45 @@ ok(ext[0].url === 'https://example.org/recordings/kasuari.wav', 'and the origina
 const drv = resolveArtifacts(null, { audioUrl: 'https://drive.google.com/file/d/QQQ111qqq_222/view' });
 ok(drv[0] && drv[0].id === 'QQQ111qqq_222', `a pasted Drive share link yields its id: ${drv[0] && drv[0].id}`);
 
-console.log('\nthe panel routes by id when it has one, and by href when it does not');
-ok(/fileRows\.push\(f\.id\s*\n?\s*\?\s*`<a class="rp-dl-item" role="menuitem" data-drivefile="\$\{esc\(f\.id\)\}"/.test(panel),
-   'an artifact WITH an id becomes a data-drivefile row (Worker-routed)');
-ok(/:\s*`<a class="rp-dl-item" role="menuitem" href="\$\{esc\(f\.url\)\}" target="_blank"/.test(panel),
-   'and one WITHOUT an id keeps its plain href — external hosts still work');
-ok(/data-fname="\$\{esc\(fname\)\}"/.test(panel), 'the row names the download (the handler needs it)');
-// Substring, not a regex: the pattern being checked is itself full of escapes.
-ok(panel.includes(`const fname = \`\${title || 'text'} - \${t(f.labelKey)}\``)
-   && panel.includes(`.replace(/[\\\\/:*?"<>|]+/g, '_')`),
-   'and that name is built from the text title and stripped of characters no filesystem accepts');
+/* ⚠ v3 (2026-08-12): THE PANEL NO LONGER RENDERS resolveArtifacts ROWS AT ALL.
+ *
+ * The v3 work order deleted the inferred menu outright — Seth: *"the inferred menu has actually
+ * never worked correctly and it's not worth our time making it work correctly if it's just a
+ * fallback."* The Files menu now has exactly two states, and neither has a place for a
+ * device-REPORTED artifact: a text WITH a `flextext-manifest.json` gets the fixed item list built
+ * from the manifest + the folder's role tags, and a text WITHOUT one gets a single
+ * "Open the Drive folder ↗" link. A folder link cannot be wrong.
+ *
+ * The assertions below therefore invert: what used to be pinned as PRESENT is now pinned as ABSENT,
+ * because re-introducing it is the regression. `artifacts.js` itself is untouched and still tested
+ * (above, and in artifacts-resolve.test.mjs) — it is simply no longer imported by the panel. That
+ * is deliberate: the module is pure and correct, and deleting it would touch every sw.js SHELL for
+ * no gain. Retiring it is a separate decision for Seth. */
+console.log('\nthe panel no longer renders device-reported artifact rows');
+ok(!/resolveArtifacts/.test(panel), 'researcher-panel.js does not import or call resolveArtifacts');
+ok(!/if \(f\.inferred\) continue;/.test(panel),
+   'the inferred-artifact filter is gone WITH the rows it was filtering — nothing left to filter');
+ok(!/panel\.hist\.uploadLink'\)\}<\/span>/.test(panel),
+   'and the history-fileId "last upload" fallback row is gone too');
 
-console.log('\n⚠ PARKED: an INFERRED kind produces NO row — the guess was wrong in the field');
-/* Seth clicked "Bundle (.zip, includes audio)" and got raw flextext XML. uploadedMap()'s legacy
- * branch guesses the kind from `hasAudio` alone — but hasAudio is ALSO true when the audio is a
- * researcher-ASSIGNED Drive URL the device never uploaded, so the device had uploaded a bare
- * .flextext while the row promised a zip with audio in it. */
-ok(/if \(f\.inferred\) continue;/.test(panel), 'the panel skips inferred artifacts');
+console.log('\n...but the pure model still behaves, so retiring it stays a free choice');
 {
-  // Legacy scalar + hasAudio → the bad inference. It must still be MARKED inferred by the model...
+  // Legacy scalar + hasAudio → the bad inference the park was about. The MODEL must still mark it,
+  // so that whoever picks artifacts.js up again inherits the warning rather than the bug.
   const legacy = resolveArtifacts({ uploadedFileId: 'LEG123abc_456', hasAudio: true }, null);
   ok(legacy.length === 1 && legacy[0].kind === 'bundle', 'resolveArtifacts still reports it (the model is unchanged)');
-  ok(legacy[0].inferred === true, '...flagged inferred, which is what the panel now filters on');
-}
-{
-  // ...and an EXPLICIT per-kind report is NOT inferred, so those rows survive untouched.
+  ok(legacy[0].inferred === true, '...still flagged inferred, which is what made the guess visible');
   const explicit = resolveArtifacts({ uploaded: { bundle: 'REAL123abc_789', 'eaf-flex': 'EAF123abc_00' } }, null);
-  ok(explicit.length === 2, 'an explicit per-kind report still yields its artifacts');
-  ok(explicit.every((f) => f.inferred === false), '...none of them inferred, so none are suppressed');
-  ok(explicit.every((f) => !!f.id), '...and each still carries its Drive id for Worker routing');
+  ok(explicit.length === 2 && explicit.every((f) => f.inferred === false && !!f.id),
+     'an explicit per-kind report still resolves, not inferred, each with its Drive id');
 }
-// The rows that come from the Drive FOLDER LISTING are a different code path and untouched.
-ok(/data-drivefile="\$\{esc\(f\.id\)\}" data-fname/.test(panel), 'folder-listing rows still emit data-drivefile');
-ok(/data-zipall/.test(panel), 'and Download-all is untouched — it still fetches everything');
+
+console.log('\nthe rows that DO survive are the ones backed by Drive itself');
+// Folder-listing rows and the manifest-driven items route by file id through the Worker.
+ok(/data-drivefile="\$\{esc\(audioF\.id\)\}"/.test(panel), 'the original-audio item routes by Drive id');
+ok(/data-drivefile="\$\{esc\(ftF\.id\)\}"/.test(panel), 'and so does the flextext item');
+ok(/data-zipall/.test(panel), 'Download-all is untouched — it still fetches everything');
+ok(/driveFolderLink\(folderId\)/.test(panel), 'and the no-manifest state is a folder link');
 
 console.log('\nthe handler that receives them is the SAME one the folder rows already use');
 ok(/const df = e\.target\.closest && e\.target\.closest\('\[data-drivefile\]'\);/.test(panel),

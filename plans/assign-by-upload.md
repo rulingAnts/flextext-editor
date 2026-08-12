@@ -537,3 +537,141 @@ No version bump, no deploys, no merges — all reserved for the morning session 
 7. Production only after explicit sign-off, runbook order: worker deploy (additive endpoints are
    straight-to-prod eligible; the files-listing CHANGE must have passed its staging test) →
    editor `productionWeb` → satellites.
+
+## Build log — v3 (2026-08-12, Claude session)
+
+All four work-order items built in priority order, each committed with the full suite + eslint +
+native-containment green. Bumped to **v337**, `BUILD_TAG = 'assign-by-upload v3'`, merged `--no-ff`
+into `staging` for Seth's test drive. No worker deploy, no Actions dispatch, no production branch
+touched.
+
+### Done, per item
+
+**1. Gibberish export filenames — fixed at BOTH ends** (`1602ef5`).
+The root cause was as diagnosed: every downloader named its file from the URL's last path segment,
+which for `/v1/textfile/<token>` is the token. Fixed at download AND at export, because either alone
+leaves half the field broken.
+- **Download** (`audio.js`): precedence is story title → a server-STATED filename (relay envelope /
+  Content-Disposition) → the URL tail. `nameFromUrl` refuses the `/v1/textfile/` route outright (it
+  is a token by construction, whatever the segment looks like) and refuses any tail with no
+  plausible extension. `AudioDownload._complete` is the single chokepoint every completion path goes
+  through, so a partial persisted by a pre-v3 build heals simply by finishing.
+- **Export** (`seg-exports.js`, `app.js`, `researcher-panel.js`): names derive from the TITLE base,
+  never off the stored media record. **This is what makes the fix retroactive** — a text assigned
+  before v3 still has the token in IndexedDB and now exports correctly anyway, no migration, no
+  re-download. Worth keeping in mind if this code is ever "simplified".
+- The EAF's media reference and the WAV entry beside it come from the same derivation, so they
+  cannot disagree. Fixing only one side would have produced a tidy-looking bundle ELAN cannot open —
+  a worse failure than an ugly name. The bext chunk still names the REAL source file: renaming for
+  tidiness must not launder provenance.
+- `sanitizeBase`/`extOf` moved to `seg-exports.js` beside `MANIFEST_NAME`, for the reason stated
+  there. That settles the work order's 80-vs-120 question at **120**, which is also the worker's
+  Drive folder rule, so `<Storyname>.<ext>` and `<Storyname>/` cannot disagree.
+
+**2. Files menu on the manifest; inferred menu deleted** (`f926028`, `0e4c1a1`).
+Two states, as specified: manifest → the fixed item list; no manifest → ONE item, "Open the Drive
+folder ↗". Deleted: `EXT_KIND`, `latestPerKind`, the panel's legacy zip reading, `unzipStoreEntry`
+(zip.js), the `resolveArtifacts` fill rows, the history-fileId last-resort row, and
+`assignedCache`/`assignedFor` (orphaned by the fallback row's removal).
+What the manifest buys beyond not guessing: a declared-but-absent file is NAMED ("not uploaded yet")
+plus a summary of what is still to arrive, with completeness DERIVED from declared-vs-present and no
+stored flag to go stale; conversions carry a real size estimate before the click; writing systems
+come from the package rather than a second `getInstanceSettings` round trip; item 1 is labelled by
+`origin` (an unknown origin degrades to its raw value, never a raw i18n key); the recording package
+appears only when consent artifacts are DECLARED.
+
+**3. A sent assignment stays visible** (`0fe8044`).
+The gap was after the upload queue's record is deleted: the assign command is sent and then nothing
+is on screen until the device reports the text. Composed into `pendingCmds` as `kind: 'assign'`,
+carrying the Worker seq, set BEFORE the queue record is deleted, retired by the inventory FACT of
+the text appearing. Rendered as a synthesized row through the SAME renderer as every other text, so
+it reads "the way a pending delete reads". Cancel while queued (seq > ack_seq) reuses the existing
+seq-checked `cancelCommand`; once taken it says so instead of offering a cancel the Worker would
+refuse. The deferred "Pending actions" modal composes on top: everything waiting is now one
+persisted, seq-bearing marker map.
+
+**4. Consent-prompt upload: progress, and Save stops erroring** (`f7572fd`).
+`assignUploadFile` had accepted an `onProgress` callback all along and this caller never passed one.
+It now paints a real percentage plus a distinct "Finishing…" state for the URL-minting round trip
+after the last chunk. An in-flight flag (cleared in a `finally`) makes Save refuse plainly —
+"still uploading (N%) — nothing has gone wrong" — instead of running validation that correctly
+reports a not-yet-filled required field and incorrectly makes it look like a failure.
+
+### Deviations from the brief, with reasons
+
+1. **`BUILD_TAG` WAS edited** to `'assign-by-upload v3'` (the brief reserved it for the release
+   session). Seth authorised the bump mid-session for a staging test drive, and per CLAUDE.md the
+   tag exists precisely so the on-screen badge answers "am I testing the right build?" — leaving it
+   at `v2` while test-driving v3 work would actively mislead. Trivially reverted if unwanted.
+   `ENGINE_VERSION` stayed numeric (`v337`), so the `engNum` capability gates are unaffected.
+2. **The whole of the inferred menu went, not only the three named pieces.** The work order named
+   `EXT_KIND`, `latestPerKind`, the legacy zip read and `unzipStoreEntry`. The `resolveArtifacts`
+   fill rows and the history-fileId row had to go too: the spec defines exactly two menu states and
+   neither has a place for a device-REPORTED artifact. `artifact-links.test.mjs` was inverted to pin
+   them as absent.
+3. **`cleanupCandidates` was REWRITTEN, not merely detached from `latestPerKind`.** §8 said those
+   helpers "stay only if the cleanup feature still uses them", which would have kept the deleted
+   heuristic alive inside a destructive operation. Instead it now lists what MAY GO (older bare
+   `.flextext` backup copies) rather than subtracting what must stay — so a role it has never heard
+   of is kept by default. ⚠ The old form derived "keep" from the extension table, so deleting that
+   table could have silently WIDENED what cleanup proposes to trash. That is the single most
+   dangerous edit in this session and it is why `text-folder-files.test.mjs` is mostly about it.
+4. **`artifacts.js` is left in place though the panel no longer imports it.** It is pure and still
+   tested; deleting it would touch every satellite `sw.js` SHELL for no gain, and SHELL edits were
+   out of bounds. **Retiring it is Seth's call.**
+5. **`moveTextModal` keeps a legacy `.zip` pick.** The panel no longer reads zips, but the WORKER
+   still extracts a `.flextext` from one server-side for a legacy move, so the selection had to
+   survive somewhere. It is scoped to that one call site and commented as such.
+6. **A pending assign is NOT recorded on the move path.** `moveTextModal` already shows its own chip
+   via `pendingMoves`; two markers for one wait is worse than none.
+7. **The empty-inventory short-circuit was removed** (`inv && inv.length ? inv.map(...)`). It had to
+   go for item 3 or a brand-new device's FIRST assignment — the likeliest moment for the feature to
+   matter — would still have rendered "no texts yet".
+
+### Untested by construction — needs the live rig
+
+- **Nothing in this session ran in a browser.** Every new surface (the rebuilt Files menu, the
+  pending-assign row and its chips, the consent upload's percentage, the Save refusal) has only ever
+  been exercised as source, or through lifted-function harnesses with a fake DOM.
+- **Item 1's download half needs a real assigned text.** The tests prove the naming rule and prove
+  the wiring is present, but the actual `/v1/textfile/<token>` fetch → stored media record → export
+  chain has not run against the real worker. **This is the one to test first**, because it is the
+  reported bug: assign a text with audio, let the device fetch it, then save locally and confirm the
+  zip contains `<Storyname>.<ext>`, `<Storyname>.converted-NOT-ARCHIVAL.wav` and
+  `<Storyname>.preview.html` — no token anywhere.
+- **The retroactive path is worth a separate check**: open a text that was assigned under v336
+  (whose stored `media.name` IS a token) and export it. It should come out clean without
+  re-downloading. That is the half a re-download would mask.
+- **Item 2 against real Drive folders**: a v2 text (manifest present → the item list, sizes, origin
+  label) and a pre-v2 text (no manifest → exactly one folder link). Also the "declared but not
+  arrived" row, which needs an upload caught mid-flight.
+- **The recording package** has never been built from a real folder.
+- **Item 3's timing** only shows against a device that has NOT polled — a device that checks in
+  immediately looks identical with or without the fix.
+- **Item 4's percentage** needs a prompt file big enough to take more than one 8 MiB chunk.
+- **The staging-first rule for the files-LISTING worker change still stands** and is unchanged from
+  v2: it was flagged in-code then and has not been deployed or tested since.
+- The new Indonesian strings were drafted here, not native-checked.
+
+### Remaining steps for Seth's next session, in order
+
+1. **Deploy the worker to staging** (`worker-wrangler.yml` → `deploy --env staging`) and read the
+   log for workers.dev-only routes. The v2 files-listing change has still never been tested against
+   a real Drive; everything in item 2 reads its output.
+2. **Test drive staging** with `?devworker=staging` — the badge should read `v337 · assign-by-upload
+   v3`. Priority order matches the work order: filenames first (incl. the retroactive case), then
+   the Files menu's two states, then the pending-assign row, then the consent upload.
+3. **Review the Indonesian strings** added this session (`panel.dl.*`, `panel.up.assign*`,
+   `panel.f.consent*`).
+4. **Decide on `artifacts.js`** — retire it, or leave it as a pure module with no caller.
+5. Production only after explicit sign-off, runbook order: worker deploy → editor `productionWeb` →
+   satellites. **Clear `BUILD_TAG` to `''` before any production release** (`bump-version.sh` warns
+   while it is set).
+
+### Recorded during this session, deliberately NOT built (see `plans/BACKLOG.md`)
+
+Four items Seth raised mid-session, all explicitly deferred by him to a future cycle: Google Drive
+storage footprint; the Drive API answer for a quota readout + cleanup (incl. the finding that
+**today's cleanup reclaims no space until the trash is emptied**, since `usageInDriveTrash` counts
+inside `usage`); a Drive-side text inventory modal with per-text remove and the same Files ▾; and an
+"unassigned" holding place with moves in both directions.

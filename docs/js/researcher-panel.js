@@ -779,6 +779,18 @@ function viewSig(data) {
         ]),
       ]),
       (data.pending || []).map((p) => [p.researcher_id, p.email]),   // owner: re-render when a request lands
+      /* ⚠ CLIENT-SIDE PENDING STATE IS PART OF WHAT THE TILES SHOW (v339). This signature decides
+       * whether the 12s poll re-renders, and it used to be built from SERVER data alone — so a
+       * marker set while the device was offline changed nothing the signature could see, the poll
+       * concluded "nothing to redraw", and the pending row simply never appeared. Seth: assigned
+       * texts and their status refresh "a little slow and not always automatic".
+       *
+       * That is worst in exactly the case the markers exist FOR: an offline device produces no
+       * server-side change at all, so the row that says "waiting for the device" was the one row
+       * guaranteed not to be drawn. Sorted by key so Map insertion order cannot make an unchanged
+       * state look changed and cause a redraw every tick. */
+      [...pendingCmds].sort((a, b) => String(a[0]).localeCompare(String(b[0]))).map(([id, p]) => [id, p.kind, p.seq]),
+      [...pendingMoves].sort((a, b) => String(a[0]).localeCompare(String(b[0]))).map(([id, mv]) => [id, mv.stage]),
     ]);
   } catch { return String(Math.random()); } // unserializable → treat as changed
 }
@@ -2452,6 +2464,9 @@ async function runAssignUpload(docId) {
       pendingCmds.set(docId, { seq: sent.seq, kind: 'assign', instanceId: rec.instanceId,
                                title: rec.title || '', hasAudio: !!rec.audio, at: Date.now() });
       savePending(Researcher.currentAccountId());
+      // Redraw NOW from cached data (no refetch — the marker is client-side): waiting up to 12s to
+      // see the result of your own action is the other half of the "slow refresh" report.
+      renderDashboard(lastData || undefined);
     }
     const inst = (lastData && (lastData.instances || []).find((x) => x.instance_id === rec.instanceId)) || null;
     recordEvents(Researcher.currentAccountId(), [assignedEvent({

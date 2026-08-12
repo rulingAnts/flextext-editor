@@ -113,6 +113,45 @@ console.log('\nthe move path deliberately does NOT double up');
      'and does NOT also set a pendingCmds assign — one wait, one marker');
 }
 
+/* ---------------------------------------------------------------------------------------------
+ * v339: THE ROW ALSO HAS TO GET DRAWN.
+ *
+ * Everything above pins that the marker is created, retired and rendered CORRECTLY. It was, and it
+ * still did not reliably appear — Seth: assigned texts and their status refresh "a little slow and
+ * not always automatic". The cause was one level up: `viewSig` decides whether the 12s poll
+ * re-renders at all, and it was built from SERVER data alone. A marker set while the device was
+ * offline changes nothing server-side, so the signature was identical, the poll concluded "nothing
+ * to redraw", and the row never appeared.
+ *
+ * ⚠ This is the same shape of bug as the one this file already guards, one layer out: it is
+ * INVISIBLE against a device that polls promptly (the inventory changes, the signature changes, the
+ * render happens, everything looks right) and shows only against an offline device — which is
+ * precisely the case the pending row exists for. A correct renderer that is never called is
+ * indistinguishable from a broken renderer.
+ * ------------------------------------------------------------------------------------------- */
+console.log('\nthe poll actually re-renders when only CLIENT-side pending state changed');
+{
+  const sig = (panel.match(/function viewSig\(data\) \{[\s\S]*?\n\}/) || [''])[0];
+  ok(/pendingCmds/.test(sig), 'viewSig includes pendingCmds — without it an offline assign draws nothing');
+  ok(/pendingMoves/.test(sig), 'and pendingMoves, which had the same latency');
+  ok(/p\.kind, p\.seq/.test(sig),
+     'the marker KIND and SEQ are in the signature, so queued->taken redraws too');
+  // Map iteration order must not make an unchanged state look changed, or the dashboard would
+  // redraw every 12s forever — a fix that trades one annoyance for a worse one.
+  ok(/\.sort\(/.test(sig), 'entries are sorted, so a stable state yields a stable signature');
+  ok(/viewSig\(data\) !== lastSig\) renderDashboard\(data\)/.test(panel),
+     'and the poll still renders only on a real change');
+}
+
+console.log('\n...and the researcher sees their own action immediately, not on the next tick');
+{
+  const after = panel.slice(panel.indexOf("kind: 'assign'"));
+  ok(/renderDashboard\(lastData \|\| undefined\)/.test(after.slice(0, 700)),
+     'setting the marker redraws at once');
+  ok(/no refetch/.test(after.slice(0, 700)) || /lastData \|\| undefined/.test(after.slice(0, 700)),
+     '...from cached data — the marker is client-side, so a server round trip would buy nothing');
+}
+
 console.log('\nevery new string is in BOTH languages');
 {
   const block = (lang) => {

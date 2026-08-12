@@ -2012,9 +2012,15 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           const textFolder = body.docId
             ? await driveEnsureTextFolder(access, deviceFolder, body.docId, body.docTitle, body.folderId)
             : deviceFolder;
-          // Absent => null => no change (old engines send nothing; see driveMarkDone).
+          /* ⚠ NEVER AWAITED — the done marker must not sit in the upload's critical path.
+           * It is cosmetic (a tag + a folder-name suffix), while this path is the single most
+           * important one in the system: a field device on a bad connection pushing a text it may
+           * have spent hours on. Awaiting a Drive round trip here would add latency to every
+           * upload, and a Drive call that hangs would stall the upload itself, to decorate a
+           * folder. ctx.waitUntil lets it finish AFTER the response, so a failure or a slow Drive
+           * costs the upload nothing. Absent => null => no change (old engines send nothing). */
           if (body.docId && body.sub !== 'originals') {
-            await driveMarkDone(access, textFolder, body.done === '1' ? true : body.done === '0' ? false : null, body.docTitle);
+            ctx.waitUntil(driveMarkDone(access, textFolder, body.done === '1' ? true : body.done === '0' ? false : null, body.docTitle));
           }
           // Same v2 source-package routing as the single-POST path: `sub` picks the originals/
           // child, `role` becomes the tag consumers match on instead of the filename.
@@ -2105,8 +2111,9 @@ export async function handleV1(request, env, ctx, url, path, origin) {
             // Query param, NOT a header: a custom header needs a CORS allow-list entry, and until
             // this worker is deployed the browser refuses the whole upload at preflight. See the
             // note in upload.js — this is what makes a new client safe against an old worker.
+            // waitUntil, not await: see the chunked path — cosmetic work never blocks an upload.
             const hd = url.searchParams.get('done');
-            await driveMarkDone(access, textFolder, hd === '1' ? true : hd === '0' ? false : null, docTitle);
+            ctx.waitUntil(driveMarkDone(access, textFolder, hd === '1' ? true : hd === '0' ? false : null, docTitle));
           }
           const folder = (sub === 'originals' && docId)
             ? await driveEnsureChildFolder(access, textFolder, 'originals', 'originals')

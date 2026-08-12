@@ -1,0 +1,87 @@
+# Google Drive Storage Manager (Seth, 2026-08-12) — APPROVED BUILD SPEC
+
+A modal reached from the panel's top nav (beside History / Admin) that shows what the researcher's
+Drive actually holds: every text, which device holds it or that it is unassigned, the space each
+takes, the account's quota — and the ability to remove unassigned texts and reclaim the space.
+
+## Why
+
+Two gaps that only became visible after assign-by-upload:
+
+1. **The panel's text lists are keyed off DEVICE INVENTORY.** A text uploaded and then removed from
+   a device disappears from the panel while its Drive folder remains. There has never been a view of
+   what is actually IN Drive, so those texts are invisible and their space is unaccounted for.
+2. **Storage has no readout at all.** The v2 restructure deliberately traded bytes for a consistent
+   folder shape — every text now lands its full original audio in `originals/`. A researcher on a
+   free 15 GB Google account shares that quota with Gmail, and the failure mode is a device retrying
+   an upload forever against a quota error it cannot fix.
+
+## Locked decisions (Seth, 2026-08-12)
+
+1. **Done marker: appProperties TAG is the truth, folder name carries a visible `(done)` suffix.**
+   Nothing ever READS the name — same rule as `<Storyname>` today, where a stale name is cosmetic
+   and breaks nothing. The suffix exists so a linguist browsing Drive sees it without our tools.
+   ⚠ `docDone` does not currently reach the worker at all (it is a local callback field gating
+   auto-delete), so this is new plumbing, not a display change.
+2. **Only UNASSIGNED texts may be deleted.** A text still on a device keeps its Drive backup; to
+   delete it, remove it from the device first, at which point it becomes unassigned. Two steps, and
+   the safety property is real: Drive is the archive, and the device can be lost or wiped.
+   ⚠ The worker CANNOT enforce this — device inventories are E2EE, so only the panel knows what is
+   assigned. The gate is therefore a researcher-facing safety rail, not a security boundary, and it
+   is stated as such rather than pretended otherwise.
+3. **Delete = Drive trash (recoverable 30 days), plus a separate explicit reclaim.**
+   ⚠ Trashing does NOT free quota: `usageInDriveTrash` is counted inside `usage`. A researcher who
+   is out of space and deletes will see the number not move, conclude the feature is broken, and be
+   right to. So the modal shows trashed bytes beside the total with an explicit reclaim action.
+   ⚠⚠ **The reclaim must NOT be `files.emptyTrash`** — that empties the user's ENTIRE Drive trash,
+   including unrelated personal files, and needs a broader scope than `drive.file`. It permanently
+   deletes each FLEXTEXT file that is trashed (`files.delete` per file), which is precise, scoped to
+   what we created, and honest to describe.
+
+## What makes this cheap
+
+`drive.file` scope means we can only ever see files THIS APP CREATED. So a single paginated
+`files.list` returns the entire estate — no per-text round trip — and grouping happens from each
+file's `parents`. One or two API calls for a typical account instead of one per text.
+
+The same scope bounds the blast radius of everything destructive here: nothing outside FlexText's
+own files is reachable, by construction rather than by care.
+
+## Worker — `worker/src/v1.js`, additive only (straight-to-prod eligible)
+
+- `driveListAll(access, {trashed})` — paginated `files.list`, `fields=files(id,name,size,mimeType,
+  modifiedTime,parents,appProperties,trashed)`, bounded page count.
+- `GET /v1/researcher/drive-estate` → `{ quota, master, devices[], texts[], trashed{n,bytes} }`.
+  - `quota` from `GET /drive/v3/about?fields=storageQuota` — `limit` ABSENT means unlimited (pooled
+    accounts); treat missing as no-limit, never as zero.
+  - text folders are those tagged `flextextDoc`; their `originals/` (or legacy `assignment/`) child's
+    files roll up into the parent text's byte total.
+  - `bytes` per text sums `size` over its files. Folders have no size.
+- `POST /v1/researcher/drive-purge` → permanently delete OUR trashed files. Returns `{deleted, bytes}`.
+  A 404 on a child whose parent folder was deleted first is expected and ignored.
+- Done marker: uploads may carry `x-fx-done: '1'|'0'`. On `'1'` the text folder gets
+  `appProperties.flextextDone='1'` and a `(done)` name suffix; on `'0'` both are cleared. ABSENT
+  means NO CHANGE — old engines send nothing and must not clear a marker they know nothing about.
+
+## Device — `docs/js/upload.js`
+
+Send `x-fx-done` on the text upload (both the single-POST and chunked-start paths), from the queue
+record's existing `docDone`. Old workers ignore unknown `x-fx-*` headers, so deploy order cannot
+break this.
+
+## Panel — `docs/js/researcher-panel.js`, `docs/js/researcher.js`
+
+- A third nav `link-btn` beside Admin / History.
+- Modal: quota bar (used / limit, with trashed shown separately), then groups — one per device, then
+  **"Google Drive (unassigned)"** — each listing texts with size, file count, `(done)` marker, the
+  existing Files ▾ control, and (unassigned only) Remove.
+- Assigned-ness is computed panel-side by intersecting estate `docId`s with every device inventory.
+- Reclaim action, worded as what it does: permanently delete the FlexText files already in trash.
+
+## Tests
+
+- `drive-estate.test.mjs` — the grouping/rollup from a fake `files.list` (originals rolled into its
+  parent text; folders contribute no bytes; a text with no device is unassigned; absent quota `limit`
+  is unlimited, not zero).
+- Extend `text-folder-files.test.mjs` / a new one for the done-marker rules, especially that an
+  ABSENT header changes nothing.

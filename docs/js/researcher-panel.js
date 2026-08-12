@@ -366,6 +366,11 @@ function fmtDur(secs) { const m = Math.floor(secs / 60), ss = secs % 60; return 
 // dashboard renders + after crowd actions only. undefined = not yet fetched, null = fetch failed.
 let crowdCache;
 let estateCache;   // last Drive estate (full renders only) — feeds the Unassigned card
+/* ⚠ DELIBERATELY NOT PERSISTED, unlike device cards (which remember an explicit choice in
+ * localStorage). Seth: the Unassigned card is collapsed by default "on every load". It is a holding
+ * area, not somewhere work happens, so it should never claim screen space until asked — and a
+ * remembered expansion would defeat that on exactly the accounts with most unassigned texts. */
+let unassignedOpen = false;
 
 const REC_KEYS = Object.keys(REC_FORMATS);
 const AGC_OPTS = ['off', 'on', 'auto'];
@@ -1106,8 +1111,8 @@ async function renderDashboard(prefetched) {
         <a class="secondary-btn rp-open-editor" href="${esc(HOME.editor)}" target="_blank" rel="noopener noreferrer">${esc(t('panel.dash.openEditor'))}</a>
       </div>
     </div>
-    ${insts.length ? cards.join('') : `<p class="note rp-empty">${esc(t('panel.dash.empty'))}</p>`}
     ${renderUnassignedCard(estateCache)}
+    ${insts.length ? cards.join('') : `<p class="note rp-empty">${esc(t('panel.dash.empty'))}</p>`}
     ${Researcher.isApprovedSelf() ? renderCrowdCard(crowdCache) : ''}`;
 
   wireActs({
@@ -1127,6 +1132,11 @@ async function renderDashboard(prefetched) {
   // Unassigned-card actions. Deliberately their OWN attribute, not data-iact: instanceAction()
   // assumes a real instance id on the element, and there is none here by design.
   root.querySelectorAll('[data-uact]').forEach((el) => el.addEventListener('click', () => {
+    if (el.dataset.uact === 'collapse') {
+      unassignedOpen = !unassignedOpen;
+      renderDashboard(lastData || undefined);   // cached data — the estate has not changed
+      return;
+    }
     if (el.dataset.uact === 'adopt') { adoptTextModal(el.dataset.id, el.dataset.title || ''); return; }
     if (el.dataset.uact === 'drop') {
       if (!confirm(t('panel.store.removeConfirm', { title: el.dataset.title || '?' }))) return;
@@ -1188,6 +1198,30 @@ function closeDlMenu() {
   openDl.classList.remove('is-open');
   openDl = null;
 }
+/* ⚠ THE MENU IS POSITIONED `fixed`, ON PURPOSE, and it must stay that way.
+ *
+ * The text lists became height-capped and scrollable (2026-08-12), which makes each one an
+ * overflow CLIPPING container. An absolutely-positioned dropdown inside one is clipped by it — so
+ * the Files menu, which is taller than a couple of rows, would be sliced off for any text near the
+ * bottom of a list. The rows most likely to be clipped are the ones you had to scroll to reach,
+ * i.e. exactly the case the scrolling was added for.
+ *
+ * `fixed` takes the menu out of that container's flow entirely; the cost is that it no longer
+ * follows the button on scroll, which is why closeDlMenu is wired to scroll below. */
+function placeDlMenu(wrap) {
+  const menu = wrap.querySelector('.rp-dl-menu');
+  const btn = wrap.querySelector('.rp-dl-btn');
+  if (!menu || !btn || !btn.getBoundingClientRect) return;
+  const r = btn.getBoundingClientRect();
+  const vw = window.innerWidth || 0, vh = window.innerHeight || 0;
+  menu.style.position = 'fixed';
+  menu.style.top = Math.round(r.bottom + 4) + 'px';
+  // Keep it on screen: right-align against the viewport edge rather than overflowing it.
+  const width = Math.min(320, Math.max(244, vw - 24));
+  menu.style.left = Math.round(Math.max(8, Math.min(r.left, vw - width - 8))) + 'px';
+  menu.style.maxHeight = Math.max(160, Math.round(vh - r.bottom - 16)) + 'px';
+}
+
 function openDlMenu(wrap) {
   if (openDl === wrap) { if (dlCloseTimer) { clearTimeout(dlCloseTimer); dlCloseTimer = null; } return; }
   closeDlMenu();
@@ -1195,6 +1229,7 @@ function openDlMenu(wrap) {
   wrap.querySelector('.rp-dl-btn').setAttribute('aria-expanded', 'true');
   wrap.classList.add('is-open');
   openDl = wrap;
+  placeDlMenu(wrap);
 }
 /* ⚠⚠ THE FILES ▾ MENU IS HIDDEN (Seth, 2026-08-08). Flip this to true to bring it back.
  *
@@ -1772,6 +1807,12 @@ function wireDownloadMenus(scope) {
   });
   if (!wireDownloadMenus.global) {   // document listeners attach ONCE, not per render
     wireDownloadMenus.global = true;
+    /* A `fixed` menu does not travel with its button, so scrolling would strand it mid-air.
+     * Closing on scroll is the honest behaviour and matches how the menu already dismisses on an
+     * outside click. Capture phase + passive: it must see scrolls inside the text lists too, and
+     * must never delay them. */
+    window.addEventListener('scroll', () => { if (openDl) closeDlMenu(); }, { capture: true, passive: true });
+    window.addEventListener('resize', () => { if (openDl) closeDlMenu(); }, { passive: true });
     document.addEventListener('click', (e) => {
       const z = e.target.closest && e.target.closest('[data-zipall]');
       if (z) { e.preventDefault(); e.stopPropagation(); downloadAllZip(z); return; }
@@ -3154,14 +3195,23 @@ function renderUnassignedCard(estate) {
         <button class="link-btn rp-revoke" data-uact="drop" data-folder="${esc(tx.folderId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.store.remove'))}</button>
       </div>
     </li>`).join('');
-  return `<div class="rp-card rp-inst rp-unassigned">
+  const collapsed = !unassignedOpen;
+  return `<div class="rp-card rp-inst rp-unassigned${collapsed ? ' rp-inst-collapsed' : ''}">
     <div class="rp-inst-top">
-      <div class="rp-inst-name">${esc(t('panel.store.unassignedGroup'))}
-        <span class="rp-badge rp-badge-type">${esc(t('panel.store.nTexts', { n: texts.length }))}</span></div>
+      <button class="rp-inst-toggle" data-uact="collapse"
+              aria-expanded="${collapsed ? 'false' : 'true'}" aria-controls="rp-unassigned-body"
+              title="${esc(t(collapsed ? 'panel.inst.expand' : 'panel.inst.collapse'))}">
+        <span class="rp-caret" aria-hidden="true">▾</span>
+        <span class="rp-inst-name">${esc(t('panel.store.unassignedGroup'))}
+          <span class="rp-badge rp-badge-type">${esc(t('panel.store.nTexts', { n: texts.length }))}</span></span>
+        <span class="rp-inst-count">${esc(gb(bytes))}</span>
+      </button>
     </div>
-    <div class="rp-install">
-      <div class="note">${esc(t('panel.unassigned.intro', { size: gb(bytes) }))}</div>
-      <ul class="rp-texts">${rows}</ul>
+    <div class="rp-inst-body" id="rp-unassigned-body"${collapsed ? ' hidden' : ''}>
+      <div class="rp-install">
+        <div class="note">${esc(t('panel.unassigned.intro', { size: gb(bytes) }))}</div>
+        <ul class="rp-inv">${rows}</ul>
+      </div>
     </div>
   </div>`;
 }

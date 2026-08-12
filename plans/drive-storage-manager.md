@@ -85,3 +85,32 @@ break this.
   is unlimited, not zero).
 - Extend `text-folder-files.test.mjs` / a new one for the done-marker rules, especially that an
   ABSENT header changes nothing.
+
+## Deploy record — production worker, 2026-08-12
+
+Triggered from this session at Seth's request (Actions on a public repo with standard runners are
+free, so no cost approval was needed).
+
+| | |
+|---|---|
+| Deployed from | branch `staging`, sha `129f76a` |
+| Workflow | `worker-deploy.yml` (run `31575642967`, success) |
+| Worker | `flextext-r2-worker` (production) |
+| **New version ID** | `91967304-8061-4c0b-b3b8-2b3b88f9f302` |
+| **ROLLBACK TARGET** | `60a1e3a9-2b5d-496e-bc0d-4e9b9f071a7f` (was live, deployed 2026-08-12T02:46:33Z) |
+
+Deploy log confirmed the production target: `connect.flextext.app` retained (NOT reassigned — the
+2026-08-11 incident did not recur), D1 `flextext-connectivity`, R2 `flextext-back-end`,
+`ALLOWED_ORIGINS` starting `https://rulingants.github.io`. The single warning was wrangler noting
+that no `--env` was given, which is correct here: no flag means the top-level production
+environment.
+
+**Roll back** via `wrangler (one-off command)` on branch `staging`:
+```
+rollback 60a1e3a9-2b5d-496e-bc0d-4e9b9f071a7f --message "reverting drive-storage worker"
+```
+
+⚠ **The deployed worker is now AHEAD of `productionWeb`, which does not carry this code.** A routine
+"Deploy worker" run from `productionWeb` would silently roll these endpoints back and the storage
+modal would return `not_found` again. Until the editor release merges to `main`/`productionWeb`,
+always deploy the worker from `staging`.

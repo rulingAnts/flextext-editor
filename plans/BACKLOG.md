@@ -624,36 +624,54 @@ Test: `test/artifact-links.test.mjs` pins that inferred artifacts are suppressed
 per-kind artifacts still render with their Drive ids, and that the folder-listing rows and
 Download-all are untouched.
 
-## Electron shell as the FALLBACK for conversions the browser cannot do (Seth, 2026-08-12)
+## Native audio conversion as a fallback — ON THE DEVICE, not in the panel (Seth, 2026-08-12)
 
 > "Also let's make a backlog note to consider building that feature into the Electron shell as a
 > fallback when the browser-based conversion doesn't work. Most of the time files won't be that
 > huge."
+>
+> then, narrowing it: *"for the Researcher Panel, we're not planning to build a native shell at all.
+> So forget that."*
 
-**Pairs with `plans/oversize-conversions.md`**, which splits the one over-broad size gate into three
-(zip / decode / base64-embed). That plan makes the browser do everything it honestly can; this entry
-is what covers the remainder — chiefly a **large lossy original**, which needs a decode to PCM at
-roughly 10× its compressed size before ELAN/SayMore can be given exact alignment, and the
-`.preview.html` / `.fxpa` outputs, which hold three or four copies of the audio as JS strings.
+⚠ **So this is NOT about the panel's export conversions.** `plans/oversize-conversions.md` settles
+those in the browser alone: above the ceiling the panel ships the original audio, emits a text-only
+`.fxpa`, and refuses only the preview. No shell, no stub, no capability negotiation. Anything that
+reads this entry as licence to add a native path to the panel is misreading it.
 
-Why the desktop shell is the right home for it, rather than a bigger browser limit:
+**Where it does belong: the DEVICE-side decode**, which is both older and more consequential.
+`app.js` `segWorkingMedia` runs `decodeAudioData` + `encodeWav` inline **on the field device** to
+build the `segwav:` working copy for every lossy recording in segmentation mode, and already ends in
 
-- `electron/` already exists and is already the "this user has a real computer" surface. Node has
-  filesystem streaming and no ArrayBuffer/JS-string ceiling, so the decode and the base64 embed
-  become streaming operations instead of whole-file-in-memory ones. It is the same work without the
-  constraint that makes it refuse.
-- ⚠ **The output must be byte-identical to the browser's.** `seg-exports.js` is a pure format module
+```js
+} catch { return media; }   // undecodable → play the original; alignment caveat stands
+```
+
+That is the same degradation the panel is getting — but on a **phone**, where memory is tightest,
+and where the cost of falling back is real: the ~44 ms AAC priming offset means the segmentation the
+field worker is doing is quietly misaligned against the audio they hear. A native converter fixes it
+exactly where it hurts. The researcher's browser was never the interesting case.
+
+Constraints for whoever picks it up:
+
+- ⚠ **The native boundary is one file for BOTH bridges.** `check-native-containment.sh` greps
+  `docs/js/` for `window.Capacitor|Capacitor.Plugins` **and** `__flextextNative`, failing on any hit
+  outside `docs/js/native-audio.js`. Electron is under the same rule as Android — not a looser one.
+- ⚠ **Gate on CAPABILITY, never on platform.** The engine auto-updates; the APK does not. Being
+  inside Capacitor says nothing about whether the installed plugin can convert. A
+  `isNativeShell() ? offload() : fallback()` gate would ask every pre-feature field APK to convert,
+  fail, and lose the fallback that would have worked — surfacing only on the oldest devices in the
+  field. Use the async `nativeCapabilities()` / `EXPECTED_CONTRACT` negotiation that already exists,
+  and treat "unknown" as no.
+- ⚠ **Output must stay byte-identical to the browser's.** `seg-exports.js` is a pure format module
   precisely so one implementation produces the EAF/pfsx/preview/`.fxpa` everywhere; a second
-  generator in the shell would be the "two code paths producing 'the ELAN export'" drift that
-  `prepareConversionSources` was extracted to prevent. The shell should call the SAME module with a
-  streaming source, not reimplement it.
-- ⚠ Scope check against the core design principle: this is **app-specific** (it exists only where
-  Electron does), so it belongs behind one chokepoint that is inert in a browser — the model is
-  `js/native-audio.js`, not a sprinkling of `if (isElectron)`.
+  generator would be the "two code paths producing 'the ELAN export'" drift that
+  `prepareConversionSources` was extracted to prevent. Call the same module with a streaming source.
+- Touching `native-audio.js` means **rebuild and re-test the APK** (CLAUDE.md). That is this work's
+  own release, never a side effect of an editor or panel feature.
 
 ⚠ **Sizing, so nobody over-builds it:** Seth — *"Most of the time files won't be that huge"*, and the
-939 MB file that surfaced this was **deliberately bloated to test upload chunking**. This is a
-fallback for the tail, not a second main path.
+recording that surfaced all this was **deliberately bloated to test upload chunking**. A fallback
+for the tail, not a second main path.
 
 ## Documentation: answer "does it save when I leave a text?" — FAQ *and* in situ (Seth, 2026-08-12)
 

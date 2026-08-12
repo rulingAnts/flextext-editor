@@ -3982,7 +3982,7 @@ async function uploadDocById(docId) {
   // Lane split catch-up: a text whose media never left the device on ANY lane (recorded before the
   // split, or a user-attached file) still has to get its recording out — queue Lane A beside this.
   // Docs with an old zip upload (uploadedFileId) already have their audio inside that bundle.
-  if (!rec.mediaUploaded && !rec.uploadedFileId) { try { await queueMediaUpload(docId); } catch { /* Lane B proceeds regardless */ } }
+  if (!rec.mediaUploaded && !rec.sourcePackaged && !rec.uploadedFileId) { try { await queueMediaUpload(docId); } catch { /* Lane B proceeds regardless */ } }
   pumpUploads();
   return true;
 }
@@ -3998,7 +3998,7 @@ async function queueMediaUpload(docId) {
   const rec = (current && current.id === docId) ? current : await db.getDoc(docId).catch(() => null);
   if (!rec) return false;
   if (isAudioLocked(rec)) return false;              // assigned-from-Drive audio never re-uploads
-  if (rec.mediaUploaded) return false;
+  if (rec.mediaUploaded || rec.sourcePackaged) return false;   // v2: queued once, each part retries on its own
   const key = 'media:' + docId;
   if (uploadView.has(key) || await db.getMedia('upload:' + key).catch(() => null)) return false;
   const media = await db.getMedia(docId).catch(() => null);
@@ -4011,30 +4011,105 @@ async function queueMediaUpload(docId) {
   if (receipt && consentCapture && consentCapture.receipt === receipt) {
     await Promise.race([consentCapture.promise, new Promise((r) => setTimeout(r, 5000))]);
   }
-  const entries = [{ name: media.name || 'audio', data: media.blob }];
-  if (consent?.blob) entries.push({ name: consent.name || rec.consentClip, data: consent.blob });
-  if (promptAudio?.blob) entries.push({ name: promptAudio.name || rec.consentPromptClip, data: promptAudio.blob });
+  /* v2 SOURCE PACKAGE: individual role-tagged files in "<Storyname>/originals/", not one zip.
+   * A zip hid the audio from every other tool in the suite (the Files menu could not offer the
+   * original recording, and saved ELAN/SayMore bundles came out with no WAV). Uploading the pieces
+   * separately gives an assigned text and a recorded text the SAME folder shape.
+   *
+   * Each piece is its own queue record, so each retries forever on its own — the set can be
+   * briefly incomplete on a bad connection, which is what the manifest is for: it declares the
+   * intended files, so a consumer compares that list against the folder and can NAME what has not
+   * arrived instead of silently showing a partial package. It is written FIRST for exactly that
+   * reason. Completeness is DERIVED from the comparison; there is deliberately no `complete` flag
+   * to go stale. */
+  const base = sanitizeBase(rec.title) || 'text';
+  const audioName = base + extOf(media.name || '', media.mimeType || media.mime || '');
+  const parts = [];
+  parts.push({ slot: 'audio', name: audioName, role: 'source-audio', blob: media.blob,
+               mime: media.mimeType || media.mime || 'application/octet-stream' });
+  if (consent?.blob) parts.push({ slot: 'consent', name: 'consent-response' + extOf(consent.name || '', consent.mimeType || ''), role: 'consent-clip', blob: consent.blob, mime: consent.mimeType || 'audio/mpeg' });
+  if (promptAudio?.blob) parts.push({ slot: 'prompt', name: 'consent-prompt' + extOf(promptAudio.name || '', promptAudio.mimeType || ''), role: 'consent-prompt', blob: promptAudio.blob, mime: promptAudio.mimeType || 'audio/mpeg' });
   if (receipt) {
     const full = { ...receipt, textTitle: rec.title || '' };
-    entries.push({ name: 'consent-receipt.json', data: new Blob([JSON.stringify(full, null, 2)], { type: 'application/json' }) });
-    entries.push({ name: 'consent-receipt.txt', data: new Blob([consentReceiptText(full)], { type: 'text/plain' }) });
+    parts.push({ slot: 'receiptjson', name: 'consent-receipt.json', role: 'consent-receipt',
+                 blob: new Blob([JSON.stringify(full, null, 2)], { type: 'application/json' }), mime: 'application/json' });
+    parts.push({ slot: 'receipttxt', name: 'consent-receipt.txt', role: 'consent-receipt',
+                 blob: new Blob([consentReceiptText(full)], { type: 'text/plain' }), mime: 'text/plain' });
   }
-  const base = docFilename(rec).replace(/\.flextext$/, '');
-  const filename = `${base} media ${fileStamp()}.zip`;
-  const blob = await makeZip(entries);
-  await db.putMedia('upload:' + key, {
-    blob, name: filename, mime: 'application/zip',
-    total: blob.size, sent: 0,
-    docId, lane: 'media',
-    docModified: rec.modified,
-    docDone: false,
-    docTitle: rec.title || '',
-    docFolderId: rec.driveFolderId || '',
+
+  const manifest = buildSourceManifest(rec, {
+    origin: isAudioLocked(rec) ? 'assigned' : 'recorded',
+    files: parts.map((p) => ({ name: p.name, role: p.role, mime: p.mime, bytes: p.blob.size })),
+    audio: { name: audioName, mime: parts[0].mime, bytes: media.blob.size, derived: false },
   });
-  uploadView.set(key, { name: filename, status: 'waiting' });
+  const queue = [
+    { slot: 'manifest', name: MANIFEST_NAME, role: 'manifest', mime: 'application/json',
+      blob: new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' }) },
+    ...parts,
+  ];
+  for (const p of queue) {
+    const k = key + ':' + p.slot;
+    if (uploadView.has(k) || await db.getMedia('upload:' + k).catch(() => null)) continue;
+    await db.putMedia('upload:' + k, {
+      blob: p.blob, name: p.name, mime: p.mime,
+      total: p.blob.size, sent: 0,
+      docId, lane: 'media',
+      sub: 'originals', role: p.role,        // → x-fx-sub / x-fx-role (upload.js)
+      docModified: rec.modified,
+      docDone: false,
+      docTitle: rec.title || '',
+      docFolderId: rec.driveFolderId || '',
+    });
+    uploadView.set(k, { name: p.name, status: 'waiting' });
+  }
+  // Queued, so the catch-up never re-enqueues: each part now retries on its own, forever.
+  if (current && current.id === docId) current.sourcePackaged = true;
+  await db.getDoc(docId).then(async (d) => { if (d) { d.sourcePackaged = true; await db.putDoc(d); } }).catch(() => { /* best effort */ });
   renderUploadQueue();
   pumpUploads();
   return true;
+}
+
+const MANIFEST_NAME = 'flextext-manifest.json';
+
+// Drive-safe file base from a story title — the SAME rule the worker uses for the folder name, so
+// "<Storyname>.<ext>" and "<Storyname>/" cannot disagree.
+function sanitizeBase(title) {
+  return String(title || '').replace(/[\\/:*?"<>|]+/g, '_').trim().slice(0, 120);
+}
+function extOf(name, mime) {
+  const m = /(\.[A-Za-z0-9]{1,5})$/.exec(String(name || ''));
+  if (m) return m[1].toLowerCase();
+  const t = String(mime || '').split(';')[0];
+  return ({ 'audio/wav': '.wav', 'audio/x-wav': '.wav', 'audio/mpeg': '.mp3', 'audio/flac': '.flac',
+    'audio/ogg': '.ogg', 'audio/webm': '.webm', 'audio/mp4': '.m4a', 'audio/aac': '.aac' })[t] || '';
+}
+
+/* The package's metadata record — and the contract a consumer checks completeness against.
+ * `origin` is the provenance field: how this text came to exist, so the suite never has to infer
+ * it from filenames. Additive by design: `schema` is versioned and readers MUST ignore keys they
+ * do not know, so a future origin value or field cannot break an old reader. Records THAT a
+ * consent receipt exists, never what it says. */
+function buildSourceManifest(rec, { origin, files, audio }) {
+  return {
+    schema: 1,
+    docId: rec.id,
+    title: rec.title || '',
+    origin,
+    originatedAt: rec.created || null,
+    writtenAt: Date.now(),
+    engine: ENGINE_VERSION,
+    buildTag: BUILD_TAG || '',
+    writingSystems: { vern: settings.vernLang || '', anal: settings.analLang || '' },
+    audio,
+    files: [{ name: MANIFEST_NAME, role: 'manifest', mime: 'application/json', bytes: 0 }, ...files],
+    consent: {
+      mode: settings.consentMode || 'off',
+      prompt: !!rec.consentPromptClip,
+      response: !!rec.consentClip,
+      receipt: !!rec.consentReceipt,
+    },
+  };
 }
 
 async function openShareMenu() {
@@ -4143,10 +4218,15 @@ function uploadState(docId) {
         // so uploadedFileId/uploadedSig (the delete-safety proof) stay untouched, and docDone is
         // always false on these records so the auto-delete branch below can never fire for one.
         if (String(docId).startsWith('media:')) {
-          const realId = String(docId).slice(6);
+          // v2 keys are 'media:<docId>:<slot>' (one record per source file); v1 keys were
+          // 'media:<docId>'. Strip a trailing slot so an in-flight OLD record still resolves.
+          const realId = String(docId).slice(6).replace(/:[a-z]+$/, '');
+          const slot = (String(docId).match(/:([a-z]+)$/) || [])[1] || '';
           const stampA = (d) => {
             if (st.folderId) d.driveFolderId = st.folderId;   // next upload echoes it (folder dedupe)
-            d.mediaUploaded = true;
+            // The RECORDING landing is what 'the media left the device' means; the manifest and the
+            // small consent files ride their own records and retry independently.
+            if (!slot || slot === 'audio') d.mediaUploaded = true;
           };
           if (current && current.id === realId) stampA(current);
           db.getDoc(realId).then(async (d) => {

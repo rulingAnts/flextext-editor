@@ -564,14 +564,15 @@ async function driveEnsureCrowdFolder(env, access, rec) {
 }
 
 // Drive resumable upload as one initiate + one PUT (fine for our ≤25 MB bodies).
-async function driveUpload(access, folderId, name, buf, mime) {
+async function driveUpload(access, folderId, name, buf, mime, appProperties) {
   const init = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id', {
     method: 'POST',
     headers: {
       Authorization: 'Bearer ' + access, 'content-type': 'application/json',
       'X-Upload-Content-Type': mime, 'X-Upload-Content-Length': String(buf.byteLength),
     },
-    body: JSON.stringify({ name, mimeType: mime, ...(folderId ? { parents: [folderId] } : {}) }),
+    body: JSON.stringify({ name, mimeType: mime, ...(folderId ? { parents: [folderId] } : {}),
+                           ...(appProperties ? { appProperties } : {}) }),
   });
   if (!init.ok) { const e = new Error('upload init HTTP ' + init.status); e.code = 'drive_error'; throw e; }
   const session = init.headers.get('Location');
@@ -1823,21 +1824,31 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           const deviceFolder = await driveEnsureDeviceFolder(env, access, instanceId, inst.inst_nickname, inst.inst_folder);
           // Per-text sub-folder when the device declares which text this belongs to (new engines
           // send docId/docTitle; old engines omit them and land in the device folder as before).
-          const folder = body.docId
+          const textFolder = body.docId
             ? await driveEnsureTextFolder(access, deviceFolder, body.docId, body.docTitle, body.folderId)
             : deviceFolder;
+          // Same v2 source-package routing as the single-POST path: `sub` picks the originals/
+          // child, `role` becomes the tag consumers match on instead of the filename.
+          const folder = (body.sub === 'originals' && body.docId)
+            ? await driveEnsureChildFolder(access, textFolder, 'originals', 'originals')
+            : textFolder;
+          const role = String(body.role || '').trim().slice(0, 40);
           const init = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id', {
             method: 'POST',
             headers: {
               Authorization: 'Bearer ' + access, 'content-type': 'application/json',
               'X-Upload-Content-Type': mime, 'X-Upload-Content-Length': String(size),
             },
-            body: JSON.stringify({ name, mimeType: mime, parents: [folder] }),
+            body: JSON.stringify({ name, mimeType: mime, parents: [folder], ...(role ? { appProperties: { flextextRole: role } } : {}) }),
           });
           const session = init.ok ? init.headers.get('Location') : null;
           if (!session) { const e = new Error('no upload session (HTTP ' + init.status + ')'); e.code = 'drive_error'; throw e; }
           const uploadId = await encAtRest(env, JSON.stringify({ u: session, i: installId, s: size }));
-          return j({ ok: true, uploadId, folderId: folder !== deviceFolder ? folder : undefined }, 200, origin, env);
+          // ⚠ Echo the TEXT folder, never `folder` — with sub='originals' those differ, and the
+          // device stamps this as rec.driveFolderId and sends it back as the knownId on its NEXT
+          // upload. Echoing the originals/ child would make files.get verify it, and every later
+          // bare .flextext would land INSIDE originals/ instead of the text folder.
+          return j({ ok: true, uploadId, folderId: textFolder !== deviceFolder ? textFolder : undefined }, 200, origin, env);
         } catch (e) {
           await noteDriveError(env, inst.researcher_id, 'chunked upload start failed: ' + e.message);
           return j({ error: e.code || 'drive_error' }, 502, origin, env);
@@ -1906,7 +1917,9 @@ export async function handleV1(request, env, ctx, url, path, origin) {
             : textFolder;
           const fileId = await driveUpload(access, folder, name, buf, mime, role ? { flextextRole: role } : null);
           // folderId rides back so the device REMEMBERS it (strong-consistency dedupe above).
-          return j({ ok: true, fileId, folderId: folder !== deviceFolder ? folder : undefined }, 200, origin, env);
+          // ⚠ The TEXT folder, never `folder`: see the chunked path — echoing the originals/ child
+          // would redirect every later bare .flextext into it.
+          return j({ ok: true, fileId, folderId: textFolder !== deviceFolder ? textFolder : undefined }, 200, origin, env);
         } catch (e) {
           await noteDriveError(env, inst.researcher_id, 'device upload fell back to the relay: ' + e.message);
           return j({ error: e.code || 'drive_error' }, 502, origin, env);   // → relay fallback

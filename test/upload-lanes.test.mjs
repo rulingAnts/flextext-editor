@@ -30,17 +30,31 @@ console.log('\nLane A fires the moment a recording is saved');
   ok(/const newId = await newDocFromAudio\(file, title\)/.test(app), 'the new doc id comes back from newDocFromAudio');
 }
 
-console.log('\nthe Lane A record is a media zip that can never masquerade as a text backup');
+console.log('\nLane A is the SOURCE PACKAGE: individual role-tagged files in originals/, never a zip');
 {
   const q = app.match(/async function queueMediaUpload\(docId\) \{([\s\S]*?)\n\}/);
   ok(!!q, 'queueMediaUpload present');
   const body = q ? q[1] : '';
   ok(/if \(isAudioLocked\(rec\)\) return false;/.test(body), 'assigned-from-Drive audio NEVER rides an upload');
-  ok(/if \(rec\.mediaUploaded\) return false;/.test(body), 'a take that already left does not leave twice');
+  ok(/if \(rec\.mediaUploaded \|\| rec\.sourcePackaged\) return false;/.test(body),
+     'a package that was already queued is never queued twice');
   ok(/const key = 'media:' \+ docId;/.test(body), "queued under its own 'media:' key, beside the Lane B record");
-  ok(/docDone: false,/.test(body), 'docDone:false — a media zip can never trigger auto-delete of the text');
+  ok(/docDone: false,/.test(body), 'docDone:false — a source file can never trigger auto-delete of the text');
   ok(/docId, lane: 'media',/.test(body), 'the wire docId rides IN the record (the key is not the identity)');
-  ok(/await makeZip\(entries\)/.test(body), 'Lane A is the ONE zip (recording + consent artifacts)');
+  // v2: the zip is gone. Each piece is its own retrying record, in the originals/ child, tagged.
+  ok(!/makeZip/.test(body), 'no zip: the pieces upload individually so the whole suite can see them');
+  ok(/sub: 'originals', role: p\.role,/.test(body), "every part declares sub:'originals' + its role tag");
+  ok(/role: 'source-audio'/.test(body), 'the recording is tagged source-audio');
+  ok(/upload:' \+ k/.test(body), 'one persistent queue record PER PART, so each retries on its own');
+
+  // The manifest is the completeness contract, and it must be queued FIRST.
+  const manifestAt = body.indexOf("slot: 'manifest'");
+  const audioAt = body.indexOf("slot: 'audio'");
+  ok(manifestAt > 0, 'a manifest part exists');
+  ok(/const queue = \[\s*\{ slot: 'manifest'/.test(body),
+     'and it heads the queue — written FIRST, so a consumer can NAME what has not arrived yet');
+  ok(audioAt > 0, 'the audio part exists too');
+  ok(/\<Storyname\>|sanitizeBase\(rec\.title\)/.test(body), 'the audio is named from the story title');
   ok(/consent-receipt\.json/.test(body) && /'consent:' \+ docId/.test(body) && /'consent-prompt:' \+ docId/.test(body),
      'the consent clip, prompt and receipt all travel with the take');
 }

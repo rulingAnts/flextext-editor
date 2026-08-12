@@ -147,10 +147,28 @@ console.log('\nthe DONE header: absent means NO CHANGE');
   ok(/body\.done === '1' \? true : body\.done === '0' \? false : null/.test(worker),
      'the chunked path maps 1/0/absent to true/false/no-change');
   ok(/hd === '1' \? true : hd === '0' \? false : null/.test(worker),
-     'and so does the single-POST path, from the x-fx-done header');
+     'and so does the single-POST path, from the done query param');
   const up = readFileSync(new URL('../docs/js/upload.js', import.meta.url), 'utf8');
-  ok(/'x-fx-done': rec\.docDone \? '1' : '0'/.test(up), "the device sends '1' or '0' EXPLICITLY, never omission-as-false");
+  ok(/'done=' \+ \(rec\.docDone \? '1' : '0'\)/.test(up), "the device sends '1' or '0' EXPLICITLY, never omission-as-false");
   ok(/done: rec\.docDone \? '1' : '0'/.test(up), '...on the chunked path too');
+
+  /* ⚠⚠ THE ONE THAT BROKE EVERY UPLOAD. Done-ness was an `x-fx-done` HEADER for about an hour.
+   * A custom request header must be named in the worker's Access-Control-Allow-Headers, and until
+   * that worker is deployed the browser's CORS preflight refuses the request outright — the fetch
+   * rejects, classifies as transient, and the queue retries forever showing "1 file(s) waiting to
+   * upload" with no actionable error. A query param needs no preflight allowance, so a NEW client
+   * works against an OLD worker and deploy order stops mattering.
+   *
+   * The rule this pins, which is bigger than this one field: adding a custom x-fx-* header to a
+   * request the DEVICE makes is a breaking change until the worker ships, whatever the server does
+   * with it. "Old workers ignore unknown headers" is true of the server and irrelevant to the
+   * browser. */
+  ok(!/x-fx-done['"]\s*:/.test(up), 'no x-fx-done header is sent (it would fail CORS preflight)');
+  const cors = (worker.match(/'Access-Control-Allow-Headers': '([^']*)'/) || [])[1] || '';
+  const sent = [...up.matchAll(/'(x-fx-[a-z-]+)':/g)].map((mm) => mm[1]);
+  for (const h of new Set(sent)) {
+    ok(cors.split(/,\s*/).includes(h), `every x-fx header upload.js sends is CORS-allowed: ${h}`);
+  }
   // The media lane pins docDone false and must not touch the text's marker.
   ok(/sub !== 'originals'/.test(worker), 'source-package uploads never rewrite the text marker');
   ok(/isDone === want\) return;/.test(worker), 'and an already-correct marker is not rewritten');

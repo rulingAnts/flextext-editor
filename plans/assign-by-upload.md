@@ -733,3 +733,39 @@ cleanly under node once its worker base and auth storage are supplied).
   **The ONLY production-specific step is clearing `BUILD_TAG` to `''`** — `bump-version.sh` prints a
   warning while it is set, and the badge shows it on screen, so a tagged build reaching production
   announces itself.
+
+### ⚠ Correction to the v3 checklist: NO WORKER DEPLOY IS NEEDED
+
+The v3 build log's step 1 said "deploy the worker to staging first". That is **stale**. Verified by
+`git diff cf4c77c..HEAD -- worker/`: **zero worker changes** across all of v3 and v3.1. Everything
+built in these two rounds is client-side (`docs/js/`). The v2 worker — including the files-listing
+merge that carried the staging-first flag — was already deployed to both staging and production
+before this session began, and Seth's v336/v337 test drives exercised it (assign, upload and the
+Files menu all read that endpoint).
+
+So the release is an ordinary editor release: bump (done), staging test, clear `BUILD_TAG`, ff to
+`productionWeb`, satellites. No D1 migration, no worker step.
+
+### What still needs a human, in priority order (v338)
+
+1. **⚠ Assign a text with an audio file big enough to need SEVERAL chunks (5–20 MB).** Highest risk
+   in this round: the adaptive chunking is on the ASSIGN CRITICAL PATH (`assignUploadFile` carries
+   the manifest, the audio and the flextext, plus the consent prompt), it is new code, and it has
+   never touched real Drive. Drive itself enforces the 256 KiB rule, so a mistake is a 400 on the
+   *second* chunk — invisible on any small file. The percentage moving IS the evidence that more
+   than one chunk was sent.
+2. **Download-all on a text with aligned audio.** New, never run in a browser, and the only
+   memory-heavy path (decode + base64 in the panel). Confirm the zip holds the folder's files plus
+   the generated ELAN/SayMore/listening/`.fxpa`, and that ELAN opens the EAF and finds its WAV.
+3. **Re-check the four individual conversion rows** (ELAN, SayMore, listening page, `.fxpa`). They
+   worked in v337, but v3.1 REFACTORED them onto the shared `prepareConversionSources` — so code
+   already signed off has moved underneath. Cheap to verify alongside (2).
+4. **The retroactive filename case.** Open a text assigned under v336 — whose stored media name IS
+   the token — and save/export it locally WITHOUT re-downloading the audio. It should come out
+   clean. Easy to miss by accident: re-downloading first would let the download-side fix mask
+   whether the export-side fix works, and the export side is what rescues every text already in the
+   field.
+5. **A pre-v2 text's Files menu** (no manifest) — exactly one item, "Open the Drive folder".
+
+Lower value, test only if convenient: the recording package; the "not uploaded yet" row (needs an
+upload caught mid-flight); the pending-assign row against a device that is actually offline.

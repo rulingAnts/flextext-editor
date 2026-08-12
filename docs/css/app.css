@@ -1030,7 +1030,15 @@ main {
 .rp-mono { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
 .rp-fp { color: var(--blue-dark); margin-top: 2px; }
 .rp-verify { margin-top: 2px; }
-.rp-inv { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+/* ⚠ CAPPED AND SCROLLABLE (Seth, 2026-08-12). A device with dozens of texts pushed every card
+   below it off the screen, so the dashboard stopped being scannable exactly on the accounts with
+   the most in it. ~26rem is about 8-9 rows at the current row height, inside Seth's 6-10.
+   overscroll-behavior keeps a flick inside the list from scrolling the page once it bottoms out —
+   without it, a phone user scrolling a device's texts jumps the whole dashboard instead. */
+.rp-inv { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 14px;
+  max-height: 26rem; overflow-y: auto; overscroll-behavior: contain; }
+/* The scrollbar sits flush against the actions; a little room keeps it off the buttons. */
+.rp-inv > li { padding-right: 2px; }
 .rp-inv li { display: flex; align-items: center; gap: 8px; }
 .rp-tag { font-size: 11px; padding: 1px 7px; border-radius: 5px; background: var(--panel); color: var(--muted); white-space: nowrap; }
 .rp-tag-uploaded { background: #e3f3e4; color: #1f5d22; }
@@ -1131,7 +1139,10 @@ main {
 .rp-dl-btn { white-space: nowrap; }
 .rp-dl-caret { font-size: 9px; opacity: .7; }
 .rp-dl-menu {
-  position: absolute; z-index: 30; top: calc(100% + 4px); left: 0;
+  /* position/top/left are SET IN JS (placeDlMenu) to `fixed`: the text lists are scroll
+     containers now, and an absolutely-positioned menu inside one gets clipped. These remain as the
+     pre-JS fallback and for the first paint before placement runs. */
+  position: absolute; z-index: 60; top: calc(100% + 4px); left: 0;
   min-width: 244px; max-width: min(320px, 80vw);
   display: flex; flex-direction: column;
   background: var(--card, #fff); border: 1px solid var(--border); border-radius: 10px;
@@ -2076,3 +2087,8 @@ main {
    not a device someone is working on. */
 .rp-unassigned .rp-inst-name { color: var(--muted); }
 .rp-unassigned .rp-inst-top { padding-bottom: 2px; }
+
+/* The Unassigned card's own list is the same component, so it inherits the cap above. Its rows are
+   two-line (title + size), so it shows slightly fewer than a device's one-line rows — still inside
+   the 6-10 range Seth asked for. */
+.rp-unassigned .rp-inv { max-height: 26rem; }

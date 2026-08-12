@@ -419,5 +419,50 @@ console.log('\n...and Move from Unassigned is a REAL re-assignment');
   ok(/driveReparent\(access, f\.id, toFolder/.test(adopt), 'and the folder moves under the adopting device');
 }
 
+console.log('\nthe Unassigned card collapses like a device, but starts closed EVERY load');
+{
+  const panel = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../docs/css/app.css', import.meta.url), 'utf8');
+  const card = (panel.match(/function renderUnassignedCard[\s\S]*?\n\}/) || [''])[0];
+
+  ok(/rp-inst-toggle/.test(card) && /rp-caret/.test(card), 'it uses the same toggle component as a device card');
+  ok(/rp-inst-collapsed/.test(card) && /rp-inst-body/.test(card), '...and the same collapsed/body classes');
+  ok(/aria-expanded=/.test(card) && /aria-controls=/.test(card), 'with the accessibility wiring devices get');
+
+  /* ⚠ NOT PERSISTED, unlike device collapse state (localStorage). Seth: collapsed by default "on
+   * every load". A remembered expansion would defeat that on exactly the accounts with the most
+   * unassigned texts — the ones where the card is largest. */
+  ok(/^let unassignedOpen = false;$/m.test(panel), 'the open state defaults to CLOSED');
+  ok(!/unassignedOpen[\s\S]{0,80}localStorage/.test(panel), '...and is never persisted');
+  ok(/unassignedOpen = !unassignedOpen/.test(panel), 'the toggle flips it in memory');
+
+  // It must render BEFORE the device cards.
+  const cardAt = panel.indexOf('${renderUnassignedCard(estateCache)}');
+  const devsAt = panel.indexOf('${insts.length ? cards.join(\'\')');
+  ok(cardAt > 0 && devsAt > 0 && cardAt < devsAt, 'and it renders at the TOP, above the device cards');
+}
+
+console.log('\ntext lists are capped and scrollable — and the Files menu still escapes the box');
+{
+  const panel = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../docs/css/app.css', import.meta.url), 'utf8');
+  ok(/\.rp-inv \{[^}]*max-height: 26rem/.test(css), 'the list is height-capped (~8-9 rows)');
+  ok(/\.rp-inv \{[^}]*overflow-y: auto/.test(css), 'and scrolls past it');
+  ok(/overscroll-behavior: contain/.test(css),
+     'a flick that bottoms out does not jump the whole dashboard');
+
+  /* ⚠ THE REGRESSION THIS PREVENTS: overflow:auto makes each list a CLIPPING container, and the
+   * Files menu is taller than a couple of rows. Positioned absolutely it would be sliced off for
+   * any text near the bottom — i.e. precisely the rows you had to scroll to reach, which is the
+   * case the scrolling exists for. Fixed positioning takes it out of that container entirely. */
+  ok(/function placeDlMenu\(wrap\)/.test(panel), 'the menu is positioned explicitly');
+  ok(/menu\.style\.position = 'fixed';/.test(panel), "...as `fixed`, so a scroll container cannot clip it");
+  ok(/placeDlMenu\(wrap\);/.test(panel), 'and placement runs when the menu opens');
+  // A fixed menu cannot follow its button, so it must not be left stranded.
+  ok(/addEventListener\('scroll', \(\) => \{ if \(openDl\) closeDlMenu\(\); \}, \{ capture: true/.test(panel),
+     'any scroll closes it rather than stranding it mid-air');
+  ok(/vw - width - 8/.test(panel), 'and it is kept inside the viewport horizontally');
+}
+
 console.log(fail ? `\nFAILED (${fail})\n` : '\nall passed\n');
 process.exit(fail ? 1 : 0);

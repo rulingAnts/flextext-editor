@@ -31,5 +31,10 @@ grep -q "const ENGINE = '$V';" satellites/flextext-researcher/sw.js || { echo "F
 grep -q "const ENGINE = '$V';" paragraph-analysis/sw.js             || { echo "FAIL: paragraph ENGINE" >&2; fail=1; }
 [ "$fail" = 0 ] || exit 1
 node test/version-sync.test.mjs >/dev/null || { echo "FAIL: version-sync test" >&2; exit 1; }
+tag=$(grep -m1 -oE "export const BUILD_TAG = '[^']*'" docs/js/i18n.js | sed "s/.*= '//;s/'$//")
+if [ -n "$tag" ]; then
+  echo "⚠ BUILD_TAG is set to \"$tag\" — this build shows that name instead of the bare version."
+  echo "  A PRODUCTION release must clear it:  BUILD_TAG = ''  in docs/js/i18n.js"
+fi
 echo "all four sites at $V:"
 grep -h "const VERSION = \|ENGINE" docs/sw.js docs/js/i18n.js satellites/*/sw.js paragraph-analysis/sw.js | grep -oE "'v[0-9]+'" | sort | uniq -c

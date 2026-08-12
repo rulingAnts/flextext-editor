@@ -5,7 +5,25 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v334';
+export const ENGINE_VERSION = 'v335';
+
+/* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
+ * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
+ * badge shows it INSTEAD of the bare number, so "am I testing the right build?" is answerable at a
+ * glance instead of by remembering which number went out when.
+ *
+ * ⚠ IT IS NOT THE VERSION, and ENGINE_VERSION must stay 'vNNN' numeric, because the number is
+ * load-bearing in three places a feature name would silently break:
+ *   1. Device-capability gates parse it as an integer AFTER STRIPPING NON-DIGITS
+ *      (researcher-panel.js `engNum`): 'assign-by-uploadv1' → 1, so `engNum >= 138` fails and the
+ *      panel disables the Done toggle and upload-delete on perfectly capable devices.
+ *   2. sw.js VERSION must equal it (version-sync) and is what makes installed PWAs fetch a new
+ *      shell — so every re-test still needs a numeric bump to actually reach your devices.
+ *   3. Every satellite declares the ENGINE it was built against, matched as an exact string.
+ *
+ * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
+ * shown on screen, so a tagged build reaching production announces itself immediately. */
+export const BUILD_TAG = 'assign-by-upload v1';
 
 const S = {
 en: {

@@ -96,27 +96,3 @@ export async function makeZip(entries) {
 
   return new Blob([...parts, ...central, eocd], { type: 'application/zip' });
 }
-
-/* Extract one entry's bytes from a STORE-only zip (method 0 — what makeZip above writes; entry
- * data is an uncompressed byte slice after the local header). Client twin of the worker's
- * storeZipEntry (worker/src/v1.js) — LEGACY read path only, for pulling a .flextext out of a
- * pre-existing uploaded bundle. Scans local file headers only; returns null when no entry name
- * matches or any matching entry uses compression. Never used on foreign zips: callers only point
- * it at files this suite wrote. */
-export function unzipStoreEntry(buf, nameRe) {
-  const b = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
-  let i = 0;
-  const u16 = (o) => b[o] | (b[o + 1] << 8);
-  const u32 = (o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
-  while (i + 30 <= b.length && u32(i) === 0x04034b50) {
-    const method = u16(i + 8), csize = u32(i + 18), nlen = u16(i + 26), xlen = u16(i + 28);
-    const name = new TextDecoder().decode(b.subarray(i + 30, i + 30 + nlen));
-    const dataStart = i + 30 + nlen + xlen;
-    if (nameRe.test(name)) {
-      if (method !== 0) return null;              // compressed entry — not ours, refuse
-      return b.subarray(dataStart, dataStart + csize);
-    }
-    i = dataStart + csize;
-  }
-  return null;
-}

@@ -14,6 +14,10 @@
 
 import WaveSurfer from './vendor/wavesurfer.esm.js';
 import * as db from './db.js';
+// The ONE file-naming rule (v3). A downloaded file is named from the STORY TITLE, never from the
+// URL's last path segment — which for a private /v1/textfile/<token> delivery URL is the opaque
+// token, and that token used to become the stored media name and poison every derived export.
+import { storedMediaName, nameFromDisposition, nameFromUrl } from './seg-exports.js';
 
 /* ---------------- Google Drive link parsing ---------------- */
 
@@ -65,7 +69,10 @@ async function checkSpace(bytesNeeded) {
 // relay's JSON-base64 envelope. Streams the body so the caller can show
 // progress: onProgress(loadedBytes, totalBytes|0). Returns
 // { blob, name, mimeType }.
-export async function fetchAudio(url, onProgress) {
+// `title` (optional) is what the stored file is NAMED after — see storedMediaName. Callers that
+// know what the file IS should pass it; without one the name falls back to the response's own
+// Content-Disposition, then the URL tail, and never to a delivery token.
+export async function fetchAudio(url, onProgress, title = '') {
   const resp = await fetch(url);
   if (!resp.ok) throw new Error('HTTP ' + resp.status);
   const ctype = (resp.headers.get('content-type') || '').toLowerCase();
@@ -101,8 +108,9 @@ export async function fetchAudio(url, onProgress) {
       mimeType: body.mimeType || 'application/octet-stream',
     };
   }
-  const name = decodeURIComponent((url.split('/').pop() || 'audio').split('?')[0]) || 'audio';
   const mimeType = ctype.split(';')[0] || 'audio/mpeg';
+  const name = storedMediaName({
+    title, disposition: resp.headers.get('content-disposition') || '', url, mime: mimeType });
   return { blob: new Blob([bodyBlob], { type: mimeType }), name, mimeType };
 }
 
@@ -134,9 +142,11 @@ export function getDownload(docId) { return activeDownloads.get(docId) || null; 
 
 export class AudioDownload {
   // onState({ status: 'downloading'|'paused'|'error'|'done', received, total })
-  constructor(docId, url, onState) {
+  // `title` is the STORY TITLE — what the completed media file is named after (see _complete).
+  constructor(docId, url, onState, title = '') {
     this.docId = docId;
     this.url = url;
+    this.title = title;
     this.onState = onState;
     this.status = 'downloading';
     this.received = 0;
@@ -242,7 +252,11 @@ export class AudioDownload {
     await db.putMedia(partialKey(this.docId), part);
   }
 
-  async _complete(blob, name, mimeType) {
+  /* THE NAMING CHOKEPOINT. Every completion path routes through here, so the story title wins over
+   * whatever the transport observed — including a `part.name` PERSISTED by a pre-v3 build, which is
+   * how a text whose partial download carried a token name heals itself simply by finishing. */
+  async _complete(blob, observedName, mimeType) {
+    const name = storedMediaName({ title: this.title, name: observedName, url: this.url, mime: mimeType });
     const media = { blob, name, mimeType, sourceUrl: this.url, peaks: null, duration: null };
     await db.putMedia(this.docId, media);
     await db.deleteMedia(partialKey(this.docId)).catch(() => {});
@@ -368,8 +382,12 @@ export class AudioDownload {
     }
 
     part.mimeType = part.mimeType || ctype.split(';')[0] || 'audio/mpeg';
+    // What the TRANSPORT observed, in trust order — a stated Content-Disposition, else a URL tail
+    // that actually looks like a filename. Never the raw last segment: that is the delivery token.
+    // _complete still prefers the story title over both.
     part.name = part.name ||
-      (decodeURIComponent((this.url.split('/').pop() || 'audio').split('?')[0]) || 'audio');
+      nameFromDisposition(resp.headers.get('content-disposition') || '') ||
+      nameFromUrl(this.url);
 
     const reader = resp.body.getReader();
     let sinceSave = 0;
@@ -398,7 +416,9 @@ export class AudioDownload {
 export function downloadAudioForDoc(rec, url, onState) {
   const existing = activeDownloads.get(rec.id);
   if (existing && existing.status === 'downloading') return existing.donePromise;
-  const dl = new AudioDownload(rec.id, url, onState);
+  // The story title names the file (v3) — the record already has it, and it is the only source
+  // that is meaningful to a human opening the folder later.
+  const dl = new AudioDownload(rec.id, url, onState, rec.title || '');
   return dl.start();
 }
 
@@ -412,7 +432,10 @@ export function clearPartial(docId) {
  * OVERWRITTEN whenever the researcher's URL changes; otherwise served from
  * the cached blob forever (offline). Returns the stored media record.
  */
-export async function ensureAsset(key, url, identity) {
+// `title` names the cached file (v3) — the consent prompt is delivered by the same private-token
+// URL as an assignment, so without it the shared clip was stored under the delivery token and that
+// name went straight into every local save's zip.
+export async function ensureAsset(key, url, identity, title = '') {
   if (!url) return null;
   // `identity` is a STABLE marker of "which file is this" (e.g. the Drive file id) —
   // unlike `url`, which also carries the relay token + worker base and changes dev↔prod
@@ -421,7 +444,7 @@ export async function ensureAsset(key, url, identity) {
   const id = identity || url;
   const existing = await db.getMedia(key).catch(() => null);
   if (existing && existing.sourceId === id && existing.blob) return existing;
-  const { blob, name, mimeType } = await fetchAudio(url);
+  const { blob, name, mimeType } = await fetchAudio(url, null, title);
   const rec = { blob, name, mimeType, sourceUrl: url, sourceId: id };
   await db.putMedia(key, rec);
   return rec;
@@ -533,7 +556,7 @@ export async function probeAudioUrl(url) {
   // real audio that way.)
   if (/^(text\/|application\/(json|xml|xhtml))/i.test(mime)) throw probeError('notAudio', { mime });
   if (size > PROBE_MAX) throw probeError('big', { mb: Math.round(size / 1048576) });
-  const name = decodeURIComponent((url.split('/').pop() || '').split('?')[0]) || '';
+  const name = nameFromDisposition(resp.headers.get('content-disposition') || '') || nameFromUrl(url);
   return { name, size, mime };
 }
 
@@ -554,7 +577,7 @@ export async function fetchFileViaUrl(url) {
     clearTimeout(timer);
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const blob = await resp.blob();
-    const name = decodeURIComponent((url.split('/').pop() || '').split('?')[0]) || '';
+    const name = nameFromDisposition(resp.headers.get('content-disposition') || '') || nameFromUrl(url);
     return { name, mime: (resp.headers.get('content-type') || '').split(';')[0], blob };
   }
   const sep = url.includes('?') ? '&' : '?';

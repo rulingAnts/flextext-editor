@@ -647,3 +647,151 @@ engine, and the early-return-per-mode pattern is how one file serves four apps. 
 core / editor / recorder / crowd) would make drift structurally visible rather than something to
 remember — but it touches every sw.js SHELL and the v108 outage is what happens when that goes
 wrong. Plan and test first, exactly as Seth says.
+
+## Google Drive storage footprint — especially for less-well-resourced users (Seth, 2026-08-12)
+
+> "At some point we may have to think about storage space on Google Drive especially for
+> less-well-resourced users."
+
+**Why it is newly urgent:** the assign-by-upload v2 restructure deliberately traded bytes for a
+consistent folder shape. Every text now lands its FULL original audio in `<Storyname>/originals/`
+(previously a recorded text's audio was sealed in one bundle zip and an assigned text's audio was
+never uploaded at all), plus a manifest, plus the consent artifacts. The per-text footprint went UP,
+and it is the audio that dominates — a 24-bit WAV recording is roughly 8 MB/minute. A researcher on
+a free 15 GB Google account shares that quota with Gmail and their own Drive, so a few dozen
+recorded texts can fill it, and the failure mode is a device retrying an upload forever against a
+quota error it cannot fix.
+
+Things worth weighing when this is picked up (nothing decided):
+
+- **Nothing here is a duplicate today, so dedupe is not the lever.** The originals are the archival
+  copy; the derived WAV and the seg exports were deliberately taken OFF uploads in v3-era work
+  (Lane B is the bare `.flextext`; the Downloads menu builds conversions on demand). The remaining
+  growth is real source material plus the `.flextext` backup-copy pileup.
+- **The backup-copy pileup is the cheap win.** Lane B uploads a timestamped `.flextext` per
+  auto-backup, and they accumulate forever. `cleanupCandidates` already computes exactly the older-
+  than-newest set and already refuses to touch assignment-role files — today it is a manual menu
+  action. An automatic or prompted retention rule (keep N, or keep newest + weekly) would reclaim
+  most of it with machinery that already exists and is already tested.
+- **Quota needs to surface as a real state, not a retry loop.** A Drive 403 `storageQuotaExceeded`
+  is PERMANENT for the device — it must classify like the expired-token 401 (stop, report), and the
+  panel should be able to say "this researcher's Drive is full" rather than showing an upload that
+  never lands. That is the piece that actually protects a field worker's day.
+- **Lossy archival is a Seth decision, not an engineering one.** Offering a compressed upload lane
+  would cut the dominant cost by ~10x, but it contradicts the archival stance the native apps exist
+  to serve (see the `js/native-audio.js` boundary and the bext honesty rules). If it is ever offered
+  it must be an explicit researcher choice, named as lossy, and never the default.
+- **Whose Drive is it?** Uploads land in the RESEARCHER's Drive via their OAuth token, so the quota
+  that runs out is theirs, not the device owner's — which is also why the device cannot resolve it
+  and why the panel is the right place to show it.
+
+### Yes — the Drive API supports both halves, and `drive.file` scope splits them cleanly (asked 2026-08-12; FUTURE RELEASE, not scoped now)
+
+**Displaying quota: fully available, no scope problem.** `GET /drive/v3/about?fields=storageQuota,user`
+returns `{ limit, usage, usageInDrive, usageInDriveTrash }` (bytes; `limit` is absent on unlimited
+pooled accounts — treat missing as "no limit", never as zero). It reports on the USER, not on files,
+so our `drive.file` scope is enough — no broader consent screen, nothing new for a researcher to
+approve. That is one worker endpoint and a panel readout: "Drive: 11.2 GB of 15 GB used."
+
+**⚠ The finding that matters most, and it is free to fix:** `usageInDriveTrash` is counted INSIDE
+`usage`. Our existing cleanup (`Researcher.trashFiles`) moves files to trash — deliberately, so a
+mistake is recoverable for 30 days — which means **today's "cleanup" reclaims no space at all until
+the trash is emptied.** A researcher who is out of quota and dutifully runs cleanup will see nothing
+change and reasonably conclude the feature is broken. Showing `usageInDriveTrash` beside the total,
+with an explicit "empty trash to reclaim" action (`files.emptyTrash`, or per-file `files.delete`),
+turns that from a silent no-op into the actual remedy.
+
+**Cleanup: bounded by `drive.file` — and that boundary is a feature.** The scope means the app can
+only list, trash or delete files IT created, so a storage tool built on it can never touch a
+researcher's unrelated Drive contents even by mistake. Practically:
+- `files.list` with `fields=files(id,name,size,quotaBytesUsed,modifiedTime,appProperties)` — note
+  `quotaBytesUsed` is the field that actually charges the quota (it differs from `size` for some
+  file types), and `orderBy=quotaBytesUsed desc` gives a biggest-first list for free.
+- The per-text machinery already exists and is already tested: `cleanupCandidates` computes exactly
+  the older-than-newest backup set and already refuses assignment-role files. What is missing is an
+  ACCOUNT-WIDE view over it rather than one text at a time.
+- What it cannot do: report or clean anything outside FlexText's own files. So the readout should
+  name that honestly — "FlexText is using 3.1 GB of the 11.2 GB on this Drive" — rather than
+  implying the app can tidy Gmail attachments or the researcher's own documents.
+
+**Sequencing note for whoever builds it:** the quota readout is worth having BEFORE the retention
+rules, because a number the researcher can watch is what makes a retention policy legible — and
+because the write half (`storageQuotaExceeded` classified permanent, per the entry above) is what
+stops a device retrying forever, which is the part that actually costs a field worker their day.
+
+## NEXT CYCLE (Seth, 2026-08-12): a Drive-side text inventory modal — list, remove, Files ▾
+
+> "We also should build a modal or a text list that shows Texts that are on the Google Drive folder.
+> That should be easy to inventory now. And all have a 'Remove from Google drive' (which asks the
+> user if they're sure they want to move it to their Google Drive trash folder), and also a 'Files'
+> menu with the same behavior as anywhere else — download options if a manifest file is present,
+> 'Open in Google Drive' if not."
+>
+> "That's also NEXT release cycle, not this one."
+
+**Why it is genuinely easy now, and was not before.** The panel's existing text lists are keyed off
+DEVICE INVENTORY — they show what a device currently reports holding. A text uploaded and then
+deleted from the device disappears from the panel even though its Drive folder is still there, and
+that gap is exactly what a researcher cannot see today. The v2 restructure makes the Drive side
+enumerable in its own right: every text is `FlexText Uploads/<Device>/<Storyname>/`, tagged
+`flextextDoc=<docId>` (v1.js `driveEnsureTextFolder`), so listing text folders is a tag search, not
+a filename guess. The v3 manifest then names each one without opening anything.
+
+**What it needs (nothing here is a redesign — it is assembly):**
+- ONE additive worker endpoint: list the text folders under an instance's device folder(s), each
+  with `{ folderId, docId, title, modified, hasManifest }`. Additive ⇒ straight-to-prod eligible
+  under locked decision 9. Reuse `driveEnsureDeviceFolder` + the same tag search shape.
+- The Files ▾ control is already renderable anywhere (`filesMenuHtml(instanceId, docId, …)` is
+  deliberately independent of device rows — History entries already use it), and after v3 its body
+  is manifest-driven, so "download options if a manifest is present, Open in Drive if not" is
+  ALREADY the behaviour. The modal reuses it verbatim; no second menu.
+- "Remove from Google Drive" is `Researcher.trashFiles([folderId])` with a confirm — the same call
+  and the same 30-day-recoverable trash semantics the History row's folder removal already uses
+  (`data-histclean`). Copy that confirm's wording: it already says trash, not delete.
+- ⚠ Pair it with the storage-quota readout above. A "remove" that trashes does NOT free quota until
+  the trash is emptied, so an inventory screen with removals on it is exactly where a researcher
+  will expect the space to come back — and where the surprise will land if it does not.
+
+**One judgement call to make when building it:** whether this modal replaces, or sits beside, the
+per-text Files ▾ on device rows. Beside, probably — the device row answers "what is on this device",
+the modal answers "what is in my Drive", and after v3 those are legitimately different questions.
+
+### Same cluster, same cycle: an "unassigned" holding place, and moves in BOTH directions (Seth, 2026-08-12)
+
+> "Also, let's make it possible to move unassigned texts back to the original device or to another
+> device. And we could also make it possible to assign a text to the unassigned texts 'device' (or
+> give it some other more generic name). (also for the next release)"
+
+**The concept does not exist in the code yet** — there is no `unassigned` anywhere in `docs/js/` or
+`worker/src/`. What exists is `moveTextModal` (researcher-panel.js), which moves a text from one
+device to another: assign to the destination, watch for it to appear in that device's inventory,
+then fire the upload-first remove at the source. It only offers OTHER DEVICES as destinations, and
+it can only be started FROM a device row — both of which is what this asks to generalise.
+
+So this is really one idea in two directions, and the inventory modal above is what makes both
+reachable:
+- **Drive → device.** A text sitting in Drive with no device holding it has no row today, so there
+  is nowhere to click "move". The inventory modal gives it one. The move itself is the EXISTING
+  assign path — the text folder already carries `flextextDoc=<docId>`, and after v3 its manifest
+  names the source files, so re-assigning it to a device is the same begin/upload/finish flow with
+  the files already in place. "Back to the original device" is worth distinguishing in the UI from
+  "to another device" only if we record which device it came from — the folder tree already does
+  (`FlexText Uploads/<Device>/<Storyname>/`), so the original device is READABLE, not something new
+  to store.
+- **Device → unassigned.** This is `moveTextModal` with a destination that is not a device: upload
+  first, then remove from the source, and stop — deliberately parking the text in Drive. Note this
+  is ALREADY the safe half of an existing flow: the upload-first-then-remove sequence is the whole
+  reason a move cannot lose work, so parking is a move whose second leg is simply skipped.
+
+**⚠ The naming question Seth flagged is the real design decision, and it is not cosmetic.** Calling
+it a "device" makes it fit the existing UI for free (a card, rows, a Files ▾ menu) but it is a lie
+the data model will eventually catch: a device has an `instance_id`, installs, an `ack_seq`, a
+settings snapshot and a pairing secret, and none of that exists for a holding area. Everything that
+iterates `lastData.instances` would have to special-case it, which is exactly the kind of
+"rule enforced in app.js that the satellites reach by a different path" drift the entry at the
+bottom of this file warns about. Suggest a distinct section in the panel ("In Drive, not on a
+device" / "Archive" / "Parked") rendered by the SAME row + Files ▾ components, with no fake
+instance_id anywhere near the worker. Seth's own instinct — "or give it some other more generic
+name" — is pointing at this.
+
+**Sequencing:** the inventory modal has to land first; it is the surface these actions live on.

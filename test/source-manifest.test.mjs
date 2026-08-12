@@ -20,6 +20,7 @@ import { readFileSync } from 'node:fs';
 let fail = 0;
 const ok = (c, m) => { console.log(`  ${c ? 'ok  ' : 'FAIL'}  ${m}`); if (!c) fail++; };
 const app = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
+const segex = readFileSync(new URL('../docs/js/seg-exports.js', import.meta.url), 'utf8');
 const body = (app.match(/function buildSourceManifest\(rec, \{ origin, files, audio \}\) \{([\s\S]*?)\n\}/) || [])[1] || '';
 
 console.log('\nthe manifest carries what a consumer needs without opening a single audio file');
@@ -54,10 +55,15 @@ console.log('\nprivacy: the manifest records THAT consent exists, never what it 
 
 console.log('\nthe audio name is derived from the STORY TITLE, sanitised like the folder');
 {
-  const san = (app.match(/function sanitizeBase\(title\) \{([\s\S]*?)\n\}/) || [])[1] || '';
+  // v3 moved sanitizeBase/extOf into seg-exports.js so the device, the panel and the DOWNLOADER
+  // share one rule (see test/media-filenames.test.mjs). This test still owns the assertion that
+  // the source package's audio name follows it — only the address changed.
+  ok(/from '\.\/seg-exports\.js'/.test(app) && /sanitizeBase/.test(app.split('\n').slice(0, 40).join('\n')),
+     'app.js imports the shared rule instead of carrying its own copy');
+  const san = (segex.match(/export function sanitizeBase\(title\) \{([\s\S]*?)\n\}/) || [])[1] || '';
   ok(san.includes("replace(") && san.includes("'_'"), 'strips the same characters the worker strips from folder names');
   ok(/slice\(0, 120\)/.test(san), 'and caps at the same 120 characters, so file and folder cannot disagree');
-  const ext = (app.match(/function extOf\(name, mime\) \{([\s\S]*?)\n\}/) || [])[1] || '';
+  const ext = (segex.match(/export function extOf\(name, mime\) \{([\s\S]*?)\n\}/) || [])[1] || '';
   ok(/audio\/wav/.test(ext) && /audio\/mpeg/.test(ext), 'extension falls back to the mime type when the name has none');
 }
 

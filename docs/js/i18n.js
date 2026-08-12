@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v336';
+export const ENGINE_VERSION = 'v337';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v336';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'assign-by-upload v2';
+export const BUILD_TAG = 'assign-by-upload v3';
 
 const S = {
 en: {
@@ -338,6 +338,7 @@ en: {
   'panel.inst.confirmDelText': 'The device will first upload “{title}” to Drive (a fresh time-stamped copy), then delete it from the device. The text is only deleted after the upload is confirmed safe. Continue?',
   'panel.inst.cancelUpload': 'Cancel upload',
   'panel.inst.cancelDelete': 'Cancel removal',
+  'panel.inst.cancelAssign': 'Cancel assignment',
   'panel.inst.taken': 'in progress',
   'panel.inst.takenWhy': 'The device has already picked this up, so it can no longer be cancelled.',
   'panel.inst.cancelled': 'Request cancelled — the device will not act on it.',
@@ -966,7 +967,13 @@ internet after the first time.</p>
   'panel.up.changed': 'changed since upload',
   'panel.up.uploaded': 'uploaded ✓',
   'panel.up.requested': 'request sent…',
-  'panel.up.slow': 'awaiting device…',
+  'panel.up.slow': 'awaiting device\u2026',
+  /* v3: an assignment that has been SENT but which the device has not reported yet. Without these
+   * the text was invisible between the two events — see the ghost-row note in researcher-panel.js. */
+  'panel.up.assigning': 'assignment sent\u2026',
+  'panel.up.assigningWhy': 'waiting for the device to come online and pick it up',
+  'panel.up.assignTaken': 'device is fetching\u2026',
+  'panel.up.assignTakenWhy': 'the device has the assignment and is downloading the files',
   'panel.up.justUploaded': 'uploaded just now ✓',
   'panel.new.title': 'New device',
   'panel.new.type': 'Type',
@@ -1020,6 +1027,21 @@ internet after the first time.</p>
   'panel.dl.noAlign': 'This flextext has no audio alignment yet — there is nothing to build the timed export from.',
   'panel.dl.tooBigConvert': 'This recording is too large to convert in the browser — download the original instead.',
   'panel.dl.oneAtATime': 'One conversion at a time — the current one is still working.',
+  /* v3: the Files menu reads flextext-manifest.json. No manifest -> ONE item, a folder link. */
+  'panel.dl.openFolder': 'Open the Drive folder \u2197',
+  'panel.dl.openFolderSub': 'see every file for this text in Google Drive',
+  'panel.dl.notArrived': '{name} \u2014 not uploaded yet',
+  'panel.dl.missing': 'Still to arrive: {names}',
+  'panel.dl.approx': 'about {size}',
+  'panel.dl.package': 'Recording package (.zip)',
+  'panel.dl.packageSub': 'the recording with its consent records, exactly as uploaded',
+  // How the text came to exist, from the manifest's `origin` field — so the researcher is told
+  // whether item 1 is what they assigned or what the speaker recorded, instead of inferring it.
+  'panel.dl.origin.assigned': 'assigned',
+  'panel.dl.origin.recorded': 'recorded on the device',
+  'panel.dl.origin.imported': 'imported',
+  'panel.dl.origin.pair-import': 'imported as a pair',
+  'panel.dl.origin.crowd': 'crowd recorder',
   'panel.aq.title': 'Assignment uploads',
   'panel.aq.queued': 'waiting to upload',
   'panel.aq.uploading': 'uploading {pct}%',
@@ -1034,7 +1056,12 @@ internet after the first time.</p>
   'panel.f.consentUpload': 'Upload a prompt recording…',
   'panel.f.consentNone': 'No prompt recording uploaded yet.',
   'panel.f.consentHave': '✓ A prompt recording is stored and will be sent to the device.',
-  'panel.f.consentUploading': 'Uploading…',
+  'panel.f.consentUploading': 'Uploading\u2026',
+  /* v3: a spoken prompt on a field connection takes minutes. Silence that long reads as a hang —
+   * which is what made researchers press Save mid-upload and meet a validation error. */
+  'panel.f.consentUploadingPct': 'Uploading\u2026 {pct}%',
+  'panel.f.consentFinishing': 'Finishing\u2026',
+  'panel.f.consentStillUploading': 'The consent prompt is still uploading ({pct}%). Nothing has gone wrong \u2014 wait for it to finish, then press Save again.',
   'panel.f.consentUploaded': 'Uploaded — the field above now holds your private Drive copy. Save to push it.',
   'panel.account.title': 'Account',
   'panel.account.signedInAs': 'Signed in as',
@@ -1784,6 +1811,7 @@ id: {
   'panel.inst.confirmDelText': 'Perangkat akan terlebih dahulu mengunggah “{title}” ke Drive (salinan baru berstempel waktu), lalu menghapusnya dari perangkat. Teks hanya dihapus setelah unggahan dipastikan aman. Lanjutkan?',
   'panel.inst.cancelUpload': 'Batalkan unggahan',
   'panel.inst.cancelDelete': 'Batalkan penghapusan',
+  'panel.inst.cancelAssign': 'Batalkan penugasan',
   'panel.inst.taken': 'sedang berjalan',
   'panel.inst.takenWhy': 'Perangkat sudah mengambil perintah ini, jadi tidak bisa dibatalkan lagi.',
   'panel.inst.cancelled': 'Permintaan dibatalkan — perangkat tidak akan menjalankannya.',
@@ -2401,7 +2429,11 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.up.changed': 'berubah sejak unggah',
   'panel.up.uploaded': 'terunggah ✓',
   'panel.up.requested': 'permintaan terkirim…',
-  'panel.up.slow': 'menunggu perangkat…',
+  'panel.up.slow': 'menunggu perangkat\u2026',
+  'panel.up.assigning': 'penugasan terkirim\u2026',
+  'panel.up.assigningWhy': 'menunggu perangkat terhubung dan mengambilnya',
+  'panel.up.assignTaken': 'perangkat sedang mengambil\u2026',
+  'panel.up.assignTakenWhy': 'perangkat sudah menerima penugasan dan sedang mengunduh berkasnya',
   'panel.up.justUploaded': 'baru terunggah ✓',
   'panel.new.title': 'Perangkat baru',
   'panel.new.type': 'Jenis',
@@ -2455,6 +2487,18 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.dl.noAlign': 'Flextext ini belum punya penyelarasan audio — tidak ada bahan untuk ekspor berwaktu.',
   'panel.dl.tooBigConvert': 'Rekaman ini terlalu besar untuk dikonversi di peramban — unduh yang asli saja.',
   'panel.dl.oneAtATime': 'Satu konversi pada satu waktu — yang sekarang masih berjalan.',
+  'panel.dl.openFolder': 'Buka folder Drive \u2197',
+  'panel.dl.openFolderSub': 'lihat semua berkas teks ini di Google Drive',
+  'panel.dl.notArrived': '{name} \u2014 belum diunggah',
+  'panel.dl.missing': 'Masih ditunggu: {names}',
+  'panel.dl.approx': 'sekitar {size}',
+  'panel.dl.package': 'Paket rekaman (.zip)',
+  'panel.dl.packageSub': 'rekaman beserta catatan persetujuan, persis seperti yang diunggah',
+  'panel.dl.origin.assigned': 'ditugaskan',
+  'panel.dl.origin.recorded': 'direkam di perangkat',
+  'panel.dl.origin.imported': 'diimpor',
+  'panel.dl.origin.pair-import': 'diimpor sebagai pasangan',
+  'panel.dl.origin.crowd': 'perekam massal',
   'panel.aq.title': 'Unggahan penugasan',
   'panel.aq.queued': 'menunggu diunggah',
   'panel.aq.uploading': 'mengunggah {pct}%',
@@ -2469,7 +2513,10 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.f.consentUpload': 'Unggah rekaman panduan…',
   'panel.f.consentNone': 'Belum ada rekaman panduan yang diunggah.',
   'panel.f.consentHave': '✓ Rekaman panduan tersimpan dan akan dikirim ke perangkat.',
-  'panel.f.consentUploading': 'Mengunggah…',
+  'panel.f.consentUploading': 'Mengunggah\u2026',
+  'panel.f.consentUploadingPct': 'Mengunggah\u2026 {pct}%',
+  'panel.f.consentFinishing': 'Menyelesaikan\u2026',
+  'panel.f.consentStillUploading': 'Prompt persetujuan masih diunggah ({pct}%). Tidak ada yang salah \u2014 tunggu sampai selesai, lalu tekan Simpan lagi.',
   'panel.f.consentUploaded': 'Terunggah — ruas di atas kini berisi salinan Drive pribadi Anda. Simpan untuk mendorongnya.',
   'panel.account.title': 'Akun',
   'panel.account.signedInAs': 'Masuk sebagai',

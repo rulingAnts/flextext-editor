@@ -165,6 +165,16 @@ export function driveLink(fileId) {
     : '';
 }
 
+/* The FOLDER twin of driveLink (v3): the Files menu's no-manifest fallback is a link straight to
+ * the text's Drive folder — "that's good enough" (Seth), and a folder link cannot be wrong the way
+ * the deleted inferred menu could. A folder has no download endpoint, so this is the ordinary Drive
+ * UI URL. Same id-shape guard and the same reason for it: the id reaches us from a device report,
+ * and nothing unvalidated is ever interpolated into an href in this privileged panel. */
+export function driveFolderLink(folderId) {
+  const id = String(folderId || '').trim();
+  return /^[\w-]{10,}$/.test(id) ? `https://drive.google.com/drive/folders/${id}` : '';
+}
+
 /**
  * Pull a Drive file id out of whatever URL a researcher pasted, so an assigned-audio link can be
  * turned into a direct download too. Mirrors the Worker's driveId() (worker/src/index.js) — the

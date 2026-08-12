@@ -42,7 +42,11 @@ function wavBytes() {
 }
 
 const media = { name: 'story.m4a', mimeType: 'audio/mp4', blob: new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/mp4' }) };
-const derivedWav = { name: 'story.converted-NOT-ARCHIVAL.wav', mimeType: 'audio/wav',
+/* ⚠ The record's own `name` is deliberately the OLD media-derived one. v3 names every exported
+ * entry from the TITLE base instead, so this stale value must never appear in the output — that is
+ * how a text assigned before the fix exports correctly without a migration. See
+ * test/media-filenames.test.mjs for the rule itself. */
+const derivedWav = { name: 'Kisah.converted-NOT-ARCHIVAL.wav', mimeType: 'audio/wav',
   blob: new Blob([wavBytes()], { type: 'audio/wav' }), derived: true, srcName: 'story.m4a' };
 const args = (over = {}) => ({
   doc: segDoc(), title: 'Kisah', base: 'Kisah', media, segMedia: derivedWav,
@@ -53,15 +57,15 @@ console.log('\nfull (local-save) bundle: every selected entry, in bundle order')
 {
   const es = await assembleSegEntries(args({ full: true }));
   ok(names(es).join('|') === [
-    'Kisah.eaf', 'Kisah.pfsx', 'story.converted-NOT-ARCHIVAL.wav.annotations.eaf',
-    'story.converted-NOT-ARCHIVAL.wav', 'story.preview.html', 'HOW-TO-OPEN.txt', 'Kisah.fxpa',
+    'Kisah.eaf', 'Kisah.pfsx', 'Kisah.converted-NOT-ARCHIVAL.wav.annotations.eaf',
+    'Kisah.converted-NOT-ARCHIVAL.wav', 'Kisah.preview.html', 'HOW-TO-OPEN.txt', 'Kisah.fxpa',
   ].join('|'), `full bundle entry set + order (got: ${names(es).join(', ')})`);
-  const wav = es.find((e) => e.name === 'story.converted-NOT-ARCHIVAL.wav');
+  const wav = es.find((e) => e.name === 'Kisah.converted-NOT-ARCHIVAL.wav');
   const wavTxt = new TextDecoder('latin1').decode(new Uint8Array(await wav.data.arrayBuffer()));
   ok(wavTxt.includes('bext') && wavTxt.includes('NOT an archival master'), 'derived WAV carries the bext provenance chunk');
   ok(wavTxt.includes('A=MP4'), 'CodingHistory names the ORIGINAL (lossy) mime, not the WAV copy');
   const howto = await text(es, 'HOW-TO-OPEN.txt');
-  ok(howto.includes('story.preview.html') && howto.includes('Kisah.fxpa'), 'HOW-TO-OPEN documents the full-only entries');
+  ok(howto.includes('Kisah.preview.html') && howto.includes('Kisah.fxpa'), 'HOW-TO-OPEN documents the full-only entries');
   const fxpa = JSON.parse(await text(es, 'Kisah.fxpa'));
   ok(fxpa.audio && fxpa.audio.b64 === await blobToBase64(derivedWav.blob), 'fxpa embeds the working audio');
   ok(fxpa.vernLang === 'fau' && fxpa.analLang === 'id', 'fxpa carries the passed language codes');
@@ -73,13 +77,13 @@ console.log('\nupload bundle (full:false): preview + fxpa NEVER ride — bandwid
   const es = await assembleSegEntries(args({ full: false }));
   ok(!names(es).some((n) => n.endsWith('.preview.html')), 'no preview page in an upload');
   ok(!names(es).some((n) => n.endsWith('.fxpa')), 'no fxpa in an upload');
-  ok(names(es).includes('Kisah.eaf') && names(es).includes('story.converted-NOT-ARCHIVAL.wav.annotations.eaf'),
+  ok(names(es).includes('Kisah.eaf') && names(es).includes('Kisah.converted-NOT-ARCHIVAL.wav.annotations.eaf'),
      'EAFs (small text) still ride uploads');
   // Parity: the entries BOTH bundles carry must be identical — the researcher's Drive copy opens
   // in ELAN exactly like the local save. (The EAF header's DATE is the serialization instant, the
   // one legitimate difference — normalized out.)
   const noDate = (s) => String(s).replace(/DATE="[^"]*"/, 'DATE=""');
-  for (const n of ['Kisah.eaf', 'Kisah.pfsx', 'story.converted-NOT-ARCHIVAL.wav.annotations.eaf']) {
+  for (const n of ['Kisah.eaf', 'Kisah.pfsx', 'Kisah.converted-NOT-ARCHIVAL.wav.annotations.eaf']) {
     ok(noDate(await text(es, n)) === noDate(await text(esFull, n)), `upload-vs-full parity: ${n}`);
   }
   const howto = await text(es, 'HOW-TO-OPEN.txt');
@@ -89,15 +93,15 @@ console.log('\nupload bundle (full:false): preview + fxpa NEVER ride — bandwid
 console.log('\nwants combinations gate the entries');
 {
   const eafOnly = await assembleSegEntries(args({ full: true, wants: { eaf: true } }));
-  ok(names(eafOnly).join('|') === 'Kisah.eaf|Kisah.pfsx|story.converted-NOT-ARCHIVAL.wav|HOW-TO-OPEN.txt',
+  ok(names(eafOnly).join('|') === 'Kisah.eaf|Kisah.pfsx|Kisah.converted-NOT-ARCHIVAL.wav|HOW-TO-OPEN.txt',
      'eaf alone: eaf + pfsx sidecar + derived WAV + instructions');
   const smOnly = await assembleSegEntries(args({ full: true, wants: { saymore: true } }));
-  ok(names(smOnly).join('|') === 'story.converted-NOT-ARCHIVAL.wav.annotations.eaf|story.converted-NOT-ARCHIVAL.wav|HOW-TO-OPEN.txt',
+  ok(names(smOnly).join('|') === 'Kisah.converted-NOT-ARCHIVAL.wav.annotations.eaf|Kisah.converted-NOT-ARCHIVAL.wav|HOW-TO-OPEN.txt',
      'saymore alone: annotations.eaf + derived WAV + instructions');
   const none = await assembleSegEntries(args({ full: true, wants: {} }));
   ok(none.length === 0, 'nothing selected -> no entries');
   const nonDerived = await assembleSegEntries(args({ full: true, wants: { eaf: true }, segMedia: { ...derivedWav, derived: false } }));
-  ok(!names(nonDerived).includes('story.converted-NOT-ARCHIVAL.wav'), 'a non-derived working copy is never bundled (the original rides separately)');
+  ok(!names(nonDerived).includes('Kisah.converted-NOT-ARCHIVAL.wav'), 'a non-derived working copy is never bundled (the original rides separately)');
 }
 
 console.log('\nno alignment (segMedia null): text-only fxpa is first-class, annotations are not');

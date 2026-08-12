@@ -79,8 +79,12 @@ console.log('\nLane B: an upload is the BARE flextext, never zipped');
   ok(!!laneB, 'the non-full (upload) path is its own early return');
   ok(!!laneB && /zipped: false/.test(laneB[1]) && /\.flextext`/.test(laneB[1]), 'and returns a bare .flextext');
   ok(!!laneB && !/makeZip/.test(laneB[1]), 'no zip on the upload path');
-  ok(!!laneB && /isAudioLocked\(rec\) \? \(media\.name \|\| 'audio'\) : segMediaName/.test(laneB[1]),
+  /* v3: the reference is still ORIGINAL-vs-working-copy, but BOTH names are now derived from the
+   * story title (mediaNameFor / derivedWavName) instead of read off the stored media record — an
+   * assigned text's media.name was the delivery token. See test/media-filenames.test.mjs. */
+  ok(!!laneB && /isAudioLocked\(rec\) \? mediaNameFor\(base, media\) : segMediaName/.test(laneB[1]),
      'assigned/locked docs reference the ORIGINAL media name, others the working copy');
+  ok(!/media\.name \|\| 'audio'/.test(body), 'and no upload name is read straight off the stored media record');
   ok(/full: !!opts\.full/.test(body) || /opts\.full/.test(body), 'local saves (opts.full) still take the full bundle path');
 }
 

@@ -17,13 +17,12 @@ import { t, getLang, setLang, applyI18n, ENGINE_VERSION, BUILD_TAG, LANGS, LANG_
 import { REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { importPublicKeyB64, publicKeyFingerprint } from './crypto.js';
 import { esc, parseFlextext, surveyWritingSystems, remapWritingSystems, analyzeFlextextWs, segmentsFromOffsets } from './flextext.js';
-import { assembleSegEntries, MANIFEST_NAME } from './seg-exports.js';
+import { assembleSegEntries, MANIFEST_NAME, sanitizeBase, mediaNameFor, derivedWavName } from './seg-exports.js';
 import { convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
 import WaveSurfer from './vendor/wavesurfer.esm.js';
 import * as db from './db.js';
-import { observeView, recordEvents, loadHistory, clearHistory, assignedEvent, driveLink, driveIdFrom, recordingSince, HISTORY_KINDS } from './history.js';
-import { makeZip, unzipStoreEntry } from './zip.js';
-import { resolveArtifacts, emptyReason } from './artifacts.js';
+import { observeView, recordEvents, loadHistory, clearHistory, assignedEvent, driveLink, driveIdFrom, driveFolderLink, recordingSince, HISTORY_KINDS } from './history.js';
+import { makeZip } from './zip.js';
 
 // Byte-size formatter for assign-validation verdicts (mirrors app.js sizeFmt; that one is not exported).
 const fmtSize = (b) => (b < 1048576 ? Math.max(1, Math.round(b / 1024)) + ' KB' : (b / 1048576).toFixed(1) + ' MB');
@@ -1017,9 +1016,14 @@ async function renderDashboard(prefetched) {
       const d = live.get(docId);
       // A delete is done when the text is gone from every inventory. An upload is done when the
       // device reports a NEW file id — the same signal the History log uses.
+      /* Each kind is retired by the inventory FACT that proves it happened — never by a clock
+       * (v131). An assign is the mirror image of a delete: done the moment the text APPEARS in an
+       * inventory. That is the same signal pendingMoves' 'assigned' stage already trusts. */
       const done = p.kind === 'delete'
         ? (d === undefined && ackOf(insts, p.instanceId) >= p.seq)
-        : !!(d && d.uploadedFileId && d.uploadedFileId !== p.prevFileId);
+        : p.kind === 'assign'
+          ? d !== undefined
+          : !!(d && d.uploadedFileId && d.uploadedFileId !== p.prevFileId);
       if (done) { pendingCmds.delete(docId); changed = true; }
     }
     if (changed) savePending(Researcher.currentAccountId());
@@ -1030,7 +1034,6 @@ async function renderDashboard(prefetched) {
   // good. observeView never throws and diffs a repeated report to nothing, so calling it on the
   // 12s tick is both safe and necessary.
   observeView(Researcher.currentAccountId(), insts);
-  rebuildAssignedCache();   // after observeView, so an assignment made this tick is already in it
   let pending = 0, texts = 0;
   for (const it of insts) for (const ins of it.installs || []) {
     if (ins.status === 'pending') pending++;
@@ -1191,25 +1194,47 @@ function filesMenuHtml(instanceId, docId, title, audioUrl, fileId) {
       <span class="note rp-dl-loading">${esc(t('panel.dl.loading'))}</span></span></span>`;
 }
 
-// Newest file per KIND (classified by extension), so the menu never shows the backup-copy pileup.
-// The folder listing arrives newest-first, so "first seen wins" IS "most recent per kind".
-const EXT_KIND = [
-  [/\.saymore\.eaf$/i, 'eaf-saymore'], [/\.eaf$/i, 'eaf-flex'], [/\.flextext$/i, 'flextext'],
-  [/\.zip$/i, 'bundle'], [/derived[^.]*\.wav$/i, 'wav-derived'],
-  [/\.(wav|mp3|opus|ogg|webm|flac|m4a|aac)$/i, 'audio'],
-];
-function latestPerKind(files) {
-  const seen = new Set(); const out = [];
-  for (const f of files || []) {
-    const kind = f.role === 'assigned-audio' ? 'audio-original'
-      : f.role === 'assigned-flextext' ? 'flextext-assigned'
-      : f.role === 'consent-prompt' ? 'consent-prompt'
-      : (EXT_KIND.find(([re]) => re.test(f.name || '')) || [null, 'other'])[1];
-    const key = kind === 'other' ? 'other:' + f.name : kind;   // unknown kinds keep every distinct name
-    if (seen.has(key)) continue;
-    seen.add(key); out.push({ ...f, kind });
-  }
-  return out;
+/* ---------------- WHAT A FILE IS: the Drive ROLE TAG, never its name ----------------
+ *
+ * ⚠ THE HEURISTIC MENU IS DELETED (Seth, 2026-08-12). `EXT_KIND` + `latestPerKind` classified every
+ * file by sniffing its extension and then showed the newest of each guessed kind. Seth: *"the
+ * inferred menu has actually never worked correctly and it's not worth our time making it work
+ * correctly if it's just a fallback."* It is the machinery that earned the old Files menu its "all
+ * out of whack" reputation and got it parked behind a flag — most memorably promising
+ * "Bundle (.zip, includes audio)" and delivering raw XML, because a `.zip` name says nothing about
+ * what is inside it.
+ *
+ * What replaced it: every file this suite writes carries an `appProperties.flextextRole` tag
+ * (worker v1.js), and the v2 manifest DECLARES the intended set. A tag is a fact; an extension was
+ * a guess. The one name-based check that survives is `.flextext`, and it is deliberately not the
+ * same thing: that extension IS the format, on files we ourselves wrote, so it cannot mis-promise
+ * the way a `.zip` could. */
+const SOURCE_AUDIO_ROLES = ['source-audio', 'assigned-audio'];
+const SOURCE_FT_ROLES = ['source-flextext', 'assigned-flextext'];
+const CONSENT_ROLES = ['consent-clip', 'consent-prompt', 'consent-receipt'];
+/* Never a "backup copy", however old: the source materials are what the researcher delivered or the
+ * speaker recorded, the consent artifacts are the IRB record, and the manifest is the contract the
+ * whole package is checked against. */
+const PROTECTED_ROLES = [...SOURCE_AUDIO_ROLES, ...SOURCE_FT_ROLES, ...CONSENT_ROLES, 'manifest'];
+const hasRole = (f, roles) => roles.includes(String((f && f.role) || ''));
+const isFlextextName = (f) => /\.flextext$/i.test(String((f && f.name) || ''));
+
+/* The files a text's SOURCE material resolves to, newest-first input assumed.
+ * - audio: the tagged original. Detection is by ROLE so a later story rename leaves a cosmetically
+ *   stale filename and nothing breaks (locked decision 4).
+ * - flextext: the tagged source copy OR the newest bare `.flextext` a device uploaded (Lane B
+ *   working copies postdate the manifest, so the manifest cannot declare them).
+ * - bundle: legacy `.zip` uploads. Used ONLY by moveTextModal, where the WORKER extracts the
+ *   flextext server-side; the panel no longer reads zips itself. */
+function pickSourceFiles(files) {
+  const rows = files || [];
+  return {
+    audio: rows.find((f) => hasRole(f, SOURCE_AUDIO_ROLES)) || null,
+    flextext: rows.find((f) => hasRole(f, SOURCE_FT_ROLES) || isFlextextName(f)) || null,
+    bundle: rows.find((f) => /\.zip$/i.test(String(f.name || ''))) || null,
+    consent: rows.filter((f) => hasRole(f, CONSENT_ROLES)),
+    manifest: rows.find((f) => hasRole(f, ['manifest']) || f.name === MANIFEST_NAME) || null,
+  };
 }
 
 /* LEGACY IDENTITY BRIDGE. Until v137 the device DISCARDED the assign id and minted its own doc
@@ -1237,185 +1262,166 @@ function bridgedIds(docId, title) {
   return { ids: [...ids], audioUrl: audio[0] || '', latestEventFileId: (fileIds[0] || {}).fileId || '' };
 }
 
-/* Build ONE menu from ALL sources, merged by kind — never either/or.
+/* What cleanup is allowed to remove: the OLDER bare `.flextext` backup copies, and nothing else.
  *
- * ⚠ WHY MERGED (Seth, after two rounds of non-uniform menus): the sources cover DIFFERENT files,
- * not the same files at different freshness. The Drive folder has what was uploaded since v134;
- * the report's uploadedFileId covers pre-folder uploads; the cached/event audio URL covers
- * assignments whose audio was never copied. Treating them as fallbacks meant every menu showed
- * whichever single source happened to be non-empty — audio-only on Assigned history rows,
- * flextext-only on device rows. The rule is: every kind appears once, from the BEST source that
- * has it. Folder files win their kind; the cached audio link fills 'audio-original' only when the
- * folder has no copy (the if-and-only-if rule); report artifacts fill kinds nothing else claimed;
- * a history event's own fileId is the last resort for texts deleted from every inventory. */
-/* What cleanup is allowed to remove: every file NOT selected by latestPerKind (i.e. the older
- * backup copies), EXCEPT anything tagged as the original assigned audio — the original is never a
- * "backup copy" however old it is. PURE and lifted by test/text-folder-files.test.mjs. */
+ * That is the whole of the pileup — Lane B uploads one timestamped `.flextext` per auto-backup and
+ * they accumulate forever. Everything else in the folder is either source material, a consent
+ * artifact or the manifest, and PROTECTED_ROLES keeps all of it however old. Rewritten off
+ * `latestPerKind` in v3: the old version derived "keep" from the extension-sniffing table, so
+ * deleting that table would have silently widened what cleanup proposed to trash — the most
+ * dangerous possible way for a refactor to go wrong. Explicitly listing what MAY go, rather than
+ * subtracting what must stay, means a role this function has never heard of is kept by default.
+ * PURE and lifted by test/text-folder-files.test.mjs. */
 function cleanupCandidates(allFiles) {
-  const keep = new Set(latestPerKind(allFiles).map((f) => f.id));
-  // Assignment-role files are NEVER backup copies, however old: the assigned audio/flextext are
-  // what the researcher delivered, and the consent prompt is what the speaker was played.
-  return (allFiles || []).filter((f) => !keep.has(f.id) && !/^(assigned-audio|assigned-flextext|consent-prompt)$/.test(f.role || ''));
+  const rows = (allFiles || []).filter((f) => f && f.id);
+  // Newest-first already, but never trust the caller's ordering for a destructive operation.
+  const backups = rows.filter((f) => isFlextextName(f) && !hasRole(f, PROTECTED_ROLES))
+    .sort((a, b) => String(b.modified).localeCompare(String(a.modified)));
+  return backups.slice(1);   // keep the newest; the rest are the older copies
 }
 
+/* THE FILES ▾ MENU, BUILT ON THE MANIFEST (v3 work order item 2).
+ *
+ * `flextext-manifest.json` is written FIRST, before a single source byte, and DECLARES the intended
+ * file set. So the menu no longer guesses: it names the source files, reports which declared file
+ * has not arrived yet, sizes the conversions before a click, and takes the writing systems from the
+ * package instead of a separate instance-settings round trip.
+ *
+ * ⚠ NO MANIFEST → ONE ITEM: "Open the Drive folder ↗" (Seth, 2026-08-12: *"our fallback on the
+ * files menu for previously assigned texts should rather just point [to] the Google Drive folder
+ * for that text. That's good enough."*). Pre-manifest texts get a link, not a reconstructed menu —
+ * a folder link cannot be wrong, and the heuristic that used to fill this space is deleted rather
+ * than carried. `listTextFiles` already returns `folderId`, so the link costs no extra call. */
 async function populateFilesMenu(wrap) {
   if (wrap.dataset.loaded) return;
   wrap.dataset.loaded = '1';
   const menu = wrap.querySelector('.rp-dl-menu');
   const iid = wrap.dataset.i, docId = wrap.dataset.id, title = wrap.dataset.title || 'text';
   const bridge = bridgedIds(docId, wrap.dataset.title);
-  const assigned = bridge.ids.map(assignedFor).find(Boolean) || assignedFor(docId);
-  // Query EVERY bridged identity's folder (legacy texts have two), merge, newest wins per kind.
+  const head = `<span class="rp-dl-head">${esc(t('panel.dl.title'))}</span>`;
+  // Query EVERY bridged identity's folder (legacy texts have two), merge newest-first.
   // ⚠ Collect per-promise, then flatten. The first version concatenated onto a SHARED variable
   // inside Promise.all — a lost-update race where the last resolver's stale read silently dropped
   // the other folder's files, and WHICH half survived depended on resolution order. Caught by the
   // bridge fixture returning complementary menus per direction.
   const lists = await Promise.all(bridge.ids.map(async (id) => {
-    try { return (await Researcher.listTextFiles(iid, id)).files || []; }
-    catch { return []; /* one folder failing must not empty the menu */ }
+    try { const r = await Researcher.listTextFiles(iid, id); return { files: r.files || [], folderId: r.folderId || '' }; }
+    catch { return { files: [], folderId: '' }; /* one folder failing must not empty the menu */ }
   }));
-  const allFiles = lists.flat().sort((a, b) => String(b.modified).localeCompare(String(a.modified)));
+  const allFiles = lists.flatMap((l) => l.files).sort((a, b) => String(b.modified).localeCompare(String(a.modified)));
+  const folderId = lists.map((l) => l.folderId).find(Boolean) || '';
   wrap._allFiles = allFiles;                 // the entire-folder ZIP wants EVERYTHING, uncollapsed
   wrap._cache = new Map();                   // per-menu-open byte cache: one fetch per file per open
-  const latest = latestPerKind(allFiles);
-  const byKind = (k) => latest.find((f) => f.kind === k) || null;
 
-  /* THE FIXED SIX-ITEM LIST (assign-by-upload): 1 original audio · 2 most recent flextext ·
-   * 3 ELAN zip · 4 SayMore zip · 5 preview page · 6 .fxpa. Items 3–6 are CLIENT-SIDE CONVERSIONS
-   * built on click from the same two sources — the panel already carries the whole conversion
-   * engine (convert.js) and the same assembleSegEntries the device bundles with, so what the
-   * researcher downloads is what a device upload would have contained. */
-  const original = byKind('audio-original');
-  const deviceAudio = byKind('audio');
-  // Conversions prefer the assigned ORIGINAL; a device recording covers texts recorded in the field.
-  const audioSrc = original || deviceAudio;
-  // Most recent flextext: newest of the assigned copy / a bare uploaded .flextext; a LEGACY text
-  // whose only uploads are bundle zips still has one INSIDE the newest zip (unzipStoreEntry).
-  const ftDirect = [byKind('flextext-assigned'), byKind('flextext')].filter(Boolean)
-    .sort((a, b) => String(b.modified).localeCompare(String(a.modified)))[0] || null;
-  const ftSrc = ftDirect || (byKind('bundle') ? { ...byKind('bundle'), legacyZip: true } : null);
-  wrap._menuSrc = { audio: audioSrc, ft: ftSrc };
+  const src = pickSourceFiles(allFiles);
+  let manifest = null;
+  if (src.manifest) {
+    try { manifest = JSON.parse(await (await menuFetch(wrap, src.manifest.id)).text()); }
+    catch { manifest = null; /* unreadable manifest is treated as none — the link is always right */ }
+  }
+  // Readers MUST ignore keys they do not know (manifest rule); a wrong-shaped body is not a manifest.
+  if (!manifest || typeof manifest !== 'object' || !Array.isArray(manifest.files)) manifest = null;
 
-  const claimed = new Set();
-  const audioRows = [], fileRows = [], tailRows = [];
+  if (!manifest) {
+    menu.innerHTML = head + (folderId
+      ? `<a class="rp-dl-item" role="menuitem" href="${esc(driveFolderLink(folderId))}" target="_blank" rel="noopener noreferrer">
+          <span class="rp-dl-name">${esc(t('panel.dl.openFolder'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.openFolderSub'))}</span></a>`
+      : `<span class="note rp-dl-loading">${esc(t('panel.dl.noneYet'))}</span>`);
+    return;
+  }
 
-  // 1. ORIGINAL AUDIO — byte-faithful, exact format as uploaded (locked decision 6), through the
-  //    Worker by id. Falls back to the cached assignment link only when the folder holds no copy
-  //    (pre-upload legacy assignments — their audio was never in the researcher's Drive).
-  if (original) {
-    claimed.add('audio-original');
-    audioRows.push(`<a class="rp-dl-item" role="menuitem" data-drivefile="${esc(original.id)}" data-fname="${esc(original.name)}" href="#">
-      <span class="rp-dl-name">${esc(t('panel.dl.audio'))}</span><span class="rp-dl-sub">${esc(original.name)}${original.size ? ' · ' + esc(fmtSize(original.size)) : ''}</span></a>`);
-  } else {
-    const cached = wrap.dataset.audio || (assigned && assigned.audioUrl) || bridge.audioUrl || '';
-    if (/^https?:\/\//i.test(cached)) {
-      claimed.add('audio-original');
-      const gid = driveIdFrom(cached);
-      audioRows.push(`<a class="rp-dl-item" role="menuitem" href="${esc(gid ? driveLink(gid) : cached)}" target="_blank" rel="noopener noreferrer">
-        <span class="rp-dl-name">${esc(t('panel.dl.audio'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.audioSub'))}</span></a>`);
+  /* Declared-vs-present: the manifest's whole purpose. Completeness is DERIVED by this comparison,
+   * never read from a stored flag — a flag goes stale the moment a later write fails and would then
+   * assert the opposite of the truth. Matching is by NAME because that is what the manifest records;
+   * the roles below then come from Drive's own tags. */
+  const present = new Set(allFiles.map((f) => f.name));
+  const missing = manifest.files.filter((d) => d && d.name && !present.has(d.name)).map((d) => d.name);
+
+  const audioF = src.audio;
+  const ftF = src.flextext;
+  const declaredAudio = manifest.audio || null;
+  // Sizes come from the manifest when the file has not arrived, from Drive when it has.
+  const sizeOf = (f, declared) => (f && f.size) || (declared && declared.bytes) || 0;
+  wrap._menuSrc = { audio: audioF, ft: ftF, manifest, base: sanitizeBase(manifest.title || title) || 'text' };
+
+  const rows = [];
+  const row = (attrs, name, sub) => `<a class="rp-dl-item" role="menuitem" ${attrs} href="#">
+      <span class="rp-dl-name">${esc(name)}</span><span class="rp-dl-sub">${esc(sub)}</span></a>`;
+
+  // 1. ORIGINAL AUDIO — byte-faithful, exact format as uploaded (locked decision 6), routed through
+  //    the Worker by id. Labelled by the manifest's `origin`, so the researcher is told whether this
+  //    is what they assigned or what the speaker recorded, instead of having to infer it.
+  const originKey = 'panel.dl.origin.' + String(manifest.origin || '').replace(/[^a-z-]/g, '');
+  const originLabel = t(originKey) === originKey ? String(manifest.origin || '') : t(originKey);
+  if (audioF) {
+    rows.push(row(`data-drivefile="${esc(audioF.id)}" data-fname="${esc(audioF.name)}"`,
+      t('panel.dl.audio'), `${originLabel} · ${audioF.name}${audioF.size ? ' · ' + fmtSize(audioF.size) : ''}`));
+  } else if (declaredAudio && declaredAudio.name) {
+    // Declared but not yet in the folder: NAME it rather than silently omitting the row. This is
+    // the difference the manifest buys — "not arrived yet" instead of "there is no audio".
+    rows.push(`<span class="rp-dl-item rp-dl-pending" role="menuitem" aria-disabled="true">
+      <span class="rp-dl-name">${esc(t('panel.dl.audio'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.notArrived', { name: declaredAudio.name }))}</span></span>`);
+  }
+
+  // 2. MOST RECENT FLEXTEXT — the tagged source copy, or the newest bare .flextext a device uploaded.
+  if (ftF) {
+    rows.push(row(`data-drivefile="${esc(ftF.id)}" data-fname="${esc(ftF.name)}"`,
+      t('panel.dl.flextext'), `${ftF.name}${ftF.size ? ' · ' + fmtSize(ftF.size) : ''}`));
+  }
+
+  /* 3–6. CLIENT-SIDE CONVERSIONS, built on click from the two sources above by the SAME
+   * assembleSegEntries the device bundles with — so what the researcher downloads is what a device
+   * upload would have contained. The manifest lets each row carry a real SIZE ESTIMATE before the
+   * click: a lossy source decodes to PCM at roughly 10x its compressed size, which is also what the
+   * memory guard is measured against. That replaces download-then-discover. */
+  if (ftF) {
+    const aBytes = sizeOf(audioF, declaredAudio);
+    const isWav = /\.wav$/i.test(String((audioF && audioF.name) || (declaredAudio && declaredAudio.name) || ''))
+      || /wav/i.test(String((audioF && audioF.mime) || (declaredAudio && declaredAudio.mime) || ''));
+    const est = isWav ? aBytes : aBytes * 10;
+    const estTxt = aBytes ? t('panel.dl.approx', { size: fmtSize(est) }) : '';
+    const conv = (kind, labelKey, withSize) => rows.push(row(`data-conv="${kind}"`,
+      t('panel.dl.' + labelKey), t('panel.dl.' + labelKey + 'Sub') + (withSize && estTxt ? ' · ' + estTxt : '')));
+    if (audioF) {
+      conv('elan', 'elanZip', true);
+      conv('saymore', 'saymoreZip', true);
+      conv('preview', 'preview', true);
     }
-  }
-  // A device-recorded take listed beside (never instead of) the original — same rule as before.
-  if (deviceAudio) {
-    claimed.add('audio');
-    fileRows.push(`<a class="rp-dl-item" role="menuitem" data-drivefile="${esc(deviceAudio.id)}" data-fname="${esc(deviceAudio.name)}" href="#">
-      <span class="rp-dl-name">${esc(t('panel.dl.audioUpload'))}</span><span class="rp-dl-sub">${esc(deviceAudio.name)}${deviceAudio.size ? ' · ' + esc(fmtSize(deviceAudio.size)) : ''}</span></a>`);
+    conv('fxpa', 'fxpa', !!audioF);
   }
 
-  // 2. MOST RECENT FLEXTEXT — direct file by id, or extracted from the newest legacy bundle.
-  if (ftSrc) {
-    claimed.add('flextext'); claimed.add('flextext-assigned');
-    if (ftSrc.legacyZip) claimed.add('bundle');
-    fileRows.push(ftSrc.legacyZip
-      ? `<a class="rp-dl-item" role="menuitem" data-conv="flextext" href="#">
-      <span class="rp-dl-name">${esc(t('panel.dl.flextext'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.fromBundle', { name: ftSrc.name }))}</span></a>`
-      : `<a class="rp-dl-item" role="menuitem" data-drivefile="${esc(ftSrc.id)}" data-fname="${esc(ftSrc.name)}" href="#">
-      <span class="rp-dl-name">${esc(t('panel.dl.flextext'))}</span><span class="rp-dl-sub">${esc(ftSrc.name)}${ftSrc.size ? ' · ' + esc(fmtSize(ftSrc.size)) : ''}</span></a>`);
+  /* 7. RECORDING PACKAGE (locked decision 6) — a client-side zip of whatever the folder actually
+   * holds, offered ONLY when the manifest DECLARES consent artifacts or a recording. Declared, not
+   * sniffed: an IRB package that quietly ships without the consent record is worse than no button. */
+  const consentDeclared = !!(manifest.consent && (manifest.consent.prompt || manifest.consent.response || manifest.consent.receipt));
+  if (consentDeclared || src.consent.length) {
+    rows.push(row('data-conv="package"', t('panel.dl.package'), t('panel.dl.packageSub')));
   }
 
-  // 3–6. On-click conversions: ELAN/SayMore/preview need the audio too; the .fxpa is first-class
-  //      text-only (an unaligned text still groups in the Paragraph Analysis app).
-  if (ftSrc) {
-    const conv = (kind, labelKey) => `<a class="rp-dl-item" role="menuitem" data-conv="${kind}" href="#">
-      <span class="rp-dl-name">${esc(t('panel.dl.' + labelKey))}</span><span class="rp-dl-sub">${esc(t('panel.dl.' + labelKey + 'Sub'))}</span></a>`;
-    if (audioSrc) {
-      fileRows.push(conv('elan', 'elanZip'));
-      fileRows.push(conv('saymore', 'saymoreZip'));
-      fileRows.push(conv('preview', 'preview'));
-    }
-    fileRows.push(conv('fxpa', 'fxpa'));
-  }
-
-  // 3. Report artifacts (uploadedFileId et al) fill any kind nothing above claimed — this is what
-  //    keeps pre-folder uploads visible next to folder-era files instead of instead of them.
-  //    resolveArtifacts' 'audio' kind IS the cached assigned link, already handled above — skip it.
-  const item = bridge.ids.map((id) => findInventoryItem(iid, id)).find(Boolean);
-  for (const f of resolveArtifacts(item, null)) {
-    if (f.kind === 'audio' || claimed.has(f.kind)) continue;
-    /* ⚠⚠ PARKED (Seth, 2026-08-07): an INFERRED kind is a GUESS about what a legacy upload was, and
-     * the guess is wrong often enough to be worse than no row. Seth clicked
-     * "Bundle (.zip, includes audio)" and got raw flextext XML.
-     *
-     * Why: uploadedMap()'s legacy branch has only `hasAudio` to go on, and reasons "device uploads a
-     * ZIP when the text has audio attached". But `hasAudio` is ALSO true when the audio is a
-     * researcher-ASSIGNED Drive URL that the device never uploaded — his text's media-files block
-     * points at connect.flextext.app/drive — so the device uploaded a bare .flextext and the row
-     * promised a zip with audio in it.
-     *
-     * artifacts.js already predicted exactly this ("only the label could mislead"); what it got
-     * wrong was calling it harmless. Renaming the row to "Bundle (.zip)" in v304 made the false
-     * promise louder, not the bug newer.
-     *
-     * ⚠ NOT the fix, deliberately — the fix is for the DEVICE to report per-kind ids (the `uploaded`
-     * map uploadedMap already reads), which retires the inference instead of hiding it. Suppressing
-     * the row costs a legacy text nothing: the folder-listing rows above are REAL (they come from
-     * Drive itself), and Download-all still fetches everything. See plans/BACKLOG.md. */
-    if (f.inferred) continue;
-    claimed.add(f.kind);
-    /* ⚠ THROUGH THE WORKER WHEN WE HAVE AN ID (Seth, 2026-08-07: "the 'FlexText Editor' option on
-     * our Files drop-down doesn't work"). A plain driveLink() href is a DIRECT browser request to
-     * Drive, authenticated by whatever Google session the researcher's browser holds — not the
-     * token the rest of this panel uses. Signed out, signed into another account, or a file placed
-     * under the Worker's own credentials, and it is dead, while the folder rows two lines up keep
-     * working. data-drivefile routes it through fetchDriveFile() exactly as those do.
-     * The href fallback stays for an artifact with no Drive id — a researcher-pasted link to some
-     * other host, which the Worker cannot fetch and must not try to. */
-    const fname = `${title || 'text'} - ${t(f.labelKey)}`.replace(/[\\/:*?"<>|]+/g, '_');
-    fileRows.push(f.id
-      ? `<a class="rp-dl-item" role="menuitem" data-drivefile="${esc(f.id)}" data-fname="${esc(fname)}" href="#">
-      <span class="rp-dl-name">${esc(t(f.labelKey))}</span><span class="rp-dl-sub">${esc(t(f.labelKey + 'Sub'))}</span></a>`
-      : `<a class="rp-dl-item" role="menuitem" href="${esc(f.url)}" target="_blank" rel="noopener noreferrer">
-      <span class="rp-dl-name">${esc(t(f.labelKey))}</span><span class="rp-dl-sub">${esc(t(f.labelKey + 'Sub'))}</span></a>`);
-  }
-
-  // 4. A history event's own fileId — the last resort for a text deleted from every inventory,
-  //    where findInventoryItem has nothing. Generic label, because the event does not record which
-  //    kind the upload was.
-  const lastFileId = wrap.dataset.fileid || bridge.latestEventFileId;
-  if (lastFileId && !claimed.has('flextext') && !claimed.has('bundle')) {
-    const gid = driveLink(lastFileId);
-    if (gid) fileRows.push(`<a class="rp-dl-item" role="menuitem" href="${esc(gid)}" target="_blank" rel="noopener noreferrer">
-      <span class="rp-dl-name">${esc(t('panel.hist.uploadLink'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.lastUploadSub'))}</span></a>`);
+  // Whatever the manifest declared and Drive does not have — named, so a consumer can say WHICH
+  // piece is missing instead of showing a partial package as if it were whole.
+  if (missing.length) {
+    rows.push(`<span class="note rp-dl-missing">${esc(t('panel.dl.missing', { names: missing.join(', ') }))}</span>`);
   }
 
   if (allFiles.length) {
     // ONE zip control (Seth): it takes the ENTIRE folder — every file across every bridged
-    // identity, backups included. The list above stays newest-per-kind; the zip does not.
-    tailRows.push(`<button class="rp-dl-item rp-dl-all" data-zipall data-i="${esc(iid)}" data-id="${esc(docId)}" data-title="${esc(title)}">
+    // identity, backups included. The list above is the curated set; the zip is not.
+    rows.push(`<button class="rp-dl-item rp-dl-all" data-zipall data-i="${esc(iid)}" data-id="${esc(docId)}" data-title="${esc(title)}">
       <span class="rp-dl-name">${esc(t('panel.dl.all'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.allSub', { n: allFiles.length }))}</span></button>`);
-    // Cleanup: only the older backup copies (never the newest of any kind, never the original
-    // audio), always to TRASH — recoverable for 30 days. The menu computes the exact set so the
-    // confirm can honestly say how many.
+    if (folderId) {
+      rows.push(`<a class="rp-dl-item" role="menuitem" href="${esc(driveFolderLink(folderId))}" target="_blank" rel="noopener noreferrer">
+        <span class="rp-dl-name">${esc(t('panel.dl.openFolder'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.openFolderSub'))}</span></a>`);
+    }
+    // Cleanup: only the older .flextext backup copies, always to TRASH — recoverable for 30 days.
     const dead = cleanupCandidates(allFiles);
     if (dead.length) {
       wrap._cleanupIds = dead.map((f) => f.id);
-      tailRows.push(`<button class="rp-dl-item rp-dl-all rp-dl-clean" data-cleanup data-n="${dead.length}">
+      rows.push(`<button class="rp-dl-item rp-dl-all rp-dl-clean" data-cleanup data-n="${dead.length}">
         <span class="rp-dl-name">${esc(t('panel.dl.cleanup'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.cleanupSub', { n: dead.length }))}</span></button>`);
     }
   }
-  const rows = [...audioRows, ...fileRows, ...tailRows];
-  menu.innerHTML = `<span class="rp-dl-head">${esc(t('panel.dl.title'))}</span>`
-    + (rows.length ? rows.join('') : `<span class="note rp-dl-loading">${esc(t('panel.dl.noneYet'))}</span>`);
+  menu.innerHTML = head + (rows.length ? rows.join('') : `<span class="note rp-dl-loading">${esc(t('panel.dl.noneYet'))}</span>`);
 }
 
 /* ---------------- Downloads-menu client-side conversions (assign-by-upload) ---------------- */
@@ -1435,15 +1441,36 @@ async function menuFetch(wrap, fileId) {
   return wrap._cache.get(fileId);
 }
 
-// The menu's flextext TEXT, from whichever source item 2 resolved: a direct file, or the .flextext
-// entry inside the newest legacy bundle (zip.js unzipStoreEntry — STORE-only zips this suite wrote).
+/* The menu's flextext TEXT — a direct Drive file, always. The legacy "extract the .flextext from
+ * the newest bundle zip" path is DELETED with the rest of the inferred menu (v3): a text with no
+ * manifest now gets a folder link instead of a reconstructed menu, so there is nothing left to
+ * reconstruct FROM. `unzipStoreEntry` went with it — it had no other caller. */
 async function menuFlextextText(wrap) {
   const src = wrap._menuSrc && wrap._menuSrc.ft;
   if (!src) return null;
-  const blob = await menuFetch(wrap, src.id);
-  if (!src.legacyZip) return blob.text();
-  const xml = unzipStoreEntry(new Uint8Array(await blob.arrayBuffer()), /\.flextext$/i);
-  return xml ? new TextDecoder().decode(xml) : null;
+  return (await menuFetch(wrap, src.id)).text();
+}
+
+/* THE RECORDING PACKAGE (locked decision 6): "Recording Package (with consent records)" is a
+ * CLIENT-SIDE zip built from whatever the folder actually holds — the source audio, the consent
+ * clip, the spoken prompt, the receipt, and the manifest that declares the set. Offered only when
+ * the manifest DECLARES consent artifacts, because an IRB package that quietly ships without the
+ * consent record is worse than no button at all.
+ *
+ * It repackages BYTES — no decode, no conversion, no size guard needed beyond the browser's own
+ * limits: every file goes in exactly as uploaded, which is the whole point of an archival package. */
+async function buildRecordingPackage(wrap, base) {
+  const files = (wrap._allFiles || []).filter((f) => hasRole(f, [...SOURCE_AUDIO_ROLES, ...CONSENT_ROLES, 'manifest']));
+  if (!files.length) { deps.toast(t('panel.dl.zipFailed'), 5000); return; }
+  const entries = [];
+  const used = new Set();
+  for (const f of files) {
+    let name = f.name || 'file'; let n = 1;
+    while (used.has(name)) name = (f.name || 'file').replace(/(\.[^.]*)?$/, ` (${++n})$1`);
+    used.add(name);
+    entries.push({ name, data: await menuFetch(wrap, f.id) });
+  }
+  saveBlobAs(await makeZip(entries), `${base} recording package.zip`);
 }
 
 /* ONE conversion at a time, on-click only. Decoding + base64-embedding a huge recording is the
@@ -1460,8 +1487,11 @@ async function runMenuConversion(wrap, kind, itemEl) {
   const paint = (msg) => { if (sub) sub.textContent = msg; };
   try {
     const title = wrap.dataset.title || 'text';
-    const base = title.replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80) || 'text';
+    const manifest = (wrap._menuSrc && wrap._menuSrc.manifest) || null;
+    const base = (wrap._menuSrc && wrap._menuSrc.base) || sanitizeBase(title) || 'text';
     paint(t('panel.dl.working'));
+    // The recording package is a straight repackage of the folder — no flextext parse, no decode.
+    if (kind === 'package') { await buildRecordingPackage(wrap, base); return; }
     const xml = await menuFlextextText(wrap);
     if (!xml) { deps.toast(t('panel.dl.zipFailed'), 5000); return; }
     if (kind === 'flextext') { saveBlobAs(new Blob([xml], { type: 'application/xml' }), base + '.flextext'); return; }
@@ -1473,10 +1503,19 @@ async function runMenuConversion(wrap, kind, itemEl) {
     doc.segments = segmentsFromOffsets(doc) || [];
     const aligned = doc.segments.some((s) => typeof s.start === 'number' && !s.timePending);
     if (!aligned && kind !== 'fxpa') { deps.toast(t('panel.dl.noAlign'), 7000); return; }
-    // vern/anal from the instance's pushed settings, falling back to the parsed doc's own codes.
-    const codes = (await Researcher.getInstanceSettings(wrap.dataset.i).catch(() => null)) || {};
-    const vern = codes.vernLang || doc.vernLang || 'und';
-    const anal = codes.analLang || doc.analLang || 'en';
+    /* Writing systems come from the MANIFEST (v3): it records the codes the package was created
+     * with, which is what these files should be labelled with — and it is already in hand, so the
+     * separate getInstanceSettings round trip is gone. A device whose settings changed since the
+     * upload no longer retro-labels an old export with today's codes. Falls back to the parsed
+     * doc's own codes, then to the instance settings for a manifest that predates the field. */
+    const ws = (manifest && manifest.writingSystems) || {};
+    let vern = ws.vern || doc.vernLang || '';
+    let anal = ws.anal || doc.analLang || '';
+    if (!vern || !anal) {
+      const codes = (await Researcher.getInstanceSettings(wrap.dataset.i).catch(() => null)) || {};
+      vern = vern || codes.vernLang || 'und';
+      anal = anal || codes.analLang || 'en';
+    }
     let media = null, segMedia = null;
     const af = wrap._menuSrc && wrap._menuSrc.audio;
     if (af && aligned) {
@@ -1485,14 +1524,19 @@ async function runMenuConversion(wrap, kind, itemEl) {
       const est = isWav ? (af.size || 0) : (af.size || 0) * 10;
       if (est > CONV_DECODED_MAX) { deps.toast(t('panel.dl.tooBigConvert'), 8000); return; }
       const blob = await menuFetch(wrap, af.id);
-      media = { name: af.name || 'audio', mimeType: af.mime || blob.type || 'audio/*', blob };
+      /* v3 NAMING: from the STORY TITLE, not from the Drive file's name — an assigned text's
+       * original was uploaded under a token-derived name before the fix, and reading it here is
+       * what put gibberish on the researcher's downloads. `srcName` still records the REAL source
+       * file, because the bext chunk's honesty depends on naming what was actually converted. */
+      media = { name: mediaNameFor(base, { name: af.name, mime: af.mime || blob.type }),
+                mimeType: af.mime || blob.type || 'audio/*', blob };
       if (isWav) segMedia = media;
       else {
         // Same reason the editor works on a WAV copy: AAC priming makes decode and playback
         // disagree; ELAN/SayMore get exact alignment against PCM. Same honest name, too.
         const res = await convertAudio(await blob.arrayBuffer(), { format: 'wav', wavBits: 16 },
           (f) => paint(t('convert.working', { pct: Math.round(f * 100) })));
-        segMedia = { name: (af.name || 'audio').replace(/\.[^.]+$/, '') + '.converted-NOT-ARCHIVAL.wav',
+        segMedia = { name: derivedWavName(base),
           mimeType: 'audio/wav', blob: res.blob, derived: true, srcName: af.name || '' };
       }
     }
@@ -1687,21 +1731,11 @@ function ackOf(instances, instanceId) {
   return max;
 }
 
-/* Assigned-audio lookup for the downloads dropdown. The History log is the ONLY place the assigned
- * Drive URL is retained — a device reports what it UPLOADED, never what it was given. Built once
- * per dashboard render: re-reading localStorage per text row would be O(rows x log). */
-let assignedCache = null;
-function rebuildAssignedCache() {
-  assignedCache = new Map();
-  try {
-    for (const e of loadHistory(Researcher.currentAccountId())) {
-      if (e.kind === 'assigned' && e.docId) assignedCache.set(e.docId, { audioUrl: e.audioUrl, flextextUrl: e.flextextUrl });
-    }
-  } catch { /* a broken log must not take down the dashboard */ }
-}
-// null = never assigned through this panel; an object = assigned (possibly with no retained URL,
-// which is the pre-v126 case emptyReason() explains rather than hiding).
-function assignedFor(docId) { return (assignedCache && assignedCache.get(docId)) || null; }
+/* v3: the assigned-audio lookup (assignedCache / assignedFor) is GONE. It existed to feed the
+ * downloads menu's "cached assignment link" fallback row — the one shown when the text's Drive
+ * folder held no copy of the original audio. That row went with the rest of the inferred menu: a
+ * text with no manifest now gets a single link to its Drive folder instead of a reconstructed list.
+ * The History log still retains the assigned URLs; nothing reads them per-render any more. */
 
 async function renderInstanceCard(it, deviceCount) {
   const installs = it.installs || [];
@@ -1750,7 +1784,22 @@ async function renderInstanceCard(it, deviceCount) {
       // this privileged panel where Kr + the account secret live).
       // Computed once per card: the highest seq any install of THIS instance has processed.
       const maxAck = ackOf(lastData ? lastData.instances : [], it.instance_id);
-      const rows = inv && inv.length ? inv.map((d) => {
+      /* ⚠ A SENT ASSIGNMENT MUST NOT VANISH (v3 work order item 3). Seth: an edit-and-upload
+       * "just disappears until the remote device loads it and then uploads it again". Between the
+       * assign command being sent and the device's first inventory report there was NOTHING on
+       * screen — no row, no marker — so a researcher on a field connection could not tell a
+       * delivered assignment from one that never left. The upload queue card covers the bytes going
+       * up; this covers the wait AFTER that, which is the longer half.
+       *
+       * The text has no inventory row yet, so one is synthesized and PREPENDED. It flows through
+       * the same renderer as every other row, which is the point: the pending state is shown "the
+       * way it shows a pending delete" rather than as a second, differently-behaved widget. */
+      const invIds = new Set((inv || []).map((d) => d && d.id));
+      const ghosts = [...pendingCmds].filter(([docId, pc]) =>
+        pc.kind === 'assign' && pc.instanceId === it.instance_id && !invIds.has(docId))
+        .map(([docId, pc]) => ({ id: docId, title: pc.title || '', uploadState: '', hasAudio: !!pc.hasAudio, __assigning: true }));
+      const listed = [...ghosts, ...(inv || [])];
+      const rows = listed.length ? listed.map((d) => {
         const us = (d.uploadState === 'uploaded' || d.uploadState === 'changed') ? d.uploadState : 'local';
         // ⚠ STATE FROM ack_seq, NOT FROM A CLOCK. `queued` = the device has not polled for it yet,
         // so it can still be withdrawn. `taken` = the device has it and is acting; offering a
@@ -1761,9 +1810,11 @@ async function renderInstanceCard(it, deviceCount) {
         const taken  = !!p && p.seq <= maxAck;
         let disp = us;
         if (p && p.kind === 'upload') disp = queued ? 'requested' : 'slow';
+        // A synthesized assign row has no reported state of its own — it IS the pending state.
+        if (d.__assigning) disp = queued ? 'assigning' : 'assignTaken';
         // SECURITY: disp must stay within this fixed literal set — it lands in a class attribute in this
         // privileged panel; never let an attacker-controlled report value reach it (see note above).
-        const DISP = ['local', 'uploaded', 'changed', 'requested', 'slow', 'justUploaded'].includes(disp) ? disp : 'local';
+        const DISP = ['local', 'uploaded', 'changed', 'requested', 'slow', 'justUploaded', 'assigning', 'assignTaken'].includes(disp) ? disp : 'local';
         // Action label by state — Upload (never sent) / Upload changes (edited since) / Re-upload (re-send).
         const label = { changed: 'panel.inst.uploadChanges', uploaded: 'panel.inst.reupload',
                         justUploaded: 'panel.inst.reupload', slow: 'panel.inst.resend' }[DISP] || 'panel.inst.upload';
@@ -1772,15 +1823,17 @@ async function renderInstanceCard(it, deviceCount) {
         const cancelBtn = (kind) => ` <button class="link-btn rp-cancel" data-iact="cancel-cmd" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}">${esc(t('panel.inst.cancel' + kind))}</button>`;
         const takenTag = ` <span class="rp-tag rp-tag-taken" title="${esc(t('panel.inst.takenWhy'))}">${esc(t('panel.inst.taken'))}</span>`;
 
-        const up = (p && p.kind === 'upload')
-          ? (queued ? cancelBtn('Upload') : takenTag)
-          : ` <button class="link-btn rp-up" data-iact="upload" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-fileid="${esc(d.uploadedFileId || '')}">${esc(t(label))}</button>`;
+        const up = d.__assigning
+          ? (queued ? cancelBtn('Assign') : takenTag)
+          : (p && p.kind === 'upload')
+            ? (queued ? cancelBtn('Upload') : takenTag)
+            : ` <button class="link-btn rp-up" data-iact="upload" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-fileid="${esc(d.uploadedFileId || '')}">${esc(t(label))}</button>`;
         // Upload-first remote delete (v94+): the device uploads a fresh timestamped copy, THEN deletes.
         const mv = pendingMoves.get(d.id);
         const moveChip = mv ? ` <span class="rp-tag rp-tag-moving">${esc(t(mv.stage === 'assigned' ? 'panel.move.waitingDest' : 'panel.move.removingSrc'))}</span>` : '';
-        const moveBtn = (!d.id || mv || (p && p.kind === 'delete')) ? ''
+        const moveBtn = (!d.id || mv || d.__assigning || (p && p.kind === 'delete')) ? ''
           : ` <button class="link-btn" data-iact="move-text" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.move.btn'))}</button>`;
-        const del = !d.id ? ''
+        const del = (!d.id || d.__assigning) ? ''
           : (p && p.kind === 'delete')
             ? (queued ? cancelBtn('Delete') : takenTag)
             : canDelText
@@ -1811,10 +1864,13 @@ async function renderInstanceCard(it, deviceCount) {
         // (5) The row reads in two lines: title + state chip, then muted metadata; actions sit on
         // the right. The tags stopped fighting the title for attention — that was Seth's "plain
         // line of text with plain hyperlinks is getting busy and ugly".
-        return `<li class="rp-text-row ${deleting ? 'rp-pending-del' : ''}">
+        const meta = d.__assigning
+          ? esc(t(queued ? 'panel.up.assigningWhy' : 'panel.up.assignTakenWhy'))
+          : `${d.hasAudio ? esc(t('panel.inst.audio')) : ''}${doneTag ? (d.hasAudio ? ' · ' : '') + doneTag : ''}`;
+        return `<li class="rp-text-row ${deleting ? 'rp-pending-del' : ''}${d.__assigning ? ' rp-pending-assign' : ''}">
           <div class="rp-text-main">
             <div class="rp-text-title">${esc(d.title || d.titleHash || '?')} <span class="rp-tag rp-tag-${DISP}">${esc(t('panel.up.' + DISP))}</span>${delTag}</div>
-            <div class="note rp-text-meta">${d.hasAudio ? esc(t('panel.inst.audio')) : ''}${doneTag ? (d.hasAudio ? ' · ' : '') + doneTag : ''}</div>
+            <div class="note rp-text-meta">${meta}</div>
           </div>
           <div class="rp-text-actions">${dl}${up}${moveBtn}${del}</div>
         </li>`;
@@ -2313,7 +2369,19 @@ async function runAssignUpload(docId) {
     const fields = { title: rec.title, folderId: rec.folderId || '' };
     if (fin.audioUrl) fields.audioUrl = fin.audioUrl;
     if (fin.flextextUrl) fields.flextextUrl = fin.flextextUrl;
-    await Researcher.assign(rec.instanceId, docId, fields);
+    const sent = await Researcher.assign(rec.instanceId, docId, fields);
+    /* ⚠ THE QUEUE RECORD IS ABOUT TO BE DELETED, AND WITH IT THE ONLY THING ON SCREEN. Hand the
+     * wait over to pendingCmds before that happens, so the text keeps a visible row until the
+     * device actually reports it — the v3 work order's "a pending upload must be visible", and the
+     * reason it composes with delete/upload rather than inventing a parallel mechanism: the seq is
+     * what makes it cancellable while still queued, and retirement is an inventory fact, not a
+     * timer. moveTextModal deliberately does NOT do this — a move already shows its own chip
+     * through pendingMoves, and two markers for one wait is worse than none. */
+    if (sent && sent.seq) {
+      pendingCmds.set(docId, { seq: sent.seq, kind: 'assign', instanceId: rec.instanceId,
+                               title: rec.title || '', hasAudio: !!rec.audio, at: Date.now() });
+      savePending(Researcher.currentAccountId());
+    }
     const inst = (lastData && (lastData.instances || []).find((x) => x.instance_id === rec.instanceId)) || null;
     recordEvents(Researcher.currentAccountId(), [assignedEvent({
       instanceId: rec.instanceId, device: (inst && inst.nickname) || '', docId, title: rec.title,
@@ -2880,10 +2948,13 @@ function moveTextModal(fromId, docId, title) {
         try { all = all.concat((await Researcher.listTextFiles(fromId, id)).files || []); } catch { /* partial */ }
       }
       all.sort((a, b) => String(b.modified).localeCompare(String(a.modified)));
-      const latest = latestPerKind(all);
-      const pick = (k) => (latest.find((f) => f.kind === k) || {}).id || null;
-      const fields = { to, flextextFileId: pick('flextext'), extractFromZipId: pick('bundle'),
-                       audioFileId: pick('audio-original') || pick('audio') };
+      /* v3: role tags, not the deleted extension-sniffing table. `bundle` survives HERE and only
+       * here — a legacy text's only flextext may still be inside an uploaded zip, and it is the
+       * WORKER that extracts it server-side (storeZipEntry). The panel no longer reads zips. */
+      const picks = pickSourceFiles(all);
+      const idOf = (f) => (f && f.id) || null;
+      const fields = { to, flextextFileId: idOf(picks.flextext), extractFromZipId: idOf(picks.bundle),
+                       audioFileId: idOf(picks.audio) || idOf(all.find((f) => /\.(wav|mp3|opus|ogg|webm|flac|m4a|aac)$/i.test(String(f.name || '')))) };
       const r = await Researcher.moveText(fromId, docId, fields);
       const assignFields = { title };
       if (r.audioUrl) assignFields.audioUrl = r.audioUrl;
@@ -3744,6 +3815,12 @@ async function openSettingsModal(target, opts = {}) {
   // assignment-upload mechanism ('consent-prompt' kind — the docId path segment is a placeholder,
   // the worker targets the device folder for this kind), then fill the URL field with the minted
   // private token URL. The researcher still presses Save/Push — nothing is sent behind their back.
+  /* ⚠ IN-FLIGHT STATE, READ BY THE SAVE BUTTON BELOW (v3 work order item 4). Until this existed,
+   * pressing "push to device" while the prompt was still uploading produced a VALIDATION ERROR —
+   * consentAudioUrl is only filled when the upload finishes, so the form correctly reported a
+   * required field as missing and incorrectly made that look like a failure. Seth: never an error
+   * that looks like failure when the thing is simply not done yet. */
+  let consentUploading = null;   // { pct } while a prompt upload is running, else null
   {
     const cuBtn = box.querySelector('[data-gact="consentUpload"]');
     const cuFile = box.querySelector('#rp-consent-file');
@@ -3753,17 +3830,31 @@ async function openSettingsModal(target, opts = {}) {
         const file = e.target.files[0]; e.target.value = '';
         if (!file) return;
         const iid = target.instance.instance_id;
+        consentUploading = { pct: 0 };
+        // busy() restores the label in its own finally, so painting it here is safe.
+        cuBtn.textContent = t('panel.f.consentUploadingPct', { pct: 0 });
         try {
-          cuBtn.textContent = t('panel.f.consentUploading');
           const fileId = await Researcher.assignUploadFile(iid, 'consent-prompt', {
             blob: file, name: file.name, mime: file.type || 'audio/mpeg', kind: 'consent-prompt',
+          }, {
+            // A spoken prompt on a field connection is minutes, not seconds. Silence for that long
+            // is indistinguishable from a hang, which is what made people press Save and meet the
+            // error above.
+            onProgress: (sent, total) => {
+              const pct = total ? Math.min(100, Math.round((sent / total) * 100)) : 0;
+              consentUploading = { pct };
+              cuBtn.textContent = t('panel.f.consentUploadingPct', { pct });
+            },
           });
+          // Minting the delivery URL is a separate round trip: 100% is not yet done.
+          cuBtn.textContent = t('panel.f.consentFinishing');
           const fin = await Researcher.assignFinish(iid, 'consent-prompt', { promptFileId: fileId, ttlDays: assignTtlDays() });
           const input = box.querySelector('[data-f="consentAudioUrl"]');
           if (input && fin.promptUrl) input.value = fin.promptUrl;
           paintPromptState(box);   // the hidden carrier changed — the visible state must follow
           deps.toast(t('panel.f.consentUploaded'), 5000);
         } catch (err) { errToast(err); }
+        finally { consentUploading = null; }   // always cleared, or Save would be wedged for good
       }));
     }
   }
@@ -3794,6 +3885,14 @@ async function openSettingsModal(target, opts = {}) {
 
   box.querySelector('[data-m="cancel"]').onclick = m.close;
   box.querySelector('[data-m="save"]').onclick = (e) => busy(e.target, async () => {
+    /* NOT-DONE-YET IS NOT A FAILURE. The consent prompt's URL field is filled by the upload above,
+     * so validating mid-upload would flag a required field as missing and paint it red — the exact
+     * "push to device throws an error until the background upload finishes" this replaces. Refuse
+     * plainly instead, and say how far along it is so the wait is legible rather than mysterious. */
+    if (consentUploading) {
+      deps.toast(t('panel.f.consentStillUploading', { pct: consentUploading.pct }), 6000);
+      return;
+    }
     // Block save/push until minimal usable settings are present (offending fields flagged inline).
     const problems = validateDeviceSettings(collectRaw(box), { parseFolder: deps.parseDriveFolder, uploadIsUrl: true });
     if (problems.length) { flagProblems(box, problems, showGroup); return; }

@@ -1,15 +1,14 @@
-# Oversized recordings and the generated exports — PLAN (Seth, 2026-08-12)
+# Oversized recordings and the generated exports — APPROVED BUILD SPEC (Seth, 2026-08-12)
 
 > *"We also need a plan for what happens in this case with ELAN and SayMore packages (or fxpa). I
-> think if the original is WAV, we can just use the original and put it in the zip or the fxpa file
-> (well, not fxpa, because that's not a zip)."*
+> think if the original is WAV, we can just use the original and put it in the zip."*
 
-Seth is right, and the current guard is over-broad. This is the plan; **nothing is built yet.**
+**Round 2 decisions are LOCKED (below). Not yet built.**
 
 ⚠ Context that keeps this in proportion: the recording that produced the toast was **deliberately
 bloated to test upload chunking** — Seth: *"I deliberately converted it into as bloated a file as I
-could."* Real field recordings are far smaller. So the goal is not to support gigabytes; it is to
-stop refusing conversions we can plainly do, and to say something useful when we genuinely cannot.
+could."* Real field recordings are far smaller. The goal is not to support gigabytes; it is to stop
+refusing conversions we can plainly do, and to degrade honestly when we cannot.
 
 ## The bug in one line
 
@@ -20,109 +19,112 @@ the gate is built on does not describe the work being refused.
 
 ### The actual case, from the v345 test drive (read off the screenshot, not assumed)
 
-Text **"Two Women EXTENDED"** in Google Drive (unassigned): **217 MB · 3 files**. The Files ▾ menu
-names the source as **`Two women EXTRA EXTENDED.wav · 217.3` MB** — a **WAV**. (The 939 MB in the
-card's summary line is the total across all 42 unassigned texts, not this recording.)
+Text **"Two Women EXTENDED"** in Drive (unassigned): **217 MB · 3 files**, source
+**`Two women EXTRA EXTENDED.wav · 217.3` MB** — a **WAV**. (The 939 MB on the card is the total
+across all 42 unassigned texts, not this recording.)
 
-So the refusal is `217 > 200`, on a **decode estimate for a file that is never decoded** — a WAV
-17 MB over a ceiling that exists to bound `decodeAudioData`. Worse, the two rows it refuses already
-describe themselves as *"EAF + tier order + **WAV** — built here, on click"*: the menu is telling
-the researcher it will put the WAV in a zip, and then refusing because it thinks it must decode it.
+So the refusal is `217 > 200` on a **decode estimate for a file that is never decoded**. Worse, the
+rows it refuses already describe themselves as *"EAF + tier order + **WAV** — built here, on click"*:
+the menu says it will put the WAV in a zip, then refuses because it thinks it must decode it.
 
-This is the single clearest argument for the split below — a 10% overshoot on the wrong metric
-costs the researcher every generated export on a text that needs no conversion at all.
+## The three real costs, measured from the code
 
-## The three costs, measured from the code (not estimated)
-
-| output | what the audio has to become | peak memory ≈ |
+| output | what the audio has to become | peak ≈ |
 |---|---|---|
-| **Recording package** | a zip entry, byte-for-byte | ~2× file size |
-| **ELAN / SayMore zip, WAV original** | a zip entry, byte-for-byte | ~2× file size |
-| **ELAN / SayMore zip, LOSSY original** | decode → Float32 PCM → 16-bit WAV → zip entry | **~10×**, then ~2× |
+| **Recording package** | zip entry, byte-for-byte | ~2× (already unguarded, and works) |
+| **ELAN / SayMore, WAV original** | zip entry, byte-for-byte | ~2× |
+| **ELAN / SayMore, LOSSY original** | decode → Float32 PCM → 16-bit WAV → zip entry | **~10×**, then ~2× |
 | **`.preview.html`** | base64 inside one HTML string | ~3–4× |
 | **`.fxpa`** | base64 inside one JSON file | ~3–4× |
 
-Where those numbers come from:
+`makeZip` does `arrayBuffer()` per entry then copies into a Blob (two copies, no decode);
+`convertAudio` decodes to Float32 per channel (the only genuinely expensive path, **lossy only**);
+`toB64` holds a byte-string, its base64 (+33%), and the assembled document — three live strings.
 
-- **zip** — `zip.js makeZip` does `new Uint8Array(await entry.data.arrayBuffer())` per entry, CRC32s
-  it, then `new Blob([...parts])` copies it again. Linear, two copies, no decode.
-- **decode** — `convertAudio(await blob.arrayBuffer(), …)`; `decodeAudioData` yields Float32 per
-  channel, which is why the existing `size * 10` estimate exists for compressed sources. It is the
-  only genuinely expensive path, and it applies to **lossy sources only**.
-- **base64** — `seg-exports.js toB64` builds a one-byte-per-byte JS string, `btoa`s it (+33%), and
-  the result is interpolated into the HTML/JSON string. Three live strings at once. This is the path
-  that truly cannot take a large recording.
+## 🔒 LOCKED DECISIONS (Seth, 2026-08-12 round 2)
 
-**The proof that the zip path already tolerates what the gate refuses:** `buildRecordingPackage`
-(the "Recording package" row) downloads and zips the same originals with **no size guard at all**,
-and works. One row in the menu refuses what the row above it does routinely.
+**One ceiling, not three.** `CONV_DECODED_MAX = 200 MB` keeps its name and value and becomes the
+single "too big to decode/embed" line. The 150 MB `EMBED_MAX` I floated is **dropped** — Seth:
+*"set the ceiling at 200MB, not 150MB."* Fewer knobs, one number to reason about.
 
-## Proposed rule: one gate per cost, not one gate for everything
+| output | above the ceiling | why |
+|---|---|---|
+| **ELAN / SayMore** | **ship the ORIGINAL audio unconverted** — never refuse | the zip only needs the bytes; the EAF references media by name either way |
+| **`.fxpa`** | **generate it WITH NO AUDIO, and warn** — never refuse | the analysis structure is the value; PAT can still group a text-only `.fxpa` |
+| **`.preview.html`** | **REFUSE** | Seth: *"The whole value of that is the embedded sound and following/auto-scrolling/segmented players."* A preview with no audio is a worse `.flextext` |
+| **any zip > `ZIP_HARD_MAX` (3.5 GB)** | **refuse loudly** | `zip.js` is ZIP32 (`le32` sizes/offsets), so ≥ 4 GiB silently writes a CORRUPT archive |
 
-Replace the single `tooBig` boolean with three named ceilings and a per-kind capability set:
+**Lossy original shipped unconverted ⇒ WARN about alignment.** The derived WAV exists because AAC
+priming makes decode and playback disagree by ~44 ms. Shipping the lossy original is allowed, but
+the researcher must be told, never silently handed a quietly-misaligned EAF.
 
-| constant | governs | proposed value | why |
-|---|---|---|---|
-| `DECODE_MAX` | lossy → WAV conversion | **200 MB** decoded estimate (unchanged) | today's number, now applied only where decoding happens |
-| `ZIP_MAX` | raw bytes as a zip entry | **2 GiB** | the two-copy cost above; ⚠ `zip.js` is ZIP32 (`le32` sizes/offsets) with **no Zip64**, so ≥ 4 GiB silently wraps and writes a corrupt archive — that is a hard wall to name in a comment, not a limit to approach |
-| `EMBED_MAX` | base64-into-one-file | **150 MB** | preview/`.fxpa` hold 3–4 copies as strings; this is the one that must stay strict |
+**Electron fallback: leave a STUB now.** If running in Electron, hand the oversized conversion to
+the native side; if not, use the original. Seth: *"Fallback on Electron Native (leave a stub for
+that) if running in Electron, but if not running in Electron, then just use the original."*
 
-`prepareConversionSources` then returns `caps = { elan, saymore, preview, fxpa }` instead of
-`tooBig`, computed from the source's real shape (`isWav`, size) — and it **only fetches and decodes
-what the requested kind needs**, so asking for an ELAN zip of a WAV never pays the decode cost it
-currently pays the guard for.
+**On `ZIP_HARD_MAX`** — Seth: *"with THIS app at least, it's exceptionally unlikely we'll ever be
+anywhere near that limit. Lots of other limits (bandwidth, browser storage, memory) would break
+first."* Agreed. Its value is not that it will fire; it is that the failure it replaces is **silent
+corruption** — a zip that looks fine and is not. Cheap insurance, loud when wrong.
 
-Concretely, for "Two Women EXTENDED" (**217 MB WAV**): ELAN ✓, SayMore ✓, preview ✗, `.fxpa` ✗ —
-two of the four rows that are refused today start working, and the two that stay refused say why.
+## ⚠ THE BIG FINDING: `seg-exports.js` NEEDS NO CHANGES
 
-⚠ **`EMBED_MAX` at 150 MB is a judgement call, not a measurement**, and it is the one number here
-worth checking against a real machine before shipping. 217 MB of WAV becomes ~290 MB of base64 on
-top of the byte-string and the assembled document; a desktop may well survive it and a low-end field
-laptop may not. If it turns out to be comfortably fine, raise it — the constant exists so that is a
-one-line decision rather than a rewrite.
+Every decision above is already a supported code path in `assembleSegEntries`. Verified by reading
+it, not assumed:
 
-## What changes in the UI
+- **Ship-the-original is literally the already-WAV path.** `segMediaName` is
+  `segMedia.derived ? derivedWavName(base) : mediaNameFor(base, segMedia)`; `mediaMime` adapts
+  (`wavName ? 'audio/x-wav' : segMedia.mimeType || 'audio/*'`); the SayMore `.annotations.eaf`
+  filename is built **from `segMediaName`**, so it follows the audio actually shipped; the BWF
+  `bext` stamping is gated on `segMedia.derived`, so an original correctly gets no
+  "DERIVED — NOT an archival master" chunk. And `buildSegEntriesFor` **already** pushes a
+  non-derived `segMedia` into the zip explicitly. Setting `segMedia = media` is the whole change.
+- **Text-only `.fxpa` is already first-class.** `const fxpaAudio = segMedia && segMedia.blob ? {…}
+  : null;` with the comment *"deliberately NOT gated on alignment: an unaligned or audio-less doc
+  exports a TEXT-ONLY .fxpa the paragraph app can still group."* Passing `segMedia: null` is the
+  whole change — which is also why the menu row already reads "text-only when unaligned".
 
-1. **Rows are disabled with the reason, before the click.** A menu that refuses on click after a
-   long download is the worst version. Show `.preview.html` and `.fxpa` greyed with an inline
-   "too large to embed (217 MB)" — the same disabled-with-a-reason pattern the send options already
-   use (`setup.off.*`). This is the part that actually answers "what happens in this case".
-   ⚠ Cheap, because the affordance already exists: every row in that menu **already renders a
-   `.rp-dl-sub` line** carrying its own description and size estimate ("EAF + tier order + WAV —
-   built here, on click · about …"). The reason goes there. No new layout.
-2. **`panel.dl.tooBigConvert` is replaced.** The current string is a blanket refusal
-   ("too large to convert in the browser — download the original instead") and would now be a lie on
-   a row that works. New strings name **which** outputs are unavailable and why, in en **and** id.
-3. **Download-all delivers the possible ones and reports the rest.** Today `src.tooBig` skips every
-   conversion with one message; it should include ELAN/SayMore and say precisely which files were
-   left out.
+**Consequence for blast radius:** the work is confined to `researcher-panel.js`, `zip.js`, and
+i18n. No new top-level `import` in `js/app.js`, so **no SHELL entry, no satellite `sw.js` change,
+no v108-shaped risk.** The one exception is the wording change below.
 
-## Open question for Seth — lossy original above `DECODE_MAX`
+### The one deliberate exception: `howToOpenText`
 
-A large **lossy** original still cannot be converted. Two options:
+The alignment warning must not live only in an 8-second toast. `assembleSegEntries` already emits
+`HOW-TO-OPEN.txt` on the principle that *"the instructions travel WITH the files"* — and it already
+receives `derived`. Add the lossy-unconverted caveat there, so the warning survives in the zip the
+researcher opens next week. Small, additive, and the right home for it.
 
-- **(a) Keep refusing** — with a message that names the reason and points at Recording package.
-- **(b) Ship the ELAN zip pointing at the lossy original**, unconverted.
+## What changes, by file
 
-⚠ **(b) is not free and I do not recommend it silently.** The derived WAV exists precisely because
-AAC priming makes decode and playback disagree by ~44 ms, so an EAF referencing the lossy original
-is *quietly* misaligned — the same class of thing as a false alignment, which the segmentation
-design deliberately refuses to invent (`~` estimated markers exist for exactly this reason). If it
-is offered at all it must be a distinct, explicitly-labelled row, never the default fallback.
+**`docs/js/researcher-panel.js`** — `prepareConversionSources` returns `caps` + a `degraded` reason
+instead of `tooBig`; above the ceiling it sets `segMedia = media` (originals) rather than returning
+early; `runMenuConversion` passes `segMedia: null` for an oversized `.fxpa`, refuses `preview`, and
+raises the warnings. Menu rows render their state in the **`.rp-dl-sub` line that already exists**
+on every row — no new layout.
 
-**Recommendation: (a) now**, and let the Electron fallback below be the real answer for big lossy
-files.
+**`docs/js/zip.js`** — `ZIP_HARD_MAX = 3.5 * 1024³`; `makeZip` throws a named error when the running
+total would exceed it, plus a comment stating the ZIP32 `le32` reason so nobody raises it to 4 GiB
+without adding Zip64.
+
+**Electron stub** — one chokepoint, feature-detected, inert in a browser, on the
+`js/native-audio.js` model (⚠ NOT in that file, and it must not touch `window.Capacitor`).
+
+**i18n** — new strings in **en AND id**: fxpa-without-audio, preview-refused, lossy-alignment
+warning, zip-too-large. The blanket `panel.dl.tooBigConvert` is retired; it would be a lie on a row
+that now works.
 
 ## Tests
 
-- `prepareConversionSources` caps as a pure table: WAV 900 MB → `{elan:1, saymore:1, preview:0,
-  fxpa:0}`; lossy 900 MB → all 0; WAV 50 MB → all 1. This is the whole plan in one assertion.
-- No decode is attempted for a WAV source at any size (pin the absence — that is the bug).
-- `zip.js`: a comment + test pinning the ZIP32 ceiling so nobody raises `ZIP_MAX` past 4 GiB
-  without adding Zip64.
-- The Download-all path reports skipped kinds individually rather than as one blanket message.
+- Caps table, pure: 217 MB WAV → ELAN ✓ SayMore ✓ preview ✗ fxpa ✓(no audio); 900 MB lossy → ELAN ✓
+  (original + warning) preview ✗ fxpa ✓(no audio); 50 MB anything → all ✓ converted.
+- **No decode is attempted for a WAV at any size** — pin the absence; that is the original bug.
+- An oversized-lossy ELAN zip contains the ORIGINAL, its EAF's `RELATIVE_MEDIA_URL` names that
+  file, the `.annotations.eaf` matches it, and **no `bext` chunk claims it is derived**.
+- `.fxpa` built with `segMedia: null` parses and has no `audio` key.
+- `makeZip` throws (not truncates) past `ZIP_HARD_MAX`.
 
-## Not in scope here
+## Not in scope
 
-Chunked/streaming zip writing (would remove the 2× and the ZIP32 wall) and streaming base64. Both
-are real engineering, neither is warranted by field file sizes.
+Streaming zip writing and streaming base64 — real engineering, not warranted by field file sizes.
+The Electron implementation itself (stub only here; see `plans/BACKLOG.md`).

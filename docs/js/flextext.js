@@ -597,23 +597,83 @@ export function reconcileBaseline(doc, paragraphTexts, opts = {}) {
   const oldUsed = new Set();
   for (const [i, j] of pairs) { oldMatched.set(j, oldSegs[i]); oldUsed.add(i); }
 
-  // Pass 2: for unmatched regions, pair leftover old/new segments in order.
-  const leftoverOld = oldSegs.map((s, i) => ({ s, i })).filter(x => !oldUsed.has(x.i));
+  /* Pass 2: pair leftover old/new segments in order — but FIRST recognise the two edits that move
+   * a boundary rather than the text: a JOIN (one new line == several old ones) and a SPLIT (one old
+   * line == several new ones).
+   *
+   * ⚠ WHY THIS EXISTS (Seth, 2026-08-12): plain 1:1 pairing gave a joined line the LEFT segment and
+   * dropped the right one entirely — "joining on the gloss tab loses all existing glosses and free
+   * translations in the second line joined". Every gloss the team had typed on that line was gone,
+   * silently, from an edit that only meant to move a boundary. The text is sacred here in both
+   * directions: a boundary change must carry the words (and their glosses) across it.
+   *
+   * JOIN: words concatenate in order; the free translations concatenate with a space (both were
+   * real sentences and neither is more correct than the other).
+   * SPLIT: each piece takes the words that fall in it; the free translation goes to the LONGEST
+   * piece and the other pieces start blank — a guess, but the honest one, and Seth's rule is that
+   * the transcriber checks it afterwards. */
+  const leftoverOld = oldSegs.map((s, i) => ({ s, i })).filter(x => !oldUsed.has(x.i)).map(x => x.s);
   const unmatchedNew = newSegsFlat.map((s, j) => j).filter(j => !oldMatched.has(j));
-  const fuzzyPair = new Map();
-  let k = 0;
-  for (const j of unmatchedNew) {
-    if (k < leftoverOld.length) fuzzyPair.set(j, leftoverOld[k++].s);
+  const fuzzyPair = new Map();   // newIdx -> { olds:[seg], wordSlice?:[from,to], takesFree?:bool }
+  {
+    let oi = 0, ui = 0;
+    const newTextAt = (u) => norm(newSegsFlat[unmatchedNew[u]].text);
+    while (ui < unmatchedNew.length && oi < leftoverOld.length) {
+      const j = unmatchedNew[ui];
+      const want = newTextAt(ui);
+
+      // JOIN — consume consecutive olds while they still build toward this one new line.
+      let acc = norm(leftoverOld[oi].baseline), take = 1;
+      while (acc !== want && want.startsWith(acc) && oi + take < leftoverOld.length) {
+        acc = norm(acc + ' ' + leftoverOld[oi + take].baseline); take++;
+      }
+      if (acc === want && take > 1) {
+        fuzzyPair.set(j, { olds: leftoverOld.slice(oi, oi + take) });
+        oi += take; ui++; continue;
+      }
+
+      // SPLIT — one old line spread across consecutive new lines.
+      const whole = norm(leftoverOld[oi].baseline);
+      let acc2 = want, take2 = 1;
+      while (acc2 !== whole && whole.startsWith(acc2) && ui + take2 < unmatchedNew.length) {
+        acc2 = norm(acc2 + ' ' + newTextAt(ui + take2)); take2++;
+      }
+      if (acc2 === whole && take2 > 1) {
+        const old = leftoverOld[oi];
+        let longest = 0;
+        for (let p = 1; p < take2; p++) if (newTextAt(ui + p).length > newTextAt(ui + longest).length) longest = p;
+        let at = 0;
+        for (let p = 0; p < take2; p++) {
+          const n = tokenize(newSegsFlat[unmatchedNew[ui + p]].text).length;
+          fuzzyPair.set(unmatchedNew[ui + p], { olds: [old], wordSlice: [at, at + n], takesFree: p === longest });
+          at += n;
+        }
+        oi++; ui += take2; continue;
+      }
+
+      fuzzyPair.set(j, { olds: [leftoverOld[oi]] });
+      oi++; ui++;
+    }
   }
 
   const result = newSegsFlat.map((ns, j) => {
     const exact = oldMatched.get(j);
     if (exact) { exact.baseline = ns.text; return { seg: exact, para: ns.para }; }
-    const old = fuzzyPair.get(j);
+    const plan = fuzzyPair.get(j);
+    const old = plan ? plan.olds[0] : null;
     const tokens = tokenize(ns.text);
-    const words = old ? carryWords(old.words, tokens) : tokens.map(t => makeWord(t.txt, { punct: t.punct }));
+    // The words this new line inherits: its slice of a split line, or every old line's words in
+    // order for a join. carryWords then aligns them to the actual tokens, so a word whose text
+    // survived keeps its gloss.
+    const source = !plan ? []
+      : plan.wordSlice ? (old.words || []).slice(plan.wordSlice[0], plan.wordSlice[1])
+        : plan.olds.flatMap((o) => o.words || []);
+    const words = plan ? carryWords(source, tokens) : tokens.map(t => makeWord(t.txt, { punct: t.punct }));
+    const free = !plan ? ''
+      : plan.wordSlice ? (plan.takesFree ? old.free : '')
+        : plan.olds.map((o) => o.free).filter(Boolean).join(' ');
     const seg = makeSegment(ns.text, words, old ? {
-      free: old.free, freeLang: old.freeLang,
+      free, freeLang: old.freeLang,
       preItemsXML: old.preItemsXML, postItemsXML: old.postItemsXML,
       attrs: old.attrs,
     } : {});

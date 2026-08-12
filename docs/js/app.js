@@ -7,7 +7,7 @@ import {
   surveyWritingSystems, remapWritingSystems, analyzeFlextextWs,
 } from './flextext.js';
 import * as db from './db.js';
-import { t, getLang, setLang, applyI18n, LANGS, LANG_NAMES, langCoverage, ENGINE_VERSION } from './i18n.js';
+import { t, getLang, setLang, applyI18n, LANGS, LANG_NAMES, langCoverage, ENGINE_VERSION, BUILD_TAG } from './i18n.js';
 import { Player, downloadAudioForDoc, getDownload, clearPartial, driveFileId, isProbablyUrl, probeAudioUrl, ensureAsset, getAsset, fetchFileViaUrl } from './audio.js';
 import { convertToMp3, convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
 // NATIVE BRIDGE — the ONLY import of native code in this engine. Everything Android-specific
@@ -3479,6 +3479,10 @@ async function showAppVersion() {
     // version alone is still the useful half, so show it rather than an empty badge.
     ver = shell ? ENGINE_VERSION + '/' + shell : ENGINE_VERSION;
   }
+  /* On a feature/staging build the human-facing name of the build LEADS, with the numeric version
+   * kept after it — the number is still what every bug report, device report and deploy-order rule
+   * is written in, so it must not disappear. Production has no tag and reads exactly as before. */
+  if (BUILD_TAG) ver = ver ? BUILD_TAG + ' · ' + ver : BUILD_TAG;
   let el = document.getElementById('app-version');
   if (!el) { el = document.createElement('div'); el.id = 'app-version'; el.className = 'app-version'; (document.body || document.documentElement).appendChild(el); }
   el.textContent = ver ? name + ' ' + ver : name;

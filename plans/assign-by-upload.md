@@ -25,10 +25,27 @@ assignment folder shape is consistent regardless of how the text was created."*
    128 MB isolate, every byte crossing the network twice, wall-clock exposure, and a half-extracted
    folder plus an orphan zip to reconcile. The existing zip-extract path already caps at 60 MB for
    the same reason. A Drive resumable session is atomic per FILE either way; only the SET differs.
-3. **A manifest file is written LAST** and is the completeness marker: present = the package is
-   whole, absent = still arriving, and the Files menu names which piece is missing instead of
-   silently showing a partial package. Small files land in seconds; only the audio is slow, so the
-   incomplete window is short and self-heals through the existing retry-forever queue.
+3. **`flextext-manifest.json` — the package's metadata record AND its completeness contract**
+   (Seth: *"assigned texts should also generate a manifest file with metadata… a place to specify
+   HOW the text was originated in case our suite or some app needs to know"*). Every text gets one,
+   however it was created.
+   - ⚠ Written **FIRST**, not last. Writing it last would make its absence mean "something is
+     missing" without saying WHAT. Written first, it declares the intended file set, so a consumer
+     compares that list against the folder and can name the missing piece. **Completeness is
+     DERIVED, never a stored `complete: true` flag** — a flag goes stale the moment a later write
+     fails, and would then assert the opposite of the truth. A `completedAt` stamp may be added on
+     the final write as a convenience, but nothing may trust it over the file list.
+   - Shape (versioned, additive-only; unknown keys must be ignored by readers):
+     `{ schema: 1, docId, title, origin, originatedAt, writtenAt, engine, buildTag,
+        writingSystems: { vern, anal }, audio: { name, mime, bytes, derived }, files: [ { name,
+        role, mime, bytes } ], consent: { mode, prompt, response, receipt } }`
+   - `origin` is the provenance field Seth asked for — `'assigned' | 'recorded' | 'imported' |
+     'pair-import' | 'crowd'` — plus who/what produced it (researcher account for an assignment,
+     device nickname for a recording). Additive: a new origin value must never break an old reader.
+   - Contains NO consent CONTENT and no personal data beyond what the folder already holds; it
+     records that a receipt exists, not what it says.
+   - Small files land in seconds; only the audio is slow, so the incomplete window is short and
+     self-heals through the existing retry-forever queue.
 4. **Original audio is named `<Storyname>.<ext>`** (Seth), sanitised with the same rule as the
    folder name (slashes/unicode/120-char cap). Detection uses Drive **role tags**, never filenames,
    so a later story rename leaves a cosmetically stale name and nothing breaks.

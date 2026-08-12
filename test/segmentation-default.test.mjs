@@ -43,6 +43,16 @@ console.log('\nthe PANEL shows a new instance the same default, so it cannot pus
      'and the segmentation branch is evaluated BEFORE the generic checkbox branch');
 }
 
+console.log("\nthe UNPAIRED device's own Settings tab uses the same default (one rule, three surfaces)");
+{
+  ok(/f\.k === 'segmentation'\) v\.segmentation = s\.segmentation !== false/.test(app),
+     "app.js's setup form renders it from `s.segmentation !== false` too");
+  const segIdx = app.indexOf("f.k === 'segmentation') v.segmentation");
+  const genIdx = app.indexOf("else if (f.type === 'checkbox') v[f.k] = !!s[f.k];");
+  ok(segIdx > 0 && genIdx > 0 && segIdx < genIdx,
+     'and is evaluated BEFORE the generic checkbox branch, or the generic one would win');
+}
+
 console.log('\nthe export toggles follow the same effective default');
 {
   ok(/v\[f\.k\] = s\[f\.k\] \?\? \(s\.segmentation !== false\)/.test(panel),

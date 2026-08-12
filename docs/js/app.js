@@ -4791,6 +4791,11 @@ function deviceSetupValues() {
     else if (f.k === 'autoDel') v.autoDel = !!s.autoDelUploaded;                       // stored as autoDelUploaded
     // Unset export toggles follow Audio Segmentation Mode — show the EFFECTIVE value.
     else if (SETUP_EXPORT_KEYS.includes(f.k)) v[f.k] = s[f.k] ?? segmentationEnabled();
+    /* The unpaired device's OWN Settings tab has the same unset-means-on rule as the panel and
+     * segmentationEnabled() — a fresh standalone install must not render the box unchecked and
+     * then SAVE a false, which is exactly how a paired device lost the mode on its first push
+     * (Seth, 2026-08-12). One default, three surfaces. */
+    else if (f.k === 'segmentation') v.segmentation = s.segmentation !== false;
     else if (f.k === 'recordFormat') v.recordFormat = recordFormatPref();
     else if (f.k === 'agc') v.agc = SETUP_AGC_OPTS.includes(s.agc) ? s.agc : 'off';
     else if (f.type === 'checkbox') v[f.k] = !!s[f.k];

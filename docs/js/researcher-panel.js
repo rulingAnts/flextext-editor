@@ -1073,6 +1073,7 @@ async function renderDashboard(prefetched) {
       <button class="secondary-btn" data-act="refresh">${esc(t('panel.dash.refresh'))}</button>
       <span class="rp-spacer"></span>
       ${data.isOwner ? `<button class="link-btn rp-admin-btn" data-act="admin">${esc(t('panel.admin.btn'))}</button>` : ''}
+      <button class="link-btn" data-act="storage">${esc(t('panel.store.btn'))}</button>
       <button class="link-btn" data-act="history">${esc(t('panel.hist.btn'))}</button>
       <button class="link-btn" data-act="utilities">${esc(t('panel.util.btn'))}</button>
       <button class="link-btn" data-act="account">${esc(t('panel.dash.account'))}</button>
@@ -1110,6 +1111,7 @@ async function renderDashboard(prefetched) {
     new: () => newDeviceModal(),
     refresh: () => renderDashboard(),
     admin: () => adminModal(),
+    storage: () => storageModal(),
     history: () => historyModal(),
     utilities: () => utilitiesModal(),
     account: () => accountModal(),
@@ -3093,6 +3095,135 @@ function histWhen(ts) {
   // Explicit date AND time: "which device, when" is the whole point, and a relative
   // "3 days ago" stops being useful for exactly the old entries this log exists to hold.
   return d.toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+/* ---------------- Google Drive storage manager (Seth, 2026-08-12) ----------------
+ *
+ * The first view in this suite that is NOT derived from device inventory. Every other list answers
+ * "what does this device say it holds"; this one answers "what is actually in the researcher's
+ * Drive" — which is the only way a text that was uploaded and then removed from its device is
+ * visible at all, and the only way its space is accounted for.
+ *
+ * ⚠ "UNASSIGNED" IS COMPUTED HERE, NOT BY THE WORKER, and it has to be: device inventories are
+ * E2EE, so the worker genuinely cannot know which texts a device still holds. That makes the
+ * delete-only-unassigned rule a researcher-facing SAFETY RAIL rather than a security boundary, and
+ * it is described that way rather than pretended otherwise. The rail is still worth having: Drive
+ * is the archive, and deleting the Drive copy of a text a device still holds destroys the only
+ * backup of live work if that device is later lost or wiped. */
+function assignedDocIds() {
+  const ids = new Set();
+  for (const it of (lastData && lastData.instances) || []) {
+    for (const ins of it.installs || []) {
+      const items = (ins.inventory && Array.isArray(ins.inventory.items)) ? ins.inventory.items : [];
+      for (const d of items) if (d && d.id) ids.add(d.id);
+    }
+  }
+  return ids;
+}
+
+const gb = (b) => (b >= 1073741824 ? (b / 1073741824).toFixed(1) + ' GB' : Math.max(1, Math.round(b / 1048576)) + ' MB');
+
+function storageModal() {
+  const m = modal(`<h3>${esc(t('panel.store.title'))}</h3>
+    <p class="note">${esc(t('panel.store.intro'))}</p>
+    <div id="rp-store-body"><p class="note">${esc(t('panel.store.loading'))}</p></div>
+    <div class="modal-actions"><button class="secondary-btn" data-m="close">${esc(t('panel.help.close'))}</button></div>`, true);
+  m.el.querySelector('[data-m="close"]').onclick = m.close;
+
+  const body = m.el.querySelector('#rp-store-body');
+  let estate = null;
+
+  const paint = () => {
+    if (!estate) return;
+    const assigned = assignedDocIds();
+    const q = estate.quota || {};
+    // A MISSING limit means unlimited (pooled accounts) — never render it as 0% free.
+    const pct = q.limit ? Math.min(100, Math.round((q.usage / q.limit) * 100)) : 0;
+    const quotaLine = q.limit
+      ? t('panel.store.quota', { used: gb(q.usage), total: gb(q.limit), pct })
+      : t('panel.store.quotaNoLimit', { used: gb(q.usage) });
+
+    // Group: one per device (in estate order), then everything with no device.
+    const groups = new Map();
+    for (const d of estate.devices || []) groups.set(d.folderId, { name: d.name, texts: [] });
+    const loose = [];
+    for (const tx of estate.texts || []) {
+      const g = groups.get(tx.deviceFolderId);
+      (g ? g.texts : loose).push(tx);
+    }
+    /* A text is UNASSIGNED when no device reports it — which is independent of where its folder
+     * sits. A text still in its device's folder but long since deleted from the device is
+     * unassigned, and that is exactly the case this modal exists to surface. */
+    const isUnassigned = (tx) => !assigned.has(tx.docId);
+
+    const row = (tx) => {
+      const un = isUnassigned(tx);
+      return `<div class="rp-store-row">
+        <div class="rp-store-main">
+          <div class="rp-store-title">${esc(tx.title || t('panel.hist.untitled'))}
+            ${tx.done ? `<span class="rp-tag rp-tag-done">${esc(t('panel.inst.doneTag'))}</span>` : ''}
+            ${un ? `<span class="rp-tag rp-tag-unassigned">${esc(t('panel.store.unassignedTag'))}</span>` : ''}</div>
+          <div class="note rp-store-meta">${esc(gb(tx.bytes))} · ${esc(t('panel.store.nFiles', { n: tx.files }))}</div>
+        </div>
+        <div class="rp-store-actions">
+          ${filesMenuHtml(firstInstanceId(), tx.docId, tx.title || '')}
+          ${un ? `<button class="link-btn rp-revoke" data-storedel="${esc(tx.folderId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.store.remove'))}</button>` : ''}
+        </div>
+      </div>`;
+    };
+
+    const groupHtml = (name, texts) => {
+      if (!texts.length) return '';
+      const sum = texts.reduce((a, x) => a + x.bytes, 0);
+      return `<div class="rp-store-group">
+        <div class="rp-store-ghead">${esc(name)} <span class="note">${esc(gb(sum))} · ${esc(t('panel.store.nTexts', { n: texts.length }))}</span></div>
+        ${texts.map(row).join('')}</div>`;
+    };
+
+    const trashed = estate.trashed || { n: 0, bytes: 0 };
+    body.innerHTML = `
+      <div class="rp-store-quota"><div class="rp-store-bar"><span style="width:${pct}%"></span></div>
+        <div class="note">${esc(quotaLine)}</div></div>
+      ${trashed.n ? `<div class="rp-store-trash">
+        <div><div>${esc(t('panel.store.trashHeld', { size: gb(trashed.bytes), n: trashed.n }))}</div>
+        <div class="note">${esc(t('panel.store.trashWhy'))}</div></div>
+        <button class="secondary-btn" data-storepurge>${esc(t('panel.store.reclaim'))}</button></div>` : ''}
+      ${[...groups.values()].map((g) => groupHtml(g.name, g.texts)).join('')}
+      ${groupHtml(t('panel.store.unassignedGroup'), loose)}
+      ${(estate.texts || []).length ? '' : `<p class="note">${esc(t('panel.store.empty'))}</p>`}`;
+
+    wireDownloadMenus(body);
+    body.querySelectorAll('[data-storedel]').forEach((b) => b.addEventListener('click', () => busy(b, async () => {
+      if (!confirm(t('panel.store.removeConfirm', { title: b.dataset.title || '?' }))) return;
+      try {
+        await Researcher.trashFiles([b.dataset.storedel], 'drive storage manager');
+        deps.toast(t('panel.store.removed'), 5000);
+        await load();
+      } catch (e) { errToast(e); }
+    })));
+    const purge = body.querySelector('[data-storepurge]');
+    if (purge) purge.addEventListener('click', () => busy(purge, async () => {
+      if (!confirm(t('panel.store.reclaimConfirm', { size: gb(trashed.bytes), n: trashed.n }))) return;
+      try {
+        const r = await Researcher.drivePurge();
+        deps.toast(t('panel.store.reclaimed', { size: gb(r.bytes || 0), n: r.deleted || 0 }), 6000);
+        await load();
+      } catch (e) { errToast(e); }
+    }));
+  };
+
+  const load = async () => {
+    try { estate = await Researcher.driveEstate(); paint(); }
+    catch (e) { body.innerHTML = `<p class="note rp-adm-err">${esc(String(e.message || e))}</p>`; }
+  };
+  load();
+}
+
+// Any instance id will do for the Files ▾ control: it routes by DOC id through the worker, and the
+// worker resolves the text folder from the docId tag rather than from the instance.
+function firstInstanceId() {
+  const it = ((lastData && lastData.instances) || [])[0];
+  return (it && it.instance_id) || '';
 }
 
 function historyModal() {

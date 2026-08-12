@@ -422,6 +422,92 @@ async function driveMasterFolder(access) {
   return f.id;
 }
 
+/* Every file this app created, one page at a time. Under `drive.file` scope that IS the whole
+ * FlexText estate and nothing else, which is what makes the storage manager a couple of API calls
+ * instead of one per text. Page count is bounded so a pathological account cannot spin the worker. */
+async function driveListAll(access, trashed) {
+  const out = [];
+  let pageToken = '';
+  for (let page = 0; page < 20; page++) {           // 20 x 1000 = 20k files, far beyond any real account
+    const url = 'https://www.googleapis.com/drive/v3/files?spaces=drive&pageSize=1000'
+      + '&fields=nextPageToken,files(id,name,size,mimeType,modifiedTime,parents,appProperties)'
+      + '&q=' + encodeURIComponent('trashed=' + (trashed ? 'true' : 'false'))
+      + (pageToken ? '&pageToken=' + encodeURIComponent(pageToken) : '');
+    const res = await driveJson(access, 'GET', url);
+    for (const f of res.files || []) out.push(f);
+    if (!res.nextPageToken) break;
+    pageToken = res.nextPageToken;
+  }
+  return out;
+}
+
+/* Group a flat Drive listing into the estate the panel renders. PURE — no network, no env — so
+ * test/drive-estate.test.mjs can drive it directly with fixtures.
+ *
+ * The tree is: master "FlexText Uploads" > <Device> > <Storyname> > (originals|assignment) > files.
+ * A text's byte total ROLLS UP its originals/ child, because to a researcher asking "what is this
+ * text costing me" the source package is part of the text, not a separate thing. Folders themselves
+ * contribute no bytes (Drive reports no size for them).
+ *
+ * `done` comes from the appProperties tag, never from the folder NAME — the name carries a visible
+ * "(done)" suffix for a human browsing Drive, and nothing reads it, exactly as with <Storyname>. */
+function buildDriveEstate(files) {
+  const byId = new Map();
+  for (const f of files || []) byId.set(f.id, f);
+  const isFolder = (f) => (f.mimeType || '') === 'application/vnd.google-apps.folder';
+  const roleOf = (f) => (f.appProperties && f.appProperties.flextextRole) || '';
+  const parentOf = (f) => (Array.isArray(f.parents) && f.parents[0]) || '';
+
+  const master = (files || []).find((f) => isFolder(f) && roleOf(f) === 'uploads-master');
+  const masterId = (master && master.id) || '';
+  const devices = (files || []).filter((f) => isFolder(f) && parentOf(f) === masterId && !(f.appProperties || {}).flextextDoc)
+    .map((f) => ({ folderId: f.id, name: f.name || '' }));
+  const deviceName = new Map(devices.map((d) => [d.folderId, d.name]));
+
+  // Text folders are identified by their docId TAG, never by where they sit — a folder the
+  // researcher moved elsewhere in Drive is still that text's folder.
+  const textFolders = (files || []).filter((f) => isFolder(f) && (f.appProperties || {}).flextextDoc);
+  const textByFolder = new Map(textFolders.map((f) => [f.id, f]));
+  // The originals/ (legacy: assignment/) child maps back to its parent text for the roll-up.
+  const rollUp = new Map();
+  for (const f of files || []) {
+    if (!isFolder(f)) continue;
+    if (roleOf(f) !== 'originals' && roleOf(f) !== 'assignment') continue;
+    const p = parentOf(f);
+    if (textByFolder.has(p)) rollUp.set(f.id, p);
+  }
+
+  const acc = new Map();   // text folder id -> { bytes, files }
+  for (const f of files || []) {
+    if (isFolder(f)) continue;
+    const p = parentOf(f);
+    const target = textByFolder.has(p) ? p : rollUp.get(p);
+    if (!target) continue;                          // a stray file outside any text folder
+    const a = acc.get(target) || { bytes: 0, files: 0 };
+    a.bytes += parseInt(f.size, 10) || 0;
+    a.files += 1;
+    acc.set(target, a);
+  }
+
+  const texts = textFolders.map((f) => {
+    const a = acc.get(f.id) || { bytes: 0, files: 0 };
+    const dev = parentOf(f);
+    return {
+      docId: (f.appProperties || {}).flextextDoc || '',
+      folderId: f.id,
+      title: String(f.name || '').replace(/\s*\(done\)\s*$/i, ''),   // display name without the marker
+      deviceFolderId: deviceName.has(dev) ? dev : '',
+      device: deviceName.get(dev) || '',
+      bytes: a.bytes,
+      files: a.files,
+      done: (f.appProperties || {}).flextextDone === '1',
+      modified: f.modifiedTime || '',
+    };
+  }).sort((x, y) => y.bytes - x.bytes);             // biggest first: what a storage view is for
+
+  return { master: masterId, devices, texts };
+}
+
 // An enrolled DEVICE's folder in the researcher's Drive: "FlexText Uploads / <nickname>".
 // Same semantics as the crowd folders: id-tracked (move/rename-proof), recreated if
 // trashed. The panel's device-rename route renames the folder best-effort to match.
@@ -481,6 +567,31 @@ function driveIdOf(src) {
 // ⚠ The tag search is scoped to trashed=false but NOT to the parent: if the researcher moves a
 // text folder elsewhere, uploads keep following it — mirroring the move-once behaviour of the
 // master folder rather than silently forking a second folder.
+/* Stamp (or clear) a text folder's DONE marker.
+ *
+ * The appProperties tag is the truth our tools read; the "(done)" name suffix exists so a linguist
+ * browsing Drive sees it without our tools. Nothing ever READS the name — same rule as <Storyname>,
+ * where a stale name is cosmetic and breaks nothing.
+ *
+ * ⚠ `want` is null for "no change", which is what an ABSENT header means. Old engines send no
+ * done-ness at all, and treating their silence as `false` would make every upload from a device
+ * that has not updated yet silently un-mark finished texts. Best-effort throughout: a text's files
+ * are what matter, and a failed cosmetic patch must never fail the upload that carried it. */
+async function driveMarkDone(access, folderId, want, title) {
+  if (want === null || !folderId) return;
+  try {
+    const cur = await driveJson(access, 'GET',
+      'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(folderId) + '?fields=id,name,appProperties');
+    const isDone = ((cur.appProperties || {}).flextextDone === '1');
+    if (isDone === want) return;                        // already right — no needless write
+    const base = String(title || cur.name || '').replace(/\s*\(done\)\s*$/i, '').trim()
+      || String(cur.name || '').replace(/\s*\(done\)\s*$/i, '').trim();
+    await driveJson(access, 'PATCH',
+      'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(folderId) + '?fields=id',
+      { name: want ? base + ' (done)' : base, appProperties: { flextextDone: want ? '1' : '' } });
+  } catch { /* cosmetic: never fail an upload over the marker */ }
+}
+
 async function driveEnsureTextFolder(access, deviceFolderId, docId, title, knownId) {
   const id = String(docId || '').replace(/[^\w-]/g, '').slice(0, 64);
   if (!id) return deviceFolderId;                       // no doc identity → old behaviour (device root)
@@ -1183,6 +1294,73 @@ export async function handleV1(request, env, ctx, url, path, origin) {
    * wrong — a survivable mistake is the design requirement (Seth). drive.file scope is the guard:
    * a file the app did not create 404s at Google, so this cannot reach anything else. The PANEL
    * decides WHAT to trash (it owns the kind classification); the Worker only enforces HOW. */
+  /* ---- Drive STORAGE MANAGER (2026-08-12) — additive, researcher-authed ----
+   *
+   * ⚠ WHY ONE LIST CALL IS ENOUGH, and why that is also the safety property: `drive.file` scope
+   * means we can only ever SEE files this app created. So an unfiltered files.list returns exactly
+   * the FlexText estate and nothing else — no per-text round trip (which would be one API call per
+   * text, i.e. minutes for a real account), and no way to read, report on, or destroy anything of
+   * the researcher's that we did not write. The bound is structural, not careful coding. */
+  if (m === 'GET' && seg.length === 3 && seg[1] === 'researcher' && seg[2] === 'drive-estate') {
+    const r = await authResearcher(request, env);
+    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    try {
+      const access = await driveAccessToken(env, r);
+      const [live, dead, about] = await Promise.all([
+        driveListAll(access, false),
+        driveListAll(access, true),
+        driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/about?fields=storageQuota').catch(() => null),
+      ]);
+      const estate = buildDriveEstate(live);
+      const q = (about && about.storageQuota) || {};
+      return j({
+        /* `limit` is ABSENT on unlimited / pooled accounts. It is passed through as null and MUST
+         * be read as "no limit" — a reader that defaults a missing limit to 0 shows every such
+         * researcher as permanently over quota. */
+        quota: {
+          limit: q.limit != null ? Number(q.limit) : null,
+          usage: Number(q.usage || 0),
+          usageInDrive: Number(q.usageInDrive || 0),
+          // Counted INSIDE usage: trashing reclaims nothing until these bytes are purged.
+          usageInDriveTrash: Number(q.usageInDriveTrash || 0),
+        },
+        master: estate.master,
+        devices: estate.devices,
+        texts: estate.texts,
+        // OUR trashed files only — what the reclaim action would actually remove.
+        trashed: { n: dead.length, bytes: dead.reduce((a, f) => a + (parseInt(f.size, 10) || 0), 0) },
+      }, 200, origin, env);
+    } catch (e) { return j({ error: e.code || 'drive_error', message: e.message }, 502, origin, env); }
+  }
+
+  /* Permanently delete the FlexText files that are ALREADY IN TRASH — the only way trashing ever
+   * reclaims quota, since usageInDriveTrash counts inside usage.
+   *
+   * ⚠⚠ DELIBERATELY NOT files.emptyTrash. That empties the user's ENTIRE Drive trash — their
+   * unrelated personal files included — and needs a broader scope than drive.file. Deleting our own
+   * trashed files one by one is precise, bounded by the scope to things we created, and is what the
+   * button in the panel actually claims to do. */
+  if (m === 'POST' && seg.length === 3 && seg[1] === 'researcher' && seg[2] === 'drive-purge') {
+    const r = await authResearcher(request, env);
+    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    try {
+      const access = await driveAccessToken(env, r);
+      const dead = await driveListAll(access, true);
+      let deleted = 0, bytes = 0;
+      for (const f of dead) {
+        try {
+          await driveJson(access, 'DELETE', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(f.id));
+          deleted++; bytes += parseInt(f.size, 10) || 0;
+        } catch {
+          /* Expected and ignored: deleting a trashed FOLDER takes its children with it, so a child
+           * listed alongside its parent is already gone by the time we reach it. */
+        }
+      }
+      await logApproval(env, request, 'drive_purged', deleted + ' file(s)', Math.round(bytes / 1048576) + ' MB', r.drive_email);
+      return j({ deleted, bytes }, 200, origin, env);
+    } catch (e) { return j({ error: e.code || 'drive_error', message: e.message }, 502, origin, env); }
+  }
+
   if (m === 'POST' && seg.length === 3 && seg[1] === 'researcher' && seg[2] === 'trash') {
     const r = await authResearcher(request, env);
     if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
@@ -1834,6 +2012,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           const textFolder = body.docId
             ? await driveEnsureTextFolder(access, deviceFolder, body.docId, body.docTitle, body.folderId)
             : deviceFolder;
+          // Absent => null => no change (old engines send nothing; see driveMarkDone).
+          if (body.docId && body.sub !== 'originals') {
+            await driveMarkDone(access, textFolder, body.done === '1' ? true : body.done === '0' ? false : null, body.docTitle);
+          }
           // Same v2 source-package routing as the single-POST path: `sub` picks the originals/
           // child, `role` becomes the tag consumers match on instead of the filename.
           const folder = (body.sub === 'originals' && body.docId)
@@ -1919,6 +2101,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           const access = await driveAccessToken(env, inst);
           const deviceFolder = await driveEnsureDeviceFolder(env, access, instanceId, inst.inst_nickname, inst.inst_folder);
           const textFolder = docId ? await driveEnsureTextFolder(access, deviceFolder, docId, docTitle, knownFolder) : deviceFolder;
+          if (docId && sub !== 'originals') {
+            const hd = request.headers.get('x-fx-done');
+            await driveMarkDone(access, textFolder, hd === '1' ? true : hd === '0' ? false : null, docTitle);
+          }
           const folder = (sub === 'originals' && docId)
             ? await driveEnsureChildFolder(access, textFolder, 'originals', 'originals')
             : textFolder;

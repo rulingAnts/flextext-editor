@@ -500,6 +500,15 @@ export function moveText(instanceId, docId, fields) {
   return api('POST', `/v1/instances/${encodeURIComponent(instanceId)}/texts/${encodeURIComponent(docId)}/move`, { body: fields });
 }
 
+/* The Drive STORAGE estate: every text this app created, grouped by device, with per-text bytes,
+ * plus the account's quota. One worker call; see buildDriveEstate for why that is enough. */
+export function driveEstate() { return api('GET', '/v1/researcher/drive-estate'); }
+
+/* Permanently delete the FlexText files ALREADY IN TRASH — the only thing that actually reclaims
+ * quota, since usageInDriveTrash counts inside usage. Scoped to our own files by drive.file; this
+ * is NOT "empty the user's Drive trash". retry:false — a lost response must not double-delete. */
+export function drivePurge() { return api('POST', '/v1/researcher/drive-purge', { body: {}, retry: false }); }
+
 /* Move the researcher's own app-created files to Drive TRASH (30-day recoverable — never a
  * permanent delete). The panel decides what; the Worker only enforces how. */
 export function trashFiles(fileIds, note) {

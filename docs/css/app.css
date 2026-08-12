@@ -2052,3 +2052,23 @@ main {
    value is a minted private URL, never something to read, so the field reports STATE instead. */
 .rp-prompt-state { font-size: .9em; opacity: .75; margin: .25rem 0 .4rem; }
 .rp-prompt-state.rp-prompt-set { opacity: 1; color: var(--ok, #1a7f37); }
+
+/* ---- Google Drive storage manager ---- */
+.rp-store-quota { margin: 4px 0 14px; }
+.rp-store-bar { height: 8px; border-radius: 999px; background: var(--panel); overflow: hidden; margin-bottom: 5px; }
+.rp-store-bar > span { display: block; height: 100%; background: var(--blue-dark); }
+/* Trashed bytes get their own block because they are the counter-intuitive half: they still count
+   against the researcher's Google quota, so "I deleted things and nothing changed" is answered
+   HERE rather than left to be discovered. */
+.rp-store-trash { display: flex; gap: 10px; align-items: center; justify-content: space-between;
+                  flex-wrap: wrap; background: #fbe6cf; color: #8a4b10; border-radius: 8px;
+                  padding: 9px 11px; margin-bottom: 14px; }
+.rp-store-group { margin-bottom: 16px; }
+.rp-store-ghead { font-weight: 600; padding: 4px 0 6px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.rp-store-row { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between;
+                flex-wrap: wrap; padding: 7px 0; }
+.rp-store-main { min-width: 0; flex: 1 1 200px; }     /* min-width:0 — see the Files menu note above */
+.rp-store-title { font-weight: 600; overflow-wrap: anywhere; }
+.rp-store-meta { margin-top: 1px; }
+.rp-store-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.rp-tag-unassigned { background: #e6e6ea; color: #4a4a55; }

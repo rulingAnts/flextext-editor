@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v339';
+export const ENGINE_VERSION = 'v340';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v339';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'panel-refresh v1';
+export const BUILD_TAG = 'drive-storage v1';
 
 const S = {
 en: {
@@ -846,6 +846,27 @@ internet after the first time.</p>
   'panel.dl.noneAssignedPreV126': 'This text was assigned before the app started keeping the audio link, so the original audio cannot be recovered. Anything uploaded from now on will appear here.',
   // History — the back-log of texts that are no longer on a device. Written as the panel observes
   // each device report (see js/history.js); a deleted text leaves nothing behind but this.
+  /* Google Drive storage manager (2026-08-12) — the first view built from DRIVE, not from device
+   * inventory, and the only place a text that has left every device is visible. */
+  'panel.store.btn': 'Drive storage',
+  'panel.store.title': 'Google Drive storage',
+  'panel.store.intro': 'Every text in your Drive, grouped by the device that holds it. Texts no device holds any more are listed as unassigned, and only those can be removed here.',
+  'panel.store.loading': 'Reading your Drive\u2026',
+  'panel.store.empty': 'Nothing has been uploaded to your Drive yet.',
+  'panel.store.quota': '{used} of {total} used ({pct}%)',
+  'panel.store.quotaNoLimit': '{used} used \u2014 this account has no storage limit',
+  'panel.store.nFiles': '{n} file(s)',
+  'panel.store.nTexts': '{n} text(s)',
+  'panel.store.unassignedGroup': 'Google Drive (unassigned)',
+  'panel.store.unassignedTag': 'unassigned',
+  'panel.store.remove': 'Remove from Drive',
+  'panel.store.removeConfirm': 'Move “{title}” to your Google Drive trash?\n\nIt stays recoverable at drive.google.com/trash for 30 days. To actually free up the space you will then need to reclaim it from this screen.',
+  'panel.store.removed': 'Moved to Drive trash.',
+  'panel.store.trashHeld': '{size} in your Drive trash ({n} FlexText file(s))',
+  'panel.store.trashWhy': 'Trashed files still count against your Google storage until they are deleted for good.',
+  'panel.store.reclaim': 'Reclaim this space',
+  'panel.store.reclaimConfirm': 'Permanently delete {n} FlexText file(s) from your Drive trash, freeing about {size}?\n\nThis cannot be undone. Only files this app created are affected — nothing else in your Drive trash is touched.',
+  'panel.store.reclaimed': 'Freed {size} ({n} file(s) permanently deleted).',
   'panel.hist.btn': 'History',
   'panel.hist.title': 'History',
   'panel.hist.intro': 'What has happened to your texts — including ones that have since been deleted from a device. Kept in this browser only.',
@@ -2315,6 +2336,25 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.dl.inferred': 'jenis berkas tidak dilaporkan perangkat ini — mungkin sebuah zip',
   'panel.dl.noneYet': 'Tidak ada berkas ditemukan untuk teks ini.',
   'panel.dl.noneAssignedPreV126': 'Teks ini ditugaskan sebelum aplikasi mulai menyimpan tautan audio, jadi audio aslinya tidak dapat dipulihkan. Apa pun yang diunggah mulai sekarang akan muncul di sini.',
+  'panel.store.btn': 'Penyimpanan Drive',
+  'panel.store.title': 'Penyimpanan Google Drive',
+  'panel.store.intro': 'Semua teks di Drive Anda, dikelompokkan menurut perangkat yang menyimpannya. Teks yang tidak lagi ada di perangkat mana pun tercantum sebagai tidak tertugas, dan hanya teks itu yang dapat dihapus di sini.',
+  'panel.store.loading': 'Membaca Drive Anda\u2026',
+  'panel.store.empty': 'Belum ada yang diunggah ke Drive Anda.',
+  'panel.store.quota': '{used} dari {total} terpakai ({pct}%)',
+  'panel.store.quotaNoLimit': '{used} terpakai \u2014 akun ini tanpa batas penyimpanan',
+  'panel.store.nFiles': '{n} berkas',
+  'panel.store.nTexts': '{n} teks',
+  'panel.store.unassignedGroup': 'Google Drive (tidak tertugas)',
+  'panel.store.unassignedTag': 'tidak tertugas',
+  'panel.store.remove': 'Hapus dari Drive',
+  'panel.store.removeConfirm': 'Pindahkan “{title}” ke sampah Google Drive?\n\nMasih dapat dipulihkan di drive.google.com/trash selama 30 hari. Untuk benar-benar mengosongkan ruang, Anda perlu mengklaimnya kembali dari layar ini.',
+  'panel.store.removed': 'Dipindahkan ke sampah Drive.',
+  'panel.store.trashHeld': '{size} di sampah Drive Anda ({n} berkas FlexText)',
+  'panel.store.trashWhy': 'Berkas di sampah tetap dihitung terhadap penyimpanan Google Anda sampai dihapus permanen.',
+  'panel.store.reclaim': 'Klaim ruang ini',
+  'panel.store.reclaimConfirm': 'Hapus permanen {n} berkas FlexText dari sampah Drive Anda, membebaskan sekitar {size}?\n\nIni tidak dapat dibatalkan. Hanya berkas yang dibuat aplikasi ini yang terpengaruh — isi sampah Drive Anda yang lain tidak disentuh.',
+  'panel.store.reclaimed': '{size} dibebaskan ({n} berkas dihapus permanen).',
   'panel.hist.btn': 'Riwayat',
   'panel.hist.title': 'Riwayat',
   'panel.hist.intro': 'Apa yang terjadi pada teks Anda — termasuk yang sudah dihapus dari perangkat. Disimpan hanya di browser ini.',

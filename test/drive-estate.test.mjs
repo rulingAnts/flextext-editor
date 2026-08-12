@@ -368,5 +368,56 @@ console.log('\n...and the Unassigned folder is never mistaken for a DEVICE');
   ok(swept.bytes === 2000, 'and its bytes still roll up normally from the new location');
 }
 
+console.log('\nthe UNASSIGNED card is on the dashboard, and is NOT a pseudo-instance');
+{
+  const panel = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
+  ok(/function renderUnassignedCard\(estate\)/.test(panel), 'the card renderer exists');
+  ok(/\$\{renderUnassignedCard\(estateCache\)\}/.test(panel), 'and is rendered in the dashboard body');
+
+  /* ⚠ THE STRUCTURAL RULE. A synthetic entry in lastData.instances would have to be special-cased
+   * at every site that iterates instances — the "one rule, several paths" drift the backlog warns
+   * about — and a fake instance_id could reach the worker, which has no such instance. */
+  ok(!/instances\.push\(|instances\.concat\(\[\{/.test(panel), 'nothing is injected into lastData.instances');
+  const card = (panel.match(/function renderUnassignedCard[\s\S]*?\n\}/) || [''])[0];
+  ok(!/instance_id:/.test(card), 'the card mints no instance_id of its own');
+  ok(/data-uact=/.test(card) && !/data-iact=/.test(card),
+     'its actions use their OWN attribute — instanceAction() assumes a real instance id');
+
+  // Same buttons as a device row, with the one substitution.
+  ok(/filesMenuHtml\(iid, tx\.docId/.test(card), 'Files menu');
+  ok(/data-uact="adopt"/.test(card) && /panel\.move\.btn/.test(card), 'Move…');
+  ok(/data-uact="drop"/.test(card) && /panel\.store\.remove/.test(card),
+     '"Remove from Google Drive" replaces "Remove from Device" — there is no device to remove from');
+
+  /* A text mid-MOVE is between devices, not unassigned. Listing it here would offer to delete
+   * Drive's only copy while the destination is still fetching it. */
+  const sel = (panel.match(/function unassignedTexts[\s\S]*?\n\}/) || [''])[0];
+  ok(/!assigned\.has\(tx\.docId\)/.test(sel), 'unassigned = no device inventory claims it');
+  ok(/!pendingMoves\.has\(tx\.docId\)/.test(sel), '...and a text mid-move is excluded');
+
+  // The estate is a Drive round trip: it must not ride the 12s poll.
+  ok(/if \(!prefetched && Researcher\.isApprovedSelf\(\)\) \{[\s\S]{0,400}Researcher\.driveEstate\(\)/.test(panel),
+     'the estate is fetched on FULL renders only, never the poll');
+}
+
+console.log('\n...and Move from Unassigned is a REAL re-assignment');
+{
+  const panel = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
+  const modalSrc = (panel.match(/function adoptTextModal[\s\S]*?\n\}\n\n/) || [''])[0];
+  ok(/Researcher\.adoptText\(to, docId/.test(modalSrc), 'it re-files the folder and mints streaming URLs');
+  ok(/await Researcher\.assign\(to, docId, fields\)/.test(modalSrc),
+     '...and then sends a real assign command, so the text goes live on the device');
+  ok(/kind: 'assign'/.test(modalSrc), 'with the same pending marker any assignment gets');
+  ok(/panel\.move\.nothingToMove/.test(modalSrc), 'and refuses when there is no content to deliver');
+
+  /* The adopt endpoint is ADDITIVE. /move requires toId !== instanceId by design; relaxing that to
+   * serve a source-less flow would make one endpoint mean two things, on a path field devices use. */
+  ok(/seg\[5\] === 'adopt'/.test(worker), 'the worker has its own adopt route');
+  ok(/toId === instanceId\) return j\(\{ error: 'bad_move' \}/.test(worker), '/move keeps its distinct-devices guard');
+  const adopt = (worker.match(/seg\[5\] === 'adopt'\) \{[\s\S]*?\n    \}/) || [''])[0];
+  ok(/flextextUnassigned: ''/.test(adopt), 'adopting clears the swept tag, so housekeeping will not fight it');
+  ok(/driveReparent\(access, f\.id, toFolder/.test(adopt), 'and the folder moves under the adopting device');
+}
+
 console.log(fail ? `\nFAILED (${fail})\n` : '\nall passed\n');
 process.exit(fail ? 1 : 0);

@@ -493,6 +493,13 @@ export function cancelCommand(instanceId, seq) {
 export function assign(instanceId, docId, fields) { return pushCommand(instanceId, 'assign', { id: docId, ...(fields || {}) }); }
 export function setDone(instanceId, docId, done)   { return pushCommand(instanceId, 'setDone', { docId, done: !!done }); }
 
+/* Adopt an UNASSIGNED text onto a device: re-parents its folder out of Unassigned and mints the
+ * same private streaming URLs the move flow uses. The caller then sends the assign command, exactly
+ * as moveTextModal does — this is a real re-assignment, not just a folder tidy. */
+export function adoptText(instanceId, docId, fields) {
+  return api('POST', `/v1/instances/${encodeURIComponent(instanceId)}/texts/${encodeURIComponent(docId)}/adopt`, { body: fields });
+}
+
 /* Move a text's Drive half to another device: re-parents the folder, mints authed streaming URLs
  * for the content. The caller then assigns to the destination (same docId) and fires the
  * upload-first remove at the source once the destination reports the doc. */

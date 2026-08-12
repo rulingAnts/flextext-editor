@@ -2072,3 +2072,7 @@ main {
 .rp-store-meta { margin-top: 1px; }
 .rp-store-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .rp-tag-unassigned { background: #e6e6ea; color: #4a4a55; }
+/* The Unassigned card reuses the device-card shell but is visually quieter: it is a holding area,
+   not a device someone is working on. */
+.rp-unassigned .rp-inst-name { color: var(--muted); }
+.rp-unassigned .rp-inst-top { padding-bottom: 2px; }

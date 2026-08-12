@@ -365,6 +365,7 @@ function fmtDur(secs) { const m = Math.floor(secs / 60), ss = secs % 60; return 
 // Crowd recorders live OUTSIDE the 12s poll signature (worker load stays flat): fetched on full
 // dashboard renders + after crowd actions only. undefined = not yet fetched, null = fetch failed.
 let crowdCache;
+let estateCache;   // last Drive estate (full renders only) — feeds the Unassigned card
 
 const REC_KEYS = Object.keys(REC_FORMATS);
 const AGC_OPTS = ['off', 'on', 'auto'];
@@ -1057,6 +1058,9 @@ async function renderDashboard(prefetched) {
   // note inside the card — the rest of the dashboard must never be taken down by it.
   if (!prefetched && Researcher.isApprovedSelf()) {
     try { crowdCache = (await Researcher.crowdList()).recorders || []; } catch { crowdCache = null; }
+    /* The Drive estate rides FULL renders only, never the 12s poll — it is a Drive round trip, and
+     * the unassigned card changes on the timescale of a researcher removing a text, not seconds. */
+    try { estateCache = await Researcher.driveEstate(); } catch { estateCache = null; }
   }
 
   // deviceCount passed explicitly (not taken from map's array arg): it decides the collapse default.
@@ -1103,6 +1107,7 @@ async function renderDashboard(prefetched) {
       </div>
     </div>
     ${insts.length ? cards.join('') : `<p class="note rp-empty">${esc(t('panel.dash.empty'))}</p>`}
+    ${renderUnassignedCard(estateCache)}
     ${Researcher.isApprovedSelf() ? renderCrowdCard(crowdCache) : ''}`;
 
   wireActs({
@@ -1119,6 +1124,21 @@ async function renderDashboard(prefetched) {
   // per-card actions are delegated:
   wireDownloadMenus();
   root.querySelectorAll('[data-iact]').forEach((el) => el.addEventListener('click', () => instanceAction(el)));
+  // Unassigned-card actions. Deliberately their OWN attribute, not data-iact: instanceAction()
+  // assumes a real instance id on the element, and there is none here by design.
+  root.querySelectorAll('[data-uact]').forEach((el) => el.addEventListener('click', () => {
+    if (el.dataset.uact === 'adopt') { adoptTextModal(el.dataset.id, el.dataset.title || ''); return; }
+    if (el.dataset.uact === 'drop') {
+      if (!confirm(t('panel.store.removeConfirm', { title: el.dataset.title || '?' }))) return;
+      busy(el, async () => {
+        try {
+          await Researcher.trashFiles([el.dataset.folder], 'unassigned removal');
+          deps.toast(t('panel.store.removed'), 5000);
+          renderDashboard();
+        } catch (e) { errToast(e); }
+      });
+    }
+  }));
   root.querySelectorAll('[data-ract]').forEach((el) => el.addEventListener('click', () => researcherAction(el)));
   root.querySelectorAll('[data-cact]').forEach((el) => el.addEventListener('click', () => crowdAction(el)));
   lastSig = viewSig(data);
@@ -3095,6 +3115,109 @@ function histWhen(ts) {
   // Explicit date AND time: "which device, when" is the whole point, and a relative
   // "3 days ago" stops being useful for exactly the old entries this log exists to hold.
   return d.toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+/* THE "UNASSIGNED" CARD — texts that live in Drive and on no device (Seth, 2026-08-12).
+ *
+ * ⚠ IT IS NOT A PSEUDO-INSTANCE, deliberately. It has no instance_id, no ack_seq, no installs and
+ * no pairing secret, so it is NOT pushed into lastData.instances — a synthetic entry there would
+ * have to be special-cased at every site that iterates instances, which is exactly the "rule
+ * enforced in one place that other paths reach differently" drift the backlog warns about. It is
+ * built from the Drive estate and rendered with the same row markup, and NO fake instance_id ever
+ * reaches the worker: every action here names a real destination device or acts on Drive directly.
+ *
+ * Same buttons as a device row, with ONE substitution: "Remove from Google Drive" in place of
+ * "Remove from Device", because there is no device to remove it from — the Drive copy is all that
+ * is left, which is also why removing it is the one genuinely destructive action on this card. */
+function unassignedTexts(estate) {
+  if (!estate || !Array.isArray(estate.texts)) return [];
+  const assigned = assignedDocIds();
+  // A text mid-MOVE is not unassigned — it is between devices, and listing it here would offer to
+  // delete Drive's only copy while the destination is still fetching it.
+  return estate.texts.filter((tx) => tx.docId && !assigned.has(tx.docId) && !pendingMoves.has(tx.docId));
+}
+
+function renderUnassignedCard(estate) {
+  const texts = unassignedTexts(estate);
+  if (!texts.length) return '';
+  const bytes = texts.reduce((a, t) => a + (t.bytes || 0), 0);
+  const iid = firstInstanceId();
+  const rows = texts.map((tx) => `<li class="rp-text-row">
+      <div class="rp-text-main">
+        <div class="rp-text-title">${esc(tx.title || t('panel.hist.untitled'))}
+          ${tx.done ? `<span class="rp-tag rp-tag-done">${esc(t('panel.inst.doneTag'))}</span>` : ''}</div>
+        <div class="note rp-text-meta">${esc(gb(tx.bytes || 0))} · ${esc(t('panel.store.nFiles', { n: tx.files || 0 }))}</div>
+      </div>
+      <div class="rp-text-actions">
+        ${iid ? filesMenuHtml(iid, tx.docId, tx.title || '') : ''}
+        <button class="link-btn" data-uact="adopt" data-id="${esc(tx.docId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.move.btn'))}</button>
+        <button class="link-btn rp-revoke" data-uact="drop" data-folder="${esc(tx.folderId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.store.remove'))}</button>
+      </div>
+    </li>`).join('');
+  return `<div class="rp-card rp-inst rp-unassigned">
+    <div class="rp-inst-top">
+      <div class="rp-inst-name">${esc(t('panel.store.unassignedGroup'))}
+        <span class="rp-badge rp-badge-type">${esc(t('panel.store.nTexts', { n: texts.length }))}</span></div>
+    </div>
+    <div class="rp-install">
+      <div class="note">${esc(t('panel.unassigned.intro', { size: gb(bytes) }))}</div>
+      <ul class="rp-texts">${rows}</ul>
+    </div>
+  </div>`;
+}
+
+/* Adopt: pick a destination device, re-file the folder out of Unassigned, mint streaming URLs, then
+ * send the ordinary assign command. A REAL re-assignment (Seth) — the text becomes live on that
+ * device again, not merely a folder tidy. */
+function adoptTextModal(docId, title) {
+  const insts = ((lastData && lastData.instances) || []);
+  if (!insts.length) { deps.toast(t('panel.move.noOther'), 5000); return; }
+  const m = modal(`<h3>${esc(t('panel.unassigned.moveTitle', { title }))}</h3>
+    <p class="note">${esc(t('panel.unassigned.moveIntro'))}</p>
+    ${insts.map((x, i) => `<label class="rp-field"><input type="radio" name="rp-adopt-to" value="${esc(x.instance_id)}"${i === 0 ? ' checked' : ''}> ${esc(x.nickname || '?')}</label>`).join('')}
+    <div class="rp-adm-say" hidden></div>
+    <div class="modal-actions">
+      <button class="secondary-btn" data-m="cancel">${esc(t('panel.assign.cancel'))}</button>
+      <button class="primary-btn" data-m="go">${esc(t('panel.move.btn'))}</button>
+    </div>`);
+  const say = m.el.querySelector('.rp-adm-say');
+  m.el.querySelector('[data-m="cancel"]').onclick = m.close;
+  m.el.querySelector('[data-m="go"]').addEventListener('click', (e) => busy(e.target, async () => {
+    const to = (m.el.querySelector('input[name="rp-adopt-to"]:checked') || {}).value;
+    if (!to) return;
+    try {
+      // The text's own Drive files supply the content, exactly as a move does.
+      const files = (await Researcher.listTextFiles(to, docId).catch(() => null)) || { files: [] };
+      const picks = pickSourceFiles(files.files || []);
+      const r = await Researcher.adoptText(to, docId, {
+        flextextFileId: (picks.flextext || {}).id || null,
+        audioFileId: (picks.audio || {}).id || null,
+        extractFromZipId: (picks.bundle || {}).id || null,
+      });
+      if (!r.flextextUrl && !r.audioUrl) {
+        say.hidden = false; say.className = 'rp-adm-say rp-adm-err';
+        say.textContent = t('panel.move.nothingToMove');
+        return;
+      }
+      const fields = { title, folderId: r.folderId || '' };
+      if (r.audioUrl) fields.audioUrl = r.audioUrl;
+      if (r.flextextUrl) fields.flextextUrl = r.flextextUrl;
+      const sent = await Researcher.assign(to, docId, fields);
+      const nick = (insts.find((x) => x.instance_id === to) || {}).nickname || '?';
+      recordEvents(Researcher.currentAccountId(), [assignedEvent({ instanceId: to, device: nick, docId, title,
+        audioUrl: fields.audioUrl || '', flextextUrl: fields.flextextUrl || '' })]);
+      // Same pending marker any assignment gets, so the text is visible while the device fetches it.
+      if (sent && sent.seq) {
+        pendingCmds.set(docId, { seq: sent.seq, kind: 'assign', instanceId: to, title, hasAudio: !!fields.audioUrl, at: Date.now() });
+        savePending(Researcher.currentAccountId());
+      }
+      m.close();
+      deps.toast(t('panel.move.sent', { device: nick }), 6000);
+      renderDashboard();
+    } catch (err) {
+      say.hidden = false; say.className = 'rp-adm-say rp-adm-err'; say.textContent = String(err.message || err);
+    }
+  }));
 }
 
 /* ---------------- Google Drive storage manager (Seth, 2026-08-12) ----------------

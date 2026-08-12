@@ -1892,6 +1892,48 @@ export async function handleV1(request, env, ctx, url, path, origin) {
      * destination can fetch them privately — nothing is ever link-shared (Seth's decision; field
      * data stays private). The PANEL does the command half: assign to B with these URLs (same
      * docId — v137 identity), then fire the upload-first remove at A once B reports the doc. */
+    /* ADOPT an unassigned text onto a device — the move flow with NO SOURCE DEVICE.
+     *
+     * Separate from /move rather than a relaxation of it: /move requires `toId !== instanceId` by
+     * design (a move between two real devices), and loosening that guard to serve a different flow
+     * would make one endpoint mean two things. This is purely additive, so it cannot affect the
+     * move path field devices already depend on.
+     *
+     * The re-parent half completes the round trip driveTextHousekeeping already handles in the
+     * other direction: the folder comes OUT of Unassigned and under the adopting device, and the
+     * `flextextUnassigned` tag is cleared so the return-trip logic will not fight it later. */
+    if (m === 'POST' && sub === 'texts' && seg.length === 6 && seg[5] === 'adopt') {
+      const r = await authResearcher(request, env);
+      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      const body = await readJson(request) || {};
+      const docId = String(seg[4] || '').replace(/[^\w-]/g, '').slice(0, 64);
+      if (!docId) return j({ error: 'bad_doc' }, 400, origin, env);
+      const to = await env.DB.prepare('SELECT instance_id, nickname, oauth_folder_id FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
+        .bind(instanceId, r.researcher_id).first();
+      if (!to) return j({ error: 'not_found' }, 404, origin, env);
+      try {
+        const access = await driveAccessToken(env, r);
+        const toFolder = await driveEnsureDeviceFolder(env, access, instanceId, to.nickname, to.oauth_folder_id);
+        const fq = encodeURIComponent(`appProperties has { key='flextextDoc' and value='${docId}' } and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+        const found = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files?spaces=drive&orderBy=createdTime&fields=files(id,parents)&q=' + fq);
+        const f = (found.files || [])[0];
+        let folderId = '';
+        if (f) {
+          folderId = f.id;
+          if (!(f.parents || []).includes(toFolder)) await driveReparent(access, f.id, toFolder, f.parents);
+          await driveJson(access, 'PATCH', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(f.id) + '?fields=id',
+            { appProperties: { flextextUnassigned: '' } });
+        }
+        // Same private, time-boxed streaming tokens the move flow mints — the device downloads
+        // through /v1/textfile exactly as it would for any assignment.
+        const mint = (fileId, extract) => mintTextfileUrl(env, url.origin, r.researcher_id, fileId, extract);
+        const flextextUrl = await mint(body.flextextFileId) || await mint(body.extractFromZipId, 'flextext');
+        const audioUrl = await mint(body.audioFileId);
+        await logApproval(env, request, 'text_adopted', docId, to.nickname || '', r.drive_email);
+        return j({ ok: true, folderId, flextextUrl, audioUrl }, 200, origin, env);
+      } catch (e) { return j({ error: e.code || 'drive_error', message: e.message }, 502, origin, env); }
+    }
+
     if (m === 'POST' && sub === 'texts' && seg.length === 6 && seg[5] === 'move') {
       const r = await authResearcher(request, env);
       if (!r) return j({ error: 'unauthorized' }, 401, origin, env);

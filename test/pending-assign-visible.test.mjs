@@ -106,11 +106,18 @@ console.log('\nit offers only actions that can actually be honoured');
 
 console.log('\nthe move path deliberately does NOT double up');
 {
-  const moveBlock = panel.slice(panel.indexOf('function moveTextModal'));
+  /* ⚠ Scope to moveTextModal's OWN body. This used to slice everything after it, which swept in
+   * whatever function happened to be defined next — and once adoptTextModal existed (Unassigned →
+   * device, which legitimately DOES set an assign marker, since it has no pendingMoves entry) the
+   * assertion failed on correct code. A test whose scope depends on file ordering is a trap. */
+  const moveStart = panel.indexOf('function moveTextModal');
+  const moveBlock = panel.slice(moveStart, panel.indexOf('\nfunction ', moveStart + 10));
   ok(/pendingMoves\.set\(docId, \{ from: fromId, to, title, at: Date\.now\(\), stage: 'assigned' \}\)/.test(moveBlock),
      'a move still records its own marker');
   ok(!/kind: 'assign'/.test(moveBlock),
      'and does NOT also set a pendingCmds assign — one wait, one marker');
+  ok(moveBlock.length > 200 && moveBlock.length < panel.length / 2,
+     `...and the slice really is just that function (${moveBlock.length} chars)`);
 }
 
 /* ---------------------------------------------------------------------------------------------

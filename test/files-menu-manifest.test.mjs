@@ -23,6 +23,9 @@
  * Run: node test/files-menu-manifest.test.mjs
  */
 import { readFileSync } from 'node:fs';
+/* ⚠ The REAL policy, not a stub. The menu's greyed rows and the conversion's own refusal must agree,
+ * and they only do because both call this one function — so a fake here would test the fake. */
+import { conversionCaps } from '../docs/js/seg-exports.js';
 
 const src = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
 let fail = 0;
@@ -59,6 +62,7 @@ async function runMenu(files, manifest, { folderId = 'FOLDER_abc123def' } = {}) 
     fmtSize: (b) => `${b}B`,
     sanitizeBase: (s) => String(s || '').replace(/[\\/:*?"<>|]+/g, '_').trim().slice(0, 120),
     MANIFEST_NAME,
+    conversionCaps,
     bridgedIds: () => ({ ids: ['doc1'], audioUrl: '', latestEventFileId: '' }),
     driveFolderLink: (id) => (/^[\w-]{10,}$/.test(String(id)) ? `https://drive.google.com/drive/folders/${id}` : ''),
     Researcher: { listTextFiles: async () => ({ files, folderId }) },

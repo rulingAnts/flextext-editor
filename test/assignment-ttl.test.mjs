@@ -126,18 +126,18 @@ globalThis.fetch = async (input, init = {}) => {
     return jr({ id: 'folder-' + meta.name });
   }
   if (method === 'GET' && u.includes('/drive/v3/files?')) {
-    // The listing fixture: docId 'doc-list' owns a text folder holding an assignment/ child, a
+    // The listing fixture: docId 'doc-list' owns a text folder holding an originals/ child, a
     // bundle and a bare flextext; the child holds the delivered audio + flextext. Every other
     // search misses (the begin/start flows above create fresh folders).
     const q = decodeURIComponent(u.split('q=')[1] || '');
     if (q.includes("value='doc-list'")) return jr({ files: [{ id: 'tf-list' }] });
     if (q.includes("'tf-list' in parents")) return jr({ files: [
-      { id: 'sub1', name: 'assignment', mimeType: 'application/vnd.google-apps.folder', modifiedTime: '2026-08-01T00:00:00Z', appProperties: { flextextRole: 'assignment' } },
+      { id: 'sub1', name: 'originals', mimeType: 'application/vnd.google-apps.folder', modifiedTime: '2026-08-01T00:00:00Z', appProperties: { flextextRole: 'originals' } },
       { id: 'f1', name: 'kisah 2026-08-10.zip', mimeType: 'application/zip', size: '10', modifiedTime: '2026-08-10T00:00:00Z' },
       { id: 'f2', name: 'kisah.flextext', mimeType: 'application/xml', size: '5', modifiedTime: '2026-08-08T00:00:00Z' },
     ] });
     if (q.includes("'sub1' in parents")) return jr({ files: [
-      { id: 'a1', name: 'story.mp3', mimeType: 'audio/mpeg', size: '99', modifiedTime: '2026-08-09T00:00:00Z', appProperties: { flextextRole: 'assigned-audio' } },
+      { id: 'a1', name: 'story.mp3', mimeType: 'audio/mpeg', size: '99', modifiedTime: '2026-08-09T00:00:00Z', appProperties: { flextextRole: 'source-audio' } },
       { id: 'x1', name: 'kisah.flextext', mimeType: 'application/xml', size: '7', modifiedTime: '2026-08-11T00:00:00Z', appProperties: { flextextRole: 'assigned-flextext' } },
     ] });
     return jr({ files: [] });
@@ -154,17 +154,17 @@ async function call(path, { method = 'GET', headers = {}, body = null } = {}) {
   return handleV1(req, ENV, { waitUntil() {} }, url, url.pathname, '');
 }
 
-console.log('\nbegin: device folder verified, text folder + assignment/ child ensured');
+console.log('\nbegin: device folder verified, text folder + originals/ child ensured');
 {
   const r = await call('/v1/instances/i1/texts/doc-42/assignment/begin', { method: 'POST', headers: AUTH, body: { title: 'Kisah' } });
   const b = await r.json();
   ok(r.status === 200 && b.ok, 'begin succeeds');
   ok(b.folderId === 'folder-Kisah', 'text folder created under the device folder, named by title');
-  ok(b.assignmentFolderId === 'folder-assignment', 'assignment/ child created');
+  ok(b.originalsFolderId === 'folder-originals', 'originals/ child created');
   const tf = log.created.find((c) => c.name === 'Kisah');
   ok(tf && tf.parents[0] === 'dev-folder' && tf.appProperties.flextextDoc === 'doc-42', 'text folder is docId-tagged, parented in the device folder');
-  const af = log.created.find((c) => c.name === 'assignment');
-  ok(af && af.parents[0] === 'folder-Kisah' && af.appProperties.flextextRole === 'assignment', 'assignment/ is role-tagged, parented in the TEXT folder');
+  const af = log.created.find((c) => c.name === 'originals');
+  ok(af && af.parents[0] === 'folder-Kisah' && af.appProperties.flextextRole === 'originals', 'originals/ is role-tagged, parented in the TEXT folder');
   const unauth = await call('/v1/instances/i1/texts/doc-42/assignment/begin', { method: 'POST', body: { title: 'x' } });
   ok(unauth.status === 401, 'no researcher auth -> 401');
 }
@@ -173,18 +173,18 @@ console.log('\nupload start/chunk: researcher-bound session, device wire contrac
 let uploadId = null, audioFileId = null;
 {
   const r = await call('/v1/instances/i1/texts/doc-42/assignment/upload/start', { method: 'POST', headers: AUTH,
-    body: { name: 'story.mp3', mime: 'audio/mpeg', size: 10, assignmentFolderId: 'folder-assignment', kind: 'audio' } });
+    body: { name: 'story.mp3', mime: 'audio/mpeg', size: 10, originalsFolderId: 'folder-originals', kind: 'audio' } });
   const b = await r.json();
   ok(r.status === 200 && b.uploadId, 'start returns an opaque uploadId');
   uploadId = b.uploadId;
   const sess = JSON.parse(await decAtRest(uploadId));
   ok(sess.rr === 'r1' && !sess.i, "session token is bound via 'rr' (researcher), NOT the device 'i' key");
   const meta = log.created.find((c) => c.name === 'story.mp3');
-  ok(meta && meta.parents[0] === 'folder-assignment' && meta.appProperties.flextextRole === 'assigned-audio',
-     "audio lands in assignment/ with assign-copy's exact 'assigned-audio' tag");
+  ok(meta && meta.parents[0] === 'folder-originals' && meta.appProperties.flextextRole === 'source-audio',
+     "audio lands in originals/ with assign-copy's exact 'source-audio' tag");
 
   const bad = await call('/v1/instances/i1/texts/doc-42/assignment/upload/start', { method: 'POST', headers: AUTH,
-    body: { name: 'x', mime: 'audio/mpeg', size: 10, assignmentFolderId: 'folder-assignment', kind: 'evil' } });
+    body: { name: 'x', mime: 'audio/mpeg', size: 10, originalsFolderId: 'folder-originals', kind: 'evil' } });
   ok(bad.status === 400 && (await bad.json()).error === 'bad_kind', 'unknown kind is refused');
 
   const c1 = await call('/v1/instances/i1/texts/doc-42/assignment/upload/chunk', { method: 'PUT',
@@ -211,7 +211,7 @@ console.log('\nconsent-prompt start targets the DEVICE folder');
 {
   const r = await call('/v1/instances/i1/texts/consent/assignment/upload/start', { method: 'POST', headers: AUTH,
     body: { name: 'prompt.mp3', mime: 'audio/mpeg', size: 10, kind: 'consent-prompt' } });
-  ok(r.status === 200, 'start succeeds with no assignmentFolderId');
+  ok(r.status === 200, 'start succeeds with no originalsFolderId');
   const meta = log.created.find((c) => c.name === 'prompt.mp3');
   ok(meta && meta.parents[0] === 'dev-folder' && meta.appProperties.flextextRole === 'consent-prompt',
      'prompt lands in the device folder with the consent-prompt role');
@@ -253,11 +253,11 @@ console.log('\nfiles listing (STAGING-FIRST change): folders filtered, assignmen
   const r = await call('/v1/instances/i1/texts/doc-list/files', { headers: AUTH });
   const b = await r.json();
   ok(r.status === 200, 'listing succeeds');
-  ok(b.folderId === 'tf-list' && b.assignmentFolderId === 'sub1', 'text folder + assignment child both reported');
+  ok(b.folderId === 'tf-list' && b.originalsFolderId === 'sub1', 'text folder + assignment child both reported');
   ok(!b.files.some((f) => (f.mime || '').includes('folder')), 'folder rows are NEVER listed as files');
   ok(b.files.map((f) => f.id).join() === 'x1,f1,a1,f2', `newest-first ACROSS the merge (got ${b.files.map((f) => f.id).join()})`);
   ok(b.files.find((f) => f.id === 'x1').role === 'assigned-flextext'
-     && b.files.find((f) => f.id === 'a1').role === 'assigned-audio', 'each merged file keeps its role tag');
+     && b.files.find((f) => f.id === 'a1').role === 'source-audio', 'each merged file keeps its role tag');
 }
 
 console.log(fail ? `\nFAILED (${fail})` : '\nPASS');

@@ -5,6 +5,98 @@ session.** Branch: `assign-by-upload`, cut fresh from `main` at a2b2655 (== prod
 v333 release). An earlier branch of the same name (based on pre-release d7ec070) was deleted; its
 "set anyone-with-link" mechanism is SUPERSEDED by the private-token design below.
 
+## ⬛ v2 RESTRUCTURE — one canonical folder shape (Seth, 2026-08-12, after the v335 test drive)
+
+The first test drive passed the core flow (file pickers, private delivery, folder dedupe, WS
+warning, round trip) and exposed one architectural gap: a text CREATED BY RECORDING has a different
+Drive shape from an ASSIGNED text — its audio is sealed inside the upload zip, so the Files menu
+cannot offer the original audio, and the saved ELAN/SayMore bundles came out with no WAV. Seth:
+*"let's have the uploaded zip land on Google Drive as a folder and not as a zip… have that folder
+be the assignment folder, and have it include an initial flextext file after all. That way our
+assignment folder shape is consistent regardless of how the text was created."*
+
+**Locked decisions**
+1. **`<Storyname>/originals/`** is the canonical source folder for EVERY text, however it was
+   created. Assigned texts get it at assign time; recorded texts create it on the first media
+   upload. NOT called `assignment/` (Seth, 2026-08-12): the name has to cover both cases, and for a
+   linguist browsing Drive "originals" says exactly what is in there — the untouched, as-delivered
+   or as-recorded materials, as against the derived and working copies elsewhere. File role tags
+   follow the same logic: `source-audio`, `source-flextext`, `consent-*`, `manifest`. (The panel's
+   `/assignment/*` WORKER ROUTES keep their name: they really are the assign flow, and the device
+   reaches the same folder through the ordinary upload endpoint with `x-fx-sub: originals`.)
+   ⚠ **No blank initial flextext** (Seth): an untranscribed text has nothing worth uploading. The
+   assigned flextext, when the researcher supplies one, IS a real source file and lives here —
+   "the only thing that really needs that original file, if it exists, is the client FlexText
+   Editor and only the first time it loads." It is therefore stored but NOT offered as its own
+   download item; the manifest records whether it exists.
+2. The device uploads the recording package as INDIVIDUAL FILES into that folder, not a zip.
+   Considered and rejected: uploading a zip and having the worker unzip it into the folder. It is
+   possible (our zips are STORE-only, so entries are contiguous byte ranges and could be streamed
+   Drive→worker→Drive off the central directory) but it fails hardest on the biggest files — a
+   128 MB isolate, every byte crossing the network twice, wall-clock exposure, and a half-extracted
+   folder plus an orphan zip to reconcile. The existing zip-extract path already caps at 60 MB for
+   the same reason. A Drive resumable session is atomic per FILE either way; only the SET differs.
+3. **`flextext-manifest.json` — the package's metadata record AND its completeness contract**
+   (Seth: *"assigned texts should also generate a manifest file with metadata… a place to specify
+   HOW the text was originated in case our suite or some app needs to know"*). Every text gets one,
+   however it was created.
+   - ⚠ Written **FIRST**, not last. Writing it last would make its absence mean "something is
+     missing" without saying WHAT. Written first, it declares the intended file set, so a consumer
+     compares that list against the folder and can name the missing piece. **Completeness is
+     DERIVED, never a stored `complete: true` flag** — a flag goes stale the moment a later write
+     fails, and would then assert the opposite of the truth. A `completedAt` stamp may be added on
+     the final write as a convenience, but nothing may trust it over the file list.
+   - Shape (versioned, additive-only; unknown keys must be ignored by readers):
+     `{ schema: 1, docId, title, origin, originatedAt, writtenAt, engine, buildTag,
+        writingSystems: { vern, anal }, audio: { name, mime, bytes, derived }, files: [ { name,
+        role, mime, bytes } ], consent: { mode, prompt, response, receipt } }`
+   - `origin` is the provenance field Seth asked for — `'assigned' | 'recorded' | 'imported' |
+     'pair-import' | 'crowd'` — plus who/what produced it (researcher account for an assignment,
+     device nickname for a recording). Additive: a new origin value must never break an old reader.
+   - Contains NO consent CONTENT and no personal data beyond what the folder already holds; it
+     records that a receipt exists, not what it says.
+   - Small files land in seconds; only the audio is slow, so the incomplete window is short and
+     self-heals through the existing retry-forever queue.
+4. **Original audio is named `<Storyname>.<ext>`** (Seth), sanitised with the same rule as the
+   folder name (slashes/unicode/120-char cap). Detection uses Drive **role tags**, never filenames,
+   so a later story rename leaves a cosmetically stale name and nothing breaks.
+5. The ELAN/SayMore builders derive a WAV **only when the original is not already one**, and the
+   EAF references whichever file ships beside it (`<Storyname>.wav`, or the
+   `.converted-NOT-ARCHIVAL.wav` derived copy) — identical to the editor's local-save behaviour.
+6. "Recording Package (with consent records)" becomes a CLIENT-SIDE zip built by the Files menu
+   from whatever the folder holds, offered when consent artifacts or a recording are present.
+7. Re-uploading a text whose title matches an existing folder yields `Folder (1)` — verified and
+   ACCEPTED for that case only (it is no longer the every-upload behaviour). Document it.
+
+8. **The Files menu READS the manifest instead of inferring** (Seth: *"the manifest file also helps
+   us with the download menu"*). It replaces filename sniffing (`EXT_KIND`) + `latestPerKind`
+   guessing for the source files: names them directly, reports which declared file has not arrived
+   yet, sizes the conversions before a click (the big-file guard gets a real number instead of a
+   download-then-discover), takes `vern`/`anal` from the manifest instead of a separate
+   instance-settings fetch, offers the recording package only when consent artifacts are actually
+   declared, and labels the source item by `origin`.
+   **NO MANIFEST → ONE ITEM: "Open the Drive folder ↗"** (Seth, 2026-08-12: *"our fallback on the
+   files menu for previously assigned texts should rather just point [to] the Google Drive folder
+   for that text. That's good enough."*). Pre-manifest texts get a link, not a reconstructed menu.
+   - This DELETES the heuristic path rather than carrying it: no `EXT_KIND` filename sniffing, no
+     `latestPerKind` newest-per-kind guessing, no legacy zip extraction in the panel. Seth's
+     reasoning, which is the durable part: *"the inferred menu has actually never worked correctly
+     and it's not worth our time making it work correctly if it's just a fallback."* It is the
+     machinery that earned the old Files menu its "all out of whack" reputation and got it parked
+     behind `FILES_MENU_ENABLED = false` — debugging it now would be paying off a design that the
+     manifest exists to replace. A folder link cannot be wrong.
+   - `Researcher.listTextFiles` still supplies `folderId`, so the link is
+     `https://drive.google.com/drive/folders/<folderId>` with no extra call.
+   - Accepted consequence: a PRE-EXISTING text still being worked on keeps uploading new bare
+     `.flextext` files, and those are reachable through the folder link rather than as a menu item.
+   - Cleanup: `unzipStoreEntry` (zip.js) was added for the legacy read path and has no other
+     caller — drop it with the heuristic unless something else claims it. `cleanupCandidates` /
+     `latestPerKind` stay only if the cleanup feature still uses them.
+
+**Build order:** upload shape (device lanes + worker + manifest writer + the spoken-prompt file
+picker) → Files menu rebuilt on the new shape (manifest-first, heuristic fallback) → the six
+downloads. Downloads testing is blocked until this lands.
+
 ## Why
 
 Assignments today ride hand-shared public Drive URLs. Live verification (2026-08-11, memory

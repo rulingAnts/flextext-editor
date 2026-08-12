@@ -424,6 +424,27 @@ list lives in DEVELOPERS.md — add new ones THERE, and never as a keyboard shor
 could never fire on a Mac: Option+E is a dead key). `?devreset` wipes the origin. Bump
 versions ONLY via `./bump-version.sh vNNN` (explicit-set, fails loudly — see DEVELOPERS.md).
 
+### 🚩 BUILD_TAG — feature builds are NAMED; production keeps the numbers (Seth, 2026-08-12)
+
+`BUILD_TAG` in `docs/js/i18n.js` is what the on-screen version badge shows: `''` on production, a
+feature name + revision on a feature/staging build (`'assign-by-upload v1'`, bumped v2, v3… per fix
+you re-test). It answers "am I testing the right build?" without anyone having to remember which
+number went out when.
+
+**`ENGINE_VERSION` must stay numeric `vNNN` regardless** — the name cannot replace the number:
+- Device-capability gates parse it as an integer AFTER STRIPPING NON-DIGITS
+  (`engNum`, researcher-panel.js): `'assign-by-uploadv1'` → **1**, so `engNum >= 138` fails and the
+  panel disables the Done toggle and upload-delete on perfectly capable devices — reading as bugs
+  in whatever you are testing.
+- `sw.js` VERSION must equal it, and changing it is what makes installed PWAs fetch a new shell, so
+  **every re-test still needs a numeric bump** to actually reach your devices.
+- Each satellite declares the ENGINE it was built against, matched as an exact string.
+
+So a feature re-test is: `./bump-version.sh vNNN` (number, for the machines) plus editing
+`BUILD_TAG` (name, for you). **A production release clears `BUILD_TAG` to `''`** — `bump-version.sh`
+warns while it is set, and the badge shows it on screen, so a tagged build reaching production
+announces itself.
+
 ### `dev-serve.sh` — the stable no-cache rig (preferred)
 `bash dev-serve.sh 8012` serves the editor + recorder at their **production paths**
 (`/flextext-editor/`, `/text-recorder/`) on a **fixed port**, so the PWA

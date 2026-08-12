@@ -160,6 +160,10 @@ export class DriveUpload {
           'x-fx-doc': rec.docId || this.docId || '',
           'x-fx-doctitle': encodeURIComponent(rec.docTitle || ''),
           'x-fx-folder': rec.docFolderId || '',   // remembered per-text folder id (dedupe)
+          // v2 source package: which child folder, and the role tag every consumer matches on.
+          // Absent (old records, Lane B) → the text folder untagged, exactly as before.
+          ...(rec.sub ? { 'x-fx-sub': rec.sub } : {}),
+          ...(rec.role ? { 'x-fx-role': rec.role } : {}),
         },
         body: rec.blob,
         signal: this.abortCtl.signal,
@@ -251,7 +255,9 @@ export class DriveUpload {
                                  // Same wire-identity rule as the single-POST path: rec.docId
                                  // (lane records) falls back to the queue key (old records).
                                  docId: rec.docId || this.docId || '', docTitle: rec.docTitle || '',
-                                 folderId: rec.docFolderId || '' }),
+                                 folderId: rec.docFolderId || '',
+                                 ...(rec.sub ? { sub: rec.sub } : {}),
+                                 ...(rec.role ? { role: rec.role } : {}) }),
         });
         out = await r.json().catch(() => null);
         if (!r.ok || !out || !out.uploadId) return false;   // no_drive/network → caller decides

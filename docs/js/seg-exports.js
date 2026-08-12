@@ -842,3 +842,9 @@ export async function assembleSegEntries({ doc, title = '', base = 'text', media
   }
   return entries;
 }
+
+/* The source-package manifest's filename. Lives HERE, in the shared format module, because both
+ * writers must agree on it exactly: the device writes one for a recorded text (app.js) and the
+ * panel writes one for an assigned text (researcher-panel.js), and the Files menu finds the package
+ * by this name. Two string literals would have drifted the first time one was edited. */
+export const MANIFEST_NAME = 'flextext-manifest.json';

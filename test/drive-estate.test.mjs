@@ -142,8 +142,8 @@ console.log('\nthe DONE header: absent means NO CHANGE');
 {
   /* The blast radius: every upload from a device that has not updated yet would otherwise clear the
    * marker on texts the researcher had already seen marked finished. */
-  ok(/async function driveMarkDone\(access, folderId, want, title\)/.test(worker), 'the marker writer exists');
-  ok(/if \(want === null \|\| !folderId\) return;/.test(worker), 'null (= absent header) is an explicit no-op');
+  ok(/async function driveTextHousekeeping\(access, folderId, \{/.test(worker), 'the housekeeping writer exists');
+  ok(/if \(want === null\) return;/.test(worker), 'null (= absent header) is an explicit no-op for the marker');
   ok(/body\.done === '1' \? true : body\.done === '0' \? false : null/.test(worker),
      'the chunked path maps 1/0/absent to true/false/no-change');
   ok(/hd === '1' \? true : hd === '0' \? false : null/.test(worker),
@@ -171,7 +171,7 @@ console.log('\nthe DONE header: absent means NO CHANGE');
   }
   // The media lane pins docDone false and must not touch the text's marker.
   ok(/sub !== 'originals'/.test(worker), 'source-package uploads never rewrite the text marker');
-  ok(/isDone === want\) return;/.test(worker), 'and an already-correct marker is not rewritten');
+  ok(/\(props\.flextextDone === '1'\) === want\) return;/.test(worker), 'and an already-correct marker is not rewritten');
 }
 
 console.log('\nreclaim deletes OUR trashed files — never the user\'s whole trash');
@@ -187,6 +187,16 @@ console.log('\nreclaim deletes OUR trashed files — never the user\'s whole tra
   ok(/driveListAll\(access, true\)/.test(purge), 'it enumerates our own trashed files');
   ok(/'DELETE', 'https:\/\/www\.googleapis\.com\/drive\/v3\/files\/'/.test(purge), 'and deletes them individually');
   ok(/catch \{/.test(purge), 'a child already removed with its parent folder is ignored, not fatal');
+  /* ⚠ EACH DELETE IS A SUBREQUEST, and a Worker has a hard per-request subrequest cap (50 free).
+   * The first version looped over EVERY trashed file, so a researcher who had been testing removals
+   * blew the cap — and that runtime error is not catchable by the try around it, it kills the whole
+   * request. Reported as "Reclaim space throws an error", with the trashed-file COUNT as the hidden
+   * variable: it works in testing and fails in use, which is the worst way for a bound to be wrong. */
+  ok(/if \(seen >= CAP\) break;/.test(purge), 'the batch is BOUNDED per request');
+  ok(/remaining = Math\.max\(0, dead\.length - seen\)/.test(purge), 'and it reports what is left');
+  const panelSrc = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
+  ok(/if \(!r\.remaining\) break;/.test(panelSrc), 'the panel repeats until nothing remains, so a backlog still clears');
+  ok(/for \(let pass = 0; pass < 25; pass\+\+\)/.test(panelSrc), '...with a hard stop, so it can never spin forever');
   ok(/logApproval\(env, request, 'drive_purged'/.test(purge), 'and the permanent deletion is logged');
 }
 
@@ -261,11 +271,15 @@ console.log('\nthe DONE marker never blocks an upload');
    * on. The marker is COSMETIC (a tag plus a folder-name suffix). Awaiting it added latency to every
    * upload, and a Drive call that hung would have stalled the upload itself, to decorate a folder.
    * ctx.waitUntil runs it after the response instead, so a slow or failing Drive costs nothing. */
-  const calls = [...worker.matchAll(/(await|ctx\.waitUntil\()\s*driveMarkDone\(/g)].map((mm) => mm[1]);
-  ok(calls.length === 2, `both upload paths mark done (${calls.length})`);
+  const calls = [...worker.matchAll(/(await|ctx\.waitUntil\()\s*driveTextHousekeeping\(/g)].map((mm) => mm[1]);
+  ok(calls.length === 2, `both upload paths do housekeeping (${calls.length})`);
   ok(calls.every((c) => c.startsWith('ctx.waitUntil')),
-     'and NEITHER awaits it — the marker is never in the upload critical path');
-  ok(!/await driveMarkDone\(/.test(worker), 'no awaited call survives anywhere');
+     'and NEITHER awaits it — housekeeping is never in the upload critical path');
+  ok(!/await driveTextHousekeeping\(/.test(worker), 'no awaited call survives anywhere');
+  /* Both jobs (return-from-Unassigned + done marker) share ONE Drive read inside that single
+   * waitUntil, so folding the second job in did not add a round trip to the upload. */
+  ok((worker.match(/driveJson\(access, 'GET',[\s\S]{0,200}fields=id,name,parents,appProperties/g) || []).length === 1,
+     'and both jobs share a single Drive read');
 }
 
 console.log('\nsizes are honest — a storage view whose numbers lie is worse than none');
@@ -284,6 +298,57 @@ console.log('\nsizes are honest — a storage view whose numbers lie is worse th
   ok(gb(0) === '0 B' && gb(undefined) === '0 B', 'zero and undefined are safe');
   // The old bug, stated as an assertion so it cannot come back.
   ok(!['400', '26000', '512000'].some((n) => gb(Number(n)) === '1 MB'), 'nothing small is rounded UP to 1 MB');
+}
+
+console.log('\nUNASSIGNED: the folder tree tells the truth, and can find its way back');
+{
+  /* Seth: a text's folder must MOVE to "FlexText Uploads / Unassigned" once no device holds it.
+   * Until then the Drive tree said the text belonged to whichever device used to have it, which is
+   * simply false to anyone browsing Drive without our tools. */
+  ok(/async function driveUnassignedFolder\(access\)/.test(worker), 'the Unassigned folder is ensured by ROLE tag');
+  ok(/flextextRole' and value='unassigned'/.test(worker), '...not by name, like every other structural folder');
+  ok(/seg\[2\] === 'drive-unassign'/.test(worker), 'the sweep endpoint exists');
+
+  const sweep = (worker.match(/drive-unassign'\) \{[\s\S]*?\n  \}/) || [''])[0];
+  ok(/\(f\.parents \|\| \[\]\)\.includes\(target\)\) continue;/.test(sweep), 'moving an already-filed text is a no-op');
+  ok(/flextextUnassigned: '1'/.test(sweep), 'a swept folder is TAGGED as swept');
+  ok(/catch \{ \/\* one text failing must not abort the sweep/.test(sweep), 'one failure does not abort the batch');
+
+  /* ⚠ THE RETURN TRIP ONLY UNDOES OUR OWN SWEEP. If it moved any folder whose parent was not the
+   * device, it would drag back a text the researcher had deliberately filed elsewhere in their own
+   * Drive — silently reorganising someone's Drive is far worse than a stale-looking tree. */
+  const hk = (worker.match(/async function driveTextHousekeeping[\s\S]*?\n\}/) || [''])[0];
+  ok(/const unassigned = props\.flextextUnassigned === '1';/.test(hk) && /if \(unassigned\) \{/.test(hk),
+     'the return trip fires ONLY for a folder we ourselves swept');
+  ok(/flextextUnassigned: ''/.test(hk), 'and clears the tag on the way back');
+
+  // Moving a folder must not change how anything resolves it.
+  ok(/appProperties has \{ key='flextextDoc'/.test(worker), 'text folders are still found by tag, never by parent');
+}
+
+console.log('\n...and the Unassigned folder is never mistaken for a DEVICE');
+{
+  /* It sits directly under master, exactly like a device folder does. A filter that only skipped
+   * TEXT folders would list it as a device — and every swept text would then read as "held by a
+   * device called Unassigned", the precise opposite of what it means. */
+  const est = buildDriveEstate([
+    dir('M', 'FlexText Uploads', '', { flextextRole: 'uploads-master' }),
+    dir('D1', 'Edo Phone', 'M'),
+    dir('U', 'Unassigned', 'M', { flextextRole: 'unassigned' }),
+    dir('T1', 'On A Device', 'D1', { flextextDoc: 'd1' }),
+    file('f1', 'a.mp3', 'T1', 1000),
+    dir('T2', 'Swept', 'U', { flextextDoc: 'd2', flextextUnassigned: '1' }),
+    file('f2', 'b.mp3', 'T2', 2000),
+  ]);
+  ok(est.devices.length === 1 && est.devices[0].name === 'Edo Phone',
+     `only real devices are listed (${est.devices.map((d) => d.name).join(', ')})`);
+  ok(est.unassignedFolderId === 'U', 'the Unassigned folder is reported separately');
+  const swept = est.texts.find((t) => t.docId === 'd2');
+  ok(swept.inUnassigned === true, 'a swept text reports where it actually sits');
+  ok(swept.device === '' && swept.deviceFolderId === '', '...and claims no device');
+  const held = est.texts.find((t) => t.docId === 'd1');
+  ok(held.inUnassigned === false && held.device === 'Edo Phone', 'a held text is unaffected');
+  ok(swept.bytes === 2000, 'and its bytes still roll up normally from the new location');
 }
 
 console.log(fail ? `\nFAILED (${fail})\n` : '\nall passed\n');

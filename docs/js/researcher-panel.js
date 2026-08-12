@@ -3215,8 +3215,17 @@ function storageModal() {
     if (purge) purge.addEventListener('click', () => busy(purge, async () => {
       if (!confirm(t('panel.store.reclaimConfirm', { size: gb(trashed.bytes), n: trashed.n }))) return;
       try {
-        const r = await Researcher.drivePurge();
-        deps.toast(t('panel.store.reclaimed', { size: gb(r.bytes || 0), n: r.deleted || 0 }), 6000);
+        /* The worker deletes a BOUNDED batch per request (subrequest cap — see drive-purge), so a
+         * large backlog needs several passes. Loop until it reports nothing remaining, with a hard
+         * stop so a worker that always answered `remaining` could never spin forever. */
+        let deleted = 0, bytes = 0;
+        for (let pass = 0; pass < 25; pass++) {
+          const r = await Researcher.drivePurge();
+          deleted += r.deleted || 0; bytes += r.bytes || 0;
+          if (!r.remaining) break;
+          purge.textContent = t('panel.store.reclaiming', { n: r.remaining });
+        }
+        deps.toast(t('panel.store.reclaimed', { size: gb(bytes), n: deleted }), 6000);
         await load();
       } catch (e) { errToast(e); }
     }));

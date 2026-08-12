@@ -848,3 +848,92 @@ export async function assembleSegEntries({ doc, title = '', base = 'text', media
  * panel writes one for an assigned text (researcher-panel.js), and the Files menu finds the package
  * by this name. Two string literals would have drifted the first time one was edited. */
 export const MANIFEST_NAME = 'flextext-manifest.json';
+
+/* ---------------- FILE NAMING — one rule, shared by every writer ----------------
+ *
+ * ⚠ WHY THIS LIVES HERE (v3, after the v336 test drive produced `bwpX_YzJZRolHdh_.preview.html`):
+ * every downloader used to name its file from the URL's LAST PATH SEGMENT. For an assigned text the
+ * URL is `/v1/textfile/<token>`, so the "filename" was the opaque delivery token — and because the
+ * stored media name is what the exports were derived from, ONE bad name at download time poisoned
+ * the derived WAV, the SayMore `.annotations.eaf`, and the preview page. The rule is now:
+ *
+ *   the STORY TITLE names the file. A token can never become a filename.
+ *
+ * Same module as MANIFEST_NAME and for the same reason: the device (app.js), the panel
+ * (researcher-panel.js) and the downloader (audio.js) must agree exactly, and three copies of a
+ * sanitiser drift the first time one is edited. `sanitizeBase` is ALSO the worker's Drive folder
+ * rule (v1.js `driveEnsureTextFolder`, 120 chars), so `<Storyname>.<ext>` and `<Storyname>/` cannot
+ * disagree — that is why 120 won over the 80 that `docFilename` used to use.
+ */
+export function sanitizeBase(title) {
+  return String(title || '').replace(/[\\/:*?"<>|]+/g, '_').trim().slice(0, 120);
+}
+
+// The extension to give a blob: the one its known name already carries, else one mapped from the
+// MIME type. Returns '' when neither says anything — a name with no extension beats a wrong one.
+export function extOf(name, mime) {
+  const m = /(\.[A-Za-z0-9]{1,5})$/.exec(String(name || ''));
+  if (m) return m[1].toLowerCase();
+  const t = String(mime || '').split(';')[0].trim().toLowerCase();
+  return ({ 'audio/wav': '.wav', 'audio/x-wav': '.wav', 'audio/wave': '.wav', 'audio/vnd.wave': '.wav',
+    'audio/mpeg': '.mp3', 'audio/mp3': '.mp3', 'audio/flac': '.flac', 'audio/x-flac': '.flac',
+    'audio/ogg': '.ogg', 'audio/opus': '.opus', 'audio/webm': '.webm', 'audio/mp4': '.m4a',
+    'audio/x-m4a': '.m4a', 'audio/aac': '.aac' })[t] || '';
+}
+
+const stripExt = (n) => String(n || '').replace(/\.[^.]+$/, '');
+
+/* A filename out of a Content-Disposition header, or '' — RFC 5987 `filename*=UTF-8''…` first
+ * (Drive sends it for non-ASCII names), then plain `filename="…"`. Any path is stripped: a header
+ * is remote input and `../` in a download name is how a careless writer walks out of its folder. */
+export function nameFromDisposition(header) {
+  const h = String(header || '');
+  let raw = '';
+  const ext = /filename\*\s*=\s*[^']*'[^']*'([^;]+)/i.exec(h);
+  if (ext) { try { raw = decodeURIComponent(ext[1].trim()); } catch { raw = ext[1].trim(); } }
+  if (!raw) {
+    const plain = /filename\s*=\s*("([^"]*)"|([^;]+))/i.exec(h);
+    if (plain) raw = (plain[2] != null ? plain[2] : plain[3] || '').trim();
+  }
+  return raw.split(/[\\/]/).pop() || '';
+}
+
+/* A filename out of a URL's last path segment, or '' when that segment is not a filename.
+ *
+ * ⚠ THE GUARD IS THE POINT. `/v1/textfile/<token>` and `/drive?id=…` end in an opaque id, and a
+ * token that becomes a filename is the exact v336 bug. Two refusals: the private-delivery route by
+ * path (it is a token BY CONSTRUCTION, whatever the segment looks like), and any tail with no
+ * plausible extension — a real audio file downloaded from a real URL has one. */
+export function nameFromUrl(url) {
+  const u = String(url || '');
+  if (/\/v1\/textfile\//i.test(u)) return '';
+  let tail = '';
+  try { tail = decodeURIComponent((u.split(/[?#]/)[0].split('/').pop() || '')); }
+  catch { tail = (u.split(/[?#]/)[0].split('/').pop() || ''); }
+  return /\.[A-Za-z0-9]{1,5}$/.test(tail) ? tail : '';
+}
+
+/* The name to STORE a downloaded media file under. Precedence is the v3 work order's, in order:
+ * the story title, then Content-Disposition, then the URL tail — and 'audio' when all three are
+ * silent. The EXTENSION is taken from whichever real filename we saw (or the MIME type), because
+ * the title never carries one. */
+export function storedMediaName({ title = '', disposition = '', url = '', mime = '' } = {}) {
+  const cd = nameFromDisposition(disposition);
+  const tail = nameFromUrl(url);
+  const ext = extOf(cd, '') || extOf(tail, '') || extOf('', mime);
+  const base = sanitizeBase(title) || stripExt(cd) || stripExt(tail) || 'audio';
+  return base + ext;
+}
+
+/* The name the ORIGINAL recording travels under inside a bundle: `<Storyname>.<ext>`. Derived from
+ * the TITLE, never from the stored media name — so a text whose audio was stored under a token name
+ * before the v3 fix still exports correctly, with no migration and no re-download. */
+export function mediaNameFor(base, media) {
+  return (sanitizeBase(base) || 'audio') + extOf(media?.name || '', media?.mimeType || media?.mime || '');
+}
+
+/* The derived WAV working copy's name. Seth's honesty rule: a converted file is NAMED as converted,
+ * so the name says what the bext chunk says. Title-derived for the same reason as above. */
+export function derivedWavName(base) {
+  return (sanitizeBase(base) || 'audio') + '.converted-NOT-ARCHIVAL.wav';
+}

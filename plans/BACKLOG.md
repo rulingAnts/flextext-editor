@@ -684,3 +684,37 @@ Things worth weighing when this is picked up (nothing decided):
 - **Whose Drive is it?** Uploads land in the RESEARCHER's Drive via their OAuth token, so the quota
   that runs out is theirs, not the device owner's — which is also why the device cannot resolve it
   and why the panel is the right place to show it.
+
+### Yes — the Drive API supports both halves, and `drive.file` scope splits them cleanly (asked 2026-08-12; FUTURE RELEASE, not scoped now)
+
+**Displaying quota: fully available, no scope problem.** `GET /drive/v3/about?fields=storageQuota,user`
+returns `{ limit, usage, usageInDrive, usageInDriveTrash }` (bytes; `limit` is absent on unlimited
+pooled accounts — treat missing as "no limit", never as zero). It reports on the USER, not on files,
+so our `drive.file` scope is enough — no broader consent screen, nothing new for a researcher to
+approve. That is one worker endpoint and a panel readout: "Drive: 11.2 GB of 15 GB used."
+
+**⚠ The finding that matters most, and it is free to fix:** `usageInDriveTrash` is counted INSIDE
+`usage`. Our existing cleanup (`Researcher.trashFiles`) moves files to trash — deliberately, so a
+mistake is recoverable for 30 days — which means **today's "cleanup" reclaims no space at all until
+the trash is emptied.** A researcher who is out of quota and dutifully runs cleanup will see nothing
+change and reasonably conclude the feature is broken. Showing `usageInDriveTrash` beside the total,
+with an explicit "empty trash to reclaim" action (`files.emptyTrash`, or per-file `files.delete`),
+turns that from a silent no-op into the actual remedy.
+
+**Cleanup: bounded by `drive.file` — and that boundary is a feature.** The scope means the app can
+only list, trash or delete files IT created, so a storage tool built on it can never touch a
+researcher's unrelated Drive contents even by mistake. Practically:
+- `files.list` with `fields=files(id,name,size,quotaBytesUsed,modifiedTime,appProperties)` — note
+  `quotaBytesUsed` is the field that actually charges the quota (it differs from `size` for some
+  file types), and `orderBy=quotaBytesUsed desc` gives a biggest-first list for free.
+- The per-text machinery already exists and is already tested: `cleanupCandidates` computes exactly
+  the older-than-newest backup set and already refuses assignment-role files. What is missing is an
+  ACCOUNT-WIDE view over it rather than one text at a time.
+- What it cannot do: report or clean anything outside FlexText's own files. So the readout should
+  name that honestly — "FlexText is using 3.1 GB of the 11.2 GB on this Drive" — rather than
+  implying the app can tidy Gmail attachments or the researcher's own documents.
+
+**Sequencing note for whoever builds it:** the quota readout is worth having BEFORE the retention
+rules, because a number the researcher can watch is what makes a retention policy legible — and
+because the write half (`storageQuotaExceeded` classified permanent, per the entry above) is what
+stops a device retrying forever, which is the part that actually costs a field worker their day.

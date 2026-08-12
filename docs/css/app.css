@@ -1041,6 +1041,11 @@ main {
 .rp-tag-justUploaded { background: #cdeccf; color: #18521b; font-weight: 600; }  /* just confirmed by the device */
 .rp-tag-done { background: #e3f3e4; color: #1f5d22; font-weight: 600; }  /* coworker marked the text finished */
 .rp-tag-notdone { background: var(--panel); color: var(--muted); }  /* Done feature on, not yet finished */
+.rp-tag-assigning { background: #ece3f7; color: #5b3d8a; }       /* assignment sent, not picked up */
+.rp-tag-assignTaken { background: #d8ecdc; color: #1f5c33; }     /* device has it and is fetching */
+/* A text the device has not reported yet: present, clearly provisional — never struck through, which
+   would read as "being removed" (rp-pending-del above means exactly that). */
+.rp-pending-assign { opacity: .72; }
 .rp-pending-del { opacity: .5; text-decoration: line-through; }
 .rp-tag-deleting { background: #fdecea; color: #9b2c22; font-weight: 600; text-decoration: none; }
 /* A request the device has already picked up: no longer cancellable, so it is a TAG, not a button.

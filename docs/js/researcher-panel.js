@@ -1016,9 +1016,14 @@ async function renderDashboard(prefetched) {
       const d = live.get(docId);
       // A delete is done when the text is gone from every inventory. An upload is done when the
       // device reports a NEW file id — the same signal the History log uses.
+      /* Each kind is retired by the inventory FACT that proves it happened — never by a clock
+       * (v131). An assign is the mirror image of a delete: done the moment the text APPEARS in an
+       * inventory. That is the same signal pendingMoves' 'assigned' stage already trusts. */
       const done = p.kind === 'delete'
         ? (d === undefined && ackOf(insts, p.instanceId) >= p.seq)
-        : !!(d && d.uploadedFileId && d.uploadedFileId !== p.prevFileId);
+        : p.kind === 'assign'
+          ? d !== undefined
+          : !!(d && d.uploadedFileId && d.uploadedFileId !== p.prevFileId);
       if (done) { pendingCmds.delete(docId); changed = true; }
     }
     if (changed) savePending(Researcher.currentAccountId());
@@ -1790,7 +1795,22 @@ async function renderInstanceCard(it, deviceCount) {
       // this privileged panel where Kr + the account secret live).
       // Computed once per card: the highest seq any install of THIS instance has processed.
       const maxAck = ackOf(lastData ? lastData.instances : [], it.instance_id);
-      const rows = inv && inv.length ? inv.map((d) => {
+      /* ⚠ A SENT ASSIGNMENT MUST NOT VANISH (v3 work order item 3). Seth: an edit-and-upload
+       * "just disappears until the remote device loads it and then uploads it again". Between the
+       * assign command being sent and the device's first inventory report there was NOTHING on
+       * screen — no row, no marker — so a researcher on a field connection could not tell a
+       * delivered assignment from one that never left. The upload queue card covers the bytes going
+       * up; this covers the wait AFTER that, which is the longer half.
+       *
+       * The text has no inventory row yet, so one is synthesized and PREPENDED. It flows through
+       * the same renderer as every other row, which is the point: the pending state is shown "the
+       * way it shows a pending delete" rather than as a second, differently-behaved widget. */
+      const invIds = new Set((inv || []).map((d) => d && d.id));
+      const ghosts = [...pendingCmds].filter(([docId, pc]) =>
+        pc.kind === 'assign' && pc.instanceId === it.instance_id && !invIds.has(docId))
+        .map(([docId, pc]) => ({ id: docId, title: pc.title || '', uploadState: '', hasAudio: !!pc.hasAudio, __assigning: true }));
+      const listed = [...ghosts, ...(inv || [])];
+      const rows = listed.length ? listed.map((d) => {
         const us = (d.uploadState === 'uploaded' || d.uploadState === 'changed') ? d.uploadState : 'local';
         // ⚠ STATE FROM ack_seq, NOT FROM A CLOCK. `queued` = the device has not polled for it yet,
         // so it can still be withdrawn. `taken` = the device has it and is acting; offering a
@@ -1801,9 +1821,11 @@ async function renderInstanceCard(it, deviceCount) {
         const taken  = !!p && p.seq <= maxAck;
         let disp = us;
         if (p && p.kind === 'upload') disp = queued ? 'requested' : 'slow';
+        // A synthesized assign row has no reported state of its own — it IS the pending state.
+        if (d.__assigning) disp = queued ? 'assigning' : 'assignTaken';
         // SECURITY: disp must stay within this fixed literal set — it lands in a class attribute in this
         // privileged panel; never let an attacker-controlled report value reach it (see note above).
-        const DISP = ['local', 'uploaded', 'changed', 'requested', 'slow', 'justUploaded'].includes(disp) ? disp : 'local';
+        const DISP = ['local', 'uploaded', 'changed', 'requested', 'slow', 'justUploaded', 'assigning', 'assignTaken'].includes(disp) ? disp : 'local';
         // Action label by state — Upload (never sent) / Upload changes (edited since) / Re-upload (re-send).
         const label = { changed: 'panel.inst.uploadChanges', uploaded: 'panel.inst.reupload',
                         justUploaded: 'panel.inst.reupload', slow: 'panel.inst.resend' }[DISP] || 'panel.inst.upload';
@@ -1812,15 +1834,17 @@ async function renderInstanceCard(it, deviceCount) {
         const cancelBtn = (kind) => ` <button class="link-btn rp-cancel" data-iact="cancel-cmd" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}">${esc(t('panel.inst.cancel' + kind))}</button>`;
         const takenTag = ` <span class="rp-tag rp-tag-taken" title="${esc(t('panel.inst.takenWhy'))}">${esc(t('panel.inst.taken'))}</span>`;
 
-        const up = (p && p.kind === 'upload')
-          ? (queued ? cancelBtn('Upload') : takenTag)
-          : ` <button class="link-btn rp-up" data-iact="upload" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-fileid="${esc(d.uploadedFileId || '')}">${esc(t(label))}</button>`;
+        const up = d.__assigning
+          ? (queued ? cancelBtn('Assign') : takenTag)
+          : (p && p.kind === 'upload')
+            ? (queued ? cancelBtn('Upload') : takenTag)
+            : ` <button class="link-btn rp-up" data-iact="upload" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-fileid="${esc(d.uploadedFileId || '')}">${esc(t(label))}</button>`;
         // Upload-first remote delete (v94+): the device uploads a fresh timestamped copy, THEN deletes.
         const mv = pendingMoves.get(d.id);
         const moveChip = mv ? ` <span class="rp-tag rp-tag-moving">${esc(t(mv.stage === 'assigned' ? 'panel.move.waitingDest' : 'panel.move.removingSrc'))}</span>` : '';
-        const moveBtn = (!d.id || mv || (p && p.kind === 'delete')) ? ''
+        const moveBtn = (!d.id || mv || d.__assigning || (p && p.kind === 'delete')) ? ''
           : ` <button class="link-btn" data-iact="move-text" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.move.btn'))}</button>`;
-        const del = !d.id ? ''
+        const del = (!d.id || d.__assigning) ? ''
           : (p && p.kind === 'delete')
             ? (queued ? cancelBtn('Delete') : takenTag)
             : canDelText
@@ -1851,10 +1875,13 @@ async function renderInstanceCard(it, deviceCount) {
         // (5) The row reads in two lines: title + state chip, then muted metadata; actions sit on
         // the right. The tags stopped fighting the title for attention — that was Seth's "plain
         // line of text with plain hyperlinks is getting busy and ugly".
-        return `<li class="rp-text-row ${deleting ? 'rp-pending-del' : ''}">
+        const meta = d.__assigning
+          ? esc(t(queued ? 'panel.up.assigningWhy' : 'panel.up.assignTakenWhy'))
+          : `${d.hasAudio ? esc(t('panel.inst.audio')) : ''}${doneTag ? (d.hasAudio ? ' · ' : '') + doneTag : ''}`;
+        return `<li class="rp-text-row ${deleting ? 'rp-pending-del' : ''}${d.__assigning ? ' rp-pending-assign' : ''}">
           <div class="rp-text-main">
             <div class="rp-text-title">${esc(d.title || d.titleHash || '?')} <span class="rp-tag rp-tag-${DISP}">${esc(t('panel.up.' + DISP))}</span>${delTag}</div>
-            <div class="note rp-text-meta">${d.hasAudio ? esc(t('panel.inst.audio')) : ''}${doneTag ? (d.hasAudio ? ' · ' : '') + doneTag : ''}</div>
+            <div class="note rp-text-meta">${meta}</div>
           </div>
           <div class="rp-text-actions">${dl}${up}${moveBtn}${del}</div>
         </li>`;
@@ -2353,7 +2380,19 @@ async function runAssignUpload(docId) {
     const fields = { title: rec.title, folderId: rec.folderId || '' };
     if (fin.audioUrl) fields.audioUrl = fin.audioUrl;
     if (fin.flextextUrl) fields.flextextUrl = fin.flextextUrl;
-    await Researcher.assign(rec.instanceId, docId, fields);
+    const sent = await Researcher.assign(rec.instanceId, docId, fields);
+    /* ⚠ THE QUEUE RECORD IS ABOUT TO BE DELETED, AND WITH IT THE ONLY THING ON SCREEN. Hand the
+     * wait over to pendingCmds before that happens, so the text keeps a visible row until the
+     * device actually reports it — the v3 work order's "a pending upload must be visible", and the
+     * reason it composes with delete/upload rather than inventing a parallel mechanism: the seq is
+     * what makes it cancellable while still queued, and retirement is an inventory fact, not a
+     * timer. moveTextModal deliberately does NOT do this — a move already shows its own chip
+     * through pendingMoves, and two markers for one wait is worse than none. */
+    if (sent && sent.seq) {
+      pendingCmds.set(docId, { seq: sent.seq, kind: 'assign', instanceId: rec.instanceId,
+                               title: rec.title || '', hasAudio: !!rec.audio, at: Date.now() });
+      savePending(Researcher.currentAccountId());
+    }
     const inst = (lastData && (lastData.instances || []).find((x) => x.instance_id === rec.instanceId)) || null;
     recordEvents(Researcher.currentAccountId(), [assignedEvent({
       instanceId: rec.instanceId, device: (inst && inst.nickname) || '', docId, title: rec.title,

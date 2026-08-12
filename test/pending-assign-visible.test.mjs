@@ -1,0 +1,136 @@
+/* A SENT ASSIGNMENT MUST NOT VANISH between the command and the device's first report.
+ *
+ * WHY THIS TEST EXISTS (Seth, from the v336 test drive): an edit-and-upload "just disappears until
+ * the remote device loads it and then uploads it again". The upload-queue card covers the bytes
+ * going UP to Drive and then deletes its own record the moment the assign command is sent — but the
+ * longer half of the wait starts there. A field device may be off for hours. In that window the
+ * panel showed nothing at all: no row, no marker, no evidence the assignment had ever been made.
+ *
+ * ⚠ WHAT MAKES THIS WORTH PINNING is that the bug and the fix look identical from the outside on a
+ * fast connection: with a device that polls immediately, the row appears either way and nothing
+ * seems wrong. You only see the difference with a device that has NOT checked in — which is exactly
+ * the case that matters in the field and exactly the one nobody reproduces by hand. That is the same
+ * reasoning as panel-pending-cmds.test.mjs, whose v131 timer bug had the same property.
+ *
+ * The rules being pinned:
+ *   1. The marker is created from the Worker's SEQ, at the moment the command is sent, BEFORE the
+ *      queue record is deleted — otherwise there is a window with nothing on screen.
+ *   2. It is retired by an INVENTORY FACT (the text appears), never by elapsed time.
+ *   3. It renders as a real row through the SAME renderer as every other text, so the pending state
+ *      is shown "the way it shows a pending delete" rather than as a parallel widget.
+ *   4. It offers cancel only while genuinely withdrawable (seq > ack_seq), and never offers actions
+ *      that need a text the device does not have.
+ *   5. It is NOT added on the move path, which already shows its own chip — two markers for one
+ *      wait is worse than none.
+ *
+ * Run: node test/pending-assign-visible.test.mjs
+ */
+import { readFileSync } from 'node:fs';
+
+const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+let fail = 0;
+const ok = (c, m) => { console.log(`  ${c ? 'ok  ' : 'FAIL'}  ${m}`); if (!c) fail++; };
+
+const panel = read('../docs/js/researcher-panel.js');
+const i18n = read('../docs/js/i18n.js');
+const css = read('../docs/css/app.css');
+
+console.log('\nthe marker is created from the Worker seq, at send time');
+{
+  ok(/const sent = await Researcher\.assign\(rec\.instanceId, docId, fields\);/.test(panel),
+     'the assign call keeps its result — pushCommand returns the seq');
+  ok(/pendingCmds\.set\(docId, \{ seq: sent\.seq, kind: 'assign', instanceId: rec\.instanceId/.test(panel),
+     "a pendingCmds marker of kind 'assign' is set from that seq");
+  ok(/savePending\(Researcher\.currentAccountId\(\)\)/.test(panel.slice(panel.indexOf("kind: 'assign'"))),
+     'and PERSISTED, so a panel reload does not lose the wait');
+
+  /* ORDERING IS THE WHOLE POINT: the queue record is what is on screen until the marker exists.
+   * Set the marker after deleting it and there is a window — however brief — showing nothing, which
+   * on a slow render is the very gap being fixed. */
+  const setAt = panel.indexOf("kind: 'assign'");
+  const delAt = panel.indexOf('await db.deleteMedia(key).catch', setAt - 4000);
+  ok(setAt > 0 && delAt > setAt, 'the marker is set BEFORE the queue record is deleted');
+}
+
+console.log('\n...and retired by an inventory FACT, never by a clock');
+{
+  ok(/p\.kind === 'assign'\s*\n?\s*\? d !== undefined/.test(panel),
+     'an assign is done when the text APPEARS in an inventory — the mirror of a delete');
+  // The v130 disease this suite already cured once; a reintroduction would look correct in review.
+  ok(!/Date\.now\(\)\s*-\s*p\.at/.test(panel), 'nothing computes an age from the marker timestamp');
+  ok(!/ASSIGN_WAIT_MS|assignTimeout/.test(panel), 'and no expiring timer was introduced');
+}
+
+console.log('\nit renders as a real row, through the same renderer as every other text');
+{
+  ok(/pc\.kind === 'assign' && pc\.instanceId === it\.instance_id && !invIds\.has\(docId\)/.test(panel),
+     'a ghost row is synthesized only for THIS device and only while the text is absent');
+  ok(/const listed = \[\.\.\.ghosts, \.\.\.\(inv \|\| \[\]\)\]/.test(panel),
+     'ghosts are prepended to the real inventory and share its renderer');
+  ok(/const rows = listed\.length \? listed\.map/.test(panel),
+     'the renderer iterates the merged list, not the raw inventory');
+  /* A device with an EMPTY inventory must still show the ghost. The old code short-circuited on
+   * `inv && inv.length`, so a brand-new device's first assignment — the single most likely moment
+   * for this whole feature to matter — would have rendered "no texts yet". */
+  ok(!/const rows = inv && inv\.length \? inv\.map/.test(panel),
+     'the empty-inventory short-circuit is gone, so a first assignment to a fresh device still shows');
+}
+
+console.log('\nthe state is distinguishable, and never reads as "being deleted"');
+{
+  ok(/if \(d\.__assigning\) disp = queued \? 'assigning' : 'assignTaken';/.test(panel),
+     'queued vs taken are different states, derived from ack_seq like every other row');
+  // SECURITY: disp lands in a class attribute in this privileged panel.
+  const allow = (panel.match(/const DISP = \[([^\]]*)\]/) || [])[1] || '';
+  ok(/'assigning'/.test(allow) && /'assignTaken'/.test(allow),
+     'both are in the fixed allow-list, so neither renders as the "local" fallback');
+  ok(/rp-pending-assign/.test(panel) && /\.rp-pending-assign \{[^}]*opacity/.test(css),
+     'the row is styled as provisional');
+  ok(!/rp-pending-assign[^{]*\{[^}]*line-through/.test(css),
+     'and NOT struck through — that is what rp-pending-del means, and it would read as removal');
+  ok(/\.rp-tag-assigning \{/.test(css) && /\.rp-tag-assignTaken \{/.test(css), 'both chips are styled');
+}
+
+console.log('\nit offers only actions that can actually be honoured');
+{
+  ok(/const up = d\.__assigning\s*\n?\s*\? \(queued \? cancelBtn\('Assign'\) : takenTag\)/.test(panel),
+     'cancel while queued; once taken it says so instead of offering a cancel that would be refused');
+  ok(/const moveBtn = \(!d\.id \|\| mv \|\| d\.__assigning/.test(panel),
+     'no Move — the device does not have the text yet');
+  ok(/const del = \(!d\.id \|\| d\.__assigning\) \? ''/.test(panel),
+     'and no Remove-from-device, for the same reason');
+  // cancel-cmd is kind-agnostic and re-checks with the Worker, so it already serves 'assign'.
+  ok(/await busy\(el, \(\) => Researcher\.cancelCommand\(id, p\.seq\)\)/.test(panel),
+     'cancel reuses the existing seq-checked withdrawal — the Worker still refuses if too late');
+}
+
+console.log('\nthe move path deliberately does NOT double up');
+{
+  const moveBlock = panel.slice(panel.indexOf('function moveTextModal'));
+  ok(/pendingMoves\.set\(docId, \{ from: fromId, to, title, at: Date\.now\(\), stage: 'assigned' \}\)/.test(moveBlock),
+     'a move still records its own marker');
+  ok(!/kind: 'assign'/.test(moveBlock),
+     'and does NOT also set a pendingCmds assign — one wait, one marker');
+}
+
+console.log('\nevery new string is in BOTH languages');
+{
+  const block = (lang) => {
+    const at = i18n.indexOf(`\n${lang}: {`);
+    const rest = i18n.slice(at + 1);
+    const nxt = rest.search(/\n[a-z]{2,3}: \{/);
+    return nxt < 0 ? i18n.slice(at) : i18n.slice(at, at + 1 + nxt);
+  };
+  for (const k of ['panel.up.assigning', 'panel.up.assigningWhy', 'panel.up.assignTaken',
+                   'panel.up.assignTakenWhy', 'panel.inst.cancelAssign']) {
+    const re = new RegExp(`^  '${k.replace(/\./g, '\\.')}':`, 'm');
+    ok(re.test(block('en')) && re.test(block('id')), `${k} is in en AND id`);
+  }
+  // The chip is a label; the "why" line is what actually answers the researcher's question.
+  const why = (i18n.match(/'panel\.up\.assigningWhy': '([^']*)'/) || [])[1] || '';
+  ok(/device/i.test(why) && /(online|pick)/i.test(why),
+     'the queued explanation says the wait is on the DEVICE, not on the panel');
+}
+
+console.log(fail ? `\nFAILED (${fail})\n` : '\nall passed\n');
+process.exit(fail ? 1 : 0);

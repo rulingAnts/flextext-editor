@@ -769,3 +769,31 @@ So the release is an ordinary editor release: bump (done), staging test, clear `
 
 Lower value, test only if convenient: the recording package; the "not uploaded yet" row (needs an
 upload caught mid-flight); the pending-assign row against a device that is actually offline.
+
+
+## v339 (`panel-refresh v1`) — post-release round, on staging for test
+
+Three items, all from the v338 release day.
+
+1. **The panel now redraws when only CLIENT-side pending state changed.** `viewSig` decided whether
+   the 12s poll re-renders and was built from SERVER data alone, so a marker set while a device was
+   offline changed nothing it could see and the pending row never appeared. Worst in exactly the
+   case the markers exist for. `pendingCmds` (kind + seq) and `pendingMoves` are now in the
+   signature, sorted so a stable state cannot look changed; setting the assign marker also redraws
+   immediately from cached data.
+2. **Files menu overflow.** Sub-lines ran off the right edge (screenshot). The menu is a flex
+   COLUMN and a flex item's default `min-width: auto` refuses to shrink below its intrinsic width,
+   so v3's longer sub-lines (origin + filename + size) made rows wider than the menu's max-width;
+   `overflow-y: auto` then computed `overflow-x` to auto and CLIPPED it, so it read as missing text
+   rather than as overflow. Fixed with `min-width: 0` on menu children + `overflow-wrap: anywhere`.
+   The new `rp-dl-pending` / `rp-dl-missing` rows got styles too.
+3. **Pre-manifest texts get Download-all** beside the folder link (Seth). ⚠ This does not reopen the
+   deleted heuristic — §8's real test was "no row can be wrong", not "only one row". Both of these
+   make no claim about what any file IS: one opens the folder, the other hands over every byte under
+   each file's own name. The rows that were deleted asserted a file's KIND. `downloadAllZip` needs
+   no manifest (it re-lists the folder itself and its conversion injection is already gated on one),
+   so a pre-manifest text simply gets the raw folder, labelled as raw so nothing is promised.
+
+⚠ **Untested by construction:** none of the three has been rendered in a browser. (2) in particular
+was reported from a screenshot and fixed by reasoning about the flexbox rule — worth a look at a
+menu with long filenames, and at a narrow window.

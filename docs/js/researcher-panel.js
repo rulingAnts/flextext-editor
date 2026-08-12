@@ -1335,10 +1335,28 @@ async function populateFilesMenu(wrap) {
   if (!manifest || typeof manifest !== 'object' || !Array.isArray(manifest.files)) manifest = null;
 
   if (!manifest) {
-    menu.innerHTML = head + (folderId
-      ? `<a class="rp-dl-item" role="menuitem" href="${esc(driveFolderLink(folderId))}" target="_blank" rel="noopener noreferrer">
-          <span class="rp-dl-name">${esc(t('panel.dl.openFolder'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.openFolderSub'))}</span></a>`
-      : `<span class="note rp-dl-loading">${esc(t('panel.dl.noneYet'))}</span>`);
+    /* TWO items, and only these two (Seth, 2026-08-12: "for pre-manifest texts, let's add a
+     * 'Download All' option (not just 'Open in Google Drive')").
+     *
+     * ⚠ This does NOT reopen the deleted heuristic, and the distinction is the whole point. What
+     * was deleted were rows that CLAIMED to be a particular kind of artifact — "Bundle (.zip,
+     * includes audio)" on a file that turned out to be raw XML. Both rows here make no claim about
+     * what any file IS: one opens the folder, the other hands over every byte in it under each
+     * file's own name. Neither can be wrong, which was §8's actual test.
+     *
+     * downloadAllZip needs no manifest: it re-lists the folder itself, and its conversion
+     * injection is already gated on one — so a pre-manifest text simply gets the raw folder, which
+     * is exactly right. */
+    const pre = [];
+    if (allFiles.length) {
+      pre.push(`<button class="rp-dl-item rp-dl-all" data-zipall data-i="${esc(iid)}" data-id="${esc(docId)}" data-title="${esc(title)}">
+        <span class="rp-dl-name">${esc(t('panel.dl.all'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.allSubRaw', { n: allFiles.length }))}</span></button>`);
+    }
+    if (folderId) {
+      pre.push(`<a class="rp-dl-item" role="menuitem" href="${esc(driveFolderLink(folderId))}" target="_blank" rel="noopener noreferrer">
+        <span class="rp-dl-name">${esc(t('panel.dl.openFolder'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.openFolderSub'))}</span></a>`);
+    }
+    menu.innerHTML = head + (pre.length ? pre.join('') : `<span class="note rp-dl-loading">${esc(t('panel.dl.noneYet'))}</span>`);
     return;
   }
 

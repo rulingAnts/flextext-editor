@@ -100,30 +100,51 @@ const FULL_FOLDER = [
   file('consent-response.mp3', 'consent-clip'),
 ];
 
-console.log('\nNO MANIFEST → exactly ONE item: open the Drive folder');
+console.log('\nNO MANIFEST → exactly TWO items: download everything, or open the folder');
 {
-  // A pre-v2 text: real files in the folder, no manifest anywhere. The old code would have
-  // reconstructed a menu from these; the whole point of v3 is that it no longer tries.
+  /* A pre-v2 text: real files in the folder, no manifest anywhere. The old code reconstructed a
+   * whole menu from these by sniffing extensions; v3 stopped trying.
+   *
+   * ⚠ THE INVARIANT IS "NO ROW MAKES A CLAIM", not "only one row". Seth added Download-all here on
+   * 2026-08-12, and it does not reopen the heuristic: what was deleted were rows that asserted a
+   * file's KIND ("Bundle (.zip, includes audio)" on what turned out to be raw XML). Neither of
+   * these two does — one opens the folder, the other hands over every byte under each file's own
+   * name. So the assertions below pin the ABSENCE of claim-making rows, and the count, rather than
+   * a bare count that would have to be edited every time a safe row is added. */
   const { html, rows } = await runMenu([
     file('Kisah Rusa 2026-08-01.flextext'), file('Kisah Rusa.mp3'), file('bundle.zip'),
   ], undefined);
-  ok(rows === 1, `exactly one row, whatever else is in the folder (got ${rows})`);
-  ok(html.includes('panel.dl.openFolder'), 'and it is the folder link');
+  ok(rows === 2, `exactly two rows, whatever else is in the folder (got ${rows})`);
+  ok(html.includes('data-zipall'), 'Download-all is offered — it needs no manifest to be correct');
+  ok(html.includes('panel.dl.allSubRaw'),
+     '...labelled as the RAW folder: nothing is generated here, so nothing may be promised');
+  ok(html.includes('panel.dl.openFolder'), 'and the folder link');
   ok(html.includes('https://drive.google.com/drive/folders/FOLDER_abc123def'), 'pointing at the real folder id');
-  // The regression to guard: ANY reconstructed row reappearing here.
+  // The regression to guard: any row that claims to know what a file IS.
   ok(!html.includes('data-conv='), 'no conversion rows are offered without a manifest');
   ok(!html.includes('data-drivefile='), 'and no per-file rows are reconstructed');
-  ok(!html.includes('data-zipall'), 'not even Download-all — one item means one item');
+  ok(!html.includes('data-cleanup'), 'and cleanup is not offered on a folder we have no manifest for');
+}
+
+console.log('\n...and an EMPTY folder still offers only the link, never a zip of nothing');
+{
+  const { html, rows } = await runMenu([], undefined);
+  ok(rows === 1 && html.includes('panel.dl.openFolder'), 'no files -> just the folder link');
+  ok(!html.includes('data-zipall'), 'Download-all is not offered when there is nothing to download');
 }
 
 console.log('\n...and an UNREADABLE manifest is treated as none, never as a broken menu');
 {
+  // An unreadable manifest must land in the SAME safe state as no manifest at all — never in a
+  // half-built menu whose rows were derived from a body we could not actually parse.
   const files = [file(MANIFEST_NAME, 'manifest'), file('Kisah Rusa.mp3', 'source-audio')];
-  const { rows, html } = await runMenu(files, null);   // body is not JSON
-  ok(rows === 1 && html.includes('panel.dl.openFolder'), 'garbage JSON falls back to the folder link');
+  const { html } = await runMenu(files, null);   // body is not JSON
+  ok(html.includes('panel.dl.openFolder') && !html.includes('data-conv='),
+     'garbage JSON falls back to the no-manifest state');
   const wrongShape = await runMenu(files, { schema: 1, files: 'not an array' });
-  ok(wrongShape.rows === 1 && wrongShape.html.includes('panel.dl.openFolder'),
+  ok(wrongShape.html.includes('panel.dl.openFolder') && !wrongShape.html.includes('data-conv='),
      'and so does a manifest whose files[] is not a list — a wrong shape is not a manifest');
+  ok(!wrongShape.html.includes('data-drivefile='), '...with no per-file rows either');
 }
 
 console.log('\n...and with no manifest AND no folder id, it says so rather than showing an empty menu');
@@ -219,6 +240,30 @@ console.log('\nthe menu hands the conversion runner what it needs');
   ok(wrap._menuSrc.base === 'Kisah Rusa', 'the filename base comes from the manifest title (the v3 naming rule)');
   ok(wrap._allFiles && wrap._allFiles.length === FULL_FOLDER.length, 'the whole folder is kept for Download-all');
   ok(wrap._cache instanceof Map, 'and a per-open byte cache exists so one fetch serves several rows');
+}
+
+console.log('\nthe menu can actually DISPLAY what it builds');
+{
+  /* Reported 2026-08-12 with a screenshot: sub-lines ran off the right edge and were clipped.
+   * The menu is a flex COLUMN, and a flex item's default `min-width: auto` refuses to shrink below
+   * its content's intrinsic width — so the long sub-lines v3 introduced (origin label + real
+   * filename + size estimate) made rows wider than the menu's own max-width. Because the menu sets
+   * overflow-y:auto, overflow-x computes to auto and the excess was CLIPPED rather than visibly
+   * scrolling, so it simply looked like missing text.
+   *
+   * Worth pinning because the CONTENT tests above all pass either way — every assertion in this
+   * file is about the HTML, and the HTML was correct. Only a human looking at the rendered menu
+   * could see it. */
+  const css = readFileSync(new URL('../docs/css/app.css', import.meta.url), 'utf8');
+  ok(/\.rp-dl-menu > \* \{[^}]*min-width: 0/.test(css),
+     'menu children may shrink below their intrinsic width, so long rows wrap instead of overflowing');
+  ok(/\.rp-dl-name, \.rp-dl-sub \{[^}]*overflow-wrap: anywhere/.test(css),
+     'and a single long filename token wraps rather than forcing the row wide by another route');
+  ok(/\.rp-dl-sub \{[^}]*display: block/.test(css) && !/\.rp-dl-sub \{[^}]*white-space: nowrap/.test(css),
+     'the sub-line is never nowrap — that would defeat both of the above');
+  // The rows v3 added need styling too, or "not arrived yet" reads as a clickable download.
+  ok(/\.rp-dl-pending \{/.test(css), 'the not-yet-arrived row is styled as inert');
+  ok(/\.rp-dl-missing \{/.test(css), 'and the still-to-arrive summary line is styled');
 }
 
 console.log('\nthe writing systems come from the MANIFEST, not a second round trip');

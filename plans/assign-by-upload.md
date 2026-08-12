@@ -5,6 +5,44 @@ session.** Branch: `assign-by-upload`, cut fresh from `main` at a2b2655 (== prod
 v333 release). An earlier branch of the same name (based on pre-release d7ec070) was deleted; its
 "set anyone-with-link" mechanism is SUPERSEDED by the private-token design below.
 
+## ⬛ v2 RESTRUCTURE — one canonical folder shape (Seth, 2026-08-12, after the v335 test drive)
+
+The first test drive passed the core flow (file pickers, private delivery, folder dedupe, WS
+warning, round trip) and exposed one architectural gap: a text CREATED BY RECORDING has a different
+Drive shape from an ASSIGNED text — its audio is sealed inside the upload zip, so the Files menu
+cannot offer the original audio, and the saved ELAN/SayMore bundles came out with no WAV. Seth:
+*"let's have the uploaded zip land on Google Drive as a folder and not as a zip… have that folder
+be the assignment folder, and have it include an initial flextext file after all. That way our
+assignment folder shape is consistent regardless of how the text was created."*
+
+**Locked decisions**
+1. `<Storyname>/assignment/` is the canonical source folder for EVERY text, however it was created.
+   Assigned texts get it at assign time; recorded texts create it on the first media upload.
+2. The device uploads the recording package as INDIVIDUAL FILES into that folder, not a zip.
+   Considered and rejected: uploading a zip and having the worker unzip it into the folder. It is
+   possible (our zips are STORE-only, so entries are contiguous byte ranges and could be streamed
+   Drive→worker→Drive off the central directory) but it fails hardest on the biggest files — a
+   128 MB isolate, every byte crossing the network twice, wall-clock exposure, and a half-extracted
+   folder plus an orphan zip to reconcile. The existing zip-extract path already caps at 60 MB for
+   the same reason. A Drive resumable session is atomic per FILE either way; only the SET differs.
+3. **A manifest file is written LAST** and is the completeness marker: present = the package is
+   whole, absent = still arriving, and the Files menu names which piece is missing instead of
+   silently showing a partial package. Small files land in seconds; only the audio is slow, so the
+   incomplete window is short and self-heals through the existing retry-forever queue.
+4. **Original audio is named `<Storyname>.<ext>`** (Seth), sanitised with the same rule as the
+   folder name (slashes/unicode/120-char cap). Detection uses Drive **role tags**, never filenames,
+   so a later story rename leaves a cosmetically stale name and nothing breaks.
+5. The ELAN/SayMore builders derive a WAV **only when the original is not already one**, and the
+   EAF references whichever file ships beside it (`<Storyname>.wav`, or the
+   `.converted-NOT-ARCHIVAL.wav` derived copy) — identical to the editor's local-save behaviour.
+6. "Recording Package (with consent records)" becomes a CLIENT-SIDE zip built by the Files menu
+   from whatever the folder holds, offered when consent artifacts or a recording are present.
+7. Re-uploading a text whose title matches an existing folder yields `Folder (1)` — verified and
+   ACCEPTED for that case only (it is no longer the every-upload behaviour). Document it.
+
+**Build order:** upload shape (device lanes + worker) → Files menu rebuilt on the new shape → the
+six downloads. Downloads testing is blocked until this lands.
+
 ## Why
 
 Assignments today ride hand-shared public Drive URLs. Live verification (2026-08-11, memory

@@ -755,3 +755,43 @@ a filename guess. The v3 manifest then names each one without opening anything.
 **One judgement call to make when building it:** whether this modal replaces, or sits beside, the
 per-text Files ▾ on device rows. Beside, probably — the device row answers "what is on this device",
 the modal answers "what is in my Drive", and after v3 those are legitimately different questions.
+
+### Same cluster, same cycle: an "unassigned" holding place, and moves in BOTH directions (Seth, 2026-08-12)
+
+> "Also, let's make it possible to move unassigned texts back to the original device or to another
+> device. And we could also make it possible to assign a text to the unassigned texts 'device' (or
+> give it some other more generic name). (also for the next release)"
+
+**The concept does not exist in the code yet** — there is no `unassigned` anywhere in `docs/js/` or
+`worker/src/`. What exists is `moveTextModal` (researcher-panel.js), which moves a text from one
+device to another: assign to the destination, watch for it to appear in that device's inventory,
+then fire the upload-first remove at the source. It only offers OTHER DEVICES as destinations, and
+it can only be started FROM a device row — both of which is what this asks to generalise.
+
+So this is really one idea in two directions, and the inventory modal above is what makes both
+reachable:
+- **Drive → device.** A text sitting in Drive with no device holding it has no row today, so there
+  is nowhere to click "move". The inventory modal gives it one. The move itself is the EXISTING
+  assign path — the text folder already carries `flextextDoc=<docId>`, and after v3 its manifest
+  names the source files, so re-assigning it to a device is the same begin/upload/finish flow with
+  the files already in place. "Back to the original device" is worth distinguishing in the UI from
+  "to another device" only if we record which device it came from — the folder tree already does
+  (`FlexText Uploads/<Device>/<Storyname>/`), so the original device is READABLE, not something new
+  to store.
+- **Device → unassigned.** This is `moveTextModal` with a destination that is not a device: upload
+  first, then remove from the source, and stop — deliberately parking the text in Drive. Note this
+  is ALREADY the safe half of an existing flow: the upload-first-then-remove sequence is the whole
+  reason a move cannot lose work, so parking is a move whose second leg is simply skipped.
+
+**⚠ The naming question Seth flagged is the real design decision, and it is not cosmetic.** Calling
+it a "device" makes it fit the existing UI for free (a card, rows, a Files ▾ menu) but it is a lie
+the data model will eventually catch: a device has an `instance_id`, installs, an `ack_seq`, a
+settings snapshot and a pairing secret, and none of that exists for a holding area. Everything that
+iterates `lastData.instances` would have to special-case it, which is exactly the kind of
+"rule enforced in app.js that the satellites reach by a different path" drift the entry at the
+bottom of this file warns about. Suggest a distinct section in the panel ("In Drive, not on a
+device" / "Archive" / "Parked") rendered by the SAME row + Files ▾ components, with no fake
+instance_id anywhere near the worker. Seth's own instinct — "or give it some other more generic
+name" — is pointing at this.
+
+**Sequencing:** the inventory modal has to land first; it is the surface these actions live on.

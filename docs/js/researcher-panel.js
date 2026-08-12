@@ -3121,7 +3121,17 @@ function assignedDocIds() {
   return ids;
 }
 
-const gb = (b) => (b >= 1073741824 ? (b / 1073741824).toFixed(1) + ' GB' : Math.max(1, Math.round(b / 1048576)) + ' MB');
+/* ⚠ A STORAGE VIEW WHOSE SIZES LIE IS WORSE THAN NO STORAGE VIEW. The first version floored every
+ * value at 1 MB, so a 400-byte manifest, a 26 KB flextext and a 1.1 MB recording all rendered as
+ * "1 MB" — on the one screen whose entire purpose is deciding what is worth deleting. Scale down
+ * through KB and bytes rather than clamping. */
+const gb = (b) => {
+  const n = Number(b) || 0;
+  if (n >= 1073741824) return (n / 1073741824).toFixed(1) + ' GB';
+  if (n >= 1048576) return (n / 1048576).toFixed(n < 10485760 ? 1 : 0) + ' MB';
+  if (n >= 1024) return Math.round(n / 1024) + ' KB';
+  return n + ' B';
+};
 
 function storageModal() {
   const m = modal(`<h3>${esc(t('panel.store.title'))}</h3>
@@ -3166,7 +3176,7 @@ function storageModal() {
           <div class="note rp-store-meta">${esc(gb(tx.bytes))} · ${esc(t('panel.store.nFiles', { n: tx.files }))}</div>
         </div>
         <div class="rp-store-actions">
-          ${filesMenuHtml(firstInstanceId(), tx.docId, tx.title || '')}
+          ${firstInstanceId() ? filesMenuHtml(firstInstanceId(), tx.docId, tx.title || '') : ''}
           ${un ? `<button class="link-btn rp-revoke" data-storedel="${esc(tx.folderId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.store.remove'))}</button>` : ''}
         </div>
       </div>`;

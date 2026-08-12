@@ -253,5 +253,38 @@ console.log('\nthe wording tells the researcher the thing they would otherwise d
   }
 }
 
+console.log('\nthe DONE marker never blocks an upload');
+{
+  /* ⚠ THE RISK THIS REMOVES: driveMarkDone was `await`ed inside BOTH upload handlers, putting a
+   * Drive round trip in the critical path of every text upload — the single most important path in
+   * the system, where a field device on a bad connection pushes a text someone may have spent hours
+   * on. The marker is COSMETIC (a tag plus a folder-name suffix). Awaiting it added latency to every
+   * upload, and a Drive call that hung would have stalled the upload itself, to decorate a folder.
+   * ctx.waitUntil runs it after the response instead, so a slow or failing Drive costs nothing. */
+  const calls = [...worker.matchAll(/(await|ctx\.waitUntil\()\s*driveMarkDone\(/g)].map((mm) => mm[1]);
+  ok(calls.length === 2, `both upload paths mark done (${calls.length})`);
+  ok(calls.every((c) => c.startsWith('ctx.waitUntil')),
+     'and NEITHER awaits it — the marker is never in the upload critical path');
+  ok(!/await driveMarkDone\(/.test(worker), 'no awaited call survives anywhere');
+}
+
+console.log('\nsizes are honest — a storage view whose numbers lie is worse than none');
+{
+  const panel = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
+  const m = panel.match(/const gb = \(b\) => \{[\s\S]*?\n\};/);
+  ok(!!m, 'the size formatter is present');
+  const gb = new Function(m[0] + ' return gb;')();
+  /* The first version floored everything at 1 MB, so a 400-byte manifest, a 26 KB flextext and a
+   * 1.1 MB recording all read "1 MB" — on the one screen whose purpose is deciding what to delete. */
+  ok(gb(400) === '400 B', `bytes stay bytes (${gb(400)})`);
+  ok(gb(26000) === '25 KB', `a small flextext is KB, not "1 MB" (${gb(26000)})`);
+  ok(gb(1100000) === '1.0 MB', `just over a megabyte reads as such (${gb(1100000)})`);
+  ok(gb(5026400) === '4.8 MB', `and keeps a decimal where it matters (${gb(5026400)})`);
+  ok(gb(2147483648) === '2.0 GB', `gigabytes (${gb(2147483648)})`);
+  ok(gb(0) === '0 B' && gb(undefined) === '0 B', 'zero and undefined are safe');
+  // The old bug, stated as an assertion so it cannot come back.
+  ok(!['400', '26000', '512000'].some((n) => gb(Number(n)) === '1 MB'), 'nothing small is rounded UP to 1 MB');
+}
+
 console.log(fail ? `\nFAILED (${fail})\n` : '\nall passed\n');
 process.exit(fail ? 1 : 0);

@@ -145,7 +145,17 @@ export class DriveUpload {
     this.abortCtl = new AbortController();
     let resp = null;
     try {
-      resp = await fetch(target.url, {
+      /* ⚠ DONE-NESS RIDES A QUERY PARAM, NOT A HEADER — and this is not a style choice.
+       * It was an `x-fx-done` header for about an hour, which broke EVERY upload: a custom request
+       * header must be named in the worker's Access-Control-Allow-Headers, and until that worker is
+       * deployed the browser's CORS preflight refuses the request outright. The fetch then rejects,
+       * classifies as transient, and the queue retries forever — "1 file(s) waiting to upload" with
+       * no error anyone can act on.
+       * A query param needs no preflight allowance, so a NEW client works against an OLD worker
+       * (which simply ignores it) and deploy order stops mattering. Sent explicitly as 1 or 0;
+       * ABSENT still means "no change" for engines that predate this. */
+      const doneQ = (target.url.includes('?') ? '&' : '?') + 'done=' + (rec.docDone ? '1' : '0');
+      resp = await fetch(target.url + doneQ, {
         method: 'POST',
         headers: {
           ...target.headers,
@@ -159,11 +169,6 @@ export class DriveUpload {
           // back to the key — which for them IS the docId (backward-readable by construction).
           'x-fx-doc': rec.docId || this.docId || '',
           'x-fx-doctitle': encodeURIComponent(rec.docTitle || ''),
-          /* Done-ness, for the Drive storage view (2026-08-12). Sent EXPLICITLY as '1' or '0' —
-           * never omitted to mean "false" — because an ABSENT header must mean "no change" so an
-           * old engine, which sends nothing, cannot clear a marker it knows nothing about.
-           * Media-lane records pin docDone false and so never touch the text's marker. */
-          'x-fx-done': rec.docDone ? '1' : '0',
           'x-fx-folder': rec.docFolderId || '',   // remembered per-text folder id (dedupe)
           // v2 source package: which child folder, and the role tag every consumer matches on.
           // Absent (old records, Lane B) → the text folder untagged, exactly as before.
@@ -261,7 +266,7 @@ export class DriveUpload {
                                  // (lane records) falls back to the queue key (old records).
                                  docId: rec.docId || this.docId || '', docTitle: rec.docTitle || '',
                                  folderId: rec.docFolderId || '',
-                                 done: rec.docDone ? '1' : '0',   // see x-fx-done on the single-POST path
+                                 done: rec.docDone ? '1' : '0',   // JSON body — see the query-param note on the single-POST path
                                  ...(rec.sub ? { sub: rec.sub } : {}),
                                  ...(rec.role ? { role: rec.role } : {}) }),
         });

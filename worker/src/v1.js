@@ -2102,7 +2102,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           const deviceFolder = await driveEnsureDeviceFolder(env, access, instanceId, inst.inst_nickname, inst.inst_folder);
           const textFolder = docId ? await driveEnsureTextFolder(access, deviceFolder, docId, docTitle, knownFolder) : deviceFolder;
           if (docId && sub !== 'originals') {
-            const hd = request.headers.get('x-fx-done');
+            // Query param, NOT a header: a custom header needs a CORS allow-list entry, and until
+            // this worker is deployed the browser refuses the whole upload at preflight. See the
+            // note in upload.js — this is what makes a new client safe against an old worker.
+            const hd = url.searchParams.get('done');
             await driveMarkDone(access, textFolder, hd === '1' ? true : hd === '0' ? false : null, docTitle);
           }
           const folder = (sub === 'originals' && docId)

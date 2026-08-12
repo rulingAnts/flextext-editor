@@ -1034,7 +1034,6 @@ async function renderDashboard(prefetched) {
   // good. observeView never throws and diffs a repeated report to nothing, so calling it on the
   // 12s tick is both safe and necessary.
   observeView(Researcher.currentAccountId(), insts);
-  rebuildAssignedCache();   // after observeView, so an assignment made this tick is already in it
   let pending = 0, texts = 0;
   for (const it of insts) for (const ins of it.installs || []) {
     if (ins.status === 'pending') pending++;
@@ -1732,21 +1731,11 @@ function ackOf(instances, instanceId) {
   return max;
 }
 
-/* Assigned-audio lookup for the downloads dropdown. The History log is the ONLY place the assigned
- * Drive URL is retained — a device reports what it UPLOADED, never what it was given. Built once
- * per dashboard render: re-reading localStorage per text row would be O(rows x log). */
-let assignedCache = null;
-function rebuildAssignedCache() {
-  assignedCache = new Map();
-  try {
-    for (const e of loadHistory(Researcher.currentAccountId())) {
-      if (e.kind === 'assigned' && e.docId) assignedCache.set(e.docId, { audioUrl: e.audioUrl, flextextUrl: e.flextextUrl });
-    }
-  } catch { /* a broken log must not take down the dashboard */ }
-}
-// null = never assigned through this panel; an object = assigned (possibly with no retained URL,
-// which is the pre-v126 case emptyReason() explains rather than hiding).
-function assignedFor(docId) { return (assignedCache && assignedCache.get(docId)) || null; }
+/* v3: the assigned-audio lookup (assignedCache / assignedFor) is GONE. It existed to feed the
+ * downloads menu's "cached assignment link" fallback row — the one shown when the text's Drive
+ * folder held no copy of the original audio. That row went with the rest of the inferred menu: a
+ * text with no manifest now gets a single link to its Drive folder instead of a reconstructed list.
+ * The History log still retains the assigned URLs; nothing reads them per-render any more. */
 
 async function renderInstanceCard(it, deviceCount) {
   const installs = it.installs || [];

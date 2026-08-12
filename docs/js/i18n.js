@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v342';
+export const ENGINE_VERSION = 'v343';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v342';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'drive-storage v3';
+export const BUILD_TAG = 'drive-storage v4';
 
 const S = {
 en: {
@@ -865,6 +865,7 @@ internet after the first time.</p>
   'panel.store.trashHeld': '{size} in your Drive trash ({n} FlexText file(s))',
   'panel.store.trashWhy': 'Trashed files still count against your Google storage until they are deleted for good.',
   'panel.store.reclaim': 'Reclaim this space',
+  'panel.store.reclaiming': 'Reclaiming\u2026 {n} left',
   'panel.store.reclaimConfirm': 'Permanently delete {n} FlexText file(s) from your Drive trash, freeing about {size}?\n\nThis cannot be undone. Only files this app created are affected — nothing else in your Drive trash is touched.',
   'panel.store.reclaimed': 'Freed {size} ({n} file(s) permanently deleted).',
   'panel.hist.btn': 'History',
@@ -2353,6 +2354,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.store.trashHeld': '{size} di sampah Drive Anda ({n} berkas FlexText)',
   'panel.store.trashWhy': 'Berkas di sampah tetap dihitung terhadap penyimpanan Google Anda sampai dihapus permanen.',
   'panel.store.reclaim': 'Klaim ruang ini',
+  'panel.store.reclaiming': 'Mengklaim\u2026 {n} tersisa',
   'panel.store.reclaimConfirm': 'Hapus permanen {n} berkas FlexText dari sampah Drive Anda, membebaskan sekitar {size}?\n\nIni tidak dapat dibatalkan. Hanya berkas yang dibuat aplikasi ini yang terpengaruh — isi sampah Drive Anda yang lain tidak disentuh.',
   'panel.store.reclaimed': '{size} dibebaskan ({n} berkas dihapus permanen).',
   'panel.hist.btn': 'Riwayat',

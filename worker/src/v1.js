@@ -460,7 +460,14 @@ function buildDriveEstate(files) {
 
   const master = (files || []).find((f) => isFolder(f) && roleOf(f) === 'uploads-master');
   const masterId = (master && master.id) || '';
-  const devices = (files || []).filter((f) => isFolder(f) && parentOf(f) === masterId && !(f.appProperties || {}).flextextDoc)
+  /* ⚠ EXCLUDE STRUCTURAL FOLDERS. "Unassigned" also sits directly under master, so a filter that
+   * only skipped text folders would list it as a DEVICE — and every text swept into it would then
+   * appear to be held by a device called "Unassigned", which is the precise opposite of what it
+   * means. Role-tagged folders are structure, never devices. */
+  const unassignedFolder = (files || []).find((f) => isFolder(f) && roleOf(f) === 'unassigned');
+  const unassignedId = (unassignedFolder && unassignedFolder.id) || '';
+  const devices = (files || []).filter((f) => isFolder(f) && parentOf(f) === masterId
+      && !(f.appProperties || {}).flextextDoc && !roleOf(f))
     .map((f) => ({ folderId: f.id, name: f.name || '' }));
   const deviceName = new Map(devices.map((d) => [d.folderId, d.name]));
 
@@ -498,6 +505,9 @@ function buildDriveEstate(files) {
       title: String(f.name || '').replace(/\s*\(done\)\s*$/i, ''),   // display name without the marker
       deviceFolderId: deviceName.has(dev) ? dev : '',
       device: deviceName.get(dev) || '',
+      // Where the folder ACTUALLY sits, so the panel can show the Drive truth and can tell which
+      // texts still need sweeping from the ones already filed.
+      inUnassigned: !!unassignedId && dev === unassignedId,
       bytes: a.bytes,
       files: a.files,
       done: (f.appProperties || {}).flextextDone === '1',
@@ -505,7 +515,68 @@ function buildDriveEstate(files) {
     };
   }).sort((x, y) => y.bytes - x.bytes);             // biggest first: what a storage view is for
 
-  return { master: masterId, devices, texts };
+  return { master: masterId, devices, texts, unassignedFolderId: unassignedId };
+}
+
+/* "FlexText Uploads / Unassigned" — where a text's folder LIVES once no device holds it.
+ *
+ * The panel could already COMPUTE unassigned-ness, but the Drive tree still showed the text under
+ * whichever device used to have it, which is simply false to anyone browsing Drive. Same philosophy
+ * as originals/ and the "(done)" suffix: the folder tree should describe the truth without our
+ * tools. Tagged like every other structural folder so it is found by role, not by name. */
+async function driveUnassignedFolder(access) {
+  const q = encodeURIComponent("appProperties has { key='flextextRole' and value='unassigned' } and mimeType='application/vnd.google-apps.folder' and trashed=false");
+  try {
+    const found = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files?spaces=drive&fields=files(id)&q=' + q);
+    if (found.files && found.files.length) return found.files[0].id;
+  } catch { /* fall through to create */ }
+  const f = await driveJson(access, 'POST', 'https://www.googleapis.com/drive/v3/files?fields=id',
+    { name: 'Unassigned', mimeType: 'application/vnd.google-apps.folder',
+      parents: [await driveMasterFolder(access)], appProperties: { flextextRole: 'unassigned' } });
+  return f.id;
+}
+
+/* Re-parent one file/folder. Extracted from the move endpoint so the move, the unassign sweep and
+ * the return-to-device path cannot drift apart. Idempotent: moving something to where it already is
+ * is a no-op the caller checks for. */
+async function driveReparent(access, fileId, toFolder, oldParents) {
+  const rm = (oldParents || []).filter(Boolean).join(',');
+  await driveJson(access, 'PATCH', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId)
+    + '?addParents=' + encodeURIComponent(toFolder) + (rm ? '&removeParents=' + encodeURIComponent(rm) : '') + '&fields=id');
+}
+
+/* Post-upload housekeeping for a text folder: put it back under the uploading DEVICE if it had been
+ * swept into Unassigned, and set/clear the done marker. ONE Drive read serves both.
+ *
+ * ⚠ Always called through ctx.waitUntil — see the call sites. Everything here is cosmetic or
+ * organisational; the upload's job is the bytes, and none of this may delay or endanger it. The
+ * return trip needs explicit code because driveEnsureTextFolder resolves a folder by id/tag and
+ * NEVER by parent, so a text that came back to a device would otherwise live in Unassigned forever.
+ * `want` is null for "no change" (old engines send no done-ness at all). */
+async function driveTextHousekeeping(access, folderId, { want = null, deviceFolder = '', title = '' } = {}) {
+  if (!folderId) return;
+  try {
+    const cur = await driveJson(access, 'GET',
+      'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(folderId) + '?fields=id,name,parents,appProperties');
+    const props = cur.appProperties || {};
+    // RETURN TRIP: only ever moves it OUT of Unassigned, never re-files a folder the researcher
+    // deliberately put somewhere else in their own Drive.
+    if (deviceFolder && !(cur.parents || []).includes(deviceFolder)) {
+      const unassigned = props.flextextUnassigned === '1';
+      if (unassigned) {
+        await driveReparent(access, folderId, deviceFolder, cur.parents);
+        await driveJson(access, 'PATCH', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(folderId) + '?fields=id',
+          { appProperties: { flextextUnassigned: '' } });
+      }
+    }
+    if (want === null) return;
+    if ((props.flextextDone === '1') === want) return;   // already right — no needless write
+    const base = String(title || cur.name || '').replace(/\s*\(done\)\s*$/i, '').trim()
+      || String(cur.name || '').replace(/\s*\(done\)\s*$/i, '').trim();
+    await driveJson(access, 'PATCH',
+      'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(folderId) + '?fields=id',
+      { name: want ? base + ' (done)' : base, appProperties: { flextextDone: want ? '1' : '' } });
+  } catch { /* cosmetic: never let housekeeping affect an upload */ }
 }
 
 // An enrolled DEVICE's folder in the researcher's Drive: "FlexText Uploads / <nickname>".
@@ -567,30 +638,6 @@ function driveIdOf(src) {
 // ⚠ The tag search is scoped to trashed=false but NOT to the parent: if the researcher moves a
 // text folder elsewhere, uploads keep following it — mirroring the move-once behaviour of the
 // master folder rather than silently forking a second folder.
-/* Stamp (or clear) a text folder's DONE marker.
- *
- * The appProperties tag is the truth our tools read; the "(done)" name suffix exists so a linguist
- * browsing Drive sees it without our tools. Nothing ever READS the name — same rule as <Storyname>,
- * where a stale name is cosmetic and breaks nothing.
- *
- * ⚠ `want` is null for "no change", which is what an ABSENT header means. Old engines send no
- * done-ness at all, and treating their silence as `false` would make every upload from a device
- * that has not updated yet silently un-mark finished texts. Best-effort throughout: a text's files
- * are what matter, and a failed cosmetic patch must never fail the upload that carried it. */
-async function driveMarkDone(access, folderId, want, title) {
-  if (want === null || !folderId) return;
-  try {
-    const cur = await driveJson(access, 'GET',
-      'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(folderId) + '?fields=id,name,appProperties');
-    const isDone = ((cur.appProperties || {}).flextextDone === '1');
-    if (isDone === want) return;                        // already right — no needless write
-    const base = String(title || cur.name || '').replace(/\s*\(done\)\s*$/i, '').trim()
-      || String(cur.name || '').replace(/\s*\(done\)\s*$/i, '').trim();
-    await driveJson(access, 'PATCH',
-      'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(folderId) + '?fields=id',
-      { name: want ? base + ' (done)' : base, appProperties: { flextextDone: want ? '1' : '' } });
-  } catch { /* cosmetic: never fail an upload over the marker */ }
-}
 
 async function driveEnsureTextFolder(access, deviceFolderId, docId, title, knownId) {
   const id = String(docId || '').replace(/[^\w-]/g, '').slice(0, 64);
@@ -1333,6 +1380,46 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     } catch (e) { return j({ error: e.code || 'drive_error', message: e.message }, 502, origin, env); }
   }
 
+  /* Move texts no device holds into "FlexText Uploads / Unassigned".
+   *
+   * ⚠ THE PANEL DECIDES WHICH, AND IT HAS TO: device inventories are E2EE, so the worker cannot
+   * know what any device holds. It moves exactly the docIds it is given. That places the burden of
+   * correctness on the caller's signal — see the panel, which drives this from diffInventory's
+   * present->absent transition (the same one History tombstones use, and which yields NO events
+   * when an inventory is missing or undecryptable, so a device that fails to report cannot sweep
+   * its own texts away).
+   *
+   * Safe by construction on the Drive side: driveEnsureTextFolder resolves a text folder by id and
+   * tag, NEVER by parent, so moving one changes where a human sees it and nothing else. */
+  if (m === 'POST' && seg.length === 3 && seg[1] === 'researcher' && seg[2] === 'drive-unassign') {
+    const r = await authResearcher(request, env);
+    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    const body = await readJson(request) || {};
+    const ids = (Array.isArray(body.docIds) ? body.docIds : [])
+      .map((x) => String(x || '').replace(/[^\w-]/g, '').slice(0, 64)).filter(Boolean).slice(0, 200);
+    if (!ids.length) return j({ error: 'bad_docids' }, 400, origin, env);
+    try {
+      const access = await driveAccessToken(env, r);
+      const target = await driveUnassignedFolder(access);
+      let moved = 0;
+      for (const id of ids) {
+        try {
+          const q = encodeURIComponent(`appProperties has { key='flextextDoc' and value='${id}' } and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+          const found = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files?spaces=drive&orderBy=createdTime&fields=files(id,parents)&q=' + q);
+          const f = (found.files || [])[0];
+          if (!f) continue;                                  // no folder (legacy text) — nothing to move
+          if ((f.parents || []).includes(target)) continue;   // already there — idempotent
+          await driveReparent(access, f.id, target, f.parents);
+          // Tagged so the RETURN trip can tell "we swept this" from "the researcher filed it here".
+          await driveJson(access, 'PATCH', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(f.id) + '?fields=id',
+            { appProperties: { flextextUnassigned: '1' } });
+          moved++;
+        } catch { /* one text failing must not abort the sweep */ }
+      }
+      return j({ moved, folderId: target }, 200, origin, env);
+    } catch (e) { return j({ error: e.code || 'drive_error', message: e.message }, 502, origin, env); }
+  }
+
   /* Permanently delete the FlexText files that are ALREADY IN TRASH — the only way trashing ever
    * reclaims quota, since usageInDriveTrash counts inside usage.
    *
@@ -1346,8 +1433,19 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     try {
       const access = await driveAccessToken(env, r);
       const dead = await driveListAll(access, true);
-      let deleted = 0, bytes = 0;
+      /* ⚠ BOUNDED PER REQUEST. Each delete is a SUBREQUEST, and a Worker has a hard per-request
+       * subrequest cap (50 on the free plan). The first version looped over every trashed file, so
+       * a researcher who had been testing removals for a while blew the cap — and that runtime
+       * error is NOT catchable by the try below, it kills the whole request. Reported as "Reclaim
+       * space throws an error", with the count of trashed files as the hidden variable, which is
+       * why it worked in testing and failed in use.
+       * The caller repeats while `remaining` > 0, so a large backlog still clears — just in several
+       * requests, each of which is individually safe. */
+      const CAP = 40;
+      let deleted = 0, bytes = 0, seen = 0;
       for (const f of dead) {
+        if (seen >= CAP) break;
+        seen++;
         try {
           await driveJson(access, 'DELETE', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(f.id));
           deleted++; bytes += parseInt(f.size, 10) || 0;
@@ -1356,8 +1454,9 @@ export async function handleV1(request, env, ctx, url, path, origin) {
            * listed alongside its parent is already gone by the time we reach it. */
         }
       }
+      const remaining = Math.max(0, dead.length - seen);
       await logApproval(env, request, 'drive_purged', deleted + ' file(s)', Math.round(bytes / 1048576) + ' MB', r.drive_email);
-      return j({ deleted, bytes }, 200, origin, env);
+      return j({ deleted, bytes, remaining }, 200, origin, env);
     } catch (e) { return j({ error: e.code || 'drive_error', message: e.message }, 502, origin, env); }
   }
 
@@ -2020,7 +2119,9 @@ export async function handleV1(request, env, ctx, url, path, origin) {
            * folder. ctx.waitUntil lets it finish AFTER the response, so a failure or a slow Drive
            * costs the upload nothing. Absent => null => no change (old engines send nothing). */
           if (body.docId && body.sub !== 'originals') {
-            ctx.waitUntil(driveMarkDone(access, textFolder, body.done === '1' ? true : body.done === '0' ? false : null, body.docTitle));
+            ctx.waitUntil(driveTextHousekeeping(access, textFolder, {
+              want: body.done === '1' ? true : body.done === '0' ? false : null,
+              deviceFolder, title: body.docTitle }));
           }
           // Same v2 source-package routing as the single-POST path: `sub` picks the originals/
           // child, `role` becomes the tag consumers match on instead of the filename.
@@ -2113,7 +2214,8 @@ export async function handleV1(request, env, ctx, url, path, origin) {
             // note in upload.js — this is what makes a new client safe against an old worker.
             // waitUntil, not await: see the chunked path — cosmetic work never blocks an upload.
             const hd = url.searchParams.get('done');
-            ctx.waitUntil(driveMarkDone(access, textFolder, hd === '1' ? true : hd === '0' ? false : null, docTitle));
+            ctx.waitUntil(driveTextHousekeeping(access, textFolder, {
+              want: hd === '1' ? true : hd === '0' ? false : null, deviceFolder, title: docTitle }));
           }
           const folder = (sub === 'originals' && docId)
             ? await driveEnsureChildFolder(access, textFolder, 'originals', 'originals')

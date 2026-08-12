@@ -114,3 +114,58 @@ rollback 60a1e3a9-2b5d-496e-bc0d-4e9b9f071a7f --message "reverting drive-storage
 "Deploy worker" run from `productionWeb` would silently roll these endpoints back and the storage
 modal would return `not_found` again. Until the editor release merges to `main`/`productionWeb`,
 always deploy the worker from `staging`.
+
+## Round 2 — decided 2026-08-12 (Seth). NOT YET BUILT.
+
+### A. "Unassigned" appears in the DEVICES display, not just the storage modal
+
+A card in the dashboard's device list holding every text no device claims, with **all the same
+options as a device row** — Files ▾, Move…, and **"Remove from Google Drive"** in place of
+"Remove from Device".
+
+⚠ **It is NOT a pseudo-instance** (Seth agreed). It has no `instance_id`, no `ack_seq`, no installs
+and no pairing secret, so it is rendered by the SAME row components from the Drive estate, and **no
+fake instance_id ever reaches the worker**. Everything that iterates `lastData.instances` must stay
+untouched; a synthetic entry there would have to be special-cased at every one of those sites, which
+is precisely the "rule enforced in app.js that the satellites reach by a different path" drift the
+backlog warns about.
+
+### B. Move from Unassigned → a device is a REAL re-assignment (Seth: "AND re-filing the folder")
+
+Not merely re-parenting the folder. It is the existing move flow with no source device to remove
+from: mint token URLs from the Drive files → assign command → the device downloads and the text is
+live again → the folder re-parents under that device. The return trip already exists
+(`driveTextHousekeeping` clears `flextextUnassigned` and moves the folder back on the next upload),
+so the re-filing half is largely built; what is new is offering the action with Unassigned as the
+SOURCE.
+
+### C. Storage limits + warning banner
+
+- Researcher sets a **limit for the FlexText Uploads footprint** (our own files, not the whole
+  Google account). Banner in the panel as usage approaches it.
+- **What is blocked at the limit — decided: OPTIONAL UPLOADS ONLY.**
+  Hard-block new ASSIGNMENTS and optional extras (derived files, repeat backup copies). **NEVER
+  block a text's first upload of its originals.**
+  ⚠ The reasoning is the load-bearing part: a text that exists only on a device is unbacked-up work,
+  and the person who sets the limit is not the person who pays for it. A translator who finishes
+  hours of work must always be able to get it off the device; they cannot raise a limit or free
+  space, and a lost or wiped device would take the only copy. The limit throttles what is
+  replaceable and never what is irreplaceable.
+- The coworker is not warned — same asymmetry as the invite-override warning: the researcher weighs
+  the decision, the field user is not asked to.
+- **Usage tracking — decided: a running total in D1**, incremented as each upload lands, and
+  RECOMPUTED from the true estate whenever the storage modal is opened. Cheap per upload,
+  self-correcting, and can only drift slightly between refreshes. Explicitly NOT a per-upload
+  estate walk — that is the critical-path cost just removed from the done marker.
+
+⚠ **This is the first D1 SCHEMA CHANGE in this feature set** (a byte counter + its timestamp on the
+researcher row). The release order therefore becomes **D1 migrate → worker deploy → editor**, per
+the runbook — every previous step in this feature has been schema-free.
+
+### D. Assignment/movement history in the manifest — OPEN, not decided
+
+Seth: *"Maybe our manifest file can also list the history of text assignment/movement."* The
+manifest is written ONCE at upload time, so it cannot accumulate history without being rewritten on
+every move — which would stop it being an immutable record of what was uploaded. Recommendation: a
+SEPARATE append-only `flextext-history.json` beside it. Also undecided: what it records, given
+device nicknames are personal data and this file sits in Drive beside consent material.

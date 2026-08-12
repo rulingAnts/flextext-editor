@@ -698,3 +698,147 @@ export function wavWithBext(buf, opts = {}) {
   new DataView(out.buffer).setUint32(4, out.length - 8, true);                    // RIFF size
   return out.buffer;
 }
+
+/* ---------------- shared bundle assembly (assign-by-upload, 2026-08-11) ---------------- */
+
+// FileReader-free (chunked btoa over the raw bytes) so this module stays runnable under plain
+// node — the format-module rule. Shared by app.js, paragraph-ui.js, and the researcher panel.
+export async function blobToBase64(blob) {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+// The end-user instructions bundled beside the annotation exports. Plain text, plain words,
+// naming this bundle's ACTUAL files — the reader is a researcher (or their student) with the
+// unzipped folder open, not someone who knows our terminology.
+export function howToOpenText({ base, segMediaName, derived, eaf, saymore, preview, previewName, json }) {
+  const L = [];
+  L.push('HOW TO OPEN THESE FILES');
+  L.push('=======================');
+  L.push('');
+  L.push('Keep everything from this zip together in ONE folder, and do not rename the');
+  L.push('files — the annotation files find the audio by its exact name.');
+  L.push('');
+  if (eaf) {
+    L.push(`ELAN — open "${base}.eaf"`);
+    L.push('  Double-click it (or ELAN > File > Open). ELAN finds the audio in the same');
+    L.push('  folder automatically — no relinking dialog.');
+    L.push(`  The small "${base}.pfsx" beside it just tells ELAN to stack the tiers in`);
+    L.push('  reading order (text, words, glosses, translation). It holds no annotations;');
+    L.push('  delete it if you prefer your own tier order.');
+    L.push('');
+  }
+  if (saymore) {
+    // The drop-in (copy into the session folder) does NOT work — Seth tested it 2026-08-03.
+    // The route that works is New Session from the audio + Copy Existing ELAN file.
+    L.push(`SayMore — use "${segMediaName}.annotations.eaf"`);
+    L.push('  1. In SayMore: New Session from Device/File — choose the audio file.');
+    L.push('  2. Select the audio, open the "Start Annotating" tab.');
+    L.push('  3. Choose "Copy Existing ELAN file" and pick this .annotations.eaf file.');
+    L.push('  The transcriptions and free translations appear on the Annotations tab.');
+    L.push('');
+  }
+  L.push(`FLEx — import "${base}.flextext"`);
+  L.push('  FLEx > Texts & Words > Import > FLExText interlinear. The segment times show');
+  L.push('  on the Note line (Configure Interlinear Lines > Note).');
+  L.push('');
+  if (preview) {
+    L.push(`Quick listen — open "${previewName}" in any browser`);
+    L.push('  The audio is embedded in the page: it works offline, plays line by line, and');
+    L.push('  needs no other files. Handy beside FLEx while glossing or charting.');
+    L.push('');
+  }
+  if (json) {
+    L.push(`Paragraph analysis — open "${base}.fxpa"`);
+    L.push('  In the Flextext Paragraph Analysis app:');
+    L.push('  https://pat.flextext.app/');
+    L.push('  Drop the .fxpa file on the open screen to group the lines into phrases,');
+    L.push('  clauses, sentences, and paragraphs. Text and audio are inside the file.');
+    L.push('');
+  }
+  if (derived) {
+    L.push(`ABOUT "${segMediaName}"`);
+    L.push('  The original recording was not a WAV, so this converted listening copy was');
+    L.push('  made for exact time alignment — the annotation files point at it. It is NOT');
+    L.push('  an archival master; the original recording is included unchanged.');
+    L.push('');
+  }
+  return L.join('\n');
+}
+
+/* The annotation/export entries of a bundle — ONE function feeding both the device's
+ * buildBundleFor and the panel's Downloads conversions (assign-by-upload rule: what the
+ * researcher downloads must be built by the same code as what the device uploads).
+ * Inputs are fully resolved by the caller (no settings, no IndexedDB here):
+ * - media: the ORIGINAL recording { name, mimeType, blob } (null when the doc has none);
+ * - segMedia: the timeline the segment times live on — the WAV working copy when one exists,
+ *   else `media` itself; null when there is no real alignment. The caller's aligned-media
+ *   resolution IS the gate: no segMedia → no annotation entries.
+ * - wants: { eaf, saymore, preview, fxpa } — researcher-selected export switches;
+ * - full: local-save bundle (preview + fxpa ride ONLY these — upload bandwidth never pays
+ *   for embedded audio).
+ * Returns [{ name, data: Blob }] in bundle order. */
+export async function assembleSegEntries({ doc, title = '', base = 'text', media = null, segMedia = null,
+                                           wants = {}, vern = 'und', anal = 'en', full = false } = {}) {
+  const entries = [];
+  const segMediaName = segMedia ? (segMedia.name || 'audio') : '';
+  if (media && segMedia && (wants.eaf || wants.saymore || wants.preview)) {
+    const wavName = /\.wav$/i.test(segMediaName) || /wav$/i.test(segMedia.mimeType || '');
+    const eafOpts = { vern, anal, mediaName: segMediaName, mediaMime: wavName ? 'audio/x-wav' : (segMedia.mimeType || 'audio/*') };
+    if (wants.eaf) {
+      entries.push({ name: base + '.eaf', data: new Blob([serializeEaf(doc, { ...eafOpts, profile: 'flex' })], { type: 'application/xml' }) });
+      // ELAN reads display settings from a sidecar of the SAME BASENAME — this is what makes the
+      // tiers open vernacular-first instead of alphabetically inverted. Carries no annotation
+      // data, so it is safe to delete and safe for ELAN to overwrite (see serializeEafPrefs).
+      entries.push({ name: base + '.pfsx', data: new Blob([serializeEafPrefs({ ...eafOpts, profile: 'flex' })], { type: 'application/xml' }) });
+    }
+    // SayMore's OWN storage convention is <mediafile>.annotations.eaf beside the media — emitting
+    // that exact name makes the drop-in path work: copy audio + this file into a session folder
+    // and SayMore lists the annotations under the audio with no import step (Seth: loading must
+    // be as simple as possible; HOW-TO-OPEN.txt below documents both paths).
+    if (wants.saymore) entries.push({ name: segMediaName + '.annotations.eaf', data: new Blob([serializeEaf(doc, { ...eafOpts, profile: 'saymore' })], { type: 'application/xml' }) });
+    if (segMedia.derived && (wants.eaf || wants.saymore)) {
+      // The EAFs reference this WAV by name (RELATIVE_MEDIA_URL / the .annotations.eaf filename),
+      // so it rides EVERY bundle that carries an EAF — uploads included (Seth, 2026-08-04: the
+      // researcher's Drive copy must open in ELAN/SayMore without hunting for audio). Researcher
+      // bandwidth control stays: turning the EAF exports off drops the WAV too. Honesty in the
+      // BYTES: a BWF bext chunk names the lossy origin and states it is not a master.
+      const stamped = wavWithBext(await segMedia.blob.arrayBuffer(), {
+        description: `DERIVED from lossy source (${segMedia.srcName || 'unknown'}) - NOT an archival master`,
+        codingHistory: `A=${String(media.mimeType || 'lossy').replace(/^audio\//, '').replace(/[^\w-]/g, '').toUpperCase() || 'LOSSY'},T=original lossy source ${segMedia.srcName || ''}\nA=PCM,W=16,T=DERIVED from lossy source - NOT an archival master`,
+      });
+      entries.push({ name: segMediaName, data: new Blob([stamped], { type: 'audio/wav' }) });
+    }
+    if (full && wants.preview) {
+      // Named after the ORIGINAL recording (Seth): story.m4a → story.preview.html.
+      const previewBase = String(media.name || base).replace(/\.[^.]+$/, '');
+      const b64 = await blobToBase64(segMedia.blob);
+      entries.push({ name: previewBase + '.preview.html', data: new Blob([buildSegPreviewHtml(doc, {
+        title: title || base, audioB64: b64, audioMime: segMedia.mimeType || 'audio/wav', mediaName: segMediaName,
+      })], { type: 'text/html' }) });
+    }
+    // The instructions travel WITH the files (Seth: whatever the user must do, clearly
+    // documented) — a plain-text README naming this bundle's actual files, one section per tool.
+    entries.push({ name: 'HOW-TO-OPEN.txt', data: new Blob([howToOpenText({
+      base, segMediaName, derived: !!segMedia.derived,
+      eaf: wants.eaf, saymore: wants.saymore, preview: !!(full && wants.preview),
+      previewName: String(media.name || base).replace(/\.[^.]+$/, '') + '.preview.html',
+      json: !!(full && wants.fxpa),
+    })], { type: 'text/plain' }) });
+  }
+  // The .fxpa export for the Paragraph Analysis satellite (Seth, 2026-08-05): LOCAL bundles only
+  // (embedded base64 audio — field upload bandwidth never pays), and deliberately NOT gated on
+  // alignment: an unaligned or audio-less doc exports a TEXT-ONLY .fxpa the paragraph app can
+  // still group. Audio embeds only when the working media exists (i.e. aligned + media present).
+  if (full && wants.fxpa) {
+    const fxpaAudio = segMedia && segMedia.blob
+      ? { b64: await blobToBase64(segMedia.blob), mime: segMedia.mimeType || 'audio/wav',
+          name: segMediaName, derived: !!segMedia.derived, srcName: segMedia.srcName || '' }
+      : null;
+    const fxpa = buildFxpa(doc, { title: title || base, vernLang: vern, analLang: anal, audio: fxpaAudio });
+    entries.push({ name: base + '.fxpa', data: new Blob([JSON.stringify(fxpa)], { type: 'application/json' }) });
+  }
+  return entries;
+}

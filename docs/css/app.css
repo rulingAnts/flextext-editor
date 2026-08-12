@@ -216,6 +216,13 @@ main {
 /* A text whose transcription is still downloading (v332): the row stays fully tappable — tapping it
  * is what retries the fetch — so this marks the WAIT, not a disabled control. */
 .doc-arriving .doc-meta { color: #8a5a00; font-style: italic; }
+/* Arrival progress for assigned audio (assign-by-upload): real received/total bytes from the
+ * downloader's Range-resume state, painted by the ticker in app.js. */
+.doc-dl-bar { display: inline-block; vertical-align: middle; width: 96px; height: 6px;
+  background: var(--border); border-radius: 3px; overflow: hidden; }
+.doc-dl-fill { display: block; height: 100%; width: 0%; background: #7fd58a; border-radius: 3px;
+  transition: width .4s ease; }
+.doc-dl-pct { margin-left: 6px; font-style: normal; font-variant-numeric: tabular-nums; }
 .doc-pending-del .doc-name { text-decoration: line-through; }
 
 .empty-note { color: var(--muted); margin-top: 24px; text-align: center; }

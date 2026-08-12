@@ -126,31 +126,32 @@ console.log('\n...and the DEVICE is not warned — that asymmetry is deliberate'
 ok(!/overrideWarn/.test(app),
    'app.js never renders it: the coworker is not asked to weigh a decision this suite assumes they cannot');
 
-/* ⚠ THE WHOLE MENU IS HIDDEN (Seth, 2026-08-08) — "all out of whack... let researchers go to Google
- * Drive directly until I have time to really develop that feature."
- * Everything asserted ABOVE this point is therefore about code that still exists and is still
- * correct, but is NOT reachable in the UI. That is deliberate: hidden, not deleted, so restoring it
- * is one flag. These assertions guard the hide itself — above all its coupling to the History
- * links, which is the part that can silently take away MORE than the drop-down. */
-console.log('\nthe Files ▾ menu is HIDDEN behind one flag');
-ok(/const FILES_MENU_ENABLED = false;/.test(panel), 'the flag exists and is OFF');
+/* The menu was HIDDEN from v316 (Seth, 2026-08-08: "all out of whack... let researchers go to
+ * Google Drive directly until I have time to really develop that feature") and RESTORED by
+ * assign-by-upload (2026-08-11) as the fixed six-item Downloads list. The one-flag/one-predicate
+ * structure that made the park safe is still load-bearing — it is HOW the menu could come back as
+ * one flip, and how it could be parked again if the field disagrees — so those chokepoints stay
+ * pinned; only the flag's VALUE changed. */
+console.log('\nthe Files ▾ menu is gated behind ONE flag, currently ON');
+ok(/const FILES_MENU_ENABLED = true;/.test(panel), 'the flag exists and is ON (assign-by-upload restored the menu)');
 ok(/function filesMenuHtml\([^)]*\) \{\s*\n\s*if \(!FILES_MENU_ENABLED\) return '';/.test(panel),
-   'filesMenuHtml returns nothing while it is off — one chokepoint, so BOTH call sites go dark');
+   'filesMenuHtml still short-circuits on the flag — one chokepoint, so BOTH call sites obey it');
 ok(/function histHasMenu\(e\) \{ return FILES_MENU_ENABLED && !!\(e\.instanceId && e\.docId\); \}/.test(panel),
    'a single predicate answers "does this row get a menu", for menu and fallback alike');
 
-console.log('\n⚠ ...and hiding it RESTORES the plain History links it had superseded');
-/* The trap: those links were gated on `!(e.instanceId && e.docId)` — i.e. "the menu is showing
- * instead". Hide the menu without touching that and a History row loses the menu AND its link, so
- * "hide the drop-down" would quietly remove a working route to the file. */
+console.log('\n...and the plain History links stay coupled to the SAME predicate');
+/* The trap the predicate closed: those links were once gated on `!(e.instanceId && e.docId)` —
+ * i.e. "the menu is showing instead". Re-parking the menu without the predicate would leave a
+ * History row with no menu AND no link. */
 ok(/\$\{audio && !histHasMenu\(e\) \?/.test(panel), 'the audio link is gated on the PREDICATE, not on the old raw condition');
 ok(/\$\{up && !histHasMenu\(e\) \?/.test(panel), 'and so is the last-upload link');
 ok(!/&& !\(e\.instanceId && e\.docId\) \?/.test(panel),
    'the old condition is GONE — leaving one behind is how a row ends up with nothing at all');
 
-console.log('\nhidden, NOT deleted — the feature is deferred, not removed');
-ok(/async function populateFilesMenu\(/.test(panel), 'the menu builder is still here to come back to');
-ok(/data-zipall/.test(panel) && /data-cleanup/.test(panel), 'so are Download-all and backup cleanup');
+console.log('\nthe menu machinery is all present');
+ok(/async function populateFilesMenu\(/.test(panel), 'the menu builder');
+ok(/data-zipall/.test(panel) && /data-cleanup/.test(panel), 'Download-all and backup cleanup');
+ok(/data-conv="elan"|'elan'/.test(panel) && /runMenuConversion/.test(panel), 'and the on-click conversion rows');
 
 console.log(fail ? `\nFAILED (${fail})\n` : '\nPASSED\n');
 process.exit(fail ? 1 : 0);

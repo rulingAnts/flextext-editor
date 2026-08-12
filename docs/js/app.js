@@ -4,7 +4,7 @@ import {
   parseFlextext, serializeFlextext, makeDoc, makeWord, makeSegment,
   getBaselineParagraphs, reconcileBaseline, segmentText, tokenize,
   canMerge, mergeWords, breakPhrase, newGuid, segmentsFromOffsets,
-  surveyWritingSystems, remapWritingSystems,
+  surveyWritingSystems, remapWritingSystems, analyzeFlextextWs,
 } from './flextext.js';
 import * as db from './db.js';
 import { t, getLang, setLang, applyI18n, LANGS, LANG_NAMES, langCoverage, ENGINE_VERSION } from './i18n.js';
@@ -19,7 +19,7 @@ import { losslessSupported, recFormatSupported, PCMRecorder, encodeWav, encodeRe
 import WaveSurfer from './vendor/wavesurfer.esm.js';
 import { makeZip } from './zip.js';
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay } from './segment-strips.js';
-import { serializeEaf, serializeEafPrefs, buildSegPreviewHtml, wavWithBext, captureBext, buildFxpa } from './seg-exports.js';
+import { wavWithBext, captureBext, assembleSegEntries } from './seg-exports.js';
 import { mergeSegments, splitSegment, isAligned, normalizeSegments } from './segments.js';
 import { initParagraphApp } from './paragraph-ui.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget } from './upload.js';
@@ -398,10 +398,21 @@ async function renderDocList() {
      * its row still opens -- openDoc retries the fetch and only enters the editor once the text is
      * really here (v332). Showing 0 sentences for an in-flight text is what made an empty
      * placeholder look like a finished import. */
-    li.querySelector('.doc-meta').textContent = d.pendingFlextext
-      ? t('texts.arriving')
-      : t('texts.meta', { n: d.segCount ?? 0, g: d.glossed ?? 0, date });
-    if (d.pendingFlextext) li.classList.add('doc-arriving');
+    const meta = li.querySelector('.doc-meta');
+    if (d.pendingFlextext) {
+      meta.textContent = t('texts.arriving');
+      li.classList.add('doc-arriving');
+    } else if (d.pendingAudio) {
+      // Assigned AUDIO still arriving (assign-by-upload): a real progress bar off the downloader's
+      // own received/total (Range-resume state), painted by the arrival ticker while active.
+      li.classList.add('doc-arriving');
+      li.dataset.arriving = d.id;
+      meta.innerHTML = `<span></span> <span class="doc-dl-bar"><span class="doc-dl-fill"></span></span><span class="doc-dl-pct"></span>`;
+      meta.querySelector('span').textContent = t('texts.arriving');
+      paintArrivalRow(li, d.id);
+    } else {
+      meta.textContent = t('texts.meta', { n: d.segCount ?? 0, g: d.glossed ?? 0, date });
+    }
     li.querySelector('.doc-open').addEventListener('click', () => openDoc(d.id));
 
     // "Completed" toggle (researcher setting doneEnabled): mark a text finished right
@@ -423,7 +434,36 @@ async function renderDocList() {
     } else del.remove();
     ul.appendChild(li);
   }
+  syncArrivalTicker();
   renderWsBanner();
+}
+
+/* Arrival progress (assign-by-upload): the downloader keeps exact received/total for its
+ * Range-resume, so the tile can show REAL byte progress. One light ticker, alive ONLY while a
+ * download is actually moving — an idle list costs nothing. The rows repaint in place (no
+ * re-render: renderDocList rebuilds listeners and would churn once a second). */
+let arrivalTicker = null;
+function paintArrivalRow(li, docId) {
+  const dl = getDownload(docId);
+  const fill = li.querySelector('.doc-dl-fill');
+  const pct = li.querySelector('.doc-dl-pct');
+  if (!fill) return false;
+  const total = (dl && dl.total) || 0;
+  if (total) {
+    const p = Math.min(100, Math.round(((dl.received || 0) / total) * 100));
+    fill.style.width = p + '%';
+    if (pct) pct.textContent = p + '%';
+  } else {
+    fill.style.width = '0%';
+    if (pct) pct.textContent = '';
+  }
+  return !!dl && dl.status === 'downloading';
+}
+function syncArrivalTicker() {
+  const rows = $$('#doc-list li[data-arriving]');
+  const active = rows.filter((li) => paintArrivalRow(li, li.dataset.arriving)).length > 0;
+  if (active && !arrivalTicker) arrivalTicker = setInterval(syncArrivalTicker, 1000);
+  if (!active && arrivalTicker) { clearInterval(arrivalTicker); arrivalTicker = null; }
 }
 
 function renderWsBanner() {
@@ -1276,16 +1316,20 @@ async function newDocFromAudio(file, titleOverride) {
     pendingPromptAudio = null;
   }
   if (current.consentReceipt || current.consentClip || current.consentPromptClip) await persist();
+  // Returned so saveRecording can queue the Lane A media upload for THIS doc — `current` is
+  // cleared below in record mode, so the caller cannot read it back.
+  const newId = current.id;
   if (RECORD_MODE) {
     // No editor in record mode: the recording is saved; return to the list.
     current = null;
     show('record');
     renderRecordList();
     toast(t('record.saved'), 4000);
-    return;
+    return newId;
   }
   $('#doc-title').focus();
   $('#doc-title').select();
+  return newId;
 }
 
 /* ---------------- Speaker-permission (consent) gate ----------------
@@ -2410,8 +2454,12 @@ async function saveRecording() {
     pendingAssent = assent;
     pendingReceipt = receipt;
     pendingPromptAudio = promptAudio;
-    await newDocFromAudio(file, title);
+    const newId = await newDocFromAudio(file, title);
     if (nativePath) await releaseCapture(nativePath);     // now safely in IndexedDB
+    // LANE A (assign-by-upload rule 4): the take + consent artifacts leave ASAP on their own zip.
+    // Linked devices only — a standalone device has no upload target, and queueing would grow a
+    // stuck queue bar it can never drain.
+    if (newId && Sync.workerUploadTarget()) { try { await queueMediaUpload(newId); } catch { /* the Lane B catch-up re-queues it */ } }
   } catch (e) {
     recordUI('review');
     $('#record-status').textContent = t('convert.failed', { msg: e.message });
@@ -2614,8 +2662,12 @@ async function runTaskCleanup(spec) {
 async function openUrlTask(task, mode = 'interactive') {
   const interactive = mode !== 'background';
   // Background commands (a remote 'assign') take the never-clobber allowlist ONLY
-  // (plan §A.3): no cleanup, no replace, no UI — just {id, url, title}.
-  if (!interactive) task = { title: task.title, audioUrl: task.audioUrl, flextextUrl: task.flextextUrl, audioId: task.audioId, flextextId: task.flextextId };
+  // (plan §A.3): no cleanup, no replace, no UI. ⚠ docId and folderId MUST be in this list —
+  // stripping docId here is what silently killed the v137 same-id-everywhere fix (the adopt at
+  // the new-rec branch below read a field this line had already dropped) and split every assigned
+  // text into two Drive folders. folderId/assigned ride the same lane (assign-by-upload):
+  // the folder id lets the first upload skip the dedupe search entirely.
+  if (!interactive) task = { title: task.title, audioUrl: task.audioUrl, flextextUrl: task.flextextUrl, audioId: task.audioId, flextextId: task.flextextId, docId: task.docId, folderId: task.folderId, assigned: task.assigned };
 
   // Deliberate cleanup first (e.g. clearing old versions in a back-and-forth check).
   if (interactive && task.cleanup) {
@@ -2652,6 +2704,8 @@ async function openUrlTask(task, mode = 'interactive') {
     if (task.title) { current.title = task.title; current.doc.title = task.title; }
     if (task.flextextUrl) { current.flextextId = flextextId; current.pendingFlextext = task.flextextUrl; current.flextextForce = true; }
     if (task.audioUrl) { current.audioId = audioId; current.pendingAudio = task.audioUrl; current.audioLocked = true; }
+    if (task.folderId) current.driveFolderId = task.folderId;   // upload echoes it — dedupe search never runs
+    if (task.assigned) current.assigned = true;
     await db.putDoc(current);
     enterEditor('baseline');
     toast(t('task.replacing'), 5000);
@@ -2681,6 +2735,11 @@ async function openUrlTask(task, mode = 'interactive') {
   // for docs the user creates locally, which have no researcher identity.
   const rec = { id: task.docId || newGuid(), title: task.title || doc.title || '', created: Date.now(), modified: Date.now(), doc };
   rec.doc.title = rec.title;
+  // Assignment identity beyond the id (assign-by-upload): the Drive folder the panel already
+  // created (first upload verifies it by files.get — no tag search, no "Title (n)" duplicates)
+  // and the assigned mark that keeps researcher-delivered audio off the upload lanes.
+  if (task.folderId) rec.driveFolderId = task.folderId;
+  if (task.assigned) rec.assigned = true;
   if (task.flextextUrl) {
     rec.flextextId = flextextId;
     if (gotFlextext) rec.flextextSource = task.flextextUrl;
@@ -3300,7 +3359,11 @@ function onSyncRevoked() {
 async function syncDispatch(cmd) {
   switch (cmd && cmd.type) {
     case 'assign': {
-      const task = { title: cmd.title || '', docId: cmd.id || '' };
+      // assigned marks the doc as researcher-delivered from birth: assigned-from-Drive audio
+      // never re-uploads, and Lane B keeps its flextext bare (assign-by-upload rule 4).
+      // folderId (new panels only) is the per-text Drive folder minted at assignment upload —
+      // stamping it before the FIRST device upload means the dedupe search never runs at all.
+      const task = { title: cmd.title || '', docId: cmd.id || '', folderId: cmd.folderId || '', assigned: true };
       if (cmd.audioUrl) { task.audioUrl = resolveAudioInput(cmd.audioUrl); task.audioId = cmd.id; }
       if (cmd.flextextUrl) { task.flextextUrl = resolveAudioInput(cmd.flextextUrl); task.flextextId = cmd.id; }
       if (task.audioUrl || task.flextextUrl) await openUrlTask(task, 'background');
@@ -3675,26 +3738,13 @@ function fileStamp(d = new Date()) {
 
 /* ---- Task-attached flextext: writing-system validation ----
  * A researcher can attach an already-transcribed/glossed flextext to a task
- * link. We survey its writing-system codes (reusing surveyWritingSystems) and
- * split them into vernacular vs analysis, then HARD-REFUSE the link if they
- * don't match the setup. segnum/meta lines are neutral — a number or metadata
- * WS must not trigger a vern/anal mismatch.
+ * link. analyzeFlextextWs (flextext.js — shared with the researcher panel's
+ * assign-time check) surveys its writing-system codes and splits them into
+ * vernacular vs analysis; the device HARD-REFUSES the link if they don't match
+ * the setup.
  * (An auto-remap-to-setup option was considered but deferred: a researcher may
  * use several writing systems for several purposes, so a correct remap needs
  * more design. For now the file's codes must already match.) */
-const WS_VERN_LABELS = new Set(['wsline.baseline', 'wsline.word', 'wsline.punct', 'wsline.morph', 'wsline.cf']);
-const WS_ANAL_LABELS = new Set(['wsline.wordgloss', 'wsline.pos', 'wsline.morphgloss', 'wsline.msa', 'wsline.free', 'wsline.lit', 'wsline.note']);
-
-function analyzeFlextextWs(xmlText) {
-  const survey = surveyWritingSystems(xmlText);
-  if (survey.error) return { error: survey.error };
-  const pick = (labels) => {
-    const set = new Set();
-    for (const r of survey.rows) if (labels.has(r.label) && r.lang && r.lang !== '(none)') set.add(r.lang);
-    return [...set];
-  };
-  return { error: null, survey, vernCodes: pick(WS_VERN_LABELS), analCodes: pick(WS_ANAL_LABELS) };
-}
 
 // Download a task-attached flextext, parse it, and return the first
 // interlinear-text doc.
@@ -3807,7 +3857,6 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
   const wantSaymore = settings.exportSaymore ?? expDefault;
   const wantPreview = settings.exportPreview ?? expDefault;
   const wantJson = settings.exportJson ?? expDefault;
-  const segEntries = [];
   // The flextext's OWN media-files reference is part of the flextext, not an optional annotation
   // export — resolve the working-media name whenever alignment exists, regardless of checkboxes.
   let segMediaName = '';
@@ -3817,71 +3866,31 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
     segMedia = (working && working.blob && working.srcName === media.name) ? working : media;
     segMediaName = segMedia.name || 'audio';
   }
-  if (hasAligned && media && (wantEaf || wantSaymore || wantPreview)) {
-    const vern = settings.vernLang || rec.doc.vernLang || 'und';
-    const anal = settings.analLang || rec.doc.analLang || 'en';
-    const wavName = /\.wav$/i.test(segMediaName) || /wav$/i.test(segMedia.mimeType || '');
-    const eafOpts = { vern, anal, mediaName: segMediaName, mediaMime: wavName ? 'audio/x-wav' : (segMedia.mimeType || 'audio/*') };
-    if (wantEaf) {
-      segEntries.push({ name: base + '.eaf', data: new Blob([serializeEaf(rec.doc, { ...eafOpts, profile: 'flex' })], { type: 'application/xml' }) });
-      // ELAN reads display settings from a sidecar of the SAME BASENAME — this is what makes the
-      // tiers open vernacular-first instead of alphabetically inverted. Carries no annotation
-      // data, so it is safe to delete and safe for ELAN to overwrite (see serializeEafPrefs).
-      segEntries.push({ name: base + '.pfsx', data: new Blob([serializeEafPrefs({ ...eafOpts, profile: 'flex' })], { type: 'application/xml' }) });
-    }
-    // SayMore's OWN storage convention is <mediafile>.annotations.eaf beside the media — emitting
-    // that exact name makes the drop-in path work: copy audio + this file into a session folder
-    // and SayMore lists the annotations under the audio with no import step (Seth: loading must
-    // be as simple as possible; HOW-TO-OPEN.txt below documents both paths).
-    if (wantSaymore) segEntries.push({ name: segMediaName + '.annotations.eaf', data: new Blob([serializeEaf(rec.doc, { ...eafOpts, profile: 'saymore' })], { type: 'application/xml' }) });
-    if (segMedia.derived && (wantEaf || wantSaymore)) {
-      // The EAFs reference this WAV by name (RELATIVE_MEDIA_URL / the .annotations.eaf filename),
-      // so it rides EVERY bundle that carries an EAF — uploads included (Seth, 2026-08-04: the
-      // researcher's Drive copy must open in ELAN/SayMore without hunting for audio). Researcher
-      // bandwidth control stays: turning the EAF exports off drops the WAV too. Honesty in the
-      // BYTES: a BWF bext chunk names the lossy origin and states it is not a master.
-      const stamped = wavWithBext(await segMedia.blob.arrayBuffer(), {
-        description: `DERIVED from lossy source (${segMedia.srcName || 'unknown'}) - NOT an archival master`,
-        codingHistory: `A=${String(media.mimeType || 'lossy').replace(/^audio\//, '').replace(/[^\w-]/g, '').toUpperCase() || 'LOSSY'},T=original lossy source ${segMedia.srcName || ''}\nA=PCM,W=16,T=DERIVED from lossy source - NOT an archival master`,
-      });
-      segEntries.push({ name: segMediaName, data: new Blob([stamped], { type: 'audio/wav' }) });
-    }
-    if (opts.full) {
-      if (wantPreview) {
-        // Named after the ORIGINAL recording (Seth): story.m4a → story.preview.html.
-        const previewBase = String(media.name || base).replace(/\.[^.]+$/, '');
-        const b64 = await blobToBase64(segMedia.blob);
-        segEntries.push({ name: previewBase + '.preview.html', data: new Blob([buildSegPreviewHtml(rec.doc, {
-          title: rec.title || base, audioB64: b64, audioMime: segMedia.mimeType || 'audio/wav', mediaName: segMediaName,
-        })], { type: 'text/html' }) });
-      }
-    }
-    // The instructions travel WITH the files (Seth: whatever the user must do, clearly
-    // documented) — a plain-text README naming this bundle's actual files, one section per tool.
-    segEntries.push({ name: 'HOW-TO-OPEN.txt', data: new Blob([howToOpenText({
-      base, segMediaName, derived: !!segMedia.derived,
-      eaf: wantEaf, saymore: wantSaymore, preview: !!(opts.full && wantPreview),
-      previewName: String(media.name || base).replace(/\.[^.]+$/, '') + '.preview.html',
-      json: !!(opts.full && wantJson),
-    })], { type: 'text/plain' }) });
+  /* LANE B (assign-by-upload rule 4): an UPLOAD is the BARE .flextext — never zipped. The
+   * recording + consent artifacts leave on their own Lane A zip the moment a recording is saved
+   * (queueMediaUpload), and the panel builds the EAF/SayMore/preview conversions on demand from
+   * the same shared assembler — so field upload bandwidth pays for the text alone, and the
+   * derived-WAV re-upload leak for assigned texts is gone by construction. An assigned/locked doc
+   * references its ORIGINAL media name (the assigned file itself — a working-copy name would
+   * point at a file that is nowhere in the folder). Local saves (opts.full) are untouched. */
+  if (!opts.full) {
+    const uploadMediaName = (hasAligned && media)
+      ? (isAudioLocked(rec) ? (media.name || 'audio') : segMediaName)
+      : undefined;
+    const bare = serializeDocBlob(rec, uploadMediaName);
+    const bstamp = withTimestamp ? ' ' + fileStamp() : '';
+    return { blob: bare, filename: `${base}${bstamp}.flextext`, mime: 'application/xml',
+      xmlBlob: bare, xmlName: name, zipped: false };
   }
-  // The .fxpa export for the Paragraph Analysis satellite (Seth, 2026-08-05): LOCAL bundles only
-  // (embedded base64 audio — field upload bandwidth never pays), and deliberately NOT gated on
-  // alignment: an unaligned or audio-less doc exports a TEXT-ONLY .fxpa the paragraph app can
-  // still group. Audio embeds only when the working media exists (i.e. aligned + media present).
-  if (opts.full && wantJson) {
-    const fxpaAudio = segMedia && segMedia.blob
-      ? { b64: await blobToBase64(segMedia.blob), mime: segMedia.mimeType || 'audio/wav',
-          name: segMediaName, derived: !!segMedia.derived, srcName: segMedia.srcName || '' }
-      : null;
-    const fxpa = buildFxpa(rec.doc, {
-      title: rec.title || base,
-      vernLang: settings.vernLang || rec.doc.vernLang || 'und',
-      analLang: settings.analLang || rec.doc.analLang || 'en',
-      audio: fxpaAudio,
-    });
-    segEntries.push({ name: base + '.fxpa', data: new Blob([JSON.stringify(fxpa)], { type: 'application/json' }) });
-  }
+  // Shared with the panel's Downloads conversions (assign-by-upload): the entries the researcher
+  // downloads are built by the SAME function as the entries the device bundles.
+  const segEntries = await assembleSegEntries({
+    doc: rec.doc, title: rec.title || base, base, media, segMedia,
+    wants: { eaf: wantEaf, saymore: wantSaymore, preview: wantPreview, fxpa: wantJson },
+    vern: settings.vernLang || rec.doc.vernLang || 'und',
+    anal: settings.analLang || rec.doc.analLang || 'en',
+    full: !!opts.full,
+  });
   const xmlBlob = serializeDocBlob(rec, segMediaName || undefined);
   const consent = rec.consentClip
     ? await db.getMedia('consent:' + rec.id).catch(() => null)
@@ -3927,72 +3936,6 @@ function serializeDocBlob(rec, mediaName) {
   return new Blob([serializeFlextext(doc, settings, { mediaName, segTimes: segmentationEnabled() })], { type: 'application/xml' });
 }
 
-// The end-user instructions bundled beside the annotation exports. Plain text, plain words,
-// naming this bundle's ACTUAL files — the reader is a researcher (or their student) with the
-// unzipped folder open, not someone who knows our terminology.
-function howToOpenText({ base, segMediaName, derived, eaf, saymore, preview, previewName, json }) {
-  const L = [];
-  L.push('HOW TO OPEN THESE FILES');
-  L.push('=======================');
-  L.push('');
-  L.push('Keep everything from this zip together in ONE folder, and do not rename the');
-  L.push('files — the annotation files find the audio by its exact name.');
-  L.push('');
-  if (eaf) {
-    L.push(`ELAN — open "${base}.eaf"`);
-    L.push('  Double-click it (or ELAN > File > Open). ELAN finds the audio in the same');
-    L.push('  folder automatically — no relinking dialog.');
-    L.push(`  The small "${base}.pfsx" beside it just tells ELAN to stack the tiers in`);
-    L.push('  reading order (text, words, glosses, translation). It holds no annotations;');
-    L.push('  delete it if you prefer your own tier order.');
-    L.push('');
-  }
-  if (saymore) {
-    // The drop-in (copy into the session folder) does NOT work — Seth tested it 2026-08-03.
-    // The route that works is New Session from the audio + Copy Existing ELAN file.
-    L.push(`SayMore — use "${segMediaName}.annotations.eaf"`);
-    L.push('  1. In SayMore: New Session from Device/File — choose the audio file.');
-    L.push('  2. Select the audio, open the "Start Annotating" tab.');
-    L.push('  3. Choose "Copy Existing ELAN file" and pick this .annotations.eaf file.');
-    L.push('  The transcriptions and free translations appear on the Annotations tab.');
-    L.push('');
-  }
-  L.push(`FLEx — import "${base}.flextext"`);
-  L.push('  FLEx > Texts & Words > Import > FLExText interlinear. The segment times show');
-  L.push('  on the Note line (Configure Interlinear Lines > Note).');
-  L.push('');
-  if (preview) {
-    L.push(`Quick listen — open "${previewName}" in any browser`);
-    L.push('  The audio is embedded in the page: it works offline, plays line by line, and');
-    L.push('  needs no other files. Handy beside FLEx while glossing or charting.');
-    L.push('');
-  }
-  if (json) {
-    L.push(`Paragraph analysis — open "${base}.fxpa"`);
-    L.push('  In the Flextext Paragraph Analysis app:');
-    L.push('  https://pat.flextext.app/');
-    L.push('  Drop the .fxpa file on the open screen to group the lines into phrases,');
-    L.push('  clauses, sentences, and paragraphs. Text and audio are inside the file.');
-    L.push('');
-  }
-  if (derived) {
-    L.push(`ABOUT "${segMediaName}"`);
-    L.push('  The original recording was not a WAV, so this converted listening copy was');
-    L.push('  made for exact time alignment — the annotation files point at it. It is NOT');
-    L.push('  an archival master; the original recording is included unchanged.');
-    L.push('');
-  }
-  return L.join('\n');
-}
-
-function blobToBase64(blob) {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(String(r.result).split(',')[1] || '');
-    r.onerror = () => reject(r.error);
-    r.readAsDataURL(blob);
-  });
-}
 function docFilename(rec) {
   const base = (rec.title || 'text').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80);
   return base + '.flextext';
@@ -4003,10 +3946,13 @@ function docFilename(rec) {
 async function uploadDocById(docId) {
   const rec = (current && current.id === docId) ? current : await db.getDoc(docId).catch(() => null);
   if (!rec) return false;
-  const bundle = await buildBundleFor(rec, true); // timestamped: Drive never overwrites
+  const bundle = await buildBundleFor(rec, true); // Lane B bare flextext; timestamped: Drive never overwrites
   await db.putMedia('upload:' + docId, {
     blob: bundle.blob, name: bundle.filename, mime: bundle.mime,
     total: bundle.blob.size, sent: 0,
+    // Wire identity: upload.js sends rec.docId when present, else its queue key. Lane B's key IS
+    // the docId, so old queued records (no docId field) keep uploading unchanged after an update.
+    docId,
     docModified: rec.modified,
     docDone: !!rec.done,   // auto-delete fires only for FINISHED texts
     // Text identity for the per-text Drive folder ("FlexText Uploads / <device> / <title>").
@@ -4020,6 +3966,60 @@ async function uploadDocById(docId) {
     docFolderId: rec.driveFolderId || '',
   });
   uploadView.set(docId, { name: bundle.filename, status: 'waiting' });
+  renderUploadQueue();
+  // Lane split catch-up: a text whose media never left the device on ANY lane (recorded before the
+  // split, or a user-attached file) still has to get its recording out — queue Lane A beside this.
+  // Docs with an old zip upload (uploadedFileId) already have their audio inside that bundle.
+  if (!rec.mediaUploaded && !rec.uploadedFileId) { try { await queueMediaUpload(docId); } catch { /* Lane B proceeds regardless */ } }
+  pumpUploads();
+  return true;
+}
+
+/* LANE A (assign-by-upload rule 4): the recording + consent artifacts (clip, prompt, receipt)
+ * leave the device ASAP after a recording is saved, as ONE zip through the same tolerant queue —
+ * zips exist ONLY for this. Queue key 'media:<docId>' (persisted as 'upload:media:<docId>') so it
+ * sits beside the text's own Lane B record; the wire docId rides IN the record (upload.js sends
+ * rec.docId), so the worker files it under the same per-text folder. docDone:false — a media zip
+ * must never trigger auto-delete, and completion stamps mediaUploaded only, never the text's
+ * backup proof (uploadedFileId/uploadedSig certify the TEXT). */
+async function queueMediaUpload(docId) {
+  const rec = (current && current.id === docId) ? current : await db.getDoc(docId).catch(() => null);
+  if (!rec) return false;
+  if (isAudioLocked(rec)) return false;              // assigned-from-Drive audio never re-uploads
+  if (rec.mediaUploaded) return false;
+  const key = 'media:' + docId;
+  if (uploadView.has(key) || await db.getMedia('upload:' + key).catch(() => null)) return false;
+  const media = await db.getMedia(docId).catch(() => null);
+  if (!media || !media.blob) return false;
+  const consent = rec.consentClip ? await db.getMedia('consent:' + docId).catch(() => null) : null;
+  const promptAudio = rec.consentPromptClip ? await db.getMedia('consent-prompt:' + docId).catch(() => null) : null;
+  const receipt = rec.consentReceipt || null;
+  // Same short wait as the full-bundle path: an in-flight IP/location capture gets its window so
+  // the bundled record isn't needlessly "unavailable".
+  if (receipt && consentCapture && consentCapture.receipt === receipt) {
+    await Promise.race([consentCapture.promise, new Promise((r) => setTimeout(r, 5000))]);
+  }
+  const entries = [{ name: media.name || 'audio', data: media.blob }];
+  if (consent?.blob) entries.push({ name: consent.name || rec.consentClip, data: consent.blob });
+  if (promptAudio?.blob) entries.push({ name: promptAudio.name || rec.consentPromptClip, data: promptAudio.blob });
+  if (receipt) {
+    const full = { ...receipt, textTitle: rec.title || '' };
+    entries.push({ name: 'consent-receipt.json', data: new Blob([JSON.stringify(full, null, 2)], { type: 'application/json' }) });
+    entries.push({ name: 'consent-receipt.txt', data: new Blob([consentReceiptText(full)], { type: 'text/plain' }) });
+  }
+  const base = docFilename(rec).replace(/\.flextext$/, '');
+  const filename = `${base} media ${fileStamp()}.zip`;
+  const blob = await makeZip(entries);
+  await db.putMedia('upload:' + key, {
+    blob, name: filename, mime: 'application/zip',
+    total: blob.size, sent: 0,
+    docId, lane: 'media',
+    docModified: rec.modified,
+    docDone: false,
+    docTitle: rec.title || '',
+    docFolderId: rec.driveFolderId || '',
+  });
+  uploadView.set(key, { name: filename, status: 'waiting' });
   renderUploadQueue();
   pumpUploads();
   return true;
@@ -4126,6 +4126,26 @@ function uploadState(docId) {
     if (st.status === 'cancelled' || st.status === 'done') {
       uploadView.delete(docId);
       if (st.status === 'done') {
+        // LANE A ('media:<docId>') completion: the recording + consent zip is on Drive. Stamp the
+        // folder echo + mediaUploaded ONLY — a media zip does not certify the TEXT as backed up,
+        // so uploadedFileId/uploadedSig (the delete-safety proof) stay untouched, and docDone is
+        // always false on these records so the auto-delete branch below can never fire for one.
+        if (String(docId).startsWith('media:')) {
+          const realId = String(docId).slice(6);
+          const stampA = (d) => {
+            if (st.folderId) d.driveFolderId = st.folderId;   // next upload echoes it (folder dedupe)
+            d.mediaUploaded = true;
+          };
+          if (current && current.id === realId) stampA(current);
+          db.getDoc(realId).then(async (d) => {
+            if (d) { stampA(d); await db.putDoc(d); }
+            return Sync.reportNow();
+          }).catch(() => {});
+          toast(t('upload.done', { name: st.name }), 6000);
+          renderUploadQueue();
+          pumpUploads();
+          return;
+        }
         // Once a text is safely on Drive (status 'done' = confirmed by the relay
         // poll), optionally delete it from the device — see deleteAfterUpload()
         // for who decides (researcher link param, else per-app default). This

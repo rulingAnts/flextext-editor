@@ -246,6 +246,37 @@ async function sendResetEmail(env, toEmail, link) {
   } catch { return false; }
 }
 
+/* Origin allow-list matching, shared by the /v1 CORS headers and index.js's /drive gate.
+ *
+ * Entries are EXACT origins, the bare `*`, or a LEADING-STAR pattern matched by suffix:
+ * `*-flextext-researcher.68mh29kgsd.workers.dev` accepts every Cloudflare PREVIEW ALIAS of that
+ * app (`assign-by-upload-…`, `some-branch-…`) — because `deploy.sh` publishes any non-production
+ * branch to `<branch>-<worker>.workers.dev`, and a feature branch tested on its own preview estate
+ * is now the standard workflow for major work (CLAUDE.md).
+ *
+ * ⚠ The leading `-` in the pattern is load-bearing, and is why this is a suffix match rather than
+ * a wildcard subdomain. `https://flextext-researcher.68mh29kgsd.workers.dev` (PRODUCTION) does NOT
+ * end in `-flextext-researcher.…` — nothing precedes its name — so production origins still get NO
+ * CORS header from the staging worker. That was the point of listing staging origins only: a field
+ * device that somehow reaches this backend must fail loudly instead of quietly working. Previews
+ * are additive to that property, not a hole in it.
+ *
+ * Only `[env.staging]` carries star entries. Production's list is exact origins, so its behaviour
+ * is byte-identical to before this function existed. */
+export function originAllows(list, origin) {
+  if (!origin) return false;
+  // A real browser origin only: scheme + host (+ port). Anything with a path/query is not an
+  // Origin header value, and must never suffix-match its way in.
+  if (!/^https?:\/\/[a-z0-9.-]+(:\d+)?$/i.test(origin)) return false;
+  for (const e of list) {
+    if (e === '*' || e === origin) return true;
+    // Star entries are HTTPS-only: an exact entry may name a plaintext dev origin
+    // (http://localhost:8012 in .dev.vars), but nothing gets in by PATTERN over plaintext.
+    if (e.startsWith('*') && e.length > 1 && origin.startsWith('https://') && origin.endsWith(e.slice(1))) return true;
+  }
+  return false;
+}
+
 function v1Cors(origin, env) {
   const list = String(env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
   const h = {
@@ -260,7 +291,7 @@ function v1Cors(origin, env) {
     'Access-Control-Allow-Headers': 'content-type, x-fx-researcher, x-fx-install, x-fx-secret, x-fx-invite-secret, x-fx-turnstile, x-fx-name, x-fx-mime, x-fx-doc, x-fx-doctitle, x-fx-folder, x-fx-upload, x-fx-range, content-range',
   };
   // Reflect a known browser origin; curl/scripts send none → no ACAO needed.
-  if (origin && list.includes(origin)) h['Access-Control-Allow-Origin'] = origin;
+  if (originAllows(list, origin)) h['Access-Control-Allow-Origin'] = origin;
   return h;
 }
 
@@ -478,6 +509,42 @@ async function driveEnsureTextFolder(access, deviceFolderId, docId, title, known
   return f.id;
 }
 
+/* A tagged child folder under a KNOWN parent — used for "<Storyname>/assignment/" (assign-by-
+ * upload). Unlike the docId tag search above, this one IS parent-scoped: the assignment folder has
+ * no identity of its own, it belongs to whatever text folder it sits in — so when the researcher
+ * (or a move) re-parents the text folder, the child travels with it and the scoped search keeps
+ * finding it. Create on miss. */
+async function driveEnsureChildFolder(access, parentId, name, role) {
+  const q = encodeURIComponent(`'${parentId}' in parents and appProperties has { key='flextextRole' and value='${role}' } and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+  try {
+    const found = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files?spaces=drive&orderBy=createdTime&fields=files(id)&q=' + q);
+    if (found.files && found.files.length) return found.files[0].id;
+  } catch { /* fall through to create */ }
+  const f = await driveJson(access, 'POST', 'https://www.googleapis.com/drive/v3/files?fields=id',
+    { name, mimeType: 'application/vnd.google-apps.folder', parents: [parentId], appProperties: { flextextRole: role } });
+  return f.id;
+}
+
+/* Assignment-delivery TTL in days. The researcher configures it per account; the server clamp is
+ * authoritative (a hand-edited localStorage value cannot mint a decade-long token). The TTL bounds
+ * only the initial claim/download — files persist in device IndexedDB forever once fetched.
+ * Exported for tests (worker-email-domain precedent). */
+export function clampTtlDays(v) {
+  const n = parseInt(v, 10);
+  if (!Number.isFinite(n)) return 90;
+  return Math.min(Math.max(n, 7), 400);
+}
+
+// Mint a private, time-boxed streaming URL for GET /v1/textfile/<token>. Opaque (AES-GCM under
+// SERVER_HMAC_KEY), bound to the researcher whose Drive it streams from; works from a plain
+// header-less fetch, which is exactly how devices download assignment content. Same trust model
+// as invite links. `extract` = 'flextext' pulls the .flextext entry out of a STORE-only zip.
+async function mintTextfileUrl(env, urlOrigin, researcherId, fileId, extract, ttlMs) {
+  if (!fileId) return null;
+  return urlOrigin + '/v1/textfile/' + encodeURIComponent(await encAtRest(env, JSON.stringify(
+    { r: researcherId, f: fileId, x: extract || '', e: Date.now() + (ttlMs || 90 * 86400000) })));
+}
+
 // The recorder's folder in the RESEARCHER'S Drive: "FlexText Uploads / Crowd — <label>".
 // drive.file can only write to app-created files, so the worker creates (and
 // remembers) the folder itself; a trashed/vanished folder is transparently
@@ -513,6 +580,37 @@ async function driveUpload(access, folderId, name, buf, mime) {
   const data = await put.json().catch(() => ({}));
   if (!put.ok || !data.id) { const e = new Error('upload PUT HTTP ' + put.status); e.code = 'drive_error'; throw e; }
   return data.id;
+}
+
+/* Relay ONE chunk (or a "bytes star/total" status probe) of a resumable upload to the Drive session in
+ * `sess.u`. Shared by the device chunk endpoint and the researcher assignment/consent-prompt
+ * endpoints — the WIRE contract is one and the same (x-fx-range in; 308 → {done:false,received},
+ * 200 → {done:true,fileId}, dead session → session_gone). ⚠ Session-token OWNERSHIP is checked by
+ * each caller BEFORE this runs, against a route-distinct key (`sess.i` = installId on the device
+ * route, `sess.rr` = researcher_id on the researcher routes) — a token minted for one route can
+ * never drive the other. Returns { status, body } for the caller's j(). */
+async function relayDriveChunk(request, sess) {
+  const range = request.headers.get('x-fx-range') || request.headers.get('content-range') || '';
+  if (!/^bytes (\*|\d+-\d+)\/\d+$/.test(range)) return { status: 400, body: { error: 'bad_range' } };
+  const probe = range.startsWith('bytes */');
+  const chunk = probe ? null : await request.arrayBuffer();
+  if (chunk && chunk.byteLength > 33 * 1024 * 1024) return { status: 413, body: { error: 'chunk_too_large' } };
+  let fwd;
+  try {
+    fwd = await fetch(sess.u, { method: 'PUT', headers: { 'Content-Range': range }, body: chunk });
+  } catch { return { status: 502, body: { error: 'drive_unreachable' } }; }
+  if (fwd.status === 308) {
+    const r = fwd.headers.get('Range');                     // "bytes=0-N" — absent = nothing landed yet
+    const received = r ? parseInt(r.split('-')[1], 10) + 1 : 0;
+    return { status: 200, body: { done: false, received } };
+  }
+  if (fwd.ok) {
+    const data = await fwd.json().catch(() => ({}));
+    if (data.id) return { status: 200, body: { done: true, fileId: data.id } };
+    return { status: 502, body: { error: 'drive_error' } };
+  }
+  if (fwd.status === 404 || fwd.status === 410) return { status: 409, body: { error: 'session_gone' } };   // client restarts fresh
+  return { status: 502, body: { error: 'drive_error' } };
 }
 
 // Flag a background Drive-delivery problem on the researcher row (the panel's
@@ -689,7 +787,11 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     const ret = url.searchParams.get('return') || '';
     // Honor a full return URL (path included) as long as its ORIGIN is allow-listed; else a safe default.
     let returnTo = allow.find(o => o.includes('rulingants.github.io')) || allow[0] || 'https://rulingants.github.io';
-    try { const u = new URL(ret); if (allow.includes(u.origin)) returnTo = ret; } catch { /* not a URL → default */ }
+    // originAllows, not allow.includes: a feature-branch PREVIEW origin is admitted by the `*-`
+    // patterns in [env.staging] and would otherwise fail this exact-match test — sending the
+    // researcher, after a successful Google sign-in, to allow[0] (https://localhost on staging)
+    // instead of back to the panel they started from.
+    try { const u = new URL(ret); if (originAllows(allow, u.origin)) returnTo = ret; } catch { /* not a URL → default */ }
     const b64url = (b) => btoa(String.fromCharCode(...b)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
     const challenge = b64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))));
@@ -1340,22 +1442,145 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       if (!owned) return j({ error: 'not_found' }, 404, origin, env);
       const docId = String(seg[4] || '').replace(/[^\w-]/g, '').slice(0, 64);
       if (!docId) return j({ error: 'bad_doc' }, 400, origin, env);
+      /* ⚠ MODIFIES AN EXISTING ENDPOINT → STAGING-WORKER-TESTED FIRST (spec rule 9): the folder
+       * filter + assignment merge below change what shipped panels receive. All new JSON fields
+       * are additive (old panels ignore assignmentFolderId; they never classified folder rows as
+       * downloadable files on purpose, they just never used to receive any). */
       try {
         const access = await driveAccessToken(env, r);
         const fq = encodeURIComponent(`appProperties has { key='flextextDoc' and value='${docId}' } and mimeType='application/vnd.google-apps.folder' and trashed=false`);
         const found = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files?spaces=drive&orderBy=createdTime&fields=files(id)&q=' + fq);
-        if (!found.files || !found.files.length) return j({ files: [], folderId: null }, 200, origin, env);
+        if (!found.files || !found.files.length) return j({ files: [], folderId: null, assignmentFolderId: null }, 200, origin, env);
         const folderId = found.files[0].id;
-        const lq = encodeURIComponent(`'${folderId}' in parents and trashed=false`);
-        const list = await driveJson(access, 'GET',
-          'https://www.googleapis.com/drive/v3/files?spaces=drive&orderBy=modifiedTime desc&pageSize=200&fields=files(id,name,size,mimeType,modifiedTime,appProperties)&q=' + lq);
-        return j({ folderId, files: (list.files || []).map((f) => ({
+        const listChildren = async (parent) => {
+          const lq = encodeURIComponent(`'${parent}' in parents and trashed=false`);
+          const list = await driveJson(access, 'GET',
+            'https://www.googleapis.com/drive/v3/files?spaces=drive&orderBy=modifiedTime desc&pageSize=200&fields=files(id,name,size,mimeType,modifiedTime,appProperties)&q=' + lq);
+          return list.files || [];
+        };
+        const rows = await listChildren(folderId);
+        const isFolder = (f) => (f.mimeType || '') === 'application/vnd.google-apps.folder';
+        // The assignment/ child (assign-by-upload) holds the assigned audio + flextext — its
+        // contents are the text's files as much as the folder's own, so they merge into one list.
+        // Folder rows themselves are NOT files and never were meant to be listed.
+        const assignFolder = rows.find((f) => isFolder(f) && f.appProperties && f.appProperties.flextextRole === 'assignment');
+        const assignRows = assignFolder ? await listChildren(assignFolder.id) : [];
+        const files = rows.concat(assignRows).filter((f) => !isFolder(f)).map((f) => ({
           id: f.id, name: f.name, size: parseInt(f.size, 10) || 0, mime: f.mimeType || '', modified: f.modifiedTime || '',
           // The role tag distinguishes the ORIGINAL-assigned-audio copy from a recording the
           // device uploaded — the panel needs that to honour "show the cached link if and only
           // if no copy exists in the folder".
           role: (f.appProperties && f.appProperties.flextextRole) || '',
-        })) }, 200, origin, env);
+        })).sort((a, b) => String(b.modified).localeCompare(String(a.modified)));   // newest-first ACROSS the merge
+        return j({ folderId, assignmentFolderId: (assignFolder && assignFolder.id) || null, files }, 200, origin, env);
+      } catch (e) { return j({ error: e.code || 'drive_error', message: e.message }, 502, origin, env); }
+    }
+
+    /* ---- Assignment upload (assign-by-upload, 2026-08-11) — ADDITIVE endpoints ----
+     * The researcher PICKS the actual files; the panel streams them here in chunks; the worker
+     * lands them in "<Device>/<Storyname>/assignment/" in the researcher's own Drive and mints
+     * private streaming tokens for the assign command. Nothing is ever link-shared. The chunk
+     * wire contract is the device one (relayDriveChunk); the session token carries `rr` (the
+     * researcher id) so device/researcher tokens can never cross routes. */
+
+    // POST .../texts/<docId>/assignment/begin {title, folderId?} → the text folder + its
+    // assignment/ child, created as needed. folderId is a panel-remembered echo (files.get
+    // verification beats the eventually-consistent tag search — the v167 dedupe mechanism).
+    if (m === 'POST' && sub === 'texts' && seg.length === 7 && seg[5] === 'assignment' && seg[6] === 'begin') {
+      const r = await authResearcher(request, env);
+      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      const inst = await env.DB.prepare('SELECT instance_id, nickname, oauth_folder_id FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
+        .bind(instanceId, r.researcher_id).first();
+      if (!inst) return j({ error: 'not_found' }, 404, origin, env);
+      const docId = String(seg[4] || '').replace(/[^\w-]/g, '').slice(0, 64);
+      if (!docId) return j({ error: 'bad_doc' }, 400, origin, env);
+      const body = await readJson(request) || {};
+      try {
+        const access = await driveAccessToken(env, r);
+        const deviceFolder = await driveEnsureDeviceFolder(env, access, instanceId, inst.nickname, inst.oauth_folder_id);
+        const folder = await driveEnsureTextFolder(access, deviceFolder, docId, body.title, body.folderId);
+        const assignmentFolderId = await driveEnsureChildFolder(access, folder, 'assignment', 'assignment');
+        return j({ ok: true, folderId: folder, assignmentFolderId }, 200, origin, env);
+      } catch (e) { return j({ error: e.code || 'drive_error', message: e.message }, 502, origin, env); }
+    }
+
+    // POST .../texts/<docId>/assignment/upload/start {name, mime, size, assignmentFolderId, kind}
+    // → a Drive resumable session as an opaque uploadId (encrypted at rest, bound to THIS
+    // researcher via `rr`). kind names the role tag; 'consent-prompt' targets the DEVICE folder
+    // (a prompt is per-device, not per-text — the docId segment is ignored for it).
+    if (m === 'POST' && sub === 'texts' && seg.length === 8 && seg[5] === 'assignment' && seg[6] === 'upload' && seg[7] === 'start') {
+      const r = await authResearcher(request, env);
+      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      const inst = await env.DB.prepare('SELECT instance_id, nickname, oauth_folder_id FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
+        .bind(instanceId, r.researcher_id).first();
+      if (!inst) return j({ error: 'not_found' }, 404, origin, env);
+      const body = await readJson(request) || {};
+      const size = parseInt(body.size, 10) || 0;
+      if (size < 1 || size > 2 * 1024 * 1024 * 1024) return j({ error: 'bad_size' }, 400, origin, env);
+      const name = String(body.name || '').replace(/[\\/:*?"<>|]+/g, '_').trim().slice(0, 180) || ('assigned-' + now + '.bin');
+      const mime = String(body.mime || 'application/octet-stream').slice(0, 100);
+      // 'assigned-audio' reuses assign-copy's exact tag so existing classification keeps working.
+      const role = { audio: 'assigned-audio', flextext: 'assigned-flextext', 'consent-prompt': 'consent-prompt' }[body.kind];
+      if (!role) return j({ error: 'bad_kind' }, 400, origin, env);
+      try {
+        const access = await driveAccessToken(env, r);
+        let parent = String(body.assignmentFolderId || '');
+        if (body.kind === 'consent-prompt') {
+          parent = await driveEnsureDeviceFolder(env, access, instanceId, inst.nickname, inst.oauth_folder_id);
+        }
+        if (!parent) return j({ error: 'bad_folder' }, 400, origin, env);
+        const init = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id', {
+          method: 'POST',
+          headers: {
+            Authorization: 'Bearer ' + access, 'content-type': 'application/json',
+            'X-Upload-Content-Type': mime, 'X-Upload-Content-Length': String(size),
+          },
+          body: JSON.stringify({ name, mimeType: mime, parents: [parent], appProperties: { flextextRole: role } }),
+        });
+        const session = init.ok ? init.headers.get('Location') : null;
+        if (!session) { const e = new Error('no upload session (HTTP ' + init.status + ')'); e.code = 'drive_error'; throw e; }
+        const uploadId = await encAtRest(env, JSON.stringify({ u: session, rr: r.researcher_id, s: size }));
+        return j({ ok: true, uploadId }, 200, origin, env);
+      } catch (e) {
+        await noteDriveError(env, r.researcher_id, 'assignment upload start failed: ' + e.message);
+        return j({ error: e.code || 'drive_error' }, 502, origin, env);
+      }
+    }
+
+    // PUT .../texts/<docId>/assignment/upload/chunk — same wire contract as the device chunk
+    // relay; ownership key is `rr` (researcher), never `i` (install).
+    if (m === 'PUT' && sub === 'texts' && seg.length === 8 && seg[5] === 'assignment' && seg[6] === 'upload' && seg[7] === 'chunk') {
+      const r = await authResearcher(request, env);
+      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      let sess = null;
+      try { sess = JSON.parse(await decAtRest(env, request.headers.get('x-fx-upload') || '')); } catch { sess = null; }
+      if (!sess || !sess.u || sess.rr !== r.researcher_id) return j({ error: 'bad_upload' }, 403, origin, env);
+      const out = await relayDriveChunk(request, sess);
+      return j(out.body, out.status, origin, env);
+    }
+
+    // POST .../texts/<docId>/assignment/finish {audioFileId?, flextextFileId?, promptFileId?,
+    // ttlDays} → private streaming URLs for the E2EE assign command (and the settings push's
+    // prompt-URL field). TTL researcher-configurable; the server clamp is authoritative.
+    if (m === 'POST' && sub === 'texts' && seg.length === 7 && seg[5] === 'assignment' && seg[6] === 'finish') {
+      const r = await authResearcher(request, env);
+      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      const inst = await env.DB.prepare('SELECT instance_id, nickname FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
+        .bind(instanceId, r.researcher_id).first();
+      if (!inst) return j({ error: 'not_found' }, 404, origin, env);
+      const docId = String(seg[4] || '').replace(/[^\w-]/g, '').slice(0, 64);
+      const body = await readJson(request) || {};
+      if (!body.audioFileId && !body.flextextFileId && !body.promptFileId) return j({ error: 'nothing_to_mint' }, 400, origin, env);
+      const ttlDays = clampTtlDays(body.ttlDays);
+      const ttlMs = ttlDays * 86400000;
+      try {
+        const audioUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.audioFileId, '', ttlMs);
+        const flextextUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.flextextFileId, '', ttlMs);
+        const promptUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.promptFileId, '', ttlMs);
+        if (docId && (audioUrl || flextextUrl)) {
+          await logApproval(env, request, 'assigned_upload', docId.slice(0, 12) + '…', '→ ' + (inst.nickname || '?'), r.drive_email);
+        }
+        return j({ ok: true, ttlDays, audioUrl, flextextUrl, promptUrl }, 200, origin, env);
       } catch (e) { return j({ error: e.code || 'drive_error', message: e.message }, 502, origin, env); }
     }
 
@@ -1394,12 +1619,9 @@ export async function handleV1(request, env, ctx, url, path, origin) {
             + '?addParents=' + encodeURIComponent(toFolder) + (oldParents ? '&removeParents=' + encodeURIComponent(oldParents) : '') + '&fields=id');
           movedFolder = true;
         }
-        // Mint 90-day streaming tokens for whatever content the panel identified. Opaque + time-
-        // boxed, bound to this researcher; the /v1/textfile endpoint validates and streams.
-        const mint = async (fileId, extract) => fileId
-          ? (url.origin + '/v1/textfile/' + encodeURIComponent(await encAtRest(env, JSON.stringify(
-              { r: r.researcher_id, f: fileId, x: extract || '', e: now + 90 * 86400000 }))))
-          : null;
+        // Streaming tokens (default 90-day TTL) for whatever content the panel identified. Opaque
+        // + time-boxed, bound to this researcher; the /v1/textfile endpoint validates and streams.
+        const mint = (fileId, extract) => mintTextfileUrl(env, url.origin, r.researcher_id, fileId, extract);
         const flextextUrl = await mint(body.flextextFileId) || await mint(body.extractFromZipId, 'flextext');
         const audioUrl = await mint(body.audioFileId);
         await logApproval(env, request, 'text_moved', docId.slice(0, 12) + '…', (from.nickname || '?') + ' → ' + (to.nickname || '?'), r.drive_email);
@@ -1632,28 +1854,11 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         if (!install) return j({ error: 'unauthorized' }, 401, origin, env);
         let sess = null;
         try { sess = JSON.parse(await decAtRest(env, request.headers.get('x-fx-upload') || '')); } catch { sess = null; }
+        // `sess.i` is the DEVICE-route ownership key; researcher-route tokens carry `sess.rr`
+        // instead and can never pass here (see relayDriveChunk).
         if (!sess || !sess.u || sess.i !== installId) return j({ error: 'bad_upload' }, 403, origin, env);
-        const range = request.headers.get('x-fx-range') || request.headers.get('content-range') || '';
-        if (!/^bytes (\*|\d+-\d+)\/\d+$/.test(range)) return j({ error: 'bad_range' }, 400, origin, env);
-        const probe = range.startsWith('bytes */');
-        const chunk = probe ? null : await request.arrayBuffer();
-        if (chunk && chunk.byteLength > 33 * 1024 * 1024) return j({ error: 'chunk_too_large' }, 413, origin, env);
-        let fwd;
-        try {
-          fwd = await fetch(sess.u, { method: 'PUT', headers: { 'Content-Range': range }, body: chunk });
-        } catch { return j({ error: 'drive_unreachable' }, 502, origin, env); }
-        if (fwd.status === 308) {
-          const r = fwd.headers.get('Range');                     // "bytes=0-N" — absent = nothing landed yet
-          const received = r ? parseInt(r.split('-')[1], 10) + 1 : 0;
-          return j({ done: false, received }, 200, origin, env);
-        }
-        if (fwd.ok) {
-          const data = await fwd.json().catch(() => ({}));
-          if (data.id) return j({ done: true, fileId: data.id }, 200, origin, env);
-          return j({ error: 'drive_error' }, 502, origin, env);
-        }
-        if (fwd.status === 404 || fwd.status === 410) return j({ error: 'session_gone' }, 409, origin, env);   // client restarts fresh
-        return j({ error: 'drive_error' }, 502, origin, env);
+        const out = await relayDriveChunk(request, sess);
+        return j(out.body, out.status, origin, env);
       }
 
       // POST .../upload — DEVICE STREAMING UPLOAD: the enrolled device sends its

@@ -108,6 +108,37 @@ console.log('\ncleanup may take ONLY older backups — never the newest of a kin
   ok(cleanupCandidates([]).length === 0 && cleanupCandidates(null).length === 0, 'empty/null are safe');
 }
 
+console.log('\nassignment roles are their own kinds (assign-by-upload, 2026-08-11)');
+{
+  const r = latestPerKind([
+    { name: 'kisah.flextext', id: 'af1', role: 'assigned-flextext' },   // the researcher's delivered copy
+    f('kisah.flextext'),                                                // a device-uploaded backup
+    { name: 'prompt.mp3', id: 'cp1', role: 'consent-prompt' },
+    f('recording.mp3'),
+  ]);
+  ok(kinds(r).sort().join() === 'audio,consent-prompt,flextext,flextext-assigned',
+     'assigned-flextext / consent-prompt classify by ROLE, never swallowed by extension kinds');
+  ok(r.find((x) => x.kind === 'flextext-assigned').id === 'af1', 'the delivered flextext keeps its own row');
+  ok(r.find((x) => x.kind === 'flextext').name === 'kisah.flextext', 'beside (never instead of) the uploaded one');
+}
+
+console.log('\ncleanup NEVER proposes assignment-role files, however old');
+{
+  const ccSrc2 = panel.match(/function cleanupCandidates\(allFiles\) \{([\s\S]*?)\n\}/);
+  const cleanupCandidates2 = new Function('latestPerKind', 'allFiles', ccSrc2[1]).bind(null, latestPerKind);
+  const dead = cleanupCandidates2([
+    { id: 'z2', name: 'k 08-02.zip', modified: '2' },
+    { id: 'z1', name: 'k 08-01.zip', modified: '1' },
+    { id: 'af2', name: 'kisah.flextext', modified: '2', role: 'assigned-flextext' },
+    { id: 'af1', name: 'kisah old.flextext', modified: '1', role: 'assigned-flextext' },   // OLDER delivered copy
+    { id: 'cp1', name: 'old-prompt.mp3', modified: '0', role: 'consent-prompt' },
+    { id: 'oa1', name: 'story.mp3', modified: '0', role: 'assigned-audio' },
+  ]).map((x) => x.id);
+  ok(dead.join() === 'z1', 'only the older backup zip is a candidate');
+  ok(!dead.includes('af1'), 'an older ASSIGNED flextext is protected by its role');
+  ok(!dead.includes('cp1') && !dead.includes('oa1'), 'consent prompt + assigned audio protected too');
+}
+
 console.log('\nmalformed input degrades, never throws (this feeds a privileged panel)');
 {
   ok(Array.isArray(latestPerKind(null)) && latestPerKind(null).length === 0, 'null -> []');

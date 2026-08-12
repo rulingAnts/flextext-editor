@@ -154,13 +154,35 @@ enabled = true
 head_sampling_rate = 1
 
 [env.staging.vars]
-# ONLY the staging app origins (+ https://localhost for a debug APK pointed here by hand).
+# ONLY the staging app origins, the localhost dev rig, and every FEATURE-BRANCH PREVIEW ALIAS.
+#
 # Production origins are deliberately absent: if a field device ever reaches this worker, that is a
-# misconfiguration and a CORS refusal is the loudest, safest way for it to surface.
-ALLOWED_ORIGINS = "https://localhost,https://staging-flextext-editor.68mh29kgsd.workers.dev,https://staging-flextext-recorder.68mh29kgsd.workers.dev,https://staging-flextext-researcher.68mh29kgsd.workers.dev,https://staging-flextext-crowd.68mh29kgsd.workers.dev,https://staging-paragraph-analysis-tool.68mh29kgsd.workers.dev"
+# misconfiguration and a CORS refusal is the loudest, safest way for it to surface. The `*-` star
+# entries preserve that exactly — see originAllows() in src/v1.js: the leading `-` means
+# `https://<branch>-flextext-editor.…` matches while PRODUCTION `https://flextext-editor.…` does
+# not. They exist because deploy.sh publishes every non-production branch to
+# `<branch>-<worker>.workers.dev`, and testing a major feature on its own preview estate (rather
+# than on staging) is the standard workflow — so a new branch must not need a config edit here.
+ALLOWED_ORIGINS = "https://localhost,https://staging-flextext-editor.68mh29kgsd.workers.dev,https://staging-flextext-recorder.68mh29kgsd.workers.dev,https://staging-flextext-researcher.68mh29kgsd.workers.dev,https://staging-flextext-crowd.68mh29kgsd.workers.dev,https://staging-paragraph-analysis-tool.68mh29kgsd.workers.dev,*-flextext-editor.68mh29kgsd.workers.dev,*-flextext-recorder.68mh29kgsd.workers.dev,*-flextext-researcher.68mh29kgsd.workers.dev,*-flextext-crowd.68mh29kgsd.workers.dev,*-paragraph-analysis-tool.68mh29kgsd.workers.dev"
 MAX_FILE_BYTES  = "536870912"
 MAX_TOTAL_BYTES = "9500000000"
 # Tiny buffer ceiling ON STAGING ONLY, so ordinary test files exercise the big-file TEE cache path
 # (production keeps the 24 MB default and hits the tee path only on genuinely big audio). If a
 # tee-path bug exists, staging finds it with a 3 MB file instead of a field user with a 50 MB WAV.
+# ⚠ This is a CACHING-PATH knob, not a size limit: MAX_FILE_BYTES (512 MB) is what bounds
+# downloads, and both paths serve the whole file. It cannot cause a Drive download to fail.
 DRIVE_CACHE_MAX_BYTES = "2097152"
+
+# ⚠ TOML: every `key = value` above belongs to the [env.staging.vars] table it follows, so any new
+# table header must come AFTER the last var. Adding one in the middle silently moves the vars below
+# it into the wrong table.
+
+# The STAGING database, created 2026-08-11 so /v1 (researcher accounts, enrolment, assignments) can
+# be exercised here instead of only against production. It holds TEST accounts and devices only —
+# expect to re-create a researcher account and re-enrol a test device; that isolation is the point.
+# NEVER point this at `flextext-connectivity` (production).
+# Schema applied with: d1 execute flextext-connectivity-staging --remote --file=schema.sql
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "flextext-connectivity-staging"
+database_id = "95d4f1a1-e7c5-4eb0-a313-10eede8f7893"

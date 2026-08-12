@@ -13,7 +13,7 @@
 import { t, applyI18n, ENGINE_VERSION } from './i18n.js';
 import * as db from './db.js';
 import { parseFlextext, segmentsFromOffsets, esc } from './flextext.js';
-import { buildFxpa, peakPlan } from './seg-exports.js';
+import { buildFxpa, peakPlan, blobToBase64 } from './seg-exports.js';
 import { readEaf, describeTiers, detectMapping, detectStacks, looksMultiSpeaker, eafToLines } from './eaf-read.js';
 import { parseSfm, markerInventory, detectMapping as detectSfmMapping, sfmToTexts,
          normalizePastedSfm, looksLikeSfm, alignmentRisk, titleFromSfm } from './sfm.js';
@@ -191,7 +191,7 @@ async function handleFiles(files) {
     const audioFile = files.find((f) => /^audio\//.test(f.type) || /\.(wav|mp3|m4a|aac|ogg|opus|webm|flac)$/i.test(f.name));
     const hasSpans = doc.segments.some((s) => typeof s.start === 'number');
     const audioOpt = (audioFile && hasSpans)
-      ? { b64: await blobToB64(audioFile), mime: audioFile.type || 'audio/wav', name: audioFile.name }
+      ? { b64: await blobToBase64(audioFile), mime: audioFile.type || 'audio/wav', name: audioFile.name }
       : null;
     const fx = buildFxpa(doc, {
       title: doc.title || ft.name.replace(/\.flextext$/i, ''),
@@ -378,7 +378,7 @@ async function eafConfirm() {
   if (!conv.lines.length) return renderEafMapping([t('para.mapEmpty')]);
   const hasSpans = conv.lines.some((l) => typeof l.start === 'number');
   const audio = (P.audioFile && hasSpans)
-    ? { b64: await blobToB64(P.audioFile), mime: P.audioFile.type || 'audio/wav', name: P.audioFile.name }
+    ? { b64: await blobToBase64(P.audioFile), mime: P.audioFile.type || 'audio/wav', name: P.audioFile.name }
     : null;
   // Back into the shape buildFxpa() already knows — one paragraph per line, spans in parallel.
   const doc = {
@@ -602,7 +602,7 @@ async function sfmConfirm() {
   if (!tx || !tx.lines.length) return renderSfmMapping([t('para.mapEmpty')]);
   const hasSpans = tx.lines.some((l) => typeof l.start === 'number');
   const audio = (P.audioFile && hasSpans)
-    ? { b64: await blobToB64(P.audioFile), mime: P.audioFile.type || 'audio/wav', name: P.audioFile.name }
+    ? { b64: await blobToBase64(P.audioFile), mime: P.audioFile.type || 'audio/wav', name: P.audioFile.name }
     : null;
   const doc = {
     title: tx.title || P.name,
@@ -616,15 +616,6 @@ async function sfmConfirm() {
   try { localStorage.setItem(SFM_MAP_KEY, JSON.stringify(P.mapping)); } catch { /* non-fatal */ }
   pendingSfm = null;
   load(v.data);
-}
-
-function blobToB64(blob) {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(String(r.result).split(',')[1] || '');
-    r.onerror = () => reject(r.error);
-    r.readAsDataURL(blob);
-  });
 }
 
 /* ---------------- state / persistence ---------------- */
@@ -3195,7 +3186,7 @@ async function csvConfirm() {
   if (!lines.length) return renderCsvMapping([t('para.mapEmpty')]);
   const hasSpans = lines.some((l) => typeof l.start === 'number');
   const audio = (P.audioFile && hasSpans)
-    ? { b64: await blobToB64(P.audioFile), mime: P.audioFile.type || 'audio/wav', name: P.audioFile.name }
+    ? { b64: await blobToBase64(P.audioFile), mime: P.audioFile.type || 'audio/wav', name: P.audioFile.name }
     : null;
   const doc = {
     title: P.name,

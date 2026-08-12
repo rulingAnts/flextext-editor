@@ -1461,10 +1461,17 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         };
         const rows = await listChildren(folderId);
         const isFolder = (f) => (f.mimeType || '') === 'application/vnd.google-apps.folder';
-        // The originals/ child holds the text's SOURCE materials — the assigned audio/flextext, or the
-        // contents are the text's files as much as the folder's own, so they merge into one list.
-        // Folder rows themselves are NOT files and never were meant to be listed.
-        const assignFolder = rows.find((f) => isFolder(f) && f.appProperties && f.appProperties.flextextRole === 'originals');
+        /* The originals/ child holds the text's SOURCE materials — the assigned audio/flextext, or
+         * the device's own recording and consent files. Its contents are the text's files as much
+         * as the parent folder's own, so they merge into ONE list. Folder rows themselves are not
+         * files and were never meant to be listed.
+         *
+         * ⚠ 'assignment' is the LEGACY tag: the child was called that before the folder was
+         * renamed to serve recorded texts as well as assigned ones. Texts assigned in that window
+         * still carry it, and dropping it here would silently orphan their source files from every
+         * listing — the move picker and cleanup included. Match both, forever; it costs one `||`. */
+        const SOURCE_ROLES = ['originals', 'assignment'];
+        const assignFolder = rows.find((f) => isFolder(f) && f.appProperties && SOURCE_ROLES.includes(f.appProperties.flextextRole));
         const assignRows = assignFolder ? await listChildren(assignFolder.id) : [];
         const files = rows.concat(assignRows).filter((f) => !isFolder(f)).map((f) => ({
           id: f.id, name: f.name, size: parseInt(f.size, 10) || 0, mime: f.mimeType || '', modified: f.modifiedTime || '',

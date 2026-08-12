@@ -131,6 +131,14 @@ globalThis.fetch = async (input, init = {}) => {
     // search misses (the begin/start flows above create fresh folders).
     const q = decodeURIComponent(u.split('q=')[1] || '');
     if (q.includes("value='doc-list'")) return jr({ files: [{ id: 'tf-list' }] });
+    // A text assigned BEFORE the originals/ rename: its child still carries the legacy tag.
+    if (q.includes("value='doc-legacy'")) return jr({ files: [{ id: 'tf-legacy' }] });
+    if (q.includes("'tf-legacy' in parents")) return jr({ files: [
+      { id: 'sub9', name: 'assignment', mimeType: 'application/vnd.google-apps.folder', modifiedTime: '2026-08-01T00:00:00Z', appProperties: { flextextRole: 'assignment' } },
+    ] });
+    if (q.includes("'sub9' in parents")) return jr({ files: [
+      { id: 'l1', name: 'legacy.mp3', mimeType: 'audio/mpeg', size: '42', modifiedTime: '2026-08-05T00:00:00Z', appProperties: { flextextRole: 'assigned-audio' } },
+    ] });
     if (q.includes("'tf-list' in parents")) return jr({ files: [
       { id: 'sub1', name: 'originals', mimeType: 'application/vnd.google-apps.folder', modifiedTime: '2026-08-01T00:00:00Z', appProperties: { flextextRole: 'originals' } },
       { id: 'f1', name: 'kisah 2026-08-10.zip', mimeType: 'application/zip', size: '10', modifiedTime: '2026-08-10T00:00:00Z' },
@@ -258,6 +266,17 @@ console.log('\nfiles listing (STAGING-FIRST change): folders filtered, assignmen
   ok(b.files.map((f) => f.id).join() === 'x1,f1,a1,f2', `newest-first ACROSS the merge (got ${b.files.map((f) => f.id).join()})`);
   ok(b.files.find((f) => f.id === 'x1').role === 'assigned-flextext'
      && b.files.find((f) => f.id === 'a1').role === 'source-audio', 'each merged file keeps its role tag');
+}
+
+console.log("\nthe LEGACY assignment/ child is still merged (texts assigned before the rename)");
+{
+  const r = await call('/v1/instances/i1/texts/doc-legacy/files', { headers: AUTH });
+  const b = await r.json();
+  ok(r.status === 200, 'listing succeeds for a legacy-shaped text');
+  ok(b.originalsFolderId === 'sub9', "the old 'assignment'-tagged child is recognised as the source folder");
+  ok(b.files.some((f) => f.id === 'l1'),
+     'its source file is NOT orphaned by the rename — dropping the legacy tag would have hidden it from the move picker and cleanup');
+  ok(!b.files.some((f) => (f.mime || '').includes('folder')), 'and the folder row itself is still filtered out');
 }
 
 console.log(fail ? `\nFAILED (${fail})` : '\nPASS');

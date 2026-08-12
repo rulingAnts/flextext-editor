@@ -192,7 +192,24 @@ console.log('\nreclaim deletes OUR trashed files — never the user\'s whole tra
    * blew the cap — and that runtime error is not catchable by the try around it, it kills the whole
    * request. Reported as "Reclaim space throws an error", with the trashed-file COUNT as the hidden
    * variable: it works in testing and fails in use, which is the worst way for a bound to be wrong. */
-  ok(/if \(seen >= CAP\) break;/.test(purge), 'the batch is BOUNDED per request');
+  ok(/seen < CAP/.test(purge), 'the batch is BOUNDED per request (subrequest cap)');
+  /* ⚠ THE SECOND LIMIT, which the first fix missed: the CLIENT aborts at REQ_TIMEOUT_MS. 40
+   * SEQUENTIAL Drive deletes at ~500ms each is exactly 20s, so bounding the COUNT alone still timed
+   * out — reported as "The operation was aborted", a different error with the same root cause.
+   * Deleting in parallel waves makes wall time one round trip PER WAVE rather than per file, and
+   * the time budget stops a slow Drive walking into the timeout however fast calls nominally are. */
+  ok(/await Promise\.all\(wave\.map/.test(purge), 'deletes run in PARALLEL waves, not one at a time');
+  ok(/Date\.now\(\) - started\) < BUDGET_MS/.test(purge), 'and a wall-clock budget bounds the request independently');
+  const cap = parseInt((purge.match(/CAP = (\d+)/) || [])[1], 10);
+  const wave = parseInt((purge.match(/WAVE = (\d+)/) || [])[1], 10);
+  const budget = parseInt((purge.match(/BUDGET_MS = (\d+)/) || [])[1], 10);
+  const clientTimeout = parseInt((readFileSync(new URL('../docs/js/researcher.js', import.meta.url), 'utf8')
+    .match(/REQ_TIMEOUT_MS\s*=\s*(\d+)/) || [])[1], 10);
+  ok(cap + 2 < 50, `subrequests stay under the Worker cap (~${cap + 2} of 50)`);
+  ok(budget < clientTimeout, `the server budget (${budget}ms) fires BEFORE the client aborts (${clientTimeout}ms)`);
+  // Even at a pessimistic 500ms per Drive call, the waves must finish inside the client's timeout.
+  ok(Math.ceil(cap / wave) * 500 < clientTimeout,
+     `worst-case wall time ${(Math.ceil(cap / wave) * 500) / 1000}s < ${clientTimeout / 1000}s abort`);
   ok(/remaining = Math\.max\(0, dead\.length - seen\)/.test(purge), 'and it reports what is left');
   const panelSrc = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
   ok(/if \(!r\.remaining\) break;/.test(panelSrc), 'the panel repeats until nothing remains, so a backlog still clears');
@@ -349,6 +366,57 @@ console.log('\n...and the Unassigned folder is never mistaken for a DEVICE');
   const held = est.texts.find((t) => t.docId === 'd1');
   ok(held.inUnassigned === false && held.device === 'Edo Phone', 'a held text is unaffected');
   ok(swept.bytes === 2000, 'and its bytes still roll up normally from the new location');
+}
+
+console.log('\nthe UNASSIGNED card is on the dashboard, and is NOT a pseudo-instance');
+{
+  const panel = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
+  ok(/function renderUnassignedCard\(estate\)/.test(panel), 'the card renderer exists');
+  ok(/\$\{renderUnassignedCard\(estateCache\)\}/.test(panel), 'and is rendered in the dashboard body');
+
+  /* ⚠ THE STRUCTURAL RULE. A synthetic entry in lastData.instances would have to be special-cased
+   * at every site that iterates instances — the "one rule, several paths" drift the backlog warns
+   * about — and a fake instance_id could reach the worker, which has no such instance. */
+  ok(!/instances\.push\(|instances\.concat\(\[\{/.test(panel), 'nothing is injected into lastData.instances');
+  const card = (panel.match(/function renderUnassignedCard[\s\S]*?\n\}/) || [''])[0];
+  ok(!/instance_id:/.test(card), 'the card mints no instance_id of its own');
+  ok(/data-uact=/.test(card) && !/data-iact=/.test(card),
+     'its actions use their OWN attribute — instanceAction() assumes a real instance id');
+
+  // Same buttons as a device row, with the one substitution.
+  ok(/filesMenuHtml\(iid, tx\.docId/.test(card), 'Files menu');
+  ok(/data-uact="adopt"/.test(card) && /panel\.move\.btn/.test(card), 'Move…');
+  ok(/data-uact="drop"/.test(card) && /panel\.store\.remove/.test(card),
+     '"Remove from Google Drive" replaces "Remove from Device" — there is no device to remove from');
+
+  /* A text mid-MOVE is between devices, not unassigned. Listing it here would offer to delete
+   * Drive's only copy while the destination is still fetching it. */
+  const sel = (panel.match(/function unassignedTexts[\s\S]*?\n\}/) || [''])[0];
+  ok(/!assigned\.has\(tx\.docId\)/.test(sel), 'unassigned = no device inventory claims it');
+  ok(/!pendingMoves\.has\(tx\.docId\)/.test(sel), '...and a text mid-move is excluded');
+
+  // The estate is a Drive round trip: it must not ride the 12s poll.
+  ok(/if \(!prefetched && Researcher\.isApprovedSelf\(\)\) \{[\s\S]{0,400}Researcher\.driveEstate\(\)/.test(panel),
+     'the estate is fetched on FULL renders only, never the poll');
+}
+
+console.log('\n...and Move from Unassigned is a REAL re-assignment');
+{
+  const panel = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
+  const modalSrc = (panel.match(/function adoptTextModal[\s\S]*?\n\}\n\n/) || [''])[0];
+  ok(/Researcher\.adoptText\(to, docId/.test(modalSrc), 'it re-files the folder and mints streaming URLs');
+  ok(/await Researcher\.assign\(to, docId, fields\)/.test(modalSrc),
+     '...and then sends a real assign command, so the text goes live on the device');
+  ok(/kind: 'assign'/.test(modalSrc), 'with the same pending marker any assignment gets');
+  ok(/panel\.move\.nothingToMove/.test(modalSrc), 'and refuses when there is no content to deliver');
+
+  /* The adopt endpoint is ADDITIVE. /move requires toId !== instanceId by design; relaxing that to
+   * serve a source-less flow would make one endpoint mean two things, on a path field devices use. */
+  ok(/seg\[5\] === 'adopt'/.test(worker), 'the worker has its own adopt route');
+  ok(/toId === instanceId\) return j\(\{ error: 'bad_move' \}/.test(worker), '/move keeps its distinct-devices guard');
+  const adopt = (worker.match(/seg\[5\] === 'adopt'\) \{[\s\S]*?\n    \}/) || [''])[0];
+  ok(/flextextUnassigned: ''/.test(adopt), 'adopting clears the swept tag, so housekeeping will not fight it');
+  ok(/driveReparent\(access, f\.id, toFolder/.test(adopt), 'and the folder moves under the adopting device');
 }
 
 console.log(fail ? `\nFAILED (${fail})\n` : '\nall passed\n');

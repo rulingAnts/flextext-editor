@@ -409,7 +409,7 @@ export async function assignUploadChunk(instanceId, docId, uploadId, range, body
 /* The chunk loop — upload.js's _streamChunked, panel-side: 8 MiB slices, probe-first resume (Drive's
  * own byte count is the truth), session_gone → one fresh session, transient failures back off then
  * surface as a TRANSIENT error so the caller's queue re-enters later. part: { blob, name, mime,
- * kind, assignmentFolderId?, streamId? }. onSession persists the session token into the caller's
+ * kind, originalsFolderId?, streamId? }. onSession persists the session token into the caller's
  * queue record (resume across panel restarts); onProgress(sent, total) paints. Returns the fileId. */
 export async function assignUploadFile(instanceId, docId, part, { onProgress, onSession } = {}) {
   const CHUNK = 8 * 1024 * 1024;
@@ -419,7 +419,7 @@ export async function assignUploadFile(instanceId, docId, part, { onProgress, on
     if (!streamId) {
       const s = await assignUploadStart(instanceId, docId, {
         name: part.name, mime: part.mime, size: total,
-        assignmentFolderId: part.assignmentFolderId || '', kind: part.kind,
+        originalsFolderId: part.originalsFolderId || '', kind: part.kind,
       });
       streamId = s.uploadId;
       if (onSession) await onSession(streamId);

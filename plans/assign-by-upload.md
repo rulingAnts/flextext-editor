@@ -16,8 +16,19 @@ be the assignment folder, and have it include an initial flextext file after all
 assignment folder shape is consistent regardless of how the text was created."*
 
 **Locked decisions**
-1. `<Storyname>/assignment/` is the canonical source folder for EVERY text, however it was created.
-   Assigned texts get it at assign time; recorded texts create it on the first media upload.
+1. **`<Storyname>/originals/`** is the canonical source folder for EVERY text, however it was
+   created. Assigned texts get it at assign time; recorded texts create it on the first media
+   upload. NOT called `assignment/` (Seth, 2026-08-12): the name has to cover both cases, and for a
+   linguist browsing Drive "originals" says exactly what is in there — the untouched, as-delivered
+   or as-recorded materials, as against the derived and working copies elsewhere. File role tags
+   follow the same logic: `source-audio`, `source-flextext`, `consent-*`, `manifest`. (The panel's
+   `/assignment/*` WORKER ROUTES keep their name: they really are the assign flow, and the device
+   reaches the same folder through the ordinary upload endpoint with `x-fx-sub: originals`.)
+   ⚠ **No blank initial flextext** (Seth): an untranscribed text has nothing worth uploading. The
+   assigned flextext, when the researcher supplies one, IS a real source file and lives here —
+   "the only thing that really needs that original file, if it exists, is the client FlexText
+   Editor and only the first time it loads." It is therefore stored but NOT offered as its own
+   download item; the manifest records whether it exists.
 2. The device uploads the recording package as INDIVIDUAL FILES into that folder, not a zip.
    Considered and rejected: uploading a zip and having the worker unzip it into the folder. It is
    possible (our zips are STORE-only, so entries are contiguous byte ranges and could be streamed

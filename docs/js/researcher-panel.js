@@ -2247,9 +2247,9 @@ async function runAssignUpload(docId) {
   await save();
   paintAssignQueue();
   try {
-    if (!rec.assignmentFolderId) {
+    if (!rec.originalsFolderId) {
       const b = await Researcher.assignBegin(rec.instanceId, docId, rec.title, rec.folderId || '');
-      rec.folderId = b.folderId; rec.assignmentFolderId = b.assignmentFolderId;
+      rec.folderId = b.folderId; rec.originalsFolderId = b.originalsFolderId;
       await save();
     }
     let done = 0;
@@ -2259,7 +2259,7 @@ async function runAssignUpload(docId) {
       if (!rec[part + 'FileId']) {
         rec[part + 'FileId'] = await Researcher.assignUploadFile(rec.instanceId, docId, {
           blob: p.blob, name: p.name, mime: p.mime, kind: part === 'audio' ? 'audio' : 'flextext',
-          assignmentFolderId: rec.assignmentFolderId, streamId: rec[part + 'StreamId'] || null,
+          originalsFolderId: rec.originalsFolderId, streamId: rec[part + 'StreamId'] || null,
         }, {
           onProgress: (sent) => { view.sent = done + sent; paintAssignQueue(); },
           // The session token persists in the queue record, so a panel restart resumes MID-FILE.

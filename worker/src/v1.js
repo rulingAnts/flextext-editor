@@ -288,7 +288,7 @@ function v1Cors(origin, env) {
     // preflight silently kills the request on EVERY origin — production included. v134 added
     // x-fx-doc/x-fx-doctitle to uploads without extending this list, which broke all browser
     // uploads until v142. When adding a header client-side, add it here in the same commit.
-    'Access-Control-Allow-Headers': 'content-type, x-fx-researcher, x-fx-install, x-fx-secret, x-fx-invite-secret, x-fx-turnstile, x-fx-name, x-fx-mime, x-fx-doc, x-fx-doctitle, x-fx-folder, x-fx-upload, x-fx-range, content-range',
+    'Access-Control-Allow-Headers': 'content-type, x-fx-researcher, x-fx-install, x-fx-secret, x-fx-invite-secret, x-fx-turnstile, x-fx-name, x-fx-mime, x-fx-doc, x-fx-doctitle, x-fx-folder, x-fx-sub, x-fx-role, x-fx-upload, x-fx-range, content-range',
   };
   // Reflect a known browser origin; curl/scripts send none → no ACAO needed.
   if (originAllows(list, origin)) h['Access-Control-Allow-Origin'] = origin;
@@ -509,7 +509,7 @@ async function driveEnsureTextFolder(access, deviceFolderId, docId, title, known
   return f.id;
 }
 
-/* A tagged child folder under a KNOWN parent — used for "<Storyname>/assignment/" (assign-by-
+/* A tagged child folder under a KNOWN parent — used for "<Storyname>/originals/" (assign-by-
  * upload). Unlike the docId tag search above, this one IS parent-scoped: the assignment folder has
  * no identity of its own, it belongs to whatever text folder it sits in — so when the researcher
  * (or a move) re-parents the text folder, the child travels with it and the scoped search keeps
@@ -1444,13 +1444,13 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       if (!docId) return j({ error: 'bad_doc' }, 400, origin, env);
       /* ⚠ MODIFIES AN EXISTING ENDPOINT → STAGING-WORKER-TESTED FIRST (spec rule 9): the folder
        * filter + assignment merge below change what shipped panels receive. All new JSON fields
-       * are additive (old panels ignore assignmentFolderId; they never classified folder rows as
+       * are additive (old panels ignore originalsFolderId; they never classified folder rows as
        * downloadable files on purpose, they just never used to receive any). */
       try {
         const access = await driveAccessToken(env, r);
         const fq = encodeURIComponent(`appProperties has { key='flextextDoc' and value='${docId}' } and mimeType='application/vnd.google-apps.folder' and trashed=false`);
         const found = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files?spaces=drive&orderBy=createdTime&fields=files(id)&q=' + fq);
-        if (!found.files || !found.files.length) return j({ files: [], folderId: null, assignmentFolderId: null }, 200, origin, env);
+        if (!found.files || !found.files.length) return j({ files: [], folderId: null, originalsFolderId: null }, 200, origin, env);
         const folderId = found.files[0].id;
         const listChildren = async (parent) => {
           const lq = encodeURIComponent(`'${parent}' in parents and trashed=false`);
@@ -1460,10 +1460,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         };
         const rows = await listChildren(folderId);
         const isFolder = (f) => (f.mimeType || '') === 'application/vnd.google-apps.folder';
-        // The assignment/ child (assign-by-upload) holds the assigned audio + flextext — its
+        // The originals/ child holds the text's SOURCE materials — the assigned audio/flextext, or the
         // contents are the text's files as much as the folder's own, so they merge into one list.
         // Folder rows themselves are NOT files and never were meant to be listed.
-        const assignFolder = rows.find((f) => isFolder(f) && f.appProperties && f.appProperties.flextextRole === 'assignment');
+        const assignFolder = rows.find((f) => isFolder(f) && f.appProperties && f.appProperties.flextextRole === 'originals');
         const assignRows = assignFolder ? await listChildren(assignFolder.id) : [];
         const files = rows.concat(assignRows).filter((f) => !isFolder(f)).map((f) => ({
           id: f.id, name: f.name, size: parseInt(f.size, 10) || 0, mime: f.mimeType || '', modified: f.modifiedTime || '',
@@ -1472,7 +1472,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           // if no copy exists in the folder".
           role: (f.appProperties && f.appProperties.flextextRole) || '',
         })).sort((a, b) => String(b.modified).localeCompare(String(a.modified)));   // newest-first ACROSS the merge
-        return j({ folderId, assignmentFolderId: (assignFolder && assignFolder.id) || null, files }, 200, origin, env);
+        return j({ folderId, originalsFolderId: (assignFolder && assignFolder.id) || null, files }, 200, origin, env);
       } catch (e) { return j({ error: e.code || 'drive_error', message: e.message }, 502, origin, env); }
     }
 
@@ -1499,12 +1499,12 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         const access = await driveAccessToken(env, r);
         const deviceFolder = await driveEnsureDeviceFolder(env, access, instanceId, inst.nickname, inst.oauth_folder_id);
         const folder = await driveEnsureTextFolder(access, deviceFolder, docId, body.title, body.folderId);
-        const assignmentFolderId = await driveEnsureChildFolder(access, folder, 'assignment', 'assignment');
-        return j({ ok: true, folderId: folder, assignmentFolderId }, 200, origin, env);
+        const originalsFolderId = await driveEnsureChildFolder(access, folder, 'originals', 'originals');
+        return j({ ok: true, folderId: folder, originalsFolderId }, 200, origin, env);
       } catch (e) { return j({ error: e.code || 'drive_error', message: e.message }, 502, origin, env); }
     }
 
-    // POST .../texts/<docId>/assignment/upload/start {name, mime, size, assignmentFolderId, kind}
+    // POST .../texts/<docId>/assignment/upload/start {name, mime, size, originalsFolderId, kind}
     // → a Drive resumable session as an opaque uploadId (encrypted at rest, bound to THIS
     // researcher via `rr`). kind names the role tag; 'consent-prompt' targets the DEVICE folder
     // (a prompt is per-device, not per-text — the docId segment is ignored for it).
@@ -1520,11 +1520,11 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       const name = String(body.name || '').replace(/[\\/:*?"<>|]+/g, '_').trim().slice(0, 180) || ('assigned-' + now + '.bin');
       const mime = String(body.mime || 'application/octet-stream').slice(0, 100);
       // 'assigned-audio' reuses assign-copy's exact tag so existing classification keeps working.
-      const role = { audio: 'assigned-audio', flextext: 'assigned-flextext', 'consent-prompt': 'consent-prompt' }[body.kind];
+      const role = { audio: 'source-audio', flextext: 'source-flextext', 'consent-prompt': 'consent-prompt', manifest: 'manifest' }[body.kind];
       if (!role) return j({ error: 'bad_kind' }, 400, origin, env);
       try {
         const access = await driveAccessToken(env, r);
-        let parent = String(body.assignmentFolderId || '');
+        let parent = String(body.originalsFolderId || '');
         if (body.kind === 'consent-prompt') {
           parent = await driveEnsureDeviceFolder(env, access, instanceId, inst.nickname, inst.oauth_folder_id);
         }
@@ -1889,14 +1889,22 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         let docTitle = '';
         try { docTitle = decodeURIComponent(request.headers.get('x-fx-doctitle') || ''); } catch { /* keep '' */ }
         const knownFolder = String(request.headers.get('x-fx-folder') || '').trim();   // the id we returned last time
+        // v2 source package: 'assignment' files the upload in the text's assignment/ child, and the
+        // role tag is what every consumer matches on (never the filename — a story rename must not
+        // break detection). Absent on old engines → the text folder, exactly as before.
+        const sub = String(request.headers.get('x-fx-sub') || '').trim();
+        const role = String(request.headers.get('x-fx-role') || '').trim().slice(0, 40);
         const buf = await request.arrayBuffer();
         if (buf.byteLength > cap) return j({ error: 'too_large', limit: cap }, 413, origin, env);
         if (!buf.byteLength) return j({ error: 'empty' }, 400, origin, env);
         try {
           const access = await driveAccessToken(env, inst);
           const deviceFolder = await driveEnsureDeviceFolder(env, access, instanceId, inst.inst_nickname, inst.inst_folder);
-          const folder = docId ? await driveEnsureTextFolder(access, deviceFolder, docId, docTitle, knownFolder) : deviceFolder;
-          const fileId = await driveUpload(access, folder, name, buf, mime);
+          const textFolder = docId ? await driveEnsureTextFolder(access, deviceFolder, docId, docTitle, knownFolder) : deviceFolder;
+          const folder = (sub === 'originals' && docId)
+            ? await driveEnsureChildFolder(access, textFolder, 'originals', 'originals')
+            : textFolder;
+          const fileId = await driveUpload(access, folder, name, buf, mime, role ? { flextextRole: role } : null);
           // folderId rides back so the device REMEMBERS it (strong-consistency dedupe above).
           return j({ ok: true, fileId, folderId: folder !== deviceFolder ? folder : undefined }, 200, origin, env);
         } catch (e) {

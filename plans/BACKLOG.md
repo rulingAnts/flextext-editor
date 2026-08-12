@@ -718,3 +718,40 @@ researcher's unrelated Drive contents even by mistake. Practically:
 rules, because a number the researcher can watch is what makes a retention policy legible — and
 because the write half (`storageQuotaExceeded` classified permanent, per the entry above) is what
 stops a device retrying forever, which is the part that actually costs a field worker their day.
+
+## NEXT CYCLE (Seth, 2026-08-12): a Drive-side text inventory modal — list, remove, Files ▾
+
+> "We also should build a modal or a text list that shows Texts that are on the Google Drive folder.
+> That should be easy to inventory now. And all have a 'Remove from Google drive' (which asks the
+> user if they're sure they want to move it to their Google Drive trash folder), and also a 'Files'
+> menu with the same behavior as anywhere else — download options if a manifest file is present,
+> 'Open in Google Drive' if not."
+>
+> "That's also NEXT release cycle, not this one."
+
+**Why it is genuinely easy now, and was not before.** The panel's existing text lists are keyed off
+DEVICE INVENTORY — they show what a device currently reports holding. A text uploaded and then
+deleted from the device disappears from the panel even though its Drive folder is still there, and
+that gap is exactly what a researcher cannot see today. The v2 restructure makes the Drive side
+enumerable in its own right: every text is `FlexText Uploads/<Device>/<Storyname>/`, tagged
+`flextextDoc=<docId>` (v1.js `driveEnsureTextFolder`), so listing text folders is a tag search, not
+a filename guess. The v3 manifest then names each one without opening anything.
+
+**What it needs (nothing here is a redesign — it is assembly):**
+- ONE additive worker endpoint: list the text folders under an instance's device folder(s), each
+  with `{ folderId, docId, title, modified, hasManifest }`. Additive ⇒ straight-to-prod eligible
+  under locked decision 9. Reuse `driveEnsureDeviceFolder` + the same tag search shape.
+- The Files ▾ control is already renderable anywhere (`filesMenuHtml(instanceId, docId, …)` is
+  deliberately independent of device rows — History entries already use it), and after v3 its body
+  is manifest-driven, so "download options if a manifest is present, Open in Drive if not" is
+  ALREADY the behaviour. The modal reuses it verbatim; no second menu.
+- "Remove from Google Drive" is `Researcher.trashFiles([folderId])` with a confirm — the same call
+  and the same 30-day-recoverable trash semantics the History row's folder removal already uses
+  (`data-histclean`). Copy that confirm's wording: it already says trash, not delete.
+- ⚠ Pair it with the storage-quota readout above. A "remove" that trashes does NOT free quota until
+  the trash is emptied, so an inventory screen with removals on it is exactly where a researcher
+  will expect the space to come back — and where the surprise will land if it does not.
+
+**One judgement call to make when building it:** whether this modal replaces, or sits beside, the
+per-text Files ▾ on device rows. Beside, probably — the device row answers "what is on this device",
+the modal answers "what is in my Drive", and after v3 those are legitimately different questions.

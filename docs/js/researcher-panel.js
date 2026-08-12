@@ -17,7 +17,7 @@ import { t, getLang, setLang, applyI18n, ENGINE_VERSION, BUILD_TAG, LANGS, LANG_
 import { REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { importPublicKeyB64, publicKeyFingerprint } from './crypto.js';
 import { esc, parseFlextext, surveyWritingSystems, remapWritingSystems, analyzeFlextextWs, segmentsFromOffsets } from './flextext.js';
-import { assembleSegEntries, MANIFEST_NAME } from './seg-exports.js';
+import { assembleSegEntries, MANIFEST_NAME, sanitizeBase, mediaNameFor, derivedWavName } from './seg-exports.js';
 import { convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
 import WaveSurfer from './vendor/wavesurfer.esm.js';
 import * as db from './db.js';
@@ -1460,7 +1460,7 @@ async function runMenuConversion(wrap, kind, itemEl) {
   const paint = (msg) => { if (sub) sub.textContent = msg; };
   try {
     const title = wrap.dataset.title || 'text';
-    const base = title.replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80) || 'text';
+    const base = sanitizeBase(title) || 'text';   // the ONE shared rule (seg-exports.js)
     paint(t('panel.dl.working'));
     const xml = await menuFlextextText(wrap);
     if (!xml) { deps.toast(t('panel.dl.zipFailed'), 5000); return; }
@@ -1485,14 +1485,19 @@ async function runMenuConversion(wrap, kind, itemEl) {
       const est = isWav ? (af.size || 0) : (af.size || 0) * 10;
       if (est > CONV_DECODED_MAX) { deps.toast(t('panel.dl.tooBigConvert'), 8000); return; }
       const blob = await menuFetch(wrap, af.id);
-      media = { name: af.name || 'audio', mimeType: af.mime || blob.type || 'audio/*', blob };
+      /* v3 NAMING: from the STORY TITLE, not from the Drive file's name — an assigned text's
+       * original was uploaded under a token-derived name before the fix, and reading it here is
+       * what put gibberish on the researcher's downloads. `srcName` still records the REAL source
+       * file, because the bext chunk's honesty depends on naming what was actually converted. */
+      media = { name: mediaNameFor(base, { name: af.name, mime: af.mime || blob.type }),
+                mimeType: af.mime || blob.type || 'audio/*', blob };
       if (isWav) segMedia = media;
       else {
         // Same reason the editor works on a WAV copy: AAC priming makes decode and playback
         // disagree; ELAN/SayMore get exact alignment against PCM. Same honest name, too.
         const res = await convertAudio(await blob.arrayBuffer(), { format: 'wav', wavBits: 16 },
           (f) => paint(t('convert.working', { pct: Math.round(f * 100) })));
-        segMedia = { name: (af.name || 'audio').replace(/\.[^.]+$/, '') + '.converted-NOT-ARCHIVAL.wav',
+        segMedia = { name: derivedWavName(base),
           mimeType: 'audio/wav', blob: res.blob, derived: true, srcName: af.name || '' };
       }
     }

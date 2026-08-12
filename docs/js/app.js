@@ -19,7 +19,8 @@ import { losslessSupported, recFormatSupported, PCMRecorder, encodeWav, encodeRe
 import WaveSurfer from './vendor/wavesurfer.esm.js';
 import { makeZip } from './zip.js';
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay } from './segment-strips.js';
-import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME } from './seg-exports.js';
+import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME,
+         sanitizeBase, extOf, mediaNameFor, derivedWavName } from './seg-exports.js';
 import { mergeSegments, splitSegment, isAligned, normalizeSegments } from './segments.js';
 import { initParagraphApp } from './paragraph-ui.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget } from './upload.js';
@@ -1033,7 +1034,7 @@ function switchTab(tab) {
       $('#seg-loading').hidden = false;
       (async () => {
         let media = stripsFor ? await db.getMedia(stripsFor).catch(() => null) : null;
-        media = await segWorkingMedia(stripsFor, media);   // same WAV the player uses
+        media = await segWorkingMedia(stripsFor, media, current && current.title);   // same WAV the player uses
         if (!current || current.id !== stripsFor || !isEditorTab(activeTab)) return;  // doc switched under us
         /* ⚠ NO AUDIO ⇒ THE CLASSIC EDITOR (Seth): "our app should fall back on the basic editor if
          * there's no attached audio file." Strips over a doc with no recording are all pending by
@@ -1072,7 +1073,7 @@ function switchTab(tab) {
     if (segmentationEnabled()) {
       (async () => {
         let media = current ? await db.getMedia(current.id).catch(() => null) : null;
-        media = await segWorkingMedia(current && current.id, media);
+        media = await segWorkingMedia(current && current.id, media, current && current.title);
         await ensurePeaks(current && current.id, media && media.blob, (current && playerReadyFor === current.id && player && player.decodedBuffer) ? player.decodedBuffer() : null);
         decorateGlossSegments();
       })();
@@ -1205,7 +1206,7 @@ function isAudioLocked(rec) {
  * working copy lives beside it under its own key and is a pure derivation (lossy→PCM adds no
  * information; this is a timeline fix, not an upgrade — see audio-archival-standards).
  */
-async function segWorkingMedia(docId, media) {
+async function segWorkingMedia(docId, media, title = '') {
   if (!media || !media.blob) return media;
   const isWav = /wav$/i.test(media.mimeType || '') || /\.wav$/i.test(media.name || '');
   if (isWav || !segmentationEnabled()) return media;
@@ -1220,7 +1221,9 @@ async function segWorkingMedia(docId, media) {
     try { ctx.close(); } catch { /* noop */ }
     const rec = { blob: wavBlob, mimeType: 'audio/wav', derived: true, srcName: media.name,
       mediaKey: key,   // peaks writeback targets THIS record, never the original's key
-      name: String(media.name || 'audio').replace(/\.[^.]+$/, '') + '.converted-NOT-ARCHIVAL.wav' };
+      // v3: named from the STORY TITLE, not from media.name — an assigned text's media.name was
+      // the delivery token, and it propagated into this derived copy and every export built on it.
+      name: derivedWavName(sanitizeBase(title) || String(media.name || 'audio').replace(/\.[^.]+$/, '')) };
     await db.putMedia(key, rec).catch(() => {});
     return rec;
   } catch { return media; }   // undecodable → play the original; alignment caveat stands
@@ -1233,7 +1236,7 @@ async function refreshPlayer() {
   if (!current) { p.hide(); return; }
   playerDocId = current.id;
   let media = await db.getMedia(current.id).catch(() => null);
-  media = await segWorkingMedia(current.id, media);   // WAV working copy in segmentation mode
+  media = await segWorkingMedia(current.id, media, current.title);   // WAV working copy in segmentation mode
   if (current.id !== playerDocId || !isEditorTab(activeTab)) return;
   p.el.remove.hidden = isAudioLocked(current);
   if (media) {
@@ -1532,7 +1535,7 @@ function consentAudioIdentity() {
 // Keep the cached consent-prompt audio in sync with the researcher's URL.
 async function syncConsentAudio() {
   if (consentAskList().includes('audio') && settings.consentAudio) {
-    try { await ensureAsset('asset:consent-prompt', settings.consentAudio, consentAudioIdentity()); }
+    try { await ensureAsset('asset:consent-prompt', settings.consentAudio, consentAudioIdentity(), 'consent-prompt'); }
     catch { /* will retry next time; consent can still show text fallback */ }
   }
 }
@@ -1594,7 +1597,7 @@ async function requestConsentThen(onApproved) {
       // media store and clobber a field worker's cached prompt on a shared device.
       const asset = CROWD_MODE
         ? await crowdFetchAsset(settings.consentAudio)
-        : (await ensureAsset('asset:consent-prompt', settings.consentAudio, consentAudioIdentity())
+        : (await ensureAsset('asset:consent-prompt', settings.consentAudio, consentAudioIdentity(), 'consent-prompt')
            || await getAsset('asset:consent-prompt'));
       if (asset?.blob) {
         audioEl.src = URL.createObjectURL(asset.blob);
@@ -3824,9 +3827,7 @@ function exportBlob() {
 }
 
 function exportFilename() {
-  const t2 = (($('#doc-title')?.value.trim()) || current.title || 'text')
-    .replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80);
-  return t2 + '.flextext';
+  return (sanitizeBase(($('#doc-title')?.value.trim()) || current.title) || 'text') + '.flextext';
 }
 
 // Build what gets saved/uploaded: when the text's audio came from the USER
@@ -3876,7 +3877,11 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
   if (hasAligned && media) {
     const working = await db.getMedia('segwav:' + rec.id).catch(() => null);
     segMedia = (working && working.blob && working.srcName === media.name) ? working : media;
-    segMediaName = segMedia.name || 'audio';
+    /* v3: the exported name is derived from the STORY TITLE, never from the stored media name.
+     * A text assigned before the download fix has media.name === the delivery token, and reading
+     * it here is what produced `bwpX_YzJZRolHdh_.converted-NOT-ARCHIVAL.wav`. Deriving it fixes
+     * those texts on their next export, with no migration and no re-download. */
+    segMediaName = segMedia.derived ? derivedWavName(base) : mediaNameFor(base, segMedia);
   }
   /* LANE B (assign-by-upload rule 4): an UPLOAD is the BARE .flextext — never zipped. The
    * recording + consent artifacts leave on their own Lane A zip the moment a recording is saved
@@ -3887,7 +3892,7 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
    * point at a file that is nowhere in the folder). Local saves (opts.full) are untouched. */
   if (!opts.full) {
     const uploadMediaName = (hasAligned && media)
-      ? (isAudioLocked(rec) ? (media.name || 'audio') : segMediaName)
+      ? (isAudioLocked(rec) ? mediaNameFor(base, media) : segMediaName)
       : undefined;
     const bare = serializeDocBlob(rec, uploadMediaName);
     const bstamp = withTimestamp ? ' ' + fileStamp() : '';
@@ -3921,7 +3926,9 @@ async function buildBundleFor(rec, withTimestamp, opts = {}) {
   const stamp = withTimestamp ? ' ' + fileStamp() : '';
   if (userAudio || consent || promptAudio || receipt || segEntries.length) {
     const entries = [{ name, data: xmlBlob }, ...segEntries];
-    if (userAudio) entries.push({ name: media.name || 'audio.mp3', data: media.blob });
+    /* The zip entry name and the EAF's media reference MUST be the same string — both are now
+     * title-derived, so they cannot disagree (they would have if only one side were fixed). */
+    if (userAudio) entries.push({ name: mediaNameFor(base, media), data: media.blob });
     if (consent?.blob) entries.push({ name: consent.name || rec.consentClip, data: consent.blob });
     if (promptAudio?.blob) entries.push({ name: promptAudio.name || rec.consentPromptClip, data: promptAudio.blob });
     if (receipt) {
@@ -3949,8 +3956,10 @@ function serializeDocBlob(rec, mediaName) {
 }
 
 function docFilename(rec) {
-  const base = (rec.title || 'text').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80);
-  return base + '.flextext';
+  // ONE rule, shared with the source package and the worker's Drive folder name (seg-exports.js
+  // sanitizeBase). This used to cap at 80 while the package used 120 — the v3 work order's
+  // "pick one rule and share it".
+  return (sanitizeBase(rec.title) || 'text') + '.flextext';
 }
 
 // Queue a doc for upload BY ID — works whether or not it is the open doc, so a researcher
@@ -4071,18 +4080,8 @@ async function queueMediaUpload(docId) {
 }
 
 
-// Drive-safe file base from a story title — the SAME rule the worker uses for the folder name, so
-// "<Storyname>.<ext>" and "<Storyname>/" cannot disagree.
-function sanitizeBase(title) {
-  return String(title || '').replace(/[\\/:*?"<>|]+/g, '_').trim().slice(0, 120);
-}
-function extOf(name, mime) {
-  const m = /(\.[A-Za-z0-9]{1,5})$/.exec(String(name || ''));
-  if (m) return m[1].toLowerCase();
-  const t = String(mime || '').split(';')[0];
-  return ({ 'audio/wav': '.wav', 'audio/x-wav': '.wav', 'audio/mpeg': '.mp3', 'audio/flac': '.flac',
-    'audio/ogg': '.ogg', 'audio/webm': '.webm', 'audio/mp4': '.m4a', 'audio/aac': '.aac' })[t] || '';
-}
+// sanitizeBase / extOf now live in seg-exports.js (imported above) — the ONE naming rule shared by
+// the device, the panel and the downloader. See the FILE NAMING block there for why.
 
 /* The package's metadata record — and the contract a consumer checks completeness against.
  * `origin` is the provenance field: how this text came to exist, so the suite never has to infer

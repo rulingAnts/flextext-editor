@@ -783,7 +783,13 @@ export function howToOpenText({ base, segMediaName, derived, eaf, saymore, previ
 export async function assembleSegEntries({ doc, title = '', base = 'text', media = null, segMedia = null,
                                            wants = {}, vern = 'und', anal = 'en', full = false } = {}) {
   const entries = [];
-  const segMediaName = segMedia ? (segMedia.name || 'audio') : '';
+  /* ⚠ NAMES COME FROM `base` (the story title), NEVER from the stored media name — the v3 rule.
+   * A caller may pass a segMedia whose `name` is a pre-fix delivery token; deriving here means the
+   * EAF's media reference, the WAV entry that ships beside it, and the SayMore `.annotations.eaf`
+   * are all built from the same clean string, so they cannot disagree with each other either. */
+  const segMediaName = segMedia
+    ? (segMedia.derived ? derivedWavName(base) : mediaNameFor(base, segMedia))
+    : '';
   if (media && segMedia && (wants.eaf || wants.saymore || wants.preview)) {
     const wavName = /\.wav$/i.test(segMediaName) || /wav$/i.test(segMedia.mimeType || '');
     const eafOpts = { vern, anal, mediaName: segMediaName, mediaMime: wavName ? 'audio/x-wav' : (segMedia.mimeType || 'audio/*') };
@@ -813,7 +819,7 @@ export async function assembleSegEntries({ doc, title = '', base = 'text', media
     }
     if (full && wants.preview) {
       // Named after the ORIGINAL recording (Seth): story.m4a → story.preview.html.
-      const previewBase = String(media.name || base).replace(/\.[^.]+$/, '');
+      const previewBase = sanitizeBase(base) || 'audio';
       const b64 = await blobToBase64(segMedia.blob);
       entries.push({ name: previewBase + '.preview.html', data: new Blob([buildSegPreviewHtml(doc, {
         title: title || base, audioB64: b64, audioMime: segMedia.mimeType || 'audio/wav', mediaName: segMediaName,
@@ -824,7 +830,7 @@ export async function assembleSegEntries({ doc, title = '', base = 'text', media
     entries.push({ name: 'HOW-TO-OPEN.txt', data: new Blob([howToOpenText({
       base, segMediaName, derived: !!segMedia.derived,
       eaf: wants.eaf, saymore: wants.saymore, preview: !!(full && wants.preview),
-      previewName: String(media.name || base).replace(/\.[^.]+$/, '') + '.preview.html',
+      previewName: (sanitizeBase(base) || 'audio') + '.preview.html',
       json: !!(full && wants.fxpa),
     })], { type: 'text/plain' }) });
   }
@@ -913,15 +919,18 @@ export function nameFromUrl(url) {
   return /\.[A-Za-z0-9]{1,5}$/.test(tail) ? tail : '';
 }
 
-/* The name to STORE a downloaded media file under. Precedence is the v3 work order's, in order:
- * the story title, then Content-Disposition, then the URL tail — and 'audio' when all three are
- * silent. The EXTENSION is taken from whichever real filename we saw (or the MIME type), because
- * the title never carries one. */
-export function storedMediaName({ title = '', disposition = '', url = '', mime = '' } = {}) {
-  const cd = nameFromDisposition(disposition);
+/* The name to STORE a downloaded media file under. Precedence is the v3 work order's: the story
+ * title, then a filename the SERVER stated (`name` — a relay envelope's own field, or
+ * Content-Disposition), then the URL tail — and 'audio' when all of them are silent. The EXTENSION
+ * comes from whichever real filename was seen, or failing that the MIME type, because a title never
+ * carries one.
+ * ⚠ `name` must already be a trusted filename (server-stated), NOT a raw URL segment — that is what
+ * nameFromUrl is for, and its token guard is the whole point of this module. */
+export function storedMediaName({ title = '', name = '', disposition = '', url = '', mime = '' } = {}) {
+  const stated = String(name || '').split(/[\\/]/).pop() || nameFromDisposition(disposition);
   const tail = nameFromUrl(url);
-  const ext = extOf(cd, '') || extOf(tail, '') || extOf('', mime);
-  const base = sanitizeBase(title) || stripExt(cd) || stripExt(tail) || 'audio';
+  const ext = extOf(stated, '') || extOf(tail, '') || extOf('', mime);
+  const base = sanitizeBase(title) || stripExt(stated) || stripExt(tail) || 'audio';
   return base + ext;
 }
 

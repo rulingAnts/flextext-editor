@@ -192,7 +192,24 @@ console.log('\nreclaim deletes OUR trashed files — never the user\'s whole tra
    * blew the cap — and that runtime error is not catchable by the try around it, it kills the whole
    * request. Reported as "Reclaim space throws an error", with the trashed-file COUNT as the hidden
    * variable: it works in testing and fails in use, which is the worst way for a bound to be wrong. */
-  ok(/if \(seen >= CAP\) break;/.test(purge), 'the batch is BOUNDED per request');
+  ok(/seen < CAP/.test(purge), 'the batch is BOUNDED per request (subrequest cap)');
+  /* ⚠ THE SECOND LIMIT, which the first fix missed: the CLIENT aborts at REQ_TIMEOUT_MS. 40
+   * SEQUENTIAL Drive deletes at ~500ms each is exactly 20s, so bounding the COUNT alone still timed
+   * out — reported as "The operation was aborted", a different error with the same root cause.
+   * Deleting in parallel waves makes wall time one round trip PER WAVE rather than per file, and
+   * the time budget stops a slow Drive walking into the timeout however fast calls nominally are. */
+  ok(/await Promise\.all\(wave\.map/.test(purge), 'deletes run in PARALLEL waves, not one at a time');
+  ok(/Date\.now\(\) - started\) < BUDGET_MS/.test(purge), 'and a wall-clock budget bounds the request independently');
+  const cap = parseInt((purge.match(/CAP = (\d+)/) || [])[1], 10);
+  const wave = parseInt((purge.match(/WAVE = (\d+)/) || [])[1], 10);
+  const budget = parseInt((purge.match(/BUDGET_MS = (\d+)/) || [])[1], 10);
+  const clientTimeout = parseInt((readFileSync(new URL('../docs/js/researcher.js', import.meta.url), 'utf8')
+    .match(/REQ_TIMEOUT_MS\s*=\s*(\d+)/) || [])[1], 10);
+  ok(cap + 2 < 50, `subrequests stay under the Worker cap (~${cap + 2} of 50)`);
+  ok(budget < clientTimeout, `the server budget (${budget}ms) fires BEFORE the client aborts (${clientTimeout}ms)`);
+  // Even at a pessimistic 500ms per Drive call, the waves must finish inside the client's timeout.
+  ok(Math.ceil(cap / wave) * 500 < clientTimeout,
+     `worst-case wall time ${(Math.ceil(cap / wave) * 500) / 1000}s < ${clientTimeout / 1000}s abort`);
   ok(/remaining = Math\.max\(0, dead\.length - seen\)/.test(purge), 'and it reports what is left');
   const panelSrc = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
   ok(/if \(!r\.remaining\) break;/.test(panelSrc), 'the panel repeats until nothing remains, so a backlog still clears');

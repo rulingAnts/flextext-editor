@@ -1441,18 +1441,33 @@ export async function handleV1(request, env, ctx, url, path, origin) {
        * why it worked in testing and failed in use.
        * The caller repeats while `remaining` > 0, so a large backlog still clears — just in several
        * requests, each of which is individually safe. */
-      const CAP = 40;
+      /* ⚠ TWO INDEPENDENT LIMITS, and fixing only the first is why this failed twice.
+       *   1. SUBREQUESTS: a Worker has a hard per-request cap (50 free), so the batch is bounded.
+       *   2. WALL CLOCK: the CLIENT aborts at REQ_TIMEOUT_MS (20 s). 40 SEQUENTIAL Drive deletes at
+       *      ~500 ms each is exactly 20 s, which surfaced as "The operation was aborted" — a
+       *      different error from the first failure, with the same root cause of an unbounded loop.
+       * So: delete in PARALLEL waves (wall time is one round trip per wave, not per file), keep the
+       * count under the subrequest cap, AND stop on a time budget so a slow Drive can never walk
+       * into the client's timeout however fast each call nominally is. */
+      const CAP = 24, WAVE = 8, BUDGET_MS = 9000;
+      const started = Date.now();
       let deleted = 0, bytes = 0, seen = 0;
-      for (const f of dead) {
-        if (seen >= CAP) break;
-        seen++;
-        try {
-          await driveJson(access, 'DELETE', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(f.id));
-          deleted++; bytes += parseInt(f.size, 10) || 0;
-        } catch {
-          /* Expected and ignored: deleting a trashed FOLDER takes its children with it, so a child
-           * listed alongside its parent is already gone by the time we reach it. */
-        }
+      for (let i = 0; i < dead.length && seen < CAP && (Date.now() - started) < BUDGET_MS; i += WAVE) {
+        const wave = dead.slice(i, i + WAVE);
+        seen += wave.length;
+        const results = await Promise.all(wave.map(async (f) => {
+          try {
+            await driveJson(access, 'DELETE', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(f.id));
+            return parseInt(f.size, 10) || 0;
+          } catch {
+            /* Expected and ignored: deleting a trashed FOLDER takes its children with it, so a
+             * child listed alongside its parent is already gone by the time we reach it. A file
+             * that fails for any other reason simply stays trashed and is retried on the next
+             * pass — `remaining` counts what we ATTEMPTED, so the caller's loop still terminates. */
+            return null;
+          }
+        }));
+        for (const b of results) if (b !== null) { deleted++; bytes += b; }
       }
       const remaining = Math.max(0, dead.length - seen);
       await logApproval(env, request, 'drive_purged', deleted + ' file(s)', Math.round(bytes / 1048576) + ' MB', r.drive_email);

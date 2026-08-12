@@ -64,10 +64,23 @@ assignment folder shape is consistent regardless of how the text was created."*
    download-then-discover), takes `vern`/`anal` from the manifest instead of a separate
    instance-settings fetch, offers the recording package only when consent artifacts are actually
    declared, and labels the source item by `origin`.
-   ⚠ **The heuristic path MUST remain as a fallback**: every text uploaded before this change has no
-   manifest, and the legacy zip reader (`unzipStoreEntry`) still has to open packages already
-   sitting in Drive as zips. Manifest when present, heuristic when not — otherwise the existing
-   corpus loses its downloads on the day this ships.
+   **NO MANIFEST → ONE ITEM: "Open the Drive folder ↗"** (Seth, 2026-08-12: *"our fallback on the
+   files menu for previously assigned texts should rather just point [to] the Google Drive folder
+   for that text. That's good enough."*). Pre-manifest texts get a link, not a reconstructed menu.
+   - This DELETES the heuristic path rather than carrying it: no `EXT_KIND` filename sniffing, no
+     `latestPerKind` newest-per-kind guessing, no legacy zip extraction in the panel. Seth's
+     reasoning, which is the durable part: *"the inferred menu has actually never worked correctly
+     and it's not worth our time making it work correctly if it's just a fallback."* It is the
+     machinery that earned the old Files menu its "all out of whack" reputation and got it parked
+     behind `FILES_MENU_ENABLED = false` — debugging it now would be paying off a design that the
+     manifest exists to replace. A folder link cannot be wrong.
+   - `Researcher.listTextFiles` still supplies `folderId`, so the link is
+     `https://drive.google.com/drive/folders/<folderId>` with no extra call.
+   - Accepted consequence: a PRE-EXISTING text still being worked on keeps uploading new bare
+     `.flextext` files, and those are reachable through the folder link rather than as a menu item.
+   - Cleanup: `unzipStoreEntry` (zip.js) was added for the legacy read path and has no other
+     caller — drop it with the heuristic unless something else claims it. `cleanupCandidates` /
+     `latestPerKind` stay only if the cleanup feature still uses them.
 
 **Build order:** upload shape (device lanes + worker + manifest writer + the spoken-prompt file
 picker) → Files menu rebuilt on the new shape (manifest-first, heuristic fallback) → the six

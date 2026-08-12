@@ -1479,6 +1479,83 @@ async function buildRecordingPackage(wrap, base) {
 let convBusy = false;
 const CONV_DECODED_MAX = 200 * 1024 * 1024;
 
+/* The inputs EVERY conversion shares: the parsed doc, the original audio, the WAV timeline the
+ * segment times live on, and the writing systems. Extracted (v3.1) so that Download-all builds
+ * exactly the same files as the individual menu rows — two code paths producing "the ELAN export"
+ * would drift, and the researcher would have no way to tell which one they got.
+ *
+ * Returns { doc, aligned, vern, anal, media, segMedia, tooBig } or { error }. `tooBig` is reported
+ * rather than thrown: an individual row refuses outright, while Download-all still delivers the
+ * folder and simply says the conversions were skipped. */
+async function prepareConversionSources(wrap, base, paint) {
+  const manifest = (wrap._menuSrc && wrap._menuSrc.manifest) || null;
+  const xml = await menuFlextextText(wrap);
+  if (!xml) return { error: t('panel.dl.zipFailed') };
+  const parsed = parseFlextext(xml);
+  if (parsed.error || !parsed.texts.length) {
+    return { error: t('task.ftParseFailed', { msg: parsed.error || t('task.ftNone') }) };
+  }
+  // The same derivation the paragraph app does on a dropped flextext (paragraph-ui precedent):
+  // spans from the file's own begin/end-time-offset attributes; none -> a text-only document.
+  const doc = parsed.texts[0];
+  doc.segments = segmentsFromOffsets(doc) || [];
+  const aligned = doc.segments.some((s) => typeof s.start === 'number' && !s.timePending);
+  /* Writing systems come from the MANIFEST (v3): it records the codes the package was created
+   * with, which is what these files should be labelled with — and it is already in hand, so the
+   * separate getInstanceSettings round trip is gone. A device whose settings changed since the
+   * upload no longer retro-labels an old export with today's codes. Falls back to the parsed
+   * doc's own codes, then to the instance settings for a manifest that predates the field. */
+  const ws = (manifest && manifest.writingSystems) || {};
+  let vern = ws.vern || doc.vernLang || '';
+  let anal = ws.anal || doc.analLang || '';
+  if (!vern || !anal) {
+    const codes = (await Researcher.getInstanceSettings(wrap.dataset.i).catch(() => null)) || {};
+    vern = vern || codes.vernLang || 'und';
+    anal = anal || codes.analLang || 'en';
+  }
+  let media = null, segMedia = null, tooBig = false;
+  const af = wrap._menuSrc && wrap._menuSrc.audio;
+  if (af && aligned) {
+    const isWav = /\.wav$/i.test(af.name || '') || /\bwav\b/i.test(af.mime || '');
+    // Lossy decodes to raw PCM at roughly 10x its compressed size before it can be embedded.
+    const est = isWav ? (af.size || 0) : (af.size || 0) * 10;
+    if (est > CONV_DECODED_MAX) return { doc, aligned, vern, anal, media: null, segMedia: null, tooBig: true };
+    const blob = await menuFetch(wrap, af.id);
+    /* v3 NAMING: from the STORY TITLE, not from the Drive file's name — an assigned text's
+     * original was uploaded under a token-derived name before the fix, and reading it here is
+     * what put gibberish on the researcher's downloads. `srcName` still records the REAL source
+     * file, because the bext chunk's honesty depends on naming what was actually converted. */
+    media = { name: mediaNameFor(base, { name: af.name, mime: af.mime || blob.type }),
+              mimeType: af.mime || blob.type || 'audio/*', blob };
+    if (isWav) segMedia = media;
+    else {
+      // Same reason the editor works on a WAV copy: AAC priming makes decode and playback
+      // disagree; ELAN/SayMore get exact alignment against PCM. Same honest name, too.
+      const res = await convertAudio(await blob.arrayBuffer(), { format: 'wav', wavBits: 16 },
+        (f) => paint(t('convert.working', { pct: Math.round(f * 100) })));
+      segMedia = { name: derivedWavName(base),
+        mimeType: 'audio/wav', blob: res.blob, derived: true, srcName: af.name || '' };
+    }
+  }
+  return { doc, aligned, vern, anal, media, segMedia, tooBig, xml };
+}
+
+/* The generated annotation/listening files for a text, as zip entries. `full` mirrors the device's
+ * local-save rule (preview + .fxpa embed audio and ride LOCAL bundles only). The already-WAV case
+ * needs its media pushed explicitly: assembleSegEntries bundles the derived copy but not an
+ * original that was already PCM, and the EAF references it BY NAME either way — so leaving it out
+ * would hand ELAN a bundle whose audio it cannot find. */
+async function buildSegEntriesFor(src, { title, base, wants, full = true }) {
+  const entries = await assembleSegEntries({
+    doc: src.doc, title, base, media: src.media, segMedia: src.segMedia, wants,
+    vern: src.vern, anal: src.anal, full,
+  });
+  if ((wants.eaf || wants.saymore) && src.segMedia && !entries.some((x) => x.name === src.segMedia.name)) {
+    entries.push({ name: src.segMedia.name, data: src.segMedia.blob });
+  }
+  return entries;
+}
+
 async function runMenuConversion(wrap, kind, itemEl) {
   if (convBusy) { deps.toast(t('panel.dl.oneAtATime'), 4000); return; }
   convBusy = true;
@@ -1487,71 +1564,28 @@ async function runMenuConversion(wrap, kind, itemEl) {
   const paint = (msg) => { if (sub) sub.textContent = msg; };
   try {
     const title = wrap.dataset.title || 'text';
-    const manifest = (wrap._menuSrc && wrap._menuSrc.manifest) || null;
     const base = (wrap._menuSrc && wrap._menuSrc.base) || sanitizeBase(title) || 'text';
     paint(t('panel.dl.working'));
     // The recording package is a straight repackage of the folder — no flextext parse, no decode.
     if (kind === 'package') { await buildRecordingPackage(wrap, base); return; }
-    const xml = await menuFlextextText(wrap);
-    if (!xml) { deps.toast(t('panel.dl.zipFailed'), 5000); return; }
-    if (kind === 'flextext') { saveBlobAs(new Blob([xml], { type: 'application/xml' }), base + '.flextext'); return; }
-    const parsed = parseFlextext(xml);
-    if (parsed.error || !parsed.texts.length) { deps.toast(t('task.ftParseFailed', { msg: parsed.error || t('task.ftNone') }), 6000); return; }
-    // The same derivation the paragraph app does on a dropped flextext (paragraph-ui precedent):
-    // spans from the file's own begin/end-time-offset attributes; none -> a text-only document.
-    const doc = parsed.texts[0];
-    doc.segments = segmentsFromOffsets(doc) || [];
-    const aligned = doc.segments.some((s) => typeof s.start === 'number' && !s.timePending);
-    if (!aligned && kind !== 'fxpa') { deps.toast(t('panel.dl.noAlign'), 7000); return; }
-    /* Writing systems come from the MANIFEST (v3): it records the codes the package was created
-     * with, which is what these files should be labelled with — and it is already in hand, so the
-     * separate getInstanceSettings round trip is gone. A device whose settings changed since the
-     * upload no longer retro-labels an old export with today's codes. Falls back to the parsed
-     * doc's own codes, then to the instance settings for a manifest that predates the field. */
-    const ws = (manifest && manifest.writingSystems) || {};
-    let vern = ws.vern || doc.vernLang || '';
-    let anal = ws.anal || doc.analLang || '';
-    if (!vern || !anal) {
-      const codes = (await Researcher.getInstanceSettings(wrap.dataset.i).catch(() => null)) || {};
-      vern = vern || codes.vernLang || 'und';
-      anal = anal || codes.analLang || 'en';
+    if (kind === 'flextext') {
+      const xml = await menuFlextextText(wrap);
+      if (!xml) { deps.toast(t('panel.dl.zipFailed'), 5000); return; }
+      saveBlobAs(new Blob([xml], { type: 'application/xml' }), base + '.flextext');
+      return;
     }
-    let media = null, segMedia = null;
-    const af = wrap._menuSrc && wrap._menuSrc.audio;
-    if (af && aligned) {
-      const isWav = /\.wav$/i.test(af.name || '') || /\bwav\b/i.test(af.mime || '');
-      // Lossy decodes to raw PCM at roughly 10x its compressed size before it can be embedded.
-      const est = isWav ? (af.size || 0) : (af.size || 0) * 10;
-      if (est > CONV_DECODED_MAX) { deps.toast(t('panel.dl.tooBigConvert'), 8000); return; }
-      const blob = await menuFetch(wrap, af.id);
-      /* v3 NAMING: from the STORY TITLE, not from the Drive file's name — an assigned text's
-       * original was uploaded under a token-derived name before the fix, and reading it here is
-       * what put gibberish on the researcher's downloads. `srcName` still records the REAL source
-       * file, because the bext chunk's honesty depends on naming what was actually converted. */
-      media = { name: mediaNameFor(base, { name: af.name, mime: af.mime || blob.type }),
-                mimeType: af.mime || blob.type || 'audio/*', blob };
-      if (isWav) segMedia = media;
-      else {
-        // Same reason the editor works on a WAV copy: AAC priming makes decode and playback
-        // disagree; ELAN/SayMore get exact alignment against PCM. Same honest name, too.
-        const res = await convertAudio(await blob.arrayBuffer(), { format: 'wav', wavBits: 16 },
-          (f) => paint(t('convert.working', { pct: Math.round(f * 100) })));
-        segMedia = { name: derivedWavName(base),
-          mimeType: 'audio/wav', blob: res.blob, derived: true, srcName: af.name || '' };
-      }
-    }
-    if (kind !== 'fxpa' && !segMedia) { deps.toast(t('panel.dl.noAlign'), 7000); return; }
+    const src = await prepareConversionSources(wrap, base, paint);
+    if (src.error) { deps.toast(src.error, 6000); return; }
+    if (!src.aligned && kind !== 'fxpa') { deps.toast(t('panel.dl.noAlign'), 7000); return; }
+    if (src.tooBig) { deps.toast(t('panel.dl.tooBigConvert'), 8000); return; }
+    if (kind !== 'fxpa' && !src.segMedia) { deps.toast(t('panel.dl.noAlign'), 7000); return; }
     paint(t('panel.dl.working'));
     const wants = { elan: { eaf: true }, saymore: { saymore: true }, preview: { preview: true }, fxpa: { fxpa: true } }[kind];
     if (!wants) return;
     // full: preview + fxpa are the embedded-audio outputs (the same full-bundle-only rule the
     // device applies); the ELAN/SayMore zips match what an upload bundle carries.
-    const entries = await assembleSegEntries({ doc, title, base, media, segMedia, wants, vern, anal,
-      full: kind === 'preview' || kind === 'fxpa' });
+    const entries = await buildSegEntriesFor(src, { title, base, wants, full: kind === 'preview' || kind === 'fxpa' });
     if (kind === 'elan' || kind === 'saymore') {
-      // The EAF references the WAV by name; a source that was ALREADY WAV is not "derived", so
-      // assembleSegEntries did not bundle it — it still has to ride the zip.
-      if (segMedia && !entries.some((x) => x.name === segMedia.name)) entries.push({ name: segMedia.name, data: segMedia.blob });
       saveBlobAs(await makeZip(entries), `${base} ${kind === 'elan' ? 'ELAN' : 'SayMore'}.zip`);
     } else {
       const one = entries.find((x) => (kind === 'preview' ? /\.preview\.html$/i : /\.fxpa$/i).test(x.name));
@@ -1610,16 +1644,53 @@ async function downloadAllZip(btn) {
     const wanted = all;   // the ENTIRE folder — every bridged identity, backups included
     const entries = [];
     const used = new Set();
-    for (const f of wanted) {
+    const add = (name0, data) => {
       // Backup copies share names across time; a zip needs unique entry names.
-      let name = f.name || 'file'; let n = 1;
-      while (used.has(name)) name = (f.name || 'file').replace(/(\.[^.]*)?$/, ` (${++n})$1`);
+      let name = name0 || 'file'; let n = 1;
+      while (used.has(name)) name = (name0 || 'file').replace(/(\.[^.]*)?$/, ` (${++n})$1`);
       used.add(name);
-      entries.push({ name, data: await Researcher.fetchDriveFile(f.id) });
+      entries.push({ name, data });
+    };
+    for (const f of wanted) add(f.name, await Researcher.fetchDriveFile(f.id));
+
+    /* GENERATED FILES RIDE ALONG (Seth, 2026-08-12: "can our Download All zip also generate and
+     * inject ELAN and SayMore as well as Listening HTML and fxpa into that zip?").
+     *
+     * They are built by the SAME prepareConversionSources + assembleSegEntries the individual menu
+     * rows use, so "the ELAN export" means one thing however it was obtained — two code paths
+     * producing it would drift and the researcher could not tell which they got.
+     *
+     * ⚠ Never at the cost of the download itself. Everything here is best-effort: no manifest, no
+     * alignment, an audio file too large to decode in a tab, or an outright failure all leave the
+     * folder zip exactly as it would have been. The raw bytes are what the researcher asked for;
+     * the conversions are a bonus, and a bonus must not be able to take the request down with it. */
+    const wrap = btn.closest ? btn.closest('.rp-dl') : null;
+    let skipped = '';
+    if (wrap && wrap._menuSrc && wrap._menuSrc.manifest) {
+      try {
+        nameEl.textContent = t('panel.dl.zipConverting');
+        const base = wrap._menuSrc.base || title || 'text';
+        const src = await prepareConversionSources(wrap, base, () => {});
+        if (src.error) skipped = src.error;
+        else if (src.tooBig) skipped = t('panel.dl.tooBigConvert');
+        else {
+          // full:true — Download-all is the LOCAL path, so the embedded-audio outputs belong in it,
+          // exactly as they do in the editor's own save bundle.
+          const wants = { eaf: !!src.segMedia, saymore: !!src.segMedia, preview: !!src.segMedia, fxpa: true };
+          for (const e of await buildSegEntriesFor(src, { title, base, wants, full: true })) add(e.name, e.data);
+          if (!src.segMedia) skipped = t('panel.dl.noAlign');   // .fxpa still went in, text-only
+        }
+      } catch (e) {
+        console.warn('[flextext] download-all conversions skipped:', e);
+        skipped = t('panel.dl.zipFailed');
+      }
     }
+    if (skipped) deps.toast(t('panel.dl.allPartial', { why: skipped }), 7000);
     if (!entries.length) throw new Error('empty');
     /* One file: give them the file. Its own name is also the RIGHT name — a bundle is already
-     * "<title> <timestamp>.zip", so renaming it to the bare title would drop which upload it is. */
+     * "<title> <timestamp>.zip", so renaming it to the bare title would drop which upload it is.
+     * Note this now fires only when the conversions produced NOTHING too — the moment any is
+     * injected there are several things to bundle, which is precisely when a zip earns its place. */
     const single = entries.length === 1;
     const blob = single ? entries[0].data : await makeZip(entries);
     const a = document.createElement('a');

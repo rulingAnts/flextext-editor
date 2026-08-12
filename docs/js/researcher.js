@@ -411,9 +411,28 @@ export async function assignUploadChunk(instanceId, docId, uploadId, range, body
  * surface as a TRANSIENT error so the caller's queue re-enters later. part: { blob, name, mime,
  * kind, originalsFolderId?, streamId? }. onSession persists the session token into the caller's
  * queue record (resume across panel restarts); onProgress(sent, total) paints. Returns the fileId. */
+/* CHUNK POLICY — the same AIMD the DEVICE's upload.js uses, which this loop was modelled on but
+ * had flattened to a fixed 8 MiB. Two consequences of the flat size, both reported from the v337
+ * test drive:
+ *   1. Progress "hung at 0% and then suddenly jumped to finished". onProgress fires once per
+ *      COMPLETED chunk, so any file under 8 MiB — every spoken consent prompt — was a single chunk
+ *      and reported nothing until it was already done. Indistinguishable from a hang.
+ *   2. A failing chunk retried at the SAME size. On a weak field connection that is the one thing
+ *      you must not do: the retry is as likely to fail as the attempt was, and each failure costs
+ *      the whole slice again.
+ * Sizes are multiples of 256 KiB because Drive's resumable protocol requires it for every chunk but
+ * the last. The opening guess is SIZE-AWARE (aim for ~8 slices) so a small file still shows
+ * movement; AIMD then doubles it away on a fast link within a couple of chunks. */
+const CHUNK_UNIT = 262144;                    // 256 KiB — Drive's required granularity
+const CHUNK_MIN = 2 * CHUNK_UNIT;             // 512 KiB
+const CHUNK_MAX = 32 * CHUNK_UNIT;            // 8 MiB — the previous fixed size, now the ceiling
+const roundUnit = (n) => Math.max(CHUNK_UNIT, Math.floor(n / CHUNK_UNIT) * CHUNK_UNIT);
+const shrinkChunk = (n) => Math.max(CHUNK_MIN, Math.floor(n / 2 / CHUNK_UNIT) * CHUNK_UNIT);
+const openingChunk = (total) => Math.min(CHUNK_MAX, Math.max(CHUNK_MIN, roundUnit(total / 8)));
+
 export async function assignUploadFile(instanceId, docId, part, { onProgress, onSession } = {}) {
-  const CHUNK = 8 * 1024 * 1024;
   const total = part.blob.size;
+  let chunkBytes = openingChunk(total);
   let streamId = part.streamId || null;
   for (let session = 0; session < 2; session++) {          // at most one session_gone restart per call
     if (!streamId) {
@@ -432,14 +451,25 @@ export async function assignUploadFile(instanceId, docId, part, { onProgress, on
       if (probe.fail) { strikes++; await sleep(waitMs); waitMs = Math.min(waitMs * 2, 60000); continue; }
       let offset = probe.received || 0;
       let pushed = true;
+      if (onProgress) onProgress(offset, total);      // paint the resumed position, not a stale 0%
       while (offset < total) {
-        const size = Math.min(CHUNK, total - offset);
+        const size = Math.min(chunkBytes, total - offset);
+        const t0 = Date.now();
         const res = await assignUploadChunk(instanceId, docId, streamId,
           `bytes ${offset}-${offset + size - 1}/${total}`, part.blob.slice(offset, offset + size));
-        if (res.done) return res.fileId;
+        if (res.done) { if (onProgress) onProgress(total, total); return res.fileId; }
         if (res.gone) { streamId = null; if (onSession) await onSession(null); pushed = false; break; }
-        if (res.fail) { strikes++; pushed = false; await sleep(waitMs); waitMs = Math.min(waitMs * 2, 60000); break; }
+        if (res.fail) {
+          chunkBytes = shrinkChunk(chunkBytes);       // halve, so the retry risks less than the attempt did
+          strikes++; pushed = false;
+          await sleep(waitMs); waitMs = Math.min(waitMs * 2, 60000);
+          break;                                       // re-probe: Drive's own byte count is the truth
+        }
         strikes = 0; waitMs = 2000;
+        // Adapt to the measured pace, same thresholds as upload.js so the two behave alike.
+        const secs = (Date.now() - t0) / 1000;
+        if (secs < 15) chunkBytes = Math.min(CHUNK_MAX, chunkBytes * 2);
+        else if (secs > 60) chunkBytes = shrinkChunk(chunkBytes);
         offset = res.received != null ? res.received : offset + size;
         if (onProgress) onProgress(offset, total);
       }

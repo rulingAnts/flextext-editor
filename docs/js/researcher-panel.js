@@ -3477,7 +3477,13 @@ function toFormValues(s) {
     else if (f.k === 'autoDel') v.autoDel = !!s.autoDelUploaded;                                   // stored as autoDelUploaded
     // Export toggles: unset follows Audio Segmentation Mode — show the EFFECTIVE value, so the
     // researcher sees what the device will actually do, not a misleading unchecked box.
-    else if (f.k === 'exportEaf' || f.k === 'exportSaymore' || f.k === 'exportPreview' || f.k === 'exportJson') v[f.k] = s[f.k] ?? !!s.segmentation;
+    else if (f.k === 'exportEaf' || f.k === 'exportSaymore' || f.k === 'exportPreview' || f.k === 'exportJson') v[f.k] = s[f.k] ?? (s.segmentation !== false);
+    /* Segmentation defaults ON for a device whose researcher has never set it — matching
+     * segmentationEnabled() on the device (app.js). Rendering it from `!!s.segmentation` showed a
+     * NEW instance an unchecked box and then pushed `false`, so the first assigned text opened in
+     * the basic editor until the researcher toggled the box (Seth, 2026-08-12). Only an explicit
+     * false stays false. */
+    else if (f.k === 'segmentation') v.segmentation = s.segmentation !== false;
     else if (f.k === 'autoBackupMins') v.autoBackupMins = String(s.autoBackupMins || 15);          // stored as a number; default 15
     else if (f.type === 'checkbox') v[f.k] = !!s[f.k];
     else if (f.type === 'select') v[f.k] = s[f.k] || (f.k === 'recordFormat' ? DEFAULT_REC_FORMAT : f.opts[0]);

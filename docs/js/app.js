@@ -672,11 +672,19 @@ function enterEditor(tab) {
 // Segmentation mode: researcher-pushed setting, with a URL escape (?segmentation=1) so the
 // staging site can be test-driven before the panel toggle ships. Default OFF — the plain
 // textarea workflow every field user knows is untouched unless this is explicitly on.
+/* ⚠ UNSET MEANS ON (Seth, 2026-08-12). Segmentation is the workflow this suite is FOR, so a fresh
+ * install and a device whose researcher never touched the setting both get it; only an explicit
+ * `false` — a researcher deliberately unchecking the box — turns it off. It used to be
+ * `=== true`, i.e. unset meant OFF, which is why a brand-new device opened its first assigned text
+ * in the basic editor until the panel pushed a value.
+ *
+ * The distinction that matters: `false` and `undefined` must NOT be treated alike, or a researcher
+ * who turned it off would have it come back on. Never "simplify" this to a truthiness check. */
 function segmentationEnabled() {
   try {
     if (new URLSearchParams(location.search).get('segmentation') === '1') return true;
   } catch { /* noop */ }
-  return settings.segmentation === true;
+  return settings.segmentation !== false;
 }
 
 // The tabs that share the media dock (the ONE Player instance).

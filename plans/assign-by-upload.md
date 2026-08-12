@@ -57,8 +57,21 @@ assignment folder shape is consistent regardless of how the text was created."*
 7. Re-uploading a text whose title matches an existing folder yields `Folder (1)` — verified and
    ACCEPTED for that case only (it is no longer the every-upload behaviour). Document it.
 
-**Build order:** upload shape (device lanes + worker) → Files menu rebuilt on the new shape → the
-six downloads. Downloads testing is blocked until this lands.
+8. **The Files menu READS the manifest instead of inferring** (Seth: *"the manifest file also helps
+   us with the download menu"*). It replaces filename sniffing (`EXT_KIND`) + `latestPerKind`
+   guessing for the source files: names them directly, reports which declared file has not arrived
+   yet, sizes the conversions before a click (the big-file guard gets a real number instead of a
+   download-then-discover), takes `vern`/`anal` from the manifest instead of a separate
+   instance-settings fetch, offers the recording package only when consent artifacts are actually
+   declared, and labels the source item by `origin`.
+   ⚠ **The heuristic path MUST remain as a fallback**: every text uploaded before this change has no
+   manifest, and the legacy zip reader (`unzipStoreEntry`) still has to open packages already
+   sitting in Drive as zips. Manifest when present, heuristic when not — otherwise the existing
+   corpus loses its downloads on the day this ships.
+
+**Build order:** upload shape (device lanes + worker + manifest writer + the spoken-prompt file
+picker) → Files menu rebuilt on the new shape (manifest-first, heuristic fallback) → the six
+downloads. Downloads testing is blocked until this lands.
 
 ## Why
 

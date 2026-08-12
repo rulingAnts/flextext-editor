@@ -21,6 +21,8 @@
  * Run: node test/drive-download.test.mjs
  */
 import { readFileSync } from 'node:fs';
+// The REAL size policy — a hand-written caps stub could describe a state the code never produces.
+import { conversionCaps } from '../docs/js/seg-exports.js';
 const src = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
 const m = src.match(/async function downloadAllZip\(btn\) \{[\s\S]*?\n\}/);
 if (!m) { console.log('FAIL: downloadAllZip not findable'); process.exit(1); }
@@ -42,14 +44,19 @@ const run = async (files, wrap = null, convo = {}) => {
       captured.prepared = true;
       if (convo.throws) throw new Error('boom');
       return convo.src || { doc: {}, aligned: true, vern: 'fau', anal: 'id',
-                            media: {}, segMedia: { name: 'T.wav' }, tooBig: false };
+                            media: {}, segMedia: { name: 'T.wav' },
+                            // The REAL policy object, so this fixture cannot drift from its shape.
+                            caps: conversionCaps({ bytes: 1024, isWav: true }) };
     },
-    buildSegEntriesFor: async () => (convo.entries || [
-      { name: 'My Text.eaf', data: fakeBlob('eaf') },
-      { name: 'My Text.pfsx', data: fakeBlob('pfsx') },
-      { name: 'My Text.preview.html', data: fakeBlob('prev') },
-      { name: 'My Text.fxpa', data: fakeBlob('fxpa') },
+    /* Honours `wants` so the per-output ladder is actually observable here: dropping preview or
+     * fxpa from wants must remove that FILE from the zip, which a fixed list could not show. */
+    buildSegEntriesFor: async (_src, { wants = {} } = {}) => (convo.entries || [
+      ...(wants.eaf ? [{ name: 'My Text.eaf', data: fakeBlob('eaf') },
+                       { name: 'My Text.pfsx', data: fakeBlob('pfsx') }] : []),
+      ...(wants.preview ? [{ name: 'My Text.preview.html', data: fakeBlob('prev') }] : []),
+      ...(wants.fxpa ? [{ name: 'My Text.fxpa', data: fakeBlob('fxpa') }] : []),
     ]),
+    fmtSize: (b) => `${b}B`,
     bridgedIds: () => ({ ids: ['doc1'] }),
     Researcher: {
       listTextFiles: async () => ({ files }),
@@ -141,12 +148,26 @@ console.log('\nEVERY conversion failure still delivers the folder');
      'a conversion that THROWS does not take the download with it');
   ok(!!thrown.toast, '...and the researcher is told the exports were skipped');
 
-  const tooBig = await run([{ id: 'ft', name: 'My Text.flextext', modified: '2026-08-10' },
-                            { id: 'au', name: 'big.wav', modified: '2026-08-10' }], menuWrap,
-                           { src: { doc: {}, aligned: true, tooBig: true } });
-  ok(tooBig.zipped && tooBig.zipped.includes('big.wav'),
-     'audio too large to decode in a tab: the ORIGINAL still downloads, which is the point');
-  ok(!!tooBig.toast, '...with an explanation rather than silence');
+  /* ⚠ v347 REPLACES the old assertion here, and the change is the whole point of that release.
+   * This case used to be `tooBig: true` → EVERY conversion skipped, and the test asserted only that
+   * the raw folder still downloaded. That was the bug Seth hit: a 217 MB WAV lost its ELAN and
+   * SayMore packages to a ceiling that exists to bound DECODING, which a WAV never undergoes.
+   * Now the ladder degrades per output, so the assertion is about what still arrives. */
+  const big = await run([{ id: 'ft', name: 'My Text.flextext', modified: '2026-08-10' },
+                         { id: 'au', name: 'big.wav', modified: '2026-08-10' }], menuWrap,
+                        { src: { doc: {}, aligned: true, vern: 'fau', anal: 'id',
+                                 media: {}, segMedia: { name: 'big.wav' },
+                                 caps: conversionCaps({ bytes: 90 * 1024 * 1024, isWav: false }) } });
+  ok(big.zipped && big.zipped.includes('big.wav'),
+     'the ORIGINAL still downloads, which was always the point');
+  ok(big.zipped.includes('My Text.eaf') && big.zipped.includes('My Text.pfsx'),
+     '...and the ELAN package is STILL built — it only ever needed the bytes');
+  ok(!big.zipped.includes('My Text.preview.html'),
+     '...while the listening page drops out, since its whole value is the embedded audio');
+  /* The .fxpa must survive as TEXT-ONLY. It comes from a second buildSegEntriesFor pass, because
+   * one pass takes one segMedia — dropping it to strip the audio would have taken the EAFs too. */
+  ok(big.zipped.includes('My Text.fxpa'), '...and the .fxpa still rides, built without its audio');
+  ok(!!big.toast, '...with an explanation rather than silence');
 
   const bad = await run([{ id: 'ft', name: 'My Text.flextext', modified: '2026-08-10' }], menuWrap,
                         { src: { error: 'unparseable' } });

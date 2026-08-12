@@ -713,7 +713,8 @@ export async function blobToBase64(blob) {
 // The end-user instructions bundled beside the annotation exports. Plain text, plain words,
 // naming this bundle's ACTUAL files — the reader is a researcher (or their student) with the
 // unzipped folder open, not someone who knows our terminology.
-export function howToOpenText({ base, segMediaName, derived, eaf, saymore, preview, previewName, json }) {
+export function howToOpenText({ base, segMediaName, derived, eaf, saymore, preview, previewName, json,
+                                lossyUnconverted = false }) {
   const L = [];
   L.push('HOW TO OPEN THESE FILES');
   L.push('=======================');
@@ -765,7 +766,80 @@ export function howToOpenText({ base, segMediaName, derived, eaf, saymore, previ
     L.push('  an archival master; the original recording is included unchanged.');
     L.push('');
   }
+  /* ⚠ The alignment caveat must travel WITH the files, not only in a toast the researcher saw for
+   * eight seconds a week ago. This bundle's annotation times were measured against decoded PCM, but
+   * the audio shipped here is the compressed original — normally a converted WAV would sit between
+   * them, and it was skipped because the recording was too large to decode in a browser tab. */
+  if (lossyUnconverted) {
+    L.push(`⚠ ABOUT THE TIMING OF "${segMediaName}"`);
+    L.push('  This recording was too large to convert in the browser, so the annotation');
+    L.push('  files point at the ORIGINAL compressed audio instead of a converted WAV copy.');
+    L.push('  Compressed formats (MP3, M4A/AAC) begin with a few hundredths of a second of');
+    L.push('  encoder padding, so every annotation may sit slightly late against what you');
+    L.push('  hear — usually around 0.04 seconds, enough to notice at word level and rarely');
+    L.push('  enough to matter at sentence level.');
+    L.push('  To correct it: convert the audio to WAV yourself and relink it in ELAN, or');
+    L.push('  nudge the whole tier by the offset you measure.');
+    L.push('');
+  }
   return L.join('\n');
+}
+
+/* ────────────────────────────────────────────────────────────────────────────────────────────────
+ * WHAT CAN BE BUILT FROM A GIVEN RECORDING — the size policy, in one pure function.
+ *
+ * ⚠ WHY THIS EXISTS AT ALL (v347). The panel used to hold ONE boolean, `tooBig`, computed from a
+ * DECODED-size estimate, and refuse every conversion above it. That was wrong in a way that cost a
+ * researcher every generated export on a text that needed no conversion: `if (isWav) segMedia =
+ * media` skips `convertAudio` entirely, so a WAV is never decoded — yet a 217 MB WAV was refused by
+ * a 200 MB decode ceiling. The menu row even described itself as "EAF + tier order + WAV — built
+ * here", i.e. it said it would put the WAV in a zip and then refused because it thought it had to
+ * decode it.
+ *
+ * The three costs are genuinely different and must be judged separately:
+ *   - a ZIP ENTRY is the bytes, copied twice (arrayBuffer + Blob). Cheap. Never a reason to refuse.
+ *   - a DECODE is Float32 per channel, ~10x a compressed source. Lossy sources only.
+ *   - a BASE64 EMBED holds the byte-string, its base64 (+33%) and the assembled document at once.
+ *
+ * So the ladder DEGRADES rather than refusing (Seth, 2026-08-12):
+ *   ELAN/SayMore  never refuse — above the ceiling they ship the ORIGINAL audio unconverted.
+ *   .fxpa         never refuses — above the ceiling it is built WITHOUT audio, and says so.
+ *   .preview.html REFUSES. Seth: "The whole value of that is the embedded sound and the
+ *                 following/auto-scrolling/segmented players." An audio-less preview page is a
+ *                 worse .flextext, so producing one would be a disservice, not a degradation.
+ *
+ * ⚠ It lives HERE, in the pure module, for one structural reason: the panel calls it TWICE — once to
+ * grey out a menu row and once to decide what to actually build. Two thresholds would drift, and the
+ * failure would be a menu that promises what the conversion then refuses. One function, two callers.
+ *
+ * SIZE ONLY. Whether a doc is aligned, or has audio at all, is a different question answered by the
+ * caller; an unknown size (0) is deliberately permissive rather than blocking.
+ * ─────────────────────────────────────────────────────────────────────────────────────────────── */
+export const CONV_DECODED_MAX = 200 * 1024 * 1024;
+
+export function conversionCaps({ bytes = 0, isWav = false, max = CONV_DECODED_MAX } = {}) {
+  const n = Number(bytes) || 0;
+  // A WAV is used as-is; anything else must decode to PCM first, at roughly 10x its compressed size.
+  const est = isWav ? n : n * 10;
+  const over = est > max;
+  return {
+    est,
+    over,
+    /* May we decode a lossy source into the aligned WAV working copy? */
+    convert: !over,
+    /* Zip outputs never refuse: above the ceiling the ORIGINAL audio rides instead. */
+    elan: true,
+    saymore: true,
+    /* The .fxpa is always produced; only its embedded audio is dropped. */
+    fxpa: true,
+    fxpaAudio: !over,
+    /* The one genuine refusal — see the reasoning above. */
+    preview: !over,
+    /* True when the bundle will carry a LOSSY original that was never converted, which means the
+     * EAF's times are against a timeline the player will not quite reproduce (~44 ms of AAC
+     * priming). The caller must SAY so — silence here is a false alignment. */
+    lossyUnconverted: over && !isWav && n > 0,
+  };
 }
 
 /* The annotation/export entries of a bundle — ONE function feeding both the device's
@@ -829,6 +903,8 @@ export async function assembleSegEntries({ doc, title = '', base = 'text', media
     // documented) — a plain-text README naming this bundle's actual files, one section per tool.
     entries.push({ name: 'HOW-TO-OPEN.txt', data: new Blob([howToOpenText({
       base, segMediaName, derived: !!segMedia.derived,
+      // Not derived and not a WAV ⇒ the original rode unconverted; say what that costs.
+      lossyUnconverted: !segMedia.derived && !wavName,
       eaf: wants.eaf, saymore: wants.saymore, preview: !!(full && wants.preview),
       previewName: (sanitizeBase(base) || 'audio') + '.preview.html',
       json: !!(full && wants.fxpa),

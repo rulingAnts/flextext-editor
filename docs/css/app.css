@@ -1176,6 +1176,13 @@ main {
 .rp-dl-pending { opacity: .6; cursor: default; }
 .rp-dl-pending .rp-dl-name { color: var(--muted); font-weight: 600; }
 .rp-dl-missing { display: block; padding: 4px 8px 6px; font-size: 12px; }
+/* A caveat about what the rows ABOVE will produce — not a row itself, so it is deliberately not
+   .rp-dl-item: nothing here is clickable and it must not read as one more thing to download. Used
+   for the timing warning when a recording was too large to convert and the package will therefore
+   carry the compressed original. */
+.rp-dl-note { display: block; padding: 6px 8px; margin-top: 2px; font-size: 12px;
+              line-height: 1.35; color: var(--muted); border-top: 1px solid var(--line);
+              overflow-wrap: anywhere; }
 
 /* History modal — the back-log of texts that are no longer on a device. The kind colours REUSE the
    dashboard's tag palette above on purpose: "uploaded" must look the same here as it does on a live

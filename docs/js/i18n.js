@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v346';
+export const ENGINE_VERSION = 'v347';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v346';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'unassigned-card v2';
+export const BUILD_TAG = 'oversize-exports v1';
 
 const S = {
 en: {
@@ -1055,7 +1055,13 @@ internet after the first time.</p>
   'panel.dl.fromBundle': 'from the newest bundle: {name}',
   'panel.dl.working': 'working…',
   'panel.dl.noAlign': 'This flextext has no audio alignment yet — there is nothing to build the timed export from.',
-  'panel.dl.tooBigConvert': 'This recording is too large to convert in the browser — download the original instead.',
+  /* v347 — an oversized recording DEGRADES per output instead of refusing everything. The old
+   * blanket 'tooBigConvert' is retired: it would now be a lie on a row that works. */
+  'panel.dl.previewTooBig': 'Too large for a listening page ({size}) — the audio has to be inside the page, and the sound is the whole point of it. The ELAN and SayMore packages still work.',
+  'panel.dl.fxpaNoAudio': 'Built without the recording ({size} was too large to embed). The text, timings and analysis are all complete — open the audio separately.',
+  'panel.dl.fxpaNoAudioSub': 'for pat.flextext.app; text only — the recording is too large to embed',
+  'panel.dl.lossyTiming': 'This recording was too large to convert, so the package carries the original compressed audio. Annotations may sit a few hundredths of a second late — see HOW-TO-OPEN.txt in the zip.',
+  'panel.dl.zipTooLarge': 'These files are too large to package into one zip. Download them individually instead.',
   'panel.dl.oneAtATime': 'One conversion at a time — the current one is still working.',
   /* v3: the Files menu reads flextext-manifest.json. No manifest -> ONE item, a folder link. */
   'panel.dl.openFolder': 'Open the Drive folder \u2197',
@@ -2541,7 +2547,13 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.dl.fromBundle': 'dari bundel terbaru: {name}',
   'panel.dl.working': 'sedang bekerja…',
   'panel.dl.noAlign': 'Flextext ini belum punya penyelarasan audio — tidak ada bahan untuk ekspor berwaktu.',
-  'panel.dl.tooBigConvert': 'Rekaman ini terlalu besar untuk dikonversi di peramban — unduh yang asli saja.',
+  /* v347 — lihat catatan pada blok en: berkas besar kini diturunkan mutunya per keluaran, bukan
+   * ditolak seluruhnya. 'tooBigConvert' yang lama sudah dipensiunkan. */
+  'panel.dl.previewTooBig': 'Terlalu besar untuk halaman dengar ({size}) — audionya harus tertanam di dalam halaman, dan suaralah inti dari halaman itu. Paket ELAN dan SayMore tetap bisa dibuat.',
+  'panel.dl.fxpaNoAudio': 'Dibuat tanpa rekaman ({size} terlalu besar untuk ditanam). Teks, waktu, dan analisisnya lengkap — buka audionya secara terpisah.',
+  'panel.dl.fxpaNoAudioSub': 'untuk pat.flextext.app; hanya teks — rekamannya terlalu besar untuk ditanam',
+  'panel.dl.lossyTiming': 'Rekaman ini terlalu besar untuk dikonversi, jadi paketnya memuat audio terkompresi yang asli. Anotasi bisa tertinggal beberapa perseratus detik — lihat HOW-TO-OPEN.txt di dalam zip.',
+  'panel.dl.zipTooLarge': 'Berkas-berkas ini terlalu besar untuk dijadikan satu zip. Unduh satu per satu saja.',
   'panel.dl.oneAtATime': 'Satu konversi pada satu waktu — yang sekarang masih berjalan.',
   'panel.dl.openFolder': 'Buka folder Drive \u2197',
   'panel.dl.openFolderSub': 'lihat semua berkas teks ini di Google Drive',

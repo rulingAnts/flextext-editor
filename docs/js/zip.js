@@ -32,11 +32,42 @@ function dosDateTime(d = new Date()) {
 function le16(v) { return [v & 0xff, (v >>> 8) & 0xff]; }
 function le32(v) { return [v & 0xff, (v >>> 8) & 0xff, (v >>> 16) & 0xff, (v >>> 24) & 0xff]; }
 
+/* ⚠ THIS WRITER IS ZIP32 — EVERY SIZE AND OFFSET FIELD BELOW IS `le32`, AND THERE IS NO ZIP64.
+ *
+ * Past 4 GiB those fields WRAP. The result is not an error: it is a plausible-looking archive whose
+ * central directory points at the wrong bytes — corruption that is discovered by whoever opens it,
+ * possibly months later, possibly as "the app lost my recording". Refusing loudly is strictly better
+ * than that, so the ceiling sits below the wrap point with room to spare.
+ *
+ * Seth, 2026-08-12: "with THIS app at least, it's exceptionally unlikely we'll ever be anywhere near
+ * that limit. Lots of other limits (bandwidth, browser storage, memory) would break first." Agreed —
+ * the value of this guard is not that it fires, it is what it replaces.
+ *
+ * ⚠ Raising it past 4 GiB requires implementing Zip64 (the zip64 extra field + EOCD64 records), not
+ * just editing this number. */
+export const ZIP_HARD_MAX = 3.5 * 1024 * 1024 * 1024;
+
 /**
  * Build a ZIP from entries: [{ name: string, data: Blob|Uint8Array }].
  * @returns {Promise<Blob>}
+ * @throws {Error} code 'ZIP_TOO_LARGE' when the total would exceed ZIP_HARD_MAX.
  */
 export async function makeZip(entries) {
+  /* PRE-FLIGHT, before a single byte is read. Blobs know their own size, so the refusal costs
+   * nothing — checking inside the loop would mean allocating gigabytes only to throw them away. */
+  let planned = 0;
+  for (const entry of entries) {
+    planned += entry.data instanceof Uint8Array
+      ? entry.data.length
+      : Number((entry.data && entry.data.size) || 0);
+  }
+  if (planned > ZIP_HARD_MAX) {
+    const err = new Error(`zip too large: ${planned} bytes exceeds ZIP_HARD_MAX ${ZIP_HARD_MAX}`);
+    err.code = 'ZIP_TOO_LARGE';
+    err.bytes = planned;
+    throw err;
+  }
+
   const enc = new TextEncoder();
   const { time, date } = dosDateTime();
   const parts = [];

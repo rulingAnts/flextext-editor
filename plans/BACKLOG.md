@@ -624,6 +624,87 @@ Test: `test/artifact-links.test.mjs` pins that inferred artifacts are suppressed
 per-kind artifacts still render with their Drive ids, and that the folder-listing rows and
 Download-all are untouched.
 
+## Native audio conversion as a fallback — ON THE DEVICE, not in the panel (Seth, 2026-08-12)
+
+> "Also let's make a backlog note to consider building that feature into the Electron shell as a
+> fallback when the browser-based conversion doesn't work. Most of the time files won't be that
+> huge."
+>
+> then, narrowing it: *"for the Researcher Panel, we're not planning to build a native shell at all.
+> So forget that."*
+
+⚠ **So this is NOT about the panel's export conversions.** `plans/oversize-conversions.md` settles
+those in the browser alone: above the ceiling the panel ships the original audio, emits a text-only
+`.fxpa`, and refuses only the preview. No shell, no stub, no capability negotiation. Anything that
+reads this entry as licence to add a native path to the panel is misreading it.
+
+**Where it does belong: the DEVICE-side decode**, which is both older and more consequential.
+`app.js` `segWorkingMedia` runs `decodeAudioData` + `encodeWav` inline **on the field device** to
+build the `segwav:` working copy for every lossy recording in segmentation mode, and already ends in
+
+```js
+} catch { return media; }   // undecodable → play the original; alignment caveat stands
+```
+
+That is the same degradation the panel is getting — but on a **phone**, where memory is tightest,
+and where the cost of falling back is real: the ~44 ms AAC priming offset means the segmentation the
+field worker is doing is quietly misaligned against the audio they hear. A native converter fixes it
+exactly where it hurts. The researcher's browser was never the interesting case.
+
+Constraints for whoever picks it up:
+
+- ⚠ **The native boundary is one file for BOTH bridges.** `check-native-containment.sh` greps
+  `docs/js/` for `window.Capacitor|Capacitor.Plugins` **and** `__flextextNative`, failing on any hit
+  outside `docs/js/native-audio.js`. Electron is under the same rule as Android — not a looser one.
+- ⚠ **Gate on CAPABILITY, never on platform.** The engine auto-updates; the APK does not. Being
+  inside Capacitor says nothing about whether the installed plugin can convert. A
+  `isNativeShell() ? offload() : fallback()` gate would ask every pre-feature field APK to convert,
+  fail, and lose the fallback that would have worked — surfacing only on the oldest devices in the
+  field. Use the async `nativeCapabilities()` / `EXPECTED_CONTRACT` negotiation that already exists,
+  and treat "unknown" as no.
+- ⚠ **Output must stay byte-identical to the browser's.** `seg-exports.js` is a pure format module
+  precisely so one implementation produces the EAF/pfsx/preview/`.fxpa` everywhere; a second
+  generator would be the "two code paths producing 'the ELAN export'" drift that
+  `prepareConversionSources` was extracted to prevent. Call the same module with a streaming source.
+- Touching `native-audio.js` means **rebuild and re-test the APK** (CLAUDE.md). That is this work's
+  own release, never a side effect of an editor or panel feature.
+
+⚠ **Sizing, so nobody over-builds it:** Seth — *"Most of the time files won't be that huge"*, and the
+recording that surfaced all this was **deliberately bloated to test upload chunking**. A fallback
+for the tail, not a second main path.
+
+## Documentation: answer "does it save when I leave a text?" — FAQ *and* in situ (Seth, 2026-08-12)
+
+> "When we update our documentation, our documentation will need to answer this question (maybe as
+> an FAQ, but also in situ in the appropriate part): *'Oh yeah. I know it auto saves at intervals but
+> does it also save when you go out from one text to the main screen? So that I can quit the program
+> without worrying about losing work?'*"
+
+**The answer is YES** — verified in `docs/js/app.js`, not assumed:
+
+- `#btn-back` (the editor's Back control) runs `applyBaseline()` then **`await persist()`** before
+  `show('texts')`. The write completes before the list appears.
+- Ordinary typing autosaves on a 400 ms debounce (`schedulePersist`), and the baseline textarea also
+  commits on `blur`.
+- The visible **Save** button is a deliberate no-op reassurance: it flushes and toasts
+  "✓ Saved automatically — your work is safe" (`toast.autoSaved`). Its comment says why it exists —
+  so the Save reflex never triggers an upload.
+- A pending service-worker update flushes `persist()` before it reloads (`applyUpdateIfSafe`,
+  `forceApply`).
+
+⚠ **The subtlety worth writing down for whoever edits this code, not for the user:** `persist()`
+deliberately SKIPS the full doc write while `#view-texts` is visible. So Back is correct *because*
+it persists **before** `show('texts')`. Reordering those two lines would silently turn "saves when
+you leave" into "discards when you leave", and it would look like a tidy-up. Worth a test.
+
+Where it needs to appear:
+- **In situ** — `help.html` (i18n.js) currently says only *"Your work is saved automatically on this
+  device — you can close the app and continue later from the Texts list."* That is true but does not
+  answer the question actually asked, which is about the **moment of leaving** and about **quitting
+  safely**. Say both: leaving a text saves it, and quitting afterwards is safe.
+- **FAQ** — same answer, phrased as the question.
+- Both in **en and id**, per the standing rule.
+
 ## Engine-wide drift is worth watching — and modularisation (Seth, 2026-08-07)
 
 > "Latent drifts like that (engine wide things that are in the editor code) are worth keeping an eye

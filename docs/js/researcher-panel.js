@@ -17,7 +17,7 @@ import { t, getLang, setLang, applyI18n, ENGINE_VERSION, BUILD_TAG, LANGS, LANG_
 import { REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { importPublicKeyB64, publicKeyFingerprint } from './crypto.js';
 import { esc, parseFlextext, surveyWritingSystems, remapWritingSystems, analyzeFlextextWs, segmentsFromOffsets } from './flextext.js';
-import { assembleSegEntries, MANIFEST_NAME, sanitizeBase, mediaNameFor, derivedWavName } from './seg-exports.js';
+import { assembleSegEntries, MANIFEST_NAME, sanitizeBase, mediaNameFor, derivedWavName, conversionCaps } from './seg-exports.js';
 import { convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
 import WaveSurfer from './vendor/wavesurfer.esm.js';
 import * as db from './db.js';
@@ -1465,16 +1465,36 @@ async function populateFilesMenu(wrap) {
     const aBytes = sizeOf(audioF, declaredAudio);
     const isWav = /\.wav$/i.test(String((audioF && audioF.name) || (declaredAudio && declaredAudio.name) || ''))
       || /wav/i.test(String((audioF && audioF.mime) || (declaredAudio && declaredAudio.mime) || ''));
-    const est = isWav ? aBytes : aBytes * 10;
+    /* ⚠ The SAME `conversionCaps` the conversion itself will consult (seg-exports). Judging the
+     * rows by a second, hand-rolled threshold is how a menu ends up promising what the click then
+     * refuses — so this reads the one function and nothing else. */
+    const caps = conversionCaps({ bytes: aBytes, isWav });
+    const est = caps.est;
     const estTxt = aBytes ? t('panel.dl.approx', { size: fmtSize(est) }) : '';
     const conv = (kind, labelKey, withSize) => rows.push(row(`data-conv="${kind}"`,
       t('panel.dl.' + labelKey), t('panel.dl.' + labelKey + 'Sub') + (withSize && estTxt ? ' · ' + estTxt : '')));
+    /* A row that cannot be built says so HERE, greyed, instead of after a long download. It reuses
+     * rp-dl-pending — the same treatment as an audio file the manifest declared but that has not
+     * arrived — because both mean "real row, not available right now". */
+    const convOff = (labelKey, why) => rows.push(`<span class="rp-dl-item rp-dl-pending" role="menuitem" aria-disabled="true">
+      <span class="rp-dl-name">${esc(t('panel.dl.' + labelKey))}</span><span class="rp-dl-sub">${esc(why)}</span></span>`);
     if (audioF) {
       conv('elan', 'elanZip', true);
       conv('saymore', 'saymoreZip', true);
-      conv('preview', 'preview', true);
+      // The one output whose whole value IS the embedded audio, so it refuses rather than degrades.
+      if (caps.preview) conv('preview', 'preview', true);
+      else convOff('preview', t('panel.dl.previewTooBig', { size: fmtSize(est) }));
     }
-    conv('fxpa', 'fxpa', !!audioF);
+    // Never disabled: above the ceiling it is built text-only, and the sub-line says so up front.
+    if (audioF && !caps.fxpaAudio) {
+      rows.push(row('data-conv="fxpa"', t('panel.dl.fxpa'), t('panel.dl.fxpaNoAudioSub')));
+    } else {
+      conv('fxpa', 'fxpa', !!audioF);
+    }
+    // The ELAN/SayMore rows above will carry the ORIGINAL recording rather than a converted copy.
+    if (caps.lossyUnconverted) {
+      rows.push(`<span class="rp-dl-note">${esc(t('panel.dl.lossyTiming'))}</span>`);
+    }
   }
 
   /* 7. RECORDING PACKAGE (locked decision 6) — a client-side zip of whatever the folder actually
@@ -1561,20 +1581,26 @@ async function buildRecordingPackage(wrap, base) {
 }
 
 /* ONE conversion at a time, on-click only. Decoding + base64-embedding a huge recording is the
- * panel's one real memory hazard (spec risk #1) — refuse above a ~200 MB decoded estimate and
- * point at the byte-faithful original instead. */
+ * panel's one real memory hazard (spec risk #1) — the ceiling and the per-output ladder it drives
+ * now live in seg-exports' `conversionCaps`, which BOTH the menu renderer and the conversion itself
+ * consult so a greyed row and a refusal can never disagree. */
 let convBusy = false;
-const CONV_DECODED_MAX = 200 * 1024 * 1024;
 
 /* The inputs EVERY conversion shares: the parsed doc, the original audio, the WAV timeline the
  * segment times live on, and the writing systems. Extracted (v3.1) so that Download-all builds
  * exactly the same files as the individual menu rows — two code paths producing "the ELAN export"
  * would drift, and the researcher would have no way to tell which one they got.
  *
- * Returns { doc, aligned, vern, anal, media, segMedia, tooBig } or { error }. `tooBig` is reported
- * rather than thrown: an individual row refuses outright, while Download-all still delivers the
- * folder and simply says the conversions were skipped. */
-async function prepareConversionSources(wrap, base, paint) {
+ * Returns { doc, aligned, vern, anal, media, segMedia, caps } or { error }.
+ *
+ * ⚠ v347: this no longer REFUSES on size — it degrades, per `conversionCaps`. Above the ceiling a
+ * lossy source is shipped UNCONVERTED (`segMedia = media`) rather than withheld, because the zip
+ * only ever needed the bytes; the caller then warns about the ~44 ms of priming drift that buys.
+ * `caps` rides back so each caller can honour the rest of the ladder (audio-less .fxpa, no preview).
+ *
+ * `opts.kind`, when given, lets an oversized `.fxpa` skip the audio DOWNLOAD entirely — it is about
+ * to be built without audio, so fetching 200 MB to discard it would be pure waste. */
+async function prepareConversionSources(wrap, base, paint, opts = {}) {
   const manifest = (wrap._menuSrc && wrap._menuSrc.manifest) || null;
   const xml = await menuFlextextText(wrap);
   if (!xml) return { error: t('panel.dl.zipFailed') };
@@ -1600,13 +1626,14 @@ async function prepareConversionSources(wrap, base, paint) {
     vern = vern || codes.vernLang || 'und';
     anal = anal || codes.analLang || 'en';
   }
-  let media = null, segMedia = null, tooBig = false;
+  let media = null, segMedia = null;
+  let caps = conversionCaps({ bytes: 0, isWav: true });   // no audio ⇒ nothing is size-blocked
   const af = wrap._menuSrc && wrap._menuSrc.audio;
   if (af && aligned) {
     const isWav = /\.wav$/i.test(af.name || '') || /\bwav\b/i.test(af.mime || '');
-    // Lossy decodes to raw PCM at roughly 10x its compressed size before it can be embedded.
-    const est = isWav ? (af.size || 0) : (af.size || 0) * 10;
-    if (est > CONV_DECODED_MAX) return { doc, aligned, vern, anal, media: null, segMedia: null, tooBig: true };
+    caps = conversionCaps({ bytes: af.size || 0, isWav });
+    // An oversized .fxpa is built text-only, so its audio is never touched — do not download it.
+    if (opts.kind === 'fxpa' && !caps.fxpaAudio) return { doc, aligned, vern, anal, media, segMedia, caps, xml };
     const blob = await menuFetch(wrap, af.id);
     /* v3 NAMING: from the STORY TITLE, not from the Drive file's name — an assigned text's
      * original was uploaded under a token-derived name before the fix, and reading it here is
@@ -1614,7 +1641,11 @@ async function prepareConversionSources(wrap, base, paint) {
      * file, because the bext chunk's honesty depends on naming what was actually converted. */
     media = { name: mediaNameFor(base, { name: af.name, mime: af.mime || blob.type }),
               mimeType: af.mime || blob.type || 'audio/*', blob };
-    if (isWav) segMedia = media;
+    /* A WAV is already the timeline — no decode, at any size. And above the ceiling a LOSSY source
+     * takes the same branch deliberately: the zip wants bytes, so shipping the original beats
+     * refusing. `derived` stays false, which is what makes assembleSegEntries name it correctly, skip
+     * the "NOT an archival master" bext stamp, and put the timing caveat in HOW-TO-OPEN.txt. */
+    if (isWav || !caps.convert) segMedia = media;
     else {
       // Same reason the editor works on a WAV copy: AAC priming makes decode and playback
       // disagree; ELAN/SayMore get exact alignment against PCM. Same honest name, too.
@@ -1624,7 +1655,7 @@ async function prepareConversionSources(wrap, base, paint) {
         mimeType: 'audio/wav', blob: res.blob, derived: true, srcName: af.name || '' };
     }
   }
-  return { doc, aligned, vern, anal, media, segMedia, tooBig, xml };
+  return { doc, aligned, vern, anal, media, segMedia, caps, xml };
 }
 
 /* The generated annotation/listening files for a text, as zip entries. `full` mirrors the device's
@@ -1661,27 +1692,40 @@ async function runMenuConversion(wrap, kind, itemEl) {
       saveBlobAs(new Blob([xml], { type: 'application/xml' }), base + '.flextext');
       return;
     }
-    const src = await prepareConversionSources(wrap, base, paint);
+    const src = await prepareConversionSources(wrap, base, paint, { kind });
     if (src.error) { deps.toast(src.error, 6000); return; }
     if (!src.aligned && kind !== 'fxpa') { deps.toast(t('panel.dl.noAlign'), 7000); return; }
-    if (src.tooBig) { deps.toast(t('panel.dl.tooBigConvert'), 8000); return; }
+    /* THE ONLY SIZE REFUSAL (Seth): a listening page whose audio is not in it has no reason to
+     * exist — the embedded sound and the follow-along player ARE the feature, so an audio-less one
+     * would be a worse .flextext. Everything else degrades instead. */
+    if (kind === 'preview' && !src.caps.preview) {
+      deps.toast(t('panel.dl.previewTooBig', { size: fmtSize(src.caps.est) }), 8000); return;
+    }
     if (kind !== 'fxpa' && !src.segMedia) { deps.toast(t('panel.dl.noAlign'), 7000); return; }
     paint(t('panel.dl.working'));
     const wants = { elan: { eaf: true }, saymore: { saymore: true }, preview: { preview: true }, fxpa: { fxpa: true } }[kind];
     if (!wants) return;
+    /* An oversized .fxpa is built WITHOUT audio rather than refused — the grouping analysis is the
+     * point of the file, and buildFxpa's audio has always been optional (a text-only .fxpa is what
+     * an unaligned doc already exports). Dropping segMedia is the entire mechanism. */
+    const dropAudio = kind === 'fxpa' && !src.caps.fxpaAudio;
+    const useSrc = dropAudio ? { ...src, media: null, segMedia: null } : src;
     // full: preview + fxpa are the embedded-audio outputs (the same full-bundle-only rule the
     // device applies); the ELAN/SayMore zips match what an upload bundle carries.
-    const entries = await buildSegEntriesFor(src, { title, base, wants, full: kind === 'preview' || kind === 'fxpa' });
+    const entries = await buildSegEntriesFor(useSrc, { title, base, wants, full: kind === 'preview' || kind === 'fxpa' });
     if (kind === 'elan' || kind === 'saymore') {
       saveBlobAs(await makeZip(entries), `${base} ${kind === 'elan' ? 'ELAN' : 'SayMore'}.zip`);
+      // The file is already saved — these say what the researcher is holding, not that it failed.
+      if (src.caps.lossyUnconverted) deps.toast(t('panel.dl.lossyTiming'), 10000);
     } else {
       const one = entries.find((x) => (kind === 'preview' ? /\.preview\.html$/i : /\.fxpa$/i).test(x.name));
       if (!one) { deps.toast(t('panel.dl.zipFailed'), 5000); return; }
       saveBlobAs(one.data, one.name);
+      if (dropAudio) deps.toast(t('panel.dl.fxpaNoAudio', { size: fmtSize(src.caps.est) }), 9000);
     }
   } catch (e) {
     console.warn('[flextext] downloads-menu conversion failed:', e);
-    deps.toast(t('panel.dl.zipFailed'), 5000);
+    deps.toast(e && e.code === 'ZIP_TOO_LARGE' ? t('panel.dl.zipTooLarge') : t('panel.dl.zipFailed'), 6000);
   } finally {
     convBusy = false;
     paint(subWas);
@@ -1759,13 +1803,35 @@ async function downloadAllZip(btn) {
         const base = wrap._menuSrc.base || title || 'text';
         const src = await prepareConversionSources(wrap, base, () => {});
         if (src.error) skipped = src.error;
-        else if (src.tooBig) skipped = t('panel.dl.tooBigConvert');
         else {
-          // full:true — Download-all is the LOCAL path, so the embedded-audio outputs belong in it,
-          // exactly as they do in the editor's own save bundle.
-          const wants = { eaf: !!src.segMedia, saymore: !!src.segMedia, preview: !!src.segMedia, fxpa: true };
+          /* full:true — Download-all is the LOCAL path, so the embedded-audio outputs belong in it,
+           * exactly as they do in the editor's own save bundle.
+           *
+           * ⚠ v347: an oversized recording no longer skips ALL of this. The ladder applies here per
+           * output, so the researcher gets the ELAN and SayMore packages (built on the original
+           * audio) and a text-only .fxpa, and is told exactly which ONE thing was left out — the
+           * old blanket "conversions skipped" message described a refusal that no longer happens. */
+          const wants = {
+            eaf: !!src.segMedia, saymore: !!src.segMedia,
+            preview: !!src.segMedia && src.caps.preview,
+            fxpa: src.caps.fxpaAudio,
+          };
           for (const e of await buildSegEntriesFor(src, { title, base, wants, full: true })) add(e.name, e.data);
-          if (!src.segMedia) skipped = t('panel.dl.noAlign');   // .fxpa still went in, text-only
+          /* ⚠ The oversized .fxpa needs its OWN pass, and the reason is worth stating: one call
+           * takes one segMedia, so dropping it to make the .fxpa text-only would take the EAFs and
+           * their audio down with it. The EAFs want the recording; the .fxpa must not embed it. Two
+           * passes, each with the media it should have. The second emits nothing else — with no
+           * media the EAF/preview/HOW-TO-OPEN block is skipped entirely — so nothing duplicates. */
+          if (!src.caps.fxpaAudio) {
+            const textOnly = { ...src, media: null, segMedia: null };
+            for (const e of await buildSegEntriesFor(textOnly, { title, base, wants: { fxpa: true }, full: true })) add(e.name, e.data);
+          }
+          const notes = [];
+          if (!src.segMedia) notes.push(t('panel.dl.noAlign'));            // .fxpa still went in, text-only
+          if (src.segMedia && !src.caps.preview) notes.push(t('panel.dl.previewTooBig', { size: fmtSize(src.caps.est) }));
+          if (!src.caps.fxpaAudio && src.segMedia) notes.push(t('panel.dl.fxpaNoAudio', { size: fmtSize(src.caps.est) }));
+          if (src.caps.lossyUnconverted) notes.push(t('panel.dl.lossyTiming'));
+          skipped = notes.join(' ');
         }
       } catch (e) {
         console.warn('[flextext] download-all conversions skipped:', e);

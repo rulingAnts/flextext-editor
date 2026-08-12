@@ -3826,6 +3826,12 @@ async function openSettingsModal(target, opts = {}) {
   // assignment-upload mechanism ('consent-prompt' kind — the docId path segment is a placeholder,
   // the worker targets the device folder for this kind), then fill the URL field with the minted
   // private token URL. The researcher still presses Save/Push — nothing is sent behind their back.
+  /* ⚠ IN-FLIGHT STATE, READ BY THE SAVE BUTTON BELOW (v3 work order item 4). Until this existed,
+   * pressing "push to device" while the prompt was still uploading produced a VALIDATION ERROR —
+   * consentAudioUrl is only filled when the upload finishes, so the form correctly reported a
+   * required field as missing and incorrectly made that look like a failure. Seth: never an error
+   * that looks like failure when the thing is simply not done yet. */
+  let consentUploading = null;   // { pct } while a prompt upload is running, else null
   {
     const cuBtn = box.querySelector('[data-gact="consentUpload"]');
     const cuFile = box.querySelector('#rp-consent-file');
@@ -3835,17 +3841,31 @@ async function openSettingsModal(target, opts = {}) {
         const file = e.target.files[0]; e.target.value = '';
         if (!file) return;
         const iid = target.instance.instance_id;
+        consentUploading = { pct: 0 };
+        // busy() restores the label in its own finally, so painting it here is safe.
+        cuBtn.textContent = t('panel.f.consentUploadingPct', { pct: 0 });
         try {
-          cuBtn.textContent = t('panel.f.consentUploading');
           const fileId = await Researcher.assignUploadFile(iid, 'consent-prompt', {
             blob: file, name: file.name, mime: file.type || 'audio/mpeg', kind: 'consent-prompt',
+          }, {
+            // A spoken prompt on a field connection is minutes, not seconds. Silence for that long
+            // is indistinguishable from a hang, which is what made people press Save and meet the
+            // error above.
+            onProgress: (sent, total) => {
+              const pct = total ? Math.min(100, Math.round((sent / total) * 100)) : 0;
+              consentUploading = { pct };
+              cuBtn.textContent = t('panel.f.consentUploadingPct', { pct });
+            },
           });
+          // Minting the delivery URL is a separate round trip: 100% is not yet done.
+          cuBtn.textContent = t('panel.f.consentFinishing');
           const fin = await Researcher.assignFinish(iid, 'consent-prompt', { promptFileId: fileId, ttlDays: assignTtlDays() });
           const input = box.querySelector('[data-f="consentAudioUrl"]');
           if (input && fin.promptUrl) input.value = fin.promptUrl;
           paintPromptState(box);   // the hidden carrier changed — the visible state must follow
           deps.toast(t('panel.f.consentUploaded'), 5000);
         } catch (err) { errToast(err); }
+        finally { consentUploading = null; }   // always cleared, or Save would be wedged for good
       }));
     }
   }
@@ -3876,6 +3896,14 @@ async function openSettingsModal(target, opts = {}) {
 
   box.querySelector('[data-m="cancel"]').onclick = m.close;
   box.querySelector('[data-m="save"]').onclick = (e) => busy(e.target, async () => {
+    /* NOT-DONE-YET IS NOT A FAILURE. The consent prompt's URL field is filled by the upload above,
+     * so validating mid-upload would flag a required field as missing and paint it red — the exact
+     * "push to device throws an error until the background upload finishes" this replaces. Refuse
+     * plainly instead, and say how far along it is so the wait is legible rather than mysterious. */
+    if (consentUploading) {
+      deps.toast(t('panel.f.consentStillUploading', { pct: consentUploading.pct }), 6000);
+      return;
+    }
     // Block save/push until minimal usable settings are present (offending fields flagged inline).
     const problems = validateDeviceSettings(collectRaw(box), { parseFolder: deps.parseDriveFolder, uploadIsUrl: true });
     if (problems.length) { flagProblems(box, problems, showGroup); return; }

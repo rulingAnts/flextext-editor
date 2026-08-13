@@ -156,3 +156,60 @@ add no new file at all.
 
 All four resolved above on 2026-08-13. Kept as a heading only so the plan reads as settled rather
 than as if the questions were never asked.
+
+
+## Undo/redo — ALREADY does what Seth described (verified 2026-08-13)
+
+> "that undo/redo history I feel like ideally would persist across tabs, it would be all changes
+> made on this text, regardless of which tab … All changes made to the text data (text inserted,
+> modified in a field after that field loses focus, joins, splits, etc)"
+
+**That is the v326 design, and it is already in place.** The stack is per-DOCUMENT, never per-tab:
+
+| change | how it is captured |
+|---|---|
+| **joins / splits / unchain / cut** | `captureUndo()` immediately before the edit |
+| **text typed in a field** | `focusin` snapshots the doc; `focusout` → `commitFieldUndo()` pushes that snapshot **only if the value actually changed** — i.e. exactly "after that field loses focus" |
+| **anything on the Cut tab** | `capture: () => captureUndo()`, since the tab has no fields |
+
+`applyUndoState` restores **both** `paragraphs` and `segments` and re-renders through
+`switchTab(activeTab)`, so a cut made on Potong is undone from Baseline and vice versa. One history,
+whole text, all tabs.
+
+⚠ `captureUndo()` calls `commitFieldUndo()` FIRST so a pending typing session is pushed before the
+structural edit's snapshot — otherwise undo would replay the two in the wrong order.
+
+### ⚠ THE ONE REAL GAP: field-level undo is gated on segmentation mode
+
+`document.addEventListener('focusin', …)` early-returns on `!segmentationEnabled()`, so in the
+CLASSIC textarea workflow a text edit creates no app-level undo entry. The browser's native textarea
+undo covers it within one focus session, which is why nobody has noticed — but "all changes to the
+text data, regardless of tab" is not true there yet. Small fix (the gate is one condition); worth
+doing deliberately rather than by accident, because the hybrid native/app rule is subtle and
+`test/undo-*.mjs` pins parts of it.
+
+### A rough edge, not a bug
+
+Undo while ON the Cut tab re-enters via `switchTab('cut')`, which re-runs `prepareCutAudio()`. Peaks
+are cached so it is fast, but it can flicker. Rendering in place instead of re-entering would fix it.
+
+## NEXT: "Guess Splits" — silence detection (Seth, 2026-08-13)
+
+> "make default segment breaks for a new text … based on where the audio appears to have pauses in
+> speech? How hard is that to implement? … We would want a 'Guess Splits' button at the top."
+
+**Not hard, because the data already exists.** `ensurePeaks` computes a peaks array at 2000
+buckets/second with an exact `msPerBucket`. Silence detection over that is a pure function: find runs
+below a threshold lasting longer than a minimum gap, and put a boundary at the middle of each run.
+~30 lines in `segments.js`, node-testable, no decode, no dependency — and it cuts on **the same array
+the waveforms are drawn from**, so what it splits on is what the user sees.
+
+⚠ **The algorithm is easy; the THRESHOLD is the actual work.** A fixed amplitude cutoff tuned in a
+quiet room finds no pauses at all in a village recording with a high noise floor. Use a RELATIVE
+threshold — a fraction of that recording's own median/peak level — and a minimum gap around
+300–400 ms so it splits at breaths rather than between words.
+
+Two rules it must have:
+1. **Unsegmented texts only** (Seth's own framing). On a segmented text it would silently destroy
+   hand-made boundaries; if ever offered there, it must confirm first.
+2. **One undo step**, so a bad guess is one Ctrl+Z rather than fifty joins.

@@ -612,10 +612,13 @@ export class Player {
    * @param {(media: object) => void} onPeaks - called once peaks are computed
    *   so the caller can persist them.
    */
-  constructor(root, { onPeaks, onRemove, labels }) {
+  constructor(root, { onPeaks, onRemove, labels, onSeekInteraction }) {
     this.root = root;
     this.onPeaks = onPeaks;
     this.labels = labels;
+    // Called when the USER seeks by touching the waveform itself (not by any of our own seekMs
+    // calls) — the host decides what that means; see the Player construction in app.js.
+    this.onSeekInteraction = onSeekInteraction;
     this.ws = null;
     this.objectUrl = null;
 
@@ -771,6 +774,12 @@ export class Player {
       try { this.ws.setTime(Number.isFinite(home) ? home : 0); } catch { /* not ready */ }
     });
     this.ws.on('timeupdate', () => this.updateTime());
+    /* ⚠ 'interaction' IS THE USER'S OWN SEEK, and nothing else: wavesurfer emits it only from a
+     * click or drag on the waveform, never from our setTime()/seekMs() calls. That distinction is
+     * the whole reason this hook can pause playback safely — a handler on 'seeking' would also fire
+     * for the seeks our own code makes (a strip's ▶, a join's playhead move, span rewind) and would
+     * pause the player in the middle of doing what it was told. */
+    this.ws.on('interaction', () => { try { this.onSeekInteraction?.(); } catch { /* host's problem */ } });
   }
 
   showPending(message) {
@@ -895,11 +904,17 @@ export class Player {
   /* Play CONTINUOUSLY from `ms` (or from wherever the playhead is), with NO span watcher — so
    * playback runs straight through every boundary.
    *
-   * ⚠ This is the CUT TAB's playback, and only its (Seth, 2026-08-13: "it's OK for playback to just
-   * keep going through segment boundaries even if it was started on a specific segment — on the cut
-   * tab only. The baseline and gloss tabs should retain their current behavior"). Cutting is judged
-   * by ear across a seam: a transport that stops dead at every cut makes the one job of that tab
-   * impossible. On Baseline and Gloss, "play this line" still means exactly that (playSpan). */
+   * ⚠ This is the CUT TAB's SECOND transport, and only its (Seth, 2026-08-13: "it's OK for playback
+   * to just keep going through segment boundaries … on the cut tab only. The baseline and gloss tabs
+   * should retain their current behavior"). Cutting is judged by ear across a seam, and a transport
+   * that stops dead at every cut makes that impossible.
+   *
+   * ⚠ IT IS NOT WHAT A LINE'S ▶ DOES, on any tab (Seth, refining it the same day: "if the user
+   * clicks a segment play button, play-through behavior shouldn't happen … but spacebar or the big
+   * player play button will play through"). A row button answers "is this span right?" and must
+   * stop at the span's end — that is playSpan. This one answers "does this seam sound right?" and
+   * belongs to Space and to the dock's own ⏵. Two questions, two controls; collapsing them into one
+   * takes away the ability to hear a single span in isolation. */
   playThrough(ms) {
     if (!this.ws) return;
     this.clearSpan();

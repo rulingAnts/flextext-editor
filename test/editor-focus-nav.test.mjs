@@ -55,9 +55,20 @@ console.log('\nclicking any waveform blurs the focused text field');
 console.log('\n...and the space-to-play gate that makes it necessary is still there');
 {
   /* If this gate were ever removed the blur would look pointless and someone would delete it — so
-   * the two are pinned together, with the reason. */
-  ok(/if \(t2\.closest && \(t2\.closest\('input, textarea, select, button, \[contenteditable\]'\)\)\) return;/.test(app),
+   * the two are pinned together, with the reason.
+   *
+   * ⚠ The gate now lives in transportKeysApply() rather than inline. This assertion follows the
+   * BEHAVIOUR, not the old line: a typed space must remain a space. What deliberately changed at the
+   * same time is the BUTTON half — Space used to stand down on any focused button, which jammed the
+   * key on the Baseline and Gloss tabs because focus sits on the tab button you clicked to get
+   * there (v362). Text fields, selects and open modals still win. */
+  const gate = (app.match(/function transportKeysApply\(target\) \{[\s\S]*?\n\}/) || [''])[0];
+  ok(!!gate, 'the space-to-play gate is one named function');
+  ok(/textarea, select, \[contenteditable\], input:not\(\[type="range"\]\)/.test(gate),
      'space still stands down inside a text field — a typed space must remain a space');
+  ok(/document\.querySelector\('\.modal:not\(\[hidden\]\)'\)/.test(gate),
+     '…and inside an open dialog, whose buttons must keep their own keys');
+  ok(/if \(!transportKeysApply\(e\.target\)\) return;/.test(app), 'and the Space handler consults it');
 }
 
 console.log('\nTab and Space reach the free translation, in DOM order');

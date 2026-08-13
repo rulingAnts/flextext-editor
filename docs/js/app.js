@@ -19,7 +19,8 @@ import { losslessSupported, recFormatSupported, PCMRecorder, encodeWav, encodeRe
 import WaveSurfer from './vendor/wavesurfer.esm.js';
 import { makeZip } from './zip.js';
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay,
-         initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, stopCut } from './segment-strips.js';
+         wireWaveSeek, requestReveal, takeReveal,
+         initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut } from './segment-strips.js';
 import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME,
          sanitizeBase, extOf, mediaNameFor, derivedWavName } from './seg-exports.js';
 import { mergeSegments, splitSegment, isAligned, normalizeSegments } from './segments.js';
@@ -669,15 +670,16 @@ function enterEditor(tab) {
   $('#doc-title').value = current.title || '';
   updateShareButton();
   applyCutTabVisibility();
-  switchTab(landingTab(tab));
+  switchTab(landingTab(tab), /* landing */ true);
 }
 
 /* Is this doc still UNCUT — i.e. has nobody done segmentation work on it yet? True for the seeds
  * reconcile() lays down: a single whole-file span, or spans that are all pending/estimated.
  *
- * ⚠ THIS IS WHAT KEEPS `landOnCut` TOLERABLE. Seth wants new recordings to open on the Cut tab, but
- * a half-transcribed text landing on the cutting screen every morning would be a different and much
- * worse feature. "Unsegmented" is the condition, not "has audio". */
+ * ⚠ THE GUESS-SPLITS GATE. Guessing boundaries on a text somebody has already cut by hand would
+ * throw their work away, so the button only offers itself here (and asks first anywhere else).
+ * It used to gate the landing tab as well, until that rule became "the last tab, else no words yet"
+ * — see landingTab. */
 function docIsUncut(doc) {
   const segs = (doc && doc.segments) || [];
   if (!segs.length) return true;
@@ -685,12 +687,43 @@ function docIsUncut(doc) {
   return segs.every((sg) => sg.timePending || sg.timeEstimated);
 }
 
-/* Which tab a doc actually opens on. Only ever OVERRIDES to 'cut', never away from an explicit
- * request, so every existing caller that asks for a specific tab still gets it. */
+/* Does this text have any words in it yet? The landing rule turns on this rather than on the
+ * segmentation state: a text with words is a text somebody is transcribing, and transcribing
+ * happens on Baseline. */
+function docHasNoText(doc) {
+  return !getBaselineParagraphs(doc).some((p) => String(p || '').trim());
+}
+
+/* WHICH TAB A TEXT OPENS ON (Seth, 2026-08-13):
+ *
+ *   (1) the last tab the user had open in THIS text — remembered per text, so coming back to a
+ *       half-glossed text puts you where you left off rather than at the start of the workflow;
+ *   (2) failing that, and only when there are no words yet: the Cut tab if it is enabled, Baseline
+ *       if it is not.
+ *
+ * ⚠ (1) BEATS (2), which is the whole point of it: a fresh recording lands on Cut, but the moment
+ * the user has chosen a tab for that text, their choice is what the text opens on. Without the
+ * memory, a text with no words yet — every text at the start of the job — would drag them back to
+ * Cut every single time they opened it, however many times they had left for Baseline.
+ *
+ * ⚠ A REMEMBERED TAB IS STILL SUBJECT TO THE GATES. The researcher can turn the Cut tab off after a
+ * device has already used it, and remembering it would then open a tab that is not there.
+ *
+ * Only ever OVERRIDES the default request, never an explicit one, so every caller that asks for a
+ * specific tab still gets it. */
 function landingTab(tab) {
   if (tab !== 'baseline') return tab;                       // an explicit request wins
-  if (!landOnCutEnabled()) return tab;
   if (!current || !current.doc) return tab;
+  const last = current.lastTab;
+  /* ⚠ A remembered tab is still subject to the gates AND to reality: the researcher can switch the
+   * Cut tab off after a device has used it, and a text can lose its recording (or never have had one
+   * — one curious tap on Cut is enough to remember it). Landing on the "this text has no recording"
+   * screen every time would be a worse bug than the one the memory fixes. */
+  const lastOk = last && isEditorTab(last)
+    && !(last === 'cut' && (!cutTabEnabled() || !docSegments(current.doc).some(isAligned)));
+  if (lastOk) return last;
+  if (!landOnCutEnabled()) return tab;
+  if (!docHasNoText(current.doc)) return tab;               // words already ⇒ this is transcription
   /* ⚠ ONLY WITH AUDIO — landing a text-only doc on a cutting screen would be nonsense. An ALIGNED
    * span is the proof: reconcile() seeds the whole-file span only once the recording has decoded and
    * its duration is known, so `some(isAligned)` means "there is real audio and we have measured it".
@@ -698,7 +731,23 @@ function landingTab(tab) {
    * media record keeps the decision SYNCHRONOUS — the media lookup is async, and awaiting it here
    * would flash the Baseline tab before switching. */
   if (!docSegments(current.doc).some(isAligned)) return tab;
-  return docIsUncut(current.doc) ? 'cut' : tab;
+  return 'cut';
+}
+
+/* Remember the tab per TEXT, on the record rather than on `doc` — `doc` is the flextext model and
+ * everything in it is serialised into the exported file, where a UI preference has no business.
+ * Written on every editor-tab switch and saved with the ordinary debounce, so it survives a reload
+ * and rides along with the record like `done` and `title` do. */
+function rememberTab(tab) {
+  if (!current || !isEditorTab(tab) || current.lastTab === tab) return;
+  current.lastTab = tab;
+  /* ⚠ NOT schedulePersist(): that goes through persist(), which stamps `modified = Date.now()`.
+   * Looking at a tab is not editing the text, and stamping it would be expensive in exactly the
+   * places that matter — a text already safely on Drive would report as changed, so the next Save
+   * would upload a duplicate copy over a village connection, and the researcher's "unchanged since
+   * upload" checks would stop agreeing with reality. Write the record as it is, quietly. */
+  const rec = current;
+  db.putDoc(rec).catch(() => { /* the memory is a convenience; never surface a toast for it */ });
 }
 
 /* The Cut tab's hint must never promise a key the researcher has switched off.
@@ -780,36 +829,46 @@ function joinSplitAllowed(tab) {
  * no cursor on this tab, so there is no defined place to divide the text. */
 function cutJoinTextedAllowed() { return settings.cutJoinTexted === true; }
 
-/* ⚠ WHERE THE CUT TAB'S KEYS APPLY — and, just as importantly, where they must NOT.
+/* ⚠ WHERE THE TRANSPORT KEYS APPLY — and, just as importantly, where they must NOT.
  *
- * The tab claims Enter, Backspace and Space at DOCUMENT level, because it has no text box to hold
- * focus and the gesture must work whether or not a row was ever clicked. The cost of that reach is
- * that the same keystroke would be taken from controls that legitimately own it, so this is the one
- * place that decides, for all three keys at once:
+ * Space (every editor tab) and Enter/Backspace (the Cut tab) are claimed at DOCUMENT level, because
+ * the gesture must work whether or not the user has clicked anything since arriving. The cost of
+ * that reach is that the same keystroke would be taken from controls that legitimately own it, so
+ * this is the one place that decides it, for every one of those keys at once:
  *
  *  - A MODAL IS OPEN ⇒ the keys are the modal's, full stop. Send/consent/record/help dialogs sit
- *    OVER this tab with `activeTab` still 'cut', so without this a Space on the share menu's Upload
+ *    OVER the editor with `activeTab` unchanged, so without this a Space on the share menu's Upload
  *    button would start the recording playing behind the dialog instead of pressing the button, and
  *    Enter would cut the audio. Both static (`.modal[hidden]`) and panel-built modals carry
  *    `class="modal"`, so one selector covers every one of them.
- *  - A CONTROL OUTSIDE THE TAB'S OWN SURFACE ⇒ its own key. Save, Done—send, ⟵ Back and Undo live in
- *    the topbar and must keep Enter and Space. The tab's surface is the Cut view AND the dock player
- *    (which is this tab's overview, not a separate thing), plus the ONE exception of the Cut tab
- *    button itself — that is where focus lands on the way in, and is exactly the "spacebar does
- *    nothing" Seth reported; re-activating it would only re-open the tab you are already on.
- *  - A TEXT FIELD or a <select> ⇒ typing and the dropdown win (`#doc-title` and the speed picker are
- *    the live cases). A RANGE slider does NOT: the dock's zoom is the one control a cutter fiddles
- *    with constantly, Space means nothing to it natively, and focus left sitting there was a second
- *    way for "spacebar doesn't work" to be true. */
-const CUT_SURFACE = '#view-cut, #audio-player';
-function cutKeysApply(target) {
+ *  - A CONTROL OUTSIDE THE EDITOR'S SURFACE ⇒ its own key. Save, Done—send, ⟵ Back and Undo live in
+ *    the topbar and must keep Enter and Space. The surface is the three editor views plus the dock
+ *    player (which is their shared overview, not a separate thing).
+ *  - …EXCEPT A TAB BUTTON, which is the whole reason this exists. ⚠ FOCUS STAYS ON THE TAB BUTTON
+ *    YOU CLICKED TO GET HERE, so Space was being spent re-activating it: switchTab re-rendered the
+ *    list and nothing played, over and over (Seth: "spacebar to play/pause is jammed … the page
+ *    glitches/appears to re-render and nothing plays … until I click the big player"). Clicking the
+ *    big player cured it only because that moved focus off the button. Re-opening the tab you are
+ *    already on is worth nothing; playing the audio is the point of the key.
+ *  - A TEXT FIELD or a <select> ⇒ typing and the dropdown win (`.seg-text`, `#doc-title` and the
+ *    speed picker are the live cases; a transcriber typing a space must get a space). A RANGE slider
+ *    does NOT: the dock's zoom is the one control a cutter fiddles with constantly, Space means
+ *    nothing to it natively, and focus left sitting there was another way for "spacebar doesn't
+ *    work" to be true.
+ *
+ * ⚠ The caller MUST preventDefault when this returns true — that is what stops the focused button
+ * from ALSO firing. It is also what makes Space safe on ✂ and ⤙⤚: a native re-click there would cut
+ * or join again with no gesture from the user. */
+const EDITOR_SURFACE = '#view-cut, #view-baseline, #view-gloss, #audio-player';
+function transportKeysApply(target) {
   if (document.querySelector('.modal:not([hidden])')) return false;
   const el = target && target.closest ? target : null;
   if (!el) return true;
   if (el.closest('textarea, select, [contenteditable], input:not([type="range"])')) return false;
   const ctl = el.closest('button, a[href], input, [tabindex]');
-  if (ctl && !ctl.closest(CUT_SURFACE) && ctl.id !== 'tab-cut') return false;
-  return true;
+  if (!ctl) return true;
+  if (ctl.classList && ctl.classList.contains('top-tab')) return true;   // the tab that got you here
+  return !!ctl.closest(EDITOR_SURFACE);
 }
 
 function segmentationEnabled() {
@@ -893,25 +952,15 @@ function decorateGlossSegments() {
     bar.append(btn, waveWrap);
     g.prepend(bar);
     wireSegPlay(btn, seg, () => player, (t2) => { lastPlayTarget = t2; });
-    wave.addEventListener('pointerdown', () => { lastPlayTarget = seg; });   // v326: touch = select
     drawSpanWave(wave, seg);
-    // Interactive, same as the baseline strips: click to PARK the playhead, drag to scrub.
-    if (isAligned(seg)) {
-      const seekAt = (ev) => {
-        const r = wave.getBoundingClientRect();
-        const f = Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width));
-        player?.seekMs?.(seg.start + f * (seg.end - seg.start));
-      };
-      wave.addEventListener('pointerdown', (ev) => {
-        ev.preventDefault();
-        try { wave.setPointerCapture(ev.pointerId); } catch { /* capture is drag comfort, not required */ }
-        seekAt(ev);
-        const move = (e2) => seekAt(e2);
-        const up = () => { wave.removeEventListener('pointermove', move); wave.removeEventListener('pointerup', up); };
-        wave.addEventListener('pointermove', move);
-        wave.addEventListener('pointerup', up);
-      });
-    }
+    /* Interactive, same as the baseline strips: click to PARK the playhead (which pauses), drag to
+     * scrub. ⚠ THE SHARED wireWaveSeek, not a third copy of it — this tab had its own, which is why
+     * "clicking a waveform pauses" had to be written in two places to reach both tabs. It also
+     * carries the v326 touch-selects-for-Space behaviour, so that is no longer wired separately. */
+    wireWaveSeek(wave, seg, () => player, (s) => { lastPlayTarget = s; });
+    // v326: touching a waveform SELECTS it for Space/⏮ — including an unaligned one, which
+    // wireWaveSeek deliberately leaves unwired (there is no time in it to seek to).
+    if (!isAligned(seg)) wave.addEventListener('pointerdown', () => { lastPlayTarget = seg; });
     entries.push({ btn, seg, wave, wrap: waveWrap });
     /* ⤙⤚ JOIN — in its OWN ROW BETWEEN the two groups it joins (v322, Seth's bug list #5). It used
      * to be the group's last child, a 44px tap target 6px under the full-width free-translation
@@ -1030,6 +1079,10 @@ function startGlossCursor(entries) {
        * follow it -- change-of-line only, only when out of sight, 4s user-scroll standoff. */
       const grp = en.wrap.closest('.segment');
       if (grp && grp.classList.contains('gseg-on') !== inSeg) grp.classList.toggle('gseg-on', inSeg);
+      /* "Take me to that line" after a seek on the whole-file player (requestReveal). ⚠ It belongs
+       * in THIS loop: startGlossTicker in segment-strips.js looks like the gloss ticker and is dead
+       * code, so the hook added there in v360 never ran. This tab scrolls the whole line-GROUP. */
+      if (grp && inSeg) takeReveal(grp);
       if (grp && inSeg && rolling && grp !== glossFollowRow) {
         glossFollowRow = grp;
         if (!player._spanTick && Date.now() - glossLastScroll > 4000) {
@@ -1162,12 +1215,18 @@ async function prepareCutAudio() {
   renderCut();
 }
 
-function switchTab(tab) {
+function switchTab(tab, landing) {
   // Leaving baseline: apply baseline edits to the model first.
   if (activeTab === 'baseline' && !$('#view-baseline').hidden) {
     applyBaseline();
   }
+  const fromTab = activeTab;      // what we are ARRIVING FROM — see the Cut tab's span-watcher rule
   activeTab = tab;
+  /* ⚠ ONLY A TAB THE USER CHOSE IS REMEMBERED. enterEditor's own landing switch passes `landing`,
+   * because storing the tab the APP picked would make rule (2) self-fulfilling: the first auto-land
+   * on Cut would become "the user's choice" forever, and a researcher later switching landOnCut off
+   * would have no effect on any text that had ever been opened. */
+  if (!landing) rememberTab(tab);  // …so this text opens here next time (see landingTab)
   if (tab !== 'cut') stopCut();   // never leave the Cut rAF running behind another view
   /* THE CUT TAB — audio only. It shares the dock player and the peaks cache with the Baseline
    * strips, so entering it is the same preparation minus the text UI.
@@ -1185,12 +1244,16 @@ function switchTab(tab) {
      * quietly restore span-limited playback by the back door. Cleared on entry, and kept cleared by
      * the onPlayTarget below, so on the Cut tab Space is continuous and ⏮ is the whole file. */
     lastPlayTarget = null;
-    /* ⚠ AND DROP ANY LIVE SPAN WATCHER. `lastPlayTarget` is only the memory of a target; the watcher
-     * itself lives on the Player, armed by the last playSpan() — so arriving here straight from a
-     * Baseline or Gloss line still playing left a timeupdate handler that PAUSES at that line's end.
-     * The tab's whole promise is that playback runs on through the cuts, and it would have been
-     * broken by the most ordinary route to the tab: listen to a line, come over to re-cut it. */
-    player?.clearSpan?.();
+    /* ⚠ AND DROP ANY SPAN WATCHER CARRIED IN FROM ANOTHER TAB. `lastPlayTarget` is only the memory
+     * of a target; the watcher itself lives on the Player, armed by the last playSpan() — so
+     * arriving here straight from a Baseline or Gloss line still playing left a timeupdate handler
+     * that PAUSES at that line's end, breaking the tab's promise by its most ordinary route: listen
+     * to a line, come over to re-cut it.
+     *
+     * ⚠ ONLY ON ARRIVAL, though (`fromTab !== 'cut'`). This tab re-enters ITSELF on every undo/redo
+     * and on a live settings push, and a blanket clear there would silently cancel an audition the
+     * user had just started with a row's ▶ — a watcher THIS tab armed, on purpose. */
+    if (fromTab !== 'cut') player?.clearSpan?.();
     applyCutHint();
     initCut({
       getPlayer: () => player,
@@ -1202,6 +1265,8 @@ function switchTab(tab) {
       persist: () => schedulePersist(),
       // Read through a FUNCTION so a researcher push lands mid-session, same rule as joinKeys.
       allowJoinTexted: () => cutJoinTextedAllowed(),
+      // Guessing replaces every cut in the text, so hand-made work is confirmed before it goes.
+      confirmReplace: () => confirm(t('cut.guessConfirm')),
       t,
     });
     prepareCutAudio();
@@ -1359,6 +1424,11 @@ function applyUndoState(st, onto) {
   current.doc.paragraphs = st.p;
   current.doc.segments = st.s;
   schedulePersist();
+  /* ⚠ THE SPANS THE PLAYER WAS WATCHING NO LONGER EXIST. A span watcher captures its stop time and
+   * rewind-home when playback starts, and undo has just replaced every segment — so an audition
+   * running across an undo would pause at a boundary from the discarded state and throw the playhead
+   * back to a start that is not there any more. Same rule as cutHere and cutGuessSplits. */
+  player?.clearSpan?.();
   // Re-render whatever is showing; switchTab already knows every mode's render path.
   switchTab(activeTab);
   updateUndoButtons();
@@ -1399,6 +1469,15 @@ function getPlayer() {
         await persist();
         refreshPlayer();
       },
+      /* CLICKING THE BIG WAVEFORM IS "TAKE ME HERE" (Seth, 2026-08-13), and it means two things:
+       *  - playback PAUSES, so the position you just chose stays the position you chose. It used to
+       *    run straight on from the click, sliding the playhead off the spot before you could cut;
+       *  - and if the line for that instant is off screen, the strips scroll it into the MIDDLE.
+       *    Seeking on the whole-file player is how you find your place in a long recording, and
+       *    landing there without the line in front of you leaves you hunting for the row you just
+       *    picked. This is the other half of "the one overview and the strips stay in sync".
+       * The strips honour the request from their own tickers — see requestReveal. */
+      onSeekInteraction: () => { player?.pause?.(); requestReveal(); },
     });
   }
   return player;
@@ -6861,11 +6940,13 @@ function wirePlaybackKeys() {
      * on click, so without that blur the click looks like it selected the audio while the keystroke
      * still went to the gloss box the user had been typing in. */
     if (e.key !== ' ' || e.repeat) return;
-    // The Cut tab has its own Space (continuous play/pause, focus-independent) — see the cut-tab
-    // key handler. Two handlers would toggle twice and cancel each other out.
+    // The Cut tab has its own Space (continuous play/pause) — see the cut-tab key handler. Two
+    // handlers would toggle twice and cancel each other out.
     if (activeTab === 'cut' && !$('#view-cut')?.hidden) return;
-    const t2 = e.target;
-    if (t2.closest && (t2.closest('input, textarea, select, button, [contenteditable]'))) return;
+    /* ⚠ NOT "any button": that blanket exemption is what jammed Space on the Baseline and Gloss
+     * tabs, because focus sits on the TAB BUTTON you clicked to get there and the key was spent
+     * re-activating it. transportKeysApply draws the line properly — see it for the full rule. */
+    if (!transportKeysApply(e.target)) return;
     if (!player) return;
     e.preventDefault();
     if (player.playing?.()) { player.pause(); return; }
@@ -7085,7 +7166,7 @@ function setup() {
    * to naming the button, so the screen never promises a key that does nothing. */
   document.addEventListener('keydown', (e) => {
     if (activeTab !== 'cut' || $('#view-cut')?.hidden) return;
-    if (!cutKeysApply(e.target)) return;
+    if (!transportKeysApply(e.target)) return;
     if (e.key === 'Enter') { e.preventDefault(); cutHere(); }
     else if (e.key === 'Backspace') { if (!joinKeysEnabled()) return; e.preventDefault(); cutJoinPrev(); }
     /* SPACE PLAYS AND PAUSES, WHEREVER FOCUS IS ON THIS TAB (Seth, 2026-08-13: "spacebar to
@@ -7100,6 +7181,7 @@ function setup() {
      * to this (it runs first, in capture). */
     else if (e.key === ' ' && !e.repeat) { e.preventDefault(); cutTogglePlay(); }
   });
+  $('#btn-guess-splits')?.addEventListener('click', () => cutGuessSplits());
   $('#btn-help-home').addEventListener('click', openHelp);
   $('#btn-help-editor').addEventListener('click', openHelp);
   $('#btn-help-close').addEventListener('click', closeHelp);

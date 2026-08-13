@@ -69,6 +69,43 @@ await page.click('#tab-cut');
 await page.waitForTimeout(4000);
 ok(await page.isVisible('#cut-main'), 'the strips are built once the recording has decoded');
 
+console.log('\n"Guess the lines" cuts the real recording at its real pauses');
+/* ⚠ The detector is measured against synthetic peaks in test/guess-splits.test.mjs. What THIS proves
+ * is the other half: that the whole path works on a genuinely decoded recording — file → decode →
+ * ensurePeaks → guessSplits → segments AND paragraphs — and lands the boundaries in the silences.
+ * The test recording is 1.2s of tone every 2s, so a correct guess is 9 lines with boundaries in the
+ * 0.8s gaps. */
+ok(await page.isVisible('#btn-guess-splits'), 'the button is at the top of the tab');
+await page.click('#btn-guess-splits');
+await page.waitForTimeout(1200);
+const guessed = await page.evaluate(() => {
+  const segs = (window.__fxDoc && window.__fxDoc.segments) || null;
+  const rows = document.querySelectorAll('#cut-strips .cut-row').length;
+  return { rows, say: document.getElementById('cut-say').textContent };
+});
+ok(guessed.rows >= 8 && guessed.rows <= 11,
+   `the recording came apart into one line per burst (${guessed.rows} rows for 10 bursts)`);
+ok(/Guessed \d+ lines/.test(guessed.say), `and it says what it did: "${guessed.say.slice(0, 40)}…"`);
+/* ⚠ EVERY BOUNDARY MUST SIT IN A SILENCE — that is the whole claim, and the first version of this
+ * check counted rows instead, which proved nothing (found by review). The recording is 1.2s of tone
+ * then 0.8s of silence, repeating, so a correct boundary time satisfies 1.2 ≤ (t mod 2) ≤ 2.0. The
+ * times are read back off the dock player's own marks, in per cent of a 20s file. */
+const marksAt = await page.evaluate(() => {
+  const sr = document.querySelector('.player-wave')?.firstElementChild?.shadowRoot;
+  const wrap = sr && sr.querySelector('.wrapper');
+  const layer = wrap && [...wrap.children].find((c) => c.style && c.style.zIndex === '4');
+  return layer ? [...layer.children].map((el) => parseFloat(el.style.left) / 100 * 20) : [];
+});
+const strays = marksAt.filter((t) => { const m = t % 2; return !(m >= 1.15 && m <= 2.0); });
+ok(marksAt.length >= 8, `the boundaries are marked on the player (${marksAt.length})`);
+ok(strays.length === 0,
+   `and every one lands in a silence, not inside speech (strays: ${strays.map((s) => s.toFixed(2)).join(', ') || 'none'})`);
+// Undo puts the whole guess back in ONE step.
+await page.keyboard.down('Control'); await page.keyboard.press('KeyZ'); await page.keyboard.up('Control');
+await page.waitForTimeout(900);
+ok(await page.locator('#cut-strips .cut-row').count() === 1,
+   'and one Ctrl+Z undoes the whole guess, not one boundary of it');
+
 console.log('\nthere is ONE whole-file waveform, and it is the dock player\'s');
 ok((await page.locator('#cut-big').count()) === 0, 'the tab draws no second overview of its own');
 const rows = () => page.locator('#cut-strips .cut-row');
@@ -144,14 +181,72 @@ ok(await page.textContent('.player-play') === '⏸',
    `still rolling past the end of the line that was playing when the tab was entered (${past})`);
 await pause();
 
-console.log('\nand a strip\'s own ▶ plays through the boundary too');
-const w1 = await rows().first().locator('.seg-wave').boundingBox();
-await page.mouse.click(w1.x + w1.width * 0.95, w1.y + w1.height / 2);   // park just inside its end
-await page.waitForTimeout(250);
+/* ── THE TWO TRANSPORTS ANSWER DIFFERENT QUESTIONS (Seth, refining v357). Both are checked here
+ * from the SAME starting position — parked just inside span 0's end — so the only variable is which
+ * control was used. */
+const parkNearSeam = async () => {
+  const w = await rows().first().locator('.seg-wave').boundingBox();
+  await page.mouse.click(w.x + w.width * 0.95, w.y + w.height / 2);
+  await page.waitForTimeout(250);
+};
+
+/* ⚠ "Ended paused" is NOT enough to prove a span stopped at its boundary — it starts paused too, so
+ * the same assertion passes on a button that does nothing at all (found by the v359 preflight
+ * review, about the first version of this very check). Each transport is therefore watched at TWO
+ * moments, and the seam crossing is asserted on the CLOCK, not narrated in the message. */
+const secs = async () => {
+  const txt = (await page.textContent('.player-time')) || '';
+  const m = txt.match(/(\d+):(\d\d)/);
+  return m ? (+m[1] * 60 + +m[2]) : -1;
+};
+const SEAM = 12;   // span 0 is 0–12s: the first cut, made at 60% of a 20s recording
+
+console.log('\na strip\'s own ▶ plays THAT LINE and stops at its end');
+await parkNearSeam();
 await page.evaluate(() => document.querySelector('#cut-strips .cut-row .seg-play').click());
-await page.waitForTimeout(3000);   // resumes from the parked spot and crosses into the next span
-ok(await page.textContent('.player-play') === '⏸', 'still rolling 3s after starting near the seam');
+await page.waitForTimeout(400);
+ok(await page.textContent('.player-play') === '⏸', 'it really did start playing');
+await page.waitForTimeout(3000);   // long enough to have crossed the seam, had it been allowed to
+const stoppedAt = await secs();
+ok(await page.textContent('.player-play') === '▶',
+   'and then stopped — "play this line" means the line, as on every other tab');
+ok(stoppedAt <= SEAM, `without ever crossing the seam (ended at ${stoppedAt}s, seam ${SEAM}s)`);
 await pause();
+
+console.log('\n…and SPACE, from the same spot, runs ON through the seam');
+await parkNearSeam();
+await page.keyboard.press('Space');
+await page.waitForTimeout(3000);
+const spaceAt = await secs();
+ok(await page.textContent('.player-play') === '⏸', 'still rolling');
+ok(spaceAt > SEAM, `and past the seam (${spaceAt}s > ${SEAM}s) — Space is the continuous transport`);
+await pause();
+
+console.log('\n…and so does the dock player\'s own ⏵, the other control Seth named');
+await parkNearSeam();
+await page.evaluate(() => document.querySelector('.player-play').click());
+await page.waitForTimeout(3000);
+const dockAt = await secs();
+ok(await page.textContent('.player-play') === '⏸', 'still rolling');
+ok(dockAt > SEAM, `and past the seam (${dockAt}s > ${SEAM}s)`);
+await pause();
+
+console.log('\nplacing the playhead PAUSES — on a strip and on the big player alike');
+/* Seth: "if the user clicks on a player at all (to place a playhead) playback should pause." A click
+ * during playback used to move the playhead and then immediately run on from it, so the spot the
+ * user was aiming at had already slid away before they could cut at it. */
+await page.evaluate(() => document.querySelector('.player-play').click());   // start it rolling
+await page.waitForTimeout(700);
+ok(await page.textContent('.player-play') === '⏸', 'playing, to have something to interrupt');
+await parkNearSeam();
+ok(await page.textContent('.player-play') === '▶', 'a click on a STRIP waveform paused it');
+await page.evaluate(() => document.querySelector('.player-play').click());
+await page.waitForTimeout(700);
+ok(await page.textContent('.player-play') === '⏸', 'playing again');
+const dock = await page.locator('.player-wave').boundingBox();
+await page.mouse.click(dock.x + dock.width * 0.35, dock.y + dock.height / 2);
+await page.waitForTimeout(400);
+ok(await page.textContent('.player-play') === '▶', 'and a click on the BIG player paused it too');
 
 console.log('\nand a cut does not throw the view back to the top');
 /* Enough rows that the list genuinely scrolls — with only a screenful the clamp-to-top this guards
@@ -179,6 +274,43 @@ ok(was > 200, `the list really was scrolled well down first (${was}px)`);
 // Tight on purpose: the failure this guards is a slam to 0, and a loose bound would pass through it.
 ok(Math.abs(now - was) < 40, `and held its place across the cut (${was} → ${now})`);
 
+console.log('\nand a seek on the big player brings that line into the middle of the view');
+/* The other half of "the one overview and the strips stay in sync": seeking on the whole-file player
+ * is how you find your place in a long recording, and landing there with the line off screen leaves
+ * you hunting for the row you just picked.
+ *
+ * ⚠ It runs HERE, after the cutting loop, because it needs a list long enough for "off screen" to
+ * mean something — with two rows on a screenful, the assertion would pass without any scrolling
+ * having happened at all. The precondition is asserted rather than assumed. */
+await page.evaluate(() => { document.querySelector('main').scrollTop = 0; });
+await page.waitForTimeout(300);
+const beforeReveal = await page.evaluate(() => {
+  const rs = [...document.querySelectorAll('#cut-strips .cut-row')];
+  const last = rs[rs.length - 1];
+  return { rows: rs.length, lastTop: Math.round(last.getBoundingClientRect().top), h: window.innerHeight };
+});
+ok(beforeReveal.rows >= 8 && beforeReveal.lastTop > beforeReveal.h,
+   `the last line really is off screen to begin with (${JSON.stringify(beforeReveal)})`);
+const dockBox = await page.locator('.player-wave').boundingBox();
+/* ⚠ NOT the very end of the recording: its row is the LAST one, and no scroller can put its last
+ * row in the middle of the window — the assertion would be testing gravity, not the feature. 85%
+ * lands on a row with several below it, so centring is actually possible. */
+await page.mouse.click(dockBox.x + dockBox.width * 0.85, dockBox.y + dockBox.height / 2);
+await page.waitForTimeout(1200);   // the tickers honour the request on their next pass
+const revealed = await page.evaluate(() => {
+  const on = document.querySelector('#cut-strips .cut-row.seg-on');
+  if (!on) return { err: 'no row holds the playhead' };
+  const r = on.getBoundingClientRect();
+  const m = document.querySelector('main');
+  return { top: Math.round(r.top), bottom: Math.round(r.bottom), h: window.innerHeight,
+           atEnd: m.scrollTop >= m.scrollHeight - m.clientHeight - 2 };
+});
+ok(!revealed.err && revealed.top >= 60 && revealed.bottom <= revealed.h - 20,
+   `the line for that instant scrolled into view (${JSON.stringify(revealed)})`);
+ok(!revealed.err && (Math.abs((revealed.top + revealed.bottom) / 2 - revealed.h / 2) < 160 || revealed.atEnd),
+   'and it is near the MIDDLE of the window (or as close as the end of the list allows)');
+await pause();
+
 console.log('\na segment carrying text is grey, and refuses to be cut');
 await page.evaluate(() => document.querySelector('.top-tab[data-tab="baseline"]').click());
 await page.waitForTimeout(1500);
@@ -199,6 +331,41 @@ await page.keyboard.press('Enter');
 await page.waitForTimeout(400);
 const say = await page.textContent('#cut-say');
 ok(/already has words|sudah ada kata/.test(say || ''), `and says why: "${(say || '').slice(0, 48)}…"`);
+
+/* ── AND THE SAME KEY ON THE OTHER TABS ────────────────────────────────────────────────────────
+ * Seth: "spacebar to play/pause is jammed and doesn't work (the page glitches/appears to re-render
+ * and nothing plays) until I click the big player… that's on the baseline and gloss tabs. The cut
+ * tab works flawlessly."
+ *
+ * The cause was focus: you arrive on a tab by CLICKING ITS TAB BUTTON, so the button keeps focus and
+ * Space was spent re-activating it — switchTab re-rendered the list (the "glitch") and nothing
+ * played. Clicking the big player cured it only because that moved focus off the button. */
+for (const tab of ['baseline', 'gloss']) {
+  console.log(`\nSpace works on the ${tab.toUpperCase()} tab with focus on the tab button`);
+  await page.evaluate((t) => document.querySelector(`.top-tab[data-tab="${t}"]`).click(), tab);
+  await page.waitForTimeout(1800);
+  await pause();
+  await page.evaluate((t) => document.querySelector(`.top-tab[data-tab="${t}"]`).focus(), tab);
+  const focused = await page.evaluate(() => document.activeElement.className.split(' ')[0]);
+  ok(focused === 'top-tab', `focus really is on the tab button (${focused})`);
+  await page.keyboard.press('Space');
+  await page.waitForTimeout(900);
+  ok(await page.textContent('.player-play') === '⏸', 'Space started playback instead of re-opening the tab');
+  await page.keyboard.press('Space');
+  await page.waitForTimeout(500);
+  ok(await page.textContent('.player-play') === '▶', 'and stopped it again');
+}
+
+console.log('\n…but a control OUTSIDE the editor keeps its own Space');
+/* The line has to be drawn somewhere: Save, Done—send and ⟵ Back are ordinary buttons in the topbar
+ * and a keyboard user must still be able to press them. */
+await page.evaluate(() => document.querySelector('#btn-back')?.focus());
+const beforeKey = await page.textContent('.player-play');
+await page.keyboard.press('Space');
+await page.waitForTimeout(600);
+const stillInEditor = await page.isVisible('#view-baseline') || await page.isVisible('#view-gloss') || await page.isVisible('#view-cut');
+ok(await page.textContent('.player-play') === beforeKey || !stillInEditor,
+   'Space on the topbar Back button did not hijack the transport');
 
 await browser.close();
 console.log(fail ? `\nFAILED (${fail})` : '\nPASSED');

@@ -245,6 +245,129 @@ tab grey means HAS TEXT — the same visual reading for opposite states. That is
 but Seth asked for the Cut tab's meaning specifically, and changing Baseline's is a shipped-tab
 change nobody has asked for. Worth raising before it is discovered.
 
+## v359 — the two transports, split back apart (Seth, 2026-08-13)
+
+> *"If the user clicks a segment play button, play-through behavior shouldn't happen. The segment
+> play button should play only the segment. But spacebar or the big player play button will play
+> through."*
+
+v357 gave the row buttons play-through as well, which collapsed two different questions into one
+control and left no way to hear a single span in isolation. Split back:
+
+| control | question it answers | how |
+|---|---|---|
+| a row's **▶** | *is this span right?* | `wireSegPlay` → `playSpan` — the SAME wiring as Baseline and Gloss, so "play this line" means one thing across the suite. Stops at the span's end and rewinds to its start |
+| **Space** and the dock's **⏵** | *does this seam sound right?* | `playThrough` — no span watcher, runs on through every cut |
+
+⚠ The Cut tab still DISARMS any watcher on entry (v358), and that is not in tension with this: the
+watcher a row button arms is one the user asked for on THIS tab, while the one carried in from a
+Baseline line still playing is left over from another tab and would stop playback at a boundary
+nobody chose. Both browser assertions are kept, from the same parked position just inside a seam:
+the row button stops (▶), Space runs on to 0:14 past the 12s boundary.
+
+## v360 — placing the playhead means "here", and a text opens where you left it
+
+Three more from the same test drive, two of which deliberately reach BEYOND the Cut tab.
+
+**Clicking a player pauses it.** Seth: *"if the user clicks on a player at all (to place a playhead)
+playback should pause. And I think that probably should apply on the baseline and gloss tabs as
+well."* A click used to move the playhead and let the audio run straight on from it, so the spot the
+user was aiming at had already slid away before they could cut at it. Now every place a playhead can
+be placed pauses first: the strips on all three tabs (one shared `wireWaveSeek` — the gloss tab's own
+copy is gone, which is why this needed writing only once) and the whole-file player, via a new
+`onSeekInteraction` hook. ⚠ It listens for wavesurfer's **`interaction`** event, which fires ONLY for
+a click or drag on the waveform; `seeking` would also fire for the app's own `seekMs` calls and would
+pause the player in the middle of doing what it had been told.
+
+**A seek on the big player brings that line into the middle.** *"If they select somewhere on the
+[big player] that is off screen, it should auto scroll to that line so that it's in the middle of the
+view window."* This is the other half of "the one overview and the strips stay in sync": seeking is
+how you find your place in a long recording, and landing there with the line off screen leaves you
+hunting for the row you just chose. ⚠ Implemented as a REQUEST (`requestReveal`) that each tab's own
+ticker honours with the row IT has decided holds the playhead — three correct implementations reused
+rather than a fourth that would drift. It expires after 1.5s, so a seek into a `timePending` span
+cannot fire a surprise scroll minutes later.
+
+**Which tab a text opens on**, in Seth's own order:
+1. the last tab used in THAT text (remembered per text, on the record — not on `doc`, which is the
+   flextext model and gets serialised into the export);
+2. failing that, and only when there are **no words yet**: the Cut tab if enabled, else Baseline.
+
+⚠ (1) beating (2) is the point of it. Without the memory, a text with no words — every text at the
+start of the job — would drag the user back to Cut every time they opened it, however many times they
+had left for Baseline. A remembered tab is still subject to the gates: the researcher can turn the Cut
+tab off after a device has already used it.
+
+### Two more from the v359 review, in the same release
+
+- **A cut during an audition left a stale span watcher.** `playSpan` captures its stop time and its
+  rewind-home when the button is pressed, so auditioning a line and then cutting it — listen and cut
+  on the fly, the tab's core loop — paused playback at the OLD boundary and threw the playhead back
+  to the OLD start. `cutHere` drops the watcher.
+- **v358's disarm-on-entry was too broad**: it fired on every re-entry, including the undo/redo
+  re-render, silently cancelling an audition the user had just started. Now scoped to arrivals from
+  another tab (`fromTab !== 'cut'`), which is the case it was written for.
+
+## v362 — the spacebar jam on Baseline and Gloss: it was FOCUS, not the player
+
+Seth, testing v358 on staging: *"spacebar to play/pause is jammed and doesn't work (the page
+glitches/appears to re-render and nothing plays) until I click the big player and then click the
+segment player again. Same on the gloss tab."* And: *"The cut tab works flawlessly with spacebar."*
+
+**The cause was in the report all along.** You arrive on a tab by CLICKING ITS TAB BUTTON, so the
+button keeps focus — and the global Space handler stood down on *any* focused button (v322's rule: a
+focused button Space-clicks itself natively, so handling it too would double-toggle). So Space went
+to the tab button, `switchTab` re-rendered the list — **that is the "glitch"** — and nothing played.
+Clicking the big player cured it only because that moved focus to `<body>`. The Cut tab was flawless
+because v357 had already given it a focus-independent handler.
+
+⚠ **The v322 rule was right about ordinary buttons and wrong about this one.** Re-opening the tab you
+are already on is worth nothing; playing the audio is the entire point of the key. So the blanket
+"any button" exemption is gone, replaced by the bounded rule the Cut tab was already using, now
+shared by both handlers (`transportKeysApply`):
+
+| focus is on… | who gets Space |
+|---|---|
+| a text field, a `<select>` | the field — a transcriber typing a space must get a space |
+| anything inside an open `.modal` | the dialog, full stop |
+| a control outside the editor's surface (topbar Save, Done—send, ⟵ Back) | the control |
+| **a tab button** | **the transport** — this was the jam |
+| a strip's ▶, a ⤙⤚ join, ✂, the dock's own controls, the zoom slider | the transport |
+
+⚠ A pleasant side effect: Space can no longer re-fire a DESTRUCTIVE button. Focus sits on ✂ or ⤙⤚
+the instant after you use one, and a native re-click there would cut or join again with no gesture
+from the user.
+
+⚠ **Found by reproducing it, not by reading.** Three earlier hypotheses (an autoplay-policy failure,
+wavesurfer's `interaction` event firing for our own seeks, a stale span watcher) were each tested in
+Chromium against BOTH the staging build and the current tree, and each was wrong — the builds behaved
+identically. Only scripting the actual user path — click the tab button, then press Space — showed
+it. `test/browser/cut-tab.playwright.mjs` now drives exactly that, on Baseline and Gloss, and checks
+that the topbar's own buttons keep their Space.
+
+## v363 — what the v360/v361 preflight review found
+
+Same four-lens review as before v357 shipped, run before this batch went to staging. The findings
+that mattered, in descending order of what they would have cost a field user:
+
+| finding | why it was real |
+|---|---|
+| **`guessSplits` converted frame indices back to time with the NOMINAL 10ms** | `peakPlan` CEILS buckets, so a 44.1kHz recording gives `msPerBucket ≈ 0.5215` and a "10ms" frame is really 9.909ms — ~1% drift, about **20 seconds by the end of a 40-minute recording**, every boundary landing earlier than the pause it was measured at. ⚠ **My own test could not see it**: every synthetic case used 16kHz, where `msPerBucket` is exactly 0.5 and the nominal value is right. Case (g2) now uses a real 44.1kHz value, and was checked BOTH ways — 305ms drift at 35s in with the old conversion, 6ms with the fix |
+| **The Guess guard read only the phrase BASELINE string** | a document whose baselines are blank but which carries words, glosses or free translations would have been re-cut and part of its work destroyed. `docHasWork()` now looks at words, glosses and free translations too. Import fills the baseline from the words, so the two agree in practice — this is the belt to that braces, on a path where being wrong is unrecoverable |
+| **Remembering the tab stamped `modified`** | `schedulePersist()` goes through `persist()`, which sets `modified = Date.now()`. Merely LOOKING at a tab would mark a text changed: a text already safely on Drive would report as changed, the next Save would upload a duplicate over a village connection, and the researcher's "unchanged since upload" checks would stop agreeing with reality. It writes the record quietly now |
+| **The remembered tab was the tab the APP chose** | `enterEditor`'s own landing switch was recorded as the user's choice, so the first auto-land on Cut became permanent and a researcher later turning `landOnCut` off had no effect on any text ever opened. Seth's rule (1) is *"the last tab the USER had open"* — the landing switch is now marked as such and not remembered |
+| **A remembered `cut` was not gated on the text HAVING audio** | one curious tap on Cut, and a text with no recording opened on the dead "nothing to cut" screen for ever |
+| **"Take me to that line" never fired on the Gloss tab** | it was wired into `startGlossTicker` in segment-strips.js — which nothing calls. The gloss tab grew its own rAF loop (`startGlossCursor` in app.js) and that one was left behind, exported and unused. The hook moved to the live loop; the dead function now says so at the top |
+| **The Baseline ticker swallowed the reveal on the Cut tab** | nothing stops the Baseline rAF when switching to Cut, so it answered the request first with a row nobody could see. `takeReveal` now ignores rows whose `offsetParent` is null (a hidden ancestor) |
+| **Dragging the dock revealed the row you started FROM** | wavesurfer emits `interaction` on every drag move but debounces the seek by up to 200ms, so the first tick found the old row — on screen, no scroll needed, request consumed. The request is now spent only when it actually scrolls |
+| **`cutGuessSplits` and UNDO left stale span watchers** | the same defect v360 fixed in `cutHere`, reached by two more routes: a watcher captures its stop time and rewind-home when playback starts, and both of these replace every segment underneath it |
+| **The browser test's boundary check was a tautology** | its comment claimed every boundary sits in a silence; the assertion counted rows. It now reads the boundary times off the player's own marks and asserts `1.15 ≤ (t mod 2) ≤ 2.0` — inside the recording's silences |
+
+⚠ **Left alone deliberately**: nothing caps the number of guessed lines, so a 40-minute recording can
+produce several hundred rows, each with its own canvas. That cost is the strip renderer's and is not
+new — but Guess is the first thing that can reach it in one press. Worth watching on a cheap phone
+before it becomes a bug report.
+
 ### And the tab is verified in a BROWSER now
 
 v355 and v356 both shipped saying *"still unverified in a browser"*, and both were wrong in ways no
@@ -261,7 +384,33 @@ back. That is the difference between a test and a comment: the scroll guard read
 fix and 509 → 0 without it, and the span-watcher guard plays to 0:13 with the fix and stops dead at
 0:00 without it. Any assertion added here should earn its place the same way.
 
-## NEXT: "Guess Splits" — silence detection (Seth, 2026-08-13)
+## v361 — "Guess the lines" is BUILT (was the NEXT section below; kept for the reasoning)
+
+Seth: *"where's my 'Guess' (default auto-segment based on pauses) button/feature for new texts?"* It
+had been specified below and never built. It is now `guessSplits()` in `segments.js` — pure, no DOM,
+no decode — plus a button at the top of the Cut tab.
+
+**What was actually decided, beyond the sketch below:**
+
+| decision | why |
+|---|---|
+| **10ms frames of MEAN amplitude**, not the raw 0.5ms max buckets | the peaks array is a MAX per bucket, which is what makes waveforms crisp and gating unreliable: one click or chair creak inside a two-second pause is a single tall bucket, and a max-based gate calls the whole pause speech |
+| **floor = 20th percentile, speech = 90th**, both of the file itself | in any recording of speech at least a fifth of frames are between words; the 90th is the speech level, where the MAX is one plosive that tells you nothing |
+| **hysteresis, gates at 12% and 25%** of floor→speech | one gate chatters where the level wobbles across it, breaking a genuine long pause into short ones that each fail the minimum-gap test — so the pause is missed entirely. Both gates sit near the FLOOR, per the under-cutting rule |
+| **refuse when `speech < floor × 1.6`** | continuous speech, a wall of noise, or silence: no dynamic range means any threshold is a coin toss applied fifty times. Returning nothing leaves the user exactly where they were |
+| **min gap 350ms, min line 900ms** | below ~300ms you cut inside words (a glottal stop can hold 150ms); a sub-second "line" is usually a cough or a door |
+| **minimum line enforced LAST, over the whole set** | enforcing it pairwise as boundaries are found lets a chain of near-misses accumulate into a run of slivers |
+| **a text with WORDS is refused wholesale** | guessed spans cannot carry existing text — `segments[i]` IS paragraph i, and there is no defensible way to redistribute words across new spans. The button is disabled in that state AND the function refuses |
+| **already cut by hand ⇒ confirm first** | that hand work is precisely what this throws away |
+
+⚠ **The threshold was measured, not asserted.** `test/guess-splits.test.mjs` synthesises peaks with
+known pauses and scores the detector: clean, a **village noise floor at 8%**, a loud room at 25%,
+80–140ms stop closures that must NOT be cut, continuous speech, silence, a wall of noise, and lines
+too short to mint. **Zero spurious cuts in every case** — the expensive error — with full recall on
+(a)–(d). The browser test then proves the whole path on genuinely decoded audio: 10 bursts → 10
+lines, boundaries in the silences, and **one Ctrl+Z undoes the entire guess**.
+
+## (built — see above) "Guess Splits" — silence detection (Seth, 2026-08-13)
 
 > "make default segment breaks for a new text … based on where the audio appears to have pauses in
 > speech? How hard is that to implement? … We would want a 'Guess Splits' button at the top."

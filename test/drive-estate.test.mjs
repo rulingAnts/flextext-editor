@@ -451,17 +451,23 @@ console.log('\ntext lists are capped and scrollable — and the Files menu still
   ok(/overscroll-behavior: contain/.test(css),
      'a flick that bottoms out does not jump the whole dashboard');
 
-  /* ⚠ THE REGRESSION THIS PREVENTS: overflow:auto makes each list a CLIPPING container, and the
-   * Files menu is taller than a couple of rows. Positioned absolutely it would be sliced off for
-   * any text near the bottom — i.e. precisely the rows you had to scroll to reach, which is the
-   * case the scrolling exists for. Fixed positioning takes it out of that container entirely. */
-  ok(/function placeDlMenu\(wrap\)/.test(panel), 'the menu is positioned explicitly');
-  ok(/menu\.style\.position = 'fixed';/.test(panel), "...as `fixed`, so a scroll container cannot clip it");
-  ok(/placeDlMenu\(wrap\);/.test(panel), 'and placement runs when the menu opens');
-  // A fixed menu cannot follow its button, so it must not be left stranded.
-  ok(/addEventListener\('scroll', \(\) => \{ if \(openDl\) closeDlMenu\(\); \}, \{ capture: true/.test(panel),
-     'any scroll closes it rather than stranding it mid-air');
-  ok(/vw - width - 8/.test(panel), 'and it is kept inside the viewport horizontally');
+  /* ⚠ THE ORIGINAL REGRESSION: overflow:auto makes each list a CLIPPING container, and the Files
+   * list is taller than a couple of rows, so an absolutely-positioned menu was sliced off for any
+   * text near the bottom — precisely the rows you had to scroll to reach.
+   *
+   * v347 SETTLES IT DIFFERENTLY. `fixed` escaped the clipping but could not follow its button, so
+   * it closed on scroll — and Seth reported exactly that: "if I scroll… it disappears and it won't
+   * come back again until I refresh the page." The list is now a MODAL, which has no anchor to
+   * lose. The scroll cap above still matters (it is what makes the dashboard usable with 42 texts);
+   * what is gone is the whole class of positioning bug that came with anchoring to a row. */
+  ok(!/function placeDlMenu/.test(panel), 'no anchored-menu placement remains');
+  ok(!/openDl\b/.test(panel), '...nor the open-menu singleton it needed');
+  ok(/function openFilesModal\(rowWrap\)/.test(panel), 'the Files control opens a modal instead');
+  ok(/openFilesModal\(wrap\);/.test(panel), 'and the row button opens it');
+  /* A modal that opened on hover would take over the screen while the pointer merely crossed a list
+   * of forty texts. Opening a dialog is an action, not a hover — pin that it is click-only. */
+  // Match the LISTENER, not the word: the comment explaining why hover was dropped says "mouseenter".
+  ok(!/addEventListener\('mouseenter'/.test(panel), 'it is click-only — no hover-to-open');
 }
 
 console.log(fail ? `\nFAILED (${fail})\n` : '\nall passed\n');

@@ -1137,7 +1137,8 @@ async function renderDashboard(prefetched) {
       renderDashboard(lastData || undefined);   // cached data — the estate has not changed
       return;
     }
-    if (el.dataset.uact === 'adopt') { adoptTextModal(el.dataset.id, el.dataset.title || ''); return; }
+    // busy(): the manifest check lists the folder first, so the button must not look dead meanwhile.
+    if (el.dataset.uact === 'adopt') { busy(el, () => adoptTextModal(el.dataset.id, el.dataset.title || '')); return; }
     if (el.dataset.uact === 'drop') {
       if (!confirm(t('panel.store.removeConfirm', { title: el.dataset.title || '?' }))) return;
       busy(el, async () => {
@@ -1188,49 +1189,13 @@ async function researcherAction(el) {
  * Closing on mouseleave is deliberately DELAYED — a menu that vanishes while the pointer crosses
  * the few pixels between the button and the menu is the classic dropdown failure, and it makes the
  * links effectively unclickable. */
-let openDl = null;
-let dlCloseTimer = null;
-function closeDlMenu() {
-  if (dlCloseTimer) { clearTimeout(dlCloseTimer); dlCloseTimer = null; }
-  if (!openDl) return;
-  openDl.querySelector('.rp-dl-menu').hidden = true;
-  openDl.querySelector('.rp-dl-btn').setAttribute('aria-expanded', 'false');
-  openDl.classList.remove('is-open');
-  openDl = null;
-}
-/* ⚠ THE MENU IS POSITIONED `fixed`, ON PURPOSE, and it must stay that way.
+/* ⚠ v347 REMOVED `openDlMenu` / `closeDlMenu` / `placeDlMenu` and their scroll, resize and
+ * mouseleave wiring. The Files control is a MODAL now (see openFilesModal) — there is no anchored
+ * element left to position, to keep on screen, or to dismiss when a list scrolls underneath it.
  *
- * The text lists became height-capped and scrollable (2026-08-12), which makes each one an
- * overflow CLIPPING container. An absolutely-positioned dropdown inside one is clipped by it — so
- * the Files menu, which is taller than a couple of rows, would be sliced off for any text near the
- * bottom of a list. The rows most likely to be clipped are the ones you had to scroll to reach,
- * i.e. exactly the case the scrolling was added for.
- *
- * `fixed` takes the menu out of that container's flow entirely; the cost is that it no longer
- * follows the button on scroll, which is why closeDlMenu is wired to scroll below. */
-function placeDlMenu(wrap) {
-  const menu = wrap.querySelector('.rp-dl-menu');
-  const btn = wrap.querySelector('.rp-dl-btn');
-  if (!menu || !btn || !btn.getBoundingClientRect) return;
-  const r = btn.getBoundingClientRect();
-  const vw = window.innerWidth || 0, vh = window.innerHeight || 0;
-  menu.style.position = 'fixed';
-  menu.style.top = Math.round(r.bottom + 4) + 'px';
-  // Keep it on screen: right-align against the viewport edge rather than overflowing it.
-  const width = Math.min(320, Math.max(244, vw - 24));
-  menu.style.left = Math.round(Math.max(8, Math.min(r.left, vw - width - 8))) + 'px';
-  menu.style.maxHeight = Math.max(160, Math.round(vh - r.bottom - 16)) + 'px';
-}
-
-function openDlMenu(wrap) {
-  if (openDl === wrap) { if (dlCloseTimer) { clearTimeout(dlCloseTimer); dlCloseTimer = null; } return; }
-  closeDlMenu();
-  wrap.querySelector('.rp-dl-menu').hidden = false;
-  wrap.querySelector('.rp-dl-btn').setAttribute('aria-expanded', 'true');
-  wrap.classList.add('is-open');
-  openDl = wrap;
-  placeDlMenu(wrap);
-}
+ * Do not reintroduce a drop-down here "for speed". The positioning was fixed three times (absolute →
+ * clipped by the height-capped lists; `fixed` → stranded on scroll; close-on-scroll → the menu
+ * vanishing mid-read, which is what Seth reported). The modal is the fix for the whole class. */
 /* ⚠⚠ THE FILES ▾ MENU IS HIDDEN (Seth, 2026-08-08). Flip this to true to bring it back.
  *
  * "The download files function is kind of all out of whack and needs more attention. I pushed it
@@ -1253,14 +1218,78 @@ const FILES_MENU_ENABLED = true;
 // plain-link fallback read, so they can never both be hidden (or both shown) by accident.
 function histHasMenu(e) { return FILES_MENU_ENABLED && !!(e.instanceId && e.docId); }
 
+/* ⚠ v347: THE FILES CONTROL OPENS A MODAL, NOT A DROP-DOWN (Seth, 2026-08-13).
+ *
+ * "Sometimes the Files menu is too long and goes off screen, and then if I scroll (which scrolls the
+ *  texts list by default), it disappears and it won't come back again until I refresh the page. I
+ *  think we have so many options now that it would actually be better for the files to be a popup
+ *  overlay modal instead of a menu."
+ *
+ * The drop-down had been chased through three positioning fixes and lost each time, and the reason
+ * is structural rather than a bug to find: the text lists are height-capped scroll containers, so an
+ * absolutely-positioned menu is clipped by them; `fixed` escapes the clipping but then cannot follow
+ * its button, so it had to close on scroll — and closing on scroll is what Seth is describing. A
+ * menu of ~8 rows on a small laptop cannot win that argument. A modal has no anchor to lose.
+ *
+ * It also buys the thing a drop-down could not give: ROOM FOR PROGRESS. A conversion could only
+ * report into its own `.rp-dl-sub` line, so "working…" was invisible unless the menu happened to
+ * still be open and the row happened to be on screen. The modal has a status line that survives.
+ *
+ * The row keeps this span because it carries the identity (dataset) the modal is seeded from; the
+ * LIST lives in the modal. */
 function filesMenuHtml(instanceId, docId, title, audioUrl, fileId) {
   if (!FILES_MENU_ENABLED) return '';
   if (!docId) return '';
   const au = /^https?:\/\//i.test(String(audioUrl || '')) ? audioUrl : '';
   return `<span class="rp-dl" data-fmenu data-i="${esc(instanceId)}" data-id="${esc(docId)}" data-title="${esc(title || '')}" data-audio="${esc(au)}" data-fileid="${esc(fileId || '')}">
-    <button class="link-btn rp-dl-btn" aria-haspopup="true" aria-expanded="false">${esc(t('panel.dl.btn'))} <span class="rp-dl-caret" aria-hidden="true">▾</span></button>
-    <span class="rp-dl-menu" hidden role="menu"><span class="rp-dl-head">${esc(t('panel.dl.title'))}</span>
-      <span class="note rp-dl-loading">${esc(t('panel.dl.loading'))}</span></span></span>`;
+    <button class="link-btn rp-dl-btn" aria-haspopup="dialog">${esc(t('panel.dl.btn'))} <span class="rp-dl-caret" aria-hidden="true">▾</span></button></span>`;
+}
+
+/* Open the Files modal for a row. The modal gets its OWN `[data-fmenu]` wrapper carrying the same
+ * dataset, so every delegated handler (`data-conv`, `data-drivefile`, `data-zipall`, `data-cleanup`)
+ * resolves `closest('[data-fmenu]')` to it and needs no change at all. The per-open caches
+ * (`_allFiles`, `_menuSrc`, `_cache`) live on that wrapper and die with the modal.
+ *
+ * ⚠ It therefore RE-LISTS the folder on every open rather than once per page load. That is a
+ * deliberate trade: one Worker round trip per deliberate user action, in exchange for a list that
+ * cannot be stale — which matters more now that texts move between devices and Unassigned. */
+function openFilesModal(rowWrap) {
+  const title = rowWrap.dataset.title || t('panel.dl.title');
+  const m = modal(`
+    <div class="rp-dlm-head">
+      <h3 class="rp-dlm-title">${esc(title)}</h3>
+      <button class="btn-plain rp-dlm-close" type="button">${esc(t('panel.help.close'))}</button>
+    </div>
+    <span class="rp-dl" data-fmenu
+          data-i="${esc(rowWrap.dataset.i || '')}" data-id="${esc(rowWrap.dataset.id || '')}"
+          data-title="${esc(rowWrap.dataset.title || '')}" data-audio="${esc(rowWrap.dataset.audio || '')}"
+          data-fileid="${esc(rowWrap.dataset.fileid || '')}">
+      <div class="rp-dl-menu rp-dlm-list" role="menu">
+        <span class="note rp-dl-loading">${esc(t('panel.dl.loading'))}</span>
+      </div>
+    </span>
+    <div class="rp-dlm-status" role="status" aria-live="polite"></div>`);
+  const wrap = m.el.querySelector('[data-fmenu]');
+  /* The status element is reached through the WRAP, not through a module-level variable: two modals
+   * can never be open at once, but a stale global would outlive a close and paint into a dead node. */
+  wrap._status = m.el.querySelector('.rp-dlm-status');
+  wrap._closeModal = m.close;
+  m.el.querySelector('.rp-dlm-close').addEventListener('click', m.close);
+  populateFilesMenu(wrap).catch((e) => {
+    console.warn('[flextext] files modal failed to load:', e);
+    const list = m.el.querySelector('.rp-dl-menu');
+    if (list) list.innerHTML = `<span class="note rp-dl-loading">${esc(t('panel.dl.zipFailed'))}</span>`;
+  });
+  return m;
+}
+
+/* The modal's status line — the answer to "the UI gives no indication that it's doing anything".
+ * A no-op when the caller is not in a modal, so nothing has to check first. */
+function dlStatus(wrap, msg) {
+  const el = wrap && wrap._status;
+  if (!el) return;
+  el.textContent = msg || '';
+  el.classList.toggle('is-on', !!msg);
 }
 
 /* ---------------- WHAT A FILE IS: the Drive ROLE TAG, never its name ----------------
@@ -1634,6 +1663,11 @@ async function prepareConversionSources(wrap, base, paint, opts = {}) {
     caps = conversionCaps({ bytes: af.size || 0, isWav });
     // An oversized .fxpa is built text-only, so its audio is never touched — do not download it.
     if (opts.kind === 'fxpa' && !caps.fxpaAudio) return { doc, aligned, vern, anal, media, segMedia, caps, xml };
+    /* ⚠ THE LONG SILENT STRETCH, named. For a WAV source there is no decode to report a percentage
+     * for, so the only slow step is this fetch — the whole original streaming through the Worker.
+     * Without this line an ELAN export of a 217 MB recording sits on "working…" for a minute and
+     * looks hung, which is precisely what Seth reported. */
+    paint(t('panel.dl.fetching', { name: af.name || 'audio' }));
     const blob = await menuFetch(wrap, af.id);
     /* v3 NAMING: from the STORY TITLE, not from the Drive file's name — an assigned text's
      * original was uploaded under a token-derived name before the fix, and reading it here is
@@ -1679,7 +1713,10 @@ async function runMenuConversion(wrap, kind, itemEl) {
   convBusy = true;
   const sub = itemEl && itemEl.querySelector('.rp-dl-sub');
   const subWas = sub ? sub.textContent : '';
-  const paint = (msg) => { if (sub) sub.textContent = msg; };
+  /* Progress goes to BOTH the row's own sub-line and the modal's status line. The row keeps it
+   * where the researcher clicked; the status line is what survives scrolling a long list, and is
+   * the reason the modal exists (a drop-down had nowhere to put this). */
+  const paint = (msg) => { if (sub) sub.textContent = msg; dlStatus(wrap, msg); };
   try {
     const title = wrap.dataset.title || 'text';
     const base = (wrap._menuSrc && wrap._menuSrc.base) || sanitizeBase(title) || 'text';
@@ -1728,7 +1765,8 @@ async function runMenuConversion(wrap, kind, itemEl) {
     deps.toast(e && e.code === 'ZIP_TOO_LARGE' ? t('panel.dl.zipTooLarge') : t('panel.dl.zipFailed'), 6000);
   } finally {
     convBusy = false;
-    paint(subWas);
+    if (sub) sub.textContent = subWas;   // the row goes back to its description…
+    dlStatus(wrap, '');                  // …and the status line clears rather than freezing mid-word
   }
 }
 
@@ -1764,8 +1802,15 @@ async function downloadAllZip(btn) {
   const title = (btn.dataset.title || 'text').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80);
   const nameEl = btn.querySelector('.rp-dl-name');
   const orig = nameEl.textContent;
+  const wrapForStatus = btn.closest ? btn.closest('[data-fmenu]') : null;
   try {
     btn.disabled = true; nameEl.textContent = t('panel.dl.zipBuilding');
+    /* Same complaint as the single-file download: every byte of the folder streams through the
+     * Worker before the browser is handed anything, so a big text spends a long time looking idle.
+     * The count is the useful number here — "3 of 11" tells the researcher it is moving, which a
+     * spinner does not. */
+    deps.toast(t('panel.dl.started'), 4000);
+    dlStatus(wrapForStatus, t('panel.dl.zipBuilding'));
     // Re-list across every bridged identity (legacy texts have two folders — see bridgedIds).
     const bridge = bridgedIds(docId, btn.dataset.title);
     const lists = await Promise.all(bridge.ids.map(async (id) => {
@@ -1782,7 +1827,11 @@ async function downloadAllZip(btn) {
       used.add(name);
       entries.push({ name, data });
     };
-    for (const f of wanted) add(f.name, await Researcher.fetchDriveFile(f.id));
+    let got = 0;
+    for (const f of wanted) {
+      dlStatus(wrapForStatus, t('panel.dl.fetchingN', { i: ++got, n: wanted.length, name: f.name || '' }));
+      add(f.name, await Researcher.fetchDriveFile(f.id));
+    }
 
     /* GENERATED FILES RIDE ALONG (Seth, 2026-08-12: "can our Download All zip also generate and
      * inject ELAN and SayMore as well as Listening HTML and fxpa into that zip?").
@@ -1852,33 +1901,25 @@ async function downloadAllZip(btn) {
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 60000);
     nameEl.textContent = orig;
-  } catch { nameEl.textContent = t('panel.dl.zipFailed'); }
-  finally { btn.disabled = false; }
+  } catch (e) {
+    nameEl.textContent = t('panel.dl.zipFailed');
+    // A ZIP32 overflow is a different fact from "it failed" — say which one it was.
+    if (e && e.code === 'ZIP_TOO_LARGE') deps.toast(t('panel.dl.zipTooLarge'), 8000);
+  } finally { btn.disabled = false; dlStatus(wrapForStatus, ''); }
 }
 
 function wireDownloadMenus(scope) {
-  const hoverable = window.matchMedia && window.matchMedia('(hover: hover)').matches;
+  /* ⚠ CLICK ONLY — the hover-to-open path is deliberately GONE (v347). A modal that opened on
+   * mouseenter would fire while the researcher was merely moving the pointer across a list of
+   * forty texts, taking over the screen each time. Opening a dialog is an action, not a hover. */
   (scope || root).querySelectorAll('.rp-dl').forEach((wrap) => {
     wrap.querySelector('.rp-dl-btn').addEventListener('click', (e) => {
       e.stopPropagation();
-      if (openDl === wrap) closeDlMenu(); else { openDlMenu(wrap); populateFilesMenu(wrap); }
+      openFilesModal(wrap);
     });
-    if (hoverable) {
-      wrap.addEventListener('mouseenter', () => { openDlMenu(wrap); populateFilesMenu(wrap); });
-      wrap.addEventListener('mouseleave', () => {
-        if (dlCloseTimer) clearTimeout(dlCloseTimer);
-        dlCloseTimer = setTimeout(closeDlMenu, 350);   // survive the gap between button and menu
-      });
-    }
   });
   if (!wireDownloadMenus.global) {   // document listeners attach ONCE, not per render
     wireDownloadMenus.global = true;
-    /* A `fixed` menu does not travel with its button, so scrolling would strand it mid-air.
-     * Closing on scroll is the honest behaviour and matches how the menu already dismisses on an
-     * outside click. Capture phase + passive: it must see scrolls inside the text lists too, and
-     * must never delay them. */
-    window.addEventListener('scroll', () => { if (openDl) closeDlMenu(); }, { capture: true, passive: true });
-    window.addEventListener('resize', () => { if (openDl) closeDlMenu(); }, { passive: true });
     document.addEventListener('click', (e) => {
       const z = e.target.closest && e.target.closest('[data-zipall]');
       if (z) { e.preventDefault(); e.stopPropagation(); downloadAllZip(z); return; }
@@ -1928,20 +1969,34 @@ function wireDownloadMenus(scope) {
       const df = e.target.closest && e.target.closest('[data-drivefile]');
       if (df) {
         e.preventDefault(); e.stopPropagation();
-        // Single-file download through the Worker (same auth as the ZIP; a plain drive URL would
-        // work for the owner, but this behaves identically signed in or not, and never leaves a
-        // preview page).
+        /* Single-file download through the Worker (same auth as the ZIP; a plain drive URL would
+         * work for the owner, but this behaves identically signed in or not, and never leaves a
+         * preview page).
+         *
+         * ⚠ SAY SOMETHING IMMEDIATELY (Seth, 2026-08-13): "it looks like it's trying to download
+         * (and taking a long time with no status update) before the UI gets any response at all
+         * when I click Download original audio… it did download eventually, but too a long time
+         * before the user got any response."
+         *
+         * The whole file streams through the Worker into a Blob before the browser is handed
+         * anything, so on a 217 MB original there are tens of seconds where a correct system looks
+         * dead. There is no progress to report — fetchDriveFile resolves once, not incrementally —
+         * so the honest fix is to say the request went out, and to keep saying it until the file
+         * lands rather than implying a percentage we do not have. */
+        const wrap2 = df.closest && df.closest('[data-fmenu]');
+        const fname = df.dataset.fname || 'file';
+        dlStatus(wrap2, t('panel.dl.fetching', { name: fname }));
+        deps.toast(t('panel.dl.started'), 4000);
         Researcher.fetchDriveFile(df.dataset.drivefile).then((blob) => {
           const a = document.createElement('a');
-          a.href = URL.createObjectURL(blob); a.download = df.dataset.fname || 'file';
+          a.href = URL.createObjectURL(blob); a.download = fname;
           document.body.appendChild(a); a.click(); a.remove();
           setTimeout(() => URL.revokeObjectURL(a.href), 60000);
-        }).catch(() => deps.toast(t('panel.dl.zipFailed'), 5000));
+          dlStatus(wrap2, t('panel.dl.saved', { name: fname }));
+        }).catch(() => { dlStatus(wrap2, ''); deps.toast(t('panel.dl.zipFailed'), 5000); });
         return;
       }
-      closeDlMenu();
     });
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDlMenu(); }, true);
   }
 }
 
@@ -2295,7 +2350,9 @@ async function instanceAction(el) {
       }
       renderDashboard();   // refetch: ack_seq has moved, so the row must re-derive its true state
     } else if (act === 'move-text') {
-      moveTextModal(id, el.dataset.id, el.dataset.title || '');
+      // Through busy(): the eligibility check lists the folder first, so the button must show it is
+      // working rather than looking dead until the picker appears (or the refusal toast fires).
+      await busy(el, () => moveTextModal(id, el.dataset.id, el.dataset.title || ''));
     } else if (act === 'toggle-done') {
       const want = !el.dataset.done;
       await busy(el, () => Researcher.setDone(id, el.dataset.id, want));
@@ -3149,7 +3206,53 @@ function adminModal() {
  * follows), then the render sweep completes the handoff automatically once the destination reports
  * the doc. Upload-first remove at the source means the final copy is in the text's folder before
  * anything is deleted — the same safety order as remote delete. */
-function moveTextModal(fromId, docId, title) {
+/* CAN THIS TEXT BE MOVED AT ALL? (Seth, 2026-08-13)
+ *
+ * "In order to MOVE a story (either from unassigned or from another device), there needs to be a
+ *  manifest and it needs to make clear which file is the most recent flextext file (which becomes
+ *  the flextext file sent in the new assignment) and which is the original audio (which becomes the
+ *  audio source sent). Folders that do not have a manifest or whose manifest does not contain this
+ *  info should not present a 'Move...' option. The researcher will have to download and re-upload
+ *  those."
+ *
+ * ⚠ WHY THE CHECK CANNOT BE DONE AT RENDER TIME: knowing whether a text has a manifest requires
+ * listing its Drive folder, and the dashboard shows dozens of texts. Gating the BUTTON would mean a
+ * Worker round trip per text on every render — the exact per-text cost the v167 dedupe work and the
+ * v342 done-marker fix were both about removing. The estate endpoint does not report manifest
+ * presence either (that would be a worker change and a deploy).
+ *
+ * So the check runs on CLICK, before the device picker is shown — which is the same protection from
+ * the researcher's side: they never get to choose a destination for a text that cannot be sent.
+ *
+ * ⚠ And it runs FIRST, not last. The old code listed the folder only after the researcher had
+ * picked a device and pressed Move, then failed with `nothingToMove` — a refusal after the
+ * commitment, which reads as the app breaking rather than as the text being ineligible. */
+async function moveSources(fromId, docId, title) {
+  const bridge = bridgedIds(docId, title);
+  let all = [];
+  for (const id of bridge.ids) {
+    try { all = all.concat((await Researcher.listTextFiles(fromId, id)).files || []); } catch { /* partial */ }
+  }
+  all.sort((a, b) => String(b.modified).localeCompare(String(a.modified)));
+  const picks = pickSourceFiles(all);
+  /* The MANIFEST is the gate, per Seth — not merely "we found some files". A folder can hold
+   * role-tagged files without ever having been described by one, and an assignment built from a
+   * guess is what the whole v3 manifest work exists to stop. Unreadable counts as absent: the same
+   * rule populateFilesMenu uses, because a wrong-shaped body is not a manifest. */
+  let manifest = null;
+  if (picks.manifest) {
+    try {
+      const blob = await Researcher.fetchDriveFile(picks.manifest.id);
+      const body = JSON.parse(await blob.text());
+      if (body && typeof body === 'object' && Array.isArray(body.files)) manifest = body;
+    } catch { manifest = null; }
+  }
+  const audio = picks.audio ||
+    all.find((f) => /\.(wav|mp3|opus|ogg|webm|flac|m4a|aac)$/i.test(String(f.name || ''))) || null;
+  return { all, picks, manifest, audio, ok: !!(manifest && picks.flextext && audio) };
+}
+
+async function moveTextModal(fromId, docId, title) {
   // ⚠ Only devices on v138+ can RECEIVE a move: older engines ignore the assign's docId and mint
   // their own, so the arrival is invisible to the sweep and the move waits forever (fail-safe —
   // the source is never removed — but wedged). Devices auto-update, so this resolves itself.
@@ -3158,6 +3261,16 @@ function moveTextModal(fromId, docId, title) {
   if (!insts.length) { deps.toast(t('panel.move.noOther'), 5000); return; }
   for (const x of insts) x._canReceive = engOf(x) >= 138;
   if (!insts.some((x) => x._canReceive)) { deps.toast(t('panel.move.allTooOld'), 7000); return; }
+
+  // The eligibility check, before any destination is offered.
+  let src = null;
+  try { src = await moveSources(fromId, docId, title); }
+  catch { deps.toast(t('panel.dl.zipFailed'), 5000); return; }
+  if (!src.ok) {
+    deps.toast(t(src.manifest ? 'panel.move.manifestIncomplete' : 'panel.move.noManifest'), 10000);
+    return;
+  }
+
   const m = modal(`
     <h3>${esc(t('panel.move.title', { title }))}</h3>
     <p class="note">${esc(t('panel.move.intro'))}</p>
@@ -3172,22 +3285,16 @@ function moveTextModal(fromId, docId, title) {
     const say = m.el.querySelector('#rp-move-say');
     try {
       e.target.disabled = true;
-      // What content can the destination be given? Newest bare flextext wins; else the newest
-      // bundle zip (the Worker extracts the .flextext from our STORE-only zips); audio is the
-      // original copy if the folder has one, else the newest recording.
-      const bridge = bridgedIds(docId, title);
-      let all = [];
-      for (const id of bridge.ids) {
-        try { all = all.concat((await Researcher.listTextFiles(fromId, id)).files || []); } catch { /* partial */ }
-      }
-      all.sort((a, b) => String(b.modified).localeCompare(String(a.modified)));
-      /* v3: role tags, not the deleted extension-sniffing table. `bundle` survives HERE and only
+      /* The sources were RESOLVED BEFORE this modal opened (moveSources) — re-listing here would
+       * spend a second round trip to re-derive an answer we already have, and could in principle
+       * disagree with the one the eligibility gate passed on.
+       *
+       * v3: role tags, not the deleted extension-sniffing table. `bundle` survives HERE and only
        * here — a legacy text's only flextext may still be inside an uploaded zip, and it is the
        * WORKER that extracts it server-side (storeZipEntry). The panel no longer reads zips. */
-      const picks = pickSourceFiles(all);
       const idOf = (f) => (f && f.id) || null;
-      const fields = { to, flextextFileId: idOf(picks.flextext), extractFromZipId: idOf(picks.bundle),
-                       audioFileId: idOf(picks.audio) || idOf(all.find((f) => /\.(wav|mp3|opus|ogg|webm|flac|m4a|aac)$/i.test(String(f.name || '')))) };
+      const fields = { to, flextextFileId: idOf(src.picks.flextext), extractFromZipId: idOf(src.picks.bundle),
+                       audioFileId: idOf(src.audio) };
       const r = await Researcher.moveText(fromId, docId, fields);
       const assignFields = { title };
       if (r.audioUrl) assignFields.audioUrl = r.audioUrl;
@@ -3285,9 +3392,24 @@ function renderUnassignedCard(estate) {
 /* Adopt: pick a destination device, re-file the folder out of Unassigned, mint streaming URLs, then
  * send the ordinary assign command. A REAL re-assignment (Seth) — the text becomes live on that
  * device again, not merely a folder tidy. */
-function adoptTextModal(docId, title) {
+async function adoptTextModal(docId, title) {
   const insts = ((lastData && lastData.instances) || []);
   if (!insts.length) { deps.toast(t('panel.move.noOther'), 5000); return; }
+  /* SAME GATE AS A DEVICE-TO-DEVICE MOVE (Seth: "either from unassigned or from another device").
+   * An unassigned text is the MORE likely one to predate the manifest — it has been sitting in
+   * Drive precisely because no device claimed it — so skipping the check here would leave the gap
+   * exactly where it is widest.
+   *
+   * The instance id is only a route for the listing call: driveEnsureTextFolder resolves a text
+   * folder by its `flextextDoc` tag and NEVER by parent, which is what makes an unassigned text
+   * (whose folder now lives under "Unassigned") listable through any instance at all. */
+  let src = null;
+  try { src = await moveSources(insts[0].instance_id, docId, title); }
+  catch { deps.toast(t('panel.dl.zipFailed'), 5000); return; }
+  if (!src.ok) {
+    deps.toast(t(src.manifest ? 'panel.move.manifestIncomplete' : 'panel.move.noManifest'), 10000);
+    return;
+  }
   const m = modal(`<h3>${esc(t('panel.unassigned.moveTitle', { title }))}</h3>
     <p class="note">${esc(t('panel.unassigned.moveIntro'))}</p>
     ${insts.map((x, i) => `<label class="rp-field"><input type="radio" name="rp-adopt-to" value="${esc(x.instance_id)}"${i === 0 ? ' checked' : ''}> ${esc(x.nickname || '?')}</label>`).join('')}

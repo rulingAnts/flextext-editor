@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v347';
+export const ENGINE_VERSION = 'v348';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v347';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'oversize-exports v1';
+export const BUILD_TAG = 'files-modal v1';
 
 const S = {
 en: {
@@ -801,6 +801,12 @@ internet after the first time.</p>
   'panel.move.allTooOld': 'No destination device is updated enough to receive a move yet \u2014 devices update themselves within a day or so of coming online.',
   'panel.move.noOther': 'There is no other device to move to.',
   'panel.move.nothingToMove': 'Nothing to move yet \u2014 this text has no uploaded content the other device could receive.',
+  /* v347 \u2014 a move builds the new assignment from the folder's manifest. Without one there is no
+   * dependable answer to "which flextext is current" or "which file is the original audio", and a
+   * guess is exactly what the manifest exists to replace. Both strings say the REMEDY, because
+   * "can't" with no next step reads as a broken app. */
+  'panel.move.noManifest': 'This text cannot be moved automatically: its Drive folder has no manifest, so there is no dependable record of which file is the current text and which is the original recording. Download the folder and re-upload it to the device you want it on.',
+  'panel.move.manifestIncomplete': 'This text cannot be moved automatically: its manifest does not identify both a current .flextext and an original recording. Download the folder and re-upload it to the device you want it on.',
   'panel.move.sent': 'Move started \u2014 waiting for {device} to receive it.',
   'panel.move.waitingDest': 'moving \u2014 waiting for the new device',
   'panel.move.removingSrc': 'moving \u2014 removing from this device',
@@ -1062,6 +1068,12 @@ internet after the first time.</p>
   'panel.dl.fxpaNoAudioSub': 'for pat.flextext.app; text only — the recording is too large to embed',
   'panel.dl.lossyTiming': 'This recording was too large to convert, so the package carries the original compressed audio. Annotations may sit a few hundredths of a second late — see HOW-TO-OPEN.txt in the zip.',
   'panel.dl.zipTooLarge': 'These files are too large to package into one zip. Download them individually instead.',
+  /* v347 — every byte routes through the Worker before the browser is handed anything, so a large
+   * recording spends a long time looking idle. These say what is happening while it does. */
+  'panel.dl.started': 'Download started — this can take a while for a large recording.',
+  'panel.dl.fetching': 'Fetching {name}…',
+  'panel.dl.fetchingN': 'Fetching {i} of {n}: {name}',
+  'panel.dl.saved': '{name} saved.',
   'panel.dl.oneAtATime': 'One conversion at a time — the current one is still working.',
   /* v3: the Files menu reads flextext-manifest.json. No manifest -> ONE item, a folder link. */
   'panel.dl.openFolder': 'Open the Drive folder \u2197',
@@ -2305,6 +2317,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.move.allTooOld': 'Belum ada perangkat tujuan yang cukup baru untuk menerima pemindahan \u2014 perangkat memperbarui dirinya dalam sehari setelah online.',
   'panel.move.noOther': 'Tidak ada perangkat lain untuk tujuan pemindahan.',
   'panel.move.nothingToMove': 'Belum ada yang bisa dipindahkan \u2014 teks ini belum punya konten terunggah yang bisa diterima perangkat lain.',
+  /* v347 \u2014 lihat catatan pada blok en. */
+  'panel.move.noManifest': 'Teks ini tidak bisa dipindahkan secara otomatis: folder Drive-nya tidak punya manifes, jadi tidak ada catatan yang bisa diandalkan tentang berkas mana yang merupakan teks terkini dan mana rekaman aslinya. Unduh foldernya lalu unggah ulang ke perangkat yang Anda inginkan.',
+  'panel.move.manifestIncomplete': 'Teks ini tidak bisa dipindahkan secara otomatis: manifesnya tidak menyebutkan sekaligus .flextext terkini dan rekaman aslinya. Unduh foldernya lalu unggah ulang ke perangkat yang Anda inginkan.',
   'panel.move.sent': 'Pemindahan dimulai \u2014 menunggu {device} menerimanya.',
   'panel.move.waitingDest': 'memindahkan \u2014 menunggu perangkat baru',
   'panel.move.removingSrc': 'memindahkan \u2014 menghapus dari perangkat ini',
@@ -2554,6 +2569,11 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.dl.fxpaNoAudioSub': 'untuk pat.flextext.app; hanya teks — rekamannya terlalu besar untuk ditanam',
   'panel.dl.lossyTiming': 'Rekaman ini terlalu besar untuk dikonversi, jadi paketnya memuat audio terkompresi yang asli. Anotasi bisa tertinggal beberapa perseratus detik — lihat HOW-TO-OPEN.txt di dalam zip.',
   'panel.dl.zipTooLarge': 'Berkas-berkas ini terlalu besar untuk dijadikan satu zip. Unduh satu per satu saja.',
+  /* v347 — lihat catatan pada blok en. */
+  'panel.dl.started': 'Unduhan dimulai — untuk rekaman besar ini bisa memakan waktu.',
+  'panel.dl.fetching': 'Mengambil {name}…',
+  'panel.dl.fetchingN': 'Mengambil {i} dari {n}: {name}',
+  'panel.dl.saved': '{name} tersimpan.',
   'panel.dl.oneAtATime': 'Satu konversi pada satu waktu — yang sekarang masih berjalan.',
   'panel.dl.openFolder': 'Buka folder Drive \u2197',
   'panel.dl.openFolderSub': 'lihat semua berkas teks ini di Google Drive',

@@ -3082,10 +3082,21 @@ function focusNextGloss(fromInput, dir) {
   if (next) { next.focus(); next.select?.(); }
 }
 
-// Word-gloss-only navigation (Tab / Space): crosses sentence boundaries but
-// skips the free-translation lines.
+/* Tab / Space navigation. v347: this used to walk `.gloss-input` ONLY, skipping the
+ * free-translation line "like FLEx" — so tabbing off the last gloss of a sentence jumped straight to
+ * the first gloss of the NEXT sentence and the free translation could only be reached with the
+ * mouse or with Enter.
+ *
+ * Seth, 2026-08-13: "after the last gloss, it should tab to the free translation, not skip over the
+ * free translation to the first gloss of the next segment." So the free line is now part of the
+ * walk, which makes Tab agree with Enter (focusNextGloss) instead of quietly disagreeing with it.
+ *
+ * ⚠ The ORDER comes from the DOM, not from the selector: querySelectorAll with a comma-separated
+ * selector returns document order, so this is gloss, gloss, …, free, then the next sentence. Writing
+ * it as two separate queries and concatenating would put every free line after every gloss — the
+ * same list, in an order that makes no sense to a typist. */
 function focusNextWordGloss(fromInput, dir) {
-  const all = $$('#gloss-body .gloss-input');
+  const all = $$('#gloss-body .gloss-input, #gloss-body .free-input');
   const idx = all.indexOf(fromInput);
   const next = all[idx + dir];
   if (next) { next.focus(); next.select?.(); }
@@ -6564,6 +6575,11 @@ function wirePlaybackKeys() {
         return;
       }
     }
+    /* ⚠ The gate below is also why clicking a waveform has to BLUR the focused field — see the
+     * pointerdown handler right after this listener. Space-to-play deliberately stands down inside a
+     * text field (a transcriber typing a space must get a space), and a canvas does not take focus
+     * on click, so without that blur the click looks like it selected the audio while the keystroke
+     * still went to the gloss box the user had been typing in. */
     if (e.key !== ' ' || e.repeat) return;
     const t2 = e.target;
     if (t2.closest && (t2.closest('input, textarea, select, button, [contenteditable]'))) return;
@@ -6578,6 +6594,35 @@ function wirePlaybackKeys() {
       player.playSpan(inside ? at : lastPlayTarget.start, lastPlayTarget.end, lastPlayTarget.start);
     } else { player.clearSpan(); player.ws?.playPause?.(); }
   }, true);
+
+  /* CLICKING A WAVEFORM RELEASES THE TEXT FIELD (Seth, 2026-08-13).
+   *
+   * "if you click on an audio recording waveform, the previously selected text box stays focused and
+   * so it types a space instead of playing. If our user clicks on a waveform whichever textbox they
+   * have focused should lose its focus. That way they can click and play right away."
+   *
+   * A <canvas> is not focusable, so a click on one leaves focus wherever it was — and the space
+   * handler above deliberately stands down inside a text field. The result reads as a bug in
+   * space-to-play when it is really a focus question: the click DID select the span (lastPlayTarget
+   * is set), the keystroke just went somewhere else.
+   *
+   * ⚠ ONE DELEGATED LISTENER, not a blur() call added to each waveform's own pointerdown. There are
+   * three waveform surfaces already (the dock player, the baseline strips, the gloss mini-waves) in
+   * three different files, and the next one added would silently not get the behaviour. Capture
+   * phase so it cannot be skipped by a handler that stops propagation.
+   *
+   * Blurring #baseline-text also fires its blur → applyBaseline(), which COMMITS the edit — the
+   * correct thing to happen when the user turns from typing to listening, and the same thing the
+   * existing textarea blur handler does. */
+  document.addEventListener('pointerdown', (e) => {
+    const el = e.target;
+    if (!el || !el.closest || !el.closest('.player-wave, .seg-wave, .gseg-wave')) return;
+    const active = document.activeElement;
+    if (active && active.blur && active.closest && active.closest('input, textarea, [contenteditable]')) {
+      active.blur();
+    }
+  }, true);
+
   const dock = $('#audio-player');
   if (dock) {
     // Any dock interaction makes the whole file the target again…

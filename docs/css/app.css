@@ -1133,27 +1133,33 @@ main {
 .rp-log-k-files_trashed { background: #fbe6cf; color: #8a4b10; }
 .rp-log-k-text_moved { background: #e8f0fc; color: var(--blue-dark); }
 
-/* Downloads dropdown on a text row. Anchored to the row, floating above it — the inventory list is
-   dense, so an inline expansion would shove every following row down on hover. */
-.rp-dl { position: relative; display: inline-block; }
+/* The Files control on a text row. v347: the list itself lives in a MODAL (.rp-dlm-list), so the
+   only thing left here is the button — no anchoring, no floating, nothing to clip.
+
+   ⚠ The history, so the drop-down is not "restored" as a simplification: it was positioned
+   `absolute` (clipped by the height-capped text lists), then `fixed` (escaped the clipping but
+   could not follow its button, so it had to close on scroll), and closing on scroll is what made it
+   vanish mid-read and not come back. Eight rows of options do not fit that pattern. */
+.rp-dl { display: inline-block; }
 .rp-dl-btn { white-space: nowrap; }
 .rp-dl-caret { font-size: 9px; opacity: .7; }
 .rp-dl-menu {
-  /* position/top/left are SET IN JS (placeDlMenu) to `fixed`: the text lists are scroll
-     containers now, and an absolutely-positioned menu inside one gets clipped. These remain as the
-     pre-JS fallback and for the first paint before placement runs. */
-  position: absolute; z-index: 60; top: calc(100% + 4px); left: 0;
-  min-width: 244px; max-width: min(320px, 80vw);
   display: flex; flex-direction: column;
-  background: var(--card, #fff); border: 1px solid var(--border); border-radius: 10px;
-  box-shadow: 0 8px 28px rgba(0,0,0,.18); padding: 6px;
-  /* ⚠ ALWAYS drop DOWNWARD, and scroll when tall. An earlier version flipped the menu upward on
-     the last row to avoid overflowing the card — which broke exactly when it mattered: with all
-     six artifact kinds the menu is ~400px, so flipping up ran it off the TOP of the viewport and
-     clipped the first entries. Caught by screenshotting it, not by reading the CSS. */
-  max-height: 60vh; overflow-y: auto;
+  /* Inside the modal card this is a plain block; the scroll cap keeps a long list usable on a short
+     laptop screen without the card itself growing past the viewport. */
+  max-height: min(60vh, 460px); overflow-y: auto;
 }
 .rp-dl-menu[hidden] { display: none; }
+/* The Files MODAL: a title row, the list, and a status line that survives scrolling the list —
+   which is what a drop-down could never offer, and the reason a long conversion used to look hung. */
+.rp-dlm-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+               margin: 0 0 8px; }
+.rp-dlm-title { margin: 0; font-size: 17px; overflow-wrap: anywhere; }
+.rp-dlm-close { flex: none; }
+.rp-dlm-status { min-height: 0; margin-top: 8px; font-size: 13px; color: var(--muted);
+                 overflow-wrap: anywhere; }
+/* Only takes up space once it says something — an always-present empty strip reads as a broken row. */
+.rp-dlm-status.is-on { min-height: 1.4em; padding-top: 8px; border-top: 1px solid var(--line); }
 /* ⚠ min-width:0 IS LOAD-BEARING, not tidying. The menu is a flex COLUMN, and a flex item's default
    `min-width: auto` refuses to shrink below its content's intrinsic width — so a long sub-line made
    the row wider than the menu's own max-width and the text ran off the right edge (reported 2026-08-12,

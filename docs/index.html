@@ -139,7 +139,14 @@
          what it cuts on is what the user can see. At the top, per Seth. Disabled once the text has
          words in it: guessed spans cannot carry existing text (segments[i] IS paragraph i). -->
     <div id="cut-tools">
-      <button id="btn-guess-splits" class="secondary-btn" data-i18n="cut.guess">Guess the lines</button>
+      <!-- ⚠ ICON, NOT A SENTENCE (Seth, 2026-08-14: "make the Guess cut button more iconic and less
+           wordy... like a magic wand"). Same rule as ✂ and ⤙⤚: the coworker users this suite is for
+           may be barely literate, so a control is a glyph with its words in the tooltip and the
+           aria-label, and the tab's hint text is where it is explained. ✨ is Emoji 1.0 (2015), so it
+           renders on every Android in the field; 🪄 is Emoji 13 and would be tofu on older ones. -->
+      <button id="btn-guess-splits" class="secondary-btn icon-btn2" data-i18n-title="cut.guess"
+              aria-label="Guess the lines">✨</button>
+      <span id="cut-tools-label" class="cut-tools-label" data-i18n="cut.guessShort">Guess</span>
     </div>
     <p id="cut-say" class="note cut-say" role="status" aria-live="polite"></p>
     <div id="cut-strips"></div>

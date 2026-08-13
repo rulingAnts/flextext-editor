@@ -110,6 +110,23 @@ environment.
 rollback 60a1e3a9-2b5d-496e-bc0d-4e9b9f071a7f --message "reverting drive-storage worker"
 ```
 
+### ✅ RESOLVED by the v350 release (2026-08-13) — deploy the worker from `productionWeb` again
+
+The warning below was live for one release cycle and is now **spent**. `productionWeb` carries this
+worker source: `git diff origin/productionWeb <feature> -- worker/` is empty, and all four endpoints
+(`drive-estate`, `drive-purge`, `drive-unassign`, `/adopt`) are present in
+`origin/productionWeb:worker/src/v1.js`. So a "Deploy worker" run from `productionWeb` now deploys
+exactly what is already live, and `productionWeb` is once more the correct branch to deploy from.
+
+⚠ **Worth knowing while that gap existed, and generally:** a git push **cannot** deploy the worker.
+All three worker workflows (`worker-deploy.yml`, `worker-d1-migrate.yml`, `worker-wrangler.yml`) are
+`workflow_dispatch` ONLY — no `push:` trigger. Pushing `productionWeb` rebuilds the Cloudflare *site*
+Workers through the git integration and nothing else. The connectivity worker changes only when
+someone clicks "Run workflow", which is why the stale-branch hazard was about a FUTURE manual deploy
+picking up old source, never about the release push itself reverting anything.
+
+### (spent — the original warning)
+
 ⚠ **The deployed worker is now AHEAD of `productionWeb`, which does not carry this code.** A routine
 "Deploy worker" run from `productionWeb` would silently roll these endpoints back and the storage
 modal would return `not_found` again. Until the editor release merges to `main`/`productionWeb`,

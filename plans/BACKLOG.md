@@ -624,10 +624,39 @@ Test: `test/artifact-links.test.mjs` pins that inferred artifacts are suppressed
 per-kind artifacts still render with their Drive ids, and that the folder-listing rows and
 Download-all are untouched.
 
-## NEXT RELEASE: give the PANEL the editor's transfer engine — chunking, pause/resume (Seth, 2026-08-13)
+## LATER RELEASE: pause / resume / CANCEL for panel downloads AND uploads (Seth, 2026-08-13)
 
 > "I mean the researcher panel needs that machinery as well. The editor already has it. And smart
 > chunking and pause/resume support, etc."
+>
+> then, scoping it: *"We do need to work on the modifications for the worker that would allow us to
+> add pause/resume/cancel support to the Researcher Panel downloads and uploads. But that's for a
+> later release."*
+
+### ⚠ THE ASYMMETRY THAT SHOULD DRIVE THE PLAN: uploads are ALREADY resumable, downloads are not
+
+This was checked in the code, not assumed, and it splits the work in two very unequal halves:
+
+| | wire protocol today | what pause/resume/cancel needs |
+|---|---|---|
+| **UPLOAD** (`assignUploadChunk` → `relayDriveChunk`) | **already chunked AND resumable.** `x-fx-range: bytes N-M/TOTAL`, a **`bytes */TOTAL` PROBE** that asks the server how far it got, `308 → {done:false, received}`, `200 → {done:true,fileId}`, `session_gone` for a dead session. That is the Google resumable protocol, already relayed. 33 MB chunk cap. | **mostly CLIENT work.** The client can already ask "where did we get to" and continue from there. Pause = stop issuing chunks. Resume = probe, then continue. Cancel = stop and abandon the session. |
+| **DOWNLOAD** (`GET /v1/researcher/drive-file/<id>`) | single unranged GET; fetches Drive `?alt=media` and returns `new Response(g.body)`. **No Range forwarded, no Content-Range returned.** | **a WORKER change** — forward `Range`, return `206` + `Content-Range`, and add `Access-Control-Expose-Headers`. |
+
+**So the upload half needs little or no worker change and could ship in an ordinary editor cycle;
+only the download half is gated on a worker deploy.** Worth splitting when this is picked up rather
+than treating "pause/resume/cancel" as one indivisible feature — they are not.
+
+⚠ **CANCEL is the one that needs a decision, not just code.** For an upload it should also release
+the Drive session server-side rather than leaving it to expire, or a cancelled 200 MB upload silently
+occupies a resumable session (and possibly partial Drive bytes) until Google times it out. That is
+the piece most likely to need a new worker route, so scope it with the download change rather than
+assuming cancel is free because pause and resume are.
+
+### What v349 already shipped, so nobody rebuilds it
+
+The activity tray and real streamed byte progress (`fetchDriveFile(fileId, onProgress)` reading
+`response.body`). The tray already has a per-job row and a status line — it is the natural home for
+pause/resume/cancel controls, so this feature is mostly *adding buttons to a surface that exists*.
 
 **v348 shipped the VISIBLE half only** — an activity tray plus real streamed byte progress
 (`fetchDriveFile(fileId, onProgress)` reads `response.body` instead of awaiting `.blob()`). That
@@ -661,7 +690,39 @@ for the panel) and a pluggable **fetcher** (the relay for the editor, `/v1/resea
 the panel). ⚠ Generalise on the second use, which this is — but the editor's path is field-critical
 and auto-updates, so the refactor needs its own tests before either caller moves onto it.
 
-## NEXT RELEASE: segmentation on/off PER TEXT, not only per device (Seth, 2026-08-13)
+## ~~segmentation on/off PER TEXT~~ — CANCELLED (Seth, 2026-08-13)
+
+> **"Actually, we don't need the per-text setting. That's not worth doing. It's too much trouble.
+> And no gain. For a single user one-time case."**
+
+Closed the same day it was scoped. Segmentation stays a **device** setting.
+
+⚠ **The reasoning is the durable part, so record it rather than just the verdict:** the whole feature
+existed to serve ONE user's ONE-TIME migration — a person with in-progress texts to finish the old
+way while new texts came the new way. That is a situation that resolves itself as he works through
+his backlog, and the cost was a worker deploy, a new command type, an engine change, a panel control,
+engine-version gating, and a live-flip hazard on open documents that can destroy typing. Permanent
+machinery, with its own permanent failure modes, for a temporary problem. If this is ever re-proposed,
+the question to ask first is whether the situation is still one-off — not whether the design works,
+because the design was fine.
+
+Kept rather than deleted so it is not re-proposed from scratch — and because three findings below are
+about the SUITE, not about this feature, and stay true:
+
+- **`setDone` is the template for ANY per-text command the researcher changes after assignment**
+  (panel `pushCommand` → worker type whitelist → `syncDispatch` → the device's own local handler, so
+  a pushed change behaves exactly like a local tap). Whatever the next per-text property turns out to
+  be, this is its shape.
+- ⚠ **A new command type is a WORKER change.** `worker/src/v1.js:1651` whitelists command types and
+  returns `400 unknown_command` otherwise, so any new one rides the worker→engine→panel release
+  order. Easy to miss when the feature otherwise looks client-only.
+- ⚠ **Old devices ignore an unknown command safely but silently** (`syncDispatch` `default:` is a
+  `console.warn`, no throw, still acks) — so the PANEL must engine-gate the control, or the
+  researcher sets something, sees nothing happen, and concludes it is broken.
+
+Everything below is the original entry, superseded.
+
+### (cancelled — original entry)
 
 > "audio segmentation enabled is a device setting, but I'd like the researcher to be able to enable
 > or disable it for individual texts. Is there a way we can do that?"
@@ -686,10 +747,75 @@ today has no per-text value, so a default of anything other than "inherit" would
 mode on all of them the moment the update lands. `??` (not `||`) is the operator, because `false` is
 a legitimate stored value meaning "this text, explicitly off".
 
-⚠ **THE TRAP, and it is a serious one.** `segmentationEnabled()` is currently a near-constant during
-a session: it changes only when the researcher pushes a settings change. Making it PER TEXT means it
-flips **every time the user opens a different text** — turning a rare event into a routine one. The
-CLAUDE.md warning about `applyBaseline` exists for exactly this hazard:
+### The mechanism: a per-text COMMAND, exactly like `setDone` (answered 2026-08-13)
+
+> Seth: "I want it to be something the researcher can set or change for texts that are **already
+> assigned**, rather than only on first assignment. My use case … is my own user who has a whole lot
+> of texts he's already done some work on for which audio segmentation is a mess. And I'd rather let
+> him finish what's on his plate the old way, but I want new texts I send him to use the new way. But
+> I've got other users who have started using it the new way. **And I don't want to break their
+> setup.**"
+
+**Nothing new has to be invented — `setDone` is already this exact shape**, and it is the model to
+copy line for line:
+
+| piece | `setDone` today | `setSegmentation` |
+|---|---|---|
+| panel → worker | `pushCommand(instanceId, 'setDone', { docId, done })` (researcher.js:516) | `pushCommand(instanceId, 'setSegmentation', { docId, segmentation })` |
+| worker | type whitelist, `v1.js:1651` | ⚠ **add the type there — see below** |
+| device | `syncDispatch` case → `setDocDone(docId, done)` (app.js:3397), reusing the device's OWN local handler so a pushed change behaves identically to a local tap | same shape: set the per-doc field, persist, no other path |
+
+So it is per-text, it is changeable **at any time after assignment**, and it is independent of
+`assign` — which is precisely what Seth asked for.
+
+**⚠ ONE WORKER CHANGE IS REQUIRED, and it gates the release order.** `worker/src/v1.js:1651`
+whitelists command types and returns `400 unknown_command` for anything else, so the panel cannot
+push `setSegmentation` until the worker knows it. Order: **worker deploy → engine → panel.** (No D1
+migration — the command queue is generic.)
+
+**Old devices are safe by construction**: `syncDispatch`'s `default:` branch is
+`console.warn('sync: unknown command', …)` — it does not throw and the command still acks. A device
+on an older engine therefore ignores the flag and keeps its device default, which is the correct
+fallback. ⚠ But the RESEARCHER must be told it did not take effect: gate the control on engine
+version the way the Done toggle already does (`engNum >= …`, researcher-panel.js), or they will set
+it, see nothing happen, and reasonably conclude the feature is broken.
+
+### Three states are what make Seth's two populations coexist
+
+`true` / `false` / **absent = inherit**. The third state is not tidiness — it is the whole answer to
+*"I don't want to break their setup"*: every text on every device today has no value, so the users
+already working the new way are untouched **by construction**, not by remembering to leave them
+alone. Use `??`, never `||`, because `false` is a legitimate stored value meaning "this text,
+explicitly off".
+
+### ⚠ WHICH DIRECTION TO USE FOR THE MESSY-TEXTS USER — the recommendation, and why
+
+Two ways to get his result, and they are NOT equally safe:
+
+- **(a) RECOMMENDED — leave his device default OFF (old way); set `segmentation: true` on each NEW
+  text as you assign it.** His existing in-progress texts need no action at all.
+- **(b) Flip his device default ON; set `false` on each of the existing texts.**
+
+Choose by the cost of FORGETTING one, because that is the mistake that will actually happen:
+
+| forgotten in… | what the user experiences |
+|---|---|
+| **(a)** | a new text opens the old way — mildly annoying, fixed by one command, no work at risk |
+| **(b)** | a text he is **part-way through** silently switches to the new mode — exactly the outcome being avoided, on exactly the texts described as "a mess" |
+
+(a)'s failure is cheap and (b)'s is the thing we are trying to prevent, so (a) wins even though (b)
+needs fewer future actions. A bulk "set all current texts to X" would make (b) tolerable, but it is
+not needed for (a) and should not be what the design depends on.
+
+### ⚠ THE TRAP, and per-text makes it worse in a NEW way
+
+`segmentationEnabled()` is currently a near-constant during a session: it changes only when the
+researcher pushes a settings change. Per-text means it flips **every time the user opens a different
+text** — and, now that it is a COMMAND, it can also flip **while the user is typing in that very
+text**, arriving from the network unannounced. That is a genuinely new hazard: today no remote event
+can change the editing mode of an open document.
+
+The CLAUDE.md warning about `applyBaseline` exists for exactly this shape:
 
 > `applyBaseline` is gated on DOM truth (`#baseline-text` hidden ⇒ skip), NOT on
 > `segmentationEnabled()` — during a live settings flip the setting changes before the DOM, and the
@@ -700,6 +826,20 @@ available on every text open. So before building this: audit every `segmentation
 for whether it is asking "what mode is the DOM in right now" (must stay DOM-gated) or "what mode
 should this text be in" (may read the new resolution). They are different questions and the current
 code does not have to distinguish them, because today the answer rarely changes.
+
+🔒 **THE SAFETY RULE THAT FALLS OUT OF IT: a `setSegmentation` command MUST NOT re-mode a document
+that is currently open.** Store the new value and let it take effect on the next open of that text.
+
+The reasoning is not caution for its own sake — it is the one path in this feature that can destroy a
+field worker's typing. Re-moding an open doc means tearing down the strips or the textarea underneath
+someone mid-sentence, which is the exact live-flip sequence that already wiped a doc's text once, and
+here it would be triggered remotely, with no local action to correlate it with and nothing on screen
+explaining why. Deferring to next open costs the researcher nothing (they are changing how the NEXT
+session on that text behaves) and removes the whole class.
+
+⚠ Corollary for the panel: after pushing the change, the row should say it applies **when the text is
+next opened**, not imply it has already happened — otherwise the researcher watching a device that is
+mid-edit will think the command failed.
 
 ## FUTURE (soon): oral transcription + oral back-translation, and the format problem (Seth, 2026-08-13)
 

@@ -681,6 +681,26 @@ function enterEditor(tab) {
  *
  * The distinction that matters: `false` and `undefined` must NOT be treated alike, or a researcher
  * who turned it off would have it come back on. Never "simplify" this to a truthiness check. */
+/* MAY BACKSPACE/DELETE JOIN TWO LINES? (Seth, 2026-08-13)
+ *
+ * "I'd like to have a researcher panel setting per device (disabled by default) to enable/disable
+ *  backspace to join. Our join buttons are reliable enough now that we don't need it, and some users
+ *  are finding it too easy to accidentally join lines and then they don't want to split them again."
+ *
+ * ⚠ DEFAULT OFF, and that is a deliberate behaviour CHANGE for every existing device: the keys work
+ * today and stop working on update unless the researcher turns them back on. That is the point —
+ * the accident it prevents (a silent join the transcriber then has to find and undo) costs more
+ * than the shortcut it removes, now that the ⧉ join buttons are reliable. Hence `=== true`, not
+ * `!== false`: absent means OFF here, the opposite of `segmentation`.
+ *
+ * ⚠ IT GATES THE DELETE KEY TOO, not just Backspace. Delete-at-end-of-line is the same gesture from
+ * the other side and produces the identical accidental join; leaving it live would mean the setting
+ * removed the accident by one key and kept it by another — the "rule enforced in one place the other
+ * path reaches around" drift the backlog warns about. */
+function joinKeysEnabled() {
+  return settings.backspaceJoin === true;
+}
+
 function segmentationEnabled() {
   try {
     if (new URLSearchParams(location.search).get('segmentation') === '1') return true;
@@ -842,6 +862,7 @@ function decorateGlossSegments() {
           const atStart = gi.selectionStart === 0 && gi.selectionEnd === 0;
           const atEnd = gi.selectionStart === gi.value.length && gi.selectionEnd === gi.value.length;
           if (e.key === 'Backspace' && atStart && w === 0 && i > 0) {
+            if (!joinKeysEnabled()) return;   // researcher-disabled: fall through to normal editing
             e.preventDefault();
             glossJoinLines(i - 1);
             return;
@@ -857,7 +878,7 @@ function decorateGlossSegments() {
         fi.addEventListener('keydown', (e) => {
           const atStart = fi.selectionStart === 0 && fi.selectionEnd === 0;
           const atEnd = fi.selectionStart === fi.value.length && fi.selectionEnd === fi.value.length;
-          if (e.key === 'Backspace' && atStart && i > 0) {
+          if (e.key === 'Backspace' && atStart && i > 0 && joinKeysEnabled()) {
             e.preventDefault();
             glossJoinLines(i - 1);
           } else if (e.key === 'Enter' && atStart) {
@@ -1012,6 +1033,10 @@ function switchTab(tab) {
         onPlayTarget: (seg) => { lastPlayTarget = seg; },
         capture: () => captureUndo(),
         persist: () => schedulePersist(),
+        // Read through a FUNCTION, not a captured boolean: initStrips runs once per doc open, and a
+        // researcher push (changeSettings) can land mid-session — a snapshot would keep the old
+        // answer until the next open, which is the drift this setting exists to remove.
+        joinKeys: () => joinKeysEnabled(),
         t,
       });
       /* ⚠ THE STRIPS DO NOT EXIST UNTIL THE AUDIO DOES (Seth, 2026-08-07): "can we actually have
@@ -3548,7 +3573,7 @@ async function syncGatherInventory() {
                    'consentAsk', 'consentConfirm', 'consentMode', 'consentMsg', 'consentResp', 'consentAudioUrl',
                    'appLang', 'uploadFolder', 'toolbarButtons', 'sendOptions', 'autoDelUploaded', 'recordWelcome', 'deleteAllEnabled',
                    'autoBackup', 'autoBackupMins', 'maxRecordSeconds', 'allowDelete', 'doneEnabled',
-                   'segmentation', 'exportEaf', 'exportSaymore', 'exportPreview', 'exportJson']) {
+                   'segmentation', 'backspaceJoin', 'exportEaf', 'exportSaymore', 'exportPreview', 'exportJson']) {
     if (settings[k] !== undefined) snap[k] = settings[k];
   }
   // ua + cachedApps let the panel show which browser/device this install is + whether its apps are
@@ -4576,6 +4601,7 @@ const SETUP_GROUPS = [
   { id: 'segmentation', fields: [
     // Default OFF — the classic textarea workflow is untouched unless deliberately enabled.
     { k: 'segmentation', type: 'checkbox', note: 'panel.f.segmentationNote' },
+    { k: 'backspaceJoin', type: 'checkbox', note: 'panel.f.backspaceJoinNote' },
     // An UNSET export follows the mode, so deviceSetupValues prefills the EFFECTIVE value (see
     // buildBundleFor) — a box reading "off" for an export the device actually writes would be a lie
     // about what leaves this machine.

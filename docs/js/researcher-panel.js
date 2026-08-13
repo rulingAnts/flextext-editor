@@ -405,6 +405,7 @@ const GROUPS = [
     // enables it; the note tells them to trial it with one worker first. Turning it off later hides
     // the UI but never deletes segments.
     { k: 'segmentation', type: 'checkbox', note: 'panel.f.segmentationNote' },
+    { k: 'backspaceJoin', type: 'checkbox', note: 'panel.f.backspaceJoinNote' },
     // Which annotation exports ride the bundles (Seth, 2026-08-03): each is researcher-selectable;
     // an UNSET value follows the mode. toFormValues prefils these with the EFFECTIVE value so the
     // checkboxes never lie about what the device actually exports.

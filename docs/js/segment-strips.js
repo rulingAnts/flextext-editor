@@ -367,11 +367,21 @@ function onKey(e, i, input) {
     deps.persist();
     renderStrips();
     focusStrip(i + 1, 0);
+  /* ⚠ RESEARCHER-GATED, DEFAULT OFF (Seth, 2026-08-13): "some users are finding it too easy to
+   * accidentally join lines and then they don't want to split them again." When disabled these keys
+   * are simply not intercepted — Backspace deletes a character and Delete deletes forward, i.e. what
+   * the key normally does — rather than being swallowed, which would read as a broken keyboard.
+   *
+   * Absent `joinKeys` (an older host that never passed it) means OFF, matching the setting's own
+   * default, so the two can never disagree. The ⧉ join buttons are unaffected and remain the
+   * reliable route; they call the same mergeAt, so nothing about joining is lost. */
   } else if (e.key === 'Backspace' && (input.selectionStart ?? 0) === 0 && (input.selectionEnd ?? 0) === 0 && i > 0) {
+    if (!(deps.joinKeys && deps.joinKeys())) return;
     e.preventDefault();
     mergeAt(i - 1, i);
   } else if (e.key === 'Delete' && input.selectionStart === input.value.length && input.selectionEnd === input.value.length
              && i < deps.getParagraphs(doc).length - 1) {
+    if (!(deps.joinKeys && deps.joinKeys())) return;
     e.preventDefault();
     mergeAt(i, i + 1, /* caretAtJoin */ true);
   }

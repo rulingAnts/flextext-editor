@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v350';
+export const ENGINE_VERSION = 'v351';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v350';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = '';
+export const BUILD_TAG = 'join-keys v1';
 
 const S = {
 en: {
@@ -1202,6 +1202,10 @@ internet after the first time.</p>
   'panel.f.doneEnabled': 'Show a “Done” button on each text (marking done auto-uploads it)',
   'panel.f.segmentation': 'Enable Audio Segmentation Mode',
   'panel.f.segmentationNote': 'The Baseline and Gloss tabs become time-aligned strips: a waveform per line, per-line playback, and Enter breaks the line at the playhead. Try it with one worker first before enabling it broadly. Turning it off later hides the tools but never deletes segment data.',
+  /* Seth, 2026-08-13 — DEFAULT OFF, unlike segmentation. The join BUTTONS are the reliable route
+   * now; the keys mainly produce accidental joins the transcriber then has to notice and undo. */
+  'panel.f.backspaceJoin': 'Allow Backspace/Delete to join lines',
+  'panel.f.backspaceJoinNote': 'Off by default. When on, Backspace at the very start of a line (or Delete at the very end) joins it to its neighbour. The \u2919\u291a join buttons always work either way, so turning this off removes only the keyboard shortcut \u2014 and with it the accidental joins that are easy to make and awkward to undo.',
   'panel.f.exportEaf': 'Include ELAN file (.eaf) in sent/saved bundles',
   'panel.f.exportSaymore': 'Include SayMore annotation file (<audio>.annotations.eaf) in sent/saved bundles',
   'panel.f.exportPreview': 'Include audio preview page (.preview.html) in local saves',
@@ -2705,6 +2709,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.f.doneEnabled': 'Tampilkan tombol “Selesai” pada tiap teks (menandai selesai otomatis mengunggahnya)',
   'panel.f.segmentation': 'Aktifkan Mode Segmentasi Audio',
   'panel.f.segmentationNote': 'Tab Ketik dan Terjemahan Balik menjadi potongan selaras waktu: gelombang suara per baris, pemutaran per baris, dan Enter memotong baris pada posisi putar. Coba dulu dengan satu rekan kerja sebelum diaktifkan lebih luas. Jika dimatikan nanti, alatnya disembunyikan tetapi data segmen tidak pernah dihapus.',
+  /* Lihat catatan pada blok en \u2014 default MATI. */
+  'panel.f.backspaceJoin': 'Izinkan Backspace/Delete menggabungkan baris',
+  'panel.f.backspaceJoinNote': 'Mati secara bawaan. Bila aktif, Backspace di awal baris (atau Delete di akhir baris) menggabungkannya dengan baris sebelah. Tombol gabung \u2919\u291a tetap berfungsi apa pun pengaturannya, jadi mematikan ini hanya menghapus pintasan papan ketik \u2014 beserta penggabungan tak sengaja yang mudah terjadi dan merepotkan untuk dibatalkan.',
   'panel.f.exportEaf': 'Sertakan file ELAN (.eaf) dalam bundel yang dikirim/disimpan',
   'panel.f.exportSaymore': 'Sertakan file anotasi SayMore (<audio>.annotations.eaf) dalam bundel yang dikirim/disimpan',
   'panel.f.exportPreview': 'Sertakan halaman pratinjau audio (.preview.html) dalam simpanan lokal',

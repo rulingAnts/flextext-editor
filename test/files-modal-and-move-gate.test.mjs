@@ -131,6 +131,22 @@ console.log('\n...and the progress is real bytes, with the denominator we alread
      'and an unknown size reports BYTES rather than inventing a percentage');
 }
 
+console.log('\n...and the tray label is built by CONCATENATION, so every key must exist');
+{
+  /* ⚠ The failure mode CLAUDE.md names explicitly: "a key built by concatenation renders its own
+   * raw name when it is missing" — nothing throws, and it shows up in the SECOND language first,
+   * because that is the side nobody reads while developing. The tray labels a job
+   * `t('panel.dl.' + map[kind])`, so a kind added to that map without a matching string would put
+   * "panel.dl.somekind" on screen. Expand the map here, exactly as test/device-setup does. */
+  const map = (panel.match(/const kindLabel = t\('panel\.dl\.' \+ \(\{([\s\S]*?)\}\[kind\]/) || [])[1] || '';
+  const keys = [...map.matchAll(/'([A-Za-z]+)'/g)].map((x) => x[1]);
+  ok(keys.length >= 6, `the map yields keys to check (${keys.join(', ')})`);
+  for (const k of keys.concat('title')) {
+    const re = new RegExp(`^  'panel\\.dl\\.${k}':`, 'gm');
+    ok((i18n.match(re) || []).length === 2, `panel.dl.${k} exists in en AND id`);
+  }
+}
+
 console.log('\na move refuses without a manifest — BEFORE offering a destination');
 {
   ok(/async function moveSources\(fromId, docId, title\)/.test(panel), 'the eligibility check exists');

@@ -406,6 +406,11 @@ const GROUPS = [
     // the UI but never deletes segments.
     { k: 'segmentation', type: 'checkbox', note: 'panel.f.segmentationNote' },
     { k: 'backspaceJoin', type: 'checkbox', note: 'panel.f.backspaceJoinNote' },
+    { k: 'cutTab', type: 'checkbox', note: 'panel.f.cutTabNote' },
+    { k: 'landOnCut', type: 'checkbox', note: 'panel.f.landOnCutNote' },
+    { k: 'joinSplitBaseline', type: 'checkbox', note: 'panel.f.joinSplitBaselineNote' },
+    { k: 'joinSplitGloss', type: 'checkbox', note: 'panel.f.joinSplitGlossNote' },
+    { k: 'cutJoinTexted', type: 'checkbox', note: 'panel.f.cutJoinTextedNote' },
     // Which annotation exports ride the bundles (Seth, 2026-08-03): each is researcher-selectable;
     // an UNSET value follows the mode. toFormValues prefils these with the EFFECTIVE value so the
     // checkboxes never lie about what the device actually exports.
@@ -4324,6 +4329,11 @@ function toFormValues(s) {
      * the basic editor until the researcher toggled the box (Seth, 2026-08-12). Only an explicit
      * false stays false. */
     else if (f.k === 'segmentation') v.segmentation = s.segmentation !== false;
+    else if (f.k === 'cutTab') v.cutTab = s.cutTab !== false;
+    else if (f.k === 'landOnCut') v.landOnCut = s.landOnCut !== false;
+    else if (f.k === 'joinSplitBaseline') v.joinSplitBaseline = s.joinSplitBaseline !== false;
+    else if (f.k === 'joinSplitGloss') v.joinSplitGloss = s.joinSplitGloss !== false;
+    else if (f.k === 'cutJoinTexted') v.cutJoinTexted = s.cutJoinTexted !== false;
     else if (f.k === 'autoBackupMins') v.autoBackupMins = String(s.autoBackupMins || 15);          // stored as a number; default 15
     else if (f.type === 'checkbox') v[f.k] = !!s[f.k];
     else if (f.type === 'select') v[f.k] = s[f.k] || (f.k === 'recordFormat' ? DEFAULT_REC_FORMAT : f.opts[0]);

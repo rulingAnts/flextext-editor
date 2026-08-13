@@ -62,7 +62,9 @@ console.log('\nall FOUR join sites are gated');
      'Delete-at-end-of-line specifically, not just Backspace');
   ok(/if \(!joinKeysEnabled\(\)\) return;[^\n]*\n\s*e\.preventDefault\(\);\s*\n\s*glossJoinLines/.test(app),
      'the first-gloss Backspace checks it');
-  ok(/e\.key === 'Backspace' && atStart && i > 0 && joinKeysEnabled\(\)/.test(app),
+  // v353 inserted the joinSplitAllowed('gloss') master gate ahead of it; assert the key gate is
+  // still IN the condition rather than pinning the exact neighbours.
+  ok(/e\.key === 'Backspace' && atStart && i > 0 &&[^\n]*joinKeysEnabled\(\)/.test(app),
      'and so does the free-translation Backspace');
 }
 
@@ -105,7 +107,8 @@ console.log('\nit is a real setting: in both forms, in the sync snapshot, in bot
      'the researcher panel offers it');
   ok(/\{ k: 'backspaceJoin', type: 'checkbox', note: 'panel\.f\.backspaceJoinNote' \}/.test(app),
      "and so does the device's own Settings tab, so an unpaired user is not locked out");
-  ok(/'segmentation', 'backspaceJoin', 'exportEaf'/.test(app),
+  // The Cut-tab keys were inserted between them; assert ADJACENCY of the pair, not the whole list.
+  ok(/'segmentation', 'backspaceJoin',/.test(app),
      'it rides the settings snapshot the device reports, so the panel shows the truth');
 
   const block = (lang) => {

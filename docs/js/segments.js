@@ -225,3 +225,96 @@ export function syncToLines(segments, lineCount, opts = {}) {
   if (out.length > n) out.length = n;
   return normalizeSegments(out, opts);
 }
+
+/* ---------------------------------------------------------------------------------------------
+ * THE CUT TAB'S TWO EDITS — segments and PARAGRAPHS moved together, or not at all.
+ *
+ * ⚠ WHY THESE LIVE HERE, AND WHY THEY TAKE PARAGRAPHS (Seth agreed, 2026-08-13: "every cut edit
+ * goes through the same setParagraphs + segments.js pair").
+ *
+ * Segmentation mode's invariant is line == paragraph == phrase == span, 1:1:1:1 — `segments[i]` IS
+ * baseline paragraph i. The Cut tab shows NO TEXT, which makes it the single most likely place for
+ * someone to edit `segments` alone and leave the paragraph count behind. The moment those two
+ * lengths disagree, every index-driven edit on the Baseline and Gloss tabs addresses the WRONG
+ * line — the v322 field bug ("gloss join collapsed ALL segments on the first line") reached by a
+ * new route, and silent until a transcriber finds their text on someone else's waveform.
+ *
+ * So the operations take BOTH arrays and return BOTH. A caller cannot apply half of one. That is
+ * the whole reason they are here rather than in the view: `segments.js` imports nothing, so this
+ * stays pure and node-testable, and no new module enters any sw.js SHELL.
+ *
+ * Both are non-destructive: they return new arrays and never mutate their inputs.
+ * ------------------------------------------------------------------------------------------- */
+
+/* Which span contains `ms`? -1 when it falls outside every ALIGNED span (a timePending span has no
+ * time to be inside). Ends are exclusive so a playhead exactly on a boundary belongs to the span it
+ * is starting, which is what a listener expects. */
+export function segmentIndexAt(segments, ms) {
+  if (!isNum(ms)) return -1;
+  const src = segments || [];
+  for (let i = 0; i < src.length; i++) {
+    const s = src[i];
+    if (!isAligned(s)) continue;
+    if (ms >= s.start && ms < s.end) return i;
+  }
+  return -1;
+}
+
+/* CUT at the playhead. Returns { ok, reason, index, segments, paragraphs }.
+ *
+ * Refuses rather than degrading, because on this tab a refusal is honest and a degraded result is
+ * not: `splitSegment` would happily hand back a `timePending` half when the halves are too short,
+ * and an untimed segment appearing where the user asked for a cut reads as a bug. The Baseline tab
+ * can afford that fallback because its split is driven by TEXT (the cursor) and the text must go
+ * somewhere; here the cut IS the time, so a cut with no time is nothing. */
+export function cutAtPlayhead(segments, paragraphs, playheadMs, opts = {}) {
+  const minMs = isNum(opts.minMs) ? opts.minMs : MIN_SEGMENT_MS;
+  const segs = (segments || []).map((s) => ({ ...s }));
+  const paras = (paragraphs || []).slice();
+  const fail = (reason) => ({ ok: false, reason, index: -1, segments: segs, paragraphs: paras });
+
+  const i = segmentIndexAt(segs, playheadMs);
+  if (i < 0) return fail('outside');
+  /* ⚠ A SPLIT OF A TEXTED SEGMENT IS REFUSED, ALWAYS (Seth). There is no cursor on the Cut tab, so
+   * there is no defined place to divide the text — any rule we invented would put half a sentence
+   * in the wrong span silently. A JOIN is different and IS allowed (see below): concatenation loses
+   * nothing. Refusing the undefined operation, permitting the safe one. */
+  if (String(paras[i] || '').trim()) return fail('hasText');
+
+  const cur = segs[i];
+  if (playheadMs - cur.start < minMs || cur.end - playheadMs < minMs) return fail('tooShort');
+
+  const out = splitSegment(segs, i, { ...opts, playheadMs });
+  if (out.length !== segs.length + 1) return fail('tooShort');   // belt and braces
+  paras.splice(i + 1, 0, '');                                    // the new span starts empty
+  return { ok: true, reason: '', index: i, segments: out, paragraphs: paras };
+}
+
+/* JOIN span i with the one before it. Returns { ok, reason, index, segments, paragraphs, playheadMs }
+ * where `playheadMs` is THE POINT THEY JOINED AT — Seth: "moves the playhead back to the point where
+ * they joined". That is not decoration: it drops the user exactly where they must listen to judge
+ * the join, which turns join/re-cut into a loop instead of a hunt. Null when the old boundary had no
+ * time to report. */
+export function joinWithPrevious(segments, paragraphs, i, opts = {}) {
+  const segs = (segments || []).map((s) => ({ ...s }));
+  const paras = (paragraphs || []).slice();
+  const fail = (reason) => ({ ok: false, reason, index: i, segments: segs, paragraphs: paras, playheadMs: null });
+
+  if (!(i > 0) || i >= segs.length) return fail('first');
+  const left = String(paras[i - 1] ?? '');
+  const right = String(paras[i] ?? '');
+  // Researcher-gated (`cutJoinTexted`): joining is SAFE, but a researcher may still forbid it so
+  // that segmentation cannot be reshaped once transcription has started.
+  if (opts.allowTexted === false && (left.trim() || right.trim())) return fail('hasText');
+
+  const prev = segs[i - 1];
+  const joinAt = isAligned(prev) ? prev.end : null;
+
+  /* ⚠ THE GLUE SPACE IS NOT COSMETIC (Seth, from the strips): without it "…akhir" + "Mulai…" mashes
+   * into one orthographic word, which is data corruption from the transcriber's point of view. No
+   * glue when either side is empty (a silence span) or a boundary space already exists. */
+  const glue = left && right && !/\s$/.test(left) && !/^\s/.test(right) ? ' ' : '';
+  paras.splice(i - 1, 2, left + glue + right);
+  const out = mergeSegments(segs, i - 1, opts);
+  return { ok: true, reason: '', index: i - 1, segments: out, paragraphs: paras, playheadMs: joinAt };
+}

@@ -20,7 +20,8 @@
  * DISPLAY of samples, never a modification of them.
  */
 
-import { normalizeSegments, boundaryAtPlayhead, mergeSegments, syncToLines, isAligned } from './segments.js';
+import { normalizeSegments, boundaryAtPlayhead, mergeSegments, syncToLines, isAligned,
+         cutAtPlayhead, joinWithPrevious, segmentIndexAt } from './segments.js';
 import { peakPlan } from './seg-exports.js';
 
 let deps = null;      // { container, textarea, getPlayer, getDoc, getParagraphs, setParagraphs, persist, t }
@@ -264,7 +265,7 @@ export function renderStrips() {
      * incorrectly" was ⇥ moving a boundary). Same control, same glyph, same semantics as the gloss
      * tab's, in its own row OUTSIDE both strips so a missed tap hits nothing destructive; it calls
      * exactly what Backspace calls (mergeAt), so button and key can never disagree. */
-    if (i < paras.length - 1) {
+    if (i < paras.length - 1 && joinSplitOk()) {
       const joinRow = document.createElement('div');
       joinRow.className = 'seg-joinrow';
       const join = document.createElement('button');
@@ -353,9 +354,16 @@ function drawStrip(canvas, seg, durationMs) {
 
 /* ---------------- edits: Enter splits, Backspace/Delete merges ---------------- */
 
+/* The researcher's MASTER switch for this tab (joinSplitBaseline). Unlike `joinKeys`, which gates
+ * only the keyboard shortcut, this removes the capability outright — keys AND buttons — which is how
+ * a researcher says "segmentation happens on the Cut tab; do not reshape lines while transcribing".
+ * Absent means allowed, so an older host that never passes it behaves exactly as before. */
+function joinSplitOk() { return !(deps.joinSplit && !deps.joinSplit()); }
+
 function onKey(e, i, input) {
   const doc = deps.getDoc();
   if (e.key === 'Enter') {
+    if (!joinSplitOk()) return;
     e.preventDefault();
     const c = input.selectionStart ?? input.value.length;
     const paras = deps.getParagraphs(doc).slice();
@@ -376,11 +384,13 @@ function onKey(e, i, input) {
    * default, so the two can never disagree. The ⧉ join buttons are unaffected and remain the
    * reliable route; they call the same mergeAt, so nothing about joining is lost. */
   } else if (e.key === 'Backspace' && (input.selectionStart ?? 0) === 0 && (input.selectionEnd ?? 0) === 0 && i > 0) {
+    if (!joinSplitOk()) return;
     if (!(deps.joinKeys && deps.joinKeys())) return;
     e.preventDefault();
     mergeAt(i - 1, i);
   } else if (e.key === 'Delete' && input.selectionStart === input.value.length && input.selectionEnd === input.value.length
              && i < deps.getParagraphs(doc).length - 1) {
+    if (!joinSplitOk()) return;
     if (!(deps.joinKeys && deps.joinKeys())) return;
     e.preventDefault();
     mergeAt(i, i + 1, /* caretAtJoin */ true);
@@ -532,3 +542,116 @@ export function startGlossTicker(entries, getPlayer, t) {
   }, 300);
 }
 export function stopGlossTicker() { if (glossTick) { clearInterval(glossTick); glossTick = 0; } }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════════════════════════
+ * THE "POTONG" (CUT) TAB — audio segmentation with nothing else on screen.
+ *
+ * Seth, 2026-08-13: "ONLY audio segmenting … this allows a user to focus on segmentation first with
+ * no distractions or trying to multi-task."
+ *
+ * ⚠ IT LIVES IN THIS FILE ON PURPOSE. A separate module would be a new top-level import in
+ * js/app.js, i.e. a new SHELL entry in the editor AND every satellite sw.js in the same commit —
+ * the v108 outage. This file already owns peaks, drawSpanWave and wireSegPlay, which is everything
+ * the Cut tab draws, so nothing new enters any SHELL.
+ *
+ * ⚠ AND IT EDITS TEXT DESPITE SHOWING NONE. segments[i] IS baseline paragraph i, so a cut inserts
+ * an empty paragraph and a join merges two. Both go through segments.js's cutAtPlayhead /
+ * joinWithPrevious, which return BOTH arrays so half an edit cannot be applied.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════════ */
+
+let cutDeps = null;
+export function initCut(d) { cutDeps = d; }
+
+function cutSay(msg) {
+  const el = document.getElementById('cut-say');
+  if (el) el.textContent = msg || '';
+}
+
+/* The span the playhead is in — "the current segment" for the Join button and Backspace. */
+function cutCurrentIndex() {
+  const doc = cutDeps.getDoc();
+  const ms = cutDeps.getPlayer()?.playheadMs?.();
+  const i = segmentIndexAt(docSegments(doc), ms);
+  return i;
+}
+
+export function renderCut() {
+  if (!cutDeps) return;
+  const host = document.getElementById('cut-strips');
+  const doc = cutDeps.getDoc();
+  if (!host || !doc) return;
+  const segs = docSegments(doc);
+  const paras = cutDeps.getParagraphs(doc);
+  const cur = cutCurrentIndex();
+  host.replaceChildren();
+
+  segs.forEach((seg, i) => {
+    const row = document.createElement('div');
+    row.className = 'cut-row' + (i === cur ? ' is-current' : '');
+    const play = document.createElement('button');
+    play.className = 'gseg-play';
+    play.textContent = seg.timePending ? '\u22ef' : '\u25b6';
+    const wave = document.createElement('canvas');
+    wave.className = 'seg-wave cut-wave';
+    const num = document.createElement('span');
+    num.className = 'cut-num';
+    num.textContent = String(i + 1);
+    row.append(num, play, wave);
+
+    /* ⚠ THE CAPTION IS PLAIN TEXT, NEVER AN INPUT (Seth: caption under every texted segment). It is
+     * what makes the split refusal legible — you can see which spans are transcribed and therefore
+     * locked, instead of discovering it by being refused. */
+    const text = String(paras[i] ?? '').trim();
+    if (text) {
+      const cap = document.createElement('div');
+      cap.className = 'cut-cap';
+      cap.textContent = text;
+      row.appendChild(cap);
+    }
+    host.appendChild(row);
+
+    wireSegPlay(play, seg, cutDeps.getPlayer, (t) => { if (cutDeps.onPlayTarget) cutDeps.onPlayTarget(t); });
+    wave.addEventListener('pointerdown', () => { renderCut(); });
+    drawSpanWave(wave, seg);
+  });
+}
+
+/* CUT at the playhead. Refuses out loud rather than making a sliver or an untimed span. */
+export function cutHere() {
+  const doc = cutDeps.getDoc();
+  if (!doc) return;
+  const ms = cutDeps.getPlayer()?.playheadMs?.();
+  const paras = cutDeps.getParagraphs(doc);
+  const r = cutAtPlayhead(docSegments(doc), paras, ms, { duration: peaksCache.durationMs || null });
+  if (!r.ok) { cutSay(cutDeps.t('cut.no.' + r.reason)); return; }
+  if (cutDeps.capture) cutDeps.capture();
+  // ⚠ BOTH, ALWAYS — the segments and the paragraphs, from the one result.
+  doc.segments = r.segments;
+  cutDeps.setParagraphs(doc, r.paragraphs);
+  cutDeps.persist();
+  cutSay('');
+  renderCut();
+}
+
+/* JOIN the current span with the one before it, then put the playhead where they joined — Seth:
+ * "moves the playhead back to the point where they joined". That is what makes judging the join a
+ * matter of pressing play rather than hunting for the seam. */
+export function cutJoinPrev() {
+  const doc = cutDeps.getDoc();
+  if (!doc) return;
+  const i = cutCurrentIndex();
+  const paras = cutDeps.getParagraphs(doc);
+  const allowTexted = !(cutDeps.allowJoinTexted && !cutDeps.allowJoinTexted());
+  const r = joinWithPrevious(docSegments(doc), paras, i, {
+    allowTexted, duration: peaksCache.durationMs || null,
+  });
+  if (!r.ok) { cutSay(cutDeps.t('cut.no.' + r.reason)); return; }
+  if (cutDeps.capture) cutDeps.capture();
+  doc.segments = r.segments;
+  cutDeps.setParagraphs(doc, r.paragraphs);
+  cutDeps.persist();
+  cutSay('');
+  if (r.playheadMs != null) cutDeps.getPlayer()?.seekMs?.(r.playheadMs);
+  renderCut();
+}

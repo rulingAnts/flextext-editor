@@ -308,6 +308,43 @@ tab off after a device has already used it.
   re-render, silently cancelling an audition the user had just started. Now scoped to arrivals from
   another tab (`fromTab !== 'cut'`), which is the case it was written for.
 
+## v362 — the spacebar jam on Baseline and Gloss: it was FOCUS, not the player
+
+Seth, testing v358 on staging: *"spacebar to play/pause is jammed and doesn't work (the page
+glitches/appears to re-render and nothing plays) until I click the big player and then click the
+segment player again. Same on the gloss tab."* And: *"The cut tab works flawlessly with spacebar."*
+
+**The cause was in the report all along.** You arrive on a tab by CLICKING ITS TAB BUTTON, so the
+button keeps focus — and the global Space handler stood down on *any* focused button (v322's rule: a
+focused button Space-clicks itself natively, so handling it too would double-toggle). So Space went
+to the tab button, `switchTab` re-rendered the list — **that is the "glitch"** — and nothing played.
+Clicking the big player cured it only because that moved focus to `<body>`. The Cut tab was flawless
+because v357 had already given it a focus-independent handler.
+
+⚠ **The v322 rule was right about ordinary buttons and wrong about this one.** Re-opening the tab you
+are already on is worth nothing; playing the audio is the entire point of the key. So the blanket
+"any button" exemption is gone, replaced by the bounded rule the Cut tab was already using, now
+shared by both handlers (`transportKeysApply`):
+
+| focus is on… | who gets Space |
+|---|---|
+| a text field, a `<select>` | the field — a transcriber typing a space must get a space |
+| anything inside an open `.modal` | the dialog, full stop |
+| a control outside the editor's surface (topbar Save, Done—send, ⟵ Back) | the control |
+| **a tab button** | **the transport** — this was the jam |
+| a strip's ▶, a ⤙⤚ join, ✂, the dock's own controls, the zoom slider | the transport |
+
+⚠ A pleasant side effect: Space can no longer re-fire a DESTRUCTIVE button. Focus sits on ✂ or ⤙⤚
+the instant after you use one, and a native re-click there would cut or join again with no gesture
+from the user.
+
+⚠ **Found by reproducing it, not by reading.** Three earlier hypotheses (an autoplay-policy failure,
+wavesurfer's `interaction` event firing for our own seeks, a stale span watcher) were each tested in
+Chromium against BOTH the staging build and the current tree, and each was wrong — the builds behaved
+identically. Only scripting the actual user path — click the tab button, then press Space — showed
+it. `test/browser/cut-tab.playwright.mjs` now drives exactly that, on Baseline and Gloss, and checks
+that the topbar's own buttons keep their Space.
+
 ### And the tab is verified in a BROWSER now
 
 v355 and v356 both shipped saying *"still unverified in a browser"*, and both were wrong in ways no

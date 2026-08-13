@@ -138,15 +138,23 @@ ok(/if \(activeTab === 'cut' && !\$\('#view-cut'\)\?\.hidden\) return;/.test(app
 /* ── …but NOT everywhere on the page. Claiming three keys at document level takes them from controls
  * that legitimately own them; this is where that reach is bounded. Found by the preflight review:
  * a dialog open over the Cut tab had its buttons deadened, with the recording playing behind it. */
-const guard = fn(app, 'cutKeysApply');
-ok(!!guard, 'there is one guard deciding where the Cut tab\'s keys apply');
-ok(/if \(!cutKeysApply\(e\.target\)\) return;/.test(cutKeys), 'and all three keys go through it');
+const guard = fn(app, 'transportKeysApply');
+ok(!!guard, 'there is ONE guard deciding where the transport keys apply, on every editor tab');
+ok(/if \(!transportKeysApply\(e\.target\)\) return;/.test(cutKeys), 'and all three Cut-tab keys go through it');
+ok((app.match(/transportKeysApply\(e\.target\)/g) || []).length === 2,
+   'the global Space handler goes through it too — that is what unjammed Baseline and Gloss');
+/* ⚠ THE TAB BUTTON IS THE WHOLE POINT. You arrive on a tab by clicking its button, so the button
+ * keeps focus — and Space was being spent re-activating it: the list re-rendered and nothing played
+ * (Seth, on Baseline and Gloss). Re-opening the tab you are already on is worth nothing. */
+ok(/ctl\.classList\.contains\('top-tab'\)/.test(guard),
+   'a focused TAB BUTTON does not keep Space — it is where focus lands on the way in');
+ok(/'#view-cut, #view-baseline, #view-gloss, #audio-player'/.test(app),
+   'and the surface is all three editor views plus the shared dock player');
+ok(!/t2\.closest\('input, textarea, select, button, \[contenteditable\]'\)/.test(app),
+   'the old blanket "any button" exemption is gone — it was the jam');
 ok(/document\.querySelector\('\.modal:not\(\[hidden\]\)'\)/.test(guard),
    'an open modal keeps its own keys — Enter must not cut the audio behind a Send dialog');
-ok(/CUT_SURFACE/.test(guard) && /'#view-cut, #audio-player'/.test(app),
-   'the tab\'s surface is the Cut view AND the dock player (its overview), and nothing else');
-ok(/ctl\.id !== 'tab-cut'/.test(guard),
-   'plus the Cut tab button itself — where focus lands on the way in, and the reported dead Space');
+ok(/EDITOR_SURFACE/.test(guard), 'the surface is named once and shared');
 ok(/input:not\(\[type="range"\]\)/.test(guard),
    'a text box or <select> wins; the dock ZOOM slider does not, since Space means nothing to it');
 

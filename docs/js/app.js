@@ -817,36 +817,46 @@ function joinSplitAllowed(tab) {
  * no cursor on this tab, so there is no defined place to divide the text. */
 function cutJoinTextedAllowed() { return settings.cutJoinTexted === true; }
 
-/* ⚠ WHERE THE CUT TAB'S KEYS APPLY — and, just as importantly, where they must NOT.
+/* ⚠ WHERE THE TRANSPORT KEYS APPLY — and, just as importantly, where they must NOT.
  *
- * The tab claims Enter, Backspace and Space at DOCUMENT level, because it has no text box to hold
- * focus and the gesture must work whether or not a row was ever clicked. The cost of that reach is
- * that the same keystroke would be taken from controls that legitimately own it, so this is the one
- * place that decides, for all three keys at once:
+ * Space (every editor tab) and Enter/Backspace (the Cut tab) are claimed at DOCUMENT level, because
+ * the gesture must work whether or not the user has clicked anything since arriving. The cost of
+ * that reach is that the same keystroke would be taken from controls that legitimately own it, so
+ * this is the one place that decides it, for every one of those keys at once:
  *
  *  - A MODAL IS OPEN ⇒ the keys are the modal's, full stop. Send/consent/record/help dialogs sit
- *    OVER this tab with `activeTab` still 'cut', so without this a Space on the share menu's Upload
+ *    OVER the editor with `activeTab` unchanged, so without this a Space on the share menu's Upload
  *    button would start the recording playing behind the dialog instead of pressing the button, and
  *    Enter would cut the audio. Both static (`.modal[hidden]`) and panel-built modals carry
  *    `class="modal"`, so one selector covers every one of them.
- *  - A CONTROL OUTSIDE THE TAB'S OWN SURFACE ⇒ its own key. Save, Done—send, ⟵ Back and Undo live in
- *    the topbar and must keep Enter and Space. The tab's surface is the Cut view AND the dock player
- *    (which is this tab's overview, not a separate thing), plus the ONE exception of the Cut tab
- *    button itself — that is where focus lands on the way in, and is exactly the "spacebar does
- *    nothing" Seth reported; re-activating it would only re-open the tab you are already on.
- *  - A TEXT FIELD or a <select> ⇒ typing and the dropdown win (`#doc-title` and the speed picker are
- *    the live cases). A RANGE slider does NOT: the dock's zoom is the one control a cutter fiddles
- *    with constantly, Space means nothing to it natively, and focus left sitting there was a second
- *    way for "spacebar doesn't work" to be true. */
-const CUT_SURFACE = '#view-cut, #audio-player';
-function cutKeysApply(target) {
+ *  - A CONTROL OUTSIDE THE EDITOR'S SURFACE ⇒ its own key. Save, Done—send, ⟵ Back and Undo live in
+ *    the topbar and must keep Enter and Space. The surface is the three editor views plus the dock
+ *    player (which is their shared overview, not a separate thing).
+ *  - …EXCEPT A TAB BUTTON, which is the whole reason this exists. ⚠ FOCUS STAYS ON THE TAB BUTTON
+ *    YOU CLICKED TO GET HERE, so Space was being spent re-activating it: switchTab re-rendered the
+ *    list and nothing played, over and over (Seth: "spacebar to play/pause is jammed … the page
+ *    glitches/appears to re-render and nothing plays … until I click the big player"). Clicking the
+ *    big player cured it only because that moved focus off the button. Re-opening the tab you are
+ *    already on is worth nothing; playing the audio is the point of the key.
+ *  - A TEXT FIELD or a <select> ⇒ typing and the dropdown win (`.seg-text`, `#doc-title` and the
+ *    speed picker are the live cases; a transcriber typing a space must get a space). A RANGE slider
+ *    does NOT: the dock's zoom is the one control a cutter fiddles with constantly, Space means
+ *    nothing to it natively, and focus left sitting there was another way for "spacebar doesn't
+ *    work" to be true.
+ *
+ * ⚠ The caller MUST preventDefault when this returns true — that is what stops the focused button
+ * from ALSO firing. It is also what makes Space safe on ✂ and ⤙⤚: a native re-click there would cut
+ * or join again with no gesture from the user. */
+const EDITOR_SURFACE = '#view-cut, #view-baseline, #view-gloss, #audio-player';
+function transportKeysApply(target) {
   if (document.querySelector('.modal:not([hidden])')) return false;
   const el = target && target.closest ? target : null;
   if (!el) return true;
   if (el.closest('textarea, select, [contenteditable], input:not([type="range"])')) return false;
   const ctl = el.closest('button, a[href], input, [tabindex]');
-  if (ctl && !ctl.closest(CUT_SURFACE) && ctl.id !== 'tab-cut') return false;
-  return true;
+  if (!ctl) return true;
+  if (ctl.classList && ctl.classList.contains('top-tab')) return true;   // the tab that got you here
+  return !!ctl.closest(EDITOR_SURFACE);
 }
 
 function segmentationEnabled() {
@@ -6902,11 +6912,13 @@ function wirePlaybackKeys() {
      * on click, so without that blur the click looks like it selected the audio while the keystroke
      * still went to the gloss box the user had been typing in. */
     if (e.key !== ' ' || e.repeat) return;
-    // The Cut tab has its own Space (continuous play/pause, focus-independent) — see the cut-tab
-    // key handler. Two handlers would toggle twice and cancel each other out.
+    // The Cut tab has its own Space (continuous play/pause) — see the cut-tab key handler. Two
+    // handlers would toggle twice and cancel each other out.
     if (activeTab === 'cut' && !$('#view-cut')?.hidden) return;
-    const t2 = e.target;
-    if (t2.closest && (t2.closest('input, textarea, select, button, [contenteditable]'))) return;
+    /* ⚠ NOT "any button": that blanket exemption is what jammed Space on the Baseline and Gloss
+     * tabs, because focus sits on the TAB BUTTON you clicked to get there and the key was spent
+     * re-activating it. transportKeysApply draws the line properly — see it for the full rule. */
+    if (!transportKeysApply(e.target)) return;
     if (!player) return;
     e.preventDefault();
     if (player.playing?.()) { player.pause(); return; }
@@ -7126,7 +7138,7 @@ function setup() {
    * to naming the button, so the screen never promises a key that does nothing. */
   document.addEventListener('keydown', (e) => {
     if (activeTab !== 'cut' || $('#view-cut')?.hidden) return;
-    if (!cutKeysApply(e.target)) return;
+    if (!transportKeysApply(e.target)) return;
     if (e.key === 'Enter') { e.preventDefault(); cutHere(); }
     else if (e.key === 'Backspace') { if (!joinKeysEnabled()) return; e.preventDefault(); cutJoinPrev(); }
     /* SPACE PLAYS AND PAUSES, WHEREVER FOCUS IS ON THIS TAB (Seth, 2026-08-13: "spacebar to

@@ -324,6 +324,41 @@ await page.waitForTimeout(400);
 const say = await page.textContent('#cut-say');
 ok(/already has words|sudah ada kata/.test(say || ''), `and says why: "${(say || '').slice(0, 48)}…"`);
 
+/* ── AND THE SAME KEY ON THE OTHER TABS ────────────────────────────────────────────────────────
+ * Seth: "spacebar to play/pause is jammed and doesn't work (the page glitches/appears to re-render
+ * and nothing plays) until I click the big player… that's on the baseline and gloss tabs. The cut
+ * tab works flawlessly."
+ *
+ * The cause was focus: you arrive on a tab by CLICKING ITS TAB BUTTON, so the button keeps focus and
+ * Space was spent re-activating it — switchTab re-rendered the list (the "glitch") and nothing
+ * played. Clicking the big player cured it only because that moved focus off the button. */
+for (const tab of ['baseline', 'gloss']) {
+  console.log(`\nSpace works on the ${tab.toUpperCase()} tab with focus on the tab button`);
+  await page.evaluate((t) => document.querySelector(`.top-tab[data-tab="${t}"]`).click(), tab);
+  await page.waitForTimeout(1800);
+  await pause();
+  await page.evaluate((t) => document.querySelector(`.top-tab[data-tab="${t}"]`).focus(), tab);
+  const focused = await page.evaluate(() => document.activeElement.className.split(' ')[0]);
+  ok(focused === 'top-tab', `focus really is on the tab button (${focused})`);
+  await page.keyboard.press('Space');
+  await page.waitForTimeout(900);
+  ok(await page.textContent('.player-play') === '⏸', 'Space started playback instead of re-opening the tab');
+  await page.keyboard.press('Space');
+  await page.waitForTimeout(500);
+  ok(await page.textContent('.player-play') === '▶', 'and stopped it again');
+}
+
+console.log('\n…but a control OUTSIDE the editor keeps its own Space');
+/* The line has to be drawn somewhere: Save, Done—send and ⟵ Back are ordinary buttons in the topbar
+ * and a keyboard user must still be able to press them. */
+await page.evaluate(() => document.querySelector('#btn-back')?.focus());
+const beforeKey = await page.textContent('.player-play');
+await page.keyboard.press('Space');
+await page.waitForTimeout(600);
+const stillInEditor = await page.isVisible('#view-baseline') || await page.isVisible('#view-gloss') || await page.isVisible('#view-cut');
+ok(await page.textContent('.player-play') === beforeKey || !stillInEditor,
+   'Space on the topbar Back button did not hijack the transport');
+
 await browser.close();
 console.log(fail ? `\nFAILED (${fail})` : '\nPASSED');
 process.exit(fail ? 1 : 0);

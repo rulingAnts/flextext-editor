@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v356';
+export const ENGINE_VERSION = 'v358';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v356';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'cut-tab v4';
+export const BUILD_TAG = 'cut-tab v6';
 
 const S = {
 en: {
@@ -1205,11 +1205,14 @@ internet after the first time.</p>
   /* Seth, 2026-08-13 — DEFAULT OFF, unlike segmentation. The join BUTTONS are the reliable route
    * now; the keys mainly produce accidental joins the transcriber then has to notice and undo. */
   'panel.f.backspaceJoin': 'Allow Backspace/Delete to join lines',
-  'panel.f.backspaceJoinNote': 'Off by default. When on, Backspace at the very start of a line (or Delete at the very end) joins it to its neighbour. The \u2919\u291a join buttons always work either way, so turning this off removes only the keyboard shortcut \u2014 and with it the accidental joins that are easy to make and awkward to undo.',
+  'panel.f.backspaceJoinNote': 'Off by default. When on, Backspace at the very start of a line (or Delete at the very end) joins it to its neighbour \u2014 on the Baseline and Gloss tabs, and on the Cut tab, where Backspace joins the current line to the one above it. The \u2919\u291a join buttons always work either way, so turning this off removes only the keyboard shortcut \u2014 and with it the accidental joins that are easy to make and awkward to undo.',
   /* The Cut ("Potong") tab family (Seth, 2026-08-13). ALL DEFAULT ON — these add or preserve
    * capability, unlike backspaceJoin which removes a shortcut and therefore defaults off. */
   'tabs.cut': 'Cut',
-  'cut.hint': 'Cut the recording into lines. The player at the top is for finding your place \u2014 it shows the cuts you have already made. Play a line below, then press <b>Enter</b> where it should end, or <b>Backspace</b> to join it to the line above. No typing on this tab \u2014 the words come later.',
+  'cut.hint': 'Cut the recording into lines. The player at the top is for finding your place \u2014 it marks the cuts you have already made. Play a line below and click its waveform where the line should end, then press <b>Enter</b> or the \u2702 button. <b>Backspace</b>, or the \u2919\u291a button, joins a line to the one above. No typing on this tab \u2014 the words come later.',
+  /* Shown INSTEAD when the researcher has switched Backspace-to-join off: same tab, one fewer key,
+     and the button named in its place so the screen never promises a key that does nothing. */
+  'cut.hintNoJoinKey': 'Cut the recording into lines. The player at the top is for finding your place \u2014 it marks the cuts you have already made. Play a line below and click its waveform where the line should end, then press <b>Enter</b> or the \u2702 button. The \u2919\u291a button between two lines joins them. No typing on this tab \u2014 the words come later.',
   'cut.cut': 'Cut here',
   'cut.join': 'Join with previous',
   'cut.noAudio': 'This text has no recording, so there is nothing to cut.',
@@ -2732,10 +2735,11 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.f.segmentationNote': 'Tab Ketik dan Terjemahan Balik menjadi potongan selaras waktu: gelombang suara per baris, pemutaran per baris, dan Enter memotong baris pada posisi putar. Coba dulu dengan satu rekan kerja sebelum diaktifkan lebih luas. Jika dimatikan nanti, alatnya disembunyikan tetapi data segmen tidak pernah dihapus.',
   /* Lihat catatan pada blok en \u2014 default MATI. */
   'panel.f.backspaceJoin': 'Izinkan Backspace/Delete menggabungkan baris',
-  'panel.f.backspaceJoinNote': 'Mati secara bawaan. Bila aktif, Backspace di awal baris (atau Delete di akhir baris) menggabungkannya dengan baris sebelah. Tombol gabung \u2919\u291a tetap berfungsi apa pun pengaturannya, jadi mematikan ini hanya menghapus pintasan papan ketik \u2014 beserta penggabungan tak sengaja yang mudah terjadi dan merepotkan untuk dibatalkan.',
+  'panel.f.backspaceJoinNote': 'Mati secara bawaan. Bila aktif, Backspace di awal baris (atau Delete di akhir baris) menggabungkannya dengan baris sebelah \u2014 di tab Ketik dan Gloss, dan juga di tab Potong, di mana Backspace menggabungkan baris yang sedang aktif dengan baris di atasnya. Tombol gabung \u2919\u291a tetap berfungsi apa pun pengaturannya, jadi mematikan ini hanya menghapus pintasan papan ketik \u2014 beserta penggabungan tak sengaja yang mudah terjadi dan merepotkan untuk dibatalkan.',
   /* Lihat catatan pada blok en \u2014 semuanya AKTIF secara bawaan. */
   'tabs.cut': 'Potong',
-  'cut.hint': 'Potong rekaman menjadi baris. Pemutar di atas untuk mencari posisi \u2014 ia menampilkan potongan yang sudah Anda buat. Putar sebuah baris di bawah, lalu tekan <b>Enter</b> di tempat baris itu seharusnya berakhir, atau <b>Backspace</b> untuk menggabungkannya dengan baris di atasnya. Tidak ada pengetikan di tab ini \u2014 kata-katanya menyusul.',
+  'cut.hint': 'Potong rekaman menjadi baris. Pemutar di atas untuk mencari posisi \u2014 ia menandai potongan yang sudah Anda buat. Putar sebuah baris di bawah lalu klik gelombangnya di tempat baris itu seharusnya berakhir, kemudian tekan <b>Enter</b> atau tombol \u2702. <b>Backspace</b>, atau tombol \u2919\u291a, menggabungkan sebuah baris dengan baris di atasnya. Tidak ada pengetikan di tab ini \u2014 kata-katanya menyusul.',
+  'cut.hintNoJoinKey': 'Potong rekaman menjadi baris. Pemutar di atas untuk mencari posisi \u2014 ia menandai potongan yang sudah Anda buat. Putar sebuah baris di bawah lalu klik gelombangnya di tempat baris itu seharusnya berakhir, kemudian tekan <b>Enter</b> atau tombol \u2702. Tombol \u2919\u291a di antara dua baris menggabungkan keduanya. Tidak ada pengetikan di tab ini \u2014 kata-katanya menyusul.',
   'cut.cut': 'Potong di sini',
   'cut.join': 'Gabung dengan sebelumnya',
   'cut.noAudio': 'Teks ini tidak punya rekaman, jadi tidak ada yang bisa dipotong.',

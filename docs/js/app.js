@@ -19,7 +19,7 @@ import { losslessSupported, recFormatSupported, PCMRecorder, encodeWav, encodeRe
 import WaveSurfer from './vendor/wavesurfer.esm.js';
 import { makeZip } from './zip.js';
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay,
-         initCut, renderCut, cutHere, cutJoinPrev, stopCut } from './segment-strips.js';
+         initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, stopCut } from './segment-strips.js';
 import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME,
          sanitizeBase, extOf, mediaNameFor, derivedWavName } from './seg-exports.js';
 import { mergeSegments, splitSegment, isAligned, normalizeSegments } from './segments.js';
@@ -701,6 +701,22 @@ function landingTab(tab) {
   return docIsUncut(current.doc) ? 'cut' : tab;
 }
 
+/* The Cut tab's hint must never promise a key the researcher has switched off.
+ *
+ * ⚠ Swapping the KEY on the element (not just its text) is what keeps a later language change
+ * correct — applyI18n reads data-i18n-html, so it re-renders whichever variant is current.
+ *
+ * ⚠ AND IT IS CALLED FROM THE LIVE-SETTINGS PATH TOO, not only on tab entry: a researcher push
+ * lands mid-session (that is the whole point of pushed settings), and a user sitting on the Cut tab
+ * would otherwise keep reading "press Backspace to join" for as long as they stayed there, after
+ * Backspace had stopped joining. Same class as applyCutTabVisibility below. */
+function applyCutHint() {
+  const hint = $('#view-cut .tab-hint');
+  if (!hint) return;
+  hint.dataset.i18nHtml = joinKeysEnabled() ? 'cut.hint' : 'cut.hintNoJoinKey';
+  hint.innerHTML = t(hint.dataset.i18nHtml);
+}
+
 /* Show or hide the Cut tab button. Called on entry and whenever settings change live, so a
  * researcher push adds or removes the tab without a reload. */
 function applyCutTabVisibility() {
@@ -763,6 +779,38 @@ function joinSplitAllowed(tab) {
  * itself — joining only concatenates). Splitting a texted segment is refused regardless: there is
  * no cursor on this tab, so there is no defined place to divide the text. */
 function cutJoinTextedAllowed() { return settings.cutJoinTexted === true; }
+
+/* ⚠ WHERE THE CUT TAB'S KEYS APPLY — and, just as importantly, where they must NOT.
+ *
+ * The tab claims Enter, Backspace and Space at DOCUMENT level, because it has no text box to hold
+ * focus and the gesture must work whether or not a row was ever clicked. The cost of that reach is
+ * that the same keystroke would be taken from controls that legitimately own it, so this is the one
+ * place that decides, for all three keys at once:
+ *
+ *  - A MODAL IS OPEN ⇒ the keys are the modal's, full stop. Send/consent/record/help dialogs sit
+ *    OVER this tab with `activeTab` still 'cut', so without this a Space on the share menu's Upload
+ *    button would start the recording playing behind the dialog instead of pressing the button, and
+ *    Enter would cut the audio. Both static (`.modal[hidden]`) and panel-built modals carry
+ *    `class="modal"`, so one selector covers every one of them.
+ *  - A CONTROL OUTSIDE THE TAB'S OWN SURFACE ⇒ its own key. Save, Done—send, ⟵ Back and Undo live in
+ *    the topbar and must keep Enter and Space. The tab's surface is the Cut view AND the dock player
+ *    (which is this tab's overview, not a separate thing), plus the ONE exception of the Cut tab
+ *    button itself — that is where focus lands on the way in, and is exactly the "spacebar does
+ *    nothing" Seth reported; re-activating it would only re-open the tab you are already on.
+ *  - A TEXT FIELD or a <select> ⇒ typing and the dropdown win (`#doc-title` and the speed picker are
+ *    the live cases). A RANGE slider does NOT: the dock's zoom is the one control a cutter fiddles
+ *    with constantly, Space means nothing to it natively, and focus left sitting there was a second
+ *    way for "spacebar doesn't work" to be true. */
+const CUT_SURFACE = '#view-cut, #audio-player';
+function cutKeysApply(target) {
+  if (document.querySelector('.modal:not([hidden])')) return false;
+  const el = target && target.closest ? target : null;
+  if (!el) return true;
+  if (el.closest('textarea, select, [contenteditable], input:not([type="range"])')) return false;
+  const ctl = el.closest('button, a[href], input, [tabindex]');
+  if (ctl && !ctl.closest(CUT_SURFACE) && ctl.id !== 'tab-cut') return false;
+  return true;
+}
 
 function segmentationEnabled() {
   try {
@@ -1081,11 +1129,22 @@ function glossJoinLines(i) {
  * user lands on a big unsegmented recording, so the decode is at its slowest and the window for
  * them to hit Back and open something else is at its widest. Rendering into a doc that is no longer
  * open would draw one text's waveform under another's segments. */
+let cutShownFor = null;   // the doc whose strips are currently on screen — see below
+
 async function prepareCutAudio() {
   const forDoc = current && current.id;
   const main = $('#cut-main'), loading = $('#cut-loading');
-  if (main) main.hidden = true;
-  if (loading) loading.hidden = false;
+  /* ⚠ DO NOT HIDE STRIPS THAT ARE ALREADY THIS DOC'S. Hiding #cut-main collapses the page height,
+   * and the browser then clamps the scroll offset to the new maximum — so re-entering the tab for
+   * the SAME text threw the user back to the top, which is the very thing v357 fixed for cuts and
+   * joins. `switchTab('cut')` is re-entered on every UNDO/REDO (applyUndoState re-renders through
+   * it) and on a live settings push, so this was the last route by which a cut still lost your
+   * place: undo it and you were at the top again. Not hiding also removes the flicker the plan
+   * predicted for undo. A different doc still gets the loading state, because then there is genuinely
+   * nothing on screen worth keeping. */
+  const reentry = main && !main.hidden && cutShownFor === forDoc;
+  if (main && !reentry) main.hidden = true;
+  if (loading && !reentry) loading.hidden = false;
   let media = forDoc ? await db.getMedia(forDoc).catch(() => null) : null;
   media = await segWorkingMedia(forDoc, media, current && current.title);
   if (!current || current.id !== forDoc || activeTab !== 'cut') return;
@@ -1099,6 +1158,7 @@ async function prepareCutAudio() {
   if (!current || current.id !== forDoc || activeTab !== 'cut') return;
   if (loading) loading.hidden = true;
   if (main) main.hidden = false;
+  cutShownFor = forDoc;
   renderCut();
 }
 
@@ -1120,12 +1180,24 @@ function switchTab(tab) {
     healFlatSegments(current && current.doc);
     show('cut');
     refreshPlayer();
+    /* ⚠ NO SPAN TARGET ON THIS TAB (Seth, 2026-08-13): playback runs THROUGH the boundaries here,
+     * so nothing may leave a segment behind as "the thing Space and ⏮ act on" — that is what would
+     * quietly restore span-limited playback by the back door. Cleared on entry, and kept cleared by
+     * the onPlayTarget below, so on the Cut tab Space is continuous and ⏮ is the whole file. */
+    lastPlayTarget = null;
+    /* ⚠ AND DROP ANY LIVE SPAN WATCHER. `lastPlayTarget` is only the memory of a target; the watcher
+     * itself lives on the Player, armed by the last playSpan() — so arriving here straight from a
+     * Baseline or Gloss line still playing left a timeupdate handler that PAUSES at that line's end.
+     * The tab's whole promise is that playback runs on through the cuts, and it would have been
+     * broken by the most ordinary route to the tab: listen to a line, come over to re-cut it. */
+    player?.clearSpan?.();
+    applyCutHint();
     initCut({
       getPlayer: () => player,
       getDoc: () => current && current.doc,
       getParagraphs: (doc) => getBaselineParagraphs(doc),
       setParagraphs: (doc, paras) => { reconcileBaseline(doc, paras.length ? paras : [''], { flatSegments: true }); schedulePersist(); },
-      onPlayTarget: (seg) => { lastPlayTarget = seg; },
+      onPlayTarget: () => { lastPlayTarget = null; },
       capture: () => captureUndo(),
       persist: () => schedulePersist(),
       // Read through a FUNCTION so a researcher push lands mid-session, same rule as joinKeys.
@@ -3453,6 +3525,7 @@ function applyLiveSettings() {
   else {
     applyResearchVisibility(); applyAllowedButtons(); fillDeviceSetup(); renderDocList(); applyDeleteAllButton(); applyInviteButton(); applyDoneButton();
     applyCutTabVisibility();   // a pushed cutTab toggle adds/removes the tab without a reload
+    applyCutHint();            // …and a pushed backspaceJoin re-words the hint it gates, in place
     // A pushed segmentation toggle takes effect LIVE if the coworker is sitting in the editor:
     // re-enter the visible tab so strips appear/hide without a reload. Gated on the actual flag
     // changing — a plain settings broadcast must never yank the caret mid-typing. currentView()
@@ -6788,6 +6861,9 @@ function wirePlaybackKeys() {
      * on click, so without that blur the click looks like it selected the audio while the keystroke
      * still went to the gloss box the user had been typing in. */
     if (e.key !== ' ' || e.repeat) return;
+    // The Cut tab has its own Space (continuous play/pause, focus-independent) — see the cut-tab
+    // key handler. Two handlers would toggle twice and cancel each other out.
+    if (activeTab === 'cut' && !$('#view-cut')?.hidden) return;
     const t2 = e.target;
     if (t2.closest && (t2.closest('input, textarea, select, button, [contenteditable]'))) return;
     if (!player) return;
@@ -6999,14 +7075,30 @@ function setup() {
    * the user has ever clicked a row. Two handlers would double-fire; one, keyed off the PLAYHEAD
    * rather than off focus, matches what the tab actually is.
    *
-   * Backspace here is NOT gated on `backspaceJoin`: that setting exists because Backspace-at-start
-   * of a TEXT BOX joins lines by accident while typing. On the Cut tab there is nothing to type
-   * into and Backspace has no other meaning, so it cannot be an accident. */
+   * ⚠ BACKSPACE IS GATED ON `backspaceJoin` HERE TOO (Seth, 2026-08-13: "joins (with join buttons
+   * or backspace if backspace to join is enabled)"). v356 exempted this tab on the reasoning that
+   * there is no text box to Backspace inside of, so a join could not be an accident — but the
+   * setting is the researcher saying "this key does not join on this device", and a key that keeps
+   * joining on one tab is exactly the "rule enforced in one place the other path reaches around"
+   * drift the setting itself warns about. The ⤙⤚ buttons are unaffected and remain the reliable
+   * route, so nothing about joining is lost when the key is off — and the tab's hint text switches
+   * to naming the button, so the screen never promises a key that does nothing. */
   document.addEventListener('keydown', (e) => {
     if (activeTab !== 'cut' || $('#view-cut')?.hidden) return;
-    if (e.target?.closest?.('input, textarea, select, [contenteditable]')) return;   // the title box
+    if (!cutKeysApply(e.target)) return;
     if (e.key === 'Enter') { e.preventDefault(); cutHere(); }
-    else if (e.key === 'Backspace') { e.preventDefault(); cutJoinPrev(); }
+    else if (e.key === 'Backspace') { if (!joinKeysEnabled()) return; e.preventDefault(); cutJoinPrev(); }
+    /* SPACE PLAYS AND PAUSES, WHEREVER FOCUS IS ON THIS TAB (Seth, 2026-08-13: "spacebar to
+     * play/pause doesn't work. It should"). The global handler stands down on any BUTTON, because a
+     * focused button Space-clicks itself natively and double-toggling would undo it — and here focus
+     * is almost always on a button: the Cut tab button that got you here, a row's ▶, a ⤙⤚ join.
+     *
+     * ⚠ preventDefault is what makes owning it safe: it suppresses the native button activation, so
+     * there is exactly one toggle — and, more importantly, Space can never re-fire a DESTRUCTIVE
+     * button. Focus sits on ✂ or ⤙⤚ the instant after you use one, and a native re-click there
+     * would cut or join again with no gesture from the user. wirePlaybackKeys' Space branch defers
+     * to this (it runs first, in capture). */
+    else if (e.key === ' ' && !e.repeat) { e.preventDefault(); cutTogglePlay(); }
   });
   $('#btn-help-home').addEventListener('click', openHelp);
   $('#btn-help-editor').addEventListener('click', openHelp);

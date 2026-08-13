@@ -2142,15 +2142,10 @@ main {
    .seg-wave, .seg-cursor, .seg-on and .seg-joinrow so the two tabs cannot drift apart visually.
    Only the differences are defined here. */
 
-/* The overview: navigation only. No cut control lives here, by design. */
-.cut-big { position: relative; margin: 8px 0 10px; }
-.cut-ov-wave { width: 100%; height: 72px; display: block; cursor: pointer; }
-/* A boundary already made. Thin and quiet — a map of the cuts, not a control. */
-.cut-ov-b { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--blue-dark);
-            opacity: .55; pointer-events: none; }
-/* The playhead, kept in step with the strip cursors by the one ticker that draws both. */
-.cut-ov-head { position: absolute; top: 0; bottom: 0; width: 2px; background: #d33;
-               pointer-events: none; }
+/* ⚠ THE OVERVIEW IS THE DOCK PLAYER, and its boundary marks are styled in audio.js, not here:
+   they live inside wavesurfer's SHADOW ROOT, which this stylesheet cannot reach. The Cut tab's own
+   .cut-big / .cut-ov-* rules are gone with the second waveform they drew (Seth: "there's TWO
+   waveform displays at the top … I don't want that"). */
 .cut-say { min-height: 1.3em; margin: 4px 0 10px; }
 /* ✂ rides the playhead, on the row the playhead is in — the control and the thing it acts on are
    the same place on screen, so the gesture needs no explaining. Sized for a thumb. */
@@ -2167,6 +2162,10 @@ main {
    somewhere. The row IS the control, so it needs a visible focus ring. */
 .cut-row { outline: none; }
 .cut-row:focus-visible { box-shadow: 0 0 0 2px var(--blue-dark); border-radius: 8px; }
+/* A row that carries text is LOCKED for cutting — its waveform is drawn grey (LOCKED_WAVE in
+   segment-strips.js) and the row recedes to match, so "grey" means one thing on this tab and the
+   refusal is visible before it is tried. */
+.cut-row.cut-locked { background: var(--panel, #f4f6fa); }
 /* ⚠ The caption is a caption: not editable, and NOT SELECTABLE (Seth: "text can't be edited or
    selected"). Selection would invite editing on a tab whose whole purpose is that you cannot. */
 .cut-cap {

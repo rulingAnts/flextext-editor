@@ -193,6 +193,74 @@ doing deliberately rather than by accident, because the hybrid native/app rule i
 Undo while ON the Cut tab re-enters via `switchTab('cut')`, which re-runs `prepareCutAudio()`. Peaks
 are cached so it is fast, but it can flicker. Rendering in place instead of re-entering would fix it.
 
+## v357 — the test-drive round: ONE waveform, clickable strips, and a view that stays put
+
+Seth's v356 test drive, 2026-08-13. Six findings, all in the same family: **the tab looked right and
+was not usable**, because the things a cutter actually does had been given to the wrong element.
+
+| finding | what shipped in v354–v356 | v357 |
+|---|---|---|
+| *"there's TWO waveform displays … I don't want that"* | the tab drew its OWN whole-file overview (`#cut-big`) above the dock player, which was already showing the same audio | the overview is **gone**. The dock player carries the cuts as **light-grey dotted 2px marks** (`Player.setBoundaries`) |
+| *"I can't click on individual segment waveforms … the second big waveform is the one I can click"* | the strips were never wired to the pointer at all; only the overview seeked | the Baseline strips' click-to-position/drag-to-scrub is now **one shared `wireWaveSeek`**, used by both tabs |
+| *"every cut … the page jumps back up to the top"* | `renderCut` rebuilt the list wholesale; emptying it collapses the page height, so the browser clamps the scroll to the top | the rebuild is bracketed: scroll offset **and** the edited row's own screen position are restored |
+| *"spacebar to play/pause doesn't work"* | the global Space handler stands down on any focused BUTTON — and on this tab focus is nearly always on one (the tab button that got you here, a row's ▶) | the Cut tab **owns Space**, with `preventDefault` so the focused button cannot also fire. The global handler defers |
+| *"playback … keep going through segment boundaries … on the cut tab only"* | every play was span-limited (`playSpan`), so it stopped dead at each cut | `Player.playThrough` — no span watcher. **Cut tab only**; Baseline and Gloss keep `playSpan` |
+| *"the grayed out part should only be parts that have text … right now our setup is the opposite"* | every strip drew in the same working blue; grey meant nothing | a texted (⇒ uncuttable) strip draws in `LOCKED_WAVE` grey and its row recedes. Grey means locked, and only that |
+
+Also decided in the same round, **reversing a v356 decision**: Backspace on the Cut tab is now gated
+on `backspaceJoin` like everywhere else (Seth: *"joins … with join buttons or backspace if backspace
+to join is enabled"*). v356 had exempted this tab because there is no text box to Backspace inside
+of, so a join could not be an accident — but the setting is the researcher saying *this key does not
+join on this device*, and one tab reaching around it is the drift the setting exists to prevent.
+⚠ `backspaceJoin` **defaults OFF**, so out of the box the Cut tab joins by the ⤙⤚ buttons only; the
+hint text switches to `cut.hintNoJoinKey` and names the button, so the screen never promises a key
+that does nothing.
+
+⚠ **Why the marks go inside wavesurfer's shadow-DOM wrapper, positioned in per cent**: the wrapper is
+the full ZOOMED width and scrolls with the waveform, so a percentage is the same instant of audio at
+every zoom level. Marks laid over the container would slide out of register the moment anyone touched
+the zoom slider. The corollary is that app.css cannot reach them — those styles are inline in
+`audio.js` deliberately, and "tidying" them into the stylesheet would silently unstyle them.
+
+## v358 — what a preflight review found in v357, before it reached staging
+
+v357 was reviewed by four independent readers (blast-radius across the suite, runtime correctness,
+release integrity, settings/i18n) before the push to `staging`, and every finding was then handed to
+two skeptics whose job was to REFUTE it. Twelve findings; one survived both skeptics unanimously.
+The rest were mostly refuted as *"pre-existing, not a regression"* — a fair verdict about the diff,
+and the wrong reason to leave them alone when the behaviour they describe defeats the thing Seth had
+just asked for. Fixed in v358:
+
+| what | why it mattered |
+|---|---|
+| **Boundary marks survived a document switch** (the one unanimous finding) | `destroyWs()` dropped the layer but kept `_bounds`, and `'ready'` re-drew it. The Player is a SINGLETON: cut text A, press Back, open uncut text B, and B's waveform wore A's cuts — for the whole of B's decode, which on a phone with a long recording is many seconds. Boundary times mean nothing outside the file they were measured in, so a destroyed waveform now forgets them, and the ticker re-pushes if a reload takes them away |
+| **The Cut tab's keys were taken from every control on the page** | Enter/Backspace/Space are claimed at DOCUMENT level (that is what makes them work with focus on the tab button). A Send/consent/record dialog sits OVER this tab with `activeTab` still `'cut'`, so Space on the dialog's own button started the recording playing behind it and Enter cut the audio. `cutKeysApply()` now bounds the reach: an open `.modal` keeps its keys, controls outside the tab's surface (the Cut view + the dock player + the tab button) keep theirs |
+| **Entering the tab left a live span watcher armed** | The most ordinary route to this tab is "listen to a line on Baseline, come over to re-cut it" — and that line's `playSpan` watcher was still armed, so playback paused at its end. On the one tab whose whole promise is that playback runs on through the cuts |
+| **Undo still threw the view to the top** | Same complaint as the cut jump, by another route: `applyUndoState` re-enters through `switchTab('cut')` → `prepareCutAudio`, which hid `#cut-main` to show "Loading…", collapsing the height and clamping the scroll. Re-entry for the SAME doc no longer hides anything — which also removes the undo flicker this plan predicted |
+| **The dock ZOOM slider ate Space** | Fiddle with zoom, press Space, nothing happens: a second way for "spacebar doesn't work" to be true. A range input has no native Space behaviour, so it no longer blocks the key. `<select>` (the speed picker) still does — Space opens its list |
+| **A pushed `backspaceJoin` left the hint lying** | The hint names the key or the button depending on the setting, and a researcher push lands mid-session. `applyCutHint()` is now called from `applyLiveSettings` as well as on tab entry. The setting's own researcher-facing note also says, at last, that it covers the Cut tab |
+
+⚠ **Left deliberately alone**: on the Baseline tab a dimmed/quiet strip means EMPTY, while on the Cut
+tab grey means HAS TEXT — the same visual reading for opposite states. That is a real inconsistency,
+but Seth asked for the Cut tab's meaning specifically, and changing Baseline's is a shipped-tab
+change nobody has asked for. Worth raising before it is discovered.
+
+### And the tab is verified in a BROWSER now
+
+v355 and v356 both shipped saying *"still unverified in a browser"*, and both were wrong in ways no
+source-grep could see (a row class that did not exist; strips wired to nothing). So there are two
+tests, and the second is the one that would have caught them:
+
+- `test/cut-tab-ui.test.mjs` — structural, runs in the node suite.
+- `test/browser/cut-tab.playwright.mjs` — opens the app in Chromium, imports a generated recording,
+  clicks a strip, cuts, and asserts on what actually happened. Needs a server and `playwright-core`,
+  so it is run deliberately, like the electron test beside it.
+
+⚠ **Two of its assertions were checked BOTH ways** — reverted the fix, watched the test fail, put it
+back. That is the difference between a test and a comment: the scroll guard reads 509 → 509 with the
+fix and 509 → 0 without it, and the span-watcher guard plays to 0:13 with the fix and stops dead at
+0:00 without it. Any assertion added here should earn its place the same way.
+
 ## NEXT: "Guess Splits" — silence detection (Seth, 2026-08-13)
 
 > "make default segment breaks for a new text … based on where the audio appears to have pauses in

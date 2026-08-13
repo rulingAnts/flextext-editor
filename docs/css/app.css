@@ -2136,3 +2136,28 @@ main {
    two-line (title + size), so it shows slightly fewer than a device's one-line rows — still inside
    the 6-10 range Seth asked for. */
 .rp-unassigned .rp-inv { max-height: 26rem; }
+
+/* ── The "Potong" (Cut) tab ────────────────────────────────────────────────────────────────────
+   Audio segmentation with nothing else on screen. Deliberately carries no input of any kind: the
+   absence of anything to type into is the feature, not an oversight. */
+.cut-big { min-height: 96px; margin: 8px 0 4px; }
+.cut-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+/* The cut control is the primary action on this screen and is aimed at a thumb, not a mouse. */
+.cut-btn { min-width: 10rem; }
+.cut-say { min-height: 1.3em; margin: 4px 0 10px; }
+#cut-strips { display: flex; flex-direction: column; gap: 6px; }
+.cut-row {
+  display: grid; grid-template-columns: 2.2rem auto 1fr; align-items: center; gap: 8px;
+  padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card, #fff);
+}
+/* The row holding the playhead — "the current segment" that Join and Backspace act on. It has to be
+   unmistakable, because the Join button acts on it without naming it. */
+.cut-row.is-current { border-color: var(--blue-dark); box-shadow: inset 0 0 0 1px var(--blue-dark); }
+.cut-num { color: var(--muted); font-size: 12px; text-align: right; }
+.cut-wave { width: 100%; height: 44px; display: block; }
+/* The baseline caption: plain text, never an input. It spans the full row under the waveform, and
+   its presence is what tells the user this line is locked against cutting. */
+.cut-cap {
+  grid-column: 1 / -1; font-size: 13px; color: var(--muted); padding: 2px 2px 0;
+  overflow-wrap: anywhere;
+}

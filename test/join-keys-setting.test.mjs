@@ -62,7 +62,9 @@ console.log('\nall FOUR join sites are gated');
      'Delete-at-end-of-line specifically, not just Backspace');
   ok(/if \(!joinKeysEnabled\(\)\) return;[^\n]*\n\s*e\.preventDefault\(\);\s*\n\s*glossJoinLines/.test(app),
      'the first-gloss Backspace checks it');
-  ok(/e\.key === 'Backspace' && atStart && i > 0 && joinKeysEnabled\(\)/.test(app),
+  // v353 inserted the joinSplitAllowed('gloss') master gate ahead of it; assert the key gate is
+  // still IN the condition rather than pinning the exact neighbours.
+  ok(/e\.key === 'Backspace' && atStart && i > 0 &&[^\n]*joinKeysEnabled\(\)/.test(app),
      'and so does the free-translation Backspace');
 }
 

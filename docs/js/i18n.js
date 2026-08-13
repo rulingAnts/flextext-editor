@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v352';
+export const ENGINE_VERSION = 'v353';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v352';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'join-keys+send-return v1';
+export const BUILD_TAG = 'cut-tab v1';
 
 const S = {
 en: {
@@ -1208,6 +1208,15 @@ internet after the first time.</p>
   'panel.f.backspaceJoinNote': 'Off by default. When on, Backspace at the very start of a line (or Delete at the very end) joins it to its neighbour. The \u2919\u291a join buttons always work either way, so turning this off removes only the keyboard shortcut \u2014 and with it the accidental joins that are easy to make and awkward to undo.',
   /* The Cut ("Potong") tab family (Seth, 2026-08-13). ALL DEFAULT ON — these add or preserve
    * capability, unlike backspaceJoin which removes a shortcut and therefore defaults off. */
+  'tabs.cut': 'Cut',
+  'cut.hint': 'Cut the recording into lines. Play, then press <b>Cut here</b> (or Enter) where a line should end. <b>Join with previous</b> (or Backspace) undoes a cut. No typing on this tab \u2014 the words come later.',
+  'cut.cut': 'Cut here',
+  'cut.join': 'Join with previous',
+  'cut.noAudio': 'This text has no recording, so there is nothing to cut.',
+  'cut.no.outside': 'Move the playhead into a line first \u2014 press play, then cut where you want the line to end.',
+  'cut.no.hasText': 'This line already has words typed for it, so it cannot be cut here. Split it on the Baseline tab instead, where you can choose where the words divide.',
+  'cut.no.tooShort': 'Too close to the edge of the line \u2014 move the playhead a little further in.',
+  'cut.no.first': 'This is the first line, so there is nothing before it to join to.',
   'panel.f.cutTab': 'Show the "Cut" tab',
   'panel.f.cutTabNote': 'A tab before Baseline for cutting the audio into lines and nothing else \u2014 no typing, no glosses. Lets a worker do all the segmenting first, then transcribe. Only appears for texts that have a recording.',
   'panel.f.landOnCut': 'Open new recordings on the "Cut" tab',
@@ -2725,6 +2734,15 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.f.backspaceJoin': 'Izinkan Backspace/Delete menggabungkan baris',
   'panel.f.backspaceJoinNote': 'Mati secara bawaan. Bila aktif, Backspace di awal baris (atau Delete di akhir baris) menggabungkannya dengan baris sebelah. Tombol gabung \u2919\u291a tetap berfungsi apa pun pengaturannya, jadi mematikan ini hanya menghapus pintasan papan ketik \u2014 beserta penggabungan tak sengaja yang mudah terjadi dan merepotkan untuk dibatalkan.',
   /* Lihat catatan pada blok en \u2014 semuanya AKTIF secara bawaan. */
+  'tabs.cut': 'Potong',
+  'cut.hint': 'Potong rekaman menjadi baris. Putar, lalu tekan <b>Potong di sini</b> (atau Enter) di tempat sebuah baris seharusnya berakhir. <b>Gabung dengan sebelumnya</b> (atau Backspace) membatalkan potongan. Tidak ada pengetikan di tab ini \u2014 kata-katanya menyusul.',
+  'cut.cut': 'Potong di sini',
+  'cut.join': 'Gabung dengan sebelumnya',
+  'cut.noAudio': 'Teks ini tidak punya rekaman, jadi tidak ada yang bisa dipotong.',
+  'cut.no.outside': 'Pindahkan posisi putar ke dalam sebuah baris dulu \u2014 tekan putar, lalu potong di tempat baris itu ingin diakhiri.',
+  'cut.no.hasText': 'Baris ini sudah ada kata-katanya, jadi tidak bisa dipotong di sini. Pisahkan di tab Ketik saja, di mana Anda bisa memilih di mana kata-katanya dibagi.',
+  'cut.no.tooShort': 'Terlalu dekat dengan tepi baris \u2014 geser posisi putar sedikit lagi ke tengah.',
+  'cut.no.first': 'Ini baris pertama, jadi tidak ada yang mendahuluinya untuk digabung.',
   'panel.f.cutTab': 'Tampilkan tab \u201cPotong\u201d',
   'panel.f.cutTabNote': 'Tab sebelum Ketik untuk memotong audio menjadi baris saja \u2014 tanpa mengetik, tanpa gloss. Memungkinkan pekerja memotong semuanya dulu, baru menuliskannya. Hanya muncul untuk teks yang punya rekaman.',
   'panel.f.landOnCut': 'Buka rekaman baru di tab \u201cPotong\u201d',

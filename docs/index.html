@@ -48,6 +48,7 @@
     <input id="doc-title" class="doc-title" data-i18n-ph="untitled" placeholder="Untitled text" spellcheck="false">
     <button id="btn-help-editor" class="icon-btn help-btn" data-i18n-title="btn.help">?</button>
     <nav class="top-tabs" role="tablist">
+      <button class="top-tab" id="tab-cut" data-tab="cut" data-i18n="tabs.cut" aria-selected="false" hidden>Cut</button>
       <button class="top-tab" data-tab="baseline" data-i18n="tabs.baseline" aria-selected="true">Baseline</button>
       <button class="top-tab" data-tab="gloss" data-i18n="tabs.gloss" aria-selected="false">Gloss</button>
     </nav>
@@ -122,6 +123,24 @@
       <button class="player-remove icon-btn2" data-i18n-title="player.remove">✕</button>
     </div>
   </div>
+
+<!-- The "Potong" (Cut) tab: audio segmentation and nothing else (plans/cut-tab.md). Deliberately
+     carries NO text input of any kind — the whole point is a screen a worker cannot multi-task on.
+     ⚠ It still EDITS text: a cut inserts an empty paragraph and a join merges two, because
+     segments[i] IS baseline paragraph i. See segments.js cutAtPlayhead / joinWithPrevious. -->
+<section id="view-cut" class="view" hidden>
+  <p class="tab-hint" data-i18n-html="cut.hint"></p>
+  <p id="cut-loading" class="note seg-loading" hidden data-i18n="seg.loadingAudio">Loading the recording…</p>
+  <div id="cut-main" hidden>
+    <div id="cut-big" class="cut-big"></div>
+    <div class="cut-actions">
+      <button id="btn-cut" class="primary-btn cut-btn" data-i18n="cut.cut">Cut here</button>
+      <button id="btn-cut-join" class="secondary-btn" data-i18n="cut.join">Join with previous</button>
+    </div>
+    <p id="cut-say" class="note cut-say" role="status" aria-live="polite"></p>
+    <div id="cut-strips"></div>
+  </div>
+</section>
 
 <section id="view-baseline" class="view" hidden>
   <p class="tab-hint"><span data-i18n-html="baseline.hint"></span>

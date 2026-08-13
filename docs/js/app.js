@@ -18,7 +18,8 @@ import { losslessSupported, recFormatSupported, PCMRecorder, encodeWav, encodeRe
          normRecFormat, REC_FORMATS, DEFAULT_REC_FORMAT, pcmRamBudgetBytes, pcmCapStatus } from './record-pcm.js';
 import WaveSurfer from './vendor/wavesurfer.esm.js';
 import { makeZip } from './zip.js';
-import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay } from './segment-strips.js';
+import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay,
+         initCut, renderCut, cutHere, cutJoinPrev } from './segment-strips.js';
 import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME,
          sanitizeBase, extOf, mediaNameFor, derivedWavName } from './seg-exports.js';
 import { mergeSegments, splitSegment, isAligned, normalizeSegments } from './segments.js';
@@ -308,7 +309,7 @@ function toast(msg, ms = 2600) {
 
 /* ---------------- View switching ---------------- */
 
-const VIEWS = ['texts', 'baseline', 'gloss', 'research', 'utilities', 'help', 'record', 'researcher'];
+const VIEWS = ['texts', 'cut', 'baseline', 'gloss', 'research', 'utilities', 'help', 'record', 'researcher'];
 
 // The researcher panel is a SEPARATE full-screen view. Its standalone home is the "Flextext
 // Researcher" app (RESEARCHER_MODE); inside the editor it's reachable only via the managed-install
@@ -338,7 +339,7 @@ function show(view) {
    * so guarding this one place beats patching each caller and missing one. */
   if (view !== 'research' && flushLiveSave) flushLiveSave();
   for (const v of VIEWS) { const el = $('#view-' + v); if (el) el.hidden = v !== view; }
-  const inEditor = view === 'baseline' || view === 'gloss' ||
+  const inEditor = view === 'cut' || view === 'baseline' || view === 'gloss' ||
     (view === 'help' && (helpReturnView === 'baseline' || helpReturnView === 'gloss'));
   const home = $('#topbar-home');
   const editor = $('#topbar-editor');
@@ -667,7 +668,44 @@ function enterEditor(tab) {
   applyDoneButton();
   $('#doc-title').value = current.title || '';
   updateShareButton();
-  switchTab(tab);
+  applyCutTabVisibility();
+  switchTab(landingTab(tab));
+}
+
+/* Is this doc still UNCUT — i.e. has nobody done segmentation work on it yet? True for the seeds
+ * reconcile() lays down: a single whole-file span, or spans that are all pending/estimated.
+ *
+ * ⚠ THIS IS WHAT KEEPS `landOnCut` TOLERABLE. Seth wants new recordings to open on the Cut tab, but
+ * a half-transcribed text landing on the cutting screen every morning would be a different and much
+ * worse feature. "Unsegmented" is the condition, not "has audio". */
+function docIsUncut(doc) {
+  const segs = (doc && doc.segments) || [];
+  if (!segs.length) return true;
+  if (segs.length === 1) return true;                       // the whole-file seed
+  return segs.every((sg) => sg.timePending || sg.timeEstimated);
+}
+
+/* Which tab a doc actually opens on. Only ever OVERRIDES to 'cut', never away from an explicit
+ * request, so every existing caller that asks for a specific tab still gets it. */
+function landingTab(tab) {
+  if (tab !== 'baseline') return tab;                       // an explicit request wins
+  if (!landOnCutEnabled()) return tab;
+  if (!current || !current.doc) return tab;
+  /* ⚠ ONLY WITH AUDIO — landing a text-only doc on a cutting screen would be nonsense. An ALIGNED
+   * span is the proof: reconcile() seeds the whole-file span only once the recording has decoded and
+   * its duration is known, so `some(isAligned)` means "there is real audio and we have measured it".
+   * A doc whose spans are all pending has no timeline to cut against. Checking this rather than a
+   * media record keeps the decision SYNCHRONOUS — the media lookup is async, and awaiting it here
+   * would flash the Baseline tab before switching. */
+  if (!docSegments(current.doc).some(isAligned)) return tab;
+  return docIsUncut(current.doc) ? 'cut' : tab;
+}
+
+/* Show or hide the Cut tab button. Called on entry and whenever settings change live, so a
+ * researcher push adds or removes the tab without a reload. */
+function applyCutTabVisibility() {
+  const btn = $('#tab-cut');
+  if (btn) btn.hidden = !cutTabEnabled();
 }
 
 // Segmentation mode: researcher-pushed setting, with a URL escape (?segmentation=1) so the
@@ -729,7 +767,7 @@ function segmentationEnabled() {
 }
 
 // The tabs that share the media dock (the ONE Player instance).
-function isEditorTab(tab) { return tab === 'baseline' || tab === 'gloss'; }
+function isEditorTab(tab) { return tab === 'cut' || tab === 'baseline' || tab === 'gloss'; }
 
 /* Gloss tab, segmentation mode: give every line-group the SAME transport as its baseline strip —
  * left-margin ▶/⏸ (pause-in-place, resume-from-playhead) and a skinny per-line waveform. In flat
@@ -882,6 +920,7 @@ function decorateGlossSegments() {
           const atStart = gi.selectionStart === 0 && gi.selectionEnd === 0;
           const atEnd = gi.selectionStart === gi.value.length && gi.selectionEnd === gi.value.length;
           if (e.key === 'Backspace' && atStart && w === 0 && i > 0) {
+            if (!joinSplitAllowed('gloss')) return;   // researcher removed join/split on this tab
             if (!joinKeysEnabled()) return;   // researcher-disabled: fall through to normal editing
             e.preventDefault();
             glossJoinLines(i - 1);
@@ -889,6 +928,7 @@ function decorateGlossSegments() {
           }
           if (e.key !== 'Enter') return;
           if (!atStart && !atEnd) return;
+          if (!joinSplitAllowed('gloss')) return;
           e.preventDefault();
           glossSplitAt(i, atStart ? w : w + 1);
         });
@@ -898,13 +938,13 @@ function decorateGlossSegments() {
         fi.addEventListener('keydown', (e) => {
           const atStart = fi.selectionStart === 0 && fi.selectionEnd === 0;
           const atEnd = fi.selectionStart === fi.value.length && fi.selectionEnd === fi.value.length;
-          if (e.key === 'Backspace' && atStart && i > 0 && joinKeysEnabled()) {
+          if (e.key === 'Backspace' && atStart && i > 0 && joinSplitAllowed('gloss') && joinKeysEnabled()) {
             e.preventDefault();
             glossJoinLines(i - 1);
-          } else if (e.key === 'Enter' && atStart) {
+          } else if (e.key === 'Enter' && atStart && joinSplitAllowed('gloss')) {
             e.preventDefault();
             glossSplitAt(i, 0);                    // empty silence line BEFORE this one
-          } else if (e.key === 'Enter' && atEnd) {
+          } else if (e.key === 'Enter' && atEnd && joinSplitAllowed('gloss')) {
             e.preventDefault();
             glossSplitAt(i, wordCount());          // empty silence line AFTER this one
           }
@@ -1029,12 +1069,66 @@ function glossJoinLines(i) {
   decorateGlossSegments();
 }
 
+/* Prepare the Cut tab's audio — the SAME sequence the Baseline strips use, and for the same
+ * reasons: the working WAV (lossy sources decode and play ~44ms apart), then peaks, then render.
+ *
+ * ⚠ The doc-switch guard on every await matters more here than anywhere: the Cut tab is where a
+ * user lands on a big unsegmented recording, so the decode is at its slowest and the window for
+ * them to hit Back and open something else is at its widest. Rendering into a doc that is no longer
+ * open would draw one text's waveform under another's segments. */
+async function prepareCutAudio() {
+  const forDoc = current && current.id;
+  const main = $('#cut-main'), loading = $('#cut-loading');
+  if (main) main.hidden = true;
+  if (loading) loading.hidden = false;
+  let media = forDoc ? await db.getMedia(forDoc).catch(() => null) : null;
+  media = await segWorkingMedia(forDoc, media, current && current.title);
+  if (!current || current.id !== forDoc || activeTab !== 'cut') return;
+  if (!media || !media.blob) {
+    // No recording ⇒ nothing to cut. The tab should not have been reachable, but say so rather
+    // than showing an empty screen if it was.
+    if (loading) { loading.hidden = false; loading.textContent = t('cut.noAudio'); }
+    return;
+  }
+  await ensurePeaks(forDoc, media.blob, (playerReadyFor === forDoc && player && player.decodedBuffer) ? player.decodedBuffer() : null);
+  if (!current || current.id !== forDoc || activeTab !== 'cut') return;
+  if (loading) loading.hidden = true;
+  if (main) main.hidden = false;
+  renderCut();
+}
+
 function switchTab(tab) {
   // Leaving baseline: apply baseline edits to the model first.
   if (activeTab === 'baseline' && !$('#view-baseline').hidden) {
     applyBaseline();
   }
   activeTab = tab;
+  /* THE CUT TAB — audio only. It shares the dock player and the peaks cache with the Baseline
+   * strips, so entering it is the same preparation minus the text UI.
+   *
+   * ⚠ healFlatSegments FIRST, exactly as the Baseline tab does: an imported doc can arrive with
+   * several phrases in one paragraph, and every index-driven edit here assumes 1:1:1:1. Cutting a
+   * doc that has not been flattened would address the wrong span. */
+  if (tab === 'cut') {
+    stopGlossCursor();
+    healFlatSegments(current && current.doc);
+    show('cut');
+    refreshPlayer();
+    initCut({
+      getPlayer: () => player,
+      getDoc: () => current && current.doc,
+      getParagraphs: (doc) => getBaselineParagraphs(doc),
+      setParagraphs: (doc, paras) => { reconcileBaseline(doc, paras.length ? paras : [''], { flatSegments: true }); schedulePersist(); },
+      onPlayTarget: (seg) => { lastPlayTarget = seg; },
+      capture: () => captureUndo(),
+      persist: () => schedulePersist(),
+      // Read through a FUNCTION so a researcher push lands mid-session, same rule as joinKeys.
+      allowJoinTexted: () => cutJoinTextedAllowed(),
+      t,
+    });
+    prepareCutAudio();
+    return;
+  }
   if (tab === 'baseline') {
     stopGlossCursor();
     if (segmentationEnabled()) {
@@ -1057,6 +1151,7 @@ function switchTab(tab) {
         // researcher push (changeSettings) can land mid-session — a snapshot would keep the old
         // answer until the next open, which is the drift this setting exists to remove.
         joinKeys: () => joinKeysEnabled(),
+        joinSplit: () => joinSplitAllowed('baseline'),
         t,
       });
       /* ⚠ THE STRIPS DO NOT EXIST UNTIL THE AUDIO DOES (Seth, 2026-08-07): "can we actually have
@@ -3351,12 +3446,13 @@ function applyLiveSettings() {
   if (RECORD_MODE) { renderRecordView(); renderRecordList(); }   // recorder paints its own Delete-All (gated) in renderRecordView
   else {
     applyResearchVisibility(); applyAllowedButtons(); fillDeviceSetup(); renderDocList(); applyDeleteAllButton(); applyInviteButton(); applyDoneButton();
+    applyCutTabVisibility();   // a pushed cutTab toggle adds/removes the tab without a reload
     // A pushed segmentation toggle takes effect LIVE if the coworker is sitting in the editor:
     // re-enter the visible tab so strips appear/hide without a reload. Gated on the actual flag
     // changing — a plain settings broadcast must never yank the caret mid-typing. currentView()
     // (not activeTab) so a user on the Texts list is never pulled into the editor.
     const v = currentView();
-    if (current && (v === 'baseline' || v === 'gloss') && (settings.segmentation === true) !== segBefore) {
+    if (current && (v === 'cut' || v === 'baseline' || v === 'gloss') && (settings.segmentation === true) !== segBefore) {
       switchTab(v);
     }
   }
@@ -6891,6 +6987,21 @@ function setup() {
     show('texts');
   });
 
+  $('#btn-cut')?.addEventListener('click', () => cutHere());
+  $('#btn-cut-join')?.addEventListener('click', () => cutJoinPrev());
+  /* ⚠ CUT-TAB KEYS ARE DOCUMENT-LEVEL, because this tab has NO focusable text field to hang them
+   * on — that absence is the feature. So they must stand down whenever focus IS in a field
+   * (the title box is reachable from the editor topbar) or the keystroke would be stolen from it.
+   *
+   * Backspace here is NOT gated on `backspaceJoin`: that setting exists because Backspace-at-start
+   * of a TEXT BOX joins lines by accident while typing. On the Cut tab there is nothing to type
+   * into and Backspace has no other meaning, so it cannot be an accident. */
+  document.addEventListener('keydown', (e) => {
+    if (activeTab !== 'cut' || $('#view-cut')?.hidden) return;
+    if (e.target?.closest?.('input, textarea, select, [contenteditable]')) return;
+    if (e.key === 'Enter') { e.preventDefault(); cutHere(); }
+    else if (e.key === 'Backspace') { e.preventDefault(); cutJoinPrev(); }
+  });
   $('#btn-help-home').addEventListener('click', openHelp);
   $('#btn-help-editor').addEventListener('click', openHelp);
   $('#btn-help-close').addEventListener('click', closeHelp);

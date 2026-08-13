@@ -678,10 +678,6 @@ export function renderCut() {
     host.appendChild(row);
 
     row.addEventListener('pointerdown', () => { if (cutDeps.onPlayTarget) cutDeps.onPlayTarget(seg); });
-    row.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); cutHere(); }
-      else if (e.key === 'Backspace') { e.preventDefault(); cutJoinPrev(i); }
-    });
     wireSegPlay(play, seg, cutDeps.getPlayer, (t) => { if (cutDeps.onPlayTarget) cutDeps.onPlayTarget(t); });
     observeWave(wave, () => drawStrip(wave, seg, peaksCache.durationMs));
     drawStrip(wave, seg, peaksCache.durationMs);
@@ -748,14 +744,32 @@ function startCutTicker() {
         // off screen, and never within 4s of the user scrolling.
         if (inSeg) cutFollowRow = followLine(row, rolling, cutFollowRow, p);
         let cur = row.querySelector('.seg-cursor');
+        let sc = row.querySelector('.cut-scissors');
         if (inSeg) {
           if (!cur) { cur = document.createElement('div'); cur.className = 'seg-cursor'; row.appendChild(cur); }
           const w = row.querySelector('.seg-wave');
           const frac = Math.min(1, Math.max(0, (t - seg.start) / Math.max(1, seg.end - seg.start)));
-          cur.style.left = (w.offsetLeft + frac * w.offsetWidth) + 'px';
+          const x = w.offsetLeft + frac * w.offsetWidth;
+          cur.style.left = x + 'px';
           cur.style.top = w.offsetTop + 'px';
           cur.style.height = w.offsetHeight + 'px';
-        } else if (cur) cur.remove();
+          /* ✂ RIDES THE PLAYHEAD (Seth: "a scissors button under the playhead that does a split when
+           * clicked"). It exists only on the row the playhead is in, and sits exactly under the
+           * cursor, so the control and the thing it acts on are the same place on screen — the
+           * gesture needs no explanation. A keyboard user has Enter; this is for a thumb. */
+          if (!sc) {
+            sc = document.createElement('button');
+            sc.className = 'cut-scissors';
+            sc.type = 'button';
+            sc.textContent = '\u2702';
+            sc.title = cutDeps.t('cut.cut');
+            sc.setAttribute('aria-label', cutDeps.t('cut.cut'));
+            sc.addEventListener('click', (ev) => { ev.stopPropagation(); cutHere(); });
+            row.appendChild(sc);
+          }
+          sc.style.left = x + 'px';
+          sc.style.top = (w.offsetTop + w.offsetHeight) + 'px';
+        } else { if (cur) cur.remove(); if (sc) sc.remove(); }
       });
     } finally {
       cutRaf = requestAnimationFrame(tick);

@@ -754,10 +754,15 @@ function joinSplitAllowed(tab) {
   if (!segmentationEnabled()) return true;   // classic mode has its own rules; this is not its gate
   return tab === 'gloss' ? settings.joinSplitGloss !== false : settings.joinSplitBaseline !== false;
 }
-/* May the CUT tab join two spans that already carry baseline text? Splitting one is refused
- * regardless (no cursor there ⇒ no defined place to divide the text); joining only concatenates,
- * so it is permitted unless the researcher says otherwise. */
-function cutJoinTextedAllowed() { return settings.cutJoinTexted !== false; }
+/* May the CUT tab join two spans that already carry baseline text?
+ *
+ * ⚠ DEFAULT OFF — `=== true`, unlike its four siblings. Seth, 2026-08-13: "I would like to be able
+ * to split and join ANY lines that don't have text. Any segments that don't have text, just not
+ * those that do have text." So on the Cut tab a segment carrying text is LOCKED for both gestures,
+ * and this setting is the researcher's deliberate opt-in to relax the join half (which is safe in
+ * itself — joining only concatenates). Splitting a texted segment is refused regardless: there is
+ * no cursor on this tab, so there is no defined place to divide the text. */
+function cutJoinTextedAllowed() { return settings.cutJoinTexted === true; }
 
 function segmentationEnabled() {
   try {
@@ -5007,7 +5012,7 @@ function deviceSetupValues() {
     else if (f.k === 'landOnCut') v.landOnCut = s.landOnCut !== false;
     else if (f.k === 'joinSplitBaseline') v.joinSplitBaseline = s.joinSplitBaseline !== false;
     else if (f.k === 'joinSplitGloss') v.joinSplitGloss = s.joinSplitGloss !== false;
-    else if (f.k === 'cutJoinTexted') v.cutJoinTexted = s.cutJoinTexted !== false;
+    else if (f.k === 'cutJoinTexted') v.cutJoinTexted = s.cutJoinTexted === true;
     else if (f.k === 'recordFormat') v.recordFormat = recordFormatPref();
     else if (f.k === 'agc') v.agc = SETUP_AGC_OPTS.includes(s.agc) ? s.agc : 'off';
     else if (f.type === 'checkbox') v[f.k] = !!s[f.k];
@@ -6988,17 +6993,18 @@ function setup() {
     show('texts');
   });
 
-  /* ⚠ CUT-TAB KEYS: the ROWS own Enter/Backspace (they are focusable — see renderCut), exactly as
-   * the Baseline strips' inputs own them. This document-level pair is the fallback for when nothing
-   * in the list has focus yet, e.g. the user has only clicked the overview. It stands down whenever
-   * focus is in a field or already on a row, so it can never double-fire.
+  /* ⚠ CUT-TAB KEYS ARE DOCUMENT-LEVEL, and are the ONLY key path — the rows deliberately do NOT
+   * own them. This tab has no text box, so there is nothing that must hold focus for the keys to
+   * work: Seth's gesture is "place the playhead and press Enter", which must work whether or not
+   * the user has ever clicked a row. Two handlers would double-fire; one, keyed off the PLAYHEAD
+   * rather than off focus, matches what the tab actually is.
    *
    * Backspace here is NOT gated on `backspaceJoin`: that setting exists because Backspace-at-start
    * of a TEXT BOX joins lines by accident while typing. On the Cut tab there is nothing to type
    * into and Backspace has no other meaning, so it cannot be an accident. */
   document.addEventListener('keydown', (e) => {
     if (activeTab !== 'cut' || $('#view-cut')?.hidden) return;
-    if (e.target?.closest?.('input, textarea, select, [contenteditable], .cut-row')) return;
+    if (e.target?.closest?.('input, textarea, select, [contenteditable]')) return;   // the title box
     if (e.key === 'Enter') { e.preventDefault(); cutHere(); }
     else if (e.key === 'Backspace') { e.preventDefault(); cutJoinPrev(); }
   });

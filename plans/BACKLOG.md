@@ -624,6 +624,95 @@ Test: `test/artifact-links.test.mjs` pins that inferred artifacts are suppressed
 per-kind artifacts still render with their Drive ids, and that the folder-listing rows and
 Download-all are untouched.
 
+## NEXT RELEASE: segmentation on/off PER TEXT, not only per device (Seth, 2026-08-13)
+
+> "audio segmentation enabled is a device setting, but I'd like the researcher to be able to enable
+> or disable it for individual texts. Is there a way we can do that?"
+
+**Yes, and the mechanism already half-exists.** `segmentationEnabled()` (app.js) is already a
+three-way resolution, not a bare setting read:
+
+```js
+if (new URLSearchParams(location.search).get('segmentation') === '1') return true;
+return settings.segmentation !== false;
+```
+
+So a per-text override is one more rung on a ladder that is already there:
+`doc.segmentation ?? urlOverride ?? settings.segmentation !== false`. The assignment already carries
+per-text fields (`Researcher.assign(instanceId, docId, fields)`), so the researcher's choice rides
+the same path as every other per-text setting, and a text with no opinion keeps inheriting the
+device default — which is what makes it safe for existing texts.
+
+⚠ **THE TRAP, and it is a serious one.** `segmentationEnabled()` is currently a near-constant during
+a session: it changes only when the researcher pushes a settings change. Making it PER TEXT means it
+flips **every time the user opens a different text** — turning a rare event into a routine one. The
+CLAUDE.md warning about `applyBaseline` exists for exactly this hazard:
+
+> `applyBaseline` is gated on DOM truth (`#baseline-text` hidden ⇒ skip), NOT on
+> `segmentationEnabled()` — during a live settings flip the setting changes before the DOM, and the
+> setting-based guard read the hidden empty textarea and WIPED the doc's text.
+
+That bug cost a doc's text ONCE, on a rare researcher-initiated flip. Per-text makes the same race
+available on every text open. So before building this: audit every `segmentationEnabled()` call site
+for whether it is asking "what mode is the DOM in right now" (must stay DOM-gated) or "what mode
+should this text be in" (may read the new resolution). They are different questions and the current
+code does not have to distinguish them, because today the answer rarely changes.
+
+## FUTURE (soon): oral transcription + oral back-translation, and the format problem (Seth, 2026-08-13)
+
+> "we'll be looking to add the option for other analysis languages (most commonly English) and for
+> slow-speech oral transcription and maybe oral back translation, similar to what SayMore allows.
+> All of those would be options enabled or disabled by the researcher. And actually once oral
+> transcription and back translation are available, eventually the researcher can disable the
+> glossing and written free translation. Maybe."
+
+**The UI Seth specified:**
+- **Slow-speech oral transcription** — a record button **on each line/segment** on the **Baseline**
+  tab, marked with a **turtle**. ⚠ "joining or splitting will delete it, with a warning to the user"
+  — the recording is bound to a line, and a line that splits is no longer that line.
+- **Oral back-translation** — a record button **immediately left of the free-translation box** on the
+  **Gloss** tab.
+- Both **researcher-enabled**, off by default, like every other capability in this suite.
+- Additional analysis languages (English most commonly) are the third leg of the same feature set.
+
+**⚠ The format problem, and Seth's proposed answer.** `flextext` has no place for per-line audio.
+His suggestion, which is the right shape:
+
+> "MIGHT be we can add our own way, whether the filename will match a line guid (which our app does
+> generate) `<phrase-guid>.slow.<ext>` or `<phrase-guid>.<lang/ws.code>.<ext>` and then have a sub
+> folder for `oral/` with those files and a manifest for those files in it (that helps map them to
+> the correct lines when we run an ELAN or SayMore conversion either downloading/saving from FlexText
+> Editor directly or generating from Researcher)."
+
+Why that is well-chosen, and what to watch:
+- **It reuses the phrase `guid`, which the app already mints and FLEx already honours.** That is the
+  one identifier that survives a round trip through FLEx, so the mapping is not ours to maintain.
+- ⚠ **But guid stability is a KNOWN OPEN BUG** — see "a deleted line's GUID gets adopted by an
+  unrelated new line" in this file. Today a delete-plus-add in one reconcile pass can move a guid
+  onto different text. Binding AUDIO to guids makes that bug louder: a recording would reattach to
+  the wrong line rather than merely mislabelling one. **The similarity gate should land before, or
+  with, this feature** — the two are now coupled, which neither entry knew when it was written.
+- **A sibling manifest in `oral/` is consistent with the v3 design**: `flextext-manifest.json`
+  already exists to make a folder self-describing rather than name-sniffed. Same rule applies —
+  readers ignore unknown keys, and the manifest is what the ELAN/SayMore converters read.
+- The `<guid>.<ws-code>.<ext>` variant generalises to the extra analysis languages for free, which is
+  probably why it should be preferred over a bare `.slow.` marker — one naming scheme, several uses.
+
+## FUTURE: a standalone audio segmentation / matching app (Seth, 2026-08-13)
+
+> "We also need to build that audio segmentation/matching app that can be used just for segmenting
+> and matching audio to existing flextext files."
+
+The engine for this largely EXISTS — `segments.js` (the time-span model and its ordering
+invariants), `segment-strips.js` (the strip UI and peaks) and `seg-exports.js` are already separate
+modules, and the parked `parked-panel-and-matching` branch holds the Audio Matching mode (v323/v324)
+that was pulled off staging because it auto-entered on opening any unaligned text. So this is closer
+to "another face on the same engine" — the suite's core pattern — than to new construction.
+
+⚠ Read the parked-branch entry before starting: that mode was parked for a UX reason (it interrupted
+every unaligned text), not because it did not work. A standalone app is precisely the place where
+auto-entering IS correct, which may be the real resolution of why it was parked.
+
 ## Native audio conversion as a fallback — ON THE DEVICE, not in the panel (Seth, 2026-08-12)
 
 > "Also let's make a backlog note to consider building that feature into the Electron shell as a

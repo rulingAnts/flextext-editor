@@ -19,7 +19,7 @@ import { losslessSupported, recFormatSupported, PCMRecorder, encodeWav, encodeRe
 import WaveSurfer from './vendor/wavesurfer.esm.js';
 import { makeZip } from './zip.js';
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay,
-         initCut, renderCut, cutHere, cutJoinPrev } from './segment-strips.js';
+         initCut, renderCut, cutHere, cutJoinPrev, stopCut } from './segment-strips.js';
 import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME,
          sanitizeBase, extOf, mediaNameFor, derivedWavName } from './seg-exports.js';
 import { mergeSegments, splitSegment, isAligned, normalizeSegments } from './segments.js';
@@ -1103,6 +1103,7 @@ function switchTab(tab) {
     applyBaseline();
   }
   activeTab = tab;
+  if (tab !== 'cut') stopCut();   // never leave the Cut rAF running behind another view
   /* THE CUT TAB — audio only. It shares the dock player and the peaks cache with the Baseline
    * strips, so entering it is the same preparation minus the text UI.
    *
@@ -6987,18 +6988,17 @@ function setup() {
     show('texts');
   });
 
-  $('#btn-cut')?.addEventListener('click', () => cutHere());
-  $('#btn-cut-join')?.addEventListener('click', () => cutJoinPrev());
-  /* ⚠ CUT-TAB KEYS ARE DOCUMENT-LEVEL, because this tab has NO focusable text field to hang them
-   * on — that absence is the feature. So they must stand down whenever focus IS in a field
-   * (the title box is reachable from the editor topbar) or the keystroke would be stolen from it.
+  /* ⚠ CUT-TAB KEYS: the ROWS own Enter/Backspace (they are focusable — see renderCut), exactly as
+   * the Baseline strips' inputs own them. This document-level pair is the fallback for when nothing
+   * in the list has focus yet, e.g. the user has only clicked the overview. It stands down whenever
+   * focus is in a field or already on a row, so it can never double-fire.
    *
    * Backspace here is NOT gated on `backspaceJoin`: that setting exists because Backspace-at-start
    * of a TEXT BOX joins lines by accident while typing. On the Cut tab there is nothing to type
    * into and Backspace has no other meaning, so it cannot be an accident. */
   document.addEventListener('keydown', (e) => {
     if (activeTab !== 'cut' || $('#view-cut')?.hidden) return;
-    if (e.target?.closest?.('input, textarea, select, [contenteditable]')) return;
+    if (e.target?.closest?.('input, textarea, select, [contenteditable], .cut-row')) return;
     if (e.key === 'Enter') { e.preventDefault(); cutHere(); }
     else if (e.key === 'Backspace') { e.preventDefault(); cutJoinPrev(); }
   });

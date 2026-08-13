@@ -193,6 +193,47 @@ doing deliberately rather than by accident, because the hybrid native/app rule i
 Undo while ON the Cut tab re-enters via `switchTab('cut')`, which re-runs `prepareCutAudio()`. Peaks
 are cached so it is fast, but it can flicker. Rendering in place instead of re-entering would fix it.
 
+## v357 — the test-drive round: ONE waveform, clickable strips, and a view that stays put
+
+Seth's v356 test drive, 2026-08-13. Six findings, all in the same family: **the tab looked right and
+was not usable**, because the things a cutter actually does had been given to the wrong element.
+
+| finding | what shipped in v354–v356 | v357 |
+|---|---|---|
+| *"there's TWO waveform displays … I don't want that"* | the tab drew its OWN whole-file overview (`#cut-big`) above the dock player, which was already showing the same audio | the overview is **gone**. The dock player carries the cuts as **light-grey dotted 2px marks** (`Player.setBoundaries`) |
+| *"I can't click on individual segment waveforms … the second big waveform is the one I can click"* | the strips were never wired to the pointer at all; only the overview seeked | the Baseline strips' click-to-position/drag-to-scrub is now **one shared `wireWaveSeek`**, used by both tabs |
+| *"every cut … the page jumps back up to the top"* | `renderCut` rebuilt the list wholesale; emptying it collapses the page height, so the browser clamps the scroll to the top | the rebuild is bracketed: scroll offset **and** the edited row's own screen position are restored |
+| *"spacebar to play/pause doesn't work"* | the global Space handler stands down on any focused BUTTON — and on this tab focus is nearly always on one (the tab button that got you here, a row's ▶) | the Cut tab **owns Space**, with `preventDefault` so the focused button cannot also fire. The global handler defers |
+| *"playback … keep going through segment boundaries … on the cut tab only"* | every play was span-limited (`playSpan`), so it stopped dead at each cut | `Player.playThrough` — no span watcher. **Cut tab only**; Baseline and Gloss keep `playSpan` |
+| *"the grayed out part should only be parts that have text … right now our setup is the opposite"* | every strip drew in the same working blue; grey meant nothing | a texted (⇒ uncuttable) strip draws in `LOCKED_WAVE` grey and its row recedes. Grey means locked, and only that |
+
+Also decided in the same round, **reversing a v356 decision**: Backspace on the Cut tab is now gated
+on `backspaceJoin` like everywhere else (Seth: *"joins … with join buttons or backspace if backspace
+to join is enabled"*). v356 had exempted this tab because there is no text box to Backspace inside
+of, so a join could not be an accident — but the setting is the researcher saying *this key does not
+join on this device*, and one tab reaching around it is the drift the setting exists to prevent.
+⚠ `backspaceJoin` **defaults OFF**, so out of the box the Cut tab joins by the ⤙⤚ buttons only; the
+hint text switches to `cut.hintNoJoinKey` and names the button, so the screen never promises a key
+that does nothing.
+
+⚠ **Why the marks go inside wavesurfer's shadow-DOM wrapper, positioned in per cent**: the wrapper is
+the full ZOOMED width and scrolls with the waveform, so a percentage is the same instant of audio at
+every zoom level. Marks laid over the container would slide out of register the moment anyone touched
+the zoom slider. The corollary is that app.css cannot reach them — those styles are inline in
+`audio.js` deliberately, and "tidying" them into the stylesheet would silently unstyle them.
+
+### And the tab is verified in a BROWSER now
+
+v355 and v356 both shipped saying *"still unverified in a browser"*, and both were wrong in ways no
+source-grep could see (a row class that did not exist; strips wired to nothing). So there are two
+tests, and the second is the one that would have caught them:
+
+- `test/cut-tab-ui.test.mjs` — structural, runs in the node suite.
+- `test/browser/cut-tab.playwright.mjs` — opens the app in Chromium, imports a generated recording,
+  clicks a strip, cuts, and asserts on what actually happened. Needs a server and `playwright-core`,
+  so it is run deliberately, like the electron test beside it. Its scroll assertion was checked
+  BOTH ways: with the fix 509 → 509, with it reverted 509 → 0.
+
 ## NEXT: "Guess Splits" — silence detection (Seth, 2026-08-13)
 
 > "make default segment breaks for a new text … based on where the audio appears to have pauses in

@@ -709,6 +709,9 @@ export class Player {
     this.ws.on('ready', (duration) => {
       this.el.status.hidden = true;
       this.updateTime();
+      // Boundary marks need the duration, and a set() that arrived before the load did is still
+      // remembered on the instance — so re-draw them here rather than losing them to the race.
+      this.renderBoundaries();
       // First load: persist decoded peaks so future opens skip decoding.
       if (!media.peaks && this.onPeaks) {
         try {
@@ -820,6 +823,53 @@ export class Player {
    * waveform is a tiny bit behind the audio' when chopping by ear. */
   decodedBuffer() { try { return this.ws?.getDecodedData?.() || null; } catch { return null; } }
 
+  /* ── Segment boundary marks on the dock waveform (the Cut tab's map) ─────────────────────────
+   * Seth, 2026-08-13: "I only wanted the top player to add lines representing segment boundaries.
+   * They should be thick enough to be visible and light gray, and dotted, but not so thick that the
+   * waveform becomes crazy busy." The Cut tab had grown a SECOND whole-file waveform of its own to
+   * carry these; that duplication is gone and the marks live on the one player instead.
+   *
+   * ⚠ THEY GO INSIDE WAVESURFER'S OWN WRAPPER, POSITIONED IN PER CENT. That is what makes them
+   * survive zoom and scroll for nothing: the wrapper is the full zoomed width and scrolls with the
+   * waveform, so a percentage is the same instant of audio at every zoom level. Marks drawn over
+   * the CONTAINER instead would slide out of register the moment the user touches the zoom slider.
+   *
+   * ⚠ The wrapper lives in a SHADOW ROOT, which app.css cannot reach — these styles are inline on
+   * purpose, not by carelessness. Keep them here rather than "tidying" them into the stylesheet.
+   *
+   * They are pure decoration: pointer-events none, so the whole waveform stays a seek surface. */
+  setBoundaries(list) {
+    this._bounds = Array.isArray(list) ? list.filter((n) => Number.isFinite(n)) : [];
+    this.renderBoundaries();
+  }
+
+  renderBoundaries() {
+    let wrap = null;
+    try { wrap = this.ws?.getWrapper?.() || null; } catch { wrap = null; }
+    if (!wrap) return;
+    // A reload builds a new wavesurfer (and a new wrapper), leaving the old layer detached.
+    let layer = this._boundLayer;
+    if (!layer || layer.parentNode !== wrap) {
+      layer = document.createElement('div');
+      layer.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:4;';
+      wrap.appendChild(layer);
+      this._boundLayer = layer;
+    }
+    layer.replaceChildren();
+    let dur = 0;
+    try { dur = this.ws.getDuration() || 0; } catch { dur = 0; }
+    if (!dur || !this._bounds || !this._bounds.length) return;
+    for (const ms of this._bounds) {
+      const f = (ms / 1000) / dur;
+      if (!(f > 0) || f >= 1) continue;     // 0 and the file end are edges, not boundaries
+      const b = document.createElement('span');
+      b.style.cssText = 'position:absolute;top:0;bottom:0;width:0;'
+        + 'border-left:2px dotted rgba(108,118,133,.85);';
+      b.style.left = (f * 100) + '%';
+      layer.appendChild(b);
+    }
+  }
+
   /** Park the playhead at an absolute position WITHOUT changing play/pause state — strip
    * click-to-position and scrubbing. If a span watcher is active it is cleared: a manual seek is
    * the user taking the transport, and a stale boundary must not pause them later. */
@@ -831,6 +881,21 @@ export class Player {
 
   /** Is audio actually rolling right now? The strip buttons render play/pause from this. */
   playing() { try { return !!(this.ws && this.ws.isPlaying()); } catch { return false; } }
+
+  /* Play CONTINUOUSLY from `ms` (or from wherever the playhead is), with NO span watcher — so
+   * playback runs straight through every boundary.
+   *
+   * ⚠ This is the CUT TAB's playback, and only its (Seth, 2026-08-13: "it's OK for playback to just
+   * keep going through segment boundaries even if it was started on a specific segment — on the cut
+   * tab only. The baseline and gloss tabs should retain their current behavior"). Cutting is judged
+   * by ear across a seam: a transport that stops dead at every cut makes the one job of that tab
+   * impossible. On Baseline and Gloss, "play this line" still means exactly that (playSpan). */
+  playThrough(ms) {
+    if (!this.ws) return;
+    this.clearSpan();
+    if (Number.isFinite(ms)) { try { this.ws.setTime(Math.max(0, ms) / 1000); } catch { /* not ready */ } }
+    try { this.ws.play(); } catch { /* autoplay blocked — the user gesture path handles it */ }
+  }
 
   /** Pause IN PLACE — the playhead stays exactly where it is, which is the whole point: the user
    * parks it, then presses Enter to break the segment there. clearSpan so a stale span watcher
@@ -896,6 +961,7 @@ export class Player {
 
   destroyWs() {
     this.clearSpan();
+    this._boundLayer = null;   // it lived inside the wrapper being destroyed
     if (this.ws) { try { this.ws.destroy(); } catch { /* noop */ } this.ws = null; }
     if (this.objectUrl) { URL.revokeObjectURL(this.objectUrl); this.objectUrl = null; }
     this.el.play.textContent = '▶';

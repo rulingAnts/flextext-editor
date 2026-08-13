@@ -19,7 +19,7 @@ import { losslessSupported, recFormatSupported, PCMRecorder, encodeWav, encodeRe
 import WaveSurfer from './vendor/wavesurfer.esm.js';
 import { makeZip } from './zip.js';
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay,
-         initCut, renderCut, cutHere, cutJoinPrev, stopCut } from './segment-strips.js';
+         initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, stopCut } from './segment-strips.js';
 import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME,
          sanitizeBase, extOf, mediaNameFor, derivedWavName } from './seg-exports.js';
 import { mergeSegments, splitSegment, isAligned, normalizeSegments } from './segments.js';
@@ -1120,12 +1120,25 @@ function switchTab(tab) {
     healFlatSegments(current && current.doc);
     show('cut');
     refreshPlayer();
+    /* ⚠ NO SPAN TARGET ON THIS TAB (Seth, 2026-08-13): playback runs THROUGH the boundaries here,
+     * so nothing may leave a segment behind as "the thing Space and ⏮ act on" — that is what would
+     * quietly restore span-limited playback by the back door. Cleared on entry, and kept cleared by
+     * the onPlayTarget below, so on the Cut tab Space is continuous and ⏮ is the whole file. */
+    lastPlayTarget = null;
+    /* The hint must not promise a key the researcher has switched off. Swapping the KEY on the
+     * element (not just its text) is what keeps a later language change correct — applyI18n reads
+     * data-i18n-html, so it re-renders whichever variant is current. */
+    const hint = $('#view-cut .tab-hint');
+    if (hint) {
+      hint.dataset.i18nHtml = joinKeysEnabled() ? 'cut.hint' : 'cut.hintNoJoinKey';
+      hint.innerHTML = t(hint.dataset.i18nHtml);
+    }
     initCut({
       getPlayer: () => player,
       getDoc: () => current && current.doc,
       getParagraphs: (doc) => getBaselineParagraphs(doc),
       setParagraphs: (doc, paras) => { reconcileBaseline(doc, paras.length ? paras : [''], { flatSegments: true }); schedulePersist(); },
-      onPlayTarget: (seg) => { lastPlayTarget = seg; },
+      onPlayTarget: () => { lastPlayTarget = null; },
       capture: () => captureUndo(),
       persist: () => schedulePersist(),
       // Read through a FUNCTION so a researcher push lands mid-session, same rule as joinKeys.
@@ -6788,6 +6801,9 @@ function wirePlaybackKeys() {
      * on click, so without that blur the click looks like it selected the audio while the keystroke
      * still went to the gloss box the user had been typing in. */
     if (e.key !== ' ' || e.repeat) return;
+    // The Cut tab has its own Space (continuous play/pause, focus-independent) — see the cut-tab
+    // key handler. Two handlers would toggle twice and cancel each other out.
+    if (activeTab === 'cut' && !$('#view-cut')?.hidden) return;
     const t2 = e.target;
     if (t2.closest && (t2.closest('input, textarea, select, button, [contenteditable]'))) return;
     if (!player) return;
@@ -6999,14 +7015,28 @@ function setup() {
    * the user has ever clicked a row. Two handlers would double-fire; one, keyed off the PLAYHEAD
    * rather than off focus, matches what the tab actually is.
    *
-   * Backspace here is NOT gated on `backspaceJoin`: that setting exists because Backspace-at-start
-   * of a TEXT BOX joins lines by accident while typing. On the Cut tab there is nothing to type
-   * into and Backspace has no other meaning, so it cannot be an accident. */
+   * ⚠ BACKSPACE IS GATED ON `backspaceJoin` HERE TOO (Seth, 2026-08-13: "joins (with join buttons
+   * or backspace if backspace to join is enabled)"). v356 exempted this tab on the reasoning that
+   * there is no text box to Backspace inside of, so a join could not be an accident — but the
+   * setting is the researcher saying "this key does not join on this device", and a key that keeps
+   * joining on one tab is exactly the "rule enforced in one place the other path reaches around"
+   * drift the setting itself warns about. The ⤙⤚ buttons are unaffected and remain the reliable
+   * route, so nothing about joining is lost when the key is off — and the tab's hint text switches
+   * to naming the button, so the screen never promises a key that does nothing. */
   document.addEventListener('keydown', (e) => {
     if (activeTab !== 'cut' || $('#view-cut')?.hidden) return;
     if (e.target?.closest?.('input, textarea, select, [contenteditable]')) return;   // the title box
     if (e.key === 'Enter') { e.preventDefault(); cutHere(); }
-    else if (e.key === 'Backspace') { e.preventDefault(); cutJoinPrev(); }
+    else if (e.key === 'Backspace') { if (!joinKeysEnabled()) return; e.preventDefault(); cutJoinPrev(); }
+    /* SPACE PLAYS AND PAUSES, WHEREVER FOCUS IS (Seth, 2026-08-13: "spacebar to play/pause doesn't
+     * work. It should"). The global handler stands down on any BUTTON, because a focused button
+     * Space-clicks itself natively and double-toggling would undo it — and on this tab focus is
+     * almost always on a button: the Cut tab button that got you here, a row's ▶, a ⤙⤚ join.
+     *
+     * ⚠ So the Cut tab owns Space outright, and preventDefault is what makes that safe: it
+     * suppresses the native button activation, so there is exactly one toggle no matter what has
+     * focus. wirePlaybackKeys' Space branch defers to this (it runs first, in capture). */
+    else if (e.key === ' ' && !e.repeat) { e.preventDefault(); cutTogglePlay(); }
   });
   $('#btn-help-home').addEventListener('click', openHelp);
   $('#btn-help-editor').addEventListener('click', openHelp);

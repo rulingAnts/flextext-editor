@@ -254,26 +254,7 @@ export function renderStrips() {
     const wave = document.createElement('canvas');
     wave.className = 'seg-wave';
     wave.height = 44;
-    // Click to POSITION the playhead inside this segment; drag to scrub (Seth). Position only —
-    // play/pause stays whatever it was, so the flow is: click (or drag) to park, then Enter to
-    // break there, or ▶ to listen from there.
-    if (isAligned(seg)) {
-      const seekAt = (ev) => {
-        const r = wave.getBoundingClientRect();
-        const f = Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width));
-        deps.getPlayer()?.seekMs?.(seg.start + f * (seg.end - seg.start));
-      };
-      wave.addEventListener('pointerdown', (ev) => {
-        ev.preventDefault();
-        try { wave.setPointerCapture(ev.pointerId); } catch { /* capture is drag comfort, not required */ }
-        deps.onPlayTarget?.(seg);   // v326: touching a WAVEFORM selects it for Space/rewind
-        seekAt(ev);
-        const move = (e2) => seekAt(e2);
-        const up = () => { wave.removeEventListener('pointermove', move); wave.removeEventListener('pointerup', up); };
-        wave.addEventListener('pointermove', move);
-        wave.addEventListener('pointerup', up);
-      });
-    }
+    wireWaveSeek(wave, seg, deps.getPlayer, (s) => deps.onPlayTarget?.(s));
 
     const input = document.createElement('input');
     input.className = 'seg-text';
@@ -313,8 +294,14 @@ export function renderStrips() {
  * until its own end is confirmed — the natural top-to-bottom listening workflow clears the
  * dashes one line at a time. */
 
-function drawStrip(canvas, seg, durationMs) {
-  observeWave(canvas, () => drawStrip(canvas, seg, durationMs));
+/* The waveform colour of a span that CANNOT be cut (the Cut tab's texted rows). Grey is the whole
+ * message: Seth, 2026-08-13 — "the grayed out part should only be parts that have text assigned and
+ * so can't be split … Right now our setup is the opposite." Light enough to read as inactive beside
+ * the working blue, dark enough to still show the shape of the audio underneath it. */
+const LOCKED_WAVE = 'rgba(120,130,150,.6)';
+
+function drawStrip(canvas, seg, durationMs, opts) {
+  observeWave(canvas, () => drawStrip(canvas, seg, durationMs, opts));
   canvas.__peaksGen = peaksGen;      // what this drawing was based on
   const dpr = window.devicePixelRatio || 1;
   const w = canvas.clientWidth || 300;
@@ -347,7 +334,7 @@ function drawStrip(canvas, seg, durationMs) {
   }
   const b0 = Math.min(B - 1, Math.max(0, Math.floor(seg.start / mpb)));
   const b1 = Math.min(B, Math.max(b0 + 1, Math.ceil(seg.end / mpb)));
-  g.fillStyle = '#1f4f8f';
+  g.fillStyle = (opts && opts.color) || '#1f4f8f';
   const n = b1 - b0;
   for (let x = 0; x < W; x++) {
     // MAX over this pixel's whole bucket range, not nearest-neighbour — nearest is what made the
@@ -526,6 +513,36 @@ export function drawSpanWave(canvas, seg) {
   drawStrip(canvas, seg, peaksCache.durationMs);
 }
 
+/* CLICK A WAVEFORM TO POSITION THE PLAYHEAD INSIDE ITS SEGMENT; DRAG TO SCRUB (Seth).
+ * Position only — play/pause stays whatever it was, so the flow is: click (or drag) to park, then
+ * Enter to break there, or ▶ to listen from there.
+ *
+ * ⚠ SHARED, BECAUSE THE CUT TAB SHIPPED WITHOUT IT. v354–v356 drew Cut-tab strips that looked
+ * exactly like the Baseline ones and were dead to the pointer, so the only way to place a cut was
+ * the whole-file overview — Seth: "I can't click on individual segment waveforms to position the
+ * playhead and make cuts anymore … which isn't precise enough." One helper, used by every strip
+ * surface, is what stops the next waveform list from being added without it.
+ *
+ * An unaligned (timePending) span has no timeline to seek into, so it is wired to nothing at all. */
+export function wireWaveSeek(wave, seg, getPlayer, onTarget) {
+  if (!isAligned(seg)) return;
+  const seekAt = (ev) => {
+    const r = wave.getBoundingClientRect();
+    const f = Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width));
+    getPlayer()?.seekMs?.(seg.start + f * (seg.end - seg.start));
+  };
+  wave.addEventListener('pointerdown', (ev) => {
+    ev.preventDefault();
+    try { wave.setPointerCapture(ev.pointerId); } catch { /* capture is drag comfort, not required */ }
+    onTarget?.(seg);   // v326: touching a WAVEFORM selects it for Space/rewind
+    seekAt(ev);
+    const move = (e2) => seekAt(e2);
+    const up = () => { wave.removeEventListener('pointermove', move); wave.removeEventListener('pointerup', up); };
+    wave.addEventListener('pointermove', move);
+    wave.addEventListener('pointerup', up);
+  });
+}
+
 /* The strip transport behaviour (toggle pause-in-place, resume-from-playhead, restart near end)
  * as a wire-up any button can adopt — the gloss line buttons must feel IDENTICAL to the baseline
  * ones or the two tabs teach different habits. */
@@ -571,10 +588,17 @@ export function stopGlossTicker() { if (glossTick) { clearInterval(glossTick); g
  * navigation. It shows a playhead and segment boundaries where splits have been made, but they
  * can't be created or edited up there."
  *
- * So the shape is: an OVERVIEW at the top that only navigates, and the real work on the STRIPS —
- * Enter cuts the segment at ITS playhead, Backspace joins it with the one before. Same gestures,
- * same rows, same follow-scroll and highlight as the Baseline tab. The only differences are that
- * the text is a caption instead of an input, and that a segment carrying text refuses to be cut.
+ * So the shape is: the SHARED DOCK PLAYER at the top for navigating, wearing dotted marks where the
+ * cuts already are, and the real work on the STRIPS — Enter cuts the segment at ITS playhead,
+ * Backspace joins it with the one before. Same gestures, same rows, same follow-scroll and
+ * highlight as the Baseline tab. The differences are that the text is a caption instead of an
+ * input, that a segment carrying text is drawn grey and refuses to be cut, and that playback runs
+ * straight THROUGH the boundaries (playThrough) instead of stopping at each one.
+ *
+ * ⚠ THERE IS ONE WHOLE-FILE WAVEFORM ON THIS SCREEN, AND IT IS THE DOCK PLAYER'S. v354–v356 drew a
+ * second one here; Seth: "there's TWO waveform displays at the top of the whole audio file. I don't
+ * want that." Two also meant two zoom states and two places to click, which is how the strips'
+ * missing click handler went unnoticed. The marks moved onto the player (Player.setBoundaries).
  *
  * ⚠ IT LIVES IN THIS FILE ON PURPOSE. A separate module would be a new top-level import in
  * js/app.js — a new SHELL entry in the editor AND every satellite sw.js in the same commit, which
@@ -589,7 +613,14 @@ let cutDeps = null;
 let cutRaf = 0;
 let cutFollowRow = null;
 export function initCut(d) { cutDeps = d; }
-export function stopCut() { if (cutRaf) cancelAnimationFrame(cutRaf); cutRaf = 0; cutFollowRow = null; }
+export function stopCut() {
+  if (cutRaf) cancelAnimationFrame(cutRaf);
+  cutRaf = 0;
+  cutFollowRow = null;
+  // The boundary marks belong to THIS tab: leaving takes them off the shared dock player, so the
+  // Baseline and Gloss tabs are exactly what they were.
+  try { cutDeps?.getPlayer?.()?.setBoundaries?.([]); } catch { /* the player may already be gone */ }
+}
 
 function cutSay(msg) {
   const el = document.getElementById('cut-say');
@@ -603,44 +634,57 @@ function cutCurrentIndex() {
 }
 function cutJoinOk() { return !(cutDeps.allowJoinTexted && !cutDeps.allowJoinTexted()); }
 
-/* ── the OVERVIEW: whole file, boundaries, playhead. Navigation only. ──────────────────────────
- * Seth: boundaries are SHOWN here but "can't be created or edited up there". Clicking seeks; that
- * is the entire interaction. Drawing the boundaries is what makes it a map rather than a bar. */
-function drawCutOverview() {
-  const host = document.getElementById('cut-big');
-  if (!host) return;
-  let wave = host.querySelector('canvas');
-  if (!wave) {
-    wave = document.createElement('canvas');
-    wave.className = 'cut-ov-wave';
-    host.appendChild(wave);
-    wave.addEventListener('pointerdown', (ev) => {
-      const r = wave.getBoundingClientRect();
-      const f = Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width));
-      cutDeps.getPlayer()?.seekMs?.(f * (peaksCache.durationMs || 0));
-    });
+/* ── the cuts already made, drawn ON THE ONE PLAYER ────────────────────────────────────────────
+ * Seth, 2026-08-13: "there's TWO waveform displays at the top of the whole audio file. I don't want
+ * that. I only wanted the top player to add lines representing segment boundaries."
+ *
+ * So the Cut tab no longer draws a whole-file waveform of its own: it hands the boundary times to
+ * the dock player, which marks them inside its own waveform (Player.setBoundaries). The player was
+ * always there, above this tab, showing the same audio — the second copy was duplication, and it
+ * duplicated the ZOOM and the SEEKING too, which is why there were two places to click.
+ *
+ * The file's own end is not a boundary, and neither is 0: only the seams BETWEEN spans are marks. */
+function syncCutBoundaries() {
+  const p = cutDeps && cutDeps.getPlayer && cutDeps.getPlayer();
+  if (!p || !p.setBoundaries) return;
+  const segs = cutSegs();
+  const marks = [];
+  for (let i = 0; i < segs.length - 1; i++) {
+    const s = segs[i];
+    if (isAligned(s)) marks.push(s.end);
   }
-  const dur = peaksCache.durationMs || 0;
-  drawStrip(wave, { start: 0, end: dur }, dur);
-  // Boundary markers as absolutely-positioned rules, so they survive canvas redraws on resize.
-  host.querySelectorAll('.cut-ov-b').forEach((el) => el.remove());
-  if (!dur) return;
-  for (const sg of cutSegs()) {
-    if (!isAligned(sg) || sg.end >= dur) continue;
-    const b = document.createElement('span');
-    b.className = 'cut-ov-b';
-    b.style.left = ((sg.end / dur) * 100) + '%';
-    host.appendChild(b);
-  }
+  p.setBoundaries(marks);
 }
 
-export function renderCut() {
+/* THE LIST IS REBUILT WHOLESALE ON EVERY CUT AND JOIN, and emptying it collapses the page height —
+ * at which point the browser clamps the scroll offset to the new maximum, i.e. the top. That is why
+ * every cut threw the user back to the beginning of a long recording (Seth: "I definitely don't want
+ * that. It should remember and hold its position").
+ *
+ * So the rebuild is bracketed: remember where the scroller was AND where the row being edited sat on
+ * screen, then put the row back under the same pixel. Restoring the raw offset alone would be off by
+ * whatever the edit changed above the fold — a caption rewrapping, a row appearing — and "nearly
+ * where I was" is still lost when every row looks alike. */
+function cutScroller() {
+  const host = document.getElementById('cut-strips');
+  for (let n = host && host.parentElement; n; n = n.parentElement) {
+    const ov = getComputedStyle(n).overflowY;
+    if (ov === 'auto' || ov === 'scroll') return n;
+  }
+  return document.scrollingElement || document.documentElement;
+}
+
+export function renderCut(anchorIdx) {
   if (!cutDeps) return;
   const host = document.getElementById('cut-strips');
   const doc = cutDeps.getDoc();
   if (!host || !doc) return;
   const segs = cutSegs();
   const paras = cutDeps.getParagraphs(doc);
+  const scroller = cutScroller();
+  const keepTop = scroller ? scroller.scrollTop : 0;
+  const anchor = Number.isInteger(anchorIdx) ? host.querySelector(`.cut-row[data-i="${anchorIdx}"]`) : null;
+  const anchorTop = anchor ? anchor.getBoundingClientRect().top : null;
   host.replaceChildren();
   cutFollowRow = null;
 
@@ -666,7 +710,13 @@ export function renderCut() {
     row.append(play, wave);
 
     const text = String(paras[i] ?? '').trim();
+    /* ⚠ GREY MEANS LOCKED, AND ONLY LOCKED (Seth, 2026-08-13: "the grayed out part should only be
+     * parts that have text assigned and so can't be split … Right now our setup is the opposite").
+     * A span carrying text refuses to be cut — there is no cursor on this tab, so there is no
+     * defined place to divide its words — so the one thing the colour has to say is "not this one".
+     * Drawing every strip in the same working blue said nothing at all. */
     if (text) {
+      row.classList.add('cut-locked');
       /* ⚠ A CAPTION, NEVER AN INPUT, and not selectable (CSS) — Seth: "text can't be edited or
        * selected". Its presence is also what makes the cut refusal legible: you can see which
        * segments are transcribed, and therefore locked, before you try. */
@@ -678,9 +728,14 @@ export function renderCut() {
     host.appendChild(row);
 
     row.addEventListener('pointerdown', () => { if (cutDeps.onPlayTarget) cutDeps.onPlayTarget(seg); });
-    wireSegPlay(play, seg, cutDeps.getPlayer, (t) => { if (cutDeps.onPlayTarget) cutDeps.onPlayTarget(t); });
-    observeWave(wave, () => drawStrip(wave, seg, peaksCache.durationMs));
-    drawStrip(wave, seg, peaksCache.durationMs);
+    /* ⚠ THE SAME click-to-position/drag-to-scrub as the Baseline strips, and the reason the tab
+     * works at all: the playhead IS the cursor here, so a strip you cannot click is a cut you
+     * cannot place. It was missing from v354–v356. */
+    wireWaveSeek(wave, seg, cutDeps.getPlayer, (s) => { if (cutDeps.onPlayTarget) cutDeps.onPlayTarget(s); });
+    play.addEventListener('click', () => cutPlaySeg(seg));
+    const paint = { color: text ? LOCKED_WAVE : null };
+    observeWave(wave, () => drawStrip(wave, seg, peaksCache.durationMs, paint));
+    drawStrip(wave, seg, peaksCache.durationMs, paint);
 
     // The join control sits BETWEEN the rows it joins, exactly as on the Baseline tab.
     if (i < segs.length - 1) {
@@ -697,13 +752,23 @@ export function renderCut() {
     }
   });
 
-  drawCutOverview();
+  syncCutBoundaries();
+  /* Put the view back where it was — see cutScroller(). The offset first (correct whenever nothing
+   * above the fold changed height), then the anchor row's own pixel, which is correct even when
+   * something did. Both reads are after the rebuild, so layout is final. */
+  if (scroller) {
+    scroller.scrollTop = keepTop;
+    if (anchorTop != null) {
+      const again = host.querySelector(`.cut-row[data-i="${anchorIdx}"]`);
+      if (again) scroller.scrollTop = keepTop + (again.getBoundingClientRect().top - anchorTop);
+    }
+  }
   startCutTicker();
 }
 
-/* One rAF loop: strip cursor, row highlight, follow-scroll and the OVERVIEW playhead, all from the
- * same clock — Seth: "keep the playhead on the big player and on the segment player in sync". Two
- * timers would drift visibly against each other on the same screen. */
+/* One rAF loop: strip cursor, row highlight and follow-scroll. The whole-file playhead is the DOCK
+ * PLAYER's own cursor now that the tab has no second waveform — one player, one clock, nothing to
+ * drift against. */
 function startCutTicker() {
   if (cutRaf) cancelAnimationFrame(cutRaf);
   const tick = () => {
@@ -713,14 +778,6 @@ function startCutTicker() {
       const host = document.getElementById('cut-strips');
       if (!host) return;
       const segs = cutSegs();
-      const dur = peaksCache.durationMs || 0;
-
-      const ov = document.getElementById('cut-big');
-      let head = ov && ov.querySelector('.cut-ov-head');
-      if (ov && dur && typeof t === 'number') {
-        if (!head) { head = document.createElement('span'); head.className = 'cut-ov-head'; ov.appendChild(head); }
-        head.style.left = ((t / dur) * 100) + '%';
-      }
 
       host.querySelectorAll('.cut-row').forEach((row) => {
         const idx = +row.dataset.i;
@@ -739,6 +796,9 @@ function startCutTicker() {
           const want = rolling ? '⏸' : '▶';
           if (btn.textContent !== want) btn.textContent = want;
         }
+        // Same repair the Baseline ticker does: a canvas drawn before its peaks landed (or before
+        // the player's own decode upgraded them) is redrawn here, and nowhere else.
+        fixStaleWave(row.querySelector('.seg-wave'));
         if (row.classList.contains('seg-on') !== inSeg) row.classList.toggle('seg-on', inSeg);
         // Same follow rule as the Baseline tab: on a line CHANGE, only while playing, only when
         // off screen, and never within 4s of the user scrolling.
@@ -778,11 +838,12 @@ function startCutTicker() {
   cutRaf = requestAnimationFrame(tick);
 }
 
-/* ENTER — cut the segment holding the playhead, AT the playhead. */
+/* ENTER / ✂ — cut the segment holding the playhead, AT the playhead. */
 export function cutHere() {
   const doc = cutDeps && cutDeps.getDoc();
   if (!doc) return;
   const ms = cutDeps.getPlayer()?.playheadMs?.();
+  const at = cutCurrentIndex();                    // the row to hold still across the rebuild
   const r = cutAtPlayhead(cutSegs(), cutDeps.getParagraphs(doc), ms, { duration: peaksCache.durationMs || null });
   if (!r.ok) { cutSay(cutDeps.t('cut.no.' + r.reason)); return; }
   if (cutDeps.capture) cutDeps.capture();
@@ -790,7 +851,28 @@ export function cutHere() {
   cutDeps.setParagraphs(doc, r.paragraphs);
   cutDeps.persist();
   cutSay('');
-  renderCut();
+  renderCut(at);
+}
+
+/* SPACE / a row's ▶ — the Cut tab's transport. Continuous, never span-limited: see
+ * Player.playThrough. Pressing ▶ on the row the playhead is already inside PAUSES in place, which
+ * is what leaves the playhead parked exactly where the next cut goes. */
+function cutPlaySeg(seg) {
+  const p = cutDeps && cutDeps.getPlayer && cutDeps.getPlayer();
+  if (!p || !isAligned(seg)) return;
+  const t = p.playheadMs?.();
+  if (p.playing?.() && typeof t === 'number' && t >= seg.start && t < seg.end) { p.pause(); return; }
+  const from = (typeof t === 'number' && t > seg.start && t < seg.end - 150) ? t : seg.start;
+  p.playThrough(from);
+}
+
+/* Space, from the document-level key handler. Toggles the one player from wherever the playhead
+ * is — no target, no span, because on this tab playback simply runs on. */
+export function cutTogglePlay() {
+  const p = cutDeps && cutDeps.getPlayer && cutDeps.getPlayer();
+  if (!p) return;
+  if (p.playing?.()) { p.pause(); return; }
+  p.playThrough();
 }
 
 /* BACKSPACE / ⤙⤚ — join segment i with the one before it, then put the playhead where they joined,
@@ -808,5 +890,5 @@ export function cutJoinPrev(idx) {
   cutDeps.persist();
   cutSay('');
   if (r.playheadMs != null) cutDeps.getPlayer()?.seekMs?.(r.playheadMs);
-  renderCut();
+  renderCut(Math.max(0, i - 1));   // the surviving row — hold IT still, not the one that is gone
 }

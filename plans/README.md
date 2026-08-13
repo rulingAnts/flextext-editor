@@ -57,7 +57,12 @@ landed?** If the answer depends on nobody finding the repo, it goes in `notes/` 
 | `fxed-format-spec.md` | **the `.fxed` spec** — container, manifest, what must not travel — plan only |
 | `pat-one-tree-model.md` | PAT drops the line/proposition split — **one tree, every unit a line** — plan only |
 | `audio-matching-mode.md` | the guided match-existing-text-to-audio step + segmentation-on-by-default for new installs — plan only |
-| `onestory-injection.md` | `.flextext` → a new story inside a live `.onestory` project, Tauri-only, + the NSIS installer — **plan only, and the code lands in the sibling repo [`ose-interlinear-viewer`](https://github.com/rulingAnts/ose-interlinear-viewer), not here** |
+
+⚠ **A plan for a sibling repo lives in that repo, not here.** The OneStory Editor injection feature
+(`.flextext` → a story inside a live `.onestory` project) is planned at
+[`ose-interlinear-viewer/plans/onestory-injection.md`](https://github.com/rulingAnts/ose-interlinear-viewer/blob/main/plans/onestory-injection.md),
+because that is where its code lands. `plans/assign-by-upload.md`'s backlog keeps the pointer. Two
+copies of a design document drift; one copy beside the code it governs does not.
 
 ⚠ `notes/` stays gitignored and is still the right home for working scratch, task briefs, and
 anything with a real name or a real recording in it.

@@ -413,10 +413,15 @@ command-seq-invariant, audio-converter.
 ## Backlog (recorded, NOT in scope)
 
 - Bloom upload (SIL literacy/shell-book library publishing).
-- OneStory Editor injection — write a non-biblical story INTO a `.onestory` project. **Planned in
-  [`plans/onestory-injection.md`](onestory-injection.md).** ⚠ The work lands in the sibling repo
-  <https://github.com/rulingAnts/ose-interlinear-viewer> (already a Tauri v2 app that does the
-  forward `.onestory` → `.flextext` direction); nothing in the FlexText Editor suite changes.
+- OneStory Editor injection — write a non-biblical story INTO a `.onestory` project. ⚠ **Not our
+  work item and not planned here.** It lands in the sibling repo
+  [`ose-interlinear-viewer`](https://github.com/rulingAnts/ose-interlinear-viewer), already a
+  Tauri v2 app that does the forward `.onestory` → `.flextext` direction; nothing in this suite
+  changes. The plan lives with the code it governs, at
+  [`plans/onestory-injection.md`](https://github.com/rulingAnts/ose-interlinear-viewer/blob/main/plans/onestory-injection.md)
+  there. It cites `docs/js/flextext.js` as the authority on what a `.flextext` *means*, but
+  **copies nothing** — this suite is AGPL-3.0 and that repo is CC BY-NC-SA 4.0, so the reader is
+  reimplemented there rather than shared.
 - Separate audio-segmenting/matching satellite app (adds segmentation to EXISTING texts; NOT mixed
   into the editor; PAT satellite pattern is the model).
 - Re-mint-links action on the files menu; Google Picker composing on top of this design.

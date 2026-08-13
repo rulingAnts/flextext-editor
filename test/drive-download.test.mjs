@@ -63,6 +63,9 @@ const run = async (files, wrap = null, convo = {}) => {
       fetchDriveFile: async (id) => fakeBlob(id),
     },
     makeZip: async (entries) => { captured.zipped = entries.map((e) => e.name); return { __blob: 'ZIP', size: 99 }; },
+    /* v347: the modal's status line. Captured rather than ignored — "the UI gives no indication
+     * that it's doing anything" was the reported bug, so the progress messages are behaviour. */
+    dlStatus: (_w, msg) => { (captured.status = captured.status || []).push(msg); },
     URL: { createObjectURL: (b) => { captured.blob = b; return 'blob:x'; }, revokeObjectURL: () => {} },
     document: { createElement: () => ({ set download(v) { captured.download = v; }, get download() { return captured.download; },
                                         click() {}, remove() {}, set href(v) {}, }),

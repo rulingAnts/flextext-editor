@@ -381,6 +381,47 @@ for (const tab of ['cut', 'baseline', 'gloss']) {
   await pause();
 }
 
+/* ── TAB WALKS THE TEXT BOXES, AND NOTHING ELSE (Seth, 2026-08-13) ─────────────────────────────
+ * Measured on the previous build, Baseline went text → BODY → topbar icon → title, and the Gloss tab
+ * fell out of the list after the free translation. Both were the ▶/⤙⤚/✂ controls sitting between the
+ * boxes and taking a keypress each. */
+{
+  console.log('\nTab walks the text boxes on BASELINE');
+  await page.evaluate(() => document.querySelector('.top-tab[data-tab="baseline"]').click());
+  await page.waitForTimeout(1800);
+  await page.evaluate(() => {
+    const els = document.querySelectorAll('#segment-strips .seg-text');
+    ['kata satu dua', 'kata tiga empat'].forEach((v, i) => {
+      if (!els[i]) return;
+      els[i].value = v; els[i].dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  });
+  await page.waitForTimeout(600);
+  const stops = async (n) => {
+    const seen = [];
+    for (let i = 0; i < n; i++) {
+      await page.keyboard.press('Tab');
+      await page.waitForTimeout(120);
+      seen.push(await page.evaluate(() => (document.activeElement?.className || document.activeElement?.tagName || '?').split(' ')[0]));
+    }
+    return seen;
+  };
+  await page.evaluate(() => document.querySelector('#segment-strips .seg-text').focus());
+  const bl = await stops(3);
+  ok(bl.every((c) => c === 'seg-text'), `every stop is a text box (${bl.join(' → ')})`);
+
+  console.log('\n…and on GLOSS the last gloss of a line reaches its own free translation');
+  await page.evaluate(() => document.querySelector('.top-tab[data-tab="gloss"]').click());
+  await page.waitForTimeout(2200);
+  await page.evaluate(() => document.querySelector('#gloss-body .gloss-input').focus());
+  const gl = await stops(4);
+  ok(gl.every((c) => c === 'gloss-input' || c === 'free-input'),
+     `no button is a tab stop (${gl.join(' → ')})`);
+  ok(gl.includes('free-input'), 'the free translation is IN the walk, not skipped');
+  ok(gl.indexOf('free-input') < gl.lastIndexOf('gloss-input'),
+     'and it leads on to the next line\'s first gloss rather than ending the list');
+}
+
 console.log('\n…but a control OUTSIDE the editor keeps its own Space');
 /* The line has to be drawn somewhere: Save, Done—send and ⟵ Back are ordinary buttons in the topbar
  * and a keyboard user must still be able to press them. */

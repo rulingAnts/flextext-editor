@@ -1,5 +1,61 @@
 # Backlog additions (2026-08-07) — paste into notes/BACKLOG.md
 
+## TO-DO (when Fable is available): a system-resource and cheap-device audit (Seth, 2026-08-14)
+
+> *"An audit for system resources and cheap phone/laptop compatibility would be in order. Let's not
+> worry about that right now at this moment."*
+
+⚠ **This is a to-do, not a live problem.** It was raised while a Mac at 4% battery was throttling —
+Seth: *"everything gets slow and glitchy at that point"* — and explicitly deferred. Nothing here is
+evidence that a field device is struggling today.
+
+### Measurements already taken, so the audit does not start from zero
+
+Chromium, 1100×800, a 2-minute recording cut into 60 lines (v365). These were captured while chasing
+the false alarm and are worth keeping:
+
+| where | CPU | rAF loops | DOM lookups/s | canvases resident |
+|---|---|---|---|---|
+| Cut tab, idle (nothing playing) | 3.7% | 2 (120/s) | ~14,700 | 63 (10.6MB backing store) |
+| Cut tab, playing | 37.7% | 2 | ~14,700 | 63 |
+| Baseline, idle (Cut hidden behind it) | 3.9% | 1 | ~10,900 | 122 (20.3MB) |
+| Gloss, idle (two tabs hidden behind) | 3.7% | 1 | ~3,600 | 182 (25.3MB) |
+| **Texts list — editor left entirely** | 1.8% | **1 still running** | **~3,600** | **180 (24.7MB)** |
+
+The three findings that stand out, in order of size:
+
+1. **Hidden tabs keep their rAF loop.** Only some transitions stop the loop they are leaving, so
+   Baseline→Cut leaves two walking two lists every frame, and **Back to the texts list leaves one
+   running over a text nobody is looking at**, with all its canvases still resident.
+2. **Per-frame DOM queries scale with the text.** Each ticker does `querySelectorAll` over every row
+   plus ~3 `querySelector` calls per row, every frame: ~245 lookups/frame at 60 lines, ~2,600 at 650
+   (a 40-minute recording, which "Guess the lines" can now produce in one press).
+3. **The loops run at full rate while PAUSED**, which is most of a transcriber's time — and nothing
+   they paint can change while the playhead is still.
+
+### ⚠ The obvious fix has a trap in it — found the hard way
+
+An "idle gate" (skip the per-row pass when the playhead has not moved and nothing is playing) was
+written and measured: idle DOM lookups 14,700/s → 0, and the texts list to zero loops and zero
+canvases. **It was reverted, and not only because the alarm was false: it leaves the per-row ▶/⏸
+glyphs stuck showing "playing" after a pause**, because the row glyphs are painted by the ticker and
+the playhead stops moving at exactly the moment the state changes. A correct gate must also treat a
+CHANGE in `playing` as work, and the browser test must assert the row glyph after a pause — the
+existing check watches the dock button, which the Player updates from its own event and which would
+therefore have passed.
+
+### Where to start
+
+- stopping hidden tickers and freeing the editor DOM on Back are the cheap, behaviour-free half;
+- the row-list caching is a pure refactor (build the `{row, wave, btn}` list at render, walk it per
+  frame) with no UX change;
+- the idle gate is the big win and the one that needs care, per above;
+- and canvas backing store (~25MB at 60 lines, linear in the count) is the memory item to think
+  about before anything else — `drawStrip` scales by `devicePixelRatio`, so a 3× phone pays 9× the
+  pixels for a strip nobody is reading.
+
+---
+
 ## 🅿 PARKED BRANCH: `parked-panel-and-matching` — panel work + segment matching (Seth, 2026-08-08)
 
 > *"We need to park the Researcher Panel improvement and the 'segment matching' features on a

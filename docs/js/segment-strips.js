@@ -278,6 +278,12 @@ export function renderStrips() {
 
     const play = document.createElement('button');
     play.className = 'seg-play';
+    /* ⚠ NOT IN THE TAB ORDER (Seth, 2026-08-13): "on baseline and gloss tabs, we don't want play and
+     * join and split controls to be part of the tab (keyboard) order. Just next and previous textbox
+     * in order." Tab is how a transcriber walks their own text; every control sitting between two
+     * boxes was a keypress spent on something they did not ask for. Still clickable, still reachable
+     * by pointer — just not a stop on the way to the next line. */
+    play.tabIndex = -1;
     // aria-label, NOT title (v322): the native tooltip dropped over the text rows (Seth #10).
     play.setAttribute('aria-label', deps.t(isAligned(seg) ? 'seg.playTip' : 'seg.pendingTip'));
     play.textContent = isAligned(seg) ? '▶' : '⋯';
@@ -323,6 +329,7 @@ export function renderStrips() {
       joinRow.className = 'seg-joinrow';
       const join = document.createElement('button');
       join.className = 'gseg-join';
+      join.tabIndex = -1;            // see the ▶ above: Tab walks TEXT BOXES on this tab
       join.textContent = '⤙⤚';
       join.setAttribute('aria-label', deps.t('seg.joinTip'));
       join.title = deps.t('seg.joinTip');

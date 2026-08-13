@@ -411,6 +411,35 @@ Baseline 837px, Gloss 706px).
 Space, and only on the Cut tab.** On Baseline and Gloss, a segment selected and played with the
 spacebar plays THAT segment and rewinds at its end, exactly as before (Seth, 2026-08-13).
 
+### v365 — Tab walks the text boxes, and the dock's drag lands with the gesture
+
+**Tab order** (Seth: *"on baseline and gloss tabs, we don't want play and join and split controls to
+be part of the tab (keyboard) order. Just next and previous textbox in order"*). Tab is how a
+transcriber walks their own text, and every control between two boxes was a keypress spent on
+something they did not ask for. The ▶, ⤙⤚, ✂ and unchain controls on Baseline and Gloss are
+`tabIndex = -1` now — still clickable, no longer stops — and the free translation joined the same
+walk the glosses use, so the last gloss of a line tabs INTO it and it tabs on to the next line's
+first gloss, Shift+Tab exactly in reverse.
+
+Measured in Chromium, before → after:
+
+| | before | after |
+|---|---|---|
+| Baseline, from a text box | `text → BODY → topbar icon → title` | `text → text → text` |
+| Gloss, from the first gloss | `gloss → gloss → free → BODY → icon → title` | `gloss → gloss → free → gloss` |
+
+⚠ The **Cut tab is deliberately untouched**: it has no text boxes, its rows ARE the controls, and
+they are focusable on purpose — the row is what Enter and Backspace act on.
+
+**And drag-to-seek on the dock lands with the gesture.** wavesurfer's `dragToSeek: true` defers the
+real seek by 200ms after the last pointermove, moving only the progress bar meanwhile — so for a
+fifth of a second after the user let go, `getCurrentTime()` still reported where the drag STARTED.
+Invisible in a music player; on the Cut tab an Enter pressed straight after a drag read the stale
+playhead and put the cut back at the old position. `dragToSeek: { debounceTime: 0 }`. Measured: on
+v363 a drag released at ~18s reported **0:00** at release and only reached 0:17 after ~460ms; now it
+reports 0:17 immediately. (Found by the v360/v361 preflight review, which also confirmed the four
+other findings v363 had already fixed.)
+
 ### NEXT: resource limits, gracefully (Seth, 2026-08-13)
 
 > *"At some point with that we'll need to think about memory/system resource limitations and be able

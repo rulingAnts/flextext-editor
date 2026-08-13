@@ -701,7 +701,15 @@ export class Player {
       autoScroll: true,
       autoCenter: true,
       minPxPerSec: ZOOM_MIN,
-      dragToSeek: true,
+      /* ⚠ NO DEBOUNCE ON DRAG-TO-SEEK. `dragToSeek: true` defers the real seek by 200ms after the
+       * last pointermove (while paused), moving only the progress bar in the meantime — so for a
+       * fifth of a second after the user lets go, `getCurrentTime()` still reports where the drag
+       * STARTED. That is invisible in a player and dangerous in this app: on the Cut tab an Enter
+       * pressed straight after a drag reads the stale playhead and puts the cut back at the old
+       * position, and the strips scroll to the old line. Zero makes the seek land with the gesture.
+       * (v360's pause-on-interaction made the window wider, because the 0ms while-playing path no
+       * longer applies once we have paused.) */
+      dragToSeek: { debounceTime: 0 },
     };
     if (media.peaks && media.duration) {
       opts.peaks = media.peaks;

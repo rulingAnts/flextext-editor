@@ -942,6 +942,9 @@ function decorateGlossSegments() {
     bar.className = 'gseg-bar';
     const btn = document.createElement('button');
     btn.className = 'gseg-play';
+    /* ⚠ NOT IN THE TAB ORDER — see the Baseline ▶. Seth: "we don't want play and join and split
+     * controls to be part of the tab (keyboard) order. Just next and previous textbox in order." */
+    btn.tabIndex = -1;
     btn.textContent = seg.timePending ? '⋯' : '▶';
     btn.setAttribute('aria-label', t(seg.timePending ? 'seg.pendingTip' : 'seg.playTip'));
     const waveWrap = document.createElement('div');
@@ -971,6 +974,7 @@ function decorateGlossSegments() {
       joinRow.className = 'gseg-joinrow';
       const join = document.createElement('button');
       join.className = 'gseg-join';
+      join.tabIndex = -1;
       join.textContent = '⤙⤚';
       join.setAttribute('aria-label', t('seg.joinTip'));
       join.title = t('seg.joinTip');
@@ -993,6 +997,7 @@ function decorateGlossSegments() {
       wrapEl.appendChild(link);
       const sc = document.createElement('button');
       sc.className = 'scissor-btn';
+      sc.tabIndex = -1;
       sc.textContent = '\u2702';
       sc.setAttribute('aria-label', t('gloss.splitTip'));
       sc.title = t('gloss.splitTip');
@@ -3295,6 +3300,19 @@ function renderSegment(seg, segnum, vernFont, analFont) {
   input.value = seg.free || '';
   if (analFont) input.style.fontFamily = analFont;
   input.addEventListener('input', () => { seg.free = input.value; schedulePersist(); });
+  /* ⚠ THE FREE TRANSLATION IS PART OF THE SAME WALK. Without this it had no Tab handler at all, so
+   * Tab out of it fell back to the native order — which is the next BUTTON, not the next gloss.
+   * focusNextWordGloss walks '.gloss-input, .free-input' in DOM order, so the last gloss of a line
+   * tabs into its own free translation and the free translation tabs on to the next line's first
+   * gloss, with Shift+Tab exactly in reverse (Seth, 2026-08-13).
+   *
+   * ⚠ Tab ONLY. Enter and Space keep their ordinary meaning in a free-translation box — it is a
+   * sentence of prose, not a word gloss, so a space must remain a space. */
+  input.addEventListener('keydown', (e) => {
+    if (e.key !== 'Tab') return;
+    e.preventDefault();
+    focusNextWordGloss(input, e.shiftKey ? -1 : 1);
+  });
   freeRow.append(label, input);
   div.appendChild(freeRow);
   return div;
@@ -3349,6 +3367,7 @@ function renderWordCell(seg, w, i, vernFont, analFont) {
   if (w.phrase) {
     const un = document.createElement('button');
     un.className = 'unchain-btn';
+    un.tabIndex = -1;
     un.title = t('gloss.breakTitle');
     un.textContent = t('gloss.breakLabel');
     un.addEventListener('click', () => {

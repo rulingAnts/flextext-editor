@@ -27,6 +27,7 @@ let fail = 0;
 const ok = (c, m) => { console.log(`  ${c ? 'ok  ' : 'FAIL'}  ${m}`); if (!c) fail++; };
 
 const app = read('../docs/js/app.js');
+const strips = read('../docs/js/segment-strips.js');
 
 console.log('\nclicking any waveform blurs the focused text field');
 {
@@ -69,6 +70,41 @@ console.log('\n...and the space-to-play gate that makes it necessary is still th
   ok(/document\.querySelector\('\.modal:not\(\[hidden\]\)'\)/.test(gate),
      '…and inside an open dialog, whose buttons must keep their own keys');
   ok(/if \(!transportKeysApply\(e\.target\)\) return;/.test(app), 'and the Space handler consults it');
+}
+
+/* ── TAB WALKS THE TEXT BOXES, AND NOTHING ELSE (Seth, 2026-08-13) ─────────────────────────────
+ * "On baseline and gloss tabs, we don't want play and join and split controls to be part of the tab
+ * (keyboard) order. Just next and previous textbox in order (so that the last gloss on a line tabs
+ * to that line's free translation rather than skipping over it to the following line's first gloss
+ * and the free translation tabs to the next gloss, and shift-tab works in reverse)."
+ *
+ * Tab is how a transcriber walks their own text; every control sitting between two boxes was a
+ * keypress spent on something they did not ask for. Measured before and after in Chromium: Baseline
+ * used to go text → BODY → topbar icon → title; the Gloss tab used to fall out of the list after the
+ * free translation. */
+console.log('\nthe controls between the text boxes are not tab stops');
+{
+  for (const [file, src, what] of [['segment-strips.js', strips, 'the Baseline ▶ and its ⤙⤚ join'],
+                                   ['app.js', app, 'the Gloss ▶, ⤙⤚, scissors and unchain']]) {
+    const hits = (src.match(/tabIndex = -1;/g) || []).length;
+    ok(hits >= 2, `${what} are out of the tab order (${hits} in ${file})`);
+  }
+  ok(/play\.tabIndex = -1;/.test(strips) && /join\.tabIndex = -1;/.test(strips),
+     'the Baseline strip\'s play and join specifically');
+  ok(/btn\.tabIndex = -1;/.test(app) && /un\.tabIndex = -1;/.test(app) && /sc\.tabIndex = -1;/.test(app),
+     'and the gloss line\'s play, unchain and gap scissors');
+  /* ⚠ The CUT tab is deliberately untouched: it has no text boxes, its rows ARE the controls, and
+   * they are focusable on purpose (the row is what Enter and Backspace act on). */
+  ok(/row\.tabIndex = 0;/.test(strips), 'the Cut tab\'s rows stay focusable — there is no text there to walk');
+}
+
+console.log('\nand the free translation is part of the same walk');
+{
+  const freeBlock = app.slice(app.indexOf("input.className = 'free-input'"), app.indexOf("input.className = 'free-input'") + 1400);
+  ok(/e\.key !== 'Tab'/.test(freeBlock) && /focusNextWordGloss\(input, e\.shiftKey \? -1 : 1\)/.test(freeBlock),
+     'Tab and Shift+Tab from the free translation walk the same list as the glosses');
+  ok(!/e\.key === ' '/.test(freeBlock),
+     '…but Space is NOT hijacked there — a free translation is prose, and a space must stay a space');
 }
 
 console.log('\nTab and Space reach the free translation, in DOM order');

@@ -57,6 +57,7 @@ landed?** If the answer depends on nobody finding the repo, it goes in `notes/` 
 | `fxed-format-spec.md` | **the `.fxed` spec** — container, manifest, what must not travel — plan only |
 | `pat-one-tree-model.md` | PAT drops the line/proposition split — **one tree, every unit a line** — plan only |
 | `audio-matching-mode.md` | the guided match-existing-text-to-audio step + segmentation-on-by-default for new installs — plan only |
+| `onestory-injection.md` | `.flextext` → a new story inside a live `.onestory` project, Tauri-only, + the NSIS installer — **plan only, and the code lands in the sibling repo [`ose-interlinear-viewer`](https://github.com/rulingAnts/ose-interlinear-viewer), not here** |
 
 ⚠ `notes/` stays gitignored and is still the right home for working scratch, task briefs, and
 anything with a real name or a real recording in it.

@@ -686,10 +686,75 @@ today has no per-text value, so a default of anything other than "inherit" would
 mode on all of them the moment the update lands. `??` (not `||`) is the operator, because `false` is
 a legitimate stored value meaning "this text, explicitly off".
 
-⚠ **THE TRAP, and it is a serious one.** `segmentationEnabled()` is currently a near-constant during
-a session: it changes only when the researcher pushes a settings change. Making it PER TEXT means it
-flips **every time the user opens a different text** — turning a rare event into a routine one. The
-CLAUDE.md warning about `applyBaseline` exists for exactly this hazard:
+### The mechanism: a per-text COMMAND, exactly like `setDone` (answered 2026-08-13)
+
+> Seth: "I want it to be something the researcher can set or change for texts that are **already
+> assigned**, rather than only on first assignment. My use case … is my own user who has a whole lot
+> of texts he's already done some work on for which audio segmentation is a mess. And I'd rather let
+> him finish what's on his plate the old way, but I want new texts I send him to use the new way. But
+> I've got other users who have started using it the new way. **And I don't want to break their
+> setup.**"
+
+**Nothing new has to be invented — `setDone` is already this exact shape**, and it is the model to
+copy line for line:
+
+| piece | `setDone` today | `setSegmentation` |
+|---|---|---|
+| panel → worker | `pushCommand(instanceId, 'setDone', { docId, done })` (researcher.js:516) | `pushCommand(instanceId, 'setSegmentation', { docId, segmentation })` |
+| worker | type whitelist, `v1.js:1651` | ⚠ **add the type there — see below** |
+| device | `syncDispatch` case → `setDocDone(docId, done)` (app.js:3397), reusing the device's OWN local handler so a pushed change behaves identically to a local tap | same shape: set the per-doc field, persist, no other path |
+
+So it is per-text, it is changeable **at any time after assignment**, and it is independent of
+`assign` — which is precisely what Seth asked for.
+
+**⚠ ONE WORKER CHANGE IS REQUIRED, and it gates the release order.** `worker/src/v1.js:1651`
+whitelists command types and returns `400 unknown_command` for anything else, so the panel cannot
+push `setSegmentation` until the worker knows it. Order: **worker deploy → engine → panel.** (No D1
+migration — the command queue is generic.)
+
+**Old devices are safe by construction**: `syncDispatch`'s `default:` branch is
+`console.warn('sync: unknown command', …)` — it does not throw and the command still acks. A device
+on an older engine therefore ignores the flag and keeps its device default, which is the correct
+fallback. ⚠ But the RESEARCHER must be told it did not take effect: gate the control on engine
+version the way the Done toggle already does (`engNum >= …`, researcher-panel.js), or they will set
+it, see nothing happen, and reasonably conclude the feature is broken.
+
+### Three states are what make Seth's two populations coexist
+
+`true` / `false` / **absent = inherit**. The third state is not tidiness — it is the whole answer to
+*"I don't want to break their setup"*: every text on every device today has no value, so the users
+already working the new way are untouched **by construction**, not by remembering to leave them
+alone. Use `??`, never `||`, because `false` is a legitimate stored value meaning "this text,
+explicitly off".
+
+### ⚠ WHICH DIRECTION TO USE FOR THE MESSY-TEXTS USER — the recommendation, and why
+
+Two ways to get his result, and they are NOT equally safe:
+
+- **(a) RECOMMENDED — leave his device default OFF (old way); set `segmentation: true` on each NEW
+  text as you assign it.** His existing in-progress texts need no action at all.
+- **(b) Flip his device default ON; set `false` on each of the existing texts.**
+
+Choose by the cost of FORGETTING one, because that is the mistake that will actually happen:
+
+| forgotten in… | what the user experiences |
+|---|---|
+| **(a)** | a new text opens the old way — mildly annoying, fixed by one command, no work at risk |
+| **(b)** | a text he is **part-way through** silently switches to the new mode — exactly the outcome being avoided, on exactly the texts described as "a mess" |
+
+(a)'s failure is cheap and (b)'s is the thing we are trying to prevent, so (a) wins even though (b)
+needs fewer future actions. A bulk "set all current texts to X" would make (b) tolerable, but it is
+not needed for (a) and should not be what the design depends on.
+
+### ⚠ THE TRAP, and per-text makes it worse in a NEW way
+
+`segmentationEnabled()` is currently a near-constant during a session: it changes only when the
+researcher pushes a settings change. Per-text means it flips **every time the user opens a different
+text** — and, now that it is a COMMAND, it can also flip **while the user is typing in that very
+text**, arriving from the network unannounced. That is a genuinely new hazard: today no remote event
+can change the editing mode of an open document.
+
+The CLAUDE.md warning about `applyBaseline` exists for exactly this shape:
 
 > `applyBaseline` is gated on DOM truth (`#baseline-text` hidden ⇒ skip), NOT on
 > `segmentationEnabled()` — during a live settings flip the setting changes before the DOM, and the
@@ -700,6 +765,20 @@ available on every text open. So before building this: audit every `segmentation
 for whether it is asking "what mode is the DOM in right now" (must stay DOM-gated) or "what mode
 should this text be in" (may read the new resolution). They are different questions and the current
 code does not have to distinguish them, because today the answer rarely changes.
+
+🔒 **THE SAFETY RULE THAT FALLS OUT OF IT: a `setSegmentation` command MUST NOT re-mode a document
+that is currently open.** Store the new value and let it take effect on the next open of that text.
+
+The reasoning is not caution for its own sake — it is the one path in this feature that can destroy a
+field worker's typing. Re-moding an open doc means tearing down the strips or the textarea underneath
+someone mid-sentence, which is the exact live-flip sequence that already wiped a doc's text once, and
+here it would be triggered remotely, with no local action to correlate it with and nothing on screen
+explaining why. Deferring to next open costs the researcher nothing (they are changing how the NEXT
+session on that text behaves) and removes the whole class.
+
+⚠ Corollary for the panel: after pushing the change, the row should say it applies **when the text is
+next opened**, not imply it has already happened — otherwise the researcher watching a device that is
+mid-edit will think the command failed.
 
 ## FUTURE (soon): oral transcription + oral back-translation, and the format problem (Seth, 2026-08-13)
 

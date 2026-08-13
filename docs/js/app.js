@@ -20,7 +20,7 @@ import WaveSurfer from './vendor/wavesurfer.esm.js';
 import { makeZip } from './zip.js';
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay,
          wireWaveSeek, requestReveal,
-         initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, stopCut } from './segment-strips.js';
+         initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut } from './segment-strips.js';
 import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME,
          sanitizeBase, extOf, mediaNameFor, derivedWavName } from './seg-exports.js';
 import { mergeSegments, splitSegment, isAligned, normalizeSegments } from './segments.js';
@@ -1232,6 +1232,8 @@ function switchTab(tab) {
       persist: () => schedulePersist(),
       // Read through a FUNCTION so a researcher push lands mid-session, same rule as joinKeys.
       allowJoinTexted: () => cutJoinTextedAllowed(),
+      // Guessing replaces every cut in the text, so hand-made work is confirmed before it goes.
+      confirmReplace: () => confirm(t('cut.guessConfirm')),
       t,
     });
     prepareCutAudio();
@@ -7139,6 +7141,7 @@ function setup() {
      * to this (it runs first, in capture). */
     else if (e.key === ' ' && !e.repeat) { e.preventDefault(); cutTogglePlay(); }
   });
+  $('#btn-guess-splits')?.addEventListener('click', () => cutGuessSplits());
   $('#btn-help-home').addEventListener('click', openHelp);
   $('#btn-help-editor').addEventListener('click', openHelp);
   $('#btn-help-close').addEventListener('click', closeHelp);

@@ -2172,3 +2172,8 @@ main {
   grid-column: 2; font-size: 13px; color: var(--muted); padding: 4px 2px 0;
   overflow-wrap: anywhere; user-select: none; -webkit-user-select: none; cursor: default;
 }
+
+/* "Guess the lines" sits at the TOP of the Cut tab (Seth), above the message line, because it is the
+   first thing to try on a fresh recording — and the only control here that acts on the whole text. */
+#cut-tools { display: flex; gap: 8px; align-items: center; margin: 8px 0 2px; }
+#cut-tools .secondary-btn:disabled { opacity: .5; cursor: not-allowed; }

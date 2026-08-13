@@ -21,7 +21,8 @@
  */
 
 import { normalizeSegments, boundaryAtPlayhead, mergeSegments, syncToLines, isAligned,
-         cutAtPlayhead, joinWithPrevious, segmentIndexAt } from './segments.js';
+         cutAtPlayhead, joinWithPrevious, segmentIndexAt,
+         guessSplits, applyGuessedSplits } from './segments.js';
 import { peakPlan } from './seg-exports.js';
 
 let deps = null;      // { container, textarea, getPlayer, getDoc, getParagraphs, setParagraphs, persist, t }
@@ -802,6 +803,16 @@ export function renderCut(anchorIdx) {
     }
   });
 
+  /* The Guess button is dead once the text has words, so it says so by being disabled rather than by
+   * refusing on click — the suite's standing rule against controls that look live and do nothing.
+   * (cutGuessSplits still refuses, as the backstop.) */
+  const guess = document.getElementById('btn-guess-splits');
+  if (guess) {
+    const hasText = paras.some((p) => String(p || '').trim());
+    guess.disabled = hasText;
+    guess.title = cutDeps.t(hasText ? 'cut.no.guessText' : 'cut.guessTip');
+  }
+
   syncCutBoundaries();
   /* Put the view back where it was — see cutScroller(). The offset first (correct whenever nothing
    * above the fold changed height), then the anchor row's own pixel, which is correct even when
@@ -938,6 +949,46 @@ export function cutTogglePlay() {
   if (!p) return;
   if (p.playing?.()) { p.pause(); return; }
   p.playThrough();
+}
+
+/* "GUESS THE LINES" — cut the whole recording at its pauses, in one step, for a text nobody has
+ * started yet (Seth: "make default segment breaks for a new text … based on where the audio appears
+ * to have pauses in speech").
+ *
+ * The detection is a pure function in segments.js, measured against synthetic recordings with known
+ * pauses (test/guess-splits.test.mjs) — including the village case, a high noise floor, which is
+ * what makes a FIXED amplitude threshold useless. It reads the same peaks array the waveforms are
+ * drawn from, so what it cuts on is what the user can see.
+ *
+ * ⚠ THREE GUARDS, because this replaces the whole document's segmentation in one press:
+ *   1. a text with WORDS in it is refused outright — guessed spans cannot carry existing text, since
+ *      segments[i] IS paragraph i and there is no defensible way to redistribute words across new
+ *      spans. (The button is also disabled in that state; this is the backstop.)
+ *   2. a text that has already been cut by hand asks first — that work is exactly what this throws
+ *      away.
+ *   3. ONE undo step covers the lot, so a bad guess is one Ctrl+Z rather than fifty joins.
+ */
+export function cutGuessSplits() {
+  const doc = cutDeps && cutDeps.getDoc();
+  if (!doc) return;
+  const paras = cutDeps.getParagraphs(doc);
+  if (paras.some((p) => String(p || '').trim())) { cutSay(cutDeps.t('cut.no.guessText')); return; }
+  const dur = peaksCache.durationMs || 0;
+  if (!peaksCache.peaks || !dur) { cutSay(cutDeps.t('cut.no.guessAudio')); return; }
+  // Already cut by hand? Ask before replacing it. `> 1` rather than a segmentation-state test: one
+  // whole-file span is the seed, i.e. nobody has cut anything yet.
+  if (cutSegs().length > 1 && cutDeps.confirmReplace && !cutDeps.confirmReplace()) return;
+
+  const cuts = guessSplits(peaksCache.peaks, peaksCache.msPerBucket || (dur / peaksCache.peaks.length),
+                           { durationMs: dur });
+  const r = applyGuessedSplits(paras, cuts, { duration: dur });
+  if (!r.ok) { cutSay(cutDeps.t('cut.no.guess' + (r.reason === 'none' ? 'None' : r.reason === 'hasText' ? 'Text' : 'Audio'))); return; }
+  if (cutDeps.capture) cutDeps.capture();
+  doc.segments = r.segments;                       // ⚠ BOTH, from the one result
+  cutDeps.setParagraphs(doc, r.paragraphs);
+  cutDeps.persist();
+  cutSay(cutDeps.t('cut.guessDone', { n: r.segments.length }));
+  renderCut();
 }
 
 /* BACKSPACE / ⤙⤚ — join segment i with the one before it, then put the playhead where they joined,

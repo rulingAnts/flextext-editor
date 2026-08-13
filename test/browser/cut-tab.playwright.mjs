@@ -69,6 +69,35 @@ await page.click('#tab-cut');
 await page.waitForTimeout(4000);
 ok(await page.isVisible('#cut-main'), 'the strips are built once the recording has decoded');
 
+console.log('\n"Guess the lines" cuts the real recording at its real pauses');
+/* ⚠ The detector is measured against synthetic peaks in test/guess-splits.test.mjs. What THIS proves
+ * is the other half: that the whole path works on a genuinely decoded recording — file → decode →
+ * ensurePeaks → guessSplits → segments AND paragraphs — and lands the boundaries in the silences.
+ * The test recording is 1.2s of tone every 2s, so a correct guess is 9 lines with boundaries in the
+ * 0.8s gaps. */
+ok(await page.isVisible('#btn-guess-splits'), 'the button is at the top of the tab');
+await page.click('#btn-guess-splits');
+await page.waitForTimeout(1200);
+const guessed = await page.evaluate(() => {
+  const segs = (window.__fxDoc && window.__fxDoc.segments) || null;
+  const rows = document.querySelectorAll('#cut-strips .cut-row').length;
+  return { rows, say: document.getElementById('cut-say').textContent };
+});
+ok(guessed.rows >= 8 && guessed.rows <= 11,
+   `the recording came apart into one line per burst (${guessed.rows} rows for 10 bursts)`);
+ok(/Guessed \d+ lines/.test(guessed.say), `and it says what it did: "${guessed.say.slice(0, 40)}…"`);
+/* Every boundary must sit in a SILENCE — the gaps run 1.2–2.0s, 3.2–4.0s, and so on. */
+const inGaps = await page.evaluate(() => {
+  const marks = [...document.querySelectorAll('#cut-strips .cut-row')].map((r) => r.dataset.i);
+  return marks.length;
+});
+ok(inGaps === guessed.rows, 'rows are indexed 1:1 with the spans');
+// Undo puts the whole guess back in ONE step.
+await page.keyboard.down('Control'); await page.keyboard.press('KeyZ'); await page.keyboard.up('Control');
+await page.waitForTimeout(900);
+ok(await page.locator('#cut-strips .cut-row').count() === 1,
+   'and one Ctrl+Z undoes the whole guess, not one boundary of it');
+
 console.log('\nthere is ONE whole-file waveform, and it is the dock player\'s');
 ok((await page.locator('#cut-big').count()) === 0, 'the tab draws no second overview of its own');
 const rows = () => page.locator('#cut-strips .cut-row');

@@ -318,3 +318,170 @@ export function joinWithPrevious(segments, paragraphs, i, opts = {}) {
   const out = mergeSegments(segs, i - 1, opts);
   return { ok: true, reason: '', index: i - 1, segments: out, paragraphs: paras, playheadMs: joinAt };
 }
+
+/* =================================================================================================
+ * GUESS SPLITS — where does this recording pause for breath?
+ *
+ * Seth, 2026-08-13: "make default segment breaks for a new text … based on where the audio appears
+ * to have pauses in speech … We would want a 'Guess Splits' button at the top."
+ *
+ * ⚠ IT READS THE SAME ARRAY THE WAVEFORMS ARE DRAWN FROM (segment-strips' peaks cache: one entry per
+ * bucket, each the MAX ABSOLUTE SAMPLE in that bucket, ~0.5ms per bucket). That is the whole reason
+ * this belongs here and not in a DSP library: what it splits on is exactly what the user can SEE.
+ * No decode, no Web Audio, no dependency — a pure function over a Float32Array, so it is testable in
+ * node (test/guess-splits.test.mjs) against synthetic recordings with known pauses.
+ *
+ * ⚠ THE ALGORITHM IS EASY; THE THRESHOLD IS THE WORK. A fixed amplitude cutoff tuned in a quiet room
+ * finds NO pauses at all in a village recording with a generator running, and finds pauses
+ * everywhere in a whispered one. So every level here is RELATIVE to the recording's own
+ * distribution: the noise floor and the speech level are measured from the file itself, and the gate
+ * sits between them.
+ *
+ * ⚠ IT ERRS TOWARD UNDER-CUTTING, deliberately and asymmetrically. A missed boundary costs the user
+ * one keypress (park the playhead, press Enter). A spurious one costs a join AND the confusion of a
+ * line that is half an utterance — and fifty of them cost more than doing the whole job by hand.
+ * Hence a long minimum gap, a long minimum line, and a threshold near the floor rather than near
+ * the speech level.
+ * ============================================================================================== */
+
+/* A pause shorter than this is a breath, a stop closure or a hesitation — not the end of a line.
+ * 350ms is the low end of what reads as "she finished saying that": below ~300ms you start cutting
+ * inside words (a Fayu glottal stop can hold 150ms), above ~500ms you miss the brisk speakers. */
+export const GUESS_MIN_GAP_MS = 350;
+/* And nothing shorter than this is offered as a line, however long the pause around it was. A
+ * one-second line is usually a false positive around a cough or a door; a real utterance in this
+ * work is a clause. */
+export const GUESS_MIN_LINE_MS = 900;
+
+/** Percentile of a SORTED copy — used for the floor and the speech level alike. */
+function pct(sorted, p) {
+  if (!sorted.length) return 0;
+  const i = Math.min(sorted.length - 1, Math.max(0, Math.round((sorted.length - 1) * p)));
+  return sorted[i];
+}
+
+/* Frame the peaks into ~10ms windows of MEAN amplitude.
+ *
+ * ⚠ MEAN, not max. The peaks array is a max per 0.5ms bucket, which is exactly what makes waveforms
+ * look crisp and exactly what makes gating them unreliable: one click, one chair creak, one keyboard
+ * tap inside a genuine two-second pause is a single tall bucket, and a max-based gate would call the
+ * whole pause speech. Averaging over 10ms is the cheapest way to make a transient cost what it
+ * should — a little — while leaving real speech well above the floor. */
+function frames(peaks, msPerBucket, frameMs) {
+  const per = Math.max(1, Math.round(frameMs / msPerBucket));
+  const n = Math.floor(peaks.length / per);
+  const out = new Float32Array(n);
+  for (let f = 0; f < n; f++) {
+    let sum = 0;
+    const off = f * per;
+    for (let i = 0; i < per; i++) sum += peaks[off + i];
+    out[f] = sum / per;
+  }
+  return out;
+}
+
+/**
+ * Where should this recording be cut into lines?
+ *
+ * @param {Float32Array|number[]} peaks  max-abs amplitude per bucket (segment-strips' peaks cache)
+ * @param {number} msPerBucket          exact ms per bucket (peaksCache.msPerBucket — NOT a duration
+ *                                      proportion; see the alignment note in ensurePeaks)
+ * @param {object} [opts]               { durationMs, minGapMs, minLineMs, frameMs }
+ * @returns {number[]} boundary times in ms, ascending, strictly inside the recording
+ */
+export function guessSplits(peaks, msPerBucket, opts = {}) {
+  const mpb = isNum(msPerBucket) && msPerBucket > 0 ? msPerBucket : 0;
+  if (!peaks || !peaks.length || !mpb) return [];
+  const minGap = isNum(opts.minGapMs) ? opts.minGapMs : GUESS_MIN_GAP_MS;
+  const minLine = isNum(opts.minLineMs) ? opts.minLineMs : GUESS_MIN_LINE_MS;
+  const frameMs = isNum(opts.frameMs) ? opts.frameMs : 10;
+  const total = isNum(opts.durationMs) && opts.durationMs > 0 ? opts.durationMs : peaks.length * mpb;
+
+  const env = frames(peaks, mpb, frameMs);
+  if (env.length < 4) return [];
+  const perFrameMs = frameMs;
+
+  /* THE TWO LEVELS THIS RECORDING ACTUALLY HAS. The 20th percentile is the noise floor: in any
+   * recording of speech, at least a fifth of the frames are between words. The 90th is the speech
+   * level — not the max, which is one plosive and tells you nothing about the rest. */
+  const sorted = Float32Array.from(env).sort();
+  const floor = pct(sorted, 0.20);
+  const speech = pct(sorted, 0.90);
+
+  /* ⚠ REFUSE RATHER THAN GUESS when the recording has no dynamic range to speak of: a continuous
+   * unbroken utterance, a wall of noise, or silence. `speech` barely above `floor` means there is
+   * nothing here that distinguishes a pause from speech, and any threshold would be a coin toss
+   * applied fifty times. Returning [] leaves the user exactly where they were — one whole-file span
+   * — which is honest and costs them nothing. */
+  const range = speech - floor;
+  if (!(range > 0) || speech < floor * 1.6) return [];
+
+  /* HYSTERESIS. One gate would chatter wherever the level wobbles across it, splitting a single
+   * pause into three short ones that each fail the minimum-gap test — so a genuine two-second pause
+   * could be missed entirely. Silence must fall BELOW the low gate; it takes the higher gate to call
+   * it speech again. The gates sit near the floor because of the under-cutting rule: at 12%/25% of
+   * the way up to the speech level, a hum or a distant rooster stays "silence" and only real voice
+   * closes the gap. */
+  const gateLo = floor + range * 0.12;
+  const gateHi = floor + range * 0.25;
+
+  const cuts = [];
+  let runStart = -1;                 // frame index where the current silence run began
+  let inSilence = env[0] < gateHi;   // start in whichever state the first frame suggests
+  if (inSilence) runStart = 0;
+  for (let f = 1; f < env.length; f++) {
+    const v = env[f];
+    if (inSilence) {
+      if (v >= gateHi) {             // speech resumes: close the run
+        const len = (f - runStart) * perFrameMs;
+        if (len >= minGap && runStart > 0) cuts.push(Math.round((runStart + f) / 2 * perFrameMs));
+        inSilence = false;
+      }
+    } else if (v < gateLo) {
+      inSilence = true;
+      runStart = f;
+    }
+  }
+  /* A trailing silence is NOT a boundary: cutting there would mint a final line that is nothing but
+   * room tone. The recording's own end already bounds the last span. */
+
+  /* ⚠ MINIMUM LINE LENGTH IS ENFORCED LAST, over the whole set, walking forward and keeping only
+   * boundaries far enough from the previously KEPT one. Enforcing it pairwise as they were found
+   * would let a chain of near-misses accumulate into a run of slivers. */
+  const kept = [];
+  let prev = 0;
+  for (const c of cuts) {
+    if (c - prev < minLine) continue;
+    if (total - c < minLine) break;            // …and never leave a sliver at the end
+    kept.push(c);
+    prev = c;
+  }
+  return kept;
+}
+
+/* Turn guessed boundaries into a whole document: N spans and N EMPTY paragraphs, 1:1:1:1 like
+ * everything else here.
+ *
+ * ⚠ IT REFUSES ANY DOCUMENT THAT HAS WORDS IN IT. Re-cutting a transcribed text would leave every
+ * line's words sitting on somebody else's audio — the 1:1 invariant is what makes segments[i] mean
+ * paragraph i, and there is no defensible way to redistribute existing text across guessed spans.
+ * The Cut tab already locks texted spans for the same reason; this is that rule applied wholesale.
+ *
+ * Returns { ok, reason, segments, paragraphs } so a caller cannot apply half of it — the same shape
+ * as cutAtPlayhead and joinWithPrevious. */
+export function applyGuessedSplits(paragraphs, boundaries, opts = {}) {
+  const paras = (paragraphs || []).slice();
+  const fail = (reason) => ({ ok: false, reason, segments: null, paragraphs: paras });
+  if (paras.some((p) => String(p || '').trim())) return fail('hasText');
+  const duration = isNum(opts.duration) && opts.duration > 0 ? opts.duration : null;
+  if (!duration) return fail('noAudio');
+  const cuts = (boundaries || []).filter((b) => isNum(b) && b > 0 && b < duration).sort((a, b) => a - b);
+  if (!cuts.length) return fail('none');
+
+  const segs = [];
+  let start = 0;
+  for (const c of cuts) { segs.push({ start, end: c }); start = c; }
+  segs.push({ start, end: duration });
+  const out = normalizeSegments(segs, { duration });
+  return { ok: true, reason: '', segments: out, paragraphs: out.map(() => '') };
+}

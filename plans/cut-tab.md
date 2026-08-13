@@ -324,7 +324,33 @@ back. That is the difference between a test and a comment: the scroll guard read
 fix and 509 → 0 without it, and the span-watcher guard plays to 0:13 with the fix and stops dead at
 0:00 without it. Any assertion added here should earn its place the same way.
 
-## NEXT: "Guess Splits" — silence detection (Seth, 2026-08-13)
+## v361 — "Guess the lines" is BUILT (was the NEXT section below; kept for the reasoning)
+
+Seth: *"where's my 'Guess' (default auto-segment based on pauses) button/feature for new texts?"* It
+had been specified below and never built. It is now `guessSplits()` in `segments.js` — pure, no DOM,
+no decode — plus a button at the top of the Cut tab.
+
+**What was actually decided, beyond the sketch below:**
+
+| decision | why |
+|---|---|
+| **10ms frames of MEAN amplitude**, not the raw 0.5ms max buckets | the peaks array is a MAX per bucket, which is what makes waveforms crisp and gating unreliable: one click or chair creak inside a two-second pause is a single tall bucket, and a max-based gate calls the whole pause speech |
+| **floor = 20th percentile, speech = 90th**, both of the file itself | in any recording of speech at least a fifth of frames are between words; the 90th is the speech level, where the MAX is one plosive that tells you nothing |
+| **hysteresis, gates at 12% and 25%** of floor→speech | one gate chatters where the level wobbles across it, breaking a genuine long pause into short ones that each fail the minimum-gap test — so the pause is missed entirely. Both gates sit near the FLOOR, per the under-cutting rule |
+| **refuse when `speech < floor × 1.6`** | continuous speech, a wall of noise, or silence: no dynamic range means any threshold is a coin toss applied fifty times. Returning nothing leaves the user exactly where they were |
+| **min gap 350ms, min line 900ms** | below ~300ms you cut inside words (a glottal stop can hold 150ms); a sub-second "line" is usually a cough or a door |
+| **minimum line enforced LAST, over the whole set** | enforcing it pairwise as boundaries are found lets a chain of near-misses accumulate into a run of slivers |
+| **a text with WORDS is refused wholesale** | guessed spans cannot carry existing text — `segments[i]` IS paragraph i, and there is no defensible way to redistribute words across new spans. The button is disabled in that state AND the function refuses |
+| **already cut by hand ⇒ confirm first** | that hand work is precisely what this throws away |
+
+⚠ **The threshold was measured, not asserted.** `test/guess-splits.test.mjs` synthesises peaks with
+known pauses and scores the detector: clean, a **village noise floor at 8%**, a loud room at 25%,
+80–140ms stop closures that must NOT be cut, continuous speech, silence, a wall of noise, and lines
+too short to mint. **Zero spurious cuts in every case** — the expensive error — with full recall on
+(a)–(d). The browser test then proves the whole path on genuinely decoded audio: 10 bursts → 10
+lines, boundaries in the silences, and **one Ctrl+Z undoes the entire guess**.
+
+## (built — see above) "Guess Splits" — silence detection (Seth, 2026-08-13)
 
 > "make default segment breaks for a new text … based on where the audio appears to have pauses in
 > speech? How hard is that to implement? … We would want a 'Guess Splits' button at the top."

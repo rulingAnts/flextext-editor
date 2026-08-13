@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v360';
+export const ENGINE_VERSION = 'v361';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v360';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'cut-tab v8';
+export const BUILD_TAG = 'cut-tab v9';
 
 const S = {
 en: {
@@ -1220,6 +1220,15 @@ internet after the first time.</p>
   'cut.no.hasText': 'This line already has words typed for it, so it cannot be cut here. Split it on the Baseline tab instead, where you can choose where the words divide.',
   'cut.no.tooShort': 'Too close to the edge of the line \u2014 move the playhead a little further in.',
   'cut.no.first': 'This is the first line, so there is nothing before it to join to.',
+  /* "Guess the lines" — silence detection over the peaks the waveforms are drawn from. The wording
+     promises a GUESS and names undo, because it replaces every line in the text at one press. */
+  'cut.guess': 'Guess the lines',
+  'cut.guessTip': 'Cut the recording at its pauses, as a starting point you can correct.',
+  'cut.guessConfirm': 'This recording has already been cut into lines. Replace all of those cuts with new guesses?',
+  'cut.guessDone': 'Guessed {n} lines from the pauses. Check them — Undo puts it all back if it went wrong.',
+  'cut.no.guessText': 'This text already has words in it, so its lines cannot be guessed again. Cut it by hand instead.',
+  'cut.no.guessNone': 'No clear pauses found in this recording, so nothing was changed. Cut it by hand.',
+  'cut.no.guessAudio': 'The recording is still loading, so there is nothing to guess from yet.',
   'panel.f.cutTab': 'Show the "Cut" tab',
   'panel.f.cutTabNote': 'A tab before Baseline for cutting the audio into lines and nothing else \u2014 no typing, no glosses. Lets a worker do all the segmenting first, then transcribe. Only appears for texts that have a recording.',
   'panel.f.landOnCut': 'Open new recordings on the "Cut" tab',
@@ -2747,6 +2756,13 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'cut.no.hasText': 'Baris ini sudah ada kata-katanya, jadi tidak bisa dipotong di sini. Pisahkan di tab Ketik saja, di mana Anda bisa memilih di mana kata-katanya dibagi.',
   'cut.no.tooShort': 'Terlalu dekat dengan tepi baris \u2014 geser posisi putar sedikit lagi ke tengah.',
   'cut.no.first': 'Ini baris pertama, jadi tidak ada yang mendahuluinya untuk digabung.',
+  'cut.guess': 'Tebak barisnya',
+  'cut.guessTip': 'Potong rekaman di jeda-jedanya, sebagai titik awal yang bisa Anda perbaiki.',
+  'cut.guessConfirm': 'Rekaman ini sudah dipotong menjadi baris. Ganti semua potongan itu dengan tebakan baru?',
+  'cut.guessDone': 'Ditebak {n} baris dari jeda-jedanya. Periksalah \u2014 Urungkan mengembalikan semuanya kalau salah.',
+  'cut.no.guessText': 'Teks ini sudah ada kata-katanya, jadi barisnya tidak bisa ditebak lagi. Potonglah sendiri.',
+  'cut.no.guessNone': 'Tidak ditemukan jeda yang jelas di rekaman ini, jadi tidak ada yang diubah. Potonglah sendiri.',
+  'cut.no.guessAudio': 'Rekaman masih dimuat, jadi belum ada yang bisa ditebak.',
   'panel.f.cutTab': 'Tampilkan tab \u201cPotong\u201d',
   'panel.f.cutTabNote': 'Tab sebelum Ketik untuk memotong audio menjadi baris saja \u2014 tanpa mengetik, tanpa gloss. Memungkinkan pekerja memotong semuanya dulu, baru menuliskannya. Hanya muncul untuk teks yang punya rekaman.',
   'panel.f.landOnCut': 'Buka rekaman baru di tab \u201cPotong\u201d',

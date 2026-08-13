@@ -135,6 +135,12 @@
     <!-- ⚠ NO WHOLE-FILE WAVEFORM HERE. The shared dock player above IS the overview: on this tab it
          marks the cuts already made inside its own waveform (Player.setBoundaries), so there is one
          waveform of the whole recording on screen, with one zoom and one place to click. -->
+    <!-- "Guess the lines" — silence detection over the SAME peaks the waveforms are drawn from, so
+         what it cuts on is what the user can see. At the top, per Seth. Disabled once the text has
+         words in it: guessed spans cannot carry existing text (segments[i] IS paragraph i). -->
+    <div id="cut-tools">
+      <button id="btn-guess-splits" class="secondary-btn" data-i18n="cut.guess">Guess the lines</button>
+    </div>
     <p id="cut-say" class="note cut-say" role="status" aria-live="polite"></p>
     <div id="cut-strips"></div>
   </div>

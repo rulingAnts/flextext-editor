@@ -701,6 +701,26 @@ function joinKeysEnabled() {
   return settings.backspaceJoin === true;
 }
 
+/* THE CUT-TAB FAMILY OF GATES (Seth, 2026-08-13). All default ON — `!== false`, the same polarity
+ * as `segmentation` and the OPPOSITE of `backspaceJoin`. The difference is deliberate and worth
+ * stating once: backspaceJoin REMOVES a shortcut people were relying on, so absent must mean off;
+ * these five ADD or PRESERVE capability, so absent must mean on. Getting either backwards silently
+ * changes what a field device does the morning after an update.
+ *
+ * ⚠ Every one of them is also gated on segmentationEnabled(), because none of them means anything
+ * in the classic textarea workflow. A researcher who turns segmentation off should not find five
+ * orphaned controls still acting on a UI that no longer exists. */
+function cutTabEnabled() { return segmentationEnabled() && settings.cutTab !== false; }
+function landOnCutEnabled() { return cutTabEnabled() && settings.landOnCut !== false; }
+function joinSplitAllowed(tab) {
+  if (!segmentationEnabled()) return true;   // classic mode has its own rules; this is not its gate
+  return tab === 'gloss' ? settings.joinSplitGloss !== false : settings.joinSplitBaseline !== false;
+}
+/* May the CUT tab join two spans that already carry baseline text? Splitting one is refused
+ * regardless (no cursor there ⇒ no defined place to divide the text); joining only concatenates,
+ * so it is permitted unless the researcher says otherwise. */
+function cutJoinTextedAllowed() { return settings.cutJoinTexted !== false; }
+
 function segmentationEnabled() {
   try {
     if (new URLSearchParams(location.search).get('segmentation') === '1') return true;
@@ -3573,7 +3593,7 @@ async function syncGatherInventory() {
                    'consentAsk', 'consentConfirm', 'consentMode', 'consentMsg', 'consentResp', 'consentAudioUrl',
                    'appLang', 'uploadFolder', 'toolbarButtons', 'sendOptions', 'autoDelUploaded', 'recordWelcome', 'deleteAllEnabled',
                    'autoBackup', 'autoBackupMins', 'maxRecordSeconds', 'allowDelete', 'doneEnabled',
-                   'segmentation', 'backspaceJoin', 'exportEaf', 'exportSaymore', 'exportPreview', 'exportJson']) {
+                   'segmentation', 'backspaceJoin', 'cutTab', 'landOnCut', 'joinSplitBaseline', 'joinSplitGloss', 'cutJoinTexted', 'exportEaf', 'exportSaymore', 'exportPreview', 'exportJson']) {
     if (settings[k] !== undefined) snap[k] = settings[k];
   }
   // ua + cachedApps let the panel show which browser/device this install is + whether its apps are
@@ -4651,6 +4671,11 @@ const SETUP_GROUPS = [
     // Default OFF — the classic textarea workflow is untouched unless deliberately enabled.
     { k: 'segmentation', type: 'checkbox', note: 'panel.f.segmentationNote' },
     { k: 'backspaceJoin', type: 'checkbox', note: 'panel.f.backspaceJoinNote' },
+    { k: 'cutTab', type: 'checkbox', note: 'panel.f.cutTabNote' },
+    { k: 'landOnCut', type: 'checkbox', note: 'panel.f.landOnCutNote' },
+    { k: 'joinSplitBaseline', type: 'checkbox', note: 'panel.f.joinSplitBaselineNote' },
+    { k: 'joinSplitGloss', type: 'checkbox', note: 'panel.f.joinSplitGlossNote' },
+    { k: 'cutJoinTexted', type: 'checkbox', note: 'panel.f.cutJoinTextedNote' },
     // An UNSET export follows the mode, so deviceSetupValues prefills the EFFECTIVE value (see
     // buildBundleFor) — a box reading "off" for an export the device actually writes would be a lie
     // about what leaves this machine.
@@ -4881,6 +4906,11 @@ function deviceSetupValues() {
      * then SAVE a false, which is exactly how a paired device lost the mode on its first push
      * (Seth, 2026-08-12). One default, three surfaces. */
     else if (f.k === 'segmentation') v.segmentation = s.segmentation !== false;
+    else if (f.k === 'cutTab') v.cutTab = s.cutTab !== false;
+    else if (f.k === 'landOnCut') v.landOnCut = s.landOnCut !== false;
+    else if (f.k === 'joinSplitBaseline') v.joinSplitBaseline = s.joinSplitBaseline !== false;
+    else if (f.k === 'joinSplitGloss') v.joinSplitGloss = s.joinSplitGloss !== false;
+    else if (f.k === 'cutJoinTexted') v.cutJoinTexted = s.cutJoinTexted !== false;
     else if (f.k === 'recordFormat') v.recordFormat = recordFormatPref();
     else if (f.k === 'agc') v.agc = SETUP_AGC_OPTS.includes(s.agc) ? s.agc : 'off';
     else if (f.type === 'checkbox') v[f.k] = !!s[f.k];

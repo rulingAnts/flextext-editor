@@ -105,7 +105,8 @@ console.log('\nit is a real setting: in both forms, in the sync snapshot, in bot
      'the researcher panel offers it');
   ok(/\{ k: 'backspaceJoin', type: 'checkbox', note: 'panel\.f\.backspaceJoinNote' \}/.test(app),
      "and so does the device's own Settings tab, so an unpaired user is not locked out");
-  ok(/'segmentation', 'backspaceJoin', 'exportEaf'/.test(app),
+  // The Cut-tab keys were inserted between them; assert ADJACENCY of the pair, not the whole list.
+  ok(/'segmentation', 'backspaceJoin',/.test(app),
      'it rides the settings snapshot the device reports, so the panel shows the truth');
 
   const block = (lang) => {

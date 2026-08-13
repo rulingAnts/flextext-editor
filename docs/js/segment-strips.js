@@ -217,8 +217,13 @@ export function docSegments(doc) {
 
 // Keep segments 1:1 with paragraphs, using the model's own repair (extra → merged, missing →
 // timePending), so a doc edited on a non-segmentation device re-opens sane here.
-function reconcile(doc) {
-  const paras = deps.getParagraphs(doc);
+/* ⚠ TAKES ITS DEPS, because the CUT TAB can now be the first screen a text ever shows (a text made
+ * from a recording opens there). The seed below is what gives a fresh recording its one whole-file
+ * span — and it used to run only from renderStrips, i.e. only if the Baseline tab had been visited.
+ * Bypassing Baseline therefore meant a Cut tab with NO rows at all: nothing to play, nothing to cut,
+ * on the one screen the user was sent to. */
+function reconcile(doc, d = deps) {
+  const paras = d.getParagraphs(doc);
   const segs = docSegments(doc);
   // SEED: a doc entering segmentation for the first time gets ONE segment spanning the whole
   // recording — that is the truthful starting state (nothing has been divided yet), and it is what
@@ -254,7 +259,7 @@ function reconcile(doc) {
   doc.segments = syncToLines(docSegments(doc), paras.length, { duration: peaksCache.durationMs || null });
   // Persist a seed/heal right away: without this the repair lived only in memory until the next
   // edit, so storage (and everything that syncs from it) kept the broken pending state.
-  if (repaired && deps.persist) deps.persist();
+  if (repaired && d.persist) d.persist();
   return doc.segments;
 }
 
@@ -750,7 +755,7 @@ export function renderCut(anchorIdx) {
   const host = document.getElementById('cut-strips');
   const doc = cutDeps.getDoc();
   if (!host || !doc) return;
-  const segs = cutSegs();
+  const segs = reconcile(doc, cutDeps);   // seeds a fresh recording's whole-file span — see reconcile
   const paras = cutDeps.getParagraphs(doc);
   const scroller = cutScroller();
   const keepTop = scroller ? scroller.scrollTop : 0;
@@ -832,10 +837,13 @@ export function renderCut(anchorIdx) {
    * refusing on click — the suite's standing rule against controls that look live and do nothing.
    * (cutGuessSplits still refuses, as the backstop.) */
   const guess = document.getElementById('btn-guess-splits');
+  const guessLabel = document.getElementById('cut-tools-label');
+  if (guessLabel) guessLabel.hidden = false;
   if (guess) {
     const hasText = paras.some((p) => String(p || '').trim()) || docHasWork(doc);
     const tooLong = (peaksCache.durationMs || 0) > GUESS_MAX_MS;
     guess.disabled = hasText || tooLong;
+    if (guessLabel) guessLabel.classList.toggle('is-off', guess.disabled);
     guess.title = hasText ? cutDeps.t('cut.no.guessText')
       : tooLong ? cutDeps.t('cut.no.guessLong', { max: Math.round(GUESS_MAX_MS / 60000),
                                                   mins: Math.ceil(peaksCache.durationMs / 60000) })

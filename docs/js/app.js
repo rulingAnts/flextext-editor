@@ -1202,9 +1202,13 @@ async function prepareCutAudio() {
   media = await segWorkingMedia(forDoc, media, current && current.title);
   if (!current || current.id !== forDoc || activeTab !== 'cut') return;
   if (!media || !media.blob) {
-    // No recording ⇒ nothing to cut. The tab should not have been reachable, but say so rather
-    // than showing an empty screen if it was.
-    if (loading) { loading.hidden = false; loading.textContent = t('cut.noAudio'); }
+    /* No recording ⇒ nothing to cut. The tab should not have been reachable, but say so rather than
+     * showing an empty screen if it was.
+     * ⚠ …unless one is ON ITS WAY, which is the normal case for a text just made from a file (the
+     * editor opens before the attach finishes) and for an assigned text whose audio is still
+     * downloading. Telling those users "this text has no recording" is both wrong and alarming. */
+    const coming = !!(current.pendingAudio || attachingAudioFor === forDoc);
+    if (loading) { loading.hidden = false; loading.textContent = t(coming ? 'seg.loadingAudio' : 'cut.noAudio'); }
     return;
   }
   await ensurePeaks(forDoc, media.blob, (playerReadyFor === forDoc && player && player.decodedBuffer) ? player.decodedBuffer() : null);
@@ -1598,7 +1602,14 @@ async function newDocFromAudio(file, titleOverride) {
     modified: Date.now(),
     doc,
   };
-  if (!RECORD_MODE) enterEditor('baseline');
+  /* ⚠ A TEXT MADE FROM A RECORDING OPENS ON THE CUT TAB (Seth, 2026-08-14: "we do want texts to open
+   * for the first time in the cut tab if it's enabled. If the user hasn't typed in any baseline
+   * text"). landingTab cannot reach this on its own: its proof that audio exists is an ALIGNED span,
+   * and at this instant attachAudioFile has not run — no media, no duration, no seed. The caller
+   * knows what the rule cannot, that a recording is being attached right now and the text has no
+   * words by construction. Both gates still apply, so a researcher who turned either off gets the
+   * Baseline tab exactly as before. */
+  if (!RECORD_MODE) enterEditor(cutTabEnabled() && landOnCutEnabled() ? 'cut' : 'baseline');
   await attachAudioFile(file);
   // If a recorded verbal assent was captured in the consent gate, store it
   // with this doc so it travels in the upload/save zip bundle.
@@ -2777,8 +2788,14 @@ async function saveRecording() {
   }
 }
 
+/* Which doc is having a recording attached to it AT THIS MOMENT. The Cut tab needs it: it opens
+ * before the attach finishes (see newDocFromAudio) and would otherwise announce "this text has no
+ * recording" about a file that is landing as it says so. */
+let attachingAudioFor = null;
+
 async function attachAudioFile(file) {
   if (!current) return;
+  attachingAudioFor = current.id;
   const media = {
     blob: file, name: file.name, mimeType: file.type || 'audio/mpeg',
     sourceUrl: '', peaks: null, duration: null,
@@ -2797,6 +2814,7 @@ async function attachAudioFile(file) {
    * being true, and nothing else will notice: attaching audio is not a tab switch and not a
    * settings change. Without this the "Loading the recording…" line sits there for good on every
    * new text made from a file. */
+  attachingAudioFor = null;
   if (segmentationEnabled() && isEditorTab(activeTab)) switchTab(activeTab);
 }
 

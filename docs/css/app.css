@@ -2177,3 +2177,9 @@ main {
    first thing to try on a fresh recording — and the only control here that acts on the whole text. */
 #cut-tools { display: flex; gap: 8px; align-items: center; margin: 8px 0 2px; }
 #cut-tools .secondary-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+/* The ✨ Guess control: a glyph with a short word beside it, not a sentence (Seth, 2026-08-14). The
+   full wording lives in the tooltip and the aria-label; the tab's hint text is where it is learnt. */
+#btn-guess-splits { font-size: 18px; line-height: 1; }
+.cut-tools-label { color: var(--muted); font-size: 14px; }
+.cut-tools-label.is-off { opacity: .5; }

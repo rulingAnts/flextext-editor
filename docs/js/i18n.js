@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v366';
+export const ENGINE_VERSION = 'v367';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1209,10 +1209,10 @@ internet after the first time.</p>
   /* The Cut ("Potong") tab family (Seth, 2026-08-13). ALL DEFAULT ON — these add or preserve
    * capability, unlike backspaceJoin which removes a shortcut and therefore defaults off. */
   'tabs.cut': 'Cut',
-  'cut.hint': 'Cut the recording into lines. The player at the top is for finding your place \u2014 it marks the cuts you have already made. Play a line below and click its waveform where the line should end, then press <b>Enter</b> or the \u2702 button. <b>Backspace</b>, or the \u2919\u291a button, joins a line to the one above. No typing on this tab \u2014 the words come later.',
+  'cut.hint': 'Cut the recording into lines. The player at the top is for finding your place \u2014 it marks the cuts you have already made. Play a line below and click its waveform where the line should end, then press <b>Enter</b> or the \u2702 button. <b>Backspace</b>, or the \u2919\u291a button, joins a line to the one above. \u2728 guesses all the lines at once, from the pauses in the recording. No typing on this tab \u2014 the words come later.',
   /* Shown INSTEAD when the researcher has switched Backspace-to-join off: same tab, one fewer key,
      and the button named in its place so the screen never promises a key that does nothing. */
-  'cut.hintNoJoinKey': 'Cut the recording into lines. The player at the top is for finding your place \u2014 it marks the cuts you have already made. Play a line below and click its waveform where the line should end, then press <b>Enter</b> or the \u2702 button. The \u2919\u291a button between two lines joins them. No typing on this tab \u2014 the words come later.',
+  'cut.hintNoJoinKey': 'Cut the recording into lines. The player at the top is for finding your place \u2014 it marks the cuts you have already made. Play a line below and click its waveform where the line should end, then press <b>Enter</b> or the \u2702 button. The \u2919\u291a button between two lines joins them. \u2728 guesses all the lines at once, from the pauses in the recording. No typing on this tab \u2014 the words come later.',
   'cut.cut': 'Cut here',
   'cut.join': 'Join with previous',
   'cut.noAudio': 'This text has no recording, so there is nothing to cut.',
@@ -1223,6 +1223,7 @@ internet after the first time.</p>
   /* "Guess the lines" — silence detection over the peaks the waveforms are drawn from. The wording
      promises a GUESS and names undo, because it replaces every line in the text at one press. */
   'cut.guess': 'Guess the lines',
+  'cut.guessShort': 'Guess',
   'cut.guessTip': 'Cut the recording at its pauses, as a starting point you can correct.',
   'cut.guessConfirm': 'This recording has already been cut into lines. Replace all of those cuts with new guesses?',
   'cut.guessDone': 'Guessed {n} lines from the pauses. Check them — Undo puts it all back if it went wrong.',
@@ -2748,8 +2749,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.f.backspaceJoinNote': 'Mati secara bawaan. Bila aktif, Backspace di awal baris (atau Delete di akhir baris) menggabungkannya dengan baris sebelah \u2014 di tab Ketik dan Gloss, dan juga di tab Potong, di mana Backspace menggabungkan baris yang sedang aktif dengan baris di atasnya. Tombol gabung \u2919\u291a tetap berfungsi apa pun pengaturannya, jadi mematikan ini hanya menghapus pintasan papan ketik \u2014 beserta penggabungan tak sengaja yang mudah terjadi dan merepotkan untuk dibatalkan.',
   /* Lihat catatan pada blok en \u2014 semuanya AKTIF secara bawaan. */
   'tabs.cut': 'Potong',
-  'cut.hint': 'Potong rekaman menjadi baris. Pemutar di atas untuk mencari posisi \u2014 ia menandai potongan yang sudah Anda buat. Putar sebuah baris di bawah lalu klik gelombangnya di tempat baris itu seharusnya berakhir, kemudian tekan <b>Enter</b> atau tombol \u2702. <b>Backspace</b>, atau tombol \u2919\u291a, menggabungkan sebuah baris dengan baris di atasnya. Tidak ada pengetikan di tab ini \u2014 kata-katanya menyusul.',
-  'cut.hintNoJoinKey': 'Potong rekaman menjadi baris. Pemutar di atas untuk mencari posisi \u2014 ia menandai potongan yang sudah Anda buat. Putar sebuah baris di bawah lalu klik gelombangnya di tempat baris itu seharusnya berakhir, kemudian tekan <b>Enter</b> atau tombol \u2702. Tombol \u2919\u291a di antara dua baris menggabungkan keduanya. Tidak ada pengetikan di tab ini \u2014 kata-katanya menyusul.',
+  'cut.hint': 'Potong rekaman menjadi baris. Pemutar di atas untuk mencari posisi \u2014 ia menandai potongan yang sudah Anda buat. Putar sebuah baris di bawah lalu klik gelombangnya di tempat baris itu seharusnya berakhir, kemudian tekan <b>Enter</b> atau tombol \u2702. <b>Backspace</b>, atau tombol \u2919\u291a, menggabungkan sebuah baris dengan baris di atasnya. \u2728 menebak semua barisnya sekaligus, dari jeda-jeda dalam rekaman. Tidak ada pengetikan di tab ini \u2014 kata-katanya menyusul.',
+  'cut.hintNoJoinKey': 'Potong rekaman menjadi baris. Pemutar di atas untuk mencari posisi \u2014 ia menandai potongan yang sudah Anda buat. Putar sebuah baris di bawah lalu klik gelombangnya di tempat baris itu seharusnya berakhir, kemudian tekan <b>Enter</b> atau tombol \u2702. Tombol \u2919\u291a di antara dua baris menggabungkan keduanya. \u2728 menebak semua barisnya sekaligus, dari jeda-jeda dalam rekaman. Tidak ada pengetikan di tab ini \u2014 kata-katanya menyusul.',
   'cut.cut': 'Potong di sini',
   'cut.join': 'Gabung dengan sebelumnya',
   'cut.noAudio': 'Teks ini tidak punya rekaman, jadi tidak ada yang bisa dipotong.',
@@ -2758,6 +2759,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'cut.no.tooShort': 'Terlalu dekat dengan tepi baris \u2014 geser posisi putar sedikit lagi ke tengah.',
   'cut.no.first': 'Ini baris pertama, jadi tidak ada yang mendahuluinya untuk digabung.',
   'cut.guess': 'Tebak barisnya',
+  'cut.guessShort': 'Tebak',
   'cut.guessTip': 'Potong rekaman di jeda-jedanya, sebagai titik awal yang bisa Anda perbaiki.',
   'cut.guessConfirm': 'Rekaman ini sudah dipotong menjadi baris. Ganti semua potongan itu dengan tebakan baru?',
   'cut.guessDone': 'Ditebak {n} baris dari jeda-jedanya. Periksalah \u2014 Urungkan mengembalikan semuanya kalau salah.',

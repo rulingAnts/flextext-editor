@@ -403,6 +403,15 @@ real timed spans (silence) and hold placeholder rows on the Gloss tab.
   - `reconcile()`'s seeds/heals persist immediately; peaks failures `console.warn` instead of
     vanishing.
 
+## Browser support: Chromium only — ⚠ NOT SAFARI (Seth, 2026-08-14)
+
+**"This app doesn't support Safari, period."** The field device is an Android phone running Chrome;
+desktop is Chrome/Edge and the Electron shell. **Testing on Android is worth doing; testing on Safari
+or iOS is not**, and neither is carrying Safari work-arounds in shared code.
+
+⚠ Do not list Safari as a gap when reporting what still needs testing — it is not a gap, it is out of
+scope. (This line exists because it was listed as one.)
+
 ## Local dev / testing
 
 The app is a static PWA — no build step. Simple options:

@@ -40,6 +40,12 @@ Design constraints that explain most of the architecture:
 - **Archival honesty.** Preservation masters are never processed (no AGC/NR); lossy→WAV
   conversions are labeled in both filename and BWF `bext` bytes as NOT archival.
 
+**Browser support: Chromium-family only. ⚠ SAFARI IS NOT SUPPORTED, PERIOD (Seth, 2026-08-14).** The
+target device is an Android phone running Chrome; the desktop targets are Chrome/Edge and the
+Electron shell. Nothing is tested on Safari or iOS, no bug is triaged against them, and "it breaks in
+Safari" is not a defect here. Do not spend review or test effort there, and do not add Safari
+work-arounds to shared code — they cost the field devices complexity for nobody's benefit.
+
 ## 2. Quick start
 
 No build step — the PWA is static files.

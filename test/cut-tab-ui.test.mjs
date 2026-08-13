@@ -75,15 +75,26 @@ ok(/wireWaveSeek\(wave, seg, deps\.getPlayer/.test(strips), 'and so do the Basel
 ok(/seekMs\?\.\(seg\.start \+ f \* \(seg\.end - seg\.start\)\)/.test(strips),
    'a click maps to a time INSIDE that segment\'s own span');
 
-console.log('\nplayback runs THROUGH the boundaries — on the Cut tab, and only there');
+/* ── TWO TRANSPORTS, TWO QUESTIONS (Seth, 2026-08-13, refining v357):
+ *   a row's ▶  → "is this span right?"     → play the line and STOP at its end (playSpan)
+ *   Space / ⏵  → "does this seam sound right?" → run on through the cuts (playThrough)
+ * v357 gave the row button play-through as well, which collapsed the two and left no way to hear
+ * one span in isolation. */
+console.log('\nSpace and the dock ⏵ play THROUGH the boundaries; a row\'s ▶ plays just its line');
 const pt = method(audio, 'playThrough');
 ok(!!pt && /this\.clearSpan\(\)/.test(pt) && !/_spanTick/.test(pt),
    'playThrough plays with no span watcher, so nothing pauses it at a cut');
-ok(/p\.playThrough\(from\)/.test(strips), 'a Cut row\'s ▶ plays through');
-ok(/export function cutTogglePlay/.test(strips) && /p\.playThrough\(\);/.test(strips), 'and so does Space');
+ok(/export function cutTogglePlay/.test(strips) && /p\.playThrough\(\);/.test(strips),
+   'Space uses it');
+ok(/this\.clearSpan\(\); this\.ws\?\.playPause\(\)/.test(audio),
+   'and the dock\'s own ⏵ drops any span watcher before playing, so it runs on too');
+ok(!/playThrough/.test(render), 'but the ROW button does not — no play-through in renderCut');
+ok(/wireSegPlay\(play, seg, cutDeps\.getPlayer/.test(render),
+   'it uses the SAME wireSegPlay as Baseline and Gloss, so "play this line" means one thing');
 const wsp = strips.match(/export function wireSegPlay[\s\S]*?\n\}/)[0];
 ok(/playSpan\(from, seg\.end, seg\.start\)/.test(wsp),
-   'the Baseline/Gloss transport still stops at the end of its line (playSpan) — unchanged');
+   'which is span-limited (playSpan) and rewinds to the segment when it finishes');
+ok(!/function cutPlaySeg/.test(strips), 'and the tab keeps no play-through copy of that wiring');
 const cutEntry = app.match(/if \(tab === 'cut'\) \{[\s\S]*?prepareCutAudio\(\);/)[0];
 ok(/lastPlayTarget = null;/.test(cutEntry),
    'and no span target is left behind on the Cut tab, so ⏮ and Space cannot re-introduce one');

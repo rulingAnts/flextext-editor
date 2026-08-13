@@ -895,11 +895,17 @@ export class Player {
   /* Play CONTINUOUSLY from `ms` (or from wherever the playhead is), with NO span watcher — so
    * playback runs straight through every boundary.
    *
-   * ⚠ This is the CUT TAB's playback, and only its (Seth, 2026-08-13: "it's OK for playback to just
-   * keep going through segment boundaries even if it was started on a specific segment — on the cut
-   * tab only. The baseline and gloss tabs should retain their current behavior"). Cutting is judged
-   * by ear across a seam: a transport that stops dead at every cut makes the one job of that tab
-   * impossible. On Baseline and Gloss, "play this line" still means exactly that (playSpan). */
+   * ⚠ This is the CUT TAB's SECOND transport, and only its (Seth, 2026-08-13: "it's OK for playback
+   * to just keep going through segment boundaries … on the cut tab only. The baseline and gloss tabs
+   * should retain their current behavior"). Cutting is judged by ear across a seam, and a transport
+   * that stops dead at every cut makes that impossible.
+   *
+   * ⚠ IT IS NOT WHAT A LINE'S ▶ DOES, on any tab (Seth, refining it the same day: "if the user
+   * clicks a segment play button, play-through behavior shouldn't happen … but spacebar or the big
+   * player play button will play through"). A row button answers "is this span right?" and must
+   * stop at the span's end — that is playSpan. This one answers "does this seam sound right?" and
+   * belongs to Space and to the dock's own ⏵. Two questions, two controls; collapsing them into one
+   * takes away the ability to hear a single span in isolation. */
   playThrough(ms) {
     if (!this.ws) return;
     this.clearSpan();

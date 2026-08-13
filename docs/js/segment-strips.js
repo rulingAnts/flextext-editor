@@ -592,8 +592,9 @@ export function stopGlossTicker() { if (glossTick) { clearInterval(glossTick); g
  * cuts already are, and the real work on the STRIPS — Enter cuts the segment at ITS playhead,
  * Backspace joins it with the one before. Same gestures, same rows, same follow-scroll and
  * highlight as the Baseline tab. The differences are that the text is a caption instead of an
- * input, that a segment carrying text is drawn grey and refuses to be cut, and that playback runs
- * straight THROUGH the boundaries (playThrough) instead of stopping at each one.
+ * input, that a segment carrying text is drawn grey and refuses to be cut, and that this tab has a
+ * second, CONTINUOUS transport: Space and the dock's ⏵ run straight through the boundaries
+ * (playThrough), while a row's own ▶ still plays just that line, exactly as everywhere else.
  *
  * ⚠ THERE IS ONE WHOLE-FILE WAVEFORM ON THIS SCREEN, AND IT IS THE DOCK PLAYER'S. v354–v356 drew a
  * second one here; Seth: "there's TWO waveform displays at the top of the whole audio file. I don't
@@ -735,7 +736,12 @@ export function renderCut(anchorIdx) {
      * works at all: the playhead IS the cursor here, so a strip you cannot click is a cut you
      * cannot place. It was missing from v354–v356. */
     wireWaveSeek(wave, seg, cutDeps.getPlayer, (s) => { if (cutDeps.onPlayTarget) cutDeps.onPlayTarget(s); });
-    play.addEventListener('click', () => cutPlaySeg(seg));
+    /* ⚠ THE ROW'S ▶ PLAYS ONLY ITS OWN SPAN — the SAME wiring as the Baseline and Gloss tabs, so
+     * "press play on a line" means one thing everywhere in the suite. Play-through belongs to Space
+     * and to the dock player's own ⏵ (see cutTogglePlay): a row button that ran past its own end
+     * left no way to hear a single span in isolation, which is how you judge whether the span is
+     * right. Seth, 2026-08-13, on the cut tab only. */
+    wireSegPlay(play, seg, cutDeps.getPlayer, (s) => { if (cutDeps.onPlayTarget) cutDeps.onPlayTarget(s); });
     const paint = { color: text ? LOCKED_WAVE : null };
     observeWave(wave, () => drawStrip(wave, seg, peaksCache.durationMs, paint));
     drawStrip(wave, seg, peaksCache.durationMs, paint);
@@ -866,20 +872,18 @@ export function cutHere() {
   renderCut(at);
 }
 
-/* SPACE / a row's ▶ — the Cut tab's transport. Continuous, never span-limited: see
- * Player.playThrough. Pressing ▶ on the row the playhead is already inside PAUSES in place, which
- * is what leaves the playhead parked exactly where the next cut goes. */
-function cutPlaySeg(seg) {
-  const p = cutDeps && cutDeps.getPlayer && cutDeps.getPlayer();
-  if (!p || !isAligned(seg)) return;
-  const t = p.playheadMs?.();
-  if (p.playing?.() && typeof t === 'number' && t >= seg.start && t < seg.end) { p.pause(); return; }
-  const from = (typeof t === 'number' && t > seg.start && t < seg.end - 150) ? t : seg.start;
-  p.playThrough(from);
-}
-
 /* Space, from the document-level key handler. Toggles the one player from wherever the playhead
- * is — no target, no span, because on this tab playback simply runs on. */
+ * is — no target, no span, so it runs on through every cut.
+ *
+ * ⚠ THE TWO TRANSPORTS ON THIS TAB MEAN DIFFERENT THINGS, and that is the point (Seth, 2026-08-13:
+ * "if the user clicks a segment play button, play-through behavior shouldn't happen … but spacebar
+ * or the big player play button will play through"):
+ *
+ *   a row's ▶  → THIS LINE, and stop at its end (wireSegPlay → playSpan) — "is this span right?"
+ *   Space / ⏵  → run on through the cuts (playThrough) — "does this seam sound right?"
+ *
+ * One question each, and each has a control. Making the row button play through too collapsed them
+ * into one and left no way to hear a single span in isolation. */
 export function cutTogglePlay() {
   const p = cutDeps && cutDeps.getPlayer && cutDeps.getPlayer();
   if (!p) return;

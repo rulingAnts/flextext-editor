@@ -245,6 +245,26 @@ tab grey means HAS TEXT — the same visual reading for opposite states. That is
 but Seth asked for the Cut tab's meaning specifically, and changing Baseline's is a shipped-tab
 change nobody has asked for. Worth raising before it is discovered.
 
+## v359 — the two transports, split back apart (Seth, 2026-08-13)
+
+> *"If the user clicks a segment play button, play-through behavior shouldn't happen. The segment
+> play button should play only the segment. But spacebar or the big player play button will play
+> through."*
+
+v357 gave the row buttons play-through as well, which collapsed two different questions into one
+control and left no way to hear a single span in isolation. Split back:
+
+| control | question it answers | how |
+|---|---|---|
+| a row's **▶** | *is this span right?* | `wireSegPlay` → `playSpan` — the SAME wiring as Baseline and Gloss, so "play this line" means one thing across the suite. Stops at the span's end and rewinds to its start |
+| **Space** and the dock's **⏵** | *does this seam sound right?* | `playThrough` — no span watcher, runs on through every cut |
+
+⚠ The Cut tab still DISARMS any watcher on entry (v358), and that is not in tension with this: the
+watcher a row button arms is one the user asked for on THIS tab, while the one carried in from a
+Baseline line still playing is left over from another tab and would stop playback at a boundary
+nobody chose. Both browser assertions are kept, from the same parked position just inside a seam:
+the row button stops (▶), Space runs on to 0:14 past the 12s boundary.
+
 ### And the tab is verified in a BROWSER now
 
 v355 and v356 both shipped saying *"still unverified in a browser"*, and both were wrong in ways no

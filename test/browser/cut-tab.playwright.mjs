@@ -144,13 +144,29 @@ ok(await page.textContent('.player-play') === '⏸',
    `still rolling past the end of the line that was playing when the tab was entered (${past})`);
 await pause();
 
-console.log('\nand a strip\'s own ▶ plays through the boundary too');
-const w1 = await rows().first().locator('.seg-wave').boundingBox();
-await page.mouse.click(w1.x + w1.width * 0.95, w1.y + w1.height / 2);   // park just inside its end
-await page.waitForTimeout(250);
+/* ── THE TWO TRANSPORTS ANSWER DIFFERENT QUESTIONS (Seth, refining v357). Both are checked here
+ * from the SAME starting position — parked just inside span 0's end — so the only variable is which
+ * control was used. */
+const parkNearSeam = async () => {
+  const w = await rows().first().locator('.seg-wave').boundingBox();
+  await page.mouse.click(w.x + w.width * 0.95, w.y + w.height / 2);
+  await page.waitForTimeout(250);
+};
+
+console.log('\na strip\'s own ▶ plays THAT LINE and stops at its end');
+await parkNearSeam();
 await page.evaluate(() => document.querySelector('#cut-strips .cut-row .seg-play').click());
-await page.waitForTimeout(3000);   // resumes from the parked spot and crosses into the next span
-ok(await page.textContent('.player-play') === '⏸', 'still rolling 3s after starting near the seam');
+await page.waitForTimeout(3000);   // long enough to have crossed the seam, had it been allowed to
+ok(await page.textContent('.player-play') === '▶',
+   'stopped at the end of its own span — the way "play this line" works on every other tab');
+await pause();
+
+console.log('\n…and SPACE, from the same spot, runs on through the seam');
+await parkNearSeam();
+await page.keyboard.press('Space');
+await page.waitForTimeout(3000);
+const rolled = await page.textContent('.player-time');
+ok(await page.textContent('.player-play') === '⏸', `still rolling past the seam (${rolled})`);
 await pause();
 
 console.log('\nand a cut does not throw the view back to the top');

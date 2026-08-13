@@ -2152,6 +2152,15 @@ main {
 .cut-ov-head { position: absolute; top: 0; bottom: 0; width: 2px; background: #d33;
                pointer-events: none; }
 .cut-say { min-height: 1.3em; margin: 4px 0 10px; }
+/* ✂ rides the playhead, on the row the playhead is in — the control and the thing it acts on are
+   the same place on screen, so the gesture needs no explaining. Sized for a thumb. */
+.cut-scissors {
+  position: absolute; transform: translate(-50%, -2px); z-index: 2;
+  appearance: none; border: 1px solid var(--border); background: var(--card, #fff);
+  border-radius: 999px; width: 30px; height: 30px; line-height: 1; font-size: 15px;
+  cursor: pointer; padding: 0; color: #c9772a;
+}
+.cut-scissors:hover { background: #f6e9dc; }
 
 #cut-strips { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
 /* Focusable, because this tab has no text box to hold focus and Enter/Backspace must land

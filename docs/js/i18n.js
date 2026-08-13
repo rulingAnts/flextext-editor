@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v355';
+export const ENGINE_VERSION = 'v356';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v355';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'cut-tab v3';
+export const BUILD_TAG = 'cut-tab v4';
 
 const S = {
 en: {
@@ -1226,7 +1226,7 @@ internet after the first time.</p>
   'panel.f.joinSplitGloss': 'Allow joining and splitting lines on the Gloss tab',
   'panel.f.joinSplitGlossNote': 'On by default. Same as above, for the Gloss tab.',
   'panel.f.cutJoinTexted': 'Allow joining lines that already have text, on the Cut tab',
-  'panel.f.cutJoinTextedNote': 'On by default. Joining two lines keeps both pieces of text, so nothing is lost. Splitting a line that already has text is never allowed on the Cut tab, because there is no cursor there to say where the text should divide.',
+  'panel.f.cutJoinTextedNote': 'Off by default. On the Cut tab, lines that already have words typed for them are left alone \u2014 neither cut nor joined \u2014 so segmenting cannot disturb work already done. Turn this on to allow joining them anyway; joining keeps both pieces of text, so nothing is lost. Splitting them is never allowed there, because there is no cursor to say where the words should divide.',
   'panel.f.exportEaf': 'Include ELAN file (.eaf) in sent/saved bundles',
   'panel.f.exportSaymore': 'Include SayMore annotation file (<audio>.annotations.eaf) in sent/saved bundles',
   'panel.f.exportPreview': 'Include audio preview page (.preview.html) in local saves',
@@ -2752,7 +2752,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.f.joinSplitGloss': 'Izinkan menggabungkan dan memisahkan baris di tab Gloss',
   'panel.f.joinSplitGlossNote': 'Aktif secara bawaan. Sama seperti di atas, untuk tab Gloss.',
   'panel.f.cutJoinTexted': 'Izinkan menggabungkan baris yang sudah ada teksnya, di tab Potong',
-  'panel.f.cutJoinTextedNote': 'Aktif secara bawaan. Menggabungkan dua baris tetap menyimpan kedua teksnya, jadi tidak ada yang hilang. Memisahkan baris yang sudah ada teksnya tidak pernah diizinkan di tab Potong, karena di sana tidak ada kursor untuk menentukan di mana teks harus dibagi.',
+  'panel.f.cutJoinTextedNote': 'Mati secara bawaan. Di tab Potong, baris yang sudah ada kata-katanya dibiarkan saja \u2014 tidak dipotong maupun digabung \u2014 sehingga pemotongan tidak mengganggu pekerjaan yang sudah ada. Aktifkan untuk mengizinkan penggabungannya; menggabungkan tetap menyimpan kedua teksnya, jadi tidak ada yang hilang. Memisahkannya tidak pernah diizinkan di sana, karena tidak ada kursor untuk menentukan di mana kata-katanya dibagi.',
   'panel.f.exportEaf': 'Sertakan file ELAN (.eaf) dalam bundel yang dikirim/disimpan',
   'panel.f.exportSaymore': 'Sertakan file anotasi SayMore (<audio>.annotations.eaf) dalam bundel yang dikirim/disimpan',
   'panel.f.exportPreview': 'Sertakan halaman pratinjau audio (.preview.html) dalam simpanan lokal',

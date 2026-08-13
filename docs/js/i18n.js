@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v348';
+export const ENGINE_VERSION = 'v349';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v348';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'files-modal v1';
+export const BUILD_TAG = 'files-modal v2';
 
 const S = {
 en: {
@@ -1074,6 +1074,16 @@ internet after the first time.</p>
   'panel.dl.fetching': 'Fetching {name}…',
   'panel.dl.fetchingN': 'Fetching {i} of {n}: {name}',
   'panel.dl.saved': '{name} saved.',
+  'panel.dl.starting': 'starting…',
+  'panel.dl.pct': '{pct}% of {size}',
+  'panel.dl.fetchingPct': 'Fetching {name} — {pct}%',
+  'panel.dl.fetchingBytes': 'Fetching {name} — {size}',
+  'panel.dl.savedShort': 'done — check your downloads',
+  'panel.dl.failedShort': 'failed',
+  /* The activity tray. Panel downloads are not browser downloads until the last instant (the bytes
+   * stream through the Worker into a Blob first), so nothing appears in the browser's download list
+   * while they run — this box is the only place the work is visible. */
+  'panel.jobs.title': 'In progress',
   'panel.dl.oneAtATime': 'One conversion at a time — the current one is still working.',
   /* v3: the Files menu reads flextext-manifest.json. No manifest -> ONE item, a folder link. */
   'panel.dl.openFolder': 'Open the Drive folder \u2197',
@@ -2574,6 +2584,14 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.dl.fetching': 'Mengambil {name}…',
   'panel.dl.fetchingN': 'Mengambil {i} dari {n}: {name}',
   'panel.dl.saved': '{name} tersimpan.',
+  'panel.dl.starting': 'memulai…',
+  'panel.dl.pct': '{pct}% dari {size}',
+  'panel.dl.fetchingPct': 'Mengambil {name} — {pct}%',
+  'panel.dl.fetchingBytes': 'Mengambil {name} — {size}',
+  'panel.dl.savedShort': 'selesai — lihat unduhan Anda',
+  'panel.dl.failedShort': 'gagal',
+  /* Lihat catatan pada blok en. */
+  'panel.jobs.title': 'Sedang berjalan',
   'panel.dl.oneAtATime': 'Satu konversi pada satu waktu — yang sekarang masih berjalan.',
   'panel.dl.openFolder': 'Buka folder Drive \u2197',
   'panel.dl.openFolderSub': 'lihat semua berkas teks ini di Google Drive',

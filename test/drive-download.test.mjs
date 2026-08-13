@@ -66,6 +66,11 @@ const run = async (files, wrap = null, convo = {}) => {
     /* v347: the modal's status line. Captured rather than ignored — "the UI gives no indication
      * that it's doing anything" was the reported bug, so the progress messages are behaviour. */
     dlStatus: (_w, msg) => { (captured.status = captured.status || []).push(msg); },
+    /* The activity tray. Panel downloads are invisible to the browser's own download list until
+     * they finish, so these calls ARE the user-facing progress — stubbed, not ignored. */
+    jobStart: (label) => { captured.jobLabel = label; return 1; },
+    jobSet: (_id, msg) => { (captured.job = captured.job || []).push(msg); },
+    jobEnd: (_id, msg) => { captured.jobEnd = msg; },
     URL: { createObjectURL: (b) => { captured.blob = b; return 'blob:x'; }, revokeObjectURL: () => {} },
     document: { createElement: () => ({ set download(v) { captured.download = v; }, get download() { return captured.download; },
                                         click() {}, remove() {}, set href(v) {}, }),

@@ -363,10 +363,70 @@ that mattered, in descending order of what they would have cost a field user:
 | **`cutGuessSplits` and UNDO left stale span watchers** | the same defect v360 fixed in `cutHere`, reached by two more routes: a watcher captures its stop time and rewind-home when playback starts, and both of these replace every segment underneath it |
 | **The browser test's boundary check was a tautology** | its comment claimed every boundary sits in a silence; the assertion counted rows. It now reads the boundary times off the player's own marks and asserts `1.15 ≤ (t mod 2) ≤ 2.0` — inside the recording's silences |
 
-⚠ **Left alone deliberately**: nothing caps the number of guessed lines, so a 40-minute recording can
-produce several hundred rows, each with its own canvas. That cost is the strip renderer's and is not
-new — but Guess is the first thing that can reach it in one press. Worth watching on a cheap phone
-before it becomes a bug report.
+## v364 — the drift, measured; and a 10-minute cap on guessing
+
+**The drift is fixed and now proven at length.** v363 corrected the frame→time conversion; this
+release adds the guard that would have caught it in the first place. Case (g3) builds a **ten-minute**
+recording at a real 44.1kHz `msPerBucket` and asserts that the END is no less accurate than the
+BEGINNING — because a 1% error is invisible at 30 seconds and 20 seconds wrong at the end of a long
+one. Measured at 40 minutes: **6.2ms average error in the first 20 pauses, 6.6ms in the last** — flat.
+The ~6ms that remains is frame quantisation (frames are ~10ms), inside a pause of at least 350ms.
+
+⚠ **The first attempt at that measurement blamed the detector for the TEST's rounding**, reporting
+5ms early and 113ms late. The synthetic signal writes each block as a whole number of buckets, so the
+SCRIPT and the SIGNAL drift apart by ~100ms over ten minutes. The truth has to be taken from the
+bucket layout the detector actually sees. Any future accuracy test here must do the same.
+
+**And guessing is capped at ten minutes of recording** (Seth: *"cap the number of guessed lines or
+rather the length of a recording that allows auto-guessing lines. Maybe let's cap that at 10
+minutes?"*).
+
+⚠ **The cap is on the INPUT, and it is about MEMORY, not about the detector.** Detection is ~45ms on
+40 minutes of peaks — measured. What does not scale is the RESULT: one press would turn that into
+~650 lines, and the Cut tab builds a live `<canvas>` for every one, on a phone. The device would run
+out *after* the edit had already replaced the document. Capping the input refuses before anything
+happens and can say why, with the limit and the recording's actual length; capping the OUTPUT would
+mean silently dropping boundaries the user can see in the waveform. `guessSplits` itself is
+uncapped — the limit belongs to the tab that has to render the result, not to the model.
+
+### Following the playing line, whichever transport started it
+
+Seth: *"auto-scrolling works if I play the big player, but I want it to work on the play-through
+behavior too."* Play-through already followed — measured on the Cut tab: 650px of scroll under Space,
+275px under the dock ⏵. What never scrolled was **span playback**, because v326's follow rule
+exempted it: *"the user just clicked it, so they are already looking at it."*
+
+⚠ **That was a guess about where the user was looking, and `offScreen` is the same claim MEASURED.**
+If the line really is on screen, dropping the exemption changes nothing; if it is not, the old rule
+left someone listening to a line they could not see — press ▶ on line 8 of a long text and the view
+stayed at the top. The exemption also stopped being harmless once playback stopped meaning "one
+line": a row's ▶ arms a span, and no other transport does.
+
+The Gloss tab had kept a FOURTH copy of the follow rule (in `startGlossCursor`), which is how it
+would have kept the exemption after the others dropped it. It uses the shared `followLine` now.
+Verified on all three tabs: playing line 8 of 11 scrolls it into view from the top (Cut 649px,
+Baseline 837px, Gloss 706px).
+
+⚠ Unchanged, and stated because it is easy to break: **play-through is still only the big player and
+Space, and only on the Cut tab.** On Baseline and Gloss, a segment selected and played with the
+spacebar plays THAT segment and rewinds at its end, exactly as before (Seth, 2026-08-13).
+
+### NEXT: resource limits, gracefully (Seth, 2026-08-13)
+
+> *"At some point with that we'll need to think about memory/system resource limitations and be able
+> to handle those gracefully."*
+
+The ten-minute cap is one instance of a general problem this suite already meets in three places, all
+solved separately: the PCM RAM budget while recording (`pcmRamBudgetBytes`), the oversize-conversion
+ladder (`plans/oversize-conversions.md`), and now this. What is missing is a shared answer to *"how
+much can this device do?"* and a habit of asking before starting rather than failing partway.
+
+Worth doing when it is next touched, not before:
+- one place that estimates cost per operation (rows × canvas, peaks bytes, decode bytes) against
+  something real (`navigator.deviceMemory`, `performance.memory` where present, a measured fallback);
+- refusals that state the limit and the actual figure, as this one does — never a silent truncation;
+- and the rule this release used: **fail BEFORE the edit, never after**, because the destructive step
+  is the one that cannot be undone by the user's next tap.
 
 ### And the tab is verified in a BROWSER now
 

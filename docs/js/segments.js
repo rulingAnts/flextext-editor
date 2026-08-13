@@ -352,6 +352,20 @@ export const GUESS_MIN_GAP_MS = 350;
  * one-second line is usually a false positive around a cough or a door; a real utterance in this
  * work is a clause. */
 export const GUESS_MIN_LINE_MS = 900;
+/* ⚠ THE LONGEST RECORDING THIS IS OFFERED FOR (Seth, 2026-08-13: "cap the number of guessed lines or
+ * rather the length of a recording that allows auto-guessing lines. Maybe let's cap that at 10
+ * minutes?").
+ *
+ * The DETECTION is cheap and scales fine — 40 minutes of peaks is ~45ms of work, measured. What does
+ * not scale is what comes after: one press turns a 40-minute recording into ~650 lines, and the Cut
+ * tab builds a live <canvas> for every one of them, on a phone. That is where a field device would
+ * run out of memory, and it would do so AFTER the edit had already replaced the document.
+ *
+ * So the cap is on the INPUT, where it can be explained before anything happens, rather than on the
+ * output where it would mean silently dropping boundaries the user could see in the waveform. A
+ * recording longer than this is cut by hand — which is also the honest answer, because a 40-minute
+ * text is a different unit of work from a 5-minute one and probably wants splitting first. */
+export const GUESS_MAX_MS = 10 * 60 * 1000;
 
 /** Percentile of a SORTED copy — used for the floor and the speech level alike. */
 function pct(sorted, p) {

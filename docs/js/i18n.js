@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v363';
+export const ENGINE_VERSION = 'v364';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v363';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'cut-tab v11';
+export const BUILD_TAG = 'cut-tab v12';
 
 const S = {
 en: {
@@ -1229,6 +1229,7 @@ internet after the first time.</p>
   'cut.no.guessText': 'This text already has words in it, so its lines cannot be guessed again. Cut it by hand instead.',
   'cut.no.guessNone': 'No clear pauses found in this recording, so nothing was changed. Cut it by hand.',
   'cut.no.guessAudio': 'The recording is still loading, so there is nothing to guess from yet.',
+  'cut.no.guessLong': 'This recording is {mins} minutes long, and the lines can only be guessed for recordings up to {max} minutes. Cut this one by hand \u2014 or record in shorter pieces.',
   'panel.f.cutTab': 'Show the "Cut" tab',
   'panel.f.cutTabNote': 'A tab before Baseline for cutting the audio into lines and nothing else \u2014 no typing, no glosses. Lets a worker do all the segmenting first, then transcribe. Only appears for texts that have a recording.',
   'panel.f.landOnCut': 'Open new recordings on the "Cut" tab',
@@ -2763,6 +2764,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'cut.no.guessText': 'Teks ini sudah ada kata-katanya, jadi barisnya tidak bisa ditebak lagi. Potonglah sendiri.',
   'cut.no.guessNone': 'Tidak ditemukan jeda yang jelas di rekaman ini, jadi tidak ada yang diubah. Potonglah sendiri.',
   'cut.no.guessAudio': 'Rekaman masih dimuat, jadi belum ada yang bisa ditebak.',
+  'cut.no.guessLong': 'Rekaman ini panjangnya {mins} menit, sedangkan barisnya hanya bisa ditebak untuk rekaman sampai {max} menit. Potonglah yang ini sendiri \u2014 atau rekamlah dalam bagian-bagian yang lebih pendek.',
   'panel.f.cutTab': 'Tampilkan tab \u201cPotong\u201d',
   'panel.f.cutTabNote': 'Tab sebelum Ketik untuk memotong audio menjadi baris saja \u2014 tanpa mengetik, tanpa gloss. Memungkinkan pekerja memotong semuanya dulu, baru menuliskannya. Hanya muncul untuk teks yang punya rekaman.',
   'panel.f.landOnCut': 'Buka rekaman baru di tab \u201cPotong\u201d',

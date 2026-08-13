@@ -19,7 +19,7 @@ import { losslessSupported, recFormatSupported, PCMRecorder, encodeWav, encodeRe
 import WaveSurfer from './vendor/wavesurfer.esm.js';
 import { makeZip } from './zip.js';
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay,
-         wireWaveSeek, requestReveal, takeReveal,
+         wireWaveSeek, requestReveal, takeReveal, followLine,
          initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut } from './segment-strips.js';
 import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME,
          sanitizeBase, extOf, mediaNameFor, derivedWavName } from './seg-exports.js';
@@ -1061,10 +1061,7 @@ function decorateGlossSegments() {
  * glyphs — one rAF loop, the gloss twin of the baseline strips' positionCursor. */
 let glossRafId = 0;
 let glossFollowRow = null;
-let glossLastScroll = 0;
-if (typeof window !== 'undefined') {
-  for (const ev of ['wheel', 'touchmove']) window.addEventListener(ev, () => { glossLastScroll = Date.now(); }, { passive: true });
-}
+// (the 4s user-scroll stand-off lives in segment-strips' followLine now, with one shared timestamp)
 function startGlossCursor(entries) {
   cancelAnimationFrame(glossRafId);
   const tick = () => {
@@ -1083,13 +1080,11 @@ function startGlossCursor(entries) {
        * in THIS loop: startGlossTicker in segment-strips.js looks like the gloss ticker and is dead
        * code, so the hook added there in v360 never ran. This tab scrolls the whole line-GROUP. */
       if (grp && inSeg) takeReveal(grp);
-      if (grp && inSeg && rolling && grp !== glossFollowRow) {
-        glossFollowRow = grp;
-        if (!player._spanTick && Date.now() - glossLastScroll > 4000) {
-          const r = grp.getBoundingClientRect();
-          if (r.top < 60 || r.bottom > (window.innerHeight - 20)) grp.scrollIntoView({ block: 'center', behavior: 'smooth' });
-        }
-      }
+      /* ⚠ THE SHARED follow rule, not a fourth copy of it (Seth: "reuse whatever common code you
+       * can"). This tab had its own, which is how it kept the v326 span-playback exemption after the
+       * others dropped it — so a line played with Space here highlighted off screen and never came
+       * into view. Same helper as the Baseline strips and the Cut rows now. */
+      if (grp && inSeg) glossFollowRow = followLine(grp, rolling && inSeg, glossFollowRow, player);
       let cur = en.wrap.querySelector('.gseg-cursor');
       if (inSeg) {
         if (!cur) { cur = document.createElement('div'); cur.className = 'gseg-cursor'; en.wrap.appendChild(cur); }

@@ -356,6 +356,31 @@ for (const tab of ['baseline', 'gloss']) {
   ok(await page.textContent('.player-play') === '▶', 'and stopped it again');
 }
 
+/* ── FOLLOWING THE PLAYING LINE, whichever transport started it (Seth: "auto-scrolling works if I
+ * play the big player, but I want it to work on the play-through behavior too"). v326 exempted SPAN
+ * playback from the follow rule on the grounds that the user was already looking at the line they
+ * clicked — a guess, where `offScreen` is the same claim measured. */
+for (const tab of ['cut', 'baseline', 'gloss']) {
+  console.log(`\nplaying a line far down the ${tab.toUpperCase()} list brings it into view`);
+  if (tab === 'cut') await page.click('#tab-cut');
+  else await page.evaluate((t) => document.querySelector(`.top-tab[data-tab="${t}"]`).click(), tab);
+  await page.waitForTimeout(2200);
+  await pause();
+  const playSel = tab === 'cut' ? '#cut-strips .cut-row .seg-play'
+    : tab === 'baseline' ? '#segment-strips .seg-play' : '.gseg-play';
+  const n = await page.locator(playSel).count();
+  const idx = Math.min(7, n - 1);
+  await page.evaluate(() => { document.querySelector('main').scrollTop = 0; });
+  await page.waitForTimeout(300);
+  const before = await page.evaluate(() => document.querySelector('main').scrollTop);
+  await page.evaluate(([sel, i]) => document.querySelectorAll(sel)[i].click(), [playSel, idx]);
+  await page.waitForTimeout(1200);
+  const after = await page.evaluate(() => document.querySelector('main').scrollTop);
+  ok(n >= 8, `the list is long enough for line ${idx} to be off screen (${n} lines)`);
+  ok(after > before + 100, `the view followed the line being played (${before} → ${after})`);
+  await pause();
+}
+
 console.log('\n…but a control OUTSIDE the editor keeps its own Space');
 /* The line has to be drawn somewhere: Save, Done—send and ⟵ Back are ordinary buttons in the topbar
  * and a keyboard user must still be able to press them. */

@@ -22,7 +22,7 @@
 
 import { normalizeSegments, boundaryAtPlayhead, mergeSegments, syncToLines, isAligned,
          cutAtPlayhead, joinWithPrevious, segmentIndexAt,
-         guessSplits, applyGuessedSplits } from './segments.js';
+         guessSplits, applyGuessedSplits, GUESS_MAX_MS } from './segments.js';
 import { peakPlan } from './seg-exports.js';
 
 let deps = null;      // { container, textarea, getPlayer, getDoc, getParagraphs, setParagraphs, persist, t }
@@ -50,18 +50,24 @@ if (typeof window !== 'undefined') {
  *
  * The rule (the PAT recipe, v326): scroll only on a line CHANGE, only while actually PLAYING, only
  * when the row is off screen, and never within 4s of the user scrolling — so the view is never
- * fought over. Span playback (`_spanTick`) highlights but never scrolls: the user just clicked it,
- * so they are already looking at it.
+ * fought over. ⚠ v364 dropped the fifth clause, which exempted span playback; see below.
  *
  * Returns the row to remember as "currently followed". Callers keep their own memory of it, because
  * each tab scrolls its own list independently.
  *
  * ⚠ Extraction only — the behaviour is byte-for-byte what the Baseline ticker already did. Changing
  * the rule here changes it on every tab at once, which is the point and also the risk. */
-function followLine(row, rolling, prevRow, player) {
+export function followLine(row, rolling, prevRow, player) {
   if (!rolling || row === prevRow) return prevRow;
-  if (!player?._spanTick && Date.now() - lastUserScroll > 4000) {
-    if (offScreen(row)) row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  /* ⚠ SPAN PLAYBACK FOLLOWS TOO NOW (Seth, 2026-08-13: "auto-scrolling works if I play the big
+   * player, but I want it to work on the play-through behavior too"). v326 exempted it — "the user
+   * just clicked it, so they are already looking at it" — which was a guess about where they were
+   * looking, and the `offScreen` test below is the same claim MEASURED. If the line really is on
+   * screen nothing happens either way; if it is not, the old rule left the user listening to
+   * something they could not see. The exemption also stopped being harmless when playback stopped
+   * meaning one line: a row's ▶ arms a span, and every other transport does not. */
+  if (Date.now() - lastUserScroll > 4000 && offScreen(row)) {
+    row.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }
   return row;
 }
@@ -820,9 +826,13 @@ export function renderCut(anchorIdx) {
    * (cutGuessSplits still refuses, as the backstop.) */
   const guess = document.getElementById('btn-guess-splits');
   if (guess) {
-    const hasText = paras.some((p) => String(p || '').trim());
-    guess.disabled = hasText;
-    guess.title = cutDeps.t(hasText ? 'cut.no.guessText' : 'cut.guessTip');
+    const hasText = paras.some((p) => String(p || '').trim()) || docHasWork(doc);
+    const tooLong = (peaksCache.durationMs || 0) > GUESS_MAX_MS;
+    guess.disabled = hasText || tooLong;
+    guess.title = hasText ? cutDeps.t('cut.no.guessText')
+      : tooLong ? cutDeps.t('cut.no.guessLong', { max: Math.round(GUESS_MAX_MS / 60000),
+                                                  mins: Math.ceil(peaksCache.durationMs / 60000) })
+      : cutDeps.t('cut.guessTip');
   }
 
   syncCutBoundaries();
@@ -1006,6 +1016,14 @@ export function cutGuessSplits() {
   if (paras.some((p) => String(p || '').trim()) || docHasWork(doc)) { cutSay(cutDeps.t('cut.no.guessText')); return; }
   const dur = peaksCache.durationMs || 0;
   if (!peaksCache.peaks || !dur) { cutSay(cutDeps.t('cut.no.guessAudio')); return; }
+  /* ⚠ LONG RECORDINGS ARE CUT BY HAND. The detection itself is cheap at any length; what is not is
+   * the result — one press on a 40-minute recording is ~650 rows, each a live canvas on a phone, and
+   * the memory would run out AFTER the document had already been replaced. Refused up front, with
+   * the limit and the actual length, so it is a decision rather than a mystery. */
+  if (dur > GUESS_MAX_MS) {
+    cutSay(cutDeps.t('cut.no.guessLong', { max: Math.round(GUESS_MAX_MS / 60000), mins: Math.ceil(dur / 60000) }));
+    return;
+  }
   // Already cut by hand? Ask before replacing it. `> 1` rather than a segmentation-state test: one
   // whole-file span is the seed, i.e. nobody has cut anything yet.
   if (cutSegs().length > 1 && cutDeps.confirmReplace && !cutDeps.confirmReplace()) return;

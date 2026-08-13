@@ -644,16 +644,19 @@ function cutJoinOk() { return !(cutDeps.allowJoinTexted && !cutDeps.allowJoinTex
  * duplicated the ZOOM and the SEEKING too, which is why there were two places to click.
  *
  * The file's own end is not a boundary, and neither is 0: only the seams BETWEEN spans are marks. */
-function syncCutBoundaries() {
-  const p = cutDeps && cutDeps.getPlayer && cutDeps.getPlayer();
-  if (!p || !p.setBoundaries) return;
+function cutBoundaryTimes() {
   const segs = cutSegs();
   const marks = [];
   for (let i = 0; i < segs.length - 1; i++) {
     const s = segs[i];
     if (isAligned(s)) marks.push(s.end);
   }
-  p.setBoundaries(marks);
+  return marks;
+}
+function syncCutBoundaries() {
+  const p = cutDeps && cutDeps.getPlayer && cutDeps.getPlayer();
+  if (!p || !p.setBoundaries) return;
+  p.setBoundaries(cutBoundaryTimes());
 }
 
 /* THE LIST IS REBUILT WHOLESALE ON EVERY CUT AND JOIN, and emptying it collapses the page height —
@@ -778,6 +781,15 @@ function startCutTicker() {
       const host = document.getElementById('cut-strips');
       if (!host) return;
       const segs = cutSegs();
+
+      /* The marks on the dock player are DOM inside wavesurfer's wrapper, so a reload of the player
+       * (a doc switch, a re-attached recording) takes them with it and nothing else would put them
+       * back until the next edit. Comparing counts is one property read per frame; re-pushing only
+       * when they disagree keeps it to a handful of DOM writes per redraw. */
+      if (p && p.boundaryCount && p.durationMs?.()) {   // …once the player knows the length to scale by
+        const want = cutBoundaryTimes();
+        if (p.boundaryCount() !== want.length) p.setBoundaries(want);
+      }
 
       host.querySelectorAll('.cut-row').forEach((row) => {
         const idx = +row.dataset.i;

@@ -54,10 +54,18 @@ ok(/border-left:2px dotted/.test(rb) && /rgba\(108,118,133/.test(rb),
    'light grey, dotted, 2px — visible without crowding the waveform (Seth)');
 ok(/this\.renderBoundaries\(\);/.test(audio.match(/this\.ws\.on\('ready'[\s\S]*?\}\);/)[0]),
    're-drawn on ready, so marks set before the audio loaded are not lost to the race');
-ok(/syncCutBoundaries\(\)/.test(strips) && /p\.setBoundaries\(marks\)/.test(strips),
+ok(/syncCutBoundaries\(\)/.test(strips) && /p\.setBoundaries\(cutBoundaryTimes\(\)\)/.test(strips),
    'the Cut tab pushes its boundaries to the player');
 const stop = fn(strips, 'stopCut');
 ok(/setBoundaries\?\.\(\[\]\)/.test(stop), 'and leaving the tab takes them off again — Baseline and Gloss are untouched');
+
+/* ── the marks' LIFETIME. Both halves were found by the v357 preflight review, and the first was
+ * the only finding two independent verifiers refused to refute: boundary times mean nothing outside
+ * the recording they were measured in, and this Player is a singleton reused for every document. */
+ok(/this\._bounds = \[\];/.test(method(audio, 'destroyWs')),
+   'a destroyed waveform forgets its marks, so doc A\'s cuts cannot be painted on doc B');
+ok(/boundaryCount\(\)/.test(audio) && /p\.boundaryCount\(\) !== want\.length/.test(strips),
+   'and the ticker re-pushes them if a player reload took them away — nothing else would');
 
 console.log('\nthe per-segment strips are clickable: that is how a cut is placed at all');
 ok(/export function wireWaveSeek/.test(strips), 'the click-to-position/drag-to-scrub wiring is one shared helper');
@@ -76,8 +84,12 @@ ok(/export function cutTogglePlay/.test(strips) && /p\.playThrough\(\);/.test(st
 const wsp = strips.match(/export function wireSegPlay[\s\S]*?\n\}/)[0];
 ok(/playSpan\(from, seg\.end, seg\.start\)/.test(wsp),
    'the Baseline/Gloss transport still stops at the end of its line (playSpan) — unchanged');
-ok(/lastPlayTarget = null;/.test(app.match(/if \(tab === 'cut'\) \{[\s\S]*?prepareCutAudio\(\);/)[0]),
+const cutEntry = app.match(/if \(tab === 'cut'\) \{[\s\S]*?prepareCutAudio\(\);/)[0];
+ok(/lastPlayTarget = null;/.test(cutEntry),
    'and no span target is left behind on the Cut tab, so ⏮ and Space cannot re-introduce one');
+ok(/player\?\.clearSpan\?\.\(\);/.test(cutEntry),
+   'entering the tab also DISARMS a live span watcher — otherwise playback still stops at the '
+   + 'boundary of whatever Baseline line was playing when you came over');
 
 console.log('\nSpace plays and pauses wherever focus is (it is almost always on a button here)');
 const cutKeys = app.match(/if \(activeTab !== 'cut' \|\| \$\('#view-cut'\)\?\.hidden\) return;[\s\S]*?\}\);/)[0];
@@ -85,6 +97,21 @@ ok(/e\.key === ' ' && !e\.repeat.*preventDefault\(\); cutTogglePlay\(\)/.test(cu
    'the Cut tab handles Space itself, with preventDefault so a focused button cannot also fire');
 ok(/if \(activeTab === 'cut' && !\$\('#view-cut'\)\?\.hidden\) return;/.test(app),
    'and the global Space handler stands down there, so the two cannot double-toggle');
+
+/* ── …but NOT everywhere on the page. Claiming three keys at document level takes them from controls
+ * that legitimately own them; this is where that reach is bounded. Found by the preflight review:
+ * a dialog open over the Cut tab had its buttons deadened, with the recording playing behind it. */
+const guard = fn(app, 'cutKeysApply');
+ok(!!guard, 'there is one guard deciding where the Cut tab\'s keys apply');
+ok(/if \(!cutKeysApply\(e\.target\)\) return;/.test(cutKeys), 'and all three keys go through it');
+ok(/document\.querySelector\('\.modal:not\(\[hidden\]\)'\)/.test(guard),
+   'an open modal keeps its own keys — Enter must not cut the audio behind a Send dialog');
+ok(/CUT_SURFACE/.test(guard) && /'#view-cut, #audio-player'/.test(app),
+   'the tab\'s surface is the Cut view AND the dock player (its overview), and nothing else');
+ok(/ctl\.id !== 'tab-cut'/.test(guard),
+   'plus the Cut tab button itself — where focus lands on the way in, and the reported dead Space');
+ok(/input:not\(\[type="range"\]\)/.test(guard),
+   'a text box or <select> wins; the dock ZOOM slider does not, since Space means nothing to it');
 
 console.log('\nEnter cuts, Backspace joins ONLY when the researcher allows the key');
 ok(/e\.key === 'Enter'.*cutHere\(\)/.test(cutKeys), 'Enter cuts');
@@ -97,6 +124,10 @@ for (const k of ['cut.hint', 'cut.hintNoJoinKey']) {
 }
 ok(/hint\.dataset\.i18nHtml = joinKeysEnabled\(\) \? 'cut\.hint' : 'cut\.hintNoJoinKey'/.test(app),
    'and the hint names the key only when the key works');
+ok(/applyCutHint\(\);/.test(app.match(/function applyLiveSettings\(\)[\s\S]*?\n\}/)[0]),
+   'a PUSHED backspaceJoin re-words the hint in place — a researcher push lands mid-session');
+ok(/on the Cut tab, where Backspace joins/.test(i18n),
+   'and the researcher-facing note says the setting now covers the Cut tab as well');
 
 console.log('\ngrey means LOCKED, and nothing else');
 ok(/const LOCKED_WAVE = /.test(strips), 'there is one colour for a span that cannot be cut');
@@ -115,6 +146,14 @@ ok(/getBoundingClientRect\(\)\.top - anchorTop/.test(render),
    'plus the edited row\'s own pixel, so the view holds even when heights changed above it');
 ok(/renderCut\(at\);/.test(strips) && /renderCut\(Math\.max\(0, i - 1\)\)/.test(strips),
    'cut anchors on the row it cut; join anchors on the row that survived');
+/* …and neither does UNDO, which is the same complaint by another route: applyUndoState re-enters
+ * through switchTab('cut') → prepareCutAudio, and hiding #cut-main to show "Loading…" collapses the
+ * page height, which clamps the scroll to the top before renderCut can read it. */
+const prep = app.match(/async function prepareCutAudio\(\)[\s\S]*?\n\}/)[0];
+ok(/const reentry = main && !main\.hidden && cutShownFor === forDoc;/.test(prep),
+   're-entering the tab for the SAME doc keeps the strips on screen');
+ok(/if \(main && !reentry\) main\.hidden = true;/.test(prep),
+   'so the height never collapses and the scroll is never clamped — and the undo flicker goes too');
 
 console.log(fail ? `\nFAILED (${fail})` : '\nPASSED');
 process.exit(fail ? 1 : 0);

@@ -107,11 +107,51 @@ await page.keyboard.press('Space');
 await page.waitForTimeout(400);
 ok(await page.textContent('.player-play') === '▶', 'and Space paused it again');
 
-console.log('\nplayback runs THROUGH the boundary instead of stopping at it');
+console.log('\nan open dialog keeps its own keys — Space must not play behind it');
+/* The Cut tab claims Space at document level, which is what makes it work with focus on the tab
+ * button. The cost, found by the v357 preflight review, is that a Send/consent/record dialog sitting
+ * OVER the tab had its buttons deadened while the recording played behind it. */
+await page.evaluate(() => { document.getElementById('share-menu').hidden = false; });
+await page.evaluate(() => document.querySelector('#share-menu button')?.focus());
+await page.keyboard.press('Space');
+await page.waitForTimeout(500);
+ok(await page.textContent('.player-play') === '▶', 'Space inside the dialog did NOT start playback');
+await page.evaluate(() => { document.getElementById('share-menu').hidden = true; });
+
+/* ⚠ Every step below leaves the transport in a known state, because a rolling player SCROLLS the
+ * list (followLine), which would quietly wreck the scroll assertion further down. */
+const pause = async () => {
+  if (await page.textContent('.player-play') === '⏸') {
+    await page.evaluate(() => document.querySelector('.player-play').click());
+    await page.waitForTimeout(300);
+  }
+};
+
+console.log('\narriving on the tab DISARMS the span watcher a Baseline line left running');
+/* The most ordinary route to this tab is "listen to a line, come over to re-cut it" — and the
+ * watcher armed by that line's playSpan would pause playback at its end, on the one tab whose whole
+ * promise is that playback runs on through the cuts. Found by the v357 preflight review. */
+await pause();
+await page.evaluate(() => document.querySelector('.top-tab[data-tab="baseline"]').click());
+await page.waitForTimeout(1500);
+await page.evaluate(() => document.querySelector('#segment-strips .seg-play').click());   // span 0
+await page.waitForTimeout(400);
+await page.click('#tab-cut');
+await page.waitForTimeout(2500);
+await page.waitForTimeout(11000);   // span 0 ends at ~12s; a live watcher would have paused there
+const past = await page.textContent('.player-time');
+ok(await page.textContent('.player-play') === '⏸',
+   `still rolling past the end of the line that was playing when the tab was entered (${past})`);
+await pause();
+
+console.log('\nand a strip\'s own ▶ plays through the boundary too');
+const w1 = await rows().first().locator('.seg-wave').boundingBox();
+await page.mouse.click(w1.x + w1.width * 0.95, w1.y + w1.height / 2);   // park just inside its end
+await page.waitForTimeout(250);
 await page.evaluate(() => document.querySelector('#cut-strips .cut-row .seg-play').click());
-await page.waitForTimeout(6000);   // well past the first span's end
-ok(await page.textContent('.player-play') === '⏸', 'still rolling 6s after starting on the first strip');
-await page.evaluate(() => document.querySelector('.player-play').click());
+await page.waitForTimeout(3000);   // resumes from the parked spot and crosses into the next span
+ok(await page.textContent('.player-play') === '⏸', 'still rolling 3s after starting near the seam');
+await pause();
 
 console.log('\nand a cut does not throw the view back to the top');
 /* Enough rows that the list genuinely scrolls — with only a screenful the clamp-to-top this guards

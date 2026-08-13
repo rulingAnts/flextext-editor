@@ -843,6 +843,16 @@ export class Player {
     this.renderBoundaries();
   }
 
+  /* How many marks are actually on screen right now, or -1 if the layer has been thrown away with
+   * its waveform. The Cut tab's ticker compares this against the number of spans it expects and
+   * re-pushes when they disagree — the same belt-and-braces the strip canvases get from
+   * fixStaleWave, and for the same reason: a redraw that loses them would otherwise stay lost until
+   * the next edit, with no error anywhere. */
+  boundaryCount() {
+    const l = this._boundLayer;
+    return l && l.isConnected ? l.children.length : -1;
+  }
+
   renderBoundaries() {
     let wrap = null;
     try { wrap = this.ws?.getWrapper?.() || null; } catch { wrap = null; }
@@ -961,6 +971,13 @@ export class Player {
 
   destroyWs() {
     this.clearSpan();
+    /* ⚠ THE MARKS DIE WITH THE RECORDING THEY DESCRIBE. Boundary times mean nothing outside the file
+     * they were measured in, and this Player is a SINGLETON reused for every document — so keeping
+     * `_bounds` across a load would stamp one text's cuts onto the next text's waveform (at
+     * meaningless positions, for the whole of its decode) the moment two uncut recordings are worked
+     * through in a row, which is exactly the Cut tab's own workflow. The tab re-pushes its own marks
+     * on every render, so forgetting them here costs nothing and cannot be wrong. */
+    this._bounds = [];
     this._boundLayer = null;   // it lived inside the wrapper being destroyed
     if (this.ws) { try { this.ws.destroy(); } catch { /* noop */ } this.ws = null; }
     if (this.objectUrl) { URL.revokeObjectURL(this.objectUrl); this.objectUrl = null; }

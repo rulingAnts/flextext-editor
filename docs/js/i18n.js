@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v357';
+export const ENGINE_VERSION = 'v358';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v357';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'cut-tab v5';
+export const BUILD_TAG = 'cut-tab v6';
 
 const S = {
 en: {
@@ -1205,7 +1205,7 @@ internet after the first time.</p>
   /* Seth, 2026-08-13 — DEFAULT OFF, unlike segmentation. The join BUTTONS are the reliable route
    * now; the keys mainly produce accidental joins the transcriber then has to notice and undo. */
   'panel.f.backspaceJoin': 'Allow Backspace/Delete to join lines',
-  'panel.f.backspaceJoinNote': 'Off by default. When on, Backspace at the very start of a line (or Delete at the very end) joins it to its neighbour. The \u2919\u291a join buttons always work either way, so turning this off removes only the keyboard shortcut \u2014 and with it the accidental joins that are easy to make and awkward to undo.',
+  'panel.f.backspaceJoinNote': 'Off by default. When on, Backspace at the very start of a line (or Delete at the very end) joins it to its neighbour \u2014 on the Baseline and Gloss tabs, and on the Cut tab, where Backspace joins the current line to the one above it. The \u2919\u291a join buttons always work either way, so turning this off removes only the keyboard shortcut \u2014 and with it the accidental joins that are easy to make and awkward to undo.',
   /* The Cut ("Potong") tab family (Seth, 2026-08-13). ALL DEFAULT ON — these add or preserve
    * capability, unlike backspaceJoin which removes a shortcut and therefore defaults off. */
   'tabs.cut': 'Cut',
@@ -2735,7 +2735,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.f.segmentationNote': 'Tab Ketik dan Terjemahan Balik menjadi potongan selaras waktu: gelombang suara per baris, pemutaran per baris, dan Enter memotong baris pada posisi putar. Coba dulu dengan satu rekan kerja sebelum diaktifkan lebih luas. Jika dimatikan nanti, alatnya disembunyikan tetapi data segmen tidak pernah dihapus.',
   /* Lihat catatan pada blok en \u2014 default MATI. */
   'panel.f.backspaceJoin': 'Izinkan Backspace/Delete menggabungkan baris',
-  'panel.f.backspaceJoinNote': 'Mati secara bawaan. Bila aktif, Backspace di awal baris (atau Delete di akhir baris) menggabungkannya dengan baris sebelah. Tombol gabung \u2919\u291a tetap berfungsi apa pun pengaturannya, jadi mematikan ini hanya menghapus pintasan papan ketik \u2014 beserta penggabungan tak sengaja yang mudah terjadi dan merepotkan untuk dibatalkan.',
+  'panel.f.backspaceJoinNote': 'Mati secara bawaan. Bila aktif, Backspace di awal baris (atau Delete di akhir baris) menggabungkannya dengan baris sebelah \u2014 di tab Ketik dan Gloss, dan juga di tab Potong, di mana Backspace menggabungkan baris yang sedang aktif dengan baris di atasnya. Tombol gabung \u2919\u291a tetap berfungsi apa pun pengaturannya, jadi mematikan ini hanya menghapus pintasan papan ketik \u2014 beserta penggabungan tak sengaja yang mudah terjadi dan merepotkan untuk dibatalkan.',
   /* Lihat catatan pada blok en \u2014 semuanya AKTIF secara bawaan. */
   'tabs.cut': 'Potong',
   'cut.hint': 'Potong rekaman menjadi baris. Pemutar di atas untuk mencari posisi \u2014 ia menandai potongan yang sudah Anda buat. Putar sebuah baris di bawah lalu klik gelombangnya di tempat baris itu seharusnya berakhir, kemudian tekan <b>Enter</b> atau tombol \u2702. <b>Backspace</b>, atau tombol \u2919\u291a, menggabungkan sebuah baris dengan baris di atasnya. Tidak ada pengetikan di tab ini \u2014 kata-katanya menyusul.',

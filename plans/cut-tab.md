@@ -222,6 +222,29 @@ every zoom level. Marks laid over the container would slide out of register the 
 the zoom slider. The corollary is that app.css cannot reach them — those styles are inline in
 `audio.js` deliberately, and "tidying" them into the stylesheet would silently unstyle them.
 
+## v358 — what a preflight review found in v357, before it reached staging
+
+v357 was reviewed by four independent readers (blast-radius across the suite, runtime correctness,
+release integrity, settings/i18n) before the push to `staging`, and every finding was then handed to
+two skeptics whose job was to REFUTE it. Twelve findings; one survived both skeptics unanimously.
+The rest were mostly refuted as *"pre-existing, not a regression"* — a fair verdict about the diff,
+and the wrong reason to leave them alone when the behaviour they describe defeats the thing Seth had
+just asked for. Fixed in v358:
+
+| what | why it mattered |
+|---|---|
+| **Boundary marks survived a document switch** (the one unanimous finding) | `destroyWs()` dropped the layer but kept `_bounds`, and `'ready'` re-drew it. The Player is a SINGLETON: cut text A, press Back, open uncut text B, and B's waveform wore A's cuts — for the whole of B's decode, which on a phone with a long recording is many seconds. Boundary times mean nothing outside the file they were measured in, so a destroyed waveform now forgets them, and the ticker re-pushes if a reload takes them away |
+| **The Cut tab's keys were taken from every control on the page** | Enter/Backspace/Space are claimed at DOCUMENT level (that is what makes them work with focus on the tab button). A Send/consent/record dialog sits OVER this tab with `activeTab` still `'cut'`, so Space on the dialog's own button started the recording playing behind it and Enter cut the audio. `cutKeysApply()` now bounds the reach: an open `.modal` keeps its keys, controls outside the tab's surface (the Cut view + the dock player + the tab button) keep theirs |
+| **Entering the tab left a live span watcher armed** | The most ordinary route to this tab is "listen to a line on Baseline, come over to re-cut it" — and that line's `playSpan` watcher was still armed, so playback paused at its end. On the one tab whose whole promise is that playback runs on through the cuts |
+| **Undo still threw the view to the top** | Same complaint as the cut jump, by another route: `applyUndoState` re-enters through `switchTab('cut')` → `prepareCutAudio`, which hid `#cut-main` to show "Loading…", collapsing the height and clamping the scroll. Re-entry for the SAME doc no longer hides anything — which also removes the undo flicker this plan predicted |
+| **The dock ZOOM slider ate Space** | Fiddle with zoom, press Space, nothing happens: a second way for "spacebar doesn't work" to be true. A range input has no native Space behaviour, so it no longer blocks the key. `<select>` (the speed picker) still does — Space opens its list |
+| **A pushed `backspaceJoin` left the hint lying** | The hint names the key or the button depending on the setting, and a researcher push lands mid-session. `applyCutHint()` is now called from `applyLiveSettings` as well as on tab entry. The setting's own researcher-facing note also says, at last, that it covers the Cut tab |
+
+⚠ **Left deliberately alone**: on the Baseline tab a dimmed/quiet strip means EMPTY, while on the Cut
+tab grey means HAS TEXT — the same visual reading for opposite states. That is a real inconsistency,
+but Seth asked for the Cut tab's meaning specifically, and changing Baseline's is a shipped-tab
+change nobody has asked for. Worth raising before it is discovered.
+
 ### And the tab is verified in a BROWSER now
 
 v355 and v356 both shipped saying *"still unverified in a browser"*, and both were wrong in ways no
@@ -231,8 +254,12 @@ tests, and the second is the one that would have caught them:
 - `test/cut-tab-ui.test.mjs` — structural, runs in the node suite.
 - `test/browser/cut-tab.playwright.mjs` — opens the app in Chromium, imports a generated recording,
   clicks a strip, cuts, and asserts on what actually happened. Needs a server and `playwright-core`,
-  so it is run deliberately, like the electron test beside it. Its scroll assertion was checked
-  BOTH ways: with the fix 509 → 509, with it reverted 509 → 0.
+  so it is run deliberately, like the electron test beside it.
+
+⚠ **Two of its assertions were checked BOTH ways** — reverted the fix, watched the test fail, put it
+back. That is the difference between a test and a comment: the scroll guard reads 509 → 509 with the
+fix and 509 → 0 without it, and the span-watcher guard plays to 0:13 with the fix and stops dead at
+0:00 without it. Any assertion added here should earn its place the same way.
 
 ## NEXT: "Guess Splits" — silence detection (Seth, 2026-08-13)
 

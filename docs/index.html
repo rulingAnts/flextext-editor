@@ -132,11 +132,9 @@
   <p class="tab-hint" data-i18n-html="cut.hint"></p>
   <p id="cut-loading" class="note seg-loading" hidden data-i18n="seg.loadingAudio">Loading the recording…</p>
   <div id="cut-main" hidden>
+    <!-- NAVIGATION ONLY (Seth): shows the playhead and the boundaries already made, and seeks on
+         click. Cuts and joins are never made up here — they belong to the segment rows below. -->
     <div id="cut-big" class="cut-big"></div>
-    <div class="cut-actions">
-      <button id="btn-cut" class="primary-btn cut-btn" data-i18n="cut.cut">Cut here</button>
-      <button id="btn-cut-join" class="secondary-btn" data-i18n="cut.join">Join with previous</button>
-    </div>
     <p id="cut-say" class="note cut-say" role="status" aria-live="polite"></p>
     <div id="cut-strips"></div>
   </div>

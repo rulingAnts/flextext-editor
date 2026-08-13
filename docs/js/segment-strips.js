@@ -42,6 +42,30 @@ if (typeof window !== 'undefined') {
   for (const ev of ['wheel', 'touchmove']) window.addEventListener(ev, () => { lastUserScroll = Date.now(); }, { passive: true });
 }
 
+/* ── THE FOLLOW RULE, in one place (extracted v354) ────────────────────────────────────────────
+ * The Baseline strips, the Gloss line-groups and now the Cut tab all "follow" the playing line, and
+ * all three had the same four-part rule written out separately. Seth: "reuse whatever common code
+ * you can … if it makes things more reliable and consistent without breaking any other tabs."
+ *
+ * The rule (the PAT recipe, v326): scroll only on a line CHANGE, only while actually PLAYING, only
+ * when the row is off screen, and never within 4s of the user scrolling — so the view is never
+ * fought over. Span playback (`_spanTick`) highlights but never scrolls: the user just clicked it,
+ * so they are already looking at it.
+ *
+ * Returns the row to remember as "currently followed". Callers keep their own memory of it, because
+ * each tab scrolls its own list independently.
+ *
+ * ⚠ Extraction only — the behaviour is byte-for-byte what the Baseline ticker already did. Changing
+ * the rule here changes it on every tab at once, which is the point and also the risk. */
+function followLine(row, rolling, prevRow, player) {
+  if (!rolling || row === prevRow) return prevRow;
+  if (!player?._spanTick && Date.now() - lastUserScroll > 4000) {
+    const r = row.getBoundingClientRect();
+    if (r.top < 60 || r.bottom > (window.innerHeight - 20)) row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }
+  return row;
+}
+
 export function initStrips(d) { deps = d; }
 
 /* ---------------- peaks (one decode per doc, buffer released immediately) ---------------- */
@@ -474,13 +498,7 @@ function positionCursor() {
        * highlights (it IS the playing line) but never scrolls — the user just clicked it. */
       const rolling = p?.playing?.() && inSeg;
       if (row.classList.contains('seg-on') !== inSeg) row.classList.toggle('seg-on', inSeg);
-      if (inSeg && rolling && row !== followRow) {
-        followRow = row;
-        if (!p._spanTick && Date.now() - lastUserScroll > 4000) {
-          const r = row.getBoundingClientRect();
-          if (r.top < 60 || r.bottom > (window.innerHeight - 20)) row.scrollIntoView({ block: 'center', behavior: 'smooth' });
-        }
-      }
+      if (inSeg) followRow = followLine(row, rolling, followRow, p);
       if (inSeg) {
         if (!cur) { cur = document.createElement('div'); cur.className = 'seg-cursor'; row.appendChild(cur); }
         const wave = row.querySelector('.seg-wave');
@@ -545,35 +563,75 @@ export function stopGlossTicker() { if (glossTick) { clearInterval(glossTick); g
 
 
 /* ═══════════════════════════════════════════════════════════════════════════════════════════════
- * THE "POTONG" (CUT) TAB — audio segmentation with nothing else on screen.
+ * THE "POTONG" (CUT) TAB — the Baseline tab with the typing taken out.
  *
- * Seth, 2026-08-13: "ONLY audio segmenting … this allows a user to focus on segmentation first with
- * no distractions or trying to multi-task."
+ * Seth, 2026-08-13: "I'd like the cut tab to look and work almost identically to the baseline tab,
+ * except that text can't be edited or selected and cuts and joins can't be made if there's text …
+ * I don't want cut and join buttons on the top player. Instead … a place the user can use for
+ * navigation. It shows a playhead and segment boundaries where splits have been made, but they
+ * can't be created or edited up there."
+ *
+ * So the shape is: an OVERVIEW at the top that only navigates, and the real work on the STRIPS —
+ * Enter cuts the segment at ITS playhead, Backspace joins it with the one before. Same gestures,
+ * same rows, same follow-scroll and highlight as the Baseline tab. The only differences are that
+ * the text is a caption instead of an input, and that a segment carrying text refuses to be cut.
  *
  * ⚠ IT LIVES IN THIS FILE ON PURPOSE. A separate module would be a new top-level import in
- * js/app.js, i.e. a new SHELL entry in the editor AND every satellite sw.js in the same commit —
- * the v108 outage. This file already owns peaks, drawSpanWave and wireSegPlay, which is everything
- * the Cut tab draws, so nothing new enters any SHELL.
+ * js/app.js — a new SHELL entry in the editor AND every satellite sw.js in the same commit, which
+ * is the v108 outage. Everything the Cut tab draws (peaks, drawStrip, wireSegPlay) is already here.
  *
  * ⚠ AND IT EDITS TEXT DESPITE SHOWING NONE. segments[i] IS baseline paragraph i, so a cut inserts
- * an empty paragraph and a join merges two. Both go through segments.js's cutAtPlayhead /
- * joinWithPrevious, which return BOTH arrays so half an edit cannot be applied.
+ * an empty paragraph and a join merges two — both via segments.js, which returns BOTH arrays so
+ * half an edit cannot be applied.
  * ═══════════════════════════════════════════════════════════════════════════════════════════════ */
 
 let cutDeps = null;
+let cutRaf = 0;
+let cutFollowRow = null;
 export function initCut(d) { cutDeps = d; }
+export function stopCut() { if (cutRaf) cancelAnimationFrame(cutRaf); cutRaf = 0; cutFollowRow = null; }
 
 function cutSay(msg) {
   const el = document.getElementById('cut-say');
   if (el) el.textContent = msg || '';
 }
-
-/* The span the playhead is in — "the current segment" for the Join button and Backspace. */
+function cutSegs() { return docSegments(cutDeps.getDoc()); }
+/* The segment the playhead is in — Seth: "enter breaks the segment where the segment playhead
+ * currently is". The playhead IS the selection on this tab; there is no cursor to disagree with it. */
 function cutCurrentIndex() {
-  const doc = cutDeps.getDoc();
-  const ms = cutDeps.getPlayer()?.playheadMs?.();
-  const i = segmentIndexAt(docSegments(doc), ms);
-  return i;
+  return segmentIndexAt(cutSegs(), cutDeps.getPlayer()?.playheadMs?.());
+}
+function cutJoinOk() { return !(cutDeps.allowJoinTexted && !cutDeps.allowJoinTexted()); }
+
+/* ── the OVERVIEW: whole file, boundaries, playhead. Navigation only. ──────────────────────────
+ * Seth: boundaries are SHOWN here but "can't be created or edited up there". Clicking seeks; that
+ * is the entire interaction. Drawing the boundaries is what makes it a map rather than a bar. */
+function drawCutOverview() {
+  const host = document.getElementById('cut-big');
+  if (!host) return;
+  let wave = host.querySelector('canvas');
+  if (!wave) {
+    wave = document.createElement('canvas');
+    wave.className = 'cut-ov-wave';
+    host.appendChild(wave);
+    wave.addEventListener('pointerdown', (ev) => {
+      const r = wave.getBoundingClientRect();
+      const f = Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width));
+      cutDeps.getPlayer()?.seekMs?.(f * (peaksCache.durationMs || 0));
+    });
+  }
+  const dur = peaksCache.durationMs || 0;
+  drawStrip(wave, { start: 0, end: dur }, dur);
+  // Boundary markers as absolutely-positioned rules, so they survive canvas redraws on resize.
+  host.querySelectorAll('.cut-ov-b').forEach((el) => el.remove());
+  if (!dur) return;
+  for (const sg of cutSegs()) {
+    if (!isAligned(sg) || sg.end >= dur) continue;
+    const b = document.createElement('span');
+    b.className = 'cut-ov-b';
+    b.style.left = ((sg.end / dur) * 100) + '%';
+    host.appendChild(b);
+  }
 }
 
 export function renderCut() {
@@ -581,29 +639,32 @@ export function renderCut() {
   const host = document.getElementById('cut-strips');
   const doc = cutDeps.getDoc();
   if (!host || !doc) return;
-  const segs = docSegments(doc);
+  const segs = cutSegs();
   const paras = cutDeps.getParagraphs(doc);
-  const cur = cutCurrentIndex();
   host.replaceChildren();
+  cutFollowRow = null;
 
   segs.forEach((seg, i) => {
     const row = document.createElement('div');
-    row.className = 'cut-row' + (i === cur ? ' is-current' : '');
+    row.className = 'seg-row cut-row';
+    /* Focusable, because this tab has no text box to hold focus and the keys must land somewhere.
+     * The row IS the control. */
+    row.tabIndex = 0;
+    row.dataset.i = String(i);
+
     const play = document.createElement('button');
-    play.className = 'gseg-play';
-    play.textContent = seg.timePending ? '\u22ef' : '\u25b6';
+    play.className = 'seg-play';
+    play.textContent = seg.timePending ? '⋯' : '▶';
+    play.setAttribute('aria-label', cutDeps.t(seg.timePending ? 'seg.pendingTip' : 'seg.playTip'));
     const wave = document.createElement('canvas');
     wave.className = 'seg-wave cut-wave';
-    const num = document.createElement('span');
-    num.className = 'cut-num';
-    num.textContent = String(i + 1);
-    row.append(num, play, wave);
+    row.append(play, wave);
 
-    /* ⚠ THE CAPTION IS PLAIN TEXT, NEVER AN INPUT (Seth: caption under every texted segment). It is
-     * what makes the split refusal legible — you can see which spans are transcribed and therefore
-     * locked, instead of discovering it by being refused. */
     const text = String(paras[i] ?? '').trim();
     if (text) {
+      /* ⚠ A CAPTION, NEVER AN INPUT, and not selectable (CSS) — Seth: "text can't be edited or
+       * selected". Its presence is also what makes the cut refusal legible: you can see which
+       * segments are transcribed, and therefore locked, before you try. */
       const cap = document.createElement('div');
       cap.className = 'cut-cap';
       cap.textContent = text;
@@ -611,41 +672,108 @@ export function renderCut() {
     }
     host.appendChild(row);
 
+    row.addEventListener('pointerdown', () => { if (cutDeps.onPlayTarget) cutDeps.onPlayTarget(seg); });
+    row.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); cutHere(); }
+      else if (e.key === 'Backspace') { e.preventDefault(); cutJoinPrev(i); }
+    });
     wireSegPlay(play, seg, cutDeps.getPlayer, (t) => { if (cutDeps.onPlayTarget) cutDeps.onPlayTarget(t); });
-    wave.addEventListener('pointerdown', () => { renderCut(); });
-    drawSpanWave(wave, seg);
+    observeWave(wave, () => drawStrip(wave, seg, peaksCache.durationMs));
+    drawStrip(wave, seg, peaksCache.durationMs);
+
+    // The join control sits BETWEEN the rows it joins, exactly as on the Baseline tab.
+    if (i < segs.length - 1) {
+      const jr = document.createElement('div');
+      jr.className = 'seg-joinrow';
+      const j = document.createElement('button');
+      j.className = 'gseg-join';
+      j.textContent = '⤙⤚';
+      j.title = cutDeps.t('seg.joinTip');
+      j.setAttribute('aria-label', cutDeps.t('seg.joinTip'));
+      j.addEventListener('click', () => cutJoinPrev(i + 1));
+      jr.appendChild(j);
+      host.appendChild(jr);
+    }
   });
+
+  drawCutOverview();
+  startCutTicker();
 }
 
-/* CUT at the playhead. Refuses out loud rather than making a sliver or an untimed span. */
+/* One rAF loop: strip cursor, row highlight, follow-scroll and the OVERVIEW playhead, all from the
+ * same clock — Seth: "keep the playhead on the big player and on the segment player in sync". Two
+ * timers would drift visibly against each other on the same screen. */
+function startCutTicker() {
+  if (cutRaf) cancelAnimationFrame(cutRaf);
+  const tick = () => {
+    try {
+      const p = cutDeps && cutDeps.getPlayer && cutDeps.getPlayer();
+      const t = p?.playheadMs?.();
+      const host = document.getElementById('cut-strips');
+      if (!host) return;
+      const segs = cutSegs();
+      const dur = peaksCache.durationMs || 0;
+
+      const ov = document.getElementById('cut-big');
+      let head = ov && ov.querySelector('.cut-ov-head');
+      if (ov && dur && typeof t === 'number') {
+        if (!head) { head = document.createElement('span'); head.className = 'cut-ov-head'; ov.appendChild(head); }
+        head.style.left = ((t / dur) * 100) + '%';
+      }
+
+      host.querySelectorAll('.cut-row').forEach((row) => {
+        const seg = segs[+row.dataset.i];
+        const inSeg = seg && isAligned(seg) && typeof t === 'number' && t >= seg.start && t < seg.end;
+        const btn = row.querySelector('.seg-play');
+        const rolling = p?.playing?.() && inSeg;
+        if (btn && seg && isAligned(seg)) {
+          const want = rolling ? '⏸' : '▶';
+          if (btn.textContent !== want) btn.textContent = want;
+        }
+        if (row.classList.contains('seg-on') !== inSeg) row.classList.toggle('seg-on', inSeg);
+        // Same follow rule as the Baseline tab: on a line CHANGE, only while playing, only when
+        // off screen, and never within 4s of the user scrolling.
+        if (inSeg) cutFollowRow = followLine(row, rolling, cutFollowRow, p);
+        let cur = row.querySelector('.seg-cursor');
+        if (inSeg) {
+          if (!cur) { cur = document.createElement('div'); cur.className = 'seg-cursor'; row.appendChild(cur); }
+          const w = row.querySelector('.seg-wave');
+          const frac = (t - seg.start) / (seg.end - seg.start);
+          cur.style.left = (w.offsetLeft + frac * w.offsetWidth) + 'px';
+          cur.style.top = w.offsetTop + 'px';
+          cur.style.height = w.offsetHeight + 'px';
+        } else if (cur) cur.remove();
+      });
+    } finally {
+      cutRaf = requestAnimationFrame(tick);
+    }
+  };
+  cutRaf = requestAnimationFrame(tick);
+}
+
+/* ENTER — cut the segment holding the playhead, AT the playhead. */
 export function cutHere() {
-  const doc = cutDeps.getDoc();
+  const doc = cutDeps && cutDeps.getDoc();
   if (!doc) return;
   const ms = cutDeps.getPlayer()?.playheadMs?.();
-  const paras = cutDeps.getParagraphs(doc);
-  const r = cutAtPlayhead(docSegments(doc), paras, ms, { duration: peaksCache.durationMs || null });
+  const r = cutAtPlayhead(cutSegs(), cutDeps.getParagraphs(doc), ms, { duration: peaksCache.durationMs || null });
   if (!r.ok) { cutSay(cutDeps.t('cut.no.' + r.reason)); return; }
   if (cutDeps.capture) cutDeps.capture();
-  // ⚠ BOTH, ALWAYS — the segments and the paragraphs, from the one result.
-  doc.segments = r.segments;
+  doc.segments = r.segments;                       // ⚠ BOTH, from the one result
   cutDeps.setParagraphs(doc, r.paragraphs);
   cutDeps.persist();
   cutSay('');
   renderCut();
 }
 
-/* JOIN the current span with the one before it, then put the playhead where they joined — Seth:
- * "moves the playhead back to the point where they joined". That is what makes judging the join a
- * matter of pressing play rather than hunting for the seam. */
-export function cutJoinPrev() {
-  const doc = cutDeps.getDoc();
+/* BACKSPACE / ⤙⤚ — join segment i with the one before it, then put the playhead where they joined,
+ * so judging the join is a matter of pressing play rather than hunting for the seam. */
+export function cutJoinPrev(idx) {
+  const doc = cutDeps && cutDeps.getDoc();
   if (!doc) return;
-  const i = cutCurrentIndex();
-  const paras = cutDeps.getParagraphs(doc);
-  const allowTexted = !(cutDeps.allowJoinTexted && !cutDeps.allowJoinTexted());
-  const r = joinWithPrevious(docSegments(doc), paras, i, {
-    allowTexted, duration: peaksCache.durationMs || null,
-  });
+  const i = Number.isInteger(idx) ? idx : cutCurrentIndex();
+  const r = joinWithPrevious(cutSegs(), cutDeps.getParagraphs(doc), i,
+    { allowTexted: cutJoinOk(), duration: peaksCache.durationMs || null });
   if (!r.ok) { cutSay(cutDeps.t('cut.no.' + r.reason)); return; }
   if (cutDeps.capture) cutDeps.capture();
   doc.segments = r.segments;

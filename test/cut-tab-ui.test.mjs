@@ -208,7 +208,7 @@ console.log('\na text opens on the tab it was last used on');
 const landing = fn(app, 'landingTab');
 ok(/const last = current\.lastTab;/.test(landing) && landing.indexOf('current.lastTab') < landing.indexOf('landOnCutEnabled'),
    'the remembered tab is consulted BEFORE the no-words rule, not after');
-ok(/!\(last === 'cut' && !cutTabEnabled\(\)\)/.test(landing),
+ok(/last === 'cut' && \(!cutTabEnabled\(\)/.test(landing),
    'but a remembered tab the researcher has since switched off is not honoured');
 ok(/if \(!docHasNoText\(current\.doc\)\) return tab;/.test(landing),
    'the fallback turns on WORDS, not on the segmentation state');
@@ -217,8 +217,22 @@ const remember = fn(app, 'rememberTab');
 ok(/current\.lastTab = tab;/.test(remember) && !/current\.doc\.lastTab/.test(app),
    'the memory lives on the RECORD, not on doc — doc is the flextext model and gets serialised');
 ok(/isEditorTab\(tab\)/.test(remember), 'and only editor tabs are remembered');
-ok(/rememberTab\(tab\);/.test(app.match(/function switchTab\(tab\)[\s\S]{0,600}/)[0]),
-   'switchTab records it');
+const switchHead = (app.match(/function switchTab\(tab, landing\)[\s\S]{0,900}/) || [''])[0];
+ok(/if \(!landing\) rememberTab\(tab\);/.test(switchHead),
+   'switchTab records it — but NOT the landing switch itself');
+/* ⚠ Remembering the tab the APP chose would make rule (2) self-fulfilling: the first auto-land on
+ * Cut becomes "the user's choice" forever, and a researcher later turning landOnCut off would have
+ * no effect on any text that had ever been opened. Seth's rule (1) is "the last tab the USER had
+ * open". Found by review. */
+ok(/switchTab\(landingTab\(tab\), \/\* landing \*\/ true\);/.test(app),
+   'enterEditor marks its own switch as the landing, so only a user choice is remembered');
+// …as a STATEMENT: the function's comment names schedulePersist to explain why it is not used.
+ok(!/\n\s*schedulePersist\(\);/.test(fn(app, 'rememberTab')),
+   'and remembering never goes through persist() — looking at a tab must not stamp the text modified');
+ok(/db\.putDoc\(rec\)/.test(fn(app, 'rememberTab')),
+   'it writes the record quietly instead (a modified stamp would re-upload a text already on Drive)');
+ok(/!docSegments\(current\.doc\)\.some\(isAligned\)/.test(landing),
+   'a remembered Cut tab still needs the text to HAVE audio — otherwise it is the dead "nothing to cut" screen');
 
 console.log(fail ? `\nFAILED (${fail})` : '\nPASSED');
 process.exit(fail ? 1 : 0);

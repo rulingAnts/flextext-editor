@@ -90,11 +90,22 @@ function offScreen(row) {
  * otherwise sit armed and fire minutes later, mid-playback, as a scroll nobody asked for. */
 let revealAt = 0;
 export function requestReveal() { revealAt = Date.now(); }
-function takeReveal(row) {
+export function takeReveal(row) {
   if (!revealAt) return;
   if (Date.now() - revealAt > 1500) { revealAt = 0; return; }
+  /* ⚠ A ROW ON A HIDDEN TAB IS NOT AN ANSWER. The Baseline strips' rAF loop keeps running behind the
+   * Cut tab (nothing stops it on that transition), so it would answer the request first, with a row
+   * nobody can see — and the tab the user is actually looking at would never scroll. offsetParent is
+   * null for anything inside a hidden ancestor, which is exactly the test needed. */
+  if (!row || !row.offsetParent) return;
+  /* ⚠ AND THE REQUEST IS ONLY SPENT WHEN IT ACHIEVES SOMETHING. Consuming it on an already-visible
+   * row is what broke DRAGGING the whole-file player: wavesurfer emits `interaction` on every drag
+   * move but debounces the seek by up to 200ms, so the first tick still finds the row the user
+   * STARTED from — on screen, no scroll needed, request gone — and the row they dragged TO never
+   * came into view. Leaving it armed lets the real destination claim it a few frames later. */
+  if (!offScreen(row)) return;
   revealAt = 0;
-  if (offScreen(row)) row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  row.scrollIntoView({ block: 'center', behavior: 'smooth' });
 }
 
 export function initStrips(d) { deps = d; }
@@ -598,7 +609,12 @@ export function wireSegPlay(btn, seg, getPlayer, onTarget) {
 }
 
 /* Keep a set of gloss-line buttons' glyphs live (▶/⏸). Light interval, not rAF — glyphs need
- * ~300ms fidelity, and the gloss tab has no moving cursor to justify a frame loop. */
+ * ~300ms fidelity, and the gloss tab has no moving cursor to justify a frame loop.
+ *
+ * ⚠ NOTHING CALLS THIS. The gloss tab grew its own rAF loop (startGlossCursor in app.js) when it
+ * gained a cursor and follow-scroll, and this was left behind, exported and unused — which is how a
+ * "take me to that line" hook added here in v360 reached no user at all. Kept only because deleting
+ * an exported function is a separate decision from the fix; do not add behaviour to it. */
 let glossTick = 0;
 export function startGlossTicker(entries, getPlayer, t) {
   stopGlossTicker();
@@ -606,15 +622,11 @@ export function startGlossTicker(entries, getPlayer, t) {
     document.querySelectorAll('.gseg-wave').forEach(fixStaleWave);
     const p = getPlayer();
     const time = p?.playheadMs?.();
-    for (const { btn, seg, wrap } of entries) {
+    for (const { btn, seg } of entries) {
       if (!isAligned(seg)) continue;
-      const inSeg = typeof time === 'number' && time >= seg.start && time < seg.end;
-      const rolling = p?.playing?.() && inSeg;
+      const rolling = p?.playing?.() && typeof time === 'number' && time >= seg.start && time < seg.end;
       const want = rolling ? '⏸' : '▶';
       if (btn.textContent !== want) { btn.textContent = want; btn.setAttribute('aria-label', t(rolling ? 'seg.pauseTip' : 'seg.playTip')); }
-      // "Take me to that line" after a seek on the whole-file player — see requestReveal. This tab
-      // scrolls the whole line-GROUP (the interlinear block), not the little waveform inside it.
-      if (inSeg) takeReveal(wrap?.closest('.segment') || btn.closest('.segment') || btn);
     }
   }, 300);
 }
@@ -951,6 +963,25 @@ export function cutTogglePlay() {
   p.playThrough();
 }
 
+/* IS THERE ANY WORK IN THIS DOCUMENT AT ALL — not just baseline text?
+ *
+ * ⚠ THE BASELINE STRING IS NOT THE ONLY PLACE WORK LIVES. A phrase carries words (each with its own
+ * gloss) and a free translation, and the Guess button destroys the paragraph array wholesale. Asking
+ * only "is the baseline text empty?" would let a document whose baselines happen to be blank — but
+ * which carries glosses or free translations — be re-cut, and those go with it. Import fills the
+ * baseline from the words, so the two agree in practice; this is the belt to that braces, on a path
+ * where being wrong is unrecoverable. */
+function docHasWork(doc) {
+  for (const p of (doc && doc.paragraphs) || []) {
+    for (const s of p.segments || []) {
+      if (String(s.baseline || '').trim()) return true;
+      if (String(s.free || '').trim()) return true;
+      for (const w of s.words || []) if (String(w.txt || '').trim() || String(w.gls || '').trim()) return true;
+    }
+  }
+  return false;
+}
+
 /* "GUESS THE LINES" — cut the whole recording at its pauses, in one step, for a text nobody has
  * started yet (Seth: "make default segment breaks for a new text … based on where the audio appears
  * to have pauses in speech").
@@ -972,12 +1003,15 @@ export function cutGuessSplits() {
   const doc = cutDeps && cutDeps.getDoc();
   if (!doc) return;
   const paras = cutDeps.getParagraphs(doc);
-  if (paras.some((p) => String(p || '').trim())) { cutSay(cutDeps.t('cut.no.guessText')); return; }
+  if (paras.some((p) => String(p || '').trim()) || docHasWork(doc)) { cutSay(cutDeps.t('cut.no.guessText')); return; }
   const dur = peaksCache.durationMs || 0;
   if (!peaksCache.peaks || !dur) { cutSay(cutDeps.t('cut.no.guessAudio')); return; }
   // Already cut by hand? Ask before replacing it. `> 1` rather than a segmentation-state test: one
   // whole-file span is the seed, i.e. nobody has cut anything yet.
   if (cutSegs().length > 1 && cutDeps.confirmReplace && !cutDeps.confirmReplace()) return;
+  // Same reason as cutHere: a span watcher armed before this describes spans that are about to stop
+  // existing, and would pause playback at a boundary that is no longer there.
+  cutDeps.getPlayer()?.clearSpan?.();
 
   const cuts = guessSplits(peaksCache.peaks, peaksCache.msPerBucket || (dur / peaksCache.peaks.length),
                            { durationMs: dur });

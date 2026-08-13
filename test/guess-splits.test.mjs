@@ -165,6 +165,46 @@ console.log('\n(g) short lines are never minted, however long the pauses around 
      `no line shorter than ${GUESS_MIN_LINE_MS}ms (shortest ${Math.round(minLine)}ms, ${got.length} cuts)`);
 }
 
+/* ⚠ THIS CASE EXISTS BECAUSE THE TEST ABOVE HAD A BLIND SPOT. Everything until here uses
+ * msPerBucket = 0.5 exactly, which is what a 16kHz recording happens to give — and with it, a
+ * "10ms" frame really is 10ms, so a detector that converted frame indices back to time with the
+ * NOMINAL frame length scored a perfect 0ms error while being wrong. peakPlan CEILS the samples per
+ * bucket, so 44.1kHz gives msPerBucket ≈ 0.5215 and frames ~0.9% short: about 20 SECONDS of drift by
+ * the end of a 40-minute recording, every boundary landing earlier than the pause it was measured
+ * at. (Found by review, 2026-08-13, not by this test — hence the case.) */
+console.log('\n(g2) a REAL msPerBucket (44.1kHz ⇒ 0.5215ms) must not drift the boundaries');
+{
+  const MPB44 = (23 / 44100) * 1000;             // peakPlan: ceil(44100/2000) = 23 buckets per sample-run
+  const B44 = (ms) => Math.round(ms / MPB44);
+  // Ten 3s utterances separated by 700ms pauses: 30s+ in, drift would show as tens of ms.
+  const script = [['silence', 400]];
+  for (let i = 0; i < 10; i++) { script.push(['speech', 3000]); if (i < 9) script.push(['silence', 700]); }
+  script.push(['silence', 400]);
+  const total = script.reduce((a, [, ms]) => a + ms, 0);
+  const rand = rng(3);
+  const p = new Float32Array(B44(total));
+  let at = 0;
+  for (const [kind, ms] of script) {
+    const n = B44(ms);
+    for (let i = 0; i < n; i++) {
+      p[at + i] = kind === 'speech'
+        ? Math.min(1, 0.6 * (0.45 + 0.55 * Math.abs(Math.sin((at + i) * MPB44 / 130))) * (0.6 + 0.8 * rand()) + 0.03)
+        : 0.03 * (0.5 + rand());
+    }
+    at += n;
+  }
+  const truth = truthOf(script);
+  const got = guessSplits(p, MPB44, { durationMs: total });
+  let worst = 0;
+  for (const t of truth) {
+    const d = Math.min(...got.map((g) => Math.abs(g - t)));
+    worst = Math.max(worst, d);
+  }
+  console.log(`      found ${got.length}/${truth.length}, worst ${Math.round(worst)}ms`);
+  ok(got.length === truth.length, 'every pause found at a non-round msPerBucket');
+  ok(worst <= 120, `and no cumulative drift toward the end (worst ${Math.round(worst)}ms)`);
+}
+
 console.log('\n(h) degenerate inputs are answered, not thrown at');
 {
   ok(guessSplits(null, MPB).length === 0, 'null peaks');

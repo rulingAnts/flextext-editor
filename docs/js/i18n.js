@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v362';
+export const ENGINE_VERSION = 'v363';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v362';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'cut-tab v10';
+export const BUILD_TAG = 'cut-tab v11';
 
 const S = {
 en: {
@@ -1232,7 +1232,7 @@ internet after the first time.</p>
   'panel.f.cutTab': 'Show the "Cut" tab',
   'panel.f.cutTabNote': 'A tab before Baseline for cutting the audio into lines and nothing else \u2014 no typing, no glosses. Lets a worker do all the segmenting first, then transcribe. Only appears for texts that have a recording.',
   'panel.f.landOnCut': 'Open new recordings on the "Cut" tab',
-  'panel.f.landOnCutNote': 'When a text has a recording that has not been cut into lines yet, open it on the Cut tab instead of Baseline. Texts already cut, and texts with no recording, are unaffected.',
+  'panel.f.landOnCutNote': 'When a text has a recording and NO WORDS YET, open it on the Cut tab instead of Baseline. Once someone has chosen a tab for a text, that text re-opens on the tab they left it on, whatever this setting says \u2014 and a text with no recording never opens on Cut.',
   'panel.f.joinSplitBaseline': 'Allow joining and splitting lines on the Baseline tab',
   'panel.f.joinSplitBaselineNote': 'On by default. Turn it off to keep all cutting on the Cut tab, so lines cannot be reshaped while someone is transcribing. This hides the join buttons as well as the keys.',
   'panel.f.joinSplitGloss': 'Allow joining and splitting lines on the Gloss tab',
@@ -2766,7 +2766,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.f.cutTab': 'Tampilkan tab \u201cPotong\u201d',
   'panel.f.cutTabNote': 'Tab sebelum Ketik untuk memotong audio menjadi baris saja \u2014 tanpa mengetik, tanpa gloss. Memungkinkan pekerja memotong semuanya dulu, baru menuliskannya. Hanya muncul untuk teks yang punya rekaman.',
   'panel.f.landOnCut': 'Buka rekaman baru di tab \u201cPotong\u201d',
-  'panel.f.landOnCutNote': 'Bila sebuah teks punya rekaman yang belum dipotong menjadi baris, buka di tab Potong, bukan Ketik. Teks yang sudah dipotong, dan teks tanpa rekaman, tidak terpengaruh.',
+  'panel.f.landOnCutNote': 'Bila sebuah teks punya rekaman dan BELUM ADA KATA-KATANYA, buka di tab Potong, bukan Ketik. Setelah seseorang memilih tab untuk sebuah teks, teks itu dibuka lagi di tab terakhir yang dipakai, apa pun pengaturan ini \u2014 dan teks tanpa rekaman tidak pernah dibuka di tab Potong.',
   'panel.f.joinSplitBaseline': 'Izinkan menggabungkan dan memisahkan baris di tab Ketik',
   'panel.f.joinSplitBaselineNote': 'Aktif secara bawaan. Matikan agar semua pemotongan hanya di tab Potong, sehingga baris tidak bisa diubah saat seseorang sedang menulis. Ini juga menyembunyikan tombol gabung, bukan hanya tombol papan ketik.',
   'panel.f.joinSplitGloss': 'Izinkan menggabungkan dan memisahkan baris di tab Gloss',

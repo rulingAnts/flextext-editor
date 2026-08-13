@@ -345,6 +345,29 @@ identically. Only scripting the actual user path — click the tab button, then 
 it. `test/browser/cut-tab.playwright.mjs` now drives exactly that, on Baseline and Gloss, and checks
 that the topbar's own buttons keep their Space.
 
+## v363 — what the v360/v361 preflight review found
+
+Same four-lens review as before v357 shipped, run before this batch went to staging. The findings
+that mattered, in descending order of what they would have cost a field user:
+
+| finding | why it was real |
+|---|---|
+| **`guessSplits` converted frame indices back to time with the NOMINAL 10ms** | `peakPlan` CEILS buckets, so a 44.1kHz recording gives `msPerBucket ≈ 0.5215` and a "10ms" frame is really 9.909ms — ~1% drift, about **20 seconds by the end of a 40-minute recording**, every boundary landing earlier than the pause it was measured at. ⚠ **My own test could not see it**: every synthetic case used 16kHz, where `msPerBucket` is exactly 0.5 and the nominal value is right. Case (g2) now uses a real 44.1kHz value, and was checked BOTH ways — 305ms drift at 35s in with the old conversion, 6ms with the fix |
+| **The Guess guard read only the phrase BASELINE string** | a document whose baselines are blank but which carries words, glosses or free translations would have been re-cut and part of its work destroyed. `docHasWork()` now looks at words, glosses and free translations too. Import fills the baseline from the words, so the two agree in practice — this is the belt to that braces, on a path where being wrong is unrecoverable |
+| **Remembering the tab stamped `modified`** | `schedulePersist()` goes through `persist()`, which sets `modified = Date.now()`. Merely LOOKING at a tab would mark a text changed: a text already safely on Drive would report as changed, the next Save would upload a duplicate over a village connection, and the researcher's "unchanged since upload" checks would stop agreeing with reality. It writes the record quietly now |
+| **The remembered tab was the tab the APP chose** | `enterEditor`'s own landing switch was recorded as the user's choice, so the first auto-land on Cut became permanent and a researcher later turning `landOnCut` off had no effect on any text ever opened. Seth's rule (1) is *"the last tab the USER had open"* — the landing switch is now marked as such and not remembered |
+| **A remembered `cut` was not gated on the text HAVING audio** | one curious tap on Cut, and a text with no recording opened on the dead "nothing to cut" screen for ever |
+| **"Take me to that line" never fired on the Gloss tab** | it was wired into `startGlossTicker` in segment-strips.js — which nothing calls. The gloss tab grew its own rAF loop (`startGlossCursor` in app.js) and that one was left behind, exported and unused. The hook moved to the live loop; the dead function now says so at the top |
+| **The Baseline ticker swallowed the reveal on the Cut tab** | nothing stops the Baseline rAF when switching to Cut, so it answered the request first with a row nobody could see. `takeReveal` now ignores rows whose `offsetParent` is null (a hidden ancestor) |
+| **Dragging the dock revealed the row you started FROM** | wavesurfer emits `interaction` on every drag move but debounces the seek by up to 200ms, so the first tick found the old row — on screen, no scroll needed, request consumed. The request is now spent only when it actually scrolls |
+| **`cutGuessSplits` and UNDO left stale span watchers** | the same defect v360 fixed in `cutHere`, reached by two more routes: a watcher captures its stop time and rewind-home when playback starts, and both of these replace every segment underneath it |
+| **The browser test's boundary check was a tautology** | its comment claimed every boundary sits in a silence; the assertion counted rows. It now reads the boundary times off the player's own marks and asserts `1.15 ≤ (t mod 2) ≤ 2.0` — inside the recording's silences |
+
+⚠ **Left alone deliberately**: nothing caps the number of guessed lines, so a 40-minute recording can
+produce several hundred rows, each with its own canvas. That cost is the strip renderer's and is not
+new — but Guess is the first thing that can reach it in one press. Worth watching on a cheap phone
+before it becomes a bug report.
+
 ### And the tab is verified in a BROWSER now
 
 v355 and v356 both shipped saying *"still unverified in a browser"*, and both were wrong in ways no

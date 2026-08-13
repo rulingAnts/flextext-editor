@@ -19,7 +19,7 @@ import { losslessSupported, recFormatSupported, PCMRecorder, encodeWav, encodeRe
 import WaveSurfer from './vendor/wavesurfer.esm.js';
 import { makeZip } from './zip.js';
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay,
-         wireWaveSeek, requestReveal,
+         wireWaveSeek, requestReveal, takeReveal,
          initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut } from './segment-strips.js';
 import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME,
          sanitizeBase, extOf, mediaNameFor, derivedWavName } from './seg-exports.js';
@@ -670,7 +670,7 @@ function enterEditor(tab) {
   $('#doc-title').value = current.title || '';
   updateShareButton();
   applyCutTabVisibility();
-  switchTab(landingTab(tab));
+  switchTab(landingTab(tab), /* landing */ true);
 }
 
 /* Is this doc still UNCUT — i.e. has nobody done segmentation work on it yet? True for the seeds
@@ -715,7 +715,13 @@ function landingTab(tab) {
   if (tab !== 'baseline') return tab;                       // an explicit request wins
   if (!current || !current.doc) return tab;
   const last = current.lastTab;
-  if (last && isEditorTab(last) && !(last === 'cut' && !cutTabEnabled())) return last;
+  /* ⚠ A remembered tab is still subject to the gates AND to reality: the researcher can switch the
+   * Cut tab off after a device has used it, and a text can lose its recording (or never have had one
+   * — one curious tap on Cut is enough to remember it). Landing on the "this text has no recording"
+   * screen every time would be a worse bug than the one the memory fixes. */
+  const lastOk = last && isEditorTab(last)
+    && !(last === 'cut' && (!cutTabEnabled() || !docSegments(current.doc).some(isAligned)));
+  if (lastOk) return last;
   if (!landOnCutEnabled()) return tab;
   if (!docHasNoText(current.doc)) return tab;               // words already ⇒ this is transcription
   /* ⚠ ONLY WITH AUDIO — landing a text-only doc on a cutting screen would be nonsense. An ALIGNED
@@ -735,7 +741,13 @@ function landingTab(tab) {
 function rememberTab(tab) {
   if (!current || !isEditorTab(tab) || current.lastTab === tab) return;
   current.lastTab = tab;
-  schedulePersist();
+  /* ⚠ NOT schedulePersist(): that goes through persist(), which stamps `modified = Date.now()`.
+   * Looking at a tab is not editing the text, and stamping it would be expensive in exactly the
+   * places that matter — a text already safely on Drive would report as changed, so the next Save
+   * would upload a duplicate copy over a village connection, and the researcher's "unchanged since
+   * upload" checks would stop agreeing with reality. Write the record as it is, quietly. */
+  const rec = current;
+  db.putDoc(rec).catch(() => { /* the memory is a convenience; never surface a toast for it */ });
 }
 
 /* The Cut tab's hint must never promise a key the researcher has switched off.
@@ -946,6 +958,9 @@ function decorateGlossSegments() {
      * "clicking a waveform pauses" had to be written in two places to reach both tabs. It also
      * carries the v326 touch-selects-for-Space behaviour, so that is no longer wired separately. */
     wireWaveSeek(wave, seg, () => player, (s) => { lastPlayTarget = s; });
+    // v326: touching a waveform SELECTS it for Space/⏮ — including an unaligned one, which
+    // wireWaveSeek deliberately leaves unwired (there is no time in it to seek to).
+    if (!isAligned(seg)) wave.addEventListener('pointerdown', () => { lastPlayTarget = seg; });
     entries.push({ btn, seg, wave, wrap: waveWrap });
     /* ⤙⤚ JOIN — in its OWN ROW BETWEEN the two groups it joins (v322, Seth's bug list #5). It used
      * to be the group's last child, a 44px tap target 6px under the full-width free-translation
@@ -1064,6 +1079,10 @@ function startGlossCursor(entries) {
        * follow it -- change-of-line only, only when out of sight, 4s user-scroll standoff. */
       const grp = en.wrap.closest('.segment');
       if (grp && grp.classList.contains('gseg-on') !== inSeg) grp.classList.toggle('gseg-on', inSeg);
+      /* "Take me to that line" after a seek on the whole-file player (requestReveal). ⚠ It belongs
+       * in THIS loop: startGlossTicker in segment-strips.js looks like the gloss ticker and is dead
+       * code, so the hook added there in v360 never ran. This tab scrolls the whole line-GROUP. */
+      if (grp && inSeg) takeReveal(grp);
       if (grp && inSeg && rolling && grp !== glossFollowRow) {
         glossFollowRow = grp;
         if (!player._spanTick && Date.now() - glossLastScroll > 4000) {
@@ -1196,14 +1215,18 @@ async function prepareCutAudio() {
   renderCut();
 }
 
-function switchTab(tab) {
+function switchTab(tab, landing) {
   // Leaving baseline: apply baseline edits to the model first.
   if (activeTab === 'baseline' && !$('#view-baseline').hidden) {
     applyBaseline();
   }
   const fromTab = activeTab;      // what we are ARRIVING FROM — see the Cut tab's span-watcher rule
   activeTab = tab;
-  rememberTab(tab);               // …so this text opens here next time (see landingTab)
+  /* ⚠ ONLY A TAB THE USER CHOSE IS REMEMBERED. enterEditor's own landing switch passes `landing`,
+   * because storing the tab the APP picked would make rule (2) self-fulfilling: the first auto-land
+   * on Cut would become "the user's choice" forever, and a researcher later switching landOnCut off
+   * would have no effect on any text that had ever been opened. */
+  if (!landing) rememberTab(tab);  // …so this text opens here next time (see landingTab)
   if (tab !== 'cut') stopCut();   // never leave the Cut rAF running behind another view
   /* THE CUT TAB — audio only. It shares the dock player and the peaks cache with the Baseline
    * strips, so entering it is the same preparation minus the text UI.
@@ -1401,6 +1424,11 @@ function applyUndoState(st, onto) {
   current.doc.paragraphs = st.p;
   current.doc.segments = st.s;
   schedulePersist();
+  /* ⚠ THE SPANS THE PLAYER WAS WATCHING NO LONGER EXIST. A span watcher captures its stop time and
+   * rewind-home when playback starts, and undo has just replaced every segment — so an audition
+   * running across an undo would pause at a boundary from the discarded state and throw the playhead
+   * back to a start that is not there any more. Same rule as cutHere and cutGuessSplits. */
+  player?.clearSpan?.();
   // Re-render whatever is showing; switchTab already knows every mode's render path.
   switchTab(activeTab);
   updateUndoButtons();

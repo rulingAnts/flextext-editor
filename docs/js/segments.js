@@ -377,7 +377,15 @@ function frames(peaks, msPerBucket, frameMs) {
     for (let i = 0; i < per; i++) sum += peaks[off + i];
     out[f] = sum / per;
   }
-  return out;
+  /* ⚠ THE FRAME'S REAL LENGTH, NOT THE ONE WE ASKED FOR. `per` is a whole number of buckets, so a
+   * frame lasts per × msPerBucket ms — which equals the nominal 10ms only when msPerBucket divides
+   * it exactly. It usually does not: peakPlan CEILS buckets-per-sample, so a 44.1kHz recording gives
+   * msPerBucket ≈ 0.5215, per = 19, and a "10ms" frame is really 9.909ms. Converting frame indices
+   * back with the nominal value drifts ~1%, which is 20 SECONDS by the end of a 40-minute recording:
+   * every guessed boundary progressively earlier than the pause it was measured at. This is the same
+   * trap ensurePeaks documents ("msPerBucket is the exact conversion; every consumer must use it,
+   * never durationMs proportions") reached from a new direction. */
+  return { env: out, frameMs: per * msPerBucket };
 }
 
 /**
@@ -397,9 +405,8 @@ export function guessSplits(peaks, msPerBucket, opts = {}) {
   const frameMs = isNum(opts.frameMs) ? opts.frameMs : 10;
   const total = isNum(opts.durationMs) && opts.durationMs > 0 ? opts.durationMs : peaks.length * mpb;
 
-  const env = frames(peaks, mpb, frameMs);
+  const { env, frameMs: perFrameMs } = frames(peaks, mpb, frameMs);
   if (env.length < 4) return [];
-  const perFrameMs = frameMs;
 
   /* THE TWO LEVELS THIS RECORDING ACTUALLY HAS. The 20th percentile is the noise floor: in any
    * recording of speech, at least a fifth of the frames are between words. The 90th is the speech

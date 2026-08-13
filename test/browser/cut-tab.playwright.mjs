@@ -86,12 +86,20 @@ const guessed = await page.evaluate(() => {
 ok(guessed.rows >= 8 && guessed.rows <= 11,
    `the recording came apart into one line per burst (${guessed.rows} rows for 10 bursts)`);
 ok(/Guessed \d+ lines/.test(guessed.say), `and it says what it did: "${guessed.say.slice(0, 40)}…"`);
-/* Every boundary must sit in a SILENCE — the gaps run 1.2–2.0s, 3.2–4.0s, and so on. */
-const inGaps = await page.evaluate(() => {
-  const marks = [...document.querySelectorAll('#cut-strips .cut-row')].map((r) => r.dataset.i);
-  return marks.length;
+/* ⚠ EVERY BOUNDARY MUST SIT IN A SILENCE — that is the whole claim, and the first version of this
+ * check counted rows instead, which proved nothing (found by review). The recording is 1.2s of tone
+ * then 0.8s of silence, repeating, so a correct boundary time satisfies 1.2 ≤ (t mod 2) ≤ 2.0. The
+ * times are read back off the dock player's own marks, in per cent of a 20s file. */
+const marksAt = await page.evaluate(() => {
+  const sr = document.querySelector('.player-wave')?.firstElementChild?.shadowRoot;
+  const wrap = sr && sr.querySelector('.wrapper');
+  const layer = wrap && [...wrap.children].find((c) => c.style && c.style.zIndex === '4');
+  return layer ? [...layer.children].map((el) => parseFloat(el.style.left) / 100 * 20) : [];
 });
-ok(inGaps === guessed.rows, 'rows are indexed 1:1 with the spans');
+const strays = marksAt.filter((t) => { const m = t % 2; return !(m >= 1.15 && m <= 2.0); });
+ok(marksAt.length >= 8, `the boundaries are marked on the player (${marksAt.length})`);
+ok(strays.length === 0,
+   `and every one lands in a silence, not inside speech (strays: ${strays.map((s) => s.toFixed(2)).join(', ') || 'none'})`);
 // Undo puts the whole guess back in ONE step.
 await page.keyboard.down('Control'); await page.keyboard.press('KeyZ'); await page.keyboard.up('Control');
 await page.waitForTimeout(900);

@@ -70,20 +70,47 @@ point where they joined** (i.e. the former boundary = the old `segments[i-1].end
 ⚠ The playhead move is not cosmetic: it puts the user exactly where they need to listen to judge
 whether the join was right, and is what makes join/re-cut a fast loop rather than a hunt.
 
-## The researcher settings (all only visible when segmentation is ON)
+## The researcher settings — 🔒 DECIDED (Seth, 2026-08-13). All visible ONLY when segmentation is ON
 
 | key | default | effect |
 |---|---|---|
-| `cutTab` | **on** | shows/hides the Potong tab |
+| `cutTab` | **on** | shows/hides the Potong tab. ⚠ ON for existing devices too — Seth: *"Cut tab enabled by default on existing devices."* |
+| `landOnCut` | **on** | a doc with audio and **no segmentation work yet** opens on Potong instead of Baseline. Seth: *"Let the researcher decide. Existing devices default to Cut tab, but the researcher has a setting for that."* |
 | `joinSplitBaseline` | **on** | may the Baseline tab join/split at all |
 | `joinSplitGloss` | **on** | may the Gloss tab join/split at all |
+| `cutJoinTexted` | **on** | may the Cut tab JOIN two segments that already carry baseline text. Seth: *"refuse split, allow join (but give the researcher a setting to allow or disallow that)."* Splitting a texted segment is refused **regardless** — see below |
+
+⚠ **`landOnCut` is a visible behaviour change for every existing device**, in the same class as
+v351's `backspaceJoin` default: people who open a text tomorrow will land somewhere new. It is
+deliberately scoped to docs that have audio AND are **not yet segmented beyond the seed** (one
+whole-file span, or all `timePending`/`timeEstimated`) — landing a half-transcribed text on the
+cutting screen every morning would be a different and much worse feature. A doc with no audio never
+lands there, because there is nothing to cut.
 
 ⚠ **These are MASTER switches over the whole capability on that tab — buttons and keys alike** —
-whereas v351's `backspaceJoin` gates only the keyboard shortcut. The two compose as
+whereas v351's `backspaceJoin` gates only the keyboard shortcut. They compose as
 `allowed = joinSplit<Tab> && (usingButton || backspaceJoin)`. Turning `joinSplitBaseline` off is how
-a researcher says *"segmentation happens on the Cut tab; do not re-cut while transcribing."* Order
-matters in one place only: if `joinSplit<Tab>` is off, the join buttons must not render at all — a
-button that silently does nothing is the failure mode the suite already has a standing rule against.
+a researcher says *"segmentation happens on the Cut tab; do not re-cut while transcribing."* If
+`joinSplit<Tab>` is off the join buttons must not RENDER — a button that silently does nothing is
+the failure mode this suite already has a standing rule against.
+
+⚠ Five settings is a lot for one feature. They are all researcher-facing policy rather than
+preferences, and each answers a different question, but the settings form is getting long: worth
+grouping them under the existing `segmentation` group rather than adding a new one.
+
+## 🔒 The other three decisions (Seth, 2026-08-13)
+
+1. **Layout: big player + strip list.** A large whole-recording waveform with playhead and Cut button
+   on top; the Baseline-style per-segment strips underneath, with no text inputs. Reuses
+   `drawSpanWave`, `wireSegPlay` and the peaks cache unchanged — it reads as "the Baseline tab minus
+   the typing", which is the point.
+2. **Texted segments: refuse SPLIT, allow JOIN** (subject to `cutJoinTexted`). The asymmetry is real
+   rather than cautious: a join concatenates safely (`left + glue + right`, already implemented in
+   `mergeAt`), while a split has **no cursor on this tab** and therefore no defined place to divide
+   the text. Refusing the genuinely undefined operation, permitting the safe one.
+3. **Caption under EVERY texted segment** — plain, uneditable, beneath the strip. It is what makes the
+   split refusal legible instead of mysterious: you can see at a glance which spans are transcribed
+   and therefore locked.
 
 ## What is reused, and what is new
 
@@ -125,13 +152,7 @@ add no new file at all.
   the join BUTTONS as well as the keys; `backspaceJoin` still gates only the keys.
 - Cut tab hidden when segmentation is off, when `cutTab` is off, and when the doc has no audio.
 
-## OPEN DECISIONS — Seth
+## (spent) OPEN DECISIONS
 
-1. **Layout**: one big waveform with cut markers, or the Baseline-style strip list (plus a big
-   player)? The brief says both ("big player, cut button below the playhead" and "looks very similar
-   to … the baseline tab").
-2. **Text-bearing segments**: refuse BOTH join and split, or refuse only split? A join concatenates
-   two texts safely (`left + glue + right`, already implemented); a split has **no cursor on this
-   tab**, so there is no defined place to divide the text — that asymmetry is real.
-3. **Where does baseline text show** — caption under every texted row, or only on the current row?
-4. **Does the Cut tab become the doc's landing tab** when a doc has audio and no segmentation yet?
+All four resolved above on 2026-08-13. Kept as a heading only so the plan reads as settled rather
+than as if the questions were never asked.

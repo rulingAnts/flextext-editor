@@ -624,10 +624,39 @@ Test: `test/artifact-links.test.mjs` pins that inferred artifacts are suppressed
 per-kind artifacts still render with their Drive ids, and that the folder-listing rows and
 Download-all are untouched.
 
-## NEXT RELEASE: give the PANEL the editor's transfer engine — chunking, pause/resume (Seth, 2026-08-13)
+## LATER RELEASE: pause / resume / CANCEL for panel downloads AND uploads (Seth, 2026-08-13)
 
 > "I mean the researcher panel needs that machinery as well. The editor already has it. And smart
 > chunking and pause/resume support, etc."
+>
+> then, scoping it: *"We do need to work on the modifications for the worker that would allow us to
+> add pause/resume/cancel support to the Researcher Panel downloads and uploads. But that's for a
+> later release."*
+
+### ⚠ THE ASYMMETRY THAT SHOULD DRIVE THE PLAN: uploads are ALREADY resumable, downloads are not
+
+This was checked in the code, not assumed, and it splits the work in two very unequal halves:
+
+| | wire protocol today | what pause/resume/cancel needs |
+|---|---|---|
+| **UPLOAD** (`assignUploadChunk` → `relayDriveChunk`) | **already chunked AND resumable.** `x-fx-range: bytes N-M/TOTAL`, a **`bytes */TOTAL` PROBE** that asks the server how far it got, `308 → {done:false, received}`, `200 → {done:true,fileId}`, `session_gone` for a dead session. That is the Google resumable protocol, already relayed. 33 MB chunk cap. | **mostly CLIENT work.** The client can already ask "where did we get to" and continue from there. Pause = stop issuing chunks. Resume = probe, then continue. Cancel = stop and abandon the session. |
+| **DOWNLOAD** (`GET /v1/researcher/drive-file/<id>`) | single unranged GET; fetches Drive `?alt=media` and returns `new Response(g.body)`. **No Range forwarded, no Content-Range returned.** | **a WORKER change** — forward `Range`, return `206` + `Content-Range`, and add `Access-Control-Expose-Headers`. |
+
+**So the upload half needs little or no worker change and could ship in an ordinary editor cycle;
+only the download half is gated on a worker deploy.** Worth splitting when this is picked up rather
+than treating "pause/resume/cancel" as one indivisible feature — they are not.
+
+⚠ **CANCEL is the one that needs a decision, not just code.** For an upload it should also release
+the Drive session server-side rather than leaving it to expire, or a cancelled 200 MB upload silently
+occupies a resumable session (and possibly partial Drive bytes) until Google times it out. That is
+the piece most likely to need a new worker route, so scope it with the download change rather than
+assuming cancel is free because pause and resume are.
+
+### What v349 already shipped, so nobody rebuilds it
+
+The activity tray and real streamed byte progress (`fetchDriveFile(fileId, onProgress)` reading
+`response.body`). The tray already has a per-job row and a status line — it is the natural home for
+pause/resume/cancel controls, so this feature is mostly *adding buttons to a surface that exists*.
 
 **v348 shipped the VISIBLE half only** — an activity tray plus real streamed byte progress
 (`fetchDriveFile(fileId, onProgress)` reads `response.body` instead of awaiting `.blob()`). That

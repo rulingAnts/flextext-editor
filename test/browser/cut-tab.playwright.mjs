@@ -153,21 +153,63 @@ const parkNearSeam = async () => {
   await page.waitForTimeout(250);
 };
 
+/* ⚠ "Ended paused" is NOT enough to prove a span stopped at its boundary — it starts paused too, so
+ * the same assertion passes on a button that does nothing at all (found by the v359 preflight
+ * review, about the first version of this very check). Each transport is therefore watched at TWO
+ * moments, and the seam crossing is asserted on the CLOCK, not narrated in the message. */
+const secs = async () => {
+  const txt = (await page.textContent('.player-time')) || '';
+  const m = txt.match(/(\d+):(\d\d)/);
+  return m ? (+m[1] * 60 + +m[2]) : -1;
+};
+const SEAM = 12;   // span 0 is 0–12s: the first cut, made at 60% of a 20s recording
+
 console.log('\na strip\'s own ▶ plays THAT LINE and stops at its end');
 await parkNearSeam();
 await page.evaluate(() => document.querySelector('#cut-strips .cut-row .seg-play').click());
+await page.waitForTimeout(400);
+ok(await page.textContent('.player-play') === '⏸', 'it really did start playing');
 await page.waitForTimeout(3000);   // long enough to have crossed the seam, had it been allowed to
+const stoppedAt = await secs();
 ok(await page.textContent('.player-play') === '▶',
-   'stopped at the end of its own span — the way "play this line" works on every other tab');
+   'and then stopped — "play this line" means the line, as on every other tab');
+ok(stoppedAt <= SEAM, `without ever crossing the seam (ended at ${stoppedAt}s, seam ${SEAM}s)`);
 await pause();
 
-console.log('\n…and SPACE, from the same spot, runs on through the seam');
+console.log('\n…and SPACE, from the same spot, runs ON through the seam');
 await parkNearSeam();
 await page.keyboard.press('Space');
 await page.waitForTimeout(3000);
-const rolled = await page.textContent('.player-time');
-ok(await page.textContent('.player-play') === '⏸', `still rolling past the seam (${rolled})`);
+const spaceAt = await secs();
+ok(await page.textContent('.player-play') === '⏸', 'still rolling');
+ok(spaceAt > SEAM, `and past the seam (${spaceAt}s > ${SEAM}s) — Space is the continuous transport`);
 await pause();
+
+console.log('\n…and so does the dock player\'s own ⏵, the other control Seth named');
+await parkNearSeam();
+await page.evaluate(() => document.querySelector('.player-play').click());
+await page.waitForTimeout(3000);
+const dockAt = await secs();
+ok(await page.textContent('.player-play') === '⏸', 'still rolling');
+ok(dockAt > SEAM, `and past the seam (${dockAt}s > ${SEAM}s)`);
+await pause();
+
+console.log('\nplacing the playhead PAUSES — on a strip and on the big player alike');
+/* Seth: "if the user clicks on a player at all (to place a playhead) playback should pause." A click
+ * during playback used to move the playhead and then immediately run on from it, so the spot the
+ * user was aiming at had already slid away before they could cut at it. */
+await page.evaluate(() => document.querySelector('.player-play').click());   // start it rolling
+await page.waitForTimeout(700);
+ok(await page.textContent('.player-play') === '⏸', 'playing, to have something to interrupt');
+await parkNearSeam();
+ok(await page.textContent('.player-play') === '▶', 'a click on a STRIP waveform paused it');
+await page.evaluate(() => document.querySelector('.player-play').click());
+await page.waitForTimeout(700);
+ok(await page.textContent('.player-play') === '⏸', 'playing again');
+const dock = await page.locator('.player-wave').boundingBox();
+await page.mouse.click(dock.x + dock.width * 0.35, dock.y + dock.height / 2);
+await page.waitForTimeout(400);
+ok(await page.textContent('.player-play') === '▶', 'and a click on the BIG player paused it too');
 
 console.log('\nand a cut does not throw the view back to the top');
 /* Enough rows that the list genuinely scrolls — with only a screenful the clamp-to-top this guards
@@ -194,6 +236,43 @@ const now = await page.evaluate(() => document.querySelector('main').scrollTop);
 ok(was > 200, `the list really was scrolled well down first (${was}px)`);
 // Tight on purpose: the failure this guards is a slam to 0, and a loose bound would pass through it.
 ok(Math.abs(now - was) < 40, `and held its place across the cut (${was} → ${now})`);
+
+console.log('\nand a seek on the big player brings that line into the middle of the view');
+/* The other half of "the one overview and the strips stay in sync": seeking on the whole-file player
+ * is how you find your place in a long recording, and landing there with the line off screen leaves
+ * you hunting for the row you just picked.
+ *
+ * ⚠ It runs HERE, after the cutting loop, because it needs a list long enough for "off screen" to
+ * mean something — with two rows on a screenful, the assertion would pass without any scrolling
+ * having happened at all. The precondition is asserted rather than assumed. */
+await page.evaluate(() => { document.querySelector('main').scrollTop = 0; });
+await page.waitForTimeout(300);
+const beforeReveal = await page.evaluate(() => {
+  const rs = [...document.querySelectorAll('#cut-strips .cut-row')];
+  const last = rs[rs.length - 1];
+  return { rows: rs.length, lastTop: Math.round(last.getBoundingClientRect().top), h: window.innerHeight };
+});
+ok(beforeReveal.rows >= 8 && beforeReveal.lastTop > beforeReveal.h,
+   `the last line really is off screen to begin with (${JSON.stringify(beforeReveal)})`);
+const dockBox = await page.locator('.player-wave').boundingBox();
+/* ⚠ NOT the very end of the recording: its row is the LAST one, and no scroller can put its last
+ * row in the middle of the window — the assertion would be testing gravity, not the feature. 85%
+ * lands on a row with several below it, so centring is actually possible. */
+await page.mouse.click(dockBox.x + dockBox.width * 0.85, dockBox.y + dockBox.height / 2);
+await page.waitForTimeout(1200);   // the tickers honour the request on their next pass
+const revealed = await page.evaluate(() => {
+  const on = document.querySelector('#cut-strips .cut-row.seg-on');
+  if (!on) return { err: 'no row holds the playhead' };
+  const r = on.getBoundingClientRect();
+  const m = document.querySelector('main');
+  return { top: Math.round(r.top), bottom: Math.round(r.bottom), h: window.innerHeight,
+           atEnd: m.scrollTop >= m.scrollHeight - m.clientHeight - 2 };
+});
+ok(!revealed.err && revealed.top >= 60 && revealed.bottom <= revealed.h - 20,
+   `the line for that instant scrolled into view (${JSON.stringify(revealed)})`);
+ok(!revealed.err && (Math.abs((revealed.top + revealed.bottom) / 2 - revealed.h / 2) < 160 || revealed.atEnd),
+   'and it is near the MIDDLE of the window (or as close as the end of the list allows)');
+await pause();
 
 console.log('\na segment carrying text is grey, and refuses to be cut');
 await page.evaluate(() => document.querySelector('.top-tab[data-tab="baseline"]').click());

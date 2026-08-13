@@ -60,10 +60,40 @@ if (typeof window !== 'undefined') {
 function followLine(row, rolling, prevRow, player) {
   if (!rolling || row === prevRow) return prevRow;
   if (!player?._spanTick && Date.now() - lastUserScroll > 4000) {
-    const r = row.getBoundingClientRect();
-    if (r.top < 60 || r.bottom > (window.innerHeight - 20)) row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    if (offScreen(row)) row.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }
   return row;
+}
+
+function offScreen(row) {
+  const r = row.getBoundingClientRect();
+  return r.top < 60 || r.bottom > (window.innerHeight - 20);
+}
+
+/* ── "TAKE ME TO THAT LINE" ────────────────────────────────────────────────────────────────────
+ * Seth, 2026-08-13: "if they select somewhere on the [big player] that is off screen, it should
+ * auto scroll to that line so that it's in the middle of the view window."
+ *
+ * Seeking on the whole-file player is how you find your place in a long recording — and until now it
+ * moved the playhead to a line that could be a screenful away, leaving the user to hunt for the row
+ * they had just chosen. This is the other half of the synchronisation between the one overview and
+ * the strips.
+ *
+ * ⚠ IT IS A REQUEST, NOT A SCROLL. The row for a given time is something each tab's own ticker
+ * already works out (and each does it differently — cut rows, baseline strips, gloss groups), so
+ * asking them to honour a pending request reuses three correct implementations instead of adding a
+ * fourth that would drift. Every ticker calls takeReveal() with the row it has decided is the
+ * playhead's, and the FIRST one to answer clears the request.
+ *
+ * ⚠ AND IT EXPIRES. A seek into a `timePending` span belongs to no row at all, so the request would
+ * otherwise sit armed and fire minutes later, mid-playback, as a scroll nobody asked for. */
+let revealAt = 0;
+export function requestReveal() { revealAt = Date.now(); }
+function takeReveal(row) {
+  if (!revealAt) return;
+  if (Date.now() - revealAt > 1500) { revealAt = 0; return; }
+  revealAt = 0;
+  if (offScreen(row)) row.scrollIntoView({ block: 'center', behavior: 'smooth' });
 }
 
 export function initStrips(d) { deps = d; }
@@ -485,7 +515,7 @@ function positionCursor() {
        * highlights (it IS the playing line) but never scrolls — the user just clicked it. */
       const rolling = p?.playing?.() && inSeg;
       if (row.classList.contains('seg-on') !== inSeg) row.classList.toggle('seg-on', inSeg);
-      if (inSeg) followRow = followLine(row, rolling, followRow, p);
+      if (inSeg) { takeReveal(row); followRow = followLine(row, rolling, followRow, p); }
       if (inSeg) {
         if (!cur) { cur = document.createElement('div'); cur.className = 'seg-cursor'; row.appendChild(cur); }
         const wave = row.querySelector('.seg-wave');
@@ -535,6 +565,13 @@ export function wireWaveSeek(wave, seg, getPlayer, onTarget) {
     ev.preventDefault();
     try { wave.setPointerCapture(ev.pointerId); } catch { /* capture is drag comfort, not required */ }
     onTarget?.(seg);   // v326: touching a WAVEFORM selects it for Space/rewind
+    /* ⚠ PLACING THE PLAYHEAD STOPS PLAYBACK (Seth, 2026-08-13: "if the user clicks on a player at
+     * all (to place a playhead) playback should pause … that probably should apply on the baseline
+     * and gloss tabs as well"). Before this, a click during playback moved the playhead and the
+     * audio immediately ran on from it, so the parked position the user was aiming at — the place
+     * they were about to cut — had already slid away by the time they pressed the key. Pausing makes
+     * the click mean "here", which is what it looks like it means. */
+    getPlayer()?.pause?.();
     seekAt(ev);
     const move = (e2) => seekAt(e2);
     const up = () => { wave.removeEventListener('pointermove', move); wave.removeEventListener('pointerup', up); };
@@ -568,11 +605,15 @@ export function startGlossTicker(entries, getPlayer, t) {
     document.querySelectorAll('.gseg-wave').forEach(fixStaleWave);
     const p = getPlayer();
     const time = p?.playheadMs?.();
-    for (const { btn, seg } of entries) {
+    for (const { btn, seg, wrap } of entries) {
       if (!isAligned(seg)) continue;
-      const rolling = p?.playing?.() && typeof time === 'number' && time >= seg.start && time < seg.end;
+      const inSeg = typeof time === 'number' && time >= seg.start && time < seg.end;
+      const rolling = p?.playing?.() && inSeg;
       const want = rolling ? '⏸' : '▶';
       if (btn.textContent !== want) { btn.textContent = want; btn.setAttribute('aria-label', t(rolling ? 'seg.pauseTip' : 'seg.playTip')); }
+      // "Take me to that line" after a seek on the whole-file player — see requestReveal. This tab
+      // scrolls the whole line-GROUP (the interlinear block), not the little waveform inside it.
+      if (inSeg) takeReveal(wrap?.closest('.segment') || btn.closest('.segment') || btn);
     }
   }, 300);
 }
@@ -819,8 +860,9 @@ function startCutTicker() {
         fixStaleWave(row.querySelector('.seg-wave'));
         if (row.classList.contains('seg-on') !== inSeg) row.classList.toggle('seg-on', inSeg);
         // Same follow rule as the Baseline tab: on a line CHANGE, only while playing, only when
-        // off screen, and never within 4s of the user scrolling.
-        if (inSeg) cutFollowRow = followLine(row, rolling, cutFollowRow, p);
+        // off screen, and never within 4s of the user scrolling. Plus a pending "take me there"
+        // from a seek on the whole-file player — see requestReveal.
+        if (inSeg) { takeReveal(row); cutFollowRow = followLine(row, rolling, cutFollowRow, p); }
         let cur = row.querySelector('.seg-cursor');
         let sc = row.querySelector('.cut-scissors');
         if (inSeg) {
@@ -864,6 +906,13 @@ export function cutHere() {
   const at = cutCurrentIndex();                    // the row to hold still across the rebuild
   const r = cutAtPlayhead(cutSegs(), cutDeps.getParagraphs(doc), ms, { duration: peaksCache.durationMs || null });
   if (!r.ok) { cutSay(cutDeps.t('cut.no.' + r.reason)); return; }
+  /* ⚠ A SPAN WATCHER ARMED BEFORE THE CUT NOW DESCRIBES A SPAN THAT NO LONGER EXISTS. playSpan
+   * captures its stop time and its rewind-home when the button is pressed, so auditioning a line and
+   * then cutting it — the tab's core loop, listen and cut on the fly — would pause playback at the
+   * OLD boundary and throw the playhead back to the OLD start, undoing the cut you were listening
+   * for. Dropping it lets playback simply run on past the new cut, which is what a person cutting by
+   * ear is doing anyway. (cutJoinPrev gets this for free: its seekMs clears the span.) */
+  cutDeps.getPlayer()?.clearSpan?.();
   if (cutDeps.capture) cutDeps.capture();
   doc.segments = r.segments;                       // ⚠ BOTH, from the one result
   cutDeps.setParagraphs(doc, r.paragraphs);

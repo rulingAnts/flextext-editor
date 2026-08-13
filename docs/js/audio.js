@@ -612,10 +612,13 @@ export class Player {
    * @param {(media: object) => void} onPeaks - called once peaks are computed
    *   so the caller can persist them.
    */
-  constructor(root, { onPeaks, onRemove, labels }) {
+  constructor(root, { onPeaks, onRemove, labels, onSeekInteraction }) {
     this.root = root;
     this.onPeaks = onPeaks;
     this.labels = labels;
+    // Called when the USER seeks by touching the waveform itself (not by any of our own seekMs
+    // calls) — the host decides what that means; see the Player construction in app.js.
+    this.onSeekInteraction = onSeekInteraction;
     this.ws = null;
     this.objectUrl = null;
 
@@ -771,6 +774,12 @@ export class Player {
       try { this.ws.setTime(Number.isFinite(home) ? home : 0); } catch { /* not ready */ }
     });
     this.ws.on('timeupdate', () => this.updateTime());
+    /* ⚠ 'interaction' IS THE USER'S OWN SEEK, and nothing else: wavesurfer emits it only from a
+     * click or drag on the waveform, never from our setTime()/seekMs() calls. That distinction is
+     * the whole reason this hook can pause playback safely — a handler on 'seeking' would also fire
+     * for the seeks our own code makes (a strip's ▶, a join's playhead move, span rewind) and would
+     * pause the player in the middle of doing what it was told. */
+    this.ws.on('interaction', () => { try { this.onSeekInteraction?.(); } catch { /* host's problem */ } });
   }
 
   showPending(message) {

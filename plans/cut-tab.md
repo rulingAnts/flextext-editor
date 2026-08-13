@@ -265,6 +265,49 @@ Baseline line still playing is left over from another tab and would stop playbac
 nobody chose. Both browser assertions are kept, from the same parked position just inside a seam:
 the row button stops (▶), Space runs on to 0:14 past the 12s boundary.
 
+## v360 — placing the playhead means "here", and a text opens where you left it
+
+Three more from the same test drive, two of which deliberately reach BEYOND the Cut tab.
+
+**Clicking a player pauses it.** Seth: *"if the user clicks on a player at all (to place a playhead)
+playback should pause. And I think that probably should apply on the baseline and gloss tabs as
+well."* A click used to move the playhead and let the audio run straight on from it, so the spot the
+user was aiming at had already slid away before they could cut at it. Now every place a playhead can
+be placed pauses first: the strips on all three tabs (one shared `wireWaveSeek` — the gloss tab's own
+copy is gone, which is why this needed writing only once) and the whole-file player, via a new
+`onSeekInteraction` hook. ⚠ It listens for wavesurfer's **`interaction`** event, which fires ONLY for
+a click or drag on the waveform; `seeking` would also fire for the app's own `seekMs` calls and would
+pause the player in the middle of doing what it had been told.
+
+**A seek on the big player brings that line into the middle.** *"If they select somewhere on the
+[big player] that is off screen, it should auto scroll to that line so that it's in the middle of the
+view window."* This is the other half of "the one overview and the strips stay in sync": seeking is
+how you find your place in a long recording, and landing there with the line off screen leaves you
+hunting for the row you just chose. ⚠ Implemented as a REQUEST (`requestReveal`) that each tab's own
+ticker honours with the row IT has decided holds the playhead — three correct implementations reused
+rather than a fourth that would drift. It expires after 1.5s, so a seek into a `timePending` span
+cannot fire a surprise scroll minutes later.
+
+**Which tab a text opens on**, in Seth's own order:
+1. the last tab used in THAT text (remembered per text, on the record — not on `doc`, which is the
+   flextext model and gets serialised into the export);
+2. failing that, and only when there are **no words yet**: the Cut tab if enabled, else Baseline.
+
+⚠ (1) beating (2) is the point of it. Without the memory, a text with no words — every text at the
+start of the job — would drag the user back to Cut every time they opened it, however many times they
+had left for Baseline. A remembered tab is still subject to the gates: the researcher can turn the Cut
+tab off after a device has already used it.
+
+### Two more from the v359 review, in the same release
+
+- **A cut during an audition left a stale span watcher.** `playSpan` captures its stop time and its
+  rewind-home when the button is pressed, so auditioning a line and then cutting it — listen and cut
+  on the fly, the tab's core loop — paused playback at the OLD boundary and threw the playhead back
+  to the OLD start. `cutHere` drops the watcher.
+- **v358's disarm-on-entry was too broad**: it fired on every re-entry, including the undo/redo
+  re-render, silently cancelling an audition the user had just started. Now scoped to arrivals from
+  another tab (`fromTab !== 'cut'`), which is the case it was written for.
+
 ### And the tab is verified in a BROWSER now
 
 v355 and v356 both shipped saying *"still unverified in a browser"*, and both were wrong in ways no

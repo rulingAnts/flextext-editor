@@ -74,6 +74,32 @@ ok(/wireWaveSeek\(wave, seg, cutDeps\.getPlayer/.test(render), 'the Cut tab stri
 ok(/wireWaveSeek\(wave, seg, deps\.getPlayer/.test(strips), 'and so do the Baseline strips — one behaviour, not two');
 ok(/seekMs\?\.\(seg\.start \+ f \* \(seg\.end - seg\.start\)\)/.test(strips),
    'a click maps to a time INSIDE that segment\'s own span');
+ok(/wireWaveSeek\(wave, \(\) => player|wireWaveSeek\(wave, seg, \(\) => player/.test(app),
+   '…and so does the GLOSS tab, which had its own copy until the pause behaviour needed writing twice');
+
+/* ── PLACING THE PLAYHEAD STOPS PLAYBACK (Seth, 2026-08-13), everywhere a playhead can be placed:
+ * the strips on all three tabs, and the whole-file player. A click that moved the playhead and then
+ * ran on from it slid the spot away before the user could cut at it. */
+const seekWire = strips.match(/export function wireWaveSeek[\s\S]*?\n\}/)[0];
+ok(/getPlayer\(\)\?\.pause\?\.\(\);/.test(seekWire), 'a click on any strip waveform pauses first');
+ok(/onSeekInteraction/.test(audio) && /this\.ws\.on\('interaction'/.test(audio),
+   'the dock player reports the USER\'s own seeks through onSeekInteraction');
+ok(!/this\.ws\.on\('seeking'/.test(audio),
+   '…via \'interaction\', which fires ONLY for a click or drag — \'seeking\' would also catch our own seekMs calls');
+ok(/onSeekInteraction: \(\) => \{ player\?\.pause\?\.\(\); requestReveal\(\); \}/.test(app),
+   'and the editor answers it by pausing and asking for the line to be revealed');
+
+/* ── "TAKE ME TO THAT LINE" (Seth): a seek on the whole-file player scrolls the row for that instant
+ * into the middle, if it is off screen. Each tab's ticker already knows which row that is, so the
+ * request is honoured by all three rather than reimplemented a fourth time. */
+ok(/export function requestReveal/.test(strips) && /function takeReveal/.test(strips),
+   'the reveal is a REQUEST the tickers honour, not a scroll issued from the player');
+ok((strips.match(/takeReveal\(/g) || []).length >= 4,
+   'and all three tickers honour it — baseline strips, cut rows and gloss groups');
+ok(/Date\.now\(\) - revealAt > 1500/.test(strips),
+   'it expires, so a seek into a pending span cannot fire a surprise scroll minutes later');
+ok(/block: 'center'/.test(strips) && /function offScreen/.test(strips),
+   'centred, and only when the row is actually off screen');
 
 /* ── TWO TRANSPORTS, TWO QUESTIONS (Seth, 2026-08-13, refining v357):
  *   a row's ▶  → "is this span right?"     → play the line and STOP at its end (playSpan)
@@ -165,6 +191,26 @@ ok(/const reentry = main && !main\.hidden && cutShownFor === forDoc;/.test(prep)
    're-entering the tab for the SAME doc keeps the strips on screen');
 ok(/if \(main && !reentry\) main\.hidden = true;/.test(prep),
    'so the height never collapses and the scroll is never clamped — and the undo flicker goes too');
+
+/* ── WHICH TAB A TEXT OPENS ON (Seth, 2026-08-13): the last tab used in THAT text, else — only when
+ * there are no words yet — the Cut tab if it is enabled. The memory has to win, or a text with no
+ * words (every text at the start of the job) drags the user back to Cut however many times they
+ * have left it for Baseline. */
+console.log('\na text opens on the tab it was last used on');
+const landing = fn(app, 'landingTab');
+ok(/const last = current\.lastTab;/.test(landing) && landing.indexOf('current.lastTab') < landing.indexOf('landOnCutEnabled'),
+   'the remembered tab is consulted BEFORE the no-words rule, not after');
+ok(/!\(last === 'cut' && !cutTabEnabled\(\)\)/.test(landing),
+   'but a remembered tab the researcher has since switched off is not honoured');
+ok(/if \(!docHasNoText\(current\.doc\)\) return tab;/.test(landing),
+   'the fallback turns on WORDS, not on the segmentation state');
+ok(/function docHasNoText/.test(app), 'and "no words yet" is one named predicate');
+const remember = fn(app, 'rememberTab');
+ok(/current\.lastTab = tab;/.test(remember) && !/current\.doc\.lastTab/.test(app),
+   'the memory lives on the RECORD, not on doc — doc is the flextext model and gets serialised');
+ok(/isEditorTab\(tab\)/.test(remember), 'and only editor tabs are remembered');
+ok(/rememberTab\(tab\);/.test(app.match(/function switchTab\(tab\)[\s\S]{0,600}/)[0]),
+   'switchTab records it');
 
 console.log(fail ? `\nFAILED (${fail})` : '\nPASSED');
 process.exit(fail ? 1 : 0);

@@ -661,7 +661,39 @@ for the panel) and a pluggable **fetcher** (the relay for the editor, `/v1/resea
 the panel). ⚠ Generalise on the second use, which this is — but the editor's path is field-critical
 and auto-updates, so the refactor needs its own tests before either caller moves onto it.
 
-## NEXT RELEASE: segmentation on/off PER TEXT, not only per device (Seth, 2026-08-13)
+## ~~segmentation on/off PER TEXT~~ — CANCELLED (Seth, 2026-08-13)
+
+> **"Actually, we don't need the per-text setting. That's not worth doing. It's too much trouble.
+> And no gain. For a single user one-time case."**
+
+Closed the same day it was scoped. Segmentation stays a **device** setting.
+
+⚠ **The reasoning is the durable part, so record it rather than just the verdict:** the whole feature
+existed to serve ONE user's ONE-TIME migration — a person with in-progress texts to finish the old
+way while new texts came the new way. That is a situation that resolves itself as he works through
+his backlog, and the cost was a worker deploy, a new command type, an engine change, a panel control,
+engine-version gating, and a live-flip hazard on open documents that can destroy typing. Permanent
+machinery, with its own permanent failure modes, for a temporary problem. If this is ever re-proposed,
+the question to ask first is whether the situation is still one-off — not whether the design works,
+because the design was fine.
+
+Kept rather than deleted so it is not re-proposed from scratch — and because three findings below are
+about the SUITE, not about this feature, and stay true:
+
+- **`setDone` is the template for ANY per-text command the researcher changes after assignment**
+  (panel `pushCommand` → worker type whitelist → `syncDispatch` → the device's own local handler, so
+  a pushed change behaves exactly like a local tap). Whatever the next per-text property turns out to
+  be, this is its shape.
+- ⚠ **A new command type is a WORKER change.** `worker/src/v1.js:1651` whitelists command types and
+  returns `400 unknown_command` otherwise, so any new one rides the worker→engine→panel release
+  order. Easy to miss when the feature otherwise looks client-only.
+- ⚠ **Old devices ignore an unknown command safely but silently** (`syncDispatch` `default:` is a
+  `console.warn`, no throw, still acks) — so the PANEL must engine-gate the control, or the
+  researcher sets something, sees nothing happen, and concludes it is broken.
+
+Everything below is the original entry, superseded.
+
+### (cancelled — original entry)
 
 > "audio segmentation enabled is a device setting, but I'd like the researcher to be able to enable
 > or disable it for individual texts. Is there a way we can do that?"

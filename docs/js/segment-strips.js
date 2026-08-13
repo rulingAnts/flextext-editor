@@ -646,7 +646,12 @@ export function renderCut() {
 
   segs.forEach((seg, i) => {
     const row = document.createElement('div');
-    row.className = 'seg-row cut-row';
+    /* ⚠ .seg-strip IS THE BASELINE ROW CLASS — not .seg-row, which does not exist. Getting this
+     * wrong cost the whole layout: no grid (so the wave and caption ignored their columns), no
+     * border, and no `position: relative`, which meant the absolutely-positioned .seg-cursor
+     * resolved against a distant ancestor and drew ABOVE the waveform instead of on it. Reusing the
+     * class is the point — the two tabs must not drift apart. */
+    row.className = 'seg-strip cut-row';
     /* Focusable, because this tab has no text box to hold focus and the keys must land somewhere.
      * The row IS the control. */
     row.tabIndex = 0;
@@ -722,8 +727,16 @@ function startCutTicker() {
       }
 
       host.querySelectorAll('.cut-row').forEach((row) => {
-        const seg = segs[+row.dataset.i];
-        const inSeg = seg && isAligned(seg) && typeof t === 'number' && t >= seg.start && t < seg.end;
+        const idx = +row.dataset.i;
+        const seg = segs[idx];
+        /* ⚠ The LAST segment includes its own end. Every other span uses a half-open range so a
+         * playhead on a boundary belongs to the span it is starting — but the final span has no
+         * successor, so the strict `< end` left the playhead homeless for the last instant of the
+         * recording, and the cursor vanished exactly where a user is most likely to be looking
+         * (Seth: "it seems to disappear on the final segment"). */
+        const last = idx === segs.length - 1;
+        const inSeg = seg && isAligned(seg) && typeof t === 'number'
+          && t >= seg.start && (t < seg.end || (last && t <= seg.end));
         const btn = row.querySelector('.seg-play');
         const rolling = p?.playing?.() && inSeg;
         if (btn && seg && isAligned(seg)) {
@@ -738,7 +751,7 @@ function startCutTicker() {
         if (inSeg) {
           if (!cur) { cur = document.createElement('div'); cur.className = 'seg-cursor'; row.appendChild(cur); }
           const w = row.querySelector('.seg-wave');
-          const frac = (t - seg.start) / (seg.end - seg.start);
+          const frac = Math.min(1, Math.max(0, (t - seg.start) / Math.max(1, seg.end - seg.start)));
           cur.style.left = (w.offsetLeft + frac * w.offsetWidth) + 'px';
           cur.style.top = w.offsetTop + 'px';
           cur.style.height = w.offsetHeight + 'px';

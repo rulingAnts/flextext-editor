@@ -2153,7 +2153,7 @@ main {
                pointer-events: none; }
 .cut-say { min-height: 1.3em; margin: 4px 0 10px; }
 
-#cut-strips { display: flex; flex-direction: column; }
+#cut-strips { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
 /* Focusable, because this tab has no text box to hold focus and Enter/Backspace must land
    somewhere. The row IS the control, so it needs a visible focus ring. */
 .cut-row { outline: none; }
@@ -2161,6 +2161,6 @@ main {
 /* ⚠ The caption is a caption: not editable, and NOT SELECTABLE (Seth: "text can't be edited or
    selected"). Selection would invite editing on a tab whose whole purpose is that you cannot. */
 .cut-cap {
-  grid-column: 1 / -1; font-size: 13px; color: var(--muted); padding: 2px 2px 0 3.1rem;
+  grid-column: 2; font-size: 13px; color: var(--muted); padding: 4px 2px 0;
   overflow-wrap: anywhere; user-select: none; -webkit-user-select: none; cursor: default;
 }

@@ -4146,6 +4146,36 @@ function buildSourceManifest(rec, { origin, files, audio }) {
   };
 }
 
+/* AFTER A SUCCESSFUL SEND, GO BACK TO THE TEXTS LIST (Seth, 2026-08-13).
+ *
+ * "when the user clicks 'Done - and send' after it's done sending, navigation returns them back to
+ *  the main page (with the texts listed)."
+ *
+ * The workflow this completes: a transcriber finishes a text, sends it, and is ready for the next
+ * one. Leaving them on the text they just finished makes them find their own way back, and the
+ * commonest way people "leave" a finished text is to start editing it again by accident.
+ *
+ * ⚠ SAME ORDER AS #btn-back, AND THE ORDER IS LOAD-BEARING: applyBaseline, then persist, and only
+ * THEN show('texts'). `persist()` deliberately skips the full doc write while the texts view is
+ * visible, so navigating first would drop the last edit — the same trap documented for the Back
+ * button. Reusing that exact sequence is why this is one helper and not three call sites.
+ *
+ * ⚠ ONLY ON SUCCESS. Never after an AbortError (the user dismissed the picker or the share sheet),
+ * never after a failure — navigating away from a send that did NOT happen would hide the failure
+ * behind a screen change and read as success. */
+/* Which doc's upload, if any, should return the user to the list when it lands. Cleared whenever it
+ * is honoured or becomes moot — never a standing subscription. */
+let returnAfterUploadOf = null;
+
+async function returnToLibraryAfterSend() {
+  if (activeTab === 'baseline') applyBaseline();
+  try { await persist(); } catch { /* already saved / nothing to flush */ }
+  current = null;
+  if (player) { player.hide(); player.loadedFor = null; }
+  renderDocList();
+  show('texts');
+}
+
 async function openShareMenu() {
   persist();
   const bundle = await buildBundle(false);
@@ -4179,11 +4209,21 @@ async function openShareMenu() {
     try {
       await navigator.share({ files: [shareFile], title: bundle.xmlName });
       closeShareMenu();
+      await returnToLibraryAfterSend();
     } catch (e) {
       if (e.name !== 'AbortError') toast(t('toast.shareFailed', { msg: e.message }), 5000);
     }
   };
-  $('#share-upload').onclick = () => { closeShareMenu(); doUpload(); };
+  /* ⚠ UPLOAD RETURNS WHEN THE UPLOAD ACTUALLY FINISHES (Seth: "after finished uploading"), not when
+   * the button is tapped — so it records an INTENT here and the completion point acts on it.
+   *
+   * The intent is per-DOC, and that is the safety property: an upload can take minutes on a village
+   * connection, and in that time the transcriber may open another text. Navigating then would yank
+   * them out of whatever they had started typing, triggered by a network event they cannot see
+   * coming. So the completion point returns only if they are STILL on the text they sent. If they
+   * moved on, the intent is simply dropped — the upload still completes and the global bar still
+   * reports it. */
+  $('#share-upload').onclick = () => { closeShareMenu(); returnAfterUploadOf = current ? current.id : null; doUpload(); };
   /* ⚠ ONE HANDLER, TWO MECHANISMS, and the fallback is not optional. showSaveFilePicker is
    * Chromium/Edge only — Firefox and Safari have never had it — so a save path that depends on it
    * simply does not exist for a large share of users. It picks the best available method and always
@@ -4197,6 +4237,7 @@ async function openShareMenu() {
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 30000);
     closeShareMenu();
+    returnToLibraryAfterSend();
   };
   $('#share-saveas').onclick = async () => {
     if (!window.showSaveFilePicker) { blindDownload(); return; }
@@ -4212,6 +4253,7 @@ async function openShareMenu() {
       await w.close();
       closeShareMenu();
       toast(t('toast.saved'));
+      await returnToLibraryAfterSend();
     } catch (e) {
       if (e.name === 'AbortError') return;                 // the user closed the picker: not a failure
       /* The picker EXISTED but refused — a cross-origin iframe, a locked-down policy, a quota. The
@@ -4296,6 +4338,13 @@ function uploadState(docId) {
             d.uploadedSig = uploadContentSig(d);   // remember WHAT was uploaded → skip duplicate re-uploads
           };
           if (current && current.id === docId) stamp(current);
+          /* "Done and send" → back to the list, now that the bytes are actually on Drive. Guarded on
+           * the user still being on that same text: if they moved on, dropping the intent is the
+           * correct outcome, not a deferred navigation waiting to surprise them. */
+          if (returnAfterUploadOf === docId) {
+            returnAfterUploadOf = null;
+            if (current && current.id === docId) returnToLibraryAfterSend();
+          }
           // Persist the new uploadedFileId, THEN report — so the researcher panel sees the (re)upload
           // land on its very next poll instead of waiting up to a full device-poll cycle (loop-closure:
           // the panel confirms completion by detecting a CHANGED uploadedFileId in the reported inventory).

@@ -624,6 +624,53 @@ Test: `test/artifact-links.test.mjs` pins that inferred artifacts are suppressed
 per-kind artifacts still render with their Drive ids, and that the folder-listing rows and
 Download-all are untouched.
 
+## FUTURE: multiple researchers sharing ONE project / panel (Seth, 2026-08-13)
+
+> "Can we also make a way for a researcher to invite other Google users to be able to access their
+> researcher account? … A way for multiple researchers to collaborate and share a project/researcher
+> panel."
+
+⚠ **This is NOT the approval flow that already exists.** Today an OWNER approves people who sign in
+(`panel.pending.*`, `/v1/researcher/approvals`, `logApproval()`), and the panel's own wording states
+the outcome plainly: *"Each approved person gets their own separate console."* Approval creates a
+PEER, not a collaborator. Sharing one project is a different feature with a different data model, and
+anyone picking this up should read that string first so they do not mistake one for the other.
+
+### The two hard constraints, and they are both load-bearing
+
+**1. ⚠ THE METADATA IS E2EE.** D1 holds ciphertext; the worker cannot read device inventories,
+nicknames or settings by design (`crypto.js`, `researcher.js`). So a second researcher cannot simply
+be granted a database row — they need the KEY. That makes this a key-management feature wearing a
+permissions feature's clothes:
+- the project key has to be re-wrapped to each invited researcher's own identity (the escrow
+  machinery in the auth plan is the nearest existing precedent — see
+  `docs/connectivity-auth-plan.md`);
+- **revocation is the part that will be got wrong**: removing someone's access does not un-know the
+  key they already held, so a genuine revoke means re-keying the project and re-wrapping for everyone
+  who remains. Decide up front whether "remove" means *revoke future access* (cheap, honest if said
+  plainly) or *rotate* (expensive, and the only one that is actually a revocation).
+
+**2. ⚠ WHOSE GOOGLE DRIVE?** Uploads land in the RESEARCHER'S own Drive on their OAuth token, and the
+`drive.file` scope means an app can only ever see files IT created. A second researcher signing in
+with their own Google account therefore **cannot see the first researcher's uploads at all** — not a
+permissions problem we can fix, a scope boundary. Options, none free:
+- the project keeps ONE Drive owner and collaborators act through that owner's token (simplest;
+  concentrates quota and liability on one person — see the storage-footprint entry above);
+- a Shared Drive, which changes the folder model and the quota story;
+- per-researcher Drives with the manifest as the join, which multiplies the dedupe problem v167 just
+  fixed.
+
+### Worth deciding early, because they change the schema
+
+- Roles: is an invited researcher equal to the owner, or read-only / no-delete? The panel already has
+  destructive actions (Drive purge, remove-from-device) that a collaborator may not should have.
+- Does the audit log record WHICH researcher did each action? Today `logApproval()` is append-only and
+  owner-scoped; with several people acting on one project, "who removed this text" becomes a question
+  the log must be able to answer, and retrofitting an actor column later is worse than adding it now.
+- ⚠ The device side must not learn about this. A field device is paired to a PROJECT; who administers
+  it is not the device's business, and leaking a researcher list into an inventory report would put
+  personal data on every device.
+
 ## LATER RELEASE: pause / resume / CANCEL for panel downloads AND uploads (Seth, 2026-08-13)
 
 > "I mean the researcher panel needs that machinery as well. The editor already has it. And smart

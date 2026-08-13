@@ -1160,6 +1160,37 @@ main {
                  overflow-wrap: anywhere; }
 /* Only takes up space once it says something — an always-present empty strip reads as a broken row. */
 .rp-dlm-status.is-on { min-height: 1.4em; padding-top: 8px; border-top: 1px solid var(--line); }
+
+/* THE ACTIVITY TRAY. Bottom-anchored, body-level, above the modal layer — a transfer started from
+   the Files modal keeps running after it is closed, and closing it is the normal thing to do while
+   a large original streams. Nothing appears in the BROWSER's download list until the whole Blob is
+   handed over at the end, so while the work is slow this box is the only evidence it exists. */
+.rp-jobs {
+  position: fixed; z-index: 120; left: 12px; bottom: 12px;
+  width: min(360px, calc(100vw - 24px));
+  background: var(--card, #fff); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.22); padding: 8px 10px;
+  /* Many jobs must not grow a wall of text off the top of the screen. */
+  max-height: 40vh; overflow-y: auto;
+}
+.rp-jobs[hidden] { display: none; }
+.rp-jobs-head { font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+                color: var(--muted); margin-bottom: 4px; }
+.rp-job { display: flex; gap: 8px; align-items: flex-start; padding: 4px 0; font-size: 13px; }
+.rp-job + .rp-job { border-top: 1px solid var(--line); }
+.rp-job-mark { flex: none; width: 14px; text-align: center; color: var(--muted); }
+.rp-job.is-done .rp-job-mark { color: var(--ok, #0a7d33); }
+/* min-width:0 is load-bearing here for the same reason as the Files list: a long filename in a flex
+   row refuses to shrink below its intrinsic width and pushes the box wider than its own max. */
+.rp-job-body { min-width: 0; }
+.rp-job-label { display: block; font-weight: 600; overflow-wrap: anywhere; }
+.rp-job-msg { display: block; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.rp-job-spin { display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+               border: 2px solid var(--border); border-top-color: var(--blue-dark);
+               animation: rp-job-spin 0.8s linear infinite; }
+@keyframes rp-job-spin { to { transform: rotate(360deg); } }
+/* A spinner is decoration, not information — respect a user who has asked for less motion. */
+@media (prefers-reduced-motion: reduce) { .rp-job-spin { animation: none; } }
 /* ⚠ min-width:0 IS LOAD-BEARING, not tidying. The menu is a flex COLUMN, and a flex item's default
    `min-width: auto` refuses to shrink below its content's intrinsic width — so a long sub-line made
    the row wider than the menu's own max-width and the text ran off the right edge (reported 2026-08-12,

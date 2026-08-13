@@ -350,7 +350,17 @@ export function assignCopy(instanceId, docId, title, src) {
 
 /* Raw bytes of one of the researcher's own app-created Drive files, as a Blob — for the panel's
  * download-all-as-ZIP builder. Not api(): that helper parses JSON, and this is a file body. */
-export async function fetchDriveFile(fileId) {
+/* `onProgress(receivedBytes)` streams the body instead of awaiting `.blob()`, so the panel can show
+ * a transfer moving instead of a frozen screen (Seth, 2026-08-13: panel downloads "don't show up on
+ * the browser download menu until they're finished" — the app is the only thing that can report
+ * them, because the bytes are not a browser download until the whole Blob is handed over at the end).
+ *
+ * ⚠ NO TOTAL COMES BACK FROM HERE, deliberately. The worker sets content-length, but `v1Cors` has no
+ * `Access-Control-Expose-Headers`, so a cross-origin reader cannot see it — and adding it would be a
+ * worker change and a deploy for something the CALLER already knows: every call site has the file's
+ * size from the Drive listing or the manifest. So the byte count is reported and the percentage is
+ * computed by whoever has the denominator. Without onProgress the fast path is untouched. */
+export async function fetchDriveFile(fileId, onProgress) {
   const a = (() => { try { return JSON.parse(sessionStorage.getItem(AUTH_KEY) || localStorage.getItem(AUTH_KEY)) || null; } catch { return null; } })();
   if (!a) throw new Error('not_signed_up');
   const base = (workerBaseFn() || '').replace(/\/+$/, '');
@@ -358,7 +368,19 @@ export async function fetchDriveFile(fileId) {
     headers: { 'x-fx-researcher': a.researcher_id, 'x-fx-secret': a.secret },
   });
   if (!r.ok) throw new Error('file_fetch_failed_' + r.status);
-  return r.blob();
+  if (typeof onProgress !== 'function' || !r.body || typeof r.body.getReader !== 'function') return r.blob();
+  const reader = r.body.getReader();
+  const chunks = [];
+  let received = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    received += value.length;
+    // A throwing progress callback must never lose the transfer that is already half done.
+    try { onProgress(received); } catch { /* noop */ }
+  }
+  return new Blob(chunks, { type: r.headers.get('content-type') || 'application/octet-stream' });
 }
 
 /* ---------------- assignment uploads (assign-by-upload, 2026-08-11) ----------------

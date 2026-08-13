@@ -1292,6 +1292,83 @@ function dlStatus(wrap, msg) {
   el.classList.toggle('is-on', !!msg);
 }
 
+/* ────────────────────────────────────────────────────────────────────────────────────────────────
+ * THE ACTIVITY TRAY — what is running right now, at the bottom of the screen.
+ *
+ * Seth, 2026-08-13: "We need some kind of progress/status bar in a box at the bottom showing things
+ * that are in progress and downloading (they don't show up on the browser download menu, looks like,
+ * until they're finished)."
+ *
+ * ⚠ THE OBSERVATION IS THE WHOLE DESIGN. A researcher-panel download is not a browser download until
+ * the very last instant: every byte is fetched through the Worker into a Blob, and only when it is
+ * COMPLETE does the anchor click hand it to the browser. So for the entire slow part there is
+ * nothing in the browser's download list — the one place a user has been trained to look. The app is
+ * the only thing that can say the work exists, and until now the only place it said so was inside
+ * the Files modal, which the researcher may well have closed.
+ *
+ * Hence: body-level (survives closing the modal AND a dashboard re-render), multi-job (a single-file
+ * download, a conversion and a Download-all can all be in flight together — only CONVERSIONS are
+ * serialised, by convBusy), and self-clearing shortly after each job finishes so a finished tray
+ * does not become permanent furniture.
+ *
+ * ⚠ It reports STATE, never a percentage it does not have. Researcher.fetchDriveFile resolves once
+ * rather than streaming progress, so "Fetching X…" is the honest message and a fake progress bar
+ * would be a lie that makes a stalled transfer look healthy.
+ * ─────────────────────────────────────────────────────────────────────────────────────────────── */
+const jobs = new Map();
+let jobSeq = 0;
+
+function jobsEl() {
+  let el = document.getElementById('rp-jobs');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'rp-jobs';
+    el.className = 'rp-jobs';
+    el.setAttribute('role', 'status');
+    el.setAttribute('aria-live', 'polite');
+    document.body.appendChild(el);
+  }
+  return el;
+}
+
+function paintJobs() {
+  const el = jobsEl();
+  if (!jobs.size) { el.hidden = true; el.replaceChildren(); return; }
+  el.hidden = false;
+  const rows = [...jobs.values()].map((j) => {
+    const cls = 'rp-job' + (j.done ? ' is-done' : '');
+    const mark = j.done ? '✓' : '<span class="rp-job-spin" aria-hidden="true"></span>';
+    return `<div class="${cls}"><span class="rp-job-mark">${mark}</span>
+      <span class="rp-job-body"><span class="rp-job-label">${esc(j.label)}</span>
+      ${j.msg ? `<span class="rp-job-msg">${esc(j.msg)}</span>` : ''}</span></div>`;
+  });
+  el.innerHTML = `<div class="rp-jobs-head">${esc(t('panel.jobs.title'))}</div>${rows.join('')}`;
+}
+
+function jobStart(label, msg) {
+  const id = ++jobSeq;
+  jobs.set(id, { label, msg: msg || '', done: false });
+  paintJobs();
+  return id;
+}
+function jobSet(id, msg) {
+  const j = jobs.get(id);
+  if (!j || j.done) return;
+  j.msg = msg || '';
+  paintJobs();
+}
+/* Finish: show the outcome briefly, THEN drop it. The pause matters — a job that vanished the
+ * instant it completed would leave the researcher unsure whether it finished or was lost, which is
+ * the same doubt the tray exists to remove. */
+function jobEnd(id, finalMsg) {
+  const j = jobs.get(id);
+  if (!j) return;
+  j.done = true;
+  j.msg = finalMsg || '';
+  paintJobs();
+  setTimeout(() => { jobs.delete(id); paintJobs(); }, finalMsg ? 5000 : 1200);
+}
+
 /* ---------------- WHAT A FILE IS: the Drive ROLE TAG, never its name ----------------
  *
  * ⚠ THE HEURISTIC MENU IS DELETED (Seth, 2026-08-12). `EXT_KIND` + `latestPerKind` classified every
@@ -1571,9 +1648,20 @@ function saveBlobAs(blob, name) {
 
 // Per-menu-open byte cache: converting to ELAN then SayMore fetches the audio ONCE. The cache dies
 // with the menu (wrap._cache resets on repopulate), so a re-opened menu sees fresh Drive truth.
-async function menuFetch(wrap, fileId) {
+/* `onPct(0..100 | null)` reports the transfer as it streams. The DENOMINATOR comes from the folder
+ * listing we already hold — the worker's content-length is not readable cross-origin (no
+ * Access-Control-Expose-Headers on v1Cors) and adding it would be a worker deploy for a number that
+ * is already in hand. When the size is unknown the callback gets null and the caller says "N MB"
+ * rather than inventing a percentage. */
+async function menuFetch(wrap, fileId, onPct) {
   if (!wrap._cache) wrap._cache = new Map();
-  if (!wrap._cache.has(fileId)) wrap._cache.set(fileId, await Researcher.fetchDriveFile(fileId));
+  if (!wrap._cache.has(fileId)) {
+    const known = ((wrap._allFiles || []).find((f) => f && f.id === fileId) || {}).size || 0;
+    const report = onPct
+      ? (got) => onPct(known ? Math.min(99, Math.round((got / known) * 100)) : null, got)
+      : undefined;
+    wrap._cache.set(fileId, await Researcher.fetchDriveFile(fileId, report));
+  }
   return wrap._cache.get(fileId);
 }
 
@@ -1668,7 +1756,9 @@ async function prepareConversionSources(wrap, base, paint, opts = {}) {
      * Without this line an ELAN export of a 217 MB recording sits on "working…" for a minute and
      * looks hung, which is precisely what Seth reported. */
     paint(t('panel.dl.fetching', { name: af.name || 'audio' }));
-    const blob = await menuFetch(wrap, af.id);
+    const blob = await menuFetch(wrap, af.id, (pct, got) => paint(
+      pct == null ? t('panel.dl.fetchingBytes', { name: af.name || 'audio', size: fmtSize(got) })
+                  : t('panel.dl.fetchingPct', { name: af.name || 'audio', pct })));
     /* v3 NAMING: from the STORY TITLE, not from the Drive file's name — an assigned text's
      * original was uploaded under a token-derived name before the fix, and reading it here is
      * what put gibberish on the researcher's downloads. `srcName` still records the REAL source
@@ -1716,7 +1806,10 @@ async function runMenuConversion(wrap, kind, itemEl) {
   /* Progress goes to BOTH the row's own sub-line and the modal's status line. The row keeps it
    * where the researcher clicked; the status line is what survives scrolling a long list, and is
    * the reason the modal exists (a drop-down had nowhere to put this). */
-  const paint = (msg) => { if (sub) sub.textContent = msg; dlStatus(wrap, msg); };
+  const kindLabel = t('panel.dl.' + ({ elan: 'elanZip', saymore: 'saymoreZip', preview: 'preview',
+    fxpa: 'fxpa', package: 'package', flextext: 'flextext' }[kind] || 'title'));
+  const job = jobStart(`${wrap.dataset.title || 'text'} — ${kindLabel}`, t('panel.dl.starting'));
+  const paint = (msg) => { if (sub) sub.textContent = msg; dlStatus(wrap, msg); jobSet(job, msg); };
   try {
     const title = wrap.dataset.title || 'text';
     const base = (wrap._menuSrc && wrap._menuSrc.base) || sanitizeBase(title) || 'text';
@@ -1767,6 +1860,7 @@ async function runMenuConversion(wrap, kind, itemEl) {
     convBusy = false;
     if (sub) sub.textContent = subWas;   // the row goes back to its description…
     dlStatus(wrap, '');                  // …and the status line clears rather than freezing mid-word
+    jobEnd(job, t('panel.dl.savedShort'));
   }
 }
 
@@ -1803,6 +1897,7 @@ async function downloadAllZip(btn) {
   const nameEl = btn.querySelector('.rp-dl-name');
   const orig = nameEl.textContent;
   const wrapForStatus = btn.closest ? btn.closest('[data-fmenu]') : null;
+  const job = jobStart(`${btn.dataset.title || title} — ${t('panel.dl.all')}`, t('panel.dl.starting'));
   try {
     btn.disabled = true; nameEl.textContent = t('panel.dl.zipBuilding');
     /* Same complaint as the single-file download: every byte of the folder streams through the
@@ -1829,8 +1924,13 @@ async function downloadAllZip(btn) {
     };
     let got = 0;
     for (const f of wanted) {
-      dlStatus(wrapForStatus, t('panel.dl.fetchingN', { i: ++got, n: wanted.length, name: f.name || '' }));
-      add(f.name, await Researcher.fetchDriveFile(f.id));
+      const i = ++got;
+      const head = t('panel.dl.fetchingN', { i, n: wanted.length, name: f.name || '' });
+      dlStatus(wrapForStatus, head); jobSet(job, head);
+      add(f.name, await Researcher.fetchDriveFile(f.id, (bytes) => {
+        const pct = f.size ? t('panel.dl.pct', { pct: Math.min(99, Math.round((bytes / f.size) * 100)), size: fmtSize(f.size) }) : fmtSize(bytes);
+        dlStatus(wrapForStatus, head + ' ' + pct); jobSet(job, head + ' ' + pct);
+      }));
     }
 
     /* GENERATED FILES RIDE ALONG (Seth, 2026-08-12: "can our Download All zip also generate and
@@ -1905,7 +2005,7 @@ async function downloadAllZip(btn) {
     nameEl.textContent = t('panel.dl.zipFailed');
     // A ZIP32 overflow is a different fact from "it failed" — say which one it was.
     if (e && e.code === 'ZIP_TOO_LARGE') deps.toast(t('panel.dl.zipTooLarge'), 8000);
-  } finally { btn.disabled = false; dlStatus(wrapForStatus, ''); }
+  } finally { btn.disabled = false; dlStatus(wrapForStatus, ''); jobEnd(job, t('panel.dl.savedShort')); }
 }
 
 function wireDownloadMenus(scope) {
@@ -1985,15 +2085,31 @@ function wireDownloadMenus(scope) {
          * lands rather than implying a percentage we do not have. */
         const wrap2 = df.closest && df.closest('[data-fmenu]');
         const fname = df.dataset.fname || 'file';
+        /* The TRAY is what survives closing this modal — and closing it is the normal thing to do
+         * while a 217 MB original streams. The modal status line is a bonus while it is open. */
+        const job = jobStart(fname, t('panel.dl.starting'));
         dlStatus(wrap2, t('panel.dl.fetching', { name: fname }));
         deps.toast(t('panel.dl.started'), 4000);
-        Researcher.fetchDriveFile(df.dataset.drivefile).then((blob) => {
+        const known = ((wrap2 && wrap2._allFiles) || []).find((f) => f && f.id === df.dataset.drivefile);
+        const total = (known && known.size) || 0;
+        Researcher.fetchDriveFile(df.dataset.drivefile, (got) => {
+          const msg = total
+            ? t('panel.dl.pct', { pct: Math.min(99, Math.round((got / total) * 100)), size: fmtSize(total) })
+            : fmtSize(got);
+          jobSet(job, msg);
+          dlStatus(wrap2, t('panel.dl.fetching', { name: fname }) + ' ' + msg);
+        }).then((blob) => {
           const a = document.createElement('a');
           a.href = URL.createObjectURL(blob); a.download = fname;
           document.body.appendChild(a); a.click(); a.remove();
           setTimeout(() => URL.revokeObjectURL(a.href), 60000);
           dlStatus(wrap2, t('panel.dl.saved', { name: fname }));
-        }).catch(() => { dlStatus(wrap2, ''); deps.toast(t('panel.dl.zipFailed'), 5000); });
+          jobEnd(job, t('panel.dl.savedShort'));
+        }).catch(() => {
+          dlStatus(wrap2, '');
+          jobEnd(job, t('panel.dl.failedShort'));
+          deps.toast(t('panel.dl.zipFailed'), 5000);
+        });
         return;
       }
     });

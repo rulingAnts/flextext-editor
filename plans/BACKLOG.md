@@ -624,6 +624,43 @@ Test: `test/artifact-links.test.mjs` pins that inferred artifacts are suppressed
 per-kind artifacts still render with their Drive ids, and that the folder-listing rows and
 Download-all are untouched.
 
+## NEXT RELEASE: give the PANEL the editor's transfer engine — chunking, pause/resume (Seth, 2026-08-13)
+
+> "I mean the researcher panel needs that machinery as well. The editor already has it. And smart
+> chunking and pause/resume support, etc."
+
+**v348 shipped the VISIBLE half only** — an activity tray plus real streamed byte progress
+(`fetchDriveFile(fileId, onProgress)` reads `response.body` instead of awaiting `.blob()`). That
+needed no worker change. **Chunking and pause/resume are NOT built**, and the reason is a hard
+dependency, not an oversight:
+
+⚠ **`GET /v1/researcher/drive-file/<id>` does not support Range.** It fetches Drive with `?alt=media`
+and returns `new Response(g.body)`, forwarding no `Range` header and returning no `Content-Range`. So
+a resumable, chunk-retrying download from the panel is **blocked on a worker change** — which means
+this rides the D1→worker→client release order rather than an editor cycle.
+
+Two smaller worker facts found at the same time, both worth fixing in the same change:
+- `v1Cors` sets **no `Access-Control-Expose-Headers`**, so a browser cannot read `content-length` from
+  that endpoint. v348 works around it by taking the denominator from the Drive listing the panel
+  already holds. Exposing `Content-Length`, `Content-Range` and `Accept-Ranges` would remove the
+  workaround. (`worker/src/index.js` already exposes exactly these on the `/r2/` route — copy it.)
+- The R2 route (`index.js`) *does* implement Range properly and is the model to follow.
+
+⚠ **Do NOT simply reuse `AudioDownload` (docs/js/audio.js) as-is.** It is the right *engine* —
+AIMD chunk sizing (`RELAY_CHUNK_FIRST/MIN/MAX`), per-chunk retries, `pause()`/`resume()`/`reset()`,
+generation counters that invalidate superseded loops — but it is built for a DEVICE caching audio
+for a doc: it is keyed by `docId`, persists every chunk to IndexedDB, checks storage quota, and
+`_complete()` writes a **media record**. A researcher downloading forty texts does not want 200 MB of
+each one written into their browser's IndexedDB, and the panel's destination is a file on disk, not a
+doc's media slot.
+
+**The shape that fits the core design principle** ("modularize what is app-specific, generalize what
+is shared"): lift the TRANSFER loop — ranged chunk fetching, AIMD sizing, retry, pause/resume — into
+a small shared module with a pluggable **sink** (IndexedDB chunks for the editor, an in-memory array
+for the panel) and a pluggable **fetcher** (the relay for the editor, `/v1/researcher/drive-file` for
+the panel). ⚠ Generalise on the second use, which this is — but the editor's path is field-critical
+and auto-updates, so the refactor needs its own tests before either caller moves onto it.
+
 ## NEXT RELEASE: segmentation on/off PER TEXT, not only per device (Seth, 2026-08-13)
 
 > "audio segmentation enabled is a device setting, but I'd like the researcher to be able to enable
@@ -640,8 +677,14 @@ return settings.segmentation !== false;
 So a per-text override is one more rung on a ladder that is already there:
 `doc.segmentation ?? urlOverride ?? settings.segmentation !== false`. The assignment already carries
 per-text fields (`Researcher.assign(instanceId, docId, fields)`), so the researcher's choice rides
-the same path as every other per-text setting, and a text with no opinion keeps inheriting the
-device default — which is what makes it safe for existing texts.
+the same path as every other per-text setting.
+
+🔒 **CONFIRMED (Seth, 2026-08-13): "Texts that don't already have that setting set individually
+should follow the current editor default when our update pushes through."** So ABSENT means INHERIT,
+never "off" — and that is a migration-safety property, not a preference: every text in the field
+today has no per-text value, so a default of anything other than "inherit" would silently flip the
+mode on all of them the moment the update lands. `??` (not `||`) is the operator, because `false` is
+a legitimate stored value meaning "this text, explicitly off".
 
 ⚠ **THE TRAP, and it is a serious one.** `segmentationEnabled()` is currently a near-constant during
 a session: it changes only when the researcher pushes a settings change. Making it PER TEXT means it

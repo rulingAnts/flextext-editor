@@ -86,7 +86,9 @@ ok(/driveFolderLink\(folderId\)/.test(panel), 'and the no-manifest state is a fo
 console.log('\nthe handler that receives them is the SAME one the folder rows already use');
 ok(/const df = e\.target\.closest && e\.target\.closest\('\[data-drivefile\]'\);/.test(panel),
    'one delegated handler serves both kinds of row');
-ok(/Researcher\.fetchDriveFile\(df\.dataset\.drivefile\)/.test(panel), 'and it fetches through the Worker');
+// v348: the call gained a progress callback (panel downloads are invisible to the browser's
+// download list until they finish), so match the call rather than its exact old argument list.
+ok(/Researcher\.fetchDriveFile\(df\.dataset\.drivefile,/.test(panel), 'and it fetches through the Worker');
 
 /* ---------------------------------------------------------------------------------------------
  * The invite-link override warning (Seth, 2026-07-28 backlog; built 2026-08-07).

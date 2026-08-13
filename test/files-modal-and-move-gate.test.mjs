@@ -74,15 +74,61 @@ console.log('\nthe modal has a status line, and the slow paths write to it');
    * handing the browser anything must speak first. */
   ok(/dlStatus\(wrap2, t\('panel\.dl\.fetching'/.test(panel), 'a single-file download says so immediately');
   ok(/deps\.toast\(t\('panel\.dl\.started'\), 4000\)/.test(panel), '...and toasts, for when the modal is not open');
-  ok(/dlStatus\(wrapForStatus, t\('panel\.dl\.fetchingN'/.test(panel),
+  ok(/t\('panel\.dl\.fetchingN', \{ i, n: wanted\.length/.test(panel),
      'Download-all reports which file of how many — a count beats a spinner');
-  ok(/paint = \(msg\) => \{ if \(sub\) sub\.textContent = msg; dlStatus\(wrap, msg\); \}/.test(panel),
-     'and a conversion paints BOTH its row and the status line');
+  ok(/paint = \(msg\) => \{ if \(sub\) sub\.textContent = msg; dlStatus\(wrap, msg\); jobSet\(job, msg\); \}/.test(panel),
+     'and a conversion paints its row, the status line AND the activity tray');
   /* The long silent stretch for a WAV: no decode means no percentage, so the fetch itself has to
    * announce. Without this an ELAN export of a 217 MB recording sits on "working…" and looks hung. */
   ok(/paint\(t\('panel\.dl\.fetching', \{ name: af\.name \|\| 'audio' \}\)\);/.test(panel),
      'the pre-conversion audio fetch announces itself');
   ok(/dlStatus\(wrap, ''\);/.test(panel), 'and the status clears rather than freezing mid-word');
+}
+
+console.log('\nthe activity tray reports work the browser cannot show');
+{
+  /* Seth: "they don't show up on the browser download menu, looks like, until they're finished."
+   * That is exactly right and it is the whole design constraint: fetchDriveFile streams into a Blob
+   * and only the COMPLETED Blob is handed to the browser, so for the entire slow part the browser's
+   * download list is empty and the app is the only thing that can say the work exists. */
+  ok(/function jobStart\(label, msg\)/.test(panel) && /function jobEnd\(id, finalMsg\)/.test(panel),
+     'there is a job registry');
+  ok(/document\.body\.appendChild\(el\)/.test((panel.match(/function jobsEl\(\)[\s\S]*?\n\}/) || [''])[0]),
+     'the tray is BODY-level — it must survive closing the modal AND a dashboard re-render');
+  ok(/\.rp-jobs \{[\s\S]{0,200}?position: fixed/.test(css), 'and is pinned to the viewport');
+
+  // All three slow paths register, or the tray would be honest only sometimes.
+  ok(/const job = jobStart\(fname, t\('panel\.dl\.starting'\)\)/.test(panel), 'a single-file download registers');
+  ok(/const job = jobStart\(`\$\{wrap\.dataset\.title \|\| 'text'\} — \$\{kindLabel\}`/.test(panel),
+     'a conversion registers, named for the text and the output');
+  ok(/const job = jobStart\(`\$\{btn\.dataset\.title \|\| title\} — \$\{t\('panel\.dl\.all'\)\}`/.test(panel),
+     'and so does Download-all');
+  ok((panel.match(/jobEnd\(/g) || []).length >= 4, 'every one of them ends its job');
+
+  /* ⚠ A job that vanished the instant it completed would leave the researcher unsure whether it
+   * finished or was lost — the same doubt the tray exists to remove. */
+  ok(/setTimeout\(\(\) => \{ jobs\.delete\(id\); paintJobs\(\); \}, finalMsg \? 5000 : 1200\)/.test(panel),
+     'a finished job lingers briefly, then clears itself');
+}
+
+console.log('\n...and the progress is real bytes, with the denominator we already hold');
+{
+  const rp = read('../docs/js/researcher.js');
+  ok(/export async function fetchDriveFile\(fileId, onProgress\)/.test(rp), 'the fetch can report progress');
+  ok(/r\.body\.getReader\(\)/.test(rp), 'by streaming the body rather than awaiting .blob()');
+  ok(/if \(typeof onProgress !== 'function' \|\| !r\.body/.test(rp),
+     'and callers that do not want progress keep the old fast path untouched');
+  /* ⚠ NO TOTAL comes back from the worker: v1Cors sets no Access-Control-Expose-Headers, so a
+   * cross-origin reader cannot see content-length. Adding it would be a worker change and a deploy
+   * for a number every call site ALREADY has from the Drive listing. Pin that the denominator comes
+   * from the listing, so nobody "fixes" this by reading a header that is not readable. */
+  ok(/const known = \(\(wrap\._allFiles \|\| \[\]\)\.find/.test(panel),
+     'the percentage denominator comes from the folder listing, not from a response header');
+  // Match a header READ, not the word — the comment explaining why it is unreadable says it too.
+  ok(!/headers\.get\(['"]content-length/i.test(panel),
+     'the panel never tries to read content-length cross-origin');
+  ok(/pct == null \? t\('panel\.dl\.fetchingBytes'/.test(panel),
+     'and an unknown size reports BYTES rather than inventing a percentage');
 }
 
 console.log('\na move refuses without a manifest — BEFORE offering a destination');
@@ -137,7 +183,9 @@ console.log('\nevery new string is in BOTH languages');
     return nxt < 0 ? i18n.slice(at) : i18n.slice(at, at + 1 + nxt);
   };
   for (const k of ['panel.move.noManifest', 'panel.move.manifestIncomplete', 'panel.dl.started',
-                   'panel.dl.fetching', 'panel.dl.fetchingN', 'panel.dl.saved']) {
+                   'panel.dl.fetching', 'panel.dl.fetchingN', 'panel.dl.saved', 'panel.jobs.title',
+                   'panel.dl.starting', 'panel.dl.pct', 'panel.dl.fetchingPct',
+                   'panel.dl.fetchingBytes', 'panel.dl.savedShort', 'panel.dl.failedShort']) {
     const re = new RegExp(`^  '${k.replace(/\./g, '\\.')}':`, 'm');
     ok(re.test(block('en')) && re.test(block('id')), `${k} is in en AND id`);
   }

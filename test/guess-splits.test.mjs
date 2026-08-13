@@ -17,7 +17,7 @@
  *
  * Run: node test/guess-splits.test.mjs
  */
-import { guessSplits, applyGuessedSplits, GUESS_MIN_GAP_MS, GUESS_MIN_LINE_MS } from '../docs/js/segments.js';
+import { guessSplits, applyGuessedSplits, GUESS_MIN_GAP_MS, GUESS_MIN_LINE_MS, GUESS_MAX_MS } from '../docs/js/segments.js';
 
 let fail = 0;
 const ok = (c, m) => { console.log(`  ${c ? 'ok  ' : 'FAIL'}  ${m}`); if (!c) fail++; };
@@ -205,6 +205,50 @@ console.log('\n(g2) a REAL msPerBucket (44.1kHz ⇒ 0.5215ms) must not drift the
   ok(worst <= 120, `and no cumulative drift toward the end (worst ${Math.round(worst)}ms)`);
 }
 
+/* ⚠ AND THE SAME THING AT LENGTH, because drift is cumulative and 35 seconds cannot show it. A 1%
+ * error is 20 SECONDS by the end of a 40-minute recording and invisible at the start, so the
+ * assertion that matters is not "how accurate" but "is the END as accurate as the BEGINNING".
+ *
+ * ⚠ THE TRUTH IS TAKEN FROM THE BUCKET LAYOUT, not from the millisecond script. Each block of the
+ * synthetic signal is rounded to a whole number of buckets, so the SCRIPT and the SIGNAL drift apart
+ * by ~100ms over ten minutes — measuring against the script would blame the detector for the test's
+ * own rounding (which is exactly what a first attempt at this did). */
+console.log('\n(g3) …and no drift over a LONG recording — the end as accurate as the start');
+{
+  const SR = 44100, PER = Math.ceil(SR / 2000), MPB44 = (PER / SR) * 1000;
+  const script = [['silence', 400]];
+  const N = 160;                                   // ~10 minutes of 3s utterances
+  for (let i = 0; i < N; i++) { script.push(['speech', 3000]); if (i < N - 1) script.push(['silence', 700]); }
+  script.push(['silence', 400]);
+  const rand = rng(5);
+  const totalB = script.reduce((a, [, ms]) => a + Math.round(ms / MPB44), 0);
+  const p = new Float32Array(totalB);
+  const truth = [];
+  let at = 0;
+  script.forEach(([kind, ms], idx) => {
+    const n = Math.round(ms / MPB44);
+    for (let i = 0; i < n; i++) {
+      p[at + i] = kind === 'speech'
+        ? Math.min(1, 0.6 * (0.45 + 0.55 * Math.abs(Math.sin((at + i) * MPB44 / 130))) * (0.6 + 0.8 * rand()) + 0.03)
+        : 0.03 * (0.5 + rand());
+    }
+    if (kind === 'silence' && ms >= GUESS_MIN_GAP_MS && idx > 0 && idx < script.length - 1) {
+      truth.push((at + n / 2) * MPB44);            // the middle of this pause, in real time
+    }
+    at += n;
+  });
+  const total = totalB * MPB44;
+  const got = guessSplits(p, MPB44, { durationMs: total });
+  const err = truth.map((x) => Math.min(...got.map((g) => Math.abs(g - x))));
+  const avg = (a) => a.reduce((s, v) => s + v, 0) / a.length;
+  const head = avg(err.slice(0, 30)), tail = avg(err.slice(-30));
+  console.log(`      ${(total / 60000).toFixed(1)} min, ${got.length}/${truth.length} found; `
+    + `first 30 avg ${head.toFixed(1)}ms, last 30 avg ${tail.toFixed(1)}ms`);
+  ok(got.length === truth.length, 'every pause found across ten minutes');
+  ok(tail - head < 20, `the end is no worse than the start (${(tail - head).toFixed(1)}ms difference)`);
+  ok(Math.max(...err) < 60, `and nothing anywhere is more than a frame or two out (${Math.max(...err).toFixed(0)}ms)`);
+}
+
 console.log('\n(h) degenerate inputs are answered, not thrown at');
 {
   ok(guessSplits(null, MPB).length === 0, 'null peaks');
@@ -231,6 +275,22 @@ console.log('\n…and otherwise builds N spans and N EMPTY paragraphs, 1:1');
   const bad = applyGuessedSplits([''], [], { duration: 4000 });
   ok(bad.ok === false && bad.reason === 'none', 'no boundaries ⇒ refused rather than a pointless no-op');
   ok(applyGuessedSplits([''], [1000], { duration: 0 }).reason === 'noAudio', 'and no duration ⇒ noAudio');
+}
+
+/* ⚠ THE CAP IS ON THE INPUT, and it is about MEMORY rather than about the detector (Seth: "cap …
+ * the length of a recording that allows auto-guessing lines. Maybe let's cap that at 10 minutes?").
+ * Detection is ~45ms on 40 minutes of peaks, measured — but the RESULT would be ~650 rows, each a
+ * live canvas on a phone, and the device would run out after the document had already been replaced.
+ * Refusing up front is the difference between a decision and a mystery. */
+console.log('\nthe 10-minute cap is a stated constant, not a magic number in the UI');
+{
+  ok(GUESS_MAX_MS === 10 * 60 * 1000, `GUESS_MAX_MS is 10 minutes (${GUESS_MAX_MS}ms)`);
+  // The detector itself is NOT capped — the limit belongs to the tab that has to render the result,
+  // and a caller with its own budget (a future background pass) must not be silently truncated.
+  const long = new Float32Array(Math.round((GUESS_MAX_MS + 60000) / 0.5));
+  for (let i = 0; i < long.length; i++) long[i] = (Math.floor(i / 4000) % 4 === 3) ? 0.02 : 0.6;
+  ok(guessSplits(long, 0.5, { durationMs: GUESS_MAX_MS + 60000 }).length > 0,
+     'guessSplits still answers for a recording past the cap — the cap is policy, not physics');
 }
 
 console.log(fail ? `\nFAILED (${fail})` : '\nPASSED');

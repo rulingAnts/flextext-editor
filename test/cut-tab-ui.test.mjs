@@ -182,6 +182,23 @@ ok(/g\.fillStyle = \(opts && opts\.color\) \|\| '#1f4f8f';/.test(strips),
 ok(/row\.classList\.add\('cut-locked'\)/.test(render) && /\.cut-row\.cut-locked/.test(css),
    'the row recedes to match, so the refusal is legible before it is tried');
 
+/* ── GUESS THE LINES: its guards, which matter because one press replaces every line in the text. */
+console.log('\n"Guess the lines" refuses rather than destroys');
+const guessFn = fn(strips, 'cutGuessSplits');
+ok(/docHasWork\(doc\)/.test(guessFn) && /function docHasWork/.test(strips),
+   'a text with words, GLOSSES or free translations is refused — not just one with baseline text');
+ok(/w\.gls/.test(fn(strips, 'docHasWork')) && /s\.free/.test(fn(strips, 'docHasWork')),
+   '…and that test really does look at glosses and free translations');
+ok(/dur > GUESS_MAX_MS/.test(guessFn) && /GUESS_MAX_MS = 10 \* 60 \* 1000/.test(read('docs/js/segments.js')),
+   'a recording longer than ten minutes is refused up front (Seth\'s cap)');
+ok(/cut\.no\.guessLong/.test(guessFn) && /\{mins\} minutes long/.test(i18n),
+   '…with the limit AND the recording\'s actual length, so it is a decision rather than a mystery');
+ok(/tooLong/.test(render) && /guess\.disabled = hasText \|\| tooLong;/.test(render),
+   'and the button is disabled in both cases, rather than looking live and refusing on click');
+ok(/clearSpan\?\.\(\)/.test(guessFn),
+   'it drops a live span watcher too — the spans it described are about to stop existing');
+ok(/cutDeps\.capture\(\)/.test(guessFn), 'and the whole guess is ONE undo step');
+
 console.log('\na cut or a join does not throw the user back to the top of the recording');
 ok(/const keepTop = scroller \? scroller\.scrollTop : 0;/.test(render), 'the scroll offset is read BEFORE the rebuild');
 ok(render.indexOf('keepTop') < render.indexOf('host.replaceChildren()'),

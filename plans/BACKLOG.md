@@ -1,5 +1,10 @@
 # Backlog additions (2026-08-07) — paste into notes/BACKLOG.md
 
+> ⚠ **Start at [`PENDING.md`](PENDING.md)** — the one-screen triage sheet that ranks everything below
+> by risk to a field user's work and points back here for the detail. This file is the record; that
+> one is the way in.
+
+
 ## TO-DO (when Fable is available): a system-resource and cheap-device audit (Seth, 2026-08-14)
 
 > *"An audit for system resources and cheap phone/laptop compatibility would be in order. Let's not
@@ -923,6 +928,58 @@ report per-kind ids RETIRES the inference instead of hiding it, and un-parks the
 Test: `test/artifact-links.test.mjs` pins that inferred artifacts are suppressed, that EXPLICIT
 per-kind artifacts still render with their Drive ids, and that the folder-listing rows and
 Download-all are untouched.
+
+## Researcher signed in on MULTIPLE DEVICES at once — investigated 2026-08-14, not built
+
+> Seth: "Is there a reason we can't allow the researcher to be logged into multiple devices at once?"
+> Then: "I'd need to coordinate with all of my users for a planned outage for this, I think." And:
+> "that would be the time to implement the project/researcher division."
+
+**There is no cryptographic or architectural reason. It is ONE COLUMN.** `researcher.secret_hash`
+holds a SINGLE session secret (written on sign-in, `worker/src/v1.js` ~1034; checked by
+`authResearcher`, ~324). Signing in on device B overwrites it, so device A's next call 401s. Kr — the
+data key — is **server-held and re-fetched on every sign-in**, memory-only on the client, so a second
+device is entitled to everything it needs. Nothing in the E2EE design assumes one device.
+
+### ⚠ THE HIDDEN COST IS NOT DOWNTIME — it is that the column has TWO JOBS
+
+`researcher.secret_hash` is the session token AND the password hash for the legacy email login path
+(`v1.js` ~924, `bad_login`). Any session work must separate those two meanings first, or it fixes
+sessions and breaks password login in the same commit. **That, not the schema move, is the real
+work.**
+
+### An outage is probably NOT required for the sessions change alone
+
+- **Field devices never touch it.** They authenticate through `authInstall` against the `install`
+  table's own secret — a different table. Nothing a village user holds would notice.
+- **The panel client does not change.** It sends `x-fx-researcher` + `x-fx-secret`; the token format
+  is unchanged. Only the worker's LOOKUP moves — no editor release, no deploy-order hazard.
+- **The migration is additive** (`CREATE TABLE researcher_session`). An old worker does not know the
+  table exists; a new worker dual-reads (new table + legacy column) so existing sessions survive and
+  rotate naturally. A later quiet deploy drops the legacy path.
+
+### Decide before writing any of it
+
+- **Sign-out semantics change, and that is a SECURITY question.** Today sign-out is global — one
+  click kills every session, which is a real panic button for a lost laptop. Per-session sign-out
+  removes it silently unless a session list + "sign out everywhere" ships alongside.
+- **The audit log gains a question it cannot currently answer** ("which session did this?"). Cheaper
+  to record now than to backfill.
+
+### ⚠ SEQUENCE IT WITH THE PROJECT SPLIT, NOT BEFORE IT
+
+Seth's own instinct, and it is right: sessions become "researcher × project" the moment projects
+exist, and the table wants that shape from the start — the same retrofit warning the sharing entry
+below already makes about an actor column. The project split is the harder animal and the one that
+genuinely deserves planning:
+
+- devices are paired to what is TODAY a researcher account and must migrate to a project **without
+  re-pairing** — a field device needing re-onboarding IS the outage everyone is trying to avoid;
+- the E2EE key becomes per-project and must be re-wrapped (real key management, not a schema move);
+- the panel becomes project-scoped throughout, so THAT is a client release with worker-first ordering.
+
+Done well, even the split should not need a user-facing outage — but that is the one claim I would
+want **proved against a copy of D1** before promising it to anyone, rather than reasoned.
 
 ## FUTURE: multiple researchers sharing ONE project / panel (Seth, 2026-08-13)
 

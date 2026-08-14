@@ -9,6 +9,17 @@
 Seth: *"everything gets slow and glitchy at that point"* — and explicitly deferred. Nothing here is
 evidence that a field device is struggling today.
 
+### Fixed in v369, off this audit's plate
+
+Leaving the editor (Back, or return-after-send) leaked the tab tickers: 60 rAF/s + ~3,600
+querySelector/s against hidden DOM on the texts list, plus ~180 canvases (~25MB) idling behind it.
+`leaveEditor()` in app.js now stops all three tickers and drops the canvases — measured after:
+0 rAF/s, 0 queries, 0 canvases, 0.0% CPU. Still open and measured for THIS audit: the in-editor
+per-frame query load (~14k querySelector/s on the Cut tab, the deliberately-reverted caching), the
+hidden-tab canvas accumulation WHILE in the editor (~25MB by the Gloss tab), and the 40-minute
+decode heap (~492MB at 16kHz mono on desktop; a 44.1kHz phone recording is ~3× that, transiently on
+every reopen since v368 decodes honestly on reopen).
+
 ### Measurements already taken, so the audit does not start from zero
 
 Chromium, 1100×800, a 2-minute recording cut into 60 lines (v365). These were captured while chasing
@@ -63,8 +74,14 @@ therefore have passed.
 > start in all our new features — jumping back to the top/start when a change is made to the DOM (or
 > data model? I don't know exactly how it works)."*
 
-**KNOWN BUG:** the researcher panel's texts list. Act on a text near the bottom and the list scrolls
-to the top, so the next thing you wanted to do is off screen. Fix on the next release.
+**KNOWN BUG — FIXED v369, pending the panel test drive:** the researcher panel's texts list. The
+cause was the dashboard's full render repainting the panel to a "loading…" note before the fetch
+(researcher-panel.js `renderDashboard`); it now refreshes in place when a dashboard is already on
+screen and restores the offset across the swap. ⚠ Not live-driven in the audit environment (no dev
+worker) — scroll deep, delete a bottom text, and watch the position before trusting it. v369 also
+fixed the same class of bug on the Baseline strips (the playhead-Enter chop; measured 8021→0, now
+held) and audited the rest: gloss joins and the texts-list delete already survive, because their
+rebuilds are single-task.
 
 **WHY IT HAPPENS**, since Seth asked: it is the DOM, not the data model. Our lists re-render by
 emptying a container and rebuilding it (`innerHTML = ''` / `replaceChildren()`). An empty container

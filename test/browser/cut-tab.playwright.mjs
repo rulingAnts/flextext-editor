@@ -372,6 +372,39 @@ const undone = await page.evaluate(() => ({
 ok(undone.n === bBefore && undone.first === 'kata pertama',
    `and Ctrl+Z undoes the split itself, not the typing before it (${JSON.stringify(undone)})`);
 
+console.log('\n…and a chop far down the list does not throw the view back to the top');
+/* The audit that followed v368 found exactly this: renderStrips rebuilds with no scroll preservation
+ * (drawStrip forces layout mid-rebuild, so the clamp fires against a near-empty container), and the
+ * playhead-Enter — unlike the in-box Enter — moves no focus, so nothing recovers. Measured 8021 → 0
+ * on a 60-line text: every chop of the listen-and-chop loop lost the user's place, the very thing
+ * the v357 fix cured on the Cut tab. */
+{
+  const scroller = () => page.evaluate(() => document.querySelector('main').scrollTop);
+  await page.evaluate(() => { const m = document.querySelector('main'); m.scrollTop = m.scrollHeight; });
+  await page.waitForTimeout(300);
+  const strips = page.locator('#segment-strips .seg-strip');
+  const n = await strips.count();
+  const bb = await strips.nth(n - 2).locator('.seg-wave').boundingBox();
+  await page.mouse.click(bb.x + bb.width * 0.5, bb.y + bb.height / 2);
+  await page.waitForTimeout(400);
+  const top0 = await scroller();
+  ok(top0 > 100, `the view really is scrolled well down first (${top0}px)`);
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(900);
+  const top1 = await scroller();
+  ok(Math.abs(top1 - top0) < 80, `and held its place across the chop (${top0} -> ${top1})`);
+  await page.keyboard.down('Control'); await page.keyboard.press('KeyZ'); await page.keyboard.up('Control');
+  await page.waitForTimeout(900);
+  /* ⚠ PUT THE PLAYHEAD BACK. This block parks it ~2s from the end with a bottom-line span armed —
+   * and the Space checks further down press play and expect it to STILL be playing 900ms later,
+   * which the span-rewind rule (correctly) makes false that close to the end. The first version of
+   * this block failed those checks and the app was right both times. */
+  await page.evaluate(() => { document.querySelector('main').scrollTop = 0; });
+  const first = await page.locator('#segment-strips .seg-strip .seg-wave').first().boundingBox();
+  await page.mouse.click(first.x + first.width * 0.15, first.y + first.height / 2);
+  await page.waitForTimeout(300);
+}
+
 console.log('\n…and INSIDE a box the caret still decides where the words divide');
 await page.evaluate(() => {
   const el = document.querySelector('#segment-strips .seg-text');

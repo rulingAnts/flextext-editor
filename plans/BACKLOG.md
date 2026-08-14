@@ -103,6 +103,32 @@ line groups. Worth one sweep rather than five separate reports.
 last row?" as one of the passes. It is invisible to every structural test we have and only shows up
 on a list long enough to scroll — which is every real one in the field.
 
+## A devworker override must be VISIBLE, not a console line (post-release incident, 2026-08-14)
+
+Minutes after the v371 release, uploads "failed" from one browser session and read as a broken
+release ("Did you manage to break CORS somehow?"). The evidence said otherwise — the worker was never
+deployed, the release diff touched no upload surface, and Drive received complete bundles (including
+a 25MB m4a) at 02:13, 02:17, 02:48 and 02:50Z, AFTER the report, while the "failing" bundle had
+itself uploaded fine three times on 08-12. The pipeline was healthy; the failure was local to one
+session — most plausibly the persisted `?devworker=staging` override, whose staging worker rejects
+production origins BY DESIGN, presenting as CORS-like upload failure with the tray's generic
+"Failed — will retry".
+
+**The lesson:** the override's only trace is `[flextext] backend:` in the console, which nobody has
+open. A silently-persisted staging backend on a production origin strands every upload behind a
+message that looks like an outage. For a future release, pick one:
+- a small persistent badge/banner whenever `relayWorker` differs from `DEFAULT_WORKER` ("dev backend:
+  …", tap to revert) — the honest fix, cheap;
+- and/or the tray's failure line should distinguish "the server refused this origin" (a CORS/network
+  TypeError against a non-default backend) from an ordinary retryable failure, and say which backend
+  it was talking to.
+Do NOT silently auto-revert — the loud failure of a field device on the staging backend is a
+deliberate guard (see originAllows); the fix is visibility, not silence.
+
+**Diagnostic that settled it, reusable:** the researcher's own Drive listing is a live health check
+of the whole upload pipeline — if bundles are landing, the worker, CORS, and the Drive token are all
+fine, and the problem is the device in front of you.
+
 ## FUTURE RELEASE: gloss-scissors playhead guard + configurable span-play return (Seth, 2026-08-14)
 
 Two connected requests, made during the v371 release round — **not in that release**:

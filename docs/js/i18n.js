@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v369';
+export const ENGINE_VERSION = 'v370';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v369';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'cut-fixes v2';
+export const BUILD_TAG = 'cut-fixes v3';
 
 const S = {
 en: {
@@ -1230,6 +1230,7 @@ internet after the first time.</p>
   'cut.guess': 'Guess the lines',
   'cut.guessShort': 'Guess',
   'cut.guessTip': 'Cut the recording at its pauses, as a starting point you can correct.',
+  'cut.no.guessManual': 'The lines have been adjusted by hand, so guessing again is turned off \u2014 it would replace that work.',
   'cut.guessConfirm': 'This recording has already been cut into lines. Replace all of those cuts with new guesses?',
   'cut.guessDone': 'Guessed {n} lines from the pauses. Check them — Undo puts it all back if it went wrong.',
   'cut.no.guessText': 'This text already has words in it, so its lines cannot be guessed again. Cut it by hand instead.',
@@ -2769,6 +2770,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'cut.guess': 'Tebak barisnya',
   'cut.guessShort': 'Tebak',
   'cut.guessTip': 'Potong rekaman di jeda-jedanya, sebagai titik awal yang bisa Anda perbaiki.',
+  'cut.no.guessManual': 'Baris-barisnya sudah disesuaikan secara manual, jadi menebak ulang dimatikan \u2014 itu akan mengganti hasil kerja tersebut.',
   'cut.guessConfirm': 'Rekaman ini sudah dipotong menjadi baris. Ganti semua potongan itu dengan tebakan baru?',
   'cut.guessDone': 'Ditebak {n} baris dari jeda-jedanya. Periksalah \u2014 Urungkan mengembalikan semuanya kalau salah.',
   'cut.no.guessText': 'Teks ini sudah ada kata-katanya, jadi barisnya tidak bisa ditebak lagi. Potonglah sendiri.',

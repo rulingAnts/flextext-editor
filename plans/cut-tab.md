@@ -473,6 +473,45 @@ back. That is the difference between a test and a comment: the scroll guard read
 fix and 509 → 0 without it, and the span-watcher guard plays to 0:13 with the fix and stops dead at
 0:00 without it. Any assertion added here should earn its place the same way.
 
+## v370 — ✨ exists only while there is nothing to lose (Seth, 2026-08-14)
+
+> *"Can we make the guess button go away after execution and return if the user undoes the first
+> guess? I really don't want them to have the ability to re-guess after they've already manually
+> worked through a lot…"* — then, refining: re-guessing a pristine guess is fine ("if they guessed
+> and didn't do anything else manual it's OK to re-guess"), and the decisive framing: *"having that
+> button still active after manual adjustments have been made is WAY too easy for a native speaker
+> who isn't tech savvy to accidentally ruin all the work they put in and then just be confused as to
+> what happened and stuck."*
+
+**The rule:** ✨ is visible in exactly two document states — the untouched whole-file seed, and a
+guess with nothing manual after it. Everywhere else it is **gone, not greyed** (a confirm dialog is
+not protection for the user this rule protects). This also retires the old
+hand-cuts-behind-a-confirm path: any manual cuts, with or without a prior guess, hide the button.
+
+**The mechanism is a signature, not a flag.** `cutGuessSplits` stamps the guessed boundary ends on
+the doc (`doc.guessSig`); `guessAllowedHere` shows the button only when segments still match it end
+for end (or the doc is the one-segment seed). A comparison instead of a flag means NO edit path has
+to know the feature exists — a cut, join, or set-boundary nudge on any tab breaks the match by
+construction, including gestures not yet written. Typed text/glosses hide it via the same
+`docHasWork` test the refusal path uses.
+
+**Undo works unaided, and NOT via snapshots** — `docSnap()` carries only paragraphs+segments, so the
+signature lingers. Undoing manual edits back to the pristine guess restores the *match*; undoing
+past the guess restores the *seed*; both show the button again. A stale signature can never wrongly
+show it: hand cuts would have to reproduce the guessed boundaries to the millisecond.
+
+The signature never reaches a `.flextext` (`serializeFlextext` reads only known fields); an
+exported-and-reimported text starts over — and if it carries text, `docHasWork` hides ✨ anyway.
+Docs guessed under v361–v369 have no signature, so any cuts they hold read as manual work: the
+protective direction. Verified in the browser both ways (the GONE assertion was watched failing
+with the hide disabled), plus the full cycle: pristine→join→gone→undo→back→undo→seed→back.
+
+⚠ **This build round also survived a container reset**: the v370 work was first written on a stale
+v368 checkout after the session's worker restarted on an old clone — caught because BUILD_TAG and
+the v369 plans section were missing. The remote was intact; the fix was re-applied onto
+origin/staging and every suite re-run against the true tree. If numbers ever look wrong mid-session,
+check `git log` against origin FIRST.
+
 ## v369 — what the v368 audit found, fixed
 
 The full audit (reversions, blast radius, the v368 fix's edges, scroll-on-rebuild, resources) is in

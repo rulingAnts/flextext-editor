@@ -111,7 +111,7 @@
       <button class="player-play icon-btn2" data-i18n-title="player.play">▶</button>
       <button class="player-home icon-btn2" data-i18n-title="player.home">⏮</button>
       <button class="player-back icon-btn2" data-i18n-title="player.back3">↺3s</button>
-      <select class="player-speed" data-i18n-title="player.speed">
+      <select id="player-speed" name="player-speed" class="player-speed" data-i18n-title="player.speed" aria-label="Playback speed">
         <option value="0.5">0.5×</option>
         <option value="0.75">0.75×</option>
         <option value="1" selected>1×</option>
@@ -284,6 +284,11 @@
     <button id="upload-cancel" class="icon-btn2" data-i18n-title="upload.cancel">✕</button>
   </div>
   <ul id="upload-list" class="upload-list" hidden></ul>
+  <!-- Which backend the failing uploads are talking to, shown ONLY while something is failing.
+       Answers "which server?" without DevTools, and offers the one-tap way back to the normal one
+       when a device has somehow been left pointed elsewhere. See renderUploadQueue. -->
+  <p id="upload-diag" class="upload-diag" hidden><span id="upload-diag-text"></span>
+    <button id="upload-diag-fix" class="link-btn" hidden></button></p>
 </div>
 
 <div id="toast" hidden></div>

@@ -24,6 +24,13 @@ export function getUpload(docId) { return active.get(docId) || null; }
 let workerTargetProvider = null;
 export function setWorkerUploadTarget(fn) { workerTargetProvider = fn; }
 
+/* The backend host an upload is actually talking to, for error messages. Hostname only — a target
+ * URL can carry a path and query, and neither belongs in a sentence shown to a transcriber. */
+export function targetHost(target) {
+  try { return new URL((target && target.url) || '').host || 'the server'; }
+  catch { return 'the server'; }
+}
+
 // Chunked-streaming tuning. Drive requires every non-final chunk to be a multiple
 // of 256 KiB. The size ADAPTS to the link: grows toward 32 MiB while chunks land
 // fast, halves toward 512 KiB on slowness or failure — village connections send
@@ -180,14 +187,39 @@ export class DriveUpload {
       });
     } catch (e) {
       if (e.name === 'AbortError' || this._gen !== run) throw new Error('aborted');
-      throw new Error('The upload could not be sent — check the connection and try again.');
+      /* ⚠ SAY WHICH SERVER, AND SAY THE REQUEST NEVER LEFT (Seth, 2026-08-14: a whole production
+       * instance jammed with every item reading "Failed — will retry", which names neither the cause
+       * nor anything a user could act on). A `fetch` rejection here means the browser never got a
+       * reply, and THREE very different things produce it — offline, the backend refusing this
+       * origin (CORS), and the BROWSER ITSELF refusing to send. The last one is not hypothetical: it
+       * is what actually jammed that instance. Chrome's Local Network Access blocks a request from a
+       * public page to a private address, and a network doing NAT64/DNS64 behind a VPN hands back
+       * exactly that — `connect.flextext.app` resolving to fd00::/8 (a ULA), Chrome refusing every
+       * upload, the queue retrying forever. `navigator.onLine` is TRUE throughout, which is why the
+       * tray cheerfully said "will retry shortly" for hours.
+       *
+       * We cannot tell the three apart from here (a blocked fetch and an offline fetch throw the
+       * same TypeError), so the message names all three in the order worth checking, and names the
+       * host so "which server?" is never the next question. */
+      throw new Error(`Could not reach ${targetHost(target)} — the request never left this device. `
+        + 'Check the connection; if you are on a VPN or an office network, it may be blocking it.');
     }
     if (this._gen !== run || this.status !== 'uploading') return;
     const out = await resp.json().catch(() => ({}));
     if (!(resp.ok && out.ok && out.fileId)) {
+      /* ⚠ THE HTTP STATUS IS THE DIAGNOSIS, and it used to be discarded. 401/403 is a device whose
+       * link to the researcher has lapsed (re-open the setup link) — a permanent condition that
+       * retrying can never clear, and which read identically to a flaky connection. 5xx really is
+       * worth retrying. Carrying the number costs nothing and is the difference between a user who
+       * is stuck and a user who knows what to do. */
+      if (resp.status === 401 || resp.status === 403) {
+        throw new Error(`This device is no longer signed in to the researcher (${resp.status}) — `
+          + 'open your setup or assignment link again to re-link it, then press Send now.');
+      }
       throw new Error(out.error === 'no_drive' || out.error === 'reconnect_needed'
         ? 'The researcher\'s Google Drive connection needs attention — this upload will keep retrying.'
-        : 'The upload did not arrive — it will retry when the connection is better.');
+        : `The upload did not arrive (${resp.status || 'no response'}) — it will retry when the `
+          + 'connection is better.');
     }
     this.indeterminate = false;
     rec.sent = rec.total;

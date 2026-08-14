@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v371';
+export const ENGINE_VERSION = 'v372';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -233,6 +233,10 @@ en: {
   'upload.uploadingShort': 'Sending…',
   'upload.queuedShort': 'Waiting',
   'upload.errorShort': 'Failed — will retry',
+  'upload.diagServer': 'Sending to {host}.',
+  'upload.diagOther': '⚠ This device is set to use {host}, which is NOT the normal server.',
+  'upload.diagUseNormal': 'Use the normal server',
+  'upload.diagSwitched': 'Switched back to the normal server — retrying the uploads.',
   'upload.pausedItem': 'Paused',
 
   'research.sendLegend': 'Saving & sending on THIS device',
@@ -1811,6 +1815,10 @@ id: {
   'upload.uploadingShort': 'Mengirim…',
   'upload.queuedShort': 'Menunggu',
   'upload.errorShort': 'Gagal — akan dicoba lagi',
+  'upload.diagServer': 'Mengirim ke {host}.',
+  'upload.diagOther': '⚠ Perangkat ini disetel memakai {host}, yang BUKAN server biasa.',
+  'upload.diagUseNormal': 'Pakai server biasa',
+  'upload.diagSwitched': 'Kembali ke server biasa — unggahan dicoba lagi.',
   'upload.pausedItem': 'Dijeda',
 
   'research.sendLegend': 'Penyimpanan & pengiriman di perangkat INI',

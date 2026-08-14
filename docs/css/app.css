@@ -2183,3 +2183,8 @@ main {
 #btn-guess-splits { font-size: 18px; line-height: 1; }
 .cut-tools-label { color: var(--muted); font-size: 14px; }
 .cut-tools-label.is-off { opacity: .5; }
+
+/* The upload tray's backend/diagnosis line (v372). Quiet by default — it only appears when uploads
+   are actually failing, and it is the one place a field user can see WHICH server was unreachable. */
+.upload-diag { margin: 2px 10px 8px; font-size: 12px; line-height: 1.35; opacity: .92; }
+.upload-diag .link-btn { font-size: 12px; padding: 0 4px; text-decoration: underline; }

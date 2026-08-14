@@ -4819,15 +4819,56 @@ function renderUploadQueue() {
     else { toggle.hidden = true; uploadListOpen = false; }
   }
 
+  /* ── WHICH SERVER, AND A WAY BACK (v372) ──────────────────────────────────────────────────────
+   * Shown only while something is actually failing, so a healthy queue stays silent. Two jobs:
+   *   1. NAME THE BACKEND. "Failed — will retry" forever, with no way to learn what it was even
+   *      talking to, is what stranded a production instance for hours (Seth, 2026-08-14). The host
+   *      is the first fact any diagnosis needs, and DevTools is not available in the field.
+   *   2. OFFER THE WAY BACK when this device is NOT on the normal backend. The dev override
+   *      (?devworker=staging) persists silently per device, and the staging worker refuses
+   *      production origins BY DESIGN — a guard that is correct but, until now, indistinguishable
+   *      from a broken release. ⚠ NEVER auto-revert: a field device quietly repointing itself at a
+   *      test backend is exactly what that guard exists to make loud. The user taps, or nothing. */
+  const diag = $('#upload-diag'), diagText = $('#upload-diag-text'), diagFix = $('#upload-diag-fix');
+  if (diag) {
+    const failing = items.some((i) => i.status === 'error');
+    diag.hidden = !failing;
+    if (failing) {
+      const base = workerBase();
+      let host = base;
+      try { host = new URL(base).host; } catch { /* keep the raw string */ }
+      const offBase = base !== DEFAULT_WORKER;
+      diagText.textContent = t(offBase ? 'upload.diagOther' : 'upload.diagServer', { host });
+      diagFix.hidden = !offBase;
+      if (offBase) {
+        diagFix.textContent = t('upload.diagUseNormal');
+        diagFix.onclick = () => {
+          // Clearing the override is what workerBase() reads: it falls back to DEFAULT_WORKER.
+          delete settings.relayWorker;
+          saveSettings(settings);
+          toast(t('upload.diagSwitched'), 5000);
+          renderUploadQueue();
+          pumpUploads();
+        };
+      }
+    }
+  }
+
   const list = $('#upload-list');
   if (list) {
     list.hidden = !(uploadListOpen && total > 1);
     if (!list.hidden) {
       list.innerHTML = '';
       for (const it of items) {
+        /* ⚠ SHOW THE REAL REASON. The upload already carried `error` all the way here and the row
+         * threw it away for a fixed "Failed — will retry" — so a permanently-stuck queue (a device
+         * whose researcher link lapsed; an app pointed at a backend that refuses its origin) looked
+         * exactly like a weak signal, forever. Seth, 2026-08-14, on a jammed production instance:
+         * "how do I troubleshoot that?" — the answer has to be ON THE SCREEN, because the person
+         * this happens to in the field has no DevTools and no way to ask. */
         const status = it.status === 'uploading' ? t('upload.uploadingShort')
           : it.status === 'paused' ? t('upload.pausedItem')
-          : it.status === 'error' ? t('upload.errorShort')
+          : it.status === 'error' ? (it.error || t('upload.errorShort'))
           : t('upload.queuedShort');
         const li = document.createElement('li');
         li.innerHTML = '<span class="up-name"></span><span class="up-state"></span>' +

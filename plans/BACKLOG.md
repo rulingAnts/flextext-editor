@@ -103,6 +103,36 @@ line groups. Worth one sweep rather than five separate reports.
 last row?" as one of the passes. It is invisible to every structural test we have and only shows up
 on a list long enough to scroll — which is every real one in the field.
 
+## FUTURE RELEASE: gloss-scissors playhead guard + configurable span-play return (Seth, 2026-08-14)
+
+Two connected requests, made during the v371 release round — **not in that release**:
+
+**1. Guard the gloss tab's ✂ (line-split at a word gap) against an unplaced playhead.** The split
+takes its TIME from the playhead; clicking the scissors while the playhead sits at the very start or
+end of the line's span (i.e. nobody placed it) mints a sliver or a timePending half. Seth: *"If the
+user clicks the scissors between words, but the playhead is all the way at the start or the end (not
+in the middle), don't split and flash/highlight the waveform as a reminder that they need to place
+the playhead."* So: refuse + a brief flash/highlight of that line's mini waveform — a visual nudge,
+not a toast. "At the start or end" needs a tolerance (the playhead rests at exactly `start` after a
+span play; treat within ~MIN_SEGMENT_MS of either edge as "not placed").
+
+**2. Span playback should RETURN TO THE PLAYHEAD, not rewind to the span start — researcher-
+configurable, default ON.** Seth, reversing the earlier rewind rule: *"let's undo what I said about
+always rewinding to start when played to the end. It might actually be better especially for the
+glossing tab split for it to remember and return to the playhead location instead of rewinding every
+time it's played. Maybe actually the same for the baseline tab. Let's let the researcher configure
+that behavior actually. Default to remembering and preserving playhead position when space is
+pressed, but able to change that."*
+
+- Today (v322/v364): a span played to its end pauses and rewinds to the SPAN START.
+- New default: remember where the playhead stood when play started, and return THERE at span end —
+  which is exactly what makes the scissors workflow above work (listen from the split point, play
+  runs out, playhead comes home to the split point).
+- Researcher setting (panel + engine reader must agree on the default, as with the v367 six); the
+  rewind-to-start behaviour remains as the non-default option.
+- Touches the span watcher (`playSpan` / `_spanTick`) — the component every previous transport bug
+  lived in; browser-test both modes on all three tabs before merging.
+
 ## Slow the playback down without changing the pitch (Seth, 2026-08-14)
 
 > *"is there an easy way for us to slow down the playback speed without distorting the pitch (I think

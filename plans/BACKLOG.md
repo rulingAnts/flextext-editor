@@ -103,6 +103,29 @@ line groups. Worth one sweep rather than five separate reports.
 last row?" as one of the passes. It is invisible to every structural test we have and only shows up
 on a list long enough to scroll — which is every real one in the field.
 
+## (built v375) Assignment titles fill themselves in (Seth, 2026-08-14)
+
+> "have a new text title default to the flextext filename (minus the file extension) if there is one,
+> and the audio file's filename (minus the file extension) if there isn't … the manual edit is the
+> final source of authority. But if it's blank and a file is attached, then populate it with the
+> filename. If the filename is the same as the audio, and then a flextext file is added, pull the
+> title from within the flextext XML."
+
+**Low risk, and it stayed low by construction:** entirely inside `assignModal` in the researcher
+panel — no engine, device, worker or format change, and the worst failure is a wrong default the
+researcher edits before sending. `parseFlextext` was already imported there and already used by the
+same modal's send handler, so nothing new entered the panel's dependency surface.
+
+The clause worth restating, because it is the non-obvious one: when the two files share a base name
+("Story.mp3" + "Story.flextext"), the flextext's FILENAME repeats what the audio already said — so
+the useful title is the one FLEx stored INSIDE the XML. That is the only case that opens the file,
+compared case-insensitively (file systems and exporters disagree about case), and a parse failure
+falls back to the filename rather than blanking the field.
+
+⚠ **A field the researcher EMPTIED is refilled.** Typing latches authority and is never overwritten,
+but clearing the box reads as asking for the default back — an assignment with no title at all helps
+nobody downstream.
+
 ## ⚠ NEVER STRAND A DEVICE'S WORK — the send-capability trap (found by reasoning, fixed v374)
 
 Seth, 2026-08-14, thinking one step past the queue fix rather than waiting for a report: *"if I pair

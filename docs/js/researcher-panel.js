@@ -2613,14 +2613,64 @@ function assignModal(instanceId) {
   const syncFtWarn = () => { ftWarn.hidden = !(ftInput.files && ftInput.files.length); };
   ftInput.addEventListener('change', syncFtWarn);
   syncFtWarn();
+
+  /* ── THE TITLE FILLS ITSELF IN (Seth, 2026-08-14) ────────────────────────────────────────────
+   * "have a new text title default to the flextext filename (minus the file extension) if there is
+   * one, and the audio file's filename … if there isn't. And of course manually editable … the
+   * manual edit is the final source of authority. But if it's blank and a file is attached, then
+   * populate it with the filename. If the filename is the same as the audio, and then a flextext
+   * file is added, pull the title from within the flextext XML."
+   *
+   * The last clause is the interesting one and worth stating plainly: when the two files share a
+   * base name ("Story.mp3" + "Story.flextext"), the flextext's FILENAME adds nothing the audio did
+   * not already say — so the useful title is the one FLEx itself stored inside the XML. That is the
+   * only case that opens the file, and a parse failure just falls back to the filename.
+   *
+   * ⚠ TYPING WINS, ALWAYS. `touched` latches on the researcher's first keystroke and is never
+   * cleared by a file change. The one exception is a field they have EMPTIED, which reads as asking
+   * for the default back rather than as a deliberate blank — an assignment with no title at all
+   * helps nobody. */
+  const titleInput = m.el.querySelector('#rp-as-title');
+  const audioInput = m.el.querySelector('#rp-as-audio');
+  let touched = false;
+  titleInput.addEventListener('input', () => { touched = true; });
+  const baseName = (n) => String(n || '').replace(/\.[^./\\]+$/, '').trim();
+  const firstFile = (input) => (input.files || [])[0] || null;
+
+  async function autoTitle() {
+    const ft = firstFile(ftInput);
+    const audio = firstFile(audioInput);
+    if (ft) {
+      const ftBase = baseName(ft.name);
+      const audioBase = audio ? baseName(audio.name) : '';
+      // Same base name ⇒ the filename is redundant; ask the file what it calls itself.
+      if (audioBase && ftBase.toLowerCase() === audioBase.toLowerCase()) {
+        try {
+          const parsed = parseFlextext(await ft.text());
+          const inner = (parsed.texts && parsed.texts[0] && parsed.texts[0].title || '').trim();
+          if (inner) return inner;
+        } catch { /* unreadable or not a flextext — the send handler reports that properly */ }
+      }
+      return ftBase;
+    }
+    return audio ? baseName(audio.name) : '';
+  }
+
+  async function fillTitle() {
+    if (touched && titleInput.value.trim()) return;   // their words stand
+    const next = await autoTitle();
+    if (next) titleInput.value = next;
+  }
+  audioInput.addEventListener('change', fillTitle);
+  ftInput.addEventListener('change', fillTitle);
   const say = (msg, kind) => {
     const s = m.el.querySelector('#rp-as-status');
     s.hidden = false; s.textContent = msg;
     s.className = 'rp-as-status' + (kind ? ' rp-as-' + kind : '');
   };
   m.el.querySelector('[data-m="send"]').onclick = (e) => busy(e.target, async () => {
-    const title = m.el.querySelector('#rp-as-title').value.trim();
-    const audioFile = (m.el.querySelector('#rp-as-audio').files || [])[0] || null;
+    const title = titleInput.value.trim();
+    const audioFile = firstFile(audioInput);
     const ftFile = (ftInput.files || [])[0] || null;
     // The device only materializes an assign that carries a resource; a title alone sends nothing.
     if (!audioFile && !ftFile) { say('⚠ ' + t('panel.assign.needFile'), 'err'); return; }

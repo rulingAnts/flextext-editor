@@ -745,6 +745,32 @@ Download-all are untouched.
 > researcher account? … A way for multiple researchers to collaborate and share a project/researcher
 > panel."
 
+### ⚠ THE PREREQUISITE IS A DATA-MODEL SPLIT: PROJECT ≠ RESEARCHER (Seth, 2026-08-14)
+
+> "Currently those are one and the same. But in a near future release, we want researchers to be able
+> to manage multiple projects and also be able to invite other researchers to help manage one or more
+> of their projects. But that's later."
+
+So the shape is **researcher ↔ project is many-to-many**, in BOTH directions — one researcher, many
+projects; one project, many researchers — and everything below (keys, Drive, roles, audit) hangs off
+the PROJECT once it exists as its own thing. Today "the project" is implicitly the researcher's
+account: one Ki, one Drive, one settings blob, one device fleet. The split is the schema work:
+
+- **A device pairs to a PROJECT, not to a researcher** — this is already the right instinct in the
+  constraint list below ("a field device is paired to a PROJECT; who administers it is not the
+  device's business"), and the split is what makes it literally true. Existing pairings must migrate
+  as "this researcher's implicit project", invisibly to every field device — a device must never
+  need re-pairing because its researcher reorganised their projects.
+- **The E2EE key becomes a PROJECT key**, wrapped per researcher — which is the same machinery the
+  invite feature needs anyway (below). One researcher with three projects holds three wrapped keys.
+- **The Drive question below multiplies**: per-project folders in whose Drive? The per-text folder
+  dedupe contract (v167) is per-upload-target, so it survives, but the panel's storage-footprint
+  reporting becomes per-project.
+- **The panel grows a project switcher**, and every panel surface (texts, devices, assignment queue,
+  history) becomes project-scoped. Worth grepping the panel for anything keyed on the account where
+  it should key on the project — settings pushes especially, since a settings link encodes what will
+  become project state.
+
 ⚠ **This is NOT the approval flow that already exists.** Today an OWNER approves people who sign in
 (`panel.pending.*`, `/v1/researcher/approvals`, `logApproval()`), and the panel's own wording states
 the outcome plainly: *"Each approved person gets their own separate console."* Approval creates a

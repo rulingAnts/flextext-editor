@@ -56,6 +56,65 @@ therefore have passed.
 
 ---
 
+## ⚠ A LIST THAT REBUILDS MUST NOT THROW THE USER BACK TO THE TOP — general rule + one live bug (Seth, 2026-08-14)
+
+> *"Researcher panel texts list bounces back to the top after a change made to a text on the bottom
+> (delete or whatever). In general that's a default behavior we should be aware of and avoid from the
+> start in all our new features — jumping back to the top/start when a change is made to the DOM (or
+> data model? I don't know exactly how it works)."*
+
+**KNOWN BUG:** the researcher panel's texts list. Act on a text near the bottom and the list scrolls
+to the top, so the next thing you wanted to do is off screen. Fix on the next release.
+
+**WHY IT HAPPENS**, since Seth asked: it is the DOM, not the data model. Our lists re-render by
+emptying a container and rebuilding it (`innerHTML = ''` / `replaceChildren()`). An empty container
+has no height, the browser CLAMPS `scrollTop` to the new maximum — zero — and refilling it cannot
+restore what was already clamped away. Nothing "jumps"; the position was destroyed between the two
+statements.
+
+**THE RULE FOR NEW FEATURES:** any list that rebuilds in place must read its scroll offset BEFORE
+emptying and restore it after. Where row heights can change, also anchor on the edited row's own
+screen pixel. The Cut tab does exactly this (`renderCut`'s `keepTop` + anchor delta, v357) after
+the same complaint about cuts and joins — copy that, and note the ordering trap it documents: the
+offset must be read before `replaceChildren()`, not after.
+
+**Places to check**, all of which rebuild the same way: the researcher panel's texts list (the
+reported one), the Texts screen (`#doc-list`), the Files modal, the assignment list, the Gloss tab's
+line groups. Worth one sweep rather than five separate reports.
+
+**⚠ For the Fable audit** (see the top of this file): treat "does this list survive an edit to its
+last row?" as one of the passes. It is invisible to every structural test we have and only shows up
+on a list long enough to scroll — which is every real one in the field.
+
+## Slow the playback down without changing the pitch (Seth, 2026-08-14)
+
+> *"is there an easy way for us to slow down the playback speed without distorting the pitch (I think
+> there's ways to correct for that now…)? I realize with lossy files that might be especially
+> unreliable… That's a plan to look into later though, not a fix now."*
+
+**Yes, and it is close to free.** `HTMLMediaElement.preservesPitch` is standard and defaults to
+**true** in Chromium, so `playbackRate = 0.6` already keeps the pitch by default — the browser
+time-stretches. wavesurfer 7 exposes it as `setPlaybackRate(rate, preservePitch)`. The player
+already has a speed picker (`select`, named in `transportKeysApply`'s exemption list); the question
+is what its values do, not whether the capability exists.
+
+**The lossy worry mostly evaporates in segmentation mode**, because playback there is already on the
+derived WAV working copy (`segwav:`), not on the compressed original — the same reason that copy
+exists at all (AAC priming). A basic-editor user with segmentation off does play the original.
+
+What to actually decide before building:
+
+- **Which rates.** 0.75 / 0.5 is the usual transcription pair; below ~0.5 Chromium's stretcher
+  starts sounding metallic on speech, which is worse than useless for hearing a phoneme.
+- **Does it survive a span play?** `playSpan` watches `timeupdate` against a captured stop time; at
+  0.5× the watcher fires half as often in audio-time terms but the maths is unchanged. Worth a
+  measurement, not an assumption — the span watcher is where every previous transport bug lived.
+- **Does the rate persist per device, per text, or not at all?** Probably per device (it is a
+  listening preference, not data), which means a setting, which means the researcher panel.
+- **⚠ Do NOT let it reach the peaks or the exports.** Rate is a listening aid; every time written to
+  `doc.segments`, an EAF or a `.flextext` is real-time. A rate that leaked into `playheadMs()` would
+  put cuts in the wrong place, silently.
+
 ## 🅿 PARKED BRANCH: `parked-panel-and-matching` — panel work + segment matching (Seth, 2026-08-08)
 
 > *"We need to park the Researcher Panel improvement and the 'segment matching' features on a

@@ -473,6 +473,98 @@ back. That is the difference between a test and a comment: the scroll guard read
 fix and 509 → 0 without it, and the span-watcher guard plays to 0:13 with the fix and stops dead at
 0:00 without it. Any assertion added here should earn its place the same way.
 
+## v368 — the Snakes_We_Eat.m4a report: peaks that were a PICTURE of the audio
+
+> Seth, 2026-08-14: *"a new text that I import only shows a short (truncated) single line, seems like
+> the rest is off screen, guess isn't working, and it looks like it plays through past the end of the
+> segment, but the final segment that hasn't been split yet … should show the whole segment."* Then:
+> *"showing part (not all) of the recording on the first and only line such that the segments don't
+> render all of it is not OK."*
+
+### What it actually was
+
+**`Player.load` caches `exportPeaks({maxLength: 12000})` and the duration on the media record the
+first time a recording is loaded, so later loads can draw without decoding again.** On every load
+after that, wavesurfer is handed `peaks` + `duration` and never decodes — and `getDecodedData()` then
+returns an AudioBuffer-shaped object wrapping exactly those 12000 display samples, whose
+`sampleRate` is `12000 / duration`. About **136 Hz** for a 90-second take.
+
+`ensurePeaks` prefers the player's decoded buffer (one decode, one timeline — the encoder-priming
+rule) and had no way to tell the difference. It bucketed 12000 samples at 2000 buckets a second, so
+**93% of the buckets held nothing**, both amplitude percentiles that decide "pause vs speech" landed
+on zero, and `guessSplits` refused — correctly, given what it was shown — with *"no clear pauses"*.
+
+⚠ **It only bites recordings over about a minute**, which is why nothing caught it: the share of
+frames carrying real data is `12000 / (2000 × seconds)` = 6/seconds — 30% at twenty seconds, where
+the 90th percentile still lands on real audio, and under 10% past a minute, where it does not. Every
+fixture in the suite was twenty seconds. **And only on the SECOND open**, because the first one has
+no cached peaks to be poisoned by.
+
+### The fix, in three places
+
+| | |
+|---|---|
+| `Player._peaksOnly` + `decodedBuffer()` returns null | the player knows it did not decode; it is the only thing that does. A picture of the audio is not the audio |
+| `ensurePeaks` requires `sampleRate >= 8000` | the module that would be poisoned states its own requirement rather than trusting a caller |
+| `coverTail()` in `reconcile()` | **the invariant Seth actually asked for**: an untexted, un-imported tail segment is extended to the end of the recording. Whatever disagrees about the duration, the strips account for all of it |
+
+`peaksDurationFor()` also went in beside them: `reconcile` read the module-global peaks cache without
+asking WHOSE recording it held, so a text opened straight after another one could be seeded with the
+previous recording's length — a whole-file span that is not the whole file, persisted, with nothing
+afterwards able to notice (the seed only fires on zero segments, the heal only on all-pending ones,
+and such a span is neither).
+
+### ✨ greys out when it cannot help
+
+Seth, on the same recording (*"lots of background noise (crowded workshop)"*): *"If the background
+noise is too high to make easy splits, then graying out the guess button is fine."* So the detector
+is now asked BEFORE the press, cached per (document, peaks generation), and its refusal becomes a
+disabled button carrying the reason — joining the two states that already greyed it (text present,
+over ten minutes). A live button that always answers "no" reads as a broken feature.
+
+### ⚠ How this was found, and the lesson
+
+The .m4a itself is **healthy** — 3810 AAC frames × 1024 = exactly 88.468s, sample table consistent
+with the mdat to the byte. Four hypotheses about the container, the decode and the WAV working copy
+were all wrong, and every reproduction attempt with a synthetic file PASSED. What broke it open was
+reproducing the *sequence* rather than the file: guess, reload, guess again.
+
+⚠ **The first version of the regression test passed with the bug still in**, twice — once because it
+reused the 20-second fixture (too short to show it), once because it reopened the text without
+letting the player finish loading first (so the Cut tab decoded the blob itself and never asked the
+player). Both were caught by disabling the fix and watching the test go on passing. **A regression
+test nobody has watched FAIL is a comment.**
+
+## v368 — Enter on the Baseline tab, outside a text box
+
+> Seth, 2026-08-14: *"if the segment audio is active, pressing enter splits at the playhead and
+> splits the text at the end of the baseline (rather than wherever the cursor was last). If the text
+> box is focused, pressing enter splits wherever the play head is (on the current segment) as it does
+> now."*
+
+The tab already had half of this. Inside a box the caret decides where the WORDS divide; outside one
+there is no caret to consult, and the honest answer is that none of them move — the line keeps them
+all and the new line starts empty. That turns transcribe-then-align into **listen and chop** without
+ever touching the text, on the tab where the text lives.
+
+- **One implementation** (`splitLineAt`) behind both, so the TIME can never break differently for the
+  two. `caret == null` means "at the end".
+- **It acts on the line the PLAYHEAD is in**, not on a remembered selection — the same rule the Cut
+  tab runs on. Playhead in no line ⇒ it refuses.
+- **It does not move focus.** Dropping the cursor into the new box would hand the next Enter to the
+  text-box path, which acts on the FOCUSED line — and by then the recording has played on, so the two
+  would be talking about different lines.
+- **It is its own undo step**, unlike the text-box Enter beside it. That is not an inconsistency:
+  typing is what creates undo points on this tab, so a split made while typing is always recoverable
+  by the entry either side of it. A chopping run types nothing.
+
+⚠ **Seth's guard — "don't allow a split unless the playhead position is on the current segment" — was
+already enforced, and deliberately only for the TIME.** `boundaryAtPlayhead` gives the new line a
+`timePending` span when the playhead is outside the segment, rather than a time nobody chose. The
+words still split at the caret in that case, and must: blocking it would make Enter stop working
+whenever nothing is playing, which is most of transcription. The playhead-driven gesture, which has
+no typing intent behind it, refuses outright.
+
 ## v361 — "Guess the lines" is BUILT (was the NEXT section below; kept for the reasoning)
 
 Seth: *"where's my 'Guess' (default auto-segment based on pauses) button/feature for new texts?"* It

@@ -20,7 +20,8 @@ import WaveSurfer from './vendor/wavesurfer.esm.js';
 import { makeZip } from './zip.js';
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay,
          wireWaveSeek, requestReveal, takeReveal, followLine,
-         initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut } from './segment-strips.js';
+         initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut,
+         stripSplitAtPlayhead } from './segment-strips.js';
 import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME,
          sanitizeBase, extOf, mediaNameFor, derivedWavName } from './seg-exports.js';
 import { mergeSegments, splitSegment, isAligned, normalizeSegments } from './segments.js';
@@ -759,6 +760,17 @@ function rememberTab(tab) {
  * lands mid-session (that is the whole point of pushed settings), and a user sitting on the Cut tab
  * would otherwise keep reading "press Backspace to join" for as long as they stayed there, after
  * Backspace had stopped joining. Same class as applyCutTabVisibility below. */
+/* The Baseline tab's hint depends on the MODE, because its Enter does. Classic textarea: "a new
+ * paragraph". Segmentation strips: a line break AND a boundary in the recording, by two routes (see
+ * the keydown handler and segment-strips' onKey). Applied on every entry, so a live researcher push
+ * that flips segmentation swaps the sentence without a reload. */
+function applyBaselineHint() {
+  const hint = document.querySelector('#view-baseline .tab-hint [data-i18n-html]');
+  if (!hint) return;
+  hint.dataset.i18nHtml = segmentationEnabled() ? 'baseline.hintSeg' : 'baseline.hint';
+  hint.innerHTML = t(hint.dataset.i18nHtml);
+}
+
 function applyCutHint() {
   const hint = $('#view-cut .tab-hint');
   if (!hint) return;
@@ -1262,6 +1274,8 @@ function switchTab(tab, landing) {
     initCut({
       getPlayer: () => player,
       getDoc: () => current && current.doc,
+      // Which document the peaks cache must belong to before its duration may seed anything.
+      getDocId: () => current && current.id,
       getParagraphs: (doc) => getBaselineParagraphs(doc),
       setParagraphs: (doc, paras) => { reconcileBaseline(doc, paras.length ? paras : [''], { flatSegments: true }); schedulePersist(); },
       onPlayTarget: () => { lastPlayTarget = null; },
@@ -1278,6 +1292,7 @@ function switchTab(tab, landing) {
   }
   if (tab === 'baseline') {
     stopGlossCursor();
+    applyBaselineHint();
     if (segmentationEnabled()) {
       // Strip mode: per-segment waveform + single-line text pairs. The textarea stays in the DOM
       // but hidden — switching the researcher setting off returns the classic editor with the
@@ -1289,6 +1304,7 @@ function switchTab(tab, landing) {
         container: $('#segment-strips'),
         getPlayer: () => player,
         getDoc: () => current && current.doc,
+        getDocId: () => current && current.id,   // see peaksDurationFor
         getParagraphs: (doc) => getBaselineParagraphs(doc),
         setParagraphs: (doc, paras) => { reconcileBaseline(doc, paras.length ? paras : [''], { flatSegments: true }); schedulePersist(); },
         onPlayTarget: (seg) => { lastPlayTarget = seg; },
@@ -7212,6 +7228,32 @@ function setup() {
      * would cut or join again with no gesture from the user. wirePlaybackKeys' Space branch defers
      * to this (it runs first, in capture). */
     else if (e.key === ' ' && !e.repeat) { e.preventDefault(); cutTogglePlay(); }
+  });
+  /* ── ENTER ON THE BASELINE TAB, WITH FOCUS OUTSIDE THE TEXT BOXES ────────────────────────────
+   * Seth, 2026-08-14: "if the segment audio is active, pressing enter splits at the playhead and
+   * splits the text at the end of the baseline (rather than wherever the cursor was last). If the
+   * text box is focused, pressing enter splits wherever the playhead is (on the current segment) as
+   * it does now."
+   *
+   * So this is the OTHER half of a gesture the tab already had. Inside a text box the caret decides
+   * where the words divide (that handler is in segment-strips' onKey and is untouched). Outside one
+   * — after clicking a line's ▶ to listen — there is no caret to consult, and the honest answer is
+   * that none of the words move: the line keeps them all and the new line starts empty. That turns
+   * transcribe-then-align into listen-and-chop without ever touching the text.
+   *
+   * ⚠ transportKeysApply ALREADY STANDS DOWN INSIDE A TEXT FIELD, which is exactly the division of
+   * labour this needs: the two Enters can never both fire, and neither can steal Enter from a modal
+   * or from Save/Back in the topbar. See it for the whole rule.
+   *
+   * ⚠ NOT ON THE GLOSS TAB. Its boxes are word glosses and free translations; breaking a LINE there
+   * would re-shape the very rows being glossed, which is what the Cut and Baseline tabs are for. */
+  document.addEventListener('keydown', (e) => {
+    if (activeTab !== 'baseline' || $('#view-baseline')?.hidden) return;
+    if (!segmentationEnabled()) return;          // classic textarea mode owns its own Enter
+    if (e.key !== 'Enter' || e.repeat) return;
+    if (!transportKeysApply(e.target)) return;   // a focused text box keeps Enter — see onKey
+    e.preventDefault();                          // …and a focused ▶ must not ALSO re-fire
+    stripSplitAtPlayhead();
   });
   $('#btn-guess-splits')?.addEventListener('click', () => cutGuessSplits());
   $('#btn-help-home').addEventListener('click', openHelp);

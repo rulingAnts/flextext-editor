@@ -711,7 +711,12 @@ export class Player {
        * longer applies once we have paused.) */
       dragToSeek: { debounceTime: 0 },
     };
-    if (media.peaks && media.duration) {
+    /* ⚠ PEAKS SUPPLIED ⇒ WAVESURFER NEVER DECODES, so this load has NO decoded audio to share.
+     * Remembered because `getDecodedData()` does not say so: it hands back a SYNTHETIC buffer built
+     * from these 12000 display peaks, whose `sampleRate` is length/duration (≈136 Hz on a 90-second
+     * take). See decodedBuffer() for what that cost. */
+    this._peaksOnly = !!(media.peaks && media.duration);
+    if (this._peaksOnly) {
       opts.peaks = media.peaks;
       opts.duration = media.duration;
     }
@@ -837,8 +842,24 @@ export class Player {
   /** The player's OWN decoded audio, when available — the segment strips derive their peaks from
    * this so display and transport share one timeline. Two independent decodes of a compressed file
    * can disagree by tens of ms about where zero is (encoder priming), which surfaces as 'the
-   * waveform is a tiny bit behind the audio' when chopping by ear. */
-  decodedBuffer() { try { return this.ws?.getDecodedData?.() || null; } catch { return null; } }
+   * waveform is a tiny bit behind the audio' when chopping by ear.
+   *
+   * ⚠ NULL WHEN THE LOAD WAS PEAKS-ONLY — and that is the whole point of `_peaksOnly` (Seth's
+   * Snakes_We_Eat.m4a, 2026-08-14: "guess isn't working"). The FIRST load of a recording decodes and
+   * caches 12000 display peaks on the media record; every load after that hands those peaks to
+   * wavesurfer so it can draw without decoding again. `getDecodedData()` still returns something —
+   * a fake AudioBuffer wrapping exactly those 12000 samples, `sampleRate = 12000 / duration`. It is
+   * a picture of the audio, not the audio.
+   *
+   * Handing that to ensurePeaks was silently catastrophic: it built a 177000-bucket array from
+   * 12000 samples, so 93% of the buckets were ZERO, the amplitude percentiles that decide "pause vs
+   * speech" both landed on zero, and ✨ Guess refused with "no clear pauses" on the very recording
+   * it had just cut into 21 lines minutes earlier. Reproduced exactly: guess, reload, guess again.
+   * Returning null instead costs one decode on re-open and gives the real waveform back. */
+  decodedBuffer() {
+    if (this._peaksOnly) return null;
+    try { return this.ws?.getDecodedData?.() || null; } catch { return null; }
+  }
 
   /* ── Segment boundary marks on the dock waveform (the Cut tab's map) ─────────────────────────
    * Seth, 2026-08-13: "I only wanted the top player to add lines representing segment boundaries.
@@ -1002,6 +1023,7 @@ export class Player {
      * on every render, so forgetting them here costs nothing and cannot be wrong. */
     this._bounds = [];
     this._boundLayer = null;   // it lived inside the wrapper being destroyed
+    this._peaksOnly = false;   // a property of the load just discarded, not of the next one
     if (this.ws) { try { this.ws.destroy(); } catch { /* noop */ } this.ws = null; }
     if (this.objectUrl) { URL.revokeObjectURL(this.objectUrl); this.objectUrl = null; }
     this.el.play.textContent = '▶';

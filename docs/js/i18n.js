@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v367';
+export const ENGINE_VERSION = 'v368';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v367';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = '';
+export const BUILD_TAG = 'cut-fixes v1';
 
 const S = {
 en: {
@@ -188,6 +188,11 @@ en: {
   'banner.unset': 'No writing systems set yet — new texts will use placeholder codes. Ask your researcher for a setup link, or use the <b>Settings</b> tab.',
 
   'baseline.hint': 'Type or paste the text. Press <b>Enter</b> for a new paragraph. Sentences are split automatically at <code>. ! ?</code>',
+  /* SEGMENTATION MODE has a different Enter, so it needs a different sentence — the classic hint
+   * above says "a new paragraph", which here also moves a boundary in the recording. */
+  'baseline.hintSeg': 'Type the words for each line. <b>Enter</b> inside a box breaks the line at the cursor; '
+    + '<b>Enter</b> with no box selected breaks it at the playhead and keeps the words together \u2014 so you can '
+    + 'listen and cut without typing.',
   'baseline.placeholder': 'Type the text here in the vernacular language…',
 
   'gloss.empty': 'Nothing to gloss yet — enter the text on the <b>Baseline</b> tab first.',
@@ -1762,6 +1767,9 @@ id: {
   'banner.unset': 'Sistem tulisan belum diatur — teks baru akan memakai kode sementara. Minta tautan pengaturan dari peneliti, atau buka tab <b>Pengaturan</b>.',
 
   'baseline.hint': 'Ketik atau tempel teks di sini. Tekan <b>Enter</b> untuk paragraf baru. Kalimat dipisah otomatis pada <code>. ! ?</code>',
+  'baseline.hintSeg': 'Ketik kata-kata untuk tiap baris. <b>Enter</b> di dalam kotak memotong baris di posisi kursor; '
+    + '<b>Enter</b> tanpa kotak yang dipilih memotongnya di posisi pemutar dan kata-katanya tetap utuh \u2014 jadi Anda '
+    + 'bisa mendengarkan sambil memotong tanpa mengetik.',
   'baseline.placeholder': 'Ketik teks bahasa daerah di sini…',
 
   'gloss.empty': 'Belum ada yang bisa dikerjakan — ketik teksnya di tab <b>Ketik</b> dulu.',

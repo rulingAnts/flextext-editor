@@ -46,7 +46,11 @@ console.log('\nthe helper persists BEFORE it navigates');
    * and would silently lose work — exactly the failure the Back button's comment warns about. */
   ok(iPersist > 0 && iShow > iPersist, 'and persist() runs BEFORE show(\'texts\') — reversed, the last edit is lost');
   ok(/current = null;/.test(fn), 'the open doc is released');
-  ok(/player\.hide\(\)/.test(fn), 'and audio stops rather than playing on over the list');
+  /* v369: the player stop moved into leaveEditor(), the cleanup shared with the Back button — which
+   * also stops the three tab tickers this exit used to leak (60fps against the hidden editor). The
+   * property asserted is unchanged: leaving stops the audio. */
+  ok(/leaveEditor\(\);/.test(fn) && /player\.hide\(\)/.test((app.match(/function leaveEditor\(\) \{[\s\S]*?\n\}/) || [''])[0]),
+     'and audio stops rather than playing on over the list (via the shared leaveEditor cleanup)');
   ok(/renderDocList\(\);/.test(fn), 'the list is rebuilt so the just-sent text shows its new state');
 }
 

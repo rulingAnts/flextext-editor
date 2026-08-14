@@ -473,6 +473,42 @@ back. That is the difference between a test and a comment: the scroll guard read
 fix and 509 → 0 without it, and the span-watcher guard plays to 0:13 with the fix and stops dead at
 0:00 without it. Any assertion added here should earn its place the same way.
 
+## v369 — what the v368 audit found, fixed
+
+The full audit (reversions, blast radius, the v368 fix's edges, scroll-on-rebuild, resources) is in
+the session record; four findings, three fixed here, one deferred:
+
+**1. The playhead-Enter threw the Baseline view back to the top — fixed.** `renderStrips` never got
+the v357 scroll rule; a synchronous rebuild would survive on its own, but `drawStrip` reads
+`clientWidth` per row and forces layout MID-rebuild, so the clamp fires against a near-empty
+container. The in-box Enter masked it for a year because `focusStrip` pulls the next input into
+view; the chop gesture moves no focus on purpose. Measured 8021→0; now held (keepTop, restored at
+the end, `scrollerFor` shared with `renderCut` so the tabs cannot drift). Regression-tested in the
+browser suite — and the first version of that check twice failed for APP-CORRECT reasons (the
+span-rewind rule near the end of the recording), which is worth remembering: a red test is a claim,
+not a verdict.
+
+**2. Leaving the text leaked the tab tickers — fixed.** Only `switchTab` ever stopped them, so
+⟵ Back (and the v352 return-after-send) left a 60fps rAF loop doing ~3,600 DOM queries a second
+against hidden nodes, plus ~25MB of strip/gloss canvas backing store idling behind the texts list.
+One shared `leaveEditor()` now stops all three tickers, drops the canvases, clears `cutShownFor`
+(so the next open rebuilds through its loading state), and hides the player. Measured after:
+0 rAF/s, 0 queries, 0 canvases, 0.0% CPU on the texts list. Safe by construction — every tab
+rebuilds its own view on entry.
+
+**3. The researcher panel's texts-list bounce (Seth's known bug) — fixed, ⚠ NEEDS THE PANEL TEST
+DRIVE.** `renderDashboard` repainted the whole panel to a one-line "loading…" note BEFORE the
+network round trip, and the browser clamps the scroll against that near-empty layout — the 12s poll
+path never had the bug because it swaps `.rp-body` in one task. A full render now borrows the poll's
+shape when a dashboard is already on screen (`.rp-metrics` is the marker): leave the old content up
+while fetching, swap when the data lands, and restore the captured offset across the swap. ⚠ This
+one could NOT be driven in the audit environment (no dev worker); it is code-reviewed and
+syntax-checked only, so the panel needs a deliberate scroll-and-delete test before release.
+
+**4. The 40-minute heap (~492MB at 16kHz mono, ~3× that for a 44.1kHz phone recording) — NOT fixed,
+deliberately.** That is decode architecture, not a patch; it stays with the deferred
+resource/cheap-device audit in `plans/BACKLOG.md`, now with measured numbers.
+
 ## v368 — the Snakes_We_Eat.m4a report: peaks that were a PICTURE of the audio
 
 > Seth, 2026-08-14: *"a new text that I import only shows a short (truncated) single line, seems like

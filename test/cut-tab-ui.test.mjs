@@ -271,6 +271,33 @@ ok(/getDocId: \(\) => current && current\.id/.test(app) && (app.match(/getDocId:
 
 console.log('\na cut or a join does not throw the user back to the top of the recording');
 ok(/const keepTop = scroller \? scroller\.scrollTop : 0;/.test(render), 'the scroll offset is read BEFORE the rebuild');
+/* ── AND THE BASELINE STRIPS HOLD IT TOO (v369). renderStrips never got the v357 rule, and the
+ * playhead-Enter exposed it: unlike the in-box Enter there is no focusStrip afterwards to pull the
+ * view back, so every chop landed at the top (measured 8021→0 in the v368 audit). */
+const rStrips = fn(strips, 'renderStrips');
+ok(/const scroller = scrollerFor\(host\)/.test(rStrips) && /const keepTop = scroller \? scroller\.scrollTop : 0;/.test(rStrips),
+   'renderStrips reads the offset before ITS rebuild too — the chop gesture rebuilds with no focus to recover it');
+ok(rStrips.indexOf('keepTop') < rStrips.indexOf("host.innerHTML = ''"),
+   '…and before the empty, the only order that works');
+ok(/scroller\.scrollTop = keepTop/.test(rStrips), 'and restores it after');
+ok(/function scrollerFor/.test(strips) && /return scrollerFor\(document\.getElementById\('cut-strips'\)\)/.test(strips),
+   'both tabs find the scroller through ONE function, so they cannot drift in how they hold the view');
+
+console.log('\nleaving the text stops the machinery the editor was running');
+/* v368 audit: only switchTab stopped the tab tickers, so leaving from Gloss or Cut left a 60fps rAF
+ * loop doing ~3,600 DOM queries a second against hidden nodes on the texts list, plus ~25MB of
+ * canvas backing store idling behind it. */
+const leave = fn(app, 'leaveEditor');
+ok(!!leave, 'there is ONE leave-the-text cleanup, not per-exit copies');
+ok(/stopStrips\(\)/.test(leave) && /stopCut\(\)/.test(leave) && /stopGlossCursor\(\)/.test(leave),
+   'it stops all three tab tickers — switchTab only ever stopped them between tabs, not on the way out');
+ok(/cutShownFor = null/.test(leave),
+   'and forgets the Cut tab\'s "already on screen" claim, so the next open rebuilds honestly');
+ok(/#segment-strips.*#cut-strips.*#gloss-body/.test(leave) && /innerHTML = ''/.test(leave),
+   'and drops the strip canvases instead of leaving ~25MB idling behind the texts list');
+ok(/leaveEditor\(\)/.test(fn(app, 'returnToLibraryAfterSend')),
+   'the return-after-send exit goes through it (it had the same leak as Back)');
+ok((app.match(/leaveEditor\(\);/g) || []).length >= 2, 'and so does the Back button');
 ok(render.indexOf('keepTop') < render.indexOf('host.replaceChildren()'),
    'which is the only order that works — emptying the list is what collapses the height');
 ok(/scroller\.scrollTop = keepTop;/.test(render), 'and restored after');

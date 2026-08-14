@@ -4493,9 +4493,30 @@ async function returnToLibraryAfterSend() {
   if (activeTab === 'baseline') applyBaseline();
   try { await persist(); } catch { /* already saved / nothing to flush */ }
   current = null;
-  if (player) { player.hide(); player.loadedFor = null; }
+  leaveEditor();
   renderDocList();
   show('texts');
+}
+
+/* LEAVING THE TEXT ENTIRELY — the cleanup both exits share (⟵ Back, and the return-to-list after a
+ * successful send). The editor's three tab tickers are per-view rAF loops, and only switchTab ever
+ * stopped them — so leaving from the Gloss or Cut tab left a 60fps loop doing ~3,600 DOM queries a
+ * second against hidden nodes for as long as the texts list sat open (measured, v368 audit), plus
+ * ~25MB of strip/gloss canvas backing store idling behind the list on a 60-line text. Stop the
+ * loops, drop the canvases, and forget the Cut tab's "already on screen" claim so the next open
+ * rebuilds through its loading state instead of trusting an emptied container. Re-entry is safe by
+ * construction: every tab rebuilds its own view on entry (renderStrips / renderGloss / renderCut via
+ * prepareCutAudio), so nothing here is state the editor expects to find again. */
+function leaveEditor() {
+  stopStrips();
+  stopCut();
+  stopGlossCursor();
+  cutShownFor = null;
+  for (const sel of ['#segment-strips', '#cut-strips', '#gloss-body']) {
+    const el = $(sel);
+    if (el) el.innerHTML = '';
+  }
+  if (player) { player.hide(); player.loadedFor = null; }
 }
 
 async function openShareMenu() {
@@ -7192,8 +7213,7 @@ function setup() {
     if (activeTab === 'baseline') applyBaseline();
     await persist();
     current = null;
-    // Stop any playing audio when leaving the text.
-    if (player) { player.hide(); player.loadedFor = null; }
+    leaveEditor();   // stops audio AND the tab tickers — see the function for what leaking them cost
     renderDocList();
     show('texts');
   });

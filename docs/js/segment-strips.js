@@ -325,12 +325,33 @@ function reconcile(doc, d = deps) {
 
 /* ---------------- rendering ---------------- */
 
+/* The element whose scroll offset the strip lists live inside — the nearest scrollable ancestor
+ * (both tabs sit in <main>, but found rather than assumed so a layout change cannot orphan the
+ * scroll-holding below). Shared by renderStrips and renderCut: the two tabs must not drift apart in
+ * HOW they hold the view, any more than in what they draw. */
+function scrollerFor(host) {
+  for (let n = host && host.parentElement; n; n = n.parentElement) {
+    const ov = getComputedStyle(n).overflowY;
+    if (ov === 'auto' || ov === 'scroll') return n;
+  }
+  return document.scrollingElement || document.documentElement;
+}
+
 export function renderStrips() {
   const doc = deps.getDoc();
   if (!doc) return;
   const segs = reconcile(doc);
   const paras = deps.getParagraphs(doc);
   const host = deps.container;
+  /* ⚠ HOLD THE SCROLL ACROSS THE REBUILD — the same v357 rule renderCut lives by, which this
+   * function never got. A synchronous empty-and-refill would survive on its own (the clamp only
+   * fires at the next layout), but drawStrip reads clientWidth per row, forcing layout MID-rebuild
+   * while the container is nearly empty — so the offset dies there. The in-box Enter masked it for
+   * a year because focusStrip scrolls the next input into view; the playhead-Enter moves no focus
+   * on purpose, and the v368 audit measured every chop landing the user back at the top (8021→0 on
+   * a 60-line text). Read BEFORE the empty; restored at the end of this function. */
+  const scroller = scrollerFor(host);
+  const keepTop = scroller ? scroller.scrollTop : 0;
   host.innerHTML = '';
   const dur = peaksCache.durationMs || (segs.length && isAligned(segs[segs.length - 1]) ? segs[segs.length - 1].end : 0);
 
@@ -404,6 +425,9 @@ export function renderStrips() {
     }
     drawStrip(wave, seg, dur);
   });
+  // The offset first, then focusStrip (called by our callers) may still bring an edited line into
+  // view — restore-then-focus is what keeps both the chop gesture and the typing gesture anchored.
+  if (scroller) scroller.scrollTop = keepTop;
   positionCursor();
 }
 
@@ -852,14 +876,7 @@ function syncCutBoundaries() {
  * screen, then put the row back under the same pixel. Restoring the raw offset alone would be off by
  * whatever the edit changed above the fold — a caption rewrapping, a row appearing — and "nearly
  * where I was" is still lost when every row looks alike. */
-function cutScroller() {
-  const host = document.getElementById('cut-strips');
-  for (let n = host && host.parentElement; n; n = n.parentElement) {
-    const ov = getComputedStyle(n).overflowY;
-    if (ov === 'auto' || ov === 'scroll') return n;
-  }
-  return document.scrollingElement || document.documentElement;
-}
+function cutScroller() { return scrollerFor(document.getElementById('cut-strips')); }
 
 export function renderCut(anchorIdx) {
   if (!cutDeps) return;
@@ -1126,7 +1143,14 @@ function docHasWork(doc) {
  * ⚠ THE PROBE IS CACHED PER (document, peaks generation). Running the detector is one pass over
  * ~177000 buckets — cheap once, but renderCut runs on every cut, join, undo and settings push, and
  * this is called from inside it. The peaks are the only input that can change the answer, and
- * peaksGen already counts exactly that. */
+ * peaksGen already counts exactly that.
+ *
+ * ⚠ THE CONTRACT THAT KEEPS THE CACHE HONEST: peaksGen only ever advances inside ensurePeaks, and
+ * every current ensurePeaks call is awaited by a flow that then renders (prepareCutAudio → renderCut,
+ * the Baseline entry → renderStrips) — so a bumped generation is always followed by the re-render
+ * that re-probes, and the button can never sit stale on screen. If a future caller ever bumps the
+ * generation WITHOUT rendering (a background upgrade, say), the ✨ state will lag until the next
+ * renderCut — re-render after any such call, or this cache is where the bug will live (v368 audit). */
 let guessProbe = { docId: null, gen: -1, cuts: -1 };
 function guessBlockedBecause(paras, doc) {
   const T = cutDeps.t;

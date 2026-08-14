@@ -983,7 +983,27 @@ function paintLiveVersions() {
 }
 
 async function renderDashboard(prefetched) {
-  if (!prefetched) {
+  /* ⚠ A DASHBOARD ALREADY ON SCREEN IS REFRESHED IN PLACE, never through the loading screen. The
+   * loading repaint below wipes the whole panel to a one-line note BEFORE the network round trip —
+   * and the browser clamps the scroll offset against that near-empty layout, so any action taken on
+   * a text near the bottom of a long list bounced the researcher back to the top (Seth, 2026-08-14:
+   * "bounces back to the top after a change made to a text on the bottom"). The 12s poll path
+   * (`prefetched`) never had this bug, because it replaces `.rp-body` in one task with the data
+   * already in hand — so a full render simply borrows that shape when there is old content worth
+   * keeping: leave it up while fetching, then swap. `.rp-metrics` is the marker: it exists exactly
+   * when a dashboard (not sign-in, not an error screen) is what is showing. The scroll offset is
+   * still captured and restored across the swap, because the swap replaces `.rp-body` wholesale and
+   * "nearly where I was" is lost when every card looks alike. */
+  const inPlace = !prefetched && !!root.querySelector('.rp-metrics');
+  const scroller = (() => {
+    for (let n = root.querySelector('.rp-body'); n; n = n.parentElement) {
+      const ov = n instanceof Element ? getComputedStyle(n).overflowY : '';
+      if (ov === 'auto' || ov === 'scroll') return n;
+    }
+    return document.scrollingElement || document.documentElement;
+  })();
+  const keepTop = inPlace && scroller ? scroller.scrollTop : null;
+  if (!prefetched && !inPlace) {
     root.innerHTML = header('panel.title', true) + `<div class="rp-body"><p class="note">${esc(t('panel.dash.loading'))}</p></div>`;
     wireActs({ exit: close, lock: () => { Researcher.signOut(); route(); } });
   }
@@ -1159,6 +1179,8 @@ async function renderDashboard(prefetched) {
   root.querySelectorAll('[data-ract]').forEach((el) => el.addEventListener('click', () => researcherAction(el)));
   root.querySelectorAll('[data-cact]').forEach((el) => el.addEventListener('click', () => crowdAction(el)));
   lastSig = viewSig(data);
+  // The in-place refresh promised the researcher their place back — keep it (see the top).
+  if (keepTop !== null && scroller && scroller.isConnected) scroller.scrollTop = keepTop;
   startDashPoll();
   // Queued assignment uploads: paint the card, then resume anything interrupted (panel restart is
   // one of the two resume points; the 'online' listener is the other). Fire-and-forget — the

@@ -31,7 +31,7 @@ below touch the worker, where deploy ORDER is the difference between a release a
 
 | # | Item | Why it ranks here |
 |---|---|---|
-| 1.1 | **GUID adoption: a deleted line's guid gets reused by an unrelated new line, and FLEx honours guids** | CONFIRMED against shipped code, and it corrupts a researcher's FLEx data *silently and downstream*, where nobody can see it happen. Decision already locked (gate inheritance on similarity); it is the implementation that is pending. |
+| 1.1 | **GUID adoption: a deleted line's guid gets reused by an unrelated new line, and FLEx honours guids** | CONFIRMED against shipped code; corrupts a researcher's FLEx data *silently and downstream*. ⚠ **THE FIX IS ALREADY WRITTEN AND STRANDED** — v320 on branch `guid-identity-gate` (commit `c8e40ac`, 2026-08-08). Verified NOT an ancestor of `productionWeb`, and the similarity gate exists nowhere in the live tree; it was orphaned when `parked-v319-v321` was parked, taking v319–v321 with it. So this is a **rebase + re-verify**, not a rewrite. `v321-hardening` carries the adversarial-audit hardening that followed it. |
 | 1.2 | **Lists lose their scroll position on rebuild** — panel texts list FIXED v369 but **unverified live**; the general rule is written | A fix nobody has watched work is a claim. The panel one could not be driven here (no dev worker). |
 | 1.3 | **The exported `.fxpa` can go stale and nothing says so** | Silent staleness in an export is the same family as 1.1: wrong data that looks right. |
 | 1.4 | **Gloss ✂ splits at an unplaced playhead** | Mints slivers/pending spans from a mis-click. Small, well-specified, cheap. |
@@ -73,6 +73,31 @@ the `.fxed` follow-ons · in-situ "does it save when I leave?" answer.
 work that has since shipped, and one (`parked-v319-v321`) predates the whole v351–v376 line.
 
 ---
+
+## Branch hygiene (blocked — this session's git token cannot delete refs)
+
+`git push origin --delete` returns **403** from the remote-execution environment: the credentials
+grant push but not delete. Run locally. Verified safe — zero unique commits AND zero content
+difference against `productionWeb`:
+
+```sh
+git push origin --delete assign-by-upload \
+  claude/assign-by-upload-build-7d5ee8 claude/assign-by-upload-build-uik28u \
+  claude/cut-tab-waveform-displays-2owdfx claude/paragraph-analysis-backlog-1bb9bd \
+  claude/prompt-too-large-error-d767f1 claude/unpaired-device-setup-w3u9ck \
+  claude/worker-cache-poisoning-536b2c
+```
+
+(`assign-by-upload` is 6 commits "ahead", but all six are merges FROM staging and the three-dot diff
+is empty — it holds nothing of its own.)
+
+⚠ **Do NOT delete these — they hold unique commits:** `guid-identity-gate` (the v320 fix above),
+`v321-hardening` + `parked-v319-v321` (v319–v321), `fix-artifact-kinds-and-fxpa-stamp` (v317/v319),
+`paired-audio-delete-gate` (its own commit says "do not merge without Seth's go-ahead"), and
+`claude/flextext-import-onestory-1jjm0p` (the OneStory injection plan).
+
+`segmentation` is separately deletable whenever convenient — CLAUDE.md marks it obsolete and says it
+must never be merged.
 
 ## What a session should open with
 

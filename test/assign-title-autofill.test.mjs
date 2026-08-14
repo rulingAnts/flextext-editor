@@ -1,11 +1,13 @@
 /* THE ASSIGNMENT TITLE FILLS ITSELF IN — the panel's assign modal (Seth, 2026-08-14).
  *
- * "have a new text title default to the flextext filename (minus the file extension) if there is
- *  one, and the audio file's filename (minus the file extension) if there isn't. And of course
- *  manually editable in the title field and the manual edit is the final source of authority. But if
- *  it's blank and a file is attached, then populate it with the filename. If the filename is the
- *  same as the audio, and then a flextext file is added, pull the title from within the flextext XML
- *  (should be near the top) and populate the title field with that."
+ * The priority order, highest first, in his words:
+ *   (1) what the researcher types into that box (if they type something)
+ *   (2) the title of the text in the flextext file's xml code (first title that shows up)
+ *   (3) the name of the flextext file
+ *   (4) the name of the audio file
+ *
+ * So a flextext is asked what it calls ITSELF before its filename is considered — FLEx stores a real
+ * title, and "export_final_2.flextext" is a fact about somebody's desktop, not about the text.
  *
  * ⚠ MODELLED, NOT MOCKED — the same limitation as send-capability-trap.test.mjs: assignModal lives
  * in researcher-panel.js, which needs a browser. This reimplements the RULES and then asserts the
@@ -29,18 +31,14 @@ const baseName = (n) => String(n || '').replace(/\.[^./\\]+$/, '').trim();
 /* The model. `ftXml` stands in for reading the attached file. */
 function autoTitle({ audioName, ftName, ftXml }) {
   if (ftName) {
-    const ftBase = baseName(ftName);
-    const audioBase = audioName ? baseName(audioName) : '';
-    if (audioBase && ftBase.toLowerCase() === audioBase.toLowerCase()) {
-      try {
-        const parsed = parseFlextext(ftXml || '');
-        const inner = ((parsed.texts && parsed.texts[0] && parsed.texts[0].title) || '').trim();
-        if (inner) return inner;
-      } catch { /* fall through to the filename */ }
-    }
-    return ftBase;
+    try {
+      const parsed = parseFlextext(ftXml || '');
+      const inner = ((parsed.texts && parsed.texts[0] && parsed.texts[0].title) || '').trim();
+      if (inner) return inner;                       // (2)
+    } catch { /* fall through to the filename */ }
+    return baseName(ftName);                         // (3)
   }
-  return audioName ? baseName(audioName) : '';
+  return audioName ? baseName(audioName) : '';       // (4)
 }
 function fillTitle(state, files) {
   if (state.touched && state.value.trim()) return state;      // their words stand
@@ -70,23 +68,25 @@ console.log('\nthe filename becomes the title');
   ok(baseName('no-extension') === 'no-extension', 'and a name with no extension is left alone');
 }
 
-console.log('\nsame base name ⇒ the filename says nothing new, so read the title INSIDE the file');
+console.log('\nthe flextext is asked what it calls ITSELF before its filename is used');
 {
-  const st = fillTitle({ value: 'Story', touched: false },
-    { audioName: 'Story.mp3', ftName: 'Story.flextext', ftXml: XML('Kisah Ular yang Kami Makan') });
+  const st = fillTitle({ value: '', touched: false },
+    { ftName: 'export_final_2.flextext', ftXml: XML('Kisah Ular yang Kami Makan') });
   ok(st.value === 'Kisah Ular yang Kami Makan',
-     `the flextext's own title replaces the redundant filename ("${st.value}")`);
-  // Case-insensitively, because file systems and exporters disagree about case.
-  const st2 = fillTitle({ value: 'story', touched: false },
-    { audioName: 'story.MP3', ftName: 'Story.flextext', ftXml: XML('Inner Title') });
-  ok(st2.value === 'Inner Title', 'and the base names are compared without regard to case');
-  // A flextext with no usable inner title falls back rather than blanking the field.
+     `the XML title beats the flextext filename outright ("${st.value}")`);
+  const st2 = fillTitle({ value: '', touched: false },
+    { audioName: 'Story.mp3', ftName: 'Story.flextext', ftXml: XML('Inner Title') });
+  ok(st2.value === 'Inner Title', '…including when the two files share a base name');
   const st3 = fillTitle({ value: '', touched: false },
-    { audioName: 'Story.mp3', ftName: 'Story.flextext', ftXml: XML('   ') });
-  ok(st3.value === 'Story', 'an empty inner title falls back to the filename');
+    { audioName: 'recording-004.m4a', ftName: 'Snakes We Eat.flextext', ftXml: XML('   ') });
+  ok(st3.value === 'Snakes We Eat', 'a flextext with no usable title falls back to its filename (3)');
   const st4 = fillTitle({ value: '', touched: false },
-    { audioName: 'Story.mp3', ftName: 'Story.flextext', ftXml: 'not xml at all' });
-  ok(st4.value === 'Story', 'and so does an unreadable file — the send handler reports that properly');
+    { audioName: 'Cerita Jaha.mp3', ftName: 'Broken.flextext', ftXml: 'not xml at all' });
+  ok(st4.value === 'Broken', 'and so does an unreadable one — never silently down to the audio name');
+  const st5 = fillTitle({ value: '', touched: false }, { audioName: 'Cerita Jaha.mp3' });
+  ok(st5.value === 'Cerita Jaha', 'the audio filename is the last resort (4)');
+  // The FIRST title in the file, per Seth: "first title that shows up".
+  ok(/texts\[0\]/.test(autoTitle.toString()), 'and it is the FIRST text\'s title that is used');
 }
 
 console.log('\nwhat the researcher typed is the final authority');
@@ -100,8 +100,9 @@ console.log('\nwhat the researcher typed is the final authority');
   ok(cleared.value === 'Cerita Jaha', 'but a field they EMPTIED is refilled — that is a request, not a blank');
   // An auto-filled value is not "theirs", so a better source still wins.
   const auto = fillTitle({ value: '', touched: false }, { audioName: 'Story.mp3' });
+  ok(auto.value === 'Story', 'an audio-only assignment starts at the audio name…');
   const better = fillTitle(auto, { audioName: 'Story.mp3', ftName: 'Story.flextext', ftXml: XML('Real Title') });
-  ok(better.value === 'Real Title', 'and an auto-filled title is replaced when a truer one arrives');
+  ok(better.value === 'Real Title', '…and is replaced when a higher-priority source arrives');
 }
 
 console.log('\nthe rules are in the panel, not only in this model');
@@ -111,9 +112,11 @@ console.log('\nthe rules are in the panel, not only in this model');
      'typing latches the manual-authority flag');
   ok(/if \(touched && titleInput\.value\.trim\(\)\) return;/.test(fn),
      '…and a typed, non-empty title is never overwritten');
-  ok(/ftBase\.toLowerCase\(\) === audioBase\.toLowerCase\(\)/.test(fn),
-     'the same-base-name case is compared case-insensitively');
-  ok(/parsed\.texts\[0\]\.title/.test(fn), '…and reads the title from inside the flextext');
+  ok(/parsed\.texts\[0\]\.title/.test(fn), 'the panel reads the FIRST text\'s title from inside the flextext');
+  ok(fn.indexOf('if (inner) return inner;') < fn.indexOf('return baseName(ft.name);'),
+     '…and prefers it over the flextext filename, which is the fallback beneath it');
+  ok(fn.indexOf('return baseName(ft.name);') < fn.indexOf('audio ? baseName(audio.name)'),
+     '…which in turn sits above the audio filename');
   ok(/audioInput\.addEventListener\('change', fillTitle\)/.test(fn)
      && /ftInput\.addEventListener\('change', fillTitle\)/.test(fn),
      'both file inputs trigger it');

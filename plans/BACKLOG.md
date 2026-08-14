@@ -116,11 +116,18 @@ panel — no engine, device, worker or format change, and the worst failure is a
 researcher edits before sending. `parseFlextext` was already imported there and already used by the
 same modal's send handler, so nothing new entered the panel's dependency surface.
 
-The clause worth restating, because it is the non-obvious one: when the two files share a base name
-("Story.mp3" + "Story.flextext"), the flextext's FILENAME repeats what the audio already said — so
-the useful title is the one FLEx stored INSIDE the XML. That is the only case that opens the file,
-compared case-insensitively (file systems and exporters disagree about case), and a parse failure
-falls back to the filename rather than blanking the field.
+**The priority order (Seth, locked v376), highest first:**
+1. what the researcher types into the box
+2. the title inside the flextext's XML — the FIRST one that appears
+3. the flextext's filename
+4. the audio file's filename
+
+⚠ **(2) beats (3) outright**, not just when the filenames happen to match. v375 shipped the narrower
+reading — XML title only when the flextext and audio shared a base name — and Seth corrected it to
+this, which is both simpler and better: FLEx stores a real title, and `export_final_2.flextext` is a
+fact about somebody's desktop rather than about the text. The filename is the fallback for a flextext
+that carries no title, and an unreadable file falls back to its filename too — never silently down to
+the audio name.
 
 ⚠ **A field the researcher EMPTIED is refilled.** Typing latches authority and is never overwritten,
 but clearing the box reads as asking for the default back — an assignment with no title at all helps

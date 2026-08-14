@@ -966,12 +966,17 @@ export function renderCut(anchorIdx) {
    * (cutGuessSplits still refuses, as the backstop.) */
   const guess = document.getElementById('btn-guess-splits');
   const guessLabel = document.getElementById('cut-tools-label');
-  if (guessLabel) guessLabel.hidden = false;
   if (guess) {
-    const why = guessBlockedBecause(paras, doc);
-    guess.disabled = !!why;
-    if (guessLabel) guessLabel.classList.toggle('is-off', guess.disabled);
-    guess.title = why || cutDeps.t('cut.guessTip');
+    // GONE, not greyed, over manual work — see guessAllowedHere for the whole rule.
+    const allowed = guessAllowedHere(segs, paras, doc);
+    guess.hidden = !allowed;
+    if (guessLabel) guessLabel.hidden = !allowed;
+    if (allowed) {
+      const why = guessBlockedBecause(paras, doc);
+      guess.disabled = !!why;
+      if (guessLabel) guessLabel.classList.toggle('is-off', guess.disabled);
+      guess.title = why || cutDeps.t('cut.guessTip');
+    }
   }
 
   syncCutBoundaries();
@@ -1131,6 +1136,41 @@ function docHasWork(doc) {
   return false;
 }
 
+/* ✨ IS VISIBLE ONLY WHILE THERE IS NOTHING TO LOSE (Seth, 2026-08-14: "having that button still
+ * active after manual adjustments have been made is WAY too easy for a native speaker who isn't tech
+ * savvy to accidentally ruin all the work they put in and then just be confused as to what happened
+ * and stuck"). A confirm dialog is not protection for that user — they click through it. So the
+ * button exists in exactly two states of the document, and is GONE, not greyed, in every other:
+ *
+ *   - the untouched whole-file seed (nothing has been divided yet), or
+ *   - a guess with nothing manual after it — the segments still match, end for end, the signature
+ *     the guess stamped on the doc (re-rolling a pristine guess is harmless: the detector is
+ *     deterministic, so it cannot even change anything). Seth: "if they guessed and didn't do
+ *     anything else manual it's OK to re-guess."
+ *
+ * THE SIGNATURE IS THE WHOLE MECHANISM. cutGuessSplits stores the guessed boundary ends on the doc
+ * (doc.guessSig); any manual edit — a cut, a join, a set-boundary nudge, on ANY tab — changes
+ * doc.segments and breaks the match, with no edit path needing to know this feature exists. That is
+ * why it is a comparison and not a flag: a flag would need every current and future edit gesture to
+ * remember to set it, and the one that forgot would be the disaster. Undo works unaided too, and it
+ * is worth being precise about HOW, because it is NOT via snapshots — docSnap() captures only
+ * paragraphs and segments, so the signature simply stays on the doc. Undoing manual edits back to
+ * the pristine guess restores segments that MATCH the lingering signature (button returns); undoing
+ * past the guess restores the one-segment seed, which is visible by the seed rule regardless of any
+ * signature left behind. A stale signature can never wrongly SHOW the button: hand-cuts would have
+ * to reproduce the guessed boundaries to the millisecond, end for end, to match it.
+ *
+ * Typed text also hides it (Seth named "text entry" explicitly); docHasWork is the same test the
+ * refusal path uses. The signature is app-internal state: serializeFlextext reads only the fields it
+ * knows, so it never reaches a .flextext — an exported-and-reimported text simply starts over. */
+function guessAllowedHere(segs, paras, doc) {
+  if (paras.some((p) => String(p || '').trim()) || docHasWork(doc)) return false;
+  if (segs.length <= 1) return true;                       // the untouched seed
+  const sig = doc && doc.guessSig;
+  if (!Array.isArray(sig) || sig.length !== segs.length) return false;
+  return segs.every((sg, i) => isAligned(sg) && sg.end === sig[i]);
+}
+
 /* WHY IS ✨ GREY? Returns the sentence to put in its tooltip, or '' when the button should work.
  *
  * ⚠ THE LAST CASE IS THE ONE SETH ASKED FOR (2026-08-14, on a recording made in a crowded workshop:
@@ -1194,6 +1234,9 @@ export function cutGuessSplits() {
   if (!doc) return;
   const paras = cutDeps.getParagraphs(doc);
   if (paras.some((p) => String(p || '').trim()) || docHasWork(doc)) { cutSay(cutDeps.t('cut.no.guessText')); return; }
+  // The backstop for the visibility rule above — the button is hidden over manual work, but this
+  // function must refuse on its own for the keyboard, for scripts, and for docs from older builds.
+  if (!guessAllowedHere(cutSegs(), paras, doc)) { cutSay(cutDeps.t('cut.no.guessManual')); return; }
   const dur = peaksDurationFor(cutDeps);   // 0 unless the peaks really are THIS recording's
   if (!peaksCache.peaks || !dur) { cutSay(cutDeps.t('cut.no.guessAudio')); return; }
   /* ⚠ LONG RECORDINGS ARE CUT BY HAND. The detection itself is cheap at any length; what is not is
@@ -1215,6 +1258,10 @@ export function cutGuessSplits() {
   if (!r.ok) { cutSay(cutDeps.t('cut.no.guess' + (r.reason === 'none' ? 'None' : r.reason === 'hasText' ? 'Text' : 'Audio'))); return; }
   if (cutDeps.capture) cutDeps.capture();
   doc.segments = r.segments;                       // ⚠ BOTH, from the one result
+  /* The signature that keeps ✨ on screen only while these exact boundaries survive. Undo does NOT
+   * erase it (docSnap carries only paragraphs+segments) and does not need to — see guessAllowedHere:
+   * the undone doc is back to one seed segment, which is visible by the seed rule. */
+  doc.guessSig = r.segments.map((sg) => sg.end);
   cutDeps.setParagraphs(doc, r.paragraphs);
   cutDeps.persist();
   cutSay(cutDeps.t('cut.guessDone', { n: r.segments.length }));

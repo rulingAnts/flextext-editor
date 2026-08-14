@@ -100,11 +100,27 @@ const strays = marksAt.filter((t) => { const m = t % 2; return !(m >= 1.15 && m 
 ok(marksAt.length >= 8, `the boundaries are marked on the player (${marksAt.length})`);
 ok(strays.length === 0,
    `and every one lands in a silence, not inside speech (strays: ${strays.map((s) => s.toFixed(2)).join(', ') || 'none'})`);
+/* ── ✨ OVER MANUAL WORK (Seth, 2026-08-14: "having that button still active after manual
+ * adjustments have been made is WAY too easy for a native speaker who isn't tech savvy to
+ * accidentally ruin all the work"). Visible on a pristine guess (re-rolling it destroys nothing —
+ * the detector is deterministic), GONE — not greyed — the moment one manual edit exists, and back
+ * when that edit is undone. The mechanism is a comparison against the guessed boundaries stamped on
+ * the doc, so no edit gesture has to know the feature exists. */
+console.log('\n✨ disappears over manual work, and comes back when the work is undone');
+ok(await page.isVisible('#btn-guess-splits'), 'still visible right after the guess — nothing manual to lose yet');
+await page.locator('#cut-strips .gseg-join').first().click();   // ONE manual join
+await page.waitForTimeout(700);
+ok(await page.locator('#btn-guess-splits').isHidden(), 'one manual join and it is GONE, not greyed');
+await page.keyboard.down('Control'); await page.keyboard.press('KeyZ'); await page.keyboard.up('Control');
+await page.waitForTimeout(900);
+ok(await page.isVisible('#btn-guess-splits'), 'undoing that join brings it back — the guess is pristine again');
+
 // Undo puts the whole guess back in ONE step.
 await page.keyboard.down('Control'); await page.keyboard.press('KeyZ'); await page.keyboard.up('Control');
 await page.waitForTimeout(900);
 ok(await page.locator('#cut-strips .cut-row').count() === 1,
    'and one Ctrl+Z undoes the whole guess, not one boundary of it');
+ok(await page.isVisible('#btn-guess-splits'), 'and past the guess, the untouched seed shows it too');
 
 console.log('\nthere is ONE whole-file waveform, and it is the dock player\'s');
 ok((await page.locator('#cut-big').count()) === 0, 'the tab draws no second overview of its own');

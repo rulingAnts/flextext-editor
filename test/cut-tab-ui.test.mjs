@@ -209,6 +209,22 @@ ok(/guessCuts\(dur\)/.test(guessFn) && /function guessCuts/.test(strips),
    'the probe and the press call the detector through ONE function, so they cannot disagree');
 ok(/const dur = peaksDurationFor\(cutDeps\)/.test(guessFn),
    'and both ask whether the peaks are THIS recording\'s before trusting a duration');
+/* ── ✨ EXISTS ONLY WHILE THERE IS NOTHING TO LOSE (Seth, 2026-08-14: a confirm dialog is not
+ * protection for a non-tech-savvy speaker — the button must be GONE over manual work). */
+const allowedFn = fn(strips, 'guessAllowedHere');
+ok(!!allowedFn, 'one function owns the visibility rule');
+ok(/segs\.length <= 1/.test(allowedFn) && /doc\.guessSig/.test(allowedFn) && /sg\.end === sig\[i\]/.test(allowedFn),
+   'visible in exactly two states: the untouched seed, or segments matching the guess signature end for end');
+ok(/docHasWork\(doc\)/.test(allowedFn), 'typed text or glosses hide it too — Seth named "text entry" explicitly');
+ok(/guess\.hidden = !allowed;/.test(render) && /guessAllowedHere\(segs, paras, doc\)/.test(render),
+   'renderCut hides — not greys — through that rule');
+ok(/doc\.guessSig = r\.segments\.map\(\(sg\) => sg\.end\);/.test(guessFn),
+   'the guess stamps its boundary ends on the doc as the signature');
+ok(guessFn.indexOf('cutDeps.capture()') < guessFn.indexOf('doc.guessSig ='),
+   '…after capture, so the pre-guess snapshot stays signature-free');
+ok(/cut\.no\.guessManual/.test(guessFn) && /guessAllowedHere\(cutSegs\(\), paras, doc\)/.test(guessFn),
+   'and the function refuses on its own — the backstop for keyboards, scripts and older docs');
+ok(/'cut\.no\.guessManual'/.test(i18n), 'with its sentence in the string table (parity test covers id)');
 ok(/clearSpan\?\.\(\)/.test(guessFn),
    'it drops a live span watcher too — the spans it described are about to stop existing');
 ok(/cutDeps\.capture\(\)/.test(guessFn), 'and the whole guess is ONE undo step');

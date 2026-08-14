@@ -56,6 +56,36 @@ therefore have passed.
 
 ---
 
+## ⚠ A LIST THAT REBUILDS MUST NOT THROW THE USER BACK TO THE TOP — general rule + one live bug (Seth, 2026-08-14)
+
+> *"Researcher panel texts list bounces back to the top after a change made to a text on the bottom
+> (delete or whatever). In general that's a default behavior we should be aware of and avoid from the
+> start in all our new features — jumping back to the top/start when a change is made to the DOM (or
+> data model? I don't know exactly how it works)."*
+
+**KNOWN BUG:** the researcher panel's texts list. Act on a text near the bottom and the list scrolls
+to the top, so the next thing you wanted to do is off screen. Fix on the next release.
+
+**WHY IT HAPPENS**, since Seth asked: it is the DOM, not the data model. Our lists re-render by
+emptying a container and rebuilding it (`innerHTML = ''` / `replaceChildren()`). An empty container
+has no height, the browser CLAMPS `scrollTop` to the new maximum — zero — and refilling it cannot
+restore what was already clamped away. Nothing "jumps"; the position was destroyed between the two
+statements.
+
+**THE RULE FOR NEW FEATURES:** any list that rebuilds in place must read its scroll offset BEFORE
+emptying and restore it after. Where row heights can change, also anchor on the edited row's own
+screen pixel. The Cut tab does exactly this (`renderCut`'s `keepTop` + anchor delta, v357) after
+the same complaint about cuts and joins — copy that, and note the ordering trap it documents: the
+offset must be read before `replaceChildren()`, not after.
+
+**Places to check**, all of which rebuild the same way: the researcher panel's texts list (the
+reported one), the Texts screen (`#doc-list`), the Files modal, the assignment list, the Gloss tab's
+line groups. Worth one sweep rather than five separate reports.
+
+**⚠ For the Fable audit** (see the top of this file): treat "does this list survive an edit to its
+last row?" as one of the passes. It is invisible to every structural test we have and only shows up
+on a list long enough to scroll — which is every real one in the field.
+
 ## Slow the playback down without changing the pitch (Seth, 2026-08-14)
 
 > *"is there an easy way for us to slow down the playback speed without distorting the pitch (I think

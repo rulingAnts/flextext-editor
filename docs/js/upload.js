@@ -212,7 +212,11 @@ export class DriveUpload {
        * retrying can never clear, and which read identically to a flaky connection. 5xx really is
        * worth retrying. Carrying the number costs nothing and is the difference between a user who
        * is stuck and a user who knows what to do. */
-      if (resp.status === 401 || resp.status === 403) {
+      /* ⚠ 410 IS "THIS DEVICE WAS DELETED FROM THE PANEL" — the worker's own answer for a revoked
+       * instance, and the exact thing that stranded a real queue (Seth deleted the device, then
+       * asked why it was still trying to upload). It belongs with 401/403: all three mean the link
+       * is gone and no amount of retrying brings it back. */
+      if (resp.status === 401 || resp.status === 403 || resp.status === 410) {
         throw new Error(`This device is no longer signed in to the researcher (${resp.status}) — `
           + 'open your setup or assignment link again to re-link it, then press Send now.');
       }

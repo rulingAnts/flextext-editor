@@ -103,6 +103,52 @@ line groups. Worth one sweep rather than five separate reports.
 last row?" as one of the passes. It is invisible to every structural test we have and only shows up
 on a list long enough to scroll — which is every real one in the field.
 
+## ⚠ THE UNPAIRED-QUEUE JAM — diagnosed and fixed (v372/v373, 2026-08-14)
+
+**What actually happened**, after two wrong hypotheses worth recording:
+
+Seth deleted a device in the researcher panel. That PWA became UNPAIRED, so
+`Sync.workerUploadTarget()` returned null, and `upload.js` threw its truthful "Uploads need this
+device to be linked to a researcher." — which **the tray discarded**, showing the fixed string
+"Failed — will retry" and the summary "3 file(s) waiting to upload — will retry shortly." forever,
+once per `RETRY_EVERY_MS` sweep, on battery. Seth's own question is the indictment: *"It's an
+unpaired flextext PWA. Which begs the question why it's trying to upload at all."*
+
+**Nothing else was broken.** Not the release, not the worker, not CORS, not assignment — his remote
+"Upload now" triggers to a coworker's device kept working throughout, and Drive kept receiving
+bundles from his paired session. Only the unpaired device was stuck, and only its own queue.
+
+### ⚠ Two hypotheses I chased and should not have
+
+1. **A persisted `?devworker=staging` override.** Plausible (the staging worker refuses production
+   origins by design) but he had never used it. Cost: a round trip.
+2. **Chrome Local Network Access.** His DevTools showed the Cloudflare beacon BLOCKED at
+   `[fd00:aa:bb:2200::6810:5049]` — a real public Cloudflare IP (104.16.80.73) wearing a private
+   ULA prefix from his network's NAT64/DNS64, which Chrome 151 does block from a public page. All
+   true, and **not the cause of the upload jam** — it blocked one analytics beacon. I over-committed
+   to it because it was vivid and arrived with evidence.
+
+   ⚠ **The fact that killed it was available the whole time and I under-weighted it:** two uploads
+   for DIFFERENT texts landed in Drive in the same minute the "jammed" bundle failed. A
+   network-level block cannot be that selective. When one item fails and its neighbour succeeds,
+   the cause is per-item or per-state — never the network.
+
+### The fixes
+
+- **v372** — a failing upload says WHAT it could not reach; non-2xx carries its HTTP status (401/403
+  and, added after this diagnosis, **410** = the device was deleted from the panel) with the remedy
+  named; the tray row shows the real message instead of "Failed — will retry"; a diagnosis line
+  names the backend and offers a one-tap way back off a non-default one.
+- **v373** — an unpaired device **HOLDS** its queue: items are kept and shown, nothing is started,
+  the tray says "kept here — this device is not linked to a researcher", and everything resumes by
+  itself on re-pair (the target is read fresh per attempt). ⚠ HELD, NEVER DISCARDED — unpairing is
+  routine and these blobs can be the only copy of hours of transcription.
+
+⚠ **The regression test earned its keep twice.** The first version of the fix made held items
+INVISIBLE (worse than the bug). The first version of the test then passed with the fix disabled,
+because it counted network requests — and an unpaired device never reaches the fetch at all, so the
+count is zero either way. Only the TRAY's wording discriminates. `test/browser/unpaired-queue.playwright.mjs`.
+
 ## A devworker override must be VISIBLE, not a console line (post-release incident, 2026-08-14)
 
 Minutes after the v371 release, uploads "failed" from one browser session and read as a broken

@@ -4723,6 +4723,22 @@ function uploadState(docId) {
 // can't double-start, then fetches the blob and launches.
 function pumpUploads() {
   if (!navigator.onLine) { renderUploadQueue(); return; }
+  /* ⚠ AN UNPAIRED DEVICE MUST NOT SPIN (Seth, 2026-08-14, after deleting a device from the panel:
+   * "It's an unpaired flextext PWA. Which begs the question why it's trying to upload at all.").
+   *
+   * The queue is device-local and OUTLIVES the pairing that created it — nothing linked the two, so
+   * unlinking a device left its queued bundles retrying against a target that had become null.
+   * Every RETRY_EVERY_MS the sweep reset them to 'waiting', the pump started one, upload.js threw
+   * "Uploads need this device to be linked to a researcher", and the row said "Failed — will retry"
+   * (v372 made that sentence visible; it should never have been reached this often at all). Forever,
+   * on battery, promising something that could not happen.
+   *
+   * So a missing target is a HELD state, not a failure: the items stay exactly as they are, nothing
+   * is started, and the tray says why. ⚠ HELD, NEVER DISCARDED — unpairing is routine and often
+   * temporary (a re-pair, a device swap), and these blobs are the only copy of a bundle that may
+   * represent hours of transcription. They resume by themselves the moment the device is paired
+   * again, because the target is read fresh on every attempt. */
+  if (!Sync.workerUploadTarget()) { renderUploadQueue(); return; }
   const entries = [...uploadView.entries()];
   // Only one upload runs at a time. A user-PAUSED item is skipped (it doesn't
   // hold the slot), so the rest of the queue keeps moving past it.
@@ -4754,13 +4770,19 @@ function pumpUploads() {
 // Reconcile the view with what's persisted, reset failures to retry, then pump.
 // Runs at startup, when the network returns, and on a periodic timer.
 async function retryPendingUploads() {
+  /* ⚠ AN UNPAIRED DEVICE STILL RECONCILES THE VIEW — it just does not RETRY. Getting this wrong is
+   * easy and was caught by the browser check: an early return here left the held bundles invisible,
+   * which is worse than the bug it was fixing. The user must be able to SEE that their work is
+   * queued and safe; what they must not get is a promise to send it. */
+  const paired = !!Sync.workerUploadTarget();
   let pending = [];
   try { pending = await listPendingUploads(); } catch { /* best effort */ }
   const ids = new Set(pending.map((p) => p.docId));
   for (const { docId, rec } of pending) {
     const v = uploadView.get(docId);
     if (!v) uploadView.set(docId, { name: rec.name, status: rec.paused ? 'paused' : 'waiting' });
-    else if (v.status === 'error') uploadView.set(docId, { ...v, status: 'waiting' });
+    // The error→waiting reset IS the retry, so it is the thing an unpaired device withholds.
+    else if (v.status === 'error' && paired) uploadView.set(docId, { ...v, status: 'waiting' });
   }
   // Drop view entries whose persisted record is gone (done/cancelled), unless
   // one is mid-flight.
@@ -4768,7 +4790,7 @@ async function retryPendingUploads() {
     if (!ids.has(id) && uploadView.get(id)?.status !== 'uploading') uploadView.delete(id);
   }
   renderUploadQueue();
-  pumpUploads();
+  if (paired) pumpUploads();   // held otherwise — the items stay, nothing is started
 }
 
 function renderUploadQueue() {
@@ -4799,6 +4821,9 @@ function renderUploadQueue() {
   } else if (active && active.status === 'paused') {
     label.textContent = t('upload.pausedSummary', { name: active.name }) +
       (others ? ' · ' + t('upload.more', { n: others }) : '');
+  } else if (!Sync.workerUploadTarget()) {
+    // "will retry shortly" is a promise this device cannot keep while it is unpaired.
+    label.textContent = t('upload.heldSummary', { n: total });
   } else {
     label.textContent = navigator.onLine ? t('upload.retrying', { n: total }) : t('upload.waiting', { n: total });
   }
@@ -4831,9 +4856,16 @@ function renderUploadQueue() {
    *      test backend is exactly what that guard exists to make loud. The user taps, or nothing. */
   const diag = $('#upload-diag'), diagText = $('#upload-diag-text'), diagFix = $('#upload-diag-fix');
   if (diag) {
+    const unpaired = !Sync.workerUploadTarget();
     const failing = items.some((i) => i.status === 'error');
-    diag.hidden = !failing;
-    if (failing) {
+    diag.hidden = !(failing || unpaired);
+    if (unpaired) {
+      /* The honest sentence for the commonest cause of a stuck queue that ISN'T a network problem:
+       * this device is not linked to a researcher, so there is nowhere for these to go. Naming the
+       * remedy matters more than naming the fault — the person reading it is stuck, not curious. */
+      diagText.textContent = t('upload.diagUnpaired');
+      diagFix.hidden = true;
+    } else if (failing) {
       const base = workerBase();
       let host = base;
       try { host = new URL(base).host; } catch { /* keep the raw string */ }
@@ -4866,7 +4898,9 @@ function renderUploadQueue() {
          * exactly like a weak signal, forever. Seth, 2026-08-14, on a jammed production instance:
          * "how do I troubleshoot that?" — the answer has to be ON THE SCREEN, because the person
          * this happens to in the field has no DevTools and no way to ask. */
-        const status = it.status === 'uploading' ? t('upload.uploadingShort')
+        const heldNow = !Sync.workerUploadTarget();
+        const status = heldNow ? t('upload.heldShort')
+          : it.status === 'uploading' ? t('upload.uploadingShort')
           : it.status === 'paused' ? t('upload.pausedItem')
           : it.status === 'error' ? (it.error || t('upload.errorShort'))
           : t('upload.queuedShort');

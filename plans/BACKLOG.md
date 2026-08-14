@@ -929,6 +929,67 @@ Test: `test/artifact-links.test.mjs` pins that inferred artifacts are suppressed
 per-kind artifacts still render with their Drive ids, and that the folder-listing rows and
 Download-all are untouched.
 
+## The exported .flextext should point at a RELATIVE FILE, not a URL — and probably ship as a PACKAGE (Seth, 2026-08-14)
+
+> "Our exported flextext files should name the original audio filename with a relative path rather
+> than a URL if possible. We shouldn't count on the connect.flextext.app URL being a permanent
+> reference, and our FlexText file should point to a permanent reference. Maybe we should make a
+> flextext package just like we make ELAN and SayMore packages, with the media tag pointing to that.
+> That's a plan for later, not implement now."
+
+### ⚠ Confirmed in the code — a worker URL really does get written into the archival file
+
+`ensureMediaRef` (docs/js/app.js:1602) decides the `location` attribute of the `<media-files>` block:
+
+```js
+const location = sourceUrl && isProbablyUrl(sourceUrl) ? sourceUrl : (name || 'audio');
+rec.doc.mediaXML = [`<media-files offset-type="milliseconds">
+  <media guid="…" location="${location}" /></media-files>`];
+```
+
+Two callers, two outcomes:
+- **audio attached from a file** (app.js:2823) passes `''` → `location` is the **bare filename**;
+- **audio delivered by ASSIGNMENT** (`finalizeAudioDownload`, app.js:2846) passes `media.sourceUrl`
+  → `location` is the **worker URL**.
+
+So the two ways a text gets its recording produce two different provenance stories from one
+exporter, and the durable one is the accident rather than the design.
+
+**Why a URL is the wrong thing to write, in one line:** it is a delivery address, not an identity.
+Those `/v1/textfile/<token>` links are time-boxed (90-day tokens) and the origin is ours to retire; a
+`.flextext` opened in FLEx in five years should still say which recording it belongs to.
+
+### The answer is already in this repo
+
+Every OTHER package the suite emits gets this right:
+- **ELAN** — `MEDIA_URL="file:///./<name>" RELATIVE_MEDIA_URL="./<name>"` (seg-exports.js:167): a
+  relative reference beside a file that ships in the same zip.
+- **SayMore** — the filename convention IS the link (`<mediafile>.annotations.eaf`).
+
+So Seth's own suggestion is the design: **a .flextext package = the .flextext + its audio, with
+`location` a relative name that resolves inside the folder.** "A permanent reference" here does not
+mean a better URL — it means no URL at all.
+
+### What to decide before building
+
+- **The `location` value.** Bare filename or `./<name>`? Settle it against what FLEx itself WRITES,
+  not merely what it accepts (docs/FlexInterlinear.xsd is the schema; the behaviour is the question).
+- **⚠ ROUND-TRIP FIDELITY IS THE TRAP.** An IMPORTED doc keeps its original `<media-files>` block
+  verbatim (`doc.mediaXML`, flextext.js:230) and its phrases keep their own `media-file` references.
+  flextext.js:429 records an audit find where filtering those unconditionally "silently unlinked
+  every phrase from its media". Any rewrite must touch ONLY blocks this app minted (`rec.mediaGuid`
+  set) and never a foreign file's.
+- **Does the plain (non-package) export change too?** Rewriting `location` to a filename when no
+  audio ships beside it trades a stale URL for a dangling name. Probably still better — a name can be
+  re-found, an expired token cannot — but it is a real judgement call, and it is the one that touches
+  EVERY existing export path rather than a new one.
+- **Where the package is produced.** `assembleSegEntries` (seg-exports.js:857) is already the one
+  assembler for the ELAN/SayMore/preview bundles; a `flextext` want belongs beside them rather than
+  in a new writer. ⚠ Note it currently gates its whole annotation block on `media && segMedia`.
+- **Sequencing with the loose-file converter** (designed 2026-08-14, not built): that tool should
+  emit THIS package rather than a bare .flextext, so either they land together or the converter is
+  written expecting it.
+
 ## Researcher signed in on MULTIPLE DEVICES at once — investigated 2026-08-14, not built
 
 > Seth: "Is there a reason we can't allow the researcher to be logged into multiple devices at once?"

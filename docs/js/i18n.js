@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v373';
+export const ENGINE_VERSION = 'v374';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -237,6 +237,7 @@ en: {
   'upload.diagUnpaired': 'This device is not linked to a researcher, so these cannot be sent yet. They are kept safely here — open your setup or assignment link to link it again, and they will go on their own.',
   'upload.heldSummary': '{n} file(s) kept here — this device is not linked to a researcher.',
   'upload.heldShort': 'Kept — not linked',
+  'sync.revokedNotice': 'This device is no longer linked to a researcher. Your texts are safe here — you can still save them to this device, and anything waiting to send will go on its own once the device is linked again.',
   'upload.diagOther': '⚠ This device is set to use {host}, which is NOT the normal server.',
   'upload.diagUseNormal': 'Use the normal server',
   'upload.diagSwitched': 'Switched back to the normal server — retrying the uploads.',
@@ -1822,6 +1823,7 @@ id: {
   'upload.diagUnpaired': 'Perangkat ini belum terhubung ke peneliti, jadi berkas ini belum bisa dikirim. Semuanya tersimpan aman di sini — buka lagi tautan penyiapan atau tugas Anda, dan berkas akan terkirim sendiri.',
   'upload.heldSummary': '{n} berkas disimpan di sini — perangkat belum terhubung ke peneliti.',
   'upload.heldShort': 'Disimpan — belum terhubung',
+  'sync.revokedNotice': 'Perangkat ini tidak lagi terhubung ke peneliti. Teks Anda aman di sini — Anda masih bisa menyimpannya ke perangkat ini, dan yang menunggu untuk dikirim akan terkirim sendiri setelah perangkat terhubung lagi.',
   'upload.diagOther': '⚠ Perangkat ini disetel memakai {host}, yang BUKAN server biasa.',
   'upload.diagUseNormal': 'Pakai server biasa',
   'upload.diagSwitched': 'Kembali ke server biasa — unggahan dicoba lagi.',

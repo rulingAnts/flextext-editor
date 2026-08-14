@@ -103,6 +103,42 @@ line groups. Worth one sweep rather than five separate reports.
 last row?" as one of the passes. It is invisible to every structural test we have and only shows up
 on a list long enough to scroll — which is every real one in the field.
 
+## ⚠ NEVER STRAND A DEVICE'S WORK — the send-capability trap (found by reasoning, fixed v374)
+
+Seth, 2026-08-14, thinking one step past the queue fix rather than waiting for a report: *"if I pair
+a device, set it to upload only, and then unpair it, the last setting it had was 'upload'. Will it
+automatically enable the defaults for an unpaired app at that point?"*
+
+**It did not, and the result was silent data stranding.** `sendOptions` is a PERSISTED device setting
+that unpairing never touched, so an upload-only device that lost its pairing computed `share:false`,
+`upload:false` (no target), `save:false` — and `updateShareButton()` hid the entire Send button.
+Hours of transcription sat in IndexedDB with no route out and nothing on screen explaining why.
+
+**The rule now:** when NOTHING is possible, saving becomes possible (`sendCapabilities`). Saving is
+the one route that needs no server, no pairing and no permission from anyone. It is a LAST RESORT —
+a working upload-only device gains nothing, and the researcher's restriction is honoured in full for
+as long as the pipeline it points at exists.
+
+⚠ **Not a hole in the seized-device story.** Revocation is not a wipe: the panel has a remote-wipe
+directive for that, and anyone holding the hardware can read IndexedDB anyway. Hiding a button never
+protected data from its holder, only from its author.
+
+⚠ **It also closed a SECOND, older instance of the same trap** that app.js already documented from
+the other side: a device permitted only `share`, on a browser with no `navigator.share` (desktop
+Firefox), had every capability false and the button hidden. Same stranding, different route — and it
+had been sitting there, documented, unnoticed, because the earlier fix asked "why is the menu empty?"
+instead of "what can this person do now?".
+
+**And being unlinked is now SAID.** Sync cleared the session on a 410 and told nobody (`onStatus`
+was an empty function), so from the user's side the upload option vanished, a Save option they had
+never seen appeared, and the queue stopped — three mysteries with nothing tying them together. One
+toast now states the fact and what still works.
+
+**Also v374:** the version badge rides above the upload tray instead of underneath it (Seth: "when
+testing the dev or staging, it's useful to be able to see that and sometimes we can't"). Both are
+fixed to the same corner; the badge now offsets by the tray's measured height, so it also moves when
+the item list is expanded.
+
 ## ⚠ THE UNPAIRED-QUEUE JAM — diagnosed and fixed (v372/v373, 2026-08-14)
 
 **What actually happened**, after two wrong hypotheses worth recording:

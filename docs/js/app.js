@@ -4161,13 +4161,37 @@ function canShareFiles() {
  * even look disabled. Keep these in one place so the two can never drift again. */
 function sendCapabilities() {
   const allow = allowedSend();
-  return {
+  const caps = {
     share: allow.has('share') && canShareFiles(),
     upload: allow.has('upload') && !!Sync.workerUploadTarget(),
     // Always writable when permitted: a file picker where the browser has one, a plain download
     // where it does not. There is no browser in which this is unavailable.
     save: allow.has('save'),
   };
+  /* ⚠ A DEVICE MUST NEVER BE LEFT WITH NO WAY TO GET ITS WORK OFF (Seth, 2026-08-14, reasoning it
+   * out before it bit anyone: "if I pair a device, set it to upload only, and then unpair it, the
+   * last setting it had was 'upload' — will it automatically enable the defaults?").
+   *
+   * It did not. `sendOptions` is a PERSISTED device setting and unpairing does not touch it, so an
+   * upload-only device that loses its pairing computes share:false, upload:false (no target),
+   * save:false — and updateShareButton then hides the entire Send button. The transcription is
+   * stranded in IndexedDB with no route out and nothing on screen even hinting why.
+   *
+   * A researcher's "upload only" means "send your work through MY pipeline", and that is a sensible
+   * restriction exactly as long as the pipeline exists. Once the device is unpaired the restriction
+   * enforces nothing at all — it only destroys work. So when NOTHING is possible, saving becomes
+   * possible: the one route that needs no server, no pairing and no permission from anyone.
+   *
+   * ⚠ This is not a hole in the seized-device story. Revocation is not a wipe — the panel has a
+   * REMOTE WIPE directive for that (eraseAllData), and anyone holding the hardware can read
+   * IndexedDB regardless. Hiding a button never protected data from its holder; it only ever
+   * protected it from its author.
+   *
+   * It also closes a second, older instance of the same trap that this file already documents: a
+   * device permitted ONLY 'share', on a browser with no navigator.share (desktop Firefox), had every
+   * capability false and the button hidden. Same stranding, different route. */
+  if (!caps.share && !caps.upload && !caps.save) caps.save = true;
+  return caps;
 }
 
 // Hide the whole "Save and send…" button if nothing it opens could actually do anything.
@@ -4793,11 +4817,18 @@ async function retryPendingUploads() {
   if (paired) pumpUploads();   // held otherwise — the items stay, nothing is started
 }
 
+/* Keep the version badge clear of the tray: it is fixed to the same corner, and the tray's height
+ * changes as items arrive and as the list is expanded. See .app-version in app.css. */
+function setUploadBarHeightVar(bar) {
+  const h = (bar && !bar.hidden) ? bar.offsetHeight : 0;
+  document.documentElement.style.setProperty('--upload-bar-h', h ? h + 'px' : '0px');
+}
+
 function renderUploadQueue() {
   const bar = $('#upload-bar');
   if (!bar) return;
   const items = [...uploadView.entries()].map(([docId, v]) => ({ docId, ...v }));
-  if (!items.length) { bar.hidden = true; return; }
+  if (!items.length) { bar.hidden = true; setUploadBarHeightVar(bar); return; }
   bar.hidden = false;
   const label = $('#upload-label');
   const fill = $('#upload-fill');
@@ -4924,6 +4955,8 @@ function renderUploadQueue() {
       }
     }
   }
+  // LAST: the tray's final height, after every row and the diagnosis line are in place.
+  setUploadBarHeightVar(bar);
 }
 
 // Cheap, non-cryptographic content signature — used ONLY to detect whether a doc actually changed
@@ -7211,7 +7244,17 @@ function setup() {
     appType: () => RECORD_MODE ? 'recorder' : 'editor',
     dispatch: syncDispatch,
     gatherInventory: syncGatherInventory,
-    onStatus: () => {},
+    /* ⚠ BEING UNLINKED IS NEWS, and the device used to swallow it. Sync clears the session on a
+     * 410 and told nobody, so from the user's side the upload option simply vanished, a Save option
+     * they had never seen appeared (see sendCapabilities' guard), and the queue stopped — with no
+     * event on screen tying any of it together. One sentence turns three mysteries into one fact.
+     * Shown long, because it changes what the person can do next. */
+    onStatus: (kind) => {
+      if (kind !== 'revoked') return;
+      toast(t('sync.revokedNotice'), 10000);
+      updateShareButton();     // the Send button's contents just changed — repaint it now
+      renderUploadQueue();     // …and the queue is held from this moment, not failing
+    },
     onRevoked: onSyncRevoked,
     eraseAllData: () => eraseAllData(),   // remote-wipe directive → full local nuke (seized device)
   });

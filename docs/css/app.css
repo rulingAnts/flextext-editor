@@ -996,7 +996,13 @@ main {
 .app-version {
   position: fixed;
   right: calc(6px + env(safe-area-inset-right));
-  bottom: calc(4px + env(safe-area-inset-bottom));
+  /* ⚠ RIDES ABOVE THE UPLOAD TRAY (Seth, 2026-08-14: "if we have an uploading bar at the bottom, it
+     covers up and hides the version number … when testing dev or staging it's useful to see that").
+     Both are fixed to the bottom and the tray wins on z-index — raising the badge instead would only
+     put grey 10px text on the tray's dark blue. --upload-bar-h is set by renderUploadQueue from the
+     tray's MEASURED height, so the badge also moves when the item list is expanded. */
+  bottom: calc(4px + env(safe-area-inset-bottom) + var(--upload-bar-h, 0px));
+  transition: bottom .15s ease;
   font-size: 10px; line-height: 1; letter-spacing: .02em;
   color: var(--muted); opacity: .5;
   pointer-events: none; user-select: none;

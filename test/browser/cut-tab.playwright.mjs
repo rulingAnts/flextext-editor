@@ -26,9 +26,9 @@ const BASE = process.env.FLEXTEXT_TEST_URL || 'http://localhost:8765/';
 let fail = 0;
 const ok = (c, m) => { console.log(`  ${c ? 'ok  ' : 'FAIL'}  ${m}`); if (!c) fail++; };
 
-/* A 20s mono 16-bit WAV: 1.2s of tone, 0.8s of silence, repeating. */
-function makeWav(path) {
-  const sr = 16000, n = sr * 20;
+/* A mono 16-bit WAV: 1.2s of tone, 0.8s of silence, repeating. 20 seconds unless asked otherwise. */
+function makeWav(path, secs = 20) {
+  const sr = 16000, n = sr * secs;
   const data = Buffer.alloc(n * 2);
   for (let i = 0; i < n; i++) {
     const t = i / sr;
@@ -332,6 +332,61 @@ await page.waitForTimeout(400);
 const say = await page.textContent('#cut-say');
 ok(/already has words|sudah ada kata/.test(say || ''), `and says why: "${(say || '').slice(0, 48)}…"`);
 
+/* ── ENTER ON THE BASELINE TAB, OUTSIDE A TEXT BOX ─────────────────────────────────────────────
+ * Seth, 2026-08-14: "if the segment audio is active, pressing enter splits at the playhead and
+ * splits the text at the end of the baseline (rather than wherever the cursor was last). If the text
+ * box is focused, pressing enter splits wherever the playhead is (on the current segment) as it does
+ * now." So the two Enters must divide the WORDS differently and the TIME identically — which is the
+ * only thing worth asserting here, and it needs a line that has words in it to be able to see.
+ *
+ * Line 1 already carries "kata pertama" from the section above. */
+console.log('\nEnter on BASELINE: outside a box it keeps the words, inside one it splits them');
+await page.evaluate(() => document.querySelector('.top-tab[data-tab="baseline"]').click());
+await page.waitForTimeout(2000);
+const bLines = () => page.locator('#segment-strips .seg-text');
+const bStrip = await page.locator('#segment-strips .seg-wave').first().boundingBox();
+await page.mouse.click(bStrip.x + bStrip.width * 0.5, bStrip.y + bStrip.height / 2);   // playhead into line 1
+await page.waitForTimeout(400);
+await page.evaluate(() => document.querySelector('#segment-strips .seg-play')?.focus());
+const bBefore = await bLines().count();
+await page.keyboard.press('Enter');
+await page.waitForTimeout(900);
+const afterOutside = await page.evaluate(() => [...document.querySelectorAll('#segment-strips .seg-text')].slice(0, 2).map((el) => el.value));
+ok(await bLines().count() === bBefore + 1, `one more line (${bBefore} → ${await bLines().count()})`);
+ok(afterOutside[0] === 'kata pertama' && afterOutside[1] === '',
+   `the words all stayed on the line, the new one is empty (${JSON.stringify(afterOutside)})`);
+ok(await page.evaluate(() => document.activeElement?.classList?.contains('seg-text') !== true),
+   'and the cursor was NOT dropped into a box — the next Enter still follows the playhead');
+// The time really did break at the playhead, not vanish into a pending span.
+ok(await page.locator('#segment-strips .seg-strip.seg-pending').count() === 0,
+   'both halves carry real times, so nothing became "⋯"');
+/* ⚠ AND ONE Ctrl+Z PUTS IT BACK — which needs its own step, because a chopping run types nothing and
+ * typing is what otherwise creates undo points on this tab. Asserted, not assumed: the first version
+ * of this check found the split was NOT captured and Ctrl+Z reached past it to the typing instead. */
+await page.keyboard.down('Control'); await page.keyboard.press('KeyZ'); await page.keyboard.up('Control');
+await page.waitForTimeout(1200);
+const undone = await page.evaluate(() => ({
+  n: document.querySelectorAll('#segment-strips .seg-text').length,
+  first: document.querySelector('#segment-strips .seg-text')?.value,
+}));
+ok(undone.n === bBefore && undone.first === 'kata pertama',
+   `and Ctrl+Z undoes the split itself, not the typing before it (${JSON.stringify(undone)})`);
+
+console.log('\n…and INSIDE a box the caret still decides where the words divide');
+await page.evaluate(() => {
+  const el = document.querySelector('#segment-strips .seg-text');
+  el.focus(); el.setSelectionRange(4, 4);          // "kata| pertama"
+});
+await page.keyboard.press('Enter');
+await page.waitForTimeout(900);
+const afterInside = await page.evaluate(() => [...document.querySelectorAll('#segment-strips .seg-text')].slice(0, 2).map((el) => el.value));
+// The model trims each line, so the caret's space does not survive into line 2 — what matters is
+// that the division happened AT THE CARET rather than at the end.
+ok(afterInside[0] === 'kata' && afterInside[1].trim() === 'pertama',
+   `the caret split the words (${JSON.stringify(afterInside)})`);
+await page.keyboard.down('Control'); await page.keyboard.press('KeyZ'); await page.keyboard.up('Control');
+await page.waitForTimeout(900);
+
 /* ── AND THE SAME KEY ON THE OTHER TABS ────────────────────────────────────────────────────────
  * Seth: "spacebar to play/pause is jammed and doesn't work (the page glitches/appears to re-render
  * and nothing plays) until I click the big player… that's on the baseline and gloss tabs. The cut
@@ -432,6 +487,55 @@ await page.waitForTimeout(600);
 const stillInEditor = await page.isVisible('#view-baseline') || await page.isVisible('#view-gloss') || await page.isVisible('#view-cut');
 ok(await page.textContent('.player-play') === beforeKey || !stillInEditor,
    'Space on the topbar Back button did not hijack the transport');
+
+/* ── AND IT STILL WORKS THE SECOND TIME THE TEXT IS OPENED. Seth, 2026-08-14, on a real .m4a:
+ * "guess isn't working". It worked on the first open of that text and refused on every one after.
+ *
+ * The FIRST load of any recording caches 12000 display peaks on its media record; every load after
+ * that hands those to wavesurfer instead of decoding, and getDecodedData() then returns a PICTURE of
+ * the audio — an AudioBuffer of 12000 samples whose "sample rate" is 12000/duration. ensurePeaks
+ * bucketed that at 2000 buckets a second, so most buckets held nothing, and the detector honestly
+ * reported a recording with no speech in it.
+ *
+ * ⚠ IT ONLY BITES RECORDINGS OVER ABOUT A MINUTE, which is why this needs its own file. The share of
+ * frames carrying real data is 12000/(2000 × seconds) = 6/seconds — 30% at 20 seconds, where the
+ * 90th-percentile "speech level" still lands on real audio, but under 10% beyond a minute, where
+ * both percentiles land on zero and guessSplits correctly refuses to guess. A first version of this
+ * check reused the 20-second fixture above and PASSED WITH THE BUG IN.
+ *
+ * ⚠ AND THE PLAYER MUST BE READY BEFORE THE CUT TAB ASKS. The first prepareCutAudio after a reload
+ * usually wins and decodes the blob itself; it is the SECOND arrival, with a loaded player to ask,
+ * that takes the player's word for what the audio is. Leaving the tab and coming back is what a
+ * transcriber does anyway. */
+console.log('\na LONG recording is still readable the second time its text is opened');
+const long = makeWav(join(mkdtempSync(join(tmpdir(), 'fxcut2-')), 'long.wav'), 75);
+await page.evaluate(() => document.querySelector('#btn-back')?.click());
+await page.waitForTimeout(1200);
+await page.setInputFiles('#new-audio-file', long);
+await page.waitForTimeout(6000);
+if (await page.isHidden('#view-cut')) await page.click('#tab-cut');
+await page.waitForTimeout(4000);
+ok(await page.locator('#cut-strips .cut-row').count() === 1, 'the 75-second recording opens as one whole-file span');
+await page.reload({ waitUntil: 'load' });
+await page.waitForTimeout(1500);
+await page.click('#doc-list li');
+await page.waitForTimeout(2500);
+if (await page.isHidden('#view-cut')) await page.click('#tab-cut');
+await page.waitForTimeout(3500);
+await page.click('.top-tab[data-tab="baseline"]');
+await page.waitForTimeout(2500);
+await page.click('#tab-cut');
+await page.waitForTimeout(4000);
+const reopened = await page.evaluate(() => {
+  const g = document.getElementById('btn-guess-splits');
+  return { disabled: !!g?.disabled, title: g?.title || '' };
+});
+ok(!reopened.disabled, `✨ is still live after a reopen ("${reopened.title.slice(0, 44)}…")`);
+// Guarded: with the bug present the button is DISABLED, and an unguarded click times out with a
+// stack trace instead of the one-line failure this suite reports everything else with.
+if (!reopened.disabled) { await page.click('#btn-guess-splits'); await page.waitForTimeout(2000); }
+const reRows = await page.locator('#cut-strips .cut-row').count();
+ok(reRows >= 30, `and it finds the pauses it would have found on the first open (${reRows} rows for 37 bursts)`);
 
 await browser.close();
 console.log(fail ? `\nFAILED (${fail})` : '\nPASSED');

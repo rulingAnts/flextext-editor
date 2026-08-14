@@ -128,14 +128,26 @@ export function initStrips(d) { deps = d; }
 // is ~4.8 MB of Float32 — trivial beside the decoded buffer we deliberately discard.
 const BUCKETS_PER_SEC = 2000;
 
+/* ⚠ A "DECODED BUFFER" THAT IS REALLY A PICTURE IS WORSE THAN NONE. Player.decodedBuffer() already
+ * refuses to hand over a peaks-only load, but this is the module that would be poisoned, so it
+ * states its own requirement rather than trusting a caller: real recorded audio, at a real sample
+ * rate. Anything under 8 kHz is not a recording — it is somebody's DISPLAY PEAKS wearing an
+ * AudioBuffer's shape (wavesurfer's 12000 peaks over a 90-second take ⇒ 136 Hz) — and bucketing it
+ * leaves 93% of the buckets zero, which reads to every consumer as a recording that is mostly
+ * silence. That is the Snakes_We_Eat.m4a report: ✨ Guess worked on the first open and refused with
+ * "no clear pauses" on every open after. */
+const realAudio = (buf) => !!(buf && Number.isFinite(buf.sampleRate) && buf.sampleRate >= 8000
+                              && Number.isFinite(buf.duration) && buf.duration > 0);
+
 export async function ensurePeaks(docId, blob, playerBuf) {
   // Prefer the PLAYER'S decoded buffer: one decode, one timeline (see Player.decodedBuffer).
   // A cache built from our own fallback decode is upgraded when the player's arrives.
-  if (peaksCache.docId === docId && peaksCache.peaks && (peaksCache.fromPlayer || !playerBuf)) return peaksCache;
+  const fromPlayer = realAudio(playerBuf) ? playerBuf : null;
+  if (peaksCache.docId === docId && peaksCache.peaks && (peaksCache.fromPlayer || !fromPlayer)) return peaksCache;
   peaksCache = { docId, peaks: null, durationMs: 0 };
-  if (!blob && !playerBuf) return peaksCache;
+  if (!blob && !fromPlayer) return peaksCache;
   try {
-    let buf = playerBuf || null, ctx = null;
+    let buf = fromPlayer, ctx = null;
     if (!buf) {
       ctx = new (window.AudioContext || window.webkitAudioContext)();
       buf = await ctx.decodeAudioData(await blob.arrayBuffer());
@@ -155,7 +167,7 @@ export async function ensurePeaks(docId, blob, playerBuf) {
       peaks[b] = m;
     }
     peaksCache = { docId, peaks, durationMs: Math.round(buf.duration * 1000),
-                   msPerBucket: (per / buf.sampleRate) * 1000, fromPlayer: !!playerBuf };
+                   msPerBucket: (per / buf.sampleRate) * 1000, fromPlayer: !!fromPlayer };
     peaksGen++;      // whatever was drawn without these is now stale, whatever its width
     try { ctx && ctx.close(); } catch { /* noop */ }
   } catch (e) {
@@ -222,6 +234,51 @@ export function docSegments(doc) {
  * span — and it used to run only from renderStrips, i.e. only if the Baseline tab had been visited.
  * Bypassing Baseline therefore meant a Cut tab with NO rows at all: nothing to play, nothing to cut,
  * on the one screen the user was sent to. */
+/* How long is THIS document's recording, according to the peaks cache?
+ *
+ * ⚠ THE CACHE IS MODULE-GLOBAL AND HOLDS EXACTLY ONE DOCUMENT. Reading `durationMs` without asking
+ * whose it is means a text opened straight after another one can be seeded with the PREVIOUS
+ * recording's length — a whole-file span that is not the whole file, written to the doc and
+ * persisted, with nothing afterwards to notice: the seed only fires on zero segments and the heal
+ * only on all-pending ones, and this span is neither. Returns 0 when the cache is somebody else's,
+ * which every caller below already treats as "not known yet". */
+function peaksDurationFor(d) {
+  if (d && typeof d.getDocId === 'function') {
+    const id = d.getDocId();
+    if (id && peaksCache.docId && id !== peaksCache.docId) return 0;
+  }
+  return peaksCache.durationMs || 0;
+}
+
+/* ⚠ THE RECORDING MUST BE ACCOUNTED FOR, ALL OF IT (Seth, 2026-08-14: "showing part (not all) of the
+ * recording on the first and only line such that the segments don't render all of it is not OK").
+ *
+ * Cuts and joins preserve coverage by construction and the seed spans the whole file, so a tail of
+ * unaccounted audio can only come from a disagreement about the duration — a seed written before the
+ * decode landed, a cache belonging to another document, a player and a decoder reporting different
+ * lengths for the same lossy file. Whatever the route, the result on screen is the same and is
+ * indefensible: a single strip showing a fraction of the take, playback running past its end, and no
+ * way to reach the rest.
+ *
+ * So the tail is extended to the end of the recording — but ONLY when doing so cannot lose an
+ * alignment somebody meant:
+ *   - the last line has no text, so nothing is being re-timed against words;
+ *   - it carries no imported `attrs`, so a FLEx/ELAN alignment that deliberately stops early
+ *     (trailing room tone left unannotated) is never overwritten;
+ *   - and the shortfall is more than a second, so rounding and encoder priming are left alone.
+ */
+const COVER_TOL_MS = 1000;
+function coverTail(segments, paras, durationMs) {
+  if (!(durationMs > 0) || !segments.length) return false;
+  const i = segments.length - 1;
+  const last = segments[i];
+  if (!isAligned(last) || last.attrs) return false;
+  if (String(paras[i] ?? '').trim()) return false;
+  if (durationMs - last.end <= COVER_TOL_MS) return false;
+  last.end = durationMs;
+  return true;
+}
+
 function reconcile(doc, d = deps) {
   const paras = d.getParagraphs(doc);
   const segs = docSegments(doc);
@@ -230,7 +287,8 @@ function reconcile(doc, d = deps) {
   // makes the first Enter actually have a time span to break. Without it every strip starts
   // timePending and no boundary can ever be real.
   let repaired = false;
-  if (!segs.length && peaksCache.durationMs > 0) {
+  const known = peaksDurationFor(d);   // 0 while the decode is still out, or if the cache is another doc's
+  if (!segs.length && known > 0) {
     // Fresh single-line doc: one whole-file span (transcribe-from-scratch; the first Enter
     // needs a real span to break). PRE-TRANSCRIBED multi-line doc (an imported flextext with
     // glosses but no time alignment — Seth's case, 2026-08-03): an even division marked
@@ -238,25 +296,27 @@ function reconcile(doc, d = deps) {
     // estimated spans are honest (dashed), playable, and correctable with the set-boundary
     // control — and creating them touches doc.segments only, so glosses and free translations
     // cannot be lost by construction.
-    const D = peaksCache.durationMs, N = paras.length;
+    const D = known, N = paras.length;
     doc.segments = N > 1
       ? paras.map((_, k) => ({ start: Math.round((k * D) / N), end: Math.round(((k + 1) * D) / N), timeEstimated: true }))
       : [{ start: 0, end: D }];
     repaired = true;
-  } else if (peaksCache.durationMs > 0 && segs.length && segs.every((x) => !isAligned(x))) {
+  } else if (known > 0 && segs.length && segs.every((x) => !isAligned(x))) {
     // HEAL a stuck all-pending doc (Seth's '⋯ + no waveform' screenshot): a doc opened while its
     // audio could not be decoded (or under a pre-fix build) persisted pending segments, and the
     // whole-file seed above only fires on ZERO segments — so it never self-repaired once the audio
     // became readable. With a known duration: a single pending becomes the exact whole-file span;
     // several become an even division marked timeEstimated (dashed — scrub + re-break to correct).
     // Only the every-pending case is touched: real alignments are never second-guessed.
-    const D = peaksCache.durationMs, N = segs.length;
+    const D = known, N = segs.length;
     doc.segments = N === 1
       ? [{ start: 0, end: D }]
       : segs.map((_, k) => ({ start: Math.round((k * D) / N), end: Math.round(((k + 1) * D) / N), timeEstimated: true }));
     repaired = true;
   }
-  doc.segments = syncToLines(docSegments(doc), paras.length, { duration: peaksCache.durationMs || null });
+  doc.segments = syncToLines(docSegments(doc), paras.length, { duration: known || null });
+  // …and whatever produced them, they must reach the end of the recording. See coverTail.
+  if (coverTail(doc.segments, paras, known)) repaired = true;
   // Persist a seed/heal right away: without this the repair lived only in memory until the next
   // edit, so storage (and everything that syncs from it) kept the broken pending state.
   if (repaired && d.persist) d.persist();
@@ -431,21 +491,72 @@ function drawStrip(canvas, seg, durationMs, opts) {
  * Absent means allowed, so an older host that never passes it behaves exactly as before. */
 function joinSplitOk() { return !(deps.joinSplit && !deps.joinSplit()); }
 
+/* BREAK LINE i IN TWO: text at `caret`, time at the playhead. The one implementation behind BOTH of
+ * this tab's Enter gestures, so they cannot drift apart.
+ *
+ * @param caret  where to divide the WORDS; null means "at the end", i.e. keep them all on this line
+ *               and start the next one empty.
+ * @param focusNext whether to put the cursor in the new line's box afterwards.
+ *
+ * ⚠ THE TEXT COMES FROM THE INPUT, NOT THE MODEL. A transcriber's most recent keystrokes live in the
+ * DOM until the next commit, and splitting the model's copy would silently drop them.
+ *
+ * ⚠ AN OUT-OF-RANGE PLAYHEAD CANNOT WRITE A BOUNDARY — Seth, 2026-08-14: "if the playhead is on a
+ * different segment than the currently selected textbox … don't allow a split unless the playhead
+ * position is on the current segment". boundaryAtPlayhead already enforces exactly that: a playhead
+ * outside this segment (or with no room on both sides) gives the new line a timePending span instead
+ * of a time nobody chose. Which is why the WORDS still split there — the caret is the transcriber's
+ * own intent and blocking it would make Enter stop working whenever nothing is playing — while the
+ * playhead-driven gesture below, which has no such intent behind it, refuses outright. */
+function splitLineAt(i, caret, focusNext) {
+  const doc = deps.getDoc();
+  if (!doc) return false;
+  const input = deps.container.querySelectorAll('.seg-text')[i];
+  const text = input ? input.value : String(deps.getParagraphs(doc)[i] ?? '');
+  const c = caret == null ? text.length : Math.max(0, Math.min(text.length, caret));
+  const paras = deps.getParagraphs(doc).slice();
+  paras.splice(i, 1, text.slice(0, c), text.slice(c));
+  doc.segments = boundaryAtPlayhead(docSegments(doc), i, deps.getPlayer()?.playheadMs?.() ?? null,
+                                    { duration: peaksDurationFor(deps) || null });
+  deps.setParagraphs(doc, paras);
+  deps.persist();
+  renderStrips();
+  if (focusNext) focusStrip(i + 1, 0);
+  return true;
+}
+
+/* ENTER WITH FOCUS OUTSIDE THE TEXT BOXES — "listen and chop", on the Baseline tab (Seth,
+ * 2026-08-14: "if the segment audio is active, pressing enter splits at the playhead and splits the
+ * text at the end of the baseline, rather than wherever the cursor was last").
+ *
+ * ⚠ IT ACTS ON THE LINE THE PLAYHEAD IS IN, not on a remembered selection — the same rule the Cut
+ * tab runs on, and the reason the two tabs cannot disagree about which line Enter meant. When the
+ * playhead is in no line at all there is nothing to break and nothing to guess, so it refuses.
+ *
+ * ⚠ AND IT DOES NOT MOVE FOCUS. Dropping the cursor into the new box would hand the NEXT Enter to
+ * the text-box path, which acts on the FOCUSED line — and by then the recording has played on, so
+ * the two would be talking about different lines. Leaving focus where it is keeps every Enter of a
+ * chopping run on the playhead's own line, which is the whole gesture. */
+export function stripSplitAtPlayhead() {
+  const doc = deps && deps.getDoc();
+  if (!doc || !joinSplitOk()) return false;
+  const i = segmentIndexAt(docSegments(doc), deps.getPlayer()?.playheadMs?.());
+  if (i < 0) return false;
+  /* ⚠ AND IT IS AN UNDO STEP, unlike the text-box Enter beside it — which is not an inconsistency but
+   * the reason this one needs it. Typing is what creates undo points on this tab, so a split made
+   * while typing is always recoverable by the entry either side of it. A chopping run types NOTHING:
+   * a dozen Enters in a row would leave a dozen structural edits with no way back to any of them.
+   * Same rule, and the same reason, as the Cut tab's cutHere. */
+  if (deps.capture) deps.capture();
+  return splitLineAt(i, null, false);
+}
+
 function onKey(e, i, input) {
   const doc = deps.getDoc();
   if (e.key === 'Enter') {
     if (!joinSplitOk()) return;
     e.preventDefault();
-    const c = input.selectionStart ?? input.value.length;
-    const paras = deps.getParagraphs(doc).slice();
-    paras.splice(i, 1, input.value.slice(0, c), input.value.slice(c));
-    // Waveform breaks at the PLAYHEAD; out-of-range → timePending, text splits regardless.
-    doc.segments = boundaryAtPlayhead(docSegments(doc), i, deps.getPlayer()?.playheadMs?.() ?? null,
-                                      { duration: peaksCache.durationMs || null });
-    deps.setParagraphs(doc, paras);
-    deps.persist();
-    renderStrips();
-    focusStrip(i + 1, 0);
+    splitLineAt(i, input.selectionStart ?? input.value.length, true);
   /* ⚠ RESEARCHER-GATED, DEFAULT OFF (Seth, 2026-08-13): "some users are finding it too easy to
    * accidentally join lines and then they don't want to split them again." When disabled these keys
    * are simply not intercepted — Backspace deletes a character and Delete deletes forward, i.e. what
@@ -840,14 +951,10 @@ export function renderCut(anchorIdx) {
   const guessLabel = document.getElementById('cut-tools-label');
   if (guessLabel) guessLabel.hidden = false;
   if (guess) {
-    const hasText = paras.some((p) => String(p || '').trim()) || docHasWork(doc);
-    const tooLong = (peaksCache.durationMs || 0) > GUESS_MAX_MS;
-    guess.disabled = hasText || tooLong;
+    const why = guessBlockedBecause(paras, doc);
+    guess.disabled = !!why;
     if (guessLabel) guessLabel.classList.toggle('is-off', guess.disabled);
-    guess.title = hasText ? cutDeps.t('cut.no.guessText')
-      : tooLong ? cutDeps.t('cut.no.guessLong', { max: Math.round(GUESS_MAX_MS / 60000),
-                                                  mins: Math.ceil(peaksCache.durationMs / 60000) })
-      : cutDeps.t('cut.guessTip');
+    guess.title = why || cutDeps.t('cut.guessTip');
   }
 
   syncCutBoundaries();
@@ -1007,6 +1114,40 @@ function docHasWork(doc) {
   return false;
 }
 
+/* WHY IS ✨ GREY? Returns the sentence to put in its tooltip, or '' when the button should work.
+ *
+ * ⚠ THE LAST CASE IS THE ONE SETH ASKED FOR (2026-08-14, on a recording made in a crowded workshop:
+ * "If the background noise is too high to make easy splits, then graying out the guess button is
+ * fine"). guessSplits refuses to guess when a recording has no usable dynamic range — a wall of room
+ * noise gives no honest answer to "where does speech stop?" — and until now that refusal arrived
+ * only AFTER a press, as a message. A live button that always answers "no" reads as a broken
+ * feature; a grey one with the reason on it reads as an answer, which is what it is.
+ *
+ * ⚠ THE PROBE IS CACHED PER (document, peaks generation). Running the detector is one pass over
+ * ~177000 buckets — cheap once, but renderCut runs on every cut, join, undo and settings push, and
+ * this is called from inside it. The peaks are the only input that can change the answer, and
+ * peaksGen already counts exactly that. */
+let guessProbe = { docId: null, gen: -1, cuts: -1 };
+function guessBlockedBecause(paras, doc) {
+  const T = cutDeps.t;
+  if (paras.some((p) => String(p || '').trim()) || docHasWork(doc)) return T('cut.no.guessText');
+  const dur = peaksDurationFor(cutDeps);
+  if (!peaksCache.peaks || !dur) return T('cut.no.guessAudio');
+  if (dur > GUESS_MAX_MS) {
+    return T('cut.no.guessLong', { max: Math.round(GUESS_MAX_MS / 60000), mins: Math.ceil(dur / 60000) });
+  }
+  if (guessProbe.docId !== peaksCache.docId || guessProbe.gen !== peaksGen) {
+    guessProbe = { docId: peaksCache.docId, gen: peaksGen, cuts: guessCuts(dur).length };
+  }
+  return guessProbe.cuts > 0 ? '' : T('cut.no.guessNone');
+}
+// The one call site's worth of argument assembly, shared so the probe and the press cannot disagree
+// about what the detector was asked.
+function guessCuts(dur) {
+  return guessSplits(peaksCache.peaks, peaksCache.msPerBucket || (dur / peaksCache.peaks.length),
+                     { durationMs: dur });
+}
+
 /* "GUESS THE LINES" — cut the whole recording at its pauses, in one step, for a text nobody has
  * started yet (Seth: "make default segment breaks for a new text … based on where the audio appears
  * to have pauses in speech").
@@ -1029,7 +1170,7 @@ export function cutGuessSplits() {
   if (!doc) return;
   const paras = cutDeps.getParagraphs(doc);
   if (paras.some((p) => String(p || '').trim()) || docHasWork(doc)) { cutSay(cutDeps.t('cut.no.guessText')); return; }
-  const dur = peaksCache.durationMs || 0;
+  const dur = peaksDurationFor(cutDeps);   // 0 unless the peaks really are THIS recording's
   if (!peaksCache.peaks || !dur) { cutSay(cutDeps.t('cut.no.guessAudio')); return; }
   /* ⚠ LONG RECORDINGS ARE CUT BY HAND. The detection itself is cheap at any length; what is not is
    * the result — one press on a 40-minute recording is ~650 rows, each a live canvas on a phone, and
@@ -1046,9 +1187,7 @@ export function cutGuessSplits() {
   // existing, and would pause playback at a boundary that is no longer there.
   cutDeps.getPlayer()?.clearSpan?.();
 
-  const cuts = guessSplits(peaksCache.peaks, peaksCache.msPerBucket || (dur / peaksCache.peaks.length),
-                           { durationMs: dur });
-  const r = applyGuessedSplits(paras, cuts, { duration: dur });
+  const r = applyGuessedSplits(paras, guessCuts(dur), { duration: dur });
   if (!r.ok) { cutSay(cutDeps.t('cut.no.guess' + (r.reason === 'none' ? 'None' : r.reason === 'hasText' ? 'Text' : 'Audio'))); return; }
   if (cutDeps.capture) cutDeps.capture();
   doc.segments = r.segments;                       // ⚠ BOTH, from the one result

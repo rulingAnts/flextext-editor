@@ -56,6 +56,35 @@ therefore have passed.
 
 ---
 
+## Slow the playback down without changing the pitch (Seth, 2026-08-14)
+
+> *"is there an easy way for us to slow down the playback speed without distorting the pitch (I think
+> there's ways to correct for that now…)? I realize with lossy files that might be especially
+> unreliable… That's a plan to look into later though, not a fix now."*
+
+**Yes, and it is close to free.** `HTMLMediaElement.preservesPitch` is standard and defaults to
+**true** in Chromium, so `playbackRate = 0.6` already keeps the pitch by default — the browser
+time-stretches. wavesurfer 7 exposes it as `setPlaybackRate(rate, preservePitch)`. The player
+already has a speed picker (`select`, named in `transportKeysApply`'s exemption list); the question
+is what its values do, not whether the capability exists.
+
+**The lossy worry mostly evaporates in segmentation mode**, because playback there is already on the
+derived WAV working copy (`segwav:`), not on the compressed original — the same reason that copy
+exists at all (AAC priming). A basic-editor user with segmentation off does play the original.
+
+What to actually decide before building:
+
+- **Which rates.** 0.75 / 0.5 is the usual transcription pair; below ~0.5 Chromium's stretcher
+  starts sounding metallic on speech, which is worse than useless for hearing a phoneme.
+- **Does it survive a span play?** `playSpan` watches `timeupdate` against a captured stop time; at
+  0.5× the watcher fires half as often in audio-time terms but the maths is unchanged. Worth a
+  measurement, not an assumption — the span watcher is where every previous transport bug lived.
+- **Does the rate persist per device, per text, or not at all?** Probably per device (it is a
+  listening preference, not data), which means a setting, which means the researcher panel.
+- **⚠ Do NOT let it reach the peaks or the exports.** Rate is a listening aid; every time written to
+  `doc.segments`, an EAF or a `.flextext` is real-time. A rate that leaked into `playheadMs()` would
+  put cuts in the wrong place, silently.
+
 ## 🅿 PARKED BRANCH: `parked-panel-and-matching` — panel work + segment matching (Seth, 2026-08-08)
 
 > *"We need to park the Researcher Panel improvement and the 'segment matching' features on a

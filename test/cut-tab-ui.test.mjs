@@ -141,8 +141,9 @@ ok(/if \(activeTab === 'cut' && !\$\('#view-cut'\)\?\.hidden\) return;/.test(app
 const guard = fn(app, 'transportKeysApply');
 ok(!!guard, 'there is ONE guard deciding where the transport keys apply, on every editor tab');
 ok(/if \(!transportKeysApply\(e\.target\)\) return;/.test(cutKeys), 'and all three Cut-tab keys go through it');
-ok((app.match(/transportKeysApply\(e\.target\)/g) || []).length === 2,
-   'the global Space handler goes through it too — that is what unjammed Baseline and Gloss');
+ok((app.match(/transportKeysApply\(e\.target\)/g) || []).length === 3,
+   'so does the global Space handler (what unjammed Baseline and Gloss) and the Baseline Enter — '
+   + 'every document-level key on this surface is bounded by the one rule');
 /* ⚠ THE TAB BUTTON IS THE WHOLE POINT. You arrive on a tab by clicking its button, so the button
  * keeps focus — and Space was being spent re-activating it: the list re-rendered and nothing played
  * (Seth, on Baseline and Gloss). Re-opening the tab you are already on is worth nothing. */
@@ -193,11 +194,80 @@ ok(/dur > GUESS_MAX_MS/.test(guessFn) && /GUESS_MAX_MS = 10 \* 60 \* 1000/.test(
    'a recording longer than ten minutes is refused up front (Seth\'s cap)');
 ok(/cut\.no\.guessLong/.test(guessFn) && /\{mins\} minutes long/.test(i18n),
    '…with the limit AND the recording\'s actual length, so it is a decision rather than a mystery');
-ok(/tooLong/.test(render) && /guess\.disabled = hasText \|\| tooLong;/.test(render),
-   'and the button is disabled in both cases, rather than looking live and refusing on click');
+const blocked = fn(strips, 'guessBlockedBecause');
+ok(/guess\.disabled = !!why;/.test(render) && /guessBlockedBecause\(paras, doc\)/.test(render),
+   'and the button is disabled in every refusing case, rather than looking live and refusing on click');
+ok(/cut\.no\.guessText/.test(blocked) && /cut\.no\.guessLong/.test(blocked) && /cut\.no\.guessAudio/.test(blocked),
+   '…with the SAME sentence on the tooltip that the click would have said');
+/* Seth, 2026-08-14, on a recording made in a crowded workshop: "If the background noise is too high
+ * to make easy splits, then graying out the guess button is fine." */
+ok(/cut\.no\.guessNone/.test(blocked) && /guessCuts\(dur\)\.length/.test(blocked),
+   'a recording with no findable pauses greys the button too — the detector is asked BEFORE the press');
+ok(/guessProbe\.gen !== peaksGen/.test(blocked),
+   '…and that answer is cached per peaks generation, since renderCut runs on every cut and join');
+ok(/guessCuts\(dur\)/.test(guessFn) && /function guessCuts/.test(strips),
+   'the probe and the press call the detector through ONE function, so they cannot disagree');
+ok(/const dur = peaksDurationFor\(cutDeps\)/.test(guessFn),
+   'and both ask whether the peaks are THIS recording\'s before trusting a duration');
 ok(/clearSpan\?\.\(\)/.test(guessFn),
    'it drops a live span watcher too — the spans it described are about to stop existing');
 ok(/cutDeps\.capture\(\)/.test(guessFn), 'and the whole guess is ONE undo step');
+
+/* ── THE PEAKS MUST BE THE RECORDING'S. Seth, 2026-08-14, on Snakes_We_Eat.m4a: a text imported from
+ * a real .m4a showed "a short (truncated) single line", ✨ did nothing, and playback ran past the
+ * span's end. The root cause was one object pretending to be another. */
+console.log('\nthe peaks are the recording\'s own audio, or they are not used');
+const ensure = strips.match(/export async function ensurePeaks[\s\S]*?\n\}/)[0];
+ok(/const realAudio = /.test(strips) && /sampleRate >= 8000/.test(strips),
+   'a "decoded buffer" under 8 kHz is display peaks wearing an AudioBuffer\'s shape, and is refused');
+ok(/const fromPlayer = realAudio\(playerBuf\)/.test(ensure) && !/fromPlayer: !!playerBuf/.test(ensure),
+   '…and the cache records where the peaks REALLY came from, so a rejected buffer is re-decoded');
+ok(/this\._peaksOnly = !!\(media\.peaks && media\.duration\)/.test(audio),
+   'the player remembers when it handed wavesurfer peaks instead of letting it decode');
+ok(/if \(this\._peaksOnly\) return null;/.test(method(audio, 'decodedBuffer')),
+   '…and decodedBuffer() then reports NOTHING rather than the 12000-sample picture it could return');
+ok(/this\._peaksOnly = false;/.test(fn(audio, 'destroyWs') || method(audio, 'destroyWs')),
+   'and that flag dies with the load it describes, not with the next one');
+
+/* ── ENTER ON THE BASELINE TAB, OUTSIDE A TEXT BOX (Seth, 2026-08-14): "if the segment audio is
+ * active, pressing enter splits at the playhead and splits the text at the end of the baseline
+ * (rather than wherever the cursor was last). If the text box is focused, pressing enter splits
+ * wherever the playhead is (on the current segment) as it does now." */
+console.log('\nBaseline Enter: one split, two ways of dividing the words');
+const splitAt = fn(strips, 'splitLineAt');
+const atPlayhead = fn(strips, 'stripSplitAtPlayhead');
+ok(!!splitAt && /splitLineAt\(i, input\.selectionStart/.test(fn(strips, 'onKey')) && /splitLineAt\(i, null, false\)/.test(atPlayhead),
+   'both Enters go through ONE function, so the time can never break differently for the two');
+ok(/caret == null \? text\.length/.test(splitAt),
+   '…and "no caret" means the END of the line — the words all stay put, the new line starts empty');
+ok(/const input = deps\.container\.querySelectorAll\('\.seg-text'\)\[i\]/.test(splitAt),
+   'the words come from the BOX, not the model, so keystrokes not yet committed are not dropped');
+ok(/segmentIndexAt\(docSegments\(doc\), deps\.getPlayer\(\)\?\.playheadMs/.test(atPlayhead) && /if \(i < 0\) return false/.test(atPlayhead),
+   'it acts on the line the PLAYHEAD is in, and refuses when the playhead is in none of them');
+ok(/if \(deps\.capture\) deps\.capture\(\);/.test(atPlayhead),
+   '…and is its own undo step — a chopping run types nothing, so nothing else would create one');
+ok(/if \(focusNext\) focusStrip\(i \+ 1, 0\)/.test(splitAt),
+   'the text-box Enter moves the cursor on; the playhead one leaves focus alone');
+ok(/activeTab !== 'baseline'/.test(app) && /stripSplitAtPlayhead\(\)/.test(app)
+   && /if \(!transportKeysApply\(e\.target\)\) return;   \/\/ a focused text box keeps Enter/.test(app),
+   'the key is claimed only on the Baseline tab, and only outside a text field');
+ok(/baseline\.hintSeg/.test(app) && /baseline\.hintSeg/.test(i18n),
+   'and the tab says so — the classic "Enter for a new paragraph" hint is wrong in strip mode');
+
+console.log('\nthe segments account for ALL of the recording');
+const cover = fn(strips, 'coverTail');
+ok(!!cover, 'there is a step that extends an unfinished tail to the end of the recording');
+ok(/String\(paras\[i\] \?\? ''\)\.trim\(\)/.test(cover) && /last\.attrs/.test(cover),
+   '…which never touches a line that has text, nor one whose times were imported');
+ok(/COVER_TOL_MS/.test(cover) && /COVER_TOL_MS = 1000/.test(strips),
+   '…and leaves rounding and encoder priming alone (a second of tolerance)');
+ok(/if \(coverTail\(doc\.segments, paras, known\)\) repaired = true;/.test(fn(strips, 'reconcile')),
+   'reconcile runs it, and a repair it makes is persisted like any other');
+const durFor = fn(strips, 'peaksDurationFor');
+ok(/id !== peaksCache\.docId/.test(durFor) && /return 0/.test(durFor),
+   'a peaks cache belonging to ANOTHER text can never seed this one\'s spans');
+ok(/getDocId: \(\) => current && current\.id/.test(app) && (app.match(/getDocId:/g) || []).length === 2,
+   '…and both the Baseline strips and the Cut tab tell it which text they are showing');
 
 console.log('\na cut or a join does not throw the user back to the top of the recording');
 ok(/const keepTop = scroller \? scroller\.scrollTop : 0;/.test(render), 'the scroll offset is read BEFORE the rebuild');

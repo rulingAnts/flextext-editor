@@ -62,6 +62,13 @@ below touch the worker, where deploy ORDER is the difference between a release a
 
 ## 4 — Features and polish
 
+**Attribution traces in exports** (Seth, 2026-08-15 — *"that's a later priority"*): stamp
+"made with FlexText Editor" where each destination format already keeps provenance — `.fxpa`
+`generator`, a `<meta name="generator">` in the listening page, a version + URL on the EAF's
+existing `AUTHOR`, the BWF `bext` (which is the STANDARD place for it, so archival quality is not at
+risk — the constraint is never touching the original capture and never naming a person). ⚠ The
+`.flextext` one is the risky member: FLEx re-imports it against a schema. Detail + the two traps in
+`BACKLOG.md`. ·
 Drive storage footprint + inventory modal · PAT → ELAN EAF export · oral transcription and
 back-translation (format problem first) · standalone segmentation/matching app · assignment-URL
 collision warning · invite-link-overrides warning · localization expansion (decisions still Seth's) ·

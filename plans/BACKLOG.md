@@ -1643,3 +1643,79 @@ instance_id anywhere near the worker. Seth's own instinct — "or give it some o
 name" — is pointing at this.
 
 **Sequencing:** the inventory modal has to land first; it is the surface these actions live on.
+
+## Leaving traces: attribution metadata in everything we export (Seth, 2026-08-15) — LATER PRIORITY
+
+> *"I'd also like us to think about how our app can leave traces of itself in places where it
+> exports. If there's metadata tags or comments or history metadata where we can leave an imprint
+> showing that this was created in flextext editor, that might be useful later on when dealing with
+> language software development people — because eventually they can see data evidence of how my
+> apps are being used and being helpful if there are metadata traces. That would include even
+> places like BWF or audio file metadata (as long as we can do that without invalidating
+> archive-quality standards)."*
+>
+> And immediately after: **"That's a later priority though."** So this entry is the design, not a
+> task in flight.
+
+**What this is FOR, and it changes the design.** The audience is not the transcriber and not the
+researcher — it is a linguist or a software person at SIL LSDev / Payap / an archive, opening one of
+these files years from now with no idea where it came from. The trace has to survive being renamed,
+re-foldered, forwarded and re-opened in someone else's tool. That rules out anything that lives in a
+sidecar we ship, and points at the metadata fields the destination format ALREADY has.
+
+### What is already stamped (do not re-invent these)
+
+| Where | What it says today | Gap |
+|---|---|---|
+| EAF (both profiles) | `<ANNOTATION_DOCUMENT AUTHOR="FlexText Editor" DATE=…>` | no version, no URL |
+| Derived WAV (BWF `bext`) | `Originator = "FlexText Editor"`, a Description, and an EBU `CodingHistory` line reading `T=DERIVED by FlexText Editor - …` | only on DERIVED audio, which is correct — see below |
+| `flextext-manifest.json` | `engine`, `buildTag`, `origin`, writing systems | ⚠ **stays inside the suite** — it is the package manifest the Files ▾ menu reads, not something a linguist ever receives |
+
+### Where a trace is missing, and what the format actually offers
+
+- **`.flextext`** — nothing at all today (`<document version="2">` and straight into the data).
+  ⚠ **The riskiest one.** FLEx re-imports these; `docs/FlexInterlinear.xsd` is the schema and an
+  unknown element or attribute is how an import starts failing for every user at once. An XML
+  **comment** above the root is schema-invisible and the obvious candidate — but confirm FLEx
+  preserves rather than chokes, and note that `flextext.js`'s round-trip policy would need to carry
+  it. Test against real FLEx before believing anything here.
+- **`.fxpa`** — `{ format, version, title, … }` with no generator field. The cheapest and safest of
+  the lot: it is **our own JSON format**, `paragraph-model.js` validates it, and readers already
+  ignore unknown keys by design. `generator: { app, version, url }` costs one line and one schema
+  note.
+- **`.preview.html`** — no `<meta name="generator">`. Free, standard, and this file in particular
+  gets forwarded to people outside the project, which is exactly the audience.
+- **`.pfsx`** — ELAN rewrites it freely; a trace here is worth little. Skip.
+- **`HOW-TO-OPEN.txt`** — prose, already ours. Worth an explicit "made with …, <url>" line.
+
+### The archive-quality constraint, stated precisely so nobody has to re-derive it
+
+Seth's caveat is the right one and the answer is **better than "we can get away with it"**: BWF's
+`bext` chunk (EBU Tech 3285) is *the standard place for provenance*. `Originator`,
+`OriginatorReference`, `Description` and `CodingHistory` exist to record exactly this, and archives
+READ them. Stamping them is conforming, not a compromise. What would break archival quality is
+different and must stay ruled out:
+
+1. **Never touch the ORIGINAL capture.** The rule the suite already holds: only the derived
+   `*.converted-NOT-ARCHIVAL.wav` carries `bext`, and the original bytes are never rewritten. A
+   trace is not worth a modified master.
+2. **No invented chunks.** A non-standard RIFF chunk is exactly the kind of thing a validator flags
+   and a preservation tool strips — or worse, a naive reader mis-parses.
+3. **Nothing identifying a PERSON.** Attribution to the APP, not to the user: no email, no account,
+   no project name, no device id, no location. These files go to archives with speakers' voices on
+   them, and a provenance stamp must never become a privacy leak. This is a hard line, not a
+   preference.
+
+### Two practical traps to plan around
+
+- **A version string in every export makes every export change every release.** Several suites
+  compare serialized output. The EAF already stamps a `DATE`, so the pattern for handling it exists
+  — follow that, and pass the stamp in through `opts` so tests can pin it.
+- **One writer, not five.** The moment three formats each hand-roll "FlexText Editor v377" they
+  drift. A single `provenance()` helper in `seg-exports.js` (name + version + URL, plus the pieces
+  each format wants) is the shape; the loose-file converter is a live reminder of why — it exists
+  precisely because two surfaces re-deciding the same thing is the failure mode.
+
+**Sequencing:** unrelated to everything in §1–§3 of `PENDING.md` and blocks nothing. Natural to do
+alongside the `.flextext` PACKAGE work (see "the exported `.flextext` writes a worker URL"), since
+that entry is already opening the `.flextext` writer and asking what belongs in a header.

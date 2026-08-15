@@ -1144,10 +1144,19 @@ export async function buildLooseConversion({ kind, doc, base = 'text', title = '
   const say = (p) => { try { onPhase && onPhase(p); } catch { /* a progress hook must never break a build */ } };
   const notes = [];
 
-  if (kind === 'flextext') {
-    return { entries: [{ name: base + '.flextext', data: flextextBlob }], zip: false,
-             saveName: base + '.flextext', notes };
-  }
+  /* ONE FILE ⇒ HAND OVER THE FILE; MORE THAN ONE ⇒ A ZIP (Seth, 2026-08-15: "if there's more than
+   * one file, build a ZIP just like our built in converter for Google Drive files already does").
+   *
+   * Written as the RULE rather than as a per-kind table, and it is the menu's own line
+   * (researcher-panel.js, download-all: `const single = entries.length === 1`). Today every
+   * ELAN/SayMore build has at least two entries, so this changes no current behaviour — which is
+   * exactly why it is worth having: the day one of them yields a single file, the user gets that
+   * file rather than a one-item zip they have to unpack for nothing. */
+  const pack = (list, zipName) => (list.length > 1
+    ? { entries: list, zip: true, saveName: zipName, notes }
+    : { entries: list, zip: false, saveName: list.length ? list[0].name : '', notes });
+
+  if (kind === 'flextext') return pack([{ name: base + '.flextext', data: flextextBlob }], '');
 
   // ── the working copy, exactly as the device makes one: WAV rides as-is, lossy is converted and
   // the derived file carries the BWF bext chunk naming its origin (assembleSegEntries does that).
@@ -1181,13 +1190,10 @@ export async function buildLooseConversion({ kind, doc, base = 'text', title = '
     say('annotations');
     const o = { vern, anal, mediaName: '', mediaMime: '' };
     notes.push('eafNoMedia');
-    return {
-      entries: [
-        { name: base + '.eaf', data: new Blob([serializeEaf(doc, { ...o, profile: 'flex' })], { type: 'application/xml' }) },
-        { name: base + '.pfsx', data: new Blob([serializeEafPrefs({ ...o, profile: 'flex' })], { type: 'application/xml' }) },
-      ],
-      zip: true, saveName: `${base} ELAN.zip`, notes,
-    };
+    return pack([
+      { name: base + '.eaf', data: new Blob([serializeEaf(doc, { ...o, profile: 'flex' })], { type: 'application/xml' }) },
+      { name: base + '.pfsx', data: new Blob([serializeEafPrefs({ ...o, profile: 'flex' })], { type: 'application/xml' }) },
+    ], `${base} ELAN.zip`);
   }
 
   /* ⚠ THE WANT/FULL TABLE IS THE MENU'S, verbatim (researcher-panel.js:1842,1851): preview and fxpa
@@ -1204,7 +1210,8 @@ export async function buildLooseConversion({ kind, doc, base = 'text', title = '
   const dropAudio = kind === 'fxpa' && plan && !plan.fxpaAudio;
   if (dropAudio && media) notes.push('fxpaNoAudio');
 
-  say(kind === 'preview' || kind === 'fxpa' ? 'embedding' : 'annotations');
+  // `full` IS "preview or fxpa" — the embedded-audio outputs, which are the slow ones worth naming.
+  say(full ? 'embedding' : 'annotations');
   const entries = await assembleSegEntries({
     doc, title, base, vern, anal, wants, full,
     media: dropAudio ? null : media, segMedia: dropAudio ? null : segMedia,
@@ -1219,8 +1226,12 @@ export async function buildLooseConversion({ kind, doc, base = 'text', title = '
   }
 
   if (kind === 'elan' || kind === 'saymore') {
-    return { entries, zip: true, saveName: `${base} ${kind === 'elan' ? 'ELAN' : 'SayMore'}.zip`, notes };
+    return pack(entries, `${base} ${kind === 'elan' ? 'ELAN' : 'SayMore'}.zip`);
   }
+  /* ⚠ The preview and the .fxpa are SINGLE-FILE outputs by design, and the extra entries the
+   * assembler returns alongside them are deliberately dropped rather than zipped up: both embed
+   * their audio, so a HOW-TO-OPEN.txt and a second copy of the recording would be pure weight — and
+   * the Files ▾ menu hands over a bare .html / .fxpa too. Parity is the specification. */
   const one = entries.find((x) => (kind === 'preview' ? /\.preview\.html$/i : /\.fxpa$/i).test(x.name));
-  return { entries: one ? [one] : [], zip: false, saveName: one ? one.name : '', notes };
+  return pack(one ? [one] : [], '');
 }

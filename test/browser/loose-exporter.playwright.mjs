@@ -116,6 +116,11 @@ ok(await page.isHidden('#ex-rows'), 'no rows before anything is chosen — an em
  * page, so read the rendered text, not the DOM's existence. */
 const heading = await page.textContent('h2[data-i18n="exp.h"]');
 ok(heading && !/^exp\./.test(heading.trim()), `the heading is translated, not a raw key ("${heading?.trim()}")`);
+/* Seth renamed this in v378 from "Make files from a .flextext" to name the DESTINATIONS, because
+ * that is what someone scanning Utilities is actually looking for — they know they want ELAN, not
+ * that we call the source a .flextext. Pinned so a later tidy-up cannot quietly shorten it back. */
+ok(/ELAN/i.test(heading) && /SayMore/i.test(heading),
+   'and it names the formats it produces, which is how anyone finds this tool');
 
 console.log('\npicking the .flextext alone offers what a text alone can make');
 await page.setInputFiles('#ex-ft', ft);

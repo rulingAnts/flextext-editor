@@ -83,3 +83,39 @@ it deliberately:
 cd docs && python3 -m http.server 8765 &
 node test/browser/loose-exporter.playwright.mjs
 ```
+
+## v378 — Seth's follow-ups (2026-08-15)
+
+- **Renamed.** "Make files from a .flextext" → **"Convert/Export Interlinear Texts (ELAN, SayMore,
+  Listening HTML, etc…)"**, localized in both languages. The old name described the INPUT; someone
+  scanning Utilities is looking for the destination format, not for what we call the source file.
+  The browser test pins that the heading still names the formats.
+- **Packaging is a COUNT, not a per-kind table.** Seth: *"If there's more than one file, build a ZIP
+  just like our built in converter for Google Drive files already does."* `buildLooseConversion` now
+  ends every branch through one `pack()` helper — more than one entry ⇒ a zip; exactly one ⇒ that
+  file, under its own name. It changes no current behaviour (ELAN and SayMore always carry ≥2
+  files), which is the point: nothing can hand someone a one-item zip later.
+  ⚠ The preview and `.fxpa` still drop the assembler's extra entries rather than zipping them —
+  both embed their audio, so a HOW-TO-OPEN and a second copy of the recording would be dead weight,
+  and the Files ▾ menu hands over a bare `.html` / `.fxpa` too. Parity is the specification.
+- **A missing progress string, found by making the test derive its list from the source.** The
+  builder emits `embedding` while base64-ing the recording into the listening page or the `.fxpa`,
+  and nothing translated it — the status line would have shown the raw key `exp.phase.embedding`.
+  The i18n-parity check had matched `say('code')` and so never saw a code inside a ternary; it now
+  extracts every quoted string from every `say(...)` call. The call itself was simplified to
+  `say(full ? …)` so the extraction cannot over-capture a comparison operand and start reporting
+  phantom missing keys — a check that cries wolf gets muted, which is worse than no check.
+
+### Why the duration check is a warning and nothing more (Seth, 2026-08-15)
+
+> *"The duration check is just a quick sanity check to make sure that the audio file and the flextext
+> file being submitted plausibly match … really, that's mostly up to the user, but for the clumsy,
+> forgetful, or dyslexic, or whatever, if they mismatch it and the total duration is obviously not
+> the same, that's a quick and easy way for us to stop them from making a dumb mistake. Our files
+> drop down didn't need that because it's already got files that were created together, or assigned
+> together, so they definitely do match."*
+
+So its job is **plausibility, not verification** — and that is why the tolerances are loose (1.5 s),
+why a LONGER recording is never flagged at all, why an unmeasurable (lossy) file says nothing rather
+than guessing, and above all why it never blocks a row. Tightening it into a gate would be a
+misreading of what it is for.

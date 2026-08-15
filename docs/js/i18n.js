@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v377';
+export const ENGINE_VERSION = 'v378';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v377';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'loose-file converter v1';
+export const BUILD_TAG = 'loose-file converter v2';
 
 const S = {
 en: {
@@ -590,7 +590,7 @@ en: {
    * own flextext and matching audio file". So the ROW names deliberately echo the panel.dl.* ones —
    * a researcher who has used Files ▾ should recognise every row here on sight. The subs differ,
    * because these say what the row does with YOUR two files, not with a Drive bundle. */
-  'exp.h': 'Make files from a .flextext',
+  'exp.h': 'Convert/Export Interlinear Texts (ELAN, SayMore, Listening HTML, etc…)',
   'exp.note': 'Have a .flextext and its recording sitting in a folder? Pick them both here to build the same ELAN, SayMore, listening-page and paragraph-analysis files the Files ▾ menu makes from a text on Drive. Everything is built in your browser — nothing is uploaded.',
   'exp.pickFt': 'Choose a .flextext file…',
   'exp.pickAudio': 'Choose its recording…',
@@ -616,6 +616,9 @@ en: {
   'exp.sub.flextext': 'saved back exactly as you gave it — nothing re-written',
   'exp.phase.converting': 'converting the recording to WAV…',
   'exp.phase.annotations': 'writing the annotations…',
+  // The embedded-audio outputs (listening page, .fxpa) — the slow step on a long recording, so it
+  // says what it is doing rather than sitting on "working…" for a minute.
+  'exp.phase.embedding': 'putting the recording inside the file…',
   'exp.eafNoMedia': 'Built without a recording, so the EAF has no media file attached — open it in ELAN and link the audio yourself.',
   'exp.done': '{name} saved.',
 
@@ -763,7 +766,7 @@ internet after the first time.</p>
 <ul>
 <li><b>Writing-system checker</b> — see which code each interlinear line uses and remap them without touching anything else.</li>
 <li><b>Audio converter</b> — turn a huge WAV (a 2-min 32-bit stereo WAV is ~40&nbsp;MB) into a small mono 64&nbsp;kbps MP3 (~0.5&nbsp;MB/min), on-device and offline.</li>
-<li><b>Make files from a .flextext</b> — pick a <code>.flextext</code> and its recording from anywhere on your computer and build the same ELAN package, SayMore package, listening page, paragraph-analysis file or plain flextext that the <b>Files&nbsp;▾</b> menu makes from a text on Drive. The backup route for files you already have lying around; also in this panel's <b>Utilities</b>.</li>
+<li><b>Convert/Export Interlinear Texts</b> — pick a <code>.flextext</code> and its recording from anywhere on your computer and build the same ELAN package, SayMore package, listening page, paragraph-analysis file or plain flextext that the <b>Files&nbsp;▾</b> menu makes from a text on Drive. The backup route for files you already have lying around; also in this panel's <b>Utilities</b>.</li>
 <li><b>Setup &amp; task links</b> — the older URL way to configure a coworker's device and push an audio task (the link creates a titled text and auto-downloads the recording into the player). Host the MP3 on any CORS-friendly server, or share it from your Drive and paste the link.</li>
 <li><b>Recording format</b> — the default <b>WAV 24-bit</b> is a lossless, archival-grade master; FLAC / WebM&nbsp;Opus / MP3 trade quality for size. Auto-gain is <b>off by default</b> so the master stays faithful — train coworkers to watch the on-screen <b>level meter</b> and move back if it warns. The "Which format should I choose?" link gives the full archival guidance.</li>
 </ul>
@@ -2202,7 +2205,7 @@ id: {
 
   /* Pengubah berkas lepas (v377) — lihat catatan pada blok en. Nama barisnya sengaja sama dengan
    * panel.dl.* agar peneliti yang sudah memakai menu Berkas ▾ langsung mengenalinya. */
-  'exp.h': 'Buat berkas dari sebuah .flextext',
+  'exp.h': 'Konversi/Ekspor Teks Interlinear (ELAN, SayMore, HTML Dengar, dll…)',
   'exp.note': 'Punya berkas .flextext beserta rekamannya di satu folder? Pilih keduanya di sini untuk membuat paket ELAN, SayMore, halaman dengar, dan analisis paragraf yang sama seperti yang dibuat menu Berkas ▾ dari teks di Drive. Semuanya dibuat di browser Anda — tidak ada yang diunggah.',
   'exp.pickFt': 'Pilih berkas .flextext…',
   'exp.pickAudio': 'Pilih rekamannya…',
@@ -2226,6 +2229,7 @@ id: {
   'exp.sub.flextext': 'disimpan persis seperti yang Anda berikan — tidak ditulis ulang',
   'exp.phase.converting': 'mengubah rekaman menjadi WAV…',
   'exp.phase.annotations': 'menulis anotasi…',
+  'exp.phase.embedding': 'menanam rekaman ke dalam berkas…',
   'exp.eafNoMedia': 'Dibuat tanpa rekaman, jadi EAF-nya tidak punya berkas media terlampir — buka di ELAN lalu tautkan audionya sendiri.',
   'exp.done': '{name} tersimpan.',
 
@@ -2374,7 +2378,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
 <ul>
 <li><b>Pemeriksa sistem tulisan</b> — lihat kode pada setiap baris interlinear dan ganti tanpa mengubah isi lain.</li>
 <li><b>Pengubah audio</b> — ubah WAV besar (WAV stereo 32-bit 2 menit ≈ 40&nbsp;MB) menjadi MP3 mono 64&nbsp;kbps kecil (≈0,5&nbsp;MB/menit), di perangkat dan tanpa internet.</li>
-<li><b>Buat berkas dari sebuah .flextext</b> — pilih berkas <code>.flextext</code> beserta rekamannya dari mana pun di komputer Anda, lalu buat paket ELAN, paket SayMore, halaman dengar, berkas analisis paragraf, atau flextext biasa yang sama seperti yang dibuat menu <b>Berkas&nbsp;▾</b> dari teks di Drive. Jalur cadangan untuk berkas yang sudah Anda punya; ada juga di <b>Peralatan</b> panel ini.</li>
+<li><b>Konversi/Ekspor Teks Interlinear</b> — pilih berkas <code>.flextext</code> beserta rekamannya dari mana pun di komputer Anda, lalu buat paket ELAN, paket SayMore, halaman dengar, berkas analisis paragraf, atau flextext biasa yang sama seperti yang dibuat menu <b>Berkas&nbsp;▾</b> dari teks di Drive. Jalur cadangan untuk berkas yang sudah Anda punya; ada juga di <b>Peralatan</b> panel ini.</li>
 <li><b>Tautan pengaturan &amp; tugas</b> — cara URL lama untuk mengatur perangkat rekan kerja dan mengirim tugas audio (tautan membuat teks berjudul dan otomatis mengunduh rekaman ke pemutar). Host MP3 di server mana pun yang mendukung CORS, atau bagikan dari Drive Anda lalu tempel tautannya.</li>
 <li><b>Format rekaman</b> — bawaan <b>WAV 24-bit</b> adalah master lossless berkualitas arsip; FLAC / WebM&nbsp;Opus / MP3 menukar kualitas dengan ukuran. Penguatan otomatis <b>mati secara bawaan</b> agar master tetap setia — latih rekan kerja memperhatikan <b>meter level</b> di layar dan mundur bila ada peringatan. Tautan "Format mana yang harus saya pilih?" memberi panduan arsip lengkap.</li>
 </ul>

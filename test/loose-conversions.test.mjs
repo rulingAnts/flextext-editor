@@ -136,6 +136,31 @@ console.log('\nwhat actually comes out');
      'and the .flextext passes through byte-for-byte — never re-serialized');
 }
 
+/* Seth, 2026-08-15: "If there's more than one file, build a ZIP just like our built in converter for
+ * Google Drive files already does." So the packaging decision is a COUNT, not a per-kind table —
+ * which is also the download-all path's own rule, and the reason it can never hand someone a zip
+ * they have to open to find one file inside. */
+console.log('\nmore than one file ⇒ a zip; exactly one ⇒ the file itself');
+{
+  const wav = { blob: blob(1000), name: 'story.wav', mimeType: 'audio/wav' };
+  const plan = loosePlan({ doc: timed, hasAudio: true, audioBytes: 1000, isWav: true });
+  for (const kind of ['elan', 'saymore']) {
+    const r = await buildLooseConversion({ kind, doc: timed, base: 'Story', title: 'Story', audio: wav, plan });
+    ok(r.entries.length > 1 && r.zip && /\.zip$/.test(r.saveName),
+       `${kind} carries ${r.entries.length} files, so it is a zip (${r.saveName})`);
+  }
+  for (const kind of ['preview', 'fxpa', 'flextext']) {
+    const r = await buildLooseConversion({ kind, doc: timed, base: 'Story', title: 'Story', audio: wav, plan,
+      flextextBlob: blob(5) });
+    ok(r.entries.length === 1 && !r.zip && r.saveName === r.entries[0].name,
+       `${kind} is one file, so it is handed over as itself (${r.saveName})`);
+  }
+  /* ⚠ THE RULE IS READ OFF THE ENTRY COUNT, not off `kind`. Pinning the mechanism matters because a
+   * per-kind table is the tempting "simplification", and it is the one that reintroduces one-item
+   * zips the first time a build produces fewer files than it does today. */
+  ok(/list\.length > 1/.test(seg), 'and the decision is made from the number of entries, not from the kind');
+}
+
 console.log('\nan undecodable recording degrades instead of killing the build');
 {
   const lossy = { blob: blob(2000), name: 'story.m4a', mimeType: 'audio/x-m4a' };
@@ -176,7 +201,15 @@ console.log('\nevery string both surfaces reach for exists in BOTH languages');
   // The literal keys, plus the two that are built by suffix (t('exp.row.' + kind)).
   const keys = new Set([...(app + panel + html).matchAll(/'(exp\.[a-z][a-zA-Z.]*)'/g)].map((m) => m[1]));
   for (const kind of ['elan', 'saymore', 'preview', 'fxpa', 'flextext']) { keys.add('exp.row.' + kind); keys.add('exp.sub.' + kind); }
-  for (const ph of ['converting', 'annotations']) keys.add('exp.phase.' + ph);
+  /* ⚠ DERIVE THE PHASE CODES FROM THE SOURCE, never from a list typed here. The first version of
+   * this test matched `say('code')` and so missed `say(cond ? 'embedding' : 'annotations')` —
+   * 'embedding' was emitted with no string behind it, and the status line would have shown the raw
+   * key `exp.phase.embedding` to anyone building a listening page. A hand-kept list of what the
+   * builder emits is a list that goes stale the first time somebody adds a branch. */
+  const phases = [...seg.matchAll(/\bsay\(([^)]*)\)/g)]
+    .flatMap((m) => [...m[1].matchAll(/'([a-zA-Z]+)'/g)].map((x) => x[1]));
+  ok(phases.length >= 3, `the builder emits ${phases.length} phase codes (${[...new Set(phases)].join(', ')})`);
+  for (const ph of phases) keys.add('exp.phase.' + ph);
   keys.delete('exp.row.'); keys.delete('exp.sub.'); keys.delete('exp.phase.');
   /* ⚠ TWO, not one. A key present only in `en` renders as the raw key on an Indonesian device —
    * which is what the field devices are set to, so a miss here is invisible to us and glaring to

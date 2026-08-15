@@ -1719,3 +1719,46 @@ different and must stay ruled out:
 **Sequencing:** unrelated to everything in §1–§3 of `PENDING.md` and blocks nothing. Natural to do
 alongside the `.flextext` PACKAGE work (see "the exported `.flextext` writes a worker URL"), since
 that entry is already opening the `.flextext` writer and asking what belongs in a header.
+
+## Multi-device researcher sign-in: the GUARDS half (Seth, 2026-08-15) — pairs with the project split
+
+> *"Making sure one researcher can be logged into multiple devices at once (but also think through
+> some guards and safeguards to protect that)."*
+
+The mechanism is already investigated (see "Researcher signed in on MULTIPLE DEVICES at once" above):
+it is one column with two jobs. **This entry is the other half Seth asked for — what has to be true
+before that column is allowed to hold more than one session**, because today the single-secret design
+is accidentally providing a safety property, and splitting it removes that property silently.
+
+**⚠ What the current design accidentally protects, and what is lost.** One session secret means a
+stolen or borrowed sign-in is self-limiting: the moment the real researcher signs in again, the
+attacker's session dies, and the researcher NOTICES because they were logged out. Multi-session
+removes both halves at once — the intruder is no longer evicted, and nothing tells the owner. Any
+design that adds sessions without adding visibility is strictly worse than what is shipped now, even
+though it looks like pure capability.
+
+**So the guards are not optional extras; they are the feature.**
+
+- **A session list the researcher can SEE**, in the panel: device/browser, rough location or IP,
+  first seen, last seen, and which one is *this* one. Nobody can act on "someone else is signed in"
+  they cannot observe.
+- **Revoke one / revoke all others**, from that list, taking effect on the next request rather than
+  at the next sign-in. This is what replaces the eviction the old design gave for free.
+- **A cap, and an eviction rule when it is hit** (oldest session out). Unbounded sessions is a
+  credential-stuffing amplifier.
+- **Per-session expiry independent of "stay signed in."** The existing stay-signed-in flag is a
+  choice about ONE device; it must not silently become a fleet of immortal sessions.
+- **Notify on a NEW session** — the cheapest intrusion detector there is, and the only one that works
+  when the attacker never triggers anything else.
+- ⚠ **Kr is re-fetched from the server on every sign-in** (that is why a second device works at all),
+  so a session is a data key. Revocation therefore has to mean something at the crypto layer too:
+  decide honestly whether "revoke" is *this device can no longer FETCH Kr* or *the material it
+  already holds is dead*. Only the first is achievable without re-wrapping, and the panel's wording
+  must say the true one — the same honesty rule already applied to instance revocation.
+- **Sequence with 3.1, not before it.** Sessions become "researcher × project" the moment projects
+  exist, and building a session table that does not know about projects means migrating it twice.
+
+**Rate limiting and the login path stay in scope**: the column's second job is the legacy password
+hash, so separating them touches `bad_login` (`worker/src/v1.js` ~924). Anything that touches the
+login path needs its throttle re-checked in the same pass — that is exactly where a quiet regression
+turns into an online-guessable password.

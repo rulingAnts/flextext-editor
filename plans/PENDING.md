@@ -14,6 +14,42 @@ below touch the worker, where deploy ORDER is the difference between a release a
 
 ---
 
+## 🚨 0 — SECRETS EXPOSED (Seth, 2026-08-15) — ahead of everything below
+
+> *"Don't let me forget to secure the accounts/secrets found in my OneStory Editor project file that
+> was online for a while, because those could actually damage a lot of things I'm working on (it also
+> covers my flextext database send/receive server account)."*
+
+**This outranks every feature item in this file.** Credentials that were publicly reachable must be
+treated as compromised from the moment they were exposed — not from the moment someone is seen using
+them. By Seth's own account the blast radius includes the **flextext database send/receive server
+account**, which is the backend this whole suite's field devices talk to.
+
+**The order that matters — rotate first, investigate second.** Deleting the file or making the repo
+private does NOT un-expose anything: it is already cloned, cached and indexed.
+
+1. **ROTATE / REVOKE every credential in that file**, whatever it protects. Not "check whether it was
+   used" first — rotation is the only action that ends the exposure.
+2. **Then** purge the file from git history (`git filter-repo` or BFG) and force-push, so a fresh
+   clone does not hand them out again. History rewrite is cleanup, never the fix.
+3. **Then** read the access/audit logs for the window it was public, for anything that already used
+   them.
+4. Turn on **GitHub secret scanning + push protection** on every repo of Seth's, so the next one is
+   blocked at push rather than found later.
+5. ⚠ **Anything derived from those secrets rotates too** — session tokens, signed URLs, and any
+   worker secret that was pasted from the same file (`RELAY_SECRET` and the D1/Drive credentials are
+   the ones to check for this repo; see `notes/RELEASE-RUNBOOK.md` for how they are deployed).
+
+⚠ **A worker-secret rotation is a DEPLOY, and deploy order applies** — the client and the worker must
+not disagree about a shared secret, or field devices get 401s on `/drive`. Read the runbook before
+rotating anything the client also holds.
+
+**Claude: this session cannot do any of it** — the credentials are not in this repo and GitHub access
+here is scoped to `rulingants/flextext-editor`. Raise it at the START of the next session until Seth
+says it is done.
+
+---
+
 ## Where things stand (2026-08-14)
 
 - **production (`productionWeb`) = v371.** Everything from v372 on is staging-only and untested by
@@ -55,8 +91,8 @@ below touch the worker, where deploy ORDER is the difference between a release a
 
 | # | Item | Why it ranks here |
 |---|---|---|
-| 3.1 | **PROJECT ≠ researcher split** | Prerequisite for multi-project and for researcher-sharing. Devices must migrate **without re-pairing**; per-project E2EE key re-wrap; panel becomes project-scoped (a client release, worker-first). |
-| 3.2 | **Researcher signed in on multiple devices** | Blocked by ONE column — which also doubles as the legacy password hash. Sequence WITH 3.1, not before: sessions become "researcher × project" the moment projects exist. Probably needs no outage on its own. |
+| 3.1 | **PROJECT ≠ researcher split** — ⭐ **SETH, 2026-08-15: high priority, next working day**, together with 3.2 | Prerequisite for multi-project and for researcher-sharing. Devices must migrate **without re-pairing**; per-project E2EE key re-wrap; panel becomes project-scoped (a client release, worker-first). |
+| 3.2 | **Researcher signed in on multiple devices** — ⭐ **same priority, same day as 3.1** (Seth: *"also think through some guards and safeguards to protect that"* — so the deliverable is the session model AND its abuse story, not just the column split; see BACKLOG for what "guards" has to cover) | Blocked by ONE column — which also doubles as the legacy password hash. Sequence WITH 3.1, not before: sessions become "researcher × project" the moment projects exist. Probably needs no outage on its own. |
 | 3.3 | **Multiple researchers sharing one project** | Depends on 3.1. The hard parts are key re-wrap and what "revoke" honestly means. |
 | 3.4 | **Engine-wide drift / modularisation** | Standing watch item, not a task. |
 

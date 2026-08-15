@@ -113,7 +113,7 @@ Key engine modules (`docs/js/`):
 | `flextext.js` | parse/serialize/reconcile FLEx `.flextext`; round-trip preservation policy in its header | **pure, node-testable** |
 | `segments.js` | the time-span model + ordering invariants (never invent a time; `timePending`) | **pure** |
 | `segment-strips.js` | segmentation-mode baseline UI: waveform strips, peaks pipeline | DOM |
-| `seg-exports.js` | EAF writers (ELAN + SayMore profiles), the self-contained preview page, BWF `bext`, `buildFxpa()` (the `.fxpa` paragraph-analysis interchange) | **pure** |
+| `seg-exports.js` | EAF writers (ELAN + SayMore profiles), the self-contained preview page, BWF `bext`, `buildFxpa()` (the `.fxpa` paragraph-analysis interchange), and `loosePlan()`/`buildLooseConversion()` — the same outputs from a user-picked `.flextext` + recording (see §4.1) | **pure** |
 | `paragraph-model.js` | `.fxpa` validate/serialize + the grouping-tree invariants (adjacency, single parent, asym head, levels) | **pure** |
 | `paragraph-ui.js` | the Paragraph Analysis satellite UI (open/convert screen, display modes, audio, bracket tree) | DOM |
 | `audio.js` | the single shared Player (wavesurfer) | DOM |
@@ -149,6 +149,32 @@ span   = { start, end }  |  { timePending: true }   (+ optional timeEstimated)
 attributes + `media-files` (the FLEx/ELAN interop mechanism) on export, `segmentsFromOffsets()` on
 import. There is no proprietary sidecar. Timestamps also emit as visible `note` items
 (`audio 0:01.234–0:05.678`, `~` = estimated) because FLEx has no display line for the raw offsets.
+
+### 4.1 Conversions from files the app has never seen (v377)
+
+The researcher panel's **Files ▾** menu builds an ELAN package, a SayMore package, a listening page,
+a `.fxpa` or the plain `.flextext` from a text on Drive. **Utilities → "Make files from a
+.flextext"** builds the identical set from two files the user picks off their own disk — the same
+five rows, the same names, the same degradations. It is on the editor's Utilities tab (no pairing,
+no reveal, so an unpaired editor can do it) and in the panel's Utilities modal.
+
+Two functions in `seg-exports.js` carry it, and the reason they are there rather than in either UI
+is that the widget necessarily **exists twice** (a static section in the editor, a built modal in the
+panel — there is no shared UI layer between them):
+
+- `loosePlan({ doc, hasAudio, audioBytes, isWav })` → per-row `{ ok, reason }` plus the alignment
+  facts, mirroring the menu's row logic. Reason codes (`noText` / `noAudio` / `noAlign` /
+  `badAlign` / `tooBig`) come back as CODES; the sentences live in the UI, because a format module
+  has no i18n.
+- `buildLooseConversion({ kind, doc, audio, plan, … })` → `{ entries, zip, saveName, notes }`,
+  wrapping the same `assembleSegEntries` the menu and the device bundle use.
+
+What this tool must do that the menu does not: the menu gets its pair from a manifest, so the audio
+provably belongs to the text. **Two file pickers cannot**, so `alignmentIsOrdered()` rejects
+overlapping/backward offsets before offering an EAF row, and `durationVerdict()` warns when the text
+is aligned past the end of the recording. Both are warnings and refusals of a ROW — never of the
+whole tool. `test/loose-conversions.test.mjs` pins parity with the menu's own want/full table;
+`test/browser/loose-exporter.playwright.mjs` drives both surfaces in a real browser.
 
 ## 5. Versioning, service workers, and the deploy pipeline
 
@@ -210,7 +236,12 @@ almost never needs to change:
 - `test/*.test.mjs` — plain node, assertion-style, run by `check-native-containment.sh`.
   Notable suites: `segments-ordering` (adversarial span-model inputs), `seg-exports`
   (EAF/flextext/preview/bext, includes pinned regressions from adversarial audits),
+  `loose-conversions` (the Utilities converter, asserted as PARITY with the Files ▾ menu),
   `version-sync` (release gate), `worker-*` (auth boundaries, seclog).
+- `test/browser/*.playwright.mjs` — real-browser checks, run deliberately (they need a server and
+  Chromium), not part of the node suite. They exist for the half node cannot reach: wiring, decode,
+  downloads. `loose-exporter` found a `new DataView(Uint8Array)` throw that a `catch` was swallowing
+  into a permanently-silent duration check — every node test passed with the feature half-dead.
 - UI verification is done against the no-cache dev rig; the repo's history shows the working
   method: probe with real DOM, screenshot, and assert — not "it should work".
 - `notes/TEST-CHECKLIST.md` is the human pre-release checklist (real ELAN/SayMore/FLEx round

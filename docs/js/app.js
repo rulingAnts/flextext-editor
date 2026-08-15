@@ -23,7 +23,8 @@ import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpa
          initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut,
          stripSplitAtPlayhead } from './segment-strips.js';
 import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME,
-         sanitizeBase, extOf, mediaNameFor, derivedWavName } from './seg-exports.js';
+         sanitizeBase, extOf, mediaNameFor, derivedWavName,
+         loosePlan, buildLooseConversion, durationVerdict } from './seg-exports.js';
 import { mergeSegments, splitSegment, isAligned, normalizeSegments } from './segments.js';
 import { initParagraphApp } from './paragraph-ui.js';
 import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget } from './upload.js';
@@ -5865,6 +5866,170 @@ function ucMakePlayer(host, url, split) {
   return ws;
 }
 
+/* ── MAKE FILES FROM A PICKED .flextext + ITS RECORDING ────────────────────────────────────────
+ * Seth, 2026-08-14, and this is the whole specification: "exactly the same thing that our files drop
+ * down box already does for texts that are on Google Drive, except that the user can submit their
+ * own flextext and matching audio file … a backup way to do it with files they just happen to have
+ * lying around that match. That's the goal of this utility, period."
+ *
+ * So the rows, the wants, the naming and the degradations are the Files ▾ menu's, and they are
+ * shared rather than re-decided: js/seg-exports.js owns loosePlan() and buildLooseConversion(), and
+ * the panel's copy of this widget calls exactly the same two functions. Only the DOM differs — the
+ * editor's Utilities is static markup, the panel's is a built modal, and there is no shared UI layer
+ * between them to put a widget in.
+ *
+ * ⚠ NO NEW MODULE AND NO NEW IMPORT EDGE. Everything here was already imported by this file; the
+ * only change to the import block is three more names on the existing seg-exports line. That is
+ * deliberate: a new top-level import in app.js is a new SHELL entry in the editor AND all three
+ * satellite service workers, and getting that wrong is the v108 outage. */
+function wireFileExporter() {
+  const $$id = (id) => document.getElementById(id);
+  const ftBtn = $$id('ex-pick-ft'), auBtn = $$id('ex-pick-audio');
+  if (!ftBtn || !auBtn) return;              // markup absent (a satellite shell) — nothing to wire
+  const ftIn = $$id('ex-ft'), auIn = $$id('ex-audio');
+  const srcEl = $$id('ex-src'), warnEl = $$id('ex-warn'), rowsEl = $$id('ex-rows'), statusEl = $$id('ex-status');
+  let st = { doc: null, ftBlob: null, ftName: '', audio: null, plan: null, base: 'text', busy: false };
+
+  const say = (msg, kind) => {
+    statusEl.hidden = !msg;
+    statusEl.textContent = msg || '';
+    statusEl.className = 'note rp-ex-msg' + (kind ? ' rp-as-' + kind : '');
+  };
+  /* Reason CODES come back from the shared planner; the sentences live here, because seg-exports has
+   * no i18n by rule. One map, so a row's greyed-out explanation and a failed build say the same. */
+  const why = (code) => ({
+    noText: t('exp.no.text'), noAudio: t('exp.no.audio'), noAlign: t('panel.dl.noAlign'),
+    badAlign: t('exp.no.badAlign'), tooBig: t('panel.dl.previewTooBig', { size: sizeFmt(st.plan?.caps?.est || 0) }),
+  }[code] || '');
+
+  function reset(keepFiles) {
+    if (!keepFiles) st = { doc: null, ftBlob: null, ftName: '', audio: null, plan: null, base: 'text', busy: false };
+    rowsEl.hidden = true; rowsEl.innerHTML = '';
+    warnEl.hidden = true; say('');
+  }
+
+  ftBtn.addEventListener('click', () => ftIn.click());
+  auBtn.addEventListener('click', () => auIn.click());
+
+  ftIn.addEventListener('change', async (e) => {
+    const f = e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    reset(true);
+    let xml = '';
+    try { xml = await f.text(); } catch { say(t('exp.readFailed'), 'err'); return; }
+    const parsed = parseFlextext(xml, { vernLang: settings.vernLang, analLang: settings.analLang });
+    if (parsed.error || !parsed.texts.length) { say(t('task.ftParseFailed', { msg: parsed.error || t('task.ftNone') }), 'err'); return; }
+    const doc = parsed.texts[0];
+    /* ⚠ THE TIMES COME FROM THE FILE, and segmentsFromOffsets returns NULL (not []) when nothing
+     * carries offsets — the same call the panel and the editor already make on import. */
+    doc.segments = segmentsFromOffsets(doc) || [];
+    st.doc = doc;
+    st.ftBlob = f;                                  // byte-for-byte; never re-serialized
+    st.ftName = f.name;
+    st.base = sanitizeBase(doc.title || f.name.replace(/\.[^.]+$/, '')) || 'text';
+    if (parsed.texts.length > 1) say(t('exp.multiText', { n: parsed.texts.length }), 'warn');
+    render();
+  });
+
+  auIn.addEventListener('change', async (e) => {
+    const f = e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    st.audio = { blob: f, name: f.name, mimeType: f.type || 'application/octet-stream', size: f.size, durationMs: 0 };
+    /* ⚠ DO THE TWO FILES BELONG TOGETHER? (Seth: "check to make sure the duration matches".) Free
+     * for a WAV — readWavHeader gives frames/rate off a 64 KB slice, no decode. A lossy source
+     * cannot be measured without decoding it, so it stays 0 and durationVerdict says 'unknown'
+     * rather than guessing. */
+    try {
+      /* ⚠ An ArrayBuffer, NOT a Uint8Array — readWavHeader does `new DataView(buf)`, which throws
+       * on a typed array, and the catch below would have swallowed it into a silent durationMs of
+       * 0. That reads as "undecodable", so the pair check would have been permanently OFF while
+       * looking implemented. Caught by test/browser/loose-exporter.playwright.mjs.
+       *
+       * 64 KB is enough for the whole answer: the data chunk's DECLARED size is in its header, so
+       * frames/rate come out right without reading a 200 MB file. */
+      const h = readWavHeader(await f.slice(0, 65536).arrayBuffer());
+      if (h && h.sampleRate && h.frames) st.audio.durationMs = Math.round((h.frames / h.sampleRate) * 1000);
+    } catch { /* not a WAV, or unreadable — 'unknown' is the honest answer */ }
+    render();
+  });
+
+  function render() {
+    if (!st.doc) { srcEl.textContent = ''; reset(true); return; }
+    const a = st.audio;
+    const isWav = !!a && (/\.wav$/i.test(a.name) || /wav$/i.test(a.mimeType || ''));
+    st.plan = loosePlan({ doc: st.doc, hasAudio: !!a, audioBytes: a ? a.size : 0, isWav });
+    srcEl.textContent = t('exp.src', {
+      ft: st.ftName, lines: st.plan.rows, aligned: st.plan.alignedRows,
+      audio: a ? `${a.name} (${sizeFmt(a.size)})` : t('exp.noAudioYet'),
+    });
+    // The mismatch warning — prominent, never blocking: the user may know something we do not.
+    const verdict = a ? durationVerdict({ spanEndMs: st.plan.spanEnd, durationMs: a.durationMs }) : 'unknown';
+    warnEl.hidden = verdict !== 'short';
+    if (verdict === 'short') {
+      warnEl.textContent = t('exp.mismatch', { text: fmtClockMs(st.plan.spanEnd), audio: fmtClockMs(a.durationMs) });
+      warnEl.className = 'note rp-ex-msg rp-as-warn';
+    }
+    rowsEl.hidden = false;
+    rowsEl.innerHTML = '';
+    for (const kind of ['elan', 'saymore', 'preview', 'fxpa', 'flextext']) {
+      const p = st.plan[kind];
+      const row = document.createElement('div');
+      row.className = 'rp-dl-item' + (p.ok ? '' : ' rp-dl-pending');
+      const sub = p.ok ? t('exp.sub.' + kind) : why(p.reason);
+      row.innerHTML = '<span class="rp-dl-name"></span><span class="rp-dl-sub"></span>';
+      row.querySelector('.rp-dl-name').textContent = t('exp.row.' + kind);
+      row.querySelector('.rp-dl-sub').textContent = sub;
+      if (p.ok) {
+        row.setAttribute('role', 'button');
+        row.tabIndex = 0;
+        const go = () => build(kind);
+        row.addEventListener('click', go);
+        row.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); go(); } });
+      } else row.setAttribute('aria-disabled', 'true');
+      rowsEl.appendChild(row);
+    }
+  }
+
+  async function build(kind) {
+    if (st.busy) { say(t('panel.dl.oneAtATime'), 'warn'); return; }
+    st.busy = true;
+    say(t('panel.dl.working'));
+    try {
+      const r = await buildLooseConversion({
+        kind, doc: st.doc, base: st.base, title: st.doc.title || st.base,
+        flextextBlob: st.ftBlob, audio: st.audio, plan: st.plan,
+        vern: st.doc.vernLang || settings.vernLang || 'und',
+        anal: st.doc.analLang || settings.analLang || 'en',
+        // The impure step seg-exports refuses to own — see its header.
+        convertWav: async (blob) => (await convertAudio(await blob.arrayBuffer(), { format: 'wav', wavBits: 16 })).blob,
+        onPhase: (ph) => say(t('exp.phase.' + ph)),
+      });
+      if (!r.entries.length) { say(t('panel.dl.zipFailed'), 'err'); return; }
+      const out = r.zip ? await makeZip(r.entries) : r.entries[0].data;
+      // The same save idiom the WS checker beside this uses — a synthetic <a download>, revoked late.
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(out);
+      a.download = r.saveName;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+      const notes = (r.notes || []).map((n) => ({
+        lossyTiming: t('panel.dl.lossyTiming'), fxpaNoAudio: t('panel.dl.fxpaNoAudioSub'),
+        eafNoMedia: t('exp.eafNoMedia'),
+      }[n])).filter(Boolean);
+      say(t('exp.done', { name: r.saveName }) + (notes.length ? ' ' + notes.join(' ') : ''), 'ok');
+    } catch (err) {
+      console.warn('[flextext] loose-file conversion failed:', err);
+      say(err && err.code === 'ZIP_TOO_LARGE' ? t('panel.dl.zipTooLarge') : t('panel.dl.zipFailed'), 'err');
+    } finally { st.busy = false; }
+  }
+}
+
+// mm:ss for a duration, for the pair-mismatch warning only.
+function fmtClockMs(ms) {
+  const s = Math.max(0, Math.round((ms || 0) / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
 function wireAudioConverter() {
   if (!$('#uc-file')) return;                    // satellite shells have no Utilities tab
   let srcBuf = null, srcInfo = null, srcName = '', srcSize = 0;
@@ -5969,6 +6134,7 @@ function setupResearch() {
   }
 
   wireAudioConverter();
+  wireFileExporter();
 
   // Writing system checker
   let wsState = null; // { dom, rows, filename }

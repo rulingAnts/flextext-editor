@@ -18,8 +18,11 @@ below touch the worker, where deploy ORDER is the difference between a release a
 
 - **production (`productionWeb`) = v371.** Everything from v372 on is staging-only and untested by
   Seth.
-- **staging = v376:** upload-failure honesty (v372), the unpaired-queue hold (v373), the
-  send-capability trap + version badge (v374), assignment title auto-fill (v375/v376).
+- **staging = v377:** upload-failure honesty (v372), the unpaired-queue hold (v373), the
+  send-capability trap + version badge (v374), assignment title auto-fill (v375/v376), and the
+  loose-file converter (v377 — Utilities → "Make files from a .flextext", on BOTH the editor's
+  Utilities tab and the panel's Utilities modal). v377 carries `BUILD_TAG = 'loose-file converter
+  v1'`; **clear it to `''` before any production release.**
 - **A test drive of v372–v376 is the immediate next step**, not a new feature. The scripted list is
   in the session notes; the short version is: pair a staging device upload-only, queue a bundle,
   delete the device in the panel, confirm the queue HOLDS and the Send button still offers Save, then

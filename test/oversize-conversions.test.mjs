@@ -151,8 +151,17 @@ console.log('\nthe panel consults ONE policy, so a greyed row cannot lie about t
      'above the ceiling the ORIGINAL becomes the seg media — the already-WAV path, reused');
   /* ⚠ Scope this to the CONVERSION flag. A bare /tooBig/ also matches `task.tooBig`, an unrelated
    * pre-existing string about an oversized task attachment — a test that fails on innocent code is
-   * a trap, and the next person would "fix" it by renaming something that was never involved. */
-  ok(!/src\.tooBig|tooBig:|tooBigConvert/.test(panel),
+   * a trap, and the next person would "fix" it by renaming something that was never involved.
+   *
+   * v377 tightened it once more, for the same reason and after it bit: the loose-file exporter's
+   * reason-code map spells a row's own greyed-out sentence `tooBig: t('panel.dl.previewTooBig')`,
+   * which the old `tooBig:` pattern read as a returning blanket refusal. That map is the OPPOSITE
+   * of a blanket refusal — it is the per-row explanation the ladder replaced one with. So what is
+   * forbidden is a tooBig FIELD holding a computed verdict; a key mapping the code to a sentence is
+   * fine, and the lookahead is what tells them apart. */
+  /* ⚠ The lookahead goes INSIDE, after the colon — `tooBig:\s*(?!t\()` would backtrack `\s*` to
+   * zero width and match anyway, passing while asserting nothing. Watched it do exactly that. */
+  ok(!/src\.tooBig|tooBigConvert|tooBig:(?!\s*t\()/.test(panel),
      'the old blanket conversion refusal is gone from the panel entirely');
   ok(/const dropAudio = kind === 'fxpa' && !src\.caps\.fxpaAudio/.test(panel),
      'an oversized .fxpa drops its audio rather than refusing');

@@ -986,9 +986,13 @@ mean a better URL — it means no URL at all.
 - **Where the package is produced.** `assembleSegEntries` (seg-exports.js:857) is already the one
   assembler for the ELAN/SayMore/preview bundles; a `flextext` want belongs beside them rather than
   in a new writer. ⚠ Note it currently gates its whole annotation block on `media && segMedia`.
-- **Sequencing with the loose-file converter** (designed 2026-08-14, not built): that tool should
-  emit THIS package rather than a bare .flextext, so either they land together or the converter is
-  written expecting it.
+- **Sequencing with the loose-file converter** — ⚠ **the converter SHIPPED FIRST, in v377.** Its
+  `flextext` row is a byte-for-byte passthrough of the file the user handed it (renamed to the
+  text's title), which is deliberately the one output that does not re-serialize anything: it cannot
+  mint a stale reference because it writes nothing. When the package lands, that row becomes the
+  package — one change, in `buildLooseConversion`'s `kind === 'flextext'` branch
+  (`seg-exports.js`), and both surfaces follow because neither decides anything itself. Nothing
+  about the converter has to be undone first.
 
 ## Researcher signed in on MULTIPLE DEVICES at once — investigated 2026-08-14, not built
 

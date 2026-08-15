@@ -1266,6 +1266,14 @@ main {
 .rp-as-status { margin: 8px 0 4px; font-size: 13px; line-height: 1.4; white-space: pre-wrap; }
 .rp-as-status.rp-as-ok { color: #1f5d22; }
 .rp-as-status.rp-as-err { color: #a3261f; }
+/* The loose-file converter's status + pair-mismatch lines (Utilities tab, and the panel's copy of
+   the same widget). The rp-as-* colour vocabulary above is scoped to two specific elements; this
+   gives the third one the same three states without widening those selectors. */
+.rp-ex-msg { margin: 8px 0 4px; font-size: 13px; line-height: 1.4; }
+.rp-ex-msg.rp-as-ok { color: #1f5d22; }
+.rp-ex-msg.rp-as-err { color: #a3261f; }
+.rp-ex-msg.rp-as-warn { color: #8a4b10; }
+.rp-ex-rows { margin-top: 6px; }
 .rp-probe-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: -2px 0 10px; }
 .rp-probe-result { flex-basis: 100%; font-size: 13px; line-height: 1.4; }
 .rp-probe-result.rp-as-ok { color: #1f5d22; }

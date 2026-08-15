@@ -258,6 +258,30 @@
       <button id="btn-wsapply" class="primary-btn" data-i18n="research.downloadCorrected">Download corrected file</button>
     </div>
   </div>
+
+  <hr>
+
+  <!-- ⚠ THE SAME ROWS THE FILES ▾ MENU OFFERS, from files the user picked instead of from Drive
+       (Seth, 2026-08-14: "exactly the same thing that our files drop down box already does … except
+       that the user can submit their own flextext and matching audio file … That's the goal of this
+       utility, period."). The decisions — which rows are possible, and what each one builds — live
+       in js/seg-exports.js (loosePlan / buildLooseConversion), shared with the panel's copy of this
+       widget so the two surfaces cannot produce different files from the same inputs.
+       ids are ex-* here and xc-* in the panel: same rule as uc-*/cv- above. -->
+  <h2 data-i18n="exp.h">Make files from a .flextext</h2>
+  <p class="note" data-i18n="exp.note"></p>
+  <div class="ws-form">
+    <div class="toolbar">
+      <button type="button" id="ex-pick-ft" class="primary-btn" data-i18n="exp.pickFt">Choose a .flextext file&hellip;</button>
+      <button type="button" id="ex-pick-audio" class="secondary-btn" data-i18n="exp.pickAudio">Choose its recording&hellip;</button>
+    </div>
+    <input type="file" id="ex-ft" accept=".flextext,.xml,text/xml,application/xml" hidden>
+    <input type="file" id="ex-audio" accept="audio/*,.wav,.mp3,.m4a,.aac,.ogg,.oga,.opus,.webm,.flac,.3gp,.amr" hidden>
+    <p class="note rp-cv-src" id="ex-src"></p>
+    <p class="note" id="ex-warn" hidden></p>
+    <div id="ex-rows" class="rp-ex-rows" hidden></div>
+    <p class="note" id="ex-status" role="status" hidden></p>
+  </div>
 </section>
 
 <!-- ===== Help ===== -->

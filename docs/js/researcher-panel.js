@@ -17,7 +17,8 @@ import { t, getLang, setLang, applyI18n, ENGINE_VERSION, BUILD_TAG, LANGS, LANG_
 import { REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { importPublicKeyB64, publicKeyFingerprint } from './crypto.js';
 import { esc, parseFlextext, surveyWritingSystems, remapWritingSystems, analyzeFlextextWs, segmentsFromOffsets } from './flextext.js';
-import { assembleSegEntries, MANIFEST_NAME, sanitizeBase, mediaNameFor, derivedWavName, conversionCaps } from './seg-exports.js';
+import { assembleSegEntries, MANIFEST_NAME, sanitizeBase, mediaNameFor, derivedWavName, conversionCaps,
+         loosePlan, buildLooseConversion, durationVerdict } from './seg-exports.js';
 import { convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
 import WaveSurfer from './vendor/wavesurfer.esm.js';
 import * as db from './db.js';
@@ -3883,6 +3884,7 @@ function utilitiesModal() {
     <p class="note">${esc(t('panel.util.intro'))}</p>
     <button class="primary-btn" data-m="audio">${esc(t('panel.util.audio'))}</button>
     <button class="primary-btn" data-m="ws">${esc(t('panel.util.ws'))}</button>
+    <button class="primary-btn" data-m="export">${esc(t('exp.h'))}</button>
     <hr class="rp-sep">
     <label class="rp-field"><span>${esc(t('panel.util.ttl'))}</span>
       <input id="rp-ttl" type="number" min="7" max="400" step="1" value="${assignTtlDays()}"></label>
@@ -3893,6 +3895,7 @@ function utilitiesModal() {
   m.el.querySelector('[data-m="close"]').onclick = m.close;
   m.el.querySelector('[data-m="audio"]').onclick = () => { m.close(); audioConverterModal(); };
   m.el.querySelector('[data-m="ws"]').onclick = () => { m.close(); wsCheckModal(); };
+  m.el.querySelector('[data-m="export"]').onclick = () => { m.close(); fileExporterModal(); };
   m.el.querySelector('[data-m="erase"]').onclick = () => { m.close(); eraseDataModal(); };
   // Delivery-TTL preference: stored per account; the WORKER's clamp (7–400) is authoritative, this
   // input's min/max is only a courtesy mirror of it.
@@ -4205,6 +4208,157 @@ function wsCheckModal() {
     setTimeout(() => URL.revokeObjectURL(a.href), 30000);
     deps.toast(mappings.length ? t('toast.corrected') : t('toast.noChanges'));
   };
+}
+
+/* ── MAKE FILES FROM A PICKED .flextext + ITS RECORDING (the panel's copy) ─────────────────────
+ * Seth, 2026-08-14: "exactly the same thing that our files drop down box already does for texts
+ * that are on Google Drive, except that the user can submit their own flextext and matching audio
+ * file … a backup way to do it with files they just happen to have lying around that match."
+ *
+ * ⚠ THE DECISIONS ARE NOT DUPLICATED HERE. Which rows are possible, what each one builds, how it
+ * degrades and what it is named all live in seg-exports.js (loosePlan / buildLooseConversion) —
+ * the SAME two functions the editor's Utilities tab calls. Only the DOM differs, because the editor
+ * has static markup and this is a built modal, and there is no shared UI layer to put a widget in.
+ * If a behaviour needs changing, change it in seg-exports and both surfaces move together;
+ * test/loose-conversions.test.mjs pins that against the Files ▾ menu's own want/full table. */
+function fileExporterModal() {
+  let st = { doc: null, ftBlob: null, ftName: '', audio: null, plan: null, base: 'text', busy: false };
+  const m = modal(`
+    <h3>${esc(t('exp.h'))}</h3>
+    <p class="note">${esc(t('exp.note'))}</p>
+    <button class="primary-btn" data-m="pickFt">${esc(t('exp.pickFt'))}</button>
+    <button class="secondary-btn" data-m="pickAudio">${esc(t('exp.pickAudio'))}</button>
+    <input type="file" id="xc-ft" accept=".flextext,.xml,text/xml,application/xml" hidden>
+    <input type="file" id="xc-audio" accept="audio/*,.wav,.mp3,.m4a,.aac,.ogg,.oga,.opus,.webm,.flac,.3gp,.amr" hidden>
+    <p class="note rp-cv-src" id="xc-src"></p>
+    <p class="note rp-ex-msg rp-as-warn" id="xc-warn" hidden></p>
+    <div id="xc-rows" class="rp-ex-rows" hidden></div>
+    <p class="note rp-ex-msg" id="xc-status" role="status" hidden></p>
+    <button class="link-btn" data-m="close">${esc(t('panel.util.close'))}</button>`, true);
+  const q = (sel) => m.el.querySelector(sel);
+  const srcEl = q('#xc-src'), warnEl = q('#xc-warn'), rowsEl = q('#xc-rows'), statusEl = q('#xc-status');
+
+  const say = (msg, kind) => {
+    statusEl.hidden = !msg;
+    statusEl.textContent = msg || '';
+    statusEl.className = 'note rp-ex-msg' + (kind ? ' rp-as-' + kind : '');
+  };
+  /* Reason CODES come back from the shared planner; the sentences live here, because seg-exports
+   * has no i18n by rule. Same map as the editor's — one row, one explanation, both surfaces. */
+  const why = (code) => ({
+    noText: t('exp.no.text'), noAudio: t('exp.no.audio'), noAlign: t('panel.dl.noAlign'),
+    badAlign: t('exp.no.badAlign'), tooBig: t('panel.dl.previewTooBig', { size: fmtSize(st.plan?.caps?.est || 0) }),
+  }[code] || '');
+
+  q('[data-m="close"]').onclick = m.close;
+  q('[data-m="pickFt"]').onclick = () => q('#xc-ft').click();
+  q('[data-m="pickAudio"]').onclick = () => q('#xc-audio').click();
+
+  q('#xc-ft').addEventListener('change', async (e) => {
+    const f = e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    rowsEl.hidden = true; rowsEl.innerHTML = ''; warnEl.hidden = true; say('');
+    let xml = '';
+    try { xml = await f.text(); } catch { say(t('exp.readFailed'), 'err'); return; }
+    const parsed = parseFlextext(xml);
+    if (parsed.error || !parsed.texts.length) { say(t('task.ftParseFailed', { msg: parsed.error || t('task.ftNone') }), 'err'); return; }
+    const doc = parsed.texts[0];
+    // Times come from the FILE. segmentsFromOffsets returns null (not []) when nothing carries them.
+    doc.segments = segmentsFromOffsets(doc) || [];
+    st.doc = doc; st.ftBlob = f; st.ftName = f.name;      // the blob is passed through byte-for-byte
+    st.base = sanitizeBase(doc.title || f.name.replace(/\.[^.]+$/, '')) || 'text';
+    if (parsed.texts.length > 1) say(t('exp.multiText', { n: parsed.texts.length }), 'warn');
+    render();
+  });
+
+  q('#xc-audio').addEventListener('change', async (e) => {
+    const f = e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    st.audio = { blob: f, name: f.name, mimeType: f.type || 'application/octet-stream', size: f.size, durationMs: 0 };
+    /* ⚠ DO THE TWO FILES BELONG TOGETHER? (Seth: "check to make sure the duration matches".) Free
+     * for a WAV — readWavHeader gives frames/rate off a 64 KB slice, no decode. A lossy source
+     * cannot be measured without decoding it, so it stays 0 and durationVerdict says 'unknown'
+     * rather than guessing at a pairing. */
+    try {
+      /* ⚠ An ArrayBuffer, NOT a Uint8Array — readWavHeader does `new DataView(buf)`, which throws on
+       * a typed array, and the catch below would have swallowed it into a silent durationMs of 0.
+       * That reads as "undecodable", so the pair check would have been permanently OFF while looking
+       * implemented. 64 KB suffices: the data chunk's DECLARED size gives the frame count. */
+      const h = readWavHeader(await f.slice(0, 65536).arrayBuffer());
+      if (h && h.sampleRate && h.frames) st.audio.durationMs = Math.round((h.frames / h.sampleRate) * 1000);
+    } catch { /* not a WAV, or unreadable — 'unknown' is the honest answer */ }
+    render();
+  });
+
+  function render() {
+    if (!st.doc) return;
+    const a = st.audio;
+    const isWav = !!a && (/\.wav$/i.test(a.name) || /wav$/i.test(a.mimeType || ''));
+    st.plan = loosePlan({ doc: st.doc, hasAudio: !!a, audioBytes: a ? a.size : 0, isWav });
+    srcEl.textContent = t('exp.src', {
+      ft: st.ftName, lines: st.plan.rows, aligned: st.plan.alignedRows,
+      audio: a ? `${a.name} (${fmtSize(a.size)})` : t('exp.noAudioYet'),
+    });
+    // Prominent, never blocking: the researcher may know something we do not about the pair.
+    const verdict = a ? durationVerdict({ spanEndMs: st.plan.spanEnd, durationMs: a.durationMs }) : 'unknown';
+    warnEl.hidden = verdict !== 'short';
+    if (verdict === 'short') warnEl.textContent = t('exp.mismatch', { text: clockMs(st.plan.spanEnd), audio: clockMs(a.durationMs) });
+    rowsEl.hidden = false;
+    rowsEl.innerHTML = '';
+    for (const kind of ['elan', 'saymore', 'preview', 'fxpa', 'flextext']) {
+      const p = st.plan[kind];
+      const row = document.createElement('div');
+      row.className = 'rp-dl-item' + (p.ok ? '' : ' rp-dl-pending');
+      row.innerHTML = '<span class="rp-dl-name"></span><span class="rp-dl-sub"></span>';
+      row.querySelector('.rp-dl-name').textContent = t('exp.row.' + kind);
+      row.querySelector('.rp-dl-sub').textContent = p.ok ? t('exp.sub.' + kind) : why(p.reason);
+      if (p.ok) {
+        row.setAttribute('role', 'button');
+        row.tabIndex = 0;
+        const go = () => build(kind);
+        row.addEventListener('click', go);
+        row.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); go(); } });
+      } else row.setAttribute('aria-disabled', 'true');
+      rowsEl.appendChild(row);
+    }
+  }
+
+  async function build(kind) {
+    if (st.busy) { say(t('panel.dl.oneAtATime'), 'warn'); return; }
+    st.busy = true;
+    say(t('panel.dl.working'));
+    try {
+      const r = await buildLooseConversion({
+        kind, doc: st.doc, base: st.base, title: st.doc.title || st.base,
+        flextextBlob: st.ftBlob, audio: st.audio, plan: st.plan,
+        vern: st.doc.vernLang || 'und', anal: st.doc.analLang || 'en',
+        // The impure step seg-exports refuses to own — see its header.
+        convertWav: async (blob) => (await convertAudio(await blob.arrayBuffer(), { format: 'wav', wavBits: 16 })).blob,
+        onPhase: (ph) => say(t('exp.phase.' + ph)),
+      });
+      if (!r.entries.length) { say(t('panel.dl.zipFailed'), 'err'); return; }
+      const out = r.zip ? await makeZip(r.entries) : r.entries[0].data;
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(out);
+      a.download = r.saveName;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+      const notes = (r.notes || []).map((n) => ({
+        lossyTiming: t('panel.dl.lossyTiming'), fxpaNoAudio: t('panel.dl.fxpaNoAudioSub'),
+        eafNoMedia: t('exp.eafNoMedia'),
+      }[n])).filter(Boolean);
+      say(t('exp.done', { name: r.saveName }) + (notes.length ? ' ' + notes.join(' ') : ''), 'ok');
+    } catch (e) {
+      console.warn('[flextext] loose-file conversion failed:', e);
+      say(e && e.code === 'ZIP_TOO_LARGE' ? t('panel.dl.zipTooLarge') : t('panel.dl.zipFailed'), 'err');
+    } finally { st.busy = false; }
+  }
+}
+
+// mm:ss for a duration — the pair-mismatch warning only (mirrors app.js fmtClockMs).
+function clockMs(ms) {
+  const s = Math.max(0, Math.round((ms || 0) / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
 function accountModal() {

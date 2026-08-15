@@ -857,6 +857,12 @@ export function conversionCaps({ bytes = 0, isWav = false, max = CONV_DECODED_MA
 export async function assembleSegEntries({ doc, title = '', base = 'text', media = null, segMedia = null,
                                            wants = {}, vern = 'und', anal = 'en', full = false } = {}) {
   const entries = [];
+  /* ⚠ ENCODE THE AUDIO AT MOST ONCE. The preview page and the .fxpa both embed base64 of the SAME
+   * blob, and encoding it twice back to back costs roughly 4.3× the recording in transient heap for
+   * no benefit whatsoever — on the hardware this suite exists for, that is the difference between a
+   * bundle and a killed tab. Lazy, so a build wanting neither pays nothing. */
+  let b64Memo = null;
+  const b64Once = async (blob) => (b64Memo ??= await blobToBase64(blob));
   /* ⚠ NAMES COME FROM `base` (the story title), NEVER from the stored media name — the v3 rule.
    * A caller may pass a segMedia whose `name` is a pre-fix delivery token; deriving here means the
    * EAF's media reference, the WAV entry that ships beside it, and the SayMore `.annotations.eaf`
@@ -885,16 +891,23 @@ export async function assembleSegEntries({ doc, title = '', base = 'text', media
       // researcher's Drive copy must open in ELAN/SayMore without hunting for audio). Researcher
       // bandwidth control stays: turning the EAF exports off drops the WAV too. Honesty in the
       // BYTES: a BWF bext chunk names the lossy origin and states it is not a master.
-      const stamped = wavWithBext(await segMedia.blob.arrayBuffer(), {
-        description: `DERIVED from lossy source (${segMedia.srcName || 'unknown'}) - NOT an archival master`,
-        codingHistory: `A=${String(media.mimeType || 'lossy').replace(/^audio\//, '').replace(/[^\w-]/g, '').toUpperCase() || 'LOSSY'},T=original lossy source ${segMedia.srcName || ''}\nA=PCM,W=16,T=DERIVED from lossy source - NOT an archival master`,
-      });
-      entries.push({ name: segMediaName, data: new Blob([stamped], { type: 'audio/wav' }) });
+      /* ⚠ STAMPING IS HONESTY, NOT CORRECTNESS — the same rule record-pcm.js:437 and convert.js:351
+       * already state at their own wavWithBext calls, and this was the one site that did not. An
+       * unreadable or malformed blob threw out of the WHOLE assembler here, losing every other file
+       * in the bundle to save nothing. The audio still ships; it just ships unstamped. */
+      let wavBytes = null;
+      try {
+        wavBytes = wavWithBext(await segMedia.blob.arrayBuffer(), {
+          description: `DERIVED from lossy source (${segMedia.srcName || 'unknown'}) - NOT an archival master`,
+          codingHistory: `A=${String(media.mimeType || 'lossy').replace(/^audio\//, '').replace(/[^\w-]/g, '').toUpperCase() || 'LOSSY'},T=original lossy source ${segMedia.srcName || ''}\nA=PCM,W=16,T=DERIVED from lossy source - NOT an archival master`,
+        });
+      } catch { wavBytes = null; }
+      entries.push({ name: segMediaName, data: wavBytes ? new Blob([wavBytes], { type: 'audio/wav' }) : segMedia.blob });
     }
     if (full && wants.preview) {
       // Named after the ORIGINAL recording (Seth): story.m4a → story.preview.html.
       const previewBase = sanitizeBase(base) || 'audio';
-      const b64 = await blobToBase64(segMedia.blob);
+      const b64 = await b64Once(segMedia.blob);
       entries.push({ name: previewBase + '.preview.html', data: new Blob([buildSegPreviewHtml(doc, {
         title: title || base, audioB64: b64, audioMime: segMedia.mimeType || 'audio/wav', mediaName: segMediaName,
       })], { type: 'text/html' }) });
@@ -916,7 +929,7 @@ export async function assembleSegEntries({ doc, title = '', base = 'text', media
   // still group. Audio embeds only when the working media exists (i.e. aligned + media present).
   if (full && wants.fxpa) {
     const fxpaAudio = segMedia && segMedia.blob
-      ? { b64: await blobToBase64(segMedia.blob), mime: segMedia.mimeType || 'audio/wav',
+      ? { b64: await b64Once(segMedia.blob), mime: segMedia.mimeType || 'audio/wav',
           name: segMediaName, derived: !!segMedia.derived, srcName: segMedia.srcName || '' }
       : null;
     const fxpa = buildFxpa(doc, { title: title || base, vernLang: vern, analLang: anal, audio: fxpaAudio });
@@ -1021,4 +1034,193 @@ export function mediaNameFor(base, media) {
  * so the name says what the bext chunk says. Title-derived for the same reason as above. */
 export function derivedWavName(base) {
   return (sanitizeBase(base) || 'audio') + '.converted-NOT-ARCHIVAL.wav';
+}
+
+/* ================================================================================================
+ * LOOSE-FILE CONVERSIONS — one .flextext + one recording, picked from disk.
+ *
+ * Seth, 2026-08-14, and this IS the specification: "exactly the same thing that our files drop down
+ * box already does for texts that are on Google Drive, except that the user can submit their own
+ * flextext and matching audio file … a backup way to do it with files they just happen to have
+ * lying around that match. That's the goal of this utility, period."
+ *
+ * So the shape is the Files ▾ menu's, deliberately, row for row and want for want
+ * (researcher-panel.js `menuRowsFor` / `runMenuConversion`): ELAN zip, SayMore zip, preview page,
+ * .fxpa, .flextext — each its own row, each its own download, greyed with a REASON when it cannot
+ * be built. Not a combined bundle: matching the menu is the point.
+ *
+ * ⚠ WHY THIS LIVES HERE AND THE UI DOES NOT. The editor's Utilities is static markup in index.html
+ * driven from app.js; the panel's is a JS-built modal in researcher-panel.js. They share no UI layer
+ * at all — but the DECISIONS are what drift, and those are here. This module is ALREADY precached by
+ * every service worker in the suite, so putting them here costs zero new precached paths: no new
+ * top-level import in app.js, and therefore none of the v108 outage class. It must also stay
+ * node-runnable, so everything is pure — the one impure step, decoding audio to WAV, is INJECTED.
+ * ============================================================================================= */
+
+/* Which rows this pair can produce, and — when one cannot — WHY, as a code the caller translates
+ * (this module has no i18n, by rule). Mirrors the Files ▾ row logic.
+ *
+ * Reason codes: 'noText' | 'noAudio' | 'noAlign' | 'badAlign' | 'tooBig'
+ */
+export function loosePlan({ doc = null, audioBytes = 0, isWav = false, hasAudio = false } = {}) {
+  const rows = doc ? phraseRows(doc) : [];
+  const alignedRows = rows.filter((r) => isAligned(r.span));
+  const caps = conversionCaps({ bytes: audioBytes, isWav });
+  /* ⚠ NO PHRASE ROWS ⇒ NOTHING AT ALL, not even the .fxpa that is otherwise always available:
+   * buildFxpa would emit `lines: []` and the Paragraph Analysis app refuses to open that. Reporting
+   * success on an empty file is worse than refusing, because the user only finds out in the other
+   * app, later, with no idea which step lied. */
+  const empty = rows.length === 0;
+  const ordered = alignmentIsOrdered(rows);
+  const annWhy = empty ? 'noText' : !alignedRows.length ? 'noAlign' : !ordered ? 'badAlign' : '';
+  const r = (ok, reason) => ({ ok, reason: ok ? '' : reason });
+  return {
+    rows: rows.length,
+    alignedRows: alignedRows.length,
+    spanEnd: alignedRows.reduce((m, x) => Math.max(m, x.span.end), 0),
+    ordered,
+    caps,
+    /* ⚠ THE .flextext RIDES BYTE-FOR-BYTE as picked — never re-serialized. A foreign FLEx file may
+     * carry elements this app's parser does not model, and serializeFlextext would silently drop
+     * them. Passing the original bytes through is the only honest option. */
+    flextext: r(!empty, 'noText'),
+    /* ⚠ THE EAF NEEDS TIMES, NOT AUDIO. serializeEaf omits the MEDIA_DESCRIPTOR when mediaName is ''
+     * and is otherwise a perfectly legal ELAN file, so a flextext WITH offsets and no recording in
+     * hand still gets its ELAN package (Seth: "a text only elan package is okay if the user does not
+     * submit an audio file"). It is also the only annotation output whose cost is O(text) rather
+     * than O(audio) — the one artifact a cheap phone can always deliver. */
+    elan: r(!annWhy, annWhy),
+    // SayMore's convention IS the audio filename, so this one genuinely needs the recording.
+    saymore: r(!annWhy && hasAudio, annWhy || 'noAudio'),
+    // The one output that refuses rather than degrades: a listening page with no sound in it.
+    preview: r(!annWhy && hasAudio && caps.preview, annWhy || (!hasAudio ? 'noAudio' : 'tooBig')),
+    // Never refused for size — above the ceiling it is simply built text-only.
+    fxpa: r(!empty, 'noText'),
+    fxpaAudio: !empty && hasAudio && caps.fxpaAudio,
+  };
+}
+
+/* ⚠ AN EAF WITH OVERLAPPING OR BACKWARD TIMES IS INVALID, and an "is anything aligned?" check reads
+ * green for one. segmentsFromOffsets clamps monotonic on the way IN, but serializeEaf reads phrase
+ * offsets directly — so a foreign file whose phrases overlap (merged in ELAN, hand-edited, written
+ * by a tool with its own ideas) sails past an aligned check and produces a file ELAN will not open.
+ * Checking here greys the row BEFORE the build instead of failing after it. */
+export function alignmentIsOrdered(rows) {
+  let prevEnd = -Infinity;
+  for (const r of rows || []) {
+    if (!isAligned(r.span)) continue;
+    if (r.span.start < prevEnd) return false;
+    prevEnd = r.span.end;
+  }
+  return true;
+}
+
+/* ⚠ DO THE TWO FILES BELONG TOGETHER? (Seth: "check to make sure the duration matches what's in
+ * [the EAF] if there's a way to do that.") There is: the last aligned phrase cannot end after the
+ * recording stops. A loose-file tool is the one place this can go wrong silently — the Files ▾ menu
+ * gets its pair from a manifest, this gets it from two file pickers — and the failure is a
+ * well-formed archival bundle that is quietly about a different recording.
+ *
+ * Returns 'ok' | 'short' (audio ends before the text does — likely the wrong file) | 'unknown'.
+ * A recording LONGER than the text is normal (trailing silence), so it is never flagged.
+ */
+export function durationVerdict({ spanEndMs = 0, durationMs = 0, tolerantMs = 1500 } = {}) {
+  if (!(durationMs > 0) || !(spanEndMs > 0)) return 'unknown';
+  return spanEndMs > durationMs + tolerantMs ? 'short' : 'ok';
+}
+
+/* Build ONE conversion, exactly as the Files ▾ menu builds its rows.
+ *
+ * @param kind        'elan' | 'saymore' | 'preview' | 'fxpa' | 'flextext'
+ * @param convertWav  async (blob) => Blob|null — the caller's converter (convert.js is outside this
+ *                    module's dependency rules). null/throw ⇒ the original rides and 'lossyTiming'
+ *                    is noted, rather than the whole build dying on an undecodable file.
+ * @returns { entries, zip, saveName, notes }  notes are REASON CODES, never sentences.
+ */
+export async function buildLooseConversion({ kind, doc, base = 'text', title = '',
+                                             flextextBlob = null, audio = null, plan = null,
+                                             vern = 'und', anal = 'en', convertWav = null,
+                                             onPhase = null } = {}) {
+  const say = (p) => { try { onPhase && onPhase(p); } catch { /* a progress hook must never break a build */ } };
+  const notes = [];
+
+  if (kind === 'flextext') {
+    return { entries: [{ name: base + '.flextext', data: flextextBlob }], zip: false,
+             saveName: base + '.flextext', notes };
+  }
+
+  // ── the working copy, exactly as the device makes one: WAV rides as-is, lossy is converted and
+  // the derived file carries the BWF bext chunk naming its origin (assembleSegEntries does that).
+  let segMedia = null, media = null;
+  if (audio && audio.blob) {
+    media = { blob: audio.blob, mimeType: audio.mimeType || 'audio/*', name: audio.name };
+    const isWav = /\.wav$/i.test(audio.name || '') || /wav$/i.test(audio.mimeType || '');
+    if (isWav) {
+      segMedia = { blob: audio.blob, mimeType: 'audio/wav', name: audio.name, derived: false };
+    } else if (convertWav) {
+      say('converting');
+      let wav = null;
+      try { wav = await convertWav(audio.blob); } catch { wav = null; }
+      if (wav) segMedia = { blob: wav, mimeType: 'audio/wav', name: audio.name, derived: true, srcName: audio.name || '' };
+      else {
+        /* ⚠ AN UNDECODABLE FILE MUST NOT KILL THE BUILD — AAC on a browser without the codec, AIFF,
+         * a truncated copy. The recording still ships and the annotations still reference it; what
+         * is lost is the WAV working copy, and the note says exactly that. */
+        segMedia = { blob: audio.blob, mimeType: audio.mimeType || 'audio/*', name: audio.name, derived: false };
+        notes.push('lossyTiming');
+      }
+    } else {
+      segMedia = { blob: audio.blob, mimeType: audio.mimeType || 'audio/*', name: audio.name, derived: false };
+      notes.push('lossyTiming');
+    }
+  }
+
+  // ── TEXT-ONLY ELAN: no recording in hand. assembleSegEntries gates its whole annotation block on
+  // media && segMedia, so this is built directly rather than by relaxing a gate five apps rely on.
+  if (kind === 'elan' && !segMedia) {
+    say('annotations');
+    const o = { vern, anal, mediaName: '', mediaMime: '' };
+    notes.push('eafNoMedia');
+    return {
+      entries: [
+        { name: base + '.eaf', data: new Blob([serializeEaf(doc, { ...o, profile: 'flex' })], { type: 'application/xml' }) },
+        { name: base + '.pfsx', data: new Blob([serializeEafPrefs({ ...o, profile: 'flex' })], { type: 'application/xml' }) },
+      ],
+      zip: true, saveName: `${base} ELAN.zip`, notes,
+    };
+  }
+
+  /* ⚠ THE WANT/FULL TABLE IS THE MENU'S, verbatim (researcher-panel.js:1842,1851): preview and fxpa
+   * are the embedded-audio outputs and need `full`; the ELAN/SayMore zips match what an upload
+   * bundle carries. Diverging here is how two surfaces start producing different files from the
+   * same inputs. */
+  const wants = { elan: { eaf: true }, saymore: { saymore: true },
+                  preview: { preview: true }, fxpa: { fxpa: true } }[kind];
+  if (!wants) return { entries: [], zip: false, saveName: '', notes };
+  const full = kind === 'preview' || kind === 'fxpa';
+
+  // An oversized .fxpa is built WITHOUT audio rather than refused — dropping the media IS the
+  // mechanism, exactly as the menu does it (researcher-panel.js:1847).
+  const dropAudio = kind === 'fxpa' && plan && !plan.fxpaAudio;
+  if (dropAudio && media) notes.push('fxpaNoAudio');
+
+  say(kind === 'preview' || kind === 'fxpa' ? 'embedding' : 'annotations');
+  const entries = await assembleSegEntries({
+    doc, title, base, vern, anal, wants, full,
+    media: dropAudio ? null : media, segMedia: dropAudio ? null : segMedia,
+  });
+
+  /* The ORIGINAL recording rides only where an annotation file references it BY NAME. The derived
+   * WAV is pushed by the assembler itself; this covers the already-WAV case, which it does not —
+   * the same patch the menu carries at researcher-panel.js:1823, and gated the same way so a
+   * preview-only or fxpa-only build does not drag the whole file along for nothing. */
+  if (segMedia && !segMedia.derived && (kind === 'elan' || kind === 'saymore')) {
+    entries.push({ name: mediaNameFor(base, segMedia), data: audio.blob });
+  }
+
+  if (kind === 'elan' || kind === 'saymore') {
+    return { entries, zip: true, saveName: `${base} ${kind === 'elan' ? 'ELAN' : 'SayMore'}.zip`, notes };
+  }
+  const one = entries.find((x) => (kind === 'preview' ? /\.preview\.html$/i : /\.fxpa$/i).test(x.name));
+  return { entries: one ? [one] : [], zip: false, saveName: one ? one.name : '', notes };
 }

@@ -37,3 +37,25 @@ apps/*/public/
 
 # npm deps for local test tooling (linkedom for DOM-in-node parser tests) — never served, never committed
 node_modules/
+
+# ── Credentials and other people's data — NEVER tracked (Seth, 2026-08-15) ────────────────────
+# A push to a public repo is irreversible: the blob is cloned, cached and indexed the moment it
+# lands, and deleting it later removes nothing. ./check-secrets.sh refuses these at push time; this
+# list is the belt to that braces, so a stray copy is not even offered in `git status`.
+*.onestory
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.ppk
+.env
+.env.*
+.dev.vars
+.netrc
+credentials.json
+service-account*.json
+!*.example
+!*.sample
+!*.template

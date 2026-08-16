@@ -238,6 +238,11 @@ almost never needs to change:
   (EAF/flextext/preview/bext, includes pinned regressions from adversarial audits),
   `loose-conversions` (the Utilities converter, asserted as PARITY with the Files ▾ menu),
   `version-sync` (release gate), `worker-*` (auth boundaries, seclog).
+- **Before your first push: `./install-hooks.sh`.** It installs `hooks/pre-push`, which refuses a
+  push carrying a credential (`./check-secrets.sh`), one that touches `.github/workflows/`
+  (billable), or one aimed at a production branch. The first has no override on purpose; the other
+  two take `ALLOW_WORKFLOW_PUSH=1` / `ALLOW_MAIN_PUSH=1`. The installer never overwrites a hook you
+  already have — it shows a diff and stops. `test/secret-guard.test.mjs` keeps the guard honest.
 - `test/browser/*.playwright.mjs` — real-browser checks, run deliberately (they need a server and
   Chromium), not part of the node suite. They exist for the half node cannot reach: wiring, decode,
   downloads. `loose-exporter` found a `new DataView(Uint8Array)` throw that a `catch` was swallowing

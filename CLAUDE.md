@@ -578,3 +578,44 @@ Git LFS; publish private Packages; or change the plan / budgets. The local
 `.git/hooks/pre-push` blocks workflow pushes (override `ALLOW_WORKFLOW_PUSH=1`) and
 production-branch pushes (`ALLOW_MAIN_PUSH=1`) — set those flags only after Seth approves
 that specific push.
+
+---
+
+## 🔐 SECRETS NEVER GO IN — the guard, and why it has no override (Seth, 2026-08-15)
+
+> *"Let's have more careful guards to make sure we check for and don't upload secrets publicly in
+> the future."* — after credentials in a OneStory project file sat in a public repo.
+
+**A push to a public repo is irreversible.** The moment it lands it is cloned, cached and indexed;
+deleting the file afterwards removes **nothing** (the blob stays fetchable until the history is
+rewritten), and the credential has to be rotated whatever you do next. There is exactly one cheap
+moment, and it is before the bytes leave. So:
+
+- **`./check-secrets.sh`** — scans for credential FORMATS (PEM headers, `ghp_`/`github_pat_`, AWS
+  key ids, Google API keys and service-account JSON, Slack/Stripe/SendGrid tokens, credentials
+  inside a URL) and for FILE TYPES that exist to hold secrets or other people's personal data
+  (`.onestory`, `.env`, `.dev.vars`, `*.pem|key|p12|pfx|jks`, `credentials.json`, …).
+  `--staged` for a pre-commit check, `--range A..B` for what a push would send, no args for the
+  whole tracked tree.
+- **`hooks/pre-push`** (tracked) carries all three guards — secrets, workflows, production — and
+  **`./install-hooks.sh`** copies it into `.git/hooks`. ⚠ The installer **never overwrites an
+  existing hook**; it prints a diff and stops, because Seth's Mac already has one and silently
+  replacing it would be a guard-changing act disguised as setup.
+- **`test/secret-guard.test.mjs`** pins the three ways this rots into decoration: the scan's exit
+  code not reaching git, an override appearing on the secrets check, and the self-reference
+  exemption growing a DIRECTORY. That last one is not hypothetical — the list shipped with
+  `plans/*` in it for about ten minutes, and the first version of the assertion passed anyway.
+
+**⚠ The workflow and production guards have overrides; the secrets guard deliberately does not.**
+Those two are POLICY — Seth approves a specific push. A leaked key is not policy, and *"I know what
+I'm doing"* is the one thing every leaked key has in common. If something legitimate trips it, widen
+`OK_NAMES` in `check-secrets.sh` **in the commit that needs it**, where a reviewer can see the
+exception, rather than letting it live in someone's `--no-verify` habit.
+
+**⚠ And keep it narrow.** It matches key FORMATS, never the words "password" or "secret", which
+appear all over legitimate source. This repo's own rule, from its tests: *a check that cries wolf
+gets muted, which is worse than no check.*
+
+**On GitHub, per repo** (free on public repos, and Seth's to switch on): **Secret scanning** ON and
+**Push protection** ON. Push protection is the half that blocks the push; scanning alone only tells
+you after the bytes are already public.

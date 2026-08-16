@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# The pre-push guards, TRACKED so they can be reviewed and reinstalled.
+#
+# ⚠ .git/hooks IS NOT VERSION CONTROLLED, which is why this lives here and ./install-hooks.sh copies
+# it in. A guard that exists only on one laptop protects only that laptop — and this repo is pushed
+# from Seth's Mac, a KDE VM, and remote-execution containers.
+#
+# Three guards, in cost order — cheapest refusal first:
+#   1. SECRETS      — a credential pushed to a public repo cannot be unpublished. No override.
+#   2. WORKFLOWS    — .github/workflows changes can incur GitHub billing (CLAUDE.md's cost policy).
+#   3. PRODUCTION   — productionWeb is the live site field translators load.
+#
+# Overrides exist for 2 and 3 because they are POLICY (Seth approves a specific push), and
+# deliberately NOT for 1, because "I know what I'm doing" is what every leaked key has in common.
+# Genuinely need an exception? Widen OK_NAMES in check-secrets.sh, in the commit that needs it,
+# where a reviewer can see it.
+
+set -uo pipefail
+repo="$(git rev-parse --show-toplevel)"
+remote_ref="${2:-}"
+
+# ── 1. SECRETS ────────────────────────────────────────────────────────────────────────────────
+# Scan the commits actually being pushed, not the whole tree: fast, and it is what is leaving.
+if [ -x "$repo/check-secrets.sh" ]; then
+  range=""
+  while read -r _local_ref _local_sha remote_name remote_sha; do
+    [ -n "${_local_sha:-}" ] || continue
+    case "$_local_sha" in *[!0]*) ;; *) continue ;; esac      # all-zeroes = a branch DELETE
+    case "${remote_sha:-}" in
+      ''|*[!0-9a-f]*) range="" ;;
+      *[!0]*) range="$remote_sha..$_local_sha" ;;             # existing branch: just the new commits
+      *)      range="" ;;                                      # new branch: no baseline, scan tracked
+    esac
+    if [ -n "$range" ]; then
+      "$repo/check-secrets.sh" --range "$range" || exit 1
+    else
+      "$repo/check-secrets.sh" || exit 1
+    fi
+  done
+  # No stdin (e.g. run by hand): fall back to scanning everything tracked.
+  [ -n "${range:-}" ] || "$repo/check-secrets.sh" >/dev/null || { "$repo/check-secrets.sh"; exit 1; }
+fi
+
+# ── 2. WORKFLOWS (billable — CLAUDE.md) ───────────────────────────────────────────────────────
+if [ "${ALLOW_WORKFLOW_PUSH:-0}" != "1" ]; then
+  if git diff --name-only "@{push}..HEAD" 2>/dev/null | grep -q '^\.github/workflows/' \
+     || git diff --name-only origin/HEAD..HEAD 2>/dev/null | grep -q '^\.github/workflows/'; then
+    echo "pre-push: this push changes .github/workflows/ — Actions minutes can be BILLABLE." >&2
+    echo "          Get Seth's OK with a cost estimate, then: ALLOW_WORKFLOW_PUSH=1 git push …" >&2
+    exit 1
+  fi
+fi
+
+# ── 3. PRODUCTION ─────────────────────────────────────────────────────────────────────────────
+case "$remote_ref" in
+  *productionWeb*|*refs/heads/main*)
+    if [ "${ALLOW_MAIN_PUSH:-0}" != "1" ]; then
+      echo "pre-push: refusing to push a production branch without an explicit go-ahead." >&2
+      echo "          productionWeb is the live site field translators load." >&2
+      echo "          With Seth's test-drive sign-off: ALLOW_MAIN_PUSH=1 git push origin productionWeb" >&2
+      exit 1
+    fi ;;
+esac
+
+exit 0

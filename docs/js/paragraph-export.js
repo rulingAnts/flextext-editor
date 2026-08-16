@@ -279,7 +279,7 @@ footer { padding:10px 14px; color:var(--muted); font-size:12px; border-top:1px s
   </div>` : ''}
 </header>
 <main>${body}</main>
-<footer>Read-only view — expand or collapse the brackets to explore the structure. Made with the Flextext Paragraph Analysis Tool.</footer>
+<footer>Read-only view — expand or collapse the brackets to explore the structure.${audioB64 ? ' Press the space bar to play or pause; the page follows the line being played.' : ''} Made with the Flextext Paragraph Analysis Tool.</footer>
 ${audioB64 ? `<script>
 (function () {
   var b = atob("${audioB64}"), u = new Uint8Array(b.length);
@@ -329,6 +329,59 @@ ${audioB64 ? `<script>
     audio.currentTime = ((now > s && now < e - 150) ? now : s) / 1000;
     audio.play().catch(function () {});
   }
+  /* ── SPACE = PLAY/PAUSE, and the view FOLLOWS the playing line ────────────────────────────────
+   * Seth, 2026-08-15, for every listening page the suite exports, "on the model of what we already
+   * have for various editor tabs and paragraph analysis tool". Same recipe as the editor's
+   * segment-strips.js followLine(), and the same one now in buildSegPreviewHtml: scroll only on a
+   * line CHANGE, only while PLAYING, only when off screen, never within 4s of a manual scroll. */
+  var lastUserScroll = 0, followRow = null;
+  ["wheel", "touchmove"].forEach(function (ev) {
+    // Only gestures that MOVE THE VIEWPORT count. A click is not "stop following me".
+    window.addEventListener(ev, function () { lastUserScroll = Date.now(); }, { passive: true });
+  });
+  function headRoom() {
+    var h = document.querySelector("header");
+    return h ? Math.max(0, h.getBoundingClientRect().bottom) : 0;   // sticky; height varies with wrap
+  }
+  function follow(row) {
+    if (row === followRow) return;
+    followRow = row;
+    /* ⚠ A ROW INSIDE A COLLAPSED GROUP IS NOT SOMEWHERE TO SCROLL. The .collapsed > .kids rule is
+     * display:none, so such a row has a zero-size rect that reads as "above the fold" and would
+     * trigger a scroll to nothing — the reader collapses a bracket and the page starts lurching on
+     * lines they deliberately hid. offsetParent is null for anything in a hidden ancestor, which is
+     * exactly the test (the editor uses it for the same reason in takeReveal). */
+    if (!row.offsetParent) return;
+    if (Date.now() - lastUserScroll > 4000) {
+      var r = row.getBoundingClientRect();
+      if (r.top < headRoom() || r.bottom > window.innerHeight - 20) {
+        row.scrollIntoView({ block: "center", behavior: "smooth" });
+      }
+    }
+  }
+
+  /* ⚠ preventDefault IS THE FEATURE: Space scrolls the document, and Space on a FOCUSED BUTTON
+   * re-activates it — so after clicking a line's ▶ (or a collapse caret), Space would press that
+   * button again instead of pausing. The editor shipped exactly that bug once and fixed it this
+   * way. The typing guard is carried over for the day this page grows a field. */
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key !== " " && ev.code !== "Space") return;
+    if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    var el = ev.target;
+    if (el && el.closest && el.closest("input, textarea, select, [contenteditable]")) return;
+    ev.preventDefault();
+    if (!audio.paused) { audio.pause(); return; }
+    /* ⚠ An armed span the playhead has LEFT is stale — drop it. Keeping it either makes the key do
+     * nothing (play() at a finished span's boundary is undone by timeupdate on the next frame) or
+     * overrides a deliberate scrub by snapping back to a line the reader moved away from. Dropping
+     * it gives the app's rule: pause in place, resume from the playhead. */
+    if (stopAt && active) {
+      var now = audio.currentTime * 1000;
+      if (!(now >= active[0] && now < active[1] - 20)) { stopAt = 0; active = null; }
+    }
+    audio.play().catch(function () {});
+  });
+
   document.addEventListener("click", function (ev) {
     var b = ev.target.closest("button.play");
     if (b && b.id !== "master") { ev.stopPropagation(); playSpan(+b.dataset.s, +b.dataset.e); return; }
@@ -351,11 +404,15 @@ ${audioB64 ? `<script>
     if (cur && o && T) cur.style.left = (Math.min(1, t / T) * o.clientWidth) + "px";
     var tm = document.getElementById("time"); if (tm && T) tm.textContent = clock(t) + " / " + clock(T);
     var m = document.getElementById("master"); if (m) m.textContent = (!audio.paused && !stopAt) ? "⏸" : "▶";
-    var rows = document.querySelectorAll(".row[data-s]");
+    var rows = document.querySelectorAll(".row[data-s]"), onRow = null;
     for (var i = 0; i < rows.length; i++) {
       var s = +rows[i].dataset.s, e = +rows[i].dataset.e;
-      rows[i].classList.toggle("on", t >= s && t < e);
+      var inSeg = t >= s && t < e;
+      if (inSeg) onRow = rows[i];
+      rows[i].classList.toggle("on", inSeg);
     }
+    // ⚠ Only while PLAYING — this loop runs regardless, and the overview scrubs while paused.
+    if (onRow && !audio.paused) follow(onRow);
     requestAnimationFrame(tick);
   })();
 })();

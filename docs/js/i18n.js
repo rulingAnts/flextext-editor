@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v379';
+export const ENGINE_VERSION = 'v380';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v379';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = '';
+export const BUILD_TAG = 'interlinear-html v1';
 
 const S = {
 en: {
@@ -607,13 +607,18 @@ en: {
   'exp.row.elan': 'ELAN package (.zip)',
   'exp.row.saymore': 'SayMore package (.zip)',
   'exp.row.preview': 'Listening page (.html)',
+  /* The SAME row, renamed for its text-only flavor (Seth, 2026-08-16): with no recording — or no
+   * alignment to cut one by — a click builds a readable interlinear page instead of refusing. */
+  'exp.row.previewText': 'Interlinear page (.html)',
   'exp.row.fxpa': 'Paragraph analysis (.fxpa)',
   'exp.row.flextext': 'The .flextext file',
   'exp.sub.elan': 'EAF + tier order + WAV — built here, on click',
   'exp.sub.saymore': 'annotations.eaf + WAV — built here, on click',
   'exp.sub.preview': 'plays line by line, audio embedded — works offline',
+  'exp.sub.previewText': 'the text as a readable page — words, glosses, free translations; no recording embedded',
   'exp.sub.fxpa': 'for pat.flextext.app; text-only when unaligned',
   'exp.sub.flextext': 'saved back exactly as you gave it — nothing re-written',
+  'exp.noAlignAudio': 'This flextext has no audio alignment, so the recording you chose cannot be embedded or segmented — the timed exports stay unavailable and the page builds as text only. If you expected timings, check you picked the right .flextext.',
   'exp.phase.converting': 'converting the recording to WAV…',
   'exp.phase.annotations': 'writing the annotations…',
   // The embedded-audio outputs (listening page, .fxpa) — the slow step on a long recording, so it
@@ -2220,13 +2225,16 @@ id: {
   'exp.row.elan': 'Paket ELAN (.zip)',
   'exp.row.saymore': 'Paket SayMore (.zip)',
   'exp.row.preview': 'Halaman dengar (.html)',
+  'exp.row.previewText': 'Halaman interlinear (.html)',
   'exp.row.fxpa': 'Analisis paragraf (.fxpa)',
   'exp.row.flextext': 'Berkas .flextext-nya',
   'exp.sub.elan': 'EAF + urutan tier + WAV — dibuat di sini saat diklik',
   'exp.sub.saymore': 'annotations.eaf + WAV — dibuat di sini saat diklik',
   'exp.sub.preview': 'memutar baris demi baris, audio tertanam — bekerja luring',
+  'exp.sub.previewText': 'teks sebagai halaman yang bisa dibaca — kata, glosa, terjemahan bebas; tanpa rekaman tertanam',
   'exp.sub.fxpa': 'untuk pat.flextext.app; hanya teks bila belum selaras',
   'exp.sub.flextext': 'disimpan persis seperti yang Anda berikan — tidak ditulis ulang',
+  'exp.noAlignAudio': 'Flextext ini belum punya penyelarasan audio, jadi rekaman yang Anda pilih tidak bisa ditanam atau disegmentasi — ekspor berwaktu tetap tidak tersedia dan halamannya dibuat hanya teks. Jika Anda mengharapkan waktu, periksa apakah .flextext yang dipilih sudah benar.',
   'exp.phase.converting': 'mengubah rekaman menjadi WAV…',
   'exp.phase.annotations': 'menulis anotasi…',
   'exp.phase.embedding': 'menanam rekaman ke dalam berkas…',

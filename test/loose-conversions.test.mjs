@@ -49,12 +49,29 @@ console.log('\nwhich rows a pair can produce — the Files ▾ logic, on loose f
   ok(noAudio.elan.ok, 'NO audio still offers the ELAN package — serializeEaf needs times, not sound');
   ok(!noAudio.saymore.ok && noAudio.saymore.reason === 'noAudio',
      '…but not SayMore, whose whole convention is the audio filename');
-  ok(!noAudio.preview.ok && noAudio.preview.reason === 'noAudio', '…nor a listening page with nothing to listen to');
+  /* v380 (Seth, 2026-08-16): the preview row now DEGRADES like the .fxpa instead of refusing — a
+   * text-only INTERLINEAR page. Until v379 this refused with 'noAudio'; the refusal is retired. */
+  ok(noAudio.preview.ok && !noAudio.previewEmbed,
+     '…and the listening page degrades to a text-only interlinear page rather than refusing');
+  ok(!noAudio.audioUnaligned, 'with no recording supplied there is nothing to complain about');
   ok(noAudio.fxpa.ok && !noAudio.fxpaAudio, '…and the .fxpa rides text-only');
 
   const noTimes = loosePlan({ doc: untimed, hasAudio: true, audioBytes: 1000, isWav: true });
   ok(!noTimes.elan.ok && noTimes.elan.reason === 'noAlign', 'an UNALIGNED text cannot make an EAF');
+  ok(noTimes.preview.ok && !noTimes.previewEmbed, 'its page is the interlinear flavor too — nothing to segment by');
+  /* ⚠ THE COMPLAINT Seth asked for by name: a recording was supplied that nothing can use. The
+   * commonest cause is picking the wrong flextext, and silence would read as "it worked". */
+  ok(noTimes.audioUnaligned === true, 'and the supplied-but-unusable recording is FLAGGED for the UIs to warn about');
   ok(noTimes.fxpa.ok, '…but still makes a .fxpa — grouping is what that file is for');
+
+  const withEmbed = loosePlan({ doc: timed, hasAudio: true, audioBytes: 2_000_000, isWav: true });
+  ok(withEmbed.previewEmbed === true && !withEmbed.audioUnaligned,
+     'aligned text + usable recording is the LISTENING flavor, with no complaint');
+  /* The pinned v346 rule survives the new flavor: when the recording COULD embed but is over the
+   * decode ceiling, the row refuses rather than quietly handing over a silent page. */
+  const over = loosePlan({ doc: timed, hasAudio: true, audioBytes: 300 * 1024 * 1024, isWav: true });
+  ok(!over.preview.ok && over.preview.reason === 'tooBig' && !over.previewEmbed,
+     'an ALIGNED text with an oversized recording still refuses the page — never a silent downgrade');
 
   const none = loosePlan({ doc: empty, hasAudio: true, audioBytes: 1000, isWav: true });
   ok(!none.fxpa.ok && none.fxpa.reason === 'noText' && !none.flextext.ok,
@@ -71,8 +88,15 @@ console.log('\nthe alignment a foreign file can carry, and an EAF cannot');
   ok(!alignmentIsOrdered([{ span: { start: 100, end: 200 } }, { span: { start: 0, end: 50 } }]),
      'and neither is backwards');
   const bad = docOf([phrase('a', 0, 5000), phrase('b', 2000, 6000)]);
-  ok(loosePlan({ doc: bad, hasAudio: true, audioBytes: 1000, isWav: true }).elan.reason === 'badAlign',
-     'so the row is greyed with its own reason BEFORE the build, not after');
+  const badPlan = loosePlan({ doc: bad, hasAudio: true, audioBytes: 1000, isWav: true });
+  ok(badPlan.elan.reason === 'badAlign', 'so the row is greyed with its own reason BEFORE the build, not after');
+  /* ⚠ badAlign is the cell where the two pair complaints OVERLAP — adversarial review executed it:
+   * aligned rows exist, so spanEnd > 0 (here, off the very offsets that are unusable) while
+   * audioUnaligned is true. The UIs give audioUnaligned precedence for exactly this reason; a
+   * "mutually exclusive by construction" comment shipped briefly and was wrong. */
+  ok(badPlan.audioUnaligned === true && badPlan.spanEnd > 0,
+     'badAlign + audio sets BOTH audioUnaligned and a nonzero spanEnd — the warn line must prefer the former');
+  ok(badPlan.preview.ok && !badPlan.previewEmbed, 'and its page degrades to the interlinear flavor');
 }
 
 console.log('\ndo the two files even belong together? (the menu never has to ask; this tool does)');
@@ -99,6 +123,22 @@ console.log('\nPARITY with the Files ▾ menu — the same wants, the same full,
   ok(/const full = kind === 'preview' \|\| kind === 'fxpa';/.test(seg),
      'preview and fxpa are the embedded-audio outputs, exactly as the menu decides it');
   ok(/full: kind === 'preview' \|\| kind === 'fxpa'/.test(panel), '…which is what the menu says too');
+
+  /* Two UI rules that node cannot reach through the DOM, pinned at source level because an
+   * adversarial review CONFIRMED both defects by execution before these gates existed:
+   * 1. The previewText rename is gated on p.ok — a tooBig REFUSAL refuses the LISTENING flavor,
+   *    and renaming the refused row "Interlinear page" beside a too-large-for-audio explanation
+   *    contradicts itself (the text flavor has no audio to be too big).
+   * 2. audioUnaligned WINS the shared warn line — in the badAlign cell both complaints can be true
+   *    and the duration mismatch is computed from the unusable offsets themselves. */
+  const app = readFileSync(new URL('../docs/js/app.js', import.meta.url), 'utf8');
+  for (const [name, src] of [['editor', app], ['panel', panel]]) {
+    ok(/kind === 'preview' && p\.ok && !st\.plan\.previewEmbed/.test(src),
+       `the ${name} gates the Interlinear rename on p.ok — a refused row keeps the listening-page name`);
+    ok(/if \(st\.plan\.audioUnaligned\)/.test(src)
+       && !/if \(verdict === 'short'\)[\s\S]{0,400}else if \(st\.plan\.audioUnaligned\)/.test(src),
+       `and the ${name}'s warn line checks audioUnaligned FIRST, never as the else of 'short'`);
+  }
 }
 
 console.log('\nwhat actually comes out');
@@ -134,6 +174,42 @@ console.log('\nwhat actually comes out');
   const ft = await buildLooseConversion({ kind: 'flextext', base: 'Story', flextextBlob: blob(5) });
   ok(!ft.zip && ft.saveName === 'Story.flextext' && ft.entries[0].data.size === 5,
      'and the .flextext passes through byte-for-byte — never re-serialized');
+}
+
+/* v380 (Seth, 2026-08-16): the preview's text-only flavor — "a similar mode for preview html that we
+ * have for fxpa". The renamed artifact is the INTERLINEAR page: same rows, readable document, no
+ * player and no script pointing at absent sound. */
+console.log('\nthe text-only INTERLINEAR page');
+{
+  const noPlan = loosePlan({ doc: timed, hasAudio: false });
+  const dry = await buildLooseConversion({ kind: 'preview', doc: timed, base: 'Story', title: 'Story', plan: noPlan });
+  ok(!dry.zip && dry.saveName === 'Story.interlinear.html' && dry.entries.length === 1,
+     `no recording ⇒ a single .interlinear.html (${dry.saveName})`);
+  const html = await dry.entries[0].data.text();
+  ok(!/<script>/.test(html) && !/id="ov"/.test(html) && !/class="play"/.test(html),
+     'with NO player, NO script and NO dead play buttons — a document, not a broken app');
+  ok(/class="words"/.test(html) && /interlinear/.test(html), 'the interlinear rows are all there, and the page names itself');
+  ok(dry.notes.length === 0, 'and no complaint — nothing was supplied that went unused');
+
+  /* A recording supplied that the text cannot align: build the page anyway (never block), but the
+   * build SAYS the audio was left out — a silent omission of sound someone handed us reads as
+   * "it worked" (Seth: "warn/complain if the user supplied an audio file in this case"). */
+  const unal = loosePlan({ doc: untimed, hasAudio: true, audioBytes: 1000, isWav: true });
+  let converted = false;
+  const warned = await buildLooseConversion({ kind: 'preview', doc: untimed, base: 'S', title: 'S',
+    audio: { blob: blob(1000), name: 'story.m4a', mimeType: 'audio/x-m4a' }, plan: unal,
+    convertWav: async () => { converted = true; return blob(1); } });
+  ok(warned.saveName === 'S.interlinear.html' && warned.notes.includes('previewNoAudio'),
+     'unaligned text + a recording ⇒ interlinear page WITH the previewNoAudio note');
+  ok(converted === false,
+     '⚠ and the recording was never converted to WAV — minutes of decode for a file the page will not contain');
+
+  // The embed flavor is untouched: same name, same script, exactly as before this mode existed.
+  const wav = { blob: blob(1000), name: 'story.wav', mimeType: 'audio/wav' };
+  const plan = loosePlan({ doc: timed, hasAudio: true, audioBytes: 1000, isWav: true });
+  const listen = await buildLooseConversion({ kind: 'preview', doc: timed, base: 'Story', title: 'Story', audio: wav, plan });
+  ok(listen.saveName === 'Story.preview.html' && /<script>/.test(await listen.entries[0].data.text()),
+     'while an aligned pair still builds the LISTENING page, script and all');
 }
 
 /* Seth, 2026-08-15: "If there's more than one file, build a ZIP just like our built in converter for
@@ -200,7 +276,8 @@ console.log('\nevery string both surfaces reach for exists in BOTH languages');
   const html = readFileSync(new URL('../docs/index.html', import.meta.url), 'utf8');
   // The literal keys, plus the two that are built by suffix (t('exp.row.' + kind)).
   const keys = new Set([...(app + panel + html).matchAll(/'(exp\.[a-z][a-zA-Z.]*)'/g)].map((m) => m[1]));
-  for (const kind of ['elan', 'saymore', 'preview', 'fxpa', 'flextext']) { keys.add('exp.row.' + kind); keys.add('exp.sub.' + kind); }
+  // previewText is the preview row's text-only flavor — reached via rowKey, so no literal to scrape.
+  for (const kind of ['elan', 'saymore', 'preview', 'previewText', 'fxpa', 'flextext']) { keys.add('exp.row.' + kind); keys.add('exp.sub.' + kind); }
   /* ⚠ DERIVE THE PHASE CODES FROM THE SOURCE, never from a list typed here. The first version of
    * this test matched `say('code')` and so missed `say(cond ? 'embedding' : 'annotations')` —
    * 'embedding' was emitted with no string behind it, and the status line would have shown the raw

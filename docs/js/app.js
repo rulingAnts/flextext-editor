@@ -5962,10 +5962,20 @@ function wireFileExporter() {
       ft: st.ftName, lines: st.plan.rows, aligned: st.plan.alignedRows,
       audio: a ? `${a.name} (${sizeFmt(a.size)})` : t('exp.noAudioYet'),
     });
-    // The mismatch warning — prominent, never blocking: the user may know something we do not.
+    /* TWO pair-level complaints share this one line, and audioUnaligned WINS. They are NOT mutually
+     * exclusive — an earlier version claimed so and an adversarial review executed the
+     * counterexample: a badAlign text (overlapping offsets) has aligned rows, so spanEnd > 0 and
+     * the duration verdict can read 'short' at the same time. But that spanEnd was computed from
+     * the very offsets that are unusable, so the mismatch message would be built on garbage and
+     * would displace the one sentence that explains the state. Neither blocks — the user may know
+     * something we do not. */
     const verdict = a ? durationVerdict({ spanEndMs: st.plan.spanEnd, durationMs: a.durationMs }) : 'unknown';
-    warnEl.hidden = verdict !== 'short';
-    if (verdict === 'short') {
+    warnEl.hidden = !(verdict === 'short' || st.plan.audioUnaligned);
+    if (st.plan.audioUnaligned) {
+      // Seth, 2026-08-16: a recording was supplied that nothing here can use — say so loudly.
+      warnEl.textContent = t('exp.noAlignAudio');
+      warnEl.className = 'note rp-ex-msg rp-as-warn';
+    } else if (verdict === 'short') {
       warnEl.textContent = t('exp.mismatch', { text: fmtClockMs(st.plan.spanEnd), audio: fmtClockMs(a.durationMs) });
       warnEl.className = 'note rp-ex-msg rp-as-warn';
     }
@@ -5973,11 +5983,18 @@ function wireFileExporter() {
     rowsEl.innerHTML = '';
     for (const kind of ['elan', 'saymore', 'preview', 'fxpa', 'flextext']) {
       const p = st.plan[kind];
+      /* The preview row is honest about which flavor a click will build: the LISTENING page when
+       * the recording embeds, the text-only INTERLINEAR page otherwise (Seth, 2026-08-16).
+       * ⚠ p.ok GATES THE RENAME. A REFUSED row keeps the listening-page name, because the refused
+       * flavor IS the listening page — tooBig refuses embedding, and an "Interlinear page" labelled
+       * too-large-for-audio would contradict itself (the text flavor has no audio to be too big).
+       * Caught by adversarial review; the same fix lives in researcher-panel.js. */
+      const rowKey = kind === 'preview' && p.ok && !st.plan.previewEmbed ? 'previewText' : kind;
       const row = document.createElement('div');
       row.className = 'rp-dl-item' + (p.ok ? '' : ' rp-dl-pending');
-      const sub = p.ok ? t('exp.sub.' + kind) : why(p.reason);
+      const sub = p.ok ? t('exp.sub.' + rowKey) : why(p.reason);
       row.innerHTML = '<span class="rp-dl-name"></span><span class="rp-dl-sub"></span>';
-      row.querySelector('.rp-dl-name').textContent = t('exp.row.' + kind);
+      row.querySelector('.rp-dl-name').textContent = t('exp.row.' + rowKey);
       row.querySelector('.rp-dl-sub').textContent = sub;
       if (p.ok) {
         row.setAttribute('role', 'button');
@@ -6014,7 +6031,7 @@ function wireFileExporter() {
       setTimeout(() => URL.revokeObjectURL(a.href), 30000);
       const notes = (r.notes || []).map((n) => ({
         lossyTiming: t('panel.dl.lossyTiming'), fxpaNoAudio: t('panel.dl.fxpaNoAudioSub'),
-        eafNoMedia: t('exp.eafNoMedia'),
+        eafNoMedia: t('exp.eafNoMedia'), previewNoAudio: t('exp.noAlignAudio'),
       }[n])).filter(Boolean);
       say(t('exp.done', { name: r.saveName }) + (notes.length ? ' ' + notes.join(' ') : ''), 'ok');
     } catch (err) {

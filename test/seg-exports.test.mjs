@@ -246,6 +246,24 @@ console.log('preview page');
   ok(html.includes('requestAnimationFrame'), 'v2: live playhead cursors');
 }
 
+console.log('interlinear page (the preview with NO audio — v380, the fxpa treatment)');
+{
+  /* One generator, two flavors. The text-only flavor must be a DOCUMENT: no script, no player, no
+   * disabled play buttons pointing at sound that is not there. A second template would drift from
+   * the listening page word by word, which is why this is a branch and this test pins the branch. */
+  const html = buildSegPreviewHtml(segDoc(), { title: 'Kisah <A&B>' });
+  ok(html.includes('Kisah &lt;A&amp;B&gt;'), 'title escaped, same as the audio flavor');
+  ok(!html.includes('<script>'), 'NO script at all — nothing to run');
+  ok(!html.includes('id="ov"') && !html.includes('class="play"') && !html.includes('class="rw"'),
+     'no player, no play buttons, no wave canvases');
+  ok(html.includes('class="words"') && html.includes('(blank line)'),
+     'the interlinear rows and blank-line placeholders all survive');
+  ok(html.includes('— interlinear'), 'the page titles itself interlinear, not segments');
+  ok(!/https?:\/\//.test(html.replace(/xmlns[^"]*"[^"]*"/g, '')), 'still fully self-contained');
+  // Times are DATA, not controls: an aligned doc keeps its clock labels even with no audio.
+  ok(html.includes(fmtClock(0)), 'aligned rows keep their time labels');
+}
+
 console.log('bext (derived-WAV provenance in the bytes)');
 {
   // Minimal WAV: RIFF + fmt + data with 4 samples.

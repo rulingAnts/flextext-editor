@@ -4299,19 +4299,26 @@ function fileExporterModal() {
       ft: st.ftName, lines: st.plan.rows, aligned: st.plan.alignedRows,
       audio: a ? `${a.name} (${fmtSize(a.size)})` : t('exp.noAudioYet'),
     });
-    // Prominent, never blocking: the researcher may know something we do not about the pair.
+    /* Prominent, never blocking — and audioUnaligned WINS the shared line. NOT mutually exclusive:
+     * a badAlign text has aligned rows, so spanEnd > 0 and the duration verdict can read 'short'
+     * simultaneously — off offsets that are themselves the unusable part. Same fix as app.js. */
     const verdict = a ? durationVerdict({ spanEndMs: st.plan.spanEnd, durationMs: a.durationMs }) : 'unknown';
-    warnEl.hidden = verdict !== 'short';
-    if (verdict === 'short') warnEl.textContent = t('exp.mismatch', { text: clockMs(st.plan.spanEnd), audio: clockMs(a.durationMs) });
+    warnEl.hidden = !(verdict === 'short' || st.plan.audioUnaligned);
+    if (st.plan.audioUnaligned) warnEl.textContent = t('exp.noAlignAudio');
+    else if (verdict === 'short') warnEl.textContent = t('exp.mismatch', { text: clockMs(st.plan.spanEnd), audio: clockMs(a.durationMs) });
     rowsEl.hidden = false;
     rowsEl.innerHTML = '';
     for (const kind of ['elan', 'saymore', 'preview', 'fxpa', 'flextext']) {
       const p = st.plan[kind];
+      /* Listening page when the recording embeds; text-only Interlinear page otherwise. ⚠ p.ok
+       * gates the rename — a tooBig REFUSAL refuses the LISTENING flavor and must keep its name
+       * (an "Interlinear page" refused for audio size contradicts itself). Same fix as app.js. */
+      const rowKey = kind === 'preview' && p.ok && !st.plan.previewEmbed ? 'previewText' : kind;
       const row = document.createElement('div');
       row.className = 'rp-dl-item' + (p.ok ? '' : ' rp-dl-pending');
       row.innerHTML = '<span class="rp-dl-name"></span><span class="rp-dl-sub"></span>';
-      row.querySelector('.rp-dl-name').textContent = t('exp.row.' + kind);
-      row.querySelector('.rp-dl-sub').textContent = p.ok ? t('exp.sub.' + kind) : why(p.reason);
+      row.querySelector('.rp-dl-name').textContent = t('exp.row.' + rowKey);
+      row.querySelector('.rp-dl-sub').textContent = p.ok ? t('exp.sub.' + rowKey) : why(p.reason);
       if (p.ok) {
         row.setAttribute('role', 'button');
         row.tabIndex = 0;
@@ -4345,7 +4352,7 @@ function fileExporterModal() {
       setTimeout(() => URL.revokeObjectURL(a.href), 60000);
       const notes = (r.notes || []).map((n) => ({
         lossyTiming: t('panel.dl.lossyTiming'), fxpaNoAudio: t('panel.dl.fxpaNoAudioSub'),
-        eafNoMedia: t('exp.eafNoMedia'),
+        eafNoMedia: t('exp.eafNoMedia'), previewNoAudio: t('exp.noAlignAudio'),
       }[n])).filter(Boolean);
       say(t('exp.done', { name: r.saveName }) + (notes.length ? ' ' + notes.join(' ') : ''), 'ok');
     } catch (e) {

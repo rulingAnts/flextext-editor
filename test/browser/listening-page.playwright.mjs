@@ -191,6 +191,25 @@ console.log('\na manual scroll suspends the follow for a few seconds');
   await page.keyboard.press('Space');
 }
 
+console.log('\nthe TEXT-ONLY INTERLINEAR flavor is a working document (v380)');
+{
+  /* Same generator, audioB64:'' — the node suite pins what the string contains; this proves the
+   * page a browser actually renders: rows visible, nothing throws, and no control pretends there
+   * is sound. A parse error in the flavor branch would show up here and nowhere else. */
+  const page2 = join(dir, 'story.interlinear.html');
+  writeFileSync(page2, buildSegPreviewHtml(doc, { title: 'Long Story' }));
+  await page.goto('file://' + page2, { waitUntil: 'load' });
+  await page.waitForTimeout(400);
+  ok((await page.$$('.seg')).length === ROWS, `all ${ROWS} interlinear rows render`);
+  ok((await page.$$('.play, #ov, #mplay')).length === 0, 'and not one play control or canvas exists on the page');
+  ok((await page.textContent('title')).includes('interlinear'), 'the tab names it interlinear');
+  const y0 = await page.evaluate(() => window.scrollY);
+  await page.keyboard.press('Space');
+  await page.waitForTimeout(300);
+  ok((await page.evaluate(() => window.scrollY)) > y0,
+     'Space simply scrolls, as on any document — no handler was shipped to swallow it');
+}
+
 await browser.close();
 console.log(fail ? `\nFAILED (${fail})\n` : '\nall passed\n');
 process.exit(fail ? 1 : 0);

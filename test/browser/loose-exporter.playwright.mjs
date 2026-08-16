@@ -135,8 +135,13 @@ let rows = await rowState();
 ok(rows.length === 5, `five rows, the same five the Files ▾ menu offers (${rows.length})`);
 ok(!rows.some((r) => /^exp\./.test(r.name) || /^exp\./.test(r.sub)), 'every row name and sub is translated');
 ok(!rows[0].off, 'ELAN is offered — an aligned text needs times, not sound');
-ok(rows[1].off && rows[2].off, 'SayMore and the listening page are greyed until a recording is chosen');
-ok(rows[1].sub.length > 10, `…and say why rather than just going dim ("${rows[1].sub}")`);
+ok(rows[1].off, 'SayMore is greyed until a recording is chosen — its convention IS the audio filename');
+ok(rows[1].sub.length > 10, `…and says why rather than just going dim ("${rows[1].sub}")`);
+/* v380: the preview row no longer greys without a recording — it degrades to the text-only
+ * INTERLINEAR flavor, and the ROW SAYS SO before the click (Seth: rename it when there is no
+ * audio segmentation). Same row, honest label. */
+ok(!rows[2].off && /Interlinear/i.test(rows[2].name),
+   `the page row is LIVE and renamed for its text-only flavor ("${rows[2].name}")`);
 ok(!rows[3].off && !rows[4].off, 'the .fxpa and the .flextext passthrough are offered');
 const src = await page.textContent('#ex-src');
 ok(/snakes\.flextext/.test(src) && /3/.test(src), `the source line names the file and what was found in it ("${src}")`);
@@ -184,13 +189,55 @@ const warn = await page.textContent('#ex-warn');
 ok(/0:30/.test(warn) && /0:06/.test(warn), `naming both durations in mm:ss ("${warn}")`);
 ok((await rowState()).every((r) => !r.off), '…and every row is STILL offered — a warning, not a refusal');
 
-console.log('\nan UNALIGNED text can still make the two things that do not need times');
+console.log('\nan UNALIGNED text can still make the things that do not need times');
 await page.setInputFiles('#ex-ft', join(dir, 'plain.flextext'));
 await page.waitForTimeout(500);
 rows = await rowState();
 ok(rows[0].off && rows[1].off, 'no EAF from a text with no audio times');
-ok(!rows[3].off, 'but the .fxpa rides — grouping is what that file is for');
+ok(!rows[2].off && /Interlinear/i.test(rows[2].name), 'the interlinear page rides — it needs only the text');
+ok(!rows[3].off, 'and the .fxpa — grouping is what that file is for');
 ok(!rows[4].off, 'and the .flextext passthrough is never blocked by anything');
+{
+  // The renamed flavor actually downloads, named for what it is.
+  const [dl] = await Promise.all([
+    page.waitForEvent('download', { timeout: 30000 }),
+    page.$$eval('#ex-rows .rp-dl-item', (els) => els[2].click()),
+  ]);
+  ok(/\.interlinear\.html$/.test(dl.suggestedFilename()),
+     `and a click hands over the interlinear page (${dl.suggestedFilename()})`);
+}
+
+console.log('\n⚠ a recording the text cannot use is COMPLAINED about, never blocked on');
+/* Seth, 2026-08-16: "warn/complain if the user supplied an audio file in this case". The commonest
+ * cause is picking the wrong flextext for the recording — silence would read as success. */
+await page.setInputFiles('#ex-audio', wav);
+await page.waitForTimeout(500);
+ok(await page.isVisible('#ex-warn'), 'the warning line shows the moment the unusable pair is complete');
+const unalWarn = await page.textContent('#ex-warn');
+ok(unalWarn.length > 20 && !/^exp\./.test(unalWarn.trim()), `in words, not a raw key ("${unalWarn.slice(0, 60)}…")`);
+rows = await rowState();
+ok(!rows[2].off && /Interlinear/i.test(rows[2].name), 'and the page row stays live, still the text-only flavor');
+ok(rows[1].off, 'while SayMore stays greyed — its annotations.eaf needs the alignment the text lacks');
+
+console.log('\n⚠ the badAlign cell: BOTH complaints are true, and the alignment one wins the line');
+/* Adversarial review executed this counterexample before the fix existed: overlapping offsets give
+ * aligned rows (spanEnd > 0, off the very offsets that are unusable), so the duration verdict reads
+ * 'short' at the same moment audioUnaligned is true. The mismatch sentence would be built on
+ * garbage times AND would displace the one sentence that explains the state. */
+const ftBad = makeFlextext(join(dir, 'bad-align.flextext'), [['a', 0, 5000], ['b', 2000, 60000]]);
+await page.setInputFiles('#ex-ft', ftBad);
+await page.waitForTimeout(500);
+await page.setInputFiles('#ex-audio', wav);
+await page.waitForTimeout(500);
+ok(await page.isVisible('#ex-warn'), 'the warn line shows');
+{
+  const w = await page.textContent('#ex-warn');
+  ok(/alignment/i.test(w) && !/aligned out to/.test(w),
+     `and it is the ALIGNMENT complaint, not a duration mismatch computed from unusable offsets ("${w.slice(0, 60)}…")`);
+  rows = await rowState();
+  ok(rows[0].off && !rows[2].off && /Interlinear/i.test(rows[2].name),
+     'EAF greyed (badAlign), while the page rides as the interlinear flavor');
+}
 
 console.log('\na file that is not a flextext says so instead of failing silently');
 const junk = join(dir, 'notes.flextext');

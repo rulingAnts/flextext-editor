@@ -119,3 +119,57 @@ So its job is **plausibility, not verification** — and that is why the toleran
 why a LONGER recording is never flagged at all, why an unmeasurable (lossy) file says nothing rather
 than guessing, and above all why it never blocks a row. Tightening it into a gate would be a
 misreading of what it is for.
+
+## v380 — the Interlinear page: the preview's text-only flavor (Seth, 2026-08-16)
+
+> *"We should also add a similar mode for preview html that we have for fxpa — an export without
+> audio and audio playback if the flextext does not contain audio segmentation data … (but
+> warn/complain if the user supplied an audio file in this case). That mode should apply to the
+> Listening HTML export (which should be renamed 'Interlinear HTML export' if there's no audio
+> segmentation)."* And: resolve sensibly for low risk — no unnecessary machinery, no special cases,
+> no *"one-off, side-road, duplicate spaghetti code."*
+
+**One generator, two flavors — not a second template.** `buildSegPreviewHtml` branches on
+`withAudio`, exactly the pattern PAT's `buildParagraphPreviewHtml` has used all along. Text-only
+means: no player, no per-row ▶, **no script at all** — a readable offline document of words,
+glosses and free translations, titled `— interlinear`, saved as `<title>.interlinear.html`. Times
+still print when the doc carries them (they are data, not controls).
+
+**The decisions stayed in the planner.** `loosePlan` gained two fields the UIs consume rather than
+re-derive: `previewEmbed` (this click builds the listening flavor) and `audioUnaligned` (a recording
+was supplied that nothing can use). The preview row now refuses only `noText` and the pinned
+oversize case — every other input yields a page. The row RENAMES itself (`exp.row.previewText`,
+localized) so the label always says which flavor a click will build.
+
+**The complaint Seth asked for by name:** unaligned text + supplied recording → the shared warn line
+says so (`exp.noAlignAudio`), the build still proceeds, and the result carries a `previewNoAudio`
+note. Mutually exclusive with the duration-mismatch warning by construction (one needs an aligned
+text, the other an unaligned one), so the two share one line. Never blocking — same doctrine as the
+duration check.
+
+**Deliberately NOT changed:**
+- **Oversize still refuses the aligned listening page** (the pinned v346 rule) — silently downgrading
+  a page that COULD have sound to one that doesn't would hide where the sound went. ELAN/SayMore
+  still carry the audio there.
+- **`assembleSegEntries` untouched** — device save bundles, the panel Files ▾ menu and download-all
+  behave byte-for-byte as before. The converter is where audio-less/unaligned flextexts actually
+  arrive; extending the menu row is a follow-up if wanted, not silent scope creep.
+- **The text-only branch runs BEFORE the working-copy step**, so a lossy recording is never
+  converted to WAV for a page that will not contain it.
+
+### The two defects the adversarial review caught before v380 shipped (both display-level, both real)
+
+1. **The rename ignored `p.ok`.** An aligned text + oversized recording refuses the row (`tooBig`,
+   the pinned rule) with `previewEmbed=false` — and the ungated rename labelled that refused row
+   "Interlinear page" beside a too-large-for-audio explanation. Self-contradictory: the text flavor
+   has no audio to be too big; the refused flavor IS the listening page. Fixed in both copies
+   (`p.ok &&` gates the rename); pinned at source level in test/loose-conversions.test.mjs.
+2. **"Mutually exclusive by construction" was false.** In the badAlign cell the text HAS aligned
+   rows, so `spanEnd > 0` and the duration verdict can read 'short' at the same moment
+   `audioUnaligned` is true — and the mismatch sentence would be computed from the very offsets
+   that are unusable, displacing the one sentence that explains the state. Fixed by PRECEDENCE
+   (audioUnaligned wins the shared line), asserted in the browser against a real badAlign fixture.
+
+Both were found by execution, not review prose — the workflow ran loosePlan against the
+counterexample docs and reproduced the UI branch. The comment now records the true relationship
+instead of the convenient one.

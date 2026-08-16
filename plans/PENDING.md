@@ -50,19 +50,15 @@ says it is done.
 
 ---
 
-## Where things stand (2026-08-14)
+## Where things stand (2026-08-16)
 
-- **production (`productionWeb`) = v371.** Everything from v372 on is staging-only and untested by
-  Seth.
-- **staging = v377:** upload-failure honesty (v372), the unpaired-queue hold (v373), the
-  send-capability trap + version badge (v374), assignment title auto-fill (v375/v376), and the
-  loose-file converter (v377/v378 — Utilities → "Convert/Export Interlinear Texts", on BOTH the
-  editor's Utilities tab and the panel's Utilities modal). v378 carries `BUILD_TAG = 'loose-file
-  converter v2'`; **clear it to `''` before any production release.**
-- **A test drive of v372–v376 is the immediate next step**, not a new feature. The scripted list is
-  in the session notes; the short version is: pair a staging device upload-only, queue a bundle,
-  delete the device in the panel, confirm the queue HOLDS and the Send button still offers Save, then
-  re-pair and confirm the held bundle sends itself.
+- **production (`productionWeb`) = v382** (released 2026-08-16; gates green). Carries everything
+  through: the loose-file converter (v377/378), listening-page transport + guards (v379), the
+  Interlinear page (v380), the exported-page speed picker (v381), and the round-trip blank-line
+  fix (v382) — all test-driven by Seth on staging first.
+- **staging = v382** — identical to production. Clean slate for the next feature branch.
+- **`main` is fast-forwarded locally but UNPUSHED** (the spacing rule): push it alone once the
+  Cloudflare dashboard confirms the productionWeb deploys, or from the next session.
 
 ---
 

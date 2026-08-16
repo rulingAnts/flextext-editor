@@ -140,8 +140,8 @@ ok(/if \(activeTab === 'cut' && !\$\('#view-cut'\)\?\.hidden\) return;/.test(app
  * a dialog open over the Cut tab had its buttons deadened, with the recording playing behind it. */
 const guard = fn(app, 'transportKeysApply');
 ok(!!guard, 'there is ONE guard deciding where the transport keys apply, on every editor tab');
-ok(/if \(!transportKeysApply\(e\.target\)\) return;/.test(cutKeys), 'and all three Cut-tab keys go through it');
-ok((app.match(/transportKeysApply\(e\.target\)/g) || []).length === 3,
+ok(/if \(!transportKeysApply\(e\.target, e\.key\)\) return;/.test(cutKeys), 'and all three Cut-tab keys go through it');
+ok((app.match(/transportKeysApply\(e\.target, e\.key\)/g) || []).length === 3,
    'so does the global Space handler (what unjammed Baseline and Gloss) and the Baseline Enter — '
    + 'every document-level key on this surface is bounded by the one rule');
 /* ⚠ THE TAB BUTTON IS THE WHOLE POINT. You arrive on a tab by clicking its button, so the button
@@ -265,7 +265,7 @@ ok(/if \(deps\.capture\) deps\.capture\(\);/.test(atPlayhead),
 ok(/if \(focusNext\) focusStrip\(i \+ 1, 0\)/.test(splitAt),
    'the text-box Enter moves the cursor on; the playhead one leaves focus alone');
 ok(/activeTab !== 'baseline'/.test(app) && /stripSplitAtPlayhead\(\)/.test(app)
-   && /if \(!transportKeysApply\(e\.target\)\) return;   \/\/ a focused text box keeps Enter/.test(app),
+   && /if \(!transportKeysApply\(e\.target, e\.key\)\) return;   \/\/ a focused text box keeps Enter/.test(app),
    'the key is claimed only on the Baseline tab, and only outside a text field');
 ok(/baseline\.hintSeg/.test(app) && /baseline\.hintSeg/.test(i18n),
    'and the tab says so — the classic "Enter for a new paragraph" hint is wrong in strip mode');

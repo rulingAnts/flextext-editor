@@ -417,7 +417,7 @@ export function buildSegPreviewHtml(doc, opts = {}) {
 ${mediaName ? `<div class="src">${esc(mediaName)}</div>` : ''}
 ${withAudio ? `<div class="player">
   <div class="wwrap"><canvas id="ov"></canvas><div class="cur" id="ovcur"></div></div>
-  <div class="bar"><button id="mplay">&#9654;</button><select id="mspeed" title="Playback speed"><option value="0.5">0.5&#215;</option><option value="0.75">0.75&#215;</option><option value="1" selected>1&#215;</option></select><span id="mtime"></span></div>
+  <div class="bar"><button id="mplay">&#9654;</button><select id="mspeed" title="Playback speed"><option value="0.5">Very slow</option><option value="0.75">Slow</option><option value="1" selected>Normal</option></select><span id="mtime"></span></div>
 </div>` : ''}
 ${body}
 <p class="note">${withAudio
@@ -589,7 +589,9 @@ ${withAudio ? `<script>
     if (ev.key !== ' ' && ev.code !== 'Space') return;
     if (ev.ctrlKey || ev.metaKey || ev.altKey) return;      // leave modifier combos to the browser
     var el = ev.target;
-    if (el && el.closest && el.closest('input, textarea, select, [contenteditable]')) return;
+    /* NOT select (Seth, 2026-08-17): after changing the speed picker, Space must PLAY — the same
+     * rule as the editor. preventDefault below keeps the dropdown closed; arrows still change it. */
+    if (el && el.closest && el.closest('input, textarea, [contenteditable]')) return;
     ev.preventDefault();
     if (!audio.paused) { audio.pause(); return; }
     /* ⚠ AN ARMED SPAN THE PLAYHEAD HAS LEFT IS STALE, and Space must drop it rather than obey it.

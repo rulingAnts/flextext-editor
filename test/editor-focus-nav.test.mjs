@@ -62,14 +62,15 @@ console.log('\n...and the space-to-play gate that makes it necessary is still th
    * BEHAVIOUR, not the old line: a typed space must remain a space. What deliberately changed at the
    * same time is the BUTTON half — Space used to stand down on any focused button, which jammed the
    * key on the Baseline and Gloss tabs because focus sits on the tab button you clicked to get
-   * there (v362). Text fields, selects and open modals still win. */
-  const gate = (app.match(/function transportKeysApply\(target\) \{[\s\S]*?\n\}/) || [''])[0];
+   * there (v362). Text fields and open modals still win; since v383 a SELECT wins only for keys
+   * other than Space — the key-conditional rule is pinned in its own section below. */
+  const gate = (app.match(/function transportKeysApply\(target, key\) \{[\s\S]*?\n\}/) || [''])[0];
   ok(!!gate, 'the space-to-play gate is one named function');
-  ok(/textarea, select, \[contenteditable\], input:not\(\[type="range"\]\)/.test(gate),
+  ok(/textarea, \[contenteditable\], input:not\(\[type="range"\]\)/.test(gate),
      'space still stands down inside a text field — a typed space must remain a space');
   ok(/document\.querySelector\('\.modal:not\(\[hidden\]\)'\)/.test(gate),
      '…and inside an open dialog, whose buttons must keep their own keys');
-  ok(/if \(!transportKeysApply\(e\.target\)\) return;/.test(app), 'and the Space handler consults it');
+  ok(/if \(!transportKeysApply\(e\.target, e\.key\)\) return;/.test(app), 'and the Space handler consults it');
 }
 
 /* ── TAB WALKS THE TEXT BOXES, AND NOTHING ELSE (Seth, 2026-08-13) ─────────────────────────────
@@ -137,6 +138,31 @@ console.log('\n...and Tab/Space still route through that function');
    * have quietly changed which listener owns Enter. */
   ok(/if \(segmentationEnabled\(\) && \(atStart \|\| atEnd\)\) return;/.test(app),
      'and segmentation-mode boundary Enter still yields to the split handler');
+}
+
+/* 3. SPACE-TO-PLAY OUTRANKS EVERY CONTROL EXCEPT TYPING (Seth, 2026-08-17: "Space to play should
+ *    override space to activate a UI control everywhere in the editor (except when typing in a
+ *    text box)... when I've changed the play speed, I don't want the native speaker to know that
+ *    they have to click the player again for space to play to work.")
+ *
+ *    The live case is the dock's speed picker: focus sits on the <select> after changing it, and
+ *    Space used to pop the dropdown open instead of playing. The rule is KEY-CONDITIONAL, and that
+ *    is the part worth pinning: Space treats a select as just another control (claimed inside the
+ *    editor surface), while Enter and Backspace still stand down on one — otherwise the Cut tab's
+ *    keys could cut or join the audio off a focused picker. */
+console.log('\nSpace outranks the speed picker; Enter and Backspace do not');
+{
+  const fn = (app.match(/function transportKeysApply\(target, key\) \{[\s\S]*?\n\}/) || [''])[0];
+  ok(fn.length > 100, 'transportKeysApply takes the KEY — the select rule depends on which key it is');
+  ok(/key === ' '\s*\n?\s*\? 'textarea, \[contenteditable\], input:not\(\[type="range"\]\)'/.test(fn),
+     "for SPACE the typing guard has NO select — the picker cannot swallow the transport key");
+  ok(/: 'textarea, select, \[contenteditable\], input:not\(\[type="range"\]\)'/.test(fn),
+     'for every other key the select keeps its native behavior — Enter cannot cut off a focused picker');
+  ok(/closest\('button, a\[href\], input, select, \[tabindex\]'\)/.test(fn),
+     'and a select is then judged like a button: claimed inside the editor surface, left alone elsewhere');
+  const sites = (app.match(/transportKeysApply\(e\.target, e\.key\)/g) || []).length;
+  ok(sites === 3, `all three transport-key handlers pass the key (${sites} of 3)`);
+  ok(!/transportKeysApply\(e\.target\)/.test(app), 'and none still calls it keyless');
 }
 
 console.log(fail ? `\nFAILED (${fail})\n` : '\nall passed\n');

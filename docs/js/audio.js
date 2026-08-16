@@ -723,6 +723,20 @@ export class Player {
     this.ws = WaveSurfer.create(opts);
 
     this.ws.on('ready', (duration) => {
+      /* ⚠ RE-APPLY THE CHOSEN SPEED TO THE FRESH ENGINE — on 'ready', NOT after create(). A new
+       * wavesurfer always starts at 1×, but the speed <select> lives in the dock and keeps its
+       * value across every rebuild (doc opens, media swaps, the reloads behind tab switches), so
+       * the UI said Slow while the audio played full speed and the user's only clue was their ears
+       * (Seth, 2026-08-17: "the selected playspeed setting isn't the active playspeed setting").
+       * The first version of this fix ran right after create() and the regression test caught it
+       * still failing: a rate set before the media loads does not survive to playback. 'ready' is
+       * the moment the media exists, and it fires on every load — the right chokepoint. The select
+       * is the single source of truth; the change handler is deliberately the only other
+       * setPlaybackRate call. */
+      try {
+        const rate = parseFloat(this.el.speed?.value || '1');
+        if (rate && rate !== 1) this.ws.setPlaybackRate(rate, true);
+      } catch { /* no media (peaks-only shell) — nothing to slow down yet */ }
       this.el.status.hidden = true;
       this.updateTime();
       // Boundary marks need the duration, and a set() that arrived before the load did is still

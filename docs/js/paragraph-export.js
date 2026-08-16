@@ -276,7 +276,7 @@ footer { padding:10px 14px; color:var(--muted); font-size:12px; border-top:1px s
   ${audioB64 ? `<div class="player">
     <button class="play" id="master">▶</button>
     <div class="ovwrap"><canvas class="ov" id="ov"></canvas><div class="cur" id="cur"></div></div>
-    <select id="speed" title="Playback speed"><option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1" selected>1×</option></select>
+    <select id="speed" title="Playback speed"><option value="0.5">Very slow</option><option value="0.75">Slow</option><option value="1" selected>Normal</option></select>
     <span id="time" class="meta"></span>
   </div>` : ''}
 </header>
@@ -370,7 +370,8 @@ ${audioB64 ? `<script>
     if (ev.key !== " " && ev.code !== "Space") return;
     if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
     var el = ev.target;
-    if (el && el.closest && el.closest("input, textarea, select, [contenteditable]")) return;
+    // NOT select — after changing the speed picker, Space must PLAY (same rule as the editor).
+    if (el && el.closest && el.closest("input, textarea, [contenteditable]")) return;
     ev.preventDefault();
     if (!audio.paused) { audio.pause(); return; }
     /* ⚠ An armed span the playhead has LEFT is stale — drop it. Keeping it either makes the key do

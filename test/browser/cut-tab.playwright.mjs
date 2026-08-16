@@ -586,6 +586,55 @@ if (!reopened.disabled) { await page.click('#btn-guess-splits'); await page.wait
 const reRows = await page.locator('#cut-strips .cut-row').count();
 ok(reRows >= 30, `and it finds the pauses it would have found on the first open (${reRows} rows for 37 bursts)`);
 
+/* ── THE SPEED SETTING SURVIVES A REBUILD, IN THE ENGINE AND NOT JUST THE DROPDOWN ─────────────
+ * Seth, 2026-08-17: "the selected playspeed setting isn't the active playspeed setting... if I
+ * switch tabs or certain other actions, it can revert to full playspeed even though the dropdown
+ * still says 0.75x or 0.5x." Every WaveSurfer.create started at 1× while the dock's <select> kept
+ * its value — UI Slow, ears Normal. Reopening the doc is the deterministic rebuild, and the page's
+ * own clock is the honest measurement: 3s of wall time at 0.5× must advance ~1.5s, not ~3. */
+console.log('\nthe chosen speed survives reopening the text');
+{
+  await page.selectOption('.player-speed', '0.5');
+  await page.evaluate(() => document.querySelector('#btn-back')?.click());
+  await page.waitForTimeout(800);
+  await page.click('#doc-list li');
+  await page.waitForTimeout(3500);                       // reopen → fresh WaveSurfer
+  const sel = await page.$eval('.player-speed', (s) => s.value);
+  ok(sel === '0.5', `the dropdown still shows the choice after the reopen (${sel})`);
+  const secs = async () => {
+    const m = ((await page.textContent('.player-time')) || '').match(/^(\d+):(\d{2})/);
+    return m ? (+m[1] * 60 + +m[2]) : NaN;
+  };
+  const t0 = await secs();
+  await page.evaluate(() => document.querySelector('.player-play')?.click());
+  /* 5s, not less: the dock clock FLOORS to whole seconds, and with a 3s play the floored advance
+     at 1x can also read 2 — the same number as a healthy 0.5x. Five seconds separates the two
+     outcomes by construction: 0.5x floors to 2-3, a regressed 1x floors to 4-5. */
+  await page.waitForTimeout(5000);
+  await page.evaluate(() => document.querySelector('.player-play')?.click());
+  await page.waitForTimeout(200);
+  const adv = (await secs()) - t0;
+  ok(adv >= 2 && adv <= 3,
+     `5s of wall time advanced ~2.5s of audio — the ENGINE is slow, not just the label (${adv}s)`);
+
+  /* And Space beats the picker (Seth, same day: "Space to play should override space to activate a
+   * UI control everywhere in the editor"): with focus still ON the select after changing it, Space
+   * must toggle playback, not pop the dropdown. */
+  await page.focus('.player-speed');
+  await page.keyboard.press('Space');
+  await page.waitForTimeout(600);
+  const rolling = await page.evaluate(() => {
+    const b = document.querySelector('.player-play');
+    return b ? b.textContent : '';
+  });
+  ok(rolling.includes('⏸') || rolling.includes('❚'),
+     `Space on the focused speed picker PLAYS instead of opening the dropdown (glyph "${rolling}")`);
+  await page.keyboard.press('Space');
+  await page.waitForTimeout(300);
+  const speedNow = await page.$eval('.player-speed', (s) => s.value);
+  ok(speedNow === '0.5', 'and the picker value is untouched — the key went to the transport, not the control');
+}
+
 await browser.close();
 console.log(fail ? `\nFAILED (${fail})` : '\nPASSED');
 process.exit(fail ? 1 : 0);

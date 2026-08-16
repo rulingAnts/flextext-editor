@@ -863,22 +863,33 @@ function cutJoinTextedAllowed() { return settings.cutJoinTexted === true; }
  *    glitches/appears to re-render and nothing plays … until I click the big player"). Clicking the
  *    big player cured it only because that moved focus off the button. Re-opening the tab you are
  *    already on is worth nothing; playing the audio is the point of the key.
- *  - A TEXT FIELD or a <select> ⇒ typing and the dropdown win (`.seg-text`, `#doc-title` and the
- *    speed picker are the live cases; a transcriber typing a space must get a space). A RANGE slider
- *    does NOT: the dock's zoom is the one control a cutter fiddles with constantly, Space means
- *    nothing to it natively, and focus left sitting there was another way for "spacebar doesn't
- *    work" to be true.
+ *  - A TEXT FIELD ⇒ typing wins, always (`.seg-text`, `#doc-title`: a transcriber typing a space
+ *    must get a space). A <select> keeps every transport key EXCEPT Space (Seth, 2026-08-17:
+ *    "Space to play should override space to activate a UI control everywhere in the editor" — the
+ *    live case is the dock's speed picker: after changing the speed, Space must PLAY, not pop the
+ *    dropdown open, because a native speaker cannot be expected to know they must click the player
+ *    first). Arrow keys still change the speed from the keyboard; only Space is claimed. Enter and
+ *    Backspace still stand down on a select, so the Cut tab's keys can never cut or join off a
+ *    focused picker. A RANGE slider keeps nothing: the dock's zoom is the one control a cutter
+ *    fiddles with constantly, Space means nothing to it natively, and focus left sitting there was
+ *    another way for "spacebar doesn't work" to be true.
  *
  * ⚠ The caller MUST preventDefault when this returns true — that is what stops the focused button
  * from ALSO firing. It is also what makes Space safe on ✂ and ⤙⤚: a native re-click there would cut
- * or join again with no gesture from the user. */
+ * or join again with no gesture from the user. And on the speed picker it is what keeps the
+ * dropdown closed while the audio toggles. */
 const EDITOR_SURFACE = '#view-cut, #view-baseline, #view-gloss, #audio-player';
-function transportKeysApply(target) {
+function transportKeysApply(target, key) {
   if (document.querySelector('.modal:not([hidden])')) return false;
   const el = target && target.closest ? target : null;
   if (!el) return true;
-  if (el.closest('textarea, select, [contenteditable], input:not([type="range"])')) return false;
-  const ctl = el.closest('button, a[href], input, [tabindex]');
+  const typing = key === ' '
+    ? 'textarea, [contenteditable], input:not([type="range"])'
+    : 'textarea, select, [contenteditable], input:not([type="range"])';
+  if (el.closest(typing)) return false;
+  /* select is in the CONTROL list, so for Space it follows the same rule as a button: claimed
+   * inside the editor surface, left alone anywhere else (a settings-form picker keeps its keys). */
+  const ctl = el.closest('button, a[href], input, select, [tabindex]');
   if (!ctl) return true;
   if (ctl.classList && ctl.classList.contains('top-tab')) return true;   // the tab that got you here
   return !!ctl.closest(EDITOR_SURFACE);
@@ -7320,7 +7331,7 @@ function wirePlaybackKeys() {
     /* ⚠ NOT "any button": that blanket exemption is what jammed Space on the Baseline and Gloss
      * tabs, because focus sits on the TAB BUTTON you clicked to get there and the key was spent
      * re-activating it. transportKeysApply draws the line properly — see it for the full rule. */
-    if (!transportKeysApply(e.target)) return;
+    if (!transportKeysApply(e.target, e.key)) return;
     if (!player) return;
     e.preventDefault();
     if (player.playing?.()) { player.pause(); return; }
@@ -7549,7 +7560,7 @@ function setup() {
    * to naming the button, so the screen never promises a key that does nothing. */
   document.addEventListener('keydown', (e) => {
     if (activeTab !== 'cut' || $('#view-cut')?.hidden) return;
-    if (!transportKeysApply(e.target)) return;
+    if (!transportKeysApply(e.target, e.key)) return;
     if (e.key === 'Enter') { e.preventDefault(); cutHere(); }
     else if (e.key === 'Backspace') { if (!joinKeysEnabled()) return; e.preventDefault(); cutJoinPrev(); }
     /* SPACE PLAYS AND PAUSES, WHEREVER FOCUS IS ON THIS TAB (Seth, 2026-08-13: "spacebar to
@@ -7586,7 +7597,7 @@ function setup() {
     if (activeTab !== 'baseline' || $('#view-baseline')?.hidden) return;
     if (!segmentationEnabled()) return;          // classic textarea mode owns its own Enter
     if (e.key !== 'Enter' || e.repeat) return;
-    if (!transportKeysApply(e.target)) return;   // a focused text box keeps Enter — see onKey
+    if (!transportKeysApply(e.target, e.key)) return;   // a focused text box keeps Enter — see onKey
     e.preventDefault();                          // …and a focused ▶ must not ALSO re-fire
     stripSplitAtPlayhead();
   });

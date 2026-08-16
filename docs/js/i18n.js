@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v382';
+export const ENGINE_VERSION = 'v383';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v382';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = '';
+export const BUILD_TAG = 'speed-and-space v1';
 
 const S = {
 en: {
@@ -531,6 +531,10 @@ en: {
   'task.ftStillPending': 'The text has not arrived yet \u2014 it will keep retrying while you are online.',
   'edit.redo': 'Redo (Ctrl+Y)',
   'player.speed': 'Playback speed',
+  // Words, not decimals (Seth, 2026-08-17) — the values behind them stay 0.5/0.75/1.
+  'player.speedVerySlow': 'Very slow',
+  'player.speedSlow': 'Slow',
+  'player.speedNormal': 'Normal',
   'player.zoom': 'Zoom',
   'player.remove': 'Remove audio from this text',
   'player.attach': 'Attach audio…',
@@ -2156,6 +2160,9 @@ id: {
   'task.ftStillPending': 'Teks belum diterima \u2014 akan terus dicoba selama Anda online.',
   'edit.redo': 'Ulangi (Ctrl+Y)',
   'player.speed': 'Kecepatan putar',
+  'player.speedVerySlow': 'Sangat lambat',
+  'player.speedSlow': 'Lambat',
+  'player.speedNormal': 'Normal',
   'player.zoom': 'Perbesar',
   'player.remove': 'Hapus audio dari teks ini',
   'player.attach': 'Lampirkan audio…',

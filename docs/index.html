@@ -112,9 +112,12 @@
       <button class="player-home icon-btn2" data-i18n-title="player.home">⏮</button>
       <button class="player-back icon-btn2" data-i18n-title="player.back3">↺3s</button>
       <select id="player-speed" name="player-speed" class="player-speed" data-i18n-title="player.speed" aria-label="Playback speed">
-        <option value="0.5">0.5×</option>
-        <option value="0.75">0.75×</option>
-        <option value="1" selected>1×</option>
+        <!-- Word labels, not decimals (Seth, 2026-08-17): a transcriber without decimal
+             notation should not need math to slow the audio down. Values stay numeric — they ARE
+             the playbackRate — only the visible words are translated. -->
+        <option value="0.5" data-i18n="player.speedVerySlow">Very slow</option>
+        <option value="0.75" data-i18n="player.speedSlow">Slow</option>
+        <option value="1" selected data-i18n="player.speedNormal">Normal</option>
       </select>
       <span class="player-time"></span>
       <label class="player-zoom-wrap"><span data-i18n="player.zoom">Zoom</span>

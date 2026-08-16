@@ -244,6 +244,11 @@ console.log('preview page');
   ok(html.includes('decodeAudioData'), 'v2: waves computed at load from the embedded audio');
   ok(html.includes('wireScrub'), 'v2: scrub wiring present (overview + per-line)');
   ok(html.includes('requestAnimationFrame'), 'v2: live playhead cursors');
+  /* v381 (Seth: "I don't see the playspeed slider") — the dock's speed picker, carried over with
+   * the SAME three rates, and pitch preservation stated because it is the point. */
+  ok(html.includes('id="mspeed"') && (html.match(/<option value="0\.5"|<option value="0\.75"|<option value="1"/g) || []).length === 3,
+     'v3: the speed picker is present with the dock\'s exact three rates');
+  ok(html.includes('preservesPitch'), 'v3: and pitch is preserved when slowed');
 }
 
 console.log('interlinear page (the preview with NO audio — v380, the fxpa treatment)');
@@ -256,6 +261,7 @@ console.log('interlinear page (the preview with NO audio — v380, the fxpa trea
   ok(!html.includes('<script>'), 'NO script at all — nothing to run');
   ok(!html.includes('id="ov"') && !html.includes('class="play"') && !html.includes('class="rw"'),
      'no player, no play buttons, no wave canvases');
+  ok(!html.includes('id="mspeed"'), 'and no speed picker either — there is nothing to speed up');
   ok(html.includes('class="words"') && html.includes('(blank line)'),
      'the interlinear rows and blank-line placeholders all survive');
   ok(html.includes('— interlinear'), 'the page titles itself interlinear, not segments');

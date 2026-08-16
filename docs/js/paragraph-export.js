@@ -227,6 +227,7 @@ header { position:sticky; top:0; background:var(--panel); border-bottom:1px soli
 h1 { font-size:19px; margin:0 0 4px; }
 .meta { margin:0; font-size:12px; color:var(--muted); }
 .player { display:flex; align-items:center; gap:10px; margin-top:6px; }
+#speed { border:1px solid var(--border); background:#fff; border-radius:6px; height:26px; font-size:12px; }
 .ovwrap { position:relative; flex:1; height:40px; }
 canvas.ov { width:100%; height:100%; display:block; cursor:pointer; }
 .cur { position:absolute; top:0; bottom:0; width:2px; background:#c33; pointer-events:none; }
@@ -275,6 +276,7 @@ footer { padding:10px 14px; color:var(--muted); font-size:12px; border-top:1px s
   ${audioB64 ? `<div class="player">
     <button class="play" id="master">▶</button>
     <div class="ovwrap"><canvas class="ov" id="ov"></canvas><div class="cur" id="cur"></div></div>
+    <select id="speed" title="Playback speed"><option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1" selected>1×</option></select>
     <span id="time" class="meta"></span>
   </div>` : ''}
 </header>
@@ -381,6 +383,11 @@ ${audioB64 ? `<script>
     }
     audio.play().catch(function () {});
   });
+
+  // The suite's speed picker, same three rates as the editor dock; preservesPitch is the point.
+  var speedSel = document.getElementById("speed");
+  audio.preservesPitch = true;
+  if (speedSel) speedSel.addEventListener("change", function () { audio.playbackRate = parseFloat(speedSel.value) || 1; });
 
   document.addEventListener("click", function (ev) {
     var b = ev.target.closest("button.play");

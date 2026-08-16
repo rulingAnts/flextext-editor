@@ -191,6 +191,36 @@ console.log('\na manual scroll suspends the follow for a few seconds');
   await page.keyboard.press('Space');
 }
 
+console.log('\nthe SPEED PICKER slows real playback (v381 — pitch-preserved, like the dock)');
+{
+  /* The Audio object lives in a closure, so the honest measurement is the page's own clock: play
+   * for a fixed wall time at 0.5× and read how far #mtime advanced. At 1× the same wait advances
+   * ~2s; a broken picker would fail loudly. Generous bounds — CI timing is noisy. */
+  await page.evaluate(() => window.scrollTo(0, 0));
+  const mtimeMs = async () => {
+    const m = (await page.textContent('#mtime')).match(/^(\d+):(\d{2})\.(\d)/);
+    return m ? (+m[1] * 60 + +m[2]) * 1000 + +m[3] * 100 : NaN;
+  };
+  ok(await page.isVisible('#mspeed'), 'the picker is in the player bar');
+  await page.selectOption('#mspeed', '0.5');
+  await page.evaluate(() => {                       // park the playhead at 0 for a clean measure
+    const ov = document.getElementById('ov');
+    const r = ov.getBoundingClientRect();
+    ov.dispatchEvent(new PointerEvent('pointerdown', { clientX: r.left + 1, clientY: r.top + 2, bubbles: true }));
+    window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+  });
+  await page.waitForTimeout(200);
+  const t0 = await mtimeMs();
+  await page.keyboard.press('Space');
+  await page.waitForTimeout(2000);
+  await page.keyboard.press('Space');
+  await page.waitForTimeout(200);
+  const advanced = (await mtimeMs()) - t0;
+  ok(advanced > 400 && advanced < 1600,
+     `2s of wall time advanced the audio ~1s at 0.5× (measured ${advanced}ms) — the rate really applies`);
+  await page.selectOption('#mspeed', '1');
+}
+
 console.log('\nthe TEXT-ONLY INTERLINEAR flavor is a working document (v380)');
 {
   /* Same generator, audioB64:'' — the node suite pins what the string contains; this proves the

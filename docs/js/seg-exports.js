@@ -396,6 +396,7 @@ export function buildSegPreviewHtml(doc, opts = {}) {
   .cur { position: absolute; top: 0; bottom: 0; width: 2px; background: #d33; pointer-events: none; }
   .bar { display: flex; gap: 10px; align-items: center; margin-top: 6px; }
   #mplay { width: 44px; height: 36px; font-size: 15px; border-radius: 8px; border: 1px solid rgba(127,127,127,.4); background: transparent; cursor: pointer; }
+  #mspeed { height: 36px; border-radius: 8px; border: 1px solid rgba(127,127,127,.4); background: transparent; font-size: 13px; }
   #mtime { font-size: 13px; opacity: .7; font-variant-numeric: tabular-nums; }
   .seg { display: flex; gap: 10px; align-items: flex-start; padding: 8px 6px; border-bottom: 1px solid rgba(127,127,127,.25); }
   .seg.on { background: rgba(80,130,220,.12); }
@@ -416,7 +417,7 @@ export function buildSegPreviewHtml(doc, opts = {}) {
 ${mediaName ? `<div class="src">${esc(mediaName)}</div>` : ''}
 ${withAudio ? `<div class="player">
   <div class="wwrap"><canvas id="ov"></canvas><div class="cur" id="ovcur"></div></div>
-  <div class="bar"><button id="mplay">&#9654;</button><span id="mtime"></span></div>
+  <div class="bar"><button id="mplay">&#9654;</button><select id="mspeed" title="Playback speed"><option value="0.5">0.5&#215;</option><option value="0.75">0.75&#215;</option><option value="1" selected>1&#215;</option></select><span id="mtime"></span></div>
 </div>` : ''}
 ${body}
 <p class="note">${withAudio
@@ -604,6 +605,16 @@ ${withAudio ? `<script>
     }
     audio.play();
   });
+
+  /* The dock's speed picker, carried over (Seth, 2026-08-16: "I don't see the playspeed slider") —
+   * same three rates as the editor. preservesPitch is the browser default but set on purpose,
+   * because it IS the point: slower playback for checking a transcription without the pitch
+   * dropping. The rate sticks to the media element, so it survives pause, seek and span playback
+   * with no re-application anywhere else. Space is already guarded for selects, so focusing this
+   * control never steals the transport key. */
+  var mspeed = document.getElementById('mspeed');
+  audio.preservesPitch = true;
+  mspeed.addEventListener('change', function () { audio.playbackRate = parseFloat(mspeed.value) || 1; });
 
   mplay.addEventListener('click', function () {
     if (!audio.paused && !stopAt) { audio.pause(); return; }

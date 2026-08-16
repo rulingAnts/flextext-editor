@@ -1762,3 +1762,18 @@ though it looks like pure capability.
 hash, so separating them touches `bad_login` (`worker/src/v1.js` ~924). Anything that touches the
 login path needs its throttle re-checked in the same pass — that is exactly where a quiet regression
 turns into an online-guessable password.
+
+## Classic-textarea edits on an ALIGNED doc: line deletion still truncates spans positionally (2026-08-16)
+
+Adjacent to the round-trip blank-line fix (v382), found while tracing it, NOT fixed there. When an
+aligned doc is edited in the CLASSIC textarea (which happens whenever such a doc is open before its
+audio attaches, or on a segmentation-OFF device), deleting a LINE removes its paragraph via
+reconcileBaseline — but doc.segments then shrinks positionally (tail-clipped), not by removing the
+DELETED line's span. Every line after the deletion shifts one span earlier: the same corruption
+class as the blank-line bug, just requiring a deliberate deletion instead of an automatic filter.
+
+The v382 fix removes the AUTOMATIC trigger (blanks are no longer filtered on aligned docs), so this
+now needs a user to actually delete a line in the classic view of an aligned doc — rare, but the
+failure is silent misalignment, the worst kind. Right fix likely lives where reconcileBaseline
+reports deletions: aligned docs should delete the corresponding span (or convert the edit into a
+segments.js merge), never tail-clip. Needs the LCS pairing's deletion indices surfaced.

@@ -3200,7 +3200,21 @@ function applyBaseline() {
   const ta = $('#baseline-text');
   if (!ta || ta.hidden) return;
   const text = ta.value;
-  const paras = text.split('\n').map(s => s.trim()).filter((s, i, arr) => s || arr.length === 1);
+  /* ⚠ BLANK LINES ARE DATA WHEN THE DOC CARRIES TIME ALIGNMENT — do not filter them (Seth's
+   * round-trip corruption, 2026-08-16). In a classic transcription a blank textarea line is a
+   * separator and dropping it is right. But an ALIGNED doc's blank lines are real timed spans
+   * (silence), 1:1 with doc.segments — and this textarea IS the live editor for exactly such a doc
+   * whenever it opens before its audio attaches (the pair-import flow: text first, then audio).
+   * Filtering there deleted every blank paragraph, and the span list then truncated positionally —
+   * 53 lines/23 blanks became 30 lines paired against the first 30 spans, silences included, with
+   * the recording "ending" a half-minute early. Reproduced with the field file before fixing.
+   * Gate on DOC truth (does it carry spans/offsets), not on the segmentation setting — the same
+   * rule the ta.hidden guard above follows, and it protects an aligned doc on a device where
+   * segmentation is OFF just the same. */
+  const aligned = (current.doc.segments || []).length > 0
+    || current.doc.paragraphs.some((p) => (p.segments || []).some(
+      (s) => s.attrs && s.attrs['begin-time-offset'] != null));
+  const paras = text.split('\n').map(s => s.trim()).filter((s, i, arr) => aligned || s || arr.length === 1);
   const before = JSON.stringify(getBaselineParagraphs(current.doc));
   if (JSON.stringify(paras) === before) return;
   reconcileBaseline(current.doc, paras.length ? paras : ['']);

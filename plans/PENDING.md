@@ -101,7 +101,7 @@ existing `AUTHOR`, the BWF `bext` (which is the STANDARD place for it, so archiv
 risk — the constraint is never touching the original capture and never naming a person). ⚠ The
 `.flextext` one is the risky member: FLEx re-imports it against a schema. Detail + the two traps in
 `BACKLOG.md`. ·
-Drive storage footprint + inventory modal · PAT → ELAN EAF export · oral transcription and
+Assign to "Google Drive (Unassigned)" — park an uploaded text ready to move to any device (Seth 2026-08-17; BACKLOG) · Drive storage footprint + inventory modal · PAT → ELAN EAF export · oral transcription and
 back-translation (format problem first) · standalone segmentation/matching app · assignment-URL
 collision warning · invite-link-overrides warning · localization expansion (decisions still Seth's) ·
 the `.fxed` follow-ons · in-situ "does it save when I leave?" answer.

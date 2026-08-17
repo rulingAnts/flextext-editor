@@ -1777,3 +1777,27 @@ now needs a user to actually delete a line in the classic view of an aligned doc
 failure is silent misalignment, the worst kind. Right fix likely lives where reconcileBaseline
 reports deletions: aligned docs should delete the corresponding span (or convert the edit into a
 segments.js merge), never tail-clip. Needs the LCS pairing's deletion indices surfaced.
+
+## Assign texts to "Google Drive (Unassigned)" (Seth, 2026-08-17) — queued feature
+
+> *"Add the ability to 'Assign' texts to Google Drive (Unassigned) so that a folder is there that
+> is ready to be moved to another device as an assignment (and already uploaded)."*
+
+The assignment modal gains a destination that is not a device: **Google Drive (unassigned)**. The
+upload leg runs exactly as assign-by-upload does today — flextext + audio + manifest streamed into
+the researcher's Drive — but into an `Unassigned/<Storyname>/` folder instead of
+`<Device>/<Storyname>/`, and NO device command is queued. Later, assigning it to a device is the
+existing move machinery's second leg (the bytes are already up; only the device-assignment command
+remains), which is precisely the "parking is a move whose second leg is simply skipped" observation
+already recorded under the storage-manager entry — this feature is that observation run FORWARD.
+
+Mechanics notes for whoever builds it:
+- The manifest must ride, so the Files ▾ menu's conversions work on parked texts unchanged.
+- The panel's existing "Unassigned texts" card becomes the natural surface for parked texts — and
+  gains its first DELIBERATE members (today it only shows leftovers). Wording should distinguish
+  "parked, ready to assign" from "no longer on any device".
+- ⚠ Interplay with the project split (plans/project-split.md, finding II.0.6): the unassigned
+  card's classify-then-offer-to-trash behavior is being gated to full-visibility contexts; parked
+  texts must remain visible there and the "ready to move" affordance must live behind assignTexts.
+- Sequencing: independent of the project split (works per-researcher today); if built first, the
+  split's Drive-owner routing inherits it for free.

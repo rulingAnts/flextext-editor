@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v383';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'speed-and-space v1';
+export const BUILD_TAG = '';
 
 const S = {
 en: {

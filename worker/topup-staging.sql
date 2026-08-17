@@ -1,0 +1,32 @@
+-- Bring flextext-connectivity-STAGING's schema up to production's. Run ONCE, 2026-08-17.
+--
+-- Measured, not guessed: schema-report.sql was run against both databases through the
+-- "wrangler (one-off command)" workflow, and the two agree on every table and index EXCEPT
+-- `instance`, where staging is missing two columns:
+--
+--   production  instance: instance_id researcher_id type nickname desired_blob desired_rev
+--                         revoked created_at oauth_folder_id estate
+--   staging     instance: instance_id researcher_id type nickname desired_blob desired_rev
+--                         revoked created_at
+--
+-- WHY staging drifted — this is R2-6 in plans/project-split.md, caught in the wild rather than in
+-- theory. Staging was created with `--file=schema.sql`, and schema.sql has been folded forward, so
+-- it already declared `instance.estate` and `crowd_recorder.estate`. Then:
+--   * migrate-instance-type-unified.sql REBUILT `instance` from a fixed 8-column list (SQLite
+--     cannot ALTER a CHECK), silently dropping the `estate` schema.sql had just created — staging's
+--     `CREATE TABLE "instance"` is quoted, which is the rename artifact that proves the rebuild ran;
+--   * migrate-estate.sql could not put it back, because its SECOND statement (crowd_recorder) was a
+--     duplicate, and `d1 execute --file` is ATOMIC — one bad statement rolls back the whole file,
+--     so the good first statement never landed either;
+--   * migrate-device-upload.sql's oauth_folder_id is missing for the same class of reason.
+--
+-- Production is unaffected: there the rebuild ran BEFORE either column existed.
+--
+-- Run it (writes are fine through --file; only READS need --command):
+--   d1 execute flextext-connectivity-staging --remote --file=topup-staging.sql
+-- then re-run schema-report.sql against both and confirm they now agree.
+--
+-- ⚠ Not re-runnable: a second run errors "duplicate column name" and — being atomic — applies
+-- nothing. That is the correct behaviour for a one-shot repair; check the schema, do not retry.
+ALTER TABLE instance ADD COLUMN oauth_folder_id TEXT;
+ALTER TABLE instance ADD COLUMN estate TEXT NOT NULL DEFAULT 'pages';

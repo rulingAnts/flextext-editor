@@ -85,9 +85,18 @@ deploy-order law holds (editor live first, every precached path verified 200), a
 | `1b6dcff6…` — `mk***@gmail.com` | 0 | 2 | 0 |
 | `9b330dd2…` — `se***@gmail.com` (Seth) | 0 | 1 | 27 |
 
-⚠ **It is not only Iwan — Brendon has not migrated either.** He holds THREE live `pages` instances,
-zero on `cloud`, and has never revoked one, so the legacy path is his only estate too. Two people
-have to be migrated before the mirrors can go, and the second one is three devices rather than one.
+**Brendon's three are dormant — the blocker is Iwan alone.** The table shows him holding three live
+`pages` instances with nothing on `cloud`, but Seth confirmed with him directly (2026-08-17) that he
+is **not using them actively**. So the D1 rows overstate the problem: one active user, one device.
+
+⚠ Two things that still need saying before those rows are dropped:
+- **"Not using it actively" is not "nothing on it."** Whatever those three devices hold locally is
+  gone the moment they are revoked and reinstalled elsewhere. It needs one explicit confirmation
+  from Brendon that nothing on them needs rescuing — not an inference from the dates.
+- **Nobody but Brendon can check.** They belong to HIS researcher account, and the device inventory
+  in `install.reported_blob` is E2EE ciphertext — the worker cannot read it and neither can Seth's
+  panel. Server-side we can see that a device checked in, never what it is holding. That is the
+  design working correctly, and it means this question is answered by asking him, not by querying.
 
 ⚠ **`instance.estate` is NOT a migration lever — do not "flip" it.** A PWA's identity is its ORIGIN:
 Iwan's installed app lives at `rulingants.github.io` with its own IndexedDB, and no database column
@@ -95,6 +104,18 @@ can move an installed app or the data inside it. Changing `estate` only changes 
 links are minted with. The real migration is the procedure Seth already has (*"upload and remove all
 their texts, then revoke, send a new invite, and re-assign the texts"*) — get the data OFF the
 device first, then pair fresh on the Cloudflare origin, then re-assign. Anything else loses work.
+
+**The legacy set is CLOSED — waiting cannot grow it.** Confirmed at the source: `createInstance`
+stamps `estate: 'cloud'` on every new instance (v1.js:1587–1589), and new crowd recorders likewise
+(v1.js:2496–2498). The `DEFAULT 'pages'` in the schema exists only so pre-migration rows read
+correctly. So the legacy population can only shrink, and Seth's *"any new users or app instances
+will be using the new Cloudflare hosted app"* (2026-08-17) is a property of the code, not a habit
+anyone has to remember.
+
+⚠ One nuance: an INVITE inherits its instance's estate (v1.js:1637–1638). So a second device paired
+to Iwan's EXISTING instance would still land on `pages`. Closed means no new legacy *instances* —
+not that the existing ones are frozen. If Iwan needs another device before he migrates, create a new
+instance for it rather than inviting into the old one.
 
 **The standing cost of waiting** (worth naming, since "later" is now open-ended): every engine change
 keeps paying the satellite tax — a new top-level `import` in `js/app.js` is a new SHELL entry in

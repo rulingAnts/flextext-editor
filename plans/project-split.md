@@ -390,3 +390,87 @@ everyone; `settings_blob.wrappedKis` remains readable as the legacy fallback dur
   vs transfer-ownership flow (later feature).
 - **II.D6 — Session guard tuning**: cap 5, 90-day sliding expiry, banner-only notification —
   confirm or adjust.
+
+---
+
+# PART III — AUDIT, ROUND 1 (single-context pass, 2026-08-17)
+
+> ⚠ Provenance: the five-lens fan-out audit DIED on the account's monthly spend limit — zero
+> findings produced; that empty result is a failure artifact, not a pass. This section is a
+> single-context audit performed with the full verified map in hand. Re-run the fan-out audit
+> (script preserved: project-split-audit) when the limit resets/raises, before Phase C ships.
+
+## Confirmed findings (each with its fix folded into the design)
+
+1. **SECURITY — the legacy skeleton key.** After sessions ship, a Google account's OLD
+   `secret_hash` (the last pre-migration session token) stays honored by the fallback FOREVER —
+   nothing rotates it anymore, so "revoke other sessions" would be a lie while it lives.
+   **Fix (now in II.2):** on an account's first session-lane sign-in, rotate `secret_hash` to
+   random garbage — for `google_sub` accounts only (the password lane's verifier regime is
+   deliberately untouched). The fallback then dies per-account, exactly one sign-in after upgrade.
+
+2. **SECURITY — member pubkey substitution.** Installs defend against a hostile worker swapping
+   pubkeys with an out-of-band FINGERPRINT check before key delivery. The member-grant flow has no
+   equivalent — a swapped `researcher.pubkey` would make the owner wrap Ki to an attacker.
+   **Fix (II.4):** the member-management UI shows each member's pubkey fingerprint (same SHA-256
+   SPKI prefix, same wording as installs) and the trust-warning dialog carries it; verification is
+   out-of-band exactly like device approval.
+
+3. **CORRECTNESS — concurrent keypair generation.** Multi-session means two browsers of the same
+   account can race Phase B's keypair generation; last-write-wins on `pubkey` would strand grants
+   wrapped to the clobbered key. **Fix (II.3):** conditional write (`UPDATE … WHERE pubkey IS
+   NULL`, worker 409s otherwise); the losing browser fetches the winner's pair and unwraps
+   `wrapped_privkey` with Kr. Idempotent by construction.
+
+4. **DESIGN GAP — `instance.researcher_id` must remain TRUE, as the Drive-owner cache.** Device
+   uploads and crowd submissions resolve the Drive refresh token via
+   `instance JOIN researcher ON researcher_id` — a join old APKs exercise forever. **Rule (II.5):**
+   `instance.researcher_id` is redefined as a maintained denormalization: ALWAYS equal to the
+   project's `owner_id`, updated in the same transaction as any ownership transfer. Old clients'
+   joins then stay correct permanently, and the "dual-read window" for THIS column never has to
+   close.
+
+5. **DESIGN GAP — per-device `see` vs project-wide Drive.** Drive folders are named per DEVICE
+   ("FlexText Uploads/<Device>/<Story>", plaintext names). A member with `see` restricted to
+   device A but `drive: read` can still list device B's folder and file NAMES (and fetch its
+   files) through docId-routed Drive routes. Options: accept + say it in the trust dialog
+   ("Drive read shows all project files, including devices hidden from them"), or scope the
+   estate listing to the member's see-list (leaky against direct docIds unless every Drive route
+   filters). **→ Decision II.D7 for Seth; recommendation: accept + disclose** — Drive is
+   project-level in his own spec, and the false sense of a filtered estate is worse than an
+   honest disclosure.
+
+6. **DESIGN DECISION — remote wipe stays owner-only.** Wipe is the most destructive device action
+   and today carries a second-factor step-up on the CALLER's account. A member's TOTP protecting
+   the owner's device is the wrong shape. **II.4 amended:** wipe (and force-remove) are owner-only
+   in v1 of the split; revisit only if a real need appears.
+
+7. **OPS — the backfill cannot be a plain migration file.** The default-project backfill mints
+   GUIDs and derives names — beyond comfortable D1 SQL (`hex(randomblob(16))` is possible but
+   non-RFC-4122 and unreviewable). **Fix (II.5):** backfill runs as a worker admin endpoint
+   (operator-gated, idempotent: `INSERT … WHERE NOT EXISTS`), rehearsed on the staging D1 first.
+
+8. **OPS — the compat probe does not exist yet.** No harness in test/ replays today's device
+   calls. **Deliverable added (II.5):** `test/worker-device-compat.probe.mjs` — drives
+   claim → accept → poll → report → upload-target against a worker base URL using TODAY'S header
+   and path shapes; run against staging at every phase; must pass byte-identically.
+
+9. **DOCUMENTED CAVEATS (no code change):** (a) for Google-lane accounts the worker can
+   transitively read `wrapped_privkey` (via Kr) — member grants add no protection AGAINST THE
+   WORKER for those accounts; this is parity with today (the worker already holds Kr→Ki), not a
+   regression, and II.D1 governs whether that ever tightens. (b) Password-lane parallel use is
+   invisible to the session list (bare authSecret per-call, no session rows) — legacy lane, no
+   current client mints it; note in the session UI copy. (c) The OAuth fragment token should be
+   stripped via history.replaceState on receipt — today's exposure, slightly longer-lived under
+   multi-session; cheap hygiene, added to Phase A.
+
+## Readiness verdict
+
+- **Phase A (sessions) and Phase B (default projects + keypairs + self-grants): build-ready now**,
+  pending decisions II.D1 (E2EE policy line) and II.D6 (guard tuning) — both have recommendations
+  on the table.
+- **Phase C (membership + authorization): design-complete, not build-ready** until (a) the
+  fan-out audit re-runs clean (spend limit), (b) II.D2/D3/D5/D7 are decided, and (c) the compat
+  probe exists and passes against the staging worker on Phases A–B.
+- **Staging worker + staging D1** (Seth, 2026-08-17: "we can implement a staging worker and
+  staging D1 for you to test with") is the prerequisite rig for ALL of it — first concrete task.

@@ -79,7 +79,41 @@ held while a member is not retroactively erased. The panel wording must say the 
    revoke-others, a cap with oldest-out eviction, per-session expiry independent of stay-signed-in,
    new-sign-in notice. The full guards argument is in BACKLOG ("the guards half").
 
-## Decision points for Seth (running list)
+## Owner key sovereignty (Seth, 2026-08-17: "the owner always able to see and revoke all keys")
+
+**Yes — as three guarantees with different mechanisms, stated honestly:**
+
+1. **The owner can always SEE every key grant.** Grant rows are server-side metadata: which member
+   holds which device's wrapped Ki, which installs hold keys, which sessions exist, which invites
+   are outstanding. The panel shows the owner the complete ledger. And the owner can always
+   DECRYPT everything, structurally: the owner is the key authority — every Ki is wrapped to the
+   owner by construction.
+
+2. **THE INVARIANT (worker-enforced): no key grant exists without the owner's copy.** Any key-set
+   write — including a new device paired by a member with `createInvites` — is REJECTED by the
+   worker unless it includes a wrap-to-owner. So a member can never mint a device key the owner
+   cannot read. ⚠ E2EE honesty: the worker can enforce that the owner-copy EXISTS, not that its
+   ciphertext is well-formed (it cannot read it). A malicious member could wrap garbage — but that
+   is detected the first time the owner opens the device (loud failure, never silent), and the
+   remedy is revoking the member and re-keying the device. Sabotage-detectable, not
+   silently-subvertible, which is the strongest claim any E2EE sharing scheme can make.
+
+3. **The owner can always REVOKE — with the two meanings kept distinct** (the suite's standing
+   revocation-honesty rule):
+   - **Cut off (always, instantly):** delete the grant/membership/session row. The party can no
+     longer fetch keys, decrypt future deliveries, or call the API. Owner-only, effective on the
+     next request.
+   - **Un-know (impossible retroactively, by nature):** material already downloaded while trusted
+     cannot be erased from someone's machine. No design fixes this; the panel wording must not
+     pretend otherwise.
+   - **Rotation (the remedy for the future):** the owner can re-key a device — mint a new Ki,
+     re-wrap to the remaining members and to the device via the existing command channel — so even
+     a kept old key reads nothing new. Rotation is the escalation path after removing a member
+     whose trust is actually in doubt; plain removal suffices for an amicable exit. (Phase it
+     after the core split if need be, but the schema must allow per-device key VERSIONS from day
+     one, so rotation is an addition rather than a migration.)
+
+
 
 - ~~Who can mint pairing invites?~~ → **owner-controlled per member** (`createInvites`), per the
   granular-permissions spec above.

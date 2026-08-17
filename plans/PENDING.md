@@ -65,7 +65,36 @@ says it is done.
 
 ---
 
-## 1 — Correctness and data safety (do these first)
+## Legacy (GitHub Pages) estate — measured before retiring it, 2026-08-17
+
+Queried against production D1 through the Actions wrangler workflow. **Four live instances are
+pinned to `estate='pages'`, across TWO researcher accounts — and neither of them is Seth's.**
+
+| instance | researcher | account created | instance created | live installs | last check-in |
+|---|---|---|---|---|---|
+| `63a84635…` | `200fa5ab…` — `iw***@gmail.com` | 2026-07-12 | 2026-07-12 | 1 | 2026-08-06 |
+| `a22faf8b…` | `7b8d61ed…` — `br***@canil.ca` | 2026-07-18 | 2026-07-30 | **0** | never |
+| `4aa584b6…` | `7b8d61ed…` — `br***@canil.ca` | 2026-07-18 | 2026-07-30 | 1 | 2026-08-03 |
+| `3e9ddd5d…` | `7b8d61ed…` — `br***@canil.ca` | 2026-07-18 | 2026-07-30 | 1 | 2026-07-30 |
+
+⚠ **The assumption to correct: it is NOT "just Seth and Brendon."** `br***@canil.ca` is presumably
+Brendon (CanIL), but the other account is a THIRD person, and Seth's own account is not on this
+estate at all (his live devices are on `cloud`). Two people to contact, neither of them himself.
+
+**Nothing is old.** The oldest legacy instance is ~5 weeks (2026-07-12); the rest are ~2.5 weeks.
+This is not abandoned infrastructure with forgotten users on it — it is recent, active work.
+
+**No outstanding pairing links break.** Two unclaimed invites point at live `pages` instances and
+**both are already expired**, so nobody has a valid legacy invite sitting in an inbox.
+
+⚠ **`last_seen_at` only advances on a poll or report, so quiet ≠ retired.** These are village field
+devices with intermittent connectivity; eleven days without a check-in is a normal week, not
+evidence a device is out of use. Do not read the dates above as "nobody is using it."
+
+Full addresses are deliberately NOT in this file or in any workflow log (the repo is public) — map
+the researcher-id prefixes in the Cloudflare dashboard's D1 console.
+
+---
 
 | # | Item | Why it ranks here |
 |---|---|---|

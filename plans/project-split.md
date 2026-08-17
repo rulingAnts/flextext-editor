@@ -170,3 +170,223 @@ archive itself.
   banner vs email).
 
 *(Design continues below once the code-facts mapping lands.)*
+
+---
+
+# PART II — THE DESIGN (grounded in the verified code-facts map, 2026-08-17)
+
+An 8-agent mapping of worker/schema.sql, all 12 migrations, worker/src/v1.js (2,768 lines),
+crypto.js, researcher.js, sync.js and researcher-panel.js, with every load-bearing claim
+adversarially re-verified against source. File:line citations are in the map transcript
+(session task w949tlidk); the facts below are the verified subset the design stands on.
+
+## II.0 Verified facts that CHANGE the plan
+
+1. **Device re-homing is safe, confirmed at the source.** A field device persists
+   `{installId, installSecret, instanceId, …}` and authenticates with `x-fx-install` +
+   `x-fx-secret` against `/v1/instances/<instanceId>/…` routes. **No device-side datum names the
+   researcher** — `s.researcher` is a display-only name/avatar shown once, pre-accept. Re-homing an
+   instance is a server-side UPDATE the device cannot observe. The ONE device-visible key fact:
+   the device re-unwraps its Ki only when the poll body's `wrapped_key` CHANGES — so key rotation
+   is already absorbed by deployed devices, including old APKs. (sync.js:162–176, 222, 354.)
+
+2. **⚠ The E2EE promise is SOFTER than Part I assumed, and the design must say so honestly.**
+   For Google-sign-in accounts (the only sign-in the current client offers), **Kr is minted BY the
+   worker and stored worker-decryptable** (`kr_server_enc` under a SERVER_HMAC_KEY-derived AES key),
+   and is decrypted + returned on every `GET /v1/researcher`. Password-lane accounts' Kr is
+   client-wrapped, but the worker holds `ESCROW_PRIVATE_KEY` and exercises it in `/reset/verify`.
+   **So "the server cannot re-wrap keys" is a POLICY line, not physics** — for Google accounts the
+   worker could perform the entire Ki re-wrap migration server-side. Decision II.D1 below.
+
+3. **The missing primitive is exactly one thing: researchers have no keypair.** The RSA wrap/unwrap
+   primitives (`wrapKeyForInstall`, `unwrapKeyFromResearcher`, SPKI import, fingerprinting) are
+   generic and reusable verbatim; installs already live this way. Nothing wraps researcher-to-
+   researcher today because there is nothing to wrap TO. Adding a researcher keypair is the whole
+   crypto delta.
+
+4. **`secret_hash` is two regimes, not two jobs in one lane.** Password lane: a DURABLE
+   password-derived verifier — already multi-session by construction (same authSecret authenticates
+   any number of browsers). Google lane: a rotating single-session token hash — each sign-in
+   evicts the previous session. The split is **password-verifier vs session-token**. Bonus finding:
+   client `signOut()` never calls the server — a Google session hash stays valid in D1 until the
+   NEXT sign-in. The session redesign fixes real dead code, not just adds capacity.
+
+5. **The Drive re-route pattern already exists.** Device uploads, crowd submits and `/v1/textfile`
+   serving all resolve the OWNING researcher's row from the resource and use THAT refresh token.
+   Only the researcher-authed panel routes call `driveAccessToken(env, r)` with the CALLER's row.
+   Making member access work = applying the existing pattern to ~13 panel routes. One trap: the
+   assignment-finish path mints textfile tokens embedding the CALLER's researcher_id without
+   touching Drive — a member-minted token would 410 at serve time; minting must embed the
+   project's Drive-owner id.
+
+6. **⚠ A member-visibility landmine already in the panel: the "Unassigned texts" card.** The panel
+   classifies a Drive text as unassigned when NO visible inventory reports its docId, and offers
+   "Remove from Google Drive" on it. Under partial visibility (a member who sees a subset of
+   devices) this would misclassify live work as unassigned and offer to trash the only copy. The
+   card (and storageModal's same predicate) must be gated to full-visibility contexts.
+
+7. **Plaintext boundaries to state honestly in the permission model:** instance NICKNAMES, install
+   status fields, Drive file/folder NAMES and the approval log are plaintext server-side. So
+   member `see` is enforced in two tiers: worker FILTERING for metadata (nickname/status rows) and
+   KEY NON-DELIVERY for content (inventories, commands, settings snapshots). Part I's "the worker
+   could hand over every ciphertext row and the member reads nothing" is true of content, not of
+   nicknames — the filter tier is real enforcement, not cosmetics, and must be tested as such.
+
+8. **Client enumerated-rebuild traps:** `listView()` and `mintInvite()` rebuild server responses
+   field-by-field and silently drop anything not named. Every new server field (project ids,
+   capabilities, grants, session lists) must be added there or it vanishes client-side.
+
+9. **Terminology collision:** the worker's `isOwner` means DEPLOYMENT OPERATOR
+   (ALLOWED_RESEARCHERS). The split's "project owner" is a different role. The code/docs must
+   rename the former (→ operator) before the word "owner" appears in project code.
+
+10. **Account deletion must be re-specified.** Today's self-delete cascades over owned instances,
+    installs, invites, crowd rows. Under projects: a MEMBER's deletion removes memberships and
+    their grants only; an OWNER's deletion is a project-lifecycle question (decision II.D5).
+
+## II.1 Schema (all additive; D1 conventions: run-once files, IF NOT EXISTS, nullable/default)
+
+```sql
+-- migrate-projects.sql
+CREATE TABLE IF NOT EXISTS project (
+  project_id   TEXT PRIMARY KEY,            -- GUID
+  owner_id     TEXT NOT NULL,               -- researcher_id of the ONE owner
+  name         TEXT NOT NULL,               -- plaintext, like instance.nickname
+  created_at   INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_project_owner ON project(owner_id);
+
+CREATE TABLE IF NOT EXISTS project_member (
+  project_id   TEXT NOT NULL,
+  researcher_id TEXT NOT NULL,              -- the member
+  caps         TEXT NOT NULL DEFAULT '{}',  -- {"see":"all"|["instanceId"...],"manageDevices":...,
+                                            --  "assignTexts":...,"createInvites":bool,
+                                            --  "drive":"read"|"manage"} — owner-written JSON
+  added_at     INTEGER NOT NULL,
+  added_by     TEXT NOT NULL,
+  PRIMARY KEY (project_id, researcher_id)
+);
+
+CREATE TABLE IF NOT EXISTS member_key (     -- the Ki grant ledger (owner-sovereignty ledger)
+  project_id   TEXT NOT NULL,
+  instance_id  TEXT NOT NULL,
+  researcher_id TEXT NOT NULL,              -- grantee (OWNER HAS A ROW TOO — the invariant)
+  key_version  INTEGER NOT NULL DEFAULT 1,  -- rotation-ready from day one
+  wrapped_ki   TEXT NOT NULL,               -- RSA-OAEP to the grantee's researcher pubkey
+  wrapped_by   TEXT NOT NULL,
+  created_at   INTEGER NOT NULL,
+  PRIMARY KEY (instance_id, researcher_id, key_version)
+);
+
+-- researcher gains a portable keypair (multi-browser: the private key must follow the account):
+ALTER TABLE researcher ADD COLUMN pubkey TEXT;          -- SPKI b64, like install.pubkey
+ALTER TABLE researcher ADD COLUMN wrapped_privkey TEXT; -- PKCS8 wrapped under Kr (client-side)
+
+-- instance + crowd_recorder gain the project pointer; researcher_id STAYS (dual-read window):
+ALTER TABLE instance       ADD COLUMN project_id TEXT;
+ALTER TABLE crowd_recorder ADD COLUMN project_id TEXT;
+
+-- migrate-sessions.sql
+CREATE TABLE IF NOT EXISTS session (
+  session_id   TEXT PRIMARY KEY,
+  researcher_id TEXT NOT NULL,
+  secret_hash  TEXT NOT NULL,               -- sha256 of the bearer token
+  created_at   INTEGER NOT NULL,
+  last_seen_at INTEGER,
+  label        TEXT,                        -- UA-derived, shown in the session list
+  expires_at   INTEGER,
+  revoked      INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_session_researcher ON session(researcher_id);
+```
+
+Why a separate `member_key` table instead of the owner's `settings_blob.wrappedKis`: the blob is
+per-account and opaque; grants must be (a) per-grantee, (b) enumerable by the worker for the
+owner's sovereignty ledger and the wrap-to-owner invariant, (c) revocable row-wise. The owner's
+own copies MOVE into `member_key` rows (wrapped to their new pubkey) so one mechanism serves
+everyone; `settings_blob.wrappedKis` remains readable as the legacy fallback during the window.
+
+## II.2 Sessions (Phase A — independent of projects, ships first)
+
+- Google callback: INSERT a `session` row instead of rotating `secret_hash`; return
+  `researcher_id.token` in the fragment exactly as today (client shape unchanged).
+- `authResearcher`: try `session` rows first (hash match + not revoked + not expired → touch
+  `last_seen_at`); fall back to legacy `secret_hash` compare. Old panels keep working; password
+  authSecret keeps working (its regime is unchanged).
+- `/login` (password lane): also mints a session row and returns the token; the stored authSecret
+  fallback keeps old clients alive.
+- Guards: cap 5 sessions/account (oldest evicted), default expiry 90 days sliding
+  (`staySignedIn` governs the CLIENT's storage choice exactly as today — it does not extend the
+  server expiry), `GET /v1/researcher/sessions` (list: label, created, last_seen, current-marker),
+  `DELETE .../sessions/:id` (revoke one), `POST .../sessions/revoke-others`. Panel UI in the
+  account modal. New-sign-in notice: a panel banner on other sessions at next poll ("new sign-in
+  from <label> at <time>") — no email infra exists, none added.
+- `signOut()` finally calls the server (revokes ITS row), fixing the dead code.
+- ⚠ secAlert hooks: session create/revoke logged like other auth events.
+
+## II.3 Keys (Phase B)
+
+- On first sign-in after update, the panel generates the researcher keypair (reusing the install
+  primitives verbatim), stores pubkey + Kr-wrapped private key on the researcher row, and
+  SELF-GRANTS: writes `member_key` rows for every owned instance (wrapped to its own pubkey),
+  migrating out of `settings_blob.wrappedKis` (which stays as fallback).
+- **Wrap-to-owner invariant** (worker-enforced): any `member_key` INSERT set for an instance must
+  include a row for the project's owner_id, else 400. Applies to member-paired devices too.
+- `getKi()` resolution order: memory cache → `member_key` row for me (unwrap with my private key)
+  → legacy `settings_blob.wrappedKis` (owner only). One chokepoint, as today.
+- Rotation (Phase E, schema-ready now): new `key_version` rows + `wrapped_key` redelivery to
+  installs (devices absorb it, verified fact II.0.1).
+
+## II.4 Authorization (Phase C)
+
+- The 56 `researcher_id=?` binds, categorized by the map: 22 stay account-scoped (auth, TOTP,
+  reset, settings blob, account approval); 6 become "project's Drive owner" resolutions; 28 become
+  `project_id` scoping + capability checks.
+- One helper, one shape: `authMember(req, env, instanceOrProject, needCap)` → resolves membership
+  row, parses caps, enforces per-device overrides; owner passes everything. Every mutating
+  endpoint names its capability (`manageDevices`, `assignTexts`, `createInvites`, `driveManage`).
+- `GET /v1/researcher` becomes project-scoped: `?project=<id>` returns the instance list FILTERED
+  by the member's `see` (tier-1 enforcement), with `has_key` reflecting THEIR grant rows. Without
+  `?project`, legacy shape (their default project) — old panels unaffected during the window.
+- Invite mint: `createInvites` capability; claim response identity block: project NAME + owner's
+  display identity (decision II.D3 confirms wording).
+- Drive: panel routes resolve the project's owner row (the existing device-lane pattern);
+  `mintTextfileUrl` embeds the owner's researcher_id; member `drive:"read"` gates the proxy/list
+  routes, `drive:"manage"` the trash/purge routes.
+- The Unassigned card + storageModal predicate: rendered ONLY when the viewer's `see` is "all"
+  (owner always; members only with full visibility). Landmine II.0.6 closed by construction.
+
+## II.5 Migration & rollout (each phase independently shippable, old clients never break)
+
+- **A. Sessions** — additive table; fallback auth keeps every old client working. Test: old panel
+  (pre-update) against new worker on staging D1.
+- **B. Default projects + keypairs + self-grants** — server backfill: one project per researcher
+  (`owner_id` = them, name from their display name), `instance.project_id` filled; dual-read
+  (`project_id` OR legacy `researcher_id`) everywhere until D. Client lazily generates keypair +
+  self-grants. Single-member behavior byte-identical.
+- **C. Membership + authorization + scoped panel** — the big client+worker release; runbook order
+  (D1 → worker → smoke → clients); CORS same-commit rule for any new headers (v134 lesson: none —
+  new params ride the BODY/query, per the house compat pattern).
+- **D. Sharing UI** — projects home (Mine/Joined), member management, trust warnings, invites.
+- **E. Rotation + polish.**
+- **Testing rig:** Seth provisions a STAGING WORKER + STAGING D1 (offered 2026-08-17) — migrations
+  rehearsed there first; the compat gate is a scripted probe replaying TODAY'S device calls
+  (claim/poll/report/upload with current header/path shapes) against the migrated staging worker —
+  it must pass unchanged at every phase. `?devworker=staging` points test clients at it.
+
+## II.6 Decisions still open (the complete list)
+
+- **II.D1 — The E2EE policy line.** Keep the "client-driven re-wrap only" stance (server never
+  uses its latent Kr access; strongest story, slowest migration), or allow ONE server-assisted
+  migration step for Google accounts (faster, uses capability the worker already has, must be
+  documented honestly). Recommendation: client-driven — the code comment "the worker can't unwrap"
+  should become TRUE over time, not more false.
+- **II.D2 — Drive ownership per project = the OWNER's Drive** (assumed throughout). Confirm, incl.
+  member uploads landing there and the quota being the owner's.
+- **II.D3 — Claim-screen identity** for project invites: "«Project name» — managed by «owner»"
+  (recommended), even when a member minted the link.
+- **II.D4 — Sole-project auto-open** (Part I recommendation stands).
+- **II.D5 — Owner account deletion**: block while the project has members/devices (recommended),
+  vs transfer-ownership flow (later feature).
+- **II.D6 — Session guard tuning**: cap 5, 90-day sliding expiry, banner-only notification —
+  confirm or adjust.

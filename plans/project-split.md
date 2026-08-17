@@ -643,15 +643,24 @@ blocks Phases A–B** — do it when convenient.
 
 ### 1. Ask both databases what they actually have (read-only, 2 commands)
 
-Actions → **"wrangler (one-off command)"** → Run workflow, `args` box, one run each:
+Actions → **"wrangler (one-off command)"** → Run workflow, `args` box, one run each — **and Claude
+can dispatch these himself** through the GitHub API, which is how they were actually run
+(2026-08-17). No wrangler on any Mac required, by design: that is what the workflow exists for.
 
 ```
-d1 execute flextext-connectivity          --remote --file=schema-report.sql
-d1 execute flextext-connectivity-staging  --remote --file=schema-report.sql
+d1 execute flextext-connectivity          --remote --command "SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name"
+d1 execute flextext-connectivity-staging  --remote --command "…the same query…"
 ```
 
-Paste both outputs back here. `worker/schema-report.sql` is new in this commit; it SELECTs from
-`sqlite_master` and writes nothing, so it is safe against production.
+⚠ **`--remote --file=` silently reads nothing.** Wrangler treats a file against a REMOTE database as
+a bulk IMPORT: it uploads it and prints a summary ("Executed 1 queries … 27 rows read") with no rows
+at all. `--local --file=` DOES print rows, so the difference is invisible until it costs a run — and
+an empty-looking result reads exactly like an empty database. Remote reads go through `--command`;
+`worker/schema-report.sql` and `worker/inventory-report.sql` stay as the reviewable source of the
+queries and as what runs locally.
+
+⚠ **The branch dropdown matters** when using `--file`: the job checks out the ref you dispatch, and
+those files live on `staging`.
 
 ⚠ **Why this step exists and cannot be skipped:** staging was created with
 `--file=schema.sql` alone, and `schema.sql` is a folded-forward snapshot — so staging's schema is

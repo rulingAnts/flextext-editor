@@ -6,11 +6,16 @@
 -- how the live database actually got its shape. The only way to know what a given database really
 -- holds is to ask it.
 --
--- Run it against each database and keep the output side by side:
---   Actions -> "wrangler (one-off command)" -> args:
---     d1 execute flextext-connectivity          --remote --file=schema-report.sql
---     d1 execute flextext-connectivity-staging  --remote --file=schema-report.sql
---   (locally, add --local instead of --remote to inspect a Miniflare copy)
+-- ⚠ `--remote --file=` DOES NOT WORK FOR READING. Verified 2026-08-17: against a remote database
+-- wrangler treats a file as a bulk IMPORT — it uploads it and prints only a summary
+-- ("Executed 1 queries ... 27 rows read"), never the rows. `--local --file=` does return rows, so
+-- the difference is silent and easy to mistake for an empty database. To READ from production, the
+-- query has to go through --command:
+--   Actions -> "wrangler (one-off command)" -> args (one line):
+--     d1 execute flextext-connectivity --remote --command "SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name"
+--   ...and the same with flextext-connectivity-staging. This file stays as the reviewable source of
+--   that query, and is what you run locally:
+--     wrangler d1 execute DB --local --file=schema-report.sql
 --
 -- `sqlite_master.sql` is rewritten by SQLite when a column is added with ALTER TABLE, so the CREATE
 -- text below reflects the CURRENT columns, not the original ones. Comparing the two outputs shows

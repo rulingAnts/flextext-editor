@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v383';
+export const ENGINE_VERSION = 'v384';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v383';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = '';
+export const BUILD_TAG = 'biasa v1';
 
 const S = {
 en: {
@@ -2162,7 +2162,7 @@ id: {
   'player.speed': 'Kecepatan putar',
   'player.speedVerySlow': 'Sangat lambat',
   'player.speedSlow': 'Lambat',
-  'player.speedNormal': 'Normal',
+  'player.speedNormal': 'Biasa',
   'player.zoom': 'Perbesar',
   'player.remove': 'Hapus audio dari teks ini',
   'player.attach': 'Lampirkan audio…',

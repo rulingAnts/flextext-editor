@@ -132,6 +132,33 @@ held while a member is not retroactively erased. The panel wording must say the 
   sole project — day-one users see zero change from today, and the list appears the day a second
   project exists.
 
+## Trust warnings at grant time (Seth, 2026-08-17)
+
+> *"When inviting a co-researcher to a project, or granting them increased access, our UI should
+> warn the user how much trust in that co-researcher they need to have — what you can't revoke or
+> undo once you've given them access the first time."*
+
+The revocation-honesty rule, moved UPSTREAM to the moment it actually helps: the owner should learn
+what cannot be taken back BEFORE granting, not discover it while revoking. One warning box in the
+invite/grant modal, its content assembled from the capabilities being granted, in plain language
+(idiot-proof rule; localized en + id). Two honestly different categories, never blurred:
+
+- **Cannot be undone, ever** (knowledge and copies): granting `see` on a device means they can read
+  everything it has recorded and reported; granting Drive read means they can download copies.
+  Removing them later stops FUTURE access — it cannot take back what they have already seen or
+  saved. This is the "how much do you trust this person" warning, and it fires on the FIRST grant
+  of each such capability.
+- **Stoppable later, but not rewindable** (actions): `manageDevices`, `assignTexts`,
+  `createInvites`, Drive manage. Everything they do while trusted — settings changed, texts
+  removed, files deleted, devices paired — is real and may not be recoverable. Revoking ends the
+  capability from the next request; it does not replay history.
+
+Mechanics: warn on INVITE and on every INCREASE (adding a capability or widening a device list),
+never on decrease; keep it one box, not a click-through per switch — the WS-mismatch "Send anyway"
+dialog is the house pattern (explicit, plain, one decision). Escalating to a typed confirm (the
+erase-data pattern) only for Drive MANAGE, the one grant that hands over destructive power on the
+archive itself.
+
 ## Decision points for Seth (running list)
 
 - ~~Who can mint pairing invites?~~ → **owner-controlled per member** (`createInvites`), per the

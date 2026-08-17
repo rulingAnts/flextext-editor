@@ -117,30 +117,33 @@ work that has since shipped, and one (`parked-v319-v321`) predates the whole v35
 
 ---
 
-## Branch hygiene (blocked — this session's git token cannot delete refs)
+## Branch hygiene (verified 2026-08-17 — deletion still needs Seth's terminal)
 
-`git push origin --delete` returns **403** from the remote-execution environment: the credentials
-grant push but not delete. Run locally. Verified safe — zero unique commits AND zero content
-difference against `productionWeb`:
+`git push origin --delete` returns **403** from the remote-execution environment (re-confirmed
+2026-08-17 with a live attempt): the credentials push but cannot delete refs. Run locally.
+
+**Safe — every branch below re-verified ZERO content difference against `productionWeb` (v383)
+immediately before this list was written.** `assign-by-upload` is 6 merges FROM staging with an
+empty three-dot diff; everything else is a plain ancestor of production.
 
 ```sh
-git push origin --delete assign-by-upload \
+git push origin --delete segmentation assign-by-upload parked-panel-and-matching \
+  segmentation2 seg-exports editor-fixes-v322 paragraph-analysis tok-pisin-l10n \
+  heads-model cycle-rest \
   claude/assign-by-upload-build-7d5ee8 claude/assign-by-upload-build-uik28u \
   claude/cut-tab-waveform-displays-2owdfx claude/paragraph-analysis-backlog-1bb9bd \
   claude/prompt-too-large-error-d767f1 claude/unpaired-device-setup-w3u9ck \
   claude/worker-cache-poisoning-536b2c
 ```
 
-(`assign-by-upload` is 6 commits "ahead", but all six are merges FROM staging and the three-dot diff
-is empty — it holds nothing of its own.)
+Takes the repo from 24 branches to 9: the three trunks plus six carrying real decisions.
 
-⚠ **Do NOT delete these — they hold unique commits:** `guid-identity-gate` (the v320 fix above),
-`v321-hardening` + `parked-v319-v321` (v319–v321), `fix-artifact-kinds-and-fxpa-stamp` (v317/v319),
-`paired-audio-delete-gate` (its own commit says "do not merge without Seth's go-ahead"), and
-`claude/flextext-import-onestory-1jjm0p` (the OneStory injection plan).
-
-`segmentation` is separately deletable whenever convenient — CLAUDE.md marks it obsolete and says it
-must never be merged.
+⚠ **Do NOT delete these six — unique commits, each awaiting a decision:**
+`guid-identity-gate` (the v320 GUID fix — rebase + re-verify, PENDING 1.1), `v321-hardening`,
+`parked-v319-v321`, `fix-artifact-kinds-and-fxpa-stamp` (v317/v319), `paired-audio-delete-gate`
+(its own commit says do not merge without Seth's go-ahead), and
+`claude/flextext-import-onestory-1jjm0p` (~15 lines of OneStory-injection plans — cheapest close is
+copying the plan into plans/ then deleting).
 
 ## What a session should open with
 

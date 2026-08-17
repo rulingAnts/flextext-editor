@@ -112,6 +112,25 @@ correctly. So the legacy population can only shrink, and Seth's *"any new users 
 will be using the new Cloudflare hosted app"* (2026-08-17) is a property of the code, not a habit
 anyone has to remember.
 
+⚠ **The panel's origin and the instance's `estate` are DIFFERENT THINGS, and conflating them is the
+easy mistake here.** Seth, 2026-08-17: *"I think Iwan is using the Cloudflare site for the researcher
+app."* That is entirely compatible with his instance still reading `estate='pages'`, because nothing
+anywhere records which origin a researcher opens their panel from — it is just a URL, and the panel
+talks to the same worker either way. `estate` decides ONE thing: which URL an invite or assignment
+link is minted with, i.e. **where the FIELD DEVICE's app gets installed from**.
+
+So the question that actually gates retirement is not where Iwan's panel runs. It is **where his one
+live install is installed from** — and ⚠ **the server cannot answer that.** D1 stores no origin;
+`secLog` records method, path, IP hash and country but NOT the `Origin` header, and only fires on
+security events rather than ordinary polls (worker/src/seclog.js:33–46); and the device inventory in
+`reported_blob` is E2EE, so even if it named the origin the worker could not read it. The answer
+comes from Iwan or from looking at the device, not from a query.
+
+**Which way it cuts:** if that install is already running from the Cloudflare origin, the `pages`
+stamp is a stale attribute on an instance no installed app depends on — nothing blocks retirement,
+and the row can simply be revoked or re-stamped. If it is a `github.io` install, retiring the
+mirrors breaks his app. One question to him settles a decision worth several days of caution.
+
 ⚠ One nuance: an INVITE inherits its instance's estate (v1.js:1637–1638). So a second device paired
 to Iwan's EXISTING instance would still land on `pages`. Closed means no new legacy *instances* —
 not that the existing ones are frozen. If Iwan needs another device before he migrates, create a new

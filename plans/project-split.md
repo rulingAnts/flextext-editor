@@ -633,7 +633,48 @@ deliberately in the same commit, so the expected schema is reviewed as a diff.
 
 ---
 
-# PART IV — SETH'S TASK: freshen the staging rig (the only step Claude cannot do)
+# PART IV — freshening the staging rig
+
+> **Steps 1 and 2 are DONE (2026-08-17), run by Claude through the Actions workflow.** Seth has no
+> wrangler locally and does not need it: `worker-wrangler.yml` is dispatchable through the GitHub
+> API, so the schema work needed no console at all. What is left for Seth is steps 3–6 — four
+> secrets, one Google console entry, the deploy, and a test browser.
+
+## Measured results (production and staging, read-only)
+
+**Production's schema is EXACTLY what the repo replays.** All 9 tables, every column, all 7 indexes
+match `worker/schema-expected.json` — so `test/worker-schema.test.mjs` is now a test of production
+truth, not just of internal consistency. Production also carries the rebuild's fingerprint
+(`CREATE TABLE "instance"`, quoted), confirming the reconstruction in R2-6.
+
+**Production inventory** (counts only; sizes the backfill):
+
+| | | | |
+|---|---|---|---|
+| researchers | **7** (all Google-lane, all approved, all holding a Drive token) | duplicate email keys | **0** — the unique index is safe |
+| instances | 34 total, **7 live** | orphaned instances | **0** |
+| estate | 21 pages / 13 cloud (all rows) | installs | 28 total, **5 live**, 26 approved, 26 holding a key |
+| unclaimed invites | 33 | crowd recorders / approved domains / approval log | 1 / 11 / 150 |
+
+So the Phase B backfill mints **7 projects** and stamps **34 instances** — small enough to rehearse
+exhaustively, and small enough that a mistake is repairable by hand.
+
+**Legacy-estate answer** (Seth's open question — *"are there active devices on the GitHub Pages
+URLs, and whose?"*): among LIVE instances, **4 are `pages` and 3 are `cloud`**; **2 researcher
+accounts** hold the live `pages` devices, and **3 of those devices checked in within 30 days**. So
+the satellite-retirement conversation is with two accounts, not a crowd. ⚠ The addresses are
+deliberately NOT queried here — a public workflow log is the wrong place for them; read them in the
+Cloudflare dashboard's D1 console.
+
+**Staging was drifted, and R2-6 is why — caught in the wild.** Staging matched production on every
+table and index EXCEPT `instance`, which had 8 columns to production's 10 (missing `oauth_folder_id`
+and `estate`). Its `CREATE TABLE "instance"` is quoted too: `migrate-instance-type-unified.sql`
+rebuilt the table and dropped the `estate` that `schema.sql` had just created, and
+`migrate-estate.sql` could not restore it because its second statement was a duplicate and `--file`
+is atomic — so its good first statement rolled back as well. **Fixed** by `worker/topup-staging.sql`
+(applied 2026-08-17); staging and production now agree.
+
+## What is left for Seth (steps 3–6 below): secrets, the Google redirect URI, the deploy, a browser
 
 **The rig already exists.** `worker/wrangler.toml` has had `[env.staging]`
 (`flextext-r2-worker-staging`, `routes = []`, `workers_dev = true`) and a bound
@@ -641,42 +682,33 @@ deliberately in the same commit, so the expected schema is reviewed as a diff.
 schema that matches production, secrets, and one Google console entry. ⚠ Per PART V, **none of this
 blocks Phases A–B** — do it when convenient.
 
-### 1. Ask both databases what they actually have (read-only, 2 commands)
+### 1–2. Schema: asked, diffed, repaired — DONE (kept here for the method)
 
-Actions → **"wrangler (one-off command)"** → Run workflow, `args` box, one run each — **and Claude
-can dispatch these himself** through the GitHub API, which is how they were actually run
-(2026-08-17). No wrangler on any Mac required, by design: that is what the workflow exists for.
+The two read-only dumps and the repair, exactly as run:
 
 ```
 d1 execute flextext-connectivity          --remote --command "SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name"
 d1 execute flextext-connectivity-staging  --remote --command "…the same query…"
+d1 execute flextext-connectivity-staging  --remote --file=topup-staging.sql
 ```
 
 ⚠ **`--remote --file=` silently reads nothing.** Wrangler treats a file against a REMOTE database as
 a bulk IMPORT: it uploads it and prints a summary ("Executed 1 queries … 27 rows read") with no rows
 at all. `--local --file=` DOES print rows, so the difference is invisible until it costs a run — and
-an empty-looking result reads exactly like an empty database. Remote reads go through `--command`;
-`worker/schema-report.sql` and `worker/inventory-report.sql` stay as the reviewable source of the
-queries and as what runs locally.
+an empty-looking result reads exactly like an empty database. Remote READS go through `--command`;
+remote WRITES are fine as `--file`, which is why the top-up ran that way.
 
-⚠ **The branch dropdown matters** when using `--file`: the job checks out the ref you dispatch, and
-those files live on `staging`.
+⚠ **D1 rejects long compounds.** A 20-term `UNION ALL` inventory came back
+`too many terms in compound SELECT [code: 7500]`. One row of scalar subqueries has no such limit —
+and the split's own report and migration SQL must avoid long compounds for the same reason.
 
-⚠ **Why this step exists and cannot be skipped:** staging was created with
-`--file=schema.sql` alone, and `schema.sql` is a folded-forward snapshot — so staging's schema is
-almost certainly NOT production's (R2-6). And because `d1 execute --file` is atomic, a re-run of any
-migration that is even partly applied fails and changes nothing. The top-up has to be built from
-what is really there.
+⚠ **Never put rows in a workflow log.** The repo is public, so the log is public.
+`worker-wrangler.yml`'s own header example (`SELECT researcher_id, drive_email, approved FROM
+researcher`) was written while the repo was private and would now publish real addresses. The
+reports here are schema and counts only; actual rows belong in the dashboard's D1 console.
 
-⚠ **Never widen that report to SELECT rows.** This repo is public, so workflow logs are public. The
-schema text carries no user data; a data export must never go through Actions (see PART V, Tier 2).
-
-### 2. Top up staging (Claude writes it from step 1's output)
-
-I diff the two dumps against `worker/schema-expected.json` and hand you one `worker/topup-staging.sql`
-containing ONLY the statements staging is missing, in an order that applies cleanly. You run it the
-same way: `d1 execute flextext-connectivity-staging --remote --file=topup-staging.sql`. Then re-run
-step 1's staging command to confirm the two now agree.
+⚠ **The branch dropdown matters** when using `--file`: the job checks out the ref it is dispatched
+with, and these files live on `staging`.
 
 ### 3. Secrets for the staging environment (dashboard — `wrangler secret put` needs stdin)
 

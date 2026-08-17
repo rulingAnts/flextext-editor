@@ -113,7 +113,26 @@ held while a member is not retroactively erased. The panel wording must say the 
      after the core split if need be, but the schema must allow per-device key VERSIONS from day
      one, so rotation is an addition rather than a migration.)
 
+## Panel UI (Seth, 2026-08-17)
 
+> *"The researcher panel starting with a list of projects. Ordered by most-recently accessed, and
+> separated into two broad sections 'Mine' and 'Joined'. Then you click on a project and the page
+> loads just like what we see now, except that there's a back button to the main home page
+> (projects list)."*
+
+- **Home = the projects list.** Two sections — **Mine** (owned) and **Joined** (member) — each
+  ordered by most-recently accessed. Last-access is a client-side timestamp (localStorage, like
+  the panel's other per-device prefs); it needs no server column and no sync.
+- **Inside a project = today's dashboard, unchanged**, plus a back button to the projects list.
+  Everything the panel does today happens INSIDE a project scope; the existing scroll-preservation
+  and in-place-refresh rules carry over untouched.
+- Labels localized (en + id) like the rest of the panel.
+- **Small decision:** with exactly ONE project (every account on day one), does the panel
+  auto-open it (back button still present) or always show the list? Recommendation: auto-open the
+  sole project — day-one users see zero change from today, and the list appears the day a second
+  project exists.
+
+## Decision points for Seth (running list)
 
 - ~~Who can mint pairing invites?~~ → **owner-controlled per member** (`createInvites`), per the
   granular-permissions spec above.

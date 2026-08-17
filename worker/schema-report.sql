@@ -1,0 +1,19 @@
+-- READ-ONLY schema report. Safe on ANY database, production included: it writes nothing.
+--
+-- What it is for: this repo has no applied-migrations ledger. `schema.sql` is a snapshot that has
+-- been folded FORWARD over time (it already contains columns that migrate-auth.sql and
+-- migrate-estate.sql also add), so "schema.sql + every migrate-*.sql" is NOT a faithful replay of
+-- how the live database actually got its shape. The only way to know what a given database really
+-- holds is to ask it.
+--
+-- Run it against each database and keep the output side by side:
+--   Actions -> "wrangler (one-off command)" -> args:
+--     d1 execute flextext-connectivity          --remote --file=schema-report.sql
+--     d1 execute flextext-connectivity-staging  --remote --file=schema-report.sql
+--   (locally, add --local instead of --remote to inspect a Miniflare copy)
+--
+-- `sqlite_master.sql` is rewritten by SQLite when a column is added with ALTER TABLE, so the CREATE
+-- text below reflects the CURRENT columns, not the original ones. Comparing the two outputs shows
+-- exactly which ALTERs a database is missing — and `test/worker-schema.test.mjs` prints the
+-- expectation the repo says it should match.
+SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name;

@@ -1,0 +1,125 @@
+{
+  "tables": {
+    "approval_log": [
+      "actor",
+      "at",
+      "detail",
+      "id",
+      "kind",
+      "subject"
+    ],
+    "approved_domain": [
+      "created_at",
+      "domain_hash",
+      "note_enc"
+    ],
+    "crowd_recorder": [
+      "bytes_total",
+      "config_json",
+      "created_at",
+      "crowd_id",
+      "day_count",
+      "day_key",
+      "drive_folder",
+      "enabled",
+      "estate",
+      "label",
+      "max_bytes_total",
+      "max_per_day",
+      "oauth_folder_id",
+      "researcher_id",
+      "submit_count"
+    ],
+    "crowd_submission": [
+      "bytes",
+      "country",
+      "created_at",
+      "crowd_id",
+      "file_name",
+      "ip_hmac",
+      "status",
+      "sub_id"
+    ],
+    "install": [
+      "accepted",
+      "ack_seq",
+      "created_at",
+      "install_id",
+      "instance_id",
+      "last_seen_at",
+      "pubkey",
+      "reported_blob",
+      "reported_rev",
+      "revoked",
+      "secret_hash",
+      "status",
+      "wipe_at",
+      "wipe_hidden",
+      "wipe_state",
+      "wrapped_key"
+    ],
+    "instance": [
+      "created_at",
+      "desired_blob",
+      "desired_rev",
+      "estate",
+      "instance_id",
+      "nickname",
+      "oauth_folder_id",
+      "researcher_id",
+      "revoked",
+      "type"
+    ],
+    "invite": [
+      "claimed_at",
+      "claimed_install",
+      "created_at",
+      "expires_at",
+      "instance_id",
+      "invite_id",
+      "secret_hash"
+    ],
+    "researcher": [
+      "approved",
+      "avatar_url",
+      "backup_codes",
+      "created_at",
+      "display_name",
+      "drive_email",
+      "drive_error",
+      "drive_folder_id",
+      "drive_mode",
+      "drive_refresh_enc",
+      "email_enc",
+      "email_sha256",
+      "escrow_kr",
+      "google_sub",
+      "kr_server_enc",
+      "researcher_id",
+      "salt",
+      "secret_hash",
+      "settings_blob",
+      "settings_rev",
+      "totp_enabled",
+      "totp_secret_enc",
+      "wrapped_kr"
+    ],
+    "reset": [
+      "attempts",
+      "created_at",
+      "expires_at",
+      "researcher_id",
+      "token_hash",
+      "used"
+    ]
+  },
+  "indexes": [
+    "idx_approval_log_at",
+    "idx_crowd_researcher",
+    "idx_crowd_sub",
+    "idx_install_instance",
+    "idx_instance_researcher",
+    "idx_researcher_email",
+    "idx_researcher_sub"
+  ]
+}

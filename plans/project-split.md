@@ -474,3 +474,318 @@ everyone; `settings_blob.wrappedKis` remains readable as the legacy fallback dur
   probe exists and passes against the staging worker on Phases A–B.
 - **Staging worker + staging D1** (Seth, 2026-08-17: "we can implement a staging worker and
   staging D1 for you to test with") is the prerequisite rig for ALL of it — first concrete task.
+  ⚠ Superseded in detail by PART IV: **both already exist** in `worker/wrangler.toml [env.staging]`
+  (created 2026-08-11), so this is a freshening task, not a provisioning one — and PART V proposes
+  doing most of it with no remote rig at all.
+
+---
+
+# PART III — AUDIT, ROUND 2 (2026-08-17)
+
+> ⚠ **Provenance, stated plainly.** The fan-out audit was re-run; its attack phase partly completed
+> and then **all 37 verification agents died on the account's monthly spend limit**, and the run's
+> output file was lost when the container reset. Two findings had been CONFIRMED before the limit
+> hit; both are **re-verified here by hand against source**, with citations, so they stand on their
+> own evidence rather than on a lost transcript. Findings R2-3…R2-6 are new, found in this pass.
+> **The fan-out audit still owes a clean run** before Phase C ships — the unverified attack findings
+> from that run are gone, not cleared.
+
+## R2-1 — SECURITY: member Drive access spans the owner's ENTIRE estate, all projects (CONFIRMED)
+
+Member Drive routes are designed to run on the OWNER's token (II.D2). But the Drive helpers have no
+project dimension whatsoever, so "the project's Drive" is not a thing the worker can currently
+express:
+
+- `driveMasterFolder()` (v1.js:414) finds ONE `FlexText Uploads` folder per Google account, by
+  app-property tag. Every project's device folders are siblings inside it.
+- `driveListAll()` (v1.js:428) lists **every file the app ever created in that account** — which is
+  precisely the storage manager's design intent today (`drive.file` scope = the whole FlexText
+  estate), and precisely wrong once a second researcher can call it (v1.js:1357–1358).
+- `POST /v1/researcher/trash` (v1.js:1478) takes arbitrary `fileIds` — bounded to 100, **no
+  parentage check**. A member could trash any file in the owner's estate, including other projects'.
+- `POST /v1/researcher/drive-purge` (v1.js:1430) takes **no file list at all**. It lists the whole
+  trash and permanently deletes it. One click by one member = every trashed file in the owner's
+  account gone, across every project, unrecoverably.
+
+**Fix (amends II.4).** Drive authorization for members is scoped by FOLDER PARENTAGE, not by token:
+resolve the project's device folders from `instance.oauth_folder_id WHERE project_id=?` (plus the
+crowd recorders' `oauth_folder_id`), and (a) filter the estate listing to those parents, (b) verify
+every `fileIds` entry's parent is in that set before trashing, (c) give purge an explicit id list
+derived from the same filter — a member's purge may never be "empty the trash". The owner keeps
+today's account-wide behaviour. ⚠ This makes **II.D7's "accept + disclose" recommendation obsolete
+for the DESTRUCTIVE half**: disclosure is a fair answer to a member SEEING more than their project;
+it is not a fair answer to a member DELETING another project's archive.
+
+Related, and useful: the "unassigned" Drive folder already exists as a first-class thing
+(`appProperties: { flextextRole: 'unassigned' }`, v1.js:535) — the backlog's *Assign to Drive
+(Unassigned)* feature has a home, and it must be created per project once folders are project-scoped.
+
+## R2-2 — SECURITY: key rotation never reaches an idle device (CONFIRMED)
+
+`POST /v1/instances/:id/installs/:id/key` stores the new wrapped Ki with a bare
+`UPDATE install SET wrapped_key=? WHERE install_id=?` (v1.js:2078) — `instance.desired_rev` is not
+touched. The poll then short-circuits **before** the body that would carry it:
+`if (inst.desired_rev <= since) return 204` (v1.js:2350), and `wrapped_key` only rides the 200 body
+on the next line. A device with nothing else pending therefore never learns its key changed, and
+keeps encrypting under the Ki a removed member still holds — indefinitely, silently.
+
+This is latent today (nothing rotates keys yet) and load-bearing the moment rotation ships, which is
+the whole remedy path in "Owner key sovereignty".
+
+**Fix (amends II.3).** Key delivery must bump `desired_rev` in the SAME statement batch as the
+`wrapped_key` write, so the existing "device re-unwraps when `wrapped_key` changes" path (verified
+fact II.0.1) actually fires. Test: set a key on an install whose `desired_rev == since`, poll, assert
+200-with-`wrapped_key` rather than 204.
+
+## R2-3 — CORRECTNESS: `signout` destroys a password-lane account (Phase A hazard)
+
+`POST /v1/researcher/signout` rotates the ACCOUNT's `secret_hash` to random (v1.js:1051). For a
+Google-lane account that is exactly right (the hash IS the session token). For a **password-lane**
+account the same column is the **durable password verifier** compared at `/login` (v1.js:924) — so
+signing out would silently destroy the ability to log in, recoverable only by an emailed reset.
+
+It cannot bite today: the client's `signOut()` is purely local (`researcher.js:67` clears storage and
+never calls the server), and the password lane is **absent from the shipped client entirely** (no
+`authSecret` anywhere in `docs/js/` outside a `crypto.js` comment). II.2 proposes wiring `signOut()`
+to the server — which is what would arm it.
+
+**Fix (amends II.2).** `signout` revokes THIS SESSION'S row and nothing else. It may only touch
+`secret_hash` when `google_sub IS NOT NULL`, and that clause is what makes round-1 finding 1 (the
+legacy skeleton key) safe too — both changes must carry the same lane guard.
+
+## R2-4 — REASSURANCE (with one exception): the ownership binds fail CLOSED for members
+
+Every instance/install/crowd ownership check is a filter — `WHERE … AND researcher_id=?` — that
+returns `not_found` when it does not match (v1.js:1206, 1604, 1623, 1653, 1705, 1733, 1792, 1814,
+1868, 1911, 1944, 1986, 2032, 2048, 2071, 2088, 2103, 2136, 2473, 2703, 2722, 2728, 2732). With
+`instance.researcher_id` maintained as the owner (round-1 finding 4), a member hitting an unconverted
+endpoint gets a clean 404, never someone else's data. **So Phase C can convert endpoints one at a
+time**: an unconverted route means "members can't do that yet", not a leak. That is the property that
+makes the big release survivable, and every conversion must preserve it (filter, never post-hoc
+check).
+
+**The one exception, and it is destructive:** account self-delete cascades on
+`WHERE researcher_id=?` over instances, installs, invites, crowd rows (v1.js:2754–2762). Under the
+maintained denormalization an OWNER's self-delete would silently destroy a project that other
+researchers are members of, together with their devices. Round-1 finding 6 / II.D5 already recommends
+blocking owner deletion while a project has members or devices — R2-4 upgrades that from a design
+preference to a **required guard, with the cascade cited**. A member's self-delete must additionally
+remove their `project_member` and `member_key` rows, or the grant ledger orphans.
+
+## R2-5 — CONSTRAINT: `authResearcher`'s return SHAPE is load-bearing
+
+`authResearcher` returns the whole `researcher` row (`SELECT *`, v1.js:328), and callers read
+`drive_refresh_enc`, `settings_blob`, `settings_rev`, `drive_email`, `drive_error`, `totp_enabled`,
+`approved`, `kr_server_enc` straight off it. The session lane must therefore change only **how the
+row is found** (session row → JOIN researcher), never what is returned. Stated as an invariant in
+II.2 so nobody "cleans it up" into returning a session object.
+
+## R2-6 — OPS, and the biggest one: there is no migration ledger, and the repo cannot replay itself
+
+Four facts, each verified by running it (2026-08-17), that together mean **no environment can be
+reconstructed from this repo deterministically**:
+
+1. **No applied-migrations table exists.** The rule is "run each `migrate-*.sql` exactly once",
+   enforced by memory and by the runbook's prose. Nothing can answer "what does that database
+   actually have?"
+2. **`schema.sql` has been folded FORWARD.** It already declares `researcher.salt … backup_codes`
+   (migrate-auth) and `instance.estate` / `crowd_recorder.estate` (migrate-estate). A database
+   created from it is not the pre-migration database, and replaying the migrations over it hits
+   8 duplicate-column errors that never happened in production.
+3. **`wrangler d1 execute --file` is ATOMIC.** A three-statement file whose middle statement
+   duplicated a column left NEITHER surrounding `CREATE` behind. So a half-applied database cannot
+   be repaired by re-running the file — the duplicate aborts the whole thing and the missing columns
+   stay missing. Repair is necessarily statement-by-statement.
+4. **Two migrations REBUILD a table** (`migrate-instance-type-unified.sql`,
+   `migrate-approved-domains-hashed.sql`) — SQLite cannot ALTER a CHECK, so they create a new table
+   with a FIXED column list, copy, drop, rename. Re-running the instance one today destroys
+   `estate` and `oauth_folder_id` **and their data**; once the split ships it would destroy
+   `project_id` too. Production is fine only because that file ran before those columns existed.
+
+**Consequence for this project.** The staging D1 was created from `schema.sql` alone (the wrangler.toml
+comment records exactly that command), so **it is not a copy of production's schema** — rehearsing
+migrations there proves nothing about production unless it is topped up first, statement-wise, and
+verified. PART IV starts there.
+
+**Fixes landed with this audit (not proposals — they are in the tree):**
+- `worker/schema-report.sql` — read-only, safe against production: dumps `sqlite_master` so any
+  database can be asked what it really has. `sqlite_master.sql` reflects ALTERed columns, so the
+  CREATE text is current, and diffing two outputs names the missing ALTERs exactly.
+- `test/worker-schema.test.mjs` — replays `schema.sql` + all 12 migrations **statement-wise** in
+  `node:sqlite`, asserts the result against a checked-in snapshot (`worker/schema-expected.json`),
+  pins the 8 folded-forward duplicates, requires every table-rebuilding migration to carry a
+  run-once warning in its own header, and names the columns a re-run would destroy. Verified to FAIL
+  on the real hazard: replaying the rebuild last reports
+  `instance: missing [estate, oauth_folder_id]`.
+
+**Rules this imposes on the split's own migrations:** additive `ALTER`/`CREATE` only — **no table
+rebuilds, ever**; one concern per file so an abort is legible; and the snapshot test regenerated
+deliberately in the same commit, so the expected schema is reviewed as a diff.
+
+## Readiness verdict, revised
+
+- **Phase A (sessions)**: build-ready, with R2-3's lane guard and R2-5's invariant written into the
+  work, plus II.D6 confirmed.
+- **Phase B (default projects + keypairs + self-grants)**: build-ready once the migration files are
+  written to R2-6's rules and rehearsed per PART IV or PART V.
+- **Phase C**: unchanged — design-complete, not build-ready. Now additionally gated on R2-1's
+  folder-parentage scoping, which is a real chunk of Drive work, and on R2-2 shipping with rotation.
+
+---
+
+# PART IV — SETH'S TASK: freshen the staging rig (the only step Claude cannot do)
+
+**The rig already exists.** `worker/wrangler.toml` has had `[env.staging]`
+(`flextext-r2-worker-staging`, `routes = []`, `workers_dev = true`) and a bound
+`flextext-connectivity-staging` D1 since 2026-08-11. Nothing needs creating. What it needs is a
+schema that matches production, secrets, and one Google console entry. ⚠ Per PART V, **none of this
+blocks Phases A–B** — do it when convenient.
+
+### 1. Ask both databases what they actually have (read-only, 2 commands)
+
+Actions → **"wrangler (one-off command)"** → Run workflow, `args` box, one run each:
+
+```
+d1 execute flextext-connectivity          --remote --file=schema-report.sql
+d1 execute flextext-connectivity-staging  --remote --file=schema-report.sql
+```
+
+Paste both outputs back here. `worker/schema-report.sql` is new in this commit; it SELECTs from
+`sqlite_master` and writes nothing, so it is safe against production.
+
+⚠ **Why this step exists and cannot be skipped:** staging was created with
+`--file=schema.sql` alone, and `schema.sql` is a folded-forward snapshot — so staging's schema is
+almost certainly NOT production's (R2-6). And because `d1 execute --file` is atomic, a re-run of any
+migration that is even partly applied fails and changes nothing. The top-up has to be built from
+what is really there.
+
+⚠ **Never widen that report to SELECT rows.** This repo is public, so workflow logs are public. The
+schema text carries no user data; a data export must never go through Actions (see PART V, Tier 2).
+
+### 2. Top up staging (Claude writes it from step 1's output)
+
+I diff the two dumps against `worker/schema-expected.json` and hand you one `worker/topup-staging.sql`
+containing ONLY the statements staging is missing, in an order that applies cleanly. You run it the
+same way: `d1 execute flextext-connectivity-staging --remote --file=topup-staging.sql`. Then re-run
+step 1's staging command to confirm the two now agree.
+
+### 3. Secrets for the staging environment (dashboard — `wrangler secret put` needs stdin)
+
+Workers & Pages → **flextext-r2-worker-staging** → Settings → Variables and Secrets:
+
+| Secret | Needed for | Note |
+|---|---|---|
+| `SERVER_HMAC_KEY` | everything (email lookup keys, at-rest encryption of email/TOTP/state) | any long random string, **chosen once** — changing it later orphans every row it keyed |
+| `GOOGLE_OAUTH_CLIENT_ID` + `GOOGLE_OAUTH_CLIENT_SECRET` | Google sign-in | the same OAuth client as production is fine (see step 4) |
+| `ALLOWED_RESEARCHERS` | auto-approving your test account | your email; otherwise the account signs in PENDING and can do nothing |
+| `RELAY_SECRET` | `/drive` downloads only | must equal the client's `DEFAULT_RELAY_TOKEN` or every `/drive` call 401s |
+
+Not needed for Phase A/B testing: `TURNSTILE_SECRET` (password signup + crowd only — Google sign-in
+never checks it), `ESCROW_PUBLIC_KEY`/`ESCROW_PRIVATE_KEY` (password lane, absent from the shipped
+client), `RESEND_API_KEY`/`RESET_FROM` (reset emails), `ALERT_EMAIL`.
+
+### 4. One Google console entry (this is the step that silently breaks sign-in if skipped)
+
+The worker derives its OAuth callback from the request host — `redirectUri = url.origin +
+'/v1/oauth/google/callback'` (v1.js:958) — so the staging host must be registered or Google answers
+`redirect_uri_mismatch`. In the Google Cloud console, on the SAME OAuth client, add to **Authorized
+redirect URIs**:
+
+```
+https://flextext-r2-worker-staging.68mh29kgsd.workers.dev/v1/oauth/google/callback
+```
+
+(Keep the existing production entries. `flextext-r2-worker-staging.68mh29kgsd.workers.dev` is exactly
+what the client's `STAGING_WORKER` points at — app.js:146.)
+
+### 5. Deploy the staging worker
+
+Actions → **"wrangler (one-off command)"** → `args`: `deploy --env staging`
+
+⚠ NOT the "Worker deploy" button — that one has no `--env` and always deploys production. Read the
+deploy warnings: wrangler prints the route-inheritance warning that caused the 2026-08-11
+connect.flextext.app hijack, and `routes = []` is what prevents it.
+
+### 6. Point a test browser at it
+
+Open the staging researcher panel with `?devworker=staging` (persists per device; `?devworker=prod`
+reverts). Expect a **completely empty account** — staging D1 shares nothing with production, which is
+the point. Sign in, create one instance, enrol one test device; that is the fixture the phase gates
+run against.
+
+---
+
+# PART V — PROPOSAL (awaiting Seth's review): migrate safely with NO staging worker or D1
+
+> Seth, 2026-08-17: *"if there's a way to migrate safely WITHOUT creating a staging worker and
+> staging D1, that would be amazing (but propose that as a plan, don't implement without my
+> review)."*
+
+**Short answer: yes for the risks that actually threaten field users, no for three named things.**
+Everything below is verified to run in this container, offline, with no Cloudflare account access —
+not proposed on faith.
+
+## Tier 1 — a hermetic local rig (covers migrations, schema, and the compat gate)
+
+Verified working here today:
+
+- `npx wrangler d1 execute DB --local --file=…` applies schema + migrations to a Miniflare-local
+  SQLite with no auth and no network. (Used to discover R2-6.)
+- `node:sqlite` replays statement-wise and is already the engine of `test/worker-schema.test.mjs`.
+- `npx wrangler dev --env staging --local` **boots the real worker in workerd against that local
+  D1** — `GET /v1/researcher` answered `401` from the real `authResearcher`, i.e. the actual code
+  path, not a mock.
+
+What would be built on it (my work, roughly a day):
+
+1. **`test/worker-seed.mjs`** — writes a realistic fixture set into the local D1: one researcher
+   (Google lane), one instance, one approved install with a wrapped key, one invite, one crowd
+   recorder.
+2. **`test/worker-device-compat.probe.mjs`** — the Phase-gate deliverable already named in II.5,
+   pointed at `http://127.0.0.1:8787`: claim → accept → poll → report → assignment fetch, using
+   TODAY'S paths, headers (`x-fx-install`, `x-fx-secret`) and body shapes. It must pass
+   byte-identically before and after every migration. Being local, it can run on every commit
+   instead of once per release.
+3. **`test/worker-migration-rehearsal.mjs`** — seed → snapshot → apply the split's migrations →
+   re-run the probe → assert no row lost, no column dropped, no response changed.
+
+This is the part that matters: **the failure mode that hurts field users is a migration or a
+response-shape change, and all of it is reproducible locally.**
+
+## Tier 2 — real data shapes, on your Mac only, never through Actions
+
+Schema tests cannot catch data-shaped surprises (a duplicate `email_sha256` blocking a unique index,
+a NOT NULL default meeting a table with rows, a row count that turns a loop into a timeout). The
+rehearsal for that is a read-only export imported locally:
+
+```
+wrangler d1 export flextext-connectivity --remote --output prod.sql   # read-only on production
+wrangler d1 execute DB --local --file=prod.sql                        # into the local rig
+# then Tier 1's rehearsal + probe against real data shapes; delete prod.sql afterwards
+```
+
+⚠ **This must never run in a GitHub workflow.** The repo is public: job logs and artifacts are
+public, and that export contains emails, encrypted Drive refresh tokens and every ciphertext blob.
+Local machine, then delete. (Same thread as the secret-guard work.)
+
+## Tier 3 — what local genuinely cannot cover
+
+Small and specific, so the decision is informed rather than optimistic:
+
+1. **Google OAuth round trip** — real consent screen, real redirect, a real refresh token; and
+   **real Drive REST** (folder creation, streaming upload, trash/purge). R2-1's folder-parentage
+   scoping is Drive-shaped work, so Phase C's Drive changes DO want a real backend eventually.
+2. **Turnstile**, and the `SIGNUP_LIMIT` rate-limit binding (an `unsafe` binding, absent locally).
+3. **Edge-real behaviour**: CORS from a genuine browser origin incl. the `originAllows` preview
+   patterns, `--remote` D1 limits, and the deploy itself (route inheritance, per-env secrets).
+
+## Recommendation
+
+**Build Tier 1 now and treat it as the gate; do Tier 2 once, immediately before the Phase B backfill
+touches production; keep the staging rig for Tier 3 only.** That makes PART IV a convenience rather
+than a blocker — Phases A and B can be built, migrated and compat-gated with nothing but this repo —
+and it leaves a permanent local harness the suite does not currently have, instead of a rig whose
+secrets drift out of date between uses.
+
+Not recommended: skipping a real backend for Phase C's Drive work. R2-1 is exactly the kind of change
+that looks right against a stub and deletes an archive against the real API.

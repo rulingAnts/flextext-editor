@@ -52,13 +52,16 @@ says it is done.
 
 ## Where things stand (2026-08-16)
 
-- **production (`productionWeb`) = v382** (released 2026-08-16; gates green). Carries everything
+- **production (`productionWeb`) = v384** (released 2026-08-17; gates green). Carries everything
   through: the loose-file converter (v377/378), listening-page transport + guards (v379), the
-  Interlinear page (v380), the exported-page speed picker (v381), and the round-trip blank-line
-  fix (v382) — all test-driven by Seth on staging first.
-- **staging = v382** — identical to production. Clean slate for the next feature branch.
-- **`main` is fast-forwarded locally but UNPUSHED** (the spacing rule): push it alone once the
-  Cloudflare dashboard confirms the productionWeb deploys, or from the next session.
+  Interlinear page (v380), the exported-page speed picker (v381), the round-trip blank-line fix
+  (v382), Space-over-controls + persistent play speed + worded speed labels (v383) and the
+  Indonesian "Biasa" label (v384) — all test-driven by Seth first.
+- **`main` = `staging` = `productionWeb` = v384.** No untested code anywhere; clean slate for the
+  next feature branch. Everything since is plans-only (no bump, per the docs rule).
+- **Next feature work = the project split** (§3.1/3.2), designed in `plans/project-split.md`:
+  requirements (I), design (II), two audit rounds (III), **one task that needs Seth's console
+  (IV)** and a proposal to do most of it with no staging rig at all (**V — awaiting review**).
 
 ---
 
@@ -91,6 +94,14 @@ says it is done.
 | 3.2 | **Researcher signed in on multiple devices** — ⭐ **same priority, same day as 3.1** (Seth: *"also think through some guards and safeguards to protect that"* — so the deliverable is the session model AND its abuse story, not just the column split; see BACKLOG for what "guards" has to cover) | Blocked by ONE column — which also doubles as the legacy password hash. Sequence WITH 3.1, not before: sessions become "researcher × project" the moment projects exist. Probably needs no outage on its own. |
 | 3.3 | **Multiple researchers sharing one project** | Depends on 3.1. The hard parts are key re-wrap and what "revoke" honestly means. |
 | 3.4 | **Engine-wide drift / modularisation** | Standing watch item, not a task. |
+
+⚠ **Before any of 3.1–3.3 is built, read `plans/project-split.md` PART III round 2.** Four of its six
+findings are pre-existing worker defects the split would arm rather than create — a member's Drive
+call reaching the owner's whole estate incl. an account-wide permanent purge (R2-1), key rotation
+that never reaches an idle device (R2-2), `signout` destroying a password-lane verifier (R2-3), and
+an owner self-delete cascading over a shared project (R2-4). R2-6 (no migration ledger; `schema.sql`
+folded forward; `d1 execute --file` is atomic; two migrations rebuild tables and drop later columns)
+now has a guard in the tree: `node test/worker-schema.test.mjs` + `worker/schema-report.sql`.
 
 ## 4 — Features and polish
 

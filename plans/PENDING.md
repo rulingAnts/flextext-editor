@@ -65,7 +65,44 @@ says it is done.
 
 ---
 
-## Legacy (GitHub Pages) estate — measured before retiring it, 2026-08-17
+## 🚩 Legacy (GitHub Pages) estate — RETIREMENT IS BLOCKED (Seth, 2026-08-17)
+
+> *"Iwan is still on the old instance. We have to keep that legacy path live until I can migrate
+> him."*
+
+**The legacy estate stays published.** Retirement is deferred, not cancelled, and nothing in the
+tree needs changing to defer it — the removal was a plan, never an in-flight change. What continues
+unchanged: `sync-satellites.yml` publishes the mirrors on every `productionWeb` push, the
+deploy-order law holds (editor live first, every precached path verified 200), and
+`test/version-sync.test.mjs` keeps the satellites' declared ENGINE pinned to the editor's.
+
+**Who blocks it — measured per account (live instances only):**
+
+| researcher | live `pages` | live `cloud` | revoked |
+|---|---|---|---|
+| `7b8d61ed…` — `br***@canil.ca` | **3** | 0 | 0 |
+| `200fa5ab…` — `iw***@gmail.com` (Iwan) | **1** | 0 | 0 |
+| `1b6dcff6…` — `mk***@gmail.com` | 0 | 2 | 0 |
+| `9b330dd2…` — `se***@gmail.com` (Seth) | 0 | 1 | 27 |
+
+⚠ **It is not only Iwan — Brendon has not migrated either.** He holds THREE live `pages` instances,
+zero on `cloud`, and has never revoked one, so the legacy path is his only estate too. Two people
+have to be migrated before the mirrors can go, and the second one is three devices rather than one.
+
+⚠ **`instance.estate` is NOT a migration lever — do not "flip" it.** A PWA's identity is its ORIGIN:
+Iwan's installed app lives at `rulingants.github.io` with its own IndexedDB, and no database column
+can move an installed app or the data inside it. Changing `estate` only changes which URLs FUTURE
+links are minted with. The real migration is the procedure Seth already has (*"upload and remove all
+their texts, then revoke, send a new invite, and re-assign the texts"*) — get the data OFF the
+device first, then pair fresh on the Cloudflare origin, then re-assign. Anything else loses work.
+
+**The standing cost of waiting** (worth naming, since "later" is now open-ended): every engine change
+keeps paying the satellite tax — a new top-level `import` in `js/app.js` is a new SHELL entry in
+`satellites/*/sw.js` AND `paragraph-analysis/sw.js` in the same commit, or an updated satellite is
+dead offline (the v108 outage). That tax is the argument for migrating two people sooner rather than
+carrying two estates indefinitely.
+
+### The measurement behind it
 
 Queried against production D1 through the Actions wrangler workflow. **Four live instances are
 pinned to `estate='pages'`, across TWO researcher accounts — and neither of them is Seth's.**

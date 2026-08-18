@@ -1298,14 +1298,13 @@ export async function handleV1(request, env, ctx, url, path, origin) {
      * the person is standing right there having just created it, and an alert about your own signup
      * is the noise that teaches people to ignore the ones that matter. `waitUntil`, so a slow or
      * failing mail can never delay the redirect the researcher is waiting on. */
-    /* ⚠ ROLLOUT GATE, and deliberately opt-IN. Turning this on means three researchers who have
-     * never received mail from this domain suddenly get a security-flavoured email — which is
-     * exactly what people report as phishing. So it stays inert until SIGNIN_NOTICE=on is set on the
-     * Worker, letting the announcement come first and the mail second.
-     * ⚠ This is a ROLLOUT gate, not a feature switch: once the researchers have been told, set it
-     * and delete this condition. A security notice that is off by default is a liability if it is
-     * still off a year from now because nobody remembered it existed. */
-    const noticeEnabled = String(env.SIGNIN_NOTICE || '').toLowerCase() === 'on';
+    /* ON by default; `SIGNIN_NOTICE=off` on the Worker disables it. Seth chose to ship it enabled
+     * (2026-08-17: "I'd like the signin notice on. No worries on new unexpected e-mails for those
+     * users"), so the switch is not a rollout gate — it is a KILL switch, which is a different and
+     * more durable thing. If these ever start landing in spam, or one researcher finds them
+     * alarming, that is a dashboard variable at 2am rather than a worker deploy. Default-on because
+     * a security notice nobody remembered to enable is worth nothing. */
+    const noticeEnabled = String(env.SIGNIN_NOTICE || 'on').toLowerCase() !== 'off';
     if (noticeEnabled && !isNewAccount && email) {
       const g = geoParts(request);
       const { subject, html } = signinNoticeEmail({

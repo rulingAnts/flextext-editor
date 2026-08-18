@@ -148,8 +148,13 @@ console.log('\ncancel withdraws the command the ROW is showing');
      'the cancel handler resolves the command through pendingFor, not pendingCmds');
   ok(/Researcher\.cancelCommand\(p\.instanceId \|\| id, p\.seq\)/.test(panel),
      'it cancels that command’s seq on that command’s instance');
-  ok(/serverPending\.delete\(spKey\(id, docId\)\)/.test(panel) && /invalidateBlob\(id\)/.test(panel),
-     'a successful cancel clears BOTH maps and invalidates the cached blob');
+  ok(/serverPending\.delete\(spKey\(id, docId\)\)/.test(panel)
+     && /hit\.cmds = \(hit\.cmds \|\| \[\]\)\.filter\(\(c\) => c && c\.seq !== p\.seq\)/.test(panel),
+     'a successful cancel clears both maps and edits the cached blob IN PLACE');
+  /* Not invalidated: dropping the cache made the very next render refetch, so the row the researcher
+   * had just acted on waited out a second round trip. The stale `rev` is what still forces the
+   * reconciling refetch on the next poll. */
+  ok(!/invalidateBlob/.test(panel), 'the cancel path does not invalidate the blob (that was the lag)');
   ok(/not_queued\|404/.test(panel),
      'not_queued is reported as cancelled — the Worker checks ack_seq first, so it proves it never ran');
 }
@@ -170,6 +175,22 @@ console.log('\na cancel in ANOTHER browser retires the local marker (v389)');
   // The dangerous misreading: a failed fetch must not look like an empty queue.
   ok(/!!known &&/.test(panel),
      'an instance absent from serverSeqs means "could not read", never "nothing queued"');
+}
+
+console.log('\none pending command per text — never remove AND upload at once (v390)');
+{
+  ok(/const uploading = !!\(p && p\.kind === 'upload'\);/.test(panel),
+     'the row knows whether an upload is outstanding');
+  ok(/: deleting \? ''/.test(panel),
+     'no Upload control while the text is being removed (incl. the DEVICE-reported pendingDelete)');
+  ok(/: uploading \? ''/.test(panel),
+     'no Remove control while an upload is queued — uploadDelete would upload the same text twice');
+  ok(/const moveBtn = \(!d\.id \|\| mv \|\| d\.__assigning \|\| deleting \|\| uploading\) \? ''/.test(panel),
+     'and no Move either, for the same reason');
+  // `deleting` must be computed BEFORE the buttons, or the guards above silently read undefined.
+  const iDel = panel.indexOf("const deleting = !!d.pendingDelete");
+  const iUp  = panel.indexOf("const up = d.__assigning");
+  ok(iDel > 0 && iUp > 0 && iDel < iUp, 'deleting/uploading are computed above the action buttons');
 }
 
 console.log('\nthe derived state actually reaches the screen');

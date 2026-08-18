@@ -145,7 +145,6 @@ const spKey = (instanceId, docId) => instanceId + '\u0000' + docId;
  * Dropped wholesale on an account switch — a cached blob belongs to one researcher's instances. */
 let blobCache = new Map();       // instanceId -> { rev, cmds }
 let blobCacheAccount = null;
-function invalidateBlob(instanceId) { blobCache.delete(instanceId); }
 
 /* instanceId -> Set of every seq currently in that instance's blob. Populated ONLY for instances
  * this pass actually read, so a transient fetch failure leaves an instance absent rather than
@@ -826,10 +825,15 @@ function showPanelHelp() {
     <button class="primary-btn" data-m="close">${esc(t('panel.help.close'))}</button>`, true);
   m.el.querySelector('[data-m="close"]').onclick = m.close;
 }
+/* ⚠ A DISABLED BUTTON READS AS BROKEN, NOT AS BUSY (Seth, 2026-08-18: an action "does take a while
+ * for the UI to update… that could be alarming to a user"). Every panel action is a network round
+ * trip on a field connection, and greying the label out is indistinguishable from a dead control.
+ * The class keeps the label — so the row neither reflows nor loses its meaning — and animates, which
+ * is the part that says "working" rather than "refused". */
 async function busy(btn, fn) {
   if (!btn) return fn();
-  const old = btn.textContent; btn.disabled = true;
-  try { return await fn(); } finally { btn.disabled = false; btn.textContent = old; }
+  const old = btn.textContent; btn.disabled = true; btn.classList.add('rp-busy');
+  try { return await fn(); } finally { btn.disabled = false; btn.classList.remove('rp-busy'); btn.textContent = old; }
 }
 function errToast(e) { deps.toast(t('panel.err', { msg: (e && e.message) || String(e) }), 6000); }
 
@@ -2401,20 +2405,33 @@ async function renderInstanceCard(it, deviceCount) {
                         justUploaded: 'panel.inst.reupload', slow: 'panel.inst.resend' }[DISP] || 'panel.inst.upload';
         // A queued request TOGGLES: click again to withdraw it. Once taken, the button goes inert
         // and says so, rather than pretending an option exists that cannot be honoured.
+        /* ⚠ ONE PENDING COMMAND PER TEXT (Seth, 2026-08-18: "I had both remove AND upload
+         * registered as pending changes. I feel like that should never happen"). He is right, and
+         * both directions were reachable: the Upload button stayed live under a pending delete, and
+         * the Remove button stayed live under a pending upload, so a second command could be queued
+         * on top of the first. That is incoherent on screen — an Upload button on a struck-through
+         * row — and wasteful on the wire, since uploadDelete uploads a fresh copy itself, so
+         * remove-after-upload just uploads the same text twice.
+         * Computed here, above the buttons, because `d.pendingDelete` (the DEVICE's own flag) must
+         * suppress the upload control too, not only a marker this panel knows about. */
+        const deleting = !!d.pendingDelete || !!(p && p.kind === 'delete');
+        const uploading = !!(p && p.kind === 'upload');
         const cancelBtn = (kind) => ` <button class="link-btn rp-cancel" data-iact="cancel-cmd" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}">${esc(t('panel.inst.cancel' + kind))}</button>`;
         const takenTag = ` <span class="rp-tag rp-tag-taken" title="${esc(t('panel.inst.takenWhy'))}">${esc(t('panel.inst.taken'))}</span>`;
 
         const up = d.__assigning
           ? (queued ? cancelBtn('Assign') : takenTag)
-          : (p && p.kind === 'upload')
+          : deleting ? ''                                   // being removed — not also uploadable
+          : uploading
             ? (queued ? cancelBtn('Upload') : takenTag)
             : ` <button class="link-btn rp-up" data-iact="upload" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-fileid="${esc(d.uploadedFileId || '')}">${esc(t(label))}</button>`;
         // Upload-first remote delete (v94+): the device uploads a fresh timestamped copy, THEN deletes.
         const mv = pendingMoves.get(d.id);
         const moveChip = mv ? ` <span class="rp-tag rp-tag-moving">${esc(t(mv.stage === 'assigned' ? 'panel.move.waitingDest' : 'panel.move.removingSrc'))}</span>` : '';
-        const moveBtn = (!d.id || mv || d.__assigning || (p && p.kind === 'delete')) ? ''
+        const moveBtn = (!d.id || mv || d.__assigning || deleting || uploading) ? ''
           : ` <button class="link-btn" data-iact="move-text" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.move.btn'))}</button>`;
         const del = (!d.id || d.__assigning) ? ''
+          : uploading ? ''                                  // cancel the upload first, or wait it out
           : (p && p.kind === 'delete')
             ? (queued ? cancelBtn('Delete') : takenTag)
             : canDelText
@@ -2431,7 +2448,6 @@ async function renderInstanceCard(it, deviceCount) {
                                   : `<span class="rp-tag rp-tag-notdone">${esc(t('panel.inst.notDoneTag'))}</span>`) : '');
         // Delete triggered (by device flag OR this researcher's just-clicked request) but not yet
         // confirmed → strike through + fade the whole row, and add a small "deleting…" tag.
-        const deleting = !!d.pendingDelete || !!(p && p.kind === 'delete');
         const delTag = deleting ? `<span class="rp-tag rp-tag-deleting">${esc(t('panel.inst.deletingTag'))}</span>` : '';
         // Downloads: labelled by PURPOSE (ELAN / SayMore / FLExText / FlexText Editor), never by
         // filename — two .eaf exports are near-impossible to tell apart by name. The assigned-audio
@@ -2646,11 +2662,20 @@ async function instanceAction(el) {
       const docId = el.dataset.id;
       const p = pendingFor(docId, id);
       if (!p) { renderDashboard(lastData || undefined); return; }
+      /* ⚠ SURGICAL, NOT INVALIDATED. Dropping the cached blob forced refreshServerPending to refetch
+       * on the very next render, so the row the researcher had just acted on sat unchanged through a
+       * SECOND round trip — the visible lag. We already know the exact truth the refetch would
+       * return: this one seq is gone. Apply it locally and render from cache.
+       * The cached `rev` is deliberately left stale, so the next poll still sees the server's newer
+       * desired_rev, refetches once, and reconciles anything a concurrent panel did. */
       const forget = () => {
         pendingCmds.delete(docId);
         savePending(Researcher.currentAccountId());
         serverPending.delete(spKey(id, docId));
-        invalidateBlob(id);          // desired_rev moved; do not read this instance from cache
+        const hit = blobCache.get(id);
+        if (hit) hit.cmds = (hit.cmds || []).filter((c) => c && c.seq !== p.seq);
+        const known = serverSeqs.get(id);
+        if (known) known.delete(p.seq);
       };
       try {
         await busy(el, () => Researcher.cancelCommand(p.instanceId || id, p.seq));
@@ -2662,7 +2687,12 @@ async function instanceAction(el) {
         // Too late: leave the marker in place so the row correctly shows "in progress".
         else deps.toast(t(/already_delivered|409/.test(msg) ? 'panel.inst.cancelTooLate' : 'panel.inst.cancelFailed'), 7000);
       }
-      await renderDashboard();   // refetch: ack_seq has moved, so the row must re-derive its true state
+      /* Render from what we already hold — instantly. `forget()` has applied the one fact a refetch
+       * would have returned, so a round trip here buys nothing but the delay. The 12s poll
+       * reconciles against the server's newer desired_rev, which is why the cached rev is left stale.
+       * ⚠ Deliberately NOT awaited on a fresh fetch: a UI that updates on click and reconciles a
+       * moment later beats one that is correct but appears stuck (Seth, 2026-08-18). */
+      renderDashboard(lastData || undefined);
     } else if (act === 'move-text') {
       // Through busy(): the eligibility check lists the folder first, so the button must show it is
       // working rather than looking dead until the picker appears (or the refusal toast fires).

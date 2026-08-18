@@ -1061,6 +1061,14 @@ main {
    would read as "being removed" (rp-pending-del above means exactly that). */
 .rp-pending-assign { opacity: .72; }
 .rp-pending-del { opacity: .5; text-decoration: line-through; }
+
+/* A panel action in flight. `busy()` disables the button, and a disabled button on its own reads as
+   BROKEN rather than working (Seth, 2026-08-18) — every action here is a network round trip on a
+   field connection. Keeping the LABEL and animating it says "working" without reflowing the row,
+   which swapping the text for a spinner glyph would. */
+.rp-busy { animation: rp-busy-pulse 1s ease-in-out infinite; cursor: progress; }
+@keyframes rp-busy-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .rp-busy { animation: none; opacity: .55; } }
 .rp-tag-deleting { background: #fdecea; color: #9b2c22; font-weight: 600; text-decoration: none; }
 /* A request the device has already picked up: no longer cancellable, so it is a TAG, not a button.
    Deliberately not styled as clickable — offering a cancel that the server will refuse is worse

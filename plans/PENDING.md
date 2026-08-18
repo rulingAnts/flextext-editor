@@ -136,6 +136,21 @@ to Iwan's EXISTING instance would still land on `pages`. Closed means no new leg
 not that the existing ones are frozen. If Iwan needs another device before he migrates, create a new
 instance for it rather than inviting into the old one.
 
+**Half of it is already done (2026-08-17): the Pages RESEARCHER panel now redirects.** Seth:
+*"have the GitHub satellite for the researcher panel become an auto-redirect (with a link in case
+the auto-redirect doesn't work)… Ideally it silently redirects him so that he doesn't even notice."*
+`satellites/flextext-researcher/` now sends `rulingants.github.io/flextext-researcher/` to
+`research.flextext.app` and its service worker is a kill switch that unregisters, drops its own
+caches and navigates open windows across on the first launch. It costs the researcher one Google
+sign-in on the new origin (auth is origin-scoped) and nothing else — Kr is worker-minted and the
+wrapped-Ki map lives in `settings_blob`, so keys and devices come back on sign-in. If Iwan is
+already using the Cloudflare panel, he notices nothing at all.
+
+⚠ This does NOT touch the field devices, which is the whole point: `/flextext-editor/` is a
+different scope with its own worker and its own caches, the kill switch deletes only
+`flextext-researcher-*`, and nothing goes near localStorage or IndexedDB. Verified by executing
+both guards under each hostname in `test/researcher-legacy-redirect.test.mjs`.
+
 **The standing cost of waiting** (worth naming, since "later" is now open-ended): every engine change
 keeps paying the satellite tax — a new top-level `import` in `js/app.js` is a new SHELL entry in
 `satellites/*/sw.js` AND `paragraph-analysis/sw.js` in the same commit, or an updated satellite is

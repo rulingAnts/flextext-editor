@@ -19,9 +19,31 @@
  * they are. Editing ENGINE is also what makes these bytes change, which is what makes the
  * browser fetch and install this worker at all. */
 
-const VERSION = 'v317';
+const VERSION = 'v318';
 const ENGINE = 'v384';   // editor ENGINE_VERSION this was built against — must match; see version-sync test
 const CACHE = 'flextext-researcher-' + VERSION;
+
+/* ⚠ LEGACY-ORIGIN KILL SWITCH (2026-08-17) — GitHub Pages only.
+ *
+ * THIS FILE SHIPS TO BOTH ESTATES: apps/researcher/build.sh copies this folder into the Cloudflare
+ * deployment, so an unconditional kill switch here would strip https://research.flextext.app/ of
+ * its offline support. The hostname test is what lets one file serve both, like index.html's
+ * redirect and the STAGING ribbon.
+ *
+ * On rulingants.github.io this worker stops being an app worker: it unregisters itself, drops its
+ * own caches, and navigates any open window to the Cloudflare researcher — so an installed legacy
+ * copy hands over on the FIRST launch after this ships rather than the second, which is what makes
+ * the move invisible ("Ideally it silently redirects him so that he doesn't even notice").
+ *
+ * ⚠⚠ THE LINE THAT PROTECTS THE PAIRED EDITOR: the cache filter stays scoped to
+ * 'flextext-researcher-*'. Three PWAs share ONE origin and ONE CacheStorage here, so the broad
+ * filter used by paragraph-analysis/shell.js (delete everything that is not mine) would delete the
+ * EDITOR's and RECORDER's complete caches and brick a field device offline. Same reason this file
+ * never touches localStorage or IndexedDB, which are per-ORIGIN and therefore shared. Scope is also
+ * why this cannot reach /flextext-editor/ at all: a worker only controls its own path.
+ */
+const LEGACY_ORIGIN = self.location.hostname === 'rulingants.github.io';
+const MOVED_TO = 'https://research.flextext.app/';
 const SHELL = [
   './',
   'index.html',
@@ -102,6 +124,8 @@ async function precacheAll(cache, urls) {
   }
 }
 self.addEventListener('install', (e) => {
+  // Legacy origin: nothing to precache — this worker exists only to hand over and retire.
+  if (LEGACY_ORIGIN) { self.skipWaiting(); return; }
   e.waitUntil(caches.open(CACHE).then(c => precacheAll(c, SHELL)));
 });
 
@@ -119,10 +143,33 @@ self.addEventListener('message', (e) => {
 });
 
 self.addEventListener('activate', (e) => {
+  if (LEGACY_ORIGIN) {
+    e.waitUntil((async () => {
+      /* Own caches ONLY — see the kill-switch note above; a broad filter bricks the editor. */
+      try {
+        const keys = await caches.keys();
+        await Promise.all(keys.filter(k => k.startsWith('flextext-researcher-')).map(k => caches.delete(k)));
+      } catch (err) { /* keep going: handing over matters more than tidying */ }
+      try { await self.clients.claim(); } catch (err) { /* noop */ }
+      try { await self.registration.unregister(); } catch (err) { /* noop */ }
+      /* Move windows that are open RIGHT NOW, so the handover happens on this launch rather than
+       * the next one. Query string and fragment ride along: an OAuth return or a settings link
+       * must survive the move. */
+      try {
+        const windows = await self.clients.matchAll({ type: 'window' });
+        for (const c of windows) {
+          try { const u = new URL(c.url); await c.navigate(MOVED_TO + u.search + u.hash); }
+          catch (err) { /* noop */ }
+        }
+      } catch (err) { /* noop */ }
+    })());
+    return;
+  }
   e.waitUntil(cleanupOldCaches().then(() => self.clients.claim()));
 });
 
 self.addEventListener('fetch', (e) => {
+  if (LEGACY_ORIGIN) return;   // retiring: everything goes to the network, nothing is served cached
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
   // Match ONLY this app's OWN cache (NOT the global caches.match). Three PWAs share one origin and ALL

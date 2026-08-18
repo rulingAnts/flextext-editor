@@ -7,6 +7,29 @@ the researcher's own tool (not a field-worker app). It is a **thin companion** t
 **Flextext Editor**, which is the **main project** — a separate, independent Git repo
 at `rulingAnts/flextext-editor` (local: `/Users/Seth/GIT/flextext editor/`).
 
+## ⚠ On GitHub Pages this app is RETIRING (2026-08-17)
+
+`https://rulingants.github.io/flextext-researcher/` now **redirects to
+<https://research.flextext.app/>**, and its service worker is a kill switch there: it unregisters
+itself, drops its own caches, and navigates any open window across on the first launch after the
+update, so the handover is invisible to the user. Query string and fragment ride along (an OAuth
+return arrives as `#gauth=…`).
+
+**Both files are HOSTNAME-GATED, and that is load-bearing.** `apps/researcher/build.sh` copies this
+whole folder into the Cloudflare deployment, so the same `index.html` and `sw.js` also serve
+`research.flextext.app`. Unconditional versions would make that site redirect to itself forever and
+lose its offline support. On any non-`rulingants.github.io` host both guards are inert.
+
+⚠ **The kill switch deletes ONLY `flextext-researcher-*` caches.** Three PWAs share one origin and
+one CacheStorage on Pages; the broad "delete everything that is not mine" filter used by
+`paragraph-analysis/shell.js` would wipe the EDITOR's and RECORDER's caches and brick a field device
+offline. It also never touches localStorage or IndexedDB, which are per-origin and therefore shared.
+`test/researcher-legacy-redirect.test.mjs` executes both guards under each hostname and asserts the
+sibling caches survive.
+
+The Cloudflare app is unaffected and remains the real researcher console; everything below still
+describes it.
+
 ## The one thing to understand: this is a SHELL, not a fork
 
 `index.html` here is a thin shell. It loads the **editor's engine** cross-path over

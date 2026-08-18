@@ -12,6 +12,32 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Flextext Researcher">
+<!-- ⚠ LEGACY-ORIGIN REDIRECT (2026-08-17) — GitHub Pages only, and hostname-gated for a reason.
+     THIS FILE SHIPS TO BOTH ESTATES. apps/researcher/build.sh copies this whole folder into the
+     Cloudflare deployment (`cp -R ../../satellites/flextext-researcher/. public/`), so an
+     unconditional redirect here would make https://research.flextext.app/ redirect to ITSELF —
+     an infinite loop that breaks the researcher app for everyone. The hostname test is what keeps
+     one file serving both, exactly like the STAGING ribbon below.
+     Seth, 2026-08-17: "have the GitHub satellite for the researcher panel become an auto-redirect
+     (with a link in case the auto-redirect doesn't work)… Ideally it silently redirects him so
+     that he doesn't even notice."
+     Scope: this path ONLY. The paired EDITOR app at /flextext-editor/ is a different scope with its
+     own service worker and its own caches, and nothing here touches localStorage or IndexedDB —
+     which the three PWAs share, being one origin. See sw.js for the cache-deletion rule. -->
+<script>
+  (function () {
+    if (location.hostname !== 'rulingants.github.io') return;   // Cloudflare + dev rig: inert
+    var target = 'https://research.flextext.app/' + location.search + location.hash;
+    /* Written before the redirect fires so it is already on screen if navigation is blocked
+       (extension, offline, popup-blocker oddity) — the "link in case it doesn't work". */
+    document.write(
+      '<div style="font:16px/1.6 system-ui;padding:24px;max-width:32em;margin:0 auto">'
+      + '<p>The Researcher app has moved. Taking you there now\u2026</p>'
+      + '<p>Aplikasi Peneliti telah dipindahkan. Mengalihkan Anda sekarang\u2026</p>'
+      + '<p><a href="' + target + '">' + 'research.flextext.app' + '</a></p></div>');
+    location.replace(target);
+  })();
+</script>
 <!-- Shared engine + styles live in the Flextext Editor repo (same origin), so ALL
      researcher / connectivity logic is maintained ONCE. This app is a thin shell at a
      DISTINCT path (/flextext-researcher/) so it installs as its own PWA — the editor's

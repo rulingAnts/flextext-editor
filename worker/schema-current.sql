@@ -129,6 +129,19 @@ CREATE TABLE IF NOT EXISTS reset (
   created_at    INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS session (
+  session_id    TEXT PRIMARY KEY,             -- GUID; the public half of the bearer token
+  researcher_id TEXT NOT NULL,
+  secret_hash   TEXT NOT NULL,                -- sha256 of the bearer token (never the token itself)
+  created_at    INTEGER NOT NULL,             -- ms since epoch
+  last_seen_at  INTEGER,                      -- touched on each authenticated call; drives the sliding expiry
+  expires_at    INTEGER,                      -- 24h when "stay signed in" is OFF, 90d sliding when ON
+  revoked       INTEGER NOT NULL DEFAULT 0,   -- sign-out / revoke-one / revoke-others / cap eviction
+  label         TEXT,                         -- coarse User-Agent label, e.g. "Chrome on Windows"
+  ip_enc        TEXT,                         -- AES-GCM under SERVER_HMAC_KEY — see the note below
+  geo           TEXT                          -- "Jayapura, ID · Telkomsel" — Cloudflare edge geo, no browser permission
+);
+
 CREATE INDEX IF NOT EXISTS idx_approval_log_at ON approval_log(at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_crowd_researcher ON crowd_recorder(researcher_id);
@@ -142,3 +155,5 @@ CREATE INDEX IF NOT EXISTS idx_instance_researcher ON instance(researcher_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_researcher_email ON researcher(email_sha256);
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_researcher_sub ON researcher(google_sub);
+
+CREATE INDEX IF NOT EXISTS idx_session_researcher ON session(researcher_id);

@@ -111,6 +111,18 @@
       "researcher_id",
       "token_hash",
       "used"
+    ],
+    "session": [
+      "created_at",
+      "expires_at",
+      "geo",
+      "ip_enc",
+      "label",
+      "last_seen_at",
+      "researcher_id",
+      "revoked",
+      "secret_hash",
+      "session_id"
     ]
   },
   "indexes": [
@@ -120,6 +132,7 @@
     "idx_install_instance",
     "idx_instance_researcher",
     "idx_researcher_email",
-    "idx_researcher_sub"
+    "idx_researcher_sub",
+    "idx_session_researcher"
   ]
 }

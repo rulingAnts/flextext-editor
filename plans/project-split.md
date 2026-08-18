@@ -928,6 +928,58 @@ All three are just defaults to accept or change; none affects field devices, whi
 sessions at all. The account modal also gets a session list with "sign out this one" and "sign out
 all others", which is the part that makes the cap safe rather than annoying.
 
+## VI.2b II.D6 — the RECOMMENDATION, refined (2026-08-17)
+
+Seth: *"What are your recommendations? … I think you know best security practices better than I do."*
+Two of the three proposals stand; one changes, and one earlier claim was simply wrong.
+
+**The threat model this is actually defending against.** A researcher panel session is high value —
+it reaches every device inventory, every text, and the project's whole Drive estate. But the
+realistic attack is not remote credential-stuffing: Google-lane accounts have no password to stuff.
+It is **physical**: a borrowed or shared computer left signed in, a stolen laptop, malware on a
+machine. That shapes every answer below.
+
+1. **Cap: keep 5, with oldest-out eviction.** A cap is not much of an attack control — eviction is
+   oldest-first, so an intruder's new session silently pushes out the victim's oldest, which reads
+   as "I got randomly signed out" rather than "someone got in". Its real value is bounding forgotten
+   sessions and keeping the list short enough to actually read. ⚠ Do NOT instead refuse the 6th
+   sign-in: that locks someone out of their new browser with the revoke button sitting inside the
+   session they cannot reach.
+
+2. **Expiry: CHANGED — tie it to the user's own "stay signed in" choice** rather than one number.
+   - **Unchecked** ("this is a borrowed/shared machine", which is what that box already means) →
+     **24 hours** server-side. The client already keeps the token in sessionStorage here, so it dies
+     at browser close anyway; the 24-hour server cap closes the gap where the token was copied out
+     of a machine that is not theirs.
+   - **Checked** ("this is my machine") → **90 days, sliding.**
+
+   This is strictly better than a single number because it maps the control onto a statement the
+   user has already made, and needs no explanation in the UI. Part I said `staySignedIn` governs
+   only the CLIENT's storage and not the server expiry; that is the line being revised.
+
+3. **Notification: email AND banner — and the earlier "no email path exists" was WRONG.** Resend is
+   already wired in this worker: `sendEmail()` for password resets (v1.js:231–237) and `secAlert()`
+   to `ALERT_EMAIL` (seclog.js:72–90). So the infrastructure is there and needs no new dependency.
+
+   A new-sign-in email is the one control that reaches the owner when **no panel is open**, which is
+   exactly when an intruder would sign in — a banner cannot, by construction. Volume is tiny (a
+   handful a year against a cap of 5), it goes to `drive_email` which is already on the row for
+   Google-lane accounts, and Seth's own point applies: *"the researcher panel is likely to have at
+   least marginally more reliable internet access than the editor and recorder"* — so unlike the
+   field apps, these users will actually receive it. Keep the banner too; it is the faster signal
+   when a panel IS open.
+
+**Two more that matter more than the numbers, added on the same reasoning:**
+
+- ⚠ **Do NOT bind sessions to an IP address.** It is the obvious hardening and it is wrong here:
+  mobile and village connectivity changes IP constantly, so binding produces spurious sign-outs at
+  the worst moments and teaches people to ignore them. Record an IP HASH for display in the session
+  list if useful (`secLog` already hashes one) — display, never enforcement.
+- **Strip the OAuth token from the URL fragment on receipt** (`history.replaceState`), already noted
+  as round-1 finding 9c. Cheap, and it matters slightly more once a token has a longer life.
+- Session create / revoke / evict all go through `secLog`, so there is a server-side trail
+  independent of the rows themselves.
+
 ## VI.3 II.D5 REOPENED AND EXPANDED — transfer, deletion, and the panic button
 
 > Seth: *"We need an option for an owner to transfer ownership to another researcher (which in an

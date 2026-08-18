@@ -134,31 +134,86 @@ let serverPending = new Map();
  * (changeSettings) has no per-text row to decorate and is deliberately dropped. */
 const CMD_KIND = { triggerUpload: 'upload', uploadDelete: 'delete', delete: 'delete', assign: 'assign' };
 
+/* Keyed per INSTANCE, because seq counters are per-instance and two devices can legitimately hold
+ * the same docId — one device's command history must never decorate another device's row. */
+const spKey = (instanceId, docId) => instanceId + '\u0000' + docId;
+
+/* The decrypted command blob, cached by the `desired_rev` it was read at. Two jobs:
+ *   - the blob only changes when desired_rev changes, so a steady state costs ZERO requests;
+ *   - the ack filter below is re-applied every tick against the CURRENT ack_seq, so a command
+ *     retires the moment the device reports it, with no refetch at all.
+ * Dropped wholesale on an account switch — a cached blob belongs to one researcher's instances. */
+let blobCache = new Map();       // instanceId -> { rev, cmds }
+let blobCacheAccount = null;
+function invalidateBlob(instanceId) { blobCache.delete(instanceId); }
+
+/* ⚠ `desired_rev` IS NOT COMPARABLE TO `ack_seq`, and reading it as if it were is what broke this
+ * on first contact (Seth, 2026-08-18: a cancelled delete still ran; a pending upload never reached
+ * the editor). They are different counters kept for different reasons:
+ *
+ *   desired_rev — a BLOB revision. Bumped on every command append, on every CANCEL, and on a
+ *                 re-key (v1.js). It only ever goes up.
+ *   ack_seq     — the highest COMMAND seq an install has run. `seq` is derived from the blob TAIL,
+ *                 which goes DOWN when a cancel removes the last entry.
+ *
+ * So `desired_rev > ack_seq` is true essentially always, and the "cheap gate" it guarded never
+ * short-circuited — every instance was refetched on every 12s tick.
+ *
+ * ⚠ AND THE BLOB IS COMMAND HISTORY, NOT A QUEUE. The Worker deliberately NEVER prunes acked
+ * commands (the seq-monotonicity invariant in v1.js — pruning would reuse a seq and the device
+ * would silently skip that command forever). Without the `seq > maxAck` test below, every command a
+ * device ever ran read as still-pending: a long-finished uploadDelete kept a text struck through
+ * for good, and a long-finished triggerUpload replaced that text's Upload button with an inert
+ * "in progress" tag — so the button that would have sent a NEW upload was not there to click.
+ *
+ * `seq > maxAck` is the same test the renderer already uses for `queued`, and it makes this map
+ * self-retiring: no sweep, no timer, no second notion of "done". */
 async function refreshServerPending(instances) {
+  const account = Researcher.currentAccountId();
+  if (account !== blobCacheAccount) { blobCache = new Map(); blobCacheAccount = account; }
   const next = new Map();
+  const seen = new Set();
   for (const it of instances || []) {
-    /* The cheap gate: nothing outstanding unless the device is behind the desired revision. */
-    if (!(parseInt(it.desired_rev, 10) > ackOf(instances, it.instance_id))) continue;
-    let cmds;
-    /* DECRYPTED by researcher.js — the docId for an upload or a delete lives inside the command's
-     * ciphertext, not in a plaintext field, which is the whole reason those two never propagated. */
-    try { cmds = await Researcher.readDesiredCommands(it.instance_id); } catch { continue; }  // transient; next poll retries
-    for (const c of cmds || []) {
+    seen.add(it.instance_id);
+    const rev = parseInt(it.desired_rev, 10) || 0;
+    const maxAck = ackOf(instances, it.instance_id);
+    let hit = blobCache.get(it.instance_id);
+    if (!hit || hit.rev !== rev) {
+      /* DECRYPTED by researcher.js — the docId for an upload or a delete lives inside the command's
+       * ciphertext, not in a plaintext field, which is the whole reason those two never propagated. */
+      try { hit = { rev, cmds: await Researcher.readDesiredCommands(it.instance_id) }; }
+      catch { continue; }                                   // transient; next poll retries
+      blobCache.set(it.instance_id, hit);
+    }
+    for (const c of hit.cmds || []) {
       const kind = CMD_KIND[c && c.type];
       const docId = c && c.id;
       if (!kind || !docId) continue;
-      const prev = next.get(docId);
+      if (!(c.seq > maxAck)) continue;                      // acked ⇒ history, not pending
+      const key = spKey(it.instance_id, docId);
+      const prev = next.get(key);
       /* Keep the HIGHEST seq for a doc: an assign followed by an upload should read as the upload. */
       if (prev && prev.seq >= c.seq) continue;
-      next.set(docId, { seq: c.seq, kind, instanceId: it.instance_id, title: c.title || '', hasAudio: !!c.hasAudio });
+      next.set(key, { seq: c.seq, kind, instanceId: it.instance_id, docId,
+                      title: c.title || '', hasAudio: !!c.hasAudio });
     }
   }
+  for (const id of [...blobCache.keys()]) if (!seen.has(id)) blobCache.delete(id);   // instance revoked/removed
   serverPending = next;
 }
 
-/* One place to ask "is anything pending for this text?" — the browser's own optimistic marker first,
- * because it is there before the poll confirms it, then the shared server-derived one. */
-function pendingFor(docId) { return pendingCmds.get(docId) || serverPending.get(docId); }
+/* One place to ask "is anything pending for this text ON THIS DEVICE?" — the browser's own
+ * optimistic marker first, because it is there before the poll confirms it, then the shared
+ * server-derived one.
+ *
+ * ⚠ The instance must match. Every pendingCmds marker already records the instance it was sent to,
+ * and the row being drawn always knows which device it belongs to; without the check, a marker for
+ * one device decorated the same text on every other device that happened to hold it. */
+function pendingFor(docId, instanceId) {
+  const own = pendingCmds.get(docId);
+  if (own && (!instanceId || !own.instanceId || own.instanceId === instanceId)) return own;
+  return serverPending.get(spKey(instanceId, docId));
+}
 
 const PENDING_KEY = 'flextext-rp-pending:';
 let pendingCmds = new Map();
@@ -850,6 +905,13 @@ function viewSig(data) {
        * guaranteed not to be drawn. Sorted by key so Map insertion order cannot make an unchanged
        * state look changed and cause a redraw every tick. */
       [...pendingCmds].sort((a, b) => String(a[0]).localeCompare(String(b[0]))).map(([id, p]) => [id, p.kind, p.seq]),
+      /* ⚠ THE SHARED PENDING STATE IS PART OF THE SIGNATURE TOO, for exactly the reason the local
+       * markers are. A command issued in ANOTHER browser changes no field this signature otherwise
+       * reads — the device is offline, so no inventory moves — and the tick concluded "nothing to
+       * redraw". That is the case this whole feature exists to cover, so leaving it out made the
+       * propagation arrive only when some unrelated fact happened to change (Seth: "auto propagates
+       * within a minute or two", "frequently requiring a manual refresh"). */
+      [...serverPending].sort((a, b) => String(a[0]).localeCompare(String(b[0]))).map(([k, p]) => [k, p.kind, p.seq]),
       [...pendingMoves].sort((a, b) => String(a[0]).localeCompare(String(b[0]))).map(([id, mv]) => [id, mv.stage]),
     ]);
   } catch { return String(Math.random()); } // unserializable → treat as changed
@@ -1075,6 +1137,12 @@ async function renderDashboard(prefetched) {
   const insts = data.instances || [];
   loadPending(Researcher.currentAccountId());
   loadMoves(Researcher.currentAccountId());
+  /* ⚠ EVERY render re-derives the shared pending state, not just the 12s poll. An action-driven
+   * re-render (cancel, upload, delete) happens between ticks, and leaving serverPending untouched
+   * meant the row it just changed redrew from the PREVIOUS tick's state — the cancelled delete kept
+   * its strikethrough and its Cancel button until something else forced a refresh. Cheap: the blob
+   * is cached by desired_rev, so this is a no-network re-filter unless the server actually moved. */
+  await refreshServerPending(insts);
   // Advance in-flight moves on every poll (a stage transition is visible in exactly one report —
   // same reasoning as the History observer): destination reports the doc → fire the upload-first
   // remove at the source (AUTOMATIC, Seth's decision); source no longer reports it → move done.
@@ -2274,11 +2342,14 @@ async function renderInstanceCard(it, deviceCount) {
        * the same renderer as every other row, which is the point: the pending state is shown "the
        * way it shows a pending delete" rather than as a second, differently-behaved widget. */
       const invIds = new Set((inv || []).map((d) => d && d.id));
-      /* Merged so a pending ASSIGN shows in every panel, not just the one that sent it. The local
+      /* Merged so a pending ASSIGN shows in every panel, not just the one that sent it. Both maps
+       * are re-keyed to the plain docId here (serverPending is keyed per instance) and the local
        * marker wins on a clash: it is the same command, and it arrived first. */
-      const allPending = new Map([...serverPending, ...pendingCmds]);
+      const allPending = new Map();
+      for (const [, pc] of serverPending) if (pc.instanceId === it.instance_id) allPending.set(pc.docId, pc);
+      for (const [docId, pc] of pendingCmds) if (pc.instanceId === it.instance_id) allPending.set(docId, pc);
       const ghosts = [...allPending].filter(([docId, pc]) =>
-        pc.kind === 'assign' && pc.instanceId === it.instance_id && !invIds.has(docId))
+        pc.kind === 'assign' && !invIds.has(docId))
         .map(([docId, pc]) => ({ id: docId, title: pc.title || '', uploadState: '', hasAudio: !!pc.hasAudio, __assigning: true }));
       const listed = [...ghosts, ...(inv || [])];
       const rows = listed.length ? listed.map((d) => {
@@ -2287,7 +2358,7 @@ async function renderInstanceCard(it, deviceCount) {
         // so it can still be withdrawn. `taken` = the device has it and is acting; offering a
         // cancel there would let the panel claim a text the device has already deleted, or claim an
         // upload never happened when it did. The Worker refuses it too — this just never asks.
-        const p = pendingFor(d.id);
+        const p = pendingFor(d.id, it.instance_id);
         const queued = !!p && p.seq > maxAck;
         const taken  = !!p && p.seq <= maxAck;
         let disp = us;
@@ -2534,18 +2605,36 @@ async function instanceAction(el) {
       // with 409 already_delivered if it is too late — that refusal is SHOWN, never swallowed,
       // because a cancel the researcher believes worked but did not is the dangerous outcome: the
       // panel would claim a text the device has already deleted.
-      const p = pendingCmds.get(el.dataset.id);
+      /* ⚠ CANCEL THE COMMAND THE ROW IS SHOWING — through pendingFor, the SAME lookup the renderer
+       * used to decide there was something to cancel. Reading pendingCmds directly here was wrong
+       * twice over (Seth, 2026-08-18):
+       *   - in a browser that learned of the command from the SERVER, there is no local marker, so
+       *     the button returned silently: no request, no toast, nothing withdrawn;
+       *   - a STALE local marker (one whose command is long gone from the queue) sent its old seq
+       *     instead, so the Worker withdrew a different command and answered 200 — the researcher
+       *     got "cancelled" while the delete they meant to stop stayed queued and later ran.
+       * `not_queued` is reported as cancelled on purpose: the Worker checks ack_seq FIRST, so a 404
+       * here proves the command was neither run nor queued — it is already gone. */
+      const docId = el.dataset.id;
+      const p = pendingFor(docId, id);
       if (!p) { renderDashboard(lastData || undefined); return; }
-      try {
-        await busy(el, () => Researcher.cancelCommand(id, p.seq));
-        pendingCmds.delete(el.dataset.id);
+      const forget = () => {
+        pendingCmds.delete(docId);
         savePending(Researcher.currentAccountId());
+        serverPending.delete(spKey(id, docId));
+        invalidateBlob(id);          // desired_rev moved; do not read this instance from cache
+      };
+      try {
+        await busy(el, () => Researcher.cancelCommand(p.instanceId || id, p.seq));
+        forget();
         deps.toast(t('panel.inst.cancelled'), 4000);
       } catch (e) {
+        const msg = String((e && e.message) || '');
+        if (/not_queued|404/.test(msg)) { forget(); deps.toast(t('panel.inst.cancelled'), 4000); }
         // Too late: leave the marker in place so the row correctly shows "in progress".
-        deps.toast(t(/already_delivered|409/.test(String(e && e.message)) ? 'panel.inst.cancelTooLate' : 'panel.inst.cancelFailed'), 7000);
+        else deps.toast(t(/already_delivered|409/.test(msg) ? 'panel.inst.cancelTooLate' : 'panel.inst.cancelFailed'), 7000);
       }
-      renderDashboard();   // refetch: ack_seq has moved, so the row must re-derive its true state
+      await renderDashboard();   // refetch: ack_seq has moved, so the row must re-derive its true state
     } else if (act === 'move-text') {
       // Through busy(): the eligibility check lists the folder first, so the button must show it is
       // working rather than looking dead until the picker appears (or the refusal toast fires).

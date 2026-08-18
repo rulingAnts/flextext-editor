@@ -63,8 +63,14 @@ console.log('\n...and retired by an inventory FACT, never by a clock');
 
 console.log('\nit renders as a real row, through the same renderer as every other text');
 {
-  ok(/pc\.kind === 'assign' && pc\.instanceId === it\.instance_id && !invIds\.has\(docId\)/.test(panel),
-     'a ghost row is synthesized only for THIS device and only while the text is absent');
+  /* v388 split this in two: serverPending is keyed per instance, so the device filter now happens
+   * while the two maps are merged, and the ghost filter keeps only the "text is absent" half.
+   * BOTH halves are still required — assert them separately rather than loosening the check. */
+  ok(/for \(const \[, pc\] of serverPending\) if \(pc\.instanceId === it\.instance_id\)/.test(panel)
+     && /for \(const \[docId, pc\] of pendingCmds\) if \(pc\.instanceId === it\.instance_id\)/.test(panel),
+     'both pending maps are filtered to THIS device before a ghost can be built from them');
+  ok(/pc\.kind === 'assign' && !invIds\.has\(docId\)/.test(panel),
+     'a ghost row is synthesized only while the text is absent from the inventory');
   ok(/const listed = \[\.\.\.ghosts, \.\.\.\(inv \|\| \[\]\)\]/.test(panel),
      'ghosts are prepended to the real inventory and share its renderer');
   ok(/const rows = listed\.length \? listed\.map/.test(panel),
@@ -100,7 +106,7 @@ console.log('\nit offers only actions that can actually be honoured');
   ok(/const del = \(!d\.id \|\| d\.__assigning\) \? ''/.test(panel),
      'and no Remove-from-device, for the same reason');
   // cancel-cmd is kind-agnostic and re-checks with the Worker, so it already serves 'assign'.
-  ok(/await busy\(el, \(\) => Researcher\.cancelCommand\(id, p\.seq\)\)/.test(panel),
+  ok(/await busy\(el, \(\) => Researcher\.cancelCommand\(p\.instanceId \|\| id, p\.seq\)\)/.test(panel),
      'cancel reuses the existing seq-checked withdrawal — the Worker still refuses if too late');
 }
 

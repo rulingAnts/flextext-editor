@@ -101,6 +101,67 @@ console.log('\nqueued vs taken is a comparison against ack_seq, and only queued 
      'and .rp-pending-del actually renders as a strikethrough');
 }
 
+/* ---------------------------------------------------------------------------------------------
+ * THE SHARED (server-derived) HALF — v388.
+ *
+ * WHY THIS SECTION EXISTS: v386/v387 added `serverPending` so a queued command shows in EVERY
+ * researcher browser, not only the one that issued it. On first contact it produced four distinct
+ * wrong behaviours (Seth, 2026-08-18), and all four are invisible in a quick test because a fresh
+ * account has no command history to be confused by:
+ *
+ *   1. the gate compared `desired_rev` to `ack_seq`. They are different counters — desired_rev is a
+ *      blob revision bumped by appends, cancels AND re-keys, while ack_seq tracks command seq,
+ *      which DROPS when a cancel removes the tail. The gate was therefore always true.
+ *   2. no `seq > maxAck` filter. The Worker never prunes acked commands (seq monotonicity), so the
+ *      blob is HISTORY: a long-finished delete struck a text through forever, and a long-finished
+ *      upload replaced that text's Upload button with an inert "in progress" tag — so the button
+ *      that would have sent a new upload was not there to click.
+ *   3. cancel read `pendingCmds` directly, so it was a silent no-op in the browser that learned of
+ *      the command from the server, and sent a STALE seq in the browser that had one — withdrawing
+ *      a different command and reporting success while the real delete stayed queued.
+ *   4. neither renderDashboard() nor viewSig() looked at the map, so the state it derived only
+ *      reached the screen when some unrelated server fact happened to change.
+ * ------------------------------------------------------------------------------------------- */
+
+console.log('\nthe shared map holds PENDING commands, not command history');
+{
+  ok(/if \(!\(c\.seq > maxAck\)\) continue;/.test(panel),
+     'refreshServerPending drops any command the device has already acked');
+  ok(!/desired_rev, 10\) > ackOf\(/.test(panel),
+     'nothing compares desired_rev against ack_seq (different counters, never comparable)');
+  ok(/hit\.rev !== rev/.test(panel),
+     'the decrypted blob is cached by desired_rev, so a steady state costs no requests');
+  ok(/const maxAck = ackOf\(instances, it\.instance_id\);/.test(panel),
+     'the ack filter is re-applied per instance on every refresh, against the CURRENT ack_seq');
+  // Per-instance keying: seq counters are per instance, so a docId alone cannot identify a command.
+  ok(/const spKey = \(instanceId, docId\) =>/.test(panel),
+     'serverPending is keyed by (instance, doc), never by doc alone');
+  ok(/function pendingFor\(docId, instanceId\)/.test(panel),
+     'pendingFor takes the instance, so one device’s marker cannot decorate another’s row');
+  ok(/const p = pendingFor\(d\.id, it\.instance_id\);/.test(panel),
+     'the row renderer passes the instance it is drawing');
+}
+
+console.log('\ncancel withdraws the command the ROW is showing');
+{
+  ok(/const p = pendingFor\(docId, id\);/.test(panel),
+     'the cancel handler resolves the command through pendingFor, not pendingCmds');
+  ok(/Researcher\.cancelCommand\(p\.instanceId \|\| id, p\.seq\)/.test(panel),
+     'it cancels that command’s seq on that command’s instance');
+  ok(/serverPending\.delete\(spKey\(id, docId\)\)/.test(panel) && /invalidateBlob\(id\)/.test(panel),
+     'a successful cancel clears BOTH maps and invalidates the cached blob');
+  ok(/not_queued\|404/.test(panel),
+     'not_queued is reported as cancelled — the Worker checks ack_seq first, so it proves it never ran');
+}
+
+console.log('\nthe derived state actually reaches the screen');
+{
+  ok(/await refreshServerPending\(insts\);/.test(panel),
+     'renderDashboard re-derives the shared state, so an action-driven redraw is not a tick behind');
+  ok(/\[\.\.\.serverPending\]\.sort\(/.test(panel),
+     'viewSig includes serverPending, so a command issued in another browser triggers a redraw');
+}
+
 console.log(fail ? `\nFAILED (${fail}) — the ack_seq-derived request state has drifted.\n`
                  : '\nPASS: request state is derived from ack_seq and persisted on every write.\n');
 process.exit(fail ? 1 : 0);

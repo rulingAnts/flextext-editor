@@ -95,5 +95,37 @@ ok(legacyAfterSignout.status === 200,
    'R2-3: sign-out did NOT rotate researcher.secret_hash — on a password account that column is the '
    + `password verifier, and destroying it would lock the researcher out for good (got ${legacyAfterSignout.status})`);
 
+/* ---- 7. A REVOKED RESEARCHER SESSION MUST NOT DISTURB A FIELD DEVICE ----
+ *
+ * Devices authenticate with their own install secret and have nothing to do with browser sessions.
+ * That is obvious from the code today and would be easy to break tomorrow — "revoke everything for
+ * this account" is a natural-sounding feature, and cascading it to installs would silently unlink a
+ * coworker's phone in a village, which looks like nothing at all from the panel. So it is pinned. */
+{
+  const inst = await call('POST', '/v1/instances', FIXTURE.researcherSecret, { type: '', nickname: 'Session-Independence Probe' });
+  const instanceId = inst.json && inst.json.instance_id;
+  const inv = await call('POST', `/v1/instances/${instanceId}/invite`, FIXTURE.researcherSecret, {});
+  const installId = crypto.randomUUID();
+  const installSecret = 'probe-install-' + crypto.randomUUID();
+  await fetch(`${BASE}/v1/invites/${inv.json.invite_id}/claim`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-fx-invite-secret': inv.json.secret },
+    body: JSON.stringify({ install_id: installId, install_secret: installSecret, pubkey: 'FIXTURE' }),
+  });
+  await call('POST', `/v1/instances/${instanceId}/installs/${installId}/approve`, FIXTURE.researcherSecret, {});
+
+  const devicePoll = async () => (await fetch(`${BASE}/v1/instances/${instanceId}?since=-1`,
+    { headers: { 'x-fx-install': installId, 'x-fx-secret': installSecret } })).status;
+
+  ok(await devicePoll() === 200, 'the paired device polls normally to begin with');
+
+  await call('POST', '/v1/researcher/sessions/revoke-others', FIXTURE.researcherSecret, {});
+  await call('POST', '/v1/researcher/signout', FIXTURE.researcherSecret, {});
+
+  ok(await devicePoll() === 200,
+     'after revoke-others AND sign-out, the device STILL polls — browser sessions and install '
+     + 'credentials are separate lanes, and cascading one to the other would unlink a field phone');
+}
+
 console.log(fail ? `\nFAILED (${fail})` : '\nPASS');
 process.exit(fail ? 1 : 0);

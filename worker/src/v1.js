@@ -898,6 +898,52 @@ function crowdParse(s) { try { return JSON.parse(s || '{}'); } catch { return {}
 
 /* ---------------- router ---------------- */
 
+/* The NEW-SIGN-IN notice. Exported and PURE so its wording is testable without a worker, a network
+ * or Resend — the parts that can be wrong here are wording and detail, not plumbing.
+ *
+ * ⚠ THE SUBJECT LINE CARRIES THE WHOLE MESSAGE, deliberately. Seth's reason for wanting this at all:
+ * "hopefully the user gets a notification on their smart phone that alerts them to the penetration
+ * before the attacker can hide the evidence." A phone lock screen shows the subject and little else,
+ * so the browser and the place go IN the subject — not buried in a body nobody unlocks to read.
+ *
+ * ⚠ And the limit that is stated rather than hidden: this mail goes to the researcher's Google
+ * address, often the very account an attacker would have had to compromise to sign in. Seth, having
+ * weighed it: "one more guard, not a sufficient replacement for other guards." Google and Apple send
+ * these for the same reason — speed of alerting beats the imperfection of the channel. That is why
+ * the in-panel banner and the revocable session list stay in the design beside it. */
+export function signinNoticeEmail({ label, geo, ip, when, lang }) {
+  const where = [label, geo].filter(Boolean).join(' \u00b7 ');
+  const id = lang === 'id';
+  const subject = (id ? 'Masuk baru ke FlexText' : 'New sign-in to FlexText') + (where ? ' \u2014 ' + where : '');
+  const rows = [
+    [id ? 'Peramban' : 'Browser', label || (id ? 'tidak diketahui' : 'unknown')],
+    [id ? 'Lokasi' : 'Location', geo || (id ? 'tidak diketahui' : 'unknown')],
+    /* The IP is shown IN FULL on purpose (Seth, 2026-08-17). A hash cannot answer the only question
+     * the reader has — "is that me?" — and this address is stored encrypted at rest, so showing it
+     * here adds no standing record anywhere. */
+    ['IP', ip || (id ? 'tidak diketahui' : 'unknown')],
+    [id ? 'Waktu' : 'Time', when],
+  ];
+  const html = '<p>' + (id
+    ? 'Seseorang baru saja masuk ke akun peneliti FlexText Anda.'
+    : 'Someone just signed in to your FlexText researcher account.') + '</p>'
+    + '<table cellpadding="4" style="border-collapse:collapse;font:14px system-ui">'
+    + rows.map(([k, v]) => `<tr><td style="color:#667">${esc(k)}</td><td><b>${esc(v)}</b></td></tr>`).join('')
+    + '</table><p>' + (id
+      ? 'Jika ini Anda, tidak perlu melakukan apa pun. <b>Jika bukan Anda</b>, buka panel peneliti \u2192 Akun \u2192 '
+        + '"keluar dari sesi lain", lalu ubah kata sandi Google Anda.'
+      : 'If this was you, nothing to do. <b>If it was not</b>, open the researcher panel \u2192 Account \u2192 '
+        + '"sign out all other sessions", then change your Google password.') + '</p>';
+  return { subject, html };
+}
+
+/* Minimal HTML escaping for the notice above — the values are server-derived, but a User-Agent is
+ * client-controlled and lands in `label`, so it is never interpolated raw. */
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+}
+
 export async function handleV1(request, env, ctx, url, path, origin) {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: v1Cors(origin, env) });
   if (!env.DB) return j({ error: 'sync_unavailable' }, 503, origin, env); // D1 not bound yet — inert, never breaks /drive
@@ -1039,7 +1085,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
      * absent must mean the LONG window, or updating the worker would start signing those panels out
      * daily. The tightening arrives with the client, which is the correct order. */
     const stay = url.searchParams.get('stay') === '0' ? 0 : 1;
-    const state = await encAtRest(env, JSON.stringify({ v: verifier, r: returnTo, t: now, s: stay }));
+    /* `?lang=id` writes the sign-in notice in Indonesian. Absent = English, so an older panel
+     * simply keeps today's behaviour rather than failing. */
+    const lang = url.searchParams.get('lang') === 'id' ? 'id' : 'en';
+    const state = await encAtRest(env, JSON.stringify({ v: verifier, r: returnTo, t: now, s: stay, l: lang }));
     const redirectUri = url.origin + '/v1/oauth/google/callback';
     const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
       client_id: cid, redirect_uri: redirectUri, response_type: 'code',
@@ -1094,7 +1143,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       ).bind(researcher_id, legacyKill, await emailKey(email, env), JSON.stringify({}), now, sub,
              await encAtRest(env, krB64), tok.refresh_token ? await encAtRest(env, tok.refresh_token) : null,
              email, await encAtRest(env, email), name, picture, (owner || domainOk) ? 1 : 0).run();
-      row = { researcher_id };
+      row = { researcher_id, __created: true };
       // Every account creation is logged, whether it was auto-approved or left pending, so the log
       // answers "when did this person first appear" and not merely "when was someone approved".
       await logApproval(env, request, owner || domainOk ? 'account_auto_approved' : 'account_signup',
@@ -1133,7 +1182,25 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       await env.DB.prepare('UPDATE researcher SET ' + sets.join(', ') + ' WHERE researcher_id=?').bind(...binds).run();
     }
     const back = String(st.r || 'https://rulingants.github.io/flextext-editor/').replace(/[?#].*$/, '');
+    const isNewAccount = !!row.__created;
     const session = await createSession(env, request, row.researcher_id, stay);
+
+    /* Tell the owner their account was just signed into. NOT on the account's first ever sign-in:
+     * the person is standing right there having just created it, and an alert about your own signup
+     * is the noise that teaches people to ignore the ones that matter. `waitUntil`, so a slow or
+     * failing mail can never delay the redirect the researcher is waiting on. */
+    if (!isNewAccount && email) {
+      const { subject, html } = signinNoticeEmail({
+        label: uaLabel(request),
+        geo: geoLabel(request),
+        ip: request.headers.get('CF-Connecting-IP') || '',
+        when: new Date(now).toISOString().replace('T', ' ').slice(0, 16) + ' UTC',
+        lang: st && st.l === 'id' ? 'id' : 'en',
+      });
+      const send = sendEmail(env, request, { to: email, subject, html, event: 'signin_notice' })
+        .catch(() => false);
+      if (ctx && ctx.waitUntil) ctx.waitUntil(send);
+    }
     const dest = back + '?mode=researcher#gauth=' + encodeURIComponent(row.researcher_id) + '.' + encodeURIComponent(session);
     return Response.redirect(dest, 302);
   }

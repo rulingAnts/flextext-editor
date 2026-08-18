@@ -18,6 +18,7 @@
  */
 
 import { sendEmail, secAlert } from '../worker/src/seclog.js';
+import { signinNoticeEmail } from '../worker/src/v1.js';
 
 let fail = 0;
 const ok = (c, m) => { console.log(`  ${c ? 'ok  ' : 'FAIL'}  ${m}`); if (!c) fail++; };
@@ -119,6 +120,28 @@ console.log('one sender, and it always logs the outcome\n');
     await Promise.all(waited);
   }));
   ok(true, 'a failing send inside secAlert does not throw — the alert is lost, never the request');
+}
+
+/* ---- 7. the sign-in notice itself: the subject must work on a LOCK SCREEN ---- */
+{
+  const n = signinNoticeEmail({
+    label: 'Chrome on Windows', geo: 'Jayapura, PA, ID \u00b7 Telkomsel',
+    ip: '103.12.34.56', when: '2026-08-18 01:20 UTC', lang: 'en',
+  });
+  ok(/^New sign-in to FlexText/.test(n.subject), `subject leads with what happened (got "${n.subject}")`);
+  ok(/Chrome on Windows/.test(n.subject) && /Jayapura/.test(n.subject),
+     'the browser AND the place are IN the subject — a phone notification shows little else, and '
+     + 'beating the attacker to the evidence is the entire point of sending this');
+  ok(/103\.12\.34\.56/.test(n.html), 'the body shows the IP in full, which is the only form that answers "is that me?"');
+  ok(/sign out all other sessions/i.test(n.html), 'it says exactly what to do if it was not you');
+
+  const idn = signinNoticeEmail({ label: 'Chrome on Android', geo: 'ID', ip: '1.2.3.4', when: 'x', lang: 'id' });
+  ok(/^Masuk baru ke FlexText/.test(idn.subject), `Indonesian subject (got "${idn.subject}")`);
+  ok(/kata sandi Google/.test(idn.html), 'the Indonesian body carries the same instruction');
+
+  /* The User-Agent reaches `label` and is client-controlled, so it must never be interpolated raw. */
+  const evil = signinNoticeEmail({ label: '<img src=x onerror=alert(1)>', geo: '', ip: '', when: 'x', lang: 'en' });
+  ok(!/<img/.test(evil.html), 'a hostile User-Agent is escaped in the body, not injected into it');
 }
 
 console.log(fail ? `\nFAILED (${fail})` : '\nPASS');

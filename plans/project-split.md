@@ -1105,6 +1105,41 @@ member per expiry window. A daily digest is the alternative if even that proves 
 - The session list in the account modal shows the same fields, so the owner can audit after the
   fact even if an email was missed.
 
+## VI.2d Pending state is PROJECT-level, and cancelling someone else's action is a capability
+
+> Seth, 2026-08-18: *"Once our projects and researchers split is ready, we need it to be a
+> project-level pending thing that all researcher browsers connected can pick up."* And: *"(And also
+> have the ability to cancel an action initiated by the owner be a permission that the owner can
+> disable)."*
+
+**A. Project-level pending — mostly falls out, with one honest gate.** The pending indicator built in
+v386/v387 is derived from SERVER state (desired_rev vs ack_seq, then the instance's outstanding
+commands) rather than from any browser's localStorage, so it already generalises from "this account's
+browsers" to "everyone who can see this device" the moment membership exists. Nothing about the
+derivation is account-scoped.
+
+⚠ The gate is the one the whole design rests on: the command payload is ENCRYPTED under Ki, so a
+member can only read pending work for a device whose Ki they hold. That is `see` doing its job — a
+member who cannot see a device cannot see its pending commands either, and that is correct rather
+than a shortfall. It does mean the panel must render "something is pending here" from the un-encrypted
+facts (desired_rev vs ack_seq, both plaintext) even when it cannot say WHAT, for a device the viewer
+can list but not decrypt. Decide that presentation when Phase C's filtering lands.
+
+**B. `cancelOthers` — a new capability for the table.** Today the panel offers a cancel whenever
+`seq > maxAck`, on the reasoning that the device has not taken the command yet. With several
+researchers on one project that becomes "an assistant can withdraw the owner's instruction", which
+the owner should be able to switch off. Add to the caps in Part I:
+
+| Capability | Meaning | Default |
+|---|---|---|
+| `cancelOthers` | may cancel a queued command **issued by someone else** (the owner's included) | OFF |
+
+Cancelling one's OWN queued command stays ungated — that is undo, not authority. Worker-enforced like
+every other DO capability: the cancel endpoint learns who issued the command, which means the command
+record must carry its issuer. ⚠ **That is a schema note, not a UI note** — commands live in
+`instance.desired_blob` and currently record no author, so Phase C must add one when it writes them,
+or `cancelOthers` cannot be enforced at all.
+
 ## VI.3 II.D5 REOPENED AND EXPANDED — transfer, deletion, and the panic button
 
 > Seth: *"We need an option for an owner to transfer ownership to another researcher (which in an

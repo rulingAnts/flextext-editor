@@ -139,9 +139,11 @@ async function refreshServerPending(instances) {
   for (const it of instances || []) {
     /* The cheap gate: nothing outstanding unless the device is behind the desired revision. */
     if (!(parseInt(it.desired_rev, 10) > ackOf(instances, it.instance_id))) continue;
-    let d;
-    try { d = await Researcher.instanceDesired(it.instance_id); } catch { continue; }   // transient; next poll retries
-    for (const c of (d && d.commands) || []) {
+    let cmds;
+    /* DECRYPTED by researcher.js — the docId for an upload or a delete lives inside the command's
+     * ciphertext, not in a plaintext field, which is the whole reason those two never propagated. */
+    try { cmds = await Researcher.readDesiredCommands(it.instance_id); } catch { continue; }  // transient; next poll retries
+    for (const c of cmds || []) {
       const kind = CMD_KIND[c && c.type];
       const docId = c && c.id;
       if (!kind || !docId) continue;

@@ -165,6 +165,36 @@ export async function instanceDesired(instanceId) {
   return api('GET', '/v1/instances/' + encodeURIComponent(instanceId) + '?since=-1');
 }
 
+/* The outstanding commands for one instance, DECRYPTED.
+ *
+ * ⚠ THE WHOLE POINT IS THE DECRYPTION, and it is why this lives here rather than in the panel. A
+ * stored command is `{type, enc, seq}`: pushCommand encrypts the payload under Ki, and ONLY `assign`
+ * also carries a plaintext `id`, because the worker requires one for its own routing. So a docId for
+ * triggerUpload or uploadDelete exists exclusively inside the ciphertext — reading `c.id` for those
+ * finds nothing at all, which is precisely why pending uploads and deletes did not propagate between
+ * panels while assigns did.
+ *
+ * The panel is entitled to this: it holds Ki. But Ki must not leave this module, so the decryption
+ * happens here and the panel receives plain objects.
+ *
+ * A command that cannot be decrypted is SKIPPED rather than thrown on — a device re-keyed while a
+ * command was outstanding leaves exactly that, and one unreadable entry must not cost the rest. */
+export async function readDesiredCommands(instanceId) {
+  const d = await instanceDesired(instanceId);
+  const list = (d && d.commands) || [];
+  if (!list.length) return [];
+  const Ki = await getKi(instanceId);
+  const out = [];
+  for (const c of list) {
+    let payload = {};
+    if (c && c.enc) {
+      try { payload = (await decryptJSON(Ki, c.enc)) || {}; } catch { continue; }
+    }
+    out.push({ ...payload, type: c && c.type, seq: c && c.seq, id: (c && c.id) || payload.docId || payload.id });
+  }
+  return out;
+}
+
 /* ---- sessions: the browsers signed in to this account (Phase A) ---- */
 export async function listSessions() { return api('GET', '/v1/researcher/sessions'); }
 export async function revokeSession(id) { return api('DELETE', '/v1/researcher/sessions/' + encodeURIComponent(id)); }

@@ -1019,6 +1019,48 @@ Rate-limit and coalesce (an attacker cannot trigger these without the victim's G
 the risk is nuisance rather than attack), and send via `waitUntil` so a mail failure can never block
 or fail a sign-in — the pattern `secAlert` already uses.
 
+### A.1 ⚠ Does the existing approval alert prove we can send these? PARTLY — and the gap matters
+
+Seth, 2026-08-17: *"We already have automatic notifications to me for new users pending approval. I
+feel like that probably exposes whatever permissions or privileges this new notification would
+need."* Checked. It proves **two of the three things** required, and the missing one is the one that
+decides whether the feature works at all.
+
+**Proven by those alerts arriving:** the `RESEND_API_KEY` is valid, and the `from` address
+(`RESET_FROM`, defaulting to `FlexText <noreply@flextext.app>`) is accepted by Resend. Both email
+paths use the identical fetch and the identical `from` (v1.js:230–247; seclog.js:72–107).
+
+**NOT proven — sending to a THIRD PARTY.** `secAlert` sends to `env.ALERT_EMAIL`: one fixed address,
+Seth's own. Resend restricts an **unverified sending domain** to the account owner's own address; a
+verified domain can send anywhere. So every alert that has ever arrived is consistent with the domain
+being unverified. A sign-in notice goes to each researcher's own address — a third party by that
+rule — so the approval alerts cannot demonstrate it.
+
+The one path that WOULD prove it is the password reset (`sendResetEmail`, arbitrary recipient), and
+it has almost certainly never fired in anger: the password lane is absent from the shipped client
+entirely (no `authSecret` anywhere in `docs/js/`).
+
+**How to settle it in a minute, no code:** Resend dashboard → Domains → is `flextext.app` verified? If
+yes, nothing to do. If not, it is a few DKIM/SPF records on a zone Seth already controls — the
+`flextext.app` zone lives in the same Cloudflare account as the worker (worker/wrangler.toml), so
+both halves are already in hand. Afterwards, send one test to a NON-`ALERT_EMAIL` address and check
+it lands in the inbox rather than spam: a security notice that is filtered is worse than absent,
+because its silence reads as safety.
+
+### A.2 ⚠ A live bug found while checking: a failed reset email is INVISIBLE
+
+`secAlert` carries a hard-won comment — *"LOG THE OUTCOME, NOT THE ATTEMPT … a monitoring system that
+lies about its own delivery is worse than none"* — and logs `alert_sent` / `alert_failed` with
+Resend's own status and body. **`sendResetEmail` never got that fix**, and its call site discards the
+return value entirely (`await sendResetEmail(env, to, …)`, v1.js:1229). So a rejected reset email —
+unverified domain, bad key, Resend down — produces no log line, no alert, and the endpoint still
+answers its deliberate "if that account exists, we sent a link". Nobody would ever learn.
+
+**Therefore the sign-in notice must NOT become a third copy of that fetch.** One
+`sendEmail(env, ctx, { to, subject, html, event })` helper that sends AND logs the outcome, with all
+three callers using it — the reset path gaining the logging it never had. This is the suite's own
+"generalize on the second use" rule arriving on the third.
+
 ### B. PROJECT ACCESSED by another researcher (opt-in per project, owner-facing)
 
 Fires for the project OWNER when a MEMBER touches their project. Two events, per Seth: the member

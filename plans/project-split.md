@@ -980,6 +980,72 @@ machine. That shapes every answer below.
 - Session create / revoke / evict all go through `secLog`, so there is a server-side trail
   independent of the rows themselves.
 
+## VI.2c Sign-in and project-access notifications (Seth, 2026-08-17) — D6 extended
+
+> *"We should have e-mails notifying a researcher whenever someone has signed into their account
+> with as many details as possible about the client/location/etc without requesting location
+> permissions, etc. And also optionally notification about when projects they own are being accessed
+> by other researchers (just log in and open)."*
+
+Accepted. Two notices, one mandatory and one opt-in, both sent through the Resend path that already
+exists (`sendEmail`, v1.js:231–237; `secAlert`, seclog.js:72–90) — no new dependency.
+
+### A. NEW SIGN-IN on your own account (always on)
+
+Fires when a `session` row is created. Everything in it comes from the request itself, so **no
+browser permission is ever requested** — the constraint Seth set is satisfied by construction, since
+none of this is asked of the client:
+
+| Detail | Source | Note |
+|---|---|---|
+| Approximate location | `request.cf.country`, and `city` / `region` / `timezone` where populated | Cloudflare's edge geo. `country` is already used (v1.js:2609); the finer fields must be **verified populated in practice, not assumed** |
+| Network | `request.cf.asOrganization` | "Telkomsel", "Starlink" — often the most recognisable detail of all |
+| Device / browser | `User-Agent`, reduced to a label ("Chrome on Windows") | ⚠ client-controlled and increasingly redacted by UA-CH; treat as a hint, never as evidence |
+| Time | server clock | in the account's timezone if known, else UTC |
+| IP address | `CF-Connecting-IP` | see the decision below |
+
+**⚠ Decision — the IP address.** Today the codebase deliberately only ever HASHES it (`ipHash`).
+A hash is useless in a notice: "someone signed in, ip 9f3a…" tells the owner nothing. Recommendation:
+**put the full IP in the EMAIL to the account owner (their own activity, and the single most
+recognisable detail), while the session row and `secLog` keep storing only the hash.** Useful notice,
+no new PII at rest. If Seth prefers, the email can carry city + network only and drop the IP entirely.
+
+**⚠ The honest limit, which must not be papered over:** this email goes to the researcher's Google
+address — often the very account an attacker would have had to compromise to sign in at all. So it
+is the best available detection and still not sufficient on its own. That is exactly why the in-panel
+banner and the revocable session list stay in the design rather than being replaced by email.
+
+Rate-limit and coalesce (an attacker cannot trigger these without the victim's Google credentials, so
+the risk is nuisance rather than attack), and send via `waitUntil` so a mail failure can never block
+or fail a sign-in — the pattern `secAlert` already uses.
+
+### B. PROJECT ACCESSED by another researcher (opt-in per project, owner-facing)
+
+Fires for the project OWNER when a MEMBER touches their project. Two events, per Seth: the member
+signing in, and the member opening the project.
+
+**⚠ The design constraint that decides the whole feature: "opens the project" cannot mean "makes a
+project-scoped request".** The panel polls every few seconds, so that would be hundreds of emails a
+day and the feature would be turned off within an hour. **One notice per (member, project, SESSION)
+— the first access inside a session** — which naturally bounds it to at most the session cap (5) per
+member per expiry window. A daily digest is the alternative if even that proves noisy.
+
+- Opt-in per project, owner-controlled, default OFF.
+- Same detail set as (A), for the member's request.
+- ⚠ **Disclose it to the member.** This is access logging of a colleague; it belongs in the invite /
+  trust dialog alongside the other things the owner can see, both because it is fair and because an
+  undisclosed access log discovered later poisons the working relationship the feature exists to
+  support. It fits the two-category trust warning already designed in Part I.
+
+### Implementation notes
+
+- Both notices are per-EVENT, not per-request: (A) hangs off session creation, (B) off a
+  `session × project` first-touch marker. Neither belongs in the poll path.
+- Reuse `logApproval` / `secLog` so the same facts land in the server-side trail, not only in an
+  inbox that can be deleted.
+- The session list in the account modal shows the same fields, so the owner can audit after the
+  fact even if an email was missed.
+
 ## VI.3 II.D5 REOPENED AND EXPANDED — transfer, deletion, and the panic button
 
 > Seth: *"We need an option for an owner to transfer ownership to another researcher (which in an

@@ -544,6 +544,44 @@ built from README.md. Push first, flip, then **force a rebuild with a commit** �
 check that can FAIL, e.g. `/dev-serve.sh` must be **404** (it exists only at the branch root, so if
 it serves, Pages is publishing the root).
 
+## 🚩 BACKEND-FIRST, ADDITIVELY — the standing path for any worker/D1 change (Seth, 2026-08-17)
+
+> *"Ideally we create and smooth out the back end in a way that doesn't break existing productionWeb
+> clients, and then we test the new clients that make use of the new worker and database code on
+> staging. And have that be our normal preferred path whenever back end changes are needed."*
+
+**The order, and the property each step must hold:**
+
+1. **D1 migration — additive only.** New tables, new nullable columns. Never a rebuild, never a
+   changed meaning. The CURRENTLY DEPLOYED worker must keep working against the migrated database,
+   because for a while it is the only worker there is. (`d1 execute --file` is atomic, so a partial
+   application is impossible; re-running errors and applies nothing.)
+2. **Worker deploy — old clients keep working.** New endpoints are additive; every existing endpoint
+   keeps its path, its auth and its RESPONSE SHAPE. Old panels and old APKs must authenticate and
+   sync exactly as before, which is a thing to TEST, not to assume — `test/worker-device-compat.probe.mjs`
+   replays the device lifecycle and `test/worker-sessions.test.mjs` proves the legacy credential
+   still authenticates.
+3. **THEN the client**, tested on staging against that already-live backend.
+
+**Why this ordering is the cheap one as well as the safe one:** the staging APPS point at the
+PRODUCTION worker unless a device opts in with `?devworker=staging`. So once the backend is live and
+additive, a staging client exercises the new endpoints against the real worker **with no staging
+worker required at all** — which is why the staging worker/D1 has stayed deferrable through the whole
+researcher/project split.
+
+⚠ **What this path is NOT for:** a worker change that cannot be made additive — a changed response
+shape, a removed endpoint, an altered auth rule. That one needs the staging worker
+(`deploy --env staging`) precisely because the "old clients keep working" property does not hold.
+
+**Rollback is part of the plan, not the fallback:** the worker rolls back in one dispatch
+(Actions → *wrangler (one-off command)* → `rollback`; `versions list` first if you want to see what
+you are going back to). An additive migration needs no rollback — the older worker ignores the new
+tables and columns — so leaving it in place is correct.
+
+⚠ **A worker deploy is NOT a `productionWeb` push.** `worker-deploy.yml` is `workflow_dispatch` only
+and never fires on push; a `productionWeb` push deploys the SITES. The two estates move
+independently, which is exactly what makes backend-first possible.
+
 ## Connectivity / researcher backend (separate repo)
 
 The no-login sync + researcher accounts run on a Cloudflare Worker + D1 that lives IN THIS REPO

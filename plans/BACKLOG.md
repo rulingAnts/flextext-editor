@@ -1801,3 +1801,25 @@ Mechanics notes for whoever builds it:
   texts must remain visible there and the "ready to move" affordance must live behind assignTexts.
 - Sequencing: independent of the project split (works per-researcher today); if built first, the
   split's Drive-owner routing inherits it for free.
+
+## Multi-session: a move is owned by the browser that started it (noted 2026-08-18)
+
+With two researcher panels signed in at once — possible since Phase A — server truth converges
+between them on the 12-second dashboard poll, and the settings/key store is already optimistic-locked
+with a refetch-and-retry on 409 (`researcher.js`, whose comment predates this work and says "a
+concurrent tab wrote first"). Those halves are fine.
+
+What is per-browser is `pendingCmds` and `pendingMoves` in localStorage. They are optimistic markers
+for work already SENT, so the underlying change shows in both panels; only the in-flight decoration
+is local.
+
+⚠ The exception worth knowing: a text MOVE is two stages, and the sweep that advances it
+(`assigned` → destination reports the doc → fire the remove at the source → `removing` → gone) runs
+in `renderDashboard` of the browser that started it. A second panel will not advance someone else's
+move, so closing the initiating browser mid-move stalls it until that browser returns.
+
+This is a pre-existing single-browser assumption, not something sessions introduced — multi-session
+only makes it visible, because a person reasonably expects the other panel to finish the job. The fix,
+if it ever matters, is to derive the move state from server-side facts (both inventories already carry
+them) instead of a localStorage marker; the sweep's inputs are already the inventory, so it is the
+MARKER that is local, not the evidence.

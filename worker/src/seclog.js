@@ -87,7 +87,7 @@ export async function logAuthFailures(env, request, resp) {
  *
  * `event` names the caller ('alert', 'reset_email', 'signin_notice'), so the log says WHICH kind of
  * mail failed rather than merely that mail failed. */
-export async function sendEmail(env, request, { to, subject, html, event }) {
+export async function sendEmail(env, request, { to, subject, html, event, from }) {
   if (!env.RESEND_API_KEY || !to) return false;
   let r;
   try {
@@ -95,7 +95,11 @@ export async function sendEmail(env, request, { to, subject, html, event }) {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + env.RESEND_API_KEY, 'content-type': 'application/json' },
       body: JSON.stringify({
-        from: env.RESET_FROM || 'FlexText <noreply@flextext.app>',
+        /* `from` is overridable per message so a researcher-facing mail can say who it is FROM —
+         * "FlexText Researcher" rather than "FlexText". On a phone the SENDER is the boldest thing
+         * in the notification, so that is where the app name earns its space, leaving the subject
+         * free for the facts. Operator alerts keep the plain default. */
+        from: from || env.RESET_FROM || 'FlexText <noreply@flextext.app>',
         to: [to], subject, html,
       }),
     });

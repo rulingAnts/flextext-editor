@@ -238,6 +238,7 @@ async function sendResetEmail(env, request, toEmail, link) {
 <p><a href="${link}">Reset your password</a> — this link expires in 1 hour and can be used once.</p>
 <p>If you did not request this, you can safely ignore this email.</p>`,
     event: 'reset_email',
+    from: SIGNIN_FROM,   // researcher-facing, like the sign-in notice
   });
 }
 
@@ -345,10 +346,16 @@ function uaLabel(request) {
  * permission is ever requested (Seth's constraint). The network name is usually the line a person
  * actually recognises ("Telkomsel"), more than the city is. Fields absent on some plans/routes are
  * simply skipped rather than rendered as "undefined". */
-function geoLabel(request) {
+function geoParts(request) {
   const cf = request.cf || {};
-  const place = [cf.city, cf.region, cf.country].filter(Boolean).join(', ');
-  return [place, cf.asOrganization].filter(Boolean).join(' \u00b7 ');
+  return {
+    place: [cf.city, cf.region, cf.country].filter(Boolean).join(', '),
+    network: cf.asOrganization || '',
+  };
+}
+function geoLabel(request) {
+  const g = geoParts(request);
+  return [g.place, g.network].filter(Boolean).join(' \u00b7 ');
 }
 
 /* Mint a session row and return its bearer token. The token is returned ONCE and never stored — the
@@ -911,22 +918,42 @@ function crowdParse(s) { try { return JSON.parse(s || '{}'); } catch { return {}
  * weighed it: "one more guard, not a sufficient replacement for other guards." Google and Apple send
  * these for the same reason — speed of alerting beats the imperfection of the channel. That is why
  * the in-panel banner and the revocable session list stay in the design beside it. */
-export function signinNoticeEmail({ label, geo, ip, when, lang }) {
-  const where = [label, geo].filter(Boolean).join(' \u00b7 ');
+export function signinNoticeEmail({ email, name, label, place, network, ip, when, lang }) {
   const id = lang === 'id';
-  const subject = (id ? 'Masuk baru ke FlexText' : 'New sign-in to FlexText') + (where ? ' \u2014 ' + where : '');
+  const account = name ? `${name} (${email || ''})`.trim() : (email || '');
+  /* ⚠ SUBJECT BUDGET, ENFORCED RATHER THAN HOPED FOR. A phone notification shows the sender and then
+   * roughly 50–70 characters of subject; the first version of this ran to 84 and the test caught it.
+   * So the subject is built in PRIORITY ORDER and trimmed from the BACK until it fits:
+   *   1. that it is a sign-in,   2. WHICH ACCOUNT — Seth's requirement, so it is the one part that
+   *      is never dropped,       3. the browser,    4. the place.
+   * The APP NAME is deliberately absent: it is the sender display name ("FlexText Researcher"),
+   * which a notification shows in bold anyway, and leaving it out buys about twenty characters for
+   * facts. The NETWORK never enters the subject — valuable, but it loses to all of the above.
+   * The email alone identifies the account here; the friendly name lives in the body, where there
+   * is room for both. */
+  const LIMIT = 78;
+  const head = (id ? 'Masuk baru' : 'New sign-in') + (email ? ': ' + email : '');
+  let subject = head;
+  for (const extra of [[label, place], [label], []]) {
+    const tail = extra.filter(Boolean).join(', ');
+    const candidate = head + (tail ? ' \u2014 ' + tail : '');
+    if (candidate.length <= LIMIT) { subject = candidate; break; }
+    subject = head;   // worst case: the account survives alone, which is the point
+  }
   const rows = [
+    [id ? 'Akun' : 'Account', account || (id ? 'tidak diketahui' : 'unknown')],
     [id ? 'Peramban' : 'Browser', label || (id ? 'tidak diketahui' : 'unknown')],
-    [id ? 'Lokasi' : 'Location', geo || (id ? 'tidak diketahui' : 'unknown')],
+    [id ? 'Lokasi' : 'Location', place || (id ? 'tidak diketahui' : 'unknown')],
+    [id ? 'Jaringan' : 'Network', network || (id ? 'tidak diketahui' : 'unknown')],
     /* The IP is shown IN FULL on purpose (Seth, 2026-08-17). A hash cannot answer the only question
-     * the reader has — "is that me?" — and this address is stored encrypted at rest, so showing it
-     * here adds no standing record anywhere. */
+     * the reader has — "is that me?" — and it is stored encrypted at rest, so showing it here adds
+     * no standing record anywhere. */
     ['IP', ip || (id ? 'tidak diketahui' : 'unknown')],
     [id ? 'Waktu' : 'Time', when],
   ];
   const html = '<p>' + (id
     ? 'Seseorang baru saja masuk ke akun peneliti FlexText Anda.'
-    : 'Someone just signed in to your FlexText researcher account.') + '</p>'
+    : 'Someone just signed in to your FlexText Researcher account.') + '</p>'
     + '<table cellpadding="4" style="border-collapse:collapse;font:14px system-ui">'
     + rows.map(([k, v]) => `<tr><td style="color:#667">${esc(k)}</td><td><b>${esc(v)}</b></td></tr>`).join('')
     + '</table><p>' + (id
@@ -936,6 +963,13 @@ export function signinNoticeEmail({ label, geo, ip, when, lang }) {
         + '"sign out all other sessions", then change your Google password.') + '</p>';
   return { subject, html };
 }
+
+/* ⚠ WHY THE NOTICE NAMES AN ACCOUNT AND NOT A PROJECT (Seth asked for "which project/account").
+ * A sign-in is to an ACCOUNT — it does not select a project, and under the split one account will
+ * hold several. So the project half of that request cannot be answered by this message at all; it
+ * belongs to the OTHER notice, "a member opened your project" (plans/project-split.md VI.2c B),
+ * which is the one event that has a project to name. Implemented here: the account. */
+const SIGNIN_FROM = 'FlexText Researcher <noreply@flextext.app>';
 
 /* Minimal HTML escaping for the notice above — the values are server-derived, but a User-Agent is
  * client-controlled and lands in `label`, so it is never interpolated raw. */
@@ -1190,14 +1224,19 @@ export async function handleV1(request, env, ctx, url, path, origin) {
      * is the noise that teaches people to ignore the ones that matter. `waitUntil`, so a slow or
      * failing mail can never delay the redirect the researcher is waiting on. */
     if (!isNewAccount && email) {
+      const g = geoParts(request);
       const { subject, html } = signinNoticeEmail({
+        /* The account, named even though the mail is going TO that address: a researcher with two
+         * accounts otherwise gets two identical-looking alerts and cannot tell which was entered. */
+        email, name,
         label: uaLabel(request),
-        geo: geoLabel(request),
+        place: g.place,
+        network: g.network,
         ip: request.headers.get('CF-Connecting-IP') || '',
         when: new Date(now).toISOString().replace('T', ' ').slice(0, 16) + ' UTC',
         lang: st && st.l === 'id' ? 'id' : 'en',
       });
-      const send = sendEmail(env, request, { to: email, subject, html, event: 'signin_notice' })
+      const send = sendEmail(env, request, { to: email, subject, html, event: 'signin_notice', from: SIGNIN_FROM })
         .catch(() => false);
       if (ctx && ctx.waitUntil) ctx.waitUntil(send);
     }

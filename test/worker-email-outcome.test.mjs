@@ -122,25 +122,50 @@ console.log('one sender, and it always logs the outcome\n');
   ok(true, 'a failing send inside secAlert does not throw — the alert is lost, never the request');
 }
 
-/* ---- 7. the sign-in notice itself: the subject must work on a LOCK SCREEN ---- */
+/* ---- 7. the sign-in notice: it has to work on a LOCK SCREEN, where space is the constraint ---- */
 {
   const n = signinNoticeEmail({
-    label: 'Chrome on Windows', geo: 'Jayapura, PA, ID \u00b7 Telkomsel',
-    ip: '103.12.34.56', when: '2026-08-18 01:20 UTC', lang: 'en',
+    email: 'seth@example.test', name: 'Seth Johnston', label: 'Chrome on Windows',
+    place: 'Jayapura, PA, ID', network: 'Telkomsel', ip: '103.12.34.56',
+    when: '2026-08-18 01:20 UTC', lang: 'en',
   });
-  ok(/^New sign-in to FlexText/.test(n.subject), `subject leads with what happened (got "${n.subject}")`);
+  ok(/^New sign-in: /.test(n.subject), `subject leads with what happened (got "${n.subject}")`);
+  ok(/seth@example\.test/.test(n.subject),
+     'the ACCOUNT is named in the subject — a researcher with two accounts otherwise gets two '
+     + 'identical-looking alerts and cannot tell which was entered');
   ok(/Chrome on Windows/.test(n.subject) && /Jayapura/.test(n.subject),
-     'the browser AND the place are IN the subject — a phone notification shows little else, and '
-     + 'beating the attacker to the evidence is the entire point of sending this');
-  ok(/103\.12\.34\.56/.test(n.html), 'the body shows the IP in full, which is the only form that answers "is that me?"');
-  ok(/sign out all other sessions/i.test(n.html), 'it says exactly what to do if it was not you');
+     'the browser and the place follow, so the "was that me?" test is answerable without opening it');
+  ok(!/FlexText/.test(n.subject),
+     'the APP NAME is NOT in the subject — it is the sender display name, which a notification shows '
+     + 'in bold anyway, and leaving it out buys about twenty characters for facts');
+  ok(n.subject.length <= 80, `the subject stays inside a phone's preview (${n.subject.length} chars)`);
 
-  const idn = signinNoticeEmail({ label: 'Chrome on Android', geo: 'ID', ip: '1.2.3.4', when: 'x', lang: 'id' });
-  ok(/^Masuk baru ke FlexText/.test(idn.subject), `Indonesian subject (got "${idn.subject}")`);
+  ok(/Telkomsel/.test(n.html), 'the network is in the body — valuable, but third in line for the subject');
+  ok(/103\.12\.34\.56/.test(n.html), 'the body shows the IP in full, the only form that answers "is that me?"');
+  ok(/Account/.test(n.html) && /Seth Johnston \(seth@example\.test\)/.test(n.html),
+     'the body carries the FRIENDLY name and the address, where there is room for both');
+
+  /* The requirement Seth actually stated — "make it very easy to see which account" — has to hold
+   * when everything else is long, not only in the tidy case. */
+  const long = signinNoticeEmail({
+    email: 'a.very.long.researcher.address@some-organisation.example.test', name: 'A Long Name',
+    label: 'Chrome on Windows', place: 'Nabire, Papua Tengah, Indonesia', network: 'Telkomsel',
+    ip: '1.2.3.4', when: 'x', lang: 'en',
+  });
+  ok(long.subject.length <= 78, `an overlong case is trimmed, not truncated mid-word (${long.subject.length} chars)`);
+  ok(/a\.very\.long\.researcher\.address@some-organisation\.example\.test/.test(long.subject),
+     'and the ACCOUNT survives the trim — it is the one part that is never dropped');
+  ok(/sign out all other sessions/i.test(n.html), 'it says exactly what to do if it was not you');
+  ok(/FlexText Researcher account/.test(n.html), 'the body calls the app FlexText Researcher, not just FlexText');
+
+  const idn = signinNoticeEmail({ email: 'a@b.test', label: 'Chrome on Android', place: 'ID',
+                                  network: '', ip: '1.2.3.4', when: 'x', lang: 'id' });
+  ok(/^Masuk baru: a@b\.test/.test(idn.subject), `Indonesian subject names the account too (got "${idn.subject}")`);
   ok(/kata sandi Google/.test(idn.html), 'the Indonesian body carries the same instruction');
 
   /* The User-Agent reaches `label` and is client-controlled, so it must never be interpolated raw. */
-  const evil = signinNoticeEmail({ label: '<img src=x onerror=alert(1)>', geo: '', ip: '', when: 'x', lang: 'en' });
+  const evil = signinNoticeEmail({ email: 'a@b.test', label: '<img src=x onerror=alert(1)>',
+                                   place: '', network: '', ip: '', when: 'x', lang: 'en' });
   ok(!/<img/.test(evil.html), 'a hostile User-Agent is escaped in the body, not injected into it');
 }
 

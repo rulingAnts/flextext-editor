@@ -122,7 +122,8 @@
       "researcher_id",
       "revoked",
       "secret_hash",
-      "session_id"
+      "session_id",
+      "ttl_ms"
     ]
   },
   "indexes": [

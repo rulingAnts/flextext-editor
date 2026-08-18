@@ -10,7 +10,7 @@
 # reproducible here. Staging remains for the three things local cannot do — real Google OAuth, real
 # Drive, real edge CORS. See plans/project-split.md PART V.
 #
-#   bash test/local-rig.sh              # start, seed, probe, stop
+#   bash test/local-rig.sh              # start, seed, run the device probe + session tests, stop
 #   bash test/local-rig.sh --keep       # leave the worker running afterwards (probe by hand)
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -43,6 +43,8 @@ echo "worker is up"
 echo
 NO_PROXY='*' node test/worker-device-compat.probe.mjs "http://127.0.0.1:$PORT"
 STATUS=$?
+echo
+NO_PROXY='*' node test/worker-sessions.test.mjs "http://127.0.0.1:$PORT" || STATUS=1
 
 if [ "$KEEP" = "1" ]; then
   echo

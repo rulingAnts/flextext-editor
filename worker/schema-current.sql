@@ -136,6 +136,7 @@ CREATE TABLE IF NOT EXISTS session (
   created_at    INTEGER NOT NULL,             -- ms since epoch
   last_seen_at  INTEGER,                      -- touched on each authenticated call; drives the sliding expiry
   expires_at    INTEGER,                      -- 24h when "stay signed in" is OFF, 90d sliding when ON
+  ttl_ms        INTEGER NOT NULL DEFAULT 7776000000,  -- the window to slide BY on each use (90d default)
   revoked       INTEGER NOT NULL DEFAULT 0,   -- sign-out / revoke-one / revoke-others / cap eviction
   label         TEXT,                         -- coarse User-Agent label, e.g. "Chrome on Windows"
   ip_enc        TEXT,                         -- AES-GCM under SERVER_HMAC_KEY — see the note below

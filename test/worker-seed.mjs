@@ -33,6 +33,14 @@ export const FIXTURE = {
   researcherSecret: 'local-rig-fixture-secret-not-a-real-credential',
   driveEmail: 'fixture@example.invalid',
   googleSub: 'local-rig-fixture-sub',
+  /* A pre-minted SESSION, so the session lane is testable without Google. Sessions are normally
+   * created only by the OAuth callback; seeding one is how a hermetic rig reaches the code that
+   * matters (auth, sliding expiry, listing, revocation) with no third party involved. */
+  sessionId: '00000000-0000-4000-8000-0000000000a1',
+  sessionSecret: 'local-rig-fixture-session-token-not-a-real-credential',
+  /* An already-expired one, to prove expiry is enforced rather than merely recorded. */
+  expiredSessionId: '00000000-0000-4000-8000-0000000000a2',
+  expiredSessionSecret: 'local-rig-fixture-expired-session-token',
 };
 
 const sha256hex = (s) => createHash('sha256').update(s).digest('hex');
@@ -54,6 +62,18 @@ INSERT INTO researcher (researcher_id, secret_hash, email_sha256, settings_blob,
 VALUES ('${FIXTURE.researcherId}', '${sha256hex(FIXTURE.researcherSecret)}',
         '${sha256hex('fixture-email-key')}', '{}', 0, ${now},
         '${FIXTURE.googleSub}', '${FIXTURE.driveEmail}', 'Local Rig Fixture', 1, 'oauth');
+
+DELETE FROM session;
+INSERT INTO session (session_id, researcher_id, secret_hash, created_at, last_seen_at, expires_at,
+                     ttl_ms, revoked, label, ip_enc, geo)
+VALUES ('${FIXTURE.sessionId}', '${FIXTURE.researcherId}', '${sha256hex(FIXTURE.sessionSecret)}',
+        ${now}, ${now}, ${now + 90 * 24 * 3600 * 1000}, ${90 * 24 * 3600 * 1000}, 0,
+        'Chrome on macOS', NULL, 'Jayapura, PA, ID · Fixture Telecom');
+INSERT INTO session (session_id, researcher_id, secret_hash, created_at, last_seen_at, expires_at,
+                     ttl_ms, revoked, label, ip_enc, geo)
+VALUES ('${FIXTURE.expiredSessionId}', '${FIXTURE.researcherId}', '${sha256hex(FIXTURE.expiredSessionSecret)}',
+        ${now - 200 * 24 * 3600 * 1000}, ${now - 100 * 24 * 3600 * 1000}, ${now - 24 * 3600 * 1000},
+        ${90 * 24 * 3600 * 1000}, 0, 'Firefox on Windows', NULL, 'Somewhere Else');
 `;
 
 const tmp = join(WORKER, '.seed-local.sql');

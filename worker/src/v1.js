@@ -319,6 +319,67 @@ async function verifyTurnstile(token, ip, env) {
   } catch { return false; }
 }
 
+/* ---------------- sessions (Phase A of the researcher/project split) ----------------
+ *
+ * ONE RESEARCHER, SEVERAL BROWSERS. Until now a Google account's session token WAS
+ * `researcher.secret_hash`, so every sign-in evicted the previous browser. Sessions are rows now;
+ * the column keeps its OTHER job untouched (a password account's durable verifier).
+ *
+ * ⚠ THE CLIENT DOES NOT CHANGE. A session token is presented in exactly the header pair the panel
+ * already sends — `x-fx-researcher` + `x-fx-secret` — so an old panel authenticates through the
+ * legacy fallback below and a new one through a session row, against the same worker, with no
+ * flag day. That is what makes this phase shippable on its own.
+ */
+const SESSION_CAP = 5;                              // browsers signed in at once; oldest is evicted
+const SESSION_TTL_STAY = 90 * 24 * 60 * 60 * 1000;  // "stay signed in" ON — 90 days, slid on each use
+const SESSION_TTL_TRANSIENT = 24 * 60 * 60 * 1000;  // OFF: the user has told us this is not their machine
+
+/* A coarse, human label — "Chrome on Windows". ⚠ The User-Agent is client-controlled and is being
+ * actively reduced by browsers, so this is a HINT for recognising your own session in a list, never
+ * evidence of anything. Deliberately crude: a precise parser here would rot and imply false rigour. */
+function uaLabel(request) {
+  const ua = request.headers.get('user-agent') || '';
+  const browser = /Edg\//.test(ua) ? 'Edge' : /OPR\//.test(ua) ? 'Opera' : /Firefox\//.test(ua) ? 'Firefox'
+    : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : '';
+  const os = /Android/.test(ua) ? 'Android' : /iPhone|iPad|iOS/.test(ua) ? 'iOS' : /Windows/.test(ua) ? 'Windows'
+    : /Mac OS X|Macintosh/.test(ua) ? 'macOS' : /Linux/.test(ua) ? 'Linux' : '';
+  return (browser && os) ? `${browser} on ${os}` : (browser || os || 'Unknown browser');
+}
+
+/* Where the request came from, per Cloudflare's edge — NEVER the browser's geolocation API, so no
+ * permission is ever requested (Seth's constraint). The network name is usually the line a person
+ * actually recognises ("Telkomsel"), more than the city is. Fields absent on some plans/routes are
+ * simply skipped rather than rendered as "undefined". */
+function geoLabel(request) {
+  const cf = request.cf || {};
+  const place = [cf.city, cf.region, cf.country].filter(Boolean).join(', ');
+  return [place, cf.asOrganization].filter(Boolean).join(' \u00b7 ');
+}
+
+/* Mint a session row and return its bearer token. The token is returned ONCE and never stored — the
+ * row keeps only sha256 of it, exactly like an install secret. */
+async function createSession(env, request, researcherId, stay) {
+  const now = Date.now();
+  const secret = randTok(24);
+  const ttl = stay ? SESSION_TTL_STAY : SESSION_TTL_TRANSIENT;
+  const ip = request.headers.get('CF-Connecting-IP') || '';
+  await env.DB.prepare(
+    'INSERT INTO session (session_id, researcher_id, secret_hash, created_at, last_seen_at, expires_at, ttl_ms, revoked, label, ip_enc, geo) '
+    + 'VALUES (?,?,?,?,?,?,?,0,?,?,?)'
+  ).bind(crypto.randomUUID(), researcherId, await sha256hex(secret), now, now, now + ttl, ttl,
+         uaLabel(request), ip ? await encAtRest(env, ip) : null, geoLabel(request)).run();
+
+  /* The cap, applied AFTER the insert so the browser signing in now is never the one evicted —
+   * being pushed out of your own new sign-in would be indistinguishable from a broken login.
+   * LIMIT -1 OFFSET n is SQLite's "everything past the first n". */
+  await env.DB.prepare(
+    'UPDATE session SET revoked=1 WHERE session_id IN ('
+    + '  SELECT session_id FROM session WHERE researcher_id=? AND revoked=0'
+    + '  ORDER BY last_seen_at DESC, created_at DESC LIMIT -1 OFFSET ?)'
+  ).bind(researcherId, SESSION_CAP).run();
+  return secret;
+}
+
 /* ---------------- auth (each lane proves its own identity) ---------------- */
 
 async function authResearcher(req, env) {
@@ -326,7 +387,31 @@ async function authResearcher(req, env) {
   const secret = req.headers.get('x-fx-secret') || '';
   if (!id || !secret) return null;
   const row = await env.DB.prepare('SELECT * FROM researcher WHERE researcher_id=?').bind(id).first();
-  if (!row || !ctEq(await sha256hex(secret), row.secret_hash)) return null;
+  if (!row) return null;
+  const hash = await sha256hex(secret);
+
+  /* SESSION LANE first. ⚠ THE RETURN SHAPE IS LOAD-BEARING (round-2 finding R2-5): ~56 call sites
+   * read drive_refresh_enc / settings_blob / drive_email / approved / kr_server_enc straight off
+   * this row. Sessions change only HOW the row is FOUND — never what comes back. */
+  const now = Date.now();
+  const sess = await env.DB.prepare(
+    'SELECT session_id, secret_hash, expires_at, ttl_ms FROM session WHERE researcher_id=? AND revoked=0'
+  ).bind(id).all();
+  for (const sn of (sess && sess.results) || []) {
+    if (!ctEq(hash, sn.secret_hash)) continue;
+    if (sn.expires_at && sn.expires_at <= now) return null;          // expired: not an auth, and not a fallback either
+    /* Slide by the window this session was created with, so an actively used browser never has to
+     * sign in again while a forgotten one still ages out. */
+    await env.DB.prepare('UPDATE session SET last_seen_at=?, expires_at=? WHERE session_id=?')
+      .bind(now, now + (sn.ttl_ms || SESSION_TTL_STAY), sn.session_id).run();
+    row.session_id = sn.session_id;                                   // for signout / "this device" marking
+    return row;
+  }
+
+  /* LEGACY FALLBACK — the pre-session credential. Keeps every already-installed panel working
+   * during the window, and IS the password lane's permanent mechanism (its secret_hash is a
+   * durable password verifier, not a session token). */
+  if (!ctEq(hash, row.secret_hash)) return null;
   return row;
 }
 
@@ -954,7 +1039,12 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     const b64url = (b) => btoa(String.fromCharCode(...b)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
     const challenge = b64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))));
-    const state = await encAtRest(env, JSON.stringify({ v: verifier, r: returnTo, t: now }));
+    /* `?stay=0` = the user did NOT tick "stay signed in", i.e. told us this is not their machine —
+     * the session then gets 24h instead of 90 days. ABSENT means an older panel that cannot say, and
+     * absent must mean the LONG window, or updating the worker would start signing those panels out
+     * daily. The tightening arrives with the client, which is the correct order. */
+    const stay = url.searchParams.get('stay') === '0' ? 0 : 1;
+    const state = await encAtRest(env, JSON.stringify({ v: verifier, r: returnTo, t: now, s: stay }));
     const redirectUri = url.origin + '/v1/oauth/google/callback';
     const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
       client_id: cid, redirect_uri: redirectUri, response_type: 'code',
@@ -997,13 +1087,16 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     const domainOk = owner ? false : await isDomainApproved(email, env);
     const name = claims.name || ''; const picture = claims.picture || '';
     let row = await env.DB.prepare('SELECT researcher_id FROM researcher WHERE google_sub=?').bind(sub).first();
-    const session = randTok(24); const sessionHash = await sha256hex(session);
+    /* Phase A: the token handed back is a SESSION, not researcher.secret_hash. The fragment shape
+     * `<researcher_id>.<token>` is unchanged, so the client needs no edit to keep working. */
+    const stay = !(st && st.s === 0);   /* absent => 90 days: an OLD panel must not start expiring daily */
+    const legacyKill = await sha256hex(randTok(32));
     if (!row) {
       const researcher_id = crypto.randomUUID();
       const krB64 = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))));
       await env.DB.prepare(
         'INSERT INTO researcher (researcher_id, secret_hash, email_sha256, settings_blob, settings_rev, created_at, google_sub, kr_server_enc, drive_refresh_enc, drive_email, email_enc, display_name, avatar_url, approved) VALUES (?,?,?,?,0,?,?,?,?,?,?,?,?,?)'
-      ).bind(researcher_id, sessionHash, await emailKey(email, env), JSON.stringify({}), now, sub,
+      ).bind(researcher_id, legacyKill, await emailKey(email, env), JSON.stringify({}), now, sub,
              await encAtRest(env, krB64), tok.refresh_token ? await encAtRest(env, tok.refresh_token) : null,
              email, await encAtRest(env, email), name, picture, (owner || domainOk) ? 1 : 0).run();
       row = { researcher_id };
@@ -1031,7 +1124,11 @@ export async function handleV1(request, env, ctx, url, path, origin) {
             : 'This account is PENDING and can do nothing until you approve it in the researcher panel.',
       ]);
     } else {
-      const sets = ['secret_hash=?']; const binds = [sessionHash];
+      /* ⚠ ROUND-1 FINDING 1, the legacy skeleton key. Once sessions exist, a Google account's OLD
+       * secret_hash would stay honoured by the fallback FOREVER, and "sign out other sessions" would
+       * be a lie while it lived. Rotating it to garbage retires it on the first session-lane sign-in.
+       * google_sub accounts ONLY — the password lane's secret_hash is a durable verifier (R2-3). */
+      const sets = ['secret_hash=?']; const binds = [legacyKill];
       if (tok.refresh_token) { sets.push('drive_refresh_enc=?'); binds.push(await encAtRest(env, tok.refresh_token)); }
       if (email) { sets.push('drive_email=?'); binds.push(email); }
       sets.push('display_name=?'); binds.push(name);
@@ -1041,6 +1138,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       await env.DB.prepare('UPDATE researcher SET ' + sets.join(', ') + ' WHERE researcher_id=?').bind(...binds).run();
     }
     const back = String(st.r || 'https://rulingants.github.io/flextext-editor/').replace(/[?#].*$/, '');
+    const session = await createSession(env, request, row.researcher_id, stay);
     const dest = back + '?mode=researcher#gauth=' + encodeURIComponent(row.researcher_id) + '.' + encodeURIComponent(session);
     return Response.redirect(dest, 302);
   }
@@ -1048,7 +1146,67 @@ export async function handleV1(request, env, ctx, url, path, origin) {
   // POST /v1/researcher/signout — (authed) invalidate this session (rotate the stored hash).
   if (m === 'POST' && seg.length === 3 && seg[1] === 'researcher' && seg[2] === 'signout') {
     const r = await authResearcher(request, env);
-    if (r) await env.DB.prepare('UPDATE researcher SET secret_hash=? WHERE researcher_id=?').bind(await sha256hex(randTok(24)), r.researcher_id).run();
+    /* ⚠ ROUND-2 FINDING R2-3. This used to rotate researcher.secret_hash. On a GOOGLE account that
+     * was right — the column WAS the session token. On a PASSWORD account the same column is the
+     * durable password VERIFIER, so signing out would have silently destroyed the ability to log in,
+     * recoverable only by an emailed reset. It was unreachable dead code (the client never called
+     * it); wiring the client to it, as this phase does, is exactly what would have armed it.
+     * Now it revokes THIS SESSION and nothing else, which is what sign-out means. */
+    if (r && r.session_id) {
+      await env.DB.prepare('UPDATE session SET revoked=1 WHERE session_id=?').bind(r.session_id).run();
+    }
+    return j({ ok: true }, 200, origin, env);
+  }
+
+  /* GET /v1/researcher/sessions — the list that makes the cap safe rather than merely annoying:
+   * every browser signed in, which one you are, and enough detail to recognise a stranger. */
+  if (m === 'GET' && seg.length === 3 && seg[1] === 'researcher' && seg[2] === 'sessions') {
+    const r = await authResearcher(request, env);
+    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    const rows = await env.DB.prepare(
+      'SELECT session_id, created_at, last_seen_at, expires_at, label, ip_enc, geo FROM session '
+      + 'WHERE researcher_id=? AND revoked=0 ORDER BY last_seen_at DESC'
+    ).bind(r.researcher_id).all();
+    const sessions = [];
+    for (const row of (rows && rows.results) || []) {
+      sessions.push({
+        session_id: row.session_id,
+        created_at: row.created_at,
+        last_seen_at: row.last_seen_at,
+        expires_at: row.expires_at,
+        label: row.label || '',
+        geo: row.geo || '',
+        /* The IP is shown IN FULL and deliberately (Seth, 2026-08-17): a hash cannot answer "is that
+         * my office?", which is the only question this list exists to answer. It is stored encrypted
+         * at rest all the same, so a D1 dump is not a location history. */
+        ip: row.ip_enc ? (await decAtRest(env, row.ip_enc)) || '' : '',
+        current: row.session_id === r.session_id,
+      });
+    }
+    return j({ sessions, cap: SESSION_CAP }, 200, origin, env);
+  }
+
+  /* POST /v1/researcher/sessions/revoke-others — the one-click answer to "that wasn't me". */
+  if (m === 'POST' && seg.length === 4 && seg[1] === 'researcher' && seg[2] === 'sessions' && seg[3] === 'revoke-others') {
+    const r = await authResearcher(request, env);
+    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    const res = await env.DB.prepare('UPDATE session SET revoked=1 WHERE researcher_id=? AND revoked=0 AND session_id<>?')
+      .bind(r.researcher_id, r.session_id || '').run();
+    return j({ ok: true, revoked: (res.meta && res.meta.changes) || 0 }, 200, origin, env);
+  }
+
+  /* DELETE /v1/researcher/sessions/<id> — revoke one. Scoped to the caller's own rows by the bind,
+   * so it fails CLOSED for anyone else's session id. */
+  if (m === 'DELETE' && seg.length === 4 && seg[1] === 'researcher' && seg[2] === 'sessions') {
+    const r = await authResearcher(request, env);
+    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    /* ⚠ `AND revoked=0` is what makes the 404 mean anything. Without it the UPDATE still MATCHES an
+     * already-revoked row, D1 reports changes=1, and revoking a dead session answers 200 — so the
+     * panel would cheerfully report success for a session that was revoked days ago. SQLite counts
+     * rows written, not rows whose value actually changed. */
+    const res = await env.DB.prepare('UPDATE session SET revoked=1 WHERE session_id=? AND researcher_id=? AND revoked=0')
+      .bind(seg[3], r.researcher_id).run();
+    if (!(res.meta && res.meta.changes)) return j({ error: 'not_found' }, 404, origin, env);
     return j({ ok: true }, 200, origin, env);
   }
 

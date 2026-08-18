@@ -129,5 +129,31 @@ const bad = await call('GET', `/v1/instances/${instanceId}?since=-1`,
   { headers: { 'x-fx-install': installId, 'x-fx-secret': 'wrong' } });
 ok(bad.status === 401, `a wrong install secret on a live row is 401 (got ${bad.status})`);
 
+/* ---- 10. A RE-KEYED IDLE DEVICE MUST BE TOLD (round-2 finding R2-2) ----
+ *
+ * The device re-unwraps its Ki only when the poll body's `wrapped_key` CHANGES — but the poll
+ * short-circuits to 204 while desired_rev <= since. So delivering a key WITHOUT bumping desired_rev
+ * means a device with nothing else pending never receives it, and goes on encrypting under the old
+ * key indefinitely: exactly the key a removed member still holds. Rotation is the remedy after
+ * revoking someone; this asserts the remedy actually arrives. */
+{
+  /* Park the device up to date, so the only thing that could wake it is the key delivery itself. */
+  const upToDate = await call('GET', `/v1/instances/${instanceId}?since=${poll.json.desired_rev}`, { headers: DEVICE });
+  ok(upToDate.status === 204, `the device starts idle — nothing pending (got ${upToDate.status})`);
+  const idleRev = poll.json.desired_rev;
+
+  const keyed = await call('POST', `/v1/instances/${instanceId}/installs/${installId}/key`, {
+    headers: RESEARCHER, body: { wrapped_key: 'REKEYED-CIPHERTEXT' },
+  });
+  ok(keyed.status === 200, `the researcher delivers a new wrapped key (got ${keyed.status})`);
+
+  const after = await call('GET', `/v1/instances/${instanceId}?since=${idleRev}`, { headers: DEVICE });
+  ok(after.status === 200,
+     `the IDLE device is now handed a body instead of a 204 — without this, a re-keyed device never `
+     + `learns and keeps using the key a removed member holds (got ${after.status})`);
+  ok(after.json && after.json.wrapped_key === 'REKEYED-CIPHERTEXT',
+     'and the body carries the NEW wrapped key, which is what triggers the device to re-unwrap');
+}
+
 console.log(fail ? `\nFAILED (${fail})` : '\nPASS — the device lane is byte-compatible');
 process.exit(fail ? 1 : 0);

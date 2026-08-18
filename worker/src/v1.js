@@ -2527,7 +2527,17 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         if (!owned.accepted) return j({ error: 'not_accepted' }, 409, origin, env);
         const body = await readJson(request);
         if (!body || !body.wrapped_key) return j({ error: 'bad_body' }, 400, origin, env);
-        await env.DB.prepare('UPDATE install SET wrapped_key=? WHERE install_id=?').bind(body.wrapped_key, installId).run();
+        /* ⚠ BUMP desired_rev IN THE SAME BATCH — round-2 finding R2-2, and it is what makes REVOKE
+         * mean anything. A device re-unwraps its Ki only when the poll body's `wrapped_key` CHANGES,
+         * but the poll short-circuits to 204 while `desired_rev <= since` — so a re-keyed device with
+         * nothing else pending would NEVER be handed the new key. It would go on encrypting under the
+         * old Ki indefinitely, which is precisely the key a removed member still holds. Rotation is
+         * the remedy after removing someone whose trust is in doubt; without this line it is a remedy
+         * that silently does nothing. */
+        await env.DB.batch([
+          env.DB.prepare('UPDATE install SET wrapped_key=? WHERE install_id=?').bind(body.wrapped_key, installId),
+          env.DB.prepare('UPDATE instance SET desired_rev=desired_rev+1 WHERE instance_id=?').bind(instanceId),
+        ]);
         return j({ ok: true }, 200, origin, env);
       }
 

@@ -182,6 +182,41 @@ is server-side and origin-independent. Only the field device moves.
 5. **Only then revoke the old install/instance**, and only after that have him uninstall the old
    PWA — uninstalling can clear its IndexedDB, so it must be last.
 
+### AFTER retirement: delete the dual-estate machinery (Seth, 2026-08-18 — a later release)
+
+> *"After we retire the GitHub Pages hosting path and satellite repos, we should audit our code and
+> clean out code that was specifically written to deal with the two hosting paths and the migration.
+> But that's a later/future release task."*
+
+Agreed, and inventoried now while it is fresh — a cleanup brief written a year later is a fishing
+expedition. **Nothing here is to be touched until Iwan is migrated, the Pages estate is retired, and
+every live instance reads `estate='cloud'`.**
+
+**What exists ONLY because there are two estates:**
+
+| Surface | Files |
+|---|---|
+| The `estate` column and everything that branches on it | `worker/src/v1.js` (stamping, invite inheritance, listView), `docs/js/app.js`, `docs/js/researcher.js`, `docs/js/researcher-panel.js`, `docs/js/paragraph-ui.js`, `docs/js/paragraph-export.js` |
+| `rulingants.github.io` in code (not prose) | `worker/src/v1.js` (ALLOWED_ORIGINS + the OAuth `returnTo` default), `docs/js/i18n.js`, `docs/js/app.js`, `docs/js/researcher-panel.js`, `satellites/crowd-recorder/embed.js`, the four `apps/*/wrangler.toml` |
+| The satellite source tree and its publishing | `satellites/`, `.github/workflows/sync-satellites.yml`, `check-release-integrity.sh` (`paths` mode), the satellite half of `test/version-sync.test.mjs` |
+| The v318 retirement machinery itself | `satellites/flextext-researcher/index.html` + `sw.js` hostname gates, `test/researcher-legacy-redirect.test.mjs`, `satellites/flextext-researcher/help/migrate.html` |
+| The SHELL duplication tax | every satellite `sw.js` mirroring `js/app.js`'s import graph — the v108 outage's whole cause |
+| The deploy-order law | "editor live first, verify every precached path 200, then the mirrors" — the risk disappears with the mirrors |
+
+⚠ **What must NOT be swept up with it, because it looks similar and is not:**
+- `originAllows()` and the `*-…workers.dev` patterns — those are **branch previews**, still needed.
+- `apps/*/build.sh` copying `satellites/<name>/` — the Cloudflare apps are BUILT from that tree. It
+  is not going away when the mirrors do; the shells simply become its only consumer.
+
+⚠ **Do not DROP the `estate` column.** Stop reading it; leave it. This project has just spent a week
+learning what a destructive migration costs (R2-6, and `migrate-instance-type-unified.sql`), and a
+column nobody reads is free. Backfill it to `'cloud'` if the inconsistency grates.
+
+**The honest reason this is worth doing** rather than living with: every one of those surfaces is a
+place a future change has to be right in two ways at once. The SHELL tax is the sharpest — a new
+top-level import in `app.js` must land in every satellite `sw.js` in the same commit or an updated
+satellite is dead offline — and it is paid on every engine change until the mirrors are gone.
+
 ### What retirement looks like afterwards (Seth, 2026-08-17 — LATER, not now)
 
 > *"Retirement would look like warning banners saying this address is no longer supported and no

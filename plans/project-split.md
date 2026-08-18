@@ -725,6 +725,51 @@ Not needed for Phase A/B testing: `TURNSTILE_SECRET` (password signup + crowd on
 never checks it), `ESCROW_PUBLIC_KEY`/`ESCROW_PRIVATE_KEY` (password lane, absent from the shipped
 client), `RESEND_API_KEY`/`RESET_FROM` (reset emails), `ALERT_EMAIL`.
 
+### 3b. ⚠⚠ PRODUCTION's `SERVER_HMAC_KEY` CAN NEVER BE ROTATED (learned 2026-08-17)
+
+Worth stating once, loudly, because the staging work involves pasting keys into dashboards and the
+two fields sit next to each other. `SERVER_HMAC_KEY` is not just an HMAC key:
+
+- `emailKey()` derives the `email_sha256` LOGIN LOOKUP from it (v1.js:134). Change it and no account
+  can be found — every sign-in fails, and the unique index no longer matches anything.
+- `encAtRest()` derives an AES-GCM key from its SHA-256 (v1.js:141), and that encrypts `email_enc`,
+  `totp_secret_enc`, **`drive_refresh_enc`** and **`kr_server_enc`**. Change it and every stored
+  Google Drive refresh token becomes undecryptable — no uploads, no downloads, for anyone — and for
+  Google-lane accounts `kr_server_enc` holds Kr itself, so the metadata keys are simply lost.
+
+So on production it is a one-way setting: rotating it is silent, total, and unrecoverable without a
+planned re-encryption migration that does not exist. On STAGING it is free to rotate while the
+database is empty, which is exactly why it should be rotated to a value of its own now.
+
+### 4. Google OAuth — use a SEPARATE client for staging, do NOT rotate production's secret
+
+Seth, 2026-08-17: the production client's secret was never saved and Google will not show it again.
+The two options are to mint a new secret on the EXISTING client and apply it to both, or to create a
+separate client for staging. **Create a separate client.**
+
+⚠ The reason is bigger than sign-in: `GOOGLE_OAUTH_CLIENT_SECRET` is used on every
+`driveAccessToken()` refresh (v1.js:358–367), which is the path behind every upload, download,
+folder create, trash and purge — including FIELD DEVICE uploads, which route through the owning
+researcher's refresh token. A production client secret that the worker does not match takes down all
+Drive traffic for everyone, not just researcher logins. Rotating it is therefore a coordinated
+production deploy, not a console click, and there is nothing to gain from it here.
+
+- The production **client ID is still readable** in the console (only the secret is hidden), so
+  nothing is lost by not knowing the secret — production keeps working with the secret it already
+  has, unread.
+- A new client in the SAME Google Cloud project inherits the project's consent screen, so no new
+  verification work. (`drive.file` is a non-sensitive scope, and production's refresh tokens are not
+  expiring weekly, which means the project is published rather than in Testing — the 7-day
+  `invalid_grant` case the code already comments on.)
+- Both values are visible at creation. Save BOTH to 1Password at that moment; the secret is
+  unrecoverable afterwards, which is the whole reason this decision came up.
+- Its only redirect URI is staging's:
+  `https://flextext-r2-worker-staging.68mh29kgsd.workers.dev/v1/oauth/google/callback` — production's
+  client is never touched.
+
+Same principle as the distinct `SERVER_HMAC_KEY`: environments that share no secrets cannot leak
+into one another, and a mistake in staging stays in staging.
+
 ### 4. One Google console entry (this is the step that silently breaks sign-in if skipped)
 
 The worker derives its OAuth callback from the request host — `redirectUri = url.origin +

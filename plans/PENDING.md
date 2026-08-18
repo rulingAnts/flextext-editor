@@ -151,6 +151,48 @@ different scope with its own worker and its own caches, the kill switch deletes 
 `flextext-researcher-*`, and nothing goes near localStorage or IndexedDB. Verified by executing
 both guards under each hostname in `test/researcher-legacy-redirect.test.mjs`.
 
+### Migrating Iwan — the ordered runbook (do this FIRST; retirement waits on it)
+
+Seth, 2026-08-17: *"I need to get Iwan migrated first."* His researcher ACCOUNT needs nothing — it
+is server-side and origin-independent. Only the field device moves.
+
+0. **Settle the open question first: is his device actually installed from `github.io`?** Nothing
+   server-side can tell you (see above). If it is already a Cloudflare install, stop — there is no
+   migration, just a stale `estate='pages'` row to revoke or re-stamp once he confirms.
+
+1. **Get everything OFF the device before touching anything else.** Have him upload every text and
+   recording, and confirm in the panel's inventory that they are actually uploaded — not "he says
+   he did".
+
+   ⚠ **This is the step with no undo.** Revoke is an UNLINK, not a wipe: the device gets a 410 on
+   its next poll and auto-releases, **keeping its local texts, which the researcher can then never
+   retrieve** (v1.js:2082–2083). Revoking before the upload finishes strands his work on a phone.
+
+2. **Create a NEW instance for the new device — do not invite into the old one.** An invite
+   INHERITS its instance's estate (v1.js:1637–1638), so a link minted against his existing instance
+   lands him back on `github.io`. A new instance is stamped `estate='cloud'` automatically
+   (v1.js:1587–1589), which is what puts the link on the Cloudflare origin.
+
+3. **Send the new invite; he installs from the Cloudflare URL** (`app.flextext.app` /
+   `record.flextext.app` — his instance type is `''`, i.e. unified, so either app applies). Approve
+   the install and let the key deliver. He must be online for this and for step 4.
+
+4. **Re-assign his texts to the new device** and confirm they arrive.
+
+5. **Only then revoke the old install/instance**, and only after that have him uninstall the old
+   PWA — uninstalling can clear its IndexedDB, so it must be last.
+
+### What retirement looks like afterwards (Seth, 2026-08-17 — LATER, not now)
+
+> *"Retirement would look like warning banners saying this address is no longer supported and no
+> longer receiving updates, with the new URL."*
+
+So the end state for the remaining legacy paths is a **banner, not a redirect** — the editor and
+recorder are field apps holding local work, and silently moving them to a new origin would orphan
+their IndexedDB. A banner tells the user where to go and lets them migrate deliberately, with their
+researcher's help. (The researcher panel could be redirected outright, and was, precisely because it
+holds nothing local that a sign-in does not restore.) Not to be built until Iwan is migrated.
+
 **The standing cost of waiting** (worth naming, since "later" is now open-ended): every engine change
 keeps paying the satellite tax — a new top-level `import` in `js/app.js` is a new SHELL entry in
 `satellites/*/sw.js` AND `paragraph-analysis/sw.js` in the same commit, or an updated satellite is

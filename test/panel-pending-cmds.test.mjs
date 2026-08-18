@@ -154,6 +154,24 @@ console.log('\ncancel withdraws the command the ROW is showing');
      'not_queued is reported as cancelled — the Worker checks ack_seq first, so it proves it never ran');
 }
 
+console.log('\na cancel in ANOTHER browser retires the local marker (v389)');
+{
+  /* The half v388 missed. The three retirement outcomes above are all things the DEVICE does; a
+   * withdrawal performed in a second panel is not one of them, so the issuing browser kept a
+   * strikethrough and a Cancel button for a command the server no longer held. */
+  ok(/let serverSeqs = new Map\(\);/.test(panel),
+     'every seq still in each instance blob is recorded, so a vanished seq is detectable');
+  ok(/seqs\.set\(it\.instance_id, new Set\(\(hit\.cmds \|\| \[\]\)\.map\(\(c\) => c && c\.seq\)\)\);/.test(panel),
+     'recorded BEFORE the ack filter — an acked command still exists on the server');
+  ok(/const withdrawn = !!known && p\.seq > ackOf\(insts, p\.instanceId\) && !known\.has\(p\.seq\);/.test(panel),
+     'a still-QUEUED marker whose seq is gone from the blob was withdrawn elsewhere');
+  ok(/if \(done \|\| withdrawn\) \{ pendingCmds\.delete\(docId\); changed = true; \}/.test(panel),
+     'and it is retired through the same sweep, so the write is still batched and persisted');
+  // The dangerous misreading: a failed fetch must not look like an empty queue.
+  ok(/!!known &&/.test(panel),
+     'an instance absent from serverSeqs means "could not read", never "nothing queued"');
+}
+
 console.log('\nthe derived state actually reaches the screen');
 {
   ok(/await refreshServerPending\(insts\);/.test(panel),

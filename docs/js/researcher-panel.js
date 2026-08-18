@@ -147,6 +147,12 @@ let blobCache = new Map();       // instanceId -> { rev, cmds }
 let blobCacheAccount = null;
 function invalidateBlob(instanceId) { blobCache.delete(instanceId); }
 
+/* instanceId -> Set of every seq currently in that instance's blob. Populated ONLY for instances
+ * this pass actually read, so a transient fetch failure leaves an instance absent rather than
+ * looking empty — the difference between "nothing is queued" and "we do not know" (see the
+ * withdrawn-elsewhere sweep in renderDashboard, which must never act on the second). */
+let serverSeqs = new Map();
+
 /* ⚠ `desired_rev` IS NOT COMPARABLE TO `ack_seq`, and reading it as if it were is what broke this
  * on first contact (Seth, 2026-08-18: a cancelled delete still ran; a pending upload never reached
  * the editor). They are different counters kept for different reasons:
@@ -172,6 +178,7 @@ async function refreshServerPending(instances) {
   const account = Researcher.currentAccountId();
   if (account !== blobCacheAccount) { blobCache = new Map(); blobCacheAccount = account; }
   const next = new Map();
+  const seqs = new Map();
   const seen = new Set();
   for (const it of instances || []) {
     seen.add(it.instance_id);
@@ -185,6 +192,9 @@ async function refreshServerPending(instances) {
       catch { continue; }                                   // transient; next poll retries
       blobCache.set(it.instance_id, hit);
     }
+    /* Recorded per instance BEFORE the ack filter: the question this answers is "does this command
+     * still exist on the server at all", which an acked command does. */
+    seqs.set(it.instance_id, new Set((hit.cmds || []).map((c) => c && c.seq)));
     for (const c of hit.cmds || []) {
       const kind = CMD_KIND[c && c.type];
       const docId = c && c.id;
@@ -200,6 +210,7 @@ async function refreshServerPending(instances) {
   }
   for (const id of [...blobCache.keys()]) if (!seen.has(id)) blobCache.delete(id);   // instance revoked/removed
   serverPending = next;
+  serverSeqs = seqs;
 }
 
 /* One place to ask "is anything pending for this text ON THIS DEVICE?" — the browser's own
@@ -1186,7 +1197,24 @@ async function renderDashboard(prefetched) {
         : p.kind === 'assign'
           ? d !== undefined
           : !!(d && d.uploadedFileId && d.uploadedFileId !== p.prevFileId);
-      if (done) { pendingCmds.delete(docId); changed = true; }
+      /* ⚠ WITHDRAWN IN ANOTHER BROWSER — the mirror of the bug v388 fixed, and the half it missed
+       * (Seth, 2026-08-18): "If I do an action on the first session it DOES propagate to the second
+       * session, but then when I cancel on the second, the first doesn't register that the second
+       * cancelled it." Right: the three outcomes above are all things the DEVICE does, and a cancel
+       * performed elsewhere is not one of them, so the issuing browser's own localStorage marker
+       * outlived the command it stood for — strikethrough and a Cancel button for something the
+       * server no longer holds.
+       *
+       * The evidence is already in hand: serverSeqs is every seq still in that instance's blob. A
+       * marker that still claims to be QUEUED (seq > ack, so the device cannot have consumed it)
+       * whose seq is no longer there was withdrawn by somebody else.
+       *
+       * ⚠ Absence of the INSTANCE means "we could not read it", not "it is empty" — refreshServerPending
+       * records an instance only when its fetch succeeded. Acting on a missing instance would clear
+       * every marker in the panel on one dropped request. */
+      const known = serverSeqs.get(p.instanceId);
+      const withdrawn = !!known && p.seq > ackOf(insts, p.instanceId) && !known.has(p.seq);
+      if (done || withdrawn) { pendingCmds.delete(docId); changed = true; }
     }
     if (changed) savePending(Researcher.currentAccountId());
   }

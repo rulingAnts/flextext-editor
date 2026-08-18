@@ -603,7 +603,7 @@ function renderSignIn(note) {
     </div></div>`;
   const stayBox = root.querySelector('#rp-stay');
   if (stayBox) stayBox.addEventListener('change', () => Researcher.setStaySignedIn(stayBox.checked));
-  wireActs({ google: () => { location.href = Researcher.googleSignInUrl(); }, exit: close });
+  wireActs({ google: () => { location.href = Researcher.googleSignInUrl(undefined, getLang()); }, exit: close });
 }
 
 function renderConnecting() {
@@ -4376,6 +4376,9 @@ function accountModal() {
     <p class="note">${esc(t('panel.account.stayNote'))}</p>
     <button class="link-btn" data-m="signout">${esc(t('panel.account.signout'))}</button>
     <hr class="rp-sep">
+    <div class="rp-field"><span>${esc(t('panel.sessions.title'))}</span>
+      <div id="rp-sessions-body"><p class="note">${esc(t('panel.sessions.loading'))}</p></div></div>
+    <hr class="rp-sep">
     <div class="rp-field"><span>${esc(t('panel.drive.title'))}</span>
       <div id="rp-drive-body"><p class="note">${esc(t('panel.drive.loading'))}</p></div></div>
     <hr class="rp-sep">
@@ -4391,6 +4394,61 @@ function accountModal() {
   };
   m.el.querySelector('[data-m="delacct"]').onclick = () => { m.close(); deleteAccountModal(); };   // permanent server-side account delete
   driveSection(m.el.querySelector('#rp-drive-body'));
+  sessionsSection(m.el.querySelector('#rp-sessions-body'));
+}
+
+/* The signed-in-browsers list. This is what makes the session CAP tolerable rather than mysterious:
+ * without it, "the oldest browser was signed out" is an unexplained event, and "sign out everything
+ * that isn't me" — the one action a person wants the moment they suspect something — has no button.
+ *
+ * ⚠ Everything shown comes from the SERVER, so it is the same in every panel. The IP is shown in
+ * full deliberately (Seth, 2026-08-17): a hash cannot answer "is that my office?", which is the only
+ * question this list exists to answer. It is stored encrypted at rest, so displaying it here creates
+ * no new standing record. */
+async function sessionsSection(host) {
+  if (!host) return;
+  let data;
+  try { data = await Researcher.listSessions(); }
+  catch { host.innerHTML = `<p class="note">${esc(t('panel.sessions.failed'))}</p>`; return; }
+
+  const rows = (data && data.sessions) || [];
+  const when = (ms) => {
+    if (!ms) return esc(t('panel.sessions.unknown'));
+    const mins = Math.max(0, Math.round((Date.now() - ms) / 60000));
+    if (mins < 60) return `${mins}m`;
+    if (mins < 1440) return `${Math.round(mins / 60)}h`;
+    return `${Math.round(mins / 1440)}d`;
+  };
+
+  const others = rows.filter((r) => !r.current).length;
+  host.innerHTML = rows.map((r) => {
+    const detail = [r.geo, r.ip].filter(Boolean).join(' \u00b7 ');
+    return `<div class="rp-session${r.current ? ' rp-session-current' : ''}">
+      <div><b>${esc(r.label || t('panel.sessions.unknown'))}</b>${r.current ? ` <span class="note">(${esc(t('panel.sessions.current'))})</span>` : ''}</div>
+      <div class="note">${esc(detail || t('panel.sessions.unknown'))} \u00b7 ${esc(t('panel.sessions.lastSeen'))} ${esc(when(r.last_seen_at))}</div>
+      ${r.current ? '' : `<button class="link-btn" data-revoke="${esc(r.session_id)}">${esc(t('panel.sessions.revoke'))}</button>`}
+    </div>`;
+  }).join('')
+    + (others ? `<button class="link-btn" data-m="revoke-others">${esc(t('panel.sessions.revokeOthers'))}</button>` : '')
+    + (rows.length ? '' : `<p class="note">${esc(t('panel.sessions.none'))}</p>`)
+    + `<p class="note">${esc(String(t('panel.sessions.cap')).replace('{n}', String((data && data.cap) || 5)))}</p>`;
+
+  host.querySelectorAll('[data-revoke]').forEach((b) => {
+    b.onclick = (e) => busy(e.target, async () => {
+      await Researcher.revokeSession(b.dataset.revoke);
+      await sessionsSection(host);        // re-read from the server rather than guessing locally
+    });
+  });
+  const all = host.querySelector('[data-m="revoke-others"]');
+  if (all) {
+    all.onclick = (e) => {
+      if (!confirm(t('panel.sessions.confirmOthers'))) return;
+      busy(e.target, async () => {
+        await Researcher.revokeOtherSessions();
+        await sessionsSection(host);
+      });
+    };
+  }
 }
 
 /* Drive-delivery section (inside the account modal). There is NO mode and NO switch:

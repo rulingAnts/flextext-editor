@@ -97,13 +97,18 @@ function loadSw(hostname) {
     },
     _windows: [],
   };
+  /* ⚠ DERIVED FROM SOURCE, not typed. The first version of this hardcoded the satellite's cache
+   * name, and bump-version.sh promptly moved it — so the test failed for a reason that had nothing
+   * to do with the behaviour it guards. What matters is "the CURRENT cache survives and older own
+   * ones do not", which only stays true if the current name is read from the file under test. */
+  const CUR = (swSrc.match(/const VERSION = '([^']+)'/) || [])[1];
   const store = new Set([
-    'flextext-v384',                 // the EDITOR's cache — a field device's offline shell
+    'flextext-v384',                          // the EDITOR's cache — a field device's offline shell
     'flextext-v383',
-    'text-recorder-v311',            // the RECORDER's cache
+    'text-recorder-v311',                     // the RECORDER's cache
     'flextext-paragraph-v197',
-    'flextext-researcher-v317',      // ours, previous version
-    'flextext-researcher-v318',      // ours, current
+    'flextext-researcher-v317',               // ours, an older version — must be pruned
+    'flextext-researcher-' + CUR,             // ours, current — must survive on the Cloudflare side
   ]);
   const caches = {
     keys: async () => [...store],
@@ -152,8 +157,9 @@ if (cloudSw.handlers.activate) {
   await waited;
   ok(cloudSw.self._unregistered !== true,
      `on ${TARGET_HOST} the worker does NOT unregister — that site keeps its offline support`);
-  ok(cloudSw.store.has('flextext-researcher-v318'),
-     `on ${TARGET_HOST} the CURRENT cache is kept (only older own-versions are pruned)`);
+  const cur = (swSrc.match(/const VERSION = '([^']+)'/) || [])[1];
+  ok(cloudSw.store.has('flextext-researcher-' + cur),
+     `on ${TARGET_HOST} the CURRENT cache (${cur}) is kept — only older own-versions are pruned`);
 }
 
 /* Per-ORIGIN storage is shared by all three apps here; the retiring worker must not go near it.

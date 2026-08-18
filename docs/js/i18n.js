@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v384';
+export const ENGINE_VERSION = 'v385';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v384';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = '';
+export const BUILD_TAG = 'sessions-ui v1';
 
 const S = {
 en: {
@@ -1187,6 +1187,20 @@ internet after the first time.</p>
   'panel.account.confirmSignout': 'Sign out? You will need to sign in with Google again.',
   'panel.account.stay': 'Stay signed in on this device',
   'panel.account.stayNote': 'Off by default: when you close the app it locks, and you sign in again next time. Turn on only on a device that is yours alone.',
+  /* Signed-in browsers (Phase A). "Browser" rather than "session" or "device" on purpose: a
+     researcher's mental model is the machines they sit at, and "device" already means a field
+     phone in every other part of this panel. */
+  'panel.sessions.title': 'Signed-in browsers',
+  'panel.sessions.loading': 'Checking…',
+  'panel.sessions.none': 'No other browsers are signed in.',
+  'panel.sessions.current': 'this browser',
+  'panel.sessions.revoke': 'Sign out',
+  'panel.sessions.revokeOthers': 'Sign out all other browsers',
+  'panel.sessions.confirmOthers': 'Sign out every other signed-in browser? This one stays signed in.',
+  'panel.sessions.lastSeen': 'last used',
+  'panel.sessions.cap': 'Up to {n} browsers can be signed in at once. When a new one signs in, the least recently used is signed out.',
+  'panel.sessions.unknown': 'unknown',
+  'panel.sessions.failed': 'Could not reach the server — try again.',
   'panel.set.title': 'Settings — {name}',
   'panel.set.cancel': 'Cancel',
   'panel.set.push': 'Push to device',
@@ -2778,6 +2792,17 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.account.confirmSignout': 'Keluar? Anda perlu masuk dengan Google lagi.',
   'panel.account.stay': 'Tetap masuk di perangkat ini',
   'panel.account.stayNote': 'Mati secara bawaan: saat Anda menutup aplikasi, ia terkunci dan Anda masuk lagi berikutnya. Aktifkan hanya pada perangkat yang hanya milik Anda.',
+  'panel.sessions.title': 'Peramban yang masuk',
+  'panel.sessions.loading': 'Memeriksa…',
+  'panel.sessions.none': 'Tidak ada peramban lain yang masuk.',
+  'panel.sessions.current': 'peramban ini',
+  'panel.sessions.revoke': 'Keluar',
+  'panel.sessions.revokeOthers': 'Keluarkan semua peramban lain',
+  'panel.sessions.confirmOthers': 'Keluarkan semua peramban lain yang masuk? Peramban ini tetap masuk.',
+  'panel.sessions.lastSeen': 'terakhir dipakai',
+  'panel.sessions.cap': 'Maksimal {n} peramban bisa masuk bersamaan. Saat ada yang baru masuk, yang paling lama tidak dipakai akan dikeluarkan.',
+  'panel.sessions.unknown': 'tidak diketahui',
+  'panel.sessions.failed': 'Tidak dapat menghubungi server — coba lagi.',
   'panel.set.title': 'Pengaturan — {name}',
   'panel.set.cancel': 'Batal',
   'panel.set.push': 'Kirim ke perangkat',

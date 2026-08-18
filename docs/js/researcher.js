@@ -64,7 +64,19 @@ function saveAuth(a) { try { (staySignedIn() ? localStorage : sessionStorage).se
 export function isSignedUp() { return !!loadAuth(); }
 export function isUnlocked() { return !!Kr; }
 export function lock() { Kr = null; settingsCache = null; settingsRev = null; kiCache = new Map(); approvedSelf = false; ownerSelf = false; }
-export function signOut() { lock(); try { localStorage.removeItem(AUTH_KEY); sessionStorage.removeItem(AUTH_KEY); } catch { /* noop */ } }
+/* ⚠ Signing out now REVOKES THE SERVER SESSION as well as clearing local storage. That call used to
+ * not exist here at all — the endpoint was unreachable dead code — which meant a "signed out"
+ * browser's credential stayed valid until the next sign-in rotated it. It is only safe to wire up
+ * because the worker no longer rotates researcher.secret_hash on sign-out (round-2 finding R2-3): on
+ * a password account that column is the durable password verifier, and destroying it would have
+ * locked the researcher out of their own account for good.
+ * Fire-and-forget: the local half must succeed even offline, so a failed call costs the server row
+ * (which expires on its own) and never the sign-out the user asked for. */
+export function signOut() {
+  try { api('POST', '/v1/researcher/signout', { body: {}, retry: false }).catch(() => {}); } catch { /* noop */ }
+  lock();
+  try { localStorage.removeItem(AUTH_KEY); sessionStorage.removeItem(AUTH_KEY); } catch { /* noop */ }
+}
 
 // Full local wipe of the researcher CONSOLE's footprint on this device: the session token, the
 // "stay signed in" pref, the account marker, and the in-memory keys (Kr/Ki/inventory via lock()).
@@ -129,10 +141,26 @@ async function api(method, path, { headers = {}, body, auth = true, retry = true
 // URL to start "Sign in with Google" (a top-level navigation). `returnTo` is where the worker
 // callback sends the browser back — its ORIGIN must be allow-listed on the worker; the full path
 // (e.g. .../flextext-editor/) is preserved.
-export function googleSignInUrl(returnTo) {
+export function googleSignInUrl(returnTo, lang) {
   const base = (workerBaseFn() || '').replace(/\/+$/, '');
-  return base + '/v1/oauth/google/start?return=' + encodeURIComponent(returnTo || location.href.replace(/[?#].*$/, ''));
+  /* Two hints the worker acts on, both absent-safe so an older worker simply ignores them:
+   *   stay=0  — the user did NOT tick "stay signed in", i.e. told us this is not their machine, so
+   *             the SERVER session gets 24 hours instead of 90 days. Sent only when it is 0; absent
+   *             means the long window, which is what an older panel would have got anyway.
+   *   lang    — writes the new-sign-in notice email in the panel's language. */
+  const q = ['return=' + encodeURIComponent(returnTo || location.href.replace(/[?#].*$/, ''))];
+  if (!staySignedIn()) q.push('stay=0');
+  /* Language is PASSED IN rather than read here: this module is the auth/crypto layer and imports
+   * only crypto.js, and re-reading i18n's storage key from here would duplicate a constant that
+   * would then quietly drift the day it changes. The caller already knows the language. */
+  if (String(lang || '').startsWith('id')) q.push('lang=id');
+  return base + '/v1/oauth/google/start?' + q.join('&');
 }
+
+/* ---- sessions: the browsers signed in to this account (Phase A) ---- */
+export async function listSessions() { return api('GET', '/v1/researcher/sessions'); }
+export async function revokeSession(id) { return api('DELETE', '/v1/researcher/sessions/' + encodeURIComponent(id)); }
+export async function revokeOtherSessions() { return api('POST', '/v1/researcher/sessions/revoke-others', { body: {} }); }
 
 // Consume the #gauth=<researcher_id>.<session-token> fragment the worker redirected back with.
 // Persists API creds (does NOT set Kr — call bootstrap() next). Returns true if consumed.

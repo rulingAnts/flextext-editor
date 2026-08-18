@@ -2202,3 +2202,10 @@ main {
    are actually failing, and it is the one place a field user can see WHICH server was unreachable. */
 .upload-diag { margin: 2px 10px 8px; font-size: 12px; line-height: 1.35; opacity: .92; }
 .upload-diag .link-btn { font-size: 12px; padding: 0 4px; text-decoration: underline; }
+
+/* Signed-in browsers (Phase A). One row per session in the account modal; the current browser is
+   marked so the one thing you must not revoke is obvious at a glance. */
+.rp-session { padding: 6px 0; border-bottom: 1px solid var(--rp-sep, rgba(128,128,128,.25)); }
+.rp-session:last-of-type { border-bottom: 0; }
+.rp-session-current { opacity: .95; }
+.rp-session-current > div:first-child { font-weight: 600; }

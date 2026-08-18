@@ -103,8 +103,8 @@ console.log('\nit offers only actions that can actually be honoured');
      'cancel while queued; once taken it says so instead of offering a cancel that would be refused');
   ok(/const moveBtn = \(!d\.id \|\| mv \|\| d\.__assigning/.test(panel),
      'no Move — the device does not have the text yet');
-  ok(/const del = \(!d\.id \|\| d\.__assigning\) \? ''/.test(panel),
-     'and no Remove-from-device, for the same reason');
+  ok(/const del = \(!d\.id \|\| d\.__assigning \|\| wiped\) \? ''/.test(panel),
+     'and no Remove-from-device, for the same reason (nor on a device that has been wiped)');
   // cancel-cmd is kind-agnostic and re-checks with the Worker, so it already serves 'assign'.
   ok(/await busy\(el, \(\) => Researcher\.cancelCommand\(p\.instanceId \|\| id, p\.seq\)\)/.test(panel),
      'cancel reuses the existing seq-checked withdrawal — the Worker still refuses if too late');
@@ -118,8 +118,10 @@ console.log('\nthe move path deliberately does NOT double up');
    * assertion failed on correct code. A test whose scope depends on file ordering is a trap. */
   const moveStart = panel.indexOf('function moveTextModal');
   const moveBlock = panel.slice(moveStart, panel.indexOf('\nfunction ', moveStart + 10));
-  ok(/pendingMoves\.set\(docId, \{ from: fromId, to, title, at: Date\.now\(\), stage: 'assigned' \}\)/.test(moveBlock),
-     'a move still records its own marker');
+  /* The marker moved OFF this browser in v391 — an in-flight move belongs to the account, so any
+   * panel can see it and finish it. It is still recorded at exactly this point in the flow. */
+  ok(/saveMoves\(\(cur\) => \{ cur\[docId\] = \{ from: fromId, to, title, at: Date\.now\(\), stage: 'assigned' \}; return cur; \}\)/.test(moveBlock),
+     'a move still records its own marker, now in the account store');
   ok(!/kind: 'assign'/.test(moveBlock),
      'and does NOT also set a pendingCmds assign — one wait, one marker');
   ok(moveBlock.length > 200 && moveBlock.length < panel.length / 2,

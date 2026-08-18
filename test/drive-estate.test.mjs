@@ -238,8 +238,20 @@ console.log('\nthe unassigned gate is computed from DEVICE INVENTORY, and only i
      '...across EVERY instance, not just the current card');
 
   const modal = (panel.match(/function storageModal\(\) \{[\s\S]*?\n\}\n\n/) || [''])[0];
-  ok(/const isUnassigned = \(tx\) => !assigned\.has\(tx\.docId\);/.test(modal),
+  ok(/const isUnassigned = \(tx\) => !assigned\.has\(tx\.docId\)/.test(modal),
      'unassigned = no device reports the docId');
+  /* ⚠ …AND NOTHING IS ON ITS WAY TO A DEVICE. The tag drives a Remove that trashes the text's Drive
+   * folder, and the worker creates that folder at assignment/begin — before a byte is uploaded — so
+   * without these two exclusions a text mid-assignment or mid-move was offered for deletion while it
+   * was the only copy of live work. Reclaim-space reads the same predicate, and that one does not
+   * go through Drive's trash. */
+  ok(/!pendingMoves\.has\(tx\.docId\) && !inFlight\.has\(tx\.docId\)/.test(modal),
+     '...and not mid-move or mid-assignment');
+  ok(/function inFlightAssignIds\(\)/.test(panel)
+     && /if \(p\.kind === 'assign' && p\.docId\) ids\.add\(p\.docId\)/.test(panel),
+     'in-flight assignments are derived from the SHARED server-side pending map, not just this browser');
+  ok(/const ids = new Set\(aqQueued\);/.test(panel),
+     '...plus this browser\'s own upload queue, which only it can see');
   /* ⚠ Independent of WHERE the folder sits. A text still inside its old device folder but long
    * since deleted from that device is unassigned — which is the whole case this modal exists for,
    * and a gate keyed on deviceFolderId would get it exactly backwards. */

@@ -63,7 +63,7 @@ function saveAuth(a) { try { (staySignedIn() ? localStorage : sessionStorage).se
 
 export function isSignedUp() { return !!loadAuth(); }
 export function isUnlocked() { return !!Kr; }
-export function lock() { Kr = null; settingsCache = null; settingsRev = null; kiCache = new Map(); approvedSelf = false; ownerSelf = false; }
+export function lock() { Kr = null; settingsCache = null; settingsRev = null; kiCache = new Map(); approvedSelf = false; ownerSelf = false; movesPlain = null; movesCipher = null; prefsPlain = null; prefsCipher = null; }
 /* ⚠ Signing out now REVOKES THE SERVER SESSION as well as clearing local storage. That call used to
  * not exist here at all — the endpoint was unreachable dead code — which meant a "signed out"
  * browser's credential stayed valid until the next sign-in rotated it. It is only safe to wire up
@@ -639,6 +639,90 @@ export async function getInstanceSettings(instanceId) {
   if (!enc) return null;
   try { return await decryptJSON(Kr, enc); } catch { return null; }
 }
+/* ---------------- account-scoped panel state (shared across the researcher's browsers) ----------------
+ *
+ * ⚠ localStorage IS THE WRONG HOME FOR ANYTHING THAT DESCRIBES THE ACCOUNT rather than this browser.
+ * An in-flight text MOVE was kept per-browser, and a move is two stages: assign to the destination,
+ * then — once the destination REPORTS the text — fire the upload-first remove at the source. That
+ * second stage ran only in the browser that started it, so closing that browser mid-move left the
+ * text on BOTH devices indefinitely, while every other panel showed a live Move button on a text
+ * already being moved and could start a second, conflicting move (Seth's audit, 2026-08-18 — the
+ * same class as the pending-command bug fixed in v388).
+ *
+ * This rides `settings_blob`, which `listView()` ALREADY refreshes on every 12s dashboard poll, so
+ * sharing the state costs no extra request at all.
+ *
+ * Encrypted under Kr like `instanceSettings`: the container JSON is server-readable, and which text
+ * is moving between which devices is exactly the metadata this suite keeps as ciphertext.
+ * Read-modify-write is optimistic-locked, so two panels transitioning at the same moment cannot
+ * clobber one another — the loser refetches and re-applies. */
+let movesPlain = null, movesCipher = null;
+
+/* Account-level researcher PREFERENCES, same store and same reasoning. The assignment delivery TTL
+ * lived in localStorage while its own comment called it "per-account", so a researcher who set 180
+ * days in one browser went on minting 90-day assignments from the next — silently, because nothing
+ * disagrees on screen until an assignment expires early. Anything a second panel would report
+ * differently belongs here rather than in localStorage. */
+let prefsPlain = null, prefsCipher = null;
+
+export async function getPrefs() {
+  requireUnlocked();
+  if (!settingsCache) await fetchSettings();
+  const enc = (settingsCache && settingsCache.prefs) || null;
+  if (!enc) { prefsCipher = null; prefsPlain = {}; return prefsPlain; }
+  if (enc === prefsCipher && prefsPlain) return prefsPlain;
+  try { prefsPlain = (await decryptJSON(Kr, enc)) || {}; } catch { prefsPlain = {}; }
+  prefsCipher = enc;
+  return prefsPlain;
+}
+
+export async function setPref(key, value) {
+  requireUnlocked();
+  for (let attempt = 0; ; attempt++) {
+    await fetchSettings();
+    let cur = {};
+    const enc = settingsCache.prefs;
+    if (enc) { try { cur = (await decryptJSON(Kr, enc)) || {}; } catch { cur = {}; } }
+    cur[key] = value;
+    settingsCache.prefs = await encryptJSON(Kr, cur);
+    try { await putSettings(); }
+    catch (e) { if (e.status === 409 && attempt < 4) continue; throw e; }
+    prefsPlain = cur; prefsCipher = settingsCache.prefs;
+    return cur;
+  }
+}
+
+/* The in-flight moves: { [docId]: { from, to, title, stage } }. Cheap to call on every render —
+ * it decrypts only when the stored ciphertext has actually changed. */
+export async function getMoves() {
+  requireUnlocked();
+  if (!settingsCache) await fetchSettings();
+  const enc = (settingsCache && settingsCache.moves) || null;
+  if (!enc) { movesCipher = null; movesPlain = {}; return movesPlain; }
+  if (enc === movesCipher && movesPlain) return movesPlain;
+  try { movesPlain = (await decryptJSON(Kr, enc)) || {}; } catch { movesPlain = {}; }
+  movesCipher = enc;
+  return movesPlain;
+}
+
+/* `mutate(current)` edits the map in place (or returns a replacement). The current value is re-read
+ * INSIDE the lock, so a concurrent panel's stage transition is merged rather than lost. */
+export async function updateMoves(mutate) {
+  requireUnlocked();
+  for (let attempt = 0; ; attempt++) {
+    await fetchSettings();
+    let cur = {};
+    const enc = settingsCache.moves;
+    if (enc) { try { cur = (await decryptJSON(Kr, enc)) || {}; } catch { cur = {}; } }
+    const next = mutate(cur) || cur;
+    settingsCache.moves = await encryptJSON(Kr, next);
+    try { await putSettings(); }
+    catch (e) { if (e.status === 409 && attempt < 4) continue; throw e; }
+    movesPlain = next; movesCipher = settingsCache.moves;
+    return next;
+  }
+}
+
 export function triggerUpload(instanceId, docId)  { return pushCommand(instanceId, 'triggerUpload', { docId }); }
 // Upload-first remote delete: the device uploads a fresh timestamped Drive copy, and only deletes the
 // text once that upload is confirmed safe. Engine v94+ only — the panel gates the button on the

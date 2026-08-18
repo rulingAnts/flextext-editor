@@ -181,11 +181,11 @@ console.log('\none pending command per text — never remove AND upload at once 
 {
   ok(/const uploading = !!\(p && p\.kind === 'upload'\);/.test(panel),
      'the row knows whether an upload is outstanding');
-  ok(/: deleting \? ''/.test(panel),
+  ok(/: \(deleting \|\| wiped\) \? ''/.test(panel),
      'no Upload control while the text is being removed (incl. the DEVICE-reported pendingDelete)');
   ok(/: uploading \? ''/.test(panel),
      'no Remove control while an upload is queued — uploadDelete would upload the same text twice');
-  ok(/const moveBtn = \(!d\.id \|\| mv \|\| d\.__assigning \|\| deleting \|\| uploading\) \? ''/.test(panel),
+  ok(/const moveBtn = \(!d\.id \|\| mv \|\| d\.__assigning \|\| deleting \|\| uploading \|\| wiped\) \? ''/.test(panel),
      'and no Move either, for the same reason');
   // `deleting` must be computed BEFORE the buttons, or the guards above silently read undefined.
   const iDel = panel.indexOf("const deleting = !!d.pendingDelete");

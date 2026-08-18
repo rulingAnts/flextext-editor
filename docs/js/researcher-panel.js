@@ -102,15 +102,49 @@ const NATIVE_DOWNLOADS_URL = '';
  *                 the source (stage 'removing'). AUTOMATIC by Seth's decision.
  *   'removing'  → the doc is gone from the source's inventory → the move is complete.
  * Both signals are the same inventory facts the rest of the panel already trusts. */
-const MOVES_KEY = 'flextext-rp-moves:';
+/* ⚠ AN IN-FLIGHT MOVE BELONGS TO THE ACCOUNT, NOT TO THIS BROWSER (Seth's audit, 2026-08-18).
+ * It used to live in this browser's localStorage, and a move is two stages — assign to the
+ * destination, then, once the destination REPORTS the text, fire the upload-first remove at the
+ * source. Only the browser that started it ran that second stage, which cost two different things:
+ *   - close that browser mid-move and the text sat on BOTH devices indefinitely, with no panel even
+ *     showing that a move was in progress;
+ *   - every other panel showed a live Move button on a text already being moved (the chip and the
+ *     button suppression both read this map), so a second, conflicting move could be started.
+ * Now read from and written to the researcher's account settings, which listView() already refreshes
+ * on every dashboard poll — so any panel can see a move and any panel can finish it. Still a Map
+ * here, so every call site reads the same. */
 let pendingMoves = new Map();
-function loadMoves(accountId) {
-  try { pendingMoves = new Map(JSON.parse(localStorage.getItem(MOVES_KEY + (accountId || 'anon')) || '[]')); }
-  catch { pendingMoves = new Map(); }
+const MOVES_KEY = 'flextext-rp-moves:';   // legacy per-browser key — migration only, see loadMoves
+
+async function loadMoves(accountId) {
+  let obj;
+  try { obj = await Researcher.getMoves(); }
+  catch { return; }                                  // locked or offline — keep what we already have
+  /* One-time migration, so a move already in flight across this upgrade is not stranded in the
+   * browser that started it. Folded in only where the account has no entry for that text: the
+   * account copy is the newer authority the moment it exists. */
+  const legacyKey = MOVES_KEY + (accountId || 'anon');
+  let legacy = null;
+  try { legacy = JSON.parse(localStorage.getItem(legacyKey) || 'null'); } catch { legacy = null; }
+  if (Array.isArray(legacy) && legacy.length) {
+    try {
+      obj = await Researcher.updateMoves((cur) => {
+        for (const [docId, mv] of legacy) if (docId && mv && !cur[docId]) cur[docId] = mv;
+        return cur;
+      });
+      localStorage.removeItem(legacyKey);
+    } catch { /* leave it; the next render retries the migration */ }
+  } else if (legacy) {
+    try { localStorage.removeItem(legacyKey); } catch { /* noop */ }
+  }
+  pendingMoves = new Map(Object.entries(obj || {}));
 }
-function saveMoves(accountId) {
-  try { localStorage.setItem(MOVES_KEY + (accountId || 'anon'), JSON.stringify([...pendingMoves])); }
-  catch { /* degrade to in-memory */ }
+
+/* `mutate(current)` edits the account's map under an optimistic lock, so two panels transitioning at
+ * the same moment merge instead of clobbering. Failure is survivable: the next poll re-reads. */
+async function saveMoves(mutate) {
+  try { pendingMoves = new Map(Object.entries((await Researcher.updateMoves(mutate)) || {})); }
+  catch { /* transient — the next poll re-reads the account copy */ }
 }
 
 /* SERVER-DERIVED pending commands — the half that syncs across browsers.
@@ -937,7 +971,15 @@ async function pollDashboard() {
   if (document.hidden || document.querySelector('.modal')) return;                   // backgrounded / dialog open
   if (liveTick++ % 10 === 0) refreshLiveVersions();                                  // refresh the LIVE-version banner ~every 2 min (12s×10), in place
   let data;
-  try { data = await Researcher.listView(); } catch { return; }                      // transient; next tick retries
+  try { data = await Researcher.listView(); }
+  catch (e) {
+    /* ⚠ A 401 IS NOT TRANSIENT, and swallowing it left a panel whose session had been revoked
+     * repainting a fully interactive dashboard from `lastData` — every button live, every action
+     * failing with a bare status-code toast. Revoking a session from another browser is supposed to
+     * END that session, so the poll needs the same branch renderDashboard already has. */
+    if (e && e.status === 401) { stopDashPoll(); Researcher.purgeLocal(); renderSignIn(t('panel.signin.expired')); }
+    return;                                                                        // else transient; next tick retries
+  }
   if (root.hidden || document.querySelector('.modal')) return;                       // re-check after the await
   await refreshServerPending(data && data.instances);   // shared pending state, before anything renders
   if (root.hidden || document.querySelector('.modal')) return;                       // and again after ITS awaits
@@ -1014,9 +1056,19 @@ function staleWatchWrite(w) {
 /** @returns true only when this install has been behind across two reports >= STALE_CONFIRM_MS apart.
  *  Exported ONLY so the test suite can drive this function itself rather than a copy of its logic —
  *  a copied test passes while the real path is broken. Not part of the panel's public surface. */
-export function staleConfirmed(installId, reportedAt, behind, runningVer) {
+export function staleConfirmed(installId, reportedAt, behind, runningVer, unknown) {
   const w = staleWatchRead();
   if (!installId) return behind;                 // nothing to track by — fail toward showing it
+  /* ⚠ "WE CANNOT TELL" IS NOT "NOT BEHIND". liveVersions is null whenever the live-version check is
+   * offline or has not run yet, which made `behind` false and fell into the branch below that
+   * DELETES the record — throwing away a confirmation clock that may have been running for hours,
+   * every time the network hiccuped. Leave the record alone and report only what it has already
+   * proved. (Paired with the install_id fix above: this whole path had never actually run, because
+   * the caller passed a field that does not exist and every call returned at the line above.) */
+  if (unknown) {
+    const seen = w[installId];
+    return !!seen && (seen.last - seen.first) >= STALE_CONFIRM_MS;
+  }
   if (!behind) {                                 // resolved: drop the record so the badge disappears
     if (w[installId]) { delete w[installId]; staleWatchWrite(w); }
     return false;
@@ -1052,7 +1104,9 @@ function deviceInfo(ua, cachedApps, engineVersion, platform, installId, reported
   // version at all is NOT put through the timer: that is not a propagation delay, it is a client from
   // before the field existed, and it is already definitively behind.
   const known = !!(engineVersion || (cachedApps && cachedApps.editor));
-  const confirmed = known ? staleConfirmed(installId, reportedAt, stale, eng) : stale;
+  // `live` unknown ⇒ we cannot judge a device that DID report a version; say so rather than
+  // letting a failed live check read as "up to date".
+  const confirmed = known ? staleConfirmed(installId, reportedAt, stale, eng, !live) : stale;
   return { text: segs.join(' · '), stale: confirmed, behindNow: stale, running: eng, live };
 }
 /* ⚠ THERE IS NO panelCachedApps() ANY MORE, and it must not come back in that form.
@@ -1151,7 +1205,8 @@ async function renderDashboard(prefetched) {
   lastData = data;   // cache for an instant local re-render after an action (no refetch)
   const insts = data.instances || [];
   loadPending(Researcher.currentAccountId());
-  loadMoves(Researcher.currentAccountId());
+  await loadMoves(Researcher.currentAccountId());
+  await loadTtl(Researcher.currentAccountId());
   /* ⚠ EVERY render re-derives the shared pending state, not just the 12s poll. An action-driven
    * re-render (cancel, upload, delete) happens between ticks, and leaving serverPending untouched
    * meant the row it just changed redrew from the PREVIOUS tick's state — the cancelled delete kept
@@ -1162,21 +1217,39 @@ async function renderDashboard(prefetched) {
   // same reasoning as the History observer): destination reports the doc → fire the upload-first
   // remove at the source (AUTOMATIC, Seth's decision); source no longer reports it → move done.
   {
-    let dirty = false;
+    const transitions = [];                      // applied to the account copy in ONE locked write
     for (const [docId, mv] of pendingMoves) {
       if (mv.stage === 'assigned' && findInventoryItem(mv.to, docId)) {
+        /* ⚠ EVERY panel advances moves now, so check the source is not ALREADY being told to remove
+         * this text before telling it again. Two panels polling in the same second would otherwise
+         * queue two uploadDelete commands, and uploadDelete uploads a fresh copy before deleting —
+         * so the duplicate is a wasted upload on a field connection, not just a redundant command. */
+        if (pendingFor(docId, mv.from)) continue;
         try {
           const r1 = await Researcher.uploadDelete(mv.from, docId);
           pendingCmds.set(docId, { seq: r1.seq, kind: 'delete', instanceId: mv.from, at: Date.now() });
           savePending(Researcher.currentAccountId());
-          mv.stage = 'removing'; dirty = true;
+          transitions.push(['removing', docId]);
         } catch { /* transient — retried next poll */ }
-      } else if (mv.stage === 'removing' && !findInventoryItem(mv.from, docId)) {
-        pendingMoves.delete(docId); dirty = true;
+      /* ⚠ ABSENT-BECAUSE-UNREADABLE IS NOT ABSENT-BECAUSE-REMOVED. findInventoryItem returns null
+       * just as readily when the source instance was revoked, or its report could not be decrypted,
+       * as when the text really is gone — and this branch declares the move COMPLETE and toasts so.
+       * Require the source to have actually reported something first (the same guard history.js
+       * uses before it will emit a deletion event). */
+      } else if (mv.stage === 'removing' && instanceReported(mv.from) && !findInventoryItem(mv.from, docId)) {
+        transitions.push(['done', docId]);
         deps.toast(t('panel.move.done', { title: mv.title || '?' }), 6000);
       }
     }
-    if (dirty) saveMoves(Researcher.currentAccountId());
+    if (transitions.length) {
+      await saveMoves((cur) => {
+        for (const [what, docId] of transitions) {
+          if (what === 'done') delete cur[docId];
+          else if (cur[docId]) cur[docId].stage = 'removing';
+        }
+        return cur;
+      });
+    }
   }
   loadCollapsed(Researcher.currentAccountId());
   // Retire pending markers on OUTCOME, never on a clock. A request stays visible for as long as it
@@ -2043,6 +2116,18 @@ async function runMenuConversion(wrap, kind, itemEl) {
 }
 
 // The current inventory item for a doc, for the static fallback path.
+/* Did this instance report a readable inventory at all? Distinguishes "the text is not there" from
+ * "we cannot see what is there" — a revoked instance, or one whose report failed to decrypt. */
+function instanceReported(instanceId) {
+  for (const it of (lastData && lastData.instances) || []) {
+    if (it.instance_id !== instanceId) continue;
+    for (const ins of it.installs || []) {
+      if (ins.inventory && Array.isArray(ins.inventory.items)) return true;
+    }
+  }
+  return false;
+}
+
 function findInventoryItem(instanceId, docId) {
   for (const it of (lastData && lastData.instances) || []) {
     if (it.instance_id !== instanceId) continue;
@@ -2348,11 +2433,19 @@ async function renderInstanceCard(it, deviceCount) {
       const inv = ins.inventory && Array.isArray(ins.inventory.items) ? ins.inventory.items : null;
       if (inv) textCount += inv.length;
       if (ins.wipe_state) anyWipe = true;
+      /* ⚠ A CONFIRMED WIPE MEANS THE DEVICE IS GONE, and its last report is a historical record —
+       * not a live inventory. The install row is revoked server-side and the device has erased
+       * itself and will never poll again, but reported_blob is left untouched, so the card went on
+       * offering Upload / Remove-from-device / Move / Done on texts that no longer exist anywhere
+       * but Drive. Every one of those commands is queued to an instance nothing will ever read.
+       * The Files ▾ downloads deliberately stay live: those Drive copies are real, and salvaging
+       * them is the entire reason the row is still shown. */
+      const wiped = ins.wipe_state === 'confirmed';
       // uploadDelete gate: only engine v94+ understands the upload-first delete command — an older
       // (or non-reporting) install gets a disabled button with a "must update first" tooltip instead
       // of a command it would drop on the floor. Devices auto-update, so this resolves itself.
       const engNum = parseInt(String((ins.inventory && ins.inventory.engineVersion) || '').replace(/[^0-9]/g, ''), 10);
-      const canDelText = engNum >= 94;
+      const canDelText = engNum >= 94 && !wiped;
       // Only surface finished/not-finished status when THIS device actually has the Done
       // feature on — else every text on other devices would carry a meaningless "not done".
       const doneOn = !!(ins.inventory && ins.inventory.settings && ins.inventory.settings.doneEnabled);
@@ -2421,16 +2514,16 @@ async function renderInstanceCard(it, deviceCount) {
 
         const up = d.__assigning
           ? (queued ? cancelBtn('Assign') : takenTag)
-          : deleting ? ''                                   // being removed — not also uploadable
+          : (deleting || wiped) ? ''                        // being removed, or the device is gone
           : uploading
             ? (queued ? cancelBtn('Upload') : takenTag)
             : ` <button class="link-btn rp-up" data-iact="upload" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-fileid="${esc(d.uploadedFileId || '')}">${esc(t(label))}</button>`;
         // Upload-first remote delete (v94+): the device uploads a fresh timestamped copy, THEN deletes.
         const mv = pendingMoves.get(d.id);
         const moveChip = mv ? ` <span class="rp-tag rp-tag-moving">${esc(t(mv.stage === 'assigned' ? 'panel.move.waitingDest' : 'panel.move.removingSrc'))}</span>` : '';
-        const moveBtn = (!d.id || mv || d.__assigning || deleting || uploading) ? ''
+        const moveBtn = (!d.id || mv || d.__assigning || deleting || uploading || wiped) ? ''
           : ` <button class="link-btn" data-iact="move-text" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.move.btn'))}</button>`;
-        const del = (!d.id || d.__assigning) ? ''
+        const del = (!d.id || d.__assigning || wiped) ? ''
           : uploading ? ''                                  // cancel the upload first, or wait it out
           : (p && p.kind === 'delete')
             ? (queued ? cancelBtn('Delete') : takenTag)
@@ -2440,7 +2533,7 @@ async function renderInstanceCard(it, deviceCount) {
         // The done tag is a TOGGLE when the engine understands the setDone COMMAND — the dispatch
         // case shipped in v138. Gating on setDocDone's age (v100) was wrong: an older device ACKS
         // the unknown command and silently does nothing, which reads as "the toggle is broken".
-        const canSetDone = engNum >= 138;
+        const canSetDone = engNum >= 138 && !wiped;
         const doneTag = d.done
           ? (canSetDone ? `<button class="rp-tag rp-tag-done rp-tag-btn" data-iact="toggle-done" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-done="1" title="${esc(t('panel.inst.toggleDoneTip'))}">${esc(t('panel.inst.doneTag'))}</button>`
                         : `<span class="rp-tag rp-tag-done">${esc(t('panel.inst.doneTag'))}</span>`)
@@ -2478,7 +2571,7 @@ async function renderInstanceCard(it, deviceCount) {
         ${(() => {
           const di = deviceInfo(ins.inventory && ins.inventory.ua, ins.inventory && ins.inventory.cachedApps,
                                 ins.inventory && ins.inventory.engineVersion, ins.inventory && ins.inventory.platform,
-                                ins.id, ins.last_seen_at);
+                                ins.install_id, ins.last_seen_at);
           const txt = di.text || t('panel.inst.verUnknown');
           // The badge is RESEARCHER/DEVELOPER-facing only — it never renders in the coworker's app.
           // A confirmed mismatch means the release process itself misfired, so give a way to report
@@ -2940,17 +3033,40 @@ function wsMismatchConfirm(mm) {
 const AQ_PREFIX = 'assign-upload:';
 const aqActive = new Map();   // docId -> live view { state: 'uploading'|'sending', sent, total }
 
-// Per-account, researcher-configurable delivery TTL (spec: default 90, server clamps 7–400 —
-// the stored value is a preference, the worker's clampTtlDays is the authority).
-const TTL_KEY = 'flextext-rp-ttl:';
-function assignTtlDays() {
-  let v = NaN;
-  try { v = parseInt(localStorage.getItem(TTL_KEY + (Researcher.currentAccountId() || 'anon')), 10); } catch { /* noop */ }
-  return Number.isFinite(v) && v > 0 ? v : 90;
+/* Researcher-configurable delivery TTL (default 90; the worker's clampTtlDays is the authority).
+ * ⚠ IT IS PER-ACCOUNT, AND IT USED TO BE STORED PER-BROWSER — the old comment here already said
+ * "per-account" while writing localStorage, which is exactly the kind of drift that never announces
+ * itself: set 180 days in one browser and the next one went on minting 90-day assignments, with
+ * nothing wrong on screen until an assignment expired early (Seth's audit, 2026-08-18). Now an
+ * account preference, refreshed on every render from the settings blob listView() already returns. */
+const TTL_KEY = 'flextext-rp-ttl:';   // legacy per-browser key — migration only, see loadTtl
+let ttlDays = null;
+function assignTtlDays() { return Number.isFinite(ttlDays) && ttlDays > 0 ? ttlDays : 90; }
+
+async function loadTtl(accountId) {
+  let prefs;
+  try { prefs = await Researcher.getPrefs(); } catch { return; }   // locked or offline — keep what we have
+  const legacyKey = TTL_KEY + (accountId || 'anon');
+  let legacy = NaN;
+  try { legacy = parseInt(localStorage.getItem(legacyKey), 10); } catch { /* noop */ }
+  const haveAccount = Number.isFinite(prefs && prefs.assignTtlDays) && prefs.assignTtlDays > 0;
+  /* Migrate a browser-local value up ONCE, so nobody's setting is silently reset to 90 by this
+   * change. The account copy wins the moment it exists; the legacy key is dropped only after the
+   * account genuinely holds a value, so a failed write retries next render instead of losing it. */
+  if (!haveAccount && Number.isFinite(legacy) && legacy > 0) {
+    try { prefs = await Researcher.setPref('assignTtlDays', legacy); } catch { return; }
+  }
+  try { if (localStorage.getItem(legacyKey) !== null) localStorage.removeItem(legacyKey); } catch { /* noop */ }
+  ttlDays = Number.isFinite(prefs && prefs.assignTtlDays) ? prefs.assignTtlDays : null;
 }
-function setAssignTtlDays(v) {
-  try { localStorage.setItem(TTL_KEY + (Researcher.currentAccountId() || 'anon'), String(v)); } catch { /* noop */ }
-}
+
+async function setAssignTtlDays(v) { await Researcher.setPref('assignTtlDays', v); ttlDays = v; }
+
+/* ⚠ SYNCHRONOUSLY READABLE MIRROR of the assign-upload queue's docIds. The queue itself lives in
+ * IndexedDB and is read asynchronously, but the "is this text unassigned?" test that gates a
+ * DESTRUCTIVE Drive delete runs inside a render. Refreshed on every listAssignQueue(), which the
+ * dashboard already calls on each paint. */
+let aqQueued = new Set();
 
 async function listAssignQueue() {
   const keys = await db.listMediaKeys().catch(() => []);
@@ -2961,7 +3077,28 @@ async function listAssignQueue() {
     if (rec) out.push({ docId: String(k).slice(AQ_PREFIX.length), rec });
   }
   out.sort((a, b) => (a.rec.at || 0) - (b.rec.at || 0));
+  aqQueued = new Set(out.map((o) => o.docId));
   return out;
+}
+
+/* Every docId that is mid-assignment right now, from BOTH kinds of evidence:
+ *   - a queued assign command (server truth, so every panel agrees), and
+ *   - a local upload still streaming bytes into the text's Drive folder (this browser only — but
+ *     this browser is the one that would be deleting the folder it is writing into).
+ *
+ * ⚠ WHY THIS EXISTS. "Unassigned" was defined as "no device inventory reports this docId", and the
+ * worker creates a text's Drive folder at assignment/begin — before a single byte is uploaded. So
+ * from the moment an assignment starts until the destination device's first inventory report (the
+ * whole upload, plus days if that device is offline) the text was listed under "in your Drive but on
+ * no device", offering Remove. That is the most destructive button in the panel, aimed at the only
+ * copy of live work, and a second panel had no assign-queue card and no way to know why the folder
+ * was there. It also showed on ONE screen: an "assigning…" ghost row on the device card and an
+ * Unassigned row offering to delete the same text. */
+function inFlightAssignIds() {
+  const ids = new Set(aqQueued);
+  for (const [, p] of serverPending) if (p.kind === 'assign' && p.docId) ids.add(p.docId);
+  for (const [docId, p] of pendingCmds) if (p.kind === 'assign') ids.add(docId);
+  return ids;
 }
 
 async function runAssignUpload(docId) {
@@ -3696,8 +3833,7 @@ async function moveTextModal(fromId, docId, title) {
       const toName = (insts.find((x) => x.instance_id === to) || {}).nickname || '?';
       recordEvents(Researcher.currentAccountId(), [assignedEvent({ instanceId: to, device: toName, docId, title,
         audioUrl: assignFields.audioUrl || '', flextextUrl: assignFields.flextextUrl || '' })]);
-      pendingMoves.set(docId, { from: fromId, to, title, at: Date.now(), stage: 'assigned' });
-      saveMoves(Researcher.currentAccountId());
+      await saveMoves((cur) => { cur[docId] = { from: fromId, to, title, at: Date.now(), stage: 'assigned' }; return cur; });
       m.close();
       deps.toast(t('panel.move.sent', { device: toName }), 6000);
       renderDashboard();
@@ -3734,8 +3870,11 @@ function unassignedTexts(estate) {
   if (!estate || !Array.isArray(estate.texts)) return [];
   const assigned = assignedDocIds();
   // A text mid-MOVE is not unassigned — it is between devices, and listing it here would offer to
-  // delete Drive's only copy while the destination is still fetching it.
-  return estate.texts.filter((tx) => tx.docId && !assigned.has(tx.docId) && !pendingMoves.has(tx.docId));
+  // delete Drive's only copy while the destination is still fetching it. A text mid-ASSIGNMENT is
+  // the same case and was missing: see inFlightAssignIds().
+  const inFlight = inFlightAssignIds();
+  return estate.texts.filter((tx) => tx.docId && !assigned.has(tx.docId)
+    && !pendingMoves.has(tx.docId) && !inFlight.has(tx.docId));
 }
 
 function renderUnassignedCard(estate) {
@@ -3911,8 +4050,14 @@ function storageModal() {
     }
     /* A text is UNASSIGNED when no device reports it — which is independent of where its folder
      * sits. A text still in its device's folder but long since deleted from the device is
-     * unassigned, and that is exactly the case this modal exists to surface. */
-    const isUnassigned = (tx) => !assigned.has(tx.docId);
+     * unassigned, and that is exactly the case this modal exists to surface.
+     * ⚠ Except while it is on its WAY to a device: same exclusion as the Unassigned card, and for
+     * the same reason — the tag here drives a Remove that trashes the folder an upload is still
+     * streaming into. Reclaim-space reads this too, and that one is not recoverable from Drive's
+     * trash. */
+    const inFlight = inFlightAssignIds();
+    const isUnassigned = (tx) => !assigned.has(tx.docId)
+      && !pendingMoves.has(tx.docId) && !inFlight.has(tx.docId);
 
     const row = (tx) => {
       const un = isUnassigned(tx);
@@ -4098,9 +4243,15 @@ function utilitiesModal() {
   m.el.querySelector('[data-m="erase"]').onclick = () => { m.close(); eraseDataModal(); };
   // Delivery-TTL preference: stored per account; the WORKER's clamp (7–400) is authoritative, this
   // input's min/max is only a courtesy mirror of it.
-  m.el.querySelector('#rp-ttl').addEventListener('change', (e) => {
+  m.el.querySelector('#rp-ttl').addEventListener('change', async (e) => {
     const v = parseInt(e.target.value, 10);
-    if (Number.isFinite(v) && v > 0) { setAssignTtlDays(v); deps.toast(t('panel.util.ttlSaved'), 3000); }
+    if (!(Number.isFinite(v) && v > 0)) return;
+    /* ⚠ The write is a server round trip now, so the confirmation has to wait for it. Toasting
+     * "saved" before the PUT lands would claim an account-wide change that may not have happened,
+     * and the researcher's other browser would still be on the old value with nothing to show. On
+     * failure the field is put back, so the screen never disagrees with the account. */
+    try { await setAssignTtlDays(v); deps.toast(t('panel.util.ttlSaved'), 3000); }
+    catch (err) { e.target.value = String(assignTtlDays()); errToast(err); }
   });
 }
 

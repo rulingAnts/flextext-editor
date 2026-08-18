@@ -12,7 +12,7 @@
  * or another install's row). Metadata + pointers only — never audio/flextext bytes.
  */
 
-import { secAlert, secLog } from './seclog.js';
+import { secAlert, secLog, sendEmail } from './seclog.js';
 
 /* ---------------- crypto + helpers ---------------- */
 
@@ -226,24 +226,19 @@ async function gateResetToken(env, tokenHash, row, code) {
   return { ok: false, error: code ? 'bad_totp' : 'totp_required' };
 }
 
-// Resend transactional email (password reset). Best-effort; never blocks the response on failure.
-async function sendResetEmail(env, toEmail, link) {
-  if (!env.RESEND_API_KEY) return false;
-  try {
-    const r = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer ' + env.RESEND_API_KEY, 'content-type': 'application/json' },
-      body: JSON.stringify({
-        from: env.RESET_FROM || 'FlexText <noreply@flextext.app>',
-        to: [toEmail],
-        subject: 'Reset your FlexText researcher password',
-        html: `<p>We received a request to reset your FlexText researcher password.</p>
+/* Password-reset email. Routed through the ONE Resend helper in seclog.js so a failed send is
+ * LOGGED — it never was here: this function used to own a second copy of the fetch, returned a
+ * boolean, and its caller discarded it, so a rejected reset produced no log line at all while the
+ * endpoint still answered "if that account exists, we sent a link". */
+async function sendResetEmail(env, request, toEmail, link) {
+  return sendEmail(env, request, {
+    to: toEmail,
+    subject: 'Reset your FlexText researcher password',
+    html: `<p>We received a request to reset your FlexText researcher password.</p>
 <p><a href="${link}">Reset your password</a> — this link expires in 1 hour and can be used once.</p>
 <p>If you did not request this, you can safely ignore this email.</p>`,
-      }),
-    });
-    return r.ok;
-  } catch { return false; }
+    event: 'reset_email',
+  });
 }
 
 /* Origin allow-list matching, shared by the /v1 CORS headers and index.js's /drive gate.
@@ -1226,7 +1221,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           .bind(await sha256hex(token), row.researcher_id, now + 3600 * 1000, now).run();
         const base = String(body.appBase || 'https://rulingants.github.io/flextext-editor/').replace(/[?#].*$/, '');
         const to = await decAtRest(env, row.email_enc) || email;
-        await sendResetEmail(env, to, `${base}?reset=${encodeURIComponent(token)}`);
+        await sendResetEmail(env, request, to, `${base}?reset=${encodeURIComponent(token)}`);
         // dev-only test hook; gated to localhost origins so even a leaked flag can't echo a token to a real client
         if (env.DEV_ECHO_RESET && /^https?:\/\/localhost(:\d+)?$/.test(origin || '')) devToken = token;
       }

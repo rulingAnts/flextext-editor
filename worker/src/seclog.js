@@ -69,40 +69,60 @@ export async function logAuthFailures(env, request, resp) {
   return resp;
 }
 
-/** Email the owner. Inert until ALERT_EMAIL is set. Sent via waitUntil — never blocks a response. */
+/** Send one transactional email through Resend AND LOG THE OUTCOME. Returns true only on a
+ * confirmed 2xx; never throws.
+ *
+ * ⚠ THIS IS THE ONE PLACE THAT TALKS TO RESEND, on purpose. There used to be two copies of this
+ * fetch — this one, and `sendResetEmail` in v1.js — and only this one ever got the fix described
+ * below. The reset copy still discarded its result at the call site, so a rejected password-reset
+ * email produced NO log line, NO alert, and the endpoint still answered its deliberate "if that
+ * account exists, we sent a link". Nobody would ever have learned. A third copy for the sign-in
+ * notice would have inherited the same hole, so there is now exactly one.
+ *
+ * ⚠ LOG THE OUTCOME, NOT THE ATTEMPT. This used to log 'alert_sent' BEFORE the fetch and swallow
+ * every failure, so a rejected send (unverified `from` domain, bad key, Resend down) left a log line
+ * claiming the owner had been told when they had not. A monitoring system that lies about its own
+ * delivery is worse than none — you would stop watching the inbox AND believe silence meant safety.
+ * So success and failure are distinct events, and the failure carries Resend's own status + body.
+ *
+ * `event` names the caller ('alert', 'reset_email', 'signin_notice'), so the log says WHICH kind of
+ * mail failed rather than merely that mail failed. */
+export async function sendEmail(env, request, { to, subject, html, event }) {
+  if (!env.RESEND_API_KEY || !to) return false;
+  let r;
+  try {
+    r = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + env.RESEND_API_KEY, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        from: env.RESET_FROM || 'FlexText <noreply@flextext.app>',
+        to: [to], subject, html,
+      }),
+    });
+  } catch (e) {
+    await secLog(env, request, event + '_failed', { subject, error: String((e && e.message) || e).slice(0, 120) });
+    return false;
+  }
+  if (r.ok) { await secLog(env, request, event + '_sent', { subject, status: r.status }); return true; }
+  let detail = '';
+  try { detail = (await r.text()).slice(0, 200); } catch { /* body unreadable */ }
+  await secLog(env, request, event + '_failed', { subject, status: r.status, detail });
+  return false;
+}
+
+/** Email the OPERATOR about a should-never-happen event. Inert until ALERT_EMAIL is set. Sent via
+ * waitUntil — an alert that cannot send costs the alert, never the request. */
 export function secAlert(env, ctx, request, subject, lines) {
   try {
     if (!env.ALERT_EMAIL || !env.RESEND_API_KEY) return;
-    const send = (async () => {
-      // ⚠ LOG THE OUTCOME, NOT THE ATTEMPT. This used to log 'alert_sent' BEFORE the fetch and
-      // swallow every failure, so a rejected send (unverified `from` domain, bad key, Resend down)
-      // left a log line claiming the owner had been told when they had not. A monitoring system
-      // that lies about its own delivery is worse than none — you would stop watching the inbox
-      // AND believe silence meant safety. So: success and failure are now distinct events, and
-      // 'alert_failed' carries Resend's own status + body so the cause is in the log.
-      let r;
-      try {
-        r = await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: { Authorization: 'Bearer ' + env.RESEND_API_KEY, 'content-type': 'application/json' },
-          body: JSON.stringify({
-            from: env.RESET_FROM || 'FlexText <noreply@flextext.app>',
-            to: [env.ALERT_EMAIL],
-            subject: '[FlexText security] ' + subject,
-            html: '<p>' + (lines || []).map(esc).join('</p><p>')
-                + '</p><p style="color:#667">Automated alert from the FlexText worker. '
-                + 'If this was you, no action is needed.</p>',
-          }),
-        });
-      } catch (e) {
-        await secLog(env, request, 'alert_failed', { subject, error: String((e && e.message) || e).slice(0, 120) });
-        return;
-      }
-      if (r.ok) { await secLog(env, request, 'alert_sent', { subject, status: r.status }); return; }
-      let detail = '';
-      try { detail = (await r.text()).slice(0, 200); } catch { /* body unreadable */ }
-      await secLog(env, request, 'alert_failed', { subject, status: r.status, detail });
-    })().catch(() => { /* an alert that cannot send costs the alert, not the request */ });
+    const send = sendEmail(env, request, {
+      to: env.ALERT_EMAIL,
+      subject: '[FlexText security] ' + subject,
+      html: '<p>' + (lines || []).map(esc).join('</p><p>')
+          + '</p><p style="color:#667">Automated alert from the FlexText worker. '
+          + 'If this was you, no action is needed.</p>',
+      event: 'alert',
+    }).catch(() => false);
     if (ctx && ctx.waitUntil) ctx.waitUntil(send);
   } catch { /* noop */ }
 }

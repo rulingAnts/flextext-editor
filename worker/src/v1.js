@@ -1274,7 +1274,25 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     }
     const back = String(st.r || 'https://rulingants.github.io/flextext-editor/').replace(/[?#].*$/, '');
     const isNewAccount = !!row.__created;
-    const session = await createSession(env, request, row.researcher_id, stay);
+    /* ⚠ THE ONE PATH THE LOCAL RIG CANNOT TEST is this one: a real Google round trip. Sessions are
+     * exercised from seeded rows, but the callback that CREATES them only ever runs in production —
+     * and it is the path every researcher sign-in goes through, so a throw here means NOBODY CAN
+     * SIGN IN, arriving on the first real use of new code.
+     * So it falls back to the PREVIOUS mechanism rather than failing: mint a token and store its
+     * hash in researcher.secret_hash exactly as the old worker did, letting the legacy lane
+     * authenticate it. Sessions are then not working, which the loud log event says — but everyone
+     * can still sign in and work. Degrade, never deny. */
+    let session;
+    try {
+      session = await createSession(env, request, row.researcher_id, stay);
+    } catch (e) {
+      session = randTok(24);
+      await env.DB.prepare('UPDATE researcher SET secret_hash=? WHERE researcher_id=?')
+        .bind(await sha256hex(session), row.researcher_id).run();
+      await secLog(env, request, 'session_create_failed', {
+        error: String((e && e.message) || e).slice(0, 160), fallback: 'legacy_secret_hash',
+      });
+    }
 
     /* Tell the owner their account was just signed into. NOT on the account's first ever sign-in:
      * the person is standing right there having just created it, and an alert about your own signup

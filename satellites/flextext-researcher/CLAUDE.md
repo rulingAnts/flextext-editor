@@ -67,6 +67,25 @@ would change its PWA `id` and **orphan every installed copy in the field**.
 `VERSION` in `sw.js` here** — otherwise installed copies keep serving a **stale
 cached engine** offline.
 
+### ⚠ The panel is ONLINE-ONLY — but that does NOT let you trim the SHELL
+
+Established 2026-08-17. Realistically nothing in the researcher console works without the network:
+`renderDashboard` does `data = await Researcher.listView(); catch { return; }` — a failed fetch
+renders NOTHING and waits for the next poll, there is no cached view, and assignments, commands,
+settings, invites, Drive and crowd management are all worker round-trips. The ONE exception is the
+Utilities modal, whose own intro string says so: *"Offline tools you can use any time — they run in
+your browser; nothing is uploaded"* — the audio format converter, the FLEx writing-systems tool and
+the interlinear-file exporter, plus the local-only assignment TTL and the erase button.
+
+So this is an **online console with an offline toolbox attached**, not an offline-capable app.
+
+⚠ **The trap that follows, and the reason this note exists:** it is tempting to conclude that the
+SHELL can therefore be trimmed to the handful of modules the toolbox needs. It cannot. `app.js` is
+loaded as a `type="module"`, so the browser resolves EVERY top-level import at load time whether the
+panel calls it or not — a single missing one stops the whole graph and the app is dead offline (the
+v108 outage). The SHELL is sized by app.js's IMPORT GRAPH, not by what the panel uses. Shrinking it
+requires shrinking app.js's imports, which is an engine change, not a satellite one.
+
 ### ⚠ Also keep the SHELL precache list in sync with `app.js`'s import graph
 Bumping `VERSION` is **not enough on its own**. The editor's `js/app.js` is loaded
 here as a `type="module"`, so the browser resolves **every static `import` at the

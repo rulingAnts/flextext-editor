@@ -27,6 +27,7 @@
       "max_bytes_total",
       "max_per_day",
       "oauth_folder_id",
+      "project_id",
       "researcher_id",
       "submit_count"
     ],
@@ -66,6 +67,7 @@
       "instance_id",
       "nickname",
       "oauth_folder_id",
+      "project_id",
       "researcher_id",
       "revoked",
       "type"
@@ -78,6 +80,28 @@
       "instance_id",
       "invite_id",
       "secret_hash"
+    ],
+    "member_key": [
+      "created_at",
+      "instance_id",
+      "key_version",
+      "project_id",
+      "researcher_id",
+      "wrapped_by",
+      "wrapped_ki"
+    ],
+    "project": [
+      "created_at",
+      "name",
+      "owner_id",
+      "project_id"
+    ],
+    "project_member": [
+      "added_at",
+      "added_by",
+      "caps",
+      "project_id",
+      "researcher_id"
     ],
     "researcher": [
       "approved",
@@ -95,6 +119,7 @@
       "escrow_kr",
       "google_sub",
       "kr_server_enc",
+      "pubkey",
       "researcher_id",
       "salt",
       "secret_hash",
@@ -102,7 +127,8 @@
       "settings_rev",
       "totp_enabled",
       "totp_secret_enc",
-      "wrapped_kr"
+      "wrapped_kr",
+      "wrapped_privkey"
     ],
     "reset": [
       "attempts",
@@ -131,7 +157,10 @@
     "idx_crowd_researcher",
     "idx_crowd_sub",
     "idx_install_instance",
+    "idx_instance_project",
     "idx_instance_researcher",
+    "idx_member_key_project",
+    "idx_project_owner",
     "idx_researcher_email",
     "idx_researcher_sub",
     "idx_session_researcher"

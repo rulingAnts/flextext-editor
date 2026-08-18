@@ -31,7 +31,7 @@ const WORKER = join(ROOT, 'worker');
 export const FIXTURE = {
   researcherId: '00000000-0000-4000-8000-000000000001',
   researcherSecret: 'local-rig-fixture-secret-not-a-real-credential',
-  driveEmail: 'fixture@example.invalid',
+  driveEmail: 'fixture@example.invalid',   // also set as ALLOWED_RESEARCHERS in the rig, so this fixture is an operator
   googleSub: 'local-rig-fixture-sub',
   /* A pre-minted SESSION, so the session lane is testable without Google. Sessions are normally
    * created only by the OAuth callback; seeding one is how a hermetic rig reaches the code that
@@ -53,6 +53,16 @@ if (process.argv.includes('--print')) {
 const now = Date.now();
 const sql = `
 -- Synthetic fixtures for the local rig. Applied AFTER schema-current.sql.
+/* ⚠ EVERY table the suites touch, or the rig is not repeatable — which is worse than useless,
+ * because it passes the first time and fails the second for reasons that look like product bugs.
+ * That is exactly what happened when project and member_key were missing here: the projects
+ * suite passed on a clean database and then reported 0 projects minted on the next run, because
+ * the previous run's project was still there, owned by the same fixture id.
+ * (No BACKTICKS in this comment on purpose: it lives inside a template literal, and a stray
+ * backtick terminates the string — a trap this repo has hit before.) */
+DELETE FROM member_key;
+DELETE FROM project_member;
+DELETE FROM project;
 DELETE FROM install;
 DELETE FROM invite;
 DELETE FROM instance;

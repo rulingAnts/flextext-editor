@@ -28,7 +28,11 @@ echo "== seeding the local D1 (synthetic fixtures — never production rows) =="
 node test/worker-seed.mjs
 
 echo "== starting the worker on :$PORT (log: $LOG) =="
-( cd worker && npx wrangler dev --env staging --local --port "$PORT" --ip 127.0.0.1 >"$LOG" 2>&1 ) &
+# ALLOWED_RESEARCHERS makes the fixture an OPERATOR, which the projects backfill endpoint requires.
+# --var overrides the wrangler.toml value for this run only; nothing is written to any config.
+( cd worker && npx wrangler dev --env staging --local --port "$PORT" --ip 127.0.0.1 \
+    --var ALLOWED_RESEARCHERS:fixture@example.invalid --var SERVER_HMAC_KEY:local-rig-not-a-secret \
+    >"$LOG" 2>&1 ) &
 WPID=$!
 
 for _ in $(seq 1 60); do
@@ -45,6 +49,8 @@ NO_PROXY='*' node test/worker-device-compat.probe.mjs "http://127.0.0.1:$PORT"
 STATUS=$?
 echo
 NO_PROXY='*' node test/worker-sessions.test.mjs "http://127.0.0.1:$PORT" || STATUS=1
+echo
+NO_PROXY='*' node test/worker-projects.test.mjs "http://127.0.0.1:$PORT" || STATUS=1
 
 if [ "$KEEP" = "1" ]; then
   echo

@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS crowd_recorder (
   max_per_day     INTEGER NOT NULL DEFAULT 200,
   max_bytes_total INTEGER NOT NULL DEFAULT 1073741824,
   created_at      INTEGER NOT NULL
-);
+, project_id TEXT);
 
 CREATE TABLE IF NOT EXISTS crowd_submission (
   sub_id     TEXT PRIMARY KEY,
@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS "instance" (
   desired_rev   INTEGER NOT NULL DEFAULT 0,
   revoked       INTEGER NOT NULL DEFAULT 0,
   created_at    INTEGER NOT NULL
-, oauth_folder_id TEXT, estate TEXT NOT NULL DEFAULT 'pages');
+, oauth_folder_id TEXT, estate TEXT NOT NULL DEFAULT 'pages', project_id TEXT);
 
 CREATE TABLE IF NOT EXISTS invite (
   invite_id       TEXT PRIMARY KEY,           -- GUID in the link
@@ -102,6 +102,33 @@ CREATE TABLE IF NOT EXISTS invite (
   claimed_at      INTEGER,                    -- atomic single-use marker
   claimed_install TEXT,                       -- which client-minted install_id won the claim
   created_at      INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS member_key (
+  project_id    TEXT NOT NULL,
+  instance_id   TEXT NOT NULL,
+  researcher_id TEXT NOT NULL,               -- grantee
+  key_version   INTEGER NOT NULL DEFAULT 1,  -- rotation-ready from day one, so rotation is an addition, not a migration
+  wrapped_ki    TEXT NOT NULL,               -- RSA-OAEP to the grantee's researcher pubkey; opaque to the worker
+  wrapped_by    TEXT NOT NULL,
+  created_at    INTEGER NOT NULL,
+  PRIMARY KEY (instance_id, researcher_id, key_version)
+);
+
+CREATE TABLE IF NOT EXISTS project (
+  project_id   TEXT PRIMARY KEY,             -- GUID
+  owner_id     TEXT NOT NULL,                -- researcher_id of the ONE owner
+  name         TEXT NOT NULL,                -- plaintext, like instance.nickname
+  created_at   INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS project_member (
+  project_id    TEXT NOT NULL,
+  researcher_id TEXT NOT NULL,               -- the member (the OWNER has no row here; ownership is project.owner_id)
+  caps          TEXT NOT NULL DEFAULT '{}',  -- {"see":"all"|[instanceId…],"manageDevices":…,"assignTexts":…,
+  added_at      INTEGER NOT NULL,
+  added_by      TEXT NOT NULL,
+  PRIMARY KEY (project_id, researcher_id)
 );
 
 CREATE TABLE IF NOT EXISTS researcher (
@@ -118,7 +145,7 @@ CREATE TABLE IF NOT EXISTS researcher (
   totp_secret_enc TEXT,                       -- optional TOTP secret, encrypted under SERVER_HMAC_KEY
   totp_enabled  INTEGER NOT NULL DEFAULT 0,
   backup_codes  TEXT                          -- JSON array of sha256(backup code), single-use
-, google_sub TEXT, kr_server_enc TEXT, drive_refresh_enc TEXT, drive_folder_id TEXT, drive_email TEXT, approved INTEGER NOT NULL DEFAULT 0, display_name TEXT, avatar_url TEXT, drive_mode TEXT NOT NULL DEFAULT 'relay', drive_error TEXT);
+, google_sub TEXT, kr_server_enc TEXT, drive_refresh_enc TEXT, drive_folder_id TEXT, drive_email TEXT, approved INTEGER NOT NULL DEFAULT 0, display_name TEXT, avatar_url TEXT, drive_mode TEXT NOT NULL DEFAULT 'relay', drive_error TEXT, pubkey TEXT, wrapped_privkey TEXT);
 
 CREATE TABLE IF NOT EXISTS reset (
   token_hash    TEXT PRIMARY KEY,             -- sha256 of the one-time reset token
@@ -151,7 +178,13 @@ CREATE INDEX IF NOT EXISTS idx_crowd_sub ON crowd_submission(crowd_id, created_a
 
 CREATE INDEX IF NOT EXISTS idx_install_instance ON install(instance_id);
 
+CREATE INDEX IF NOT EXISTS idx_instance_project ON instance(project_id);
+
 CREATE INDEX IF NOT EXISTS idx_instance_researcher ON instance(researcher_id);
+
+CREATE INDEX IF NOT EXISTS idx_member_key_project ON member_key(project_id);
+
+CREATE INDEX IF NOT EXISTS idx_project_owner ON project(owner_id);
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_researcher_email ON researcher(email_sha256);
 

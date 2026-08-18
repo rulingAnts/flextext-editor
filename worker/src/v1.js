@@ -978,6 +978,51 @@ function esc(s) {
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }
 
+/* ---------------- projects (Phase B) ----------------
+ *
+ * Every researcher gets ONE project they own, minted by the backfill below, and every instance is
+ * stamped with it. Until the authorization phase converts each route, everything continues to work
+ * through `researcher_id` exactly as before — the column is not replaced, it is REDEFINED as a
+ * maintained denormalisation of the project's owner (round-1 finding 4), because old APKs resolve
+ * the Drive token through `instance JOIN researcher ON researcher_id` and will do so forever.
+ */
+
+/* The default project's name. Deliberately derived, never asked for: on the day this ships nobody
+ * has decided what their project is called, and a modal demanding one before the panel will load is
+ * the worst possible introduction to a feature that is supposed to change nothing yet. */
+function defaultProjectName(row) {
+  const who = (row.display_name || '').trim() || (row.drive_email || '').split('@')[0] || 'Project';
+  return `${who}'s project`.slice(0, 120);
+}
+
+/* Mint the owner's project and adopt their instances + crowd recorders into it. IDEMPOTENT by
+ * construction — every write is conditional on the row not already being there — so it is safe to
+ * re-run after a partial failure, which is the property a backfill actually needs. */
+async function backfillProjectsFor(env, row, now) {
+  let project = await env.DB.prepare('SELECT project_id FROM project WHERE owner_id=? ORDER BY created_at LIMIT 1')
+    .bind(row.researcher_id).first();
+  let created = false;
+  if (!project) {
+    const project_id = crypto.randomUUID();
+    await env.DB.prepare('INSERT INTO project (project_id, owner_id, name, created_at) VALUES (?,?,?,?)')
+      .bind(project_id, row.researcher_id, defaultProjectName(row), now).run();
+    project = { project_id };
+    created = true;
+  }
+  /* Only rows that have NO project yet are adopted: re-running must never move an instance that has
+   * since been placed somewhere deliberately. */
+  const inst = await env.DB.prepare('UPDATE instance SET project_id=? WHERE researcher_id=? AND project_id IS NULL')
+    .bind(project.project_id, row.researcher_id).run();
+  const crowd = await env.DB.prepare('UPDATE crowd_recorder SET project_id=? WHERE researcher_id=? AND project_id IS NULL')
+    .bind(project.project_id, row.researcher_id).run();
+  return {
+    project_id: project.project_id,
+    created,
+    instances: (inst.meta && inst.meta.changes) || 0,
+    crowd: (crowd.meta && crowd.meta.changes) || 0,
+  };
+}
+
 export async function handleV1(request, env, ctx, url, path, origin) {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: v1Cors(origin, env) });
   if (!env.DB) return j({ error: 'sync_unavailable' }, 503, origin, env); // D1 not bound yet — inert, never breaks /drive
@@ -1257,6 +1302,117 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       await env.DB.prepare('UPDATE session SET revoked=1 WHERE session_id=?').bind(r.session_id).run();
     }
     return j({ ok: true }, 200, origin, env);
+  }
+
+  /* POST /v1/researcher/admin/backfill-projects — OPERATOR-ONLY, IDEMPOTENT.
+   *
+   * Why an endpoint and not a migration file (round-1 finding 7): minting one project per researcher
+   * needs GUIDs and derived names, which is past what is reviewable in D1 SQL. Being an endpoint also
+   * makes it re-runnable and makes it REPORT what it did, which a `.sql` file cannot.
+   *
+   * Safe to run before or after the client update, and safe to run twice: it creates a project only
+   * where none exists and adopts only rows whose project_id is still NULL, so a second run over a
+   * finished estate reports zeros and changes nothing. */
+  if (m === 'POST' && seg.length === 4 && seg[1] === 'researcher' && seg[2] === 'admin' && seg[3] === 'backfill-projects') {
+    const r = await authResearcher(request, env);
+    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    if (!isOwner(r.drive_email, env)) return j({ error: 'not_owner' }, 403, origin, env);
+    const rows = await env.DB.prepare('SELECT researcher_id, display_name, drive_email FROM researcher').all();
+    const report = { researchers: 0, projects_created: 0, instances_adopted: 0, crowd_adopted: 0 };
+    for (const who of (rows && rows.results) || []) {
+      const out = await backfillProjectsFor(env, who, now);
+      report.researchers++;
+      if (out.created) report.projects_created++;
+      report.instances_adopted += out.instances;
+      report.crowd_adopted += out.crowd;
+    }
+    await logApproval(env, request, 'projects_backfilled',
+      report.researchers + ' researcher(s)', report.projects_created + ' project(s) created', r.drive_email);
+    return j(report, 200, origin, env);
+  }
+
+  /* POST /v1/researcher/pubkey — publish this account's researcher keypair.
+   *
+   * ⚠ CONDITIONAL WRITE, and this is round-1 finding 3, not caution for its own sake. Multi-session
+   * means two browsers of the same account can race this on first sign-in after the update.
+   * Last-write-wins on `pubkey` would strand every grant already wrapped to the key that lost —
+   * silently, and only discovered when a device could not be opened. So the first writer wins, the
+   * loser gets 409, and the loser's correct response is to fetch the winner's pair and unwrap
+   * `wrapped_privkey` with Kr. Idempotent by construction. */
+  if (m === 'POST' && seg.length === 3 && seg[1] === 'researcher' && seg[2] === 'pubkey') {
+    const r = await authResearcher(request, env);
+    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    const body = await readJson(request) || {};
+    if (!body.pubkey || !body.wrapped_privkey) return j({ error: 'bad_body' }, 400, origin, env);
+    const res = await env.DB.prepare(
+      'UPDATE researcher SET pubkey=?, wrapped_privkey=? WHERE researcher_id=? AND pubkey IS NULL'
+    ).bind(String(body.pubkey), String(body.wrapped_privkey), r.researcher_id).run();
+    if (!(res.meta && res.meta.changes)) {
+      const cur = await env.DB.prepare('SELECT pubkey, wrapped_privkey FROM researcher WHERE researcher_id=?')
+        .bind(r.researcher_id).first();
+      return j({ error: 'already_set', pubkey: cur && cur.pubkey, wrapped_privkey: cur && cur.wrapped_privkey }, 409, origin, env);
+    }
+    return j({ ok: true }, 200, origin, env);
+  }
+
+  /* POST /v1/researcher/keys — write a set of Ki grants for ONE instance.
+   *
+   * ⚠ THE WRAP-TO-OWNER INVARIANT. The set is REJECTED unless it contains a row for the project's
+   * owner. That is what makes "the owner can always see and revoke all keys" true by construction
+   * rather than by policy: a member with createInvites cannot mint a device key the owner cannot
+   * read, because the worker will not store the set at all.
+   *
+   * ⚠ E2EE honesty, stated where it is enforced: the worker checks that the owner's copy EXISTS. It
+   * cannot check the ciphertext is well-formed, because it cannot read it. A malicious member could
+   * wrap garbage — detected loudly the first time the owner opens that device, remedied by revoking
+   * the member and re-keying. Sabotage-detectable, not silently-subvertible, which is the strongest
+   * claim any E2EE sharing scheme can make. */
+  if (m === 'POST' && seg.length === 3 && seg[1] === 'researcher' && seg[2] === 'keys') {
+    const r = await authResearcher(request, env);
+    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    const body = await readJson(request) || {};
+    const instanceId = String(body.instance_id || '');
+    const grants = Array.isArray(body.grants) ? body.grants : null;
+    if (!instanceId || !grants || !grants.length) return j({ error: 'bad_body' }, 400, origin, env);
+
+    const inst = await env.DB.prepare('SELECT instance_id, project_id, researcher_id FROM instance WHERE instance_id=?')
+      .bind(instanceId).first();
+    if (!inst) return j({ error: 'not_found' }, 404, origin, env);
+    /* Dual-read window: project_id may still be NULL on an instance the backfill has not reached,
+     * in which case the owner is researcher_id — which the backfill will make equal anyway. */
+    const proj = inst.project_id
+      ? await env.DB.prepare('SELECT project_id, owner_id FROM project WHERE project_id=?').bind(inst.project_id).first()
+      : { project_id: null, owner_id: inst.researcher_id };
+    if (!proj) return j({ error: 'not_found' }, 404, origin, env);
+    if (r.researcher_id !== proj.owner_id) return j({ error: 'forbidden' }, 403, origin, env);
+
+    if (!grants.some((g) => g && g.researcher_id === proj.owner_id && g.wrapped_ki)) {
+      return j({ error: 'owner_grant_required' }, 400, origin, env);
+    }
+    const version = Math.max(1, parseInt(body.key_version || 1, 10) || 1);
+    const writes = grants
+      .filter((g) => g && g.researcher_id && g.wrapped_ki)
+      .map((g) => env.DB.prepare(
+        'INSERT OR REPLACE INTO member_key (project_id, instance_id, researcher_id, key_version, wrapped_ki, wrapped_by, created_at) '
+        + 'VALUES (?,?,?,?,?,?,?)'
+      ).bind(proj.project_id, instanceId, String(g.researcher_id), version, String(g.wrapped_ki), r.researcher_id, now));
+    await env.DB.batch(writes);
+    return j({ ok: true, stored: writes.length, key_version: version }, 200, origin, env);
+  }
+
+  /* GET /v1/researcher/keys?instance=<id> — the grants THIS researcher holds, for getKi()'s
+   * resolution order (memory → member_key → the legacy settings_blob map). */
+  if (m === 'GET' && seg.length === 3 && seg[1] === 'researcher' && seg[2] === 'keys') {
+    const r = await authResearcher(request, env);
+    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    const want = url.searchParams.get('instance') || '';
+    const q = want
+      ? env.DB.prepare('SELECT instance_id, key_version, wrapped_ki FROM member_key WHERE researcher_id=? AND instance_id=? ORDER BY key_version DESC')
+          .bind(r.researcher_id, want)
+      : env.DB.prepare('SELECT instance_id, key_version, wrapped_ki FROM member_key WHERE researcher_id=? ORDER BY instance_id, key_version DESC')
+          .bind(r.researcher_id);
+    const rows = await q.all();
+    return j({ keys: (rows && rows.results) || [] }, 200, origin, env);
   }
 
   /* GET /v1/researcher/sessions — the list that makes the cap safe rather than merely annoying:

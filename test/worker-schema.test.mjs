@@ -64,6 +64,7 @@ const FILES = [
   'migrate-approval-log.sql',
   'migrate-estate.sql',
   'migrate-sessions.sql',
+  'migrate-projects.sql',
 ];
 
 /* Split on `;` at end of line — the house SQL style, one statement per line-group, no triggers or
@@ -174,9 +175,11 @@ const rebuilt = statements(readFileSync(join(WORKER, 'migrate-instance-type-unif
   .find((s) => /CREATE TABLE instance_new/i.test(s)) || '';
 const rebuiltCols = [...rebuilt.matchAll(/^\s{2}(\w+)\s/gm)].map((m) => m[1]);
 const wouldLose = (got.tables.instance || []).filter((c) => !rebuiltCols.includes(c));
-ok(wouldLose.join(' ') === 'estate oauth_folder_id',
-  `re-running the instance rebuild would destroy exactly [${wouldLose.join(', ')}] — update this ` +
-  'assertion (and the migration) when the split adds project_id');
+ok(wouldLose.join(' ') === 'estate oauth_folder_id project_id',
+  `re-running the instance rebuild would destroy exactly [${wouldLose.join(', ')}] and their DATA. ` +
+  'The list grows every time the schema does, which is the point of asserting it: a rebuild-style ' +
+  'migration is a landmine that gets bigger with age. Fresh databases must use schema-current.sql, ' +
+  'never a replay of the historical files.');
 
 /* The canonical one-shot schema (worker/schema-current.sql) must stay identical to the replay.
  * It is what makes "mirror production exactly" possible for a FRESH database — the historical files

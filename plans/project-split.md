@@ -374,6 +374,23 @@ everyone; `settings_blob.wrappedKis` remains readable as the legacy fallback dur
   (claim/poll/report/upload with current header/path shapes) against the migrated staging worker —
   it must pass unchanged at every phase. `?devworker=staging` points test clients at it.
 
+## II.5b BUILD STATUS (updated as it lands)
+
+- **Phase A — sessions: BUILT, worker-side, rig-green.** Session rows, legacy fallback, cap 5
+  oldest-out, 24h/90d by the stay flag, list + revoke-one + revoke-others, sign-in notice email.
+  R2-3 and round-1 finding 1 closed in code with tests that prove it.
+- **Phase B — projects: BUILT, worker-side, rig-green.** `migrate-projects.sql` (project,
+  project_member, member_key, researcher.pubkey/wrapped_privkey, instance/crowd project_id); the
+  operator-gated idempotent backfill endpoint; the conditional keypair write (409 on a race); the
+  key-grant ledger with the wrap-to-owner invariant enforced server-side.
+- **Still to come for B, and deliberately not started:** the CLIENT half — generating the researcher
+  keypair, self-granting existing Ki, and reading grants in `getKi()`. That is the first change to
+  `docs/`, so it needs a version bump and Seth's test drive; the plan is to hand it over rather than
+  stack client changes behind it.
+- **Nothing is deployed.** The worker changes exist only in git; the worker changes only when
+  `worker-deploy.yml` is dispatched. `migrate-sessions.sql` and `migrate-projects.sql` have been
+  applied to NO database, not even staging.
+
 ## II.6 Decisions still open (the complete list)
 
 - **II.D1 — The E2EE policy line.** Keep the "client-driven re-wrap only" stance (server never

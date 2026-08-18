@@ -1802,6 +1802,43 @@ Mechanics notes for whoever builds it:
 - Sequencing: independent of the project split (works per-researcher today); if built first, the
   split's Drive-owner routing inherits it for free.
 
+## Multi-session: PENDING ACTIONS must sync across researcher sessions (Seth, 2026-08-18)
+
+> *"Pending actions SHOULD sync across researcher sessions. An upload can't of course."*
+
+Observed live once two panels could be signed in at the same time: **successful uploads appear in
+both panels; PENDING ones do not.** Seth's distinction is the right one — the device's actual
+transfer to Drive is happening on a phone and cannot be "synced" as an in-progress thing, but the
+fact that a researcher ISSUED an action is server state and should be visible to every panel.
+
+**Why it behaves that way.** The pending indicator is driven by `pendingCmds`, a per-browser
+localStorage map (`researcher-panel.js`). The command itself goes to the worker immediately, so the
+RESULT converges on the 12-second dashboard poll — but the in-flight marker only ever exists in the
+browser that clicked.
+
+⚠ **The harm is not only that the second panel looks emptier.** A panel that does not know an upload
+is already in flight will happily issue a second one, which is a duplicate command with a fresh seq
+that the device will dutifully run twice. That is the same family of annoyance the per-text Drive
+folder dedupe contract (v167) exists to prevent.
+
+**The fix, and it needs NO worker change** — the evidence is already server-side and already reachable:
+
+1. `listView` already returns `desired_rev` per instance and `ack_seq` per install, so "this device is
+   behind on something" is derivable today, in every panel, with no new request.
+2. For the DETAIL — which doc, which kind — the existing desired-lane route already serves a
+   researcher: `GET /v1/instances/<id>?since=-1` returns `{type, desired_rev, settings, commands}` for
+   the owning researcher (the `asResearcher` branch in v1.js). The panel has Ki, so it can read them.
+3. So: fetch that detail ONLY for instances where `desired_rev > max(ack_seq)`. In steady state that
+   set is empty and the poll costs exactly what it costs today; it only spends a request while
+   something really is pending.
+
+`pendingCmds` then stops being the source of truth and becomes what it should have been — an
+optimistic hint that makes the initiating browser feel instant before the next poll confirms it from
+the server.
+
+⚠ This is a `docs/` change, so it rides the Phase B client batch with a version bump and a test
+drive, not a hotfix.
+
 ## Multi-session: a move is owned by the browser that started it (noted 2026-08-18)
 
 With two researcher panels signed in at once — possible since Phase A — server truth converges

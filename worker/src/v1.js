@@ -396,9 +396,21 @@ async function authResearcher(req, env) {
    * read drive_refresh_enc / settings_blob / drive_email / approved / kr_server_enc straight off
    * this row. Sessions change only HOW the row is FOUND — never what comes back. */
   const now = Date.now();
-  const sess = await env.DB.prepare(
-    'SELECT session_id, secret_hash, expires_at, ttl_ms FROM session WHERE researcher_id=? AND revoked=0'
-  ).bind(id).all();
+  /* ⚠ THE TABLE MIGHT NOT BE THERE, and the blast radius decides how this is written. If the worker
+   * were deployed before migrate-sessions.sql has run — the runbook forbids it, but a human under
+   * pressure can get an order wrong — an uncaught "no such table" here would fail EVERY researcher
+   * request: a total lockout. Catching it degrades to "sessions do not work yet, everything else
+   * does", and the distinct log event names the missing migration instead of leaving someone to
+   * guess. Deliberately NOT silent: silence would let the missing migration go unnoticed until
+   * sessions mysteriously failed to persist. */
+  let sess = null;
+  try {
+    sess = await env.DB.prepare(
+      'SELECT session_id, secret_hash, expires_at, ttl_ms FROM session WHERE researcher_id=? AND revoked=0'
+    ).bind(id).all();
+  } catch (e) {
+    await secLog(env, req, 'session_table_missing', { error: String((e && e.message) || e).slice(0, 120) });
+  }
   for (const sn of (sess && sess.results) || []) {
     if (!ctEq(hash, sn.secret_hash)) continue;
     if (sn.expires_at && sn.expires_at <= now) return null;          // expired: not an auth, and not a fallback either

@@ -113,6 +113,51 @@ function saveMoves(accountId) {
   catch { /* degrade to in-memory */ }
 }
 
+/* SERVER-DERIVED pending commands — the half that syncs across browsers.
+ *
+ * ⚠ WHY THIS EXISTS (Seth, 2026-08-18, testing two panels at once): "Pending actions SHOULD sync
+ * across researcher sessions. An upload can't of course." Right on both counts. `pendingCmds` below
+ * is per-BROWSER localStorage, so before this the second panel saw a successful upload but never the
+ * pending one — and, worse than looking emptier, a panel that does not know an upload is in flight
+ * will cheerfully issue a SECOND one: a duplicate command with a fresh seq that the device runs twice.
+ *
+ * The evidence was already server-side, which is why this needs no worker change: listView gives
+ * desired_rev per instance and ack_seq per install, so "behind on something" is derivable with no
+ * extra request at all, and only when it IS behind do we spend one call on the detail. In steady
+ * state that set is empty and polling costs exactly what it always did.
+ *
+ * `pendingCmds` keeps its job as the OPTIMISTIC hint that makes the issuing browser feel instant
+ * before the next poll; this map is the shared truth underneath it. */
+let serverPending = new Map();
+
+/* Command types, translated to the vocabulary the renderer already speaks. Anything not doc-scoped
+ * (changeSettings) has no per-text row to decorate and is deliberately dropped. */
+const CMD_KIND = { triggerUpload: 'upload', uploadDelete: 'delete', delete: 'delete', assign: 'assign' };
+
+async function refreshServerPending(instances) {
+  const next = new Map();
+  for (const it of instances || []) {
+    /* The cheap gate: nothing outstanding unless the device is behind the desired revision. */
+    if (!(parseInt(it.desired_rev, 10) > ackOf(instances, it.instance_id))) continue;
+    let d;
+    try { d = await Researcher.instanceDesired(it.instance_id); } catch { continue; }   // transient; next poll retries
+    for (const c of (d && d.commands) || []) {
+      const kind = CMD_KIND[c && c.type];
+      const docId = c && c.id;
+      if (!kind || !docId) continue;
+      const prev = next.get(docId);
+      /* Keep the HIGHEST seq for a doc: an assign followed by an upload should read as the upload. */
+      if (prev && prev.seq >= c.seq) continue;
+      next.set(docId, { seq: c.seq, kind, instanceId: it.instance_id, title: c.title || '', hasAudio: !!c.hasAudio });
+    }
+  }
+  serverPending = next;
+}
+
+/* One place to ask "is anything pending for this text?" — the browser's own optimistic marker first,
+ * because it is there before the poll confirms it, then the shared server-derived one. */
+function pendingFor(docId) { return pendingCmds.get(docId) || serverPending.get(docId); }
+
 const PENDING_KEY = 'flextext-rp-pending:';
 let pendingCmds = new Map();
 function loadPending(accountId) {
@@ -815,6 +860,8 @@ async function pollDashboard() {
   let data;
   try { data = await Researcher.listView(); } catch { return; }                      // transient; next tick retries
   if (root.hidden || document.querySelector('.modal')) return;                       // re-check after the await
+  await refreshServerPending(data && data.instances);   // shared pending state, before anything renders
+  if (root.hidden || document.querySelector('.modal')) return;                       // and again after ITS awaits
   if (viewSig(data) !== lastSig) renderDashboard(data);
 }
 
@@ -2225,7 +2272,10 @@ async function renderInstanceCard(it, deviceCount) {
        * the same renderer as every other row, which is the point: the pending state is shown "the
        * way it shows a pending delete" rather than as a second, differently-behaved widget. */
       const invIds = new Set((inv || []).map((d) => d && d.id));
-      const ghosts = [...pendingCmds].filter(([docId, pc]) =>
+      /* Merged so a pending ASSIGN shows in every panel, not just the one that sent it. The local
+       * marker wins on a clash: it is the same command, and it arrived first. */
+      const allPending = new Map([...serverPending, ...pendingCmds]);
+      const ghosts = [...allPending].filter(([docId, pc]) =>
         pc.kind === 'assign' && pc.instanceId === it.instance_id && !invIds.has(docId))
         .map(([docId, pc]) => ({ id: docId, title: pc.title || '', uploadState: '', hasAudio: !!pc.hasAudio, __assigning: true }));
       const listed = [...ghosts, ...(inv || [])];
@@ -2235,7 +2285,7 @@ async function renderInstanceCard(it, deviceCount) {
         // so it can still be withdrawn. `taken` = the device has it and is acting; offering a
         // cancel there would let the panel claim a text the device has already deleted, or claim an
         // upload never happened when it did. The Worker refuses it too — this just never asks.
-        const p = pendingCmds.get(d.id);
+        const p = pendingFor(d.id);
         const queued = !!p && p.seq > maxAck;
         const taken  = !!p && p.seq <= maxAck;
         let disp = us;

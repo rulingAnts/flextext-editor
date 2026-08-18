@@ -157,6 +157,14 @@ export function googleSignInUrl(returnTo, lang) {
   return base + '/v1/oauth/google/start?' + q.join('&');
 }
 
+/* The DESIRED lane for one instance, read as the researcher: {type, desired_rev, settings, commands}.
+ * This is how a panel learns which commands are still outstanding — server truth, so every signed-in
+ * browser sees the same pending work rather than only the one that issued it. `since=-1` because the
+ * route short-circuits to 204 when the caller is already up to date, and here we always want the body. */
+export async function instanceDesired(instanceId) {
+  return api('GET', '/v1/instances/' + encodeURIComponent(instanceId) + '?since=-1');
+}
+
 /* ---- sessions: the browsers signed in to this account (Phase A) ---- */
 export async function listSessions() { return api('GET', '/v1/researcher/sessions'); }
 export async function revokeSession(id) { return api('DELETE', '/v1/researcher/sessions/' + encodeURIComponent(id)); }

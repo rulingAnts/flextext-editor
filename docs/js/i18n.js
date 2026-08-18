@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v385';
+export const ENGINE_VERSION = 'v386';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v385';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'sessions-ui v1';
+export const BUILD_TAG = 'sessions-ui v2';
 
 const S = {
 en: {
@@ -1183,7 +1183,7 @@ internet after the first time.</p>
   'panel.f.consentUploaded': 'Uploaded — the field above now holds your private Drive copy. Save to push it.',
   'panel.account.title': 'Account',
   'panel.account.signedInAs': 'Signed in as',
-  'panel.account.signout': 'Sign out of this device',
+  'panel.account.signout': 'Sign out of this browser',
   'panel.account.confirmSignout': 'Sign out? You will need to sign in with Google again.',
   'panel.account.stay': 'Stay signed in on this device',
   'panel.account.stayNote': 'Off by default: when you close the app it locks, and you sign in again next time. Turn on only on a device that is yours alone.',
@@ -2788,7 +2788,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.f.consentUploaded': 'Terunggah — ruas di atas kini berisi salinan Drive pribadi Anda. Simpan untuk mendorongnya.',
   'panel.account.title': 'Akun',
   'panel.account.signedInAs': 'Masuk sebagai',
-  'panel.account.signout': 'Keluar dari perangkat ini',
+  'panel.account.signout': 'Keluar dari peramban ini',
   'panel.account.confirmSignout': 'Keluar? Anda perlu masuk dengan Google lagi.',
   'panel.account.stay': 'Tetap masuk di perangkat ini',
   'panel.account.stayNote': 'Mati secara bawaan: saat Anda menutup aplikasi, ia terkunci dan Anda masuk lagi berikutnya. Aktifkan hanya pada perangkat yang hanya milik Anda.',

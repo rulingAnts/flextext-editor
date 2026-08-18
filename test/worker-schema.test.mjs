@@ -104,6 +104,10 @@ console.log('worker D1 schema — replay of schema.sql + every migration\n');
 const { db, dup } = replay();
 const got = shape(db);
 
+if (process.argv.includes('--emit-schema')) {
+  console.log('\nregenerate worker/schema-current.sql with the emitter in its header comment, then re-run this test');
+}
+
 if (process.argv.includes('--regen')) {
   writeFileSync(SNAPSHOT, JSON.stringify(got, null, 2) + '\n');
   console.log(`\nwrote ${SNAPSHOT}`);
@@ -151,6 +155,45 @@ const wouldLose = (got.tables.instance || []).filter((c) => !rebuiltCols.include
 ok(wouldLose.join(' ') === 'estate oauth_folder_id',
   `re-running the instance rebuild would destroy exactly [${wouldLose.join(', ')}] — update this ` +
   'assertion (and the migration) when the split adds project_id');
+
+/* The canonical one-shot schema (worker/schema-current.sql) must stay identical to the replay.
+ * It is what makes "mirror production exactly" possible for a FRESH database — the historical files
+ * cannot do it (schema.sql is folded forward, --file is atomic, and the instance rebuild drops later
+ * columns), which is precisely how the staging D1 drifted. Regenerate deliberately:
+ *   node test/worker-schema.test.mjs --emit-schema
+ */
+const CANON = join(WORKER, 'schema-current.sql');
+let canonSrc = null;
+try { canonSrc = readFileSync(CANON, 'utf8'); }
+catch { ok(false, `no ${CANON} — create it with --emit-schema`); }
+
+if (canonSrc) {
+  const fresh = new DatabaseSync(':memory:');
+  let applied = 0;
+  for (const st of statements(canonSrc)) {
+    try { fresh.exec(st); applied++; }
+    catch (e) { ok(false, `schema-current.sql: ${e.message} — in: ${st.slice(0, 70)}`); }
+  }
+  ok(applied > 0, `schema-current.sql applies to an empty database (${applied} statements)`);
+
+  const canonShape = shape(fresh);
+  const tSame = Object.keys(canonShape.tables).join() === Object.keys(got.tables).join();
+  ok(tSame, 'schema-current.sql creates the same TABLES as the migration replay');
+  let colDiffs = [];
+  for (const t of Object.keys(got.tables)) {
+    if ((canonShape.tables[t] || []).join(' ') !== got.tables[t].join(' ')) colDiffs.push(t);
+  }
+  ok(colDiffs.length === 0,
+     `schema-current.sql creates the same COLUMNS everywhere${colDiffs.length ? ` — differs on [${colDiffs.join(', ')}]` : ''}`);
+  ok(canonShape.indexes.join() === got.indexes.join(), 'schema-current.sql creates the same INDEXES');
+
+  /* It must be re-runnable and non-destructive: no ALTER, no DROP, no table rebuild. A reset script
+   * someone points at the wrong database should be a no-op, not a data loss. */
+  ok(!/\bALTER\s+TABLE\b/i.test(canonSrc), 'schema-current.sql contains no ALTER TABLE');
+  ok(!/\bDROP\s+TABLE\b/i.test(canonSrc), 'schema-current.sql contains no DROP TABLE');
+  ok(!/CREATE TABLE(?! IF NOT EXISTS)/i.test(canonSrc), 'every CREATE TABLE is IF NOT EXISTS');
+  ok(!/CREATE (UNIQUE )?INDEX(?! IF NOT EXISTS)/i.test(canonSrc), 'every CREATE INDEX is IF NOT EXISTS');
+}
 
 console.log(fail ? `\nFAILED (${fail})` : '\nPASS');
 process.exit(fail ? 1 : 0);

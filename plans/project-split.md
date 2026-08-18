@@ -830,3 +830,181 @@ secrets drift out of date between uses.
 
 Not recommended: skipping a real backend for Phase C's Drive work. R2-1 is exactly the kind of change
 that looks right against a stub and deletes an archive against the real API.
+
+
+---
+
+# PART VI — SETH'S ANSWERS AND THE NEW REQUIREMENTS (2026-08-17)
+
+## VI.1 Decisions now CLOSED
+
+- **II.D1 — E2EE policy line: client-driven re-wrap only.** Agreed. The worker never exercises its
+  latent Kr access for migration; the comment "the worker can't unwrap" gets truer over time.
+- **II.D2 — the project's Drive is the OWNER's Drive.** Agreed.
+- **II.D3 — claim screen reads "«Project» — managed by «owner»"**, even when a member minted the
+  link. Agreed.
+
+### II.D7 — DECIDED, and STRICTER than the earlier recommendation
+
+> Seth: *"We do want to make sure that invited/assistant researchers can only see/access what
+> they're given access to. We don't want them having blanket access to the project owner's Google
+> Drive folder, only to texts they've been given access to (or created themselves if they're allowed
+> to do that)."*
+
+This **overrides Part III round 1's "accept + disclose"** and goes beyond R2-1's project-level fix:
+Drive access is scoped to the member's OWN GRANTS, not to the project, and never to the account.
+Concretely, every Drive route becomes grant-scoped:
+
+- **Estate listing** is filtered to the folders of devices in the member's `see` list (plus texts
+  they created), never `driveListAll` over the account.
+- **Any docId-routed fetch** is parentage-verified against that same set before a byte is served —
+  filtering the listing alone is cosmetic if a direct id still works.
+- **Trash and purge** are restricted to that set, and purge takes an explicit id list (today it takes
+  none at all and empties the whole trash — R2-1).
+- **Uploads** still land in the owner's Drive (II.D2) but only inside a device folder the member is
+  allowed to touch.
+
+⚠ Cost, stated plainly: this is the largest single piece of Phase C. The current Drive helpers have
+no project dimension *and* no per-device dimension, so this is new filtering on ~13 routes plus the
+storage-manager UI, and it needs the real Drive API to test (PART V Tier 3).
+
+## VI.2 II.D6 in plain language — three knobs, not a design
+
+Seth: *"I would like to understand better D6."* It is only this: a "session" is one browser signed
+in to the researcher panel. Multi-device means several at once, so three questions get numbers.
+
+| Knob | What it means in practice | Proposed |
+|---|---|---|
+| **How many at once** | Sign in on a 6th browser and the oldest one is signed out automatically | **5** |
+| **How long a browser stays signed in** | Unused for this long → it must sign in again; each use pushes the clock forward | **90 days, sliding** |
+| **How you hear about a new sign-in** | A banner appears in your OTHER open panels: "new sign-in from «browser» at «time»" | **banner only** — there is no email path for this today, and none is being added |
+
+All three are just defaults to accept or change; none affects field devices, which do not have
+sessions at all. The account modal also gets a session list with "sign out this one" and "sign out
+all others", which is the part that makes the cap safe rather than annoying.
+
+## VI.3 II.D5 REOPENED AND EXPANDED — transfer, deletion, and the panic button
+
+> Seth: *"We need an option for an owner to transfer ownership to another researcher (which in an
+> ideal world … would involve transferring Google Drive folder ownership and location to that new
+> owner's Google Drive) … if a researcher tries to delete a project or their account our app needs
+> to ask them what to do with existing projects, recommend transfer ownership, but deleting them and
+> unlinking or wiping all paired devices is also an option. Some of our researchers may need the
+> nuclear option available quickly and easily if they're working in more hostile contexts."*
+
+Three features, in increasing difficulty. **The first is easy, the second is the hard one, and the
+third is mostly already built.**
+
+### (a) Transfer the PROJECT — straightforward
+
+Reassign `project.owner_id`, move the `member_key` grants so the new owner holds every Ki, and
+update the maintained `instance.researcher_id` denormalization (round-1 finding 4) in the same
+transaction so old APKs' joins stay correct.
+
+⚠ **Ordering that cannot be fixed later: the OLD owner must perform the key re-wrap while they can
+still decrypt.** Under client-driven re-wrap (II.D1) the server cannot do it for them, so a transfer
+attempted after the old owner has lost access is impossible — the devices would have to be re-keyed
+from scratch. The UI must therefore treat transfer as an action the old owner *completes*, not a
+request the new owner accepts later.
+
+### (b) Transfer the GOOGLE DRIVE estate — the hard part, do NOT promise it in UI copy yet
+
+Three mechanisms, honestly ranked:
+
+1. **Share with the new owner** — trivial, but the files stay in the old owner's Drive, on their
+   quota, still readable by them. That is not a handover; it is co-access. Fine as a stopgap, wrong
+   as the headline.
+2. **Copy into the new owner's Drive** — the new owner's panel re-creates the folder tree and copies
+   the files, then the old copies are deleted once verified. Costs bandwidth and the new owner's
+   quota, and every `oauth_folder_id` / `driveFolderId` must be re-stamped because ids change. This
+   is the mechanism most likely to actually work under the `drive.file` scope, since the app can act
+   on files it created.
+3. **True Drive ownership transfer** (`permissions` with `transferOwnership=true`) — the ideal, but
+   constrained: the recipient must accept, consumer (non-Workspace) accounts have limits, and it is
+   NOT verified that `drive.file` scope permits it at all. **Research item — verify against the live
+   API before it appears in any dialog.**
+
+**Recommendation: ship (a) + mechanism 2, and keep 3 as an investigation.** Say what actually
+happens in the dialog ("the files are copied into their Drive and removed from yours") rather than
+"ownership transferred", which we cannot yet guarantee.
+
+### (c) Deletion must ASK — and the panic button is mostly assembled already
+
+**On delete of a project or an account:** enumerate what the researcher owns, recommend transfer,
+and offer per-project: transfer / delete-and-unlink devices / delete-and-WIPE devices.
+
+**The nuclear option is an orchestration of primitives that already exist** — this is the good news:
+
+| Piece | Already there |
+|---|---|
+| Remote wipe of a device | `POST …/wipe` sets a sticky `wipe_state='requested'`, with TOTP step-up when 2FA is on (v1.js:2099–2117) |
+| Delivery to any device state | the wipe directive is checked BEFORE the cursor/pending/key gates, so it lands even on a device that was never keyed (v1.js:2338) |
+| Proof it happened | the device acks before erasing (`wipe-ack`, v1.js:2121–2126) |
+| Server-side erasure | the account cascade over instances, installs, invites, crowd rows (v1.js:2754–2762) |
+| Drive erasure | trash (v1.js:1478) + permanent purge (v1.js:1430) |
+| Local erasure | `?devreset` wipes the origin's settings, docs, service worker and caches |
+
+So the feature is ONE guarded action that fans out: flag wipe on every install in every owned
+project → trash + purge the project's Drive files → delete the server rows → wipe this browser.
+
+⚠ **The ordering trap, and it is the whole feature:** deleting the account first removes the
+credentials that command the devices, leaving them unreachable and therefore unwipeable, forever.
+**Wipe first, confirm acks, delete last.** A panic flow that gets this backwards is worse than none,
+because it looks like it worked.
+
+⚠ **What it cannot promise, and the copy must say so:**
+- A device only wipes **when it next connects**. Offline or seized-and-airplaned devices stay intact
+  until then — though the flag is sticky, so it fires whenever they do reappear.
+- Purge removes the files from Drive; Google may retain server-side copies for a period, and
+  anything already downloaded, synced or shared elsewhere cannot be recalled.
+- Guarded by a typed confirmation (the erase-data pattern) plus the existing TOTP step-up: fast to
+  reach, hard to hit by accident.
+- ⚠ Worth naming once: in a genuinely hostile context a one-touch erase is also a liability for
+  someone compelled to unlock the app. Solving duress is out of scope here; being aware of it should
+  shape the wording, not add a feature.
+
+## VI.4 Mirroring production into staging — what is safe, and what must never be copied
+
+> Seth: *"have a path to make it basically mirror production exactly before we make and test
+> modifications to it. And have that be our normal workflow. Have actions or wrangler scripts … to
+> overwrite our staging worker and staging D1 database with a copy of production."*
+
+**Two of the three parts are right and should be automated. The third is the one thing that must not
+be done.**
+
+- ✅ **The CODE already mirrors exactly.** `deploy --env staging` from the same commit deploys the
+  same worker bundle; only bindings and secrets differ, and that difference is the safety property.
+- ✅ **The SCHEMA can now be mirrored in one shot.** `worker/schema-current.sql` (new) is a canonical
+  generated CREATE-only file, verified equal to production's live schema and guarded against drift by
+  `test/worker-schema.test.mjs`. The historical files cannot do this — schema.sql is folded forward,
+  `--file` is atomic, and the `instance` rebuild drops later columns. That combination is exactly how
+  the staging D1 drifted.
+- ❌ **The DATA must NOT be copied, and the reason is not squeamishness.** At-rest encryption is
+  keyed by `SERVER_HMAC_KEY`, so there are only two outcomes:
+  1. **Staging has a different key** → `email_enc`, `totp_secret_enc`, `drive_refresh_enc` and
+     `kr_server_enc` are all undecryptable. The copy is inert — you get rows you cannot log in as,
+     accounts whose Drive cannot be reached, a fixture that tests nothing.
+  2. **Staging shares production's key** → staging becomes a second production. It can decrypt real
+     researchers' emails and holds LIVE Google Drive refresh tokens, while its `ALLOWED_ORIGINS`
+     deliberately admits every feature-branch preview alias. That is a strictly worse-protected copy
+     of the most sensitive data in the system, sitting behind the door we open most often.
+
+  There is a third, quieter cost: with real rows in staging, a test action (assign, revoke, wipe,
+  purge) can reach a REAL device or a REAL Drive folder. Test databases exist so that cannot happen.
+
+**So the workflow he wants, in the form that is safe** — reset staging to production's SHAPE plus a
+synthetic seed, before each cycle:
+
+1. `d1 execute flextext-connectivity-staging --remote --file=schema-current.sql` — fresh shape,
+   atomic, no ALTERs, no rebuilds, a no-op against tables that already exist.
+2. `--file=seed-staging.sql` (to be written) — synthetic fixtures shaped like production: one
+   researcher, one instance, one approved install with a wrapped key, one invite, one crowd recorder.
+   Row SHAPES are what tests need; real values are what they must not have.
+3. `--file=schema-report.sql` against both databases + `node test/worker-schema.test.mjs` — proof
+   they match, which is the property "mirror production exactly" was really asking for.
+4. `deploy --env staging` from the commit under test.
+
+All four run through the existing "wrangler (one-off command)" workflow, so no local wrangler and no
+new billable machinery. If the reset should also CLEAR stale test rows, that wants an explicit
+`reset-staging.sql` with `DELETE FROM` per table — deliberately separate from the schema file, and
+deliberately never pointed at production. **Proposed; not built** — say the word.

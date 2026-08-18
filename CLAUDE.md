@@ -61,6 +61,31 @@ was moved off, and each cherry-pick re-offered the SHELL hunk that caused the v1
 - ⚠ If a branch was ever removed from `main` by revert (as `segmentation` was), **rebase it onto
   `main`, never merge it** — a merge meets the reverts and silently reinstates nothing.
 
+### 🚩 IT IS NOT ONLY staging-vs-main: TWO PUSHES TO THE *SAME* BRANCH COLLIDE TOO (2026-08-18)
+
+Recurred, and in the more confusing direction. Two commits were pushed to `staging` about a minute
+apart: the first carried a BROKEN version bump (editor v385, satellites still v384) and the second
+was the fix. Cloudflare built the FIRST, which failed the integrity gate exactly as designed — and
+SUPERSEDED the second, which is the one that would have passed. The dashboard then shows a red
+failure whose message is completely accurate and completely out of date, next to a skipped build
+nobody looks at, and the branch itself is green. Reading the top row alone tells you the opposite of
+the truth.
+
+**So the spacing rule is not about which BRANCH you push — it is about how often the same Worker is
+asked to build.** One push, wait for its build to finish, then the next.
+
+**Recovery is unchanged:** re-run the superseded deployment from the Cloudflare dashboard, or push
+ONE more commit, on its own, and let it build. Never fix a failed build by pushing the fix
+immediately after the thing that broke it — that is what causes this.
+
+⚠ **And the cause of the broken commit, which is its own rule: a version bump is ATOMIC across FOUR
+files.** `./bump-version.sh` writes `docs/sw.js`, `docs/js/i18n.js`, and the VERSION + ENGINE lines of
+`satellites/text-recorder/sw.js`, `satellites/flextext-researcher/sw.js` and
+`paragraph-analysis/sw.js`. Staging selectively (`git add docs test`) shipped half of it. **Commit a
+bump with `git add -A`, or not at all.** Note that `version-sync` passes locally in that state,
+because it reads the WORKING TREE — the drift only exists in the commit, which is why it surfaced on
+a build server rather than on the desk.
+
 ### 🚩 PUSHING `staging` AND `main` BACK-TO-BACK CANCELS ONE OF THE BUILDS (2026-08-07)
 
 **Wait for the staging build to finish before pushing `main` (or vice versa). Do not fire both

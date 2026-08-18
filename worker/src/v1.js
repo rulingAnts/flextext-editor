@@ -1298,7 +1298,15 @@ export async function handleV1(request, env, ctx, url, path, origin) {
      * the person is standing right there having just created it, and an alert about your own signup
      * is the noise that teaches people to ignore the ones that matter. `waitUntil`, so a slow or
      * failing mail can never delay the redirect the researcher is waiting on. */
-    if (!isNewAccount && email) {
+    /* ⚠ ROLLOUT GATE, and deliberately opt-IN. Turning this on means three researchers who have
+     * never received mail from this domain suddenly get a security-flavoured email — which is
+     * exactly what people report as phishing. So it stays inert until SIGNIN_NOTICE=on is set on the
+     * Worker, letting the announcement come first and the mail second.
+     * ⚠ This is a ROLLOUT gate, not a feature switch: once the researchers have been told, set it
+     * and delete this condition. A security notice that is off by default is a liability if it is
+     * still off a year from now because nobody remembered it existed. */
+    const noticeEnabled = String(env.SIGNIN_NOTICE || '').toLowerCase() === 'on';
+    if (noticeEnabled && !isNewAccount && email) {
       const g = geoParts(request);
       const { subject, html } = signinNoticeEmail({
         /* The account, named even though the mail is going TO that address: a researcher with two

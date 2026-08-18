@@ -1265,3 +1265,143 @@ All four run through the existing "wrangler (one-off command)" workflow, so no l
 new billable machinery. If the reset should also CLEAR stale test rows, that wants an explicit
 `reset-staging.sql` with `DELETE FROM` per table — deliberately separate from the schema file, and
 deliberately never pointed at production. **Proposed; not built** — say the word.
+
+---
+
+# PART VII — audit round 3: the worker + this plan, before Phase C starts (2026-08-18)
+
+Run against the worker and this document together, adversarially verified (five claims refuted, most
+of the rest narrowed). **Verdict: Phase C is safe to start.** Nothing here is a redesign. What
+follows is what must land first, what must be built INTO Phase C, and what is merely live-and-small.
+
+## VII.1 — R2-1 / II.D7 specify the WRONG Drive-scoping mechanism ⚠ SPEC FIX, DO THIS FIRST
+
+R2-1 and II.D7 scope Phase C's largest workstream as *"resolve device folders from
+`instance.oauth_folder_id WHERE project_id=?`, then verify each file's parent is in that set."*
+**This codebase deliberately does not maintain parentage as an identity fact:**
+
+- `driveEnsureTextFolder`'s own header says the `flextextDoc` tag search is deliberately NOT
+  parent-scoped, so a researcher-moved folder keeps receiving uploads;
+- `buildDriveEstate` identifies text folders by tag, *"never by where they sit"*;
+- `drive-unassign` **re-parents** finished texts into an account-wide "Unassigned" folder belonging
+  to no device;
+- `GET /v1/instances/<id>/texts/<docId>/files` already resolves a text folder purely by tag and
+  never checks it sits under the named instance.
+
+Build to the spec as written and an assistant with Drive read loses exactly the texts the owner
+swept, and any hand-filed folder is denied. It fails **closed**, so it is a wrong mechanism rather
+than a hole — but it is the mechanism the whole Drive workstream is scoped around.
+
+**Replacement:** move Drive authorization into D1. One additive table — `drive_object(file_or_folder_id
+PK, kind, doc_id, instance_id, project_id, created_by_researcher_id, created_at)` — stamped when the
+worker creates each device/text/originals folder and each uploaded file, authorized by one indexed
+lookup. Parentage becomes display only. Two things to write down rather than discover: it starts
+EMPTY against the existing estate and needs a one-time idempotent backfill from `driveListAll` (same
+operator-gated pattern as `backfill-projects`) or every pre-existing file is denied on day one; and
+it persists a `doc_id ↔ instance_id` map in D1 plaintext — consistent with II.0.7's plaintext tier,
+but record it as a deliberate widening. Bonus: `created_by` makes *"texts they created themselves"*
+expressible, which nothing in the current model can express at all.
+
+## VII.2 — R2-4 had a second, unnamed exception, and it failed OPEN ✅ FIXED
+
+`POST /v1/instances/<id>/revoke` was a two-statement D1 batch in which only the first carried
+`AND researcher_id=?`; the second was a bare `UPDATE install SET revoked=1 WHERE instance_id=?`.
+A D1 batch is sequential, not conditional, so it landed regardless, and the route answered `ok:true`.
+Knowing an instance GUID was enough to unlink every install of another researcher's instance: the
+device's next poll takes a 410 and auto-releases mid-assignment.
+
+R2-4 asserts every instance/install/crowd ownership check is a fail-CLOSED filter and names the
+account self-delete cascade as *the* exception — the staged endpoint-conversion argument rests on
+that. **This was a second exception, and R2-4 should be read as amended.** Unguessable ids were the
+only barrier; under Phase C every member legitimately sees those ids, so a see-only member with no
+capability would have gained a device-unlinking primitive on day one.
+
+Fixed to match its own sibling (`installs/<iid>/revoke`): resolve ownership, 404 on a miss, then
+write. Backend-only, no client change, re-revoking still returns 200. Pinned by
+`test/worker-ownership-scoping.test.mjs`. **Committed, not deployed** — rides the next worker deploy
+with R2-2.
+
+## VII.3 — build INTO Phase C
+
+- **Finish Phase B first, in the same deploy as the backfill.** `backfillProjectsFor()` is the ONLY
+  writer of `project_id`; `POST /v1/instances` and `POST /v1/crowd` insert without it and neither
+  signup path mints a project. So the moment the sweep finishes, every new device and researcher is
+  permanently project-less. It bites Phase B's CLIENT half now: `member_key.project_id` is
+  `TEXT NOT NULL`, so the keys route's `{project_id: null}` fallback throws on the bind and 500s —
+  the self-grant never lands and the owner limps on the legacy `wrappedKis` path Phase B exists to
+  retire. Fails closed and loudly, so it is not a hole. Stamp `project_id` at creation, mint the
+  default project in both signup paths, and replace the NULL fallback with a named refusal.
+  ⚠ `test/worker-projects.test.mjs` creates its instance BEFORE the backfill, so that branch has
+  zero coverage.
+- **Minted `/v1/textfile` URLs are unscoped at mint and unrevocable at serve.** The payload is
+  `{r,f,x,e}`; serving checks only that it decrypts, has not expired, and the named researcher still
+  has a refresh token. The file id comes straight from the request body at all three mint sites, and
+  II.D7 read literally covers docId-routed fetches but not ids arriving in a body — implement it as
+  written and destruction and listing close while READ stays open. Put the scope INTO the token
+  (owner, project, instance, doc, granting member, jti), re-check against live D1 at serve, and clamp
+  member-minted TTLs well below the 400 days `clampTtlDays` allows.
+- **`settings_blob.moves` is project state in a per-account row.** II.4 lists the settings blob among
+  the binds that stay account-scoped and VI.2d says pending state is server-derived; both were true
+  when written, and v388–v391 then put the in-flight move ledger in `settings_blob` under the
+  researcher's own Kr. Members never hold Kr, so a member's `getMoves()` reads an empty map *by
+  construction* — a member sees a live Move button on a text already moving, and an owner-started
+  move stalls whenever only members are online. ⚠ Do NOT fix this with a project-wide blob under a
+  shared key: a move record carries the text TITLE plus both instance ids, which leaks texts on
+  devices a member's `see` excludes. Put it per-INSTANCE under Ki (any actor entitled to move a text
+  already holds both endpoints' Ki), or make it server-derived.
+- **The key-grant ledger has no lifecycle.** The delete-to-revoke contract is stated four times and
+  implemented nowhere — no `DELETE FROM member_key` exists — and `GET /v1/researcher/keys` has no
+  membership predicate, so a member narrowed from `see:all` to `[i1]` can still fetch `i2`'s key they
+  never previously held. That is key DELIVERY after revocation, which is the one thing revocation
+  actually promises. Build removal as ONE owner-only batch, and add the membership join to the read.
+  (Keys already fetched are un-knowable regardless — Phase E rotation, already documented.)
+- **Freeze `member_key.key_version` now, while the endpoint is deployed to no database.** It comes
+  from `body.key_version||1` with `INSERT OR REPLACE`, no server allocation, no CAS. Once rotation
+  ships, any client predating it resolves Ki via `ORDER BY key_version DESC`, gets v2, then
+  self-grants with the version omitted — writing v2 ciphertext into the v1 slot and destroying the
+  only stored copy of the v1 generation, which is exactly what the column exists to prevent.
+  Server-allocate it (or CAS on a client `base_version`), while still REPLACING on an exact
+  re-submit, because `test/worker-projects.test.mjs` asserts that retry-idempotency.
+- **Rotation eats and ACKs commands queued under the old Ki — amend II.0.1, no code change.**
+  `sync.js` obtains the new key BEFORE the command loop, and the loop's catch does
+  `ackSeq = max(ackSeq, c.seq); continue` — drop AND ack. Acked commands are never pruned, and R2-2
+  delivers the new key in the SAME poll body as the stale commands, so a destroyed assignment renders
+  as *completed* and cancel then refuses `already_delivered`. II.0.1's "key rotation is already
+  safe" needs qualifying. The remedy is ORDER, written into the plan: cancel every unacked command,
+  re-key ALL installs, then re-push under Ki_new. Add `install.key_version` (additive) so the panel
+  can refuse to issue commands to a partially re-keyed instance.
+- **Make `driveEnsureTextFolder` the single write-side chokepoint** before members can drive it: give
+  it an allowed-parents argument so the echoed folder id and the tag search are hints, not authority.
+  ⚠ KEEP the `files.get`-by-id echo — replacing it with a parent-scoped search runs on the
+  eventually-consistent index and re-opens the v167 duplicate-folder bug.
+
+## VII.4 — live now, small, unrelated to Phase C
+
+- **`ack_seq` can move BACKWARDS.** `authInstall()` SELECTs the row, then — after an `await
+  readJson()` that streams an encrypted inventory over a slow uplink — the handler writes
+  `SET ack_seq=?` with a JS `Math.max` against that earlier read. Two overlapping reports from one
+  install last-writer-wins on a column every comment and `test/command-seq-invariant.test.mjs`
+  assume can only rise; `reportNow()` is explicitly not gated by `sync.js`'s `inFlight`, so the race
+  is reachable. Fix in SQL: `ack_seq=MAX(ack_seq, ?)`. Worker-only, no migration, safe against every
+  deployed client.
+- **`POST /v1/researcher/trash` can blow the subrequest cap.** It accepts 100 ids and issues 100
+  sequential Drive PATCHes against the same ~50-subrequest free-plan cap that killed `drive-purge`
+  twice — and the failure is a runtime error the try/catch cannot catch. Reachable today from the
+  panel's backup cleanup on a text with ~49+ older backups. Give it `drive-purge`'s wave/cap/budget
+  treatment and return a resumable partial result.
+
+## VII.5 — checked and found sound
+
+`authInstall` binds the secret to the exact `(install_id, instance_id, revoked=0)` triple. Every
+researcher-lane `installs/*` route resolves ownership through a JOIN and 404s on a miss, so an
+unconverted endpoint means "members cannot do that yet", never a leak. The session lane: eviction
+runs after the insert so the signing-in browser is never evicted, expired-but-unrevoked rows are
+consumed first, and the Google callback rotates `secret_hash` on every sign-in — which does close
+round-1's legacy skeleton-key concern. The core Phase C crypto question — can a device's Ki reach a
+member without the owner handing over Kr — is sound: the owner unwraps under Kr locally and re-wraps
+RSA-OAEP to the member's pubkey, and the worker stores a blob it cannot open. The chunk-relay and
+token layer: route-distinct ownership keys, mutually non-satisfying payload shapes, server-authoritative
+TTL clamping. `drive.file` scope genuinely bounds the whole Drive lane to app-created files, which is
+what keeps every Drive finding above an intra-FlexText-estate problem. Command append and cancel share
+a correct `desired_rev` CAS loop, and the invite claim's prior-install revoke is properly guarded on
+having won the claim.

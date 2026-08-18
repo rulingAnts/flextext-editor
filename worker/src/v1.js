@@ -2480,6 +2480,27 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     if (m === 'POST' && sub === 'revoke' && seg.length === 4) {
       const r = await authResearcher(request, env);
       if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      /* ⚠ OWNERSHIP IS ESTABLISHED FIRST, NOT CARRIED BY ONE STATEMENT OF THE BATCH.
+       * This used to be a two-statement batch where only the FIRST carried `AND researcher_id=?`;
+       * the second was a bare `UPDATE install SET revoked=1 WHERE instance_id=?`. A D1 batch is
+       * sequential, not conditional — statement 2 lands whether or not statement 1 matched — so
+       * knowing an instance GUID was enough to flag every install of ANOTHER researcher's instance
+       * revoked. The device's next poll takes a 410 and auto-releases: clearSession, sync link
+       * dropped, Drive config scrubbed, mid-assignment. The reply was still ok:true.
+       *
+       * Today the only barrier is that instance ids are unguessable. Under the projects/researchers
+       * split every member legitimately SEES those ids, so a see-only member with no capability at
+       * all would gain a device-unlinking primitive on day one. It also falsified the invariant the
+       * plan's staged endpoint conversion rests on (R2-4: every instance/install/crowd ownership
+       * check is a fail-closed filter that returns not_found) — this was a second, unnamed
+       * exception, and it failed OPEN.
+       *
+       * Fixed by doing what the sibling `installs/<iid>/revoke` route immediately below already
+       * does: resolve ownership, 404 on a miss, and only then write. Re-revoking still returns 200,
+       * so no deployed panel changes behaviour. */
+      const ownedInst = await env.DB.prepare('SELECT instance_id FROM instance WHERE instance_id=? AND researcher_id=?')
+        .bind(instanceId, r.researcher_id).first();
+      if (!ownedInst) return j({ error: 'not_found' }, 404, origin, env);
       await env.DB.batch([
         env.DB.prepare('UPDATE instance SET revoked=1 WHERE instance_id=? AND researcher_id=?').bind(instanceId, r.researcher_id),
         env.DB.prepare('UPDATE install SET revoked=1 WHERE instance_id=?').bind(instanceId),

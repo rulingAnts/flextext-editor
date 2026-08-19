@@ -2082,3 +2082,42 @@ made that cheap; before it existed there was nothing to check against.
 The reverse sweep should be run **once, deliberately, on a throwaway test project**, before the real
 migration — create a project, move a disposable folder into it, reverse it, confirm the estate is
 identical to before. An undo path that has never been executed is a hypothesis.
+
+### 16.24 "Unassigned" means SET ASIDE, not merely unclaimed — a rule crowd submissions forced
+
+Seth, 2026-08-19, after the sweep was caught emptying a crowd folder:
+
+> *"we do kind of want to keep Crowd Submitted texts separate from texts that the researcher has set
+> aside for assigning later. We don't want crowd submitted, potentially unlimited number texts ending
+> up in the unassigned box without the researcher specifically putting them there."*
+
+That is a design rule, not a restatement of the bug, and it outlives the fix. **The word "unassigned"
+is currently doing two jobs**, and the suite has quietly merged them:
+
+| | what it means | how it got there |
+|---|---|---|
+| **Set aside** | a text that WAS on a device and no longer is | the researcher removed it, or the sweep filed it |
+| **Never claimed** | a crowd submission | it was born that way and always will be |
+
+The second is the permanent, unbounded case: a recorder can produce submissions indefinitely, and
+every one of them is "on no device" for ever. Merging the two means an unbounded inbox flowing into
+the researcher's own set-aside pile — where the "Remove from Google Drive" button lives.
+
+**Three consequences, only the first of which is fixed:**
+
+1. ✅ **The sweep must not MOVE them** (v407). A crowd text stays in its recorder's folder. Fixed and
+   confirmed on the production estate.
+2. ⬜ **The storage view must not GROUP them as unassigned.** ⚠ The modal has a display bucket
+   literally called *"Google Drive (unassigned)"* which is NOT the `Unassigned` folder — it is
+   "everything whose parent is not a recognised container". Two different things wearing one name,
+   and the collision is what made this confusing to diagnose. A crowd text must group under its
+   recorder.
+3. ⬜ **The TAG must distinguish them.** `isUnassigned()` is `no device reports it`, which is
+   permanently true of a crowd submission, so one reads "unassigned" for ever. It is not set aside;
+   it is *newly arrived and awaiting triage*. Different word, and probably a different affordance —
+   "assign this to a device" rather than "remove it".
+
+⚠ **And the general lesson, which is the reason this is written down rather than just fixed:** every
+predicate of the form *"no device reports it"* is permanently true for a crowd-born text. That shape
+will keep producing bugs — it produced this one and the sweep one — so any NEW rule phrased that way
+must be checked against the crowd case before it ships.

@@ -2044,6 +2044,39 @@ seems to require re-pairing, something has gone wrong that this plan did not ant
 re-read §16.19**, because the likely cause is a live install or instance row reading as absent or
 revoked, and continuing will unlink the whole estate rather than repair it.
 
+### 17.4a ✅ THE ROUND TRIP, EXECUTED ON THE PRODUCTION ESTATE (2026-08-19)
+
+Not a rehearsal on a throwaway — the real four containers, with a snapshot either side. Migrate,
+verify, unmigrate, verify. Results, diffed from the snapshot JSON rather than eyeballed:
+
+| | |
+|---|---|
+| objects lost | **none**, of 103 |
+| folder ids changed | **none** — every folder MOVED, never recreated |
+| byte total | **+0** — metadata only, as designed |
+| after undo, folders not back where they started | **2**, neither caused by the migration |
+| `Default Project` after undo | trashed (recoverable 30 days), never deleted |
+
+**So migrate and unmigrate are exactly inverse on real data.** §16.21's claim — that ids survive, so
+every reference in D1, in device memory and in minted URLs stays valid — is now measured rather than
+argued. The rollback ladder's step 2 is a tested path.
+
+⚠ **And the exercise paid for itself twice over, both times through DATA rather than review:**
+
+1. The **sweep's bootstrap deadlock** (v403). The first snapshot showed zero folders tagged
+   `unassigned` while a text Seth had reported was still in its device folder — the feature shipped in
+   v399 had never once run, because its guard required the folder that the call it was guarding
+   creates.
+2. The **sweep emptying crowd folders** (v407). The migration diff showed the crowd text had moved
+   from `Crowd — Test Crowd Recorder` to `Unassigned`. The sweep's test is "no device reports it",
+   which is PERMANENTLY true of a crowd submission — so it would have stripped every crowd folder,
+   for ever, undoing v396.
+
+Both read as correct when written and again when reviewed. Neither would have been found by a test
+written against the same misunderstanding. **The rule this establishes: for anything that writes to
+Drive, the verification step is checking the resulting DATA, not re-reading the code.** The snapshot
+made that cheap; before it existed there was nothing to check against.
+
 ### 17.5 Practise the undo before needing it
 
 The reverse sweep should be run **once, deliberately, on a throwaway test project**, before the real

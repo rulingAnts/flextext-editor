@@ -829,3 +829,58 @@ Do not write these ahead of the code: the reconciler and its precedence rules; p
 
 **Order:** architecture → design → UI → **then** all of the above, in one pass, against what actually
 shipped.
+
+---
+
+## 15. Round-trips: what must pass through the worker, and what must not
+
+Seth, 2026-08-19: *"We should limit our round-trips to Google Drive through the worker and API, and
+as much as possible for things moving within Google Drive, we should use Google Drive API to move
+them internally rather than routing them through the worker."*
+
+Right, and the principle is worth stating once because it is easy to violate by accident. **Two
+different costs are in play and they want different answers:**
+
+### 15.1 BYTES — never route them through the worker for a Drive-internal operation
+
+A Drive-internal change should be a Drive API call that moves no data:
+
+| Operation | How it is done | Bytes through the worker |
+|---|---|---|
+| move / re-parent a folder | `files.update` + `addParents`/`removeParents` (`driveReparent`) | **none** |
+| create a folder | `files.create` | none |
+| rename | `files.update` | none |
+| trash | `files.update {trashed:true}` | none |
+| copy an app-created file | `files.copy` — **§2's sibling-doc copy** | none |
+
+✅ **Already true.** Every move, adopt and unassign-sweep in this codebase is a metadata PATCH.
+
+⚠ **There was exactly one violation, and it is gone**: `assign-copy` fetched a file from Drive and
+re-uploaded it, so bytes went Drive → worker → Drive for what should have been an internal
+operation. Removed 2026-08-19 (§7). Do not reintroduce that shape — if a copy is needed and the
+source is app-created, `files.copy` does it server-side for one request and no egress.
+
+**The two cases where bytes legitimately pass through the worker**, because the other end holds no
+Drive credential and must not:
+
+- **uploads** — the bytes originate on a device or in the panel; chunked and resumable precisely
+  because the connection is weak;
+- **`/v1/textfile` downloads** — Drive → worker → device. The device has no Drive token and giving
+  it one would be the compartmentalisation failure §13 exists to prevent.
+
+### 15.2 CALLS — the other cost, and the one that actually bites
+
+Bytes are not the binding constraint; **the ~50-subrequest per-request cap is**, and it has already
+caused two outages (`drive-purge`, twice) and one latent failure (the trash route, fixed 2026-08-19).
+So "limit round-trips" mostly means *limit the NUMBER of Drive calls per request*:
+
+- **Never one call per item** where one call per page will do. `driveListAll` is the model: under
+  `drive.file` scope an unfiltered `files.list` returns the entire FlexText estate and nothing else,
+  so the storage manager costs pages, not texts.
+- **Bound anything that loops over items** with waves + a cap + a time budget, and return the
+  remainder rather than silently truncating (`drive-purge`, and now `trash`).
+- ⚠ **Resolve by stored id, never by search.** `files.get` is one strongly-consistent call;
+  the `appProperties` tag search is one *eventually-consistent* call that can be minutes stale — the
+  v167 duplicate-folder bug. Storing folder ids in D1 (§10.4(2), and the `driveMasterFolder`
+  follow-on in §8a) therefore removes a round trip AND a consistency hazard at the same time. That
+  is the strongest argument for the index that has nothing to do with authorization.

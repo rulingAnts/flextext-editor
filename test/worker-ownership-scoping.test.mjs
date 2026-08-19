@@ -85,10 +85,22 @@ console.log('\nminted /v1/textfile URLs are scoped, and therefore revocable');
   // Old tokens are held by deployed devices right now; breaking them strands assignments in flight.
   ok(/if \(scope && scope\.instanceId\)/.test(code),
      'scope is OPTIONAL at mint, so v1 tokens still mint and still serve unchanged');
+  /* ⚠ THE CONSENT PROMPT IS DELIBERATELY UNSCOPED, and this asserts it stays that way. It is
+   * configuration the researcher REUSES — pasted by hand into other devices' `consentAudioUrl`
+   * field and into a crowd recorder's config, which has no instance at all — so scoping it would
+   * 410 it the moment the minting device were revoked. Audio and flextext are a delivery to ONE
+   * device and are scoped; the prompt is not. The inconsistency is the correct behaviour. */
+  ok(/body\.promptFileId, '', ttlMs\);/.test(code),
+     'the consent prompt is minted WITHOUT a scope');
+  ok(/body\.audioFileId, '', ttlMs, scope\)/.test(code) && /body\.flextextFileId, '', ttlMs, scope\)/.test(code),
+     '...while the assignment audio and flextext are scoped');
+  // A per-token id cannot be added to tokens already in the field, so it must be carried from day one.
+  ok(/n: crypto\.randomUUID\(\), iat: Date\.now\(\)/.test(code),
+     'every token carries a per-token id, so a single leaked URL can be retired later');
   // Every mint site should be passing a scope now — an unscoped one is a hole left open.
   const mints = (code.match(/mintTextfileUrl\(env, url\.origin/g) || []).length;
   const scoped = (code.match(/mintTextfileUrl\(env, url\.origin[^;]*?scope|instanceId: to\.instance_id/g) || []).length;
-  ok(mints > 0 && scoped >= 3, `every mint site passes a scope (${scoped} scoped of ${mints})`);
+  ok(mints > 0 && scoped >= 3, `the delivery mint sites pass a scope (${scoped} of ${mints}; the prompt is the deliberate exception)`);
   /* ⚠ TTL is deliberately UNTOUCHED by this change — shortening it is visible to researchers who
    * set a delivery window, so it is a separate decision, not a side effect. Asserted so a later
    * edit cannot quietly fold a behaviour change into this one. */
@@ -103,6 +115,9 @@ console.log('\nthe worker never fetches a URL the caller chose');
    * confirming zero call sites on productionWeb and main. A caller-controlled outbound fetch that
    * serves no live flow is pure attack surface. */
   ok(!/sub === 'assign-copy'/.test(code), 'the assign-copy route is gone');
+  /* And nothing PERSISTS a raw Drive message either: noteDriveError writes into researcher.drive_error
+   * in D1, which is the one path where an identifier outlives the request. */
+  ok(!/' \+ e\.message\)/.test(code), 'no handler stores or returns a raw Drive e.message');
   ok(!/drive\.usercontent\.google\.com/.test(code),
      'and with it the only fetch of a caller-named Drive download URL');
   const client = read('../docs/js/researcher.js');

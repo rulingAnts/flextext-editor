@@ -486,7 +486,7 @@ async function driveAccessToken(env, row) {
  * goes, so a future Google message format cannot quietly reintroduce the leak. */
 function safeErr(e) {
   let m = String((e && e.message) || 'error');
-  m = m.replace(/[A-Za-z0-9_-]{20,}/g, '…');                       // ids, tokens, opaque handles
+  m = m.replace(/[A-Za-z0-9_-]{24,}/g, '…');                       // ids, tokens, opaque handles
   m = m.replace(/[^\s@]+@[^\s@]+\.[^\s@]+/g, '…');                 // addresses
   return m.slice(0, 200);
 }
@@ -825,7 +825,12 @@ export function clampTtlDays(v) {
  * researchers who set a delivery window, so it is a separate decision, not a side effect of this. */
 async function mintTextfileUrl(env, urlOrigin, researcherId, fileId, extract, ttlMs, scope) {
   if (!fileId) return null;
-  const tk = { r: researcherId, f: fileId, x: extract || '', e: Date.now() + (ttlMs || 90 * 86400000) };
+  /* ⚠ `n` AND `iat` ARE FREE NOW AND CANNOT BE ADDED LATER — not to tokens already in the field,
+   * which is the whole point. Without a per-token id the only way to withdraw one URL is to revoke
+   * its entire instance; with it, a future deny-list can retire a single leaked link. Both are
+   * ignored by every client, which is why they cost nothing to carry from today. */
+  const tk = { r: researcherId, f: fileId, x: extract || '', e: Date.now() + (ttlMs || 90 * 86400000),
+               n: crypto.randomUUID(), iat: Date.now() };
   if (scope && scope.instanceId) { tk.v = 2; tk.i = scope.instanceId; if (scope.docId) tk.d = scope.docId; }
   return urlOrigin + '/v1/textfile/' + encodeURIComponent(await encAtRest(env, JSON.stringify(tk)));
 }
@@ -1987,7 +1992,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
        * Anything not reached comes back in `remaining` and the caller may simply call again. That is
        * additive: an older panel that ignores the field reports the smaller count, which is TRUE —
        * honest partial progress instead of a crash with an unknown outcome. */
-      const CAP = 40, WAVE = 8, BUDGET_MS = 9000;
+      // CAP 45, not 40: the 41-49 band completes today (sequential PATCHes + one token fetch stay
+      // under 50; D1 goes through the binding and costs no subrequest), so a lower cap would make
+      // this route newly fall SHORT on runs that currently succeed. 45 + 1 = 46, clear of the cap.
+      const CAP = 45, WAVE = 8, BUDGET_MS = 9000;
       const started = Date.now();
       const results = [];
       let i = 0;
@@ -2001,9 +2009,13 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         }));
         results.push(...settled);
       }
-      const remaining = ids.slice(results.length);
+      /* ⚠ A COUNT, not an array — `drive-purge` already returns `remaining` as a number and the
+       * panel loops on `if (!r.remaining) break;`. An empty array is TRUTHY, so the same name
+       * meaning the opposite thing would hand the next person a loop that never terminates. */
+      const remainingIds = ids.slice(results.length);
+      const remaining = remainingIds.length;
       await logApproval(env, request, 'files_trashed', results.filter((x) => x.ok).length + ' file(s)', (body.note || '').slice(0, 120), r.drive_email);
-      return j({ results, trashed: results.filter((x) => x.ok).length, remaining }, 200, origin, env);
+      return j({ results, trashed: results.filter((x) => x.ok).length, remaining, remainingIds }, 200, origin, env);
     } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
   }
 
@@ -2354,7 +2366,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         const uploadId = await encAtRest(env, JSON.stringify({ u: session, rr: r.researcher_id, s: size }));
         return j({ ok: true, uploadId }, 200, origin, env);
       } catch (e) {
-        await noteDriveError(env, r.researcher_id, 'assignment upload start failed: ' + e.message);
+        await noteDriveError(env, r.researcher_id, 'assignment upload start failed: ' + safeErr(e));
         return j({ error: e.code || 'drive_error' }, 502, origin, env);
       }
     }
@@ -2386,10 +2398,16 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       const ttlDays = clampTtlDays(body.ttlDays);
       const ttlMs = ttlDays * 86400000;
       try {
+        /* ⚠ THE AUDIO AND THE FLEXTEXT ARE A DELIVERY TO ONE DEVICE — scope them, so revoking that
+         * device withdraws them. THE CONSENT PROMPT IS NOT: it is configuration the researcher
+         * REUSES, pasted by hand into other devices' settings (the free-text `consentAudioUrl`
+         * field) and into a crowd recorder's config, which has no instance at all. Scoping it would
+         * 410 the moment the minting device were revoked, and would never work for a crowd page.
+         * Deliberately unscoped; do not "fix" the inconsistency by scoping it. */
         const scope = { instanceId, docId };
         const audioUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.audioFileId, '', ttlMs, scope);
         const flextextUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.flextextFileId, '', ttlMs, scope);
-        const promptUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.promptFileId, '', ttlMs, scope);
+        const promptUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.promptFileId, '', ttlMs);
         if (docId && (audioUrl || flextextUrl)) {
           await logApproval(env, request, 'assigned_upload', docId.slice(0, 12) + '…', '→ ' + (inst.nickname || '?'), r.drive_email);
         }
@@ -2706,7 +2724,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           // bare .flextext would land INSIDE originals/ instead of the text folder.
           return j({ ok: true, uploadId, folderId: textFolder !== deviceFolder ? textFolder : undefined }, 200, origin, env);
         } catch (e) {
-          await noteDriveError(env, inst.researcher_id, 'chunked upload start failed: ' + e.message);
+          await noteDriveError(env, inst.researcher_id, 'chunked upload start failed: ' + safeErr(e));
           return j({ error: e.code || 'drive_error' }, 502, origin, env);
         }
       }
@@ -2786,7 +2804,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           // would redirect every later bare .flextext into it.
           return j({ ok: true, fileId, folderId: textFolder !== deviceFolder ? textFolder : undefined }, 200, origin, env);
         } catch (e) {
-          await noteDriveError(env, inst.researcher_id, 'device upload fell back to the relay: ' + e.message);
+          await noteDriveError(env, inst.researcher_id, 'device upload fell back to the relay: ' + safeErr(e));
           return j({ error: e.code || 'drive_error' }, 502, origin, env);   // → relay fallback
         }
       }
@@ -3087,7 +3105,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           const uploadId = await encAtRest(env, JSON.stringify({ u: session, c: crowdId, s: size, d: subId, n: name, t: now }));
           return j({ ok: true, uploadId }, 200, origin, env);
         } catch (e) {
-          await noteDriveError(env, rec.researcher_id, 'crowd chunked start failed: ' + e.message);
+          await noteDriveError(env, rec.researcher_id, 'crowd chunked start failed: ' + safeErr(e));
           return j({ error: 'delivery_failed' }, 502, origin, env);
         }
       }
@@ -3186,7 +3204,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           const folder = await driveEnsureCrowdFolder(env, access, rec);
           fileId = await driveUpload(access, folder, name, buf, 'application/zip');
         } catch (e) {
-          await noteDriveError(env, rec.researcher_id, 'crowd delivery failed: ' + e.message);
+          await noteDriveError(env, rec.researcher_id, 'crowd delivery failed: ' + safeErr(e));
           return j({ error: 'delivery_failed' }, 502, origin, env);   // client keeps + retries
         }
         const country = (request.cf && request.cf.country) || '';

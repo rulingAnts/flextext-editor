@@ -2205,64 +2205,80 @@ never upload again. A crowd tag backfills when that recorder next receives a sub
 recorder that may be paused for a year. Exempting those outright means the one case where the
 self-heal never fires is exactly the case nobody is told about.
 
-**So there are TWO escalation tests, and the TIMER is the gate.**
+**ESCALATION IS A TIMER. Nothing else.** A `heals` finding still present after N runs is mailed.
 
-The causal one came first (Seth: *"maybe it needs to verify that the drift SHOULD have corrected but
-didn't"*) and it is the sharper question: not "has enough time passed" but *"did the thing that would
-have fixed this actually happen, and is the drift still here?"*
+The sharper-sounding alternative was to verify causally — record for each finding which operation
+would fix it (`healBy`) and which observable proves that operation ran (`healWitness` —
+`install.last_seen_at`, `crowd_recorder.submit_count`), then escalate the moment the witness advanced
+and the drift was still there. It asks the better question: not "has enough time passed" but *"did
+the thing that would have fixed this actually happen?"*
 
-⚠ **But a timer is more RELIABLE, and reliability is what a monitor is for** (Seth again, arguing
-against the causal test as the gate — correctly). The causal test depends on a witness, and a witness
-can be wrong in both directions: `last_seen_at` advances on any contact, not specifically on an
-upload that would run `driveEnsureDeviceFolder`, so it can move without the heal firing — and it can
-fail to move while the heal fired. It is also more moving parts, in logic that is awkward to test.
+**It is not being built, and the reason is worth more than the feature** (Seth):
 
-**The asymmetry settles which is primary.** A timer errs toward telling you too much. A causal test
-with a mis-chosen witness errs toward telling you NOTHING. For a monitoring system false silence is
-the worse failure by a wide margin — the same reasoning `sendEmail` records about a monitor that lies
-about its own delivery: you stop watching the inbox AND you believe the silence means safety.
+> *"a timer might be more reliable… because 'should have corrected' needs to keep getting updated
+> with new features and changes. And has its own drift potential that we'd rather not have to
+> police."*
 
-So:
+⚠ **THE CAUSAL TEST IS ITSELF A MODEL THAT DRIFTS.** `healBy`/`healWitness` is a hand-maintained
+description of which operation heals which fault. Every feature that changes what self-heals silently
+invalidates a row, and nobody will remember to update it — so the drift detector would acquire drift
+of its own, and need its own detector. That recursion is the thing to refuse, not to manage.
 
-- **TIMER = the floor, and it is never suppressed.** A `heals` finding still present after N runs is
-  mailed, whatever the witness says. Nothing can talk this out of firing.
-- **CAUSAL = an accelerator, never a gate.** When the witness DID advance and the finding is still
-  there, mail immediately rather than waiting out the timer — the self-heal is demonstrably broken and
-  that is worth knowing today. When the witness has not advanced, it changes nothing: the timer still
-  runs.
+Two further reasons the trade is bad even before the maintenance cost:
 
-That ordering keeps the failure mode as noise rather than silence, and still catches a broken
-self-heal within minutes on a busy device. Report both signals, so a message can say "escalated
-because the device uploaded four times and the folder is still missing" rather than only "still
-here after three days" — the first is actionable, the second is merely true.
+- **The witness can be wrong in both directions.** `last_seen_at` advances on any contact, not
+  specifically on an upload that would run `driveEnsureDeviceFolder` — so it moves without the heal
+  firing, and can fail to move when it did.
+- **A timer errs toward telling you too much; a mis-witnessed causal test errs toward telling you
+  NOTHING.** For a monitor, false silence is much the worse failure — the reasoning `sendEmail`
+  already records about a system that lies about its own delivery: you stop watching the inbox AND
+  believe the silence means safety.
 
-Each `heals` finding therefore carries two extra fields:
+**What is actually given up:** on a busy device, a broken self-heal would have been visible in minutes
+instead of N days. That is the entire benefit, and it does not buy a permanently stale table.
 
-| field | meaning |
-|---|---|
-| `healBy` | the operation that would fix it — "this device's next upload", "this recorder's next submission" |
-| `healWitness` | the observable that proves it ran — the counter or timestamp to compare against next time |
+### ⚠ The one design that WOULD make a causal signal maintainable — if it is ever wanted
 
-**The accelerator fires when the witness ADVANCED and the finding is still present** — the moment
-the self-heal is demonstrably not working, which is worth an email precisely because it contradicts
-an assumption the design rests on. It only ever makes the email EARLIER than the timer would.
+> *"Unless you've got some idea of how to reliably keep track of what 'should have corrected' without
+> having to manually define and duplicate 'what should have corrected' with each auto-correction
+> change or guard we build."* (Seth)
 
-Witnesses we already have, no new plumbing:
+There is one, and it works by inverting where the knowledge lives. **Stop describing what heals; make
+the healing code declare that it ran.**
 
-- device upload → `install.last_seen_at`, plus the inventory's `reported_rev`
-- crowd submission → `crowd_recorder.submit_count`
-- an interrupted migration → researcher-initiated, so it is never in the `heals` class at all; nothing
-  fires on its own and it goes straight to `needs-human`
+The unmaintainable version is a table in the detector saying "fault X is healed by operation Y,
+observable as Z" — a second copy of a fact that lives in the healing code, in a different file, which
+is exactly the duplication that rots. Instead, every self-healing chokepoint —
+`driveEnsureDeviceFolder`, `driveEnsureTextFolder`, `driveEnsureCrowdFolder`, the sweep — stamps the
+object it touched: **`healed_at`, plus what it did.**
 
-⚠ **Where no witness exists, nothing is lost** — the timer was always the gate, so an unobservable
-trigger simply means no early escalation. The report still says which signal fired, because
-"escalated because the device uploaded four times and the folder is still missing" and "still here
-after three days" are different claims and the report must not flatten them into one.
+The escalation rule then becomes generic, and carries no model at all:
 
-⚠ **And the classification is a property of the FINDING, not of the check.** The same check can yield
-different classes — a missing `oauth_folder_id` on a device that reported an hour ago heals on its
-next upload; the same gap on a device last seen in March does not. Classify with the evidence in
-hand, and put the reason in the report so it can be argued with.
+> *A healing path touched this object after the fault was first seen, and the fault is still here.*
+
+No mapping. No per-fault knowledge in the detector. It never needs updating when a new
+auto-correction is added, because it does not know what corrections exist — it only knows that
+something claimed to have handled this object and the object is still wrong.
+
+**What it still costs, stated honestly:** a new healing path has to remember to stamp. That is a
+manual step. But it is a *local* one — a line in the function that already does the repair, not a row
+in a distant table — and unlike a mapping it can be ENFORCED: the same idiom as
+`check-native-containment.sh`, a script that enumerates the ensure/heal helpers and fails when one of
+them does not record. Enforceable duplication is a different animal from unenforceable duplication.
+
+**The zero-cooperation variant, and why it is worse:** Drive's own `modifiedTime` already says
+whether an object changed since the fault was seen, with no code changes anywhere. But *any*
+modification counts — an upload, a rename, a re-parent — so "touched and still broken" stops meaning
+"a repair ran and failed" and becomes noise. It needs nothing and proves nothing.
+
+⚠ **None of this changes v1: the timer is still the gate.** This is recorded so that if the timer
+does prove too slow, the causal signal can be added *without* the maintenance burden that ruled it
+out — and so nobody rebuilds the table version, having forgotten why it was rejected.
+
+⚠ **The test for whether this was the wrong call, so it can be revisited on evidence rather than
+taste:** if real reports show `heals` findings routinely sitting out the full timer while the device
+was demonstrably active throughout, the timer is too slow and a causal signal earns its place. Until a
+report says that, it has not.
 
 ### Shape
 

@@ -2144,6 +2144,111 @@ being UTC *and* the absence of any label.
 would rewrite history for cosmetics — and folder names are display-only precisely so nothing depends
 on them (identity is the `flextextDoc` tag), so old names can simply stay wrong.
 
+## The scheduled DRIFT DETECTOR — designed, not built (Seth, 2026-08-19)
+
+> ⚠ **SEQUENCED, and the order is deliberate** (Seth): *"Let's do these audits as soon as we've
+> got our project/researcher split up and running and proved working and functional."* Both this
+> and the client-vs-server guard audit come AFTER the split is proven — not before, and not
+> alongside. Auditing a system that is still moving produces findings that expire before they are
+> acted on, and a drift detector written against a half-built model would encode the half.
+
+
+> *"a scheduled drift detector is a good idea, and it should e-mail me when it detects drift with
+> technical details in a JSON attachment that I can feed to you as diagnostic info. Maybe also log
+> entries in a D1 table that you can use for troubleshooting?"*
+
+### ⚠ DETECT ONLY. It must never correct anything.
+
+The distinction is the whole design, not caution. A job that silently repairs drift **hides the bug
+that caused it** — and it runs unattended across every project, so if its notion of "correct" is
+wrong it propagates that error everywhere before a human looks. Today's own bug is the illustration:
+a nightly repair could have re-tagged those devices every night for a year while the broken join went
+right on being broken. Detection makes defects louder; correction makes them quieter.
+
+Narrow, provably-idempotent repairs can be added later, one at a time, each behind its own flag. The
+default stays: report, never touch.
+
+### What it checks
+
+Read-only, from `driveListAll` plus the D1 rows for one researcher:
+
+1. a container whose parent is neither master nor a project folder
+2. an instance with a NULL `oauth_folder_id`, or one pointing at a missing/trashed folder
+3. two folders claiming the same `flextextDoc` tag (duplicate text folders)
+4. more than one folder tagged `flextextDefault=1` (the duplicate-default-project failure §16.27 guards against on the client)
+5. a text folder under no container at all
+6. `instance.project_id` / `crowd_recorder.project_id` disagreeing with the folder's real parent in Drive
+7. an Unassigned folder that is not a direct child of a project, or two under one project
+8. orphans — any object whose parent is not in the live set
+
+### Shape
+
+- **Cloudflare Cron Trigger**, free tier. ⚠ **One researcher per invocation**, cursor in `ops_flag`.
+  The binding constraint is NOT the request allowance, it is the **~50-subrequest ceiling** — a full
+  `driveListAll` is several pages for one account, and that ceiling has already killed two features
+  in this repo. A sweep over everything in one tick cannot work and must not be attempted.
+- **`drift_report` table**: `report_id`, `researcher_id`, `ran_at`, `fingerprint`, `summary`,
+  `findings_json`. Pruned at 30 days, like `crowd_submission`.
+- **Email on CHANGE, never on every run.** Compare the findings `fingerprint` to the previous report;
+  identical means log-and-stay-quiet. ⚠ A monitor that mails every night becomes a filter rule, and
+  then silence stops meaning anything — the same reasoning as `sendEmail`'s "a monitoring system that
+  lies about its own delivery is worse than none".
+- **The JSON rides as a Resend attachment.** ⚠ Extend `sendEmail` in `seclog.js` — that file states
+  outright why there is exactly ONE place that talks to Resend, and a second copy for this would
+  inherit precisely the hole it describes. The same JSON is in `drift_report`, so a lost email is not
+  a lost report.
+- **A kill switch that needs no deploy:** an `ops_flag` row, exactly as the maintenance notice does.
+  ⚠ The detector runs unattended against a live Drive on a schedule; if it ever misbehaves, the fix
+  must not require shipping code.
+
+### ⚠ What it is NOT
+
+It is not a substitute for making drift impossible. Where we own both copies, the answer is still to
+have one authority and derive the rest (project-split II.5d). A reconciler earns its place only for
+what we do NOT control — a human moving folders in the Drive UI — and there Drive is truth and the
+index follows. Building this must not become a reason to relax that.
+
+## The client-vs-server guard audit — queued behind the split (Seth, 2026-08-19)
+
+> *"We may soon want to audit our project for client-side code/guards/etc that would be better on the
+> server side (or maybe good to duplicate on the server side??)"*
+> *"We've been putting those things on the client side in order to avoid breaking the worker or having
+> to have a staging worker. But might be we want to rethink that, as long as changes are additive."*
+
+⚠ **The premise has already changed, and that is what makes the audit worth doing.** A staging worker
+EXISTS: `worker/wrangler.toml` carries `[env.staging]`, it deploys from any ref through the
+`wrangler (one-off command)` workflow with `deploy --env staging`, and the client aims at it with
+`?devworker=staging` (persisted per device). The reason for keeping guards client-side — no safe
+place to test a worker change — is out of date.
+
+**The sorting question, applied to each guard, in this order:**
+
+> *If a buggy or hostile client skipped this check entirely, what happens?*
+
+| answer | where it belongs |
+|---|---|
+| something looks wrong | leave it in the client; it is presentation |
+| wrong DATA is written | duplicate it server-side — the client copy stays for the fast, kind error message |
+| access is widened, or data is lost | it MUST be server-side. The client copy is a nicety and must never be the only one. |
+
+**Already known to belong in the third row**, before the audit starts:
+
+- `/drive-estate` scoping to a member's grants (drive-as-truth §16.30) — today it returns the owner's
+  whole tree, and a hidden tab is paper.
+- `/v1/textfile` resolving the grant at redemption, not just validating the token (II.5d, I2).
+- The unassign sweep: the PANEL decides which texts are unassigned, because inventories are E2EE and
+  the worker genuinely cannot know. ⚠ That one is not a mistake to fix — it is a real constraint, and
+  the audit must recognise it rather than "correct" it into a server check that cannot exist.
+
+**The instance→project join (v425) is the worked example** of the second row: the client held two
+halves of a fact and joined them wrongly, and moving the join to where both halves already live cost
+one indexed D1 read and removed the failure mode entirely.
+
+⚠ **Additive-only remains the gate.** Every worker change made today was strictly additive — fields
+appearing in a response that previously omitted them, ignored by every shipped client. A change that
+alters what an existing field MEANS is a different animal and needs the staging worker plus a test
+drive, however small it looks.
+
 ## Housekeeping, deliberately deferred (Seth, 2026-08-19, right after the v419 release)
 
 > *"we don't actually need main and productionWeb to be separate branches and having them as such is

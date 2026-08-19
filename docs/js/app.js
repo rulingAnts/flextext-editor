@@ -3846,41 +3846,33 @@ async function listCachedApps() {
   } catch { return null; }
 }
 
-// Subtle always-on version badge in the bottom-right corner (every mode). The editor's shell IS the
-// engine, so it shows one number; the researcher and paragraph apps show "engine/shell" because the
-// engine number is the one every other surface reports; the recorder shows its own shell version,
-// which is what the deploy-order rule is written in. Informational only — pointer-events:none so it
-// never intercepts a tap.
-async function showAppVersion() {
+/* Subtle always-on version badge in the bottom-right corner: the app's name and the ENGINE version,
+ * in every mode. Informational only — pointer-events:none so it never intercepts a tap.
+ *
+ * ONE NUMBER, everywhere (Seth, 2026-08-19: "we don't need to track those separate versions
+ * anymore — the version is good enough"). The researcher and paragraph apps used to read
+ * "engine/shell" and the recorder showed its own shell number alone. Two reasons that is gone:
+ *
+ *  - It was redundant. version-sync makes every satellite's VERSION and ENGINE move together in the
+ *    same commit, so the shell counter is a fixed relabelling of the engine number that only the
+ *    source tree can decode. "researcher v231" answers no question a bug report asks; every other
+ *    surface in the suite — the live-version strip, a device's reported version, the stale badge,
+ *    the changelog — already talks in ENGINE versions.
+ *  - The dropped half was the UNRELIABLE half. `listCachedApps()` reads cache NAMES, which a
+ *    stale-body precache can make lie; ENGINE_VERSION is compiled into the i18n module actually
+ *    running. See syncGatherInventory, which reports both for exactly that reason — the panel's
+ *    cross-app staleness signal still gets `cachedApps`, and it is read there beside the
+ *    authoritative number rather than shown alone on a screen. */
+function showAppVersion() {
   const name = RESEARCHER_MODE ? 'researcher' : (RECORD_MODE ? 'recorder' : (PARAGRAPH_MODE ? 'paragraph' : 'editor'));
-  let ver = ENGINE_VERSION;                                   // editor: shell == engine version
-  if (RECORD_MODE) {
-    const apps = await listCachedApps().catch(() => null);
-    ver = (apps && apps.recorder) || '';                      // own shell version (cache name)
-  } else if (PARAGRAPH_MODE || RESEARCHER_MODE) {
-    /* Show BOTH, engine first — "researcher v295/v231" (Seth, for the panel; the paragraph app has
-     * read this way since v182).
-     *
-     * ⚠ THE SHELL NUMBER ALONE CANNOT BE MATCHED TO ANYTHING. Each satellite's VERSION is its own
-     * counter, bumped +1 per release, so "researcher v231" answers no question a bug report asks:
-     * every other surface in the suite — the live-version strip, a device's reported version, the
-     * stale badge, this changelog — talks in ENGINE versions. Reading v231 off the screen and
-     * trying to place it against v295 is the confusion this removes. The shell counter still earns
-     * its place after the slash: it is what identifies THIS app's own deployment when its mirror
-     * has not caught up with the engine. */
-    const apps = await listCachedApps().catch(() => null);
-    const shell = apps && (PARAGRAPH_MODE ? apps.paragraph : apps.researcher);
-    // No shell number yet (first load before the SW caches, or a dev server with no SW): the engine
-    // version alone is still the useful half, so show it rather than an empty badge.
-    ver = shell ? ENGINE_VERSION + '/' + shell : ENGINE_VERSION;
-  }
+  let ver = ENGINE_VERSION;
   /* On a feature/staging build the human-facing name of the build LEADS, with the numeric version
    * kept after it — the number is still what every bug report, device report and deploy-order rule
    * is written in, so it must not disappear. Production has no tag and reads exactly as before. */
-  if (BUILD_TAG) ver = ver ? BUILD_TAG + ' · ' + ver : BUILD_TAG;
+  if (BUILD_TAG) ver = BUILD_TAG + ' \u00b7 ' + ver;
   let el = document.getElementById('app-version');
   if (!el) { el = document.createElement('div'); el.id = 'app-version'; el.className = 'app-version'; (document.body || document.documentElement).appendChild(el); }
-  el.textContent = ver ? name + ' ' + ver : name;
+  el.textContent = name + ' ' + ver;
 }
 
 // Inventory for the report. The whole blob is E2EE-encrypted before it leaves the device
@@ -7492,7 +7484,7 @@ function setup() {
   // here too — no manual refresh. Registered in every mode; the handlers no-op in researcher mode.
   db.onLive((kind) => { if (kind === 'settings') applyLiveSettings(); else if (kind === 'docs') refreshLiveLists(); });
 
-  showAppVersion();   // subtle corner version badge (all modes; fire-and-forget)
+  showAppVersion();   // subtle corner version badge (all modes)
 
   // ----- Standalone Researcher console: boot the panel only; skip ALL field/editor wiring. -----
   if (RESEARCHER_MODE) {

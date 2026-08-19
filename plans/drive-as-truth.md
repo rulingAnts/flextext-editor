@@ -1937,3 +1937,86 @@ correctly, and the HALF-MIGRATED tree an interrupted sweep leaves. ✅ Writing t
 caught the bug above; it is the one nobody would think to construct, and it was the one that
 mattered. `unassignedFolderId` still returns a single id so shipped panels keep working, with
 `unassignedFolderIds` and `projects` added alongside for new ones.
+
+---
+
+## 17. UNDO — recovering from a tangled Drive or D1 on production
+
+Seth: *"let's also have a plan to reverse/undo Google Drive/D1 spaghetti on my production if we do
+end up with it."*
+
+Written BEFORE the migration, because two of the items below cannot be added afterwards.
+
+### 17.0 ⚠ THE ONE THING THAT MUST HAPPEN FIRST: a snapshot
+
+**Before any sweep runs, dump the full Drive listing to a file and keep it.** `driveListAll()` already
+produces exactly what is needed — every file and folder with `id, name, parents, appProperties` — and
+a JSON dump of it is the complete "before" picture of the estate. It costs one existing call.
+
+⚠ **Without it, "put it back how it was" is guesswork.** Drive does not version folder parentage;
+once a folder has moved, nothing in Drive records where it used to be. Every other recovery below is
+*reconstruction from tags*, which is good but is not the same as knowing. **This is the only item on
+this page that is impossible to add retroactively**, which is why it is 17.0 and not 17.5.
+
+Add `GET /v1/researcher/drive-snapshot` returning the raw listing, and save it locally before the
+sweep. Cheap, additive, and useful independently — it is also the input any repair tool wants.
+
+### 17.1 What makes recovery possible at all — the invariants to protect
+
+These are not aspirations; they are why the rest of this section works. Breaking any of them makes
+the estate genuinely unrecoverable rather than merely tangled.
+
+1. **The migration NEVER deletes.** It re-parents. Drive file ids are stable across a move, so every
+   id in D1, in every client's memory and in every minted URL stays valid.
+2. **Every folder this suite creates is TAGGED** — `flextextRole` for structure, `flextextDoc` for
+   texts. So our folders are findable no matter where they end up, including if a human drags one
+   somewhere strange. Recovery is a tag query, never a path walk.
+3. **D1 is an index, not the truth.** Anything in it about Drive (`oauth_folder_id`, folder ids) is a
+   *hint* verified by `files.get` before use. A wrong hint costs a lookup, not data.
+4. **Drive's trash is a 30-day net** for anything accidentally trashed — and `drive-purge`, the only
+   thing that empties it permanently, is a separate deliberate button. ⚠ Do not run it while
+   recovering.
+
+### 17.2 The four tangles, and the undo for each
+
+| Tangle | Undo |
+|---|---|
+| **Containers under the wrong project** (or the sweep half-ran) | Reverse sweep: re-parent by tag back to master, delete the empty project folders. Metadata-only, reversible again. |
+| **Duplicate text folders** — the v167 class, one `flextextDoc` matching several folders | Keep the OLDEST by `createdTime` (already the tie-break everywhere), move children into it, trash the empties. Never merge by name. |
+| **D1 folder ids pointing at the wrong folder** | Re-point by tag search, do NOT null-and-recreate: a null makes the resolver create a FRESH folder and orphan the real one's contents. |
+| **Texts swept into the wrong project's Unassigned** | Same reverse sweep — the `flextextUnassigned` tag records that *we* moved it, distinguishing our sweep from a folder the researcher filed deliberately. |
+
+### 17.3 The repair route — dry-run FIRST, and that is not optional
+
+`POST /v1/researcher/drive-repair` with `{ dry: true }` **reporting what it would do and changing
+nothing** is the whole design. A repair tool that acts before you have read its plan is how a tangle
+becomes a disaster: the failure mode of automated repair is confidently doing the wrong thing at
+scale, and the estate is already in an unexpected state by the time anyone reaches for it.
+
+- `dry:true` returns the list of intended moves — run it, read it, only then re-run with `dry:false`.
+- ⚠ **Bounded like every other Drive loop**: ~3 subrequests per folder against the ~50 cap, so it
+  processes a wave and returns `remaining`/`remainingIds`, exactly as `drive-unassign` and the trash
+  route do. The subrequest cap has killed two routes in this project already.
+- Reuses `driveReparent` and the existing tag searches. **No new Drive primitives** — a repair tool
+  built on its own machinery is a second thing that can be wrong.
+
+### 17.4 The rollback ladder, in the order to try it
+
+1. **Worker only** — Actions → *wrangler (one-off command)* → `rollback`. Instant, and sufficient for
+   anything wrong in the CODE. Drive is untouched.
+2. **Worker + reverse sweep** — if folders moved and the estate is wrong, put them back under master
+   and roll the worker back. The dual-shape estate means the *new* worker also reads a flat tree, so
+   this order is safe either way round.
+3. **Re-point D1 from Drive** — for folder-id drift only. Never rebuild rows wholesale.
+4. **Restore from the 17.0 snapshot** — the only step that needs the file, and the reason to have it.
+
+⚠ **What is NOT on this ladder, deliberately:** anything that re-pairs devices. If recovery ever
+seems to require re-pairing, something has gone wrong that this plan did not anticipate — **stop and
+re-read §16.19**, because the likely cause is a live install or instance row reading as absent or
+revoked, and continuing will unlink the whole estate rather than repair it.
+
+### 17.5 Practise the undo before needing it
+
+The reverse sweep should be run **once, deliberately, on a throwaway test project**, before the real
+migration — create a project, move a disposable folder into it, reverse it, confirm the estate is
+identical to before. An undo path that has never been executed is a hypothesis.

@@ -2205,10 +2205,35 @@ never upload again. A crowd tag backfills when that recorder next receives a sub
 recorder that may be paused for a year. Exempting those outright means the one case where the
 self-heal never fires is exactly the case nobody is told about.
 
-So `heals` findings are recorded silently and **escalate to `needs-human` if they persist across N
-runs** (N=3 is a reasonable start on a daily schedule). That keeps the inbox quiet for drift that is
-genuinely about to fix itself, without letting "the system handles that" quietly mean "nobody is
-watching that".
+**So the escalation test is CAUSAL, not a timer** (Seth: *"maybe it needs to verify that the drift
+SHOULD have corrected but didn't"*). A run counter only asks "has enough time passed"; the real
+question is *"did the thing that would have fixed this actually happen, and is the drift still here?"*
+Those differ in both directions — a device that uploads twice an hour proves the self-heal is broken
+within minutes, while one that is packed away for the dry season would trip any timer while being
+perfectly healthy.
+
+Each `heals` finding therefore carries two extra fields:
+
+| field | meaning |
+|---|---|
+| `healBy` | the operation that would fix it — "this device's next upload", "this recorder's next submission" |
+| `healWitness` | the observable that proves it ran — the counter or timestamp to compare against next time |
+
+**Escalate when the witness ADVANCED and the finding is still present.** That is the moment the
+self-heal is demonstrably not working, and it is worth an email precisely because it contradicts an
+assumption the design rests on.
+
+Witnesses we already have, no new plumbing:
+
+- device upload → `install.last_seen_at`, plus the inventory's `reported_rev`
+- crowd submission → `crowd_recorder.submit_count`
+- an interrupted migration → researcher-initiated, so it is never in the `heals` class at all; nothing
+  fires on its own and it goes straight to `needs-human`
+
+⚠ **Where no witness exists, say so in the report and fall back to a run threshold** (N=3 on a daily
+schedule) — but mark it as a fallback rather than letting an unobservable trigger read as a
+verified one. A finding that cannot be checked causally is a weaker claim, and the report should not
+flatten that distinction.
 
 ⚠ **And the classification is a property of the FINDING, not of the check.** The same check can yield
 different classes — a missing `oauth_folder_id` on a device that reported an hour ago heals on its

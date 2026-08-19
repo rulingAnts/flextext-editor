@@ -1943,3 +1943,39 @@ phone*. Hiding the button would remove the only way to recover one.
 
 ⚠ Trap hit while drafting: the explanatory comment contained backticks inside a template literal —
 the recurring trap already recorded in this repo. Keep prose comments OUT of template literals.
+
+### Consent prompt: the device side is done, the CROWD side is not (2026-08-19)
+
+Seth: *"We don't want consentAudio to work with a free URL. It should instead be uploaded to Google
+Drive by a file picker, and stored in the device folder root (Crowd Recorders also have 'device'
+folders)… Our UI doesn't have the consentURL textbox anymore."*
+
+✅ **Right about the device settings, and it already works that way.** The renderer special-cases
+`consentAudioUrl` into a hidden value carrier + a status line + an Upload button + a file picker,
+with the reasoning recorded in situ (Seth, 2026-08-12: showing the box *"implied a URL was still
+something a researcher pastes"*). The worker's comment confirms the destination: `'consent-prompt'
+targets the DEVICE folder`. Nothing to do.
+
+❌ **The crowd recorder still has the raw text box.** `#cr-caudio` is a plain `<input>` with no
+picker, and `CROWD_DEFAULT_CONFIG.consentAudioUrl` is a free string — so pasting a URL is still the
+only way to give a crowd page a spoken prompt, which is exactly the shape Seth wants gone.
+
+**Why it is not a copy-paste of the device flow:** the upload path is INSTANCE-scoped
+(`/v1/instances/<id>/texts/<docId>/assignment/upload/...`), and a crowd recorder is not an instance
+— it is a `crowd_recorder` row with its own `oauth_folder_id`. So it needs a crowd-side upload
+route rather than a reused one.
+
+**Shape of the work** (additive, therefore deployable on its own per the standing backend rule):
+
+1. **Worker:** `POST /v1/crowd/<id>/consent-prompt/upload/{start,chunk,finish}` — the same chunked
+   mechanism, resolving the destination through `driveEnsureCrowdFolder` and tagging the file
+   `flextextRole: 'consent-prompt'`. Ownership-resolved first, in the pattern of the revoke fix.
+2. **Panel:** replace `#cr-caudio` with the device flow's exact trio — hidden carrier, status line,
+   Upload button — reusing `paintPromptState` so the two read identically.
+3. **Then** stop accepting a pasted string: once both surfaces mint their own, `consentAudioUrl`
+   can be validated as a worker-minted URL rather than free text.
+
+⚠ **This is why the audit's promptUrl fix mattered.** A consent prompt is now deliberately minted
+UNSCOPED (v1.js, assignFinish) — a crowd recorder has no instance, so an instance-scoped token could
+never have worked for one. Had the scope shipped, step 1 would have been impossible without
+unpicking it.

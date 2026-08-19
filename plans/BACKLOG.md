@@ -2047,3 +2047,41 @@ upload queue enqueued the same doc twice, or a save-then-send raced an autosave.
 Worth a look when the upload queue is next open, with the snapshot as the evidence. ⚠ Do NOT
 "deduplicate by content hash" as a fix — identical bytes at different times is a legitimate state
 (a text saved, unchanged, and saved again), and collapsing it would hide the actual double-fire.
+
+## Assign to a device that has not been paired yet (Seth, 2026-08-19)
+
+> *"making sure new devices that haven't paired yet (via invite link) can have texts assigned to them
+> and show those as pending (until the invite is accepted and then they're successfully downloaded)."*
+
+The natural workflow: create the device, assign its first texts, hand over the phone and the invite
+together — rather than pair first, then walk back to the panel to assign.
+
+**⚠ This is probably MOSTLY BUILT ALREADY, which is the useful part of filing it now.** Checked
+rather than assumed:
+
+- An `instance` row exists from `POST /v1/instances`, before any invite is minted or claimed.
+- **Ki is per INSTANCE, not per install** (`settingsCache.wrappedKis[instanceId]`), so a command can
+  be encrypted for a device that does not exist yet. That is the fact that makes the whole thing
+  possible, and it is already true.
+- Commands land in `desired_blob` and are served by seq, so one queued before the first claim is
+  simply waiting when the device first polls. No expiry, no ordering problem.
+
+So the DATA path likely works today. What needs doing is the panel:
+
+1. **Render an instance with zero installs** as a real card that can be assigned to — today the tiles
+   are driven by installs, so an unclaimed instance shows little or nothing.
+2. **Show those assignments as pending, and say WHY** — "waiting for this device to be set up", not
+   the generic waiting-for-device wording, which would look like a fault rather than the expected
+   state.
+3. **Do not let it look stuck.** An unclaimed device may sit for days between creation and someone
+   walking to a village with it. Distinguish "not set up yet" from "set up but offline".
+
+⚠ **Check first, before building anything:** whether an assign to an instance with no installs
+actually succeeds end to end today. If it does, this is purely a rendering job. If it does not, the
+place it fails is worth knowing precisely — the desired lane has a `pending: true` branch for
+PROVISIONAL installs (status !== 'approved'), and a not-yet-claimed instance is a different state
+again: no install row at all.
+
+⚠ **And check it against §16.19.** Anything touching the desired lane's install/instance lookups is
+in bricking distance — a live device must never read as absent or revoked. An instance with no
+installs is exactly the shape a careless guard would treat as "gone".

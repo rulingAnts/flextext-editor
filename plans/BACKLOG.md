@@ -2144,6 +2144,90 @@ being UTC *and* the absence of any label.
 would rewrite history for cosmetics — and folder names are display-only precisely so nothing depends
 on them (identity is the `flextextDoc` tag), so old names can simply stay wrong.
 
+## Housekeeping, deliberately deferred (Seth, 2026-08-19, right after the v419 release)
+
+> *"we don't actually need main and productionWeb to be separate branches and having them as such is
+> definitely a bottleneck with Cloudflare especially, and we need to go through and sort finished,
+> unfinished, and moot plans and feature branches and clean up those that are finished or moot. Also
+> a good idea, for security reasons, to go through and clean up old Claude code sessions associated
+> with this project. But later."*
+
+Three items. Recorded now with the facts gathered, so the later pass starts from data rather than
+from a fresh survey.
+
+### 1. Collapse `main` and `productionWeb`
+
+**The bottleneck is real and it is structural, not a habit.** Both branches build the SAME Cloudflare
+Worker per app, so every release is two pushes that must be spaced and verified — and the spacing is
+the slowest part of shipping. Since they are also fast-forward-identical at every release by
+definition (`merge --ff-only main`), the pair buys a distinction that costs a build window and gains
+nothing Cloudflare can see. Collapsing leaves `staging` → `main`(live), which is still two rungs: a
+dev site to test on and a live site.
+
+⚠ **What makes it more than deleting a branch** — the NAME is load-bearing in at least five places,
+and each needs repointing in the same change or the release silently stops working:
+
+| Thing | How it depends on the name |
+|---|---|
+| GitHub Pages source | publishes `productionWeb:/docs` |
+| `sync-satellites.yml` | triggers on a `productionWeb` push, and is what gates the mirrors |
+| `apps/*/deploy.sh` | routes `productionWeb` → real deploy, anything else → preview alias |
+| `check-release-integrity.sh` | `FLEXTEXT_REF` defaults to `productionWeb` |
+| `.git/hooks/pre-push` | blocks production-branch pushes without `ALLOW_MAIN_PUSH=1` |
+
+⚠ And the guard in `apps/*/build.sh` REFUSES to build when the branch is not `productionWeb` and was
+not routed through `deploy.sh` — a structural protection against a feature branch overwriting the
+live site. Whatever replaces the name must keep that property, not merely satisfy it.
+
+### 2. Sort the plans and branches — the inventory, taken today
+
+**Fully merged into `main` (nothing would be lost by deleting):** `segmentation2`, `seg-exports`,
+`paragraph-analysis`, `heads-model`, `cycle-rest`, `editor-fixes-v322`, `parked-panel-and-matching`,
+`tok-pisin-l10n`, and `segmentation` — the last being the one CLAUDE.md already says to delete when
+convenient. ⚠ For `segmentation`, "merged" means its commits are ANCESTORS of main; the work itself
+was removed by revert (`1ef6df2`) and is NOT live. Deleting the branch is still safe — it adds
+nothing — but do not read the zero as "it shipped".
+
+**Still holding commits `main` does not have — a decision each, not a deletion:**
+
+| branch | commits ahead of main |
+|---|---|
+| `parked-v319-v321` | 9 |
+| `v321-hardening` | 7 |
+| `assign-by-upload` | 6 |
+| `fix-artifact-kinds-and-fxpa-stamp` | 2 |
+| `guid-identity-gate` | 1 |
+| `paired-audio-delete-gate` | 1 |
+
+Plus seven `claude/*` session branches and one `dependabot/*`.
+
+⚠ **The rule that must survive the cleanup** (CLAUDE.md, feature-branch policy): a branch ever removed
+from `main` by revert must be REBASED onto main, never merged — a merge meets the reverts and
+silently reinstates nothing. Check that before adopting anything from the parked branches.
+
+### 4. Documentation, README, DEVELOPERS.md — and code comments
+
+Added by Seth in the same breath, with an explicit instruction attached: *"don't spend time
+inventorying these right now."* So this entry deliberately carries NO list.
+
+What it is: the same finished/unfinished/moot sort as the plans, applied to the prose. CLAUDE.md's own
+rule is that DEVELOPERS.md must state the same rules this file does and both must be updated
+together — which is exactly the kind of pairing that drifts silently, because nothing fails when it
+does. Code comments belong in the same pass for the same reason: this repo comments the WHY, and a
+why that has since been reversed reads as current guidance.
+
+⚠ Do the sort AFTER Phase C, not during. The documentation pass is already queued behind the build
+(§14 of drive-as-truth), and re-describing a system that is still moving is how the two descriptions
+get out of step in the first place.
+
+### 3. Old Claude Code sessions — a SECURITY item, and it has a specific target
+
+Not tidiness. It belongs with the standing policy that the repo and anything published from it must
+never state the underlying concern plainly, and with the note that history needs cleaning of it. A
+session transcript is another place that text can sit, outside the repo and outside the history
+rewrite. ⚠ Scope it to what is actually reachable: transcripts held in the account, not just the
+working copies in this container, which are discarded when it is reclaimed anyway.
+
 ## ~~The crowd upload has the two defects v337 already fixed everywhere else~~ — DONE in v418
 
 **Fixed 2026-08-19.** The loop now lives ONCE, as `runChunkedUpload` in `upload.js`, and the crowd

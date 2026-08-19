@@ -1124,3 +1124,62 @@ case. Worth re-weighing against the `type` CHECK rebuild when the decision is ac
 **And it gives a rule to enforce whichever way that goes:** the assign and move-to affordances must
 refuse a crowd destination *at the route*, not merely omit it from a dropdown — the same shape as
 §16.5 D.
+
+### 16.10 Share the code, whatever the table shape says — and what that already bought
+
+Seth, 2026-08-19, immediately after the crowd consent picker landed:
+
+> *"And whenever a new recording is made and submitted, that should mirror how texts are created in
+> text folders on devices, exact same folder structure, reparenting, etc as much as possible. And
+> where we can use common code for both, that's a good idea. To avoid drift. Even if Crowd Recorders
+> should not be a type of instance, exactly, which I do agree with."*
+
+That last clause is the important one, because it **decouples two questions §16.1–16.9 kept treating
+as one**. Whether `crowd_recorder` becomes an instance type is a D1 table-shape question. Whether a
+crowd recording is born the same way a device text is, through the same functions, is a *code*
+question — and it is answered yes regardless of how the first one goes. §16.7's verdict (leave the
+table alone) and this instruction are not in tension; they are about different layers.
+
+**Built now (v395), and it needed almost no new code, which is the point:**
+
+- `driveEnsureCrowdTextFolder` calls `driveEnsureTextFolder` with the crowd folder standing in for
+  the device folder. That is the whole implementation. Both crowd submit paths (single-POST and
+  chunked) now land the zip inside a per-submission text folder instead of flat in the crowd folder
+  root.
+- **The submission id IS the doc id.** One submission is one text, and `sub_id` is already the
+  identity in D1 *and* in the encrypted upload ticket — so the correlation costs no column and there
+  is no second identifier that can disagree with the first. No migration.
+- Everything downstream then works without a crowd branch anywhere: the folder carries `flextextDoc`,
+  so `/move` and `/adopt` find it by tag, `driveReparent` re-homes it, the storage view rolls up its
+  bytes, and a researcher who drags it elsewhere in Drive keeps ownership of it.
+- The zip is tagged `flextextRole='crowd-submission'`, **not** `source-audio`: the panel resolves a
+  text's audio by role, and claiming that role would make the download menu offer a bundle as though
+  it were the bare audio file.
+
+**One accident turned deliberate.** A crowd folder was untagged and unroled directly under master —
+which is exactly `buildDriveEstate`'s definition of a *device*. Crowd recorders have therefore always
+been listed as devices, without anyone deciding they should be, and one stray `appProperty` away from
+silently changing. They now carry `flextextRole='crowd'`, the container filter admits that one role
+explicitly, and each container reports `kind: 'device' | 'crowd'`. `test/drive-estate.test.mjs` pins
+both halves, including that widening the filter did not re-admit "Unassigned" as a container (the bug
+the original filter was written for). `kind` is also the hook for §16.9's rule — the panel can refuse
+a crowd container as an assignment *destination* without inspecting names.
+
+**Three things this deliberately did NOT do:**
+
+1. **No manifest.** Crowd texts have no manifest because *device texts have none either* — the
+   manifest is Phase C, and its format is not settled. Writing one crowd-first would be precisely the
+   drift the instruction is aimed at. When it lands it must land in one shared writer used by both
+   origins, and the crowd call site is already the right shape to receive it.
+2. **The crowd → device handoff is still open.** `moveTextModal` delivers text content by extracting
+   a `.flextext` from a STORE-only zip (`x:'flextext'`). A crowd zip contains a recording and a
+   consent receipt and no `.flextext` at all, so moving a crowd text onto an editor device will fail
+   `no_flextext_in_zip` today. The right answer is almost certainly to deliver the *audio* and let
+   the editor create the transcription — i.e. a crowd text arrives as a fresh recording to be
+   transcribed, which is what it is. Needs a decision before crowd texts are advertised as assignable.
+3. **An abandoned upload now leaves an empty text folder.** The chunked path creates the folder at
+   `/submit/start`, before any bytes arrive, so a visitor who starts and walks away leaves a 0-byte
+   text in the estate. ⚠ Worth stating plainly: **this is not new behaviour, it is the device path's
+   behaviour**, which has always created the text folder at start for the same reason (the upload
+   needs a parent). Turnstile and the per-IP limit bound it. If it turns out to litter in practice
+   the fix belongs in one place for both origins, not in a crowd-only sweep.

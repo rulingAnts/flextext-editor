@@ -482,5 +482,63 @@ console.log('\ntext lists are capped and scrollable — and the Files menu still
   ok(!/addEventListener\('mouseenter'/.test(panel), 'it is click-only — no hover-to-open');
 }
 
+/* CROWD RECORDERS AS TEXT CONTAINERS (2026-08-19).
+ *
+ * Seth: crowd submissions must "mirror how texts are created in text folders on devices, exact same
+ * folder structure, reparenting, etc as much as possible" — and share the code, "to avoid drift".
+ * The worker does that by calling driveEnsureTextFolder with the crowd folder in the device
+ * folder's place, so everything below is a consequence rather than new logic. What still needs
+ * pinning is the GROUPING, because it used to work by accident.
+ *
+ * ⚠ THE ACCIDENT: a crowd folder was untagged and unroled directly under master, which is exactly
+ * this function's definition of a device — so crowd recorders have always been listed as devices
+ * without anyone deciding they should be. Tagging them role='crowd' would have SILENTLY DROPPED
+ * them from the estate (the old filter excluded every role-tagged folder), taking every text inside
+ * with them into the loose "no device" bucket. These assertions are what make that a test failure
+ * rather than a researcher's recordings quietly moving groups. */
+{
+  console.log('\ncrowd folders are text containers, and are marked as such');
+  const est = buildDriveEstate([
+    dir('M', 'FlexText Uploads', '', { flextextRole: 'uploads-master' }),
+    dir('D1', 'Phone A', 'M'),
+    dir('C1', 'Crowd — Market survey', 'M', { flextextRole: 'crowd' }),
+    dir('T1', 'Story one', 'D1', { flextextDoc: 'doc-1' }),
+    dir('T2', 'Market survey — 2026-08-19 04:00', 'C1', { flextextDoc: 'sub-2' }),
+    file('f1', 'story.flextext', 'T1', 2048),
+    file('f2', 'crowd_market_2026.zip', 'T2', 4096),
+  ]);
+  const byName = new Map(est.devices.map((d) => [d.name, d]));
+  ok(byName.has('Phone A') && byName.has('Crowd — Market survey'),
+     'both a device folder and a crowd folder are listed as containers');
+  ok(byName.get('Phone A').kind === 'device' && byName.get('Crowd — Market survey').kind === 'crowd',
+     '...and `kind` is what distinguishes them, so the panel can refuse a crowd DESTINATION');
+
+  const t2 = est.texts.find((t) => t.docId === 'sub-2');
+  ok(!!t2, 'a crowd submission is a first-class text, found by the same flextextDoc tag');
+  ok(t2 && t2.deviceFolderId === 'C1' && t2.device === 'Crowd — Market survey',
+     '...attributed to its crowd recorder, so the storage view groups it there and not under "no device"');
+  ok(t2 && t2.bytes === 4096, '...and its bytes roll up exactly as a device text\'s do');
+  ok(t2 && t2.fromCrowd === true, '...and it is flagged as crowd-born');
+  const t1 = est.texts.find((t) => t.docId === 'doc-1');
+  ok(t1 && t1.fromCrowd === false, 'a device text is not');
+}
+
+/* The structural folders must STILL be excluded. This is the assertion the widened filter could
+ * plausibly break: it now admits one named role, and admitting roles in general would put
+ * "Unassigned" back in the device list — the precise bug the original filter was written for, where
+ * every swept text appeared to be held by a device called "Unassigned". */
+{
+  console.log('\nwidening the container filter did not re-admit the structural folders');
+  const est = buildDriveEstate([
+    dir('M', 'FlexText Uploads', '', { flextextRole: 'uploads-master' }),
+    dir('U', 'Unassigned', 'M', { flextextRole: 'unassigned' }),
+    dir('C1', 'Crowd — X', 'M', { flextextRole: 'crowd' }),
+  ]);
+  const names = est.devices.map((d) => d.name);
+  ok(!names.includes('Unassigned'), '"Unassigned" is not a container of its own');
+  ok(!names.includes('FlexText Uploads'), '...nor is the master folder');
+  ok(names.includes('Crowd — X'), '...but the crowd folder still is');
+}
+
 console.log(fail ? `\nFAILED (${fail})\n` : '\nall passed\n');
 process.exit(fail ? 1 : 0);

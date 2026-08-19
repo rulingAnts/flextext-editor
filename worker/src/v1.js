@@ -579,10 +579,20 @@ function buildDriveEstate(files) {
    * means. Role-tagged folders are structure, never devices. */
   const unassignedFolder = (files || []).find((f) => isFolder(f) && roleOf(f) === 'unassigned');
   const unassignedId = (unassignedFolder && unassignedFolder.id) || '';
+  /* CONTAINERS of texts: device folders and CROWD folders alike. A crowd recorder's folder holds
+   * text folders exactly as a device's does (crowd submissions are born as texts — see
+   * driveEnsureCrowdTextFolder), so it belongs in the same list rather than in a parallel one the
+   * panel would have to merge. `kind` is what tells them apart where it matters, and it is what
+   * lets the panel refuse a crowd container as an assignment DESTINATION: texts move OUT of a
+   * crowd recorder, never into one.
+   * ⚠ Crowd folders were listed here BY ACCIDENT before they carried a role tag (untagged + unroled
+   * + under master is this filter's definition of a device). The behaviour is unchanged; what
+   * changes is that it is now deliberate and survives anyone tagging the folder. */
   const devices = (files || []).filter((f) => isFolder(f) && parentOf(f) === masterId
-      && !(f.appProperties || {}).flextextDoc && !roleOf(f))
-    .map((f) => ({ folderId: f.id, name: f.name || '' }));
+      && !(f.appProperties || {}).flextextDoc && (!roleOf(f) || roleOf(f) === 'crowd'))
+    .map((f) => ({ folderId: f.id, name: f.name || '', kind: roleOf(f) === 'crowd' ? 'crowd' : 'device' }));
   const deviceName = new Map(devices.map((d) => [d.folderId, d.name]));
+  const crowdIds = new Set(devices.filter((d) => d.kind === 'crowd').map((d) => d.folderId));
 
   // Text folders are identified by their docId TAG, never by where they sit — a folder the
   // researcher moved elsewhere in Drive is still that text's folder.
@@ -618,6 +628,9 @@ function buildDriveEstate(files) {
       title: String(f.name || '').replace(/\s*\(done\)\s*$/i, ''),   // display name without the marker
       deviceFolderId: deviceName.has(dev) ? dev : '',
       device: deviceName.get(dev) || '',
+      // Born on a crowd recorder and still sitting in it. The panel uses this to say where a text
+      // came from, and never to offer it a way back — crowd is a source, not a destination.
+      fromCrowd: crowdIds.has(dev),
       // Where the folder ACTUALLY sits, so the panel can show the Drive truth and can tell which
       // texts still need sweeping from the ones already filed.
       inUnassigned: !!unassignedId && dev === unassignedId,
@@ -842,15 +855,54 @@ async function mintTextfileUrl(env, urlOrigin, researcherId, fileId, extract, tt
 async function driveEnsureCrowdFolder(env, access, rec) {
   if (rec.oauth_folder_id) {
     try {
-      const f = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(rec.oauth_folder_id) + '?fields=id,trashed');
-      if (f && f.id && !f.trashed) return rec.oauth_folder_id;
+      const f = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(rec.oauth_folder_id) + '?fields=id,trashed,appProperties');
+      if (f && f.id && !f.trashed) {
+        /* BACKFILL the role tag on folders created before crowd folders were tagged. Until this
+         * existed, a crowd folder was untagged and unroled directly under master — which is
+         * precisely buildDriveEstate's definition of a DEVICE, so every crowd recorder has been
+         * listed as one by accident. It happened to look right; it was one stray appProperty away
+         * from silently changing. One PATCH, once per folder, and only when it is missing. */
+        if (((f.appProperties || {}).flextextRole || '') !== 'crowd') {
+          try {
+            await driveJson(access, 'PATCH', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(f.id) + '?fields=id',
+              { appProperties: { flextextRole: 'crowd' } });
+          } catch { /* cosmetic: an untagged folder still works, it just groups as a device */ }
+        }
+        return rec.oauth_folder_id;
+      }
     } catch { /* fall through: recreate */ }
   }
   const name = 'Crowd — ' + (rec.label || String(rec.crowd_id).slice(0, 8));
   const f = await driveJson(access, 'POST', 'https://www.googleapis.com/drive/v3/files?fields=id',
-    { name, mimeType: 'application/vnd.google-apps.folder', parents: [await driveMasterFolder(access)] });
+    { name, mimeType: 'application/vnd.google-apps.folder', parents: [await driveMasterFolder(access)],
+      appProperties: { flextextRole: 'crowd' } });
   await env.DB.prepare('UPDATE crowd_recorder SET oauth_folder_id=? WHERE crowd_id=?').bind(f.id, rec.crowd_id).run();
   return f.id;
+}
+
+/* A crowd submission's TEXT FOLDER — the same birth a device text gets, through the same helper.
+ *
+ * Seth, 2026-08-19: *"whenever a new recording is made and submitted, that should mirror how texts
+ * are created in text folders on devices, exact same folder structure, reparenting, etc as much as
+ * possible… And where we can use common code for both, that's a good idea. To avoid drift."*
+ *
+ * So this deliberately adds NO new Drive logic. It calls driveEnsureTextFolder exactly as the
+ * device upload path does, with the crowd folder standing in for the device folder — which is what
+ * makes every downstream behaviour work for free: the folder carries the `flextextDoc` tag, so the
+ * estate view lists it as a text, /move and /adopt find it by tag, driveReparent re-homes it, and a
+ * researcher who drags it elsewhere in Drive keeps ownership of it. A crowd twin of any of that is
+ * exactly the drift the instruction is aimed at.
+ *
+ * ⚠ THE SUBMISSION ID IS THE DOC ID. One submission is one text, and sub_id is already the
+ * submission's identity in D1 and in the upload ticket — so the correlation costs no column, and
+ * there is no second identifier that could disagree with the first. */
+function crowdTextTitle(rec, at) {
+  const stamp = new Date(at).toISOString().slice(0, 16).replace('T', ' ');
+  return (String(rec.label || 'Crowd').trim().slice(0, 80)) + ' — ' + stamp;
+}
+async function driveEnsureCrowdTextFolder(env, access, rec, subId, at) {
+  const crowdFolder = await driveEnsureCrowdFolder(env, access, rec);
+  return driveEnsureTextFolder(access, crowdFolder, subId, crowdTextTitle(rec, at), '');
 }
 
 // Drive resumable upload as one initiate + one PUT (fine for our ≤25 MB bodies).
@@ -3093,12 +3145,17 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         try {
           const rrow = await env.DB.prepare('SELECT * FROM researcher WHERE researcher_id=?').bind(rec.researcher_id).first();
           const access = await driveAccessToken(env, rrow);
-          const folder = await driveEnsureCrowdFolder(env, access, rec);
+          // Its own text folder, through the same helper the device upload path uses.
+          const folder = await driveEnsureCrowdTextFolder(env, access, rec, subId, now);
           const init = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id', {
             method: 'POST',
             headers: { Authorization: 'Bearer ' + access, 'content-type': 'application/json',
                        'X-Upload-Content-Type': 'application/zip', 'X-Upload-Content-Length': String(size) },
-            body: JSON.stringify({ name, mimeType: 'application/zip', parents: [folder] }),
+            // ⚠ NOT 'source-audio'. The panel resolves a text's audio BY ROLE, and this is a zip
+            // (recording + consent receipt) — claiming the audio role would make the download menu
+            // offer the bundle as if it were the bare audio file. Its own role, honestly named.
+            body: JSON.stringify({ name, mimeType: 'application/zip', parents: [folder],
+                                   appProperties: { flextextRole: 'crowd-submission' } }),
           });
           const session = init.ok ? init.headers.get('Location') : null;
           if (!session) { const e = new Error('no session (HTTP ' + init.status + ')'); e.code = 'drive_error'; throw e; }
@@ -3201,8 +3258,9 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         try {
           const rrow = await env.DB.prepare('SELECT * FROM researcher WHERE researcher_id=?').bind(rec.researcher_id).first();
           const access = await driveAccessToken(env, rrow);
-          const folder = await driveEnsureCrowdFolder(env, access, rec);
-          fileId = await driveUpload(access, folder, name, buf, 'application/zip');
+          // Its own text folder, through the same helper the device upload path uses.
+          const folder = await driveEnsureCrowdTextFolder(env, access, rec, subId, now);
+          fileId = await driveUpload(access, folder, name, buf, 'application/zip', { flextextRole: 'crowd-submission' });
         } catch (e) {
           await noteDriveError(env, rec.researcher_id, 'crowd delivery failed: ' + safeErr(e));
           return j({ error: 'delivery_failed' }, 502, origin, env);   // client keeps + retries

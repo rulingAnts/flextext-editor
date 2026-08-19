@@ -1988,6 +1988,48 @@ export async function handleV1(request, env, ctx, url, path, origin) {
    * the FlexText estate and nothing else — no per-text round trip (which would be one API call per
    * text, i.e. minutes for a real account), and no way to read, report on, or destroy anything of
    * the researcher's that we did not write. The bound is structural, not careful coding. */
+  /* GET /v1/researcher/drive-snapshot — the RAW listing, unprocessed: the "before" picture of the
+   * estate (plans/drive-as-truth.md §17.0).
+   *
+   * ⚠ THIS EXISTS BECAUSE IT CANNOT BE ADDED AFTERWARDS. Drive does not version folder parentage —
+   * once a folder has been moved, NOTHING in Drive records where it used to be. Every other recovery
+   * step in §17 reconstructs the estate from tags, which is good, but reconstruction is not the same
+   * as knowing. Taken before a migration, this file is the difference between restoring the estate
+   * and re-deriving a plausible one.
+   *
+   * Deliberately RAW rather than the buildDriveEstate projection: a snapshot's job is to record what
+   * Drive actually held, not what our current grouping logic made of it. If the projection is what
+   * turns out to be wrong, a snapshot shaped by it records the same mistake.
+   *
+   * Reuses driveListAll exactly as drive-estate does — same call, same fields, no new Drive surface.
+   * Includes the trashed set too: knowing what was ALREADY in the trash is what stops a recovery
+   * from restoring things the researcher deleted on purpose.
+   *
+   * ⚠ The response contains folder and file NAMES — the plaintext this design is otherwise careful
+   * about (§11). It is researcher-authed and covers only that researcher's own Drive, exactly like
+   * drive-estate, but a saved snapshot is a map of the estate and should be kept like one. */
+  if (m === 'GET' && seg.length === 3 && seg[1] === 'researcher' && seg[2] === 'drive-snapshot') {
+    const r = await authResearcher(request, env);
+    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    try {
+      const access = await driveAccessToken(env, r);
+      const [live, dead] = await Promise.all([driveListAll(access, false), driveListAll(access, true)]);
+      const master = (live || []).find((f) => (f.mimeType || '') === 'application/vnd.google-apps.folder'
+        && ((f.appProperties || {}).flextextRole === 'uploads-master'));
+      return j({
+        schema: 1,
+        takenAt: now,
+        engine: 'worker',
+        // Self-describing: a snapshot that cannot say which estate it is of is a file you will not
+        // dare restore from.
+        masterFolderId: (master && master.id) || '',
+        counts: { live: (live || []).length, trashed: (dead || []).length },
+        files: live || [],
+        trashed: dead || [],
+      }, 200, origin, env);
+    } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
+  }
+
   if (m === 'GET' && seg.length === 3 && seg[1] === 'researcher' && seg[2] === 'drive-estate') {
     const r = await authResearcher(request, env);
     if (!r) return j({ error: 'unauthorized' }, 401, origin, env);

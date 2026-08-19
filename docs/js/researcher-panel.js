@@ -4272,7 +4272,35 @@ function storageModal() {
         <button class="secondary-btn" data-storepurge>${esc(t('panel.store.reclaim'))}</button></div>` : ''}
       ${[...groups.values()].map((g) => groupHtml(g.name, g.texts)).join('')}
       ${groupHtml(t('panel.store.unassignedGroup'), loose)}
-      ${(estate.texts || []).length ? '' : `<p class="note">${esc(t('panel.store.empty'))}</p>`}`;
+      ${(estate.texts || []).length ? '' : `<p class="note">${esc(t('panel.store.empty'))}</p>`}
+      <div class="rp-store-snap">
+        <button class="link-btn" data-storesnap>${esc(t('panel.store.snapshot'))}</button>
+        <p class="note">${esc(t('panel.store.snapshotNote'))}</p>
+      </div>`;
+
+    /* THE PRE-MIGRATION SNAPSHOT (plans/drive-as-truth.md §17.0).
+     *
+     * ⚠ An endpoint nobody can reach does not get taken, and this is the one recovery artefact that
+     * CANNOT be produced after the fact — Drive does not version folder parentage, so once a folder
+     * has moved nothing records where it was. It lives here, in the Drive management view, because
+     * that is where someone already is when they are about to change the estate.
+     *
+     * Saves the RAW listing, not the grouped estate: if the grouping logic is what turns out to be
+     * wrong, a snapshot shaped by it preserves the same mistake. */
+    const snapBtn = body.querySelector('[data-storesnap]');
+    if (snapBtn) snapBtn.addEventListener('click', () => busy(snapBtn, async () => {
+      try {
+        const snap = await Researcher.driveSnapshot();
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const blob = new Blob([JSON.stringify(snap, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `flextext-drive-snapshot-${stamp}.json`;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+        deps.toast(t('panel.store.snapshotSaved', { n: (snap.counts && snap.counts.live) || 0 }), 6000);
+      } catch (err) { errToast(err); }
+    }));
 
     wireDownloadMenus(body);
     body.querySelectorAll('[data-storedel]').forEach((b) => b.addEventListener('click', () => busy(b, async () => {

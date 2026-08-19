@@ -2230,3 +2230,6 @@ main {
   .rp-maint { border-color: #8a6400; background: #2b2310; color: #f0dfae; }
   .rp-maint .note { color: #cbb277; }
 }
+
+/* Pre-migration Drive snapshot (storage modal footer — see §17.0 in plans/drive-as-truth.md). */
+.rp-store-snap { margin-top: 14px; padding-top: 10px; border-top: 1px solid rgba(128,128,128,.3); }

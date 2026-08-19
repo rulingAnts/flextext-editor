@@ -604,6 +604,10 @@ export function moveText(instanceId, docId, fields) {
  * plus the account's quota. One worker call; see buildDriveEstate for why that is enough. */
 export function driveEstate() { return api('GET', '/v1/researcher/drive-estate'); }
 
+/* The RAW Drive listing — the "before" picture to save before a migration (§17.0). Not the estate
+ * projection: a snapshot records what Drive held, not what our grouping logic made of it. */
+export function driveSnapshot() { return api('GET', '/v1/researcher/drive-snapshot'); }
+
 /* Permanently delete the FlexText files ALREADY IN TRASH — the only thing that actually reclaims
  * quota, since usageInDriveTrash counts inside usage. Scoped to our own files by drive.file; this
  * is NOT "empty the user's Drive trash". retry:false — a lost response must not double-delete. */

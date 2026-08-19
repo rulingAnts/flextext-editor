@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v401';
+export const ENGINE_VERSION = 'v402';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v401';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = '';
+export const BUILD_TAG = 'drive-as-truth v3';
 
 const S = {
 en: {
@@ -1156,6 +1156,9 @@ internet after the first time.</p>
   'panel.dl.packageSub': 'the recording with its consent records, exactly as uploaded',
   // How the text came to exist, from the manifest's `origin` field — so the researcher is told
   // whether item 1 is what they assigned or what the speaker recorded, instead of inferring it.
+  'panel.store.snapshot': 'Save a Drive snapshot (JSON)',
+  'panel.store.snapshotNote': 'A record of exactly what your FlexText folders look like right now. Take one before any big reorganisation \u2014 Google Drive does not remember where a folder used to be, so this file cannot be produced after the fact.',
+  'panel.store.snapshotSaved': 'Snapshot saved \u2014 {n} items recorded. Keep it somewhere safe.',
   'panel.maint.title': 'Maintenance in progress',
   'panel.maint.advice': 'Please avoid making changes in the researcher panel until this notice disappears. Your devices and their texts are unaffected.',
   'panel.dl.origin.assigned': 'assigned',
@@ -2766,6 +2769,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.dl.approx': 'sekitar {size}',
   'panel.dl.package': 'Paket rekaman (.zip)',
   'panel.dl.packageSub': 'rekaman beserta catatan persetujuan, persis seperti yang diunggah',
+  'panel.store.snapshot': 'Simpan cuplikan Drive (JSON)',
+  'panel.store.snapshotNote': 'Catatan persis seperti apa folder FlexText Anda saat ini. Ambil satu sebelum penataan ulang besar \u2014 Google Drive tidak mengingat lokasi folder sebelumnya, jadi berkas ini tidak bisa dibuat setelahnya.',
+  'panel.store.snapshotSaved': 'Cuplikan tersimpan \u2014 {n} item tercatat. Simpan di tempat aman.',
   'panel.maint.title': 'Pemeliharaan sedang berlangsung',
   'panel.maint.advice': 'Mohon hindari membuat perubahan di panel peneliti sampai pemberitahuan ini hilang. Perangkat dan teks Anda tidak terpengaruh.',
   'panel.dl.origin.assigned': 'ditugaskan',

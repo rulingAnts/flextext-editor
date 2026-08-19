@@ -575,3 +575,101 @@ the hash. Same row, same primitive, additive.
 4. **What cannot be fixed, and does not need to be:** `email_sha256` must stay deterministic or login
    lookup breaks. That is fine — it is not reversible, and without the key an attacker cannot even
    confirm a guessed address.
+
+---
+
+## 13. Compartmentalisation — what a lost device may reveal, and what it may not
+
+Seth, 2026-08-19: *"we want a seized device to expose nothing other than data on that device… And we
+don't want anything compromised to lead to anything else as much as possible. Names, contacts,
+associates, originating Google account or researcher, other devices, other researchers or
+organizations."*
+
+That is a compartmentalisation rule, and it is a better organising principle than "encrypt more
+things". It is written here as the test to apply to every future feature: **does holding this
+artifact tell you anything about a person or a system OTHER than the one it belongs to?**
+
+### 13.1 Names: encrypt in D1, do NOT move them into Drive manifests
+
+Seth asked whether device/folder names could live in Drive manifests so D1 need not hold them.
+**No — and the reason is decisive rather than a trade-off:**
+
+⚠ **The device folder is NAMED after the nickname.** Putting that name into a manifest *inside that
+folder* hides nothing; it is already the folder's own name in the Drive tree. The manifest would be a
+second copy of a visible fact, not a protection.
+
+The costs, had it protected anything:
+
+- **Latency and the subrequest cap.** Production carries 34 instances. Per-folder manifests would be
+  34 Drive reads on every 12-second dashboard poll, against the ~50-subrequest budget that killed
+  `drive-purge` twice. A single manifest at the estate root is 1 read per poll instead of 34 — still
+  a Drive round trip on a hot loop.
+- **A new failure mode.** Drive down, token expired, or OAuth grant revoked ⇒ the panel cannot name
+  any device at all. Today that information is local and always available.
+- ⚠ **Drive is not the safer store.** The researcher's Google account is a larger and more-attacked
+  surface than a D1 an attacker must already have breached. Moving identifying data toward Drive
+  moves it toward the bigger target.
+
+**So: `encAtRest` on `instance.nickname` (§10.4(1)), Drive stays legible (§11.1), and manifests carry
+text-level metadata — `recording_id`, title, TTL — rather than a duplicate of a name Drive already
+displays.** Same protection against the stated threat, no latency, no new failure mode.
+
+### 13.2 Pairing by NUMBER, not by identity — replaces the claim response's disclosure
+
+Seth: *"we don't want to present the Google account and avatar with the invite. Too risky. Better
+just a pairing number… the researcher either pairs in person or over another secure communication
+channel matching the number on both ends. Just like Bluetooth pairing."*
+
+Agreed, and it is strictly better on three axes, not just privacy:
+
+Today the claim response returns `{ name, avatar, email }` from the researcher row (v1.js, both claim
+paths), so **a device that has left trusted hands names the researcher and their Google account.**
+That is precisely a compromise leading to something else.
+
+A short numeric code, shown on both ends and matched **out of band**, gives:
+
+1. **Disclosure:** the device learns nothing about the researcher.
+2. **Mutual authentication:** the field user confirms they are pairing with the right person because
+   the number matches what that person told them — not because a name appeared on a screen, which
+   any leaked link could also produce.
+3. **Possession is no longer sufficient.** A phished, forwarded or found invite link cannot complete
+   a pairing without the number, which travelled by a different channel.
+
+⚠ **It must be matched OUT OF BAND or it is theatre.** If both ends learn the number from the worker
+over the same channel, it proves nothing. The researcher reads it aloud in person or over a call; the
+field user confirms it on the device.
+
+**And it simplifies §12.** That claim response was the one place the worker needed `display_name`,
+`avatar_url` and `drive_email` decrypted on a hot path. Remove it and those three columns can simply
+be encrypted at rest with no exception carved out for them. A security change that makes the other
+security work *easier* is worth taking on that ground alone.
+
+### 13.3 What a device out of trusted hands exposes — audited
+
+| It holds | Leads to anything else? |
+|---|---|
+| its own texts and audio | **inherent** — that is what the device is for |
+| its `Ki` | no — decrypts only its own reports |
+| its `instance_id` / `install_id` / install secret | no — the desired lane is per-instance |
+| anything about OTHER devices | **no** — verified: nothing cross-instance is delivered |
+| anything about other researchers or organisations | **no** |
+| the researcher's name, avatar and Google address | ⚠ **YES, today** — fixed by §13.2 |
+| minted `/v1/textfile` bearer URLs | ⚠ **YES** — unrevocable, long-lived (§11.3) |
+
+**Two items, both already identified, and after both are closed a device would expose only its own
+data — which is exactly the property Seth asked for.** That is a short list, and worth knowing it is
+short: the per-instance design was already doing most of this work.
+
+### 13.4 Later, and noted so the design does not preclude them
+
+- **Optional password to decrypt on every app load**, and **a duress password that wipes instead of
+  unlocking.** ⚠ One design constraint to respect now: a duress wipe must be **local and immediate**,
+  completing before any network call — a wipe that needs to reach the worker first is useless under
+  the circumstances it exists for. `eraseAllData()` already exists and is local, so the primitive is
+  there; what would be new is the unlock gate and the second password.
+- **Minimising owner-sees-assistant-email.** Seth: *"unavoidable at the moment, but it would be good
+  for us to be thinking later how to minimize the exposure risk there."* The mechanism from §13.2
+  generalises: **invite a researcher by CODE rather than by address**, so the owner never needs to
+  hold the assistant's email at all and the account link is established by the same out-of-band
+  match. Worth designing Phase C's invite flow so that this can be dropped in later rather than
+  requiring the email column to be load-bearing.

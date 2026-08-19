@@ -1888,3 +1888,47 @@ invisible. Only the *create* branch changes: parent becomes the project folder r
 almost free: re-parent the device folder and update `instance.project_id`. Both are single operations,
 and the folder keeps its id so nothing else notices. Worth NOT designing against, even though it is
 not being built now.
+
+### 16.23 The dual-shape estate — the exact change, and why it is a no-op deploy
+
+The one function that must understand BOTH tree shapes, so the worker can be deployed before any
+folder moves and produce byte-identical output until they do.
+
+**Today (flat):** `master / <container> / <text> / originals`
+**After (nested):** `master / <project> / <container> / <text> / originals`
+
+`buildDriveEstate` currently defines containers as *"a folder directly under master, untagged, with
+no role or role=crowd"*. Under the nested shape those are PROJECTS — so unchanged code would list
+projects as devices and lose the real containers entirely.
+
+**The change, in one sentence: containers are the children of a PROJECT SET, and master is a member
+of that set until projects exist.**
+
+```js
+// Projects are role-tagged, so they are found the same way every other structural folder is.
+const projects = files.filter((f) => isFolder(f) && roleOf(f) === 'project' && parentOf(f) === masterId)
+  .map((f) => ({ folderId: f.id, name: f.name || '' }));
+// ⚠ THE DUAL-SHAPE HINGE. With no project folders this set is exactly [masterId], so every filter
+// below behaves as it does today and the deploy changes nothing. With projects present, master is
+// no longer a container parent and drops out.
+const containerParents = projects.length ? new Set(projects.map((p) => p.folderId)) : new Set([masterId]);
+const devices = files.filter((f) => isFolder(f) && containerParents.has(parentOf(f))
+    && !(f.appProperties || {}).flextextDoc && (!roleOf(f) || roleOf(f) === 'crowd'))
+  .map((f) => ({ …, projectId: projects.length ? parentOf(f) : '' }));
+```
+
+⚠ **`unassigned` must stop being resolved as a singleton in the same change.** It is currently found
+by a global role search taking the first hit; with one per project that is an arbitrary project's
+folder, and the v397 sweep would move texts OUT of their project. Per-project resolution and the
+project layer are one commit, never two.
+
+**Why this makes the worker deploy safe to do first:** with no project folders in Drive — which is
+every estate until the reparent sweep runs — `containerParents` is `[masterId]` and every downstream
+filter is unchanged. The estate response is byte-identical, so a production researcher on any client
+sees exactly what they see today. That is what turns step 1 into a verifiable no-op instead of a
+leap, and it is the property to assert with fixtures rather than to hope for.
+
+**Testable with no Drive and no OAuth**, today: `buildDriveEstate` is pure and
+`test/drive-estate.test.mjs` already drives it with fixtures. Three cases to pin —
+flat tree unchanged, nested tree grouped correctly, and a HALF-MIGRATED tree (some containers moved,
+some not) which is the state an interrupted sweep leaves and the one nobody would think to construct.

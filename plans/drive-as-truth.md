@@ -1183,3 +1183,52 @@ a crowd container as an assignment *destination* without inspecting names.
    behaviour**, which has always created the text folder at start for the same reason (the upload
    needs a parent). Turnstile and the per-IP limit bound it. If it turns out to litter in practice
    the fix belongs in one place for both origins, not in a crowd-only sweep.
+
+### 16.11 How crowd relates to the D1 text index — and why it is cheaper than §16.8 feared
+
+Seth: *"how will Crowd Recorder relate to our D1 indexing system for texts? It should…"*
+
+It should, and it already can, with **one nullable column** — because §16.9's constraint dissolves
+the hard part of §16.8.
+
+**The dilemma §16.8 posed was based on an assumption that turns out to be false.** It assumed a
+`text` row's OWNER must be able to be a crowd recorder, forcing either a crowd instance type or a
+polymorphic `instance_id`-or-`crowd_id` owner. But `instance_id` means *"which device HOLDS this
+text"*, and a crowd recorder never holds anything — it emits. Texts move OUT of it and are never
+assigned INTO it (§16.9). So from D1's point of view a crowd text is **born unassigned**:
+
+```
+doc_id       = the submission id (already true in Drive as of v395)
+origin       = 'crowd'                 -- the sketch in §6 already has this value
+instance_id  = NULL                    -- "Unassigned", exactly as §4 defines it
+folder_id    = the text folder         -- non-NULL at birth; see the asymmetry note below
+born_crowd_id = the recorder           -- NEW: a BIRTH STAMP, never a routing target
+```
+
+No polymorphic owner. No `type` CHECK rebuild. `origin` already records birthplaces, which is what a
+crowd recorder is; ownership is a separate axis and crowd simply never appears on it.
+
+**Why `born_crowd_id` rather than a join.** The attribution is *almost* free already: `doc_id` is the
+`sub_id`, so `text JOIN crowd_submission ON sub_id = doc_id` names the recorder with no new column at
+all. ⚠ But `crowd_submission` is **opportunistically pruned at 30 days** — deliberately, because that
+log is "a visibility/forensics aid, not an archive". The text index *is* an archive. A join is
+therefore an attribution that silently expires: a crowd recording still sitting in Drive six weeks
+later would lose the name of the recorder that produced it. One write-once nullable column outlives
+the prune and cannot be mistaken for an owner. **Recommendation: carry the column.**
+
+**Reconcile with §4, which says a crowd submission is "a `recording_id` with no `doc_id`".** Those
+are not in conflict once §2's many-docs-one-recording is applied: the submission is born as the
+FIRST doc and stamps a `recording_id`; assigning it onward to a transcriber mints a SECOND doc
+sharing that `recording_id`. §4's sentence describes the state *before* anyone transcribes it, which
+under this model is simply `instance_id = NULL` — the same "upload now, assign later" shape §4 is
+already pleased to have got for free. What v395 settled is only that the birth doc exists from the
+moment the bytes land, which is what makes the folder addressable at all.
+
+**⚠ The safety asymmetry (§3.2) runs the OTHER WAY for crowd, and that is worth saying out loud.**
+For a device text, "no folder" is the normal state and the bytes exist only on a phone. For a crowd
+text the folder is created *before* the bytes (the upload needs a parent), so the dangerous state is
+inverted: **a crowd text row with a folder and no files is an abandoned submission, not a text whose
+only copy is elsewhere.** It is the one origin where "empty folder" is safely collectable — but the
+reconciler must key that on `origin='crowd'` explicitly, never on "folder exists but is empty",
+which would be true of a device text mid-first-upload and is the one-careless-line bug §3.2 warns
+about.

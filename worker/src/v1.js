@@ -2311,9 +2311,18 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           // Counted INSIDE usage: trashing reclaims nothing until these bytes are purged.
           usageInDriveTrash: Number(q.usageInDriveTrash || 0),
         },
-        master: estate.master,
-        devices: estate.devices,
-        texts: estate.texts,
+        /* ⚠ SPREAD, NEVER ENUMERATE — this response listed `master`, `devices` and `texts` by name
+         * and therefore SILENTLY DROPPED everything buildDriveEstate added afterwards: `projects`,
+         * `unassignedFolderId` and `unassignedFolderIds`. The panel's projects card read
+         * `estate.projects`, always got undefined, and rendered "Set up projects…" over an estate
+         * that had already been migrated — folders moved in Drive, UI insisting nothing had
+         * happened. The unassigned sweep's bootstrap deadlock was the SAME missing field.
+         *
+         * This is the fourth time an enumerated rebuild has eaten a field in this codebase
+         * (`estate` twice, then `bundle`). buildDriveEstate's entire return is the panel's to read,
+         * so spreading is both correct and the only version of this that cannot rot: a field added
+         * there arrives here without anyone remembering to widen a list. */
+        ...estate,
         // OUR trashed files only — what the reclaim action would actually remove.
         trashed: { n: dead.length, bytes: dead.reduce((a, f) => a + (parseInt(f.size, 10) || 0), 0) },
       }, 200, origin, env);

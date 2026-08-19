@@ -297,6 +297,37 @@ console.log('\nthe wording tells the researcher the thing they would otherwise d
   }
 }
 
+/* ⚠ THE FOURTH ENUMERATED-REBUILD BUG, and the first one caught by a test rather than by a
+ * researcher watching a UI lie to them.
+ *
+ * The /drive-estate response was assembled by NAMING fields — master, devices, texts — so every
+ * field buildDriveEstate grew afterwards was dropped on the floor: `projects`, `unassignedFolderId`
+ * and `unassignedFolderIds`. The visible result was a projects card reading `estate.projects`,
+ * always getting undefined, and offering "Set up projects…" over an estate that had ALREADY been
+ * migrated: folders moved in Drive, panel insisting nothing had happened. The unassigned sweep's
+ * bootstrap deadlock was the same missing field, months earlier, diagnosed as something else.
+ *
+ * `estate` has now been eaten twice and `bundle` once. So this asserts the STRUCTURAL fix — that the
+ * response spreads rather than lists — because an assertion that merely checked today's field names
+ * would pass again the next time someone adds a seventh field. */
+console.log('\nthe estate response SPREADS — an enumerated rebuild has eaten a field three times');
+{
+  const route = worker.slice(worker.indexOf("seg[2] === 'drive-estate'"));
+  const body = route.slice(0, route.indexOf('} catch'));
+  ok(/\.\.\.estate,/.test(body), 'the whole estate is forwarded, not a hand-listed subset');
+  for (const field of ['master:', 'devices:', 'texts:']) {
+    ok(!new RegExp('\\n\\s*' + field + ' estate\\.').test(body),
+       `  ${field.slice(0, -1)} is NOT re-listed by hand alongside the spread`);
+  }
+  /* And the fields the panel actually needs must survive the round trip. Named here as a canary:
+   * if someone reverts the spread, these are the ones that go missing first. */
+  const built = worker.slice(worker.indexOf('function buildDriveEstate'));
+  const ret = built.slice(built.indexOf('return { master: masterId'), built.indexOf('}\n\n/* "FlexText Uploads / Unassigned"'));
+  for (const key of ['projects', 'unassignedFolderId', 'unassignedFolderIds']) {
+    ok(new RegExp(key).test(ret), `buildDriveEstate still returns ${key} — the panel reads it`);
+  }
+}
+
 console.log('\nthe DONE marker never blocks an upload');
 {
   /* ⚠ THE RISK THIS REMOVES: driveMarkDone was `await`ed inside BOTH upload handlers, putting a

@@ -1860,3 +1860,58 @@ only makes it visible, because a person reasonably expects the other panel to fi
 if it ever matters, is to derive the move state from server-side facts (both inventories already carry
 them) instead of a localStorage marker; the sweep's inputs are already the inventory, so it is the
 MARKER that is local, not the evidence.
+
+## Invite lifecycle: two cases Seth flagged, investigated (2026-08-19) — fix after Phase C
+
+Seth asked what happens (a) if texts are assigned to a device before its invite is claimed, and
+(b) if an invite link is reused by a second or third device. Both checked against the code rather
+than left as questions. **(b) is already correct. (a) is real, and worse than it looks.**
+
+### ✅ (b) Invite reuse — already behaves the way Seth wants
+
+- **A second device claiming an already-claimed link gets `409 already_claimed`.** The claim guard is
+  explicit (`if (inv.claimed_at) return 409`), and the batch's INSERT/UPDATE are both conditioned on
+  `claimed_at IS NULL`, so even a race cannot produce two enrollments.
+- **The same install re-claiming succeeds**, deliberately — lost-response recovery, so a device that
+  claimed but never saw the reply is not stranded.
+- **The researcher genuinely cannot find the link again.** D1 stores only `secret_hash`; the
+  plaintext secret is returned once by the mint response and lives only in that modal. Exactly the
+  property Seth described wanting.
+
+⚠ **But the adjacent case IS the chaos, from the other direction: an UNCLAIMED link that is
+forgotten.** The claim batch revokes every other install of the instance *before any researcher
+approval*, so a fresh browser opening a stale link displaces the live field device — it takes a 410
+on its next poll, `clearSession()`s, and must be re-paired. With no way to list or revoke invites,
+the researcher cannot clean these up, and production carries ~33 unclaimed ones. That is
+`plans/project-split.md` VII (rank 3) and is already slated to land WITH Phase C's `createInvites`
+capability. Nothing further to do here beyond not losing the connection between the two.
+
+### ⚠ (a) Assigning to a device whose invite is unclaimed — a text that appears NOWHERE
+
+Nothing stops it: the Assign action lives on the instance card, and an instance exists as soon as it
+is created, long before any device claims its invite. What follows:
+
+1. `assignment/begin` creates the device folder and the text folder in Drive — **for a device that
+   may never enroll.**
+2. The assign command queues on the instance, carrying minted `/v1/textfile` URLs whose default TTL
+   is **90 days**.
+3. An unapproved install receives no commands (the desired lane returns `{pending:true}`), which is
+   correct. A newly approved install starts at `ack_seq = 0`, so it then receives **every** queued
+   command at once.
+4. **If enrollment takes longer than the token TTL, the device receives an assign pointing at
+   EXPIRED URLs.** The fetch fails, the text never arrives, and the panel shows the command as
+   delivered.
+
+⚠ **And the panel hides it.** `inFlightAssignIds()` (v391) excludes a docId with a live queued assign
+from the Unassigned card — correctly, to stop a mid-assignment text being offered for deletion. With
+no install, `ackOf()` is 0, so the assign is *permanently* "queued" and the exclusion never lifts.
+The text is therefore on no device AND excluded from Unassigned: **invisible in the panel, with a
+real Drive folder holding real bytes.** That is a consequence of the v391 fix meeting this case, not
+a fault in either alone, and it is the part that makes this worth fixing rather than documenting.
+
+**Fix direction (after Phase C, and it wants the §-numbering of `plans/drive-as-truth.md`):** the
+text row's `state` distinguishes *queued for a device that exists* from *queued for one that has
+never enrolled*, and the Unassigned exclusion keys off the former only. Whether to refuse the assign
+outright, or accept it and show it honestly as "waiting for the device to be set up", is a UI call —
+but the current outcome, invisible, is the one option that is certainly wrong. Re-minting the URLs
+at approval time would also remove the TTL cliff in (4).

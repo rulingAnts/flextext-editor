@@ -2229,6 +2229,126 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
   }
 
+  /* PROJECT MIGRATION — insert the project layer, and take it back out again.
+   *
+   *   before:  FlexText Uploads / <container> / <text>
+   *   after:   FlexText Uploads / <Project> / <container> / <text>
+   *
+   * ⚠ DRY RUN FIRST, AND IT REALLY IS DRY — it creates nothing, not even the project folder. A repair
+   * or migration tool that acts before you have read its plan is how a tangle becomes a disaster
+   * (§17.3): by the time anyone reaches for one, the estate is already in a state nobody predicted.
+   *
+   * Re-parenting is METADATA ONLY. No bytes move, folder ids are preserved, and every id held in D1,
+   * in a client's memory or in a minted URL stays valid — which is what makes this safe to run on a
+   * live estate and safe to reverse afterwards.
+   *
+   * POST /v1/researcher/projects/migrate { name, dry }
+   *   name: the DEFAULT project's folder name, supplied by the client so it can be localized —
+   *         the worker has no idea what language the researcher reads.
+   */
+  if (m === 'POST' && seg.length === 4 && seg[1] === 'researcher' && seg[2] === 'projects'
+      && (seg[3] === 'migrate' || seg[3] === 'unmigrate')) {
+    const r = await authResearcher(request, env);
+    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    const body = await readJson(request) || {};
+    const dry = body.dry !== false;                    // ⚠ DEFAULTS TO DRY. Acting must be deliberate.
+    const forward = seg[3] === 'migrate';
+    try {
+      const access = await driveAccessToken(env, r);
+      const master = await driveMasterFolder(access);
+      const kids = await driveJson(access, 'GET',
+        'https://www.googleapis.com/drive/v3/files?spaces=drive&fields=files(id,name,parents,appProperties)&q='
+        + encodeURIComponent(`'${master}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`));
+      const roleOf = (f) => (f.appProperties || {}).flextextRole || '';
+      const projectFolder = ((kids.files || []).find((f) => roleOf(f) === 'project') || {}).id || '';
+
+      if (forward) {
+        /* Containers are everything under master that is not the project folder itself and not a
+         * text. Device folders (untagged), crowd folders and the account-level Unassigned all move —
+         * the last one becoming the default project's Unassigned, which is exactly §16.16's shape. */
+        const movers = (kids.files || []).filter((f) => roleOf(f) !== 'project'
+          && !(f.appProperties || {}).flextextDoc);
+        const plan = movers.map((f) => ({ id: f.id, name: f.name || '', kind: roleOf(f) || 'device' }));
+        if (dry) {
+          return j({ ok: true, dry: true, direction: 'migrate', projectFolderId: projectFolder,
+                     wouldCreateProject: !projectFolder, moves: plan, count: plan.length }, 200, origin, env);
+        }
+        const target = projectFolder || await driveEnsureDefaultProject(access, body.name);
+        /* Bounded like every Drive loop here: one PATCH per container, plus the handful above. A real
+         * estate has a few containers, so a single pass finishes — but `remaining` exists so an
+         * unusually large one drains over successive calls rather than dying halfway. */
+        const CAP = 20;
+        let moved = 0, i = 0;
+        for (; i < movers.length && i < CAP; i++) {
+          try { await driveReparent(access, movers[i].id, target, movers[i].parents); moved++; }
+          catch { /* one container failing must not abort the rest */ }
+        }
+        await logApproval(env, request, 'projects_migrate', 'default', moved + ' container(s)', r.drive_email);
+        return j({ ok: true, dry: false, direction: 'migrate', projectFolderId: target, moved,
+                   remaining: Math.max(0, movers.length - i) }, 200, origin, env);
+      }
+
+      /* UNMIGRATE — §17.2/§17.4 step 2. Puts every container back directly under master, so the tree
+       * returns to the shape a pre-project worker reads. The dual-shape estate means the CURRENT
+       * worker reads both, so this is safe to run before or after a rollback, in either order. */
+      if (!projectFolder) return j({ ok: true, dry, direction: 'unmigrate', moves: [], count: 0, note: 'already_flat' }, 200, origin, env);
+      const inside = await driveJson(access, 'GET',
+        'https://www.googleapis.com/drive/v3/files?spaces=drive&fields=files(id,name,parents,appProperties)&q='
+        + encodeURIComponent(`'${projectFolder}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`));
+      const back = (inside.files || []).filter((f) => !(f.appProperties || {}).flextextDoc);
+      const plan = back.map((f) => ({ id: f.id, name: f.name || '', kind: roleOf(f) || 'device' }));
+      if (dry) {
+        return j({ ok: true, dry: true, direction: 'unmigrate', projectFolderId: projectFolder,
+                   moves: plan, count: plan.length,
+                   wouldTrashProject: plan.length === (inside.files || []).length }, 200, origin, env);
+      }
+      let moved = 0, i = 0;
+      for (; i < back.length && i < 20; i++) {
+        try { await driveReparent(access, back[i].id, master, back[i].parents); moved++; }
+        catch { /* keep going */ }
+      }
+      /* Trash the project folder only when it is EMPTY — never with anything still inside. Trash is
+       * reversible for 30 days and this folder holds nothing, so it is the one deletion-shaped act
+       * in the whole migration, and it is bounded to a container we created and just emptied. */
+      let trashedProject = false;
+      if (moved === back.length) {
+        try {
+          const left = await driveJson(access, 'GET',
+            'https://www.googleapis.com/drive/v3/files?spaces=drive&fields=files(id)&q='
+            + encodeURIComponent(`'${projectFolder}' in parents and trashed=false`));
+          if (!(left.files || []).length) {
+            await driveJson(access, 'PATCH', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(projectFolder) + '?fields=id', { trashed: true });
+            trashedProject = true;
+          }
+        } catch { /* leaving an empty project folder is harmless — the estate reads both shapes */ }
+      }
+      await logApproval(env, request, 'projects_unmigrate', 'default', moved + ' container(s)', r.drive_email);
+      return j({ ok: true, dry: false, direction: 'unmigrate', moved, trashedProject,
+                 remaining: Math.max(0, back.length - i) }, 200, origin, env);
+    } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
+  }
+
+  /* POST /v1/researcher/projects/rename { folderId, name } — the researcher names their own project
+   * (Seth, 2026-08-19). Display only: the folder is found by its `flextextDefault` / `flextextProject`
+   * TAG, never by name, so a rename cannot orphan a device folder, a text, or a pending upload. */
+  if (m === 'POST' && seg.length === 4 && seg[1] === 'researcher' && seg[2] === 'projects' && seg[3] === 'rename') {
+    const r = await authResearcher(request, env);
+    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    const body = await readJson(request) || {};
+    const folderId = String(body.folderId || '').replace(/[^\w-]/g, '').slice(0, 128);
+    const name = String(body.name || '').replace(/[\\/:*?"<>|]+/g, '_').trim().slice(0, 120);
+    if (!folderId || !name) return j({ error: 'bad_body' }, 400, origin, env);
+    try {
+      const access = await driveAccessToken(env, r);
+      // Verify it IS one of ours before renaming — drive.file already bounds us to app-created files,
+      // but a role check keeps an accidental id from renaming a text folder.
+      const f = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(folderId) + '?fields=id,appProperties');
+      if (((f.appProperties || {}).flextextRole || '') !== 'project') return j({ error: 'not_a_project' }, 400, origin, env);
+      await driveJson(access, 'PATCH', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(folderId) + '?fields=id', { name });
+      return j({ ok: true, folderId, name }, 200, origin, env);
+    } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
+  }
+
   /* Permanently delete the FlexText files that are ALREADY IN TRASH — the only way trashing ever
    * reclaims quota, since usageInDriveTrash counts inside usage.
    *

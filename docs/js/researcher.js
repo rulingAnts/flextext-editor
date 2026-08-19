@@ -608,6 +608,18 @@ export function driveEstate() { return api('GET', '/v1/researcher/drive-estate')
  * projection: a snapshot records what Drive held, not what our grouping logic made of it. */
 export function driveSnapshot() { return api('GET', '/v1/researcher/drive-snapshot'); }
 
+/* PROJECT MIGRATION (plans/drive-as-truth.md §16.16). ⚠ `dry` DEFAULTS TO TRUE server-side — acting
+ * has to be asked for explicitly, so a caller that forgets the flag previews instead of moving. */
+export function projectsMigrate(fields) {
+  return api('POST', '/v1/researcher/projects/migrate', { body: fields || {}, retry: false });
+}
+export function projectsUnmigrate(fields) {
+  return api('POST', '/v1/researcher/projects/unmigrate', { body: fields || {}, retry: false });
+}
+export function projectRename(folderId, name) {
+  return api('POST', '/v1/researcher/projects/rename', { body: { folderId, name } });
+}
+
 /* Permanently delete the FlexText files ALREADY IN TRASH — the only thing that actually reclaims
  * quota, since usageInDriveTrash counts inside usage. Scoped to our own files by drive.file; this
  * is NOT "empty the user's Drive trash". retry:false — a lost response must not double-delete. */

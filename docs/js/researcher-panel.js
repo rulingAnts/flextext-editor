@@ -1449,12 +1449,12 @@ async function renderDashboard(prefetched) {
     }
     // busy(): the manifest check lists the folder first, so the button must not look dead meanwhile.
     if (el.dataset.uact === 'adopt') { busy(el, () => adoptTextModal(el.dataset.id, el.dataset.title || '')); return; }
-    /* Move… on a CROWD row. Same modal, kind:'crowd' — which offers Unassigned and nothing else,
-     * because a device destination needs a `.flextext` a recording does not have. fromId is only
-     * carried for the device paths, which this kind never takes; firstInstanceId() keeps the
-     * signature honest without inventing an id. */
+    /* Move… on a CROWD row — the SAME source-less flow the Unassigned card uses, because a crowd
+     * recording is held by no device either. Destinations: any device, or Unassigned (Seth: "any
+     * text anywhere, except to a crowd recorder"). It reaches a device through /adopt rather than
+     * /move precisely because there is no source instance to name. */
     if (el.dataset.uact === 'cmove') {
-      busy(el, () => moveTextModal(firstInstanceId(), el.dataset.id, el.dataset.title || '', { kind: 'crowd' }));
+      busy(el, () => adoptTextModal(el.dataset.id, el.dataset.title || '', { unassign: true }));
       return;
     }
     if (el.dataset.uact === 'drop') {
@@ -3976,38 +3976,48 @@ async function moveSources(fromId, docId, title) {
   }
   const audio = picks.audio ||
     all.find((f) => /\.(wav|mp3|opus|ogg|webm|flac|m4a|aac)$/i.test(String(f.name || ''))) || null;
-  return { all, picks, manifest, audio, ok: !!(manifest && picks.flextext && audio) };
+  /* ⚠ A FLEXTEXT IS REQUIRED ONLY IF ONE IS SUPPOSED TO EXIST (Seth, 2026-08-19: "I want to be able
+   * to move any text anywhere, except to a crowd recorder").
+   *
+   * The gate demanded a flextext unconditionally, which made a crowd recording unmovable — a
+   * recording is not a transcription yet and has none. But assigning audio ALONE is the ordinary
+   * workflow: assignModal has always allowed it ("showing it on an audio-only assignment is noise"),
+   * and both commit paths already refuse only when there is neither audio nor flextext to deliver.
+   * So the unconditional demand was protecting nothing in that case.
+   *
+   * What it IS protecting is a text whose transcription exists and did not resolve — moving that
+   * audio-only would silently drop the work. The MANIFEST distinguishes them, which is what a
+   * manifest is for: declared-but-missing refuses, never-declared moves as the recording it is. */
+  const declaresFlextext = Array.isArray(manifest && manifest.files) && manifest.files.some((f) =>
+    isFlextextName(f) || hasRole(f, SOURCE_FT_ROLES));
+  return { all, picks, manifest, audio, declaresFlextext,
+           ok: !!(manifest && audio && (picks.flextext || !declaresFlextext)) };
 }
 
-/* MOVE — one modal, three kinds of destination (Seth, 2026-08-19: "let's let move also work for
- * that").
+/* MOVE, from a device (Seth, 2026-08-19: "let's let move also work for that").
  *
- * Destinations are of two completely different natures and it matters which is which:
+ * Two destinations of completely different natures, and it matters which is which:
  *
- *  - ANOTHER DEVICE is an ASSIGNMENT plus a removal. It needs source material the device can
- *    actually materialize, which is why `moveSources` gates it on a manifest + flextext + audio.
- *  - UNASSIGNED assigns nothing. From a crowd recorder it is a Drive re-parent and no more; from a
- *    device it is the existing upload-first removal, after which no device reports the text and the
- *    sweep files it. Neither needs a manifest, so the device gate must NOT block it.
+ *  - ANOTHER DEVICE is an ASSIGNMENT plus a removal, so it needs source material the destination
+ *    can actually materialize — `moveSources` is the gate.
+ *  - UNASSIGNED assigns nothing. It is the existing upload-first removal: the device lands a fresh
+ *    Drive copy, then drops its own, after which no device reports the text and the sweep files it.
+ *    Seth had already noticed this ("Remove from device already moves"); what was missing was the
+ *    verb, not the machinery. It needs no manifest, so the device gate must NOT block it — the old
+ *    version returned early on a failed gate, which left an ineligible text with nowhere to go.
  *
- * ⚠ THAT SPLIT IS THE WHOLE POINT OF THE REWRITE. The old version ran the eligibility check first
- * and returned early on failure, so a crowd recording — which by definition has no `.flextext` yet —
- * could never reach any destination at all. Offering it a device is still impossible and still not
- * offered; offering it Unassigned is the action §16.25 requires to exist, because until now the
- * set-aside queue could only be entered by the automatic sweep, and "the researcher puts it there"
- * was not a thing a researcher could do.
+ * ⚠ NOTHING IS RE-PARENTED HERE. The text is still on the device until the delete confirms, and
+ * filing it early would put it in the assign queue while a device still holds it — the exact state
+ * the sweep exists to resolve. The sweep does it afterwards, on the path already tested.
  *
- * ⚠ A device move to Unassigned does NOT re-parent the folder here. The text is still on the device
- * until the delete is confirmed, and filing it early would put it in the assign queue while a device
- * still holds it. The sweep files it once no device reports it — the path that is already tested. */
-async function moveTextModal(fromId, docId, title, opts = {}) {
-  const kind = opts.kind === 'crowd' ? 'crowd' : 'device';
+ * A text held by NO device — unassigned, or sitting in a crowd recorder — does not come through
+ * here at all: see adoptTextModal, the source-less flow, which reaches a device via /adopt. */
+async function moveTextModal(fromId, docId, title) {
   // ⚠ Only devices on v138+ can RECEIVE a move: older engines ignore the assign's docId and mint
   // their own, so the arrival is invisible to the sweep and the move waits forever (fail-safe —
   // the source is never removed — but wedged). Devices auto-update, so this resolves itself.
   const engOf = (x) => Math.max(0, ...((x.installs || []).map((i) => parseInt(String((i.inventory && i.inventory.engineVersion) || '').replace(/[^0-9]/g, ''), 10) || 0)));
-  const insts = kind === 'crowd' ? []
-    : ((lastData && lastData.instances) || []).filter((x) => x.instance_id !== fromId);
+  const insts = ((lastData && lastData.instances) || []).filter((x) => x.instance_id !== fromId);
   for (const x of insts) x._canReceive = engOf(x) >= 138;
 
   /* The device gate, run ONLY when a device could be a destination at all. `why` is the reason no
@@ -4015,8 +4025,7 @@ async function moveTextModal(fromId, docId, title, opts = {}) {
    * dead radio buttons with no explanation. */
   let src = null;
   let why = '';
-  if (kind === 'crowd') why = 'panel.move.introUnassignedOnly';
-  else if (!insts.length) why = 'panel.move.noOther';
+  if (!insts.length) why = 'panel.move.noOther';
   else if (!insts.some((x) => x._canReceive)) why = 'panel.move.allTooOld';
   else {
     try { src = await moveSources(fromId, docId, title); }
@@ -4036,9 +4045,7 @@ async function moveTextModal(fromId, docId, title, opts = {}) {
     <p class="note">${esc(t(deviceOk ? 'panel.move.intro' : why))}</p>
     ${insts.map((x) => opt(x.instance_id, x.nickname || '?', x._canReceive ? '' : t('panel.move.tooOld'),
                            !deviceOk || !x._canReceive, deviceOk && x === firstOk)).join('')}
-    ${opt('__unassigned', t('panel.move.unassignedOpt'),
-          t(kind === 'crowd' ? 'panel.move.unassignedWhyCrowd' : 'panel.move.unassignedWhyDevice'),
-          false, !deviceOk)}
+    ${opt('__unassigned', t('panel.move.unassignedOpt'), t('panel.move.unassignedWhyDevice'), false, !deviceOk)}
     <button class="primary-btn" data-m="go">${esc(t('panel.move.go'))}</button>
     <button class="link-btn" data-m="cancel">${esc(t('panel.assign.cancel'))}</button>
     <div class="rp-adm-say" id="rp-move-say" hidden></div>`);
@@ -4051,19 +4058,16 @@ async function moveTextModal(fromId, docId, title, opts = {}) {
       e.target.disabled = true;
 
       if (to === '__unassigned') {
-        if (kind === 'crowd') {
-          // A re-parent and nothing else — drive-unassign already takes explicit ids; the sweep is
-          // simply a batched caller of the same route.
-          await Researcher.driveUnassign([docId]);
-        } else {
-          // The upload-first removal, identical to the del-text path: a fresh Drive copy lands
-          // BEFORE the device drops its own. The sweep files the result.
-          const r2 = await Researcher.uploadDelete(fromId, docId);
-          pendingCmds.set(docId, { seq: r2.seq, kind: 'delete', instanceId: fromId, at: Date.now() });
-          savePending(Researcher.currentAccountId());
-        }
+        /* The upload-first removal, identical to the del-text path: a fresh Drive copy lands BEFORE
+         * the device drops its own. Nothing is re-parented here — the text is still on the device
+         * until the delete confirms, and filing it early would put it in the assign queue while a
+         * device still holds it, which is the exact state the sweep exists to resolve. The sweep
+         * files it once no device reports it. */
+        const r2 = await Researcher.uploadDelete(fromId, docId);
+        pendingCmds.set(docId, { seq: r2.seq, kind: 'delete', instanceId: fromId, at: Date.now() });
+        savePending(Researcher.currentAccountId());
         m.close();
-        deps.toast(t(kind === 'crowd' ? 'panel.move.filed' : 'panel.inst.delSent'), 6000);
+        deps.toast(t('panel.inst.delSent'), 6000);
         renderDashboard();
         return;
       }
@@ -4197,9 +4201,22 @@ function renderUnassignedCard(estate) {
 /* Adopt: pick a destination device, re-file the folder out of Unassigned, mint streaming URLs, then
  * send the ordinary assign command. A REAL re-assignment (Seth) — the text becomes live on that
  * device again, not merely a folder tidy. */
-async function adoptTextModal(docId, title) {
+/* THE SOURCE-LESS MOVE — used by BOTH the Unassigned card and a crowd recorder's rows.
+ *
+ * ⚠ IT IS NOT `/move`, DELIBERATELY, and that decision predates the crowd work: `/move` requires
+ * `toId !== instanceId` because it is a transfer BETWEEN devices, and relaxing that to serve a
+ * source-less flow would make one endpoint mean two things on a path field devices use. `/adopt`
+ * takes the destination in the path and no source at all, which is exactly the shape a text held by
+ * no device needs — a crowd recording included. It is also why the in-flight marker here is an
+ * ordinary `assign`, not a pendingMoves record: there is no source half to remove, so a move record
+ * would be a removal waiting to fire at a device that never had the text.
+ *
+ * `opts.unassign` adds Google Drive (Unassigned) as a destination — filing rather than assigning.
+ * That is the action §16.25 requires to EXIST: a text may enter the set-aside queue only when the
+ * researcher puts it there, and until it existed the queue could only be entered by the sweep. */
+async function adoptTextModal(docId, title, opts = {}) {
   const insts = ((lastData && lastData.instances) || []);
-  if (!insts.length) { deps.toast(t('panel.move.noOther'), 5000); return; }
+  if (!insts.length && !opts.unassign) { deps.toast(t('panel.move.noOther'), 5000); return; }
   /* SAME GATE AS A DEVICE-TO-DEVICE MOVE (Seth: "either from unassigned or from another device").
    * An unassigned text is the MORE likely one to predate the manifest — it has been sitting in
    * Drive precisely because no device claimed it — so skipping the check here would leave the gap
@@ -4208,16 +4225,24 @@ async function adoptTextModal(docId, title) {
    * The instance id is only a route for the listing call: driveEnsureTextFolder resolves a text
    * folder by its `flextextDoc` tag and NEVER by parent, which is what makes an unassigned text
    * (whose folder now lives under "Unassigned") listable through any instance at all. */
+  /* ⚠ THE GATE GOVERNS DEVICE DESTINATIONS ONLY. Filing under Unassigned assigns nothing — it is a
+   * Drive re-parent — so a text that cannot be delivered to a device can still be filed. Returning
+   * early on a failed gate, as this did, is what would leave such a text with nowhere to go. */
   let src = null;
-  try { src = await moveSources(insts[0].instance_id, docId, title); }
-  catch { deps.toast(t('panel.dl.zipFailed'), 5000); return; }
-  if (!src.ok) {
-    deps.toast(t(src.manifest ? 'panel.move.manifestIncomplete' : 'panel.move.noManifest'), 10000);
-    return;
+  let why = '';
+  if (!insts.length) why = 'panel.move.noOther';
+  else {
+    try { src = await moveSources(insts[0].instance_id, docId, title); }
+    catch { src = null; }
+    if (!src) why = 'panel.dl.zipFailed';
+    else if (!src.ok) why = src.manifest ? 'panel.move.manifestIncomplete' : 'panel.move.noManifest';
   }
+  if (why && !opts.unassign) { deps.toast(t(why), 10000); return; }
+  const deviceOk = !why;
   const m = modal(`<h3>${esc(t('panel.unassigned.moveTitle', { title }))}</h3>
-    <p class="note">${esc(t('panel.unassigned.moveIntro'))}</p>
-    ${insts.map((x, i) => `<label class="rp-field"><input type="radio" name="rp-adopt-to" value="${esc(x.instance_id)}"${i === 0 ? ' checked' : ''}> ${esc(x.nickname || '?')}</label>`).join('')}
+    <p class="note">${esc(t(deviceOk ? 'panel.unassigned.moveIntro' : why))}</p>
+    ${insts.map((x, i) => `<label class="rp-field"><input type="radio" name="rp-adopt-to" value="${esc(x.instance_id)}"${!deviceOk ? ' disabled' : ''}${deviceOk && i === 0 ? ' checked' : ''}> ${esc(x.nickname || '?')}</label>`).join('')}
+    ${opts.unassign ? `<label class="rp-field"><input type="radio" name="rp-adopt-to" value="__unassigned"${deviceOk ? '' : ' checked'}> ${esc(t('panel.move.unassignedOpt'))} <span class="note">— ${esc(t('panel.move.unassignedWhyCrowd'))}</span></label>` : ''}
     <div class="rp-adm-say" hidden></div>
     <div class="modal-actions">
       <button class="secondary-btn" data-m="cancel">${esc(t('panel.assign.cancel'))}</button>
@@ -4229,6 +4254,15 @@ async function adoptTextModal(docId, title) {
     const to = (m.el.querySelector('input[name="rp-adopt-to"]:checked') || {}).value;
     if (!to) return;
     try {
+      if (to === '__unassigned') {
+        // A re-parent and nothing else. drive-unassign already takes explicit ids — the sweep is
+        // simply a batched caller of the same route, so filing one text adds no machinery.
+        await Researcher.driveUnassign([docId]);
+        m.close();
+        deps.toast(t('panel.move.filed'), 6000);
+        renderDashboard();
+        return;
+      }
       // The text's own Drive files supply the content, exactly as a move does.
       const files = (await Researcher.listTextFiles(to, docId).catch(() => null)) || { files: [] };
       const picks = pickSourceFiles(files.files || []);

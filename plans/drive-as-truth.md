@@ -2208,24 +2208,47 @@ Seth, 2026-08-19, proposing the affordances for texts that no device holds:
 |---|---|---|---|
 | On a device | to another device, **or to Unassigned** | *Remove from device* (upload-first, then delete locally) | ✅ |
 | In Unassigned | to a device | **Delete** | ✅ |
-| In a crowd recorder | **Unassigned ONLY** — see the correction below | **Delete** | ✅ |
+| In a crowd recorder | **to a device, or to Unassigned** | **Delete** | ✅ |
 
-⚠ **CORRECTION, found while building it (v415).** This table originally said a crowd recording could
-Move *"to a device, or to Unassigned"*. It cannot go to a device, and writing that down nearly caused
-the exact button v410 had already removed to be rebuilt.
+⚠ **CORRECTION, and then a correction of the correction — both worth keeping, because the second one
+is the useful one.**
 
-`moveSources()` gates a device destination on `ok: !!(manifest && picks.flextext && audio)`. A crowd
-submission has a manifest and audio and **no `.flextext`** — a recording is not a transcription yet —
-so the gate can never pass for one. That is not a bug to fix here: an assignment with no text is the
-separate "a flextext is optional for assignments" question Seth deferred. Until that is answered, the
-honest offer is Unassigned only, with the modal saying why rather than showing a dead radio button.
+While building v415 the crowd→device row was struck out as impossible: `moveSources()` gated a move
+on `manifest && picks.flextext && audio`, and a crowd submission has no `.flextext` — a recording is
+not a transcription yet. That reasoning was right about the gate and wrong about the conclusion.
+Seth: *"I want to be able to move any text anywhere, except to a crowd recorder."*
 
-**The lesson worth more than the correction:** the row was written into this plan from the shape of
-the other two rows, not from the code, and it read as settled because it was in a table. Check a
-capability against the gate that decides it before tabulating it.
+**Assigning audio ALONE is the ordinary workflow.** `assignModal` has always allowed it — its own
+comment says showing the FLEx round-trip warning "on an audio-only assignment is noise" — and both
+commit paths refuse only when there is neither audio nor flextext to deliver. So the unconditional
+demand for a flextext was protecting nothing in the crowd case.
 
-*"Remove from device"* is meaningless for a text on no device, and the button there currently trashes
-the Drive folder — so the label describes neither the target nor the effect. **Delete** is honest.
+What it IS protecting is a text whose transcription exists and did not resolve; moving that
+audio-only would silently drop the work. **The manifest tells the two apart**, which is what a
+manifest is for:
+
+```js
+ok: !!(manifest && audio && (picks.flextext || !declaresFlextext))
+```
+
+Declared-but-missing refuses. Never-declared moves as the recording it is.
+
+⚠ **And crowd→device reaches a device through `/adopt`, NOT `/move`** — a decision that predates all
+of this and was nearly overturned by accident. `/move` requires `toId !== instanceId` because it is a
+transfer BETWEEN devices; relaxing that to carry a source-less flow would make one endpoint mean two
+things on a path field devices use. `/adopt` already takes the destination in the path and no source
+at all, which is exactly the shape a text held by no device needs. The first attempt at this feature
+relaxed the `/move` guard and added a `fromCrowd` field so the approval log would not record a
+device-to-device move that never happened — a worker change, a deploy, and a new concept, all to
+rebuild what `/adopt` already was. **The test that said "/move keeps its distinct-devices guard"
+caught it.** The same reasoning kills the pendingMoves record: a crowd move has no source half, so a
+move marker would be a removal waiting to fire at a device that never held the text — `/adopt`'s
+ordinary `assign` marker is correct and was already there.
+
+**The lesson, which is the same one twice:** the first correction was written from the shape of the
+other table rows rather than from the code, and the near-miss was written from the shape of the
+feature rather than from the endpoints that already existed. Check the thing that decides before
+tabulating it, and look for the route that already has the shape before widening one that does not.
 
 ⚠ **`Move… → Unassigned` is the important one, and not for tidiness.** §16.25 requires that a text
 enter the set-aside queue only by the researcher putting it there. Until now the queue could only be
@@ -2251,6 +2274,11 @@ is already tested.
 **Already true, no work needed:** the Files… modal is `filesMenuHtml(iid, docId, title)` and is
 already rendered on crowd rows (v408) — it reads a text's folder, which is the same shape whatever
 container holds it.
+
+**The one destination that is NOT offered, anywhere:** a crowd recorder. Nothing can be moved INTO
+one (Seth: *"really it's just a crowd-recorder we don't want"*). A recorder is a source of texts and
+a container that holds what it produced; it is not a place a researcher files work, and a device
+could never be told about an arrival there.
 
 ⚠ **One naming caution.** "Delete" must not overstate: it TRASHES the Drive folder, recoverable for
 30 days, and `drive-purge` remains the only thing that empties trash. The storage modal already

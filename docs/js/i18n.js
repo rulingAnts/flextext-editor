@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v415';
+export const ENGINE_VERSION = 'v416';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -866,7 +866,6 @@ internet after the first time.</p>
   'panel.move.unassignedOpt': 'Google Drive (unassigned)',
   'panel.move.unassignedWhyDevice': 'the device uploads a final copy, then removes its own — the text stays in Drive, filed under Unassigned, ready to assign later',
   'panel.move.unassignedWhyCrowd': 'the text leaves this recorder and joins your queue of texts waiting to be assigned. Nothing is deleted.',
-  'panel.move.introUnassignedOnly': 'A device can only receive a text that has a .flextext, and this recording has none yet — so Unassigned is the only destination offered. To put it on a device, download the folder and upload it again as an assignment.',
   'panel.move.filed': 'Filed under Unassigned.',
   'panel.move.nothingToMove': 'Nothing to move yet \u2014 this text has no uploaded content the other device could receive.',
   /* v347 \u2014 a move builds the new assignment from the folder's manifest. Without one there is no
@@ -1167,7 +1166,7 @@ internet after the first time.</p>
   'panel.dl.packageSub': 'the recording with its consent records, packaged together',
   // How the text came to exist, from the manifest's `origin` field — so the researcher is told
   // whether item 1 is what they assigned or what the speaker recorded, instead of inferring it.
-  'panel.crowd.assignNote': 'Move\u2026 files a recording under Unassigned, ready to assign later. It cannot send one straight to a device: that needs a .flextext, which a recording does not have yet \u2014 so to work on one, download it and upload it again as a normal assignment. \u26a0 Do not move these folders in Google Drive by hand \u2014 the device would never be told about it, so the text would look assigned without ever arriving.',
+  'panel.crowd.assignNote': 'Move\u2026 sends a recording to a device to be transcribed, or files it under Unassigned for later. \u26a0 Do not move these folders in Google Drive by hand \u2014 the device would never be told about it, so the text would look assigned without ever arriving.',
   'panel.store.snapshot': 'Save a Drive snapshot (JSON)',
   'panel.store.snapshotNote': 'A record of exactly what your FlexText folders look like right now. Take one before any big reorganisation \u2014 Google Drive does not remember where a folder used to be, so this file cannot be produced after the fact.',
   'panel.store.snapshotSaved': 'Snapshot saved \u2014 {n} items recorded. Keep it somewhere safe.',
@@ -2509,7 +2508,6 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.move.unassignedOpt': 'Google Drive (tidak tertugas)',
   'panel.move.unassignedWhyDevice': 'perangkat mengunggah salinan terakhir, lalu menghapus miliknya sendiri — teksnya tetap di Drive, masuk ke Tidak Tertugas, siap ditugaskan nanti',
   'panel.move.unassignedWhyCrowd': 'teks keluar dari perekam ini dan masuk ke antrean teks yang menunggu ditugaskan. Tidak ada yang dihapus.',
-  'panel.move.introUnassignedOnly': 'Perangkat hanya bisa menerima teks yang punya berkas .flextext, dan rekaman ini belum punya — jadi hanya Tidak Tertugas yang ditawarkan sebagai tujuan. Untuk memasangnya di perangkat, unduh foldernya lalu unggah kembali sebagai penugasan.',
   'panel.move.filed': 'Masuk ke Tidak Tertugas.',
   'panel.move.nothingToMove': 'Belum ada yang bisa dipindahkan \u2014 teks ini belum punya konten terunggah yang bisa diterima perangkat lain.',
   /* v347 \u2014 lihat catatan pada blok en. */
@@ -2786,7 +2784,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.dl.approx': 'sekitar {size}',
   'panel.dl.package': 'Paket rekaman (.zip)',
   'panel.dl.packageSub': 'rekaman beserta catatan persetujuan, dikemas jadi satu',
-  'panel.crowd.assignNote': 'Pindahkan\u2026 memasukkan rekaman ke Tidak Tertugas, siap ditugaskan nanti. Rekaman belum bisa dikirim langsung ke perangkat: itu memerlukan berkas .flextext yang belum dimiliki rekaman \u2014 jadi untuk mengerjakannya, unduh lalu unggah kembali sebagai penugasan biasa. \u26a0 Jangan memindahkan folder ini secara manual di Google Drive \u2014 perangkat tidak akan diberi tahu, sehingga teks tampak ditugaskan padahal tidak pernah sampai.',
+  'panel.crowd.assignNote': 'Pindahkan\u2026 mengirim rekaman ke perangkat untuk ditranskripsi, atau memasukkannya ke Tidak Tertugas untuk nanti. \u26a0 Jangan memindahkan folder ini secara manual di Google Drive \u2014 perangkat tidak akan diberi tahu, sehingga teks tampak ditugaskan padahal tidak pernah sampai.',
   'panel.store.snapshot': 'Simpan cuplikan Drive (JSON)',
   'panel.store.snapshotNote': 'Catatan persis seperti apa folder FlexText Anda saat ini. Ambil satu sebelum penataan ulang besar \u2014 Google Drive tidak mengingat lokasi folder sebelumnya, jadi berkas ini tidak bisa dibuat setelahnya.',
   'panel.store.snapshotSaved': 'Cuplikan tersimpan \u2014 {n} item tercatat. Simpan di tempat aman.',

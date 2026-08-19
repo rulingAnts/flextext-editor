@@ -153,8 +153,8 @@ console.log('\na move refuses without a manifest — BEFORE offering a destinati
   const fn = (panel.match(/async function moveSources\([\s\S]*?\n\}/) || [''])[0];
   ok(/Array\.isArray\(body\.files\)/.test(fn),
      'an unreadable or wrong-shaped body is NOT a manifest — same rule the Files list uses');
-  ok(/ok: !!\(manifest && picks\.flextext && audio\)/.test(fn),
-     'eligibility needs the manifest AND a current flextext AND an original recording');
+  ok(/ok: !!\(manifest && audio && \(picks\.flextext \|\| !declaresFlextext\)\)/.test(fn),
+     'eligibility needs the manifest AND an original recording — and a flextext only if one is declared');
 
   /* ⚠ ORDER IS THE FIX. The old code listed the folder only after the researcher had chosen a
    * device and pressed Move, then failed with nothingToMove — a refusal AFTER the commitment, which
@@ -191,43 +191,54 @@ console.log('\na move refuses without a manifest — BEFORE offering a destinati
      'the gate disables DEVICE options instead of closing the modal');
 }
 
-console.log('\nUnassigned is a real destination, and the two kinds do different work');
+console.log('\nUnassigned is a real destination on a DEVICE move — and nothing is re-parented early');
 {
   const mvAt = panel.indexOf('async function moveTextModal');
   const mv = panel.slice(mvAt, panel.indexOf('\n}\n', panel.indexOf('  });', mvAt)) + 3);
 
-  ok(/Researcher\.driveUnassign\(\[docId\]\)/.test(mv),
-     'a CROWD text is filed by re-parenting one id — drive-unassign already takes explicit ids');
   ok(/Researcher\.uploadDelete\(fromId, docId\)/.test(mv),
-     'a DEVICE text goes through the upload-first removal, so a fresh Drive copy lands before the device drops its own');
-
-  /* ⚠ The device path must NOT re-parent here. The text is still on the device until the delete is
-   * confirmed; filing it early would put it in the assign queue while a device still holds it —
-   * which is precisely the state the sweep exists to resolve. The sweep files it afterwards. */
-  const devBranch = (mv.match(/\} else \{[\s\S]*?savePending\(Researcher\.currentAccountId\(\)\);/) || [''])[0];
-  ok(devBranch && !/driveUnassign/.test(devBranch),
-     'and the device path does not re-parent the folder itself — the sweep does, once no device reports it');
-
-  // A crowd recording can never be assigned straight to a device: it has no .flextext.
-  ok(/kind === 'crowd' \? \[\]/.test(mv), 'the crowd kind offers NO device destinations at all');
-  ok(/if \(kind === 'crowd'\) why = 'panel\.move\.introUnassignedOnly'/.test(mv),
-     '...and says why, rather than showing a row of dead radio buttons');
-
-  ok(/data-uact="cmove"/.test(panel) && /panel\.move\.btn/.test(panel), 'the crowd row has a Move… button');
-  ok(/moveTextModal\(firstInstanceId\(\), el\.dataset\.id, el\.dataset\.title \|\| '', \{ kind: 'crowd' \}\)/.test(panel),
-     'wired to the same modal, with the crowd kind');
+     'it is the upload-first removal — a fresh Drive copy lands before the device drops its own');
+  /* ⚠ The folder must NOT be filed here. The text is still on the device until the delete confirms,
+   * and filing it early would put it in the assign queue while a device still holds it — the exact
+   * state the sweep exists to resolve. */
+  ok(!/driveUnassign/.test(mv), 'and the folder is left where it is — the sweep files it afterwards');
+  ok(/opt\('__unassigned'[\s\S]{0,200}?false, !deviceOk\)/.test(mv),
+     'Unassigned is never disabled, and is pre-selected exactly when no device can receive the text');
 }
 
-console.log('\n...and the Unassigned → device path is gated identically');
+console.log('\n...and a text NO DEVICE HOLDS goes through the source-less flow, not /move');
 {
-  const ad = panel.slice(panel.indexOf('async function adoptTextModal'));
-  ok(/await moveSources\(insts\[0\]\.instance_id, docId, title\)/.test(ad.slice(0, 1400)),
-     'adopt runs the same check');
-  /* An unassigned text is the MOST likely to predate the manifest — it has been sitting in Drive
-   * precisely because no device claimed it — so a gate on the device path alone would leave the gap
-   * exactly where it is widest. */
-  ok(/panel\.move\.noManifest/.test(ad.slice(0, 1400)), 'and refuses with the same explanation');
+  const adAt = panel.indexOf('async function adoptTextModal');
+  const ad = panel.slice(adAt, panel.indexOf('\n}\n', panel.indexOf('  }));', adAt)) + 3);
+  ok(!/async function moveTextModal/.test(ad), 'the slice really is adoptTextModal alone');
+
+  /* ⚠ WHY NOT /move, and why this predates the crowd work: /move requires toId !== instanceId
+   * because it is a transfer BETWEEN devices. Relaxing that to carry a source-less flow would make
+   * one endpoint mean two things on a path field devices use — so /adopt exists instead, taking the
+   * destination in the path and no source at all. A crowd recording needs exactly that shape. */
+  // (drive-estate pins the worker half of this — that /move still refuses toId === instanceId.)
+  ok(/Researcher\.adoptText\(to, docId/.test(ad), 'a device destination goes through /adopt');
+  ok(/kind: 'assign'/.test(ad),
+     '...with an ordinary assign marker — there is no source half, so a move record would be a removal waiting to fire at a device that never had the text');
+
+  ok(/opts\.unassign \?/.test(ad) && /value="__unassigned"/.test(ad),
+     'Unassigned is offered as a destination when the caller asks for it');
+  ok(/Researcher\.driveUnassign\(\[docId\]\)/.test(ad),
+     '...and filing is a re-parent of one id — drive-unassign already takes explicit ids, so the sweep is just a batched caller');
+
+  /* ⚠ The gate governs DEVICE destinations only: filing assigns nothing. Returning early on a
+   * failed gate — which this did — leaves a text that cannot be delivered with nowhere to go. */
+  ok(/if \(why && !opts\.unassign\) \{ deps\.toast/.test(ad),
+     'a failed gate still closes the modal when filing is not on offer');
+  ok(/const deviceOk = !why;/.test(ad) && /\$\{!deviceOk \? ' disabled' : ''\}/.test(ad),
+     '...but otherwise it only disables the device options');
+  ok(/panel\.move\.noManifest/.test(ad), 'and the two causes are still named separately');
+
+  ok(/data-uact="cmove"/.test(panel), 'the crowd row has a Move… button');
+  ok(/adoptTextModal\(el\.dataset\.id, el\.dataset\.title \|\| '', \{ unassign: true \}\)/.test(panel),
+     'wired to the same source-less flow, with Unassigned offered');
 }
+
 
 console.log('\nboth buttons show they are working while the folder is listed');
 {

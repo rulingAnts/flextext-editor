@@ -577,8 +577,31 @@ function buildDriveEstate(files) {
    * only skipped text folders would list it as a DEVICE — and every text swept into it would then
    * appear to be held by a device called "Unassigned", which is the precise opposite of what it
    * means. Role-tagged folders are structure, never devices. */
-  const unassignedFolder = (files || []).find((f) => isFolder(f) && roleOf(f) === 'unassigned');
-  const unassignedId = (unassignedFolder && unassignedFolder.id) || '';
+  /* PROJECTS — a folder LAYER between master and the containers (plans/drive-as-truth.md §16.16).
+   * Tree: master / <project> / <container> / <text> / originals. Found by role like every other
+   * structural folder, so renaming or moving one changes nothing. */
+  const projects = (files || []).filter((f) => isFolder(f) && roleOf(f) === 'project')
+    .map((f) => ({ folderId: f.id, name: f.name || '' }));
+  const projectIds = new Set(projects.map((p) => p.folderId));
+
+  /* ⚠ THE DUAL-SHAPE HINGE, and it MUST include master unconditionally.
+   *
+   * §16.23 first proposed `projects.length ? projectIds : [masterId]` — swap the parent set once
+   * projects exist. Writing the half-migrated fixture showed that is wrong in the one state the
+   * migration actually passes through: the moment the FIRST project folder is created, every
+   * container still sitting under master stops matching and DISAPPEARS from the estate — devices,
+   * their texts, their byte totals, all of it — until the last re-parent completes. An interrupted
+   * sweep would leave it that way indefinitely.
+   *
+   * Keeping master in the set costs nothing (a fully-migrated tree has no containers left directly
+   * under it) and removes the branch entirely: one rule serves flat, nested and half-migrated. */
+  const containerParents = new Set([masterId, ...projectIds]);
+
+  /* Unassigned is per-PROJECT once projects exist, so this is a SET, not a singleton. The flat tree
+   * simply yields a set of one. `unassignedFolderId` is still returned as a single value because a
+   * shipped panel reads it (as a truthiness guard) and must keep working. */
+  const unassignedIds = new Set((files || []).filter((f) => isFolder(f) && roleOf(f) === 'unassigned').map((f) => f.id));
+  const unassignedId = [...unassignedIds][0] || '';
   /* CONTAINERS of texts: device folders and CROWD folders alike. A crowd recorder's folder holds
    * text folders exactly as a device's does (crowd submissions are born as texts — see
    * driveEnsureCrowdTextFolder), so it belongs in the same list rather than in a parallel one the
@@ -588,9 +611,11 @@ function buildDriveEstate(files) {
    * ⚠ Crowd folders were listed here BY ACCIDENT before they carried a role tag (untagged + unroled
    * + under master is this filter's definition of a device). The behaviour is unchanged; what
    * changes is that it is now deliberate and survives anyone tagging the folder. */
-  const devices = (files || []).filter((f) => isFolder(f) && parentOf(f) === masterId
+  const devices = (files || []).filter((f) => isFolder(f) && containerParents.has(parentOf(f))
       && !(f.appProperties || {}).flextextDoc && (!roleOf(f) || roleOf(f) === 'crowd'))
-    .map((f) => ({ folderId: f.id, name: f.name || '', kind: roleOf(f) === 'crowd' ? 'crowd' : 'device' }));
+    .map((f) => ({ folderId: f.id, name: f.name || '', kind: roleOf(f) === 'crowd' ? 'crowd' : 'device',
+                   // '' on a flat tree — the field appears, and is empty, until projects exist.
+                   projectId: projectIds.has(parentOf(f)) ? parentOf(f) : '' }));
   const deviceName = new Map(devices.map((d) => [d.folderId, d.name]));
   const crowdIds = new Set(devices.filter((d) => d.kind === 'crowd').map((d) => d.folderId));
 
@@ -633,7 +658,7 @@ function buildDriveEstate(files) {
       fromCrowd: crowdIds.has(dev),
       // Where the folder ACTUALLY sits, so the panel can show the Drive truth and can tell which
       // texts still need sweeping from the ones already filed.
-      inUnassigned: !!unassignedId && dev === unassignedId,
+      inUnassigned: unassignedIds.has(dev),
       bytes: a.bytes,
       files: a.files,
       done: (f.appProperties || {}).flextextDone === '1',
@@ -641,7 +666,12 @@ function buildDriveEstate(files) {
     };
   }).sort((x, y) => y.bytes - x.bytes);             // biggest first: what a storage view is for
 
-  return { master: masterId, devices, texts, unassignedFolderId: unassignedId };
+  /* ⚠ SHAPE-COMPATIBLE ON PURPOSE. `devices`, `texts` and `unassignedFolderId` keep their exact
+   * meanings, so a panel shipped before projects existed renders precisely what it renders today —
+   * containers flattened across projects. That is what makes deploying this worker before any folder
+   * moves a verifiable no-op rather than a leap. New fields are additive and ignored by old readers. */
+  return { master: masterId, devices, texts, unassignedFolderId: unassignedId,
+           projects, unassignedFolderIds: [...unassignedIds] };
 }
 
 /* "FlexText Uploads / Unassigned" — where a text's folder LIVES once no device holds it.

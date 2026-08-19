@@ -1908,10 +1908,13 @@ of that set until projects exist.**
 // Projects are role-tagged, so they are found the same way every other structural folder is.
 const projects = files.filter((f) => isFolder(f) && roleOf(f) === 'project' && parentOf(f) === masterId)
   .map((f) => ({ folderId: f.id, name: f.name || '' }));
-// ⚠ THE DUAL-SHAPE HINGE. With no project folders this set is exactly [masterId], so every filter
-// below behaves as it does today and the deploy changes nothing. With projects present, master is
-// no longer a container parent and drops out.
-const containerParents = projects.length ? new Set(projects.map((p) => p.folderId)) : new Set([masterId]);
+// ⚠ CORRECTED WHILE IMPLEMENTING — the version above was WRONG, and the half-migrated fixture is
+// what found it. Swapping the parent set the moment projects exist makes every container still under
+// master vanish from the estate — devices, texts and byte totals — for the whole duration of the
+// sweep, and indefinitely if it is interrupted. Master stays in the set unconditionally: it costs
+// nothing (a fully-migrated tree has no containers left under it) and it removes the branch, so one
+// rule serves flat, nested and half-migrated alike.
+const containerParents = new Set([masterId, ...projectIds]);
 const devices = files.filter((f) => isFolder(f) && containerParents.has(parentOf(f))
     && !(f.appProperties || {}).flextextDoc && (!roleOf(f) || roleOf(f) === 'crowd'))
   .map((f) => ({ …, projectId: projects.length ? parentOf(f) : '' }));
@@ -1928,7 +1931,9 @@ filter is unchanged. The estate response is byte-identical, so a production rese
 sees exactly what they see today. That is what turns step 1 into a verifiable no-op instead of a
 leap, and it is the property to assert with fixtures rather than to hope for.
 
-**Testable with no Drive and no OAuth**, today: `buildDriveEstate` is pure and
-`test/drive-estate.test.mjs` already drives it with fixtures. Three cases to pin —
-flat tree unchanged, nested tree grouped correctly, and a HALF-MIGRATED tree (some containers moved,
-some not) which is the state an interrupted sweep leaves and the one nobody would think to construct.
+**BUILT (2026-08-19), with no Drive and no OAuth**: `buildDriveEstate` is pure, so
+`test/drive-estate.test.mjs` pins all three shapes with fixtures — flat unchanged, nested grouped
+correctly, and the HALF-MIGRATED tree an interrupted sweep leaves. ✅ Writing that third case is what
+caught the bug above; it is the one nobody would think to construct, and it was the one that
+mattered. `unassignedFolderId` still returns a single id so shipped panels keep working, with
+`unassignedFolderIds` and `projects` added alongside for new ones.

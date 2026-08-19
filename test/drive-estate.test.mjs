@@ -540,5 +540,91 @@ console.log('\ntext lists are capped and scrollable — and the Files menu still
   ok(names.includes('Crowd — X'), '...but the crowd folder still is');
 }
 
+/* THE PROJECT FOLDER LAYER — three tree shapes, one function (plans/drive-as-truth.md §16.16/§16.23).
+ *
+ * The migration adds a level: master / <project> / <container> / <text>. The worker must be
+ * deployable BEFORE any folder moves, so this function has to read the old tree, the new tree, and —
+ * the case that decides the design — the HALF-MIGRATED tree an interrupted sweep leaves behind.
+ *
+ * ⚠ WRITING THE HALF-MIGRATED CASE IS WHAT CAUGHT THE BUG. The design first written down was
+ * "containers are children of the projects, or of master when there are no projects" — swap the
+ * parent set once projects exist. That is wrong the instant the FIRST project folder is created:
+ * every container still under master stops matching and vanishes from the estate, taking its texts
+ * and byte totals with it, for the whole duration of the sweep. Keeping master in the set always
+ * costs nothing and removes the branch.
+ */
+{
+  console.log('\nFLAT tree (today) — the output must be byte-identical to before projects existed');
+  const flat = [
+    dir('M', 'FlexText Uploads', '', { flextextRole: 'uploads-master' }),
+    dir('U', 'Unassigned', 'M', { flextextRole: 'unassigned' }),
+    dir('D1', 'Phone A', 'M'),
+    dir('T1', 'Story one', 'D1', { flextextDoc: 'doc-1' }),
+    file('f1', 'a.wav', 'T1', 1024),
+  ];
+  const est = buildDriveEstate(flat);
+  ok(est.devices.length === 1 && est.devices[0].name === 'Phone A', 'the device is still a container');
+  ok(est.devices[0].projectId === '', '...with an EMPTY projectId — the field appears, unset');
+  ok(est.unassignedFolderId === 'U', 'unassignedFolderId still returns a single id for shipped panels');
+  ok(est.projects.length === 0, 'and no projects are reported');
+  const t = est.texts.find((x) => x.docId === 'doc-1');
+  ok(t && t.device === 'Phone A' && t.bytes === 1024, 'the text is attributed and its bytes roll up as before');
+}
+
+{
+  console.log('\nNESTED tree — containers group under their project');
+  const nested = [
+    dir('M', 'FlexText Uploads', '', { flextextRole: 'uploads-master' }),
+    dir('P1', 'Fayu', 'M', { flextextRole: 'project' }),
+    dir('P2', 'Kirikiri', 'M', { flextextRole: 'project' }),
+    dir('U1', 'Unassigned', 'P1', { flextextRole: 'unassigned' }),
+    dir('U2', 'Unassigned', 'P2', { flextextRole: 'unassigned' }),
+    dir('D1', 'Phone A', 'P1'),
+    dir('C1', 'Crowd — Market', 'P2', { flextextRole: 'crowd' }),
+    dir('T1', 'Story one', 'D1', { flextextDoc: 'doc-1' }),
+    dir('T2', 'Adrift', 'U2', { flextextDoc: 'doc-2' }),
+    file('f1', 'a.wav', 'T1', 2048),
+  ];
+  const est = buildDriveEstate(nested);
+  const byName = new Map(est.devices.map((d) => [d.name, d]));
+  ok(byName.size === 2, 'both containers are found one level deeper');
+  ok(byName.get('Phone A').projectId === 'P1', 'a device reports its project');
+  ok(byName.get('Crowd — Market').projectId === 'P2', '...and so does a crowd recorder');
+  ok(byName.get('Crowd — Market').kind === 'crowd', '...keeping its kind, so it stays a non-destination');
+  ok(est.projects.length === 2, 'the projects themselves are reported for new clients');
+  /* ⚠ THE STRUCTURAL-FOLDER RULE MUST SURVIVE THE DEEPER WALK. A per-project "Unassigned" sits
+   * exactly where a container sits, so a filter that only looked at depth would list it as a device
+   * and make every swept text look like it was held by a device called Unassigned. */
+  ok(!byName.has('Unassigned'), 'a per-project Unassigned is NOT listed as a container');
+  ok(!byName.has('Fayu') && !byName.has('Kirikiri'), '...nor are the project folders themselves');
+  const t2 = est.texts.find((x) => x.docId === 'doc-2');
+  ok(t2 && t2.inUnassigned === true, 'a text in the SECOND project\'s Unassigned is still recognised');
+  ok(est.unassignedFolderIds.length === 2, 'both Unassigned folders are reported');
+}
+
+{
+  console.log('\n⚠ HALF-MIGRATED tree — what an interrupted sweep leaves, and nothing may vanish');
+  const half = [
+    dir('M', 'FlexText Uploads', '', { flextextRole: 'uploads-master' }),
+    dir('P1', 'Fayu', 'M', { flextextRole: 'project' }),
+    dir('D1', 'Phone A', 'P1'),          // already moved
+    dir('D2', 'Phone B', 'M'),           // NOT yet moved
+    dir('T1', 'Story one', 'D1', { flextextDoc: 'doc-1' }),
+    dir('T2', 'Story two', 'D2', { flextextDoc: 'doc-2' }),
+    file('f1', 'a.wav', 'T1', 512),
+    file('f2', 'b.wav', 'T2', 512),
+  ];
+  const est = buildDriveEstate(half);
+  const names = est.devices.map((d) => d.name).sort();
+  ok(names.join(',') === 'Phone A,Phone B',
+     'BOTH containers survive — the moved one and the not-yet-moved one');
+  ok(est.texts.length === 2, '...and so do both texts');
+  ok(est.texts.every((x) => x.device), '...each still attributed to its container');
+  const moved = est.devices.find((d) => d.name === 'Phone A');
+  const notYet = est.devices.find((d) => d.name === 'Phone B');
+  ok(moved.projectId === 'P1' && notYet.projectId === '',
+     'and the difference is visible: one has a project, one does not yet');
+}
+
 console.log(fail ? `\nFAILED (${fail})\n` : '\nall passed\n');
 process.exit(fail ? 1 : 0);

@@ -94,8 +94,11 @@ console.log('\nthe console entry point previews unless told otherwise');
    * prints a JSON plan to the console: since §16.28 moved the undo OFF the card, the console path
    * opens the real modal, so the operator gets the preview UI rather than a stripped-down twin.
    * The property under test is unchanged: no verb, and no bang, ever moves a folder. */
-  ok(/if \(verb === 'undo'\) \{ projectsUndoModal\(\)/.test(fn),
+  ok(/if \(verb === 'undo'\) \{ await projectsUndoModal\(\)/.test(fn),
      'undo opens the previewing modal, and moves nothing by itself');
+  /* ⚠ AWAITED. Fire-and-forget reported "opened the undo preview" whether or not anything opened:
+   * a rejected dry run went unhandled and the console still printed success. */
+  ok(/await projectsUndoModal\(\)/.test(fn), '...and it is awaited, so a failure cannot read as success');
   ok(/if \(verb === 'undo!'\) return show\(await Researcher\.projectsUnmigrate\(\{ dry: false \}\)\)/.test(fn),
      'only the bang applies');
   ok(!/dry: false/.test(fn.slice(0, fn.indexOf("verb === 'undo!'"))),

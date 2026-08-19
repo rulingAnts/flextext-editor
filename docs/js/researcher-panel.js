@@ -726,7 +726,11 @@ export function initResearcherPanel(d) {
          * worded. `undo` opens the real modal — preview, settle, repaint, all of it — so the
          * operator path is the good one rather than a stripped-down twin. `undo!` stays a direct
          * apply for scripted use, and §17.4's rollback ladder still names it. */
-        if (verb === 'undo') { projectsUndoModal(); return 'opened the undo preview'; }
+        /* ⚠ AWAITED, so the string is not a lie. Fire-and-forget returned "opened the undo
+         * preview" whether or not anything opened: if the dry run threw, the rejection went
+         * unhandled and the console still reported success. Awaiting sends a failure to the
+         * catch below, which reports it. */
+        if (verb === 'undo') { await projectsUndoModal(); return 'undo preview opened'; }
         if (verb === 'undo!') return show(await Researcher.projectsUnmigrate({ dry: false }));
         if (verb === 'migrate') {
           if (!name) return 'usage: fxProjects("migrate", "Default Project")  — the name is yours to choose';

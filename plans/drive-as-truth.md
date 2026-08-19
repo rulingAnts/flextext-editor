@@ -2231,6 +2231,31 @@ the Drive folder is called. The D1 name is inert today — nothing reads it, bec
 table — and changing it would mean a worker deploy on a release day for a string no user can see.
 Align it when Phase B's D1 half actually lands.
 
+### 17.4b ✅ THE ROUND TRIP AGAIN — THIS TIME THROUGH THE UI, AND MEASURED (2026-08-19, 22:33→22:34)
+
+§17.4a proved the routes on the production estate. This proves the CARD, which is a different claim:
+the researcher pressed the buttons, and the snapshots either side say what happened.
+
+| | before undo (22:33:03) | after undo (22:34:20) |
+|---|---|---|
+| live objects | 125 | 124 |
+| trashed | 26 | 27 |
+| project folders | 1 | 0 |
+| folders directly under master | 1 (`Default Project`) | 5 (the three devices, the crowd recorder, Unassigned) |
+
+**Measured, not asserted:** one id left the live set — the now-empty `Default Project` — and it appears
+in the trashed set, so it was TRASHED and not deleted, recoverable for 30 days, exactly as the guard
+intends. Nothing else moved id. **Byte delta: 0.**
+
+And the migrated shape itself was verified from the earlier snapshot: exactly one project folder,
+tagged `flextextDefault: 1`, parented to master; nothing left directly under master beside it; all
+five containers inside it; all 15 text folders still under a container; **zero orphans** — no object
+whose parent had left the live set, and none with no parent at all.
+
+⚠ **What this does NOT prove**, and is worth stating so nobody reads it as more than it is: it is one
+estate, small, with one project. It says the mechanism is sound and reversible. It says nothing about
+an account with several projects, which does not exist yet anywhere.
+
 ### 16.28 ⚠ PROJECTS ARE NOT AN OPTION — one-way, permanent, everyone (Seth, 2026-08-19)
 
 > *"Long term we do want the migration to Projects to be a one-way, not optional, permanent change

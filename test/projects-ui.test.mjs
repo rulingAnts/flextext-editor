@@ -91,7 +91,7 @@ test('projects UI', async () => {
     ok(!/panel\.proj\.undo'/.test(card), '...and no copy inviting the researcher to leave');
     ok(/fxProjects\('undo'\)/.test(panel) || /verb === 'undo'/.test(panel),
        'the operator path still exists');
-    ok(/if \(verb === 'undo'\) \{ projectsUndoModal\(\)/.test(panel),
+    ok(/if \(verb === 'undo'\) \{ await projectsUndoModal\(\)/.test(panel),
        '...and it opens the REAL modal — preview, settle and repaint, not a stripped-down twin');
     ok(/verb === 'undo!'/.test(panel), 'and the direct apply survives for scripted use');
     const f = fn('async function projectsUndoModal');

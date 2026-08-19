@@ -2143,3 +2143,44 @@ being UTC *and* the absence of any label.
 ⚠ Whatever is chosen: it can only affect NEW names. Renaming existing folders to fix a timestamp
 would rewrite history for cosmetics — and folder names are display-only precisely so nothing depends
 on them (identity is the `flextextDoc` tag), so old names can simply stay wrong.
+
+## ⚠ The crowd upload has the two defects v337 already fixed everywhere else (Seth, 2026-08-19)
+
+> *"We're going to need to work on UI responsiveness on slow connections with the Crowd recorder…
+> UI responsiveness and also slow, glitchy uploads."*
+
+Checked rather than guessed, and the answer is uncomfortable: the crowd submit path is the **only**
+upload in the suite that never got the v337 chunk-policy fix — and its user is the worst-connected
+person in the whole system.
+
+| | crowd (`app.js`) | device / panel (`researcher.js`) |
+|---|---|---|
+| chunk size | **fixed 8 MB** (`CROWD_CHUNK`) | size-aware opening guess, AIMD |
+| on failure | **retries the same size** | `shrinkChunk` — halves it |
+| progress | **none** | `onProgress(sent, total)` per chunk |
+| below 16 MB | **one POST, no feedback at all** | chunked with progress regardless |
+
+`researcher.js` records both of these as diagnosed bugs, from the v337 test drive:
+
+> *"Progress hung at 0% and then suddenly jumped to finished… Indistinguishable from a hang."*
+> *"A failing chunk retried at the SAME size. On a weak field connection that is the one thing you
+> must not do: the retry is as likely to fail as the attempt was, and each failure costs the whole
+> slice again."*
+
+⚠ **Both sentences describe the crowd path today**, word for word. A 12 MB recording is a single POST
+with no feedback; a 30 MB one is fixed 8 MB slices that re-send in full on every failure.
+
+⚠⚠ **And the irony is the point:** a crowd contributor is a villager on a phone on the worst
+connection anyone in this system has. The paths belonging to the researcher — on a laptop, on
+wifi — are the adaptive ones.
+
+**The fix is not new work.** `assignUploadFile` already implements the whole loop (probe-first resume,
+AIMD sizing, session persistence, per-chunk progress), and it was **parameterized by base path** on
+2026-08-19 so the crowd consent-prompt upload could reuse it. Pointing the submit path at the same
+loop is a third caller, not a third implementation — which is exactly the "generalize on the second
+use" rule.
+
+⚠ One thing that genuinely differs and must not be flattened: the crowd path is PUBLIC and
+Turnstile-gated per submission, so a "fresh session" restart costs a new bot check. The retry ladder
+has to distinguish a dead Drive session from a spent Turnstile token, which the researcher path never
+has to think about.

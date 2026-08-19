@@ -260,11 +260,16 @@ Everything descriptive — title, TTL, text-level settings, future metadata — 
 
 ## 7. Preconditions worth doing first
 
-- **Use Drive's native `files.copy`.** The current copy path streams the whole file *through the
-  Worker* (`drive.usercontent.google.com` download → resumable PUT). Assigning one recording to a
-  second device would therefore cost a full download plus a full re-upload through Cloudflare,
-  against the subrequest budget. `files.copy` is server-side, moves no bytes, one request. This is
-  the difference between the compare-two-workers workflow being practical and being avoided.
+- **Use Drive's native `files.copy` — for the SIBLING-DOC copy only.** ⚠ Corrected 2026-08-19 after
+  reading the code: the existing `assign-copy` route streams the file through the Worker
+  (`drive.usercontent.google.com` download → resumable PUT) **deliberately**, and its comment says
+  why — *"drive.file cannot copy a file the app did not create"*. Its source is an arbitrary PUBLIC
+  Drive file (the assignment link the researcher pasted, often from someone else's Drive), so
+  `files.copy` would 404 on it. **Leave `assign-copy` alone.**
+  The §2 case is different and is where `files.copy` belongs: copying an audio file **this app
+  already created** from one text folder into a second one, for the same-recording-two-devices
+  workflow. That source IS app-created, so the server-side copy works, moves no bytes and costs one
+  request — which is the difference between that workflow being practical and being avoided.
 - **Wire `drive-unassign`.** It is fully implemented in the worker, idempotent, and has zero callers
   in `docs/` or `satellites/`. It is the sweep that puts a cancelled assignment's folder where the
   UI already claims it is.

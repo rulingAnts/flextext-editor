@@ -477,6 +477,20 @@ async function driveAccessToken(env, row) {
 
 // Small JSON call against the Drive REST API. Distinguishes "Drive API not enabled
 // on the Google Cloud project" (a one-time console fix) from ordinary errors.
+/* Google's Drive and OAuth errors are useful for diagnosis and routinely EMBED IDENTIFIERS —
+ * "File not found: 1AbC…", a folder id, sometimes an address. Those messages are returned to the
+ * client and land in logs, so the identifier outlives the request in places nothing else does.
+ * Keep the diagnostic shape ("File not found", "Rate limit exceeded"), drop the identifier.
+ *
+ * ⚠ Redacts by SHAPE, not by a list of known id formats: any long unbroken run of id-ish characters
+ * goes, so a future Google message format cannot quietly reintroduce the leak. */
+function safeErr(e) {
+  let m = String((e && e.message) || 'error');
+  m = m.replace(/[A-Za-z0-9_-]{20,}/g, '…');                       // ids, tokens, opaque handles
+  m = m.replace(/[^\s@]+@[^\s@]+\.[^\s@]+/g, '…');                 // addresses
+  return m.slice(0, 200);
+}
+
 async function driveJson(access, method, apiUrl, body) {
   const r = await fetch(apiUrl, {
     method,
@@ -1080,7 +1094,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       }
       h.set('Cache-Control', 'no-store');
       return new Response(g.body, { status: g.status, headers: h });
-    } catch (e) { return j({ error: e.code || 'drive_error', message: e.message }, 502, origin, env); }
+    } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
   }
 
   // POST /v1/researcher — signup with EMAIL + PASSWORD-derived material (the password never reaches
@@ -1209,7 +1223,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       });
       tok = await r.json();
       if (!r.ok || !tok.id_token) return j({ error: 'token_exchange_failed', detail: tok.error || r.status }, 502, origin, env);
-    } catch (e) { return j({ error: 'token_exchange_error', message: e.message }, 502, origin, env); }
+    } catch (e) { return j({ error: 'token_exchange_error', message: safeErr(e) }, 502, origin, env); }
     let claims; try { claims = JSON.parse(atob(tok.id_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))); } catch { return j({ error: 'bad_id_token' }, 502, origin, env); }
     const sub = claims.sub; const email = normEmail(claims.email || '');
     if (!sub) return j({ error: 'no_sub' }, 502, origin, env);
@@ -1829,7 +1843,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         // OUR trashed files only — what the reclaim action would actually remove.
         trashed: { n: dead.length, bytes: dead.reduce((a, f) => a + (parseInt(f.size, 10) || 0), 0) },
       }, 200, origin, env);
-    } catch (e) { return j({ error: e.code || 'drive_error', message: e.message }, 502, origin, env); }
+    } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
   }
 
   /* Move texts no device holds into "FlexText Uploads / Unassigned".
@@ -1869,7 +1883,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         } catch { /* one text failing must not abort the sweep */ }
       }
       return j({ moved, folderId: target }, 200, origin, env);
-    } catch (e) { return j({ error: e.code || 'drive_error', message: e.message }, 502, origin, env); }
+    } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
   }
 
   /* Permanently delete the FlexText files that are ALREADY IN TRASH — the only way trashing ever
@@ -1924,7 +1938,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       const remaining = Math.max(0, dead.length - seen);
       await logApproval(env, request, 'drive_purged', deleted + ' file(s)', Math.round(bytes / 1048576) + ' MB', r.drive_email);
       return j({ deleted, bytes, remaining }, 200, origin, env);
-    } catch (e) { return j({ error: e.code || 'drive_error', message: e.message }, 502, origin, env); }
+    } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
   }
 
   if (m === 'POST' && seg.length === 3 && seg[1] === 'researcher' && seg[2] === 'trash') {
@@ -1935,16 +1949,38 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     if (!ids.length || ids.length > 100) return j({ error: 'bad_fileids' }, 400, origin, env);
     try {
       const access = await driveAccessToken(env, r);
+      /* ⚠ WAVES, A CAP AND A TIME BUDGET — the same treatment drive-purge already carries, and for
+       * the same reason it needed it twice. This accepted 100 ids and issued 100 SEQUENTIAL PATCHes
+       * against a Worker's hard per-request subrequest cap (50 on the free plan). Past ~49 the
+       * request dies with a RUNTIME error the try/catch below cannot see, so the researcher learns
+       * nothing and the estate is left half-trashed. It is reachable today from the panel's backup
+       * cleanup on a text with ~49+ older backups.
+       *
+       *   - WAVE: parallel, so wall time is one round trip per wave rather than per file;
+       *   - CAP:  well under 50, leaving headroom for the token fetch and the audit write;
+       *   - BUDGET_MS: stops early if Drive is slow, so a bad day cannot walk into the wall either.
+       *
+       * Anything not reached comes back in `remaining` and the caller may simply call again. That is
+       * additive: an older panel that ignores the field reports the smaller count, which is TRUE —
+       * honest partial progress instead of a crash with an unknown outcome. */
+      const CAP = 40, WAVE = 8, BUDGET_MS = 9000;
+      const started = Date.now();
       const results = [];
-      for (const id of ids) {
-        try {
-          await driveJson(access, 'PATCH', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(id) + '?fields=id', { trashed: true });
-          results.push({ id, ok: true });
-        } catch (e) { results.push({ id, ok: false, error: String(e.message || e).slice(0, 80) }); }
+      let i = 0;
+      for (; i < ids.length && results.length < CAP && (Date.now() - started) < BUDGET_MS; i += WAVE) {
+        const wave = ids.slice(i, Math.min(i + WAVE, i + (CAP - results.length)));
+        const settled = await Promise.all(wave.map(async (id) => {
+          try {
+            await driveJson(access, 'PATCH', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(id) + '?fields=id', { trashed: true });
+            return { id, ok: true };
+          } catch (e) { return { id, ok: false, error: safeErr(e).slice(0, 80) }; }
+        }));
+        results.push(...settled);
       }
-      await logApproval(env, request, 'files_trashed', ids.length + ' file(s)', (body.note || '').slice(0, 120), r.drive_email);
-      return j({ results, trashed: results.filter((x) => x.ok).length }, 200, origin, env);
-    } catch (e) { return j({ error: e.code || 'drive_error', message: e.message }, 502, origin, env); }
+      const remaining = ids.slice(results.length);
+      await logApproval(env, request, 'files_trashed', results.filter((x) => x.ok).length + ' file(s)', (body.note || '').slice(0, 120), r.drive_email);
+      return j({ results, trashed: results.filter((x) => x.ok).length, remaining }, 200, origin, env);
+    } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
   }
 
   /* GET /v1/researcher/drive-file/<fileId> — RESEARCHER: stream one of their own app-created Drive
@@ -1968,7 +2004,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       const len = g.headers.get('content-length'); if (len) h.set('content-length', len);
       h.set('Cache-Control', 'no-store');
       return new Response(g.body, { status: 200, headers: h });
-    } catch (e) { return j({ error: e.code || 'drive_error', message: e.message }, 502, origin, env); }
+    } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
   }
 
   /* GET /v1/researcher/approvals — OWNER only. The append-only access-control history: every
@@ -2225,7 +2261,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           role: (f.appProperties && f.appProperties.flextextRole) || '',
         })).sort((a, b) => String(b.modified).localeCompare(String(a.modified)));   // newest-first ACROSS the merge
         return j({ folderId, originalsFolderId: (assignFolder && assignFolder.id) || null, files }, 200, origin, env);
-      } catch (e) { return j({ error: e.code || 'drive_error', message: e.message }, 502, origin, env); }
+      } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
     }
 
     /* ---- Assignment upload (assign-by-upload, 2026-08-11) — ADDITIVE endpoints ----
@@ -2253,7 +2289,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         const folder = await driveEnsureTextFolder(access, deviceFolder, docId, body.title, body.folderId);
         const originalsFolderId = await driveEnsureChildFolder(access, folder, 'originals', 'originals');
         return j({ ok: true, folderId: folder, originalsFolderId }, 200, origin, env);
-      } catch (e) { return j({ error: e.code || 'drive_error', message: e.message }, 502, origin, env); }
+      } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
     }
 
     // POST .../texts/<docId>/assignment/upload/start {name, mime, size, originalsFolderId, kind}
@@ -2333,7 +2369,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           await logApproval(env, request, 'assigned_upload', docId.slice(0, 12) + '…', '→ ' + (inst.nickname || '?'), r.drive_email);
         }
         return j({ ok: true, ttlDays, audioUrl, flextextUrl, promptUrl }, 200, origin, env);
-      } catch (e) { return j({ error: e.code || 'drive_error', message: e.message }, 502, origin, env); }
+      } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
     }
 
     /* POST .../texts/<docId>/move {to, flextextFileId?, audioFileId?, extractFromZipId?} —
@@ -2383,7 +2419,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         const audioUrl = await mint(body.audioFileId);
         await logApproval(env, request, 'text_adopted', docId, to.nickname || '', r.drive_email);
         return j({ ok: true, folderId, flextextUrl, audioUrl }, 200, origin, env);
-      } catch (e) { return j({ error: e.code || 'drive_error', message: e.message }, 502, origin, env); }
+      } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
     }
 
     if (m === 'POST' && sub === 'texts' && seg.length === 6 && seg[5] === 'move') {
@@ -2420,7 +2456,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         const audioUrl = await mint(body.audioFileId);
         await logApproval(env, request, 'text_moved', docId.slice(0, 12) + '…', (from.nickname || '?') + ' → ' + (to.nickname || '?'), r.drive_email);
         return j({ ok: true, movedFolder, flextextUrl, audioUrl }, 200, origin, env);
-      } catch (e) { return j({ error: e.code || 'drive_error', message: e.message }, 502, origin, env); }
+      } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
     }
 
     /* POST .../assign-copy {docId, title, src} — RESEARCHER: place a copy of the assigned audio in
@@ -2473,7 +2509,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         const done = put.ok ? await put.json().catch(() => ({})) : {};
         if (!put.ok || !done.id) return j({ error: 'copy_failed', status: put.status }, 502, origin, env);
         return j({ ok: true, fileId: done.id, name, size: len }, 200, origin, env);
-      } catch (e) { return j({ error: e.code || 'drive_error', message: e.message }, 502, origin, env); }
+      } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
     }
 
     // POST .../revoke — revoke the whole instance.

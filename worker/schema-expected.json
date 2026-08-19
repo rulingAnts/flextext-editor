@@ -90,6 +90,11 @@
       "wrapped_by",
       "wrapped_ki"
     ],
+    "ops_flag": [
+      "key",
+      "updated_at",
+      "value"
+    ],
     "project": [
       "created_at",
       "name",

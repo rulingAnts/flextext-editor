@@ -191,3 +191,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_researcher_email ON researcher(email_sha25
 CREATE UNIQUE INDEX IF NOT EXISTS idx_researcher_sub ON researcher(google_sub);
 
 CREATE INDEX IF NOT EXISTS idx_session_researcher ON session(researcher_id);
+
+CREATE TABLE IF NOT EXISTS ops_flag (
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);

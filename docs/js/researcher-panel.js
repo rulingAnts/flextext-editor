@@ -1321,6 +1321,7 @@ async function renderDashboard(prefetched) {
   // deviceCount passed explicitly (not taken from map's array arg): it decides the collapse default.
   const cards = await Promise.all(insts.map((it) => renderInstanceCard(it, insts.length)));
   root.querySelector('.rp-body').innerHTML = `
+    ${maintenanceBanner()}
     <div id="rp-live-ver" class="rp-live${liveVersions === null ? ' rp-live-offline' : ''}">${esc(liveVerText())}</div>
     <div class="rp-metrics">
       <div class="rp-metric"><div class="rp-metric-l">${esc(t('panel.dash.devices'))}</div><div class="rp-metric-n">${insts.length}</div></div>
@@ -4133,6 +4134,32 @@ function sweepUnassigned(estate) {
     if (!ids.length) return;
     Researcher.driveUnassign(ids).catch(() => { /* retried by the next full render */ });
   } catch { /* the sweep must never break the dashboard it rides on */ }
+}
+
+/* THE MAINTENANCE BANNER — an operator-set notice, refreshed by the poll the panel already makes.
+ *
+ * Seth, 2026-08-19: *"advise the researcher users that critical pieces are undergoing maintenance and
+ * they may experience an outage or a glitch during that time and are advised to avoid making changes
+ * in Researcher panel until this message is gone."*
+ *
+ * ⚠ RESEARCHER PANEL ONLY, and that is not incidental. The editor and the panel share an origin and
+ * a service worker, so a maintenance screen shipped as a BUILD would reach field translators at
+ * /flextext-editor/ and stop them working offline — which would be far worse than any outage it was
+ * warning about. Living in this file, rendered into the dashboard, it can only ever reach the panel.
+ *
+ * ⚠ NOT DISMISSIBLE. The whole point is that it stays until the operator clears the flag; a banner a
+ * researcher can hide is a banner they hide once and then make changes under.
+ *
+ * The message is operator-authored and arrives over the wire, so it is escaped like any other server
+ * string — free, and the habit is what keeps the one that isn't free from slipping through. */
+function maintenanceBanner() {
+  const msg = Researcher.maintenance();
+  if (!msg) return '';
+  return `<div class="rp-maint" role="status">
+    <strong>${esc(t('panel.maint.title'))}</strong>
+    <div>${esc(msg)}</div>
+    <div class="note">${esc(t('panel.maint.advice'))}</div>
+  </div>`;
 }
 
 function assignedDocIds() {

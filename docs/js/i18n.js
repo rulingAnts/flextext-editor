@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v397';
+export const ENGINE_VERSION = 'v398';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v397';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'drive-as-truth v1';
+export const BUILD_TAG = 'drive-as-truth v2';
 
 const S = {
 en: {
@@ -1156,6 +1156,8 @@ internet after the first time.</p>
   'panel.dl.packageSub': 'the recording with its consent records, exactly as uploaded',
   // How the text came to exist, from the manifest's `origin` field — so the researcher is told
   // whether item 1 is what they assigned or what the speaker recorded, instead of inferring it.
+  'panel.maint.title': 'Maintenance in progress',
+  'panel.maint.advice': 'Please avoid making changes in the researcher panel until this notice disappears. Your devices and their texts are unaffected.',
   'panel.dl.origin.assigned': 'assigned',
   'panel.dl.origin.recorded': 'recorded on the device',
   'panel.dl.origin.imported': 'imported',
@@ -2764,6 +2766,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.dl.approx': 'sekitar {size}',
   'panel.dl.package': 'Paket rekaman (.zip)',
   'panel.dl.packageSub': 'rekaman beserta catatan persetujuan, persis seperti yang diunggah',
+  'panel.maint.title': 'Pemeliharaan sedang berlangsung',
+  'panel.maint.advice': 'Mohon hindari membuat perubahan di panel peneliti sampai pemberitahuan ini hilang. Perangkat dan teks Anda tidak terpengaruh.',
   'panel.dl.origin.assigned': 'ditugaskan',
   'panel.dl.origin.recorded': 'direkam di perangkat',
   'panel.dl.origin.imported': 'diimpor',

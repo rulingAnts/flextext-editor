@@ -766,10 +766,19 @@ export function driveTest() { return api('POST', '/v1/researcher/drive/test', { 
 
 // One call that the panel renders: every instance with its installs, each install's
 // inventory DECRYPTED with the instance's Ki. Routing fields stay as-is.
+/* The operator's maintenance notice, refreshed by every listView() poll. '' = no notice.
+ * Deliberately module state rather than a return value: the banner is a property of the ACCOUNT
+ * session, not of one render, and every caller of listView() would otherwise have to thread it. */
+let maintenanceNotice = '';
+export function maintenance() { return maintenanceNotice; }
+
 export async function listView() {
   requireUnlocked();
   const v = await api('GET', '/v1/researcher');
   approvedSelf = !!v.approved; ownerSelf = !!v.is_owner;          // keep status fresh for the panel
+  /* ⚠ ENUMERATED REBUILD — see the warning further down: a field the server adds is INVISIBLE to the
+   * panel unless it is named here. `estate` was lost exactly this way twice. */
+  maintenanceNotice = typeof v.maintenance === 'string' ? v.maintenance : '';
   if (v.settings) { settingsCache = safeParse(v.settings) || settingsCache; if (settingsCache && !settingsCache.wrappedKis) settingsCache.wrappedKis = {}; if (settingsCache && !settingsCache.instanceSettings) settingsCache.instanceSettings = {}; }
   if (typeof v.settings_rev === 'number') settingsRev = v.settings_rev;
   const instances = [];

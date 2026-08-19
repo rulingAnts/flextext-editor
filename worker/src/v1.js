@@ -1788,6 +1788,24 @@ export async function handleV1(request, env, ctx, url, path, origin) {
   if (m === 'GET' && seg.length === 2 && seg[1] === 'researcher') {
     const r = await authResearcher(request, env);
     if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    /* MAINTENANCE NOTICE — an operator-set flag, read on the poll the panel already makes.
+     *
+     * ⚠ RIDES THIS RESPONSE ON PURPOSE. The panel polls it every 12 s, so the notice appears and
+     * clears within one tick with no new request, no new route and no client polling loop. One
+     * primary-key lookup on a table with at most a handful of rows, through the D1 binding, which
+     * costs no Cloudflare subrequest.
+     *
+     * The value is set and cleared from the Actions tab (see worker/migrate-ops-flag.sql), so
+     * raising the notice is never itself a deploy — which matters, because the moment you want it is
+     * the moment you least want to be shipping.
+     *
+     * Best-effort by construction: if this read throws, the panel loses a BANNER. It must never take
+     * down the dashboard that the banner is trying to warn people about. */
+    let maintenance = null;
+    try {
+      const flag = await env.DB.prepare('SELECT value FROM ops_flag WHERE key=?').bind('maintenance').first();
+      if (flag && flag.value) maintenance = String(flag.value).slice(0, 500);
+    } catch { /* table absent (pre-migration) or read failed — no notice, never an error */ }
     const approved = isApproved(r, env);
     const owner = isOwner(r.drive_email, env);
     let insts = [];
@@ -1813,6 +1831,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     }
     return j({ approved, is_owner: owner, pending,
                settings: r.settings_blob, settings_rev: r.settings_rev, instances: insts,
+               maintenance: maintenance || undefined,
                kr: r.kr_server_enc ? await decAtRest(env, r.kr_server_enc) : undefined,
                email: r.drive_email || undefined }, 200, origin, env);
   }

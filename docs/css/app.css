@@ -2217,3 +2217,16 @@ main {
 .rp-session:last-of-type { border-bottom: 0; }
 .rp-session-current { opacity: .95; }
 .rp-session-current > div:first-child { font-weight: 600; }
+
+/* Maintenance notice (researcher panel only — see maintenanceBanner in researcher-panel.js).
+   Amber rather than red: this is "hold off", not "something is broken". */
+.rp-maint {
+  margin: 0 0 12px; padding: 10px 12px; border-radius: 8px;
+  border: 1px solid #d99a00; background: #fff8e6; color: #4a3800;
+}
+.rp-maint strong { display: block; margin-bottom: 2px; }
+.rp-maint .note { margin-top: 4px; color: #6b5600; }
+@media (prefers-color-scheme: dark) {
+  .rp-maint { border-color: #8a6400; background: #2b2310; color: #f0dfae; }
+  .rp-maint .note { color: #cbb277; }
+}

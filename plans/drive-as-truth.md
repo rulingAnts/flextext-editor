@@ -2163,3 +2163,41 @@ container and D1 is only an index.
 ⚠⚠ **And the standing hazard this is the third instance of:** every predicate shaped *"no device
 reports it"* is permanently true for a crowd-born text. It produced the sweep bug (v407), the
 Unassigned-card bug (v408), and it is the thing to check first in any new rule about assignment.
+
+### 16.26 The verb model — and why "Move to Unassigned" is the load-bearing piece
+
+Seth, 2026-08-19, proposing the affordances for texts that no device holds:
+
+> *"Maybe for those a 'Delete' (instead of 'Remove from device')? And same for texts that are in the
+> Google Drive (Unassigned) box? And a 'Move…' where Google Drive (Unassigned) is a valid target?
+> And then of course the Files… modal just the same as any other container."*
+
+**The model, and it resolves a verb that has been quietly wrong:**
+
+| Where the text is | Move… | Destructive action | Files… |
+|---|---|---|---|
+| On a device | to another device, **or to Unassigned** | *Remove from device* (upload-first, then delete locally) | ✅ |
+| In Unassigned | to a device | **Delete** | ✅ |
+| In a crowd recorder | to a device, **or to Unassigned** | **Delete** | ✅ |
+
+*"Remove from device"* is meaningless for a text on no device, and the button there currently trashes
+the Drive folder — so the label describes neither the target nor the effect. **Delete** is honest.
+
+⚠ **`Move… → Unassigned` is the important one, and not for tidiness.** §16.25 requires that a text
+enter the set-aside queue only by the researcher putting it there. Until now the queue could only be
+entered by the *sweep* — an automatic mechanism — so "the researcher puts it there" was not an action
+that existed. Adding Unassigned as a Move target makes the invariant EXPRESSIBLE rather than merely
+enforced by exclusion: a crowd recording never falls in, and can be filed there deliberately when the
+researcher does want it queued for later assignment.
+
+It also reuses machinery rather than adding any: moving one text to Unassigned is what
+`drive-unassign` already does, for a single explicit id instead of a swept batch.
+
+**Already true, no work needed:** the Files… modal is `filesMenuHtml(iid, docId, title)` and is
+already rendered on crowd rows (v408) — it reads a text's folder, which is the same shape whatever
+container holds it.
+
+⚠ **One naming caution.** "Delete" must not overstate: it TRASHES the Drive folder, recoverable for
+30 days, and `drive-purge` remains the only thing that empties trash. The storage modal already
+explains that trashed files keep counting against quota until purged; that explanation needs to stay
+adjacent to any button labelled Delete, or the word promises a finality the action does not have.

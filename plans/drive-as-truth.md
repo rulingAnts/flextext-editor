@@ -470,3 +470,41 @@ deliberate and it is a SAFETY feature — the audit confirmed it is what makes a
 survivable. But under seizure it means deletion is not deletion for a month, and the researcher
 should be told so rather than assuming otherwise. The nuclear-option wipe (Seth's, in
 `project-split.md`) is the path that must genuinely purge, not trash.
+
+### 11.5 What the RESEARCHER needs to be told — and it is narrower than it looks
+
+Seth: *"the user should know that it's wise to take the fact that device and folder names are in the
+database into account when naming said folders and devices."* Yes — but the advice should be aimed,
+because aimed advice gets followed and blanket advice gets ignored.
+
+**Device nicknames are the naming choice that matters.** A device name identifies a PERSON, and that
+identification is **not recoverable from the file contents**: a `.flextext` of Mark 3 does not say
+who transcribed it. So a nickname is the one label that hands an attacker something they could not
+otherwise derive. It is plaintext in D1 today (§10.4(1) queues encrypting it) and it is in the Drive
+folder name always.
+
+**Text titles mostly do not matter, and we should not pretend otherwise.** They are in the Drive
+folder name and the manifest, never in D1 — and against a Drive-account compromise, obfuscating a
+title achieves nothing, because the `.flextext` itself discloses what the text is. Advising coy text
+titles would be theatre that costs real usability and buys nothing.
+
+⚠ **And the timing fact that changes the advice from "name carefully" to "name carefully BEFORE the
+first upload":** `driveEnsureDeviceFolder` uses the nickname ONLY when it creates the folder. Once
+`instance.oauth_folder_id` is set, the folder is resolved by id for ever and is never renamed. So:
+
+- renaming a device in the panel updates D1 and **leaves the Drive folder's name unchanged**;
+- the name that lands in Drive is chosen once, at first upload, and is frozen from the app's side;
+- **renaming the folder by hand in Drive is safe** — resolution is by id, so nothing breaks. That is
+  the actual remedy, and it is worth saying out loud, because the researcher's instinct will be that
+  renaming in Drive will break the link. It will not.
+
+**Where this belongs, in order of value:**
+
+1. **In the panel, at the moment a device is named** — a one-line hint under the nickname field. That
+   is where the decision is actually made; a warning in a document read once, months earlier, is not.
+2. **In `docs/help/`**, with the rename-in-Drive-is-safe remedy, since that is the recovery path for
+   everyone who has already named a device after a person.
+3. Here, for the reasoning.
+
+Not built. Item 1 is small and self-contained and would be a good thing to land alongside the
+nickname-encryption work, so the hint and the protection arrive together.

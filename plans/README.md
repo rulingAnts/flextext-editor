@@ -58,6 +58,7 @@ landed?** If the answer depends on nobody finding the repo, it goes in `notes/` 
 | `pat-one-tree-model.md` | PAT drops the line/proposition split — **one tree, every unit a line** — plan only |
 | `audio-matching-mode.md` | the guided match-existing-text-to-audio step + segmentation-on-by-default for new installs — plan only |
 | `onestory-bridge.md` | a `.flextext` + audio sidecar beside a OneStory Editor project — **a brief for an OUTSIDE team.** Nothing built, nobody working on it; two tracks (OSE as-is, and OSE schema changes to negotiate) |
+| `drive-as-truth.md` | text identity (`doc_id` vs `recording_id`), the three origins, and a reconciler so Drive/D1/UI stop drifting — **design note**, supersedes `project-split.md` VII.1 |
 
 ⚠ `notes/` stays gitignored and is still the right home for working scratch, task briefs, and
 anything with a real name or a real recording in it.

@@ -284,11 +284,25 @@ Everything descriptive — title, TTL, text-level settings, future metadata — 
 
 ## 8. Open questions — Seth's call, and they change the schema
 
-1. **Does `project_id` live on the text row, or is it derived from the instance?** ⚠ §10.4(5)
-   settles this on security grounds and reverses the earlier lean: **derive** it from the instance
-   where there is one, and store it only on Unassigned rows, which have none to derive from.
-   Storing it everywhere hands a D1 dump the project grouping for free. Confirm and this stops
-   being an open question.
+> ✅ **ALL THREE ARE NOW SETTLED (2026-08-19).** Kept in full rather than deleted: each records the
+> reasoning and, in two cases, the fact that the first answer was wrong. Nothing in this section
+> blocks implementation any more.
+
+1. ~~Does `project_id` live on the text row, or is it derived from the instance?~~ → **SETTLED
+   (Seth, 2026-08-19): DERIVE it from the instance where there is one, and store it ONLY on
+   Unassigned rows**, which have no instance to derive from. This confirms §10.4(5) and reverses the
+   earlier lean in this section; Seth approved both the recommendation and the reasoning behind it.
+
+   The reason is security, not schema elegance. A `project_id` on every text row hands a database
+   dump the whole project grouping for free — which texts belong to which community's work — without
+   the attacker needing to break anything else. Deriving it costs a join, and §10 is an argument
+   about making a dump worth as little as possible.
+
+   ⚠ **The accepted cost, recorded so nobody rediscovers it as a surprise:** "texts in project X"
+   becomes a join through `instance`, and Unassigned rows answer it by a DIFFERENT path from assigned
+   ones. That is two code paths for one question — the shape of drift this document exists to remove.
+   It is judged worth paying here; the mitigation is that both paths should land behind ONE query
+   helper from the start, never be written out twice at the call sites.
 2. ~~Does the reconciler ever re-parent a folder without asking?~~ → **SETTLED (Seth, 2026-08-19):
    YES, ALWAYS, AND WITHOUT A SETTING.** See §8a — the "ask vs. silent" framing was the wrong one.
 3. ~~A device-originated text the researcher wants in Unassigned: force an upload first, or mark it
@@ -1483,6 +1497,25 @@ reintroduced from the other direction.
 |---|---|---|
 | Human-facing convenience | "would a good panel make this unnecessary?" | Relax freely — `(done)` suffix, pretty folder names, visual ordering |
 | Machine-readable self-description | "could D1 be rebuilt from Drive without it?" | **Keep, and make more rigorous** — the manifest, the history file, `flextextRole` tags, the `flextextDoc` identity, `originals/` |
+
+⚠ **A CORRECTION TO THIS TABLE, made the day it was written.** Seth asked how `appProperties`
+actually work, and the answer weakens a claim made above: **they are private to the OAuth client that
+wrote them**, and Drive has no UI surface for them at all. They also do not survive a
+download-and-re-upload, because they are file METADATA and not part of the bytes. So a tag satisfies
+*"our worker can rebuild D1 from Drive"* — it does, and that is why the design leans on it — but it
+does **not** satisfy *"someone inherits this corpus in ten years with no app"*. Nobody without our
+credentials can read a single one.
+
+That sharpens the split rather than muddying it:
+
+- **Manifest and history files are REAL BYTES.** Anyone can open them, for ever, with no credentials
+  and no API. That is the archival record, and it is the one that carries the obligation.
+- **`appProperties` are an OPERATIONAL INDEX** — fast, rename-proof and move-proof, invisible, ours
+  alone. That is what makes `flextextDoc` identity work when a researcher drags a folder somewhere.
+
+They are not redundant: they answer different questions on different timescales. The practical rule
+is that **no fact may live ONLY in an appProperty** if the corpus is supposed to outlive us — the tag
+may be the fast path, but a file must carry it too.
 
 The second column is not sentiment about tidiness. It is the same instinct that already made this
 suite write ELAN `.eaf` + `.pfsx` and a SayMore sidecar, and stamp a BWF `bext` chunk naming a lossy

@@ -41,6 +41,93 @@ const CHUNK_MIN = 2 * CHUNK_UNIT;            // 512 KiB
 const CHUNK_MAX = 128 * CHUNK_UNIT;          // 32 MiB
 const CHUNK_START = 16 * CHUNK_UNIT;         // 4 MiB opening guess
 const shrinkChunk = (n) => Math.max(CHUNK_MIN, Math.floor(n / 2 / CHUNK_UNIT) * CHUNK_UNIT);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const roundUnit = (n) => Math.max(CHUNK_UNIT, Math.floor(n / CHUNK_UNIT) * CHUNK_UNIT);
+/* Aim for ~8 slices, so even a small file reports movement several times instead of once at the
+ * end. AIMD doubles it away within a couple of chunks on a fast link. */
+const openingChunk = (total) => Math.min(CHUNK_MAX, Math.max(CHUNK_MIN, roundUnit(total / 8)));
+
+/* ── THE CHUNK LOOP, ONCE ────────────────────────────────────────────────────────────────────────
+ *
+ * Probe-first resume, AIMD sizing, halve-on-failure, bounded session restarts. This state machine
+ * had been written THREE times — `_streamChunked` below, `assignUploadFile` in researcher.js, and a
+ * flattened copy on the crowd submit path — and the third copy had neither of the two fixes v337
+ * made to the others (fixed 8 MiB slices that re-sent in full on every failure, and no progress at
+ * all below 16 MiB). The victim of that was the villager on the worst connection in the system,
+ * while the researcher on wifi got the adaptive paths. So: one implementation, three transports.
+ *
+ * It knows nothing about auth, URLs, or storage. The caller supplies:
+ *   total       bytes
+ *   slice(a,b)  -> Blob
+ *   put(id, range, body) -> {done,fileId} | {received} | {gone} | {fail}
+ *   openSession() -> streamId            (throws or returns falsy => give up now)
+ *   onSession(idOrNull)                  persist for resume across restarts (optional)
+ *   onProgress(sent, total)              (optional)
+ *   shouldStop() -> bool                 pause/cancel between chunks (optional)
+ *   streamId                             resume an existing session (optional)
+ *
+ * ⚠ SESSION RESTARTS ARE CAPPED AT TWO, AND THAT CAP IS LOAD-BEARING FOR THE CROWD PATH. Opening a
+ * session there spends a Turnstile token — one bot-check per submission — so a loop that reopened
+ * freely would burn the visitor's checks and read to the server as abuse. `gone` is Drive's session
+ * expiring; a spent token is a REFUSAL from openSession, which is why openSession is allowed to
+ * throw and that throw is not retried here.
+ *
+ * Returns { done: true, fileId } | { stalled: true } | { stopped: true }. `stalled` means the
+ * persisted session is still good and the caller's queue should re-enter later — never that the
+ * bytes are lost. */
+export async function runChunkedUpload(io) {
+  const total = io.total;
+  let chunkBytes = openingChunk(total);
+  let streamId = io.streamId || null;
+  const say = (n) => { if (io.onProgress) io.onProgress(Math.min(n, total), total); };
+  const remember = async (id) => { if (io.onSession) await io.onSession(id); };
+
+  for (let session = 0; session < 2; session++) {
+    if (!streamId) {
+      streamId = await io.openSession();
+      if (!streamId) return { stalled: true };
+      await remember(streamId);
+    }
+    let waitMs = 2000, strikes = 0;
+    while (strikes < 5) {
+      if (io.shouldStop && io.shouldStop()) return { stopped: true };
+      // Drive's own byte count is the truth — never this client's idea of where it got to.
+      const probe = await io.put(streamId, `bytes */${total}`, null);
+      if (probe.done) { say(total); return { done: true, fileId: probe.fileId }; }
+      if (probe.gone) { streamId = null; await remember(null); break; }
+      if (probe.fail) { strikes++; await sleep(waitMs); waitMs = Math.min(waitMs * 2, 60000); continue; }
+
+      let offset = probe.received || 0;
+      let pushed = true;
+      say(offset);                                   // the RESUMED position, not a stale 0%
+      while (offset < total) {
+        if (io.shouldStop && io.shouldStop()) return { stopped: true };
+        const size = Math.min(chunkBytes, total - offset);
+        const t0 = Date.now();
+        const res = await io.put(streamId, `bytes ${offset}-${offset + size - 1}/${total}`,
+                                 io.slice(offset, offset + size));
+        if (res.done) { say(total); return { done: true, fileId: res.fileId }; }
+        if (res.gone) { streamId = null; await remember(null); pushed = false; break; }
+        if (res.fail) {
+          chunkBytes = shrinkChunk(chunkBytes);      // halve: the retry must risk less than the attempt did
+          strikes++; pushed = false;
+          await sleep(waitMs); waitMs = Math.min(waitMs * 2, 60000);
+          break;                                     // re-probe rather than guess the offset
+        }
+        strikes = 0; waitMs = 2000;
+        const secs = (Date.now() - t0) / 1000;
+        if (secs < 15) chunkBytes = Math.min(CHUNK_MAX, chunkBytes * 2);
+        else if (secs > 60) chunkBytes = shrinkChunk(chunkBytes);
+        offset = res.received != null ? res.received : offset + size;
+        say(offset);
+      }
+      if (!streamId) break;                          // dead session → outer loop opens one fresh
+      if (pushed && offset >= total) strikes++;      // all bytes sent, no done yet — the probe settles it
+    }
+    if (streamId) break;                             // strikes exhausted on a LIVE session
+  }
+  return { stalled: true };
+}
 
 export function driveFolderId(text) {
   const s = String(text || '').trim();

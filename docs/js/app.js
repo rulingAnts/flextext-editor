@@ -27,7 +27,7 @@ import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME, buildSourc
          loosePlan, buildLooseConversion, durationVerdict } from './seg-exports.js';
 import { mergeSegments, splitSegment, isAligned, normalizeSegments } from './segments.js';
 import { initParagraphApp } from './paragraph-ui.js';
-import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget } from './upload.js';
+import { DriveUpload, driveFolderId as parseDriveFolder, getUpload, listPendingUploads, setWorkerUploadTarget, runChunkedUpload } from './upload.js';
 import * as Sync from './sync.js';
 import { initResearcherPanel } from './researcher-panel.js';
 import { esc, newGuid as mkGuid } from './flextext.js';
@@ -6573,6 +6573,22 @@ function crowdRelabelSend() {
   const sv = $('#record-save');
   if (sv) { sv.removeAttribute('data-i18n'); sv.textContent = t('crowd.send'); }
 }
+/* Paints upload progress WITHOUT re-rendering the view — a full repaint on every chunk would
+ * flicker and throw away the visitor's scroll position. Called from the shared chunk loop, which
+ * reports the RESUMED offset first, so a submission continued after a reload opens at where it
+ * really is rather than at a stale 0%. */
+function crowdSetProgress(sent, total) {
+  const wrap = $('#crowd-prog');
+  if (!wrap) return;
+  const pct = total > 0 ? Math.max(0, Math.min(100, Math.round((sent / total) * 100))) : 0;
+  wrap.hidden = false;
+  wrap.setAttribute('aria-valuenow', String(pct));
+  const bar = $('#crowd-prog-bar');
+  if (bar) bar.style.width = pct + '%';
+  const st = $('#crowd-status');
+  if (st) st.textContent = t('crowd.sendingPct', { pct });
+}
+
 function renderCrowdView(state, extra = {}) {
   crowdState = state;
   let v = $('#view-record');
@@ -6590,7 +6606,8 @@ function renderCrowdView(state, extra = {}) {
     <button id="crowd-reload" class="primary-btn">${esc(t('crowd.retry'))}</button>`;
   else if (state === 'busy') body = `<p class="empty-note">${esc(t('crowd.busy'))}</p>
     <button id="crowd-reload" class="primary-btn">${esc(t('crowd.retry'))}</button>`;
-  else if (state === 'sending') body = `<p class="crowd-status">${esc(t('crowd.sending'))}</p>`;
+  else if (state === 'sending') body = `<p class="crowd-status" id="crowd-status">${esc(t('crowd.sending'))}</p>
+    <div class="crowd-prog" id="crowd-prog" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden><span id="crowd-prog-bar"></span></div>`;
   else if (state === 'thanks') body = `<div class="crowd-thanks">✓</div>
     <p class="crowd-status">${esc(t('crowd.thanks'))}</p>
     <button id="crowd-again" class="primary-btn">${esc(t('crowd.another'))}</button>`;
@@ -6723,66 +6740,83 @@ async function crowdQueueAndSubmit(file, extras) {
 // Small zips are one POST; big ones go CHUNKED (a single request is platform-
 // capped ~100 MB — chunks are not), with the session ticket persisted on the
 // pending item so a reload resumes mid-file.
-const CROWD_CHUNK_SINGLE_MAX = 16 * 1024 * 1024;
-const CROWD_CHUNK = 8 * 1024 * 1024;   // multiple of 256 KiB (Drive chunk rule)
-async function crowdSubmitOne(item) {
-  if (item.blob.size > CROWD_CHUNK_SINGLE_MAX) return crowdSubmitChunked(item);
-  const headers = {};
-  if (CROWD_CFG && CROWD_CFG.turnstile) headers['x-fx-turnstile'] = await crowdTurnstileToken();
-  const r = await fetch(workerBase() + '/v1/crowd/' + encodeURIComponent(CROWD_ID) + '/submit',
-    { method: 'POST', headers, body: item.blob });
-  const out = await r.json().catch(() => ({}));
-  if (r.ok && out.ok) { await crowdDelPending(item.id); return; }
-  const e = new Error(out.error || ('HTTP ' + r.status));
-  e.code = out.error || '';
-  throw e;
-}
+/* ⚠ EVERY SUBMISSION IS CHUNKED, whatever its size, and the loop is the SHARED one
+ * (`runChunkedUpload`, upload.js) — not a third hand-written copy.
+ *
+ * What this replaced, and why it mattered more here than anywhere else: the crowd path was the only
+ * upload in the suite that never got the v337 chunk-policy fix. It sent fixed 8 MiB slices, retried
+ * a failed slice AT THE SAME SIZE, and below 16 MiB sent one plain POST with no feedback at all.
+ * researcher.js records both as diagnosed bugs — "progress hung at 0% and then suddenly jumped to
+ * finished… indistinguishable from a hang", and "a failing chunk retried at the SAME size. On a weak
+ * field connection that is the one thing you must not do." Both sentences described this path, word
+ * for word, and the person paying for it is a villager on a phone on the worst connection in the
+ * system, while the researcher's own uploads were the adaptive ones.
+ *
+ * The single-POST case is gone deliberately: it was the only path that could show no progress, and a
+ * submission that looks hung is one a visitor gives up on. `/submit/start` accepts anything ≥ 4 KiB,
+ * so every real submission can be chunked.
+ *
+ * ⚠ PERMANENT REFUSALS MUST NOT BE RETRIED — they THROW, and the shared loop deliberately does not
+ * catch. `paused`, `budget`, `too_large`, `turnstile_failed` and friends are answers, not failures:
+ * crowdFlush reads `e.code` to pick the visitor's message and to drop a permanently unsendable item
+ * instead of wedging the queue. Only genuine transport trouble returns `{ fail: true }` and earns a
+ * halved retry. */
+const CROWD_PERMANENT = ['too_large', 'too_small', 'paused', 'budget', 'not_found',
+                         'turnstile_failed', 'rate_limited', 'unavailable'];
 
 async function crowdChunkPut(streamId, range, body) {
-  const r = await fetch(workerBase() + '/v1/crowd/' + encodeURIComponent(CROWD_ID) + '/submit/chunk', {
-    method: 'PUT',
-    headers: { 'x-fx-upload': streamId, 'x-fx-range': range,
-               ...(body ? { 'content-type': 'application/octet-stream' } : {}) },
-    body,
-  });
-  return { status: r.status, out: await r.json().catch(() => ({})) };
+  let r;
+  try {
+    r = await fetch(workerBase() + '/v1/crowd/' + encodeURIComponent(CROWD_ID) + '/submit/chunk', {
+      method: 'PUT',
+      headers: { 'x-fx-upload': streamId, 'x-fx-range': range,
+                 ...(body ? { 'content-type': 'application/octet-stream' } : {}) },
+      body,
+    });
+  } catch { return { fail: true }; }                      // network blip — the loop halves and re-probes
+  const out = await r.json().catch(() => ({}));
+  if (r.ok && out.done) return { done: true, fileId: out.fileId || '' };
+  if (r.ok && out.done === false) return { received: out.received || 0 };
+  if (out.error === 'session_gone' || out.error === 'bad_upload') return { gone: true };
+  if (CROWD_PERMANENT.includes(out.error)) { const e = new Error(out.error); e.code = out.error; throw e; }
+  return { fail: true };
 }
 
-async function crowdSubmitChunked(item) {
+// One item → the worker. Resolves ONLY on confirmed Drive delivery. Throws with e.code carrying the
+// worker's error keyword so crowdFlush can pick the right message; the session ticket is persisted
+// on the pending item, so a reload resumes mid-file rather than re-sending from zero.
+async function crowdSubmitOne(item) {
   const total = item.blob.size;
-  if (!item.streamId) {
-    const headers = { 'content-type': 'application/json' };
-    if (CROWD_CFG && CROWD_CFG.turnstile) headers['x-fx-turnstile'] = await crowdTurnstileToken();
-    const r = await fetch(workerBase() + '/v1/crowd/' + encodeURIComponent(CROWD_ID) + '/submit/start',
-      { method: 'POST', headers, body: JSON.stringify({ size: total }) });
-    const out = await r.json().catch(() => ({}));
-    if (!(r.ok && out.ok && out.uploadId)) { const e = new Error(out.error || ('HTTP ' + r.status)); e.code = out.error || ''; throw e; }
-    item.streamId = out.uploadId;
-    await crowdPutPending(item);   // the ticket survives a reload → resume mid-file
-  }
-  // Where does Drive stand? (exact resume after any interruption)
-  let p = await crowdChunkPut(item.streamId, `bytes */${total}`, null);
-  if (p.out.error === 'session_gone' || p.out.error === 'bad_upload') {
-    delete item.streamId; await crowdPutPending(item);
-    return crowdSubmitChunked(item);   // fresh session (new Turnstile), single re-entry
-  }
-  if (p.out.done) { await crowdDelPending(item.id); return; }
-  if (!p.out || p.out.done !== false) { const e = new Error(p.out.error || 'chunk probe failed'); e.code = p.out.error || ''; throw e; }
-  let offset = p.out.received || 0;
-  while (offset < total) {
-    const end = Math.min(offset + CROWD_CHUNK, total);
-    const res = await crowdChunkPut(item.streamId, `bytes ${offset}-${end - 1}/${total}`, item.blob.slice(offset, end));
-    if (res.out.done) { await crowdDelPending(item.id); return; }
-    if (res.out.done === false) { offset = res.out.received != null ? res.out.received : end; continue; }
-    if (res.out.error === 'session_gone') { delete item.streamId; await crowdPutPending(item); }
-    const e = new Error(res.out.error || ('HTTP ' + res.status));
-    e.code = res.out.error || '';
-    throw e;   // crowdFlush keeps the item; retry resumes from Drive's offset
-  }
-  // All bytes sent but no done seen — final probe settles it.
-  p = await crowdChunkPut(item.streamId, `bytes */${total}`, null);
-  if (p.out.done) { await crowdDelPending(item.id); return; }
-  const e = new Error('finalize failed'); e.code = p.out.error || ''; throw e;
+  const r = await runChunkedUpload({
+    total,
+    slice: (a, b) => item.blob.slice(a, b),
+    streamId: item.streamId || null,
+    put: crowdChunkPut,
+    /* ⚠ THIS IS WHERE A TURNSTILE TOKEN IS SPENT — one bot-check per submission. The shared loop
+     * caps session restarts at two for exactly this reason: reopening freely would burn the
+     * visitor's checks and look like abuse from the server's side. */
+    openSession: async () => {
+      const headers = { 'content-type': 'application/json' };
+      if (CROWD_CFG && CROWD_CFG.turnstile) headers['x-fx-turnstile'] = await crowdTurnstileToken();
+      const res = await fetch(workerBase() + '/v1/crowd/' + encodeURIComponent(CROWD_ID) + '/submit/start',
+        { method: 'POST', headers, body: JSON.stringify({ size: total }) });
+      const out = await res.json().catch(() => ({}));
+      if (res.ok && out.ok && out.uploadId) return out.uploadId;
+      const e = new Error(out.error || ('HTTP ' + res.status));
+      e.code = out.error || '';
+      throw e;                                            // budget / paused / bot-check — an answer, not a retry
+    },
+    onSession: async (id) => {
+      if (id) item.streamId = id; else delete item.streamId;
+      await crowdPutPending(item);                        // survives a reload → resume mid-file
+    },
+    onProgress: crowdSetProgress,
+  });
+  if (r.done) { await crowdDelPending(item.id); return; }
+  // Still resumable — the persisted ticket means the next flush continues from Drive's own offset.
+  const e = new Error('crowd_upload_stalled');
+  e.code = '';
+  throw e;
 }
 
 // Drain the pending store oldest-first. interactive=true drives the visitor-facing

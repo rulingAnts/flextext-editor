@@ -2144,7 +2144,22 @@ being UTC *and* the absence of any label.
 would rewrite history for cosmetics — and folder names are display-only precisely so nothing depends
 on them (identity is the `flextextDoc` tag), so old names can simply stay wrong.
 
-## ⚠ The crowd upload has the two defects v337 already fixed everywhere else (Seth, 2026-08-19)
+## ~~The crowd upload has the two defects v337 already fixed everywhere else~~ — DONE in v418
+
+**Fixed 2026-08-19.** The loop now lives ONCE, as `runChunkedUpload` in `upload.js`, and the crowd
+submit path is its third caller — no third implementation. Every submission is chunked whatever its
+size (the 16 MiB single-POST case is gone; it was the only path that could show no progress at
+all), slices open size-aware and adapt, a failed slice is halved before the retry, and the visitor
+gets a real percentage. `test/crowd-chunk-policy.test.mjs` drives the loop against a fake transport
+rather than grepping for it, and both the halving and the size-aware opening are mutation-checked.
+
+⚠ **Still outstanding:** `assignUploadFile` (researcher.js) and `_streamChunked` (upload.js) remain
+their own copies. Migrating them is the right end state — three copies of one state machine is what
+caused this — but it means re-testing two field-proven upload paths, so it is deliberately a
+separate change rather than a rider on the crowd fix.
+
+The original entry, kept because the reasoning is the reason the fix was prioritised:
+
 
 > *"We're going to need to work on UI responsiveness on slow connections with the Crowd recorder…
 > UI responsiveness and also slow, glitchy uploads."*

@@ -1315,6 +1315,12 @@ main {
 /* ---------------- Crowd mode (public crowd-source recorder) ---------------- */
 .crowd-screen { text-align: center; }
 .crowd-status { font-size: 1.15rem; margin: 18px 0; }
+/* Upload progress on the crowd page. Deliberately plain and wide: the visitor is on a phone on a
+ * weak connection, and the one question the screen has to answer is "is this still moving?" */
+.crowd-prog { width: 100%; max-width: 420px; height: 10px; margin: 0 auto 18px;
+  background: var(--border); border-radius: 999px; overflow: hidden; }
+.crowd-prog > span { display: block; height: 100%; width: 0;
+  background: var(--blue); border-radius: 999px; transition: width .25s linear; }
 .crowd-thanks {
   width: 72px; height: 72px; line-height: 72px; margin: 24px auto 8px;
   border-radius: 50%; background: var(--ok, #2e7d32); color: #fff;

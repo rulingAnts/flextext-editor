@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v417';
+export const ENGINE_VERSION = 'v418';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v417';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = '';
+export const BUILD_TAG = 'crowd-chunks v1';
 
 const S = {
 en: {
@@ -326,6 +326,10 @@ en: {
   'crowd.maxNote': 'Up to {min} minutes per recording.',
   'crowd.send': 'Send',
   'crowd.sending': 'Sending your recording…',
+  /* The percentage is the point: a submission that reports nothing is one a visitor on a slow
+   * connection gives up on, and the crowd path was the ONLY upload in the suite that could show
+   * no movement at all. */
+  'crowd.sendingPct': 'Sending your recording… {pct}%',
   'crowd.thanks': 'Thank you! Your recording was sent.',
   'crowd.another': 'Record another',
   'crowd.cooldown': 'You can send this in {s} seconds.',
@@ -1986,6 +1990,7 @@ id: {
   'crowd.maxNote': 'Maksimal {min} menit per rekaman.',
   'crowd.send': 'Kirim',
   'crowd.sending': 'Mengirim rekaman Anda…',
+  'crowd.sendingPct': 'Mengirim rekaman Anda… {pct}%',
   'crowd.thanks': 'Terima kasih! Rekaman Anda sudah terkirim.',
   'crowd.another': 'Rekam lagi',
   'crowd.cooldown': 'Anda bisa mengirim ini dalam {s} detik.',

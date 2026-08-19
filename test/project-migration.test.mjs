@@ -82,5 +82,23 @@ console.log('\nthe client wrappers exist and inherit the safe default');
      'migrate does not blind-retry — a lost response must not re-run a folder move');
 }
 
+/* ⚠ TWO INDEPENDENT DEFAULTS. The server defaults `dry` to true, and the console entry point
+ * previews on any verb without a bang. Either alone would be enough; both means forgetting one is
+ * still safe, and neither can be quietly weakened without this failing. */
+console.log('\nthe console entry point previews unless told otherwise');
+{
+  const panel = readFileSync(new URL('docs/js/researcher-panel.js', root), 'utf8');
+  const fn = panel.slice(panel.indexOf('window.fxProjects ='), panel.indexOf('return { open, close'));
+  ok(/dry: true/.test(fn), 'the no-verb path is an explicit dry run');
+  ok(/dry: verb !== 'undo!'/.test(fn), "undo previews; only undo! acts");
+  ok(/if \(!name\) return 'usage: fxProjects\("migrate"/.test(fn),
+     'migrate refuses to run without a name — no silent default project name');
+  /* A typo must not act. `fxProjects('migrat')` should preview, not migrate. */
+  ok(/\/\/ No verb, or anything unrecognised: preview\. Never act on a typo\./.test(fn),
+     'an unrecognised verb falls through to the preview, never to an action');
+  ok(/fxProjects\(\)/.test(readFileSync(new URL('DEVELOPERS.md', root), 'utf8')),
+     'and it is documented in DEVELOPERS.md, where the other console entry points live');
+}
+
 console.log(fail ? `\nFAILED (${fail})\n` : '\nall passed\n');
 process.exit(fail ? 1 : 0);

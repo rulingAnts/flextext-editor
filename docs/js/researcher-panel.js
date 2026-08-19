@@ -692,6 +692,51 @@ export function initResearcherPanel(d) {
       return `links: ${linkMode()}${mode === 'auto' ? '' : ' (OVERRIDE ACTIVE — the panel shows a badge while it is on)'}`;
     };
   }
+  /* CONSOLE ENTRY POINT — `fxProjects()`. The project folder migration (plans/drive-as-truth.md
+   * §16.16), driven from the console rather than a button, deliberately and for now.
+   *
+   * ⚠ WHY NOT A BUTTON YET. This is the first operation in the suite that MOVES a researcher's
+   * folders. Its plan needs to be read against a real estate and judged correct before anything
+   * wraps a UI around it — a button implies "we are confident", and we are not yet. Console first,
+   * button once the plan has been seen to be right, is the same order the repo used for fxLinks.
+   *
+   *   fxProjects()                      → DRY RUN. Prints exactly what would move. Changes nothing.
+   *   fxProjects('migrate', 'My Name')  → apply, creating the project folder with that name
+   *   fxProjects('undo')                → DRY RUN of the reverse
+   *   fxProjects('undo!', )             → apply the reverse
+   *   fxProjects('rename', 'New Name')  → rename the project folder
+   *
+   * The bang is the confirmation. Every verb without one previews, matching the server, which also
+   * defaults to dry — two independent defaults, so forgetting either one is still safe.
+   *
+   * Sibling of window.fxLinks() and window.fxUpdate(). All recorded in DEVELOPERS.md. */
+  if (typeof window !== 'undefined') {
+    window.fxProjects = async (verb, name) => {
+      const show = (r) => { console.log(r); return r; };
+      try {
+        if (verb === 'rename') {
+          if (!name) return 'usage: fxProjects("rename", "New project name")';
+          const est = await Researcher.driveEstate();
+          const proj = ((est.projects || [])[0] || {}).folderId;
+          if (!proj) return 'no project folder yet — run fxProjects("migrate", "…") first';
+          return show(await Researcher.projectRename(proj, name));
+        }
+        if (verb === 'undo' || verb === 'undo!') {
+          return show(await Researcher.projectsUnmigrate({ dry: verb !== 'undo!' }));
+        }
+        if (verb === 'migrate') {
+          if (!name) return 'usage: fxProjects("migrate", "Default Project")  — the name is yours to choose';
+          return show(await Researcher.projectsMigrate({ name, dry: false }));
+        }
+        // No verb, or anything unrecognised: preview. Never act on a typo.
+        const plan = await Researcher.projectsMigrate({ dry: true });
+        console.log(plan);
+        return `DRY RUN — ${plan.count} container(s) would move under a project folder`
+             + `${plan.wouldCreateProject ? ' (which would be created)' : ''}. `
+             + `Nothing has changed. To apply: fxProjects('migrate', 'Default Project')`;
+      } catch (e) { return 'failed: ' + ((e && e.message) || e); }
+    };
+  }
   return { open, close, isSignedUp: () => Researcher.isSignedUp(), onInstallable };
 }
 

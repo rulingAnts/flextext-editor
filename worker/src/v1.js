@@ -2304,6 +2304,26 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/about?fields=storageQuota').catch(() => null),
       ]);
       const estate = buildDriveEstate(live);
+      /* ⚠ THE JOIN BELONGS HERE, NOT IN THE PANEL (Seth, 2026-08-19: "a lot of these consistency
+       * checks/drift guards probably need to live in the worker rather than in the client app").
+       *
+       * Which INSTANCE a device folder belongs to is a fact only D1 knows, and which PROJECT it sits
+       * in is a fact only Drive knows. The panel had to hold both and join them, which is a second
+       * place for the answer to live and therefore a place for it to be wrong — and it promptly was:
+       * devices landed in "Not in a project yet" while their folders sat correctly inside the
+       * project. Stamping instanceId here means there is ONE derivation of the relationship, made
+       * where both halves are already in hand, and it costs a single indexed D1 read — no extra
+       * Drive call at all. */
+      try {
+        const rows = (await env.DB.prepare(
+          'SELECT instance_id, oauth_folder_id FROM instance WHERE researcher_id=? AND revoked=0'
+        ).bind(r.researcher_id).all()).results || [];
+        const byFolder = new Map(rows.filter((x) => x.oauth_folder_id).map((x) => [x.oauth_folder_id, x.instance_id]));
+        for (const d of estate.devices || []) {
+          const iid = byFolder.get(d.folderId);
+          if (iid) d.instanceId = iid;
+        }
+      } catch { /* the estate is still correct without it; the panel falls back to its own join */ }
       const q = (about && about.storageQuota) || {};
       return j({
         /* `limit` is ABSENT on unlimited / pooled accounts. It is passed through as null and MUST

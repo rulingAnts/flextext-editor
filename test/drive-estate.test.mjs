@@ -313,7 +313,10 @@ console.log('\nthe wording tells the researcher the thing they would otherwise d
 console.log('\nthe estate response SPREADS — an enumerated rebuild has eaten a field three times');
 {
   const route = worker.slice(worker.indexOf("seg[2] === 'drive-estate'"));
-  const body = route.slice(0, route.indexOf('} catch'));
+  /* ⚠ Slice to the RESPONSE, not to the first `catch`. The route grew an inner try/catch (the D1
+   * lookup that stamps instanceId onto each device), so cutting at the first catch stopped short of
+   * the return and this assertion silently examined the wrong text. */
+  const body = route.slice(route.indexOf('return j({'), route.indexOf('}, 200, origin, env);'));
   ok(/\.\.\.estate,/.test(body), 'the whole estate is forwarded, not a hand-listed subset');
   for (const field of ['master:', 'devices:', 'texts:']) {
     ok(!new RegExp('\\n\\s*' + field + ' estate\\.').test(body),

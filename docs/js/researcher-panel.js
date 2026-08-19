@@ -721,6 +721,24 @@ export function initResearcherPanel(d) {
           if (!proj) return 'no project folder yet — run fxProjects("migrate", "…") first';
           return show(await Researcher.projectRename(proj, name));
         }
+        /* fxProjects('why') — WHY IS THIS DEVICE IN THE WRONG TAB. Prints the actual join: each
+         * instance's stored folder id, the estate device it matched, and the project that yields.
+         * Added because the same symptom was mis-diagnosed twice from the outside; a table of what
+         * the panel actually received settles it in one line instead of a third theory. */
+        if (verb === 'why') {
+          const est = await Researcher.driveEstate();
+          const byFolder = new Map((est.devices || []).map((d) => [d.folderId, d]));
+          const rows = ((lastData && lastData.instances) || []).map((it) => ({
+            nickname: it.nickname || '', instance: String(it.instance_id).slice(0, 8),
+            oauth_folder_id: it.oauth_folder_id || '(none)',
+            matchedEstateDevice: (byFolder.get(it.oauth_folder_id) || {}).name || '(NO MATCH)',
+            projectId: (byFolder.get(it.oauth_folder_id) || {}).projectId || '(none)',
+          }));
+          console.table(rows);
+          console.table((est.devices || []).map((d) => ({ folderId: d.folderId, name: d.name, kind: d.kind, projectId: d.projectId })));
+          console.table((est.projects || []).map((p) => ({ folderId: p.folderId, name: p.name })));
+          return 'printed: instances, estate devices, projects';
+        }
         /* ⚠ THE UNDO LIVES HERE NOW, not on the card (§16.28): the migration is one-way and not
          * optional, and a "go back" button on the panel is the optionality message however it is
          * worded. `undo` opens the real modal — preview, settle, repaint, all of it — so the
@@ -4480,10 +4498,19 @@ let currentProject = null;          // folderId | STRAY_TAB | null (= pick the f
 function projectScope(insts, estate, crowdRecs) {
   const projects = (estate && estate.projects) || [];
   if (!projects.length) return null;
-  const byFolder = new Map(((estate && estate.devices) || []).map((d) => [d.folderId, d.projectId || '']));
+  /* ⚠ PREFER THE WORKER'S OWN ANSWER. `instanceId` is stamped onto each estate device server-side,
+   * where the D1 rows and the Drive tree are both already in hand — one derivation of the
+   * relationship instead of two. The folder-id lookup stays as a FALLBACK for a worker that predates
+   * the stamp, so an un-deployed backend degrades to the old behaviour rather than emptying the
+   * dashboard. Never by NAME in either path. */
+  const devs = ((estate && estate.devices) || []);
+  const byInstance = new Map(devs.filter((d) => d.instanceId).map((d) => [d.instanceId, d.projectId || '']));
+  const byFolder = new Map(devs.map((d) => [d.folderId, d.projectId || '']));
   const projOf = (folderId) => byFolder.get(folderId) || '';
+  const projOfInst = (it) => (byInstance.has(it.instance_id) ? byInstance.get(it.instance_id)
+                                                             : projOf(it.oauth_folder_id));
   const ids = new Set(projects.map((p) => p.folderId));
-  const strayInsts = insts.filter((it) => !ids.has(projOf(it.oauth_folder_id)));
+  const strayInsts = insts.filter((it) => !ids.has(projOfInst(it)));
   const strayRecs = (crowdRecs || []).filter((r) => !ids.has(projOf(r.oauth_folder_id)));
   const hasStrays = !!(strayInsts.length || strayRecs.length);
   /* A stored selection can point at a project that has since been renamed away, undone, or belonged
@@ -4495,8 +4522,8 @@ function projectScope(insts, estate, crowdRecs) {
   if (sel === null) sel = projects[0].folderId;
   const selProject = projects.find((p) => p.folderId === sel) || null;
   return {
-    projects, hasStrays, sel, selProject, projOf,
-    insts: sel === STRAY_TAB ? strayInsts : insts.filter((it) => projOf(it.oauth_folder_id) === sel),
+    projects, hasStrays, sel, selProject, projOf, projOfInst,
+    insts: sel === STRAY_TAB ? strayInsts : insts.filter((it) => projOfInst(it) === sel),
     recs: sel === STRAY_TAB ? strayRecs : (crowdRecs || []).filter((r) => projOf(r.oauth_folder_id) === sel),
   };
 }

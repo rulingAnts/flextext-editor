@@ -46,7 +46,16 @@ console.log('\nONE builder — no writer keeps a copy of the contract');
    * writes its manifest with the same builder and the worker only UNWRAPS it from the zip. A
    * worker-side builder would be a fourth writer of a contract whose value is that all writers
    * agree — and it is the one that could not import the shared module to stay honest. */
-  ok(!/schema:\s*\d/.test(worker), 'the worker builds no manifest of its own');
+  /* ⚠ THIS ASSERTION USED TO BE `!/schema:\s*\d/.test(worker)` AND IT FIRED ON A CORRECT CHANGE.
+   * The Drive snapshot route legitimately stamps `schema: 1` on its own response, and the guard read
+   * that as "the worker is building a manifest". A check that fails the right answer is worse than
+   * no check — it teaches people to delete guards — and this is the THIRD time that shape has bitten
+   * in one day (the d1-minimization project_id column, the vacuous `|| true`, and now this).
+   *
+   * The lesson is the same each time: assert the SPECIFIC thing, not a proxy for it. `schema:` was a
+   * stand-in for "manifest-shaped object". `writingSystems` is a key that appears in the manifest
+   * and nowhere else in this system, so it names the actual thing being forbidden. */
+  ok(!/writingSystems/.test(worker), 'the worker builds no manifest of its own');
   ok(/storeZipEntry\(bytes, \/\(\^\|\\\/\)flextext-manifest/.test(worker)
      || /crowdExtractManifest/.test(worker), '...it extracts the client-written one instead');
 }

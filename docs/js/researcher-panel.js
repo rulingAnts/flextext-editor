@@ -2507,7 +2507,20 @@ async function renderInstanceCard(it, deviceCount) {
          * remove-after-upload just uploads the same text twice.
          * Computed here, above the buttons, because `d.pendingDelete` (the DEVICE's own flag) must
          * suppress the upload control too, not only a marker this panel knows about. */
-        const deleting = !!d.pendingDelete || !!(p && p.kind === 'delete');
+        /* ⚠ A MOVE IS TWO PENDING ACTIONS, NOT ONE (Seth, 2026-08-19): a pending ASSIGNMENT to the
+         * new device AND a pending REMOVAL from the old one. Only the assignment was modelled —
+         * it rides a real command, so once moves became account-scoped it propagated to every panel
+         * — while the removal existed as a chip and nothing else, because its command is not issued
+         * until the destination confirms receipt. So the source row looked idle: no strikethrough,
+         * and a live Remove button offering to queue a SECOND removal of a text already leaving.
+         *
+         * The removal is COMMITTED from the moment the move starts; only its delivery waits. So it
+         * is shown as pending from the start, through the same `deleting` path a queued uploadDelete
+         * already uses — one vocabulary, one appearance, in every panel, and every guard built on
+         * `deleting` (no Upload, no Move, no second Remove) applies to it for free. */
+        const mv = pendingMoves.get(d.id);
+        const mvSource = !!mv && mv.from === it.instance_id;      // this device is LOSING the text
+        const deleting = !!d.pendingDelete || !!(p && p.kind === 'delete') || mvSource;
         const uploading = !!(p && p.kind === 'upload');
         const cancelBtn = (kind) => ` <button class="link-btn rp-cancel" data-iact="cancel-cmd" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}">${esc(t('panel.inst.cancel' + kind))}</button>`;
         const takenTag = ` <span class="rp-tag rp-tag-taken" title="${esc(t('panel.inst.takenWhy'))}">${esc(t('panel.inst.taken'))}</span>`;
@@ -2519,17 +2532,27 @@ async function renderInstanceCard(it, deviceCount) {
             ? (queued ? cancelBtn('Upload') : takenTag)
             : ` <button class="link-btn rp-up" data-iact="upload" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-fileid="${esc(d.uploadedFileId || '')}">${esc(t(label))}</button>`;
         // Upload-first remote delete (v94+): the device uploads a fresh timestamped copy, THEN deletes.
-        const mv = pendingMoves.get(d.id);
-        const moveChip = mv ? ` <span class="rp-tag rp-tag-moving">${esc(t(mv.stage === 'assigned' ? 'panel.move.waitingDest' : 'panel.move.removingSrc'))}</span>` : '';
+        // The chip belongs to the device LOSING the text. The destination's half of the move is its
+        // pending ASSIGNMENT, which its own ghost row already tells.
+        const moveChip = mvSource ? ` <span class="rp-tag rp-tag-moving">${esc(t(mv.stage === 'assigned' ? 'panel.move.waitingDest' : 'panel.move.removingSrc'))}</span>` : '';
         const moveBtn = (!d.id || mv || d.__assigning || deleting || uploading || wiped) ? ''
           : ` <button class="link-btn" data-iact="move-text" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.move.btn'))}</button>`;
+        /* A move is NOTHING MORE than a pending assignment and a pending removal, each cancellable
+         * on its own (Seth, 2026-08-19) — so no move-specific control exists. The removal wears the
+         * same label and the same Cancel as any other pending removal; only its plumbing differs,
+         * because until the destination confirms receipt there is no command to withdraw, just a
+         * commitment to stop. Dropping the move record IS stopping it.
+         *
+         * Order matters: once stage 2 has issued the real uploadDelete, that command is the thing to
+         * cancel, so it is tested first and the row falls through to the ordinary withdrawal. */
+        const cancelRemovalBtn = ` <button class="link-btn rp-cancel" data-iact="cancel-removal" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.inst.cancelDelete'))}</button>`;
         const del = (!d.id || d.__assigning || wiped) ? ''
+          : (p && p.kind === 'delete') ? (queued ? cancelBtn('Delete') : takenTag)
+          : mvSource ? cancelRemovalBtn                     // committed, not yet issued as a command
           : uploading ? ''                                  // cancel the upload first, or wait it out
-          : (p && p.kind === 'delete')
-            ? (queued ? cancelBtn('Delete') : takenTag)
-            : canDelText
-              ? ` <button class="link-btn rp-revoke" data-iact="del-text" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.inst.delText'))}</button>`
-              : ` <button class="link-btn rp-revoke" disabled title="${esc(t('panel.inst.delNeedsUpdate'))}">${esc(t('panel.inst.delText'))}</button>`;
+          : canDelText
+            ? ` <button class="link-btn rp-revoke" data-iact="del-text" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.inst.delText'))}</button>`
+            : ` <button class="link-btn rp-revoke" disabled title="${esc(t('panel.inst.delNeedsUpdate'))}">${esc(t('panel.inst.delText'))}</button>`;
         // The done tag is a TOGGLE when the engine understands the setDone COMMAND — the dispatch
         // case shipped in v138. Gating on setDocDone's age (v100) was wrong: an older device ACKS
         // the unknown command and silently does nothing, which reads as "the toggle is broken".
@@ -2737,6 +2760,24 @@ async function instanceAction(el) {
       savePending(Researcher.currentAccountId());
       deps.toast(t('panel.inst.delSent'), 5000);
       renderDashboard(lastData || undefined);
+    } else if (act === 'cancel-removal') {
+      /* The pending REMOVAL half of a move, before stage 2 has issued it as a command. There is
+       * nothing on the server to withdraw — the commitment lives in the account's move record — so
+       * cancelling it IS dropping that record, which also stops the sweep from ever issuing it.
+       * The assignment half is untouched and proceeds: the text ends up on both devices, which is a
+       * legitimate thing to want and the reason this is separately cancellable at all. */
+      /* ⚠ CONFIRMED, because the end state it produces is not one the storage model really supports.
+       * There is exactly ONE Drive folder per text: driveEnsureTextFolder resolves it by the GLOBAL
+       * flextextDoc tag (not parent-scoped), and /move RE-PARENTS that one folder rather than
+       * copying it. So a text left on both devices does not become two folders — it becomes one
+       * folder with two writers, sitting under the destination device, receiving divergent uploads
+       * from both, with no way to tell which copy is newest. Cancelling the ASSIGNMENT is the safe
+       * way to call a move off; this one is a deliberate choice and says so. */
+      const docId = el.dataset.id;
+      if (!confirm(t('panel.move.keepBothWarn', { title: el.dataset.title || '?' }))) return;
+      await busy(el, () => saveMoves((cur) => { delete cur[docId]; return cur; }));
+      deps.toast(t('panel.inst.cancelled'), 4000);
+      renderDashboard(lastData || undefined);
     } else if (act === 'cancel-cmd') {
       // Withdraw a request the device has not picked up. The Worker re-checks ack_seq and refuses
       // with 409 already_delivered if it is too late — that refusal is SHOWN, never swallowed,
@@ -2765,6 +2806,13 @@ async function instanceAction(el) {
         pendingCmds.delete(docId);
         savePending(Researcher.currentAccountId());
         serverPending.delete(spKey(id, docId));
+        /* ⚠ CANCELLING THE ASSIGNMENT MUST CANCEL THE REMOVAL WITH IT — the one place the move's two
+         * halves are NOT independent, and the direction that would lose data. A removal whose
+         * delivery never happened must never fire: the source would delete a text the destination
+         * never received. (Cancelling the removal alone is fine and stays independent — the text
+         * simply ends up on both devices.) Dropping the record also releases a move that would
+         * otherwise wedge at stage 'assigned' forever, holding the source row struck through. */
+        if (pendingMoves.has(docId)) saveMoves((cur) => { delete cur[docId]; return cur; });
         const hit = blobCache.get(id);
         if (hit) hit.cmds = (hit.cmds || []).filter((c) => c && c.seq !== p.seq);
         const known = serverSeqs.get(id);

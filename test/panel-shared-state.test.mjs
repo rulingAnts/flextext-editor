@@ -74,6 +74,37 @@ console.log('\na text on its way to a device is never offered for deletion');
   ok(uses >= 3, `inFlightAssignIds is used by both the Unassigned card and the storage modal (${uses - 1} call sites)`);
 }
 
+console.log('\na move is two pending actions, and both are visible (v392)');
+{
+  // The assignment half rides a real command and already propagated; the removal half existed only
+  // as a chip, so the source row looked idle and still offered Remove on a text already leaving.
+  ok(/const mvSource = !!mv && mv\.from === it\.instance_id;/.test(panel),
+     'the row knows whether THIS device is the one losing the text');
+  ok(/const deleting = !!d\.pendingDelete \|\| !!\(p && p\.kind === 'delete'\) \|\| mvSource;/.test(panel),
+     'a pending removal reads as pending from the START, not only once its command is issued');
+  ok(/const moveChip = mvSource \?/.test(panel),
+     'the moving chip belongs to the source; the destination tells its own assignment story');
+  ok(/: mvSource \? cancelRemovalBtn/.test(panel),
+     'and the removal carries its own Cancel, with the ordinary label');
+  // Order: once stage 2 issues the real uploadDelete, THAT is the thing to withdraw.
+  const iCmd = panel.indexOf("(p && p.kind === 'delete') ? (queued ? cancelBtn('Delete')");
+  const iMv  = panel.indexOf(': mvSource ? cancelRemovalBtn');
+  ok(iCmd > 0 && iMv > 0 && iCmd < iMv, 'a real queued delete is tested before the not-yet-issued one');
+}
+
+console.log('\n...but cancelling the ASSIGNMENT cancels the removal with it');
+{
+  /* The one place the two halves are NOT independent, and the direction that loses data: a removal
+   * whose delivery never happened must never fire, or the source deletes a text the destination
+   * never received. It also releases a move that would otherwise wedge at stage 'assigned'. */
+  ok(/if \(pendingMoves\.has\(docId\)\) saveMoves\(\(cur\) => \{ delete cur\[docId\]; return cur; \}\);/.test(panel),
+     'a cancelled command drops any move that depended on it');
+  ok(/panel\.move\.keepBothWarn/.test(panel),
+     'cancelling ONLY the removal is confirmed — one Drive folder, two writers, no newest copy');
+  ok(/'panel\.move\.keepBothWarn'/.test(read('../docs/js/i18n.js')),
+     'and that warning is a real string, in both languages (parity test covers the second)');
+}
+
 console.log('\nthe account preference is an account preference');
 {
   ok(/export async function setPref\(key, value\)/.test(researcher) && /export async function getPrefs\(\)/.test(researcher),

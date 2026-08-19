@@ -95,8 +95,12 @@ console.log('\nqueued vs taken is a comparison against ack_seq, and only queued 
      'a taken delete shows an inert tag, never a cancel the Worker would refuse');
   // The strikethrough itself must NOT depend on queued/taken — a delete in progress is still a
   // delete, and un-striking it the moment the device picks it up is the reported symptom.
-  ok(/const deleting = !!d\.pendingDelete \|\| !!\(p && p\.kind === 'delete'\);/.test(panel),
+  ok(/const deleting = !!d\.pendingDelete \|\| !!\(p && p\.kind === 'delete'\) \|\| mvSource;/.test(panel),
      'the row strikes through for ANY outstanding delete marker, queued or taken');
+  /* v392 added the third term: the removal half of a MOVE is committed from the moment the move
+   * starts, even though its command is not issued until the destination confirms receipt. Without
+   * it the source row looked idle while the text was already leaving. */
+  ok(/\|\| mvSource;/.test(panel), '...including a move\'s removal, before its command exists');
   ok(/\.rp-pending-del \{[^}]*line-through/.test(read('../docs/css/app.css')),
      'and .rp-pending-del actually renders as a strikethrough');
 }

@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v391';
+export const ENGINE_VERSION = 'v392';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v391';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'sessions-ui v7';
+export const BUILD_TAG = 'sessions-ui v8';
 
 const S = {
 en: {
@@ -870,6 +870,7 @@ internet after the first time.</p>
   'panel.move.sent': 'Move started \u2014 waiting for {device} to receive it.',
   'panel.move.waitingDest': 'moving \u2014 waiting for the new device',
   'panel.move.removingSrc': 'moving \u2014 removing from this device',
+  'panel.move.keepBothWarn': 'Cancel only the removal?\n\n\u201c{title}\u201d then stays on BOTH devices \u2014 and they share ONE Drive folder, so both will upload into it and which copy is newest becomes impossible to tell.\n\nTo call the whole move off instead, cancel the assignment on the receiving device.',
   'panel.move.done': '\u201c{title}\u201d has finished moving.',
   'panel.move.doneSent': 'Marked finished \u2014 the device will apply it when it next checks in.',
   'panel.move.notDoneSent': 'Marked not finished \u2014 the device will apply it when it next checks in.',
@@ -2495,6 +2496,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.move.sent': 'Pemindahan dimulai \u2014 menunggu {device} menerimanya.',
   'panel.move.waitingDest': 'memindahkan \u2014 menunggu perangkat baru',
   'panel.move.removingSrc': 'memindahkan \u2014 menghapus dari perangkat ini',
+  'panel.move.keepBothWarn': 'Batalkan hanya penghapusannya?\n\n\u201c{title}\u201d akan tetap ada di KEDUA perangkat \u2014 dan keduanya berbagi SATU folder Drive, jadi keduanya akan mengunggah ke sana dan mustahil membedakan salinan mana yang terbaru.\n\nUntuk membatalkan seluruh pemindahan, batalkan penugasan di perangkat penerima.',
   'panel.move.done': '\u201c{title}\u201d selesai dipindahkan.',
   'panel.move.doneSent': 'Ditandai selesai \u2014 perangkat akan menerapkannya saat berikutnya terhubung.',
   'panel.move.notDoneSent': 'Ditandai belum selesai \u2014 perangkat akan menerapkannya saat berikutnya terhubung.',

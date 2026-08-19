@@ -2153,6 +2153,26 @@ all), slices open size-aware and adapt, a failed slice is halved before the retr
 gets a real percentage. `test/crowd-chunk-policy.test.mjs` drives the loop against a fake transport
 rather than grepping for it, and both the halving and the size-aware opening are mutation-checked.
 
+⚠⚠ **AND THE VISIBLE SYMPTOM IS NOT FIXED — PARKED, NOT SOLVED** (Seth, 2026-08-19, testing v418
+on a genuinely bad connection): *"the crowd recorder is ALWAYS registering a 'failed, will try
+again later' response before ultimately succeeding."* It does succeed, and the chunk policy is a
+net improvement, but the visitor still sees a failure banner on the way there.
+
+**What that almost certainly is, for whoever picks this up:** `crowdFlush` paints `failed` for ANY
+error that is not `too_large`/`too_small`, and `runChunkedUpload` returns `{ stalled: true }` —
+which `crowdSubmitOne` turns into a throw — whenever it exhausts its five strikes on a live
+session. That is the CORRECT outcome for the queue (keep the item, resume from Drive's offset
+next flush) and the WRONG thing to tell the visitor, because nothing has failed: the bytes are
+safe and the upload is mid-flight. The state machine has no word for "still going, come back".
+So the fix is a third visitor-facing state between `sending` and `failed`, not more retries.
+
+⚠ Do NOT read this as the chunk policy not working. Compare against the old path before judging:
+the same connection previously sent fixed 8 MiB slices with no progress at all and re-sent each
+one in full on every failure.
+
+**Deliberately parked** (Seth: *"the crowd recorder is not in use by anybody at the moment and is
+not our immediate priority… I want to save further work on the Crowd recorder for later"*).
+
 ⚠ **Still outstanding:** `assignUploadFile` (researcher.js) and `_streamChunked` (upload.js) remain
 their own copies. Migrating them is the right end state — three copies of one state machine is what
 caused this — but it means re-testing two field-proven upload paths, so it is deliberately a

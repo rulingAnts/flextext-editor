@@ -680,15 +680,25 @@ function buildDriveEstate(files) {
  * whichever device used to have it, which is simply false to anyone browsing Drive. Same philosophy
  * as originals/ and the "(done)" suffix: the folder tree should describe the truth without our
  * tools. Tagged like every other structural folder so it is found by role, not by name. */
-async function driveUnassignedFolder(access) {
-  const q = encodeURIComponent("appProperties has { key='flextextRole' and value='unassigned' } and mimeType='application/vnd.google-apps.folder' and trashed=false");
+async function driveUnassignedFolder(access, projectFolderId) {
+  /* ⚠ ONE PER PROJECT, NOT ONE PER ACCOUNT — and this had to change in the SAME commit as the
+   * project layer, never after it. The previous version searched globally for role='unassigned' and
+   * took the first hit; with a folder per project that is an ARBITRARY project's folder, so the
+   * v399 sweep would have quietly moved texts out of their own project and into a sibling's.
+   *
+   * Parent-scoping is the same pattern driveEnsureChildFolder uses for `originals/`, and for the
+   * same reason: this folder has no identity of its own, it belongs to whatever project it sits in.
+   * With no project folder (the flat estate) the parent is master and the behaviour is exactly what
+   * it was. */
+  const parent = projectFolderId || await driveMasterFolder(access);
+  const q = encodeURIComponent(`'${parent}' in parents and appProperties has { key='flextextRole' and value='unassigned' } and mimeType='application/vnd.google-apps.folder' and trashed=false`);
   try {
-    const found = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files?spaces=drive&fields=files(id)&q=' + q);
+    const found = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files?spaces=drive&orderBy=createdTime&fields=files(id)&q=' + q);
     if (found.files && found.files.length) return found.files[0].id;
   } catch { /* fall through to create */ }
   const f = await driveJson(access, 'POST', 'https://www.googleapis.com/drive/v3/files?fields=id',
     { name: 'Unassigned', mimeType: 'application/vnd.google-apps.folder',
-      parents: [await driveMasterFolder(access)], appProperties: { flextextRole: 'unassigned' } });
+      parents: [parent], appProperties: { flextextRole: 'unassigned' } });
   return f.id;
 }
 
@@ -735,19 +745,70 @@ async function driveTextHousekeeping(access, folderId, { want = null, deviceFold
   } catch { /* cosmetic: never let housekeeping affect an upload */ }
 }
 
+/* PROJECT FOLDERS — the layer between master and the containers (plans/drive-as-truth.md §16.16).
+ *
+ *   FlexText Uploads / <Project> / <Device|Crowd|Unassigned> / <Text> / originals
+ *
+ * ⚠ EVERY HELPER HERE IS DUAL-SHAPE. Until a migration runs there are no project folders, and each
+ * of these returns exactly what the pre-project code returned — so deploying them changes nothing
+ * until folders actually move. That is what makes the deploy separable from the migration, and the
+ * migration separately reversible.
+ *
+ * The DEFAULT project is tagged `flextextDefault:'1'` as well as `flextextRole:'project'`, so it is
+ * findable without knowing its name — the researcher may rename it freely (Seth, 2026-08-19), and a
+ * rename must not orphan anything. Name is display; the tags are identity. */
+async function driveDefaultProjectFolder(access) {
+  const q = encodeURIComponent("appProperties has { key='flextextDefault' and value='1' } and mimeType='application/vnd.google-apps.folder' and trashed=false");
+  try {
+    const found = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files?spaces=drive&orderBy=createdTime&fields=files(id)&q=' + q);
+    if (found.files && found.files.length) return found.files[0].id;
+  } catch { /* no default project yet — the flat shape */ }
+  return '';
+}
+
+/* The project folder a given INSTANCE belongs under, or '' when the estate is still flat.
+ * One device serves exactly one project (§16.16 B), so this is a single value, never a set. */
+async function driveProjectFolderFor(env, access, projectId) {
+  if (projectId) {
+    const q = encodeURIComponent(`appProperties has { key='flextextProject' and value='${String(projectId).replace(/[^\w-]/g, '')}' } and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+    try {
+      const found = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files?spaces=drive&orderBy=createdTime&fields=files(id)&q=' + q);
+      if (found.files && found.files.length) return found.files[0].id;
+    } catch { /* fall through to the default */ }
+  }
+  return driveDefaultProjectFolder(access);
+}
+
+// Create (or find) the default project folder. `name` comes from the CLIENT so it can be localized —
+// the worker has no idea what language the researcher reads.
+async function driveEnsureDefaultProject(access, name) {
+  const existing = await driveDefaultProjectFolder(access);
+  if (existing) return existing;
+  const f = await driveJson(access, 'POST', 'https://www.googleapis.com/drive/v3/files?fields=id',
+    { name: String(name || 'Default Project').replace(/[\\/:*?"<>|]+/g, '_').trim().slice(0, 120) || 'Default Project',
+      mimeType: 'application/vnd.google-apps.folder',
+      parents: [await driveMasterFolder(access)],
+      appProperties: { flextextRole: 'project', flextextDefault: '1' } });
+  return f.id;
+}
+
 // An enrolled DEVICE's folder in the researcher's Drive: "FlexText Uploads / <nickname>".
 // Same semantics as the crowd folders: id-tracked (move/rename-proof), recreated if
 // trashed. The panel's device-rename route renames the folder best-effort to match.
-async function driveEnsureDeviceFolder(env, access, instanceId, nickname, existingId) {
+async function driveEnsureDeviceFolder(env, access, instanceId, nickname, existingId, projectFolderId) {
   if (existingId) {
     try {
       const f = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(existingId) + '?fields=id,trashed');
       if (f && f.id && !f.trashed) return existingId;
     } catch { /* fall through: recreate */ }
   }
+  /* ⚠ THE ID CHECK ABOVE RUNS FIRST AND RETURNS WITHOUT EVER LOOKING AT A PARENT. That is what makes
+   * the project migration invisible to every device that already has a folder: re-parenting keeps the
+   * id, so this resolves exactly as before. Only a NEW folder needs to know about projects. */
   const name = String(nickname || '').trim() || ('Device — ' + String(instanceId).slice(0, 8));
+  const parent = projectFolderId || await driveMasterFolder(access);
   const f = await driveJson(access, 'POST', 'https://www.googleapis.com/drive/v3/files?fields=id',
-    { name, mimeType: 'application/vnd.google-apps.folder', parents: [await driveMasterFolder(access)] });
+    { name, mimeType: 'application/vnd.google-apps.folder', parents: [parent] });
   await env.DB.prepare('UPDATE instance SET oauth_folder_id=? WHERE instance_id=?').bind(f.id, instanceId).run();
   return f.id;
 }
@@ -903,8 +964,11 @@ async function driveEnsureCrowdFolder(env, access, rec) {
     } catch { /* fall through: recreate */ }
   }
   const name = 'Crowd — ' + (rec.label || String(rec.crowd_id).slice(0, 8));
+  // Same rule as a device folder: a NEW crowd folder is born under its project; an existing one
+  // resolves by id above and never consults a parent, so migration cannot disturb it.
+  const parent = (await driveProjectFolderFor(env, access, rec.project_id)) || await driveMasterFolder(access);
   const f = await driveJson(access, 'POST', 'https://www.googleapis.com/drive/v3/files?fields=id',
-    { name, mimeType: 'application/vnd.google-apps.folder', parents: [await driveMasterFolder(access)],
+    { name, mimeType: 'application/vnd.google-apps.folder', parents: [parent],
       appProperties: { flextextRole: 'crowd' } });
   await env.DB.prepare('UPDATE crowd_recorder SET oauth_folder_id=? WHERE crowd_id=?').bind(f.id, rec.crowd_id).run();
   return f.id;
@@ -2013,7 +2077,14 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
     try {
       const access = await driveAccessToken(env, r);
-      const [live, dead] = await Promise.all([driveListAll(access, false), driveListAll(access, true)]);
+      /* Quota rides along so a snapshot can be compared with a later one and answer "did this cost
+       * anything?" — and because Drive charges per FILE OBJECT with no content deduplication, a
+       * before/after is the only honest way to see what a reorganisation actually did. */
+      const [live, dead, about] = await Promise.all([
+        driveListAll(access, false),
+        driveListAll(access, true),
+        driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/about?fields=storageQuota').catch(() => null),
+      ]);
       const master = (live || []).find((f) => (f.mimeType || '') === 'application/vnd.google-apps.folder'
         && ((f.appProperties || {}).flextextRole === 'uploads-master'));
       return j({
@@ -2024,6 +2095,8 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         // dare restore from.
         masterFolderId: (master && master.id) || '',
         counts: { live: (live || []).length, trashed: (dead || []).length },
+        // `limit` is ABSENT on unlimited/pooled accounts — pass it through, never default it to 0.
+        quota: (about && about.storageQuota) || null,
         files: live || [],
         trashed: dead || [],
       }, 200, origin, env);
@@ -2082,7 +2155,38 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     if (!ids.length) return j({ error: 'bad_docids' }, 400, origin, env);
     try {
       const access = await driveAccessToken(env, r);
-      const target = await driveUnassignedFolder(access);
+      /* ⚠ THE SWEEP MUST LAND A TEXT IN ITS OWN PROJECT'S Unassigned, not in some other project's.
+       * A text's project is the project folder ABOVE its container, so it is resolved per text —
+       * but containers repeat heavily across a batch (a sweep is usually one or two devices), so
+       * one cached lookup per distinct CONTAINER is a handful of subrequests, not one per text.
+       * With a flat estate every lookup returns '' and the target is the master-level folder,
+       * exactly as before. */
+      const projectFolders = new Set();
+      try {
+        const pq = encodeURIComponent("appProperties has { key='flextextRole' and value='project' } and mimeType='application/vnd.google-apps.folder' and trashed=false");
+        const pf = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files?spaces=drive&fields=files(id)&q=' + pq);
+        for (const f of (pf.files || [])) projectFolders.add(f.id);
+      } catch { /* flat estate — no projects */ }
+      const containerProject = new Map();          // container folder id -> project folder id ('' = flat)
+      const unassignedFor = new Map();             // project folder id -> its Unassigned folder id
+      const targetFor = async (containerId) => {
+        if (!projectFolders.size) {
+          if (!unassignedFor.has('')) unassignedFor.set('', await driveUnassignedFolder(access, ''));
+          return unassignedFor.get('');
+        }
+        if (!containerProject.has(containerId)) {
+          let proj = '';
+          try {
+            const c = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(containerId) + '?fields=id,parents');
+            const up = (c.parents || [])[0] || '';
+            proj = projectFolders.has(up) ? up : '';
+          } catch { proj = ''; }
+          containerProject.set(containerId, proj);
+        }
+        const proj = containerProject.get(containerId);
+        if (!unassignedFor.has(proj)) unassignedFor.set(proj, await driveUnassignedFolder(access, proj));
+        return unassignedFor.get(proj);
+      };
       /* ⚠ BOUNDED BELOW THE SUBREQUEST CAP — this route accepted 200 docIds and spent up to THREE
        * Drive subrequests on each (tag search + re-parent PATCH + tag PATCH). That is ~600 against a
        * ~50 ceiling, so a full batch could never have completed; it would have died mid-sweep with
@@ -2093,7 +2197,9 @@ export async function handleV1(request, env, ctx, url, path, origin) {
        * 12 ids x 3 = 36, + the token fetch + the Unassigned-folder resolve = 38, clear of 50. The
        * caller drains `remainingIds` on its next sweep; the route is idempotent, so re-sending an
        * id that already moved costs one search and does nothing. */
-      const CAP = 12, BUDGET_MS = 9000;
+      // 10, down from 12: the per-text work is unchanged at 3 subrequests, but the project/container
+      // resolution above costs a few more up front. 10x3 + ~6 = 36, still clear of the ~50 ceiling.
+      const CAP = 10, BUDGET_MS = 9000;
       const started = Date.now();
       let moved = 0, i = 0;
       for (; i < ids.length && i < CAP && (Date.now() - started) < BUDGET_MS; i++) {
@@ -2103,6 +2209,8 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           const found = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files?spaces=drive&orderBy=createdTime&fields=files(id,parents)&q=' + q);
           const f = (found.files || [])[0];
           if (!f) continue;                                  // no folder (legacy text) — nothing to move
+          const target = await targetFor((f.parents || [])[0] || '');
+          if (!target) continue;
           if ((f.parents || []).includes(target)) continue;   // already there — idempotent
           await driveReparent(access, f.id, target, f.parents);
           // Tagged so the RETURN trip can tell "we swept this" from "the researcher filed it here".
@@ -2114,7 +2222,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       // A COUNT plus the ids, matching drive-purge and the trash route so a caller can loop on
       // `remaining` without learning a third convention.
       const remainingIds = ids.slice(i);
-      return j({ moved, folderId: target, remaining: remainingIds.length, remainingIds }, 200, origin, env);
+      // `folderId` kept for shipped clients: with several projects there is no single target, so it
+      // reports the first one used. Nothing reads it as authoritative.
+      return j({ moved, folderId: [...unassignedFor.values()][0] || '',
+                 remaining: remainingIds.length, remainingIds }, 200, origin, env);
     } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
   }
 

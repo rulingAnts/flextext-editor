@@ -108,8 +108,23 @@ of the production estate shows the pattern already exists, twice:
   title, two doc ids.
 
 So this is not a feature to anticipate — the estate is ALREADY in the many-docs-one-recording shape
-and simply has no way to say so. Today each copy is a separate upload of the same bytes, which is
-also why the storage view double-counts them.
+and simply has no way to say so.
+
+⚠ **AND THE STORAGE VIEW IS RIGHT TO COUNT BOTH COPIES.** An earlier draft of this note said
+`recording_id` should stop the double-counting. That was wrong, and Seth caught it: *"do two copies
+of the same bytes on Google Drive count against a user's storage twice or not? … if they DO count
+against the user's quota, then we SHOULD double-count them."*
+
+They do. Drive charges per FILE OBJECT; there is no content-level deduplication for quota. This
+repository already contains the proof of the principle — `drive-purge` exists because **trashed files
+still count** (`usageInDriveTrash` is inside `usage`). Drive accounts for objects, not content.
+
+The storage modal's entire job is answering *"what is this costing me"*, so 7.8 MB is the true answer
+for Stingy Small Turtle and 3.9 MB would be a comfortable lie on the one screen people delete from.
+
+**So `recording_id` EXPLAINS the number rather than reducing it:** *"this recording appears in 2
+texts — 3.9 MB each."* Same total, plus what a researcher needs in order to decide whether one copy
+can go. And it must NOT be used to deduplicate a total anywhere.
 
 ⚠ **A recording has no folder of its own.** Deleting a doc deletes its folder and its copy of the
 audio, and nothing else. Keep it that way — but the UI must say *"this recording has 2 assignments"*

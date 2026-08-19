@@ -334,7 +334,16 @@ console.log('\nUNASSIGNED: the folder tree tells the truth, and can find its way
   /* Seth: a text's folder must MOVE to "FlexText Uploads / Unassigned" once no device holds it.
    * Until then the Drive tree said the text belonged to whichever device used to have it, which is
    * simply false to anyone browsing Drive without our tools. */
-  ok(/async function driveUnassignedFolder\(access\)/.test(worker), 'the Unassigned folder is ensured by ROLE tag');
+  /* ⚠ Assert the RULE, not the signature. The first version of this pinned the exact parameter list
+   * `(access)`, so adding the project parameter failed a test whose subject had not changed. The
+   * rule is that the folder is found by its ROLE TAG — never by its name, which a researcher may
+   * translate or rename — and, since §16.16, scoped to the project it belongs to. */
+  const un = worker.slice(worker.indexOf('async function driveUnassignedFolder'));
+  const unBody = un.slice(0, un.indexOf('\n}\n'));
+  ok(/value='unassigned'/.test(unBody), 'the Unassigned folder is found by ROLE tag, not by name');
+  ok(/in parents and appProperties has/.test(unBody),
+     '...and is scoped to its PROJECT — one per project, never a global singleton (§16.22)');
+  ok(/parents: \[parent\]/.test(unBody), '...and is created under that same parent when absent');
   ok(/flextextRole' and value='unassigned'/.test(worker), '...not by name, like every other structural folder');
   ok(/seg\[2\] === 'drive-unassign'/.test(worker), 'the sweep endpoint exists');
 

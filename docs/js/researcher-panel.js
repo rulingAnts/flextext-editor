@@ -3398,9 +3398,22 @@ function fmtBytes(b) {
 const CROWD_DEFAULT_CONFIG = { welcome: '', consentAsk: ['text'], consentConfirm: ['yesno'], consentMsg: '', consentAudioUrl: '', lang: 'id', maxSeconds: 600, recordFormat: 'wav24', turnstile: true };
 
 /* A recorder's recordings, listed under it — so a crowd submission has a HOME in the panel rather
- * than appearing in the researcher's set-aside pile (§16.24). The affordances follow §16.9: crowd is
- * a SOURCE, so a text can be assigned onward (Move) or removed, but nothing is ever assigned TO a
- * recorder — there is deliberately no action here that would send a text into one. */
+ * than appearing in the researcher's set-aside pile (§16.24).
+ *
+ * ⚠ THERE IS DELIBERATELY NO "Move…" HERE, AND v408 WAS WRONG TO OFFER ONE. A crowd text cannot yet
+ * be assigned onward: /adopt delivers a text by extracting a `.flextext` from the source zip, and a
+ * crowd zip contains a recording and a consent receipt and no flextext at all — so the move would
+ * fail `no_flextext_in_zip` after appearing to start. An affordance that cannot work is worse than
+ * none: it invites the researcher to try, fail, and doubt the tool.
+ *
+ * Until crowd submissions upload as individual files the way a device's do (plan §16.10 "B"), the
+ * honest workflow is DOWNLOAD then RE-UPLOAD as a normal assignment — which is what the note below
+ * says, in the place someone would otherwise go looking for the button.
+ *
+ * ⚠ It also warns against doing it by hand in Drive, because dragging the folder onto a device
+ * SEEMS to work: the tree looks right, the panel groups it under that device, and the device never
+ * hears about it — the text is in its inventory nowhere. Silently wrong beats loudly broken only
+ * for the person who wrote it. */
 function crowdTextRows(rec, estate) {
   const texts = crowdTexts(estate, rec);
   if (!texts.length) return '';
@@ -3412,10 +3425,10 @@ function crowdTextRows(rec, estate) {
       </div>
       <div class="rp-text-actions">
         ${iid ? filesMenuHtml(iid, tx.docId, tx.title || '') : ''}
-        <button class="link-btn" data-uact="adopt" data-id="${esc(tx.docId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.move.btn'))}</button>
         <button class="link-btn rp-revoke" data-uact="drop" data-folder="${esc(tx.folderId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.store.remove'))}</button>
       </div>
-    </li>`).join('')}</ul>`;
+    </li>`).join('')}</ul>
+    <p class="note rp-crowd-assign-note">${esc(t('panel.crowd.assignNote'))}</p>`;
 }
 
 function renderCrowdCard(recs, estate) {

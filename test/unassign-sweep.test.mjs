@@ -120,9 +120,18 @@ console.log('\nthe Unassigned CARD excludes crowd texts too — not just the swe
   /* §16.9: crowd is a SOURCE. A text can be assigned onward or removed, but nothing is ever assigned
    * INTO a recorder — there must be no affordance here that sends a text to one. */
   const rows = panel.slice(panel.indexOf('function crowdTextRows'), panel.indexOf('function renderCrowdCard'));
-  ok(/data-uact="adopt"/.test(rows) && /data-uact="drop"/.test(rows),
-     'offering assign-onward and remove');
-  ok(!/assignTo|data-uact="assign"/.test(rows), '...and nothing that would assign a text INTO a recorder');
+  const rowCode = rows.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  ok(/data-uact="drop"/.test(rowCode), 'a recording can be removed');
+  /* ⚠ NO "Move…". v408 offered one and it could not have worked: /adopt delivers a text by
+   * extracting a .flextext from the source zip, and a crowd zip has none — so the move fails
+   * `no_flextext_in_zip` after appearing to start. An affordance that cannot work is worse than
+   * none. Until crowd uploads individual files (§16.10 B), download-and-re-upload is the honest
+   * route, and the note says so where the button would have been. */
+  ok(!/data-uact="adopt"/.test(rowCode),
+     'and NOT assigned onward — /adopt cannot deliver a crowd zip, so the button must not exist');
+  ok(/panel\.crowd\.assignNote/.test(rowCode),
+     '...with a note explaining download-and-re-upload instead of a dead button');
+  ok(!/assignTo|data-uact="assign"/.test(rowCode), 'and nothing that would assign a text INTO a recorder');
 }
 
 console.log(fail ? `\nFAILED (${fail})\n` : '\nall passed\n');

@@ -6670,7 +6670,28 @@ async function crowdBuildZip(file, { assent, receipt, promptAudio }) {
     // A crowd page collects no writing systems — it is a recorder, not an editor. Left empty
     // rather than guessed from the UI language, which is a different thing entirely.
     audio: { name: file.name, mime: file.type || 'application/octet-stream', bytes: file.size, derived: false },
-    files: entries.map((e) => ({ name: e.name, role: e.role || '', mime: (e.data && e.data.type) || '', bytes: (e.data && e.data.size) || 0 })),
+    /* ⚠ `files` MEANS "what should be in the FOLDER", not "what is in the submission". The builder's
+     * own contract: it "declares an INTENDED FILE SET that a consumer compares against the folder to
+     * derive completeness". The first version of this listed the ZIP'S ENTRIES — true information in
+     * the wrong field — so the Files modal correctly reported the audio and consent artifacts as
+     * "not arrived" while the folder held them all, inside the zip, and the zip itself went
+     * undeclared and unrendered. Right facts, wrong field, and the contract was three lines above
+     * where the code was written.
+     *
+     * A crowd text's folder holds exactly two things: this manifest and one zip. So that is what is
+     * declared. What is INSIDE the zip moves to `bundle`, which means what it says — additive, and
+     * a reader that does not know the key simply ignores it. */
+    /* ⚠ NO NAME, AND THE CLIENT CANNOT SUPPLY ONE. The zip's filename is composed SERVER-SIDE
+     * precisely so a public visitor controls nothing about the Drive write. So the client declares
+     * the entry it knows must exist — by ROLE — and the worker fills in the name and size when it
+     * unwraps this manifest, which is the only moment anyone knows both. That is the worker
+     * COMPLETING a field only it can know, not authoring a manifest: it still writes no manifest of
+     * its own, and test/manifest-provenance.test.mjs still enforces that. */
+    files: [{ name: '', role: 'crowd-submission', mime: 'application/zip', bytes: 0 }],
+    bundle: {
+      name: '',
+      entries: entries.map((e) => ({ name: e.name, role: e.role || '', mime: (e.data && e.data.type) || '', bytes: (e.data && e.data.size) || 0 })),
+    },
     consent: {
       mode: 'crowd',
       prompt: !!(promptAudio && promptAudio.blob),

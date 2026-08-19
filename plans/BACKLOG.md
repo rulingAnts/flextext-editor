@@ -2085,3 +2085,17 @@ again: no install row at all.
 ⚠ **And check it against §16.19.** Anything touching the desired lane's install/instance lookups is
 in bricking distance — a live device must never read as absent or revoked. An instance with no
 installs is exactly the shape a careless guard would treat as "gone".
+
+### Note toward "B" — a flextext may be OPTIONAL in an assignment (Seth, 2026-08-19)
+
+Raised and immediately parked, but worth keeping: *"for assignments a flextext is optional."*
+
+If true, the crowd → device handoff may be much cheaper than plans/drive-as-truth.md §16.10 "B"
+assumes. That entry says the blocker is that `/adopt` extracts a `.flextext` from the source zip and
+a crowd zip has none. But if an assignment can legitimately carry **audio only** — a recording to be
+transcribed from scratch, which is exactly what a crowd submission IS — then the fix may be to let
+the delivery path skip the flextext rather than to restructure how crowd uploads.
+
+⚠ Check before designing anything: whether `/adopt` and `/move` genuinely tolerate a missing
+flextext end-to-end, or merely do not crash. The panel, the command, and the device's intake all have
+to agree that audio-only is a complete delivery.

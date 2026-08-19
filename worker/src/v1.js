@@ -1015,7 +1015,7 @@ async function driveEnsureCrowdTextFolder(env, access, rec, subId, at) {
  * Always called through ctx.waitUntil: the submission is already safely in Drive by this point, and
  * a manifest is organisational. It must never delay or endanger the bytes. */
 const CROWD_MANIFEST_PEEK = 262144;                       // 256 KiB — the manifest is the FIRST entry
-async function crowdExtractManifest(env, access, originalsFolderId, bytes) {
+async function crowdExtractManifest(env, access, originalsFolderId, bytes, zipName, zipBytes) {
   try {
     const raw = storeZipEntry(bytes, /(^|\/)flextext-manifest\.json$/i);
     if (!raw || !raw.length) return;
@@ -1025,21 +1025,35 @@ async function crowdExtractManifest(env, access, originalsFolderId, bytes) {
      * writing a half a JSON file would be worse than writing none, because a consumer would read
      * it as a corrupt manifest rather than an absent one. */
     const text = new TextDecoder().decode(raw);
-    JSON.parse(text);
+    const doc = JSON.parse(text);
+    /* COMPLETE the one field the client could not know. The zip's filename is composed server-side
+     * so a public visitor controls nothing about the Drive write, which means the client declares
+     * its `crowd-submission` entry by ROLE with an empty name. Filling it here is what makes
+     * `files` mean what the contract says it means — "the files that should be in this FOLDER" —
+     * so the Files modal's declared-vs-present check works for a crowd text exactly as it does for
+     * a device one.
+     * ⚠ This COMPLETES a manifest; it does not author one. The worker still builds no manifest of
+     * its own, and manifest-provenance.test.mjs still enforces that. */
+    if (doc && Array.isArray(doc.files)) {
+      for (const f of doc.files) {
+        if (f && f.role === 'crowd-submission' && !f.name) { f.name = zipName || ''; f.bytes = zipBytes || 0; }
+      }
+    }
+    if (doc && doc.bundle && !doc.bundle.name) doc.bundle.name = zipName || '';
     await driveUpload(access, originalsFolderId, 'flextext-manifest.json',
-      new TextEncoder().encode(text), 'application/json', { flextextRole: 'manifest' });
+      new TextEncoder().encode(JSON.stringify(doc, null, 2)), 'application/json', { flextextRole: 'manifest' });
   } catch { /* organisational only — a submission that landed must not be reported as failed */ }
 }
 
 // The chunked path never holds the zip, so read back just the head of the delivered file and
 // unwrap the manifest from that. One ranged GET, after the response, off the critical path.
-async function crowdExtractManifestById(env, access, originalsFolderId, fileId) {
+async function crowdExtractManifestById(env, access, originalsFolderId, fileId, zipName, zipBytes) {
   try {
     const g = await fetch('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?alt=media', {
       headers: { Authorization: 'Bearer ' + access, Range: 'bytes=0-' + (CROWD_MANIFEST_PEEK - 1) },
     });
     if (!g.ok && g.status !== 206) return;
-    await crowdExtractManifest(env, access, originalsFolderId, new Uint8Array(await g.arrayBuffer()));
+    await crowdExtractManifest(env, access, originalsFolderId, new Uint8Array(await g.arrayBuffer()), zipName, zipBytes);
   } catch { /* organisational only */ }
 }
 
@@ -3588,7 +3602,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
             ctx.waitUntil((async () => {
               const rrow = await env.DB.prepare('SELECT * FROM researcher WHERE researcher_id=(SELECT researcher_id FROM crowd_recorder WHERE crowd_id=?)').bind(crowdId).first();
               if (!rrow) return;
-              await crowdExtractManifestById(env, await driveAccessToken(env, rrow), sess.o, data.id);
+              await crowdExtractManifestById(env, await driveAccessToken(env, rrow), sess.o, data.id, sess.n, sess.s);
             })());
           }
           if (ins.meta.changes) {
@@ -3657,7 +3671,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           fileId = await driveUpload(access, originals, name, buf, 'application/zip', { flextextRole: 'crowd-submission' });
           // The bytes are already in Drive; unwrapping the manifest is organisational, so it runs
           // after the response and can never turn a delivered submission into a reported failure.
-          ctx.waitUntil(crowdExtractManifest(env, access, originals, new Uint8Array(buf)));
+          ctx.waitUntil(crowdExtractManifest(env, access, originals, new Uint8Array(buf), name, buf.byteLength));
         } catch (e) {
           await noteDriveError(env, rec.researcher_id, 'crowd delivery failed: ' + safeErr(e));
           return j({ error: 'delivery_failed' }, 502, origin, env);   // client keeps + retries

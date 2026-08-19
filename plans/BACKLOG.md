@@ -1915,3 +1915,31 @@ never enrolled*, and the Unassigned exclusion keys off the former only. Whether 
 outright, or accept it and show it honestly as "waiting for the device to be set up", is a UI call —
 but the current outcome, invisible, is the one option that is certainly wrong. Re-minting the URLs
 at approval time would also remove the TTL cliff in (4).
+
+### Invite UI — designed, reverted, queued for after Phase C (2026-08-19)
+
+Seth: *"I think we should make the 'Invite link' button go away after the invite has been claimed
+once, just in case… Or just to make it more obvious that that's not a reusable link."*
+
+**Verified first, since the premise mattered:** the secret is NOT persisted anywhere client-side.
+`inviteModal` holds it in a local `const` from the mint response; a grep for any localStorage,
+sessionStorage or IndexedDB write touching invites is empty. D1 stores only `sha256(secret)`. So it
+is genuinely unrecoverable once the modal closes — by anyone, including the researcher.
+
+⚠ **Do NOT hide the button after a claim.** A fresh claim revokes the prior install by design
+(single-live-device, §D.4), which makes re-inviting the *supported recovery path for a lost or broken
+phone*. Hiding the button would remove the only way to recover one.
+
+**What to build instead** (drafted and reverted; two i18n strings per language plus ~6 panel lines):
+
+1. **Relabel the card button** to *"Replace device…"* when the instance already has an install. The
+   action is a replace, not an add, and saying so is the difference between recovering a broken
+   phone and unknowingly signing out a working one.
+2. **Say the link cannot be shown again.** The modal says "used only once", which reads as a property
+   of the LINK; it never says nobody can retrieve it, so a researcher who closes the modal expecting
+   to find it later has already lost it.
+3. **Warn when replacing**: opening a new link signs the current app out — it keeps its texts but
+   stops syncing until set up again.
+
+⚠ Trap hit while drafting: the explanatory comment contained backticks inside a template literal —
+the recurring trap already recorded in this repo. Keep prose comments OUT of template literals.

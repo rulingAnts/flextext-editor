@@ -991,8 +991,17 @@ async function driveEnsureCrowdFolder(env, access, rec) {
  * submission's identity in D1 and in the upload ticket — so the correlation costs no column, and
  * there is no second identifier that could disagree with the first. */
 function crowdTextTitle(rec, at) {
+  /* ⚠ LABELLED UTC, because this name is generated SERVER-SIDE and the device-side names are NOT.
+   * A `.flextext` filename is built from the transcriber's LOCAL clock (app.js), which is right for
+   * them — they find their work by when they did it. This one is UTC, and at UTC+9 that is enough to
+   * put the wrong DAY on anything recorded after 3 pm. Two conventions in one folder is survivable;
+   * two conventions with nothing saying which is which is not.
+   *
+   * Interim fix by agreement (Seth, 2026-08-19) — the real answer is a researcher-set timezone for
+   * everything the worker names. See plans/BACKLOG.md. The precedent for the suffix is secLog, which
+   * already writes `… + ' UTC'`. */
   const stamp = new Date(at).toISOString().slice(0, 16).replace('T', ' ');
-  return (String(rec.label || 'Crowd').trim().slice(0, 80)) + ' — ' + stamp;
+  return (String(rec.label || 'Crowd').trim().slice(0, 80)) + ' — ' + stamp + ' UTC';
 }
 async function driveEnsureCrowdTextFolder(env, access, rec, subId, at) {
   const crowdFolder = await driveEnsureCrowdFolder(env, access, rec);
@@ -3537,7 +3546,9 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         }
         const subId = crypto.randomUUID();
         const slug = String(rec.label || 'crowd').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'crowd';
-        const name = 'crowd_' + slug + '_' + new Date(now).toISOString().replace(/[:.]/g, '-').slice(0, 19) + '_' + subId.slice(0, 8) + '.zip';
+        // ...Z: ISO 8601's own UTC marker. The colons are already dashes for filename safety, which
+        // loses the usual visual cue, so the Z is what keeps it unambiguous.
+        const name = 'crowd_' + slug + '_' + new Date(now).toISOString().replace(/[:.]/g, '-').slice(0, 19) + 'Z_' + subId.slice(0, 8) + '.zip';
         try {
           const rrow = await env.DB.prepare('SELECT * FROM researcher WHERE researcher_id=?').bind(rec.researcher_id).first();
           const access = await driveAccessToken(env, rrow);
@@ -3656,7 +3667,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         // Server-composed filename — the visitor controls NOTHING about the Drive write.
         const slug = String(rec.label || 'crowd').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'crowd';
         const subId = crypto.randomUUID();
-        const name = 'crowd_' + slug + '_' + new Date(now).toISOString().replace(/[:.]/g, '-').slice(0, 19) + '_' + subId.slice(0, 8) + '.zip';
+        const name = 'crowd_' + slug + '_' + new Date(now).toISOString().replace(/[:.]/g, '-').slice(0, 19) + 'Z_' + subId.slice(0, 8) + '.zip';
 
         // Delivery: the researcher's own Drive (streaming) — the ONLY path. On any
         // failure the visitor's client keeps the zip and retries; the researcher

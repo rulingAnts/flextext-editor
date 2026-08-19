@@ -2130,8 +2130,11 @@ being UTC *and* the absence of any label.
 
 **Options, roughly in order of cost:**
 
-1. **Label it.** `secLog` already writes `… + ' UTC'` — the precedent exists. Cheapest, and removes
-   the ambiguity even if nothing else changes.
+1. ✅ **DONE (v411) — label it.** Agreed as the interim fix (Seth, 2026-08-19). The crowd text folder
+   name now ends `… UTC`, and both zip-name paths carry ISO 8601's `Z` — needed because the colons
+   were already replaced with dashes for filename safety, which loses the usual visual cue. New names
+   only; existing ones stay as they are, which is fine because folder names are display-only and
+   identity lives in the `flextextDoc` tag.
 2. **A researcher-set timezone** on the account, used by the WORKER for anything it names. The device
    keeps local time, which is right for the device.
 3. **Derive it** from the researcher's browser on first sign-in as the default for (2), so nobody has

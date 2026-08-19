@@ -635,5 +635,20 @@ console.log('\ntext lists are capped and scrollable — and the Files menu still
      'and the difference is visible: one has a project, one does not yet');
 }
 
+/* ⚠ WORKER-GENERATED NAMES MUST SAY THEY ARE UTC. Device-side names are built from the
+ * transcriber's LOCAL clock and that is correct — they find their work by when they did it. Worker
+ * names are UTC. Two conventions in one folder is survivable; two with nothing saying which is not,
+ * and at UTC+9 the difference puts the wrong DAY on anything after 3 pm. */
+console.log('\nUTC timestamps are labelled as such');
+{
+  const title = worker.slice(worker.indexOf('function crowdTextTitle'), worker.indexOf('async function driveEnsureCrowdTextFolder'));
+  ok(/toISOString\(\)/.test(title), 'the crowd text folder name is built from UTC');
+  ok(/\+ ' UTC'/.test(title), "...and says so — the suffix secLog already established");
+  const zips = [...worker.matchAll(/'crowd_' \+ slug[^;]*;/g)].map((m) => m[0]);
+  ok(zips.length === 2, 'both submit paths compose a zip name (single-POST and chunked)');
+  ok(zips.every((z) => /'Z_' \+ subId/.test(z)),
+     "...and both carry ISO 8601's Z, since the colons became dashes and lost the usual cue");
+}
+
 console.log(fail ? `\nFAILED (${fail})\n` : '\nall passed\n');
 process.exit(fail ? 1 : 0);

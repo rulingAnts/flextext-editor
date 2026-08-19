@@ -1564,3 +1564,83 @@ suite write ELAN `.eaf` + `.pfsx` and a SayMore sidecar, and stamp a BWF `bext` 
 origin: **field-linguistics data must outlive the tooling that produced it**, and for this corpus
 that is a research-ethics commitment to the communities whose language it is, not an engineering
 preference. A panel is a convenience. The archive is the obligation.
+
+### 16.16 ⚠ PROJECTS ARE A FOLDER LAYER — Seth's clarification, and what it breaks
+
+Seth, 2026-08-19: *"a project folder (and a project) would contain as daughters everything our top
+level flextext uploads folder currently does. And unassigned texts WOULD be assigned to a project,
+but also that project would have a folder that would be the parent of its own Unassigned folder."*
+
+```
+FlexText Uploads/                  ← the ownership boundary (§8a) — unchanged
+  <Project A>/
+    <Device 1>/  <Device 2>/  Crowd — <label>/     ← everything master holds today
+    Unassigned/                                     ← ONE PER PROJECT, not one per account
+      <Text>/originals/
+  <Project B>/
+    …
+```
+
+**The verdict: yes, and it is an improvement on what §8.1 and `project-split.md` describe.** It makes
+project scoping STRUCTURAL rather than a filter applied over a flat estate — and that directly
+defuses a landmine already written down in `project-split.md` §6: *"the panel classifies a Drive text
+as unassigned when NO visible inventory reports its docId, and offers Remove from Google Drive on it.
+Under partial visibility this would misclassify live work as unassigned and offer to trash the only
+copy."* If the estate a member sees IS a project subtree, unassigned-ness is computed inside a
+boundary that already matches their visibility, and the misclassification cannot arise. That is a
+better fix than gating the card, which is what §6 proposed.
+
+It also CONFIRMS §8.1 rather than reopening it: an unassigned text has no instance to derive from and
+so stores its `project_id` — exactly the rows the settled rule stores it on. The
+`CHECK (instance_id IS NULL OR project_id IS NULL)` still holds.
+
+#### Three things in LIVE code that this breaks
+
+1. **⚠ `driveUnassignedFolder()` is a singleton and would sweep into the WRONG PROJECT.** It resolves
+   by a global tag search for `flextextRole='unassigned'` and takes `files[0]`. With one per project
+   that is an arbitrary project's folder. **This is the sharpest break, and it lands on something
+   shipped hours ago**: the unassigned sweep wired in v397 would silently re-parent a text out of its
+   project. It is not yet deployed (the worker still runs the pre-v397 build), so nothing has
+   happened — but the sweep must become project-scoped BEFORE that worker deploy, not after.
+2. **`buildDriveEstate` identifies devices as "folders directly under master".** Under this layout
+   those are PROJECTS. Every project would render as a device, and the real devices — one level
+   deeper — would disappear from the dashboard and the storage modal entirely.
+3. **`driveEnsureDeviceFolder` / `driveEnsureCrowdFolder` create under `driveMasterFolder()`.** They
+   must create under the project folder. `driveMasterFolder` itself stays exactly as it is: the
+   boundary the researcher may freely move and rename (§8a) is still the top.
+
+And it changes the design of **step 2 (`driveEnsureTextFolder` as the single write-side chokepoint
+with an allowed-parents argument), which had not been written yet.** "Allowed parents" is now
+per-project rather than global. Good timing rather than good luck — but it is why the clarification
+was worth having before the code.
+
+#### Three questions the vision raises, which are Seth's to answer
+
+**A. Migration of existing estates.** Live Drives have devices directly under master with no project
+layer. Two options, and they are not equal:
+- *Implicit default* — treat "directly under master" as the default project. **Two tree shapes for
+  ever**, which is precisely the assigned-vs-unassigned drift Seth just asked to harden against,
+  reappearing one level up.
+- *Real default project* — create one folder and re-parent the existing device, crowd and Unassigned
+  folders under it, once. One shape afterwards. ⚠ Bounded batches against the ~50-subrequest cap,
+  same pattern as `drive-unassign`; a production estate has 34 instances, so this is ~35 re-parents
+  and cannot be done in one request.
+
+  **Recommendation: the real default project.** A one-time bounded sweep is cheaper than maintaining
+  two shapes for the life of the product.
+
+**B. ⚠ THE HARD CONSEQUENCE: one device serves exactly one project.** A device folder living inside a
+project folder means a physical phone belongs to one project — an instance has a single
+`oauth_folder_id` and a device runs a single session, so it cannot hold two. A researcher who wants
+one phone working in two projects needs two pairings on it, which the engine does not support today.
+**This is a fieldwork-logistics constraint, not a technical detail**, and it should be an explicit
+decision rather than something discovered in a village. It may well be the right constraint — one
+worker, one project, is how the work is actually organised — but it must be said out loud.
+
+**C. Moving a text BETWEEN projects.** `driveEnsureTextFolder` resolves by a global `flextextDoc` tag
+and never by parent, so a text found by tag may be in another project's subtree. Cross-project moves
+therefore *work by accident* today and would need to become either a deliberate supported operation
+or an explicitly refused one. ⚠ There is also a new invariant to reconcile: **a text's folder must
+sit under the project its owning instance belongs to.** The `text_scoped` view answers reads
+correctly either way, so a disagreement between D1 and the Drive tree would be SILENT — which makes
+it the reconciler's job, and a case worth a test.

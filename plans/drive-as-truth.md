@@ -103,7 +103,7 @@ so nobody deletes one believing the audio is gone everywhere.
 
 ---
 
-## 3. Three origins — and the rule that only fits one of them
+## 3. Three origins — and one creation rule that covers all of them
 
 Seth: *"texts that originate in the recorder or editor apps… our plan here needs to take those into
 account as well."* This is the correction that reshaped the design.
@@ -115,23 +115,57 @@ account as well."* This is the correction that reshaped the design.
 | Crowd recorder | worker | `crowd_submission` row | public page upload |
 
 A device-originated text exists — real id, real audio, real work — **before anything else knows it
-exists**, potentially for weeks. So "stamp D1 before touching Drive" cannot be a universal rule.
-`origin` is a first-class field, and there are two creation paths:
+exists**, potentially for weeks. `origin` is therefore a first-class field.
 
-- **researcher-originated** — D1 stamped first as *intent* (`state='assigning'`), then the folder,
-  then the assignment. A crash then leaves a resumable intent, never an orphan folder nothing knows
-  about. (Today it is the reverse, which is exactly how a cancelled assignment strands a folder.)
-- **device-originated** — adopted on arrival.
+The first draft of this note concluded that "stamp D1 before touching Drive" could not be universal,
+and gave device texts their own creation path. **Seth pushed back — could the device stamp D1 first
+too? — and he is right.** It is not two creation paths. It is:
 
-**The arrival channel already exists and is cheaper than the upload: the inventory report.** A device
-announces "I hold X, titled Y, not uploaded" as soon as it touches the network — small, no
-bandwidth. So the D1 row can be created from the *report*, with no folder yet, and the folder appears
-later when bytes arrive.
+- **one creation rule:** the D1 row exists before any Drive object, for every origin;
+- **one recovery path:** adopt-what-you-find (§5), which can never be deleted, because existing field
+  texts predate all of this and because *D1 must be rebuildable from Drive* — that property is the
+  whole reason Drive is the source of truth and not merely the bigger copy.
 
-That unifies rather than complicates: the reconciler's **adopt-what-you-find** rule (§5) covers all
-three origins. It simply has three input channels — inventory report, Drive sweep, crowd submission.
+Adopt is demoted from a co-equal creation route to recovery. That is strictly cleaner, easier to
+assert, and it is what makes the invariant testable.
 
-### 3.1 ⚠ The safety asymmetry — the most important rule in this document
+### 3.1 Why registering first is worth doing on its own merits
+
+Not symmetry — it closes a live hole. `POST .../upload/start` authenticates the install, then passes
+`body.docId`, `body.docTitle` and `body.folderId` **straight from the request body** into
+`driveEnsureTextFolder`, which resolves by the GLOBAL `flextextDoc` tag. There is no check that this
+install owns that docId. A device can therefore upload into any text folder in the researcher's
+estate, including another device's. Contained today; not contained once a project has members.
+
+Registering first turns the upload into: *look up the row by `doc_id`, verify this install owns it,
+use its stored `folder_id`.* No client-supplied folder id, no tag search — which also removes the
+eventually-consistent lookup (the v167 bug class) from the single most important path in the system.
+
+**What it costs: nothing offline.** A device already cannot upload without connectivity, so the
+registration simply precedes the upload when the network arrives. Local creation is untouched, and a
+device can go on making texts for weeks. The one new failure mode — registered, then the upload fails,
+leaving a row with no folder — is a state §3.2 already requires to be normal and safe.
+
+⚠ **BATCH IT.** A device coming online after two weeks with 30 new texts must register them in ONE
+request. Thirty round trips in front of the first upload on a village connection is a real
+regression, and it is exactly the kind that looks fine in testing.
+
+**Register at FIRST UPLOAD, not at creation.** A device that makes 50 texts and never uploads must
+not fill D1 with rows for texts that may never exist in Drive. Nothing is lost by waiting, because
+visibility is already served by the other channel:
+
+| channel | carries | who can read it |
+|---|---|---|
+| inventory report | visibility — "I hold X, titled Y, not uploaded" | researcher only (E2EE under Ki) |
+| registration | authorization + folder binding | the worker (plaintext index) |
+
+⚠ **The honest cost, stated once:** the server learns doc ids, counts and origin in plaintext, where
+today they sit inside the encrypted inventory blob. That is a step away from *"the worker routes, it
+does not comprehend"* (CLAUDE.md). It is a cost of having an INDEX at all, not of registering early —
+the `text` table widens this whichever way the row is created — and it should be accepted knowingly
+or the whole design reconsidered, not discovered later.
+
+### 3.2 ⚠ The safety asymmetry — the most important rule in this document
 
 For a researcher-assigned text, the Drive folder is the backup. **For a device-originated text that
 has not uploaded yet, the only bytes in existence are on a phone in a village.**
@@ -144,7 +178,7 @@ have, and it is available in one careless line.
 The existing upload-first delete (`uploadDelete`) is the same principle already in the code; keep it,
 and treat it as the pattern rather than a special case.
 
-### 3.2 Vocabulary does not transfer
+### 3.3 Vocabulary does not transfer
 
 You cannot "cancel the assignment" of a text a device made itself, and you cannot move it to
 Unassigned without first getting the bytes off the device. The UI must tell these apart, and
@@ -181,7 +215,7 @@ diff. The code already uses `appProperties` this way (`flextextDoc`, `flextextRo
 | Disagreement | Resolution | Why |
 |---|---|---|
 | folder exists, no D1 row | **adopt it** | this is what makes Drive the source of truth |
-| D1 row, no folder | **flag; never drop** | for a device-originated text this is normal — §3.1 |
+| D1 row, no folder | **flag; never drop** | for a device-originated text this is normal — §3.2 |
 | folder's parent ≠ D1 `instance_id` | **D1 wins; re-parent Drive** | anyone can drag a folder; only the worker writes D1 |
 | D1 says X holds it, and X **has reported since** the assignment without listing it | `instance_id = NULL` | the device dropped it |
 | two folders share a `flextextDoc` tag | **merge to the oldest**, flag it | matches the existing `orderBy=createdTime` rule |
@@ -209,7 +243,7 @@ Illustrative, not settled — the open questions in §8 change it.
 text(
   doc_id        TEXT PRIMARY KEY,   -- the work item. Device-minted or panel-minted.
   recording_id  TEXT,               -- the audio. NON-unique: many docs may share one.
-  folder_id     TEXT UNIQUE,        -- Drive folder. NULL until bytes exist (§3.1!).
+  folder_id     TEXT UNIQUE,        -- Drive folder. NULL until bytes exist (§3.2!).
   instance_id   TEXT,               -- NULL = Unassigned. One column ⇒ never two devices.
   project_id    TEXT,               -- open question §8.1
   origin        TEXT,               -- 'assigned' | 'device' | 'crowd'
@@ -251,7 +285,7 @@ Everything descriptive — title, TTL, text-level settings, future metadata — 
    folder was moved by hand — `flextextUnassigned` already distinguishes "we swept this" from "the
    researcher filed it here", and exists for exactly this.
 3. **A device-originated text the researcher wants in Unassigned:** force an upload first (safe, but
-   needs the device online), or allow marking it and let the sweep resolve later? §3.1 argues hard
+   needs the device online), or allow marking it and let the sweep resolve later? §3.2 argues hard
    for the first.
 
 ---

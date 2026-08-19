@@ -2099,3 +2099,44 @@ the delivery path skip the flextext rather than to restructure how crowd uploads
 ⚠ Check before designing anything: whether `/adopt` and `/move` genuinely tolerate a missing
 flextext end-to-end, or merely do not crash. The panel, the command, and the device's intake all have
 to agree that audio-only is a complete delivery.
+
+## ⚠ Timestamps are in TWO different timezones, unlabelled (Seth, 2026-08-19)
+
+> *"what timezone are they in and how is that set? At some point we'll want to clarify that and let
+> the researcher set that."*
+
+Checked rather than guessed, and the answer is worse than "which one": **there are two, nine hours
+apart, side by side in the same Drive folder.**
+
+| Written by | Code | Timezone |
+|---|---|---|
+| Worker — crowd text folder names, submission zip names | `new Date(at).toISOString()` | **UTC** |
+| Client — `.flextext` filenames | `d.getFullYear()…getHours()…` | **the DEVICE's local time** |
+
+Both visible in the 2026-08-19 snapshot of the production estate:
+
+- `Test Crowd Recorder — 2026-08-19 09_23` — modified `11:32 UTC`. The name is UTC; at UTC+9 the
+  researcher recorded it at **6:23 PM** and the folder says 09:23.
+- `Dairi Hike with Health Workers 2026-08-19-1559.flextext` — modified `07:04 UTC`, i.e. 16:04 local.
+  The name is **local**.
+
+So a researcher browsing one folder sees two conventions with no marker distinguishing them, and the
+crowd one is off by their whole UTC offset — which for Papua is nine hours, enough to name a folder
+with the wrong DAY either side of 3 PM.
+
+⚠ **The device one cannot simply be switched to UTC.** A field transcriber names and finds their work
+by when they did it; "1559" meaning 3:59 PM to them is correct and useful. The bug is the crowd side
+being UTC *and* the absence of any label.
+
+**Options, roughly in order of cost:**
+
+1. **Label it.** `secLog` already writes `… + ' UTC'` — the precedent exists. Cheapest, and removes
+   the ambiguity even if nothing else changes.
+2. **A researcher-set timezone** on the account, used by the WORKER for anything it names. The device
+   keeps local time, which is right for the device.
+3. **Derive it** from the researcher's browser on first sign-in as the default for (2), so nobody has
+   to know what UTC+9 means.
+
+⚠ Whatever is chosen: it can only affect NEW names. Renaming existing folders to fix a timestamp
+would rewrite history for cosmetics — and folder names are display-only precisely so nothing depends
+on them (identity is the `flextextDoc` tag), so old names can simply stay wrong.

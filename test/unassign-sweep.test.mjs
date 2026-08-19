@@ -56,6 +56,32 @@ console.log('\nthe sweep is driven from the ESTATE, and is therefore self-healin
   ok(/!tx\.inUnassigned/.test(panel), 'it asks Drive where the folder actually is, not where we assume');
 }
 
+/* ⚠⚠ THE FIRST-RUN CASE — the bug that made this entire feature inert on every real estate.
+ *
+ * The first version guarded on `estate.unassignedFolderId`, reasoning "do not sweep if there is
+ * nowhere to sweep to". That is exactly backwards: driveUnassignedFolder() CREATES the folder on
+ * demand, so the destination is made by the very call the guard suppressed. No folder ⇒ no call ⇒
+ * no folder, permanently, on every estate that has never had one — which was all of them.
+ *
+ * It shipped in v399 and did nothing. It was found only because a Drive SNAPSHOT showed zero
+ * folders tagged `unassigned` and the text Seth had reported still sitting in its device folder —
+ * i.e. by looking at the data, not by reading the code, which had looked fine twice. */
+console.log('\nit works on a FIRST RUN, when no Unassigned folder exists yet');
+{
+  const fn = panel.slice(panel.indexOf('function sweepUnassigned'), panel.indexOf('function assignedDocIds'));
+  /* Strip comments before asserting on CODE. The first version of this check matched the very
+   * comment warning against the bug — a guard tripped by its own documentation. Assert the specific
+   * thing: the identifier must not appear in an executable line. */
+  const code = fn.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  ok(!/estate\.unassignedFolderId/.test(code),
+     'the sweep does NOT require an existing Unassigned folder — the route creates it');
+  ok(/if \(!estate \|\| !Array\.isArray\(estate\.texts\)\) return;/.test(fn),
+     '...it guards only on having an estate with texts to consider');
+  /* Keep the reasoning next to the code, because the wrong version is the one that reads as
+   * careful. A reviewer who has not seen the deadlock will want to add the check back. */
+  ok(/DO NOT RE-ADD/.test(fn), 'and the trap is documented where the next reader will be tempted');
+}
+
 console.log('\nthe three exclusions — the safety, and the reason a move survives it');
 {
   const fn = panel.slice(panel.indexOf('function sweepUnassigned'), panel.indexOf('function assignedDocIds'));

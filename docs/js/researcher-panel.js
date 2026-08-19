@@ -4137,7 +4137,18 @@ async function adoptTextModal(docId, title) {
 const UNASSIGN_BATCH = 12;          // matches the worker's per-call cap; the rest drains next render
 function sweepUnassigned(estate) {
   try {
-    if (!estate || !Array.isArray(estate.texts) || !estate.unassignedFolderId) return;
+    /* ⚠ DO NOT RE-ADD `&& estate.unassignedFolderId` HERE. It was in the first version and it made
+     * this whole feature INERT — a deadlock found only because a Drive snapshot showed the estate
+     * still had no Unassigned folder and the text Seth reported was still in its device folder.
+     *
+     * The reasoning that put it there sounds right — "do not sweep if there is nowhere to sweep to"
+     * — and is exactly backwards: `driveUnassignedFolder()` CREATES the folder on demand, so the
+     * destination is made by the very call the guard was suppressing. No folder ⇒ no call ⇒ no
+     * folder, for ever, on every estate that has never had one, which is all of them.
+     *
+     * The route is idempotent and cheap when there is nothing to move, so there is no cost to
+     * calling it; the only real precondition is having ids worth sending. */
+    if (!estate || !Array.isArray(estate.texts)) return;
     const assigned = assignedDocIds();
     const inFlight = inFlightAssignIds();
     const ids = estate.texts

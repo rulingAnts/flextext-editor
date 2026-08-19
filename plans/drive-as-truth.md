@@ -1644,3 +1644,79 @@ or an explicitly refused one. ⚠ There is also a new invariant to reconcile: **
 sit under the project its owning instance belongs to.** The `text_scoped` view answers reads
 correctly either way, so a disagreement between D1 and the Drive tree would be SILENT — which makes
 it the reconciler's job, and a case worth a test.
+
+### 16.17 ⚠ §8.1 REVERSED AGAIN — and this time the reason is that the security argument was weaker than it looked
+
+Seth, on the project-folder layer: *"does it make the drift and duplicate code/paths we were just
+talking about irrelevant? And able to be combined after all?"*
+
+**Yes. Store `project_id` on every text row, NOT NULL, and drop both the CHECK constraint and the
+`text_scoped` view.** This reverses the recommendation Seth approved earlier the same day. That is
+not flip-flopping: his clarification is new information, and it changes the inputs to the decision on
+both sides at once.
+
+**Why the drift disappears rather than being managed.** §8.1's two paths existed only because an
+unassigned text had no project to derive from. Under §16.16 every text belongs to a project
+unconditionally — an unassigned one lives in *that project's* Unassigned folder — so there is no
+second case left to handle. One always-set column, one path, for assigned and unassigned alike. The
+CHECK and the view were machinery for managing a fork that this model does not have.
+
+**Why the security objection is much weaker than §10.4(5) assumed.** That entry said storing
+`project_id` hands a dump the project grouping for free. Checking the schema rather than reasoning
+about it:
+
+- **`instance.project_id` is ALREADY STORED, in plaintext, today** (`schema-current.sql`), and so is
+  `crowd_recorder.project_id`. A dump therefore already reveals which devices and which recorders
+  belong to which project. Adding `text.project_id` refines that from device-grain to text-grain — it
+  does not open a door that is currently shut.
+- **`project_id` is a GUID.** On its own it groups rows and says nothing about what the group *is*.
+- **What actually leaks the meaning is `project.name`, which is plaintext** — its own schema comment
+  says so: `-- plaintext, like instance.nickname`.
+
+So withholding `project_id` from text rows buys a refinement of grain while the coarse grouping and,
+crucially, the *names* stay exposed. **`encAtRest` on `project.name` does far more for the same
+effort** — and it is the exact sibling of §10.4(1)'s "encrypt `instance.nickname` first, whatever else
+happens to this plan", which was ranked the single highest-value change for precisely this reason.
+
+**Revised guidance, replacing §8.1 and §10.4(5):**
+
+1. `text.project_id NOT NULL` — uniform, no derive, no view, no CHECK.
+2. **`encAtRest` on `project.name`**, promoted to sit beside §10.4(1). This is the change that was
+   actually worth making; §10.4(5) was spending complexity on the less valuable half.
+3. `test/d1-minimization-invariants.test.mjs` must be updated when this lands: its CHECK/view
+   assertions now encode a design that has been superseded. ⚠ Leaving them would make the test fail
+   the *correct* implementation — the same mistake that file already caught once, and the reason its
+   synthetic-schema self-check exists.
+
+### 16.18 Migration: graceful for the apps, and a brief worker outage is acceptable
+
+Seth: *"we need to try to migrate existing apps gracefully. It's OK with me if we have a temporary
+outage with the worker that is broken until the app updates as long as it doesn't result in data
+loss. As long as it's just a temporary blip."*
+
+That permission is worth taking literally and no further: **a worker outage is acceptable; losing a
+byte is not.** The two are not traded against each other, and the ordering rules already in this repo
+exist to keep them separate.
+
+**What "no data loss" constrains, concretely:**
+
+- ⚠ **§3.2 is untouched by any of this.** For a device-originated text that has not uploaded, the only
+  bytes in existence are on a phone. No migration step may treat "no folder" or "no row" as "nothing
+  here", and no reconciler may run against a half-migrated estate with that assumption.
+- **Drive re-parenting is metadata-only.** Creating the default project folder and moving the device,
+  crowd and Unassigned folders under it moves NO bytes and cannot lose a file — the same `driveReparent`
+  PATCH the move flow already uses. This is the safest part of the migration, and it is reversible.
+- **The dangerous half is D1**, and it is dangerous only if a migration deletes or rewrites rows. An
+  ADDITIVE migration (`text.project_id`, backfilled) plus the folder sweep loses nothing even if it
+  is interrupted midway.
+- **An outage is survivable BECAUSE the field apps queue.** A device that cannot reach the worker
+  keeps its texts, keeps its upload queue, and retries — `uploadDelete` is upload-first, and the
+  chunk loops persist their sessions. That is what makes Seth's permission safe to accept.
+
+**What "graceful for the apps" means in practice:** old engines must not be made to fail HARD by the
+new tree. They address Drive through the worker, never directly, so the worker can keep serving them
+correctly while the tree changes underneath — with one exception to watch: **an old client that echoes
+a remembered `folderId` must still have it honoured**, since `driveEnsureTextFolder` verifies the
+echoed id by `files.get` and a re-parented folder keeps its id. Re-parenting therefore does not
+invalidate any client's memory. ✅ That is the property that makes this migration cheap, and it is
+worth stating so nobody "tidies" the echo away.

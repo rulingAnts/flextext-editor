@@ -1979,3 +1979,57 @@ route rather than a reused one.
 UNSCOPED (v1.js, assignFinish) — a crowd recorder has no instance, so an instance-scoped token could
 never have worked for one. Had the scope shipped, step 1 would have been impossible without
 unpicking it.
+
+## From the v395 test drive (Seth, 2026-08-19)
+
+**1. Restore a trashed text from the storage modal.** *"Trashing texts works (though we don't have a
+way to restore them in our storage modal, that would be a good future release)."* Drive keeps trashed
+files for 30 days, so the bytes are there — `files.update` with `trashed:false` is the whole
+operation. ⚠ The modal already has `drive-purge`, which is **permanent and unrecoverable**; shipping
+un-trash without making the difference between the two obvious in the UI would be worse than shipping
+neither. The listing already fetches the trashed set (`driveListAll(access, true)`), so the data side
+is done.
+
+**2. Rename a text from the researcher panel — and rename its folder with it.** Seth: *"we should
+have a way to rename texts in the Researcher panel (and renaming a text should also rename the
+folder, at least the part of the folder name that is the title). That's probably a client-side code
+change though, not a worker change."* Correct that it is mostly client-side — but not entirely, and
+the exception matters:
+- The folder name is display only; identity is the `flextextDoc` tag, so a rename cannot orphan
+  anything. That is what makes this safe at all.
+- ⚠ The `(done)` suffix is part of the folder name and is written by `driveTextHousekeeping`, which
+  derives its base by stripping `/\s*\(done\)\s*$/`. A rename must go through the same stripping rule
+  or a renamed done-text becomes `New name (done) (done)`.
+- ⚠ A crowd text's folder is named `<recorder> — <timestamp>` **because the contributor never enters
+  a title** (Seth confirmed this is working as designed). Renaming those is the main use case, which
+  argues for doing this soon rather than late.
+- The manifest records the title at package time and is written once; a later rename does NOT rewrite
+  it. That is correct and deliberate (plans/drive-as-truth.md §16.12) — the manifest is a birth
+  record. If the panel ever shows "manifest title" it must be labelled as the original.
+
+**3. Auto-segmentation: how silence becomes lines — a researcher-configurable device setting.**
+Seth: *"we need to consider having our auto-segmentation have an option to either segment out as much
+empty audio as possible as empty lines OR have the same number of segments as speech lines (so like
+the segment starts near the beginning of suspected speech, but then empty silence isn't split at the
+end until it's near another speech segment, so that empty lines don't trip up mother-tongue speakers
+as they might). That should be a device setting the researcher can configure (including turning the
+auto segment feature off altogether)."*
+
+Three settings, not two — **off** is a first-class choice. The distinction is what happens to a
+silence run between two utterances: *split it out as its own blank line* (today's behaviour) or
+*absorb it into the preceding speech span* so the line count equals the utterance count. The second
+is the one that matches how a mother-tongue transcriber reads the strip — a blank row with no text is
+a thing to explain, and in the field it reads as a mistake.
+
+⚠ Blank lines are **real timed spans** in the segmentation model, not padding, and the exports depend
+on that (`segmentsFromOffsets`, the EAF/SayMore tiers). So "absorb" must change where the boundary is
+DRAWN, never make a span text-only — the invariant that alignment edits never touch text, and that
+text is sacred, applies in both directions.
+
+**4. Unassigned texts do not reparent into the Unassigned folder.** Seth saw a text tagged
+`unassigned` in the panel while its folder still sat inside the device folder in Drive. **Known and
+expected** — `drive-unassign` is fully implemented in the worker, idempotent, and has **zero callers**
+in `docs/` or `satellites/` (drive-as-truth §7, second precondition). Seth: *"maybe it won't [work]
+until we build D1 and other drive-as-truth changes."* Partly — wiring the sweep is client-side and
+does not need the D1 index, so it can land before Phase C. It is listed as a precondition precisely
+because it is cheap and makes Drive stop contradicting the panel.

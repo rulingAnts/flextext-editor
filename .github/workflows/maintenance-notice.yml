@@ -1,0 +1,74 @@
+# Raise / clear the researcher-panel MAINTENANCE NOTICE — a one-button version of the D1 statement,
+# so nobody has to remember it or dig it out of a chat log at the moment they need it.
+#
+# What it does: sets or clears the `maintenance` row in the `ops_flag` table (worker/migrate-ops-flag.sql).
+# The worker returns it on GET /v1/researcher, which the researcher dashboard already polls every 12s,
+# so the banner appears and disappears within one tick. No deploy, no release.
+#
+# ⚠ RESEARCHER PANEL ONLY. This cannot reach a field device: the banner is rendered in
+# researcher-panel.js and test/maintenance-notice.test.mjs fails the build if app.js — the editor,
+# recorder and crowd engine — ever learns to render it. Raising this notice never stops anyone
+# transcribing offline.
+#
+# Cost: free. Public repo, standard ubuntu-latest runner.
+name: Maintenance notice
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "What to do"
+        required: true
+        type: choice
+        default: status
+        options: [status, raise, clear]
+      message:
+        description: "Notice text (only used by 'raise'; leave blank for the default)"
+        required: false
+        type: string
+jobs:
+  flag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # Compose the SQL in a FILE rather than interpolating into the shell command.
+      # ⚠ Not only for injection safety: an apostrophe in the message — "Seth's maintenance", or any
+      # ordinary English possessive — would terminate the SQL string literal early and either fail
+      # the run or store a truncated notice. Doubling quotes is the SQL-standard escape, and doing it
+      # in node keeps the message out of shell word-splitting entirely.
+      - name: Compose the statement
+        env:
+          FX_ACTION: ${{ inputs.action }}
+          FX_MSG: ${{ inputs.message }}
+        run: |
+          node -e '
+            const act = process.env.FX_ACTION || "status";
+            const dflt = "Backend maintenance is in progress. You may see an outage or a glitch — "
+                       + "please avoid making changes in the researcher panel until this notice disappears. "
+                       + "Your devices and their texts are not affected.";
+            const msg = (process.env.FX_MSG || "").trim() || dflt;
+            const q = (s) => "\x27" + String(s).replace(/\x27/g, "\x27\x27") + "\x27";
+            const sql = act === "raise"
+              ? `INSERT OR REPLACE INTO ops_flag (key,value,updated_at) VALUES (${q("maintenance")},${q(msg)},strftime(${q("%s")},${q("now")})*1000);`
+              : act === "clear"
+              ? `DELETE FROM ops_flag WHERE key=${q("maintenance")};`
+              : `SELECT key, value, updated_at FROM ops_flag WHERE key=${q("maintenance")};`;
+            require("fs").writeFileSync("/tmp/ops-flag.sql", sql + "\n");
+            console.log("action:", act);
+            console.log(sql);
+          '
+
+      - name: "Apply to the LIVE database"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        working-directory: worker
+        run: npx --yes wrangler@4 d1 execute flextext-connectivity --remote --file /tmp/ops-flag.sql
+
+      - name: What happens next
+        run: |
+          case "${{ inputs.action }}" in
+            raise) echo "::notice::Notice RAISED. Researchers see it within ~12s. Clear it with this same workflow → action: clear." ;;
+            clear) echo "::notice::Notice CLEARED. The banner disappears within ~12s." ;;
+            *)     echo "::notice::Status read above. An empty result set means NO notice is showing." ;;
+          esac

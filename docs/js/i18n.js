@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v420';
+export const ENGINE_VERSION = 'v421';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v420';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'projects v1';
+export const BUILD_TAG = 'projects v2';
 
 const S = {
 en: {
@@ -1193,6 +1193,12 @@ internet after the first time.</p>
   'panel.proj.go': 'Move the folders',
   'panel.proj.moving': '{n} moved\u2026',
   'panel.proj.done': 'Projects are set up.',
+  /* ⚠ Drive's SEARCH index lags a write, and the estate is built from a search — so the folders
+   * can be moved and the next read still describe the old tree. These two strings exist so that
+   * state is NAMED rather than shown as a card that looks like nothing happened. */
+  'panel.proj.settling': 'Waiting for Google Drive to catch up\u2026',
+  'panel.proj.doneSlow': 'The folders have moved. Google Drive has not finished updating its index, so this panel may still show the old layout for a moment \u2014 press Refresh shortly.',
+  'panel.proj.stale': 'Google Drive has not finished updating its index yet, so this cannot be run safely right now \u2014 it could create a second project folder. Nothing has changed. Wait a moment and press Refresh.',
   'panel.proj.partial': 'Moved {n} so far \u2014 press again to continue.',
   'panel.proj.nContainers': '{n} device(s) and recorder(s)',
   'panel.proj.stray': '{n} folder(s) are still outside the project. Nothing is lost \u2014 they are read exactly as before \u2014 but the move did not finish.',
@@ -2843,6 +2849,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.proj.go': 'Pindahkan foldernya',
   'panel.proj.moving': '{n} dipindahkan\u2026',
   'panel.proj.done': 'Proyek sudah disiapkan.',
+  'panel.proj.settling': 'Menunggu Google Drive menyusul\u2026',
+  'panel.proj.doneSlow': 'Foldernya sudah dipindahkan. Google Drive belum selesai memperbarui indeksnya, jadi panel ini mungkin masih menampilkan tata letak lama sesaat \u2014 tekan Segarkan sebentar lagi.',
+  'panel.proj.stale': 'Google Drive belum selesai memperbarui indeksnya, jadi ini belum aman dijalankan sekarang \u2014 bisa membuat folder proyek kedua. Tidak ada yang berubah. Tunggu sebentar lalu tekan Segarkan.',
   'panel.proj.partial': 'Sudah {n} dipindahkan \u2014 tekan lagi untuk melanjutkan.',
   'panel.proj.nContainers': '{n} perangkat dan perekam',
   'panel.proj.stray': '{n} folder masih di luar proyek. Tidak ada yang hilang \u2014 semuanya tetap terbaca seperti sebelumnya \u2014 tetapi pemindahan belum selesai.',

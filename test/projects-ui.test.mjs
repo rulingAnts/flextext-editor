@@ -148,6 +148,52 @@ test('projects UI', async () => {
        'the rename says it is display-only — folders are found by tag, never by name');
   }
 
+  /* ⚠ THE EVENTUAL-CONSISTENCY BUG, reported the first time this was driven on a real estate: "it
+   * updated Google drive, but not the researcher UI". `driveListAll` lists with a SEARCH query and
+   * reads `parents` off that result, and Drive's search index lags a write — so a re-parent can be
+   * complete and invisible to the very next estate call. This is the v167 lesson in a new place. */
+  console.log('\nthe migration WAITS for Drive\'s search index, and says so when it will not settle');
+  {
+    const f = fn('async function estateSettle');
+    ok(!!f, 'the settle loop exists');
+    ok(/Researcher\.driveEstate\(\)/.test(f) && /=== wantProjects/.test(f),
+       'it re-reads the estate until the shape matches what was just asked for');
+    ok(/i < 6/.test(f), '...bounded, because Drive settling is not guaranteed');
+    ok(/estateCache = est;/.test(f), 'and it keeps the settled estate rather than throwing it away');
+
+    const setup = fn('async function projectsSetupModal');
+    ok(/await estateSettle\(true, say\)/.test(setup), 'the migration settles before it repaints');
+    ok(/renderFromSettledEstate\(\)/.test(setup) && !/\brenderDashboard\(\);/.test(setup),
+       '...and repaints WITHOUT a second fetch, which would be a second chance at the stale answer');
+    ok(/panel\.proj\.doneSlow/.test(setup),
+       'and when it does not settle it SAYS so rather than showing a card that looks like nothing happened');
+    ok(/await estateSettle\(false, say\)/.test(fn('async function projectsUndoModal')), 'the undo settles too');
+  }
+
+  /* ⚠ THE ONLY PATH THAT CAN MINT A DUPLICATE. Re-running is otherwise harmless — re-parenting to
+   * where a folder already is, is a no-op — but `driveEnsureDefaultProject` finds the existing
+   * project by TAG SEARCH, so a lagging index makes it create a SECOND one. */
+  console.log('\n...and a re-run cannot create a second project folder');
+  {
+    const setup = fn('async function projectsSetupModal');
+    ok(/if \(plan\.wouldCreateProject && \(\(estateCache && estateCache\.projects\) \|\| \[\]\)\.length\)/.test(setup),
+       '"would create a project" while we already hold one IS the stale-index signature');
+    ok(/panel\.proj\.stale/.test(setup) && /return;/.test(setup),
+       'and it refuses, explaining why, instead of acting on a stale plan');
+  }
+
+  /* ⚠ A CLAIM MADE OUT LOUD AND WRONG: that adding the estate to viewSig would make a finished
+   * migration appear within a poll tick. It cannot — the poll passes `prefetched` and deliberately
+   * skips the Drive round trip, so estateCache cannot change on that path. The comment must say so,
+   * or the next reader repeats the mistake. */
+  console.log('\nthe viewSig entries do not pretend to be the refresh mechanism');
+  {
+    const sig = fn('function viewSig');
+    ok(/THE ESTATE DOES NOT RIDE THE 12s POLL/.test(sig),
+       'the comment states plainly that the poll does not refetch the estate');
+    ok(/estateSettle/.test(sig), '...and points at what actually refreshes the card');
+  }
+
   console.log(fail ? `\nFAILED (${fail})\n` : '\nall passed\n');
   if (fail) process.exit(1);
 });

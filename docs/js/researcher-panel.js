@@ -1021,17 +1021,20 @@ function viewSig(data) {
        * The signature is not a performance detail — it is the list of everything the panel is
        * allowed to notice. */
       Researcher.maintenance(),
-      /* ⚠ FOURTH TIME — added in the SAME commit that renders it, per the rule above. The Projects
-       * card is drawn from `estateCache`, which is not part of `data`, so without this a migration
-       * finishing (or a project being renamed in another browser) would leave the card stale until
-       * someone pressed Refresh. Only the SHAPE goes in the signature, not the whole estate: the
-       * projects and which project each container sits under. Text-level churn is already covered
-       * by the inventory above, and putting it here would redraw the dashboard on every upload.
+      /* ⚠ THE ESTATE DOES NOT RIDE THE 12s POLL — read this before trusting the two lines below.
        *
-       * ⚠ The Unassigned card has read `estateCache` since before this rule was written and is NOT
-       * covered by what follows — a stray text arriving still waits for a refresh. Left alone
-       * deliberately: including the text list would mean a redraw per upload, and the fix belongs
-       * with that card, not smuggled in here. */
+       * `renderDashboard` refetches `estateCache` only on a FULL render (initial load, manual
+       * Refresh, or after an action); the poll passes `prefetched` and deliberately skips the Drive
+       * round trip. So on the poll path these entries CANNOT change, and adding them here does not
+       * make a migration appear on its own — a claim I made out loud and which was simply wrong.
+       *
+       * What actually refreshes the card after a migration is `estateSettle` + a render from the
+       * settled estate, above. These lines are kept because they cost nothing and are correct the
+       * moment anything else mutates `estateCache` between renders — but they are NOT the mechanism,
+       * and a future reader must not conclude from their presence that the poll is watching.
+       *
+       * Only the SHAPE goes in, never the text list: that would redraw the dashboard on every
+       * upload. */
       ((estateCache && estateCache.projects) || []).map((p) => [p.folderId, p.name]),
       ((estateCache && estateCache.devices) || []).map((d) => [d.folderId, d.projectId || '']),
     ]);
@@ -4246,6 +4249,37 @@ function renderProjectsCard(estate) {
   </div>`;
 }
 
+/* ⚠ DRIVE'S SEARCH INDEX IS EVENTUALLY CONSISTENT, AND THE ESTATE IS BUILT FROM A SEARCH.
+ *
+ * This is the v167 lesson arriving in a new place. `driveListAll` lists with `files?q=trashed=false`
+ * and reads `parents` off that result — the SEARCH index, which lags a write. `files.get` by id is
+ * strongly consistent, but there is no by-id way to ask for a whole tree, so a re-parent can be
+ * complete in Drive and invisible to the very next estate call.
+ *
+ * The symptom is precise and was reported exactly this way: "it updated Google drive, but not the
+ * researcher UI". Nothing had failed — the panel re-read the tree and Drive told it the old answer.
+ *
+ * So after a migration, poll until the shape MATCHES what we just asked for, then render from that.
+ * Bounded: Drive settles in seconds, and if it has not, saying so is better than painting a flat
+ * estate that looks like the migration silently did nothing. */
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function estateSettle(wantProjects, say) {
+  for (let i = 0; i < 6; i++) {
+    let est = null;
+    try { est = await Researcher.driveEstate(); } catch { est = null; }
+    if (est && ((est.projects || []).length > 0) === wantProjects) { estateCache = est; return true; }
+    if (say) say(t('panel.proj.settling'));
+    await sleep(1500);
+  }
+  return false;
+}
+
+/* Render from the estate we just settled, WITHOUT letting renderDashboard fetch it again — a second
+ * read is a second chance to get the stale answer and undo the wait. Passing `lastData` takes the
+ * prefetched path, which reuses `estateCache`. */
+function renderFromSettledEstate() { renderDashboard(lastData || undefined); }
+
 /* Run migrate/unmigrate to completion. The worker caps each call at 20 containers and reports
  * `remaining`, so one press finishes an estate of any size instead of silently doing the first 20
  * — the cap exists so a huge estate cannot die halfway, not so the researcher has to press twice. */
@@ -4271,6 +4305,23 @@ async function projectsSetupModal() {
   let plan = null;
   try { plan = await Researcher.projectsMigrate({ dry: true }); }
   catch (e) { errToast(e); return; }
+  /* ⚠ THE DUPLICATE-PROJECT GUARD, and it closes a real path rather than a theoretical one.
+   *
+   * Seth, having seen the card fail to update: "I don't want to know what happens if I see my panel
+   * is unchanged and try running it again..." Most of that second run is harmless — re-parenting a
+   * folder to where it already is, is a no-op, and removing a parent it no longer has is ignored.
+   *
+   * The one path that is NOT harmless: `driveEnsureDefaultProject` finds the existing project folder
+   * by TAG SEARCH. If that search is still lagging, it does not find it and CREATES A SECOND ONE —
+   * the v167 duplicate-folder bug, in a new costume.
+   *
+   * `wouldCreateProject: true` while the estate we already hold reports a project is exactly the
+   * signature of a stale index, and it is the only combination that can mint a duplicate. Refuse,
+   * say why, and let Drive catch up. */
+  if (plan.wouldCreateProject && ((estateCache && estateCache.projects) || []).length) {
+    deps.toast(t('panel.proj.stale'), 9000);
+    return;
+  }
   const m = modal(`<h3>${esc(t('panel.proj.setupTitle'))}</h3>
     <p class="note">${esc(t('panel.proj.setupIntro'))}</p>
     ${projectPlanHtml(plan)}
@@ -4289,9 +4340,10 @@ async function projectsSetupModal() {
     const name = (nameEl && nameEl.value.trim()) || t('panel.proj.defaultName');
     try {
       const r = await projectsRunToEnd(() => Researcher.projectsMigrate({ name, dry: false }), say);
+      const settled = await estateSettle(true, say);
       m.close();
-      deps.toast(t(r.done ? 'panel.proj.done' : 'panel.proj.partial', { n: r.moved }), 6000);
-      renderDashboard();
+      deps.toast(t(!r.done ? 'panel.proj.partial' : settled ? 'panel.proj.done' : 'panel.proj.doneSlow', { n: r.moved }), 8000);
+      renderFromSettledEstate();
     } catch (err) {
       const el = m.el.querySelector('#rp-proj-say');
       el.hidden = false; el.className = 'rp-adm-say rp-adm-err'; el.textContent = String(err.message || err);
@@ -4320,9 +4372,10 @@ async function projectsUndoModal() {
   m.el.querySelector('[data-m="go"]').addEventListener('click', (e) => busy(e.target, async () => {
     try {
       const r = await projectsRunToEnd(() => Researcher.projectsUnmigrate({ dry: false }), say);
+      const settled = await estateSettle(false, say);
       m.close();
-      deps.toast(t(r.done ? 'panel.proj.undone' : 'panel.proj.partial', { n: r.moved }), 6000);
-      renderDashboard();
+      deps.toast(t(!r.done ? 'panel.proj.partial' : settled ? 'panel.proj.undone' : 'panel.proj.doneSlow', { n: r.moved }), 8000);
+      renderFromSettledEstate();
     } catch (err) {
       const el = m.el.querySelector('#rp-proj-say');
       el.hidden = false; el.className = 'rp-adm-say rp-adm-err'; el.textContent = String(err.message || err);
@@ -4348,6 +4401,9 @@ async function projectRenameModal(folderId, current) {
       await Researcher.projectRename(folderId, name);
       m.close();
       deps.toast(t('panel.proj.renamed'), 4000);
+      /* A rename cannot change the project COUNT, so estateSettle's predicate cannot detect it. The
+       * name is read from the same lagging index, so the card may show the old one for a moment;
+       * a full render is the honest thing to do rather than fake the new name locally. */
       renderDashboard();
     } catch (err) {
       const el = m.el.querySelector('#rp-proj-say');

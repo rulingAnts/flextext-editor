@@ -1823,3 +1823,68 @@ honest for the BACKEND: staging apps talk to production's worker and D1 unless p
 `?devworker=staging`. So a migration rehearsal must run against the staging worker + a staging D1 —
 `test/worker-migration-rehearsal.test.mjs` exists for exactly this and should be extended to cover the
 project backfill rather than a new harness being written.
+
+### 16.21 ⚠ CORRECTION: the brick vector is a mistake to AVOID, not a cost to PAY
+
+Seth read §16.19 as *"so the brick vector is that we have to re-pair all our devices."* **No — and this
+is the most important correction in this document.** §16.19 describes a bug that a careless one-line
+filter would cause. It is not a consequence of the migration. Done correctly, **no device re-pairs,
+and no researcher travels anywhere.**
+
+Why the migration is invisible to a paired device, checked against the code rather than assumed:
+
+1. **Pairing is `install` + `instance` rows plus a wrapped Ki.** The migration adds a column and moves
+   Drive folders. It touches none of those three.
+2. **A device never addresses Drive.** Every byte goes through the worker, which resolves folders on
+   its behalf — so the tree can be rearranged underneath a device that notices nothing.
+3. **A re-parented folder KEEPS ITS ID**, and both resolvers check the id *before* they ever consider a
+   parent:
+   - `driveEnsureDeviceFolder` does `files.get(existingId)` and returns immediately if it is untrashed —
+     **it never looks at where the folder lives.** Re-parenting an existing device folder is therefore
+     a complete no-op to it.
+   - `driveEnsureTextFolder` verifies the client-echoed `folderId` the same way, so every device's
+     remembered folder id stays valid.
+
+   ⚠ This is the single property that makes the whole migration cheap. Do not "tidy" either
+   `files.get`-by-id fast path into a parent-scoped search — that also re-opens the v167 duplicate
+   folder bug.
+4. **Only NEWLY created folders need the project parent.** Everything already in existence resolves by
+   id, forever.
+
+So the answer to *"is there any way to do this without forcing all our users to re-pair?"* is: **yes,
+and re-pairing was never on the table.** The one thing that would force it is the `AND project_id = ?`
+predicate in the desired lane, which `test/worker-ownership-scoping.test.mjs` now fails the build for.
+
+### 16.22 The three live breaks — how each is fixed
+
+**#1 Unassigned singleton.** Two different things were being conflated. What Seth SAW in the v396 test
+drive — unassigned texts not moving — was the **missing caller**, fixed in v397. The **singleton** is
+not broken today at all: with no project layer there is effectively one project, so one Unassigned
+folder is correct. It becomes wrong only when projects arrive. Fix: `driveUnassignedFolder(access,
+projectFolderId)` resolves the Unassigned child of a given project, tagged
+`flextextRole='unassigned'` and parent-scoped (the `driveEnsureChildFolder` pattern, which is already
+parent-scoped for exactly this reason). ⚠ Must land in the same change as the project layer, or the
+v397 sweep moves texts out of their project.
+
+**#2 Projects rendering as devices — solvable entirely server-side, with zero client breakage.**
+The key fact: **`buildDriveEstate` runs in the WORKER.** A production client never sees the Drive
+tree; it sees the worker's projection. That makes the compatibility surface something we fully
+control:
+
+- the worker walks one level deeper — containers are the children of *project* folders, not of master;
+- it keeps emitting the **same `{devices, texts, unassignedFolderId}` shape**, so a v396 panel renders
+  exactly as it does today, with devices flattened across projects;
+- new clients additionally read `projects: [...]` and a `projectId` on each container and text.
+
+`unassignedFolderId` is referenced in **exactly one place** in the panel (`sweepUnassigned`'s
+truthiness guard), so keeping a single value in the response for old clients costs nothing.
+
+**#3 Device/crowd folders created under master — nearly free**, and not really the inverse of #2. Per
+§16.21(3), existing folders resolve by id and never consult a parent, so re-parenting them is
+invisible. Only the *create* branch changes: parent becomes the project folder resolved from
+`instance.project_id` (backfilled to the default project, so it is never NULL and there is one path).
+
+**Moving a device between projects later** (Seth: *"we MIGHT eventually want to"*) falls out of this
+almost free: re-parent the device folder and update `instance.project_id`. Both are single operations,
+and the folder keeps its id so nothing else notices. Worth NOT designing against, even though it is
+not being built now.

@@ -76,15 +76,46 @@ test('projects UI', async () => {
     ok(/const dry = body\.dry !== false;/.test(worker), 'migrate/unmigrate default dry:true server-side');
   }
 
-  console.log('\nthe undo is a first-class button on the same card');
+  /* ⚠ THE UNDO MOVED OFF THE CARD (§16.28), and this assertion was REVERSED rather than deleted.
+   * It used to require the undo to be a first-class button, argued from §17: the honest answer to
+   * "what if this tangles my Drive" has to be something the researcher can DO. That is still true —
+   * what changed is where it belongs. Projects are one-way, permanent and for everyone, and a
+   * prominent "go back to a flat folder" IS the optionality message however it is worded.
+   *
+   * So: no button on the card, and the modal must still EXIST and be reachable, because an undo
+   * that was quietly deleted is a different and much worse thing than an undo that moved. */
+  console.log('\nthe undo is off the card, but has NOT been deleted');
   {
     const card = fn('function renderProjectsCard');
-    ok(/data-pact="undo"/.test(card), 'the undo is rendered where the migration was offered');
-    ok(/panel\.proj\.undo/.test(card), 'and labelled, not hidden behind a symbol');
+    ok(!/data-pact="undo"/.test(card), 'no "go back to a flat folder" button on the card');
+    ok(!/panel\.proj\.undo'/.test(card), '...and no copy inviting the researcher to leave');
+    ok(/fxProjects\('undo'\)/.test(panel) || /verb === 'undo'/.test(panel),
+       'the operator path still exists');
+    ok(/if \(verb === 'undo'\) \{ projectsUndoModal\(\)/.test(panel),
+       '...and it opens the REAL modal — preview, settle and repaint, not a stripped-down twin');
+    ok(/verb === 'undo!'/.test(panel), 'and the direct apply survives for scripted use');
     const f = fn('async function projectsUndoModal');
+    ok(!!f, 'the modal is still here — a deleted undo is a different thing from a moved one');
     ok(/trashed/.test(worker.slice(worker.indexOf("direction: 'unmigrate'"))) || /wouldTrashProject/.test(worker),
        'the worker reports whether the project folder would be trashed');
     ok(/panel\.proj\.undoIntro/.test(f), 'the modal explains that the folder is trashed only when empty');
+  }
+
+  /* ⚠ THE FRAMING IS PART OF THE FEATURE (§16.28). "We don't want to communicate to them that this
+   * is an optional mode they can use if they want to." A card that pitches a benefit teaches a
+   * choice, and the model it teaches is the wrong one. */
+  console.log('\nthe card states a required update — it does not offer an option');
+  {
+    const en = (k) => (i18n.match(new RegExp(`'${k.replace(/\./g, '\\.')}': '([^']*)'`)) || [])[1] || '';
+    const intro = en('panel.proj.introFlat');
+    ok(/need|must/i.test(intro), 'the intro says the move is NEEDED');
+    ok(!/keeps several bodies of work apart/i.test(intro), '...and no longer pitches it as a way to organise');
+    ok(!/you can undo/i.test(en('panel.proj.setupIntro')),
+       'the confirm step does not advertise reversibility');
+    /* ⚠ But the PREVIEW is not what "not optional" removes. The destination is mandatory; acting
+     * blind is not. This is the line that stops a future reframing from taking the preview too. */
+    ok(/dry: true/.test(fn('async function projectsSetupModal')),
+       'the dry-run preview SURVIVES the reframing — mandatory destination, never a blind move');
   }
 
   console.log('\na half-finished migration is SHOWN, not hidden');

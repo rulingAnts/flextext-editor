@@ -721,9 +721,13 @@ export function initResearcherPanel(d) {
           if (!proj) return 'no project folder yet — run fxProjects("migrate", "…") first';
           return show(await Researcher.projectRename(proj, name));
         }
-        if (verb === 'undo' || verb === 'undo!') {
-          return show(await Researcher.projectsUnmigrate({ dry: verb !== 'undo!' }));
-        }
+        /* ⚠ THE UNDO LIVES HERE NOW, not on the card (§16.28): the migration is one-way and not
+         * optional, and a "go back" button on the panel is the optionality message however it is
+         * worded. `undo` opens the real modal — preview, settle, repaint, all of it — so the
+         * operator path is the good one rather than a stripped-down twin. `undo!` stays a direct
+         * apply for scripted use, and §17.4's rollback ladder still names it. */
+        if (verb === 'undo') { projectsUndoModal(); return 'opened the undo preview'; }
+        if (verb === 'undo!') return show(await Researcher.projectsUnmigrate({ dry: false }));
         if (verb === 'migrate') {
           if (!name) return 'usage: fxProjects("migrate", "Default Project")  — the name is yours to choose';
           return show(await Researcher.projectsMigrate({ name, dry: false }));
@@ -1492,7 +1496,6 @@ async function renderDashboard(prefetched) {
   root.querySelectorAll('[data-pact]').forEach((el) => el.addEventListener('click', () => {
     const act = el.dataset.pact;
     if (act === 'setup') { busy(el, () => projectsSetupModal()); return; }
-    if (act === 'undo') { busy(el, () => projectsUndoModal()); return; }
     if (act === 'rename') { projectRenameModal(el.dataset.folder, el.dataset.name || ''); }
   }));
   lastSig = viewSig(data);
@@ -4216,12 +4219,17 @@ function renderProjectsCard(estate) {
   if (!estate || !Array.isArray(estate.devices)) return '';
   const projects = estate.projects || [];
   const devices = estate.devices || [];
+  /* ⚠ NOT AN OFFER — see §16.28. This states that the layout needs updating and gives ONE action.
+   * The earlier copy pitched projects as a way to keep bodies of work apart, which reads as a
+   * feature you may or may not want; the migration is one-way, permanent and for everyone, and the
+   * panel must not teach otherwise. The dry-run preview is NOT what "not optional" removes — the
+   * researcher still sees which folders will move before they move. */
   if (!projects.length) {
     return `<div class="rp-card rp-projects">
       <div class="rp-inst-top"><span class="rp-inst-name">${esc(t('panel.proj.title'))}</span>
-        <span class="rp-badge">${esc(t('panel.proj.flatTag'))}</span></div>
+        <span class="rp-badge rp-badge-type">${esc(t('panel.proj.flatTag'))}</span></div>
       <p class="note">${esc(t('panel.proj.introFlat'))}</p>
-      <div class="rp-inst-actions"><button class="secondary-btn" data-pact="setup">${esc(t('panel.proj.setup'))}</button></div>
+      <div class="rp-inst-actions"><button class="primary-btn" data-pact="setup">${esc(t('panel.proj.setup'))}</button></div>
     </div>`;
   }
   const rows = projects.map((p) => {
@@ -4240,12 +4248,17 @@ function renderProjectsCard(estate) {
    * migrated tree is exactly what an interrupted run leaves, and the estate reads it correctly. Say
    * so, and offer the run again, rather than letting it look finished. */
   const stray = devices.filter((d) => !d.projectId).length;
+  /* ⚠ NO UNDO BUTTON HERE, DELIBERATELY (§16.28). A prominent "go back to a flat folder" IS the
+   * optionality message whatever the surrounding words say — a destination you are invited to leave
+   * is a mode. The undo has NOT been deleted: `fxProjects('undo')` opens the same modal, preview and
+   * all, and §17.4's rollback ladder still names unmigrate as step 2. Recovery exists and is
+   * documented for whoever needs it; the panel simply stops advertising that going back is a way to
+   * live. */
   return `<div class="rp-card rp-projects">
     <div class="rp-inst-top"><span class="rp-inst-name">${esc(t('panel.proj.title'))}</span></div>
     ${rows}
     ${stray ? `<p class="banner warn-banner">${esc(t('panel.proj.stray', { n: stray }))}</p>
       <button class="secondary-btn" data-pact="setup">${esc(t('panel.proj.finish'))}</button>` : ''}
-    <div class="rp-inst-actions"><button class="link-btn rp-revoke" data-pact="undo">${esc(t('panel.proj.undo'))}</button></div>
   </div>`;
 }
 

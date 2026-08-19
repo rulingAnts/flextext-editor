@@ -2231,6 +2231,49 @@ the Drive folder is called. The D1 name is inert today — nothing reads it, bec
 table — and changing it would mean a worker deploy on a release day for a string no user can see.
 Align it when Phase B's D1 half actually lands.
 
+### 16.28 ⚠ PROJECTS ARE NOT AN OPTION — one-way, permanent, everyone (Seth, 2026-08-19)
+
+> *"Long term we do want the migration to Projects to be a one-way, not optional, permanent change
+> for all our researchers though. We don't want to communicate to them that this is an optional mode
+> they can use if they want to."*
+
+This arrived after §16.27 shipped the card, and it corrects the FRAMING, not the mechanism. The
+migration is the same operation either way; what changes is what the panel says about it, and that
+matters more than it sounds — a UI that offers a choice teaches a model, and the model it was
+teaching was wrong.
+
+**What was wrong with the v420/v421 card:**
+
+- *"Grouping them under a project folder keeps several bodies of work apart…"* reads as a feature
+  pitch for something you may or may not want.
+- A prominent **"Undo — go back to a flat folder"** button IS the optionality message, whatever the
+  surrounding words say. A destination you are invited to leave is a mode.
+
+**The endgame:** every researcher's estate is migrated, without being asked, and the flat shape stops
+existing in the field. The panel should never present a pre-project estate as a valid steady state.
+
+**Why not simply auto-migrate on load today, and what the intermediate step is.** An unattended folder
+move on panel load is the riskiest version of this and the least tested — it is precisely why the
+operation was console-gated until §16.27. So the ladder is:
+
+1. **Now:** the card states that the layout needs updating and offers ONE action. No undo, no language
+   implying a choice. Not optional, but attended — a researcher is present when their folders move.
+2. **Next:** once it has run cleanly on real estates, it runs automatically on panel load, reporting
+   what it did rather than asking.
+3. **Then:** the flat branch of the card becomes unreachable in practice, and the migration code
+   becomes a one-time upgrade path rather than a feature.
+
+⚠ **THE UNDO DOES NOT DISAPPEAR — IT MOVES.** §17 still requires that a tangled estate be
+recoverable, and §17.4's ladder still names unmigrate as step 2. It stays exactly where the migration
+itself started: `fxProjects('undo!')`, an operator tool, alongside the repair route. This resolves
+the tension honestly — recovery exists and is documented for whoever needs it, without the panel
+advertising that going back is a supported way to live.
+
+⚠ **What must NOT be quietly lost in the reframing:** the dry-run preview. "Not optional" is about
+the destination, not about acting blind — the researcher still sees which folders will move before
+they move. Removing the preview because the outcome is mandatory would be the wrong reading, and it
+is the only thing standing between a bug here and a silently rearranged Drive.
+
 ### 16.26 The verb model — and why "Move to Unassigned" is the load-bearing piece
 
 Seth, 2026-08-19, proposing the affordances for texts that no device holds:

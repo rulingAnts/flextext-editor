@@ -90,7 +90,16 @@ console.log('\nthe console entry point previews unless told otherwise');
   const panel = readFileSync(new URL('docs/js/researcher-panel.js', root), 'utf8');
   const fn = panel.slice(panel.indexOf('window.fxProjects ='), panel.indexOf('return { open, close'));
   ok(/dry: true/.test(fn), 'the no-verb path is an explicit dry run');
-  ok(/dry: verb !== 'undo!'/.test(fn), "undo previews; only undo! acts");
+  /* ⚠ REWRITTEN, NOT WEAKENED. The bang still separates preview from act — but `undo` no longer
+   * prints a JSON plan to the console: since §16.28 moved the undo OFF the card, the console path
+   * opens the real modal, so the operator gets the preview UI rather than a stripped-down twin.
+   * The property under test is unchanged: no verb, and no bang, ever moves a folder. */
+  ok(/if \(verb === 'undo'\) \{ projectsUndoModal\(\)/.test(fn),
+     'undo opens the previewing modal, and moves nothing by itself');
+  ok(/if \(verb === 'undo!'\) return show\(await Researcher\.projectsUnmigrate\(\{ dry: false \}\)\)/.test(fn),
+     'only the bang applies');
+  ok(!/dry: false/.test(fn.slice(0, fn.indexOf("verb === 'undo!'"))),
+     'nothing before the bang path can apply anything');
   ok(/if \(!name\) return 'usage: fxProjects\("migrate"/.test(fn),
      'migrate refuses to run without a name — no silent default project name');
   /* A typo must not act. `fxProjects('migrat')` should preview, not migrate. */

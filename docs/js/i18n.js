@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v421';
+export const ENGINE_VERSION = 'v422';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v421';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'projects v2';
+export const BUILD_TAG = 'projects v3';
 
 const S = {
 en: {
@@ -1176,12 +1176,16 @@ internet after the first time.</p>
    * survive being read by someone who is about to let software move their folders, so they say what
    * MOVES, what does not, and that it is reversible. */
   'panel.proj.title': 'Projects',
-  'panel.proj.flatTag': 'not set up',
-  'panel.proj.introFlat': 'Your devices, crowd recorders and unassigned texts currently sit directly in your FlexText Uploads folder. Grouping them under a project folder keeps several bodies of work apart in Google Drive, and is the first step toward giving other researchers access to one project without the rest.',
-  'panel.proj.setup': 'Set up projects\u2026',
+  'panel.proj.flatTag': 'update needed',
+  /* ⚠ NOT A PITCH (\u00a716.28). Projects are one-way, permanent and for everyone, so this says what
+   * is going to happen and why it is safe \u2014 never why you might like it. */
+  'panel.proj.introFlat': 'Your Google Drive folders are still in the old layout. FlexText now keeps every device, crowd recorder and unassigned text inside a project folder, which is what lets a project be shared with another researcher without giving away the rest. Your folders need to be moved once. Nothing is copied, renamed or deleted, and every text keeps its own folder and files exactly as they are.',
+  'panel.proj.setup': 'Update the folder layout\u2026',
   'panel.proj.finish': 'Finish setting up\u2026',
-  'panel.proj.setupTitle': 'Set up projects',
-  'panel.proj.setupIntro': 'This moves folders in Google Drive. It does not copy, rename or delete anything, and every text keeps its own folder and its files exactly as they are. You can undo it from this card afterwards.',
+  'panel.proj.setupTitle': 'Update the folder layout',
+  /* ⚠ The preview stays, and this line must not promise reversibility \u2014 what "not optional"
+   * removes is the CHOICE of destination, never the researcher's sight of what is about to move. */
+  'panel.proj.setupIntro': 'These folders will move in Google Drive. Nothing is copied, renamed or deleted, and every text keeps its own folder and its files exactly as they are.',
   'panel.proj.planCount': '{n} folder(s) would move under the project:',
   'panel.proj.planNone': 'Nothing needs to move \u2014 everything is already where it should be.',
   'panel.proj.kind.device': 'device',
@@ -1192,7 +1196,7 @@ internet after the first time.</p>
   'panel.proj.nameNote': 'You can change this later. The name is for you \u2014 nothing is found by it, so renaming can never lose a text.',
   'panel.proj.go': 'Move the folders',
   'panel.proj.moving': '{n} moved\u2026',
-  'panel.proj.done': 'Projects are set up.',
+  'panel.proj.done': 'Your folder layout is up to date.',
   /* ⚠ Drive's SEARCH index lags a write, and the estate is built from a search — so the folders
    * can be moved and the next read still describe the old tree. These two strings exist so that
    * state is NAMED rather than shown as a card that looks like nothing happened. */
@@ -2832,12 +2836,12 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.crowd.assignNote': 'Pindahkan\u2026 mengirim rekaman ke perangkat untuk ditranskripsi, atau memasukkannya ke Tidak Tertugas untuk nanti. \u26a0 Jangan memindahkan folder ini secara manual di Google Drive \u2014 perangkat tidak akan diberi tahu, sehingga teks tampak ditugaskan padahal tidak pernah sampai.',
   'panel.store.snapshot': 'Simpan cuplikan Drive (JSON)',
   'panel.proj.title': 'Proyek',
-  'panel.proj.flatTag': 'belum disiapkan',
-  'panel.proj.introFlat': 'Perangkat, perekam publik, dan teks tidak tertugas Anda saat ini berada langsung di folder FlexText Uploads. Mengelompokkannya di bawah folder proyek memisahkan beberapa bidang pekerjaan di Google Drive, dan merupakan langkah pertama untuk memberi peneliti lain akses ke satu proyek saja.',
-  'panel.proj.setup': 'Siapkan proyek\u2026',
+  'panel.proj.flatTag': 'perlu diperbarui',
+  'panel.proj.introFlat': 'Folder Google Drive Anda masih memakai tata letak lama. FlexText kini menyimpan setiap perangkat, perekam publik, dan teks tidak tertugas di dalam folder proyek \u2014 inilah yang memungkinkan satu proyek dibagikan kepada peneliti lain tanpa memberikan sisanya. Folder Anda perlu dipindahkan sekali. Tidak ada yang disalin, diganti nama, atau dihapus, dan setiap teks tetap memiliki foldernya sendiri beserta berkasnya.',
+  'panel.proj.setup': 'Perbarui tata letak folder\u2026',
   'panel.proj.finish': 'Selesaikan penyiapan\u2026',
-  'panel.proj.setupTitle': 'Siapkan proyek',
-  'panel.proj.setupIntro': 'Ini memindahkan folder di Google Drive. Tidak ada yang disalin, diganti nama, atau dihapus, dan setiap teks tetap memiliki foldernya sendiri beserta berkasnya. Anda dapat membatalkannya dari kartu ini setelahnya.',
+  'panel.proj.setupTitle': 'Perbarui tata letak folder',
+  'panel.proj.setupIntro': 'Folder-folder ini akan dipindahkan di Google Drive. Tidak ada yang disalin, diganti nama, atau dihapus, dan setiap teks tetap memiliki foldernya sendiri beserta berkasnya.',
   'panel.proj.planCount': '{n} folder akan dipindahkan ke dalam proyek:',
   'panel.proj.planNone': 'Tidak ada yang perlu dipindahkan \u2014 semuanya sudah pada tempatnya.',
   'panel.proj.kind.device': 'perangkat',
@@ -2848,7 +2852,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.proj.nameNote': 'Anda bisa mengubahnya nanti. Nama ini untuk Anda \u2014 tidak ada yang dicari berdasarkan nama, jadi mengganti nama tidak mungkin menghilangkan teks.',
   'panel.proj.go': 'Pindahkan foldernya',
   'panel.proj.moving': '{n} dipindahkan\u2026',
-  'panel.proj.done': 'Proyek sudah disiapkan.',
+  'panel.proj.done': 'Tata letak folder Anda sudah terkini.',
   'panel.proj.settling': 'Menunggu Google Drive menyusul\u2026',
   'panel.proj.doneSlow': 'Foldernya sudah dipindahkan. Google Drive belum selesai memperbarui indeksnya, jadi panel ini mungkin masih menampilkan tata letak lama sesaat \u2014 tekan Segarkan sebentar lagi.',
   'panel.proj.stale': 'Google Drive belum selesai memperbarui indeksnya, jadi ini belum aman dijalankan sekarang \u2014 bisa membuat folder proyek kedua. Tidak ada yang berubah. Tunggu sebentar lalu tekan Segarkan.',

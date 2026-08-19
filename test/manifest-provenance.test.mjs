@@ -20,6 +20,7 @@
  * Run: node test/manifest-provenance.test.mjs
  */
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { buildSourceManifest, MANIFEST_NAME } from '../docs/js/seg-exports.js';
 
 let fail = 0;
@@ -88,6 +89,44 @@ console.log('\nthe declaration rules that make completeness derivable');
   for (const k of ['schema', 'docId', 'title', 'origin', 'originatedAt', 'writtenAt', 'engine',
                    'buildTag', 'writingSystems', 'audio', 'files', 'consent']) {
     ok(k in m, `schema-1 key \`${k}\` survives`);
+  }
+}
+
+/* SCHEMA 2 MUST NOT BREAK THE APPS ALREADY IN THE FIELD (Seth, 2026-08-19: "if we're making
+ * changes to the manifest schema, make sure it doesn't break existing production apps").
+ *
+ * The hazard is not theoretical and it is not symmetric. A v395 device writes a schema-2 manifest
+ * into a shared Drive; the panel that reads it may be a production build for weeks. So the test is
+ * not "does our reader cope" — it is "does the reader we ALREADY SHIPPED cope", and the only honest
+ * way to ask that is to read the shipped source. This asserts against origin/productionWeb rather
+ * than against the working tree, so it keeps meaning something after the next release. */
+console.log('\nschema 2 is readable by the panel already in production');
+{
+  let prod = '';
+  try {
+    prod = execFileSync('git', ['show', 'origin/productionWeb:docs/js/researcher-panel.js'],
+                        { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  } catch { /* no productionWeb ref available (shallow clone / fresh CI) — skip, do not fail */ }
+  if (!prod) {
+    console.log('  skip  origin/productionWeb not fetched — cannot check the shipped reader');
+  } else {
+    /* THE ONE THING THAT WOULD BREAK IT: a reader that gates on the version it knows. Ours does
+     * not, which is what makes bumping the number safe — but a future reader could add one, and
+     * that is the change this assertion is here to catch, on either side. */
+    ok(!/manifest\.schema|schema\s*===|schema\s*!==/.test(prod),
+       'the shipped reader does not gate on the schema number, so bumping it changes nothing for it');
+    ok(/Array\.isArray\(manifest\.files\)/.test(prod),
+       '...it validates by SHAPE (files is an array), which schema 2 still satisfies');
+    /* An unknown `origin` value must degrade to the raw word rather than a blank or a crash — this
+     * is what lets a production panel display a crowd-origin text it has no string for. */
+    ok(/t\(originKey\) === originKey \? String\(manifest\.origin/.test(prod),
+       '...and an origin value it has no translation for falls back to the raw value');
+
+    // Every key the shipped reader actually dereferences must still be produced by the builder.
+    const built = buildSourceManifest({ docId: 'd', origin: 'crowd', now: 1, files: [], audio: null });
+    for (const k of ['files', 'audio', 'title', 'origin', 'consent']) {
+      ok(k in built, `schema 2 still supplies \`${k}\`, which the shipped reader dereferences`);
+    }
   }
 }
 

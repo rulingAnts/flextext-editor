@@ -1297,18 +1297,17 @@ the declared file set, turning the one document that answers *"what is missing"*
 can be wrong about it. Immutability is not a stylistic preference here; it is what makes the
 completeness check trustworthy.
 
-So: **`flextext-history.json`, append-only, beside the manifest in `originals/`.** Different
-mutability contract, different file, and a reader that only wants provenance-at-birth never has to
-parse a growing log. Shape (not yet built — this is the decision, not the implementation):
+So: **`flextext-history.json`, beside the manifest in `originals/`.** Different mutability contract,
+different file, and a reader that only wants provenance-at-birth never has to parse a growing log.
+Shape (not yet built — this is the decision, not the implementation):
 
 ```
 { schema: 1, docId, events: [ { at, kind: 'created'|'assigned'|'moved'|'unassigned'|'adopted',
                                 from: {kind,id}|null, to: {kind,id}|null, by: {kind,id} } ] }
 ```
 
-⚠ **And it must be written by whoever performs the custody change** — the panel for an assign/move,
-the worker only where it is the sole actor. A history file that any reader may append to is a history
-file that disagrees with itself.
+⚠ **One writer: the worker.** See §16.13 — that is what makes "append-only" a property we can
+actually hold, and it is what settles the format.
 
 **Still open, and it is Seth's call:** whether `.fxpa`-style text-level metadata (§2's
 `recording_id`, TTL, per-text settings) rides in the manifest as originally sketched, or in the
@@ -1325,3 +1324,91 @@ audio, gets no `originals/` folder and no manifest at all.** Seth named exactly 
 originated in editor or recorder by recording or opening files should also create an original/ folder
 with a manifest file."* It is a real gap, it predates all of this, and it is not fixed in v395 —
 filed here rather than folded into a crowd change.
+
+### 16.13 "Append-only" was doing less work than it looked — the format question, answered
+
+Seth: *"Do we really want a json file to be append-only? I assume you don't mean LITERALLY,
+byte-for-byte append only, because you have to move commas, semi-colons, curly-braces, etc, to append
+more data. Is JSON the best format for this? Or would we rather use YAML or something?"*
+
+Correct on both counts, and the second question deserves a real answer rather than a preference.
+
+**The fact that decides it: Google Drive has no append.** Every write to a Drive file is a full-object
+replace — an update, or a resumable session that supersedes the content. There is no API call that
+adds bytes to an existing object. So **no format can make the storage append-only**: JSONL would be
+genuinely line-appendable on a POSIX filesystem, but on Drive you still read the whole file, add a
+line, and upload the whole file. §16.12's "append-only" was a claim about *semantics* — events are
+only ever added, never edited or removed — and it should have said so. It bought nothing at the byte
+level and I implied that it did.
+
+Once that is clear, the format is chosen on what it *does* buy:
+
+| | JSON array | JSONL | YAML |
+|---|---|---|---|
+| new parser in the engine | none | none (`JSON.parse` per line) | **yes** |
+| valid document a naive tool can open | yes | **no** (`JSON.parse` of the file fails) | yes |
+| survives truncation | no | yes (loses last line) | no |
+| merges after a concurrent write | by parse | by line union | by parse |
+| consistent with the rest of the suite | yes | no | no |
+
+**YAML is the one to rule out firmly, and not on taste.** There is no YAML parser anywhere in this
+repo. Adding one means a vendored library, which means a new top-level `import` in `js/app.js`, which
+means **a new SHELL entry in the editor and every satellite `sw.js`** — the v108 rule, the outage
+this project already had once. That is a very expensive way to buy human-editability for a file no
+human should be editing: it is a machine record of custody, and a hand-edited custody log is worse
+than no custody log. Readability is satisfied by pretty-printed JSON.
+
+**JSONL's advantages evaporate under inspection.** Truncation tolerance is its real strength, but a
+Drive update is atomic from the client's point of view — a resumable session either completes or the
+object is unchanged, so a half-written history file is not a state that occurs. That leaves
+merge-by-line, which matters only if there are concurrent writers. Which brings the actual question:
+
+**Who writes it? Exactly one actor — the worker.** Every custody change already passes through a
+worker route: `assignment/begin` for an assign, `/move`, `/adopt`, `/researcher/drive-unassign`, and
+the return-trip in `driveTextHousekeeping`. There is no custody change a client makes to Drive on its
+own. So the single-writer design is not a discipline we have to impose — **it is the shape the system
+already has**, and writing it down costs nothing.
+
+⚠ **And single-writer is what makes "append-only" enforceable at all.** A property held by one
+function in one file is a property; a property that every writer promises to respect is a hope. This
+is the same reasoning as `js/native-audio.js` being the one chokepoint rather than a rule about
+`window.Capacitor`.
+
+**Verdict: a plain pretty-printed JSON array, `flextext-history.json`, written only by the worker.**
+Same format as everything else in the suite, no new parser, a valid document anyone can open, and the
+append-only property enforced in one place instead of asserted in five.
+
+**Two things to build with it, neither of which is the format:**
+
+1. **Optimistic concurrency, if a second writer ever appears.** Drive supports `If-Match` on an
+   ETag; this codebase uses it nowhere today. That — not JSONL — is the real answer to a lost update,
+   and it is the thing to reach for if the single-writer rule is ever broken, rather than changing
+   the file format after the fact.
+2. ⚠ **The unassign sweep is the one caller that cannot afford this.** `drive-unassign` loops over
+   up to 200 docIds doing 2–3 Drive subrequests each, against the ~50-subrequest Cloudflare cap that
+   has already killed `drive-purge` twice. A read-modify-write history append would add two more per
+   text and blow it. The sweep must either batch its history writes, defer them, or record the
+   transition in D1 and mirror it to Drive on the next single-text operation. **Decide that before
+   the sweep writes history at all** — this is exactly the shape of the bug that has bitten twice.
+
+#### Compatibility of schema 2 with what is already in the field — checked, not assumed
+
+Seth: *"if we're making changes to the manifest schema, make sure it doesn't break existing
+production apps."* The hazard is asymmetric and worth stating: a v395 device writes a schema-2
+manifest into a shared Drive, and the panel that reads it may be a **production build (v384) for
+weeks**. So the question is not whether our reader copes — it is whether the reader *already shipped*
+copes. Read from `origin/productionWeb`, not reasoned about:
+
+- **No reader anywhere gates on the schema number.** There is no `schema === 1`, no range check. The
+  bump is invisible to it.
+- Its guard is by SHAPE — `Array.isArray(manifest.files)` — which schema 2 still satisfies.
+- Every key it dereferences (`files`, `audio`, `title`, `origin`, `consent`) is still produced;
+  `test/manifest-provenance.test.mjs` pins each one.
+- An `origin` value it has no string for degrades to the raw word
+  (`t(k) === k ? String(manifest.origin) : t(k)`), so a production panel displays a crowd-origin text
+  rather than a blank or a crash.
+- `source` is a key nobody reads, and readers are required to ignore what they do not know.
+
+`test/manifest-provenance.test.mjs` asserts all of this **against `origin/productionWeb` itself**, so
+it keeps meaning something after the next release instead of decaying into a comment. It skips rather
+than fails when the ref is not fetched, so a shallow CI clone does not produce a false red.

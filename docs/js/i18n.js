@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v412';
+export const ENGINE_VERSION = 'v413';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v412';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'crowd-unpack v2';
+export const BUILD_TAG = '';
 
 const S = {
 en: {
@@ -1153,7 +1153,7 @@ internet after the first time.</p>
   'panel.dl.missing': 'Still to arrive: {names}',
   'panel.dl.approx': 'about {size}',
   'panel.dl.package': 'Recording package (.zip)',
-  'panel.dl.packageSub': 'the recording with its consent records, exactly as uploaded',
+  'panel.dl.packageSub': 'the recording with its consent records, packaged together',
   // How the text came to exist, from the manifest's `origin` field — so the researcher is told
   // whether item 1 is what they assigned or what the speaker recorded, instead of inferring it.
   'panel.crowd.assignNote': 'To work on one of these, download it and upload it again as a normal assignment. Recordings cannot yet be assigned to a device directly. \u26a0 Do not move these folders in Google Drive by hand \u2014 the device would never be told about it, so the text would look assigned without ever arriving.',
@@ -2769,7 +2769,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.dl.missing': 'Masih ditunggu: {names}',
   'panel.dl.approx': 'sekitar {size}',
   'panel.dl.package': 'Paket rekaman (.zip)',
-  'panel.dl.packageSub': 'rekaman beserta catatan persetujuan, persis seperti yang diunggah',
+  'panel.dl.packageSub': 'rekaman beserta catatan persetujuan, dikemas jadi satu',
   'panel.crowd.assignNote': 'Untuk mengerjakan salah satu rekaman ini, unduh lalu unggah kembali sebagai penugasan biasa. Rekaman belum bisa ditugaskan langsung ke perangkat. \u26a0 Jangan memindahkan folder ini secara manual di Google Drive \u2014 perangkat tidak akan diberi tahu, sehingga teks tampak ditugaskan padahal tidak pernah sampai.',
   'panel.store.snapshot': 'Simpan cuplikan Drive (JSON)',
   'panel.store.snapshotNote': 'Catatan persis seperti apa folder FlexText Anda saat ini. Ambil satu sebelum penataan ulang besar \u2014 Google Drive tidak mengingat lokasi folder sebelumnya, jadi berkas ini tidak bisa dibuat setelahnya.',

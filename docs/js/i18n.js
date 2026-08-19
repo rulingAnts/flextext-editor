@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v423';
+export const ENGINE_VERSION = 'v424';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v423';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'projects v4';
+export const BUILD_TAG = 'projects v5';
 
 const S = {
 en: {
@@ -1206,6 +1206,9 @@ internet after the first time.</p>
   'panel.proj.partial': 'Moved {n} so far \u2014 press again to continue.',
   'panel.proj.nContainers': '{n} device(s) and recorder(s)',
   'panel.proj.stray': '{n} folder(s) are still outside the project. Nothing is lost \u2014 they are read exactly as before \u2014 but the move did not finish.',
+  'panel.proj.outside': 'Not in a project yet',
+  'panel.proj.emptyProject': 'No devices in this project yet.',
+  'panel.proj.outsideNote': 'These have not been moved into a project yet. Nothing is lost \u2014 they work exactly as before \u2014 but the folder update did not finish.',
   'panel.proj.rename': 'Rename',
   'panel.proj.renameTitle': 'Rename project',
   'panel.proj.renameNote': 'Display only. The folder is found by its tag, never by its name, so this cannot orphan a device, a text or an upload in progress.',
@@ -2859,6 +2862,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.proj.partial': 'Sudah {n} dipindahkan \u2014 tekan lagi untuk melanjutkan.',
   'panel.proj.nContainers': '{n} perangkat dan perekam',
   'panel.proj.stray': '{n} folder masih di luar proyek. Tidak ada yang hilang \u2014 semuanya tetap terbaca seperti sebelumnya \u2014 tetapi pemindahan belum selesai.',
+  'panel.proj.outside': 'Belum masuk proyek',
+  'panel.proj.emptyProject': 'Belum ada perangkat di proyek ini.',
+  'panel.proj.outsideNote': 'Ini belum dipindahkan ke dalam proyek. Tidak ada yang hilang \u2014 semuanya bekerja seperti sebelumnya \u2014 tetapi pembaruan folder belum selesai.',
   'panel.proj.rename': 'Ganti nama',
   'panel.proj.renameTitle': 'Ganti nama proyek',
   'panel.proj.renameNote': 'Hanya tampilan. Folder ditemukan lewat tandanya, bukan namanya, jadi ini tidak dapat memutus kaitan perangkat, teks, atau unggahan yang sedang berjalan.',

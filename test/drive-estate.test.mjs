@@ -428,7 +428,10 @@ console.log('\n...and the Unassigned folder is never mistaken for a DEVICE');
 console.log('\nthe UNASSIGNED card is on the dashboard, and is NOT a pseudo-instance');
 {
   const panel = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
-  ok(/function renderUnassignedCard\(estate\)/.test(panel), 'the card renderer exists');
+  /* The optional second parameter scopes the card to ONE project: each project has its own
+   * Unassigned folder, so a single shared pile would file one project's set-aside texts under
+   * another project's heading. Unscoped, it behaves exactly as it always has. */
+  ok(/function renderUnassignedCard\(estate, projectFolderId\)/.test(panel), 'the card renderer exists');
   ok(/\$\{renderUnassignedCard\(estateCache\)\}/.test(panel), 'and is rendered in the dashboard body');
 
   /* ⚠ THE STRUCTURAL RULE. A synthetic entry in lastData.instances would have to be special-cased

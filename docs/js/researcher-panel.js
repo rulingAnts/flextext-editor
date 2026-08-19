@@ -1043,6 +1043,7 @@ function viewSig(data) {
        *
        * Only the SHAPE goes in, never the text list: that would redraw the dashboard on every
        * upload. */
+      currentProject,   // which project is on screen — render state, not part of `data`
       ((estateCache && estateCache.projects) || []).map((p) => [p.folderId, p.name]),
       ((estateCache && estateCache.devices) || []).map((d) => [d.folderId, d.projectId || '']),
     ]);
@@ -1446,9 +1447,23 @@ async function renderDashboard(prefetched) {
       </div>
     </div>
     ${renderProjectsCard(estateCache)}
-    ${renderUnassignedCard(estateCache)}
-    ${insts.length ? cards.join('') : `<p class="note rp-empty">${esc(t('panel.dash.empty'))}</p>`}
-    ${Researcher.isApprovedSelf() ? renderCrowdCard(crowdCache, estateCache) : ''}`;
+    ${(() => {
+      /* ONE PROJECT AT A TIME once projects exist; the classic flat layout otherwise, byte for byte.
+       * `scope` is null on a flat estate, which is the whole backward-compatibility story. */
+      const scope = projectScope(insts, estateCache, crowdCache);
+      if (!scope) {
+        return `${renderUnassignedCard(estateCache)}
+          ${insts.length ? cards.join('') : `<p class="note rp-empty">${esc(t('panel.dash.empty'))}</p>`}
+          ${Researcher.isApprovedSelf() ? renderCrowdCard(crowdCache, estateCache) : ''}`;
+      }
+      currentProject = scope.sel;                       // persist the resolved tab, not the stale one
+      const idx = new Map(insts.map((it, i) => [it.instance_id, i]));
+      const mine = scope.insts.map((it) => cards[idx.get(it.instance_id)]).join('');
+      return `${renderProjectSwitcher(scope)}
+        ${scope.sel === STRAY_TAB ? '' : renderUnassignedCard(estateCache, scope.sel)}
+        ${scope.insts.length ? mine : `<p class="note rp-empty">${esc(t('panel.proj.emptyProject'))}</p>`}
+        ${scope.recs.length && Researcher.isApprovedSelf() ? renderCrowdCard(scope.recs, estateCache) : ''}`;
+    })()}`;
 
   wireActs({
     exit: close,
@@ -1500,6 +1515,11 @@ async function renderDashboard(prefetched) {
   root.querySelectorAll('[data-pact]').forEach((el) => el.addEventListener('click', () => {
     const act = el.dataset.pact;
     if (act === 'setup') { busy(el, () => projectsSetupModal()); return; }
+    if (act === 'pick') {
+      currentProject = el.dataset.p;
+      renderDashboard(lastData || undefined);   // cached: switching tabs is not a Drive round trip
+      return;
+    }
     if (act === 'rename') { projectRenameModal(el.dataset.folder, el.dataset.name || ''); }
   }));
   lastSig = viewSig(data);
@@ -4429,8 +4449,84 @@ async function projectRenameModal(folderId, current) {
   }));
 }
 
-function renderUnassignedCard(estate) {
-  const texts = unassignedTexts(estate);
+/* ── THE HIERARCHY: ONE PROJECT AT A TIME ─────────────────────────────────────────────────────────
+ *
+ * Projects CONTAIN devices, crowd recorders and their own Unassigned pile (§16.16), so the dashboard
+ * has to as well — a list of projects sitting above a flat list of devices is a label, not a
+ * hierarchy, and it teaches the wrong shape.
+ *
+ * ⚠ A SWITCHER, NOT STACKED SECTIONS (Seth's call, weighed against where this is going: several
+ * projects per researcher, several researchers per project). Stacking every project on one page is
+ * simpler today and wrong tomorrow — it scales into a long scroll, and it is the opposite of the
+ * access model this is being built for, where a member holds rights to ONE project and should not be
+ * scrolling past ones they cannot open. Showing one project at a time makes "what you can see" and
+ * "what you are looking at" the same question, which is what an invited researcher's dashboard needs
+ * to be by default.
+ *
+ * ⚠ THE FLAT PATH IS UNTOUCHED — with no project folders this returns null and the dashboard renders
+ * exactly as it always has. Everything here can only affect an estate that has been migrated.
+ *
+ * ⚠ THE JOIN IS BY FOLDER ID, NEVER BY NAME. `estate.devices` maps folderId -> projectId and each
+ * instance carries `oauth_folder_id`. Matching on the device NAME would work today and break the
+ * moment someone renames a device — names are display-only here, and nothing is found by them.
+ *
+ * ⚠ CONTAINERS WITH NO PROJECT GET THEIR OWN TAB, rather than being hidden or silently folded into
+ * the first project. An interrupted migration leaves containers under master; they still work, and a
+ * researcher must be able to reach them — but they are not IN a project and must not be shown as if
+ * they were. */
+const STRAY_TAB = '__none';
+let currentProject = null;          // folderId | STRAY_TAB | null (= pick the first)
+
+function projectScope(insts, estate, crowdRecs) {
+  const projects = (estate && estate.projects) || [];
+  if (!projects.length) return null;
+  const byFolder = new Map(((estate && estate.devices) || []).map((d) => [d.folderId, d.projectId || '']));
+  const projOf = (folderId) => byFolder.get(folderId) || '';
+  const ids = new Set(projects.map((p) => p.folderId));
+  const strayInsts = insts.filter((it) => !ids.has(projOf(it.oauth_folder_id)));
+  const strayRecs = (crowdRecs || []).filter((r) => !ids.has(projOf(r.oauth_folder_id)));
+  const hasStrays = !!(strayInsts.length || strayRecs.length);
+  /* A stored selection can point at a project that has since been renamed away, undone, or belonged
+   * to another account. Falling back to the first project is always safe; falling back to "whatever
+   * was stored" would render an empty dashboard that looks like the devices are gone. */
+  let sel = currentProject;
+  if (sel === STRAY_TAB && !hasStrays) sel = null;
+  if (sel !== STRAY_TAB && !ids.has(sel)) sel = null;
+  if (sel === null) sel = projects[0].folderId;
+  const selProject = projects.find((p) => p.folderId === sel) || null;
+  return {
+    projects, hasStrays, sel, selProject, projOf,
+    insts: sel === STRAY_TAB ? strayInsts : insts.filter((it) => projOf(it.oauth_folder_id) === sel),
+    recs: sel === STRAY_TAB ? strayRecs : (crowdRecs || []).filter((r) => projOf(r.oauth_folder_id) === sel),
+  };
+}
+
+function renderProjectSwitcher(scope) {
+  /* Rendered even with ONE project: it is the project's HEADING as much as a control, and the whole
+   * complaint that produced this was that the dashboard did not say which project you were looking
+   * at. A single unlabelled tab is still an answer to that question. */
+  const tab = (id, label, on) => `<button class="rp-ptab${on ? ' rp-ptab-on' : ''}" data-pact="pick" data-p="${esc(id)}"
+      aria-current="${on ? 'true' : 'false'}">${esc(label)}</button>`;
+  const tabs = scope.projects.map((p) => tab(p.folderId, p.name || t('panel.proj.defaultName'), p.folderId === scope.sel));
+  if (scope.hasStrays) tabs.push(tab(STRAY_TAB, t('panel.proj.outside'), scope.sel === STRAY_TAB));
+  return `<div class="rp-ptabs" role="tablist" aria-label="${esc(t('panel.proj.title'))}">
+      ${tabs.join('')}
+      ${scope.selProject ? `<button class="link-btn rp-ptab-rename" data-pact="rename"
+        data-folder="${esc(scope.selProject.folderId)}" data-name="${esc(scope.selProject.name || '')}">${esc(t('panel.proj.rename'))}</button>` : ''}
+    </div>
+    ${scope.sel === STRAY_TAB ? `<p class="note">${esc(t('panel.proj.outsideNote'))}</p>` : ''}`;
+}
+
+function renderUnassignedCard(estate, projectFolderId) {
+  /* Scoped to ONE project when the dashboard is grouped: each project has its own Unassigned folder
+   * (§16.22 #1), so a single shared pile would put one project's set-aside texts under another's
+   * heading. Unscoped (flat estate) it behaves exactly as before. */
+  let texts = unassignedTexts(estate);
+  if (projectFolderId) {
+    const byFolder = new Map(((estate && estate.devices) || []).map((d) => [d.folderId, d.projectId || '']));
+    texts = texts.filter((tx) => byFolder.get(tx.deviceFolderId) === projectFolderId
+                              || tx.projectId === projectFolderId);
+  }
   if (!texts.length) return '';
   const bytes = texts.reduce((a, t) => a + (t.bytes || 0), 0);
   const iid = firstInstanceId();

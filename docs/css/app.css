@@ -1317,6 +1317,17 @@ main {
 .crowd-status { font-size: 1.15rem; margin: 18px 0; }
 /* Projects card. The rows read like device rows on purpose — a project IS a container of
  * containers, and giving it its own visual language would suggest it is a different kind of thing. */
+/* The project SWITCHER. Tabs rather than a dropdown while the count is small: the set of projects a
+ * researcher can open is itself information, and a dropdown hides it behind a click. It scrolls
+ * horizontally rather than wrapping into a growing block, so a long list costs width, never height. */
+.rp-ptabs { display: flex; align-items: center; gap: 4px; margin: 18px 0 10px;
+  border-bottom: 2px solid var(--border); overflow-x: auto; }
+.rp-ptab { flex: 0 0 auto; background: none; border: 0; border-bottom: 3px solid transparent;
+  padding: 8px 12px; font: inherit; font-size: 1.02rem; color: var(--muted); cursor: pointer;
+  white-space: nowrap; }
+.rp-ptab:hover { color: var(--text); }
+.rp-ptab-on { color: var(--text); font-weight: 600; border-bottom-color: var(--blue); }
+.rp-ptab-rename { margin-left: auto; padding-left: 12px; flex: 0 0 auto; }
 .rp-proj-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; }
 .rp-proj-row + .rp-proj-row { border-top: 1px solid var(--border); }
 .rp-proj-plan { margin: 8px 0 0; padding-left: 20px; max-height: 220px; overflow-y: auto; }

@@ -391,6 +391,113 @@ everyone; `settings_blob.wrappedKis` remains readable as the legacy fallback dur
   `worker-deploy.yml` is dispatched. `migrate-sessions.sql` and `migrate-projects.sql` have been
   applied to NO database, not even staging.
 
+## II.5c ⚠⚠ ISOLATION IS A LOCKED REQUIREMENT, AT EVERY LEVEL (Seth, 2026-08-19)
+
+> *"An invited researcher shouldn't on ANY level get access to things on the owner's Google Drive
+> outside the scope of what they've been given access to. Not UI access, not API access, not Google
+> Drive permissions, not worker endpoints or JavaScript functions or objects or anything."*
+> *"And it should all be fully revokable."*
+> *"the access filter needs to not be paper on the front end."*
+
+This is not a preference to weigh against convenience. It is the property the whole project split
+exists to deliver, and it invalidates several shapes that would otherwise be the obvious way to build
+this. Written before the client half starts, because every one of these is cheap now and expensive
+after a member exists.
+
+### The rules
+
+**1. Scope in the WORKER, at the query, for every endpoint — never in the panel.** A hidden tab is
+paper: the names, ids, device nicknames and text titles are still in the response, in devtools, and
+in any local cache. §11 of drive-as-truth is explicit that those names are the plaintext this design
+protects. Every route that today scopes by `researcher_id` must scope by the caller's PROJECT GRANTS
+instead — and the ones that walk Drive wholesale are the dangerous ones:
+
+| route | why it is a hole today |
+|---|---|
+| `GET /v1/researcher/drive-estate` | builds from `driveListAll` — the owner's ENTIRE Drive |
+| `GET /v1/researcher/drive-snapshot` | returns raw `driveListAll` by design (§17.0) |
+| `POST /v1/researcher/drive-unassign` | resolves project folders across the whole tree |
+| `POST /v1/researcher/projects/{migrate,unmigrate,rename}` | act on the master folder as a whole |
+| `/v1/instances/*` | scoped by `researcher_id`, which stops being the boundary |
+
+**2. ⚠ OPEN DECISION — brokered-only vs mirrored into Drive.** Seth raised mirroring, then pulled
+back to *"I DON'T want invited researchers to have the same Google Drive permissions the owner does"*
+and asked for the trade-off written out. It is not settled, so it is recorded as a decision rather
+than a rule. **Recommendation: A.**
+
+⚠ **First, a correction to the framing, because it changes the question:** mirroring would not give a
+member "the same permissions the owner does". Drive sharing is graded — Viewer, Commenter, Editor —
+and the owner stays owner. Viewer cannot move, rename or delete anything. But the underlying instinct
+survives the correction: it still puts a third party with STANDING RIGHTS inside the owner's Drive,
+and Viewer does not change that.
+
+**Option A — brokered only.** Members reach nothing directly; every read goes through the worker on
+the owner's token, scoped to their grants.
+
+| | |
+|---|---|
+| **Pros** | One door, so every access is scoped, logged and revocable by our code. Revocation is immediate and total. No Google account needed, so the password lane still works. No `drive.file` scope question. The owner's Drive stays entirely their own — nobody else has any standing in it. |
+| **Cons** | Worker down = members have no access (the owner still does). All member traffic costs worker subrequests and the owner's Drive quota. No Drive desktop sync or bulk download for members. Every affordance — browse, download, export — is ours to build. |
+| **Risks** | Our authorization code is the ONLY thing between a member and the whole estate, so a bug is a total leak (§16.30). `mintTextfileUrl`'s 90-day tokens make "revocable" false until the deny-list exists. |
+| **Cost** | Moderate, and all of it in code we own and can test. |
+
+**Option B — mirror the grant into Drive (optionally as source of truth).**
+
+| | |
+|---|---|
+| **Pros** | Survives us — if the worker is gone the right people still reach the data, the same instinct as `flextext` being the export format. The owner manages sharing in a UI they already trust. Drive-side revocation kills the Drive path completely. Members get bulk/desktop access for free. Consistent with drive-as-truth: Drive holds, D1 indexes. |
+| **Cons** | Sharing a FOLDER grants everything inside it, including everything added later. An Editor could move or delete inside the owner's Drive; Viewer cannot, but can download all of it. Re-sharing is Drive's default behaviour unless explicitly restricted. Members need a Google account, excluding the password lane. Depends on `drive.file` permitting `permissions.*` on app-created folders — likely, unverified. As source of truth, authorization now depends on an external system's availability, and the index must fail closed. |
+| **Risks** | ⚠ **The failure modes live outside our system AND outside our audit.** An over-broad ACL, a link-share, a member re-sharing onward — we would not see any of it, and could not report it. |
+| **Cost** | Higher, and the residual risk is not in code we can test. |
+
+**Why A, and it is one argument rather than a tally.** Option B's characteristic failure is *we
+cannot see what was taken*. For a system whose purpose is protecting the privacy and research
+standards of the communities this data comes from, unauditable access is the wrong property to design
+in — worse than the inconvenience it removes. Option A's characteristic failure is a bug in our own
+authorization: serious, but ours, and testable (§16.30's test is exactly that).
+
+**The middle ground worth naming rather than inventing later:** A, plus **owner-initiated sharing as
+a deliberate one-off**. When a member genuinely needs bulk access, the owner shares that artifact
+themselves, as a human decision about a specific thing — not a standing permission that quietly
+covers everything added to the folder afterwards.
+
+⚠ **If B is ever chosen, verify first, in an afternoon:** that `drive.file` permits
+`permissions.create/list/delete` on a folder the app created. And note what it does NOT give: a
+folder shared *to* a member is not app-created *for them*, so their own app token still cannot list
+it — their client would keep reading through the worker regardless. The ACL would serve the human in
+the Drive UI, not the app. That halves B's benefit and is worth knowing before choosing it.
+
+**3. Never hand a member the owner's Drive token, or anything derived from it that outlives the
+grant.** The existing pattern is right — `mintTextfileUrl` issues opaque, time-boxed, instance- and
+doc-scoped URLs — but ⚠ **a 90-day TTL is not revocation.** The token carries `n` (a per-token id)
+and `iat` precisely so a deny-list can retire one; that comment calls a deny-list a future
+possibility. Under this requirement it is **mandatory before members ship**, or "fully revocable" is
+false for up to 90 days.
+
+**4. Revocation must be one act with total effect:** drop the grant, deny-list every URL minted under
+it, and rotate the project's Ki with a re-wrap for the remaining members. Any of those missing leaves
+a door open.
+
+### ⚠ The honest limit, stated so the plan never implies otherwise
+
+**Revocation cannot un-download.** The data is E2EE and a member legitimately held Ki, so anything
+they already synced or exported is theirs and stays theirs. "Fully revocable" can only mean *no
+further access from the moment of revocation* — no new reads, no new syncs, no usable cached keys for
+anything fetched later.
+
+That is not a gap to fix; it is what revocation means for any system where a person could read the
+data at all. **But it must be said out loud to the owner at the moment they invite someone**, because
+the natural reading of "revoke" is "undo", and the gap between those two is exactly where an owner
+would be surprised. It also argues for granting narrowly in the first place: the blast radius of a
+revocation is everything the member could see up to that second.
+
+### What this changes about the work already done
+
+Nothing built so far violates it — there are no members, so every token is its own owner's. The
+switcher deliberately does NOT filter (see drive-as-truth §16.30 and its test): it renders whatever
+the estate returns, so scoping the estate server-side scopes the tabs for free, and a client-side
+filter would only have hidden the server's over-sharing.
+
 ## II.6 Decisions still open (the complete list)
 
 - **II.D1 — The E2EE policy line.** Keep the "client-driven re-wrap only" stance (server never

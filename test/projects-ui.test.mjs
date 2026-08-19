@@ -225,6 +225,77 @@ test('projects UI', async () => {
     ok(/estateSettle/.test(sig), '...and points at what actually refreshes the card');
   }
 
+  /* ⚠ THE HIERARCHY IS THE FEATURE, not the projects card. A list of projects above a flat list of
+   * devices is a LABEL — Seth, on being shown exactly that: "that's not QUITE the projects UI
+   * working, because you forgot one key element of the design: hierarchical navigation/UI/UX that
+   * reflects the hierarchical projects with devices under them."
+   *
+   * One project at a time, chosen against where this is going (several projects per researcher,
+   * several researchers per project): stacking every project on one page scales into a scroll and is
+   * the opposite of an access model where a member holds rights to ONE project. */
+  console.log('\nthe dashboard shows ONE project at a time, and the flat estate is untouched');
+  {
+    const scope = fn('function projectScope');
+    ok(!!scope, 'the scope resolver exists');
+    ok(/if \(!projects\.length\) return null;/.test(scope),
+       'a flat estate returns null — the classic layout renders byte for byte');
+    ok(/const scope = projectScope\(insts, estateCache, crowdCache\);/.test(panel) && /if \(!scope\) \{/.test(panel),
+       '...and the dashboard branches on exactly that');
+
+    /* ⚠ BY FOLDER ID, NEVER BY NAME. The instance now carries oauth_folder_id precisely so this join
+     * does not have to go through the device's display name, which a rename would break. */
+    ok(/byFolder\.get\(folderId\)/.test(scope) && /it\.oauth_folder_id/.test(scope),
+       'devices are matched to projects by folder id');
+    ok(/oauth_folder_id FROM instance/.test(worker), '...which the worker now returns');
+    ok(!/nickname === |\.name === p\.name/.test(scope), 'and never by name');
+
+    ok(/renderProjectSwitcher/.test(panel) && /rp-ptab/.test(panel), 'a switcher is rendered');
+    ok(/data-pact="pick"/.test(panel) && /currentProject = el\.dataset\.p/.test(panel),
+       'picking a tab selects a project');
+    ok(/renderDashboard\(lastData \|\| undefined\)/.test(panel.slice(panel.indexOf("act === 'pick'"))),
+       '...from CACHED data — switching tabs is not a Drive round trip');
+
+    /* A stored tab can point at a project that was renamed away, undone, or belonged to another
+     * account. Falling back to "whatever was stored" renders an empty dashboard that reads as though
+     * the devices are gone. */
+    ok(/if \(sel !== STRAY_TAB && !ids\.has\(sel\)\) sel = null;/.test(scope),
+       'a stale selection falls back to the first project rather than showing nothing');
+    ok(/if \(sel === STRAY_TAB && !hasStrays\) sel = null;/.test(scope),
+       '...and the strays tab disappears once there are none');
+
+    /* Containers an interrupted migration never reached still work, so they must be REACHABLE —
+     * their own tab, never hidden and never folded into the first project as if they belonged. */
+    ok(/const STRAY_TAB = '__none';/.test(panel), 'containers outside every project get their own tab');
+    ok(/panel\.proj\.outsideNote/.test(panel), '...with a note saying the update did not finish');
+
+    // Each project has its OWN Unassigned folder, so the pile must be scoped to the tab.
+    ok(/renderUnassignedCard\(estateCache, scope\.sel\)/.test(panel),
+       'Unassigned is scoped to the project on screen');
+    ok(/currentProject,/.test(fn('function viewSig')),
+       'and the selected tab is in viewSig — render state that is not part of `data`');
+  }
+
+  /* ⚠ THE TAB STRIP MUST NEVER BECOME A CLIENT-SIDE ACCESS FILTER (§16.30). Seth: "They also
+   * shouldn't be SEEING projects they can't open." That is an access-control property, and hiding a
+   * tab does not deliver it — the names, ids, device nicknames and text titles would still be in the
+   * response, in devtools and in any cache. §11 is explicit that those names are the plaintext this
+   * design is careful about.
+   *
+   * So the switcher renders whatever the estate contains, deliberately and with nothing clever: once
+   * the WORKER scopes /drive-estate to the caller's grants, a correctly scoped estate produces a
+   * correctly scoped tab strip for free. A filter here would hide the server's over-sharing instead
+   * of fixing it. */
+  console.log('\nthe switcher does not filter — scoping is the worker\'s job, not a hidden tab');
+  {
+    const scope = fn('function projectScope');
+    const sw = fn('function renderProjectSwitcher');
+    ok(/const projects = \(estate && estate\.projects\) \|\| \[\];/.test(scope),
+       'the tab list is exactly what the estate returned');
+    ok(!/canOpen|hasGrant|allowed|member/i.test(scope + sw),
+       'no client-side notion of which projects may be shown');
+    ok(/scope\.projects\.map/.test(sw), '...and every project in the estate gets a tab');
+  }
+
   console.log(fail ? `\nFAILED (${fail})\n` : '\nall passed\n');
   if (fail) process.exit(1);
 });

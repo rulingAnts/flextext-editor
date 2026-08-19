@@ -2091,7 +2091,12 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     let pending;
     if (approved) {
       insts = (await env.DB.prepare(
-        'SELECT instance_id, type, nickname, desired_rev, revoked, estate FROM instance WHERE researcher_id=? AND revoked=0'
+        /* ⚠ oauth_folder_id is what lets the panel say WHICH PROJECT a device is in. The estate
+         * gives folderId -> projectId; without the instance's own folder id the only join left is
+         * the folder NAME, and this codebase's rule is that names are display-only and nothing is
+         * ever found by them (a renamed device would silently leave its project). Additive: one
+         * more column in a response, ignored by every shipped client. */
+        'SELECT instance_id, type, nickname, desired_rev, revoked, estate, oauth_folder_id FROM instance WHERE researcher_id=? AND revoked=0'
       ).bind(r.researcher_id).all()).results || [];
       for (const it of insts) {
         it.installs = (await env.DB.prepare(

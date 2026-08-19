@@ -2231,6 +2231,81 @@ the Drive folder is called. The D1 name is inert today — nothing reads it, bec
 table — and changing it would mean a worker deploy on a release day for a string no user can see.
 Align it when Phase B's D1 half actually lands.
 
+### 16.29 The dashboard hierarchy — ONE PROJECT AT A TIME (Seth's call, 2026-08-19)
+
+> *"that's not QUITE the 'projects UI working', because you forgot one key element of the design:
+> hierarchical navigation/UI/UX that reflects the hierarchical projects with devices under them."*
+
+Correct, and the miss is worth naming: §16.27 shipped a projects CARD and called the feature done. A
+list of projects sitting above a flat list of devices is a **label**, not a hierarchy. The estate had
+been taught the tree; the dashboard had not.
+
+**The shape, chosen against where this is going** — *"multiple researchers on one project, multiple
+projects for one researcher"*:
+
+| | |
+|---|---|
+| **Chosen: a switcher, one project on screen** | Scales to many projects without a growing scroll, and matches the access model this is all for: a member with rights to ONE project should not be scrolling past projects they cannot open. "What you can see" and "what you are looking at" become the same question, which is what an invited researcher's dashboard has to be by default. |
+| Stacked sections, all expanded | Simplest, and wrong at n>2 — a long scroll with no overview. |
+| Collapsible sections | A reasonable middle, but it optimises for the OWNER's overview, which is the case that matters least once members exist. |
+| Two-level list → detail | The most scalable end state; changes how every existing action is reached, so not the step to take first. |
+
+**What the switcher contains:** the selected project's device cards, its crowd recorders, and **its
+own Unassigned pile** — per-project since §16.22 #1, so a shared pile would file one project's
+set-aside texts under another's heading.
+
+⚠ **The join is by FOLDER ID, never by name.** `estate.devices` maps folderId → projectId, and the
+instance row now carries `oauth_folder_id` (one additive worker column). Matching on the device's
+display NAME would work today and break the moment somebody renames a device — the standing rule
+here is that names are decoration and nothing is ever found by them.
+
+⚠ **Containers no project claims get their OWN TAB.** An interrupted migration leaves containers
+under master; they keep working, so they must stay reachable — but they are not IN a project and
+must not be shown as though they were. Hiding them would make a half-finished migration look like
+devices had vanished.
+
+⚠ **A stale selection falls back to the first project.** A stored tab can point at a project since
+renamed away, undone, or belonging to another account; honouring it would render an empty dashboard
+that reads exactly like the devices being gone.
+
+### 16.30 ⚠⚠ A MEMBER MUST NOT *SEE* PROJECTS THEY CANNOT OPEN — and today's estate would show them everything
+
+> *"They also shouldn't be SEEING projects they can't open."* (Seth, 2026-08-19)
+
+Stronger than the switcher requirement, and it is an ACCESS-CONTROL property, not a UI one.
+
+⚠ **THE LANDMINE, stated plainly so it cannot be discovered the hard way: `/drive-estate` builds its
+answer from `driveListAll`, which lists the WHOLE Drive of whichever researcher's token is used.**
+Per II.D2 a project's Drive is the OWNER's Drive. So the moment a member's panel calls this endpoint
+against the owner's token, it returns the owner's *entire* estate — every project, every device,
+every text title — and the panel would be free to render tabs for all of them.
+
+That is not exploitable today, because there are no members and every researcher's token is their
+own. It becomes live on the day Phase B's client half ships, which is exactly when nobody will be
+looking at this function.
+
+**So this is a hard precondition on members, not a later polish:**
+
+1. **The filter belongs in the WORKER.** `/drive-estate` must resolve the caller's grants and return
+   only the projects they hold, with the devices, texts and Unassigned piles under those projects.
+   Anything else hands the whole tree to the client and trusts it not to draw it.
+2. **A client-side tab filter is NOT a fix and must never be mistaken for one.** Hiding a tab leaves
+   the names, ids, device nicknames and text titles in the response — readable in devtools, and
+   present in any local cache. §11 is explicit that titles and names are the plaintext this design is
+   careful about; shipping them to someone with no grant is the disclosure, not the rendering.
+3. **The switcher inherits this for free** once (1) is true: it renders `estate.projects`, so a
+   correctly scoped estate produces a correctly scoped tab strip with no client logic at all. That is
+   the reason to fix it at the source rather than in the panel — and the reason the panel must never
+   grow a "projects I can open" filter, which would make the server's over-sharing invisible.
+
+⚠ **Also check `/drive-snapshot` and `/drive-unassign` against the same rule** before members ship —
+the snapshot returns raw `driveListAll` output by design (§17.0), which is precisely the shape that
+must not reach a member, and the sweep resolves project folders across the whole tree.
+
+⚠ **The flat estate renders byte for byte as before** — `projectScope()` returns null and the classic
+layout runs. That is what keeps this shippable: everything above can only affect an estate that has
+already been migrated.
+
 ### 17.4b ✅ THE ROUND TRIP AGAIN — THIS TIME THROUGH THE UI, AND MEASURED (2026-08-19, 22:33→22:34)
 
 §17.4a proved the routes on the production estate. This proves the CARD, which is a different claim:

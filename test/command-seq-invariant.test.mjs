@@ -16,6 +16,7 @@
  * Run: node test/command-seq-invariant.test.mjs
  */
 
+import { readFileSync } from 'node:fs';
 let fail = 0;
 const ok = (c, m) => { console.log(`  ${c ? 'ok  ' : 'FAIL'}  ${m}`); if (!c) fail++; };
 
@@ -85,6 +86,31 @@ console.log('\n⚠ THE REGRESSION THIS EXISTS TO CATCH: pruning acked commands b
   ok(next === 1, 'the allocator restarts at 1 — a seq the device has ALREADY acked');
   ok(!deviceWouldRun({ seq: next }, maxAck),
      'so the device would SKIP that command forever — this is why pruning is forbidden');
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * ack_seq MUST BE MONOTONIC IN THE DATABASE, not merely in the handler that writes it.
+ *
+ * Everything above rests on ack_seq only ever RISING: the cancel endpoint's safety proof is
+ * "no install has acked a seq this high, so nothing has acted on it", and the device runs only
+ * commands with seq > its ack. If ack_seq can go backwards, a cancel can withdraw a command a
+ * device already executed, and a re-used seq can be silently skipped for ever.
+ *
+ * The report handler used `Math.max(install.ack_seq, body.ack_seq)` in JAVASCRIPT — against a row
+ * read by authInstall() at request entry, BEFORE `await readJson(request)` streamed an encrypted
+ * inventory over a field uplink, which can take seconds. Two overlapping reports from one install
+ * therefore last-writer-wins, and the loser's stale value can land. reportNow() is deliberately not
+ * gated by sync.js's inFlight, so the overlap is reachable rather than theoretical.
+ *
+ * Doing the comparison inside the UPDATE makes it atomic with the write.
+ * ------------------------------------------------------------------------------------------- */
+{
+  const worker = readFileSync(new URL('../worker/src/v1.js', import.meta.url), 'utf8');
+  console.log('\nack_seq is maxed in SQL, atomically with the write');
+  ok(/ack_seq=MAX\(ack_seq, \?\)/.test(worker),
+     'the report UPDATE uses MAX(ack_seq, ?) rather than a value computed earlier in JS');
+  ok(!/SET reported_blob=\?, reported_rev=reported_rev\+1, ack_seq=\?,/.test(worker),
+     'and the bare ack_seq=? form, which could write a stale maximum, is gone');
 }
 
 console.log(fail ? `\nFAILED (${fail})` : '\nPASS');

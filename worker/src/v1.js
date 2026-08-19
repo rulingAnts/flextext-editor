@@ -2784,7 +2784,15 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           await env.DB.prepare('UPDATE install SET last_seen_at=? WHERE install_id=?').bind(now, installId).run();
           return j({ ok: true, unchanged: true }, 200, origin, env);
         }
-        await env.DB.prepare('UPDATE install SET reported_blob=?, reported_rev=reported_rev+1, ack_seq=?, last_seen_at=? WHERE install_id=? AND instance_id=? AND revoked=0')
+        /* ⚠ MAX() IN SQL, NOT IN JAVASCRIPT. `install` was read by authInstall() at request entry —
+         * BEFORE `await readJson(request)` streamed an encrypted inventory over a field uplink, which
+         * can take seconds. A JS `Math.max` against that stale row means two overlapping reports from
+         * one install last-writer-wins, and `ack_seq` can move BACKWARDS: every comment in this file
+         * and test/command-seq-invariant.test.mjs assume it only rises, and the cancel endpoint's
+         * safety proof ("nothing has acted on a seq above max(ack_seq)") rests on it. reportNow() is
+         * deliberately not gated by sync.js's inFlight, so the overlap is reachable, not theoretical.
+         * Doing the comparison in the UPDATE makes it atomic with the write. */
+        await env.DB.prepare('UPDATE install SET reported_blob=?, reported_rev=reported_rev+1, ack_seq=MAX(ack_seq, ?), last_seen_at=? WHERE install_id=? AND instance_id=? AND revoked=0')
           .bind(newBlob, ackSeq, now, installId, instanceId).run();
         return j({ ok: true }, 200, origin, env);
       }

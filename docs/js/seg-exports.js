@@ -1048,6 +1048,66 @@ export async function assembleSegEntries({ doc, title = '', base = 'text', media
  * by this name. Two string literals would have drifted the first time one was edited. */
 export const MANIFEST_NAME = 'flextext-manifest.json';
 
+/* THE SOURCE-PACKAGE MANIFEST — one builder, here, for the same reason MANIFEST_NAME is here.
+ *
+ * ⚠ IT WAS ALREADY DRIFTING. app.js had `buildSourceManifest`; researcher-panel.js inlined a
+ * hand-copied object literal of the same shape. Two writers of one contract, and the contract is
+ * what every consumer checks completeness against — so the first divergence would have shown up as
+ * "the panel says this package is incomplete" on a text that was fine. Moving it here is the same
+ * fix MANIFEST_NAME got, applied to the thing the name refers to.
+ *
+ * Everything is a PARAMETER: the old version read app.js module state (`settings`, ENGINE_VERSION,
+ * BUILD_TAG) directly, which is exactly what a second writer cannot do and why the panel copied it
+ * instead of calling it.
+ *
+ * ---------------- schema 2: provenance ----------------
+ * Seth, 2026-08-19: *"it might be important some time in the future to check the origin of all texts
+ * in our Google Drive folders — recorded on a device (which one??), crowd recorder, or uploaded by
+ * researcher (and history of which devices it's been assigned to…)"*
+ *
+ * `origin` (schema 1) answered HOW a text came to exist but never WHERE, so "which device recorded
+ * this" was unanswerable from Drive alone — the drive-as-truth premise says it must be. `source`
+ * names the birthplace and is WRITTEN ONCE, at package time, never rewritten:
+ *
+ *   source: { kind: 'device'|'crowd'|'researcher', id, name }
+ *
+ * ⚠ CUSTODY HISTORY IS DELIBERATELY NOT HERE — see plans/drive-as-truth.md §16.12. This file is
+ * written FIRST, before a single source byte, and declares an INTENDED FILE SET that a consumer
+ * compares against the folder to derive completeness. That only works because it is immutable.
+ * Appending a move to it means rewriting it, and a rewrite that races an in-flight upload can
+ * regress the declared set — turning the one document that answers "what is missing" into a
+ * document that can be wrong about it. History is append-only and belongs in its own file.
+ *
+ * Additive by design: readers MUST ignore keys they do not know, so a schema-1 reader handles this
+ * unchanged and an old manifest simply has no `source`. */
+export function buildSourceManifest({
+  docId, title = '', origin, originatedAt = null, engine = '', buildTag = '',
+  vern = '', anal = '', audio = null, files = [], consent = null, source = null,
+  now = Date.now(),
+} = {}) {
+  return {
+    schema: 2,
+    docId,
+    title: title || '',
+    origin,
+    // Where it was born. Absent rather than half-filled: a `source` with no id is worse than none,
+    // because it looks like an answer.
+    ...(source && source.kind ? { source: {
+      kind: source.kind,
+      id: String(source.id || ''),
+      name: String(source.name || ''),
+    } } : {}),
+    originatedAt: originatedAt || null,
+    writtenAt: now,
+    engine,
+    buildTag: buildTag || '',
+    writingSystems: { vern: vern || '', anal: anal || '' },
+    audio,
+    files: [{ name: MANIFEST_NAME, role: 'manifest', mime: 'application/json', bytes: 0 }, ...files],
+    consent: consent || { mode: '', prompt: false, response: false, receipt: false },
+  };
+}
+
 /* ---------------- FILE NAMING — one rule, shared by every writer ----------------
  *
  * ⚠ WHY THIS LIVES HERE (v3, after the v336 test drive produced `bwpX_YzJZRolHdh_.preview.html`):

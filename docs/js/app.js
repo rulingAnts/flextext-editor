@@ -22,7 +22,7 @@ import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpa
          wireWaveSeek, requestReveal, takeReveal, followLine,
          initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut,
          stripSplitAtPlayhead } from './segment-strips.js';
-import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME,
+import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME, buildSourceManifest,
          sanitizeBase, extOf, mediaNameFor, derivedWavName,
          loosePlan, buildLooseConversion, durationVerdict } from './seg-exports.js';
 import { mergeSegments, splitSegment, isAligned, normalizeSegments } from './segments.js';
@@ -4454,10 +4454,27 @@ async function queueMediaUpload(docId) {
                  blob: new Blob([consentReceiptText(full)], { type: 'text/plain' }), mime: 'text/plain' });
   }
 
-  const manifest = buildSourceManifest(rec, {
+  const manifest = buildSourceManifest({
+    docId: rec.id, title: rec.title || '',
     origin: isAudioLocked(rec) ? 'assigned' : 'recorded',
+    originatedAt: rec.created || null,
+    engine: ENGINE_VERSION, buildTag: BUILD_TAG,
+    vern: settings.vernLang || '', anal: settings.analLang || '',
     files: parts.map((p) => ({ name: p.name, role: p.role, mime: p.mime, bytes: p.blob.size })),
     audio: { name: audioName, mime: parts[0].mime, bytes: media.blob.size, derived: false },
+    consent: {
+      mode: settings.consentMode || 'off',
+      prompt: !!rec.consentPromptClip,
+      response: !!rec.consentClip,
+      receipt: !!rec.consentReceipt,
+    },
+    /* WHICH DEVICE recorded this — the question schema 1 could not answer from Drive alone.
+     * ⚠ NO `name`: a device does not know its own nickname (it lives in D1, is researcher-set and
+     * renameable), and a manifest is written once. Recording a name here would freeze whatever it
+     * was at package time and quietly disagree with the panel after the first rename. The id is the
+     * durable fact; resolving it to a name is the reader's job.
+     * An unmanaged device has no instance id and says so with '' rather than claiming another kind. */
+    source: { kind: 'device', id: (Sync.enrollment() || {}).instanceId || '' },
   });
   const queue = [
     { slot: 'manifest', name: MANIFEST_NAME, role: 'manifest', mime: 'application/json',
@@ -4491,32 +4508,9 @@ async function queueMediaUpload(docId) {
 // sanitizeBase / extOf now live in seg-exports.js (imported above) — the ONE naming rule shared by
 // the device, the panel and the downloader. See the FILE NAMING block there for why.
 
-/* The package's metadata record — and the contract a consumer checks completeness against.
- * `origin` is the provenance field: how this text came to exist, so the suite never has to infer
- * it from filenames. Additive by design: `schema` is versioned and readers MUST ignore keys they
- * do not know, so a future origin value or field cannot break an old reader. Records THAT a
- * consent receipt exists, never what it says. */
-function buildSourceManifest(rec, { origin, files, audio }) {
-  return {
-    schema: 1,
-    docId: rec.id,
-    title: rec.title || '',
-    origin,
-    originatedAt: rec.created || null,
-    writtenAt: Date.now(),
-    engine: ENGINE_VERSION,
-    buildTag: BUILD_TAG || '',
-    writingSystems: { vern: settings.vernLang || '', anal: settings.analLang || '' },
-    audio,
-    files: [{ name: MANIFEST_NAME, role: 'manifest', mime: 'application/json', bytes: 0 }, ...files],
-    consent: {
-      mode: settings.consentMode || 'off',
-      prompt: !!rec.consentPromptClip,
-      response: !!rec.consentClip,
-      receipt: !!rec.consentReceipt,
-    },
-  };
-}
+/* buildSourceManifest now lives in seg-exports.js — the ONE builder shared by the device (here),
+ * the panel and the crowd page. It used to live here and the panel kept a hand-copied literal of
+ * the same shape; see the block there for why two writers of one contract is the bug. */
 
 /* AFTER A SUCCESSFUL SEND, GO BACK TO THE TEXTS LIST (Seth, 2026-08-13).
  *
@@ -6646,15 +6640,51 @@ function crowdShowFrameEscape(targetSel = '#record-status') {
 // Bundle exactly like buildBundleFor does for a field recording: audio + recorded
 // assent + frozen prompt + consent-receipt.json/.txt.
 async function crowdBuildZip(file, { assent, receipt, promptAudio }) {
-  const entries = [{ name: file.name, data: file }];
-  if (assent?.blob) entries.push({ name: assent.name, data: assent.blob });
-  if (promptAudio?.blob) entries.push({ name: promptAudio.name, data: promptAudio.blob });
+  // role travels with each entry so the manifest can DECLARE it, exactly as the device's source
+  // package does — a tag is a fact, a filename is a guess (see pickSourceFiles in the panel).
+  const entries = [{ name: file.name, data: file, role: 'source-audio' }];
+  if (assent?.blob) entries.push({ name: assent.name, data: assent.blob, role: 'consent-clip' });
+  if (promptAudio?.blob) entries.push({ name: promptAudio.name, data: promptAudio.blob, role: 'consent-prompt' });
   if (receipt) {
     const full = { ...receipt, textTitle: file.name };
-    entries.push({ name: 'consent-receipt.json', data: new Blob([JSON.stringify(full, null, 2)], { type: 'application/json' }) });
-    entries.push({ name: 'consent-receipt.txt', data: new Blob([consentReceiptText(full)], { type: 'text/plain' }) });
+    entries.push({ name: 'consent-receipt.json', role: 'consent-receipt', data: new Blob([JSON.stringify(full, null, 2)], { type: 'application/json' }) });
+    entries.push({ name: 'consent-receipt.txt', role: 'consent-receipt', data: new Blob([consentReceiptText(full)], { type: 'text/plain' }) });
   }
-  return makeZip(entries);
+  /* THE MANIFEST — the same builder the device and the panel use, written by the CLIENT because
+   * the crowd page IS this engine (window.__MODE = 'crowd'), so the third origin needs no third
+   * writer and no worker-side copy of the contract.
+   *
+   * It goes in LAST but declares the entries above, so a consumer can name what a partial package
+   * is missing exactly as it can for a device text. `source.kind = 'crowd'` with the recorder's own
+   * id is what finally makes all three origins distinguishable from Drive alone.
+   *
+   * ⚠ docId is left empty ON PURPOSE. The doc id of a crowd submission is its submission id, and
+   * that is minted SERVER-SIDE (it is what binds the upload ticket and names the text folder), so
+   * the client cannot know it here without inventing a second identity that could disagree with the
+   * first. A reader takes the id from the folder's flextextDoc tag, which is the authority. */
+  const cManifest = buildSourceManifest({
+    docId: '', title: file.name || '',
+    origin: 'crowd',
+    originatedAt: Date.now(),
+    engine: ENGINE_VERSION, buildTag: BUILD_TAG,
+    // A crowd page collects no writing systems — it is a recorder, not an editor. Left empty
+    // rather than guessed from the UI language, which is a different thing entirely.
+    audio: { name: file.name, mime: file.type || 'application/octet-stream', bytes: file.size, derived: false },
+    files: entries.map((e) => ({ name: e.name, role: e.role || '', mime: (e.data && e.data.type) || '', bytes: (e.data && e.data.size) || 0 })),
+    consent: {
+      mode: 'crowd',
+      prompt: !!(promptAudio && promptAudio.blob),
+      response: !!(assent && assent.blob),
+      receipt: !!receipt,
+    },
+    source: { kind: 'crowd', id: CROWD_ID || '' },
+  });
+  /* FIRST in the zip, not last — same order as the device's upload queue, and here it is
+   * load-bearing rather than tidy. The worker unwraps this entry to place it beside the zip in
+   * Drive, and on the CHUNKED path it never holds the whole file: it reads only the first slice
+   * back. A STORE zip is scanned from offset 0, so an entry at the front is reachable from a small
+   * ranged read no matter how many hundreds of megabytes the recording is. */
+  return makeZip([{ name: MANIFEST_NAME, data: new Blob([JSON.stringify(cManifest, null, 2)], { type: 'application/json' }) }, ...entries]);
 }
 
 async function crowdQueueAndSubmit(file, extras) {

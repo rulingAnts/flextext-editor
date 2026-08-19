@@ -17,7 +17,7 @@ import { t, getLang, setLang, applyI18n, ENGINE_VERSION, BUILD_TAG, LANGS, LANG_
 import { REC_FORMATS, DEFAULT_REC_FORMAT } from './record-pcm.js';
 import { importPublicKeyB64, publicKeyFingerprint } from './crypto.js';
 import { esc, parseFlextext, surveyWritingSystems, remapWritingSystems, analyzeFlextextWs, segmentsFromOffsets } from './flextext.js';
-import { assembleSegEntries, MANIFEST_NAME, sanitizeBase, mediaNameFor, derivedWavName, conversionCaps,
+import { assembleSegEntries, MANIFEST_NAME, buildSourceManifest, sanitizeBase, mediaNameFor, derivedWavName, conversionCaps,
          loosePlan, buildLooseConversion, durationVerdict } from './seg-exports.js';
 import { convertAudio, detectFormat, readWavHeader, validOutputs } from './convert.js';
 import WaveSurfer from './vendor/wavesurfer.esm.js';
@@ -3172,24 +3172,25 @@ async function runAssignUpload(docId) {
      * compare that list against the folder and NAME what has not arrived rather than guessing.
      * Written once: if the queue resumes after a restart, manifestFileId is already set. */
     if (!rec.manifestFileId) {
-      const manifest = {
-        schema: 1,
-        docId,
-        title: rec.title || '',
+      /* THE SHARED BUILDER, not a copy of it. This was a hand-copied literal of app.js's
+       * buildSourceManifest — two writers of the one contract every consumer checks completeness
+       * against, so the first divergence would have surfaced as "this package is incomplete" on a
+       * text that was fine. It now calls the same function the device does. */
+      const manifest = buildSourceManifest({
+        docId, title: rec.title || '',
         origin: 'assigned',
         originatedAt: rec.queuedAt || Date.now(),
-        writtenAt: Date.now(),
-        engine: ENGINE_VERSION,
-        buildTag: BUILD_TAG || '',
-        writingSystems: { vern: rec.vernLang || '', anal: rec.analLang || '' },
+        engine: ENGINE_VERSION, buildTag: BUILD_TAG,
+        vern: rec.vernLang || '', anal: rec.analLang || '',
         audio: rec.audio ? { name: rec.audio.name, mime: rec.audio.mime, bytes: rec.audio.size, derived: false } : null,
         files: [
-          { name: MANIFEST_NAME, role: 'manifest', mime: 'application/json', bytes: 0 },
           ...(rec.audio ? [{ name: rec.audio.name, role: 'source-audio', mime: rec.audio.mime, bytes: rec.audio.size }] : []),
           ...(rec.flextext ? [{ name: rec.flextext.name, role: 'source-flextext', mime: rec.flextext.mime, bytes: rec.flextext.size }] : []),
         ],
-        consent: { mode: '', prompt: false, response: false, receipt: false },
-      };
+        // Uploaded by a researcher, and WHICH researcher account — the third origin Seth asked to
+        // be able to tell apart from Drive alone.
+        source: { kind: 'researcher', id: Researcher.currentAccountId() || '' },
+      });
       const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' });
       rec.manifestFileId = await Researcher.assignUploadFile(rec.instanceId, docId, {
         blob, name: MANIFEST_NAME, mime: 'application/json', kind: 'manifest',

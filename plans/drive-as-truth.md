@@ -1167,10 +1167,10 @@ a crowd container as an assignment *destination* without inspecting names.
 
 **Three things this deliberately did NOT do:**
 
-1. **No manifest.** Crowd texts have no manifest because *device texts have none either* — the
-   manifest is Phase C, and its format is not settled. Writing one crowd-first would be precisely the
-   drift the instruction is aimed at. When it lands it must land in one shared writer used by both
-   origins, and the crowd call site is already the right shape to receive it.
+1. ~~**No manifest.** Crowd texts have no manifest because *device texts have none either*…~~
+   ⚠ **THIS WAS WRONG — see §16.12.** The manifest has existed since the v2 source package: it is
+   `flextext-manifest.json` in `originals/`, written by the panel for an assigned text and by the
+   device for a recorded one, and it already carries an `origin` field. Corrected and built in v395.
 2. **The crowd → device handoff is still open.** `moveTextModal` delivers text content by extracting
    a `.flextext` from a STORE-only zip (`x:'flextext'`). A crowd zip contains a recording and a
    consent receipt and no `.flextext` at all, so moving a crowd text onto an editor device will fail
@@ -1232,3 +1232,96 @@ only copy is elsewhere.** It is the one origin where "empty folder" is safely co
 reconciler must key that on `origin='crowd'` explicitly, never on "folder exists but is empty",
 which would be true of a device text mid-first-upload and is the one-careless-line bug §3.2 warns
 about.
+
+### 16.12 ⚠ Correction: the manifest already exists — and it is where provenance belongs
+
+§16.10 said crowd texts have no manifest "because device texts have none either". **That was wrong,
+and it was wrong in the direction that matters:** it argued for deferring something that was already
+half-built. Seth: *"our manifest file DOES already exist — in the originals/ sub-folder. It's created
+when a researcher assigns a text using uploaded files."*
+
+What is actually there, and has been since the v2 source package:
+
+- `flextext-manifest.json`, role-tagged `manifest`, in `<Text>/originals/`.
+- **Written FIRST, before a single source byte**, declaring the intended file set. Completeness is
+  DERIVED by comparing that declaration against the folder — there is deliberately no `complete` flag
+  to go stale. This is why the Files menu can NAME what has not arrived instead of showing a partial
+  package as if it were whole.
+- Two writers already: `researcher-panel.js` for an assigned text, `app.js` for a recorded one.
+- It already carries `origin` — `'assigned' | 'recorded'` — and `panel.dl.origin.crowd` was already
+  in the string table, waiting.
+
+**The bug that correction exposed.** `MANIFEST_NAME` was moved into `seg-exports.js` precisely so two
+writers could not disagree about it. **The builder was left behind**: `app.js` had
+`buildSourceManifest`, and the panel carried a hand-copied object literal of the same shape. Nothing
+was wrong on the day it was copied — but the first divergence would not have *looked* like one. It
+would have surfaced as "the panel says this package is incomplete" about a text that was fine, and
+the obvious place to look would have been the upload path rather than the document describing it.
+
+**v395 does what §16.10 asked for, one layer down than it realised:**
+
+- `buildSourceManifest` moves to `seg-exports.js`, beside `MANIFEST_NAME`, with everything a
+  parameter (the old version read `app.js` module state, which is exactly what a second writer cannot
+  do and why the panel copied it instead of calling it). The panel and the device now call it.
+- **schema 2 adds `source: { kind, id }`** — the birthplace. `origin` said HOW a text came to exist
+  but never WHERE, so *"which device recorded this"* was unanswerable from Drive alone, which the
+  drive-as-truth premise says it must not be. Three kinds: `device` (instance id), `crowd` (recorder
+  id), `researcher` (account id). Additive; a schema-1 reader is unaffected and an old manifest
+  simply has no `source`. When it is absent it is **omitted**, not empty — a reader cannot tell "we
+  do not know" from "it came from nowhere" if the key is always present.
+- ⚠ **No device `name`.** A device does not know its own nickname (it is researcher-set in D1 and
+  renameable), and a manifest is written once — recording a name would freeze whatever it was at
+  package time and quietly disagree with the panel after the first rename. The id is the durable
+  fact; resolving it to a name is the reader's job.
+- **The crowd page writes its own**, with the same builder, because the crowd page *is* this engine
+  (`__MODE='crowd'`). Seth: *"It might be client-app code that creates that file, rather than the
+  worker. And that's fine."* It is better than fine — it is what keeps the worker from becoming a
+  fourth writer of a contract whose entire value is that every writer agrees, and it is the one
+  writer that could not import the shared module to stay honest.
+- Crowd submissions now land in `<Text>/originals/` like everything else, and the worker **unwraps**
+  the client-written manifest out of the delivered zip and places it beside it. The manifest is the
+  FIRST zip entry, which is load-bearing rather than tidy: on the chunked path the worker never holds
+  the whole file, so it reads back only a 256 KiB head — and a STORE zip is scanned from offset 0, so
+  a front entry is reachable however many hundreds of megabytes the recording is. The extracted bytes
+  are JSON-parsed before writing, because a truncated manifest would be read as a *corrupt* one
+  rather than an absent one, which is strictly worse.
+
+#### Custody history: a SECOND file, not a bigger manifest
+
+Seth asked whether the assignment history could live in the manifest too. **It should not, and the
+reason is the manifest's one distinguishing property.**
+
+The manifest is written once, before the bytes, and is the contract completeness is judged against.
+Appending a move means **rewriting it** — and a rewrite that races an in-flight upload can regress
+the declared file set, turning the one document that answers *"what is missing"* into a document that
+can be wrong about it. Immutability is not a stylistic preference here; it is what makes the
+completeness check trustworthy.
+
+So: **`flextext-history.json`, append-only, beside the manifest in `originals/`.** Different
+mutability contract, different file, and a reader that only wants provenance-at-birth never has to
+parse a growing log. Shape (not yet built — this is the decision, not the implementation):
+
+```
+{ schema: 1, docId, events: [ { at, kind: 'created'|'assigned'|'moved'|'unassigned'|'adopted',
+                                from: {kind,id}|null, to: {kind,id}|null, by: {kind,id} } ] }
+```
+
+⚠ **And it must be written by whoever performs the custody change** — the panel for an assign/move,
+the worker only where it is the sole actor. A history file that any reader may append to is a history
+file that disagrees with itself.
+
+**Still open, and it is Seth's call:** whether `.fxpa`-style text-level metadata (§2's
+`recording_id`, TTL, per-text settings) rides in the manifest as originally sketched, or in the
+history file, or in a third. The manifest is written before the bytes and cannot know a
+`recording_id` assigned later — which argues that anything **assigned after birth** belongs with the
+history, and only birth facts belong in the manifest. That line ("immutable at birth" vs "assigned
+later") is a cleaner rule than "descriptive vs structural" and probably the one to adopt.
+
+#### One gap this investigation surfaced, unrelated to crowd
+
+`queueMediaUpload` — the only writer of a device-side manifest — returns early when the doc has no
+media (`db.getMedia(docId)` is null). **So a text created by OPENING a `.flextext` file, with no
+audio, gets no `originals/` folder and no manifest at all.** Seth named exactly this case: *"Texts
+originated in editor or recorder by recording or opening files should also create an original/ folder
+with a manifest file."* It is a real gap, it predates all of this, and it is not fixed in v395 —
+filed here rather than folded into a crowd change.

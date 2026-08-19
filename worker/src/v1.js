@@ -902,7 +902,51 @@ function crowdTextTitle(rec, at) {
 }
 async function driveEnsureCrowdTextFolder(env, access, rec, subId, at) {
   const crowdFolder = await driveEnsureCrowdFolder(env, access, rec);
-  return driveEnsureTextFolder(access, crowdFolder, subId, crowdTextTitle(rec, at), '');
+  const textFolder = await driveEnsureTextFolder(access, crowdFolder, subId, crowdTextTitle(rec, at), '');
+  // …/originals/, the same child a device's source package lands in. The submission zip and its
+  // manifest go in there, not in the text folder root, so the two origins produce one shape.
+  return { textFolder, originals: await driveEnsureChildFolder(access, textFolder, 'originals', 'originals') };
+}
+
+/* Lift the CLIENT-WRITTEN manifest out of a delivered submission zip and place it beside the zip in
+ * originals/, so it is a real file in Drive rather than something you must unzip to read.
+ *
+ * ⚠ THE WORKER DOES NOT BUILD IT. The crowd page is this suite's own engine, so it writes the
+ * manifest with the same buildSourceManifest the device and the panel use (seg-exports.js) and
+ * ships it inside the zip. A worker-side copy of that contract would be a fourth writer of a
+ * document whose whole value is that every writer agrees — the drift this move exists to prevent.
+ * All this does is unwrap it. storeZipEntry only reads STORE-only zips, which is exactly what our
+ * own zip.js writes, so a foreign or compressed zip simply yields null and nothing is written.
+ *
+ * Always called through ctx.waitUntil: the submission is already safely in Drive by this point, and
+ * a manifest is organisational. It must never delay or endanger the bytes. */
+const CROWD_MANIFEST_PEEK = 262144;                       // 256 KiB — the manifest is the FIRST entry
+async function crowdExtractManifest(env, access, originalsFolderId, bytes) {
+  try {
+    const raw = storeZipEntry(bytes, /(^|\/)flextext-manifest\.json$/i);
+    if (!raw || !raw.length) return;
+    /* ⚠ VALIDATE BEFORE WRITING. On the chunked path `bytes` is a PREFIX of the zip, so a manifest
+     * larger than the peek window would come back truncated — and storeZipEntry cannot tell, it
+     * returns the slice the header declares. Parsing is the cheap check that the bytes are whole;
+     * writing a half a JSON file would be worse than writing none, because a consumer would read
+     * it as a corrupt manifest rather than an absent one. */
+    const text = new TextDecoder().decode(raw);
+    JSON.parse(text);
+    await driveUpload(access, originalsFolderId, 'flextext-manifest.json',
+      new TextEncoder().encode(text), 'application/json', { flextextRole: 'manifest' });
+  } catch { /* organisational only — a submission that landed must not be reported as failed */ }
+}
+
+// The chunked path never holds the zip, so read back just the head of the delivered file and
+// unwrap the manifest from that. One ranged GET, after the response, off the critical path.
+async function crowdExtractManifestById(env, access, originalsFolderId, fileId) {
+  try {
+    const g = await fetch('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?alt=media', {
+      headers: { Authorization: 'Bearer ' + access, Range: 'bytes=0-' + (CROWD_MANIFEST_PEEK - 1) },
+    });
+    if (!g.ok && g.status !== 206) return;
+    await crowdExtractManifest(env, access, originalsFolderId, new Uint8Array(await g.arrayBuffer()));
+  } catch { /* organisational only */ }
 }
 
 // Drive resumable upload as one initiate + one PUT (fine for our ≤25 MB bodies).
@@ -3145,8 +3189,9 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         try {
           const rrow = await env.DB.prepare('SELECT * FROM researcher WHERE researcher_id=?').bind(rec.researcher_id).first();
           const access = await driveAccessToken(env, rrow);
-          // Its own text folder, through the same helper the device upload path uses.
-          const folder = await driveEnsureCrowdTextFolder(env, access, rec, subId, now);
+          // Its own text folder + originals/, through the same helpers the device upload path uses.
+          const { originals } = await driveEnsureCrowdTextFolder(env, access, rec, subId, now);
+          const folder = originals;
           const init = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id', {
             method: 'POST',
             headers: { Authorization: 'Bearer ' + access, 'content-type': 'application/json',
@@ -3159,7 +3204,9 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           });
           const session = init.ok ? init.headers.get('Location') : null;
           if (!session) { const e = new Error('no session (HTTP ' + init.status + ')'); e.code = 'drive_error'; throw e; }
-          const uploadId = await encAtRest(env, JSON.stringify({ u: session, c: crowdId, s: size, d: subId, n: name, t: now }));
+          // `o` rides along so the completion handler can place the manifest beside the zip without
+          // re-resolving the folder (and without a second Drive round trip on the public path).
+          const uploadId = await encAtRest(env, JSON.stringify({ u: session, c: crowdId, s: size, d: subId, n: name, t: now, o: originals }));
           return j({ ok: true, uploadId }, 200, origin, env);
         } catch (e) {
           await noteDriveError(env, rec.researcher_id, 'crowd chunked start failed: ' + safeErr(e));
@@ -3197,6 +3244,15 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           const today = new Date(now).toISOString().slice(0, 10);
           const ins = await env.DB.prepare('INSERT OR IGNORE INTO crowd_submission (sub_id, crowd_id, created_at, bytes, country, ip_hmac, file_name, status) VALUES (?,?,?,?,?,?,?,?)')
             .bind(sess.d, crowdId, now, sess.s, country, ipH, sess.n, 'ok').run();
+          // Gated on `changes` with the INSERT: a replayed final chunk must not re-write the
+          // manifest any more than it may double-count the submission.
+          if (ins.meta.changes && sess.o) {
+            ctx.waitUntil((async () => {
+              const rrow = await env.DB.prepare('SELECT * FROM researcher WHERE researcher_id=(SELECT researcher_id FROM crowd_recorder WHERE crowd_id=?)').bind(crowdId).first();
+              if (!rrow) return;
+              await crowdExtractManifestById(env, await driveAccessToken(env, rrow), sess.o, data.id);
+            })());
+          }
           if (ins.meta.changes) {
             await env.DB.batch([
               env.DB.prepare('UPDATE crowd_recorder SET submit_count=submit_count+1, bytes_total=bytes_total+?, day_count=CASE WHEN day_key=? THEN day_count+1 ELSE 1 END, day_key=? WHERE crowd_id=?')
@@ -3258,9 +3314,12 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         try {
           const rrow = await env.DB.prepare('SELECT * FROM researcher WHERE researcher_id=?').bind(rec.researcher_id).first();
           const access = await driveAccessToken(env, rrow);
-          // Its own text folder, through the same helper the device upload path uses.
-          const folder = await driveEnsureCrowdTextFolder(env, access, rec, subId, now);
-          fileId = await driveUpload(access, folder, name, buf, 'application/zip', { flextextRole: 'crowd-submission' });
+          // Its own text folder + originals/, through the same helpers the device upload path uses.
+          const { originals } = await driveEnsureCrowdTextFolder(env, access, rec, subId, now);
+          fileId = await driveUpload(access, originals, name, buf, 'application/zip', { flextextRole: 'crowd-submission' });
+          // The bytes are already in Drive; unwrapping the manifest is organisational, so it runs
+          // after the response and can never turn a delivered submission into a reported failure.
+          ctx.waitUntil(crowdExtractManifest(env, access, originals, new Uint8Array(buf)));
         } catch (e) {
           await noteDriveError(env, rec.researcher_id, 'crowd delivery failed: ' + safeErr(e));
           return j({ error: 'delivery_failed' }, 502, origin, env);   // client keeps + retries

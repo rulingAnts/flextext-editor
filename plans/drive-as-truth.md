@@ -749,3 +749,76 @@ short: the per-instance design was already doing most of this work.
   hold the assistant's email at all and the account link is established by the same out-of-band
   match. Worth designing Phase C's invite flow so that this can be dropped in later rather than
   requiring the email column to be load-bearing.
+
+---
+
+## 14. Documentation — QUEUED, and deliberately AFTER the build
+
+Seth, 2026-08-19: *"let's not update documentation right now, just put that in the plan. We want to
+make architecture and design and UI changes FIRST (up through phase C at least) and THEN update
+documentation."*
+
+Right sequencing: most of what follows describes behaviour that does not exist yet, and documenting
+unbuilt behaviour is its own kind of false claim. This section exists so the doc pass is a checklist
+rather than an archaeology exercise — the content below was drafted and is recorded here rather than
+shipped.
+
+⚠ **One exception already taken, and it should not be re-litigated:** DEVELOPERS.md's E2EE wording
+was *corrected* on 2026-08-19 because it was **already inaccurate about the code as it stands**
+(§10.2). Correcting a false claim is not the same as documenting a new feature and does not wait.
+
+### 14.1 A user-facing Drive page — `docs/help/google-drive.html`
+
+Nothing currently tells a researcher any of this, and all of it is **true today**:
+
+- **What gets created:** `FlexText Uploads/ → <device>/ → <text>/ → originals/`, plus `Unassigned/`.
+- **The ownership boundary (§8a), stated for users:** *everything lives in one folder called
+  `FlexText Uploads`; that folder is yours — move it, rename it, nest it wherever suits you, because
+  the app finds it by an internal marker rather than by name or location. Leave the inside to the
+  app.* ✅ Already true — `driveMasterFolder()` resolves by the `uploads-master` tag.
+- **What may be rearranged:** the boundary folder freely; device and text folders may be renamed
+  (they are tracked by identity). ⚠ Do **not** reorganise the inside — the app will put it back, and
+  cannot distinguish that from a half-finished operation of its own.
+- **`drive.file` scope in plain words:** the app can only ever see files it created; the rest of the
+  Drive is invisible to it, and that is enforced by Google rather than by us. Reassuring, and true.
+- **Three things that surprise people**, all verified against the code:
+  1. **A device folder is named once.** The nickname becomes the folder name at FIRST upload; after
+     that the folder is tracked by id, so **renaming the device in the panel does not rename the
+     Drive folder.** ⚠ Rename it **by hand in Drive** — safe, nothing breaks, and people assume the
+     opposite and so leave a person's name in place (§11.5).
+  2. **Device names are the naming choice worth thought**, and text titles are not — a title is only
+     as revealing as the text itself (§11.5). Say it in exactly that proportion; blanket "be careful
+     what you name things" advice gets ignored.
+  3. **"Remove" trashes, it does not delete.** ~30 days in Google's trash, deliberately, because it
+     is what makes a mistaken removal recoverable — but "removed" is not "gone" until the trash is
+     emptied (§11.4).
+- Closing note: Unassigned means Drive has it and no device does, which is usually intended.
+
+⚠ **Linking it costs a version bump.** `docs/help/*.html` is NOT precached (deliberate — see the
+sw.js navigation-fallback comment), so the page itself can ship without one; but a link to it from
+the panel is a `docs/js` + i18n change and therefore a bump. Land the link with whatever `docs/js`
+change goes out anyway rather than bumping for a link.
+
+### 14.2 README.md
+
+Currently has **no data/privacy section at all** — it is the public front door and says nothing about
+where a researcher's material lives. Add a short one: the single-folder boundary contract, the
+`drive.file` scope, and a pointer to the help page. Keep it to a few sentences; the detail belongs in
+help.
+
+### 14.3 DEVELOPERS.md
+
+- The **Drive ownership contract** as an architectural invariant, in the connectivity section: the
+  app owns the layout inside the boundary, the boundary itself is the researcher's, resolution is by
+  tag/id and never by name or parent.
+- Once the index exists, **the exact E2EE claim from §10.5** — and never `E2EE` unqualified again.
+- The identity model once built: `doc_id` vs `recording_id`, the three origins, register-first.
+
+### 14.4 Written only when the corresponding feature ships
+
+Do not write these ahead of the code: the reconciler and its precedence rules; pairing by number
+(§13.2) and the removal of the identity disclosure from the claim response; encrypted `nickname`,
+`drive_email` and `display_name`; `domain_enc`; per-project scoping under Phase C.
+
+**Order:** architecture → design → UI → **then** all of the above, in one pass, against what actually
+shipped.

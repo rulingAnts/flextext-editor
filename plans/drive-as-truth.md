@@ -667,6 +667,31 @@ short: the per-instance design was already doing most of this work.
   completing before any network call — a wipe that needs to reach the worker first is useless under
   the circumstances it exists for. `eraseAllData()` already exists and is local, so the primitive is
   there; what would be new is the unlock gate and the second password.
+
+  ⚠ **But Seth's objection to it is correct and should be recorded before anyone builds it** (2026-08-19):
+  this suite is open source, so anyone who has read it knows the feature exists. That is not a flaw
+  of publishing — security must never depend on the design being unknown, and a closed-source version
+  would be one disassembly away from the same position. The feature bundles two things that fail
+  differently, and only separating them is honest:
+
+  - **Deniability — "there is nothing else here" — does not survive disclosure.** Someone who knows
+    the feature exists knows to ask for both passwords. This half cannot be rescued.
+  - **A fast wipe trigger does survive it.** Knowing the feature exists does not help once the wipe
+    has run, and a password already in muscle memory beats finding a menu item under pressure.
+
+  **So build it as a panic trigger and never describe it as deniability.** A user who believes they
+  have deniability when they do not is in MORE danger, not less — the same reason accuracy is treated
+  as a protective measure elsewhere in this document.
+
+  Two alternatives that may be worth more than the feature itself:
+  - **A dead-man timer** — wipe if the device has not checked in for N days. Survives disclosure
+    equally well and does not depend on anyone acting correctly under pressure, which is the
+    assumption a duress password quietly rests on.
+  - **At-rest encryption whose key is not on the device**, because a device imaged at rest never
+    reaches an unlock prompt at all and every unlock-time trick is moot against it.
+
+  And the honest ranking: **holding less on the device beats all of it.** §13 does more real work
+  here than any duress feature would.
 - **Minimising owner-sees-assistant-email.** Seth: *"unavoidable at the moment, but it would be good
   for us to be thinking later how to minimize the exposure risk there."* The mechanism from §13.2
   generalises: **invite a researcher by CODE rather than by address**, so the owner never needs to

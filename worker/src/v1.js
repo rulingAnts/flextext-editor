@@ -3227,6 +3227,75 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       const r = await authResearcher(request, env);
       if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
 
+      /* CONSENT PROMPT UPLOAD — the crowd twin of the device's assignment/upload trio.
+       *
+       * A crowd recorder has no instance, so it cannot borrow .../instances/<id>/texts/<docId>/
+       * assignment/... — hence its own routes rather than a relaxed guard on those (same reasoning
+       * as /adopt vs /move: one endpoint, one meaning). The file lands in the recorder's OWN Drive
+       * folder root, exactly as a device prompt lands in the device folder root, tagged
+       * flextextRole=consent-prompt so the estate view classifies it identically.
+       *
+       * ⚠ The session ticket's ownership key is `pr` (+ `rr`), NOT `c`. The PUBLIC submit-chunk
+       * relay authorises on `sess.c === crowdId` with no auth at all — a ticket carrying `c` would
+       * therefore drive that endpoint too, letting a leaked researcher prompt session be spent by
+       * an anonymous visitor. Route-distinct keys are what keep the two relays apart. */
+
+      // POST /v1/crowd/<id>/prompt/upload/start {name, mime, size} → opaque resumable session.
+      if (m === 'POST' && seg.length === 6 && seg[3] === 'prompt' && seg[4] === 'upload' && seg[5] === 'start') {
+        const rec = await env.DB.prepare('SELECT crowd_id, label, oauth_folder_id FROM crowd_recorder WHERE crowd_id=? AND researcher_id=?')
+          .bind(crowdId, r.researcher_id).first();
+        if (!rec) return j({ error: 'not_found' }, 404, origin, env);
+        const body = await readJson(request) || {};
+        const size = parseInt(body.size, 10) || 0;
+        if (size < 1 || size > 2 * 1024 * 1024 * 1024) return j({ error: 'bad_size' }, 400, origin, env);
+        const name = String(body.name || '').replace(/[\\/:*?"<>|]+/g, '_').trim().slice(0, 180) || ('consent-prompt-' + now + '.bin');
+        const mime = String(body.mime || 'application/octet-stream').slice(0, 100);
+        try {
+          const access = await driveAccessToken(env, r);
+          const parent = await driveEnsureCrowdFolder(env, access, rec);
+          const init = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id', {
+            method: 'POST',
+            headers: {
+              Authorization: 'Bearer ' + access, 'content-type': 'application/json',
+              'X-Upload-Content-Type': mime, 'X-Upload-Content-Length': String(size),
+            },
+            body: JSON.stringify({ name, mimeType: mime, parents: [parent], appProperties: { flextextRole: 'consent-prompt' } }),
+          });
+          const session = init.ok ? init.headers.get('Location') : null;
+          if (!session) { const e = new Error('no upload session (HTTP ' + init.status + ')'); e.code = 'drive_error'; throw e; }
+          const uploadId = await encAtRest(env, JSON.stringify({ u: session, rr: r.researcher_id, pr: crowdId, s: size }));
+          return j({ ok: true, uploadId }, 200, origin, env);
+        } catch (e) {
+          await noteDriveError(env, r.researcher_id, 'crowd prompt upload start failed: ' + safeErr(e));
+          return j({ error: e.code || 'drive_error' }, 502, origin, env);
+        }
+      }
+
+      // PUT /v1/crowd/<id>/prompt/upload/chunk — same wire contract as every other chunk relay.
+      if (m === 'PUT' && seg.length === 6 && seg[3] === 'prompt' && seg[4] === 'upload' && seg[5] === 'chunk') {
+        let sess = null;
+        try { sess = JSON.parse(await decAtRest(env, request.headers.get('x-fx-upload') || '')); } catch { sess = null; }
+        if (!sess || !sess.u || sess.rr !== r.researcher_id || sess.pr !== crowdId) return j({ error: 'bad_upload' }, 403, origin, env);
+        const out = await relayDriveChunk(request, sess);
+        return j(out.body, out.status, origin, env);
+      }
+
+      /* POST /v1/crowd/<id>/prompt/finish {promptFileId, ttlDays} → the private streaming URL the
+       * crowd page plays. UNSCOPED for the same reason the device prompt URL is: a prompt is
+       * configuration, and a crowd recorder has no instance to scope to in the first place. */
+      if (m === 'POST' && seg.length === 5 && seg[3] === 'prompt' && seg[4] === 'finish') {
+        const rec = await env.DB.prepare('SELECT crowd_id FROM crowd_recorder WHERE crowd_id=? AND researcher_id=?')
+          .bind(crowdId, r.researcher_id).first();
+        if (!rec) return j({ error: 'not_found' }, 404, origin, env);
+        const body = await readJson(request) || {};
+        if (!body.promptFileId) return j({ error: 'nothing_to_mint' }, 400, origin, env);
+        const ttlDays = clampTtlDays(body.ttlDays);
+        try {
+          const promptUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.promptFileId, '', ttlDays * 86400000);
+          return j({ ok: true, ttlDays, promptUrl }, 200, origin, env);
+        } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
+      }
+
       // GET /v1/crowd/<id>/submissions — last 50 for the panel's log modal.
       if (m === 'GET' && seg.length === 4 && seg[3] === 'submissions') {
         const owned = await env.DB.prepare('SELECT crowd_id FROM crowd_recorder WHERE crowd_id=? AND researcher_id=?').bind(crowdId, r.researcher_id).first();

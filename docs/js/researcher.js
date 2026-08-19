@@ -450,13 +450,24 @@ export async function fetchDriveFile(fileId, onProgress) {
 
 const textsPath = (iid, docId) => `/v1/instances/${encodeURIComponent(iid)}/texts/${encodeURIComponent(docId)}`;
 
+/* The chunked-upload trio below is addressed by a BASE PATH, not by instance+doc, so a second
+ * caller with no instance at all can reuse it verbatim. The crowd recorder's consent prompt is
+ * that caller: it passes `/v1/crowd/<id>/prompt` and gets the same probe-first resume, AIMD chunk
+ * sizing and session persistence the device assignment path has had since v337. Defaulting keeps
+ * every existing call site unchanged. */
+const uploadBase = (iid, docId, base) => base || (textsPath(iid, docId) + '/assignment');
+export const crowdPromptBase = (crowdId) => `/v1/crowd/${encodeURIComponent(crowdId)}/prompt`;
+export function crowdPromptFinish(crowdId, fields) {
+  return api('POST', crowdPromptBase(crowdId) + '/finish', { body: fields });
+}
+
 export function assignBegin(instanceId, docId, title, folderId) {
   return api('POST', textsPath(instanceId, docId) + '/assignment/begin', { body: { title, ...(folderId ? { folderId } : {}) } });
 }
-export function assignUploadStart(instanceId, docId, fields) {
+export function assignUploadStart(instanceId, docId, fields, base) {
   // retry:false — a lost response would open a second Drive session; the chunk loop's
   // session_gone restart is the recovery path, not a blind re-POST.
-  return api('POST', textsPath(instanceId, docId) + '/assignment/upload/start', { body: fields, retry: false });
+  return api('POST', uploadBase(instanceId, docId, base) + '/upload/start', { body: fields, retry: false });
 }
 export function assignFinish(instanceId, docId, fields) {
   return api('POST', textsPath(instanceId, docId) + '/assignment/finish', { body: fields });
@@ -465,13 +476,13 @@ export function assignFinish(instanceId, docId, fields) {
 /* One chunk PUT (or a "bytes star/total" probe with a null body) — raw fetch, because api() is
  * JSON-only and this body is bytes (the fetchDriveFile precedent). Returns the same shape the
  * device's upload.js reads off its chunk relay: {done,fileId} | {received} | {gone} | {fail}. */
-export async function assignUploadChunk(instanceId, docId, uploadId, range, body) {
+export async function assignUploadChunk(instanceId, docId, uploadId, range, body, base) {
   const a = loadAuth();
   if (!a) throw new Error('not_signed_up');
-  const base = (workerBaseFn() || '').replace(/\/+$/, '');
+  const root = (workerBaseFn() || '').replace(/\/+$/, '');
   let r = null;
   try {
-    r = await fetch(base + textsPath(instanceId, docId) + '/assignment/upload/chunk', {
+    r = await fetch(root + uploadBase(instanceId, docId, base) + '/upload/chunk', {
       method: 'PUT',
       headers: {
         'x-fx-researcher': a.researcher_id, 'x-fx-secret': a.secret,
@@ -512,7 +523,7 @@ const roundUnit = (n) => Math.max(CHUNK_UNIT, Math.floor(n / CHUNK_UNIT) * CHUNK
 const shrinkChunk = (n) => Math.max(CHUNK_MIN, Math.floor(n / 2 / CHUNK_UNIT) * CHUNK_UNIT);
 const openingChunk = (total) => Math.min(CHUNK_MAX, Math.max(CHUNK_MIN, roundUnit(total / 8)));
 
-export async function assignUploadFile(instanceId, docId, part, { onProgress, onSession } = {}) {
+export async function assignUploadFile(instanceId, docId, part, { onProgress, onSession, base } = {}) {
   const total = part.blob.size;
   let chunkBytes = openingChunk(total);
   let streamId = part.streamId || null;
@@ -521,13 +532,13 @@ export async function assignUploadFile(instanceId, docId, part, { onProgress, on
       const s = await assignUploadStart(instanceId, docId, {
         name: part.name, mime: part.mime, size: total,
         originalsFolderId: part.originalsFolderId || '', kind: part.kind,
-      });
+      }, base);
       streamId = s.uploadId;
       if (onSession) await onSession(streamId);
     }
     let waitMs = 2000, strikes = 0;
     while (strikes < 5) {
-      const probe = await assignUploadChunk(instanceId, docId, streamId, `bytes */${total}`, null);
+      const probe = await assignUploadChunk(instanceId, docId, streamId, `bytes */${total}`, null, base);
       if (probe.done) return probe.fileId;
       if (probe.gone) { streamId = null; if (onSession) await onSession(null); break; }
       if (probe.fail) { strikes++; await sleep(waitMs); waitMs = Math.min(waitMs * 2, 60000); continue; }
@@ -538,7 +549,7 @@ export async function assignUploadFile(instanceId, docId, part, { onProgress, on
         const size = Math.min(chunkBytes, total - offset);
         const t0 = Date.now();
         const res = await assignUploadChunk(instanceId, docId, streamId,
-          `bytes ${offset}-${offset + size - 1}/${total}`, part.blob.slice(offset, offset + size));
+          `bytes ${offset}-${offset + size - 1}/${total}`, part.blob.slice(offset, offset + size), base);
         if (res.done) { if (onProgress) onProgress(total, total); return res.fileId; }
         if (res.gone) { streamId = null; if (onSession) await onSession(null); pushed = false; break; }
         if (res.fail) {

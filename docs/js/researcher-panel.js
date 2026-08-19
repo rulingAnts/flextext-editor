@@ -3443,7 +3443,12 @@ function crowdEditModal(rec) {
     <div class="rp-field"><span>${esc(t('panel.f.consentAsk'))}</span><div class="rp-multi">${['text', 'audio'].map((o) =>
       `<label class="check-label rp-inline"><input type="checkbox" data-ask="${o}"> ${esc(t('panel.opt.ask.' + o))}</label>`).join('')}</div></div>
     <label class="rp-field"><span>${esc(t('panel.f.consentMsg'))}</span><textarea id="cr-cmsg" rows="2"></textarea></label>
-    <label class="rp-field"><span>${esc(t('panel.f.consentAudioUrl'))}</span><input id="cr-caudio" spellcheck="false"></label>
+    <div class="rp-field"><span>${esc(t('panel.f.consentAudioUrl'))}</span>
+      <input data-f="consentAudioUrl" type="hidden">
+      <div class="rp-prompt-state" data-promptstate>${esc(t('panel.f.consentNone'))}</div>
+      <button type="button" class="secondary-btn" id="cr-caudio-pick">${esc(t('panel.f.consentUpload'))}</button>
+      <input type="file" id="cr-caudio-file" accept="audio/*,.wav,.mp3,.m4a,.aac,.ogg,.opus,.webm,.flac" hidden></div>
+    <p class="note">${esc(t('panel.f.consentAudioNote'))}</p>
     <div class="rp-field"><span>${esc(t('panel.f.consentConfirm'))}</span><div class="rp-multi">${['yesno', 'record', 'signature'].map((o) =>
       `<label class="check-label rp-inline"><input type="checkbox" data-conf="${o}"> ${esc(t('panel.opt.conf.' + o))}</label>`).join('')}</div></div>
     <label class="rp-field"><span>${esc(t('panel.f.recordFormat'))}</span>
@@ -3464,7 +3469,12 @@ function crowdEditModal(rec) {
   $$('#cr-label').value = rec.label || '';
   $$('#cr-welcome').value = cfg.welcome || '';
   $$('#cr-cmsg').value = cfg.consentMsg || '';
-  $$('#cr-caudio').value = cfg.consentAudioUrl || '';
+  /* The prompt is a FILE PICK, not a URL to type — identical to the device settings form, and
+   * `data-f="consentAudioUrl"` is what lets paintPromptState be reused verbatim on this modal.
+   * Nothing else in this modal reads `[data-f]` (every other field is addressed by id), so the
+   * attribute is inert here apart from that. */
+  $$('[data-f="consentAudioUrl"]').value = cfg.consentAudioUrl || '';
+  paintPromptState(m.el);
   $$('#cr-fmt').value = REC_KEYS.includes(cfg.recordFormat) ? cfg.recordFormat : 'wav24';
   $$('#cr-lang').value = cfg.lang === 'en' ? 'en' : 'id';
   $$('#cr-maxsec').value = String(Math.min(3600, Math.max(10, Number(cfg.maxSeconds) || 300)));
@@ -3488,11 +3498,50 @@ function crowdEditModal(rec) {
   const conf = Array.isArray(cfg.consentConfirm) ? cfg.consentConfirm : [];
   m.el.querySelectorAll('[data-ask]').forEach((c) => { c.checked = ask.includes(c.dataset.ask); });
   m.el.querySelectorAll('[data-conf]').forEach((c) => { c.checked = conf.includes(c.dataset.conf); });
+
+  /* CONSENT PROMPT PICKER — the crowd twin of the device settings form's, streaming through the
+   * recorder's own /prompt routes into its Drive folder root. Same rule as everywhere else since
+   * assign-by-upload: there is ONE way a prompt gets in, and it is picking the file. A crowd
+   * recorder has no instance, so it addresses the shared chunk loop by base path instead. */
+  let crowdUploading = null;   // { pct } while the prompt is streaming — read by Save below
+  {
+    const cuBtn = $$('#cr-caudio-pick');
+    const cuFile = $$('#cr-caudio-file');
+    cuBtn.addEventListener('click', () => cuFile.click());
+    cuFile.addEventListener('change', (e) => busy(cuBtn, async () => {
+      const file = e.target.files[0]; e.target.value = '';
+      if (!file) return;
+      crowdUploading = { pct: 0 };
+      cuBtn.textContent = t('panel.f.consentUploadingPct', { pct: 0 });
+      try {
+        const fileId = await Researcher.assignUploadFile('', 'consent-prompt', {
+          blob: file, name: file.name, mime: file.type || 'audio/mpeg', kind: 'consent-prompt',
+        }, {
+          base: Researcher.crowdPromptBase(rec.crowd_id),
+          onProgress: (sent, total) => {
+            const pct = total ? Math.min(100, Math.round((sent / total) * 100)) : 0;
+            crowdUploading = { pct };
+            cuBtn.textContent = t('panel.f.consentUploadingPct', { pct });
+          },
+        });
+        cuBtn.textContent = t('panel.f.consentFinishing');
+        const fin = await Researcher.crowdPromptFinish(rec.crowd_id, { promptFileId: fileId, ttlDays: assignTtlDays() });
+        if (fin.promptUrl) $$('[data-f="consentAudioUrl"]').value = fin.promptUrl;
+        paintPromptState(m.el);
+        deps.toast(t('panel.f.consentUploaded'), 5000);
+      } catch (err) { errToast(err); }
+      finally { crowdUploading = null; }   // always cleared, or Save would be wedged for good
+    }));
+  }
   m.el.querySelector('[data-m="cancel"]').onclick = m.close;
 
   m.el.querySelector('[data-m="save"]').onclick = (e) => busy(e.target, async () => {
     const label = $$('#cr-label').value.trim();
     if (!label) return deps.toast(t('panel.crowd.needLabel'), 4000);
+    // Saving mid-upload would store an EMPTY prompt URL and silently discard the file the
+    // researcher is watching upload — the device form's lesson (never an error that looks like
+    // failure when the thing simply is not done yet), applied before it can bite here.
+    if (crowdUploading) return deps.toast(t('panel.f.consentStillUploading', { pct: crowdUploading.pct }), 6000);
     // No folder field: submissions stream into the researcher's own Drive at
     // "FlexText Uploads / Crowd — <name>" automatically (relay leg retired).
     const config = {
@@ -3500,7 +3549,7 @@ function crowdEditModal(rec) {
       consentAsk: Array.from(m.el.querySelectorAll('[data-ask]')).filter((c) => c.checked).map((c) => c.dataset.ask),
       consentConfirm: Array.from(m.el.querySelectorAll('[data-conf]')).filter((c) => c.checked).map((c) => c.dataset.conf),
       consentMsg: $$('#cr-cmsg').value.trim(),
-      consentAudioUrl: $$('#cr-caudio').value.trim(),
+      consentAudioUrl: $$('[data-f="consentAudioUrl"]').value.trim(),
       recordFormat: $$('#cr-fmt').value,
       lang: $$('#cr-lang').value === 'en' ? 'en' : 'id',
       maxSeconds: parseInt($$('#cr-maxsec').value, 10) || 300,

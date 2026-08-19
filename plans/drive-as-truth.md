@@ -303,6 +303,48 @@ Everything descriptive — title, TTL, text-level settings, future metadata — 
    ones. That is two code paths for one question — the shape of drift this document exists to remove.
    It is judged worth paying here; the mitigation is that both paths should land behind ONE query
    helper from the start, never be written out twice at the call sites.
+
+   **Hardened against the drift itself, in SCHEMA rather than convention.** Seth: *"I meant
+   unassigned and assigned texts drifting because they're handled differently."* That is the real
+   risk, and "both paths land behind one query helper" is a promise, not a mechanism. Two structures
+   make it a mechanism:
+
+   ```sql
+   -- 1. The invariant belongs to the DATABASE, so nothing can violate it — no route, no migration,
+   --    no well-meant backfill. A row can never hold both an instance and a stored project.
+   CREATE TABLE text (
+     ...
+     instance_id TEXT,            -- NULL = Unassigned
+     project_id  TEXT,            -- set ONLY when instance_id IS NULL
+     CHECK (instance_id IS NULL OR project_id IS NULL)
+   );
+
+   -- 2. Readers get ONE thing to query, so no caller ever branches on which kind of row it has.
+   --    The branch exists exactly once, here, which is what stops it existing in twelve places.
+   CREATE VIEW text_scoped AS
+     SELECT t.*, COALESCE(i.project_id, t.project_id) AS project_id
+       FROM text t LEFT JOIN instance i ON i.instance_id = t.instance_id;
+   ```
+
+   The view costs nothing the join did not already cost, and it preserves §10.4(5)'s security
+   property exactly: **nothing extra is stored**, the grouping is still derived at query time, and a
+   database dump still does not hand over the project map for assigned texts. Writes go to `text`;
+   reads go to `text_scoped`.
+
+   `test/d1-minimization-invariants.test.mjs` asserts both, plus §10.4(3)'s sibling rule that no
+   table anywhere grows a plaintext `title` column.
+
+   ⚠ **The assertions are deliberately live BEFORE the table exists** — a no-op today that arms
+   itself the moment Phase C writes the table, rather than something to remember afterwards, which is
+   the sequence in which it would not get added at all. Because a no-op assertion reads as coverage
+   while proving nothing, the same file runs every detector against a synthetic schema so that "the
+   check works" is itself tested.
+
+   ⚠⚠ **And that self-check immediately earned its place.** The first version of this guard asserted
+   the `text` table must have NO `project_id` column at all — which would have **failed the correct
+   implementation**, since the settled rule stores it precisely on the rows with no instance to
+   derive from. A guard that fires on the right answer is worse than no guard, because it teaches
+   people to delete guards.
 2. ~~Does the reconciler ever re-parent a folder without asking?~~ → **SETTLED (Seth, 2026-08-19):
    YES, ALWAYS, AND WITHOUT A SETTING.** See §8a — the "ask vs. silent" framing was the wrong one.
 3. ~~A device-originated text the researcher wants in Unassigned: force an upload first, or mark it

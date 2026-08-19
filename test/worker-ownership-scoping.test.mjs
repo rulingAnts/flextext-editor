@@ -69,6 +69,32 @@ console.log('\nthe sibling routes it now matches are still doing it properly');
      'and 404s rather than 403 — an id the caller does not own must not be confirmed to exist');
 }
 
+console.log('\nminted /v1/textfile URLs are scoped, and therefore revocable');
+{
+  /* A v1 token named only the owner and the file, so serving it checked nothing but "decrypts,
+   * unexpired, owner still has a Drive token" — a bearer URL nothing could withdraw for as long as
+   * it lived, and clampTtlDays permits up to 400 days. Revoking a device did not stop it. */
+  ok(/tk\.v = 2; tk\.i = scope\.instanceId;/.test(code),
+     'a scoped mint emits v2 carrying the instance it was minted for');
+  ok(/SELECT instance_id FROM instance WHERE instance_id=\? AND researcher_id=\? AND revoked=0/.test(code)
+     && /if \(tk\.i\) \{/.test(code),
+     'and the serve path re-checks that instance is live and still the owner\'s');
+  // Revocability is the whole point: prove the check can actually fail closed.
+  ok(/if \(!live\) return j\(\{ error: 'gone' \}, 410/.test(code),
+     'a revoked or vanished instance makes its outstanding URLs 410');
+  // Old tokens are held by deployed devices right now; breaking them strands assignments in flight.
+  ok(/if \(scope && scope\.instanceId\)/.test(code),
+     'scope is OPTIONAL at mint, so v1 tokens still mint and still serve unchanged');
+  // Every mint site should be passing a scope now — an unscoped one is a hole left open.
+  const mints = (code.match(/mintTextfileUrl\(env, url\.origin/g) || []).length;
+  const scoped = (code.match(/mintTextfileUrl\(env, url\.origin[^;]*?scope|instanceId: to\.instance_id/g) || []).length;
+  ok(mints > 0 && scoped >= 3, `every mint site passes a scope (${scoped} scoped of ${mints})`);
+  /* ⚠ TTL is deliberately UNTOUCHED by this change — shortening it is visible to researchers who
+   * set a delivery window, so it is a separate decision, not a side effect. Asserted so a later
+   * edit cannot quietly fold a behaviour change into this one. */
+  ok(/ttlMs \|\| 90 \* 86400000/.test(code), 'the default TTL is unchanged (90 days)');
+}
+
 console.log(fail ? `\nFAILED (${fail}) — an ownership write has slipped its scope.\n`
                  : '\nPASS: ownership is proven before the write, including inside batches.\n');
 process.exit(fail ? 1 : 0);

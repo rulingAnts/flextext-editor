@@ -810,10 +810,24 @@ export function clampTtlDays(v) {
 // SERVER_HMAC_KEY), bound to the researcher whose Drive it streams from; works from a plain
 // header-less fetch, which is exactly how devices download assignment content. Same trust model
 // as invite links. `extract` = 'flextext' pulls the .flextext entry out of a STORE-only zip.
-async function mintTextfileUrl(env, urlOrigin, researcherId, fileId, extract, ttlMs) {
+/* A time-boxed URL that streams ONE Drive file through the worker, with no session and no cookie —
+ * how a device fetches an assigned text or its audio.
+ *
+ * ⚠ SCOPE IT (`scope = { instanceId, docId }`). A v1 token names only the owner and the file, so
+ * serving it checks nothing but "decrypts, unexpired, owner still has a Drive token" — which makes
+ * it a bearer URL nothing can withdraw for as long as it lives. Passing a scope emits `v: 2`, and
+ * the serve path then re-checks that the named instance still exists, is not revoked, and still
+ * belongs to that researcher. **Revoking a device therefore kills its outstanding URLs**, which is
+ * the property v1 was missing and the reason revoke did not fully mean what it appears to.
+ *
+ * Additive on purpose: scope is optional, and a v1 token minted before this change still serves
+ * exactly as it did. TTL semantics are deliberately UNCHANGED here — shortening them is visible to
+ * researchers who set a delivery window, so it is a separate decision, not a side effect of this. */
+async function mintTextfileUrl(env, urlOrigin, researcherId, fileId, extract, ttlMs, scope) {
   if (!fileId) return null;
-  return urlOrigin + '/v1/textfile/' + encodeURIComponent(await encAtRest(env, JSON.stringify(
-    { r: researcherId, f: fileId, x: extract || '', e: Date.now() + (ttlMs || 90 * 86400000) })));
+  const tk = { r: researcherId, f: fileId, x: extract || '', e: Date.now() + (ttlMs || 90 * 86400000) };
+  if (scope && scope.instanceId) { tk.v = 2; tk.i = scope.instanceId; if (scope.docId) tk.d = scope.docId; }
+  return urlOrigin + '/v1/textfile/' + encodeURIComponent(await encAtRest(env, JSON.stringify(tk)));
 }
 
 // The recorder's folder in the RESEARCHER'S Drive: "FlexText Uploads / Crowd — <label>".
@@ -1069,6 +1083,16 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     if (!tk || !tk.f || !tk.r || !(tk.e > now)) return j({ error: 'bad_token' }, 401, origin, env);
     const owner = await env.DB.prepare('SELECT * FROM researcher WHERE researcher_id=?').bind(tk.r).first();
     if (!owner || !owner.drive_refresh_enc) return j({ error: 'gone' }, 410, origin, env);
+    /* A SCOPED (v2) token is revocable: the device it was minted for must still be a live instance
+     * of that researcher. Revoke the device and its outstanding URLs stop serving — which is what
+     * revoke ought to have meant all along. One indexed read, and only for scoped tokens.
+     * ⚠ v1 tokens (no `i`) are served exactly as before. They are already in the field, held by
+     * deployed devices, and breaking them would strand assignments mid-flight. They age out. */
+    if (tk.i) {
+      const live = await env.DB.prepare('SELECT instance_id FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
+        .bind(tk.i, tk.r).first();
+      if (!live) return j({ error: 'gone' }, 410, origin, env);
+    }
     try {
       const access = await driveAccessToken(env, owner);
       const range = request.headers.get('Range');
@@ -2362,9 +2386,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       const ttlDays = clampTtlDays(body.ttlDays);
       const ttlMs = ttlDays * 86400000;
       try {
-        const audioUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.audioFileId, '', ttlMs);
-        const flextextUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.flextextFileId, '', ttlMs);
-        const promptUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.promptFileId, '', ttlMs);
+        const scope = { instanceId, docId };
+        const audioUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.audioFileId, '', ttlMs, scope);
+        const flextextUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.flextextFileId, '', ttlMs, scope);
+        const promptUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.promptFileId, '', ttlMs, scope);
         if (docId && (audioUrl || flextextUrl)) {
           await logApproval(env, request, 'assigned_upload', docId.slice(0, 12) + '…', '→ ' + (inst.nickname || '?'), r.drive_email);
         }
@@ -2414,7 +2439,8 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         }
         // Same private, time-boxed streaming tokens the move flow mints — the device downloads
         // through /v1/textfile exactly as it would for any assignment.
-        const mint = (fileId, extract) => mintTextfileUrl(env, url.origin, r.researcher_id, fileId, extract);
+        // Scoped to the DESTINATION device — it is the one that will fetch these.
+        const mint = (fileId, extract) => mintTextfileUrl(env, url.origin, r.researcher_id, fileId, extract, 0, { instanceId: to.instance_id, docId });
         const flextextUrl = await mint(body.flextextFileId) || await mint(body.extractFromZipId, 'flextext');
         const audioUrl = await mint(body.audioFileId);
         await logApproval(env, request, 'text_adopted', docId, to.nickname || '', r.drive_email);
@@ -2451,7 +2477,8 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         }
         // Streaming tokens (default 90-day TTL) for whatever content the panel identified. Opaque
         // + time-boxed, bound to this researcher; the /v1/textfile endpoint validates and streams.
-        const mint = (fileId, extract) => mintTextfileUrl(env, url.origin, r.researcher_id, fileId, extract);
+        // Scoped to the DESTINATION device — it is the one that will fetch these.
+        const mint = (fileId, extract) => mintTextfileUrl(env, url.origin, r.researcher_id, fileId, extract, 0, { instanceId: to.instance_id, docId });
         const flextextUrl = await mint(body.flextextFileId) || await mint(body.extractFromZipId, 'flextext');
         const audioUrl = await mint(body.audioFileId);
         await logApproval(env, request, 'text_moved', docId.slice(0, 12) + '…', (from.nickname || '?') + ' → ' + (to.nickname || '?'), r.drive_email);

@@ -1098,3 +1098,29 @@ side of the scale, and it is heavier than it looked.
 a text folder and a manifest at upload time — which is `register-first` (§3.1) applied to a third
 origin. §3's origin table gains nothing new conceptually; the crowd row simply stops being a special
 case and becomes another way a text is born.
+
+### 16.9 Crowd is a SOURCE, never a destination — which narrows §16.8
+
+Seth: *"as much as possible we want it to participate in the drive-as-truth redesign, except that we
+can't assign texts TO Crowd Recorders, we can only move and remove things FROM them."*
+
+That is a real constraint and it is worth stating as one, because it changes how much the ownership
+question actually costs:
+
+- crowd uploads become **fully-fledged text folders with manifests**, movable to Unassigned or onward
+  to a device, downloadable file-by-file or as a zip — everything a device text can do;
+- but **nothing is ever assigned TO a crowd recorder.** It is where texts are born, never where they
+  are sent.
+
+⚠ **So a crowd recorder is a WRITE-ONCE owner and never a command target.** Every hard part of §16.8's
+option 2 (a polymorphic owner on `text`) lives in the *destination* direction — assign, move-to,
+command routing, ack tracking, lease-holding. None of that applies. What remains is a birth stamp
+that only ever moves away.
+
+That does not settle §16.8, but it shrinks it: the polymorphic owner would be read-mostly and
+write-once, which is a much weaker version of the two-columns-one-meaning objection than the general
+case. Worth re-weighing against the `type` CHECK rebuild when the decision is actually taken.
+
+**And it gives a rule to enforce whichever way that goes:** the assign and move-to affordances must
+refuse a crowd destination *at the route*, not merely omit it from a dropdown — the same shape as
+§16.5 D.

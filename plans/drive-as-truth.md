@@ -1256,6 +1256,27 @@ a crowd container as an assignment *destination* without inspecting names.
    ⚠ **THIS WAS WRONG — see §16.12.** The manifest has existed since the v2 source package: it is
    `flextext-manifest.json` in `originals/`, written by the panel for an assigned text and by the
    device for a recorded one, and it already carries an `origin` field. Corrected and built in v395.
+2a. ⚠ **"B" IS CHEAPER THAN THIS SECTION ASSUMES — worker-side extraction is viable** (Seth asked,
+   2026-08-19). Two answers, both checked rather than guessed:
+
+   - **Drive cannot unzip.** There is no `files.extract` and nothing equivalent in v3; the web UI's
+     zip preview is not exposed to the API. Rule it out and stop revisiting it.
+   - **The worker CAN**, and the reason is a property we already rely on elsewhere: **our zips are
+     STORE-only** (`zip.js` writes method 0, no compression), so every entry is a CONTIGUOUS byte
+     range at a known offset. The worker already reads the local file headers out of a 256 KiB head
+     to find the manifest. From those headers it can do a **ranged GET per entry** and stream that
+     range straight into a Drive resumable upload — no buffering of a 26 MB recording, roughly two
+     subrequests per entry.
+
+   So B need not be a change to the public submit protocol (Turnstile, budgets and a declared size
+   are all keyed to one zip). It can be a POST-UPLOAD extraction step, in `ctx.waitUntil`, off the
+   critical path — the same shape as the manifest extraction that already works.
+
+   ⚠ Bounded like everything else: entries × 2 subrequests against the ~50 cap, and it must delete
+   the zip afterwards or the estate pays for both copies (Drive charges per object, §2). Worth
+   pricing properly before building — but it is a normal piece of work, not the protocol surgery
+   this section implies.
+
 2. **The crowd → device handoff is still open.** `moveTextModal` delivers text content by extracting
    a `.flextext` from a STORE-only zip (`x:'flextext'`). A crowd zip contains a recording and a
    consent receipt and no `.flextext` at all, so moving a crowd text onto an editor device will fail

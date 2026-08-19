@@ -2033,3 +2033,17 @@ in `docs/` or `satellites/` (drive-as-truth §7, second precondition). Seth: *"m
 until we build D1 and other drive-as-truth changes."* Partly — wiring the sweep is client-side and
 does not need the D1 index, so it can land before Phase C. It is listed as a precondition precisely
 because it is cheap and makes Drive stop contradicting the panel.
+
+## A duplicate upload seen in the wild (2026-08-19 snapshot)
+
+`Dairi Hike with Health Workers 2026-08-18-1442.flextext` appears **twice**, byte-identical (28,384),
+uploaded **20 seconds apart** (05:42:34 and 05:42:54). One text, one device, two files.
+
+Not urgent — a duplicate `.flextext` is harmless next to the audio, and Lane B keeps every timestamped
+revision on purpose, so two in the same minute is untidy rather than wrong. But 20 seconds is too
+close to be two deliberate saves, which makes a double-fire more likely than a coincidence: either the
+upload queue enqueued the same doc twice, or a save-then-send raced an autosave.
+
+Worth a look when the upload queue is next open, with the snapshot as the evidence. ⚠ Do NOT
+"deduplicate by content hash" as a fix — identical bytes at different times is a legitimate state
+(a text saved, unchanged, and saved again), and collapsing it would hide the actual double-fire.

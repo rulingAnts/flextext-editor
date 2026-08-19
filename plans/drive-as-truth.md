@@ -97,6 +97,20 @@ later ("whatever is needed… that can't be included in the flextext file, we ca
 manifest" — Seth). That is what lets it survive download-and-remove: re-adopting a folder reads its
 manifest, and D1 is re-derived from it.
 
+✅ **CONFIRMED IN REAL DATA (2026-08-19).** §2 was written from reasoning; the first Drive snapshot
+of the production estate shows the pattern already exists, twice:
+
+- `Stingy Small Turtle (Yafet).m4a` (3.9 MB) sits in **two** texts' `originals/` — `Seth PWA / VERY
+  Stingy Small Turtle (Yafet)` and `Yohanis Suhu (Intel Mac) / Kura-kura Kecil (Yafet, Sehudate)`.
+  Two devices, one recording, two work items: precisely the compare-the-results case.
+- `Barnabas Gets Thrown Overboard.m4a` sits in two texts on the SAME device — `Barnabas Gets Thrown
+  Overboard` and `Polisi Buang Barnabas Dorang ke Laut`. One story, an English and an Indonesian
+  title, two doc ids.
+
+So this is not a feature to anticipate — the estate is ALREADY in the many-docs-one-recording shape
+and simply has no way to say so. Today each copy is a separate upload of the same bytes, which is
+also why the storage view double-counts them.
+
 ⚠ **A recording has no folder of its own.** Deleting a doc deletes its folder and its copy of the
 audio, and nothing else. Keep it that way — but the UI must say *"this recording has 2 assignments"*
 so nobody deletes one believing the audio is gone everywhere.

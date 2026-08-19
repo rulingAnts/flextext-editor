@@ -884,3 +884,73 @@ So "limit round-trips" mostly means *limit the NUMBER of Drive calls per request
   v167 duplicate-folder bug. Storing folder ids in D1 (§10.4(2), and the `driveMasterFolder`
   follow-on in §8a) therefore removes a round trip AND a consistency hazard at the same time. That
   is the strongest argument for the index that has nothing to do with authorization.
+
+---
+
+## 16. Should CROWD and UNASSIGNED become instance types? (Seth, 2026-08-19)
+
+> *"We may need to make crowd a special type of instance."* … *"And same for the 'Google Drive
+> (unassigned)' box."*
+
+The unification is real and attractive: everything that owns a Drive folder and holds texts becomes
+an `instance` with a `type` — `editor`, `recorder`, `crowd`, `unassigned`. One folder helper, one
+upload lane, one place `project_id` lives, and §6's `text.instance_id` becomes never-null. Phase C's
+project scoping would cover all four for free.
+
+⚠ **They are NOT the same question, and they do not get the same answer.**
+
+### 16.1 Crowd — defensible, with one hard blocker
+
+A crowd recorder genuinely IS a thing that owns a Drive folder, belongs to a researcher, and
+produces recordings. Making it an instance would delete a whole parallel lane: `driveEnsureCrowdFolder`,
+a second chunked upload path, and the consent-prompt route this section was written to avoid building.
+
+**The blocker is the security model, not the schema.** An `instance` has a `Ki`; its reports are
+ciphertext. A crowd recorder is **deliberately keyless and plaintext** — CLAUDE.md: *"the public
+recorder page is keyless, so it must be able to read its own config straight from the worker."* So
+either `instance` stops implying E2EE, or crowd gets a key it cannot hold. That is a real property
+to give up, not an inconvenience to route around.
+
+Secondary cost: `crowd_recorder` carries ten columns `instance` has no notion of — `enabled`,
+`submit_count`, `bytes_total`, `day_key`, `day_count`, `max_per_day`, `max_bytes_total`,
+`drive_folder`, `config_json`, `label`. Public rate-limiting and quota are crowd-specific and would
+need somewhere to live.
+
+### 16.2 Unassigned — attractive, and I would argue against it
+
+The panel already considered exactly this and rejected it, and the comment on `unassignedTexts` puts
+it better than I would:
+
+> *"⚠ IT IS NOT A PSEUDO-INSTANCE, deliberately. It has no instance_id, no ack_seq, no installs and
+> no pairing secret… a synthetic entry there would have to be special-cased at every site that
+> iterates instances."*
+
+Making it a REAL row does not remove that special-casing — it **moves it from the panel into every
+worker route** that assumes an instance can be commanded, keyed, approved, revoked or wiped. An
+Unassigned instance can be none of those, so each of those routes grows a guard, and the guards are
+the drift the backlog already warns about.
+
+And §6 already has a cleaner answer: **`instance_id IS NULL` means Unassigned.** One nullable column
+expresses it exactly, with no row that lies about what it is. §4's definition — *a recording with no
+doc, or a doc with no instance* — stays a definition rather than becoming a lookup.
+
+### 16.3 ⚠ The sequencing fact that gives this a deadline
+
+`instance.type` carries `CHECK (type IN ('editor','recorder',''))`. **Widening it is a table
+rebuild, not an additive migration** — the shape `migrate-instance-type-unified.sql` opens by warning
+against in capitals. So if crowd is EVER to become an instance type, doing it inside Phase C's
+migration is far cheaper than after it.
+
+**That means the decision has a deadline even though the work does not.**
+
+### 16.4 Recommendation, and what it blocks right now
+
+- **Unassigned: no.** Keep `instance_id IS NULL`. The panel's existing reasoning holds and §6 is
+  already cleaner than the alternative.
+- **Crowd: decide before the Phase C migration, not now.** The E2EE question is the whole decision;
+  everything else is mechanical.
+- ⚠ **And it blocks the consent-prompt picker, which is why this is written down rather than built.**
+  Seth asked for that "sooner rather than later" — but the client half (hidden carrier + status line
+  + Upload button, reusing `paintPromptState`) is identical either way, while the TRANSPORT is not:
+  a crowd-specific upload route is ~30 lines that becomes throwaway the moment crowd is an instance.
+  **Building it before the decision means building the thing we would then delete.**

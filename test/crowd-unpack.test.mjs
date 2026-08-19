@@ -65,7 +65,12 @@ console.log('\nit refuses rather than corrupts');
 
 console.log('\nroles come from the manifest, never from filenames');
 {
-  ok(/doc\.bundle && doc\.bundle\.entries/.test(code), 'the roles are read from the manifest\'s bundle list');
+  /* ⚠ From `files`, NOT a side key. An earlier version read `bundle`, which never arrived:
+   * buildSourceManifest rebuilds its result by ENUMERATION, so an unrecognised key is dropped in
+   * silence — the same trap that ate `estate` twice. The extracted files landed untagged and
+   * nothing said why. */
+  ok(/\(doc && doc\.files\) \|\| \[\]/.test(code), "the roles are read from the manifest's `files` list");
+  ok(!/doc\.bundle/.test(code), '...and not from a key the builder would silently drop');
   ok(/roleFor\.get\(e\.name\)/.test(code), '...and applied as appProperties on each extracted file');
 }
 

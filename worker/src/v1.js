@@ -1135,7 +1135,11 @@ async function crowdUnpackSubmission(env, access, originalsFolderId, fileId, zip
         const g = await fetch('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(mf.id) + '?alt=media',
           { headers: { Authorization: 'Bearer ' + access } });
         const doc = g.ok ? await g.json() : null;
-        for (const e of (doc && doc.bundle && doc.bundle.entries) || []) if (e && e.name) roleFor.set(e.name, e.role || '');
+        /* From `files` — the manifest's declaration of what belongs in this folder, which after
+         * unpacking IS these files. An earlier version read a separate `bundle` key that never
+         * arrived: buildSourceManifest rebuilds its result by ENUMERATION, so an unrecognised key is
+         * dropped silently. Same trap that ate `estate` twice; see the warning in researcher.js. */
+        for (const e of (doc && doc.files) || []) if (e && e.name && e.role) roleFor.set(e.name, e.role);
       }
     } catch { /* no manifest roles — the files still land, just untagged */ }
 
@@ -1195,7 +1199,7 @@ async function crowdExtractManifest(env, access, originalsFolderId, bytes, zipNa
      * writing a half a JSON file would be worse than writing none, because a consumer would read
      * it as a corrupt manifest rather than an absent one. */
     const text = new TextDecoder().decode(raw);
-    const doc = JSON.parse(text);
+    JSON.parse(text);                                   // validity check only — see above
     /* COMPLETE the one field the client could not know. The zip's filename is composed server-side
      * so a public visitor controls nothing about the Drive write, which means the client declares
      * its `crowd-submission` entry by ROLE with an empty name. Filling it here is what makes
@@ -1204,14 +1208,11 @@ async function crowdExtractManifest(env, access, originalsFolderId, bytes, zipNa
      * a device one.
      * ⚠ This COMPLETES a manifest; it does not author one. The worker still builds no manifest of
      * its own, and manifest-provenance.test.mjs still enforces that. */
-    if (doc && Array.isArray(doc.files)) {
-      for (const f of doc.files) {
-        if (f && f.role === 'crowd-submission' && !f.name) { f.name = zipName || ''; f.bytes = zipBytes || 0; }
-      }
-    }
-    if (doc && doc.bundle && !doc.bundle.name) doc.bundle.name = zipName || '';
+    /* Written through UNCHANGED. The manifest declares the individual files the unpacker produces
+     * (§16.10 B), so there is no server-composed zip name to fill in any more — and nothing else in
+     * it is the worker's to touch. It stays the client's document. */
     await driveUpload(access, originalsFolderId, 'flextext-manifest.json',
-      new TextEncoder().encode(JSON.stringify(doc, null, 2)), 'application/json', { flextextRole: 'manifest' });
+      new TextEncoder().encode(text), 'application/json', { flextextRole: 'manifest' });
   } catch { /* organisational only — a submission that landed must not be reported as failed */ }
 }
 

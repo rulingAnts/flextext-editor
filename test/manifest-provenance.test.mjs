@@ -139,6 +139,25 @@ console.log('\nschema 2 is readable by the panel already in production');
   }
 }
 
+/* ⚠ THE ENUMERATED-REBUILD TRAP, which this builder has now sprung once. It rebuilds its result by
+ * naming every field, so a caller that passes a key it does not know gets SILENCE — no error, no
+ * warning, just a manifest missing the thing the caller believed it had written. `bundle` was lost
+ * exactly that way (v411), and the only symptom was that extracted files came out untagged.
+ *
+ * The enumeration is deliberate — it is what makes the shape a contract rather than whatever a
+ * caller happened to pass. So the fix is not to spread unknown keys through; it is to make the
+ * silence visible to whoever adds the next field. */
+console.log('\nunknown keys are DROPPED, deliberately — and that is worth knowing');
+{
+  const m = buildSourceManifest({ docId: 'd', origin: 'crowd', now: 1, bundle: { entries: [1, 2] } });
+  ok(!('bundle' in m), 'a key the builder does not know does not appear in the output');
+  /* Pin the whole accepted set, so ADDING a field is a deliberate act with a test to update rather
+   * than something that appears to work and does not. */
+  const keys = Object.keys(buildSourceManifest({ docId: 'd', origin: 'crowd', now: 1, source: { kind: 'crowd' } })).sort();
+  ok(keys.join(',') === 'audio,buildTag,consent,docId,engine,files,origin,originatedAt,schema,source,title,writingSystems,writtenAt',
+     `the accepted field set is pinned (got ${keys.join(',')})`);
+}
+
 console.log('\ncustody history is NOT in the manifest');
 {
   const m = buildSourceManifest({ docId: 'd1', origin: 'recorded', now: 1000 });

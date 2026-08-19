@@ -6681,28 +6681,21 @@ async function crowdBuildZip(file, { assent, receipt, promptAudio }) {
     // A crowd page collects no writing systems — it is a recorder, not an editor. Left empty
     // rather than guessed from the UI language, which is a different thing entirely.
     audio: { name: file.name, mime: file.type || 'application/octet-stream', bytes: file.size, derived: false },
-    /* ⚠ `files` MEANS "what should be in the FOLDER", not "what is in the submission". The builder's
-     * own contract: it "declares an INTENDED FILE SET that a consumer compares against the folder to
-     * derive completeness". The first version of this listed the ZIP'S ENTRIES — true information in
-     * the wrong field — so the Files modal correctly reported the audio and consent artifacts as
-     * "not arrived" while the folder held them all, inside the zip, and the zip itself went
-     * undeclared and unrendered. Right facts, wrong field, and the contract was three lines above
-     * where the code was written.
+    /* `files` MEANS "what should end up in the FOLDER" — the builder's contract: it "declares an
+     * INTENDED FILE SET that a consumer compares against the folder to derive completeness". For a
+     * crowd text that is the individual files, exactly as for a device text, because the worker now
+     * UNPACKS the zip on arrival (plan §16.10 "B", v411). The zip is TRANSPORT, not content, and
+     * never appears here.
      *
-     * A crowd text's folder holds exactly two things: this manifest and one zip. So that is what is
-     * declared. What is INSIDE the zip moves to `bundle`, which means what it says — additive, and
-     * a reader that does not know the key simply ignores it. */
-    /* ⚠ NO NAME, AND THE CLIENT CANNOT SUPPLY ONE. The zip's filename is composed SERVER-SIDE
-     * precisely so a public visitor controls nothing about the Drive write. So the client declares
-     * the entry it knows must exist — by ROLE — and the worker fills in the name and size when it
-     * unwraps this manifest, which is the only moment anyone knows both. That is the worker
-     * COMPLETING a field only it can know, not authoring a manifest: it still writes no manifest of
-     * its own, and test/manifest-provenance.test.mjs still enforces that. */
-    files: [{ name: '', role: 'crowd-submission', mime: 'application/zip', bytes: 0 }],
-    bundle: {
-      name: '',
-      entries: entries.map((e) => ({ name: e.name, role: e.role || '', mime: (e.data && e.data.type) || '', bytes: (e.data && e.data.size) || 0 })),
-    },
+     * ⚠ THIS IS WHERE v396 STARTED, AND v410 WAS WRONG TO CHANGE IT. v410 made this declare the zip,
+     * which was correct for a world where the zip stayed — and v411 abolished that world a few hours
+     * later. Two fixes in opposite directions, and the second is a revert. Worth leaving on the
+     * record: the first version was right about the destination and merely early.
+     *
+     * ✅ A HAPPY CONSEQUENCE, not a gap: between arrival and unpacking the folder holds the zip and
+     * this manifest, so the Files modal reports the individual files as "not arrived yet" — which is
+     * TRUE, and is precisely what a manifest written before the bytes is for. */
+    files: entries.map((e) => ({ name: e.name, role: e.role || '', mime: (e.data && e.data.type) || '', bytes: (e.data && e.data.size) || 0 })),
     consent: {
       mode: 'crowd',
       prompt: !!(promptAudio && promptAudio.blob),

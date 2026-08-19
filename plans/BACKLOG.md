@@ -2280,6 +2280,56 @@ taste:** if real reports show `heals` findings routinely sitting out the full ti
 was demonstrably active throughout, the timer is too slow and a causal signal earns its place. Until a
 report says that, it has not.
 
+### ⚠ CAN THE DETECTOR BE TRUSTED NOT TO DRIFT ITSELF?
+
+> *"We don't want to have to build the drift monitor and update it with everything else we build —
+> except when we make major architecture changes that redefine what normal/non-drift should look
+> like."* … *"And can we trust it not to drift itself?"* (Seth)
+
+**Mostly yes, and the design is what buys it — not discipline.** Two separate pieces, with different
+answers.
+
+**1. The heal stamp: cannot drift into unsafety, only into uselessness.**
+
+It is a fact emitted at the moment of action, not a description maintained elsewhere, so it has no
+"stale" state — a stamp either happened or did not. The only failure is a NEW healing path that
+forgets to stamp, and its consequence is that that fault never accelerates and **falls back to the
+timer**. Since the timer is the gate and can never be suppressed, a forgotten stamp costs latency and
+nothing else. That asymmetry is the reason it is safe to build at all, and the reason the timer must
+stay the gate. A containment script over the ensure/heal helpers catches the omission anyway.
+
+**2. The CHECKS themselves — this is the real question, and the answer is: don't give the detector its
+own model of the tree.**
+
+The eight checks could each be hand-written tree rules ("a container's parent must be master or a
+project"). That version drifts on contact with any new folder role: it would have flagged the
+`unassigned` role as an error the day it shipped, and `crowd` the day after.
+
+⚠ **Instead the detector calls `buildDriveEstate` — the same pure function the app itself relies on
+— and asserts INVARIANTS OF ITS OUTPUT.** There is then exactly one definition of what the tree is,
+and the detector inherits every change to it for free:
+
+| hand-written rule (drifts) | invariant over the estate (does not) |
+|---|---|
+| "parent must be master or a project" | every container the estate returns has a `projectId`, or is reported as outside one |
+| "these roles are structural" | nothing the estate classifies as a device is also tagged with a role |
+| "one Unassigned per project" | `unassignedFolderIds` has no duplicate `projectId` |
+| — | no two texts share a `docId`; no object's parent is absent; D1's `project_id` agrees with the estate's |
+
+`buildDriveEstate` is already pure and fixture-tested (`test/drive-estate.test.mjs`), which is what
+makes this possible: the detector adds no new understanding of Drive, only arithmetic over an answer
+the app already trusts.
+
+**So when DOES it need updating?** Exactly when Seth said and no more often: when an architecture
+change redefines what normal looks like — as projects just did, adding a legitimate layer that any
+older rule would have called drift. A new feature that adds files, tags or containers within the
+existing model needs nothing.
+
+⚠ **And the direction of its failures is the right one.** When the architecture does change ahead of
+the detector, invariants over the estate produce FALSE POSITIVES — noise, an email about something
+that is fine. The hand-written version fails the other way, quietly accepting a new shape as normal.
+For a monitor, being wrong loudly is the survivable error.
+
 ### Shape
 
 - **Cloudflare Cron Trigger**, free tier. ⚠ **One researcher per invocation**, cursor in `ops_flag`.

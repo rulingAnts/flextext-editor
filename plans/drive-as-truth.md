@@ -1447,3 +1447,45 @@ done-ness entirely into D1 makes Drive **less** self-describing, and an appPrope
 every Drive UI a researcher will ever open. So "drop the suffix" and "drive-as-truth" pull in
 opposite directions here, and the resolution is probably a naming convention that is cheaper to
 maintain than a suffix requiring strip-and-reappend — not simply deleting the visible signal.
+
+### 16.15 Drive legibility splits in two — and only one half becomes moot
+
+Seth, 2026-08-19: *"once our drive-as-truth implementation is working, making our Drive folder as
+usable in Drive as it is in the researcher panel becomes increasingly a moot point."*
+
+Right, for one of the two reasons this document has been treating as a single thing. Separating them
+is worth doing now, because it decides a long tail of small implementation questions ("does this need
+to be legible in Drive?") that would otherwise be re-argued one at a time.
+
+**1. BROWSING CONVENIENCE — yes, this becomes moot.** A researcher opening Drive to poke around,
+work out which folder is which, or read done-ness off a folder name. A good panel replaces all of it,
+and it is strictly better at the job: it can show device attribution, pending commands and
+completeness, none of which a filename can carry. Affordances that exist purely for this can be
+relaxed as the panel improves. **The `(done)` suffix is the clearest example** — a derived copy of
+`flextextDone` maintained by string surgery, whose only consumer is a human eye (§16.14).
+
+**2. SURVIVABILITY — no, and this gets MORE important, not less.** Drive is the thing that outlives
+the app. If D1 is lost, if the Worker is retired, if the project ends, if another organisation
+inherits the corpus in ten years — the folder tree, the manifests and the role tags are what remain.
+This is the half the phrase *drive-as-truth* actually names: **D1 is an index that can be REBUILT
+from Drive**, and it is only rebuildable while Drive carries enough to rebuild from.
+
+⚠ **The failure mode to name explicitly, because it arrives gradually and looks like progress at
+every step:** as the panel gets better, each individual decision to stop writing something into Drive
+looks harmless — the panel shows it, nobody browses Drive, why pay for it. Repeat that a dozen times
+and Drive is a blob store only the panel can interpret, D1 has quietly stopped being an index and
+become load-bearing state, and the coupling this entire document exists to remove has been
+reintroduced from the other direction.
+
+**So the operative rule for the whole implementation:**
+
+| Category | Test | Verdict |
+|---|---|---|
+| Human-facing convenience | "would a good panel make this unnecessary?" | Relax freely — `(done)` suffix, pretty folder names, visual ordering |
+| Machine-readable self-description | "could D1 be rebuilt from Drive without it?" | **Keep, and make more rigorous** — the manifest, the history file, `flextextRole` tags, the `flextextDoc` identity, `originals/` |
+
+The second column is not sentiment about tidiness. It is the same instinct that already made this
+suite write ELAN `.eaf` + `.pfsx` and a SayMore sidecar, and stamp a BWF `bext` chunk naming a lossy
+origin: **field-linguistics data must outlive the tooling that produced it**, and for this corpus
+that is a research-ethics commitment to the communities whose language it is, not an engineering
+preference. A panel is a convenience. The archive is the obligation.

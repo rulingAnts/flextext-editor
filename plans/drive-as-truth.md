@@ -260,16 +260,18 @@ Everything descriptive — title, TTL, text-level settings, future metadata — 
 
 ## 7. Preconditions worth doing first
 
-- **Use Drive's native `files.copy` — for the SIBLING-DOC copy only.** ⚠ Corrected 2026-08-19 after
-  reading the code: the existing `assign-copy` route streams the file through the Worker
-  (`drive.usercontent.google.com` download → resumable PUT) **deliberately**, and its comment says
-  why — *"drive.file cannot copy a file the app did not create"*. Its source is an arbitrary PUBLIC
-  Drive file (the assignment link the researcher pasted, often from someone else's Drive), so
-  `files.copy` would 404 on it. **Leave `assign-copy` alone.**
-  The §2 case is different and is where `files.copy` belongs: copying an audio file **this app
-  already created** from one text folder into a second one, for the same-recording-two-devices
-  workflow. That source IS app-created, so the server-side copy works, moves no bytes and costs one
-  request — which is the difference between that workflow being practical and being avoided.
+- **`files.copy` for the sibling-doc copy.** ⚠ Twice-corrected, and the second correction removed the
+  problem rather than working around it. The first draft said to replace the through-the-Worker copy
+  in `assign-copy` with Drive's native `files.copy`; that was wrong, because its source was an
+  arbitrary PUBLIC Drive file and `drive.file` cannot copy what the app did not create. Then Seth:
+  *"we should not have our source be arbitrary public drive files anymore. The UI no longer works
+  that way. We assign files by uploading them and our worker puts them in the target text's folder
+  and manifest."* Confirmed — `assignModal`'s own comment records the retirement (*"pasted URLs are
+  retired entirely… the upload IS the copy"*), and productionWeb and main both carry **zero** call
+  sites — so **the route has been removed** (2026-08-19) along with its orphaned client wrapper.
+  What remains is the §2 case, and there `files.copy` is simply correct: copying an audio file **this
+  app created** from one text folder into a second, for the same-recording-two-devices workflow.
+  Server-side, no bytes moved, one request.
 - **Wire `drive-unassign`.** It is fully implemented in the worker, idempotent, and has zero callers
   in `docs/` or `satellites/`. It is the sweep that puts a cancelled assignment's folder where the
   UI already claims it is.

@@ -95,6 +95,20 @@ console.log('\nminted /v1/textfile URLs are scoped, and therefore revocable');
   ok(/ttlMs \|\| 90 \* 86400000/.test(code), 'the default TTL is unchanged (90 days)');
 }
 
+console.log('\nthe worker never fetches a URL the caller chose');
+{
+  /* The assign-copy route streamed an arbitrary PUBLIC Drive file, named by a caller-supplied id,
+   * into the researcher's own Drive. It existed only for the pasted-URL assignment flow, which is
+   * gone — assignment is now by upload, and "the upload IS the copy". Removed 2026-08-19 after
+   * confirming zero call sites on productionWeb and main. A caller-controlled outbound fetch that
+   * serves no live flow is pure attack surface. */
+  ok(!/sub === 'assign-copy'/.test(code), 'the assign-copy route is gone');
+  ok(!/drive\.usercontent\.google\.com/.test(code),
+     'and with it the only fetch of a caller-named Drive download URL');
+  const client = read('../docs/js/researcher.js');
+  ok(!/assignCopy/.test(client), 'the orphaned client wrapper is gone too');
+}
+
 console.log(fail ? `\nFAILED (${fail}) — an ownership write has slipped its scope.\n`
                  : '\nPASS: ownership is proven before the write, including inside batches.\n');
 process.exit(fail ? 1 : 0);

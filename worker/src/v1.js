@@ -2486,58 +2486,15 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
     }
 
-    /* POST .../assign-copy {docId, title, src} — RESEARCHER: place a copy of the assigned audio in
-     * the text's folder, at assign time, server-side.
-     * WHY HERE AND NOT ON THE DEVICE: drive.file cannot copy a file the app did not create, and the
-     * device re-uploading what it just downloaded would spend the coworker's bandwidth — the one
-     * resource this suite is built to protect. The Worker streams the PUBLIC file (the assignment
-     * link is already public — the device fetches it through /drive with the read token) into a
-     * file the app DOES create, with the researcher's own token, on Cloudflare's free egress.
-     * Best-effort by contract: the assignment itself has already succeeded when this is called, and
-     * a failed copy costs only the convenience copy. */
-    if (m === 'POST' && sub === 'assign-copy' && seg.length === 4) {
-      const r = await authResearcher(request, env);
-      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
-      const inst = await env.DB.prepare('SELECT instance_id, nickname, oauth_folder_id FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
-        .bind(instanceId, r.researcher_id).first();
-      if (!inst) return j({ error: 'not_found' }, 404, origin, env);
-      const body = await readJson(request) || {};
-      const srcId = driveIdOf(String(body.src || ""));
-      if (!srcId) return j({ error: 'bad_src' }, 400, origin, env);
-      if (!body.docId) return j({ error: 'bad_doc' }, 400, origin, env);
-      try {
-        const access = await driveAccessToken(env, r);
-        const deviceFolder = await driveEnsureDeviceFolder(env, access, instanceId, inst.nickname, inst.oauth_folder_id);
-        const folder = await driveEnsureTextFolder(access, deviceFolder, body.docId, body.title);
-        // Fetch the public file exactly as the /drive proxy does, then STREAM it into Drive —
-        // never buffered, so a long recording cannot exhaust worker memory.
-        const srcResp = await fetch(`https://drive.usercontent.google.com/download?id=${srcId}&export=download&confirm=t`);
-        if (!srcResp.ok || (srcResp.headers.get('content-type') || '').includes('text/html')) {
-          return j({ error: 'src_unavailable' }, 502, origin, env);
-        }
-        const len = parseInt(srcResp.headers.get('content-length') || '0', 10);
-        if (!len) { try { srcResp.body?.cancel?.(); } catch { /* noop */ } return j({ error: 'no_length' }, 502, origin, env); }
-        const mime = srcResp.headers.get('content-type') || 'application/octet-stream';
-        let name = (srcResp.headers.get('content-disposition') || '').match(/filename="?([^";]+)"?/)?.[1] || '';
-        name = (name || ('assigned-audio-' + srcId.slice(0, 8))).replace(/[\\/:*?"<>|]+/g, '_').slice(0, 180);
-        const init = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id', {
-          method: 'POST',
-          headers: { Authorization: 'Bearer ' + access, 'content-type': 'application/json',
-                     'X-Upload-Content-Type': mime, 'X-Upload-Content-Length': String(len) },
-          body: JSON.stringify({ name, mimeType: mime, parents: [folder], appProperties: { flextextRole: 'assigned-audio' } }),
-        });
-        const session = init.ok ? init.headers.get('Location') : null;
-        if (!session) { try { srcResp.body?.cancel?.(); } catch { /* noop */ } return j({ error: 'drive_error' }, 502, origin, env); }
-        const put = await fetch(session, {
-          method: 'PUT',
-          headers: { 'content-length': String(len), 'content-type': mime },
-          body: srcResp.body,
-        });
-        const done = put.ok ? await put.json().catch(() => ({})) : {};
-        if (!put.ok || !done.id) return j({ error: 'copy_failed', status: put.status }, 502, origin, env);
-        return j({ ok: true, fileId: done.id, name, size: len }, 200, origin, env);
-      } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
-    }
+    /* ⚠ THE assign-copy ROUTE WAS REMOVED (2026-08-19). It streamed an arbitrary PUBLIC Drive file,
+     * named by a caller-supplied id, into the researcher's own Drive — a caller-controlled outbound
+     * fetch that existed only to serve the pasted-URL assignment flow. That flow is gone: the panel
+     * comment for assignModal records it ("pasted URLs are retired entirely, and with them the
+     * probe/soft-CORS confirm ladder and the assign-copy call — the upload IS the copy"), and both
+     * productionWeb and main carry zero call sites. Assignment now works by the researcher uploading
+     * the actual files, which the worker writes into the target text's folder.
+     * Do not reintroduce a route that fetches a URL the caller chose. */
+
 
     // POST .../revoke — revoke the whole instance.
     if (m === 'POST' && sub === 'revoke' && seg.length === 4) {

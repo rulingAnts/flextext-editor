@@ -408,12 +408,6 @@ export function listTextFiles(instanceId, docId) {
   return api('GET', `/v1/instances/${encodeURIComponent(instanceId)}/texts/${encodeURIComponent(docId)}/files`);
 }
 
-/* Best-effort server-side copy of the assigned audio into the text's Drive folder. Called AFTER a
- * successful assign; a failure costs only the convenience copy, never the assignment. */
-export function assignCopy(instanceId, docId, title, src) {
-  return api('POST', `/v1/instances/${encodeURIComponent(instanceId)}/assign-copy`, { body: { docId, title, src } });
-}
-
 /* Raw bytes of one of the researcher's own app-created Drive files, as a Blob — for the panel's
  * download-all-as-ZIP builder. Not api(): that helper parses JSON, and this is a file body. */
 /* `onProgress(receivedBytes)` streams the body instead of awaiting `.blob()`, so the panel can show

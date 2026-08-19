@@ -4196,8 +4196,24 @@ function sweepUnassigned(estate) {
     if (!estate || !Array.isArray(estate.texts)) return;
     const assigned = assignedDocIds();
     const inFlight = inFlightAssignIds();
+    /* ⚠ A CROWD-BORN TEXT IS NOT UNASSIGNED — IT IS HELD BY ITS RECORDER.
+     *
+     * The sweep's test is "no device reports it", and that is PERMANENTLY TRUE of a crowd
+     * submission: it was never on a device and never will be. Without this exclusion the sweep
+     * empties every crowd folder into Unassigned and keeps doing it, undoing the whole point of
+     * v396 — crowd recordings living as first-class texts in their recorder's folder.
+     *
+     * Found in production data, not in review: the 11:24 snapshot showed the crowd text in
+     * `Crowd — Test Crowd Recorder`, and an hour later the storage view showed it under
+     * "Google Drive (unassigned)" with the crowd container gone from the list entirely. The code
+     * had read fine twice.
+     *
+     * ⚠ AND THE EXCLUSION IS SELF-CORRECTING, which is why it is the right shape: `fromCrowd` is
+     * computed from where the folder ACTUALLY SITS. Move a crowd text onto a device and it stops
+     * being crowd-born, so if that device later drops it, it sweeps normally — no second rule and
+     * nothing to keep in sync. (§16.9: crowd is a source, never a destination.) */
     const ids = estate.texts
-      .filter((tx) => tx && tx.docId && !tx.inUnassigned
+      .filter((tx) => tx && tx.docId && !tx.inUnassigned && !tx.fromCrowd
         && !assigned.has(tx.docId) && !pendingMoves.has(tx.docId) && !inFlight.has(tx.docId))
       .map((tx) => tx.docId)
       .slice(0, UNASSIGN_BATCH);

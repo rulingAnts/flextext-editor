@@ -90,6 +90,13 @@ console.log('\nthe three exclusions — the safety, and the reason a move surviv
     ['pendingMoves.has', 'a text mid-MOVE is never swept — its folder is receiving an upload'],
     ['inFlight.has', 'a text mid-ASSIGNMENT is never swept, for the same reason'],
   ]) ok(fn.includes(needle), why);
+  /* ⚠ THE FOURTH EXCLUSION, added after production data showed the sweep emptying a crowd folder.
+   * "No device holds it" is permanently true of a crowd submission — it was never on a device — so
+   * without this the sweep strips every crowd folder into Unassigned and keeps doing it, undoing
+   * v396. Self-correcting by construction: fromCrowd is computed from where the folder actually
+   * sits, so a crowd text moved onto a device sweeps normally if that device later drops it. */
+  ok(fn.includes('!tx.fromCrowd'),
+     'a CROWD-born text is never swept — it is held by its recorder, not unassigned');
   ok(/slice\(0, UNASSIGN_BATCH\)/.test(fn), 'the client batches too, rather than trusting the server to truncate');
   ok(/\.catch\(\(\) =>/.test(fn), 'fire-and-forget: an organisational sweep never delays or breaks a render');
   ok(/try \{[\s\S]*\} catch \{/.test(fn), '...and it is wrapped, like every other observer in this panel');

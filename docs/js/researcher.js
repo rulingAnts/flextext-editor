@@ -609,6 +609,15 @@ export function driveEstate() { return api('GET', '/v1/researcher/drive-estate')
  * is NOT "empty the user's Drive trash". retry:false — a lost response must not double-delete. */
 export function drivePurge() { return api('POST', '/v1/researcher/drive-purge', { body: {}, retry: false }); }
 
+/* Sweep texts no device holds into "FlexText Uploads / Unassigned".
+ * ⚠ BOUNDED SERVER-SIDE (12 per call, below the Drive subrequest cap) and idempotent, so the caller
+ * hands it a batch and drains `remainingIds` on the next sweep rather than sending everything at
+ * once. retry:false — a lost response is not worth a blind re-POST: the next sweep re-derives what
+ * still needs moving from the estate itself, which is more truthful than any retry could be. */
+export function driveUnassign(docIds) {
+  return api('POST', '/v1/researcher/drive-unassign', { body: { docIds }, retry: false });
+}
+
 /* Move the researcher's own app-created files to Drive TRASH (30-day recoverable — never a
  * permanent delete). The panel decides what; the Worker only enforces how. */
 export function trashFiles(fileIds, note) {

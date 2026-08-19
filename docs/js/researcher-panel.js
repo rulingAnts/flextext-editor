@@ -1315,6 +1315,7 @@ async function renderDashboard(prefetched) {
     /* The Drive estate rides FULL renders only, never the 12s poll — it is a Drive round trip, and
      * the unassigned card changes on the timescale of a researcher removing a text, not seconds. */
     try { estateCache = await Researcher.driveEstate(); } catch { estateCache = null; }
+    sweepUnassigned(estateCache);
   }
 
   // deviceCount passed explicitly (not taken from map's array arg): it decides the collapse default.
@@ -4095,6 +4096,45 @@ async function adoptTextModal(docId, title) {
  * it is described that way rather than pretended otherwise. The rail is still worth having: Drive
  * is the archive, and deleting the Drive copy of a text a device still holds destroys the only
  * backup of live work if that device is later lost or wiped. */
+/* THE UNASSIGNED SWEEP — move the folder of a text no device holds into "FlexText Uploads /
+ * Unassigned", so the Drive tree stops contradicting the panel.
+ *
+ * The worker route has existed, complete and idempotent, since the estate work and had ZERO callers
+ * (plans/drive-as-truth.md §7). Seth saw the consequence in the v396 test drive: a text the panel
+ * tags `unassigned` whose folder still sits inside a device folder in Drive.
+ *
+ * ⚠ DRIVEN FROM THE ESTATE, NOT FROM THE present→absent EVENT. The obvious wiring is to sweep when
+ * diffInventory reports a text gone — but that event fires ONCE, so anything skipped in that instant
+ * is skipped for ever. A text dropped by device A while a move to B is in flight is correctly
+ * skipped then, and if the move later fails nothing ever revisits it. Deriving the work from the
+ * estate instead makes the sweep SELF-HEALING: every full render re-asks "which texts are unassigned
+ * but not in the Unassigned folder", so a skip is retried and a success stops appearing. It also
+ * costs nothing extra — the estate is already fetched for the Unassigned card.
+ *
+ * ⚠ THE THREE EXCLUSIONS ARE THE SAFETY, and they are the same ones the storage modal uses for its
+ * Remove button. A text on its WAY to a device reads as "no device holds it" in exactly the same way
+ * as one nobody wants, and sweeping then re-parents the folder an upload is still streaming into.
+ * `assignedDocIds` is the device truth; `pendingMoves` and `inFlightAssignIds` cover the gap between
+ * a researcher's intent and the device's next report.
+ *
+ * Fire-and-forget by design: this is organisational, and it must never delay a render or take the
+ * panel down. A failed sweep simply happens again on the next full render. */
+const UNASSIGN_BATCH = 12;          // matches the worker's per-call cap; the rest drains next render
+function sweepUnassigned(estate) {
+  try {
+    if (!estate || !Array.isArray(estate.texts) || !estate.unassignedFolderId) return;
+    const assigned = assignedDocIds();
+    const inFlight = inFlightAssignIds();
+    const ids = estate.texts
+      .filter((tx) => tx && tx.docId && !tx.inUnassigned
+        && !assigned.has(tx.docId) && !pendingMoves.has(tx.docId) && !inFlight.has(tx.docId))
+      .map((tx) => tx.docId)
+      .slice(0, UNASSIGN_BATCH);
+    if (!ids.length) return;
+    Researcher.driveUnassign(ids).catch(() => { /* retried by the next full render */ });
+  } catch { /* the sweep must never break the dashboard it rides on */ }
+}
+
 function assignedDocIds() {
   const ids = new Set();
   for (const it of (lastData && lastData.instances) || []) {

@@ -1992,8 +1992,21 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     try {
       const access = await driveAccessToken(env, r);
       const target = await driveUnassignedFolder(access);
-      let moved = 0;
-      for (const id of ids) {
+      /* ⚠ BOUNDED BELOW THE SUBREQUEST CAP — this route accepted 200 docIds and spent up to THREE
+       * Drive subrequests on each (tag search + re-parent PATCH + tag PATCH). That is ~600 against a
+       * ~50 ceiling, so a full batch could never have completed; it would have died mid-sweep with
+       * some folders moved, some not, and no way for the caller to know which. It had never bitten
+       * only because the route had no callers at all — wiring one up is exactly what would have
+       * found it the hard way. Same shape as the trash route: do what fits, report the rest.
+       *
+       * 12 ids x 3 = 36, + the token fetch + the Unassigned-folder resolve = 38, clear of 50. The
+       * caller drains `remainingIds` on its next sweep; the route is idempotent, so re-sending an
+       * id that already moved costs one search and does nothing. */
+      const CAP = 12, BUDGET_MS = 9000;
+      const started = Date.now();
+      let moved = 0, i = 0;
+      for (; i < ids.length && i < CAP && (Date.now() - started) < BUDGET_MS; i++) {
+        const id = ids[i];
         try {
           const q = encodeURIComponent(`appProperties has { key='flextextDoc' and value='${id}' } and mimeType='application/vnd.google-apps.folder' and trashed=false`);
           const found = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files?spaces=drive&orderBy=createdTime&fields=files(id,parents)&q=' + q);
@@ -2007,7 +2020,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           moved++;
         } catch { /* one text failing must not abort the sweep */ }
       }
-      return j({ moved, folderId: target }, 200, origin, env);
+      // A COUNT plus the ids, matching drive-purge and the trash route so a caller can loop on
+      // `remaining` without learning a third convention.
+      const remainingIds = ids.slice(i);
+      return j({ moved, folderId: target, remaining: remainingIds.length, remainingIds }, 200, origin, env);
     } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
   }
 

@@ -282,13 +282,64 @@ Everything descriptive — title, TTL, text-level settings, future metadata — 
    where there is one, and store it only on Unassigned rows, which have none to derive from.
    Storing it everywhere hands a D1 dump the project grouping for free. Confirm and this stops
    being an open question.
-2. **Does the reconciler ever re-parent a folder without asking?** It is a write to the researcher's
-   own Drive. Proposal: silent when D1's intent is unambiguous, surfaced for confirmation when the
-   folder was moved by hand — `flextextUnassigned` already distinguishes "we swept this" from "the
-   researcher filed it here", and exists for exactly this.
-3. **A device-originated text the researcher wants in Unassigned:** force an upload first (safe, but
-   needs the device online), or allow marking it and let the sweep resolve later? §3.2 argues hard
-   for the first.
+2. ~~Does the reconciler ever re-parent a folder without asking?~~ → **SETTLED (Seth, 2026-08-19):
+   YES, ALWAYS, AND WITHOUT A SETTING.** See §8a — the "ask vs. silent" framing was the wrong one.
+3. ~~A device-originated text the researcher wants in Unassigned: force an upload first, or mark it
+   now?~~ → **SETTLED: a false choice.** In BOTH cases the bytes must upload before the text leaves
+   the device (§3.2, non-negotiable), so the outcomes are identical — the only difference is what the
+   panel *says* meanwhile. So: **allow marking it at any time, and show it as PENDING**, in the same
+   vocabulary as every other in-flight action, never as complete. An offline device must not block
+   the researcher from expressing the intent; it only delays completion, visibly. `uploadDelete` is
+   already upload-first-then-delete, so the machinery exists — what is new is only that the intent
+   lives in the account rather than in one browser.
+
+---
+
+## 8a. The ownership boundary — why auto-reparent, and why not a setting
+
+Seth, 2026-08-19: *"I really like the idea of auto-reparenting because I'm afraid of the unintended
+consequences of not doing that… Our app will manage and sort folders and files within the FlexText
+Uploads folder, but they're free to move and rename THAT folder in whichever way makes sense to
+them."*
+
+He is right, and his framing is better than the question it answers. **A detector that never acts is
+worse than one that acts**, because drift COMPOUNDS: one unreconciled folder is a curiosity, a
+hundred is an unmanageable estate, and every later operation has to carry "it might not be where we
+think" forever. "Ask the researcher" sounds cautious and is actually how you get there.
+
+**The contract, stated once:**
+
+> Inside the `FlexText Uploads` folder, the app owns the layout and will keep it sorted. The folder
+> itself is yours — move it, rename it, nest it wherever suits you.
+
+✅ **This is ALREADY TRUE in the code, not a feature to build.** `driveMasterFolder()` resolves by the
+`appProperties` tag `flextextRole: 'uploads-master'` — not by name and not by parent — so renaming
+the folder, nesting it under a project folder, or moving it anywhere in the Drive all keep working.
+The contract only needs *documenting* and *honouring*, not implementing.
+
+**Why not offer it as a preference**, despite the reasonable instinct that researchers differ:
+
+- It is a setting about **invisible background behaviour**, whose consequences almost nobody can
+  evaluate at the moment they are asked to choose.
+- The "off" branch produces exactly the compounding drift above — it would be shipping a foot-gun as
+  an option, and then supporting both worlds for ever.
+- Two code paths for one invariant is the "rule enforced in one place that other paths reach
+  differently" drift `plans/BACKLOG.md` already warns about.
+- **The boundary IS the escape hatch, and it serves both temperaments**: the researcher who wants to
+  organise does so *around* the folder — which is fully supported — while the app keeps the inside
+  consistent for everyone. Nobody has to choose, and nobody can choose wrongly.
+
+⚠ **One rule that is NOT a preference and must survive the "always auto-reparent" decision: never
+move anything we cannot positively identify as ours.** A folder sitting inside the boundary with no
+`flextextDoc` tag and no manifest is not ours — perhaps the researcher filed something there
+deliberately. Leave it, and surface it. That is not asking permission; it is not touching other
+people's things.
+
+**Small follow-on worth doing with this:** `driveMasterFolder()` finds the boundary by SEARCH, which
+runs on Drive's eventually-consistent index (the v167 class). Store the master folder id in D1
+alongside the other folder ids — encrypted at rest per §10.4(2) — so the boundary resolves by a
+strongly-consistent `files.get` and the one folder everything hangs from stops depending on a lagging
+index.
 
 ---
 

@@ -420,6 +420,55 @@ instead — and the ones that walk Drive wholesale are the dangerous ones:
 | `POST /v1/researcher/projects/{migrate,unmigrate,rename}` | act on the master folder as a whole |
 | `/v1/instances/*` | scoped by `researcher_id`, which stops being the boundary |
 
+**2. ✅ DECIDED — BROKERED ONLY. Members get no Google Drive permissions at all.**
+
+Seth supplied the criteria that settle it: *"(1) no drift possible, (2) permissions very precisely and
+carefully and consistently scoped and revokable at all levels, (3) minimize UI lag, extra Google Drive
+requests, etc."* Scored against those three, brokered-only wins each — and B fails structurally, not
+narrowly.
+
+**(1) No drift possible.** A has ONE record of who may see what: the D1 grant. There is no second
+representation for it to disagree with, so drift is impossible *by construction* rather than by
+diligence. B has two — the Drive ACL and its D1 index — and every pair like that has a window where
+they disagree: a permission changed in the Drive UI, a half-failed write, an index not yet refreshed.
+Naming Drive the source of truth decides *who wins* a disagreement; it does not stop one happening.
+
+**(3) Minimise lag and Drive requests.** A resolves authorization from a D1 read — no Drive call at
+all; Drive is touched only to move actual bytes. B either reads Drive live per decision (a round trip
+on every authorization, against a ~50-subrequest ceiling we have already hit twice) or caches the
+answer — which is where drift lives.
+
+⚠ **AND THAT IS THE STRUCTURAL PROBLEM: in B, (1) and (3) are the same dial turned opposite ways.**
+Live reads buy no-drift and pay in latency and subrequests. A cache buys speed and pays in a drift
+window. There is no setting that satisfies both, so B cannot meet Seth's stated bar however carefully
+it is built. A does not have the dial.
+
+**(2) Precisely scoped and revocable at every level.** Also A, and by more than expected:
+
+- Drive's model is COARSER than ours, not finer. It shares a folder, inherited by everything inside
+  it *including files added later*, with roles Google defines and re-sharing on by default. Ours can
+  say exactly what it means, per project, per route.
+- Revocation in A is one act with total effect. In B it is TWO acts that must both succeed, one of
+  them against an external system — so the failure mode is a member revoked in our records and still
+  holding a live Drive ACL, which is the worst of both.
+- ⚠ **A's own gap must still be closed before members ship:** `mintTextfileUrl` issues 90-day tokens,
+  so revocation is not complete until the deny-list (rule 3 below) exists. The token already carries
+  `n` and `iat` for exactly this. It is required, not optional.
+
+⚠ **Why the drive-as-truth analogy DOESN'T transfer, since that is what made B attractive.** For DATA,
+Drive genuinely holds the thing and D1 was duplicating derived facts — so making Drive authoritative
+removed a copy. For PERMISSIONS, Drive holds nothing we need: the grant is *our* concept, expressed in
+our vocabulary, and mirroring it into Drive would ADD a copy rather than remove one. Same words,
+opposite effect.
+
+**What is given up, stated plainly:** members get no Drive UI, no desktop sync and no bulk download,
+and if the worker is down they have no access at all (the owner still does, through their own Drive).
+The middle ground stays available and does not require B: **owner-initiated sharing as a deliberate
+one-off** — the owner shares a specific artifact as a human decision about a specific thing, rather
+than a standing permission that quietly covers everything added afterwards.
+
+<details><summary>The full two-option comparison, kept because the reasoning is worth more than the verdict</summary>
+
 **2. ⚠ OPEN DECISION — brokered-only vs mirrored into Drive.** Seth raised mirroring, then pulled
 back to *"I DON'T want invited researchers to have the same Google Drive permissions the owner does"*
 and asked for the trade-off written out. It is not settled, so it is recorded as a decision rather
@@ -466,6 +515,60 @@ covers everything added to the folder afterwards.
 folder shared *to* a member is not app-created *for them*, so their own app token still cannot list
 it — their client would keep reading through the worker regardless. The ACL would serve the human in
 the Drive UI, not the app. That halves B's benefit and is worth knowing before choosing it.
+
+</details>
+
+### II.5d ⚠⚠ NO-DRIFT INVARIANTS — how "consistently in sync" is made structural rather than careful
+
+> *"make extra sure that there's no way anything can drift and that all levels that we adjust are
+> always consistently in sync."* (Seth, 2026-08-19)
+
+Choosing brokered-only removed the drift between Drive and D1. It did NOT remove drift between the
+levels *inside* our own system, and there are more of those than there look:
+
+| level | what it is | how it could drift from the grant |
+|---|---|---|
+| the grant | the D1 row saying "X may see project P" | — (this is the authority) |
+| minted URLs | `mintTextfileUrl` tokens, 90-day TTL | self-standing today: they carry their own authority and outlive a revoked grant |
+| wrapped Ki | `member_key` — the project key wrapped to the member | a revoked member still holds the key bytes |
+| the estate response | what `/drive-estate` returns | scoped at request time, so it follows — unless it is cached |
+| session / cookie | the member's signed-in session | outlives the grant unless checked per request |
+
+**The design rule that makes drift impossible rather than unlikely: DERIVE, DON'T DUPLICATE.** No
+level stores its own copy of the answer. Each one either computes it from the grant at the moment of
+use, or is checked against the grant at the moment of use. Then there is only ever one fact, and
+"keeping them in sync" is not a job anyone can forget to do.
+
+**The invariants, each with its mechanism — an invariant with no mechanism is a wish:**
+
+- **I1 — ONE AUTHORITY.** Exactly one row answers "may X see project P". Every route resolves it;
+  none caches a decision derived from it.
+- **I2 — NO SELF-STANDING CAPABILITY.** ⚠ This is the one that requires a change to shipped code.
+  `/v1/textfile` today validates the TOKEN and streams; the token's own contents are its authority.
+  It must additionally resolve the grant at redemption. That single change turns "a 90-day capability
+  that outlives revocation" into "a pointer that is only good while the grant is", and it makes the
+  deny-list unnecessary for the revocation case — the grant check IS the deny-list, and it cannot go
+  stale because it is read fresh. (Keep `n`/`iat` for retiring a LEAKED link, which is a different
+  problem.)
+- **I3 — ONE WRITER, ONE ACT.** A grant change is a single D1 batch. There is no second store, so
+  there is no partial state to reconcile and no ordering to get wrong.
+- **I4 — FAIL CLOSED, EVERYWHERE.** Any check that cannot resolve the grant DENIES. A resolution
+  failure must never fall through to the old `researcher_id` scoping, which would silently widen
+  access at exactly the moment something is already wrong.
+- **I5 — REVOCATION ROTATES.** Dropping a grant re-keys the project: new Ki, re-wrapped for the
+  remaining members, the revoked member's `member_key` row deleted. Without rotation the member keeps
+  reading anything encrypted under the old key. ⚠ The honest limit stands and must be said to the
+  owner at invite time: rotation stops FUTURE reads; it cannot un-download what was already taken.
+- **I6 — ENFORCED BY A SCRIPT, NOT BY REVIEW.** The repo already has the right idiom:
+  `check-native-containment.sh` fails the build when the native boundary leaks. Do the same here —
+  enumerate every route that touches project data and fail when one of them does not resolve a grant.
+  ⚠ This is the invariant that keeps the other five true a year from now, when someone adds route
+  number forty-one and nobody remembers this section. Write it in the same commit as the first grant
+  check, not afterwards.
+
+⚠ **Why a test and not a helper function.** A shared `requireGrant()` helper is worth having, but it
+cannot fail a build when a new route simply does not call it. Containment has to be checked from the
+outside, by something that enumerates what exists rather than trusting what was written.
 
 **3. Never hand a member the owner's Drive token, or anything derived from it that outlives the
 grant.** The existing pattern is right — `mintTextfileUrl` issues opaque, time-boxed, instance- and

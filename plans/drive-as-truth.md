@@ -1412,3 +1412,38 @@ copes. Read from `origin/productionWeb`, not reasoned about:
 `test/manifest-provenance.test.mjs` asserts all of this **against `origin/productionWeb` itself**, so
 it keeps meaning something after the next release instead of decaying into a comment. It skips rather
 than fails when the ref is not fetched, so a shallow CI clone does not produce a false red.
+
+### 16.14 The `(done)` folder suffix — an open question for the Phase C conversation
+
+Seth, 2026-08-19: *"I think maybe we don't want 'done' to be a folder suffix. I think there's better
+places we can put that — in the D1 index or in the manifest or history file. But we can talk about
+that as we move onto implementing drive-as-truth."*
+
+Deferred by agreement. Three facts to bring to that conversation, so it does not start from scratch:
+
+**1. The suffix is already NOT the source of truth.** Done-ness lives in the `flextextDone`
+appProperty, and `buildDriveEstate` reads it from there — *"never from the folder NAME"*, as its own
+comment says. The `" (done)"` text is a **human affordance only**: it exists so someone browsing
+Drive without our tools can see it. So dropping it costs no correctness and breaks no reader; the
+question is purely what a human sees in Drive.
+
+**2. Seth's own rule already eliminates one of the three candidates.** He settled it in §16.12:
+*birth facts in the manifest, anything assigned later in the history file.* Done-ness is mutable
+state assigned long after the bytes — so **the manifest is out**, and for the same reason the
+manifest must not be rewritten at all (a rewrite can regress the declared file set). That leaves the
+D1 index and the history file, and they are not alternatives: a `state` column answers *"is it done
+now"* in one indexed read, while a history event answers *"when was it marked done, and by whom"*.
+Phase C's row sketch (§6) already has `state`. Likely both, for different questions.
+
+**3. What the suffix costs today, which is what prompted this.** It has to be stripped and
+re-appended by `driveTextHousekeeping`, which derives a base name via `/\s*\(done\)\s*$/` — and the
+panel-side rename feature in the backlog has to reuse that exact rule or a renamed done-text becomes
+`New name (done) (done)`. Every writer of a folder name inherits that obligation forever.
+
+⚠ **The argument on the other side, which should not be lost:** this whole document's premise is that
+*the folder tree should describe the truth without our tools* — the same philosophy that produced
+`originals/`, the `Unassigned` folder, and the BWF `bext` chunk naming a lossy origin. Moving
+done-ness entirely into D1 makes Drive **less** self-describing, and an appProperty is invisible in
+every Drive UI a researcher will ever open. So "drop the suffix" and "drive-as-truth" pull in
+opposite directions here, and the resolution is probably a naming convention that is cheaper to
+maintain than a suffix requiring strip-and-reappend — not simply deleting the visible signal.

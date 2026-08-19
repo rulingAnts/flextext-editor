@@ -2181,6 +2181,40 @@ Read-only, from `driveListAll` plus the D1 rows for one researcher:
 7. an Unassigned folder that is not a direct child of a project, or two under one project
 8. orphans — any object whose parent is not in the live set
 
+### ⚠ Three classes of finding — and only ONE of them mails
+
+> *"The e-mail should only happen on change and only when a drift is detected that needs fixing. And
+> only if it's a drift that our system doesn't already auto-correct."* (Seth)
+
+Right, and it needs one guard or the exemption becomes a blind spot. Several kinds of drift in this
+system genuinely DO heal themselves during ordinary use: `driveEnsureDeviceFolder` and
+`driveEnsureTextFolder` resolve by id and recreate a trashed folder on the next upload;
+`driveEnsureCrowdFolder` backfills a missing `flextextRole` tag when it next runs; the unassigned
+sweep is estate-driven and self-healing; the projects migration is idempotent, so an interrupted run
+finishes on the next press.
+
+| class | example | what happens |
+|---|---|---|
+| **benign** | an empty trashed `Default Project` left by a migrate→undo cycle | logged, never mailed — it is expected residue, not drift |
+| **heals** | a device folder trashed by hand; a crowd folder missing its role tag | logged; mailed ONLY if it survives N consecutive runs |
+| **needs-human** | two folders claiming one `flextextDoc`; two `flextextDefault=1`; D1 and Drive disagreeing about a project | mailed on change |
+
+⚠ **THE GUARD, and it is the point of the table: "self-healing" is conditional on the operation
+actually happening.** A device folder heals on the device's next upload — from a device that may
+never upload again. A crowd tag backfills when that recorder next receives a submission — from a
+recorder that may be paused for a year. Exempting those outright means the one case where the
+self-heal never fires is exactly the case nobody is told about.
+
+So `heals` findings are recorded silently and **escalate to `needs-human` if they persist across N
+runs** (N=3 is a reasonable start on a daily schedule). That keeps the inbox quiet for drift that is
+genuinely about to fix itself, without letting "the system handles that" quietly mean "nobody is
+watching that".
+
+⚠ **And the classification is a property of the FINDING, not of the check.** The same check can yield
+different classes — a missing `oauth_folder_id` on a device that reported an hour ago heals on its
+next upload; the same gap on a device last seen in March does not. Classify with the evidence in
+hand, and put the reason in the report so it can be argued with.
+
 ### Shape
 
 - **Cloudflare Cron Trigger**, free tier. ⚠ **One researcher per invocation**, cursor in `ops_flag`.

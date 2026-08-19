@@ -2205,12 +2205,36 @@ never upload again. A crowd tag backfills when that recorder next receives a sub
 recorder that may be paused for a year. Exempting those outright means the one case where the
 self-heal never fires is exactly the case nobody is told about.
 
-**So the escalation test is CAUSAL, not a timer** (Seth: *"maybe it needs to verify that the drift
-SHOULD have corrected but didn't"*). A run counter only asks "has enough time passed"; the real
-question is *"did the thing that would have fixed this actually happen, and is the drift still here?"*
-Those differ in both directions — a device that uploads twice an hour proves the self-heal is broken
-within minutes, while one that is packed away for the dry season would trip any timer while being
-perfectly healthy.
+**So there are TWO escalation tests, and the TIMER is the gate.**
+
+The causal one came first (Seth: *"maybe it needs to verify that the drift SHOULD have corrected but
+didn't"*) and it is the sharper question: not "has enough time passed" but *"did the thing that would
+have fixed this actually happen, and is the drift still here?"*
+
+⚠ **But a timer is more RELIABLE, and reliability is what a monitor is for** (Seth again, arguing
+against the causal test as the gate — correctly). The causal test depends on a witness, and a witness
+can be wrong in both directions: `last_seen_at` advances on any contact, not specifically on an
+upload that would run `driveEnsureDeviceFolder`, so it can move without the heal firing — and it can
+fail to move while the heal fired. It is also more moving parts, in logic that is awkward to test.
+
+**The asymmetry settles which is primary.** A timer errs toward telling you too much. A causal test
+with a mis-chosen witness errs toward telling you NOTHING. For a monitoring system false silence is
+the worse failure by a wide margin — the same reasoning `sendEmail` records about a monitor that lies
+about its own delivery: you stop watching the inbox AND you believe the silence means safety.
+
+So:
+
+- **TIMER = the floor, and it is never suppressed.** A `heals` finding still present after N runs is
+  mailed, whatever the witness says. Nothing can talk this out of firing.
+- **CAUSAL = an accelerator, never a gate.** When the witness DID advance and the finding is still
+  there, mail immediately rather than waiting out the timer — the self-heal is demonstrably broken and
+  that is worth knowing today. When the witness has not advanced, it changes nothing: the timer still
+  runs.
+
+That ordering keeps the failure mode as noise rather than silence, and still catches a broken
+self-heal within minutes on a busy device. Report both signals, so a message can say "escalated
+because the device uploaded four times and the folder is still missing" rather than only "still
+here after three days" — the first is actionable, the second is merely true.
 
 Each `heals` finding therefore carries two extra fields:
 
@@ -2219,9 +2243,9 @@ Each `heals` finding therefore carries two extra fields:
 | `healBy` | the operation that would fix it — "this device's next upload", "this recorder's next submission" |
 | `healWitness` | the observable that proves it ran — the counter or timestamp to compare against next time |
 
-**Escalate when the witness ADVANCED and the finding is still present.** That is the moment the
-self-heal is demonstrably not working, and it is worth an email precisely because it contradicts an
-assumption the design rests on.
+**The accelerator fires when the witness ADVANCED and the finding is still present** — the moment
+the self-heal is demonstrably not working, which is worth an email precisely because it contradicts
+an assumption the design rests on. It only ever makes the email EARLIER than the timer would.
 
 Witnesses we already have, no new plumbing:
 
@@ -2230,10 +2254,10 @@ Witnesses we already have, no new plumbing:
 - an interrupted migration → researcher-initiated, so it is never in the `heals` class at all; nothing
   fires on its own and it goes straight to `needs-human`
 
-⚠ **Where no witness exists, say so in the report and fall back to a run threshold** (N=3 on a daily
-schedule) — but mark it as a fallback rather than letting an unobservable trigger read as a
-verified one. A finding that cannot be checked causally is a weaker claim, and the report should not
-flatten that distinction.
+⚠ **Where no witness exists, nothing is lost** — the timer was always the gate, so an unobservable
+trigger simply means no early escalation. The report still says which signal fired, because
+"escalated because the device uploaded four times and the folder is still missing" and "still here
+after three days" are different claims and the report must not flatten them into one.
 
 ⚠ **And the classification is a property of the FINDING, not of the check.** The same check can yield
 different classes — a missing `oauth_folder_id` on a device that reported an hour ago heals on its

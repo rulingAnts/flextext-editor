@@ -147,6 +147,7 @@ is deliberately agnostic.
 |---|---|---|
 | v318 (2026-08-08) | `main` pushed 05:18:13, `productionWeb` seconds later | **Every Cloudflare site deployed from `productionWeb`** — verified by Seth on the dashboard across all Workers built from this repo. Pages + all three satellite mirrors green too. |
 | v396 (2026-08-19) | `main` pushed ≈09:39, `productionWeb` at 09:44:08 — **spaced by ~5 min**, deliberately | **Both estates fully green.** Seth verified on the Cloudflare dashboard that the `main` AND `productionWeb` builds all completed and the production sites serve v396. Pages built, and `Publish satellites` passed its gate for real (each satellite spent ~15 s in "Wait for the live editor to serve this commit's engine", then 200-checked every precached path, then published). |
+| v414 (2026-08-19) | staging verified serving on all 5 Workers, THEN `main`, then `productionWeb` — each push gated on confirming the previous one had landed, not on a timer | **Both estates green.** Seth verified the Cloudflare dashboard for all five Workers on all three branches. `Publish satellites` passed its gate for real — all three jobs spent **~60 s** in "Wait for the live editor to serve this commit's engine" (14:07:11→14:08:11), then 200-checked every precached path, then published. |
 
 **What v396 adds to the picture, stated no more strongly than it deserves:** this is the FIRST
 recorded release where the two pushes were deliberately spaced and both estates were then verified.
@@ -158,12 +159,25 @@ evidence about it either way. What v396 supports is the SPACING, which is the pa
 actually asks for. Keep recording releases here; the order question needs a different experiment, and
 it is not worth running one deliberately on production traffic.
 
-⚠ **The verification gap that showed up, and it is worth fixing.** The agent could not perform the
-gate itself: this sandbox's egress policy blocks `rulingants.github.io`, `*.workers.dev`,
-`connect.flextext.app` and `pat.flextext.app`, so `check-release-integrity.sh` returns `HTTP 000000`
-for every path and the preview aliases are unreachable. Seth had to eyeball the dashboard. Allowing
-those four hosts in the environment's network policy (claude.ai/code → this repo's environment) turns
-the release gate back into something automatable.
+⚠ **The verification gap — HALF of it is already closed, and the closed half is the cheap one.**
+Direct HTTP is still blocked: this sandbox's egress policy blocks `rulingants.github.io`,
+`*.workers.dev`, `connect.flextext.app` and `pat.flextext.app`, so `check-release-integrity.sh`
+run from here returns `HTTP 000000` for every path and the preview aliases are unreachable.
+
+But the PAGES gate never needed direct HTTP. `sync-satellites.yml` runs that same script as its
+ordering gate, and the **GitHub Actions API reaches the workflow's own results** — so an agent can
+confirm, per satellite, that the engine-wait step blocked, that every precached path 200-checked,
+and that the mirror published. That was done for the first time on v414 (run #74) and is now the
+expected way to verify the Pages half; do not ask Seth to eyeball what the API already reports.
+
+**Cloudflare is the half that remains manual** — there is no API path to it from here, so the five
+Workers still need a human on the dashboard. Allowing those four hosts in the environment's
+network policy (claude.ai/code → this repo's environment) would close that half too.
+
+⚠ **The original note said "the agent could not perform the gate itself" and that was true when
+written.** It stayed written for several releases after it stopped being wholly true, which is its
+own lesson: a limitation recorded once gets believed indefinitely. Re-test the limits occasionally
+rather than inheriting them.
 
 ⚠ **So v318 was NOT a broken release** — do not read the caution above as a post-mortem of one. It
 records a failure mode Seth has *seen*, which v318 then did not reproduce despite being pushed in

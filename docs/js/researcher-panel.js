@@ -1423,7 +1423,7 @@ async function renderDashboard(prefetched) {
     </div>
     ${renderUnassignedCard(estateCache)}
     ${insts.length ? cards.join('') : `<p class="note rp-empty">${esc(t('panel.dash.empty'))}</p>`}
-    ${Researcher.isApprovedSelf() ? renderCrowdCard(crowdCache) : ''}`;
+    ${Researcher.isApprovedSelf() ? renderCrowdCard(crowdCache, estateCache) : ''}`;
 
   wireActs({
     exit: close,
@@ -3397,12 +3397,33 @@ function fmtBytes(b) {
 
 const CROWD_DEFAULT_CONFIG = { welcome: '', consentAsk: ['text'], consentConfirm: ['yesno'], consentMsg: '', consentAudioUrl: '', lang: 'id', maxSeconds: 600, recordFormat: 'wav24', turnstile: true };
 
-function renderCrowdCard(recs) {
+/* A recorder's recordings, listed under it — so a crowd submission has a HOME in the panel rather
+ * than appearing in the researcher's set-aside pile (§16.24). The affordances follow §16.9: crowd is
+ * a SOURCE, so a text can be assigned onward (Move) or removed, but nothing is ever assigned TO a
+ * recorder — there is deliberately no action here that would send a text into one. */
+function crowdTextRows(rec, estate) {
+  const texts = crowdTexts(estate, rec);
+  if (!texts.length) return '';
+  const iid = firstInstanceId();
+  return `<ul class="rp-crowd-texts">${texts.map((tx) => `<li class="rp-text-row">
+      <div class="rp-text-main">
+        <div class="rp-text-title">${esc(tx.title || t('panel.hist.untitled'))}</div>
+        <div class="note rp-text-meta">${esc(gb(tx.bytes || 0))} · ${esc(t('panel.store.nFiles', { n: tx.files || 0 }))}</div>
+      </div>
+      <div class="rp-text-actions">
+        ${iid ? filesMenuHtml(iid, tx.docId, tx.title || '') : ''}
+        <button class="link-btn" data-uact="adopt" data-id="${esc(tx.docId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.move.btn'))}</button>
+        <button class="link-btn rp-revoke" data-uact="drop" data-folder="${esc(tx.folderId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.store.remove'))}</button>
+      </div>
+    </li>`).join('')}</ul>`;
+}
+
+function renderCrowdCard(recs, estate) {
   let body;
   if (recs == null) body = `<p class="banner warn-banner">${esc(t('panel.crowd.fetchFail'))}</p>
     <button class="secondary-btn" data-cact="reload">${esc(t('panel.dash.retry'))}</button>`;
   else if (!recs.length) body = `<p class="note">${esc(t('panel.crowd.empty'))}</p>`;
-  else body = recs.map(renderCrowdRow).join('');
+  else body = recs.map((r) => renderCrowdRow(r, estate)).join('');
   return `<div class="rp-card rp-crowd">
     <div class="rp-inst-top"><span class="rp-inst-name">${esc(t('panel.crowd.title'))}</span></div>
     <p class="note">${esc(t('panel.crowd.intro'))}</p>
@@ -3411,7 +3432,7 @@ function renderCrowdCard(recs) {
   </div>`;
 }
 
-function renderCrowdRow(r) {
+function renderCrowdRow(r, estate) {
   const id = esc(r.crowd_id);
   const live = Number(r.enabled) === 1;
   // Budget-reached = auto-paused by the worker until the day/budget resets or the researcher raises it.
@@ -3428,7 +3449,8 @@ function renderCrowdRow(r) {
   return `<div class="rp-install">
     <div><div class="rp-inst-name">${esc(r.label || '?')} ${pill}</div>
       <div class="note">${esc(counts)}</div>
-      ${(overDay || overBytes) ? `<div class="note rp-crowd-budget">${esc(t('panel.crowd.budget'))}</div>` : ''}</div>
+      ${(overDay || overBytes) ? `<div class="note rp-crowd-budget">${esc(t('panel.crowd.budget'))}</div>` : ''}
+      ${crowdTextRows(r, estate)}</div>
     <div class="rp-inst-actions">
       <button class="secondary-btn" data-cact="edit" data-c="${id}">${esc(t('panel.crowd.edit'))}</button>
       <button class="secondary-btn" data-cact="share" data-c="${id}">${esc(t('panel.crowd.share'))}</button>
@@ -3445,7 +3467,7 @@ async function refreshCrowd() {
   const holder = root && root.querySelector('.rp-crowd');
   if (!holder) return;
   const tmp = document.createElement('div');
-  tmp.innerHTML = renderCrowdCard(crowdCache);
+  tmp.innerHTML = renderCrowdCard(crowdCache, estateCache);
   holder.replaceWith(tmp.firstElementChild);
   root.querySelectorAll('.rp-crowd [data-cact]').forEach((el) => el.addEventListener('click', () => crowdAction(el)));
 }
@@ -4032,8 +4054,28 @@ function unassignedTexts(estate) {
   // delete Drive's only copy while the destination is still fetching it. A text mid-ASSIGNMENT is
   // the same case and was missing: see inFlightAssignIds().
   const inFlight = inFlightAssignIds();
-  return estate.texts.filter((tx) => tx.docId && !assigned.has(tx.docId)
+  /* ⚠ A CROWD SUBMISSION IS NOT "UNASSIGNED" — it is held by its recorder (plan §16.24).
+   *
+   * "No device reports it" is PERMANENTLY true of a crowd text: it was never on a device and never
+   * will be. Without this the card lists every crowd recording for ever, offering "Remove from
+   * Google Drive" on each — and a recorder can produce them without limit, so the researcher's own
+   * set-aside pile fills with things they never set aside. Seth: "we don't want crowd submitted,
+   * potentially unlimited number texts ending up in the unassigned box without the researcher
+   * specifically putting them there."
+   *
+   * This is the SECOND bug from that one predicate shape (the sweep was the first, v407). Any new
+   * rule phrased as "no device reports it" must be checked against the crowd case before it ships. */
+  return estate.texts.filter((tx) => tx.docId && !assigned.has(tx.docId) && !tx.fromCrowd
     && !pendingMoves.has(tx.docId) && !inFlight.has(tx.docId));
+}
+
+/* The texts sitting in ONE crowd recorder's folder. A recorder is a container of texts exactly as a
+ * device is (§16.9) — it just cannot be a destination. Linked by `oauth_folder_id`, which crowdList
+ * already returns, so this needs nothing new from the worker. */
+function crowdTexts(estate, rec) {
+  const folder = rec && rec.oauth_folder_id;
+  if (!folder || !estate || !Array.isArray(estate.texts)) return [];
+  return estate.texts.filter((tx) => tx && tx.deviceFolderId === folder);
 }
 
 function renderUnassignedCard(estate) {

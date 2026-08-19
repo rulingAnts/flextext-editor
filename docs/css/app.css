@@ -2233,3 +2233,7 @@ main {
 
 /* Pre-migration Drive snapshot (storage modal footer — see §17.0 in plans/drive-as-truth.md). */
 .rp-store-snap { margin-top: 14px; padding-top: 10px; border-top: 1px solid rgba(128,128,128,.3); }
+
+/* A crowd recorder's own recordings, listed under it (see crowdTextRows). */
+.rp-crowd-texts { list-style: none; margin: 8px 0 0; padding: 0; }
+.rp-crowd-texts .rp-text-row { padding: 4px 0; }

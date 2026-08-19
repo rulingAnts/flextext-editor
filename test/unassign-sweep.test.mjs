@@ -102,5 +102,28 @@ console.log('\nthe three exclusions — the safety, and the reason a move surviv
   ok(/try \{[\s\S]*\} catch \{/.test(fn), '...and it is wrapped, like every other observer in this panel');
 }
 
+/* ⚠ THE SAME PREDICATE, A SECOND PLACE. The sweep MOVES texts; the Unassigned card LISTS them and
+ * offers "Remove from Google Drive". Both were written as "no device reports it", which is
+ * permanently true of a crowd submission — so a recorder could fill the researcher's set-aside pile
+ * without limit with things they never set aside (plan §16.24/§16.25). Fixing one and not the other
+ * is exactly the drift this file exists to prevent. */
+console.log('\nthe Unassigned CARD excludes crowd texts too — not just the sweep');
+{
+  const fn = panel.slice(panel.indexOf('function unassignedTexts'), panel.indexOf('function crowdTexts'));
+  ok(/!tx\.fromCrowd/.test(fn), 'unassignedTexts excludes crowd-born texts');
+  /* And they must be visible SOMEWHERE, or excluding them just hides them: a recorder is a container
+   * of texts exactly as a device is (§16.9). */
+  ok(/function crowdTexts\(estate, rec\)/.test(panel), 'a recorder can enumerate its own texts');
+  ok(/tx\.deviceFolderId === folder/.test(panel),
+     '...linked by oauth_folder_id, which crowdList already returns — no worker change needed');
+  ok(/function crowdTextRows\(rec, estate\)/.test(panel), 'and the crowd row renders them');
+  /* §16.9: crowd is a SOURCE. A text can be assigned onward or removed, but nothing is ever assigned
+   * INTO a recorder — there must be no affordance here that sends a text to one. */
+  const rows = panel.slice(panel.indexOf('function crowdTextRows'), panel.indexOf('function renderCrowdCard'));
+  ok(/data-uact="adopt"/.test(rows) && /data-uact="drop"/.test(rows),
+     'offering assign-onward and remove');
+  ok(!/assignTo|data-uact="assign"/.test(rows), '...and nothing that would assign a text INTO a recorder');
+}
+
 console.log(fail ? `\nFAILED (${fail})\n` : '\nall passed\n');
 process.exit(fail ? 1 : 0);

@@ -2121,3 +2121,45 @@ the researcher's own set-aside pile — where the "Remove from Google Drive" but
 predicate of the form *"no device reports it"* is permanently true for a crowd-born text. That shape
 will keep producing bugs — it produced this one and the sweep one — so any NEW rule phrased that way
 must be checked against the crowd case before it ships.
+
+### 16.25 Nothing enters Unassigned except by having been ON A DEVICE
+
+Seth: *"we don't want a researcher throwing away junk to discover that that junk has ended up in his
+queue of texts waiting to be assigned and junked it up."*
+
+The right invariant, stated so it can be checked:
+
+> **A text may enter the Unassigned queue only if a device once held it.** Crowd submissions are born
+> unheld and stay that way; deleting one must mean *gone*, never *requeued*.
+
+That is not the same rule as "never sweep a crowd text", and the difference matters: a crowd
+recording ASSIGNED to a device and then dropped by it **should** sweep, because by then a device did
+hold it. `fromCrowd` gets this right by accident of being POSITIONAL — it asks where the folder sits
+now, so a text that has moved to a device is no longer crowd-born. No history table needed.
+
+**The paths, checked rather than assumed:**
+
+| Action | Where the text ends up | Safe? |
+|---|---|---|
+| Remove a crowd text (panel) | folder TRASHED → drops out of `driveListAll(false)` → leaves the estate entirely | ✅ gone, not requeued |
+| Delete the crowd RECORDER | D1 rows deleted, **Drive files stay**; the folder keeps `flextextRole:'crowd'`, so its texts keep `fromCrowd` | ✅ not requeued |
+| Assign a crowd text to a device, device later drops it | sweeps to Unassigned | ✅ correct — a device held it |
+
+So the specific fear — junk reappearing in the assign queue — **does not happen on any current path.**
+The tag lives on the Drive folder, not in D1, which is what makes recorder deletion safe: the D1 row
+is gone but the folder still says what it is.
+
+⚠ **The one real gap it exposed is different, and worse in a quiet way.** Deleting a recorder removes
+the `crowd_recorder` row, so the panel's crowd card can no longer list that folder's texts — the
+recordings become **invisible in the panel** while still occupying Drive. Not junk in the queue; junk
+with nowhere to see it. The storage modal still shows them under the orphaned container, so they are
+recoverable, but nothing tells the researcher they exist.
+
+Options when we get to it: refuse to delete a recorder that still holds texts (offer to move or
+remove them first), or keep listing orphaned crowd containers in the panel from the ESTATE rather
+than from D1 — which is the drive-as-truth answer, since Drive already knows the folder is a crowd
+container and D1 is only an index.
+
+⚠⚠ **And the standing hazard this is the third instance of:** every predicate shaped *"no device
+reports it"* is permanently true for a crowd-born text. It produced the sweep bug (v407), the
+Unassigned-card bug (v408), and it is the thing to check first in any new rule about assignment.

@@ -58,6 +58,26 @@ console.log('\n⚠ RESEARCHER PANEL ONLY — it must not be able to reach a fiel
   ok(/v\.maintenance/.test(rjs), 'listView ENUMERATES the field — the trap that lost `estate` twice');
 }
 
+/* ⚠⚠ IT MUST BE IN THE RENDER SIGNATURE, or it does not appear until a manual refresh.
+ *
+ * This is the bug Seth actually hit: "the maintenance flag works — except that it doesn't auto
+ * refresh within 12s as claimed. Actually so far it doesn't auto refresh at all."
+ *
+ * viewSig() decides whether the 12s poll redraws. Anything the dashboard renders that is not part
+ * of the server `data` object is invisible to it, so the poll concludes "nothing changed" and the
+ * new state waits for a manual refresh. The panel's own comments record this happening TWICE before
+ * — local pending markers (v339) and shared pending state — which makes the banner the third. A
+ * pattern, not bad luck, so it gets an assertion rather than another comment. */
+console.log('\nthe 12s poll can actually SEE it');
+{
+  const sig = panel.slice(panel.indexOf('function viewSig(data)'), panel.indexOf('async function pollDashboard'));
+  ok(/Researcher\.maintenance\(\)/.test(sig),
+     'viewSig includes the notice, so a change to it triggers a redraw on the poll');
+  /* Proof the assertion is not vacuous: viewSig must be findable and non-trivial, or the check
+   * above would pass on an empty string. */
+  ok(sig.length > 500 && /JSON\.stringify\(\[/.test(sig), '...and viewSig was actually located');
+}
+
 console.log('\nit cannot be dismissed, and it is escaped');
 {
   const fn = panel.slice(panel.indexOf('function maintenanceBanner'), panel.indexOf('function assignedDocIds'));

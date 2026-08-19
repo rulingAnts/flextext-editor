@@ -962,6 +962,20 @@ function viewSig(data) {
        * within a minute or two", "frequently requiring a manual refresh"). */
       [...serverPending].sort((a, b) => String(a[0]).localeCompare(String(b[0]))).map(([k, p]) => [k, p.kind, p.seq]),
       [...pendingMoves].sort((a, b) => String(a[0]).localeCompare(String(b[0]))).map(([id, mv]) => [id, mv.stage]),
+      /* ⚠ THE MAINTENANCE NOTICE, AND THIS IS THE THIRD TIME THIS TRAP HAS BEEN SPRUNG. The two
+       * comments above record the same bug for local pending markers (v339) and for shared pending
+       * state: a piece of state the dashboard RENDERS was not in this signature, so the poll
+       * concluded "nothing to redraw" and the change only appeared on a manual refresh.
+       *
+       * It happened again the moment a banner was added, and it invalidated a claim made out loud —
+       * "appears within one 12s tick" was simply false; Seth: "it doesn't auto refresh at all. It
+       * changes when I push the refresh button."
+       *
+       * THE RULE, since three occurrences is a pattern and not bad luck: anything renderDashboard
+       * reads that is NOT part of `data` must be added here in the same commit that renders it.
+       * The signature is not a performance detail — it is the list of everything the panel is
+       * allowed to notice. */
+      Researcher.maintenance(),
     ]);
   } catch { return String(Math.random()); } // unserializable → treat as changed
 }

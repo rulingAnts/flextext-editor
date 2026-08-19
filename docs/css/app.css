@@ -1315,6 +1315,12 @@ main {
 /* ---------------- Crowd mode (public crowd-source recorder) ---------------- */
 .crowd-screen { text-align: center; }
 .crowd-status { font-size: 1.15rem; margin: 18px 0; }
+/* Projects card. The rows read like device rows on purpose — a project IS a container of
+ * containers, and giving it its own visual language would suggest it is a different kind of thing. */
+.rp-proj-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; }
+.rp-proj-row + .rp-proj-row { border-top: 1px solid var(--border); }
+.rp-proj-plan { margin: 8px 0 0; padding-left: 20px; max-height: 220px; overflow-y: auto; }
+.rp-proj-plan li { margin: 2px 0; }
 /* Upload progress on the crowd page. Deliberately plain and wide: the visitor is on a phone on a
  * weak connection, and the one question the screen has to answer is "is this still moving?" */
 .crowd-prog { width: 100%; max-width: 420px; height: 10px; margin: 0 auto 18px;

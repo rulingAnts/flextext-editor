@@ -2194,6 +2194,43 @@ container and D1 is only an index.
 reports it"* is permanently true for a crowd-born text. It produced the sweep bug (v407), the
 Unassigned-card bug (v408), and it is the thing to check first in any new rule about assignment.
 
+### 16.27 The projects CARD — what shipped, and the line drawn under it
+
+`fxProjects()` earned its button (v420). The console-first rule was explicit — *"a button implies we
+are confident, and we are not yet"* — and what changed is not an opinion: the round trip was executed
+and measured on the real production estate (§17.4a), 103 objects, nothing lost, no id changed, byte
+delta exactly zero. The console entry point stays for the operator.
+
+**What the card does:** offers setup on a flat estate, lists each project with its container count
+and a Rename, reports containers still outside a project after an interrupted run (with a way to
+finish), and carries the UNDO as a first-class labelled button rather than an operator trick — §17
+exists because "what if this tangles my Drive" must have an answer the researcher can act on.
+
+**Every action previews and then asks.** The modal fetches `dry: true`, renders the actual list of
+folders that would move, and only sends `dry: false` from a handler pressed while that list is on
+screen. The worker independently defaults `dry` to true. Two defaults, so forgetting either is safe.
+
+⚠ **The scope line, and it is the reason this could ship in a day: THIS IS THE DRIVE LAYER ONLY.**
+The D1 project layer (the `project` / `project_member` / `member_key` tables, `instance.project_id`,
+the researcher keypair, the key-grant ledger) is Phase B and is **built in the worker but applied to
+no database** — see project-split.md II.5b. None of it is needed here, and that is by construction,
+not luck:
+
+- A new device or crowd folder resolves its parent with `driveProjectFolderFor`, which falls back to
+  `driveDefaultProjectFolder(access)` — a **Drive** search for the `flextextRole=project` tag. With
+  `instance.project_id` NULL it still lands in the default project.
+- `buildDriveEstate` reads both tree shapes and keeps emitting `{devices, texts, unassignedFolderId}`,
+  so a panel predating projects renders a migrated estate as devices flattened across projects.
+
+So the folder layer ships with **no migration to run and no worker deploy**, which is exactly the
+property that makes it releasable on the day it is written.
+
+⚠ **One discrepancy left deliberately unfixed:** `defaultProjectName()` in the worker derives
+*"«name»'s project"* for the D1 project ROW, while Seth asked for *"Default Project"* and that is what
+the Drive folder is called. The D1 name is inert today — nothing reads it, because nothing has the
+table — and changing it would mean a worker deploy on a release day for a string no user can see.
+Align it when Phase B's D1 half actually lands.
+
 ### 16.26 The verb model — and why "Move to Unassigned" is the load-bearing piece
 
 Seth, 2026-08-19, proposing the affordances for texts that no device holds:

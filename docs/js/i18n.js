@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v419';
+export const ENGINE_VERSION = 'v420';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v419';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = '';
+export const BUILD_TAG = 'projects v1';
 
 const S = {
 en: {
@@ -1172,6 +1172,40 @@ internet after the first time.</p>
   // whether item 1 is what they assigned or what the speaker recorded, instead of inferring it.
   'panel.crowd.assignNote': 'Move\u2026 sends a recording to a device to be transcribed, or files it under Unassigned for later. \u26a0 Do not move these folders in Google Drive by hand \u2014 the device would never be told about it, so the text would look assigned without ever arriving.',
   'panel.store.snapshot': 'Save a Drive snapshot (JSON)',
+  /* PROJECTS — the Drive folder layer (plans/drive-as-truth.md §16.16). Every string here has to
+   * survive being read by someone who is about to let software move their folders, so they say what
+   * MOVES, what does not, and that it is reversible. */
+  'panel.proj.title': 'Projects',
+  'panel.proj.flatTag': 'not set up',
+  'panel.proj.introFlat': 'Your devices, crowd recorders and unassigned texts currently sit directly in your FlexText Uploads folder. Grouping them under a project folder keeps several bodies of work apart in Google Drive, and is the first step toward giving other researchers access to one project without the rest.',
+  'panel.proj.setup': 'Set up projects\u2026',
+  'panel.proj.finish': 'Finish setting up\u2026',
+  'panel.proj.setupTitle': 'Set up projects',
+  'panel.proj.setupIntro': 'This moves folders in Google Drive. It does not copy, rename or delete anything, and every text keeps its own folder and its files exactly as they are. You can undo it from this card afterwards.',
+  'panel.proj.planCount': '{n} folder(s) would move under the project:',
+  'panel.proj.planNone': 'Nothing needs to move \u2014 everything is already where it should be.',
+  'panel.proj.kind.device': 'device',
+  'panel.proj.kind.crowd': 'crowd recorder',
+  'panel.proj.kind.unassigned': 'unassigned texts',
+  'panel.proj.nameLabel': 'Project name',
+  'panel.proj.defaultName': 'Default Project',
+  'panel.proj.nameNote': 'You can change this later. The name is for you \u2014 nothing is found by it, so renaming can never lose a text.',
+  'panel.proj.go': 'Move the folders',
+  'panel.proj.moving': '{n} moved\u2026',
+  'panel.proj.done': 'Projects are set up.',
+  'panel.proj.partial': 'Moved {n} so far \u2014 press again to continue.',
+  'panel.proj.nContainers': '{n} device(s) and recorder(s)',
+  'panel.proj.stray': '{n} folder(s) are still outside the project. Nothing is lost \u2014 they are read exactly as before \u2014 but the move did not finish.',
+  'panel.proj.rename': 'Rename',
+  'panel.proj.renameTitle': 'Rename project',
+  'panel.proj.renameNote': 'Display only. The folder is found by its tag, never by its name, so this cannot orphan a device, a text or an upload in progress.',
+  'panel.proj.renameGo': 'Rename',
+  'panel.proj.renamed': 'Project renamed.',
+  'panel.proj.undo': 'Undo \u2014 go back to a flat folder',
+  'panel.proj.undoTitle': 'Undo the project folder',
+  'panel.proj.undoIntro': 'This puts every folder back directly under FlexText Uploads, exactly where it was. The project folder is moved to Drive trash only if it is completely empty afterwards.',
+  'panel.proj.undoGo': 'Move them back',
+  'panel.proj.undone': 'Back to a flat folder.',
   'panel.store.snapshotNote': 'A record of exactly what your FlexText folders look like right now. Take one before any big reorganisation \u2014 Google Drive does not remember where a folder used to be, so this file cannot be produced after the fact.',
   'panel.store.snapshotSaved': 'Snapshot saved \u2014 {n} items recorded. Keep it somewhere safe.',
   'panel.maint.title': 'Maintenance in progress',
@@ -2791,6 +2825,37 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.dl.packageSub': 'rekaman beserta catatan persetujuan, dikemas jadi satu',
   'panel.crowd.assignNote': 'Pindahkan\u2026 mengirim rekaman ke perangkat untuk ditranskripsi, atau memasukkannya ke Tidak Tertugas untuk nanti. \u26a0 Jangan memindahkan folder ini secara manual di Google Drive \u2014 perangkat tidak akan diberi tahu, sehingga teks tampak ditugaskan padahal tidak pernah sampai.',
   'panel.store.snapshot': 'Simpan cuplikan Drive (JSON)',
+  'panel.proj.title': 'Proyek',
+  'panel.proj.flatTag': 'belum disiapkan',
+  'panel.proj.introFlat': 'Perangkat, perekam publik, dan teks tidak tertugas Anda saat ini berada langsung di folder FlexText Uploads. Mengelompokkannya di bawah folder proyek memisahkan beberapa bidang pekerjaan di Google Drive, dan merupakan langkah pertama untuk memberi peneliti lain akses ke satu proyek saja.',
+  'panel.proj.setup': 'Siapkan proyek\u2026',
+  'panel.proj.finish': 'Selesaikan penyiapan\u2026',
+  'panel.proj.setupTitle': 'Siapkan proyek',
+  'panel.proj.setupIntro': 'Ini memindahkan folder di Google Drive. Tidak ada yang disalin, diganti nama, atau dihapus, dan setiap teks tetap memiliki foldernya sendiri beserta berkasnya. Anda dapat membatalkannya dari kartu ini setelahnya.',
+  'panel.proj.planCount': '{n} folder akan dipindahkan ke dalam proyek:',
+  'panel.proj.planNone': 'Tidak ada yang perlu dipindahkan \u2014 semuanya sudah pada tempatnya.',
+  'panel.proj.kind.device': 'perangkat',
+  'panel.proj.kind.crowd': 'perekam publik',
+  'panel.proj.kind.unassigned': 'teks tidak tertugas',
+  'panel.proj.nameLabel': 'Nama proyek',
+  'panel.proj.defaultName': 'Proyek Baku',
+  'panel.proj.nameNote': 'Anda bisa mengubahnya nanti. Nama ini untuk Anda \u2014 tidak ada yang dicari berdasarkan nama, jadi mengganti nama tidak mungkin menghilangkan teks.',
+  'panel.proj.go': 'Pindahkan foldernya',
+  'panel.proj.moving': '{n} dipindahkan\u2026',
+  'panel.proj.done': 'Proyek sudah disiapkan.',
+  'panel.proj.partial': 'Sudah {n} dipindahkan \u2014 tekan lagi untuk melanjutkan.',
+  'panel.proj.nContainers': '{n} perangkat dan perekam',
+  'panel.proj.stray': '{n} folder masih di luar proyek. Tidak ada yang hilang \u2014 semuanya tetap terbaca seperti sebelumnya \u2014 tetapi pemindahan belum selesai.',
+  'panel.proj.rename': 'Ganti nama',
+  'panel.proj.renameTitle': 'Ganti nama proyek',
+  'panel.proj.renameNote': 'Hanya tampilan. Folder ditemukan lewat tandanya, bukan namanya, jadi ini tidak dapat memutus kaitan perangkat, teks, atau unggahan yang sedang berjalan.',
+  'panel.proj.renameGo': 'Ganti nama',
+  'panel.proj.renamed': 'Nama proyek diganti.',
+  'panel.proj.undo': 'Batalkan \u2014 kembali ke folder datar',
+  'panel.proj.undoTitle': 'Batalkan folder proyek',
+  'panel.proj.undoIntro': 'Ini mengembalikan setiap folder langsung ke bawah FlexText Uploads, persis seperti semula. Folder proyek dipindahkan ke sampah Drive hanya jika benar-benar kosong setelahnya.',
+  'panel.proj.undoGo': 'Kembalikan',
+  'panel.proj.undone': 'Kembali ke folder datar.',
   'panel.store.snapshotNote': 'Catatan persis seperti apa folder FlexText Anda saat ini. Ambil satu sebelum penataan ulang besar \u2014 Google Drive tidak mengingat lokasi folder sebelumnya, jadi berkas ini tidak bisa dibuat setelahnya.',
   'panel.store.snapshotSaved': 'Cuplikan tersimpan \u2014 {n} item tercatat. Simpan di tempat aman.',
   'panel.maint.title': 'Pemeliharaan sedang berlangsung',

@@ -1021,6 +1021,19 @@ function viewSig(data) {
        * The signature is not a performance detail — it is the list of everything the panel is
        * allowed to notice. */
       Researcher.maintenance(),
+      /* ⚠ FOURTH TIME — added in the SAME commit that renders it, per the rule above. The Projects
+       * card is drawn from `estateCache`, which is not part of `data`, so without this a migration
+       * finishing (or a project being renamed in another browser) would leave the card stale until
+       * someone pressed Refresh. Only the SHAPE goes in the signature, not the whole estate: the
+       * projects and which project each container sits under. Text-level churn is already covered
+       * by the inventory above, and putting it here would redraw the dashboard on every upload.
+       *
+       * ⚠ The Unassigned card has read `estateCache` since before this rule was written and is NOT
+       * covered by what follows — a stray text arriving still waits for a refresh. Left alone
+       * deliberately: including the text list would mean a redraw per upload, and the fix belongs
+       * with that card, not smuggled in here. */
+      ((estateCache && estateCache.projects) || []).map((p) => [p.folderId, p.name]),
+      ((estateCache && estateCache.devices) || []).map((d) => [d.folderId, d.projectId || '']),
     ]);
   } catch { return String(Math.random()); } // unserializable → treat as changed
 }
@@ -1421,6 +1434,7 @@ async function renderDashboard(prefetched) {
         <a class="secondary-btn rp-open-editor" href="${esc(HOME.editor)}" target="_blank" rel="noopener noreferrer">${esc(t('panel.dash.openEditor'))}</a>
       </div>
     </div>
+    ${renderProjectsCard(estateCache)}
     ${renderUnassignedCard(estateCache)}
     ${insts.length ? cards.join('') : `<p class="note rp-empty">${esc(t('panel.dash.empty'))}</p>`}
     ${Researcher.isApprovedSelf() ? renderCrowdCard(crowdCache, estateCache) : ''}`;
@@ -1470,6 +1484,14 @@ async function renderDashboard(prefetched) {
   }));
   root.querySelectorAll('[data-ract]').forEach((el) => el.addEventListener('click', () => researcherAction(el)));
   root.querySelectorAll('[data-cact]').forEach((el) => el.addEventListener('click', () => crowdAction(el)));
+  /* Project actions: their OWN attribute, like the Unassigned card's, because none of them name
+   * an instance — they act on the Drive tree itself. */
+  root.querySelectorAll('[data-pact]').forEach((el) => el.addEventListener('click', () => {
+    const act = el.dataset.pact;
+    if (act === 'setup') { busy(el, () => projectsSetupModal()); return; }
+    if (act === 'undo') { busy(el, () => projectsUndoModal()); return; }
+    if (act === 'rename') { projectRenameModal(el.dataset.folder, el.dataset.name || ''); }
+  }));
   lastSig = viewSig(data);
   // The in-place refresh promised the researcher their place back — keep it (see the top).
   if (keepTop !== null && scroller && scroller.isConnected) scroller.scrollTop = keepTop;
@@ -4158,6 +4180,180 @@ function crowdTexts(estate, rec) {
   const folder = rec && rec.oauth_folder_id;
   if (!folder || !estate || !Array.isArray(estate.texts)) return [];
   return estate.texts.filter((tx) => tx && tx.deviceFolderId === folder);
+}
+
+/* ── PROJECTS ─────────────────────────────────────────────────────────────────────────────────────
+ *
+ * The Drive folder layer (plans/drive-as-truth.md §16.16): every container — device folders, crowd
+ * recorders, Unassigned — becomes a child of a PROJECT folder instead of hanging off master.
+ *
+ * ⚠ THIS CARD REPLACES `fxProjects()`, and only now. The console-first rule was explicit: "a button
+ * implies we are confident, and we are not yet" — this being the first operation in the suite that
+ * MOVES a researcher's folders. What earned the button is that the round trip was executed on the
+ * real production estate and measured: 103 objects, nothing lost, no id changed, byte delta exactly
+ * zero (§17.4a). `fxProjects()` stays for the operator.
+ *
+ * ⚠ EVERY ACTION PREVIEWS FIRST, and that is not politeness. The worker defaults `dry` to true and
+ * this UI never sends `dry:false` except from a button the researcher pressed while looking at the
+ * list of folders that would move. Two independent defaults, so forgetting either one is still safe.
+ *
+ * ⚠ IT IS BACKWARD-COMPATIBLE BY CONSTRUCTION, in both directions:
+ *   - A flat estate renders this card as an OFFER; nothing is migrated until asked.
+ *   - The worker's `buildDriveEstate` reads both tree shapes and keeps emitting the old
+ *     `{devices, texts, unassignedFolderId}` fields, so a panel that predates projects renders a
+ *     migrated estate exactly as it renders a flat one — devices flattened across projects.
+ *   - New device and crowd folders resolve their parent through Drive (`driveDefaultProjectFolder`),
+ *     NOT through D1, so this works with `instance.project_id` still NULL and needs no migration
+ *     applied to any database. */
+function projectOf(estate, folderId) {
+  return ((estate && estate.projects) || []).find((p) => p.folderId === folderId) || null;
+}
+
+function renderProjectsCard(estate) {
+  if (!estate || !Array.isArray(estate.devices)) return '';
+  const projects = estate.projects || [];
+  const devices = estate.devices || [];
+  if (!projects.length) {
+    return `<div class="rp-card rp-projects">
+      <div class="rp-inst-top"><span class="rp-inst-name">${esc(t('panel.proj.title'))}</span>
+        <span class="rp-badge">${esc(t('panel.proj.flatTag'))}</span></div>
+      <p class="note">${esc(t('panel.proj.introFlat'))}</p>
+      <div class="rp-inst-actions"><button class="secondary-btn" data-pact="setup">${esc(t('panel.proj.setup'))}</button></div>
+    </div>`;
+  }
+  const rows = projects.map((p) => {
+    const mine = devices.filter((d) => d.projectId === p.folderId);
+    return `<div class="rp-proj-row">
+      <div class="rp-text-main">
+        <div class="rp-text-title">${esc(p.name || t('panel.proj.defaultName'))}</div>
+        <div class="note rp-text-meta">${esc(t('panel.proj.nContainers', { n: mine.length }))}</div>
+      </div>
+      <div class="rp-text-actions">
+        <button class="link-btn" data-pact="rename" data-folder="${esc(p.folderId)}" data-name="${esc(p.name || '')}">${esc(t('panel.proj.rename'))}</button>
+      </div>
+    </div>`;
+  }).join('');
+  /* ⚠ Containers still under MASTER after a migration are not an error state to hide — a half
+   * migrated tree is exactly what an interrupted run leaves, and the estate reads it correctly. Say
+   * so, and offer the run again, rather than letting it look finished. */
+  const stray = devices.filter((d) => !d.projectId).length;
+  return `<div class="rp-card rp-projects">
+    <div class="rp-inst-top"><span class="rp-inst-name">${esc(t('panel.proj.title'))}</span></div>
+    ${rows}
+    ${stray ? `<p class="banner warn-banner">${esc(t('panel.proj.stray', { n: stray }))}</p>
+      <button class="secondary-btn" data-pact="setup">${esc(t('panel.proj.finish'))}</button>` : ''}
+    <div class="rp-inst-actions"><button class="link-btn rp-revoke" data-pact="undo">${esc(t('panel.proj.undo'))}</button></div>
+  </div>`;
+}
+
+/* Run migrate/unmigrate to completion. The worker caps each call at 20 containers and reports
+ * `remaining`, so one press finishes an estate of any size instead of silently doing the first 20
+ * — the cap exists so a huge estate cannot die halfway, not so the researcher has to press twice. */
+async function projectsRunToEnd(apply, say) {
+  let moved = 0;
+  for (let pass = 0; pass < 10; pass++) {
+    const r = await apply();
+    moved += r.moved || 0;
+    if (say) say(t('panel.proj.moving', { n: moved }));
+    if (!r.remaining) return { moved, done: true };
+  }
+  return { moved, done: false };
+}
+
+function projectPlanHtml(plan) {
+  if (!plan.count) return `<p class="note">${esc(t('panel.proj.planNone'))}</p>`;
+  return `<p class="note">${esc(t('panel.proj.planCount', { n: plan.count }))}</p>
+    <ul class="rp-proj-plan">${plan.moves.map((mv) =>
+      `<li>${esc(mv.name || '?')} <span class="note">${esc(t('panel.proj.kind.' + (mv.kind === 'crowd' ? 'crowd' : mv.kind === 'unassigned' ? 'unassigned' : 'device')))}</span></li>`).join('')}</ul>`;
+}
+
+async function projectsSetupModal() {
+  let plan = null;
+  try { plan = await Researcher.projectsMigrate({ dry: true }); }
+  catch (e) { errToast(e); return; }
+  const m = modal(`<h3>${esc(t('panel.proj.setupTitle'))}</h3>
+    <p class="note">${esc(t('panel.proj.setupIntro'))}</p>
+    ${projectPlanHtml(plan)}
+    ${plan.wouldCreateProject ? `<label class="rp-field"><span>${esc(t('panel.proj.nameLabel'))}</span>
+      <input id="rp-proj-name" spellcheck="false" value="${esc(t('panel.proj.defaultName'))}"></label>
+      <p class="note">${esc(t('panel.proj.nameNote'))}</p>` : ''}
+    <div class="rp-adm-say" id="rp-proj-say" hidden></div>
+    <div class="modal-actions">
+      <button class="secondary-btn" data-m="cancel">${esc(t('panel.assign.cancel'))}</button>
+      <button class="primary-btn" data-m="go"${plan.count ? '' : ' disabled'}>${esc(t('panel.proj.go'))}</button>
+    </div>`);
+  const say = (txt) => { const el = m.el.querySelector('#rp-proj-say'); el.hidden = false; el.className = 'rp-adm-say'; el.textContent = txt; };
+  m.el.querySelector('[data-m="cancel"]').onclick = m.close;
+  m.el.querySelector('[data-m="go"]').addEventListener('click', (e) => busy(e.target, async () => {
+    const nameEl = m.el.querySelector('#rp-proj-name');
+    const name = (nameEl && nameEl.value.trim()) || t('panel.proj.defaultName');
+    try {
+      const r = await projectsRunToEnd(() => Researcher.projectsMigrate({ name, dry: false }), say);
+      m.close();
+      deps.toast(t(r.done ? 'panel.proj.done' : 'panel.proj.partial', { n: r.moved }), 6000);
+      renderDashboard();
+    } catch (err) {
+      const el = m.el.querySelector('#rp-proj-say');
+      el.hidden = false; el.className = 'rp-adm-say rp-adm-err'; el.textContent = String(err.message || err);
+    }
+  }));
+}
+
+/* ⚠ THE UNDO IS A FIRST-CLASS BUTTON, not a hidden operator trick. §17 exists because the honest
+ * answer to "what if this tangles my Drive" has to be something the researcher can DO, and an undo
+ * nobody can find is not reassurance. It previews like everything else, and it trashes the project
+ * folder only when it is empty. */
+async function projectsUndoModal() {
+  let plan = null;
+  try { plan = await Researcher.projectsUnmigrate({ dry: true }); }
+  catch (e) { errToast(e); return; }
+  const m = modal(`<h3>${esc(t('panel.proj.undoTitle'))}</h3>
+    <p class="note">${esc(t('panel.proj.undoIntro'))}</p>
+    ${projectPlanHtml(plan)}
+    <div class="rp-adm-say" id="rp-proj-say" hidden></div>
+    <div class="modal-actions">
+      <button class="secondary-btn" data-m="cancel">${esc(t('panel.assign.cancel'))}</button>
+      <button class="primary-btn" data-m="go"${plan.count ? '' : ' disabled'}>${esc(t('panel.proj.undoGo'))}</button>
+    </div>`);
+  const say = (txt) => { const el = m.el.querySelector('#rp-proj-say'); el.hidden = false; el.className = 'rp-adm-say'; el.textContent = txt; };
+  m.el.querySelector('[data-m="cancel"]').onclick = m.close;
+  m.el.querySelector('[data-m="go"]').addEventListener('click', (e) => busy(e.target, async () => {
+    try {
+      const r = await projectsRunToEnd(() => Researcher.projectsUnmigrate({ dry: false }), say);
+      m.close();
+      deps.toast(t(r.done ? 'panel.proj.undone' : 'panel.proj.partial', { n: r.moved }), 6000);
+      renderDashboard();
+    } catch (err) {
+      const el = m.el.querySelector('#rp-proj-say');
+      el.hidden = false; el.className = 'rp-adm-say rp-adm-err'; el.textContent = String(err.message || err);
+    }
+  }));
+}
+
+async function projectRenameModal(folderId, current) {
+  const m = modal(`<h3>${esc(t('panel.proj.renameTitle'))}</h3>
+    <label class="rp-field"><span>${esc(t('panel.proj.nameLabel'))}</span>
+      <input id="rp-proj-name" spellcheck="false" value="${esc(current || '')}"></label>
+    <p class="note">${esc(t('panel.proj.renameNote'))}</p>
+    <div class="rp-adm-say" id="rp-proj-say" hidden></div>
+    <div class="modal-actions">
+      <button class="secondary-btn" data-m="cancel">${esc(t('panel.assign.cancel'))}</button>
+      <button class="primary-btn" data-m="go">${esc(t('panel.proj.renameGo'))}</button>
+    </div>`);
+  m.el.querySelector('[data-m="cancel"]').onclick = m.close;
+  m.el.querySelector('[data-m="go"]').addEventListener('click', (e) => busy(e.target, async () => {
+    const name = m.el.querySelector('#rp-proj-name').value.trim();
+    if (!name) return;
+    try {
+      await Researcher.projectRename(folderId, name);
+      m.close();
+      deps.toast(t('panel.proj.renamed'), 4000);
+      renderDashboard();
+    } catch (err) {
+      const el = m.el.querySelector('#rp-proj-say');
+      el.hidden = false; el.className = 'rp-adm-say rp-adm-err'; el.textContent = String(err.message || err);
+    }
+  }));
 }
 
 function renderUnassignedCard(estate) {

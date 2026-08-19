@@ -2237,3 +2237,7 @@ main {
 /* A crowd recorder's own recordings, listed under it (see crowdTextRows). */
 .rp-crowd-texts { list-style: none; margin: 8px 0 0; padding: 0; }
 .rp-crowd-texts .rp-text-row { padding: 4px 0; }
+
+/* The crowd page's version line — the one app with no badge and no service worker, so nothing else
+   can report which engine it is running. Quiet, but present. */
+.crowd-ver { margin-top: 18px; text-align: center; font-size: .75rem; opacity: .45; }

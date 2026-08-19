@@ -813,6 +813,65 @@ async function driveEnsureDeviceFolder(env, access, instanceId, nickname, existi
   return f.id;
 }
 
+/* ---------------- READING A ZIP WITHOUT DOWNLOADING IT ----------------
+ *
+ * Enumerate a remote zip's entries from its CENTRAL DIRECTORY, which lives at the END of the file.
+ * Two small ranged reads (the tail, then the directory) give every entry's name, size and offset —
+ * so each entry's bytes can then be fetched as its own range and streamed straight back out.
+ *
+ * ⚠ WHY THIS SHAPE. The alternative — walking local file headers from the front — requires reading
+ * past every entry's DATA to reach the next header, i.e. downloading the whole file. A 26 MB
+ * recording would have to pass through the worker just to learn what is beside it. Reading the tail
+ * costs two requests regardless of how large the zip is.
+ *
+ * PURE and exported for test/zip-central-directory.test.mjs, which drives it with a zip built by our
+ * own docs/js/zip.js — the writer and the reader tested against each other rather than against my
+ * understanding of either.
+ *
+ * Zip64 is deliberately unhandled: zip.js refuses to write past 4 GiB (see its own note), so a file
+ * needing Zip64 did not come from us. Such a zip yields no entries rather than wrong ones. */
+export function parseZipCentralDirectory(tail, tailStartsAt) {
+  const u16 = (b, o) => b[o] | (b[o + 1] << 8);
+  const u32 = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
+  // EOCD is last, and may be followed by a comment — scan backwards for its signature.
+  let eocd = -1;
+  for (let i = tail.length - 22; i >= 0; i--) {
+    if (u32(tail, i) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) return null;
+  const count = u16(tail, eocd + 10);
+  const cdSize = u32(tail, eocd + 12);
+  const cdOffset = u32(tail, eocd + 16);
+  // The directory must be inside the slice we hold, or the caller has to fetch more.
+  const rel = cdOffset - tailStartsAt;
+  if (rel < 0 || rel + cdSize > tail.length) return { need: { offset: cdOffset, length: cdSize } };
+  const out = [];
+  let p = rel;
+  for (let n = 0; n < count && p + 46 <= rel + cdSize; n++) {
+    if (u32(tail, p) !== 0x02014b50) break;
+    const method = u16(tail, p + 10);
+    const csize = u32(tail, p + 20);
+    const nlen = u16(tail, p + 28);
+    const elen = u16(tail, p + 30);
+    const clen = u16(tail, p + 32);
+    const localOffset = u32(tail, p + 42);
+    const name = new TextDecoder().decode(tail.subarray(p + 46, p + 46 + nlen));
+    out.push({ name, method, csize, localOffset });
+    p += 46 + nlen + elen + clen;
+  }
+  return { entries: out };
+}
+
+/* Where an entry's DATA begins, given its local file header (30 bytes + name + extra).
+ * ⚠ The local header's extra field can differ in length from the central one, so this must be read
+ * from the LOCAL header — computing it from the central directory is the classic zip bug. */
+export function zipDataStart(localHeader30, localOffset) {
+  const u16 = (b, o) => b[o] | (b[o + 1] << 8);
+  const u32 = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
+  if (u32(localHeader30, 0) !== 0x04034b50) return -1;
+  return localOffset + 30 + u16(localHeader30, 26) + u16(localHeader30, 28);
+}
+
 /* Extract one entry's bytes from a STORE-only zip (method 0 — what our own zip.js writes; entry
  * data is an uncompressed byte slice after the local header). Scans local file headers only;
  * returns null when no entry name matches or any entry uses compression. Never used on foreign
@@ -1023,6 +1082,108 @@ async function driveEnsureCrowdTextFolder(env, access, rec, subId, at) {
  *
  * Always called through ctx.waitUntil: the submission is already safely in Drive by this point, and
  * a manifest is organisational. It must never delay or endanger the bytes. */
+/* UNPACK A DELIVERED CROWD SUBMISSION into individual role-tagged files, then remove the zip.
+ *
+ * This is plan §16.10 "B": a crowd text's folder ends up structurally identical to a device's, so
+ * the Files modal, the manifest's completeness check and (later) assignment to a device all work
+ * with no crowd-specific branch anywhere.
+ *
+ * ⚠ NOTHING IS BUFFERED. Each entry is fetched as its own byte RANGE and the response body is
+ * streamed straight into a Drive upload. A 26 MB recording never exists in worker memory. That is
+ * the whole reason this is feasible without changing the public submit protocol, which is keyed to
+ * one zip per submission (Turnstile, budgets, a declared size Google enforces).
+ *
+ * ⚠⚠ THE ZIP IS DELETED ONLY WHEN EVERY ENTRY IS CONFIRMED PRESENT. Until then it is the only copy
+ * of a stranger's recording, and this runs in ctx.waitUntil where a timeout is normal rather than
+ * exceptional. So the order is: extract, VERIFY BY RE-LISTING, then trash — never extract-and-trust.
+ * A partial run leaves the zip and some files; the next run skips what is already there and finishes.
+ * Idempotent by construction, because "run again later" is the recovery path.
+ *
+ * Trashed, not deleted: recoverable for 30 days, and drive-purge stays the only thing that empties
+ * trash (§17.1). */
+async function crowdUnpackSubmission(env, access, originalsFolderId, fileId, zipBytes) {
+  try {
+    const ranged = async (from, to) => {
+      const r = await fetch('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?alt=media',
+        { headers: { Authorization: 'Bearer ' + access, Range: `bytes=${from}-${to}` } });
+      return (r.ok || r.status === 206) ? r : null;
+    };
+    // 1. The directory, from the tail. Two small reads at most, whatever the zip's size.
+    const TAIL = Math.min(zipBytes, 65536);
+    const tailRes = await ranged(zipBytes - TAIL, zipBytes - 1);
+    if (!tailRes) return;
+    let dir = parseZipCentralDirectory(new Uint8Array(await tailRes.arrayBuffer()), zipBytes - TAIL);
+    if (dir && dir.need) {
+      const more = await ranged(dir.need.offset, dir.need.offset + dir.need.length + 21);
+      if (!more) return;
+      dir = parseZipCentralDirectory(new Uint8Array(await more.arrayBuffer()), dir.need.offset);
+    }
+    if (!dir || !Array.isArray(dir.entries) || !dir.entries.length) return;
+
+    // 2. What is already there — so a re-run costs nothing and cannot duplicate.
+    const listed = await driveJson(access, 'GET',
+      'https://www.googleapis.com/drive/v3/files?spaces=drive&fields=files(id,name)&q='
+      + encodeURIComponent(`'${originalsFolderId}' in parents and trashed=false`));
+    const present = new Set((listed.files || []).map((f) => f.name));
+
+    /* Roles are taken from the manifest the CLIENT wrote, never guessed from filenames — a `.zip`
+     * name says nothing about what is inside it, which is why this suite tags by role at all. */
+    let roleFor = new Map();
+    try {
+      const mf = (listed.files || []).find((f) => f.name === 'flextext-manifest.json');
+      if (mf) {
+        const g = await fetch('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(mf.id) + '?alt=media',
+          { headers: { Authorization: 'Bearer ' + access } });
+        const doc = g.ok ? await g.json() : null;
+        for (const e of (doc && doc.bundle && doc.bundle.entries) || []) if (e && e.name) roleFor.set(e.name, e.role || '');
+      }
+    } catch { /* no manifest roles — the files still land, just untagged */ }
+
+    let wrote = 0, wanted = 0;
+    for (const e of dir.entries) {
+      if (e.name === 'flextext-manifest.json') continue;      // already extracted alongside the zip
+      if (e.method !== 0) return;                             // not ours; refuse rather than corrupt
+      wanted++;
+      if (present.has(e.name)) continue;                      // idempotent
+      const lh = await ranged(e.localOffset, e.localOffset + 29);
+      if (!lh) return;
+      const start = zipDataStart(new Uint8Array(await lh.arrayBuffer()), e.localOffset);
+      if (start < 0) return;
+      const body = await ranged(start, start + e.csize - 1);
+      if (!body) return;
+      const mime = /\.wav$/i.test(e.name) ? 'audio/wav' : /\.mp3$/i.test(e.name) ? 'audio/mpeg'
+        : /\.m4a$/i.test(e.name) ? 'audio/mp4' : /\.json$/i.test(e.name) ? 'application/json'
+        : /\.txt$/i.test(e.name) ? 'text/plain' : 'application/octet-stream';
+      const init = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + access, 'content-type': 'application/json',
+                   'X-Upload-Content-Type': mime, 'X-Upload-Content-Length': String(e.csize) },
+        body: JSON.stringify({ name: e.name, mimeType: mime, parents: [originalsFolderId],
+                               ...(roleFor.get(e.name) ? { appProperties: { flextextRole: roleFor.get(e.name) } } : {}) }),
+      });
+      const session = init.ok ? init.headers.get('Location') : null;
+      if (!session) return;
+      // STREAMED: response body straight into the upload, never through a buffer.
+      const put = await fetch(session, { method: 'PUT', headers: { 'content-type': mime }, body: body.body });
+      if (!put.ok) return;
+      wrote++;
+    }
+
+    /* 3. VERIFY, then remove. Re-list rather than trusting the loop's own bookkeeping: the check that
+     * authorises deleting the only copy must read Drive, not our variables. */
+    if (!wanted) return;
+    const after = await driveJson(access, 'GET',
+      'https://www.googleapis.com/drive/v3/files?spaces=drive&fields=files(name)&q='
+      + encodeURIComponent(`'${originalsFolderId}' in parents and trashed=false`));
+    const now2 = new Set((after.files || []).map((f) => f.name));
+    const missing = dir.entries.filter((e) => e.name !== 'flextext-manifest.json' && !now2.has(e.name));
+    if (missing.length) return;                               // keep the zip; a later run finishes
+    await driveJson(access, 'PATCH', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?fields=id',
+      { trashed: true });
+    return wrote;
+  } catch { /* organisational: a delivered submission must never be reported as failed */ }
+}
+
 const CROWD_MANIFEST_PEEK = 262144;                       // 256 KiB — the manifest is the FIRST entry
 async function crowdExtractManifest(env, access, originalsFolderId, bytes, zipName, zipBytes) {
   try {
@@ -3613,7 +3774,9 @@ export async function handleV1(request, env, ctx, url, path, origin) {
             ctx.waitUntil((async () => {
               const rrow = await env.DB.prepare('SELECT * FROM researcher WHERE researcher_id=(SELECT researcher_id FROM crowd_recorder WHERE crowd_id=?)').bind(crowdId).first();
               if (!rrow) return;
-              await crowdExtractManifestById(env, await driveAccessToken(env, rrow), sess.o, data.id, sess.n, sess.s);
+              const acc2 = await driveAccessToken(env, rrow);
+              await crowdExtractManifestById(env, acc2, sess.o, data.id, sess.n, sess.s);
+              await crowdUnpackSubmission(env, acc2, sess.o, data.id, sess.s);
             })());
           }
           if (ins.meta.changes) {
@@ -3682,7 +3845,11 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           fileId = await driveUpload(access, originals, name, buf, 'application/zip', { flextextRole: 'crowd-submission' });
           // The bytes are already in Drive; unwrapping the manifest is organisational, so it runs
           // after the response and can never turn a delivered submission into a reported failure.
-          ctx.waitUntil(crowdExtractManifest(env, access, originals, new Uint8Array(buf), name, buf.byteLength));
+          ctx.waitUntil((async () => {
+            await crowdExtractManifest(env, access, originals, new Uint8Array(buf), name, buf.byteLength);
+            // Then unpack the rest, so the folder ends up shaped like a device text's (§16.10 B).
+            await crowdUnpackSubmission(env, access, originals, fileId, buf.byteLength);
+          })());
         } catch (e) {
           await noteDriveError(env, rec.researcher_id, 'crowd delivery failed: ' + safeErr(e));
           return j({ error: 'delivery_failed' }, 502, origin, env);   // client keeps + retries

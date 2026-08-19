@@ -6611,9 +6611,20 @@ function renderCrowdView(state, extra = {}) {
     <button id="btn-record-big" class="primary-btn record-big">
       <span class="rec-dot"></span><span class="record-big-label">${esc(t('crowd.recordBtn'))}</span></button>
     <p class="note crowd-note">${esc(t('crowd.maxNote', { min: Math.round(((CROWD_CFG && CROWD_CFG.maxSeconds) || 300) / 60) }))}</p>`;
+  /* ⚠ A VERSION LINE, because this is the ONE app in the suite that reports nothing about itself.
+   * The crowd page has no version badge and, unlike every other app, no service worker — so there is
+   * no fxUpdate() to interrogate either. That combination cost real time on 2026-08-19: a manifest
+   * fix appeared not to work, and the only way to tell "the fix is wrong" from "this page is running
+   * an older engine" was to open the Cloudflare deployments dashboard. Seth: "I don't know about the
+   * staging recorder until we have it showing a version badge."
+   *
+   * Small and out of the way — a contributor is not the audience, but neither is it a secret. It is
+   * the same information the editor puts in its own badge. */
+  const verLine = `<p class="crowd-ver">${esc(BUILD_TAG ? ENGINE_VERSION + ' · ' + BUILD_TAG : ENGINE_VERSION)}</p>`;
   v.innerHTML = `<div class="record-screen crowd-screen">
     <p class="record-welcome">${esc(welcome)}</p>
     ${body}
+    ${verLine}
   </div>`;
   $('#btn-record-big')?.addEventListener('click', () => requestConsentThen(() => openRecordModal()));
   $('#crowd-again')?.addEventListener('click', () => renderCrowdView('ready'));

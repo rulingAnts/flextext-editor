@@ -1268,6 +1268,15 @@ a crowd container as an assignment *destination* without inspecting names.
      range straight into a Drive resumable upload — no buffering of a 26 MB recording, roughly two
      subrequests per entry.
 
+   ✅ **BUILT (v411).** `crowdUnpackSubmission` does exactly this, in `ctx.waitUntil` after delivery.
+   Entries are enumerated from the central directory (two small tail reads), each entry's data is a
+   ranged GET whose body streams straight into a Drive upload, roles come from the manifest's
+   `bundle` list rather than from filenames, and the zip is TRASHED only after re-listing the folder
+   confirms every entry landed. Idempotent, so a timeout mid-run is recoverable by running again —
+   which matters, because `ctx.waitUntil` timing out is normal rather than exceptional.
+   `test/zip-central-directory.test.mjs` drives the parser with a zip built by our own `zip.js`,
+   testing writer and reader against each other rather than against anyone's reading of the spec.
+
    So B need not be a change to the public submit protocol (Turnstile, budgets and a declared size
    are all keyed to one zip). It can be a POST-UPLOAD extraction step, in `ctx.waitUntil`, off the
    critical path — the same shape as the manifest extraction that already works.

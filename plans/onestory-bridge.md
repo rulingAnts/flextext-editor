@@ -310,7 +310,7 @@ Four things that will bite, all verified in the tree:
   Decide that explicitly rather than discovering it.
 
 **And the threat model, because it changes a decision here rather than being decoration:** this suite
-assumes a device may be seized. Today a seizure costs one device holding a handful of assigned
+assumes a device may leave the team's control. Today that costs one device holding a handful of assigned
 stories; **a bridge concentrates an entire project — every story, every recording, in plaintext on
 disk — plus the instance key on one machine.** That blast radius is a real input to where the bridge
 should run. The hostile-input surface for a bridge is **path injection**, not markup: story titles

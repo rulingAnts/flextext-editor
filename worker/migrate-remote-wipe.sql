@@ -1,7 +1,7 @@
--- Remote-wipe of a linked device (seized-device / hostile-actor threat model).
+-- Remote-wipe of a linked device (a device that has left the team's control).
 -- Additive + nullable (old cached engines never break). Run once via the d1-migrate Action.
 --   wipe_state: NULL (normal) | 'requested' (researcher asked; device wipes on next poll) | 'confirmed'
---               (device acked it began the wipe). A 'requested' row keeps revoked=0 so the seized
+--               (device acked it began the wipe). A 'requested' row keeps revoked=0 so the affected
 --               device can still authenticate + RECEIVE the wipe; 'confirmed' sets revoked=1.
 --   wipe_at:    when the wipe was requested (for the panel's "pending Nm" + an optional future TTL sweep).
 --   wipe_hidden: force-removed from the panel but the directive stays ARMED (keep-armed force-remove) —

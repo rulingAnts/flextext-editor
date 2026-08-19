@@ -2,8 +2,9 @@
 --
 -- WHY THE REWRITE (Seth, 2026-07-28): the first cut stored 'example.org' in the clear. But the LIST
 -- ITSELF is sensitive — it names the mission, NGO and academic organisations this operator works
--- with. Under this project's hostile-government threat model, "who are his partners" is exactly the
--- intelligence a D1 dump should not hand over, independently of any user's data. Same reasoning
+-- with. Under this project's privacy obligations to partner organisations and the communities they
+-- serve, "who are his partners" is exactly what a D1 dump should not hand over, independently of any
+-- user's data. Same reasoning
 -- that made `email_sha256` an HMAC and `email_enc` encrypted at rest.
 --
 -- domain_hash = HMAC-SHA256(SERVER_HMAC_KEY, 'domain:' + <lowercased bare domain>), hex.

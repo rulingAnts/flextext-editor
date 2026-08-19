@@ -342,7 +342,7 @@ and which texts share a recording.
 
 ⚠ **The sensitive artifact is the JOIN, not any single column.** `instance.nickname` ("Iwan's
 phone") × N text rows = *this named person holds 47 texts, shares 12 recordings with that named
-person, inside this project.* Under hostile-government scrutiny that is the output that matters: a
+person, inside this project.* Against this suite's privacy obligations that is the output that matters: a
 named individual tied to a body of work, at a measurable volume, with collaborators inferable.
 
 Which yields the important insight: **the index does not create a new leak so much as multiply the
@@ -398,7 +398,7 @@ a precise one — it is the 10% that gets somebody hurt.
 
 The index must be server-readable *because the worker authorizes access*. The alternative is
 client-side authorization with capability tokens, leaving the server unable to see structure at all.
-Rejected for this threat model: it moves trust onto devices that may be **seized**, which is the
+Rejected for this threat model: it moves trust onto devices that may **leave the team's control**, which is the
 scenario the suite is explicitly built for. Server-side authorization with a minimized, encrypted-at-
 rest index is the weaker-secrecy, stronger-control trade — and it is a considered trade, not a
 default that nobody examined.
@@ -467,7 +467,7 @@ which is exactly what earns that rule and does not generalise to Drive.
 
 `trashFiles` sets `trashed:true`, so "deleted" content stays recoverable for ~30 days. That is
 deliberate and it is a SAFETY feature — the audit confirmed it is what makes a mistaken Remove
-survivable. But under seizure it means deletion is not deletion for a month, and the researcher
+survivable. But it means deletion is not deletion for a month, and the researcher
 should be told so rather than assuming otherwise. The nuclear-option wipe (Seth's, in
 `project-split.md`) is the path that must genuinely purge, not trash.
 
@@ -508,3 +508,70 @@ first upload":** `driveEnsureDeviceFolder` uses the nickname ONLY when it create
 
 Not built. Item 1 is small and self-contained and would be a good thing to land alongside the
 nickname-encryption work, so the hint and the protection arrive together.
+
+---
+
+## 12. Researcher identity: the pattern exists, one lane skipped it
+
+Seth: *"we do still need to work on obfuscating or encrypting researcher email addresses and domain
+names, ideally in a way I as admin can recover, but that wouldn't be readable in a D1 dump."*
+
+Checked, and this is smaller than it sounds — it is not a new scheme to design, it is an existing
+one to finish applying.
+
+### 12.1 Already correct — the password lane and the domain list
+
+| column | protection |
+|---|---|
+| `researcher.email_sha256` | HMAC under `SERVER_HMAC_KEY` — lookup + uniqueness, not reversible |
+| `researcher.email_enc` | **AES-GCM at rest.** Its own comment: *"for sending resets; keeps D1 dumps clean"* |
+| `researcher.totp_secret_enc`, `wrapped_kr`, `escrow_kr` | encrypted / wrapped |
+| `approved_domain.domain_hash` | HMAC — matchable without being readable |
+| `approved_domain.note_enc` | AES-GCM at rest (the operator's own label, which may name the org) |
+
+The shape Seth is asking for is exactly `email_sha256` + `email_enc`: **a deterministic HMAC for the
+lookup the worker must do, plus an AES-GCM copy for the recovery the operator must be able to
+perform.** The worker (and therefore the admin, through it) can read it; a database dump cannot.
+
+### 12.2 The gap — the Google sign-in lane, added later, did not follow it
+
+All plaintext today:
+
+- **`drive_email`** — the researcher's Google address, in the clear;
+- **`display_name`** — in practice a person's real name;
+- `avatar_url` — a Google URL that can embed an account identifier;
+- `google_sub` — Google's stable user id (not an email, but a durable handle);
+- `drive_folder_id` — a direct Drive pointer (already queued as §10.4(2));
+- `drive_error` — free text from Drive, which can carry ids and addresses.
+
+⚠ Note the worker genuinely needs `display_name`, `avatar_url` and `drive_email` at one moment: the
+invite-claim response shows the device *"managed by «name»"* so the field user can confirm who they
+are enrolling with. `encAtRest` supports that — decrypt on the path that needs it — so this is not a
+functional obstacle, only work.
+
+### 12.3 Domains are half-done
+
+`domain_hash` makes a domain **matchable but not recoverable**: the operator can test membership and
+read their own `note_enc` label, but cannot list which domains are actually approved. If admin
+recovery is wanted (Seth's *"ideally in a way I as admin can recover"*), add a `domain_enc` beside
+the hash. Same row, same primitive, additive.
+
+### 12.4 Doing it safely
+
+1. **Additive columns + backfill + NULL the originals.** ⚠ The step that gets forgotten is the last
+   one: adding `drive_email_enc` while leaving `drive_email` populated protects nothing. The
+   migration is not finished until the plaintext column is empty, and the rehearsal test should
+   assert exactly that.
+2. **Admin recovery goes THROUGH the worker, never by reading D1.** There is already an
+   operator-gated route to copy (`POST /v1/researcher/admin/backfill-projects`), so the pattern
+   exists; the recovery endpoint should log every use, because an operator-readable identity lookup
+   is precisely the thing that wants an audit trail.
+3. ⚠ **Concentration risk on `SERVER_HMAC_KEY`, which CLAUDE.md records as unrotatable in
+   production.** Every column above ties more value to that one key. Two mitigations worth building
+   in now rather than later: derive a **purpose-bound subkey** per use (`email`, `drive`, `ip`)
+   rather than using the root key directly, and store a **version marker** with each ciphertext so a
+   future re-key is a migration rather than an impossibility. The HMAC lookup columns are the ones
+   that genuinely cannot move; the AES-GCM ones need not be stuck too.
+4. **What cannot be fixed, and does not need to be:** `email_sha256` must stay deterministic or login
+   lookup breaks. That is fine — it is not reversible, and without the key an attacker cannot even
+   confirm a guessed address.

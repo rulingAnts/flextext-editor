@@ -245,8 +245,8 @@ function currentMapping() {
 
 /* A STRUCTURAL diagnostic for a bug report — deliberately NO annotation text, no sample content,
  * no file path beyond the name. Language data is exactly what must not leak into a public issue
- * tracker (the suite's threat model includes hostile-government scrutiny, and consent covers this
- * material). Tier shapes and what we detected are what actually diagnose an import. */
+ * tracker: this suite carries privacy and research-ethics obligations to the communities whose
+ * language it holds, and consent covers this material. Tier shapes and what we detected are what actually diagnose an import. */
 function eafDiagnostic() {
   const P = pendingEaf;
   const L = [];

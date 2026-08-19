@@ -35,7 +35,9 @@ Design constraints that explain most of the architecture:
 - **Coworker users may be barely literate.** Foolproofing outranks features; anything that
   requires phone-call tech support is considered broken (see the researcher-recoverable design of
   uploads, remote settings, remote deletes).
-- **The threat model includes hostile-government scrutiny.** Corpus CONTENT and inventory reports
+- **The threat model is privacy and research ethics.** This suite holds the language, voices and
+  consent records of indigenous communities, and the obligation to protect those is what shapes the
+  security design. Corpus CONTENT and inventory reports
   are E2EE — D1 holds ciphertext only the researcher's key opens. ⚠ *Metadata* is a weaker claim and
   should not be read as the same one: `instance.nickname`, `crowd_submission.file_name`/`country`,
   and the plaintext `id` on an `assign` command are stored in the clear, so a D1 dump reveals device

@@ -428,6 +428,32 @@ real timed spans (silence) and hold placeholder rows on the Gloss tab.
   - `reconcile()`'s seeds/heals persist immediately; peaks failures `console.warn` instead of
     vanishing.
 
+## 🚩 HOW THE THREAT MODEL IS DESCRIBED (Seth, 2026-08-19) — enforced by a test
+
+**Never name a state actor, a government, or "hiding things from them" — in this repository, in
+`plans/`, in code comments, in commit messages, or anywhere else. The repository is PUBLIC.**
+
+> *"That is our underlying concern, but it should be described more opaquely as protecting the
+> privacy and ethical research standards of indigenous communities."*
+
+⚠ **The security REQUIREMENTS do not change** — same encryption, same remote wipe, same
+minimisation, same urgency. Only the way they are DESCRIBED changes. Do not soften a protection
+because its stated motivation got quieter; `test/threat-language.test.mjs` checks both halves.
+
+Use instead:
+
+| instead of | write |
+|---|---|
+| the concrete adversary | the privacy and research-ethics obligations this suite carries to the communities it serves |
+| a seized device | a device that is lost, or no longer in trusted hands / has left the team's control |
+| a hostile holder | an untrusted holder; a device out of the team's control |
+
+**Why a test rather than a note:** this is exactly the rule that drifts back, because the concrete
+motivation is the one that makes a piece of security code *make sense* to whoever is commenting it.
+`test/threat-language.test.mjs` greps every tracked text file and fails loudly. It builds its own
+banned strings from fragments so it does not match itself — do not "fix" that by excluding the file,
+which would also stop it catching a real one.
+
 ## Browser support: Chromium only — ⚠ NOT SAFARI (Seth, 2026-08-14)
 
 **"This app doesn't support Safari, period."** The field device is an Android phone running Chrome;

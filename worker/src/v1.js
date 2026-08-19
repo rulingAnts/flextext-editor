@@ -2575,7 +2575,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         return j({ ok: true }, 200, origin, env);
       }
 
-      // POST .../wipe — researcher requests a REMOTE WIPE (seized/hostile-actor). Sets a sticky flag but
+      // POST .../wipe — researcher requests a REMOTE WIPE (device out of trusted hands). Sets a sticky flag but
       // does NOT revoke: the device must stay authenticable so it can poll + RECEIVE the wipe directive
       // (delivered plaintext in the desired lane below, so it lands in ANY device state — even one never
       // keyed). Step-up TOTP when the researcher has 2FA, since this is destructive + remote + irreversible.
@@ -2609,7 +2609,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         return j({ ok: true }, 200, origin, env);
       }
 
-      // POST .../force-remove — researcher gives up waiting on a seized device that never confirmed. KEEP-
+      // POST .../force-remove — researcher gives up waiting on a device that never confirmed. KEEP-
       // ARMED: hide it from the panel but DO NOT delete the row + DO NOT clear wipe_state, so if that device
       // ever reconnects (weeks/months later) it still receives the wipe. (A normal unlink would lose it.)
       if (m === 'POST' && isub === 'force-remove' && seg.length === 6) {
@@ -2818,7 +2818,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       if (!install && !asResearcher) return j({ error: 'unauthorized' }, 401, origin, env);
       // REMOTE-WIPE directive (plaintext, top priority): a flagged device wipes itself on THIS poll,
       // regardless of cursor / pending / key state. Checked before the since/pending/desired gates below so
-      // it lands in any device state (even one seized mid-enrollment that never received its key).
+      // it lands in any device state (even one lost mid-enrollment that never received its key).
       if (install && install.wipe_state === 'requested') return j({ wipe: true }, 200, origin, env);
 
       const inst = await env.DB.prepare('SELECT desired_blob, desired_rev, type, revoked, researcher_id FROM instance WHERE instance_id=?')

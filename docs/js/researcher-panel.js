@@ -987,7 +987,7 @@ async function pollDashboard() {
 }
 
 // Parse a reported userAgent into a short "Browser NN · OS" for the device tiles. The UA is
-// attacker-controllable (a seized field device), but this only pulls a browser name + digits + a fixed OS
+// attacker-controllable (a field device out of the team's control), but this only pulls a browser name + digits + a fixed OS
 // label, and the result is esc()'d at every call site — no raw UA reaches the DOM.
 function parseUA(ua) {
   if (!ua || typeof ua !== 'string') return '';
@@ -1011,7 +1011,7 @@ function parseUA(ua) {
 // precache can make lie (the Firefox-Utilities bug). cachedApps' recorder/researcher shell versions
 // ride along as secondary detail. stale = the running engine is BEHIND the live site, or the client is
 // so old it reports no engineVersion at all (both mean "this device needs to update / may be stuck").
-// All values are attacker-controllable (a seized device) → esc'd at every call site.
+// All values are attacker-controllable (a device out of the team's control) → esc'd at every call site.
 // Each shell is a SEPARATE storage sandbox (own IndexedDB, own enrollment) even when several load
 // the same URL — so the same person on a PWA and an APK is legitimately two devices here. Showing
 // the platform first is what makes that comprehensible instead of looking like a duplicate.
@@ -2450,7 +2450,7 @@ async function renderInstanceCard(it, deviceCount) {
       // feature on — else every text on other devices would carry a meaningless "not done".
       const doneOn = !!(ins.inventory && ins.inventory.settings && ins.inventory.settings.doneEnabled);
       // The inventory is decrypted from the field install's OWN report, so every value is
-      // attacker-controllable if a device is seized (hostile-gov threat model). Titles go
+      // attacker-controllable once a device leaves the team's control. Titles go
       // through esc(); uploadState lands in a class attribute, so ALLOW-LIST it to the three
       // known states — never interpolate it raw (would permit an attribute-breakout XSS into
       // this privileged panel where Kr + the account secret live).
@@ -4367,7 +4367,7 @@ function deleteAccountModal() {
   };
 }
 
-// REMOTE WIPE of a seized/hostile-held device. Typed device-name confirm (strong "are you sure?"). If the
+// REMOTE WIPE of a device no longer in trusted hands. Typed device-name confirm (strong "are you sure?"). If the
 // researcher has 2FA, the worker answers the first attempt with 401 totp_required → we reveal a code field
 // and retry (step-up auth on this destructive, remote, irreversible action). The wipe is delivered to the
 // device on its NEXT connection, so the copy says so honestly.

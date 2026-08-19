@@ -402,3 +402,71 @@ Rejected for this threat model: it moves trust onto devices that may be **seized
 scenario the suite is explicitly built for. Server-side authorization with a minimized, encrypted-at-
 rest index is the weaker-secrecy, stronger-control trade — and it is a considered trade, not a
 default that nobody examined.
+
+---
+
+## 11. Drive itself as a target — what we must not make worse
+
+Seth: *"The Google Drive Folder is a potential attack target as well. Security for that is primarily
+Google's problem and that of the account owner, but we should definitely try to make sure our app
+suite doesn't introduce holes there."* Right on the division of responsibility. This is our half.
+
+### 11.1 Do titles or folder names have to be plaintext in D1? No.
+
+- **Titles: never.** The worker authorizes on `doc_id → instance_id / project_id` and never consults
+  a title to decide anything. Titles live in the manifest. §10.4(3).
+- **Folder names: not stored in D1 at all.** What D1 holds is `instance.nickname`, which the worker
+  USES to name the Drive folder; encrypting it at rest (§10.4(1)) takes it out of a dump while the
+  worker goes on using it.
+
+⚠ **But do NOT extend that to obfuscating the Drive tree**, and the reasoning is the durable part:
+
+- against a **D1-only breach**, Drive folder names are irrelevant — the attacker has no Drive;
+- against a **Drive-account compromise**, they are equally irrelevant — the `.flextext` and the audio
+  are sitting right there in the clear. The content is the prize; the label adds nothing.
+
+Obfuscation therefore defends against neither realistic threat, while destroying the property this
+whole design rests on: that a researcher can open Drive and understand it, and that a folder is
+droppable straight into FLEx or ELAN. **Legibility in Drive is a deliberate trade, not an oversight.**
+
+A title in D1 is a different case *because it is readable in the one breach where content is not* —
+which is exactly what earns that rule and does not generalise to Drive.
+
+### 11.2 Two things already right — protect them
+
+- **OAuth scope is `drive.file`.** The app can only ever see files it created; even total worker
+  compromise cannot read the rest of the researcher's Drive. ⚠ Widening to `drive` or
+  `drive.readonly` takes the blast radius from "our files" to "their entire Drive". Treat any such
+  change as requiring Seth's explicit decision, not a convenience during development.
+- **Nothing is ever link-shared.** No Drive `permissions` call exists anywhere in the worker; access
+  is proxied through private streaming tokens (Seth's decision, recorded in the code). Do not
+  introduce `anyone-with-link` as a shortcut for sharing a text with a colleague — Phase C's
+  membership model is the mechanism for that, and a link grant is unrevocable in practice.
+
+### 11.3 Three holes that ARE ours
+
+1. **`/v1/textfile/<token>` — the one that matters.** Unscoped at mint (the file id arrives in the
+   REQUEST BODY at all three mint sites), unrevocable at serve (it checks only that the token
+   decrypts, has not expired, and that the named researcher still has a refresh token — no DB row,
+   no session, no membership), and `clampTtlDays` permits up to **400 days**. That is a long-lived
+   bearer URL that streams a Drive file to whoever holds it: the one place this suite manufactures
+   Drive access outliving every other control. Put the scope INTO the token (owner, project,
+   instance, doc, granting member, `jti`), re-check it against live D1 at serve, and clamp
+   member-minted TTLs far below 400 days. Also in `project-split.md` VII.3.
+2. **Write-anywhere within scope.** `upload/start` passes `body.folderId` and `body.docId`
+   unverified into `driveEnsureTextFolder`, so a device can direct an upload into any app-created
+   folder whose id it knows. Register-first (§3.1) closes it by construction.
+3. **The refresh token is the crown jewel.** `drive_refresh_enc` is encrypted at rest under a Worker
+   secret, so a D1 dump cannot use it — but a **Worker** compromise yields `drive.file` access to
+   everything the app ever created. Minimal scope is the only structural mitigation and it is
+   already in place; the only real remedy afterwards is the researcher revoking the app's grant at
+   `myaccount.google.com` and re-authorising. ⚠ Write that down as a procedure in the runbook. A
+   recovery step invented under pressure is one performed badly.
+
+### 11.4 One thing to know rather than fix
+
+`trashFiles` sets `trashed:true`, so "deleted" content stays recoverable for ~30 days. That is
+deliberate and it is a SAFETY feature — the audit confirmed it is what makes a mistaken Remove
+survivable. But under seizure it means deletion is not deletion for a month, and the researcher
+should be told so rather than assuming otherwise. The nuclear-option wipe (Seth's, in
+`project-split.md`) is the path that must genuinely purge, not trash.

@@ -1018,3 +1018,45 @@ is paying anyway.
 **Unassigned stays as `instance_id IS NULL`** (§16.2) — none of the above applies to it, because it
 has no config, no folder of its own beyond the sweep target, no quota and no public face. It is an
 absence, and an absence is cheapest to model as one.
+
+### 16.7 Invites and device settings — and the direction-of-travel problem
+
+Seth: *"Obviously the invite link and device settings that do and don't apply would be different."*
+Yes — and checking how the panel handles that today turned up the strongest argument against
+unifying, which belongs in the record.
+
+**There is no per-type settings form.** `GROUPS` is rendered whole: every tab, every field, for every
+instance. The settings modal has no branch on `it.type` anywhere. And `instance.type` accepts `''`
+because **`migrate-instance-type-unified.sql` deliberately ERASED the editor/recorder distinction** —
+one device now runs both apps, so the type stopped meaning anything about which settings apply.
+
+⚠ **So unifying crowd into `instance` runs against the grain of a migration that removed exactly this
+kind of branching.** It would reintroduce a per-type settings model — for the first time — and the
+crowd field set is not a subset of the device one: `welcome`, `maxSeconds`, `turnstile`, `lang` exist
+only for crowd, while writing systems, gloss and segmentation settings, send options and auto-backup
+are meaningless for a page that records one clip anonymously. Two disjoint-ish sets in one form.
+
+That is not fatal, but it changes the accounting. The unification's appeal was *"one table, one lane,
+fewer special cases"*; a per-type settings form, a per-type invite affordance, a per-type command
+refusal and a per-type public projection is **four new branches** bought with one deleted table. The
+honest question is whether that trade is still positive — and it is much less obviously positive
+than it looked in §16.1.
+
+**Concretely, what would need type-awareness if crowd joined:**
+
+| Affordance | Editor/recorder | Crowd |
+|---|---|---|
+| Invite / Replace button | yes | **no** — public URL, no claim |
+| Settings form fields | the device set | a disjoint crowd set, in plaintext config |
+| Assign / commands | yes | **refuse at the route**, not just hide |
+| Installs list, "no device yet" note | yes | **meaningless** — never enrolls |
+| Public projection | none | allow-listed, and the guard everything rests on |
+| Pause | `revoked` (terminal) | `enabled` (reversible) — §16.5 F |
+
+**Revised recommendation.** The case for unifying crowd is weaker than it first appeared. What it
+actually buys is one deleted upload lane and `project_id` uniformity; what it costs is reintroducing
+per-type branching that a previous migration went out of its way to delete. ⚠ Since the only
+*expensive* part is the `type` CHECK rebuild, the cheap middle path is worth considering instead:
+**leave `crowd_recorder` as its own table, and give it the two things it actually needs from the
+instance model — a consent-prompt upload route and `project_id` scoping under Phase C** — both of
+which are additive and neither of which requires it to become an instance.

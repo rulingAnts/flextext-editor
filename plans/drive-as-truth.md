@@ -954,3 +954,67 @@ migration is far cheaper than after it.
   + Upload button, reusing `paintPromptState`) is identical either way, while the TRANSPORT is not:
   a crowd-specific upload route is ~30 lines that becomes throwaway the moment crowd is an instance.
   **Building it before the decision means building the thing we would then delete.**
+
+### 16.5 What actually differs, and how each difference survives unification
+
+Measured against both tables. `instance` is 11 columns; `crowd_recorder` is 16. Five already align.
+
+| | `instance` | `crowd_recorder` | If unified |
+|---|---|---|---|
+| id | `instance_id` | `crowd_id` | same column |
+| owner | `researcher_id` | `researcher_id` | ✅ aligned |
+| name | `nickname` | `label` | rename on migration |
+| estate | `estate` | `estate` | ✅ aligned |
+| project | `project_id` | `project_id` | ✅ aligned |
+| Drive folder | `oauth_folder_id` | `oauth_folder_id` | ✅ aligned |
+
+So the *shape* is already 6/11 identical. What follows is everything that is not.
+
+**A. The key, and it is the whole decision.** An instance has a `Ki`; its `desired_blob` and its
+reports are ciphertext. A crowd recorder is keyless, and `config_json` is *"plaintext by design: the
+keyless public page must read it."* **How it survives:** a `type='crowd'` row simply has no Ki — the
+engine already tolerates keyless instances (a provisional install has no key yet). But its config
+cannot move into `desired_blob`, so a unified table carries **two config channels chosen by type**.
+⚠ That is the drift risk, and it is the honest cost of unifying: one table, two rules.
+
+**B. Installs.** An instance has enrollments with secrets, `ack_seq` and reports. A crowd recorder
+has none — the public page is anonymous. **How it survives:** zero installs, which is already a
+representable state. ⚠ But the panel renders that state as *"No device has claimed the invite yet"*,
+which would be a lie for crowd — so every installs-derived affordance needs a type check.
+
+**C. Invites.** Crowd has a public URL and no claim. **How it survives:** the invite/replace button
+is hidden for `type='crowd'` (and the backlog already has that button needing type-awareness).
+
+**D. The desired lane.** A crowd recorder never polls and cannot be commanded. **How it survives:**
+refuse command pushes for `type='crowd'` at the route, not just in the UI — `cmd.forType` already
+exists for exactly this shape of check.
+
+**E. Rate limiting and quota** — `submit_count`, `bytes_total`, `day_key`, `day_count`,
+`max_per_day`, `max_bytes_total`, `enabled`, `drive_folder`, `config_json`. Nine crowd-only columns.
+**How it survives: a side table `crowd_config(instance_id PRIMARY KEY, …)`** rather than nine
+nullable columns on `instance`. Two reasons: it keeps type-specific fields out of the shared row,
+and — the practical one — **a side table is ADDITIVE**, so only the `type` CHECK forces a rebuild.
+
+**F. `enabled` must NOT be folded into `revoked`.** They read alike and are not: `revoked` is
+terminal and makes a device auto-release on its next poll; `enabled` is a reversible pause on a page
+that never polls. Overloading them would make un-pausing a crowd page indistinguishable from
+un-revoking a device, which the revoke path does not support.
+
+**G. ⚠ The public projection is where a unified table is genuinely more dangerous.** A crowd
+recorder has an anonymous public endpoint returning its config; an instance has no public projection
+at all, and `drive_folder` is marked *"NEVER in the public projection"*. Today the separation is
+structural — the public route reads a different table. Unified, it becomes a filter, and a filter is
+a thing that can be got wrong. **How it survives:** the public route must build its response from an
+explicit allow-list of fields, never by spreading a row, with a test that fails if an unlisted column
+appears. That is the single guard this whole idea depends on.
+
+### 16.6 Verdict on the shape
+
+Unification is worth doing for crowd **if** the E2EE asymmetry (A) is acceptable and the public
+projection is allow-listed (G). Everything else is mechanical: a rename, a side table, and type
+checks on four affordances. The rebuild cost is the `type` CHECK alone, which Phase C's migration
+is paying anyway.
+
+**Unassigned stays as `instance_id IS NULL`** (§16.2) — none of the above applies to it, because it
+has no config, no folder of its own beyond the sweep target, no quota and no public face. It is an
+absence, and an absence is cheapest to model as one.

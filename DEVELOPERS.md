@@ -35,8 +35,14 @@ Design constraints that explain most of the architecture:
 - **Coworker users may be barely literate.** Foolproofing outranks features; anything that
   requires phone-call tech support is considered broken (see the researcher-recoverable design of
   uploads, remote settings, remote deletes).
-- **The threat model includes hostile-government scrutiny.** Corpus metadata is E2EE (the server
-  stores ciphertext); researcher identity in D1 is being minimized; see `notes/connectivity-*`.
+- **The threat model includes hostile-government scrutiny.** Corpus CONTENT and inventory reports
+  are E2EE — D1 holds ciphertext only the researcher's key opens. ⚠ *Metadata* is a weaker claim and
+  should not be read as the same one: `instance.nickname`, `crowd_submission.file_name`/`country`,
+  and the plaintext `id` on an `assign` command are stored in the clear, so a D1 dump reveals device
+  names and some structure even today. Secrets that matter (Drive refresh tokens, session IPs) are
+  encrypted at rest under a key held in Worker secrets, NOT in D1, so a database-only breach cannot
+  open them. See `plans/drive-as-truth.md` §10 for the threat model, what a D1 breach yields, and
+  the minimization work queued against it; `notes/connectivity-*` for the design.
 - **Archival honesty.** Preservation masters are never processed (no AGC/NR); lossy→WAV
   conversions are labeled in both filename and BWF `bext` bytes as NOT archival.
 
@@ -206,7 +212,10 @@ This is the part that has caused real outages when done wrong — read
 - **Devices have no accounts.** A researcher mints an invite link; the device enrolls and holds a
   per-install secret. Commands (assign / changeSettings / triggerUpload / uploadDelete / setDone)
   flow through a desired-state lane with ack sequencing; inventory reports are **E2EE** (the
-  server and D1 hold ciphertext; only the researcher's key decrypts).
+  server and D1 hold ciphertext; only the researcher's key decrypts). ⚠ Two documented exceptions,
+  because "E2EE" over-promises without them: an `assign` command carries a **plaintext `id`** (the
+  worker needs it to route), and `instance.nickname` is plaintext (the worker names Drive folders
+  with it). Both are visible in a D1 dump.
 - **Uploads stream through the worker into the researcher's own Google Drive** (`drive.file`
   OAuth; the app can only see files it created). Layout: `FlexText Uploads / <device> / <text>/`.
   Folder identity is an `appProperties` docId tag + a **remembered folder id echoed by the client**

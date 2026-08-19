@@ -277,9 +277,11 @@ Everything descriptive — title, TTL, text-level settings, future metadata — 
 
 ## 8. Open questions — Seth's call, and they change the schema
 
-1. **Does `project_id` live on the text row, or is it derived from the instance?** Derived is less
-   to keep in sync; stored survives a text sitting in Unassigned with no instance at all. Leaning
-   stored, precisely because Unassigned is a real state.
+1. **Does `project_id` live on the text row, or is it derived from the instance?** ⚠ §10.4(5)
+   settles this on security grounds and reverses the earlier lean: **derive** it from the instance
+   where there is one, and store it only on Unassigned rows, which have none to derive from.
+   Storing it everywhere hands a D1 dump the project grouping for free. Confirm and this stops
+   being an open question.
 2. **Does the reconciler ever re-parent a folder without asking?** It is a write to the researcher's
    own Drive. Proposal: silent when D1's intent is unambiguous, surfaced for confirmation when the
    folder was moved by hand — `flextextUnassigned` already distinguishes "we swept this" from "the
@@ -304,3 +306,99 @@ requirement expressible at all:
 
 `created_by_researcher_id` on the text row is what makes *"or created themselves"* sayable. Nothing
 in the current model can express it.
+
+---
+
+## 10. The cost of indexing, and how to keep it small
+
+Seth, 2026-08-19: *"I think we have to accept the cost of indexing and update our documentation and
+security claims accordingly, especially for e2ee. But whatever we can do to minimize the potentially
+sensitive data a hostile actor could gain if they were to break into our D1 data would be good to
+think about."* Accepted. This section is the threat model and the queue of work against it.
+
+### 10.1 The assumption that makes this tractable
+
+**A D1 breach is not a secrets breach.** `SERVER_HMAC_KEY` lives in Worker secrets, not in the
+database, and `serverAesKey()` / `encAtRest()` / `decAtRest()` already protect `drive_refresh_enc`,
+`kr_server_enc` and session `ip_enc` with it. So "attacker holds a full D1 dump and nothing else" is
+a threat the codebase is already partly built for — and the primitive to extend is already there.
+
+### 10.2 What a dump yields TODAY
+
+Worth stating before adding anything, because it is more than the current documentation implied
+(now corrected in DEVELOPERS.md):
+
+- **`instance.nickname`** — plaintext, NOT NULL, and in practice a person or a place;
+- **`crowd_submission.file_name` / `country`** — plaintext;
+- **the plaintext `id` on an `assign` command** inside `desired_blob` — the worker needs it to route;
+- **`email_sha256`** — not reversible, but it *confirms a guessed address*, which is the attack that
+  matters when the attacker already has a list of suspects;
+- everything else material — inventory reports, command payloads, wrapped keys — ciphertext.
+
+### 10.3 What the index adds
+
+Per-text rows: `doc_id`, `recording_id`, `folder_id`, `instance_id`, `project_id`, `origin`, counts,
+and which texts share a recording.
+
+⚠ **The sensitive artifact is the JOIN, not any single column.** `instance.nickname` ("Iwan's
+phone") × N text rows = *this named person holds 47 texts, shares 12 recordings with that named
+person, inside this project.* Under hostile-government scrutiny that is the output that matters: a
+named individual tied to a body of work, at a measurable volume, with collaborators inferable.
+
+Which yields the important insight: **the index does not create a new leak so much as multiply the
+value of an existing one.** The highest-value defence is therefore not about the new table at all.
+
+### 10.4 Minimization, ranked by value per unit of work
+
+1. **Encrypt `instance.nickname` at rest.** The single change that most reduces the value of
+   everything else in a dump, and it is a leak *today*, independent of this design. The worker needs
+   the plaintext (it names Drive folders with it), so `encAtRest` — not Kr — is the practical
+   choice: the worker can read it, a database dump cannot. **Do this one first, whatever else
+   happens to this plan.**
+2. **Encrypt `folder_id` and `oauth_folder_id` at rest.** Same primitive. A dump then hands the
+   attacker no direct map into Drive if they obtain Drive access by some other route. Nearly free:
+   the index is queried by `doc_id`, not by folder id.
+3. **Never store `title` in D1.** Already the design — titles live in the manifest — but make it a
+   hard rule with a test. It is the single most revealing field and the most tempting to denormalize
+   the first time someone wants a fast list view.
+4. **Store `HMAC(doc_id)`, not `doc_id`.** Drive's `flextextDoc` tag keeps the real id; D1 keeps only
+   its HMAC. The worker computes it; a D1-only attacker cannot join rows to Drive folders.
+   Rebuild-from-Drive still works — read the real ids from Drive and re-derive. ⚠ Only worth doing
+   TOGETHER WITH (2): if `folder_id` is plaintext the join exists anyway. And it has a real
+   operational cost — support and debugging get materially harder when no id in the database matches
+   any id a human can see. Propose, do not assume.
+5. **`project_id` only where it cannot be derived.** ⚠ This REVERSES the lean in §8.1: derive it
+   from `instance` when there is one, and store it only on Unassigned rows, which have no instance to
+   derive from. Deriving costs a join; storing hands an attacker the project grouping for free.
+6. **Tombstone removed texts.** A deleted text does not need a live row for ever, and corpus size
+   over time is itself a signal.
+7. **Keep ids out of logs.** 13 handlers return `message: e.message` straight from a Drive error, and
+   Drive errors can carry file ids. Sanitize before returning or logging — cheap, and it is the kind
+   of leak that survives every other precaution.
+8. **Give the client only its scope.** `listView` returns the whole account today; under Phase C it
+   must return only a member's scope, and a client with no need for folder ids should not receive
+   them. Attack surface is not only what is stored — it is what is handed out.
+
+### 10.5 The claim the documentation must make once the index exists
+
+Not yet true — the table does not exist — so it is recorded here rather than written into
+DEVELOPERS.md prematurely. When the index lands, the accurate claim is:
+
+> Corpus **content** and device inventory reports are end-to-end encrypted: D1 holds ciphertext that
+> only the researcher's key opens. The corpus **index** — how many texts exist, which device holds
+> which, and which share a recording — is server-visible by construction, because the worker must
+> authorize access without being able to read content. Device names and Drive pointers are encrypted
+> at rest under a key held in Worker secrets, so a database-only breach does not open them.
+
+⚠ **Do not let "E2EE" stand unqualified anywhere once this ships.** The phrase will be read as "the
+server knows nothing", which will then be false, and a security claim that is 90% true is worse than
+a precise one — it is the 10% that gets somebody hurt.
+
+### 10.6 The alternative, and why not
+
+The index must be server-readable *because the worker authorizes access*. The alternative is
+client-side authorization with capability tokens, leaving the server unable to see structure at all.
+Rejected for this threat model: it moves trust onto devices that may be **seized**, which is the
+scenario the suite is explicitly built for. Server-side authorization with a minimized, encrypted-at-
+rest index is the weaker-secrecy, stronger-control trade — and it is a considered trade, not a
+default that nobody examined.

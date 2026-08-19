@@ -1449,12 +1449,20 @@ async function renderDashboard(prefetched) {
     }
     // busy(): the manifest check lists the folder first, so the button must not look dead meanwhile.
     if (el.dataset.uact === 'adopt') { busy(el, () => adoptTextModal(el.dataset.id, el.dataset.title || '')); return; }
+    /* Move… on a CROWD row. Same modal, kind:'crowd' — which offers Unassigned and nothing else,
+     * because a device destination needs a `.flextext` a recording does not have. fromId is only
+     * carried for the device paths, which this kind never takes; firstInstanceId() keeps the
+     * signature honest without inventing an id. */
+    if (el.dataset.uact === 'cmove') {
+      busy(el, () => moveTextModal(firstInstanceId(), el.dataset.id, el.dataset.title || '', { kind: 'crowd' }));
+      return;
+    }
     if (el.dataset.uact === 'drop') {
-      if (!confirm(t('panel.store.removeConfirm', { title: el.dataset.title || '?' }))) return;
+      if (!confirm(t('panel.store.deleteConfirm', { title: el.dataset.title || '?' }))) return;
       busy(el, async () => {
         try {
-          await Researcher.trashFiles([el.dataset.folder], 'unassigned removal');
-          deps.toast(t('panel.store.removed'), 5000);
+          await Researcher.trashFiles([el.dataset.folder], 'panel delete');
+          deps.toast(t('panel.store.deleted'), 5000);
           renderDashboard();
         } catch (e) { errToast(e); }
       });
@@ -3425,7 +3433,8 @@ function crowdTextRows(rec, estate) {
       </div>
       <div class="rp-text-actions">
         ${iid ? filesMenuHtml(iid, tx.docId, tx.title || '') : ''}
-        <button class="link-btn rp-revoke" data-uact="drop" data-folder="${esc(tx.folderId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.store.remove'))}</button>
+        <button class="link-btn" data-uact="cmove" data-id="${esc(tx.docId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.move.btn'))}</button>
+        <button class="link-btn rp-revoke" data-uact="drop" data-folder="${esc(tx.folderId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.store.delete'))}</button>
       </div>
     </li>`).join('')}</ul>
     <p class="note rp-crowd-assign-note">${esc(t('panel.crowd.assignNote'))}</p>`;
@@ -3970,29 +3979,66 @@ async function moveSources(fromId, docId, title) {
   return { all, picks, manifest, audio, ok: !!(manifest && picks.flextext && audio) };
 }
 
-async function moveTextModal(fromId, docId, title) {
+/* MOVE — one modal, three kinds of destination (Seth, 2026-08-19: "let's let move also work for
+ * that").
+ *
+ * Destinations are of two completely different natures and it matters which is which:
+ *
+ *  - ANOTHER DEVICE is an ASSIGNMENT plus a removal. It needs source material the device can
+ *    actually materialize, which is why `moveSources` gates it on a manifest + flextext + audio.
+ *  - UNASSIGNED assigns nothing. From a crowd recorder it is a Drive re-parent and no more; from a
+ *    device it is the existing upload-first removal, after which no device reports the text and the
+ *    sweep files it. Neither needs a manifest, so the device gate must NOT block it.
+ *
+ * ⚠ THAT SPLIT IS THE WHOLE POINT OF THE REWRITE. The old version ran the eligibility check first
+ * and returned early on failure, so a crowd recording — which by definition has no `.flextext` yet —
+ * could never reach any destination at all. Offering it a device is still impossible and still not
+ * offered; offering it Unassigned is the action §16.25 requires to exist, because until now the
+ * set-aside queue could only be entered by the automatic sweep, and "the researcher puts it there"
+ * was not a thing a researcher could do.
+ *
+ * ⚠ A device move to Unassigned does NOT re-parent the folder here. The text is still on the device
+ * until the delete is confirmed, and filing it early would put it in the assign queue while a device
+ * still holds it. The sweep files it once no device reports it — the path that is already tested. */
+async function moveTextModal(fromId, docId, title, opts = {}) {
+  const kind = opts.kind === 'crowd' ? 'crowd' : 'device';
   // ⚠ Only devices on v138+ can RECEIVE a move: older engines ignore the assign's docId and mint
   // their own, so the arrival is invisible to the sweep and the move waits forever (fail-safe —
   // the source is never removed — but wedged). Devices auto-update, so this resolves itself.
   const engOf = (x) => Math.max(0, ...((x.installs || []).map((i) => parseInt(String((i.inventory && i.inventory.engineVersion) || '').replace(/[^0-9]/g, ''), 10) || 0)));
-  const insts = ((lastData && lastData.instances) || []).filter((x) => x.instance_id !== fromId);
-  if (!insts.length) { deps.toast(t('panel.move.noOther'), 5000); return; }
+  const insts = kind === 'crowd' ? []
+    : ((lastData && lastData.instances) || []).filter((x) => x.instance_id !== fromId);
   for (const x of insts) x._canReceive = engOf(x) >= 138;
-  if (!insts.some((x) => x._canReceive)) { deps.toast(t('panel.move.allTooOld'), 7000); return; }
 
-  // The eligibility check, before any destination is offered.
+  /* The device gate, run ONLY when a device could be a destination at all. `why` is the reason no
+   * device is selectable, shown in place of the ordinary intro so the modal never presents a row of
+   * dead radio buttons with no explanation. */
   let src = null;
-  try { src = await moveSources(fromId, docId, title); }
-  catch { deps.toast(t('panel.dl.zipFailed'), 5000); return; }
-  if (!src.ok) {
-    deps.toast(t(src.manifest ? 'panel.move.manifestIncomplete' : 'panel.move.noManifest'), 10000);
-    return;
+  let why = '';
+  if (kind === 'crowd') why = 'panel.move.introUnassignedOnly';
+  else if (!insts.length) why = 'panel.move.noOther';
+  else if (!insts.some((x) => x._canReceive)) why = 'panel.move.allTooOld';
+  else {
+    try { src = await moveSources(fromId, docId, title); }
+    catch { src = null; }
+    if (!src) why = 'panel.dl.zipFailed';
+    else if (!src.ok) why = src.manifest ? 'panel.move.manifestIncomplete' : 'panel.move.noManifest';
   }
+  const deviceOk = !why;
+  const firstOk = deviceOk ? insts.find((y) => y._canReceive) : null;
+
+  const opt = (value, label, sub, disabled, checked) => `<label class="rp-field rp-move-opt">
+      <input type="radio" name="rp-move-to" value="${esc(value)}" ${disabled ? 'disabled' : ''} ${checked ? 'checked' : ''}>
+      <span>${esc(label)}${sub ? ` <span class="note">— ${esc(sub)}</span>` : ''}</span></label>`;
 
   const m = modal(`
     <h3>${esc(t('panel.move.title', { title }))}</h3>
-    <p class="note">${esc(t('panel.move.intro'))}</p>
-    ${insts.map((x) => `<label class="rp-field rp-move-opt"><input type="radio" name="rp-move-to" value="${esc(x.instance_id)}" ${x._canReceive ? '' : 'disabled'} ${x === insts.find((y) => y._canReceive) ? 'checked' : ''}> <span>${esc(x.nickname || '?')}${x._canReceive ? '' : ' — ' + esc(t('panel.move.tooOld'))}</span></label>`).join('')}
+    <p class="note">${esc(t(deviceOk ? 'panel.move.intro' : why))}</p>
+    ${insts.map((x) => opt(x.instance_id, x.nickname || '?', x._canReceive ? '' : t('panel.move.tooOld'),
+                           !deviceOk || !x._canReceive, deviceOk && x === firstOk)).join('')}
+    ${opt('__unassigned', t('panel.move.unassignedOpt'),
+          t(kind === 'crowd' ? 'panel.move.unassignedWhyCrowd' : 'panel.move.unassignedWhyDevice'),
+          false, !deviceOk)}
     <button class="primary-btn" data-m="go">${esc(t('panel.move.go'))}</button>
     <button class="link-btn" data-m="cancel">${esc(t('panel.assign.cancel'))}</button>
     <div class="rp-adm-say" id="rp-move-say" hidden></div>`);
@@ -4003,6 +4049,25 @@ async function moveTextModal(fromId, docId, title) {
     const say = m.el.querySelector('#rp-move-say');
     try {
       e.target.disabled = true;
+
+      if (to === '__unassigned') {
+        if (kind === 'crowd') {
+          // A re-parent and nothing else — drive-unassign already takes explicit ids; the sweep is
+          // simply a batched caller of the same route.
+          await Researcher.driveUnassign([docId]);
+        } else {
+          // The upload-first removal, identical to the del-text path: a fresh Drive copy lands
+          // BEFORE the device drops its own. The sweep files the result.
+          const r2 = await Researcher.uploadDelete(fromId, docId);
+          pendingCmds.set(docId, { seq: r2.seq, kind: 'delete', instanceId: fromId, at: Date.now() });
+          savePending(Researcher.currentAccountId());
+        }
+        m.close();
+        deps.toast(t(kind === 'crowd' ? 'panel.move.filed' : 'panel.inst.delSent'), 6000);
+        renderDashboard();
+        return;
+      }
+
       /* The sources were RESOLVED BEFORE this modal opened (moveSources) — re-listing here would
        * spend a second round trip to re-derive an answer we already have, and could in principle
        * disagree with the one the eligibility gate passed on.
@@ -4105,7 +4170,7 @@ function renderUnassignedCard(estate) {
       <div class="rp-text-actions">
         ${iid ? filesMenuHtml(iid, tx.docId, tx.title || '') : ''}
         <button class="link-btn" data-uact="adopt" data-id="${esc(tx.docId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.move.btn'))}</button>
-        <button class="link-btn rp-revoke" data-uact="drop" data-folder="${esc(tx.folderId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.store.remove'))}</button>
+        <button class="link-btn rp-revoke" data-uact="drop" data-folder="${esc(tx.folderId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.store.delete'))}</button>
       </div>
     </li>`).join('');
   const collapsed = !unassignedOpen;
@@ -4376,7 +4441,7 @@ function storageModal() {
         </div>
         <div class="rp-store-actions">
           ${firstInstanceId() ? filesMenuHtml(firstInstanceId(), tx.docId, tx.title || '') : ''}
-          ${un ? `<button class="link-btn rp-revoke" data-storedel="${esc(tx.folderId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.store.remove'))}</button>` : ''}
+          ${un ? `<button class="link-btn rp-revoke" data-storedel="${esc(tx.folderId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.store.delete'))}</button>` : ''}
         </div>
       </div>`;
     };
@@ -4431,10 +4496,10 @@ function storageModal() {
 
     wireDownloadMenus(body);
     body.querySelectorAll('[data-storedel]').forEach((b) => b.addEventListener('click', () => busy(b, async () => {
-      if (!confirm(t('panel.store.removeConfirm', { title: b.dataset.title || '?' }))) return;
+      if (!confirm(t('panel.store.deleteConfirm', { title: b.dataset.title || '?' }))) return;
       try {
         await Researcher.trashFiles([b.dataset.storedel], 'drive storage manager');
-        deps.toast(t('panel.store.removed'), 5000);
+        deps.toast(t('panel.store.deleted'), 5000);
         await load();
       } catch (e) { errToast(e); }
     })));

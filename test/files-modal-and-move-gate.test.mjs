@@ -159,16 +159,63 @@ console.log('\na move refuses without a manifest — BEFORE offering a destinati
   /* ⚠ ORDER IS THE FIX. The old code listed the folder only after the researcher had chosen a
    * device and pressed Move, then failed with nothingToMove — a refusal AFTER the commitment, which
    * reads as the app breaking rather than as the text being ineligible. */
-  const mv = panel.slice(panel.indexOf('async function moveTextModal'));
+  /* ⚠ BOUND THE SLICE TO THE FUNCTION. This read to END OF FILE, so every assertion below could be
+   * satisfied by adoptTextModal further down — and after the Unassigned-target rewrite one of them
+   * WAS: it asserted a `deps.toast` branch moveTextModal no longer has, and passed on adopt's copy.
+   * A test that cannot fail is worse than no test, so the slice stops at the function's own close. */
+  const mvAt = panel.indexOf('async function moveTextModal');
+  const mv = panel.slice(mvAt, panel.indexOf('\n}\n', panel.indexOf('  });', mvAt)) + 3);
+  ok(!/async function adoptTextModal/.test(mv), 'the slice really is moveTextModal alone');
   const gateAt = mv.indexOf('await moveSources(');
   const pickerAt = mv.indexOf('const m = modal(');
   ok(gateAt > 0 && pickerAt > gateAt, 'the check runs BEFORE the device picker is built');
-  ok(/if \(!src\.ok\) \{[\s\S]{0,200}?deps\.toast\(t\(src\.manifest \? 'panel\.move\.manifestIncomplete' : 'panel\.move\.noManifest'\)/.test(mv),
+  ok(/why = src\.manifest \? 'panel\.move\.manifestIncomplete' : 'panel\.move\.noManifest'/.test(mv),
      'and the two causes are named separately — a missing manifest is not an incomplete one');
 
   // The commit path must not re-derive what the gate already resolved.
   ok(/idOf\(src\.picks\.flextext\)/.test(mv) && /idOf\(src\.audio\)/.test(mv),
      'the assignment reuses the resolved sources rather than listing the folder a second time');
+
+  /* ⚠ THE GATE MUST NOT REACH UNASSIGNED. A device destination is an ASSIGNMENT and needs source
+   * material; Unassigned assigns nothing — from a crowd recorder it is a Drive re-parent, from a
+   * device it is the upload-first removal. The old code returned early when the gate failed, so a
+   * crowd recording (no `.flextext`, by definition) could reach no destination at all. */
+  ok(!/return;\s*\n\s*\}\s*\n\s*const m = modal\(/.test(mv),
+     'a failed device gate no longer returns before the picker is built');
+  const unOpt = (mv.match(/opt\('__unassigned'[\s\S]{0,320}?\)\}/) || [''])[0];
+  ok(unOpt && !/disabled/.test(unOpt.split('\n').slice(0, 3).join('\n')),
+     'Unassigned is offered whatever the device gate decided');
+  ok(/opt\('__unassigned'[\s\S]{0,300}?false, !deviceOk\)/.test(mv),
+     '...and is pre-selected exactly when no device can receive the text');
+  ok(/const deviceOk = !why;/.test(mv) && /!deviceOk \|\| !x\._canReceive/.test(mv),
+     'the gate disables DEVICE options instead of closing the modal');
+}
+
+console.log('\nUnassigned is a real destination, and the two kinds do different work');
+{
+  const mvAt = panel.indexOf('async function moveTextModal');
+  const mv = panel.slice(mvAt, panel.indexOf('\n}\n', panel.indexOf('  });', mvAt)) + 3);
+
+  ok(/Researcher\.driveUnassign\(\[docId\]\)/.test(mv),
+     'a CROWD text is filed by re-parenting one id — drive-unassign already takes explicit ids');
+  ok(/Researcher\.uploadDelete\(fromId, docId\)/.test(mv),
+     'a DEVICE text goes through the upload-first removal, so a fresh Drive copy lands before the device drops its own');
+
+  /* ⚠ The device path must NOT re-parent here. The text is still on the device until the delete is
+   * confirmed; filing it early would put it in the assign queue while a device still holds it —
+   * which is precisely the state the sweep exists to resolve. The sweep files it afterwards. */
+  const devBranch = (mv.match(/\} else \{[\s\S]*?savePending\(Researcher\.currentAccountId\(\)\);/) || [''])[0];
+  ok(devBranch && !/driveUnassign/.test(devBranch),
+     'and the device path does not re-parent the folder itself — the sweep does, once no device reports it');
+
+  // A crowd recording can never be assigned straight to a device: it has no .flextext.
+  ok(/kind === 'crowd' \? \[\]/.test(mv), 'the crowd kind offers NO device destinations at all');
+  ok(/if \(kind === 'crowd'\) why = 'panel\.move\.introUnassignedOnly'/.test(mv),
+     '...and says why, rather than showing a row of dead radio buttons');
+
+  ok(/data-uact="cmove"/.test(panel) && /panel\.move\.btn/.test(panel), 'the crowd row has a Move… button');
+  ok(/moveTextModal\(firstInstanceId\(\), el\.dataset\.id, el\.dataset\.title \|\| '', \{ kind: 'crowd' \}\)/.test(panel),
+     'wired to the same modal, with the crowd kind');
 }
 
 console.log('\n...and the Unassigned → device path is gated identically');

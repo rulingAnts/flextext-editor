@@ -2208,7 +2208,21 @@ Seth, 2026-08-19, proposing the affordances for texts that no device holds:
 |---|---|---|---|
 | On a device | to another device, **or to Unassigned** | *Remove from device* (upload-first, then delete locally) | ✅ |
 | In Unassigned | to a device | **Delete** | ✅ |
-| In a crowd recorder | to a device, **or to Unassigned** | **Delete** | ✅ |
+| In a crowd recorder | **Unassigned ONLY** — see the correction below | **Delete** | ✅ |
+
+⚠ **CORRECTION, found while building it (v415).** This table originally said a crowd recording could
+Move *"to a device, or to Unassigned"*. It cannot go to a device, and writing that down nearly caused
+the exact button v410 had already removed to be rebuilt.
+
+`moveSources()` gates a device destination on `ok: !!(manifest && picks.flextext && audio)`. A crowd
+submission has a manifest and audio and **no `.flextext`** — a recording is not a transcription yet —
+so the gate can never pass for one. That is not a bug to fix here: an assignment with no text is the
+separate "a flextext is optional for assignments" question Seth deferred. Until that is answered, the
+honest offer is Unassigned only, with the modal saying why rather than showing a dead radio button.
+
+**The lesson worth more than the correction:** the row was written into this plan from the shape of
+the other two rows, not from the code, and it read as settled because it was in a table. Check a
+capability against the gate that decides it before tabulating it.
 
 *"Remove from device"* is meaningless for a text on no device, and the button there currently trashes
 the Drive folder — so the label describes neither the target nor the effect. **Delete** is honest.
@@ -2222,6 +2236,17 @@ researcher does want it queued for later assignment.
 
 It also reuses machinery rather than adding any: moving one text to Unassigned is what
 `drive-unassign` already does, for a single explicit id instead of a swept batch.
+
+**And from a DEVICE it adds nothing at all** (Seth, 2026-08-19: *"Remove from device already moves,
+but I think let's let move also work for that"*). Remove-from-device is already upload-first: the
+device lands a fresh Drive copy, then drops its own, after which no device reports the text and the
+sweep files it. So device → Unassigned is that existing command reached through the Move affordance,
+where the researcher looks for it — a discoverability fix, not new plumbing.
+
+⚠ **The device path must NOT re-parent the folder itself.** The text is still on the device until the
+delete is confirmed, and filing it early would put it in the assign queue while a device still holds
+it — precisely the state the sweep exists to resolve. The sweep does it afterwards, on the path that
+is already tested.
 
 **Already true, no work needed:** the Files… modal is `filesMenuHtml(iid, docId, title)` and is
 already rendered on crowd rows (v408) — it reads a text's folder, which is the same shape whatever

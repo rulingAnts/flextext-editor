@@ -259,7 +259,7 @@ console.log('\nthe unassigned gate is computed from DEVICE INVENTORY, and only i
      'the gate never keys on the folder location, only on inventory');
   ok(/\$\{un \? `<button[^`]*data-storedel=/.test(modal),
      'Remove is rendered ONLY for an unassigned text');
-  ok(/confirm\(t\('panel\.store\.removeConfirm'/.test(modal), 'and still asks first');
+  ok(/confirm\(t\('panel\.store\.deleteConfirm'/.test(modal), 'and still asks first');
   ok(/Researcher\.trashFiles\(\[b\.dataset\.storedel\]/.test(modal),
      'removal TRASHES (30-day recoverable), it does not delete');
   ok(/confirm\(t\('panel\.store\.reclaimConfirm'/.test(modal), 'the permanent reclaim asks too');
@@ -274,8 +274,13 @@ console.log('\nthe wording tells the researcher the thing they would otherwise d
   const en = (k) => (i18n.match(new RegExp(`'${k}': '([^']*)'`)) || [])[1] || '';
   ok(/still count against/i.test(en('panel.store.trashWhy')),
      'the trash block says trashed files still count against the quota');
-  ok(/reclaim/i.test(en('panel.store.removeConfirm')),
-     'and the remove confirm warns that space is not freed until reclaimed');
+  /* ⚠ The verb is now "Delete" (Seth, 2026-08-19) — which is honest about the act but risks
+   * overstating its finality, since it TRASHES. The confirm therefore has to carry both facts, and
+   * this is the assertion that keeps them adjacent to the word. */
+  ok(/reclaim/i.test(en('panel.store.deleteConfirm')),
+     'and the delete confirm warns that space is not freed until reclaimed');
+  ok(/30 days|recoverable/i.test(en('panel.store.deleteConfirm')),
+     '...and that "Delete" means trashed-and-recoverable, not gone');
   ok(/nothing else in your Drive trash/i.test(en('panel.store.reclaimConfirm')),
      'the reclaim confirm promises it touches only files this app created');
   ok(/cannot be undone/i.test(en('panel.store.reclaimConfirm')), '...and that it is permanent');
@@ -286,7 +291,7 @@ console.log('\nthe wording tells the researcher the thing they would otherwise d
     return nxt < 0 ? i18n.slice(at) : i18n.slice(at, at + 1 + nxt);
   };
   for (const k of ['panel.store.btn', 'panel.store.title', 'panel.store.unassignedGroup',
-                   'panel.store.remove', 'panel.store.reclaim', 'panel.store.quotaNoLimit']) {
+                   'panel.store.delete', 'panel.store.reclaim', 'panel.store.quotaNoLimit']) {
     const re = new RegExp(`^  '${k.replace(/\./g, '\\.')}':`, 'm');
     ok(re.test(block('en')) && re.test(block('id')), `${k} is in en AND id`);
   }
@@ -407,8 +412,8 @@ console.log('\nthe UNASSIGNED card is on the dashboard, and is NOT a pseudo-inst
   // Same buttons as a device row, with the one substitution.
   ok(/filesMenuHtml\(iid, tx\.docId/.test(card), 'Files menu');
   ok(/data-uact="adopt"/.test(card) && /panel\.move\.btn/.test(card), 'Move…');
-  ok(/data-uact="drop"/.test(card) && /panel\.store\.remove/.test(card),
-     '"Remove from Google Drive" replaces "Remove from Device" — there is no device to remove from');
+  ok(/data-uact="drop"/.test(card) && /panel\.store\.delete/.test(card),
+     '"Delete" replaces "Remove from Device" — there is no device to remove it from');
 
   /* A text mid-MOVE is between devices, not unassigned. Listing it here would offer to delete
    * Drive's only copy while the destination is still fetching it. */

@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v414';
+export const ENGINE_VERSION = 'v415';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v414';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = '';
+export const BUILD_TAG = 'verb-model v1';
 
 const S = {
 en: {
@@ -860,6 +860,14 @@ internet after the first time.</p>
   'panel.move.tooOld': 'needs its app updated first',
   'panel.move.allTooOld': 'No destination device is updated enough to receive a move yet \u2014 devices update themselves within a day or so of coming online.',
   'panel.move.noOther': 'There is no other device to move to.',
+  /* Unassigned as a MOVE TARGET (Seth, 2026-08-19). Not tidiness: §16.25 requires that a text enter
+   * the set-aside queue only when the researcher puts it there, and until this existed the queue could
+   * only be entered by the automatic sweep — so "the researcher puts it there" was not an action. */
+  'panel.move.unassignedOpt': 'Google Drive (unassigned)',
+  'panel.move.unassignedWhyDevice': 'the device uploads a final copy, then removes its own — the text stays in Drive, filed under Unassigned, ready to assign later',
+  'panel.move.unassignedWhyCrowd': 'the text leaves this recorder and joins your queue of texts waiting to be assigned. Nothing is deleted.',
+  'panel.move.introUnassignedOnly': 'A device can only receive a text that has a .flextext, and this recording has none yet — so Unassigned is the only destination offered. To put it on a device, download the folder and upload it again as an assignment.',
+  'panel.move.filed': 'Filed under Unassigned.',
   'panel.move.nothingToMove': 'Nothing to move yet \u2014 this text has no uploaded content the other device could receive.',
   /* v347 \u2014 a move builds the new assignment from the folder's manifest. Without one there is no
    * dependable answer to "which flextext is current" or "which file is the original audio", and a
@@ -929,9 +937,12 @@ internet after the first time.</p>
   'panel.unassigned.intro': 'These texts are in your Google Drive but on no device. {size} in total. Move one to a device to work on it again, or remove it from Drive.',
   'panel.unassigned.moveTitle': 'Move \u201c{title}\u201d to a device',
   'panel.unassigned.moveIntro': 'The text is sent to the device and its Drive folder is filed under that device again.',
-  'panel.store.remove': 'Remove from Drive',
-  'panel.store.removeConfirm': 'Move “{title}” to your Google Drive trash?\n\nIt stays recoverable at drive.google.com/trash for 30 days. To actually free up the space you will then need to reclaim it from this screen.',
-  'panel.store.removed': 'Moved to Drive trash.',
+  /* ⚠ "Delete" must not overstate: it TRASHES the Drive folder — recoverable for 30 days, and still
+   * counting against quota until drive-purge empties the trash. The confirm carries both facts, so
+   * the word never promises a finality the action does not have. */
+  'panel.store.delete': 'Delete',
+  'panel.store.deleteConfirm': 'Delete “{title}”?\n\nIt moves to your Google Drive trash and stays recoverable at drive.google.com/trash for 30 days. Until you reclaim the space from this screen it still counts against your Drive quota.',
+  'panel.store.deleted': 'Moved to Drive trash.',
   'panel.store.trashHeld': '{size} in your Drive trash ({n} FlexText file(s))',
   'panel.store.trashWhy': 'Trashed files still count against your Google storage until they are deleted for good.',
   'panel.store.reclaim': 'Reclaim this space',
@@ -1156,7 +1167,7 @@ internet after the first time.</p>
   'panel.dl.packageSub': 'the recording with its consent records, packaged together',
   // How the text came to exist, from the manifest's `origin` field — so the researcher is told
   // whether item 1 is what they assigned or what the speaker recorded, instead of inferring it.
-  'panel.crowd.assignNote': 'To work on one of these, download it and upload it again as a normal assignment. Recordings cannot yet be assigned to a device directly. \u26a0 Do not move these folders in Google Drive by hand \u2014 the device would never be told about it, so the text would look assigned without ever arriving.',
+  'panel.crowd.assignNote': 'Move\u2026 files a recording under Unassigned, ready to assign later. It cannot send one straight to a device: that needs a .flextext, which a recording does not have yet \u2014 so to work on one, download it and upload it again as a normal assignment. \u26a0 Do not move these folders in Google Drive by hand \u2014 the device would never be told about it, so the text would look assigned without ever arriving.',
   'panel.store.snapshot': 'Save a Drive snapshot (JSON)',
   'panel.store.snapshotNote': 'A record of exactly what your FlexText folders look like right now. Take one before any big reorganisation \u2014 Google Drive does not remember where a folder used to be, so this file cannot be produced after the fact.',
   'panel.store.snapshotSaved': 'Snapshot saved \u2014 {n} items recorded. Keep it somewhere safe.',
@@ -2495,6 +2506,11 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.move.tooOld': 'aplikasinya perlu diperbarui dulu',
   'panel.move.allTooOld': 'Belum ada perangkat tujuan yang cukup baru untuk menerima pemindahan \u2014 perangkat memperbarui dirinya dalam sehari setelah online.',
   'panel.move.noOther': 'Tidak ada perangkat lain untuk tujuan pemindahan.',
+  'panel.move.unassignedOpt': 'Google Drive (tidak tertugas)',
+  'panel.move.unassignedWhyDevice': 'perangkat mengunggah salinan terakhir, lalu menghapus miliknya sendiri — teksnya tetap di Drive, masuk ke Tidak Tertugas, siap ditugaskan nanti',
+  'panel.move.unassignedWhyCrowd': 'teks keluar dari perekam ini dan masuk ke antrean teks yang menunggu ditugaskan. Tidak ada yang dihapus.',
+  'panel.move.introUnassignedOnly': 'Perangkat hanya bisa menerima teks yang punya berkas .flextext, dan rekaman ini belum punya — jadi hanya Tidak Tertugas yang ditawarkan sebagai tujuan. Untuk memasangnya di perangkat, unduh foldernya lalu unggah kembali sebagai penugasan.',
+  'panel.move.filed': 'Masuk ke Tidak Tertugas.',
   'panel.move.nothingToMove': 'Belum ada yang bisa dipindahkan \u2014 teks ini belum punya konten terunggah yang bisa diterima perangkat lain.',
   /* v347 \u2014 lihat catatan pada blok en. */
   'panel.move.noManifest': 'Teks ini tidak bisa dipindahkan secara otomatis: folder Drive-nya tidak punya manifes, jadi tidak ada catatan yang bisa diandalkan tentang berkas mana yang merupakan teks terkini dan mana rekaman aslinya. Unduh foldernya lalu unggah ulang ke perangkat yang Anda inginkan.',
@@ -2555,9 +2571,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.unassigned.intro': 'Teks ini ada di Google Drive Anda tetapi tidak di perangkat mana pun. Total {size}. Pindahkan ke perangkat untuk dikerjakan lagi, atau hapus dari Drive.',
   'panel.unassigned.moveTitle': 'Pindahkan \u201c{title}\u201d ke perangkat',
   'panel.unassigned.moveIntro': 'Teks dikirim ke perangkat dan folder Drive-nya dikembalikan ke bawah perangkat itu.',
-  'panel.store.remove': 'Hapus dari Drive',
-  'panel.store.removeConfirm': 'Pindahkan “{title}” ke sampah Google Drive?\n\nMasih dapat dipulihkan di drive.google.com/trash selama 30 hari. Untuk benar-benar mengosongkan ruang, Anda perlu mengklaimnya kembali dari layar ini.',
-  'panel.store.removed': 'Dipindahkan ke sampah Drive.',
+  'panel.store.delete': 'Hapus',
+  'panel.store.deleteConfirm': 'Hapus “{title}”?\n\nBerkas dipindahkan ke sampah Google Drive dan masih dapat dipulihkan di drive.google.com/trash selama 30 hari. Selama belum Anda klaim kembali dari layar ini, ruangnya masih terhitung dalam kuota Drive Anda.',
+  'panel.store.deleted': 'Dipindahkan ke sampah Drive.',
   'panel.store.trashHeld': '{size} di sampah Drive Anda ({n} berkas FlexText)',
   'panel.store.trashWhy': 'Berkas di sampah tetap dihitung terhadap penyimpanan Google Anda sampai dihapus permanen.',
   'panel.store.reclaim': 'Klaim ruang ini',
@@ -2770,7 +2786,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.dl.approx': 'sekitar {size}',
   'panel.dl.package': 'Paket rekaman (.zip)',
   'panel.dl.packageSub': 'rekaman beserta catatan persetujuan, dikemas jadi satu',
-  'panel.crowd.assignNote': 'Untuk mengerjakan salah satu rekaman ini, unduh lalu unggah kembali sebagai penugasan biasa. Rekaman belum bisa ditugaskan langsung ke perangkat. \u26a0 Jangan memindahkan folder ini secara manual di Google Drive \u2014 perangkat tidak akan diberi tahu, sehingga teks tampak ditugaskan padahal tidak pernah sampai.',
+  'panel.crowd.assignNote': 'Pindahkan\u2026 memasukkan rekaman ke Tidak Tertugas, siap ditugaskan nanti. Rekaman belum bisa dikirim langsung ke perangkat: itu memerlukan berkas .flextext yang belum dimiliki rekaman \u2014 jadi untuk mengerjakannya, unduh lalu unggah kembali sebagai penugasan biasa. \u26a0 Jangan memindahkan folder ini secara manual di Google Drive \u2014 perangkat tidak akan diberi tahu, sehingga teks tampak ditugaskan padahal tidak pernah sampai.',
   'panel.store.snapshot': 'Simpan cuplikan Drive (JSON)',
   'panel.store.snapshotNote': 'Catatan persis seperti apa folder FlexText Anda saat ini. Ambil satu sebelum penataan ulang besar \u2014 Google Drive tidak mengingat lokasi folder sebelumnya, jadi berkas ini tidak bisa dibuat setelahnya.',
   'panel.store.snapshotSaved': 'Cuplikan tersimpan \u2014 {n} item tercatat. Simpan di tempat aman.',

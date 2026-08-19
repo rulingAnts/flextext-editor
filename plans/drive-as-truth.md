@@ -1060,3 +1060,41 @@ per-type branching that a previous migration went out of its way to delete. ⚠ 
 **leave `crowd_recorder` as its own table, and give it the two things it actually needs from the
 instance model — a consent-prompt upload route and `project_id` scoping under Phase C** — both of
 which are additive and neither of which requires it to become an instance.
+
+### 16.8 ⚠ A requirement that arrived after §16.7 and moves the verdict
+
+Seth, immediately after §16.7 was written:
+
+> *"We want to be able to 'assign' and 'move' texts to and from Google Drive (Unassigned) and be able
+> to do all the same things with uploaded Crowd Recorder texts that we can do with texts on Google
+> Drive and on Devices. So Crowd Recorders should create text folders with manifest files and work on
+> Google Drive the same as the other 'device folders' as much as possible (though of course they
+> won't be uploading flextext files)."*
+
+Today a crowd submission uploads a **zip to the crowd folder root** — no text folder, no manifest, no
+docId. The requirement makes crowd recordings **first-class texts**: their own folder, their own
+manifest, movable to Unassigned, assignable onward to an editor device.
+
+⚠ **That changes the argument, and §16.7 should be read knowing it.** §16.7 weighed the two TABLE
+SHAPES and concluded the branching cost outweighed the benefit. This weighs the DATA MODEL, and it is
+the stronger argument: if a `text` row's owner must be able to be a crowd recorder, there are only
+two ways to express it —
+
+1. **crowd is an instance type** — one owner column, `text.instance_id`, always meaning the same
+   thing; or
+2. **`text` gets a polymorphic owner** — `instance_id` OR `crowd_id`, nullable in complementary
+   pairs, with every query and every guard having to remember which.
+
+(2) is exactly the two-columns-one-meaning shape that produced the drift this whole document exists
+to remove, and it would be baked into the NEW table rather than inherited. Against that, the
+`type` CHECK rebuild and four UI branches look cheap.
+
+**So the verdict swings back toward unifying — for a reason §16.1–16.7 never considered.** Not
+settled here: §16.5's guards (the E2EE asymmetry, the allow-listed public projection, `enabled` vs
+`revoked`) all still apply and are unaffected by this. What changes is only the weight on the other
+side of the scale, and it is heavier than it looked.
+
+**Consequence either way, worth separating from the unify decision:** crowd submissions need a docId,
+a text folder and a manifest at upload time — which is `register-first` (§3.1) applied to a third
+origin. §3's origin table gains nothing new conceptually; the crowd row simply stops being a special
+case and becomes another way a text is born.

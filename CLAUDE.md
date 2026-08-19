@@ -146,6 +146,24 @@ is deliberately agnostic.
 | release | what was done | outcome |
 |---|---|---|
 | v318 (2026-08-08) | `main` pushed 05:18:13, `productionWeb` seconds later | **Every Cloudflare site deployed from `productionWeb`** — verified by Seth on the dashboard across all Workers built from this repo. Pages + all three satellite mirrors green too. |
+| v396 (2026-08-19) | `main` pushed ≈09:39, `productionWeb` at 09:44:08 — **spaced by ~5 min**, deliberately | **Both estates fully green.** Seth verified on the Cloudflare dashboard that the `main` AND `productionWeb` builds all completed and the production sites serve v396. Pages built, and `Publish satellites` passed its gate for real (each satellite spent ~15 s in "Wait for the live editor to serve this commit's engine", then 200-checked every precached path, then published). |
+
+**What v396 adds to the picture, stated no more strongly than it deserves:** this is the FIRST
+recorded release where the two pushes were deliberately spaced and both estates were then verified.
+It is one clean observation that **`main` first, spaced, then `productionWeb`** works end to end.
+
+⚠ It does **not** settle the ORDER, and nobody should read it as doing so. Every recorded release —
+v318 and v396 alike — has pushed `main` first; the reverse has never been tried, so there is no
+evidence about it either way. What v396 supports is the SPACING, which is the part the rule above
+actually asks for. Keep recording releases here; the order question needs a different experiment, and
+it is not worth running one deliberately on production traffic.
+
+⚠ **The verification gap that showed up, and it is worth fixing.** The agent could not perform the
+gate itself: this sandbox's egress policy blocks `rulingants.github.io`, `*.workers.dev`,
+`connect.flextext.app` and `pat.flextext.app`, so `check-release-integrity.sh` returns `HTTP 000000`
+for every path and the preview aliases are unreachable. Seth had to eyeball the dashboard. Allowing
+those four hosts in the environment's network policy (claude.ai/code → this repo's environment) turns
+the release gate back into something automatable.
 
 ⚠ **So v318 was NOT a broken release** — do not read the caution above as a post-mortem of one. It
 records a failure mode Seth has *seen*, which v318 then did not reproduce despite being pushed in

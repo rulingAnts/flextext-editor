@@ -124,6 +124,35 @@ console.log('\nthe worker never fetches a URL the caller chose');
   ok(!/assignCopy/.test(client), 'the orphaned client wrapper is gone too');
 }
 
+/* ⚠⚠ THE BRICK GUARD (plans/drive-as-truth.md §16.19).
+ *
+ * The desired lane returns 410 when an install row is absent or revoked, and the CLIENT treats 410
+ * as "the researcher revoked me": clearSession() + onRevoked(), which drops the sync link and scrubs
+ * the Drive config. Local texts survive, so this is not data loss — but the PAIRING is gone, and a
+ * pairing can only be restored by a fresh invite link, which means a researcher physically present
+ * with every phone. In a village that is not a blip, it is the trip.
+ *
+ * Adding `AND project_id = ?` to these lookups is the one-line change that would do it to the whole
+ * estate at once: during backfill project_id is NULL, the row stops matching, the handler reads that
+ * as "absent", and every field device unlinks simultaneously. This asserts that predicate is not
+ * there. */
+{
+  console.log('\nthe desired lane cannot be scoped into bricking the estate');
+  const lane = worker.slice(worker.indexOf("Distinguish a REVOKED install from a bad secret"));
+  const body = lane.slice(0, 3000);
+  const installSel = /SELECT revoked, wipe_state FROM install WHERE([^']*)'/.exec(body);
+  ok(!!installSel, 'the install revoked-vs-bad-secret lookup is findable');
+  ok(installSel && !/project/i.test(installSel[1]),
+     'it does NOT filter by project — a NULL project_id mid-backfill would read as "absent" ⇒ 410 ⇒ every device unlinks');
+  const instSel = /SELECT desired_blob, desired_rev, type, revoked, researcher_id FROM instance WHERE([^']*)'/.exec(body);
+  ok(!!instSel, 'the instance lookup is findable');
+  ok(instSel && !/project/i.test(instSel[1]), '...and it does not filter by project either');
+  /* And the asymmetry that makes this survivable: a MISSING instance is 404, which the client does
+   * NOT auto-release on. Losing that distinction would make the safe failure mode the dangerous one. */
+  ok(/if \(!inst\) return j\(\{ error: 'not_found' \}, 404/.test(body),
+     'a missing instance stays 404 — only a REVOKED one is 410, and only 410 auto-releases');
+}
+
 console.log(fail ? `\nFAILED (${fail}) — an ownership write has slipped its scope.\n`
                  : '\nPASS: ownership is proven before the write, including inside batches.\n');
 process.exit(fail ? 1 : 0);

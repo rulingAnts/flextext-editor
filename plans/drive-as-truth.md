@@ -1720,3 +1720,106 @@ a remembered `folderId` must still have it honoured**, since `driveEnsureTextFol
 echoed id by `files.get` and a re-parented folder keeps its id. Re-parenting therefore does not
 invalidate any client's memory. ✅ That is the property that makes this migration cheap, and it is
 worth stating so nobody "tidies" the echo away.
+
+### 16.19 ⚠⚠ THE BRICK VECTOR — the one migration failure that is not a blip
+
+Seth: *"as long as it doesn't result in bricked devices. Or other problems. As long as the result is
+a net blip that's immediately fixed by the update."*
+
+There is exactly one mechanism in this system that turns a worker mistake into something an update
+cannot fix, and project scoping is precisely the kind of change that could trip it. It must be
+understood before any migration touches the device lane.
+
+**The mechanism.** `GET /v1/instances/<id>` (the desired lane every field device polls) returns
+**410** in two cases, and the client treats 410 as *"the researcher revoked me"*:
+
+```js
+// worker/src/v1.js — the desired lane
+if (!row || row.revoked)   return j({ error: 'revoked' }, 410, …);   // install row absent OR revoked
+if (inst.revoked)          return j({ error: 'revoked' }, 410, …);   // whole-instance revoke
+```
+```js
+// docs/js/sync.js — what the device does with it
+if (e && e.status === 410) { clearSession(); if (iface && iface.onRevoked) iface.onRevoked(); }
+```
+
+`clearSession()` + `onRevoked()` **drops the sync link and scrubs the Drive config.** The device keeps
+its local texts and audio — so this is *not* data loss — but the pairing is gone, and a pairing can
+only be restored by a fresh invite link, which means **a researcher physically present with every
+phone.** In a village that is not a blip; it is the trip.
+
+⚠ **So the rule, and it is absolute:**
+
+> **No migration, and no new scoping filter, may make a live install or instance row look ABSENT or
+> REVOKED to the desired lane.**
+
+The specific way project scoping would do it: adding `AND project_id = ?` to those SELECTs. During
+backfill `instance.project_id` is NULL for a while, the row stops matching, the handler reads that as
+"absent", and **every field device in the estate unlinks itself simultaneously.** A blameless-looking
+one-line filter.
+
+**Two facts that make this safe to work with:**
+
+- **A missing instance returns 404, not 410** (`if (!inst) return j({error:'not_found'}, 404, …)`),
+  and the client does not auto-release on 404. The dangerous shape is specifically *a row that reads
+  as revoked*, not *a row that is missing* — so failing CLOSED here is safer than failing open, which
+  is the opposite of the usual instinct.
+- **The device queues through an outage.** It keeps its texts, keeps its upload queue and retries; the
+  chunk loops persist their sessions and `uploadDelete` is upload-first. That is what makes Seth's
+  "temporary blip" permission genuinely safe to accept — but only for outages, never for a 410.
+
+**Guarded by `test/worker-ownership-scoping.test.mjs`**, which now fails if the desired-lane install
+or instance lookups ever grow a `project_id` predicate.
+
+**Migration order that respects all of this:**
+
+1. Additive D1 only — add columns, backfill, delete nothing. An interruption leaves a partial backfill,
+   which is harmless because nothing reads the new column yet.
+2. Drive re-parenting — metadata-only PATCHes, no bytes move, fully reversible, and a re-parented
+   folder KEEPS ITS ID so every client's remembered `folderId` stays valid.
+3. Only then does the worker start reading the new column — and never in the desired lane's
+   authentication path.
+
+### 16.20 Offline must keep working, and an upload glitch must be self-healing
+
+Seth: *"it shouldn't break flextext editors offline, they can have an uploading glitch as long as
+that doesn't prevent them from getting the app update and then successfully uploading anything they
+need to update."*
+
+Two separate promises, and they are protected by different machinery. Worth separating, because only
+one of them is at risk from this work.
+
+**1. OFFLINE MUST NOT BREAK — and none of this can touch it.** The editor works offline because its
+service worker precached a shell and its texts live in IndexedDB. Nothing about a Drive tree or a D1
+column reaches either. ⚠ The ONE way engine work has ever broken offline is the v108 mechanism: a new
+top-level `import` in `js/app.js` becomes a new SHELL entry, a satellite `sw.js` that lists a path the
+editor does not serve yet throws inside `install`, and **new installs get no precached shell at all.**
+So the rule is unchanged and unrelated to projects: *any new import is a SHELL entry in the editor and
+every satellite, in the same commit.* `check-release-integrity.sh` and `sync-satellites.yml` enforce
+it. Migration work should add no imports at all.
+
+**2. AN UPLOAD GLITCH IS ACCEPTABLE ONLY BECAUSE THE QUEUE IS PATIENT.** What makes Seth's permission
+safe is that a failed upload in this system is *held*, not dropped:
+
+- every part is its own queue record in IndexedDB and retries forever, independently;
+- the chunk loops persist their resumable session and resume MID-FILE across restarts;
+- transient failures back off and re-enter the queue rather than surfacing as terminal;
+- `uploadDelete` is upload-first-then-delete, so nothing is removed to make room for a retry.
+
+⚠ **The thing that would violate the promise is not a failed upload — it is a PERMANENT one.** A
+worker error the client treats as terminal ends the retry and the queue record goes away; a 5xx or a
+timeout does not. So during migration the worker must fail with codes the client retries, and must
+never answer a device upload with something that reads as "this text is not yours" — the class that
+makes a client stop trying. Same instinct as §16.19: **fail closed and temporary, never final.**
+
+**And the update path must survive the glitch**, which it does for a reason worth stating: the app
+update arrives through the SERVICE WORKER from the static origin, not through the connectivity worker.
+A completely dead `connect.flextext.app` does not delay a version update by one second. The two are
+independent estates, which is exactly why "a blip, then the update fixes it" is a real sequence and
+not wishful thinking.
+
+**Tested on staging first** (Seth). ⚠ The staging surface is honest for the CLIENT and only partly
+honest for the BACKEND: staging apps talk to production's worker and D1 unless pointed elsewhere with
+`?devworker=staging`. So a migration rehearsal must run against the staging worker + a staging D1 —
+`test/worker-migration-rehearsal.test.mjs` exists for exactly this and should be extended to cover the
+project backfill rather than a new harness being written.

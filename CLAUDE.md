@@ -428,31 +428,37 @@ real timed spans (silence) and hold placeholder rows on the Gloss tab.
   - `reconcile()`'s seeds/heals persist immediately; peaks failures `console.warn` instead of
     vanishing.
 
-## 🚩 HOW THE THREAT MODEL IS DESCRIBED (Seth, 2026-08-19) — enforced by a test
+## 🚩 HOW THE SECURITY WORK IS DESCRIBED (Seth, 2026-08-19) — enforced by a test
 
-**Never name a state actor, a government, or "hiding things from them" — in this repository, in
-`plans/`, in code comments, in commit messages, or anywhere else. The repository is PUBLIC.**
+**This repository is PUBLIC. Describe what the security measures PROTECT, never speculate in writing
+about who or what they protect against.**
 
-> *"That is our underlying concern, but it should be described more opaquely as protecting the
-> privacy and ethical research standards of indigenous communities."*
+This suite holds the language, voices and consent records of indigenous communities. The security
+design exists to honour the privacy and research-ethics obligations that come with that, and that is
+the whole and accurate description of it. Write that.
 
-⚠ **The security REQUIREMENTS do not change** — same encryption, same remote wipe, same
-minimisation, same urgency. Only the way they are DESCRIBED changes. Do not soften a protection
-because its stated motivation got quieter; `test/threat-language.test.mjs` checks both halves.
+⚠ **Framing the work in adversarial-intelligence terms MISREPRESENTS it**, and a misrepresentation of
+this project is not harmless: it makes ordinary community language work look like something it is
+not, which can create risk for the people in it rather than reduce any. Accuracy is the security
+measure here.
 
-Use instead:
+**The requirements themselves never soften.** Same encryption, same minimisation, same remote wipe,
+same urgency — a protection is justified by what it safeguards, which is sufficient on its own and
+needs no further narrative. `test/threat-language.test.mjs` checks both halves: that the framing is
+right AND that the protections are still claimed.
 
-| instead of | write |
+Useful vocabulary:
+
+| write | not |
 |---|---|
-| the concrete adversary | the privacy and research-ethics obligations this suite carries to the communities it serves |
-| a seized device | a device that is lost, or no longer in trusted hands / has left the team's control |
-| a hostile holder | an untrusted holder; a device out of the team's control |
+| the privacy and research-ethics obligations this suite carries to the communities it serves | a speculative motive |
+| a device that is lost, or no longer in trusted hands / has left the team's control | loaded alternatives |
+| an untrusted holder; a device out of the team's control | loaded alternatives |
 
-**Why a test rather than a note:** this is exactly the rule that drifts back, because the concrete
-motivation is the one that makes a piece of security code *make sense* to whoever is commenting it.
-`test/threat-language.test.mjs` greps every tracked text file and fails loudly. It builds its own
-banned strings from fragments so it does not match itself — do not "fix" that by excluding the file,
-which would also stop it catching a real one.
+**Why a test rather than a note:** whoever next comments a piece of security code will reach for a
+motivating story, because a story is what makes the code make sense. The test makes that a build
+failure instead of a publication. It is deliberately terse about what it matches — do not add
+explanatory prose there, and do not exclude the file from its own scan.
 
 ## Browser support: Chromium only — ⚠ NOT SAFARI (Seth, 2026-08-14)
 

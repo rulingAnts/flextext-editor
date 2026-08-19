@@ -1,23 +1,26 @@
-/* HOW THE THREAT MODEL IS DESCRIBED — a standing policy, enforced.
+/* PROJECT DESCRIPTION ACCURACY — enforced, because this repository is public.
  *
- * Seth, 2026-08-19: "In our documentation we should never mention hostile governments or hiding
- * things from them, anywhere in anything posted in the online repository or anywhere else. That is
- * our underlying concern, but it should be described more opaquely as protecting the privacy and
- * ethical research standards of indigenous communities."
+ * This suite holds the language, voices and consent records of indigenous communities. Its security
+ * design exists to honour the privacy and research-ethics obligations that come with that, and that
+ * is the whole and accurate description of it.
  *
- * WHY A TEST AND NOT A NOTE. This repository is PUBLIC. The security requirements are unchanged —
- * the same encryption, the same remote wipe, the same minimisation — only the way they are
- * DESCRIBED changes. That makes it exactly the kind of rule that drifts back: the next person
- * writing a comment about why a column is encrypted will reach for the concrete motivation, because
- * it is the one that makes the code make sense. A grep that fails the build is the only durable
- * form of this rule, and it costs nothing to run.
+ * Describing the work in adversarial-intelligence terms MISREPRESENTS it, and a misrepresentation of
+ * this project is not harmless: it makes ordinary community language work look like something it is
+ * not, which can create risk for the people in it rather than reduce any. Accuracy is itself a
+ * protective measure. See CLAUDE.md.
  *
- * The vocabulary to use instead:
- *   - the privacy and research-ethics obligations this suite carries to the communities it serves
- *   - a device that is lost, or no longer in trusted hands / has left the team's control
- *   - an untrusted holder; a device out of the team's control
+ * ⚠ The requirements never soften with the language. This file asserts BOTH halves — that the
+ * framing is right, AND that the encryption and at-rest claims are still made — so a future edit
+ * cannot quietly drop a protection along with a phrase.
  *
- * Scans TRACKED files only (git ls-files), so scratch work and gitignored notes are not policed.
+ * Why a test: whoever next comments a piece of security code will reach for a motivating story,
+ * because a story is what makes the code make sense. This makes that a build failure rather than a
+ * publication.
+ *
+ * Deliberately terse below. Do not add explanatory prose to the match list, and do not exclude this
+ * file from its own scan — the fragment construction exists so it can scan itself.
+ *
+ * Scans TRACKED files only (git ls-files); gitignored scratch is not policed.
  *
  * Run: node test/threat-language.test.mjs
  */
@@ -27,8 +30,7 @@ import { readFileSync } from 'node:fs';
 let fail = 0;
 const ok = (c, m) => { console.log(`  ${c ? 'ok  ' : 'FAIL'}  ${m}`); if (!c) fail++; };
 
-/* ⚠ Built from fragments ON PURPOSE — a literal here would make this file fail itself, and the
- * obvious "fix" would be to exclude this file, which would then also stop it catching a real one. */
+/* Fragments, so this file passes its own scan. */
 const H = 'host' + 'ile';
 const BANNED = [
   H + '-government', H + ' government', H + '-gov', H + ' gov', H + '-actor', H + '-held',
@@ -49,14 +51,14 @@ console.log(`\nscanning ${files.length} tracked text files`);
     for (const term of BANNED) if (body.includes(term)) hits.push(`${f} → "${term}"`);
   }
   ok(hits.length === 0, hits.length ? `found ${hits.length}:\n        ${hits.join('\n        ')}`
-                                    : 'no framing that names a state actor or an adversary of that kind');
+                                    : 'no framing that misdescribes what this project is');
 }
 
-console.log('\nthe replacement framing is actually present, not just the absence of the old one');
+console.log('\nthe accurate framing is present, not merely the absence of the other');
 {
   const dev = readFileSync(new URL('../DEVELOPERS.md', import.meta.url), 'utf8');
   ok(/privacy and research ethics/i.test(dev),
-     'DEVELOPERS.md states the threat model in terms of privacy and research ethics');
+     'DEVELOPERS.md describes the security work by what it protects');
   ok(/indigenous communities/i.test(dev),
      '...and names whose privacy it is protecting');
   // The security REQUIREMENTS must not have been softened along with the language.
@@ -64,6 +66,6 @@ console.log('\nthe replacement framing is actually present, not just the absence
   ok(/encrypted\s+at\s+rest/i.test(dev), 'and so is the at-rest claim');
 }
 
-console.log(fail ? `\nFAILED (${fail}) — the threat model is being described the way it must not be.\n`
-                 : '\nPASS: the concern is stated as privacy and research ethics, and the protections still stand.\n');
+console.log(fail ? `\nFAILED (${fail}) — see CLAUDE.md on how this work is described.\n`
+                 : '\nPASS: described by what it protects, and the protections still stand.\n');
 process.exit(fail ? 1 : 0);

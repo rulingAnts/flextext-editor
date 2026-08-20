@@ -2299,7 +2299,7 @@ estimate before any `.github/workflows/**` change — which this is.)
 > One for staging, one for productionWeb."* … *"(Or sub-actions)"*
 
 ⚠ **This goes further than the `paths:` filters proposed above, and supersedes them.** Filters make
-irrelevant pushes free; manual dispatch makes EVERY build deliberate. Given that tonight's cost was
+irrelevant pushes free; manual dispatch makes EVERY build deliberate. Given that that day's cost was
 not only irrelevant pushes but also relevant ones firing before anyone was ready to test, that is the
 stronger answer.
 
@@ -2340,7 +2340,7 @@ rewritten — and missing the larger point.
 **The collapse is an optimisation; this is the root cause.** Collapsing halves the number of builds a
 release costs, but every push still builds. Moving to Actions with `paths:` filters means an
 irrelevant push builds **nothing at all** — the plans, notes, tests and worker changes that made up
-most of tonight's waste stop costing anything, whatever branch they land on. The collapse then takes
+most of that waste stop costing anything, whatever branch they land on. The collapse then takes
 what remains from two to one.
 
 **And the risk profile points the same way**, which is the part that settles it:

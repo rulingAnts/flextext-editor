@@ -816,7 +816,11 @@ async function driveEnsureDeviceFolder(env, access, instanceId, nickname, existi
    * the project migration invisible to every device that already has a folder: re-parenting keeps the
    * id, so this resolves exactly as before. Only a NEW folder needs to know about projects. */
   const name = String(nickname || '').trim() || ('Device — ' + String(instanceId).slice(0, 8));
-  const parent = projectFolderId || await driveMasterFolder(access);
+  // ⚠ Same rule as a crowd folder: a RECREATED device folder goes back where it was, not into the
+  // default project. `projectFolderId` (an explicit target, e.g. creating into the open tab) still
+  // wins — that is a deliberate choice rather than a resurrection.
+  const parent = projectFolderId || (await drivePriorProjectParent(access, existingId))
+    || await driveMasterFolder(access);
   const f = await driveJson(access, 'POST', 'https://www.googleapis.com/drive/v3/files?fields=id',
     { name, mimeType: 'application/vnd.google-apps.folder', parents: [parent] });
   await env.DB.prepare('UPDATE instance SET oauth_folder_id=? WHERE instance_id=?').bind(f.id, instanceId).run();
@@ -1012,6 +1016,32 @@ async function mintTextfileUrl(env, urlOrigin, researcherId, fileId, extract, tt
 // drive.file can only write to app-created files, so the worker creates (and
 // remembers) the folder itself; a trashed/vanished folder is transparently
 // recreated. The researcher may move/rename it — the id is what's tracked.
+/* ⚠ WHERE A CONTAINER FOLDER USED TO LIVE — so recreating one does not silently relocate it.
+ *
+ * Both ensure-folder helpers recreate a trashed or missing folder under
+ * `driveProjectFolderFor(rec.project_id)`, and `project_id` is ALWAYS NULL by design: Drive
+ * parentage is the single authority for which project a container is in, so nothing writes it.
+ * The fallback is therefore the DEFAULT project — meaning a recorder or device living in a second
+ * project would be resurrected in the first, quietly, at the moment its folder was restored.
+ *
+ * Drive keeps a TRASHED file's parents, so the folder itself still knows. Read them from the fetch
+ * that was already happening (one extra `fields` entry, no extra call) and reuse that parent when it
+ * is still a project folder. Falls back to the old behaviour when the id is unknown or the parent has
+ * gone too — never worse than before, and right in the case that actually occurs. */
+async function drivePriorProjectParent(access, folderId) {
+  if (!folderId) return '';
+  try {
+    const f = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files/'
+      + encodeURIComponent(folderId) + '?fields=id,parents');
+    const p = (f.parents || [])[0] || '';
+    if (!p) return '';
+    const par = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files/'
+      + encodeURIComponent(p) + '?fields=id,appProperties,trashed');
+    if (!par.trashed && ((par.appProperties || {}).flextextRole || '') === 'project') return par.id;
+  } catch { /* unknowable — fall back to the default project, as before */ }
+  return '';
+}
+
 async function driveEnsureCrowdFolder(env, access, rec) {
   if (rec.oauth_folder_id) {
     try {
@@ -1035,7 +1065,10 @@ async function driveEnsureCrowdFolder(env, access, rec) {
   const name = 'Crowd — ' + (rec.label || String(rec.crowd_id).slice(0, 8));
   // Same rule as a device folder: a NEW crowd folder is born under its project; an existing one
   // resolves by id above and never consults a parent, so migration cannot disturb it.
-  const parent = (await driveProjectFolderFor(env, access, rec.project_id)) || await driveMasterFolder(access);
+  // ⚠ RECREATING one keeps it where it WAS (drivePriorProjectParent) rather than dropping it into
+  // the default project — see that helper.
+  const parent = (await drivePriorProjectParent(access, rec.oauth_folder_id))
+    || (await driveProjectFolderFor(env, access, rec.project_id)) || await driveMasterFolder(access);
   const f = await driveJson(access, 'POST', 'https://www.googleapis.com/drive/v3/files?fields=id',
     { name, mimeType: 'application/vnd.google-apps.folder', parents: [parent],
       appProperties: { flextextRole: 'crowd' } });
@@ -2390,6 +2423,19 @@ export async function handleV1(request, env, ctx, url, path, origin) {
        * one cached lookup per distinct CONTAINER is a handful of subrequests, not one per text.
        * With a flat estate every lookup returns '' and the target is the master-level folder,
        * exactly as before. */
+      /* ⚠ AN EXPLICIT TARGET PROJECT overrides "each text's own" (Seth, 2026-08-20: the move modal
+       * "SHOULD make it possible to move a text to a different project's unassigned box"). Absent —
+       * which is every shipped client and the sweep itself — behaviour is exactly as before: each
+       * text lands in the Unassigned of ITS OWN container's project. Verified to be a real project
+       * folder before it is trusted, like every other id this file accepts. */
+      let forceProject = '';
+      const wantTarget = String(body.projectFolderId || '').replace(/[^\w-]/g, '').slice(0, 128);
+      if (wantTarget) {
+        try {
+          const dest = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(wantTarget) + '?fields=id,appProperties');
+          if (((dest.appProperties || {}).flextextRole || '') === 'project') forceProject = dest.id;
+        } catch { /* unverifiable → fall back to per-text resolution rather than guessing */ }
+      }
       const projectFolders = new Set();
       try {
         const pq = encodeURIComponent("appProperties has { key='flextextRole' and value='project' } and mimeType='application/vnd.google-apps.folder' and trashed=false");
@@ -2399,6 +2445,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       const containerProject = new Map();          // container folder id -> project folder id ('' = flat)
       const unassignedFor = new Map();             // project folder id -> its Unassigned folder id
       const targetFor = async (containerId) => {
+        if (forceProject) {
+          if (!unassignedFor.has(forceProject)) unassignedFor.set(forceProject, await driveUnassignedFolder(access, forceProject));
+          return unassignedFor.get(forceProject);
+        }
         if (!projectFolders.size) {
           if (!unassignedFor.has('')) unassignedFor.set('', await driveUnassignedFolder(access, ''));
           return unassignedFor.get('');

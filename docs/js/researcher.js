@@ -643,8 +643,11 @@ export function drivePurge() { return api('POST', '/v1/researcher/drive-purge', 
  * hands it a batch and drains `remainingIds` on the next sweep rather than sending everything at
  * once. retry:false — a lost response is not worth a blind re-POST: the next sweep re-derives what
  * still needs moving from the estate itself, which is more truthful than any retry could be. */
-export function driveUnassign(docIds) {
-  return api('POST', '/v1/researcher/drive-unassign', { body: { docIds }, retry: false });
+/* `projectFolderId` files the texts in THAT project's Unassigned instead of each text's own — the
+ * only way to set a text aside under a different project. Omitted (the sweep, every shipped client)
+ * keeps the original per-text behaviour. */
+export function driveUnassign(docIds, projectFolderId) {
+  return api('POST', '/v1/researcher/drive-unassign', { body: { docIds, ...(projectFolderId ? { projectFolderId } : {}) }, retry: false });
 }
 
 /* Move the researcher's own app-created files to Drive TRASH (30-day recoverable — never a

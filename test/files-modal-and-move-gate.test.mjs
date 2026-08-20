@@ -201,13 +201,21 @@ console.log('\nUnassigned is a real destination on a DEVICE move — and nothing
   /* ⚠ The folder must NOT be filed here. The text is still on the device until the delete confirms,
    * and filing it early would put it in the assign queue while a device still holds it — the exact
    * state the sweep exists to resolve. */
-  ok(!/driveUnassign/.test(mv), 'and the folder is left where it is — the sweep files it afterwards');
+  /* ⚠ REFINED, not relaxed. Filing into THIS project's box still leaves the folder alone and lets
+   * the sweep do it — that is the property that stops a text entering the assign queue while a
+   * device still holds it. A DIFFERENT project's box has no such helper: the sweep files a text into
+   * its own project, so any other target must be re-parented explicitly. */
+  ok(/const target = to\.startsWith\('__unassigned:'\) \? to\.slice\(13\) : '';/.test(mv)
+     && /if \(target\) await Researcher\.driveUnassign\(\[docId\], target\);/.test(mv),
+     'only a TARGETED box re-parents; the home box is still left to the sweep');
   /* The label gained a project name (each project has its OWN Unassigned box), so the option now
    * spans more source — but the two flags either side of it are the claim: never disabled, and
    * pre-selected exactly when no device can receive the text. */
-  ok(/opt\('__unassigned'[\s\S]{0,400}?false, !deviceOk\)/.test(mv),
+  /* The per-project boxes moved INTO the project groups (groupedDestinations); what remains here is
+   * the flat-estate fallback, which must still never be disabled. */
+  ok(/grouped \? '' : opt\('__unassigned', t\('panel\.move\.unassignedOpt'\)[\s\S]{0,120}?false, !deviceOk\)/.test(mv),
      'Unassigned is never disabled, and is pre-selected exactly when no device can receive the text');
-  ok(/panel\.move\.unassignedOf/.test(mv), '...and it is named after the project whose box it is');
+  ok(/panel\.move\.unassignedOf/.test(panel), '...and it is named after the project whose box it is');
 }
 
 console.log('\n...and a text NO DEVICE HOLDS goes through the source-less flow, not /move');
@@ -225,16 +233,17 @@ console.log('\n...and a text NO DEVICE HOLDS goes through the source-less flow, 
   ok(/kind: 'assign'/.test(ad),
      '...with an ordinary assign marker — there is no source half, so a move record would be a removal waiting to fire at a device that never had the text');
 
-  ok(/opts\.unassign \?/.test(ad) && /value="__unassigned"/.test(ad),
+  ok(/opts\.unassign/.test(ad) && /'__unassigned'/.test(ad),
      'Unassigned is offered as a destination when the caller asks for it');
-  ok(/Researcher\.driveUnassign\(\[docId\]\)/.test(ad),
-     '...and filing is a re-parent of one id — drive-unassign already takes explicit ids, so the sweep is just a batched caller');
+  ok(/Researcher\.driveUnassign\(\[docId\], to\.startsWith\('__unassigned:'\) \? to\.slice\(13\) : ''\)/.test(ad),
+     '...and filing is a re-parent of one id, into a NAMED project when one was chosen');
 
   /* ⚠ The gate governs DEVICE destinations only: filing assigns nothing. Returning early on a
    * failed gate — which this did — leaves a text that cannot be delivered with nowhere to go. */
   ok(/if \(why && !opts\.unassign\) \{ deps\.toast/.test(ad),
      'a failed gate still closes the modal when filing is not on offer');
-  ok(/const deviceOk = !why;/.test(ad) && /\$\{!deviceOk \? ' disabled' : ''\}/.test(ad),
+  /* The disabled flag moved into tileOpt's signature when the radios became tiles. */
+  ok(/const deviceOk = !why;/.test(ad) && /\(\) => deviceOk/.test(ad),
      '...but otherwise it only disables the device options');
   ok(/panel\.move\.noManifest/.test(ad), 'and the two causes are still named separately');
 

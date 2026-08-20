@@ -2144,6 +2144,29 @@ being UTC *and* the absence of any label.
 would rewrite history for cosmetics — and folder names are display-only precisely so nothing depends
 on them (identity is the `flextextDoc` tag), so old names can simply stay wrong.
 
+## The editor should show its own paired device nickname (Seth, 2026-08-20)
+
+> *"Would be good for our FlexText Editor UI to show its own paired device name/nickname somewhere in
+> the UI, that would be helpful for a researcher to be able to see."*
+
+A paired editor currently gives no on-screen answer to "which device am I?" — the nickname exists only
+in the researcher's panel. That is fine for a field user, who has one device and never wonders, and
+unhelpful for the researcher, who is looking at three of them and has to guess from context which
+window is which.
+
+⚠ **The nickname is already on the device**, so this is probably display-only: the instance's
+`nickname` rides the pairing, and the panel's rename pushes a change. Check before building whether
+the device stores it or merely receives it — if it only receives it, this needs a place to keep it,
+which is a bigger change than it looks.
+
+**Where:** the same corner as the version badge is the obvious spot, and it is already the "what am I"
+line. ⚠ But that badge is deliberately `pointer-events:none` and very quiet; a device nickname is more
+useful than the version to the person asking, so it may deserve better placement rather than being
+appended to a line designed to be ignored.
+
+⚠ **Not the researcher panel's "This device" card** — that is the browser the panel is running in,
+which is a different question with a confusingly similar name.
+
 ## Project-level default settings — after the multi-researcher release (Seth, 2026-08-20)
 
 > *"We will want to have project-level default settings for new devices with the ability to apply

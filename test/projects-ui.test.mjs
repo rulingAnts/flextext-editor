@@ -360,8 +360,10 @@ test('projects UI', async () => {
     ok(/panel\.proj\.outside/.test(g),
        'devices no project claims are still reachable, in their own labelled group');
 
-    const cc = fn('function confirmCrossProject');
-    ok(/if \(!homeProject \|\| !to \|\| to === homeProject\) return true;/.test(cc),
+    /* ⚠ fn() finds the FIRST match, and confirmCrossProjectFile now precedes it — so this sliced the
+      * wrong function and asserted nothing about the one it names. */
+    const cc = fn('function confirmCrossProject(toInstanceId');
+    ok(/if \(!homeProject \|\| !toInstanceId\)/.test(cc) || /to === homeProject\) return true;/.test(cc),
        'a same-project move is not interrupted');
     ok(/panel\.move\.crossConfirm/.test(cc), '...and a cross-project one must be confirmed by name');
     // Both modals gate on it — the device move AND the source-less one.
@@ -411,9 +413,71 @@ test('projects UI', async () => {
     ok(/panel\.proj\.outside/.test(sbp),
        'and anything no project claims is still shown — this view must account for all of Drive');
 
+    /* ⚠ FIFTH INSTANCE OF THE SAME PATTERN, found by Seth asking "that's what happens now, right?"
+     * rather than by anything failing. Recreating a trashed container folder used
+     * driveProjectFolderFor(rec.project_id) — and project_id is ALWAYS NULL by design, since Drive
+     * parentage is the single authority — so it fell through to the DEFAULT project. A recorder or
+     * device living in a second project would be resurrected in the first, silently, at the moment
+     * its folder was restored. */
+    ok(/async function drivePriorProjectParent/.test(worker),
+       'a recreated container folder asks where it USED to live');
+    ok(/if \(!par\.trashed && \(\(par\.appProperties \|\| \{\}\)\.flextextRole \|\| ''\) === 'project'\) return par\.id;/.test(worker),
+       '...and only reuses that parent when it is still a live project folder');
+    ok(/await drivePriorProjectParent\(access, rec\.oauth_folder_id\)/.test(worker),
+       'crowd folders recreate in place');
+    ok(/projectFolderId \|\| \(await drivePriorProjectParent\(access, existingId\)\)/.test(worker),
+       'device folders too — and an EXPLICIT target still wins, since that is a choice, not a resurrection');
+
     // Console rename acted on projects[0] — the wrong project the moment a second one existed.
     ok(/const proj = \(currentProject && ids\.has\(currentProject\)\)/.test(panel),
        'fxProjects("rename") renames the project on screen');
+  }
+
+  /* ⚠ ANOTHER PROJECT'S UNASSIGNED IS A REAL DESTINATION (Seth, 2026-08-20): "What I can't do is move
+   * a text directly to ANOTHER project's unassigned box, and that should be possible." It used to
+   * require moving to a device in that project first and filing it from there — two deliberate acts
+   * to express one intention.
+   *
+   * ⚠ And the difference must stay unmissable, which is why the box sits INSIDE its own project's
+   * group rather than as a second row that reads almost the same. */
+  console.log('\nevery project\'s Unassigned box is reachable, and never by accident');
+  {
+    const g = fn('function groupedDestinations');
+    ok(/opt\('__unassigned:' \+ p\.folderId/.test(g),
+       'each project group carries its OWN Unassigned option');
+    ok(/panel\.move\.unassignedOf/.test(g), '...named after that project');
+    ok(/away \? t\('panel\.move\.unassignedAway'\) : t\('panel\.move\.unassignedHere'\)/.test(g),
+       '...and a box in another project says the text LEAVES this one');
+    /* A project with no devices still has a box, and skipping the empty group would hide the only
+     * thing such a project can receive. */
+    ok(/if \(!mine\.length && !withUnassigned\) continue;/.test(g),
+       'an empty project still offers its box');
+
+    ok(/function confirmCrossProjectFile/.test(panel), 'filing across projects has its own confirm');
+    ok((panel.match(/confirmCrossProjectFile\(to\.slice\(13\), homeProject\)/g) || []).length === 2,
+       '...gating both modals');
+
+    /* ⚠ The worker had to learn a TARGET: drive-unassign files a text into its own container's
+     * project, so any other project must be asked for explicitly. Absent — every shipped client and
+     * the sweep itself — behaviour is unchanged. */
+    ok(/const wantTarget = String\(body\.projectFolderId \|\| ''\)/.test(worker),
+       'drive-unassign accepts a target project');
+    ok(/if \(forceProject\) \{/.test(worker), '...and uses it in place of per-text resolution');
+    ok(/=== 'project'\) forceProject = dest\.id;/.test(worker),
+       '...only after verifying it really is a project folder');
+  }
+
+  /* ⚠ TILES, NOT BARE RADIOS. `.rp-field` stacks label above input, so a radio rendered as one sat
+   * CENTRED ABOVE the next option's name — Seth: "radio buttons don't align with text names, so it's
+   * easy to get confused which is which", in the modal where a wrong pick moves a text to the wrong
+   * project. The radio remains the control; the label became the target. */
+  console.log('\ndestinations are selectable tiles, and still real radios underneath');
+  {
+    const to = fn('function tileOpt');
+    ok(/<input type="radio"/.test(to), 'the radio is still there — keyboard, screen readers, grouping');
+    ok(/class="rp-tile/.test(to), '...inside a tile that carries the selected styling');
+    ok(!/rp-field/.test(fn('async function moveTextModal').slice(0, 2000)),
+       'the move modal no longer uses the stacked field layout for destinations');
   }
 
   console.log(fail ? `\nFAILED (${fail})\n` : '\nall passed\n');

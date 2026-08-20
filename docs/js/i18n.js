@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v428';
+export const ENGINE_VERSION = 'v429';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v428';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'projects v9';
+export const BUILD_TAG = 'projects v10';
 
 const S = {
 en: {
@@ -874,6 +874,9 @@ internet after the first time.</p>
   'panel.move.unassignedOf': 'Unassigned \u2014 {project}',
   'panel.move.unassignedPerProject': 'Each project has its own Unassigned box. This files the text in this project\u2019s.',
   'panel.move.otherProject': 'different project',
+  'panel.move.unassignedHere': 'set aside in this project, on no device',
+  'panel.move.unassignedAway': 'set aside in THAT project \u2014 the text leaves this one',
+  'panel.move.crossFileConfirm': 'File this text in \u201c{to}\u201d\u2019s Unassigned box, out of \u201c{from}\u201d?\n\nThese are different projects. The text and its folder leave one project and join the other in Google Drive.',
   'panel.move.crossConfirm': 'Move this text out of \u201c{from}\u201d and into \u201c{to}\u201d?\n\nThese are different projects. The text and its folder leave one project and join the other in Google Drive.',
   'panel.move.unassignedWhyDevice': 'the device uploads a final copy, then removes its own — the text stays in Drive, filed under Unassigned, ready to assign later',
   'panel.move.unassignedWhyCrowd': 'the text leaves this recorder and joins your queue of texts waiting to be assigned. Nothing is deleted.',
@@ -2585,6 +2588,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.move.unassignedOf': 'Tidak Tertugas \u2014 {project}',
   'panel.move.unassignedPerProject': 'Setiap proyek punya kotak Tidak Tertugas sendiri. Ini menaruh teksnya di kotak milik proyek ini.',
   'panel.move.otherProject': 'proyek lain',
+  'panel.move.unassignedHere': 'disisihkan dalam proyek ini, tidak di perangkat mana pun',
+  'panel.move.unassignedAway': 'disisihkan dalam proyek ITU \u2014 teksnya keluar dari proyek ini',
+  'panel.move.crossFileConfirm': 'Taruh teks ini di kotak Tidak Tertugas milik \u201c{to}\u201d, keluar dari \u201c{from}\u201d?\n\nKeduanya proyek yang berbeda. Teks dan foldernya keluar dari satu proyek dan masuk ke proyek lain di Google Drive.',
   'panel.move.crossConfirm': 'Pindahkan teks ini keluar dari \u201c{from}\u201d ke \u201c{to}\u201d?\n\nKeduanya proyek yang berbeda. Teks dan foldernya keluar dari satu proyek dan masuk ke proyek lain di Google Drive.',
   'panel.move.unassignedWhyDevice': 'perangkat mengunggah salinan terakhir, lalu menghapus miliknya sendiri — teksnya tetap di Drive, masuk ke Tidak Tertugas, siap ditugaskan nanti',
   'panel.move.unassignedWhyCrowd': 'teks keluar dari perekam ini dan masuk ke antrean teks yang menunggu ditugaskan. Tidak ada yang dihapus.',

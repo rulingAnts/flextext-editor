@@ -1324,6 +1324,21 @@ main {
   border-bottom: 2px solid var(--border); margin-bottom: 8px; }
 .rp-store-phead .note { font-weight: 400; }
 .rp-store-project > .rp-store-group { margin-left: 12px; }
+/* Destination TILES. The radio stays the control (keyboard, screen readers, group semantics) and is
+ * visually hidden; the whole label is the hit target and highlights when checked.
+ *
+ * ⚠ Chromium-only is a project constraint, so :has() is safe here — and it is what lets the LABEL
+ * carry the selected styling rather than a sibling-selector shim. */
+.rp-tile { display: block; position: relative; padding: 10px 12px; margin: 6px 0;
+  border: 2px solid var(--border); border-radius: 8px; cursor: pointer; background: var(--bg); }
+.rp-tile > input { position: absolute; opacity: 0; width: 0; height: 0; }
+.rp-tile:hover { border-color: var(--muted); }
+.rp-tile:has(> input:checked) { border-color: var(--blue); background: var(--panel); }
+.rp-tile:has(> input:focus-visible) { outline: 2px solid var(--blue); outline-offset: 2px; }
+.rp-tile-name { display: block; font-weight: 600; }
+.rp-tile-sub { display: block; font-size: .88rem; color: var(--muted); margin-top: 2px; }
+.rp-tile-off { opacity: .5; cursor: not-allowed; }
+.rp-tile-off:hover { border-color: var(--border); }
 /* Grouped move destinations. The heading and the rule are what make "a different project" a
  * visible fact rather than a label somebody has to read carefully. */
 .rp-move-group { margin: 10px 0; }

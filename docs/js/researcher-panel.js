@@ -4096,6 +4096,21 @@ async function moveSources(fromId, docId, title) {
  * because `drive-unassign` files a text into the Unassigned folder of ITS OWN container's project and
  * takes no target. Labelling it with the project name makes the per-project truth visible at the
  * moment it matters, instead of implying a universal box that does not exist. */
+/* A destination TILE. The radio is still the control — it keeps keyboard and screen-reader
+ * behaviour, and the browser keeps the group semantics — but it is visually hidden and the whole
+ * label becomes the hit target, highlighted when checked.
+ *
+ * ⚠ WHY: `.rp-field` is a stacked (label-above-input) layout, so a bare radio rendered as one sat
+ * CENTRED ABOVE the next option's name. Seth: "radio buttons don't align with text names, so it's
+ * easy to get confused which is which" — in a modal whose whole job is choosing between similarly
+ * named devices, and where the wrong pick moves a text to the wrong project. */
+function tileOpt(group, value, label, sub, disabled, checked) {
+  return `<label class="rp-tile${disabled ? ' rp-tile-off' : ''}">
+    <input type="radio" name="${esc(group)}" value="${esc(value)}" ${disabled ? 'disabled' : ''} ${checked ? 'checked' : ''}>
+    <span class="rp-tile-name">${esc(label)}</span>
+    ${sub ? `<span class="rp-tile-sub">${esc(sub)}</span>` : ''}</label>`;
+}
+
 function projectOfInstance(instanceId) {
   const devs = ((estateCache && estateCache.devices) || []);
   const insts = ((lastData && lastData.instances) || []);
@@ -4113,7 +4128,7 @@ function projectName(folderId) {
 /* Build the grouped destination list. `opt(value, label, sub, disabled, checked)` is supplied by the
  * caller so each modal keeps its own radio name and markup. Returns '' when there are no projects at
  * all, so a flat estate renders exactly the ungrouped list it always did. */
-function groupedDestinations(insts, homeProject, opt, canPick) {
+function groupedDestinations(insts, homeProject, opt, canPick, withUnassigned) {
   const projects = ((estateCache && estateCache.projects) || []);
   if (!projects.length) return '';
   const order = [...projects].sort((a, b) => (b.folderId === homeProject) - (a.folderId === homeProject));
@@ -4121,12 +4136,20 @@ function groupedDestinations(insts, homeProject, opt, canPick) {
   let first = true;
   for (const p of order) {
     const mine = insts.filter((x) => projectOfInstance(x.instance_id) === p.folderId);
-    if (!mine.length) continue;
+    // ⚠ NOT `continue` on an empty project — its Unassigned box is still a valid destination, and
+    // skipping the group would hide the one thing an empty project can receive.
+    if (!mine.length && !withUnassigned) continue;
     const away = p.folderId !== homeProject && !!homeProject;
+    /* ⚠ THE PROJECT'S OWN UNASSIGNED SITS INSIDE ITS OWN GROUP — which is what makes "a different
+     * project's Unassigned box" unmistakable rather than a second row that reads almost the same.
+     * The nesting is the explanation: the box belongs to the heading above it. */
     out.push(`<div class="rp-move-group${away ? ' rp-move-away' : ''}">
       <div class="rp-move-group-h">${esc(p.name || t('panel.proj.defaultName'))}${away ? ` <span class="rp-badge rp-badge-warn">${esc(t('panel.move.otherProject'))}</span>` : ''}</div>
       ${mine.map((x) => { const ok = canPick(x); const checked = ok && first && !away; if (checked) first = false;
                           return opt(x.instance_id, x.nickname || '?', ok ? '' : t('panel.move.tooOld'), !ok, checked); }).join('')}
+      ${withUnassigned ? opt('__unassigned:' + p.folderId,
+          t('panel.move.unassignedOf', { project: p.name || t('panel.proj.defaultName') }),
+          away ? t('panel.move.unassignedAway') : t('panel.move.unassignedHere'), false, false) : ''}
     </div>`);
   }
   // Devices whose folder no project claims — still reachable, still labelled honestly.
@@ -4139,6 +4162,13 @@ function groupedDestinations(insts, homeProject, opt, canPick) {
 }
 
 /* The second gate on a cross-project move. Returns true to proceed. */
+/* Filing into ANOTHER project's Unassigned is a cross-project act with no device involved, so it
+ * gets its own confirmation naming both boxes — the device version's wording would be wrong here. */
+function confirmCrossProjectFile(toProject, homeProject) {
+  if (!homeProject || !toProject || toProject === homeProject) return true;
+  return confirm(t('panel.move.crossFileConfirm', { from: projectName(homeProject) || '?', to: projectName(toProject) || '?' }));
+}
+
 function confirmCrossProject(toInstanceId, homeProject) {
   const to = projectOfInstance(toInstanceId);
   if (!homeProject || !to || to === homeProject) return true;
@@ -4187,21 +4217,17 @@ async function moveTextModal(fromId, docId, title) {
   const deviceOk = !why;
   const firstOk = deviceOk ? insts.find((y) => y._canReceive) : null;
 
-  const opt = (value, label, sub, disabled, checked) => `<label class="rp-field rp-move-opt">
-      <input type="radio" name="rp-move-to" value="${esc(value)}" ${disabled ? 'disabled' : ''} ${checked ? 'checked' : ''}>
-      <span>${esc(label)}${sub ? ` <span class="note">— ${esc(sub)}</span>` : ''}</span></label>`;
+  const opt = (value, label, sub, disabled, checked) => tileOpt('rp-move-to', value, label, sub, disabled, checked);
   const homeProject = projectOfInstance(fromId);
-  const grouped = deviceOk ? groupedDestinations(insts, homeProject, opt, (x) => x._canReceive) : '';
+  const grouped = groupedDestinations(insts, homeProject, opt, (x) => deviceOk && x._canReceive, true);
 
   const m = modal(`
     <h3>${esc(t('panel.move.title', { title }))}</h3>
     <p class="note">${esc(t(deviceOk ? 'panel.move.intro' : why))}</p>
     ${grouped || insts.map((x) => opt(x.instance_id, x.nickname || '?', x._canReceive ? '' : t('panel.move.tooOld'),
                            !deviceOk || !x._canReceive, deviceOk && x === firstOk)).join('')}
-    ${opt('__unassigned', homeProject ? t('panel.move.unassignedOf', { project: projectName(homeProject) })
-                                      : t('panel.move.unassignedOpt'),
-          t('panel.move.unassignedWhyDevice'), false, !deviceOk)}
-    ${homeProject ? `<p class="note">${esc(t('panel.move.unassignedPerProject'))}</p>` : ''}
+    ${grouped ? '' : opt('__unassigned', t('panel.move.unassignedOpt'), t('panel.move.unassignedWhyDevice'), false, !deviceOk)}
+    ${grouped ? `<p class="note">${esc(t('panel.move.unassignedPerProject'))}</p>` : ''}
     <button class="primary-btn" data-m="go">${esc(t('panel.move.go'))}</button>
     <button class="link-btn" data-m="cancel">${esc(t('panel.assign.cancel'))}</button>
     <div class="rp-adm-say" id="rp-move-say" hidden></div>`);
@@ -4210,12 +4236,20 @@ async function moveTextModal(fromId, docId, title) {
     const to = (m.el.querySelector('input[name="rp-move-to"]:checked') || {}).value;
     if (!to) return;
     // ⚠ The second gate: a cross-project move must be said out loud before it happens.
-    if (to !== '__unassigned' && !confirmCrossProject(to, homeProject)) return;
+    if (!to.startsWith('__unassigned') && !confirmCrossProject(to, homeProject)) return;
+    // Filing into ANOTHER project's box is a cross-project act too, and says so by name.
+    if (to.startsWith('__unassigned:') && !confirmCrossProjectFile(to.slice(13), homeProject)) return;
     const say = m.el.querySelector('#rp-move-say');
     try {
       e.target.disabled = true;
 
-      if (to === '__unassigned') {
+      if (to.startsWith('__unassigned')) {
+        /* ⚠ A TARGETED box needs the re-parent EXPLICITLY: the sweep files a text into ITS OWN
+         * project's Unassigned, so any other project must be asked for. Issued alongside the removal
+         * rather than after it — the folder id is stable, so the device's final upload lands
+         * correctly either way. */
+        const target = to.startsWith('__unassigned:') ? to.slice(13) : '';
+        if (target) await Researcher.driveUnassign([docId], target);
         /* The upload-first removal, identical to the del-text path: a fresh Drive copy lands BEFORE
          * the device drops its own. Nothing is re-parented here — the text is still on the device
          * until the delete confirms, and filing it early would put it in the assign queue while a
@@ -4583,7 +4617,7 @@ async function projectAssignModal(folderId, label) {
   if (!options.length) { deps.toast(t('panel.proj.noOtherProject'), 5000); return; }
   const m = modal(`<h3>${esc(t('panel.proj.moveTitle', { name: label }))}</h3>
     <p class="note">${esc(t('panel.proj.moveIntro'))}</p>
-    ${options.map((p, i) => `<label class="rp-field"><input type="radio" name="rp-proj-to" value="${esc(p.folderId)}"${i === 0 ? ' checked' : ''}> ${esc(p.name || t('panel.proj.defaultName'))}</label>`).join('')}
+    ${options.map((p, i) => tileOpt('rp-proj-to', p.folderId, p.name || t('panel.proj.defaultName'), '', false, i === 0)).join('')}
     <div class="rp-adm-say" id="rp-proj-say" hidden></div>
     <div class="modal-actions">
       <button class="secondary-btn" data-m="cancel">${esc(t('panel.assign.cancel'))}</button>
@@ -4835,16 +4869,14 @@ async function adoptTextModal(docId, title, opts = {}) {
     const dev = ((estateCache && estateCache.devices) || []).find((d) => d.folderId === tx.deviceFolderId);
     return (dev && dev.projectId) || tx.projectId || '';
   })();
-  const adoptOpt = (value, label, sub, disabled, checked) => `<label class="rp-field">
-      <input type="radio" name="rp-adopt-to" value="${esc(value)}" ${disabled ? 'disabled' : ''} ${checked ? 'checked' : ''}>
-      <span>${esc(label)}${sub ? ` <span class="note">— ${esc(sub)}</span>` : ''}</span></label>`;
-  const adoptGrouped = deviceOk ? groupedDestinations(insts, homeProject, adoptOpt, () => true) : '';
+  const adoptOpt = (value, label, sub, disabled, checked) => tileOpt('rp-adopt-to', value, label, sub, disabled, checked);
+  const adoptGrouped = groupedDestinations(insts, homeProject, adoptOpt, () => deviceOk, !!opts.unassign);
 
   const m = modal(`<h3>${esc(t('panel.unassigned.moveTitle', { title }))}</h3>
     <p class="note">${esc(t(deviceOk ? 'panel.unassigned.moveIntro' : why))}</p>
-    ${adoptGrouped || insts.map((x, i) => `<label class="rp-field"><input type="radio" name="rp-adopt-to" value="${esc(x.instance_id)}"${!deviceOk ? ' disabled' : ''}${deviceOk && i === 0 ? ' checked' : ''}> ${esc(x.nickname || '?')}</label>`).join('')}
-    ${opts.unassign ? `<label class="rp-field"><input type="radio" name="rp-adopt-to" value="__unassigned"${deviceOk ? '' : ' checked'}> ${esc(homeProject ? t('panel.move.unassignedOf', { project: projectName(homeProject) }) : t('panel.move.unassignedOpt'))} <span class="note">— ${esc(t('panel.move.unassignedWhyCrowd'))}</span></label>
-      ${homeProject ? `<p class="note">${esc(t('panel.move.unassignedPerProject'))}</p>` : ''}` : ''}
+    ${adoptGrouped || insts.map((x, i) => tileOpt('rp-adopt-to', x.instance_id, x.nickname || '?', '', !deviceOk, deviceOk && i === 0)).join('')}
+    ${opts.unassign && !adoptGrouped ? tileOpt('rp-adopt-to', '__unassigned', t('panel.move.unassignedOpt'), t('panel.move.unassignedWhyCrowd'), false, !deviceOk) : ''}
+    ${opts.unassign && adoptGrouped ? `<p class="note">${esc(t('panel.move.unassignedPerProject'))}</p>` : ''}
     <div class="rp-adm-say" hidden></div>
     <div class="modal-actions">
       <button class="secondary-btn" data-m="cancel">${esc(t('panel.assign.cancel'))}</button>
@@ -4855,12 +4887,13 @@ async function adoptTextModal(docId, title, opts = {}) {
   m.el.querySelector('[data-m="go"]').addEventListener('click', (e) => busy(e.target, async () => {
     const to = (m.el.querySelector('input[name="rp-adopt-to"]:checked') || {}).value;
     if (!to) return;
-    if (to !== '__unassigned' && !confirmCrossProject(to, homeProject)) return;
+    if (!to.startsWith('__unassigned') && !confirmCrossProject(to, homeProject)) return;
+    if (to.startsWith('__unassigned:') && !confirmCrossProjectFile(to.slice(13), homeProject)) return;
     try {
-      if (to === '__unassigned') {
+      if (to.startsWith('__unassigned')) {
         // A re-parent and nothing else. drive-unassign already takes explicit ids — the sweep is
         // simply a batched caller of the same route, so filing one text adds no machinery.
-        await Researcher.driveUnassign([docId]);
+        await Researcher.driveUnassign([docId], to.startsWith('__unassigned:') ? to.slice(13) : '');
         m.close();
         deps.toast(t('panel.move.filed'), 6000);
         renderDashboard();

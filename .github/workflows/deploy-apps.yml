@@ -1,0 +1,60 @@
+# The ONE thing that actually deploys an app Worker. Called by deploy-staging.yml and
+# deploy-production.yml; never run directly, and never on push.
+#
+# ⚠ IT DEPLOYS BY RUNNING THE EXISTING deploy.sh, NOT BY REIMPLEMENTING IT. Each app folder's
+# deploy.sh already owns the whole contract — assemble public/, run version-sync, check every sw.js
+# SHELL path exists, then route productionWeb to `wrangler deploy` and any other branch to a preview
+# alias. That routing is the guard that keeps a feature branch off app.flextext.app, and it must have
+# exactly one implementation. This workflow's whole job is to set WORKERS_CI_BRANCH and stand back.
+#
+# WHY THIS EXISTS (Seth, 2026-08-19/20): Cloudflare's git integration built every Worker on every
+# push, including pushes that changed nothing any site serves. Two pushes inside a couple of minutes
+# cancelled each other; a docs commit could restart the spacing between a `main` and a
+# `productionWeb` release; and a one-app staging test cost five builds. "I'm fed up with how long it
+# takes in between each iteration."
+name: Deploy apps (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      apps:
+        description: 'JSON array of app folders to deploy, e.g. ["apps/editor","paragraph-analysis"]'
+        required: true
+        type: string
+      branch:
+        description: 'Branch name passed to deploy.sh as WORKERS_CI_BRANCH — decides production vs preview alias'
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    # ⚠ Never cancel-in-progress. A cancelled deploy leaves a half-uploaded Worker, which is the one
+    # outcome worse than waiting. Two runs for the same branch queue instead.
+    concurrency:
+      group: fx-deploy-${{ inputs.branch }}-${{ matrix.app }}
+      cancel-in-progress: false
+    strategy:
+      # One app's failure must not cancel the others: a partial deploy you know about beats four
+      # cancelled ones you have to re-reason about.
+      fail-fast: false
+      matrix:
+        app: ${{ fromJSON(inputs.apps) }}
+    runs-on: ubuntu-latest
+    name: ${{ matrix.app }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # deploy.sh runs test/version-sync.test.mjs, which reads docs/ AND every satellite sw.js.
+          # A sparse or shallow-by-path checkout would make that test pass by not seeing the drift.
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: "deploy ${{ matrix.app }} (branch: ${{ inputs.branch }})"
+        working-directory: ${{ matrix.app }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # The single input deploy.sh routes on. Cloudflare set this itself; now we do.
+          WORKERS_CI_BRANCH: ${{ inputs.branch }}
+        run: bash deploy.sh

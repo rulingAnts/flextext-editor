@@ -1,0 +1,84 @@
+# Deploy ONE OR MORE apps from the branch you pick, as a preview alias. Nothing here can reach
+# production: deploy.sh routes any branch that is not `productionWeb` to
+# `wrangler versions upload --preview-alias <branch>`, and this workflow REFUSES to run on
+# productionWeb at all, so there are two independent reasons a mistake here is not a release.
+#
+# ⚠ PICK ONLY THE APPS YOU ARE ACTUALLY TESTING (Seth, 2026-08-20): "being able to only push what
+# we're actually testing would be a huge time and AI cost savings." Testing a researcher-panel change
+# does not need the recorder, the crowd embed or PAT rebuilt. Production is the opposite and
+# deliberately offers no such choice — see deploy-production.yml.
+#
+# Run it from Actions → "Deploy to staging / preview" → Run workflow, choosing the BRANCH in the
+# dropdown (that is what you are deploying) and ticking the apps.
+#
+# Where each lands: https://<branch>-<worker>.68mh29kgsd.workers.dev — branch lowercased with
+# non-alphanumerics turned into `-`, capped at 63 chars (deploy.sh does this).
+name: Deploy to staging / preview
+
+on:
+  workflow_dispatch:
+    inputs:
+      editor:
+        description: 'Editor (flextext-editor)'
+        type: boolean
+        default: false
+      researcher:
+        description: 'Researcher panel (flextext-researcher)'
+        type: boolean
+        default: false
+      recorder:
+        description: 'Recorder (flextext-recorder)'
+        type: boolean
+        default: false
+      crowd:
+        description: 'Crowd recorder (flextext-crowd)'
+        type: boolean
+        default: false
+      paragraph:
+        description: 'Paragraph Analysis Tool (paragraph-analysis-tool)'
+        type: boolean
+        default: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      apps: ${{ steps.pick.outputs.apps }}
+    steps:
+      # ⚠ THE ONE THING THIS WORKFLOW MUST NOT DO IS TOUCH PRODUCTION. deploy.sh would already route
+      # a productionWeb run to a real deploy, which is correct for the production workflow and wrong
+      # here — so refuse the ref outright rather than relying on nobody picking it.
+      - name: refuse productionWeb
+        if: github.ref_name == 'productionWeb'
+        run: |
+          echo "::error::This workflow never deploys productionWeb. Use 'Deploy to production' for that."
+          exit 1
+      - id: pick
+        run: |
+          set -euo pipefail
+          # `if` blocks rather than `[ x ] && apps+=(...)`: equivalent today, but the && form is only
+          # safe because a failing AND-OR list is exempt from `set -e` unless it is the script's LAST
+          # command. That exemption depends on what happens to follow, so reordering these lines or
+          # deleting the check below could turn "no boxes ticked" into a bare exit 1 with no message.
+          # The `if` form does not have a last-line rule to remember.
+          apps=()
+          if [ "${{ inputs.editor }}"     = "true" ]; then apps+=('"apps/editor"'); fi
+          if [ "${{ inputs.researcher }}" = "true" ]; then apps+=('"apps/researcher"'); fi
+          if [ "${{ inputs.recorder }}"   = "true" ]; then apps+=('"apps/recorder"'); fi
+          if [ "${{ inputs.crowd }}"      = "true" ]; then apps+=('"apps/crowd"'); fi
+          if [ "${{ inputs.paragraph }}"  = "true" ]; then apps+=('"paragraph-analysis"'); fi
+          if [ ${#apps[@]} -eq 0 ]; then
+            echo "::error::No apps ticked — nothing to deploy. Tick at least one and run it again."
+            exit 1
+          fi
+          json="[$(IFS=,; echo "${apps[*]}")]"
+          echo "apps=$json" >> "$GITHUB_OUTPUT"
+          echo "Deploying from branch '${{ github.ref_name }}': $json"
+
+  deploy:
+    needs: plan
+    uses: ./.github/workflows/deploy-apps.yml
+    with:
+      apps: ${{ needs.plan.outputs.apps }}
+      branch: ${{ github.ref_name }}
+    secrets: inherit

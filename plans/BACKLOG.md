@@ -35,6 +35,66 @@ Recorded verbatim because the order is his and it is not the order the work natu
    "leave the bytes and move the index" are three genuinely different products with different
    failure modes. Decide which one it is before building any of it.
 
+## FUTURE FEATURE: "Clonezilla for the suite" — snapshot and restore an estate (Seth, 2026-08-20)
+
+> *"a workflow that makes a manual backup copy (on Google Drive) of the whole Google Drive folder
+> structure (and any relevant D1 data that is important and isn't rebuildable from Google Drive, like
+> paired devices)... useful for development as well (the ability to back up all my data before trying
+> something potentially destructive, or to back up from one Google researcher account and then restore
+> on another (and a way to make sure that doesn't result in things being duplicated that shouldn't
+> be)."*
+
+Distant future, filed so the design constraints are recorded while they are known rather than
+rediscovered.
+
+**Half of it already exists.** `GET /v1/researcher/drive-snapshot` returns the RAW Drive listing —
+deliberately not the `buildDriveEstate` projection, because a snapshot should record what Drive held,
+not what our grouping logic made of it. That is the structural backup; what is missing is the D1 half,
+somewhere to keep it, and a restore.
+
+⚠ **These are TWO products, and conflating them is the trap.** They share a file format and almost
+nothing else:
+
+- **Snapshot-before-something-destructive (same account).** Cheap, genuinely useful today, and mostly
+  already built. Ids stay valid, keys stay valid, nothing is re-wrapped. A restore here is "put the
+  folders back where the snapshot says they were" — the same metadata-only re-parenting the projects
+  migration already does.
+- **Restore onto a DIFFERENT researcher account.** A different thing wearing the same word, and every
+  hard problem lives here.
+
+### What is NOT rebuildable from Drive, and therefore has to be in the backup
+
+Drive holds the texts, the audio and the folder tree. D1 holds what Drive cannot: instances and their
+`oauth_folder_id`, installs and their pairing state, crowd recorders and their public links, approval
+state, and the wrapped-Ki key map in `settings_blob`.
+
+### The constraints a design has to satisfy
+
+1. ⚠ **Keys do not travel between accounts.** Each instance's Ki is wrapped under that researcher's
+   Kr, and each install holds Ki wrapped to its own public key. Restoring onto another account is not
+   a copy — it is a re-wrap under the new Kr, and the installs cannot be re-wrapped at all without the
+   devices present. So **paired devices do not survive a cross-account restore**, and the honest
+   design says so up front rather than appearing to restore them.
+2. ⚠ **Duplication is the failure mode Seth named, and this repo has already had it once.** v167's
+   "Title (n)" folders came from re-searching a lagging index and minting a second folder. A restore
+   that recreates folders while the originals still exist reproduces it deliberately. The restore
+   must be **id-aware**: match on the id first (`files.get` is strongly consistent), then on the
+   `appProperties` tag, and create only when both miss.
+3. **A Drive-to-Drive byte copy is not one request.** There is no recursive copy in the Drive API —
+   it is one call per file, against the ~50-subrequest Cloudflare cap. Any real implementation is a
+   resumable job with progress, like the chunked uploader, not a single endpoint.
+4. **Consider not copying the bytes at all for v1.** Drive already has trash and version history; the
+   thing that actually gets lost is the STRUCTURE and the D1 rows. A manifest-plus-D1 export is far
+   smaller, far cheaper, and covers the development use case ("back up before trying something
+   destructive") completely.
+5. ⚠ **A backup file is a copy of the estate's metadata**, and the privacy and research-ethics
+   obligations that apply to the estate apply to it unchanged: encrypted, minimal, and never holding
+   anything the live system would not hold.
+
+**Sequence, if it is ever built:** same-account snapshot/restore first, because it is small and
+useful; cross-account only after, with the key and pairing limits stated in the UI rather than
+discovered.
+
 ## LOW PRIORITY: account deletion leaves the Google grant standing (Seth, 2026-08-20)
 
 Deleting a researcher account — self-delete, or an owner declining a pending one — never calls

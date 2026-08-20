@@ -1,0 +1,38 @@
+# Deploy the live sites. Manual, deliberate, and ALL FIVE APPS, always.
+#
+# ⚠ THERE IS NO APP SELECTION HERE, BY CONSTRUCTION (Seth, 2026-08-20): "We want all five to build
+# any time we're pushing production." A release is one estate at one version — the satellites declare
+# the ENGINE they were built against and version-sync fails the build when they disagree, so a
+# partial production deploy is not a smaller release, it is a broken one. The way to make that
+# impossible is to not offer the choice, which is why this file has no inputs while the staging one
+# is all checkboxes.
+#
+# ⚠ AND IT ONLY RUNS ON productionWeb. Pick that branch in the Run-workflow dropdown; anything else
+# is refused before a single Worker is touched.
+#
+# This does NOT deploy the connectivity Worker (worker/) — that is worker-deploy.yml, on purpose:
+# backend and sites move independently, which is what makes backend-first releases possible. Nor does
+# it publish the GitHub Pages satellite mirrors, which stopped receiving updates in v432.
+name: Deploy to production
+
+on:
+  workflow_dispatch:
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: refuse anything that is not productionWeb
+        if: github.ref_name != 'productionWeb'
+        run: |
+          echo "::error::Production deploys only from productionWeb (got '${{ github.ref_name }}')."
+          exit 1
+      - run: echo "Releasing productionWeb — all five apps."
+
+  deploy:
+    needs: guard
+    uses: ./.github/workflows/deploy-apps.yml
+    with:
+      apps: '["apps/editor","apps/researcher","apps/recorder","apps/crowd","paragraph-analysis"]'
+      branch: productionWeb
+    secrets: inherit

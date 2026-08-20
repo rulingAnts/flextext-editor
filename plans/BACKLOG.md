@@ -2182,6 +2182,41 @@ estimate before any `.github/workflows/**` change — which this is.)
    will look pushed and silently not deploy, which is the exact failure CLAUDE.md's deploy-order
    section exists to prevent.
 
+### ✅ DECIDED SHAPE: two manual workflows, nothing automatic (Seth, 2026-08-20)
+
+> *"Move our build process to a manual GitHub workflow that only runs when we deliberately run it.
+> One for staging, one for productionWeb."* … *"(Or sub-actions)"*
+
+⚠ **This goes further than the `paths:` filters proposed above, and supersedes them.** Filters make
+irrelevant pushes free; manual dispatch makes EVERY build deliberate. Given that tonight's cost was
+not only irrelevant pushes but also relevant ones firing before anyone was ready to test, that is the
+stronger answer.
+
+**The shape:**
+
+- `deploy-staging.yml` — `workflow_dispatch`, deploys all five Workers to their staging aliases.
+- `deploy-production.yml` — `workflow_dispatch`, deploys all five to production.
+- Both call ONE reusable workflow (`workflow_call` — the "sub-actions" idea) that takes the target and
+  loops the five app folders, so the deploy logic exists once. Five copies of a deploy step is the
+  drift this repo has been fighting all week.
+- Cloudflare's git integration is then disconnected, per Worker, and nothing builds on push.
+
+⚠ **THE GUARD THAT MUST BE STRUCTURAL.** `workflow_dispatch` lets the caller choose a ref, so the
+production workflow can be pointed at any branch — which is exactly how a feature branch overwrites
+the live site, the thing `apps/*/build.sh` currently refuses by construction. The production workflow
+must FAIL on any ref other than `productionWeb`, as its first step, before it can deploy anything. A
+comment saying "only run this on productionWeb" is not a guard.
+
+⚠ **The trade being accepted, so it is not discovered later:** branch previews stop being automatic.
+The feature-branch policy leans on them ("test a MAJOR feature on its OWN branch preview"), and after
+this they exist only when someone dispatches the staging workflow. That is a real loss, deliberately
+taken — it is the same button either way, and the cost of forgetting to press it is a preview that
+does not exist rather than a build nobody wanted.
+
+**Cost: free** — public repo, standard `ubuntu-latest` runners. Stated because CLAUDE.md requires an
+explicit estimate before any `.github/workflows/**` change, and this is one. Seth's instruction above
+is the approval.
+
 ### ⚠ Sequencing — FIRST, and ahead of the branch collapse
 
 > *"That's probably actually more important than merging main and productionWeb. And more solves the

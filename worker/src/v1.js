@@ -1506,6 +1506,116 @@ async function backfillProjectsFor(env, row, now) {
   };
 }
 
+/* ---------------- ONE D1 PROJECT PER DRIVE PROJECT FOLDER ----------------
+ *
+ * ⚠ WHY THIS EXISTS, and it is not a tidiness fix. `backfillProjectsFor` mints exactly ONE project
+ * per researcher and points it at the DEFAULT Drive folder, because Phase B's model had no notion
+ * of a second one. A researcher who owns TWO project folders (Seth, 2026-08-20 — "Fayu Text Corpus"
+ * and "Dani Dictionary") therefore got ONE D1 row, and EVERY container was adopted into it —
+ * including the ones whose folders sit inside the other project.
+ *
+ * Under Phase C that is not a cosmetic mismatch. Authorization reads `instance.project_id`, so a
+ * grant naming the one project would authorize a member against devices from BOTH — precisely the
+ * isolation the phase exists to provide, absent on the very first estate it met. And the second
+ * folder had no D1 row at all, so `/projects/assign` into it resolved to NULL (fail-closed, but
+ * unusable).
+ *
+ * ⚠ DRIVE PARENTAGE IS THE AUTHORITY HERE, so this CORRECTS rather than merely fills. Adoption
+ * everywhere else is conditional on `project_id IS NULL` — the rule that re-running a backfill must
+ * never move what somebody placed deliberately. This is the one exception, and the reason it is one:
+ * a container's Drive parent is not a competing opinion about which project it is in, it is where
+ * the bytes physically are. When the two disagree, D1 is wrong by definition, and leaving it wrong
+ * means authorizing against a project the container is demonstrably not in (invariant I4's whole
+ * concern, arrived at from the other side).
+ *
+ * ⚠ NO EXTRA DRIVE CALL, AND NO WRITE IN THE STEADY STATE. The estate is already in hand at the
+ * call site, and every statement below is emitted only for a row whose value actually DIFFERS. A
+ * correct database polled every few seconds therefore issues nothing at all — which is what makes
+ * it safe to hang off a route the panel calls constantly.
+ *
+ * Pure D1 given an estate, so it is testable on the rig without Drive credentials — which the
+ * `drive_folder_id` resolution in the backfill above notably is not. */
+export async function reconcileProjects(env, researcherId, estate, now) {
+  const folders = (estate && estate.projects) || [];
+  if (!folders.length) return { projects: 0, writes: 0 };   // flat estate — nothing to mirror yet
+
+  const rows = (await env.DB.prepare(
+    'SELECT project_id, name, drive_folder_id FROM project WHERE owner_id=? ORDER BY created_at'
+  ).bind(researcherId).all()).results || [];
+  const byFolder = new Map(rows.filter((p) => p.drive_folder_id).map((p) => [p.drive_folder_id, p]));
+
+  /* A project row pointing at NO folder can scope nothing (Phase C reads a NULL folder as "no Drive
+   * scoping possible" and denies), so the first unmatched folder CLAIMS it rather than leaving an
+   * orphan sitting beside a fresh insert. Only when exactly one such row exists: with two, which
+   * folder each belongs to is a guess, and a guess here mis-files real devices. */
+  const orphans = rows.filter((p) => !p.drive_folder_id);
+  let claimable = orphans.length === 1 ? orphans[0] : null;
+
+  const writes = [];
+  for (const f of folders) {
+    const name = String(f.name || '').slice(0, 120);
+    const have = byFolder.get(f.folderId);
+    if (have) {
+      /* D1's `name` is a DENORMALISATION of the folder's name, exactly as `researcher_id` is a
+       * denormalisation of the project's owner. Keeping it in step is what stops Phase D's sharing
+       * UI offering a member "Seth Johnston's project" when the panel two tabs away says
+       * "Fayu Text Corpus". Display only — the folder ID is identity, here as everywhere. */
+      if (name && have.name !== name) {
+        writes.push(env.DB.prepare('UPDATE project SET name=? WHERE project_id=?').bind(name, have.project_id));
+        have.name = name;
+      }
+      continue;
+    }
+    if (claimable) {
+      writes.push(env.DB.prepare('UPDATE project SET drive_folder_id=?, name=? WHERE project_id=? AND drive_folder_id IS NULL')
+        .bind(f.folderId, name || claimable.name, claimable.project_id));
+      byFolder.set(f.folderId, { project_id: claimable.project_id, name: name || claimable.name });
+      claimable = null;
+      continue;
+    }
+    const pid = crypto.randomUUID();
+    writes.push(env.DB.prepare('INSERT INTO project (project_id, owner_id, name, created_at, drive_folder_id) VALUES (?,?,?,?,?)')
+      .bind(pid, researcherId, name || 'Project', now, f.folderId));
+    byFolder.set(f.folderId, { project_id: pid, name });
+  }
+
+  /* Which D1 project each CONTAINER should be in, read straight off the tree. `d.projectId` is the
+   * Drive id of the project folder the container sits in, or '' when it is still directly under
+   * master — and '' is left alone, because an unmigrated estate is a valid state, not a drift. */
+  const want = new Map();
+  for (const d of (estate.devices || [])) {
+    if (!d.projectId || !d.folderId) continue;
+    const p = byFolder.get(d.projectId);
+    if (p) want.set(d.folderId, p.project_id);
+  }
+  if (want.size) {
+    /* Revoked instances are included deliberately: their folders are still in the tree, and a
+     * revoked row with a stale project_id is a row that becomes wrong the moment it is un-revoked. */
+    for (const [table, col] of [['instance', 'instance'], ['crowd_recorder', 'crowd_recorder']]) {
+      const cur = (await env.DB.prepare(
+        `SELECT oauth_folder_id, project_id FROM ${table} WHERE researcher_id=? AND oauth_folder_id IS NOT NULL`
+      ).bind(researcherId).all()).results || [];
+      for (const x of cur) {
+        const pid = want.get(x.oauth_folder_id);
+        if (pid && x.project_id !== pid) {
+          writes.push(env.DB.prepare(`UPDATE ${col} SET project_id=? WHERE oauth_folder_id=? AND researcher_id=?`)
+            .bind(pid, x.oauth_folder_id, researcherId));
+        }
+      }
+    }
+  }
+
+  if (!writes.length) return { projects: byFolder.size, writes: 0 };
+  /* ⚠ BOUNDED, and the remainder is not lost — it lands on the next estate load, which the panel
+   * makes constantly. An unbounded batch is the failure mode `drive-purge` already learned twice:
+   * a big enough estate turns a correct loop into a request that dies. Projects are pushed before
+   * containers, so a truncated batch always leaves the rows a later pass needs. */
+  const CAP = 64;
+  const batch = writes.slice(0, CAP);
+  await env.DB.batch(batch);
+  return { projects: byFolder.size, writes: batch.length, remaining: Math.max(0, writes.length - CAP) };
+}
+
 export async function handleV1(request, env, ctx, url, path, origin) {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: v1Cors(origin, env) });
   if (!env.DB) return j({ error: 'sync_unavailable' }, 503, origin, env); // D1 not bound yet — inert, never breaks /drive
@@ -2347,6 +2457,14 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           if (iid) d.instanceId = iid;
         }
       } catch { /* the estate is still correct without it; the panel falls back to its own join */ }
+      /* ⚠ AND WHILE THE WHOLE TREE IS IN HAND, MIRROR IT INTO D1 — same reasoning as the join
+       * above, one step further. This is the only place that holds both "which Drive project
+       * folders exist" and "which container sits in each", so it is the only place that can keep
+       * `project` and `instance.project_id` true to them. Costs no Drive call and, once correct,
+       * no write. Never allowed to fail the estate: a researcher must be able to look at their
+       * Drive when the bookkeeping is unwell. */
+      try { await reconcileProjects(env, r.researcher_id, estate, now); }
+      catch (e2) { try { console.warn('project reconcile skipped for', r.researcher_id, safeErr(e2)); } catch { /* noop */ } }
       const q = (about && about.storageQuota) || {};
       return j({
         /* `limit` is ABSENT on unlimited / pooled accounts. It is passed through as null and MUST
@@ -2704,6 +2822,14 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       const f = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(folderId) + '?fields=id,appProperties');
       if (((f.appProperties || {}).flextextRole || '') !== 'project') return j({ error: 'not_a_project' }, 400, origin, env);
       await driveJson(access, 'PATCH', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(folderId) + '?fields=id', { name });
+      /* Keep D1's copy in step in the SAME act (invariant I3). The estate reconcile would catch this
+       * on the next panel load anyway, but relying on that would leave a window where the sharing UI
+       * names a project something its owner has just renamed away from. Scoped to the caller's own
+       * row, and never allowed to fail a rename that already succeeded in Drive. */
+      try {
+        await env.DB.prepare('UPDATE project SET name=? WHERE drive_folder_id=? AND owner_id=?')
+          .bind(name, folderId, r.researcher_id).run();
+      } catch (e2) { try { console.warn('project name not updated for', folderId, safeErr(e2)); } catch { /* noop */ } }
       return j({ ok: true, folderId, name }, 200, origin, env);
     } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
   }

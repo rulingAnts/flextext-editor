@@ -1123,7 +1123,78 @@ that looks right against a stub and deletes an archive against the real API.
 - **II.D3 — claim screen reads "«Project» — managed by «owner»"**, even when a member minted the
   link. Agreed.
 
-### II.D7 — DECIDED, and STRICTER than the earlier recommendation
+### ⚠⚠ II.D7 — REOPENED AND RE-DECIDED (Seth, 2026-08-20). READ THIS BEFORE THE SECTION BELOW.
+
+**The decision recorded below is SUPERSEDED IN ITS PER-TEXT HALF and STANDS IN ITS ACCOUNT-WIDE
+HALF.** Both halves are quoted so the difference is visible rather than inferred.
+
+Seth, 2026-08-20, after being walked through what per-device scoping would and would not enforce:
+
+> *"I'm really not sure how granular we need our access to be at this point beyond project scope.
+> And if an owner researcher needs it to be more specific than that, all he or she has to do is just
+> create a separate project for that scope. So yeah, I'm thinking let's not get device and text
+> specific for access. Let's have the access be project specific (write access might be more
+> specific and various settings the assistant can and can't change, but those are all worker and UI,
+> etc issues within our app suite not drive permissions)."*
+
+And: *"for Drive access, per project is good enough."*
+
+| | earlier (below) | now |
+|---|---|---|
+| Drive scope for a member | the member's **own grants** — named devices, named texts | **the project**, whole |
+| Finer separation than that | more capability plumbing | **a separate project** — the mechanism already exists and Seth's estate already uses it (Fayu Text Corpus, Dani Dictionary) |
+| Account-wide access | **refused** | ⚠ **still refused — this half is unchanged and still unbuilt** |
+| Destructive routes (trash/purge) | scoped | ⚠ **still must be scoped — R2-1, unchanged** |
+
+⚠ **WHAT MADE THE OLD DECISION UNBUILDABLE AS STATED**, and is why this is a re-decision rather than
+a retreat: Drive is addressed by **file id**, and this codebase deliberately does not treat parentage
+as an identity fact (VII.1). A per-device `see` list was actually built on 2026-08-20 and **removed
+the same night** — the instance routes honoured it and the rig proved they did, but no Drive route
+could, so the list would have been a checkbox that SAYS a device is hidden while it stays reachable
+through any docId-routed fetch. An owner relies on such a checkbox. That is worse than not offering
+one.
+
+⚠ **WHAT DOES NOT CHANGE, and must not be read away by this entry:**
+1. **No account-wide access for members.** A member must never see, list, or touch another project's
+   folders. The earlier decision's core sentence — *"We don't want them having blanket access to the
+   project owner's Google Drive folder"* — is satisfied at the PROJECT boundary, not abandoned.
+2. **The destructive half is not a disclosure question** (R2-1). `drive-purge` today takes no file
+   list and empties the whole trash; `trash` takes an unverified id list. Disclosure is a fair
+   answer to a member SEEING more than their project; it is not a fair answer to a member DELETING
+   another project's archive.
+3. **VII.1's mechanism finding still applies.** Project-level scoping still cannot be resolved by
+   folder parentage, because `drive-unassign` re-parents texts into an account-wide Unassigned and
+   folders are found by TAG, never by where they sit. Something like the `drive_object` table is
+   still needed.
+
+✅ **BUT IT GETS MATERIALLY SMALLER**, which speaks directly to Seth's stated worry that *"getting
+into Google Drive access permissions may add layers of complexity that make it harder to implement
+successfully and more failure-prone or less secure"*:
+- `drive_object` needs `project_id` for authorization — `instance_id` / `doc_id` become display and
+  provenance, not access control.
+- No per-device filtering on ~13 routes; one project check per route.
+- *"Texts they created themselves"* stops being an access case that must be expressible.
+- ⚠ And Seth's fallback stands: *"If it turns out integration with Google Drive permissions and
+  Google Drive visibility is too fiddly and won't actually float, then the priority is making the
+  researcher panel side work and we can drop the Google Drive visibility integration if we need
+  to."* Dropping it means members get NO Drive access — which is where the code already sits today
+  (the account-wide routes are inert for members), so that fallback needs no work, only a decision.
+
+### FUTURE, NOT NOW: recursive projects
+
+Seth, 2026-08-20: *"Eventually we may consider having the ability for projects to be recursive — that
+is to contain sub-projects AND devices as sisters. But that probably would introduce a whole new
+level of complexity and entropy and redesign that might be more than we can handle right now. And
+more than we need right now."*
+
+Recorded because **nothing in Phase C forecloses it**, which is worth knowing before anyone designs
+around its absence: `parent_project_id` is an additive column (R2-6 permits it), and because
+authorization resolves in exactly one function (`authMember`), recursion would mean teaching that
+one function to walk a parent chain — not revisiting every route. That is a direct dividend of the
+one-authority invariant (I1). Do not build it; do not design against it either.
+
+### II.D7 — the EARLIER decision (superseded in part — read the entry above first)
+
 
 > Seth: *"We do want to make sure that invited/assistant researchers can only see/access what
 > they're given access to. We don't want them having blanket access to the project owner's Google

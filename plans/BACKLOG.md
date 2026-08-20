@@ -488,6 +488,21 @@ announces itself instead of reading as a complete one.
 - It should work OFFLINE, printing the local half and saying plainly that the server half is
   unavailable — a field device with no signal is exactly when someone wants it.
 
+## DECIDED 2026-08-20: the Drive permission checkbox does NOT ship in Phase D
+
+Seth agreed: don't offer a control that looks functional and is not.
+
+The `drive: read|manage` capability is accepted and stored, and today it grants access on exactly
+ONE route — `GET /v1/instances/<id>/texts/<docId>/files`. Every account-wide Drive route still
+resolves through `authResearcher`, so a member calling one acts on **their own** Drive and gets an
+error. That is safe (and pinned by a rig assertion), but it means a "Drive access" checkbox in the
+sharing UI would be a promise the backend does not keep.
+
+**So: leave it out of the sharing UI entirely until the Drive routes are converted.** Not greyed
+out, not "coming soon" — absent. A disabled control still tells the owner the feature exists and
+invites them to wait for it; an absent one lets the UI describe what the system actually does. Add
+it in the same release that makes it true.
+
 ## NEXT IN PHASE C: the account-wide Drive routes are still unconverted (2026-08-20)
 
 Phase C increment 2 landed everything except R2-1, the Drive half. **Stopping there is safe, and it

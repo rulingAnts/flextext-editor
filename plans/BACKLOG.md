@@ -35,6 +35,50 @@ Recorded verbatim because the order is his and it is not the order the work natu
    "leave the bytes and move the index" are three genuinely different products with different
    failure modes. Decide which one it is before building any of it.
 
+## LATER: administrators need to suspend / ban / delete accounts for abuse (Seth, 2026-08-20)
+
+> *"I will eventually need a way for administrators (including me) to at least suspend if not
+> ban/delete accounts if later on abuse is detected. But that's a later feature."*
+
+Filed with what already exists, because most of the mechanism does — the gap is smaller than it
+sounds, except for one part that is genuinely hard.
+
+**Already built:**
+- `researcher.approved` is the gate. `isApproved()` guards every privileged endpoint, so
+  `approved=0` on an existing row IS a suspension — the account can sign in and do nothing.
+- `logApproval` already writes an audit trail (`account_signup`, `account_auto_approved`,
+  `account_declined`), so a suspension has somewhere to be recorded.
+- Deletion exists twice: self-delete (`POST /v1/researcher/delete`) and the owner's decline of a
+  pending account.
+- Session revocation exists — `revoke-others` and per-session revoke — so a suspension can also cut
+  live sessions rather than waiting for them to expire.
+
+**So "suspend" is roughly: set `approved=0`, revoke that researcher's sessions, log it, and give the
+owner a button.** Checked: the Google callback only re-approves on sign-in for env-listed OWNERS
+(`ALLOWED_RESEARCHERS`), not for domain-approved accounts — the domain check applies at account
+CREATION only. So a suspension sticks across sign-ins. Good.
+
+⚠ **"BAN" IS THE HARD ONE, AND IT IS HARD FOR A REASON WORTH RESPECTING.** A suspended person can
+delete their own account and sign up again, and a fresh row created under a pre-approved domain is
+auto-approved on sight — so deletion launders a suspension. Making a ban survive deletion means
+keeping a record of the banned identity AFTER the account is gone, which is retaining personal data
+as a side effect of erasing it. That is the same trade already rejected under the deletion notes
+above, and it should not be quietly accepted here just because the word is "ban".
+
+Plausible ways through, none free, to be chosen deliberately rather than defaulted into:
+1. **Block deletion while suspended.** The account stays, visibly suspended, and cannot be laundered.
+   Cheapest and keeps no extra data — but means someone under investigation cannot exercise deletion,
+   which is its own thing to be comfortable with.
+2. **Ban the DOMAIN's auto-approval rather than the person** — remove the domain from
+   `approved_domain`, so returning accounts land pending and are simply not approved. Retains nothing
+   about an individual. Blunt: it affects their colleagues too.
+3. **Keep a minimal ban list** (an HMAC of the address, like `email_sha256`, and nothing else). Least
+   data that could work, still a record of a deleted person; only worth it if 1 and 2 prove
+   insufficient in practice.
+
+**Priority: later, as Seth said.** Nothing here is load-bearing while the researcher set is seven
+people who are all known personally. It becomes real the moment sign-up is genuinely open.
+
 ## FUTURE: permission prompts are asked too broadly and too often (Seth, 2026-08-20)
 
 > *"On the crowd recorder (and other recorders maybe?) it asks for recording permissions at multiple

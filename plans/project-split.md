@@ -387,9 +387,16 @@ everyone; `settings_blob.wrappedKis` remains readable as the legacy fallback dur
   keypair, self-granting existing Ki, and reading grants in `getKi()`. That is the first change to
   `docs/`, so it needs a version bump and Seth's test drive; the plan is to hand it over rather than
   stack client changes behind it.
-- **Nothing is deployed.** The worker changes exist only in git; the worker changes only when
-  `worker-deploy.yml` is dispatched. `migrate-sessions.sql` and `migrate-projects.sql` have been
-  applied to NO database, not even staging.
+- ⚠ **STATUS CORRECTED 2026-08-20 — this said "nothing is deployed", and that had stopped being
+  true.** Checked against production D1 rather than re-read: `session`, `project`, `project_member`
+  and `member_key` all EXIST in `flextext-connectivity`, so **both migrations are applied to
+  production**, and the worker serving `connect.flextext.app` is current (deployed 2026-08-20 from
+  `e894040`). `project_member` holds **0 rows** — nobody has been invited yet, which is the accurate
+  version of "not in use". Phase A is live and in daily use (every researcher sign-in mints a
+  session row).
+  ⚠ A status line that says less than the truth is as misleading as one that says more: this one
+  would have had the next reader re-applying migrations that were already in place. Verify status
+  against the database, not against this file.
 
 ## II.5c ⚠⚠ ISOLATION IS A LOCKED REQUIREMENT, AT EVERY LEVEL (Seth, 2026-08-19)
 

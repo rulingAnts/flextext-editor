@@ -2333,3 +2333,23 @@ main {
   .seg-loading-bar.is-indeterminate > i { animation: none; width: 100%; opacity: .45; }
   .seg-loading-bar > i { transition: none; }
 }
+
+/* ── The admin drawer (Seth, 2026-08-20) ───────────────────────────────────────────────────────
+   The back-door for a researcher recovering a stuck device: revealed at the bottom of Help by the
+   seven-tap gesture, hidden again by the same one. See applyAdminDrawer in app.js.
+
+   ⚠ Visually SET APART, not styled to blend in. Everything in here overrides a setting the
+   researcher chose, so it should look like a panel someone deliberately opened rather than more of
+   the help text. The destructive Delete-All button keeps its own red .delall-btn treatment and is
+   re-appended BELOW this drawer — recoverable controls first, the irreversible one last. */
+.admin-drawer {
+  margin: 28px 0 8px;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.admin-drawer h3 { margin: 0 0 6px; font-size: 15px; }
+.admin-drawer .note { margin: 0 0 12px; }
+.admin-drawer .secondary-btn { display: block; width: 100%; margin-top: 8px; }
+.admin-drawer .secondary-btn[disabled] { opacity: .5; }

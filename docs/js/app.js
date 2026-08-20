@@ -369,7 +369,7 @@ function openHelp() {
   helpReturnView = currentView();
   if (helpReturnView === 'help') helpReturnView = 'texts';
   applyHelpResearchVisibility();
-  if (!RECORD_MODE) applyDeleteAllButton(); applyInviteButton();   // ensure the gated Delete-All button is present + current
+  if (!RECORD_MODE) applyDeleteAllButton(); applyInviteButton(); applyAdminDrawer();   // ensure the gated Delete-All button is present + current
   show('help');
 }
 
@@ -3734,7 +3734,10 @@ function applyLiveSettings() {
 // apps by default; on a MANAGED device only if the researcher enabled it for that device (settings
 // .deleteAllEnabled). Off by default for managed devices.
 function deleteAllAllowed() {
-  return !Sync.hasSession() || loadSettings().deleteAllEnabled === true;
+  /* ⚠ adminUnlocked() OVERRIDES the researcher's setting, on purpose — see the admin drawer. The
+   * default (off for managed devices) protects a coworker from wiping their own work; it must not
+   * also stop the researcher holding that same phone from recovering it. */
+  return !Sync.hasSession() || loadSettings().deleteAllEnabled === true || adminUnlocked();
 }
 async function runDeleteAll() {
   if (!confirm(t('delall.confirm'))) return;
@@ -6311,9 +6314,12 @@ function applyHelpResearchVisibility() {
 }
 
 function toggleResearchHidden() {
-  // On a managed install the gesture is the passphrase-gated way IN: open the researcher
-  // panel instead of exposing the local Settings tab (which stays remote-managed only).
-  if (Sync.hasSession()) { if (researcherPanelApi) researcherPanelApi.open(); return; }
+  /* ⚠ A managed install still does NOT get the local Settings tab — settings stay remote-managed.
+   * It used to open the researcher panel here instead; that route now lives as a button in the
+   * admin drawer (see applyAdminDrawer), because opening it from this function navigated away from
+   * the very drawer the gesture exists to reveal. Nothing is lost: the drawer opens on the same
+   * gesture and the panel is one tap further in. */
+  if (Sync.hasSession()) return;
   if (isResearchHidden()) {
     localStorage.removeItem(RESEARCH_HIDDEN_KEY);
     toast(t('research.enabled'));
@@ -6324,25 +6330,132 @@ function toggleResearchHidden() {
   applyResearchVisibility();
 }
 
+/* ---------------- THE ADMIN DRAWER — the back-door for a stuck device (Seth, 2026-08-20) --------
+ * "We need a back-door for researchers to be able to unpair stuck editor clients without data loss
+ * or clearing browser storage. Used to be clicking the help menu seven times exposed settings
+ * normally hidden. I think now what we should do is have that enable or disable the pair/unpair and
+ * erase all buttons at the bottom of the help menu, even if the researcher disabled them in the
+ * researcher panel."
+ *
+ * ⚠ WHY A LOCAL BACK-DOOR AT ALL, when the researcher panel can already revoke a device: because
+ * the panel's revoke travels over the NETWORK, and a device is usually "stuck" precisely when that
+ * route does not work — offline, a binding the worker no longer recognises, a session that will not
+ * settle. The panel can only fix a device that is still listening. This gesture works on a phone in
+ * a village with no signal, held in the researcher's hand.
+ *
+ * ⚠ AND IT OVERRIDES THE RESEARCHER'S OWN SETTING, deliberately. deleteAllEnabled is off by default
+ * for managed devices so a coworker cannot wipe their work by accident — a good default that
+ * becomes a trap the moment the device needs recovering and the person holding it is the researcher.
+ * The gesture is the distinction: seven deliberate taps is not something a wet screen or a barely
+ * literate user does by accident, which was the reason the gesture targets the small ? button
+ * rather than the title bar in the first place.
+ *
+ * ⚠ UNPAIRING IS NOT ERASING. Unpair drops the BINDING and the researcher's Drive links and keeps
+ * every text, recording and setting — that is the whole point of "without data loss or clearing
+ * browser storage". Delete-All is the other button and it is the destructive one. They sit together
+ * because they are found together, not because they are alike; the drawer says which is which. */
+const ADMIN_UNLOCK_KEY = 'flextext-admin-unlock';
+function adminUnlocked() { return !!localStorage.getItem(ADMIN_UNLOCK_KEY); }
+
+function toggleAdminUnlock() {
+  const on = !adminUnlocked();
+  if (on) localStorage.setItem(ADMIN_UNLOCK_KEY, '1');
+  else localStorage.removeItem(ADMIN_UNLOCK_KEY);
+  applyDeleteAllButton();      // its gate now answers differently
+  applyAdminDrawer();
+  /* ⚠ SHOW THE DRAWER, do not just announce it. The buttons live at the bottom of Help, so a
+   * researcher who fires the gesture from the texts list would otherwise be told something had
+   * happened somewhere they cannot see. Only on unlock — locking from inside Help should leave you
+   * where you are. */
+  if (on && currentView() !== 'help') openHelp();
+  toast(t(on ? 'admin.unlocked' : 'admin.locked'), 6000);
+}
+
+/* Unpair THIS device, locally and completely, without touching a single text.
+ *
+ * ⚠ LOCAL ONLY, and that is not a shortcut. There is no client→server "release" call — the worker
+ * learns a device is gone when the researcher revokes it in the panel, which is a separate and still
+ * necessary step. What this fixes is the DEVICE: a binding it cannot use is dropped so the app
+ * becomes standalone again and the coworker can keep working. Saying otherwise in the UI would be a
+ * lie about what the button did. */
+async function runAdminUnpair() {
+  if (!Sync.hasSession()) { toast(t('admin.unpairNone'), 6000); return; }
+  if (!confirm(t('admin.unpairConfirm'))) return;
+  Sync.clearSession();
+  /* The same scrub a researcher-initiated revoke does — a Drive folder this device may no longer
+   * reach must not be left behind claiming to be live. See onSyncRevoked for why consentAudioFile
+   * goes with them. */
+  const st = loadSettings();
+  for (const k of ['uploadFolder', 'uploadUrl', 'consentAudio', 'consentAudioUrl', 'consentAudioFile']) delete st[k];
+  saveSettings(st);
+  settings = loadSettings();
+  applyLiveSettings();
+  applyAdminDrawer();
+  toast(t('admin.unpairDone'), 10000);
+}
+
+/* The drawer itself: built once, then shown/hidden. It is APPENDED to the Help view, the same way
+ * the Delete-All and invite buttons already are, so there is one convention for "admin territory
+ * lives at the bottom of Help" rather than two. */
+function applyAdminDrawer() {
+  const view = $('#view-help'); if (!view) return;
+  let box = $('#admin-drawer');
+  if (!adminUnlocked()) { if (box) box.hidden = true; return; }
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'admin-drawer';
+    box.className = 'admin-drawer';
+    box.innerHTML = '<h3></h3><p class="note"></p>'
+      + '<button type="button" id="btn-admin-unpair" class="secondary-btn"></button>'
+      + '<button type="button" id="btn-admin-panel" class="secondary-btn"></button>';
+    box.querySelector('#btn-admin-unpair').addEventListener('click', runAdminUnpair);
+    /* ⚠ THE PANEL ROUTE MOVED HERE RATHER THAN DISAPPEARING. The gesture used to open the researcher
+     * panel outright on a managed install — the only way in on a coworker's phone, since the
+     * Researcher button is hidden unless an account is signed up on the device. Opening it outright
+     * is now wrong (it navigates away from the drawer this gesture exists to reveal), so it is a
+     * button in the drawer: same route, one more tap, and visible instead of secret. */
+    box.querySelector('#btn-admin-panel').addEventListener('click', () => {
+      if (researcherPanelApi) researcherPanelApi.open();
+    });
+    view.appendChild(box);
+  }
+  box.querySelector('h3').textContent = t('admin.title');
+  box.querySelector('p').textContent = t('admin.note');
+  const unpair = box.querySelector('#btn-admin-unpair');
+  unpair.textContent = t('admin.unpair');
+  unpair.disabled = !Sync.hasSession();
+  box.querySelector('#btn-admin-panel').textContent = t('admin.panel');
+  box.hidden = false;
+  /* ⚠ LAST, so the drawer is the bottom of the view even though Delete-All was appended earlier.
+   * Delete-All is the destructive one and belongs BELOW the recoverable controls, not above them. */
+  const del = $('#btn-delete-all');
+  if (del && del.parentNode === view) view.appendChild(del);
+}
+
 function setupResearchToggle() {
+  /* ⚠ ONE GESTURE, TWO JOBS, in this order. It still does what it always did — the Settings tab on a
+   * standalone device — and it now also toggles the admin drawer, which is the half that works when
+   * a device is stuck. Both, rather than a replacement, because the old behaviour is documented in
+   * the field and someone reaching for it should still find it. */
+  const fire = () => { toggleResearchHidden(); toggleAdminUnlock(); };
   // Desktop: Ctrl+Alt+R.
   document.addEventListener('keydown', (e) => {
     if (e.ctrlKey && e.altKey && !e.shiftKey && (e.key === 'r' || e.key === 'R')) {
       e.preventDefault();
-      toggleResearchHidden();
+      fire();
     }
   });
   // Touch devices have no keyboard: tap the small ? (Help) button 7× in quick
-  // succession to toggle the Research tab. Targeting the Help button — not the
-  // whole title bar — avoids accidental triggers from stray taps (barely
-  // literate users, wet screens), while staying recoverable without Ctrl+Alt+R.
+  // succession. Targeting the Help button — not the whole title bar — avoids accidental
+  // triggers from stray taps (barely literate users, wet screens), while staying
+  // recoverable without Ctrl+Alt+R.
   let taps = 0, last = 0;
   $$('.help-btn').forEach((el) => {
     el.addEventListener('click', () => {
       const now = Date.now();
       taps = now - last < 1500 ? taps + 1 : 1;
       last = now;
-      if (taps >= 7) { taps = 0; toggleResearchHidden(); }
+      if (taps >= 7) { taps = 0; fire(); }
     });
   });
 }

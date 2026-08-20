@@ -272,6 +272,18 @@ en: {
    * Kept short: these sit under a bar on a phone, and the coworkers this suite is for may be barely
    * literate — the sentence in seg.loadingAudio above carries the explanation. */
   'seg.prep.read': 'Opening the recording\u2026',
+  /* ---- The admin drawer: the local back-door for a device that cannot be reached remotely ---- */
+  'admin.unlocked': 'Admin controls shown at the bottom of Help.',
+  'admin.locked': 'Admin controls hidden again.',
+  'admin.title': 'Admin controls',
+  /* ⚠ SAY WHICH ONE KEEPS THE WORK. These two buttons sit together and one of them is destructive;
+   * the person reading this may be recovering someone else\u2019s only copy of a recording. */
+  'admin.note': 'For a researcher recovering this device. Unpairing keeps every text and recording \u2014 it only ends the link to the researcher. Deleting all data does not.',
+  'admin.unpair': 'Unpair this device',
+  'admin.unpairConfirm': 'Unpair this device from its researcher?\n\nYour texts, recordings and settings all stay on this device. Only the link is removed, and the app becomes a standalone app again.',
+  'admin.unpairDone': 'This device is unpaired. Nothing was deleted. Ask the researcher to remove it in their panel too, then send a fresh invite link when you want to pair it again.',
+  'admin.unpairNone': 'This device is not paired with a researcher.',
+  'admin.panel': 'Researcher panel\u2026',
   'seg.prep.convert': 'Preparing the recording for precise alignment\u2026',
   'seg.prep.decode': 'Reading the sound\u2026',
   'seg.prep.peaks': 'Drawing the waveform\u2026 {pct}%',
@@ -2058,6 +2070,15 @@ id: {
   'setup.savedLive': 'Tersimpan ✓',
   'seg.loadingAudio': 'Memuat rekaman\u2026 barisnya muncul setelah siap.',
   'seg.prep.read': 'Membuka rekaman\u2026',
+  'admin.unlocked': 'Kontrol admin ditampilkan di bagian bawah Bantuan.',
+  'admin.locked': 'Kontrol admin disembunyikan lagi.',
+  'admin.title': 'Kontrol admin',
+  'admin.note': 'Untuk peneliti yang memulihkan perangkat ini. Melepas pasangan tetap menyimpan semua teks dan rekaman \u2014 hanya tautan ke peneliti yang diakhiri. Menghapus semua data tidak.',
+  'admin.unpair': 'Lepaskan perangkat ini',
+  'admin.unpairConfirm': 'Lepaskan perangkat ini dari penelitinya?\n\nTeks, rekaman, dan pengaturan Anda tetap ada di perangkat ini. Hanya tautannya yang dihapus, dan aplikasi kembali menjadi aplikasi mandiri.',
+  'admin.unpairDone': 'Perangkat ini sudah dilepas. Tidak ada yang dihapus. Minta peneliti menghapusnya di panel mereka juga, lalu kirim tautan undangan baru bila ingin memasangkannya kembali.',
+  'admin.unpairNone': 'Perangkat ini tidak dipasangkan dengan peneliti.',
+  'admin.panel': 'Panel peneliti\u2026',
   'seg.prep.convert': 'Menyiapkan rekaman untuk penyelarasan yang tepat\u2026',
   'seg.prep.decode': 'Membaca suara\u2026',
   'seg.prep.peaks': 'Menggambar bentuk gelombang\u2026 {pct}%',

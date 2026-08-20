@@ -132,8 +132,11 @@ for (const [k, why] of Object.entries(MUST_BE_OFF)) {
   ok(!!fieldOf(SETUP_GROUPS, k)?.off, `${k} is disabled — ${why}`);
 }
 // ...and the claims above are true of the real code, not just of this test's comments.
-ok(/function deleteAllAllowed\(\) \{\s*return !Sync\.hasSession\(\)/.test(app.replace(/\n/g, ' ')) ||
-   /return !Sync\.hasSession\(\) \|\| loadSettings\(\)\.deleteAllEnabled === true;/.test(app),
+/* ⚠ The `|| adminUnlocked()` tail is the admin drawer's deliberate override of the researcher's
+ * setting (see test/admin-drawer.test.mjs) and is OPTIONAL here on purpose: what this assertion is
+ * about is the LEADING short-circuit — an unpaired device always allows Delete-All, or the control
+ * would be a lie. Match the head of the expression, not the whole of it. */
+ok(/return !Sync\.hasSession\(\) \|\| loadSettings\(\)\.deleteAllEnabled === true(?: \|\| adminUnlocked\(\))?;/.test(app),
    'deleteAllAllowed() really does short-circuit on !hasSession (so the control really would be a lie)');
 ok(/function allowDeleteOn\(\) \{ return !Sync\.hasSession\(\) \|\| settings\.allowDelete === true; \}/.test(app),
    'allowDeleteOn() really does too');

@@ -284,6 +284,40 @@ neutering the guard fails three assertions by name.
 removes the window in which anyone can type at all — so the answer no longer matters in practice and
 was never established. If the branch is ever reached again, it is still unknown.
 
+## LATER: revisit auto-cutting a LONG recording (Seth, 2026-08-20)
+
+> *"At some point we need to revisit what happens with auto-cutting a long text (like 16 minutes
+> long), but not right now. That's a file for later issue."*
+
+Raised during the v442 test drive. **Checked immediately, and it is almost certainly working as
+designed rather than misbehaving** — which is the useful thing to know before anyone investigates.
+
+`GUESS_MAX_MS = 10 * 60 * 1000` (segments.js:368). A 16-minute recording is over the cap, so
+✨ Guess refuses it and says so by name (segment-strips.js:1268 and :1314):
+
+> *"This recording is 16 minutes long, and the lines can only be guessed for recordings up to 10
+> minutes. Cut this one by hand — or record in shorter pieces."*
+
+The cap's own comment explains why it is on the INPUT rather than the output: the alternative runs
+out of memory AFTER the edit has already replaced the document, whereas a refusal can be explained
+before anything happens. It also argues the honest position — *"a 40-minute text is a different unit
+of work from a 5-minute one and probably wants splitting first."*
+
+⚠ **So the question to revisit is a PRODUCT one, not a bug**: is 10 minutes the right ceiling, and is
+"cut it by hand" an acceptable answer for a 16-minute story? Options if it is not — raise the cap
+(and pay the memory cost the comment describes), chunk the detector so length stops mattering, or
+offer to split the recording itself first. ⚠ Do not start by "fixing" the detector; start by deciding
+what should happen to a long recording.
+
+**Second, separate cost, if the cap is ever raised:** the per-row rendering cost is what actually
+scales badly. From the resource audit in this file — each ticker does a `querySelectorAll` over every
+row plus ~3 `querySelector` calls per row, EVERY FRAME: ~245 lookups/frame at 60 lines, ~2,600 at
+650. That audit's own worked example is "a 40-minute recording, which ✨ Guess can now produce in one
+press". Group the two: raising the cap without the idle-gate work would trade a clear refusal for a
+slow, confusing success.
+
+**Priority: later, as Seth said.**
+
 ## LATER: the recorder and crowd recorder do not refresh themselves after a recording (Seth, 2026-08-20)
 
 > *"Our recorder app needs some work with UI responsiveness and auto-refreshing, as does the crowd

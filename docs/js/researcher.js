@@ -22,7 +22,7 @@
 import {
   generateKey, wrapKey, unwrapKey,
   importKeyB64, encryptJSON, decryptJSON,
-  importPublicKeyB64, wrapKeyForInstall, unwrapKeyFromResearcher,
+  importPublicKeyB64, wrapKeyForInstall, unwrapGrantForResearcher,
   generateResearcherKeypair, exportPublicKeyB64, exportPrivateKeyB64, importPrivateKeyB64,
 } from './crypto.js';
 
@@ -449,7 +449,7 @@ async function getKi(instanceId) {
     const wrapped = grants[instanceId];
     if (wrapped) {
       try {
-        const ki = await unwrapKeyFromResearcher(myPriv, wrapped);
+        const ki = await unwrapGrantForResearcher(myPriv, wrapped);
         kiCache.set(instanceId, ki);
         return ki;
       } catch {
@@ -1003,6 +1003,11 @@ export async function listView() {
         has_key: Number(ins.has_key) === 1, pubkey: ins.pubkey || null,
         ack_seq: ins.ack_seq, reported_rev: ins.reported_rev, last_seen_at: ins.last_seen_at,
         wipe_state: ins.wipe_state || null, wipe_at: ins.wipe_at || null,   // remote-wipe lifecycle (panel renders pending/confirmed)
+        /* ⚠ THE ENUMERATED-REBUILD TRAP, FOR THE THIRD TIME — see the note just below, which
+         * predicted this exact failure and was still not enough to prevent it. pair_code rode the
+         * worker response correctly and was dropped HERE, so every pending install rendered "linked
+         * by an older app version and shows no pairing code" no matter how new it was. */
+        pair_code: ins.pair_code || '',
         inventory,
       });
     }

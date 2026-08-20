@@ -119,6 +119,28 @@ export async function unwrapKeyFromResearcher(installPrivateKey, wrappedB64) {
   const raw = await crypto.subtle.decrypt({ name: 'RSA-OAEP' }, installPrivateKey, b64ToBytes(wrappedB64));
   return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
 }
+/* RESEARCHER side: the same RSA-OAEP decrypt, but the Ki comes back EXTRACTABLE.
+ *
+ * ⚠ THE DIFFERENCE IS THE ROLE, AND IT IS NOT OPTIONAL. An install only ever encrypts and decrypts
+ * its own reports, so its Ki can and must be non-extractable — it has nowhere legitimate to go. A
+ * researcher's job includes RE-WRAPPING Ki to each new install's public key, and wrapKeyForInstall
+ * does that with exportKey('raw', Ki). A non-extractable Ki cannot be exported, so the researcher
+ * simply cannot approve a device.
+ *
+ * ⚠ THIS IS WHY IT EXISTS (2026-08-20). getKi's grant path called the INSTALL's helper above, so
+ * every Ki resolved from a member_key grant was non-extractable and "Approve & send key" died with
+ * "Failed to execute 'exportKey' on 'SubtleCrypto': key is not extractable". It lay dormant from
+ * v434 until the moment the self-grant actually started writing rows — while member_key was empty,
+ * getKi always fell through to the legacy Kr-wrapped copy, which importKeyB64 makes extractable.
+ * Fixing the 500s that were blocking the grants is what armed it.
+ *
+ * ⚠ DO NOT "unify" these two by adding an extractable flag to the install's function. The default
+ * would then be a decision made at each call site rather than by the role, and the install's key is
+ * the one that must never become exportable. */
+export async function unwrapGrantForResearcher(researcherPrivateKey, wrappedB64) {
+  const raw = await crypto.subtle.decrypt({ name: 'RSA-OAEP' }, researcherPrivateKey, b64ToBytes(wrappedB64));
+  return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, true, ['encrypt', 'decrypt']);
+}
 /* ---- the RESEARCHER's own keypair (Phase B: member key grants) ----
  *
  * ⚠ EXTRACTABLE, UNLIKE AN INSTALL'S — and the difference is deliberate, not an oversight.

@@ -59,7 +59,11 @@ console.log('\ngetKi resolves memory → my grant → the legacy store, and lega
   const g = fn('async function getKi(', res);
   ok(!!g, 'getKi exists');
   const iMem = g.indexOf('kiCache.has');
-  const iGrant = g.indexOf('unwrapKeyFromResearcher');
+  /* ⚠ unwrapGrantForResearcher, NOT unwrapKeyFromResearcher. The grant path used the INSTALL's
+   * helper, which imports Ki NON-EXTRACTABLE — so a researcher who resolved Ki from a grant could
+   * not re-wrap it for a new device, and "Approve & send key" died with "key is not extractable".
+   * Dormant since v434 and armed the moment the self-grant started writing rows. */
+  const iGrant = g.indexOf('unwrapGrantForResearcher');
   const iLegacy = g.indexOf('settingsCache.wrappedKis');
   ok(iMem >= 0 && iGrant > iMem, 'the grant lookup comes after the memory cache');
   /* ⚠ POSITION IS NOT REACHABILITY. The assertion above passed happily when the grant branch was

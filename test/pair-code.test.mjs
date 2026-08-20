@@ -74,6 +74,8 @@ ok(/researcher: inst \? \{ name: inst\.display_name/.test(worker),
 const app = read('../docs/js/app.js');
 const sync = read('../docs/js/sync.js');
 const panel = read('../docs/js/researcher-panel.js');
+const researcher = read('../docs/js/researcher.js');
+const cryptojs = read('../docs/js/crypto.js');
 const css = read('../docs/css/app.css');
 const i18n = read('../docs/js/i18n.js');
 const i18nBlock = (code) => {
@@ -133,6 +135,13 @@ ok(/invite\.codeMissing/.test(app),
 console.log('\nthe panel leads with the same number');
 ok(/rp-pair-code/.test(panel) && /panel\.inst\.codeHint/.test(panel), 'the code is the headline on a pending install');
 ok(/const pc = ins\.pair_code \|\| '';/.test(panel), 'read from the worker payload, not recomputed');
+/* ⚠ THE ENUMERATED-REBUILD TRAP, WHICH CAUGHT THIS CHANGE TOO. researcher.js rebuilds each install
+ * field by field, so a field the worker adds is INVISIBLE to the panel until it is named there. Its
+ * own comment records `estate` being lost this way, then mintInvite losing the same field again —
+ * and pair_code made three. Every pending install rendered "linked by an older app version and
+ * shows no pairing code" however new it was, which would have blocked the whole test drive. */
+ok(/pair_code: ins\.pair_code \|\| ''/.test(researcher),
+   '⚠ pair_code is COPIED THROUGH the enumerated install rebuild — the worker sending it is not enough');
 ok(/panel\.inst\.codeLegacy/.test(panel),
    '⚠ an install claimed before this shipped has NO code, and the card says so rather than showing a blank');
 ok(/panel\.inst\.fingerprint/.test(panel),
@@ -146,6 +155,35 @@ console.log('\nevery new string is translated');
 for (const k of ['invite.codeIntro', 'invite.codeMissing', 'invite.codeAria', 'pair.title', 'pair.note',
                  'panel.inst.codeAria', 'panel.inst.codeHint', 'panel.inst.codeLegacy'])
   ok(inEnAndId(k) === 2, `${k} in BOTH languages`);
+
+/* ── THE RESEARCHER'S Ki MUST BE EXTRACTABLE, THE INSTALL'S MUST NOT ────────────────────────────
+ * Found in the field, 2026-08-20: "Approve & send key" died with "Failed to execute 'exportKey' on
+ * 'SubtleCrypto': key is not extractable". getKi's grant path called the INSTALL's unwrap helper,
+ * which imports Ki non-extractable — correct for a device that only ever encrypts its own reports,
+ * fatal for a researcher whose job includes re-wrapping Ki to each new install's public key.
+ *
+ * ⚠ IT WAS DORMANT FROM v434 AND ARMED BY A FIX. While member_key was empty, getKi always fell
+ * through to the legacy Kr-wrapped copy, which importKeyB64 makes extractable. Making the self-grant
+ * finally write its rows is what routed every lookup down the broken path. A latent bug whose
+ * trigger is another bug being fixed is worth a test of its own. */
+console.log('\nthe researcher can still re-wrap Ki after resolving it from a grant');
+ok(/export async function unwrapGrantForResearcher/.test(cryptojs),
+   'the researcher has its OWN unwrap, separate from the install\'s');
+{
+  const fn = cryptojs.match(/export async function unwrapGrantForResearcher[\s\S]*?\n\}/)[0];
+  ok(/\{ name: 'AES-GCM' \}, true,/.test(fn), '⚠ ...and it imports Ki EXTRACTABLE, or approval cannot wrap it');
+}
+{
+  const fn = cryptojs.match(/export async function unwrapKeyFromResearcher[\s\S]*?\n\}/)[0];
+  ok(/\{ name: 'AES-GCM' \}, false,/.test(fn),
+     '⚠ while the INSTALL\'s stays non-extractable — the device key must never become exportable');
+}
+ok(/unwrapGrantForResearcher\(myPriv, wrapped\)/.test(researcher),
+   'getKi\'s grant path uses the researcher\'s helper');
+ok(!/unwrapKeyFromResearcher/.test(researcher),
+   '...and no longer reaches for the install\'s at all');
+ok(/unwrapKeyFromResearcher/.test(read('../docs/js/sync.js')),
+   'the install still uses its own, so this fix did not weaken the device side');
 
 console.log(fail ? `\nFAILED (${fail})` : '\nPASSED');
 process.exit(fail ? 1 : 0);

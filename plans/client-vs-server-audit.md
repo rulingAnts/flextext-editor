@@ -47,6 +47,12 @@ origin list — is user interface and defence in depth. That is the standard eve
 measured against, and it is why F2's ordering rule ("server filter in the same commit as the member
 UI, never after") is written as non-negotiable rather than as a preference.
 
+⚠ **What this section does NOT say**, because the correction above is easy to over-read: it does not
+say client and server are equivalent. They are not. For anything deciding what data a person may
+reach, server-side is the only place enforcement exists, and client-side is a statement of intent.
+Pointing out that CORS and the service worker are also not boundaries REMOVES two things one might
+have counted on near the client — it puts more weight on the worker, not less.
+
 ⚠ The corollary that is easy to lose: this is **not** an argument for moving everything server-side.
 F3 is enforced client-side because the worker is structurally unable to see what it would need to
 see, and F4 is client-side because it is a question about the far end's capabilities rather than the

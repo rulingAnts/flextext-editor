@@ -227,6 +227,44 @@ state, and the wrapped-Ki key map in `settings_blob`.
 useful; cross-account only after, with the key and pairing limits stated in the UI rather than
 discovered.
 
+## KNOWN ISSUE, LOW PRIORITY: un-checking "Done" shows a toast and then nothing (Seth, 2026-08-20)
+
+> *"Unchecking 'done' gives a brief toast promising to relay the command, but no 'pending' UI change
+> for the researcher beyond that brief toast, and I'm not sure that command is actually persistent
+> and effective. But that's a later, lower priority fix. Can be a known issue for now."*
+
+**Filed as a known issue, deliberately not fixed now.** Two halves, and reading the code separates
+them — one of them turns out not to be a bug at all.
+
+**The command IS persistent and effective** (read, not yet re-tested end to end). `toggle-done` calls
+`Researcher.setDone`, which is `pushCommand(instanceId, 'setDone', …)` — the SAME durable desired-lane
+queue that carries assign, move and uploadDelete. The device applies it in `syncDispatch`'s
+`case 'setDone'`, which routes into the device's own `setDocDone()` so the auto-delete-after-upload
+gating behaves exactly as a local tap does. A device that is offline, or in a village with no signal,
+picks it up on its next poll. So the doubt in the report is answerable: nothing is dropped on the
+floor.
+
+⚠ **The real gap is that the panel says so only for four seconds.** `toggle-done` fires the command,
+toasts, and records NOTHING. The tag itself does not change until the device reports a fresh
+inventory — which on a field connection can be minutes — so a researcher who blinks has no way to
+tell whether the toggle registered, and the honest reading of the screen is "it did not work". That
+is the same shape as the pairing-code bug: a transient control carrying the only evidence of a
+durable fact.
+
+**The fix is small and the mechanism already exists.** The move/delete flow has exactly this solved:
+`pendingCmds` + `savePending` + `pendingFor`, with the design rule already written down beside it —
+*"Retire pending markers on OUTCOME, never on a clock. A request stays visible for as long as it is
+genuinely outstanding."* `toggle-done` simply never opted in. Giving it a pending marker on the same
+terms would put a visible "pending" state on the tag until the device's inventory confirms the new
+value, and would also stop two panels queueing the same toggle twice.
+
+⚠ Keep the engine gate when it lands: the tag is only a BUTTON when `canSetDone` (engine v138+); an
+older install gets a static span, and a pending marker must not appear on something that was never
+sent.
+
+**Priority: as Seth said, later.** Nothing is lost today — the command arrives and is applied. What
+is missing is the researcher being able to see that, which costs a re-check rather than any work.
+
 ## LOW PRIORITY: account deletion leaves the Google grant standing (Seth, 2026-08-20)
 
 Deleting a researcher account — self-delete, or an owner declining a pending one — never calls

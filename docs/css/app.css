@@ -2298,3 +2298,99 @@ main {
 /* The crowd page's version line — the one app with no badge and no service worker, so nothing else
    can report which engine it is running. Quiet, but present. */
 .crowd-ver { margin-top: 18px; text-align: center; font-size: .75rem; opacity: .45; }
+
+/* ── The audio-preparation loading indicator (Seth, 2026-08-20) ────────────────────────────────
+   "If there are real constraints with loading speed we can't get around, we need to always make
+   sure our UI is responsive and gives the user some kind of 'loading' response/status bar."
+
+   Two states, and the difference between them is honesty rather than decoration: a stage that can
+   count its own work fills the bar; a stage that cannot (a browser-internal decode) runs
+   .is-indeterminate and sweeps, saying "working" without inventing a percentage.
+
+   ⚠ prefers-reduced-motion stops the sweep rather than hiding the bar — the bar is the STATUS, and
+   a user who has asked for less motion still needs to know the app is busy. */
+.seg-loading { display: flex; flex-direction: column; gap: 8px; }
+.seg-loading-bar {
+  position: relative; overflow: hidden;
+  height: 4px; border-radius: 2px;
+  background: var(--border);
+}
+.seg-loading-bar > i {
+  display: block; height: 100%; width: 0;
+  border-radius: inherit;
+  background: var(--blue);
+  transition: width .18s linear;
+}
+.seg-loading-bar.is-indeterminate > i {
+  width: 35%; transition: none;
+  animation: seg-loading-sweep 1.15s ease-in-out infinite;
+}
+@keyframes seg-loading-sweep {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(340%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .seg-loading-bar.is-indeterminate > i { animation: none; width: 100%; opacity: .45; }
+  .seg-loading-bar > i { transition: none; }
+}
+
+/* ── The admin drawer (Seth, 2026-08-20) ───────────────────────────────────────────────────────
+   The back-door for a researcher recovering a stuck device: revealed at the bottom of Help by the
+   seven-tap gesture, hidden again by the same one. See applyAdminDrawer in app.js.
+
+   ⚠ Visually SET APART, not styled to blend in. Everything in here overrides a setting the
+   researcher chose, so it should look like a panel someone deliberately opened rather than more of
+   the help text. The destructive Delete-All button keeps its own red .delall-btn treatment and is
+   re-appended BELOW this drawer — recoverable controls first, the irreversible one last. */
+.admin-drawer {
+  margin: 28px 0 8px;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.admin-drawer h3 { margin: 0 0 6px; font-size: 15px; }
+.admin-drawer .note { margin: 0 0 12px; }
+.admin-drawer .secondary-btn { display: block; width: 100%; margin-top: 8px; }
+.admin-drawer .secondary-btn[disabled] { opacity: .5; }
+
+/* ── The pairing code (Seth, 2026-08-20) ───────────────────────────────────────────────────────
+   Six digits, large, on the device AND in the researcher panel, until both ends approve.
+
+   ⚠ BIG AND MONOSPACED IS THE FEATURE, not decoration. Two people are reading these digits to each
+   other, often over a bad phone line, one of them on a cheap handset in daylight. Generous tracking
+   keeps 0/O and 1/7 apart, and tabular figures keep the two screens visually identical so a
+   mismatch is obvious rather than something you have to squint at.
+
+   ⚠ user-select is deliberately ALLOWED: a researcher on a laptop may well want to copy it. */
+.pair-code, .rp-pair-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(2rem, 12vw, 3.25rem);
+  font-weight: 700;
+  letter-spacing: .18em;
+  text-indent: .18em;          /* re-centres: letter-spacing pads the RIGHT of the last digit */
+  text-align: center;
+  line-height: 1.15;
+  margin: 10px 0;
+  color: var(--blue);
+}
+
+/* The device's standing banner. Fixed, so it survives every view change — the code must be findable
+   from wherever the user has wandered, which is the entire point of it not being a toast. */
+.pair-banner {
+  position: fixed;
+  left: 50%; transform: translateX(-50%);
+  bottom: 12px;
+  z-index: 60;
+  width: min(92vw, 420px);
+  padding: 12px 16px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .18);
+  text-align: center;
+}
+.pair-banner-title { font-weight: 600; }
+.pair-banner .pair-code { margin: 6px 0 8px; }
+.pair-banner-note { color: var(--muted); font-size: 13px; line-height: 1.35; }

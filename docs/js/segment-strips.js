@@ -34,6 +34,13 @@ let peaksCache = { docId: null, peaks: null, durationMs: 0 };
  * redrawn. This counter closes that hole: every canvas records which generation of peaks it was
  * drawn with, and the ticker redraws anything drawn with an older one. */
 let peaksGen = 0;
+/* ⚠ AND A RUN TOKEN, because the bucketing loop now YIELDS (see below). Before it did, ensurePeaks
+ * was atomic between its `peaksCache = {docId, peaks:null}` reset and the write of the finished
+ * array — nothing could interleave. A loop that awaits can be overtaken by a second call for a
+ * DIFFERENT doc, and the loser would then publish its peaks over the winner's: one text's waveform
+ * under another's segments, which is the exact failure the Cut tab's doc-switch guards exist to
+ * prevent. The loser checks this counter and returns without writing. */
+let peaksRun = 0;
 let rafId = 0;
 // Follow-playback state (v326): scroll only on a CHANGE of playing line, and stand off for 4s
 // after any user scroll so the view is never fought over (the PAT recipe).
@@ -116,6 +123,45 @@ export function takeReveal(row) {
 
 export function initStrips(d) { deps = d; }
 
+/* ---------------- the loading indicator (Seth, 2026-08-20) ----------------
+ * "If there are real constraints with loading speed we can't get around, we need to always make
+ * sure our UI is responsive and gives the user some kind of 'loading' response/status bar."
+ *
+ * Preparing a recording for the Cut and Baseline tabs is genuinely slow and cannot be argued down:
+ * a lossy source is decoded and re-encoded to a WAV working copy (the AAC-priming fix), and then
+ * every sample is bucketed into the peaks array. On a field phone with a ten-minute take that is
+ * seconds of work, and it used to happen behind ONE unchanging line of text — which is
+ * indistinguishable from an app that has hung.
+ *
+ * So the same element now carries a STAGE NAME and a BAR. A stage that can measure itself reports a
+ * fraction; one that cannot (a browser-internal decodeAudioData) passes null and the bar runs
+ * indeterminate, which still says "working" rather than "stuck".
+ *
+ * ⚠ THE BAR IS ONLY HALF OF IT. A progress bar that never repaints is a worse lie than no bar at
+ * all — it converts "the app is frozen" into "the app is frozen AND lying". Every long loop behind
+ * one of these must yield; see the time-sliced bucketing in ensurePeaks. */
+export function segProgress(el, message, frac) {
+  if (!el) return;
+  const text = el.querySelector('.seg-loading-text');
+  if (text && message != null) text.textContent = message;
+  const bar = el.querySelector('.seg-loading-bar');
+  if (!bar) return;
+  const known = typeof frac === 'number' && isFinite(frac);
+  bar.classList.toggle('is-indeterminate', !known);
+  const fill = bar.querySelector('i');
+  if (fill) fill.style.width = known ? (Math.max(0, Math.min(1, frac)) * 100) + '%' : '';
+}
+
+/* ⚠ setTimeout, NOT requestAnimationFrame. rAF does not fire in a BACKGROUNDED tab, so a user who
+ * starts a big text and switches away to do something else would return to a load that had stopped
+ * dead half way. A macrotask always runs, and the browser paints between macrotasks — which is the
+ * entire requirement here. */
+const yieldToUi = () => new Promise((r) => setTimeout(r, 0));
+const nowMs = () => ((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now());
+/* Yield after this many ms of unbroken work. Small enough that a tap still feels answered on a slow
+ * phone, large enough that the yields themselves are not the cost (a clamped timer is ~4ms). */
+const SLICE_MS = 12;
+
 /* ---------------- peaks (one decode per doc, buffer released immediately) ---------------- */
 
 // Peak DENSITY scales with duration — a fixed whole-file bucket count is why short segments
@@ -139,18 +185,25 @@ const BUCKETS_PER_SEC = 2000;
 const realAudio = (buf) => !!(buf && Number.isFinite(buf.sampleRate) && buf.sampleRate >= 8000
                               && Number.isFinite(buf.duration) && buf.duration > 0);
 
-export async function ensurePeaks(docId, blob, playerBuf) {
+export async function ensurePeaks(docId, blob, playerBuf, onProgress) {
   // Prefer the PLAYER'S decoded buffer: one decode, one timeline (see Player.decodedBuffer).
   // A cache built from our own fallback decode is upgraded when the player's arrives.
   const fromPlayer = realAudio(playerBuf) ? playerBuf : null;
   if (peaksCache.docId === docId && peaksCache.peaks && (peaksCache.fromPlayer || !fromPlayer)) return peaksCache;
   peaksCache = { docId, peaks: null, durationMs: 0 };
+  const myRun = ++peaksRun;          // see peaksRun — the loop below yields, so calls can interleave
   if (!blob && !fromPlayer) return peaksCache;
+  const say = typeof onProgress === 'function' ? onProgress : () => {};
   try {
     let buf = fromPlayer, ctx = null;
     if (!buf) {
+      /* ⚠ INDETERMINATE ON PURPOSE. decodeAudioData is inside the browser and reports nothing on the
+       * way through, so any fraction here would be invented. An honest "working" beats a made-up
+       * number that stalls at 40% and teaches the user to distrust the bar. */
+      say('decode', null);
       ctx = new (window.AudioContext || window.webkitAudioContext)();
       buf = await ctx.decodeAudioData(await blob.arrayBuffer());
+      if (peaksRun !== myRun) { try { ctx.close(); } catch { /* noop */ } return peaksCache; }
     }
     const ch = buf.getChannelData(0);
     const { buckets: BUCKETS, per } = peakPlan(ch.length, buf.sampleRate, buf.duration, { perSec: BUCKETS_PER_SEC });
@@ -160,12 +213,27 @@ export async function ensurePeaks(docId, blob, playerBuf) {
     // mapping accumulates error toward the file end (≈1.4s of skew on a 10-min recording — Seth
     // saw the waveforms 'not aligning perfectly'). msPerBucket is the exact conversion; every
     // consumer must use it, never durationMs proportions.
+    /* ⚠ TIME-SLICED, NOT ONE BLOCKING PASS. This is the loop that makes a ten-minute recording feel
+     * like a hang: it touches every fourth sample of the whole file on the main thread, so nothing
+     * paints and no tap is answered until it finishes. Slicing it by TIME rather than by a fixed
+     * bucket count is what makes it adapt — the cheap Android this suite is aimed at gets the same
+     * ~12ms of responsiveness per slice as a laptop, it just covers fewer buckets per slice.
+     * ⚠ The cost is real and accepted: yielding adds the timer clamp (~4ms) per slice. Measuring
+     * peaks a little slower while the app answers is the trade Seth asked for. */
+    let sliceStart = nowMs();
     for (let b = 0; b < BUCKETS; b++) {
       let m = 0;
       const off = b * per, end = Math.min(ch.length, off + per);
       for (let i = off; i < end; i += 4) { const v = Math.abs(ch[i]); if (v > m) m = v; }  // stride 4: display, not measurement
       peaks[b] = m;
+      if ((b & 255) === 0 && nowMs() - sliceStart > SLICE_MS) {
+        say('peaks', b / BUCKETS);
+        await yieldToUi();
+        if (peaksRun !== myRun) { try { ctx && ctx.close(); } catch { /* noop */ } return peaksCache; }
+        sliceStart = nowMs();
+      }
     }
+    say('peaks', 1);
     peaksCache = { docId, peaks, durationMs: Math.round(buf.duration * 1000),
                    msPerBucket: (per / buf.sampleRate) * 1000, fromPlayer: !!fromPlayer };
     peaksGen++;      // whatever was drawn without these is now stale, whatever its width

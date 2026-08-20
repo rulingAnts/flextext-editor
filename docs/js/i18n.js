@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v435';
+export const ENGINE_VERSION = 'v438';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v435';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = '';
+export const BUILD_TAG = 'pair-code v1';
 
 const S = {
 en: {
@@ -266,6 +266,38 @@ en: {
   'setup.localNote': 'Changes are saved as you make them. Saved on this device only.',
   'setup.savedLive': 'Saved \u2713',
   'seg.loadingAudio': 'Loading the recording\u2026 the lines appear once it is ready.',
+  /* ⚠ STAGE NAMES, not one word. Preparing a recording is three jobs of very different lengths, and
+   * the slowest of them (re-encoding a lossy file to the WAV working copy) is the one a user is
+   * most likely to think has hung. Naming the stage is what turns a wait into a wait-for-something.
+   * Kept short: these sit under a bar on a phone, and the coworkers this suite is for may be barely
+   * literate — the sentence in seg.loadingAudio above carries the explanation. */
+  'seg.prep.read': 'Opening the recording\u2026',
+  /* ---- The admin drawer: the local back-door for a device that cannot be reached remotely ---- */
+  'admin.unlocked': 'Admin controls shown at the bottom of Help.',
+  /* ---- Pairing: one six-digit code, on both screens, until both ends approve ---- */
+  /* ⚠ The wording asks the person to COMPARE, not to recognise anyone. The researcher's name, email
+   * and face are deliberately not on this screen any more. */
+  'invite.codeIntro': 'Check that this code is the same one your researcher can see:',
+  'invite.codeMissing': 'This device could not get a pairing code. Ask your researcher to send a new invite link.',
+  'invite.codeAria': 'Pairing code: {code}',
+  'pair.title': 'Waiting for your researcher',
+  'pair.note': 'Read this code to your researcher. It stays here until they approve this device \u2014 you do not have to write it down.',
+  'panel.inst.codeAria': 'Pairing code: {code}',
+  'panel.inst.codeHint': 'This must be the SAME six digits the device is showing. Do not approve if it is not, or if the person cannot tell you it.',
+  'panel.inst.codeLegacy': 'This device was linked by an older app version and shows no pairing code. Compare the key fingerprint below instead.',
+  'admin.locked': 'Admin controls hidden again.',
+  'admin.title': 'Admin controls',
+  /* ⚠ SAY WHICH ONE KEEPS THE WORK. These two buttons sit together and one of them is destructive;
+   * the person reading this may be recovering someone else\u2019s only copy of a recording. */
+  'admin.note': 'For a researcher recovering this device. Unpairing keeps every text and recording \u2014 it only ends the link to the researcher. Deleting all data does not.',
+  'admin.unpair': 'Unpair this device',
+  'admin.unpairConfirm': 'Unpair this device from its researcher?\n\nYour texts, recordings and settings all stay on this device. Only the link is removed, and the app becomes a standalone app again.',
+  'admin.unpairDone': 'This device is unpaired. Nothing was deleted. Ask the researcher to remove it in their panel too, then send a fresh invite link when you want to pair it again.',
+  'admin.unpairNone': 'This device is not paired with a researcher.',
+  'admin.panel': 'Researcher panel\u2026',
+  'seg.prep.convert': 'Preparing the recording for precise alignment\u2026',
+  'seg.prep.decode': 'Reading the sound\u2026',
+  'seg.prep.peaks': 'Drawing the waveform\u2026 {pct}%',
   'setup.tabWarn': 'This device is not ready to use: {n} setting(s) need attention.',
   'panel.f.consentAudioFile': 'Spoken reminder \u2014 sound file on this device',
   /* ⚠ Every one of these is shown UNDER its disabled control and toasted when it is clicked. A
@@ -513,10 +545,8 @@ en: {
   'toast.autosaveFailed': 'Autosave failed: {msg}',
   'toast.setupReceived': 'Language settings received and saved. You’re ready to start a new text.',
   'toast.linked': 'Linked for remote management.',
-  'toast.linkedFp': 'Linked. Your device code: {fp} — read it to your researcher to be approved.',
   'toast.linkMismatch': 'That invite is for the other app.',
   'invite.title': 'Connect this device?',
-  'invite.unknownName': 'A researcher',
   'invite.warn': 'This lets them manage this device and receive the texts you choose to send them. Only accept if you asked to connect to this person.',
   'invite.accept': 'Connect',
   'invite.decline': 'Decline',
@@ -2048,6 +2078,27 @@ id: {
   'setup.localNote': 'Perubahan disimpan sambil Anda membuatnya. Disimpan di perangkat ini saja.',
   'setup.savedLive': 'Tersimpan ✓',
   'seg.loadingAudio': 'Memuat rekaman\u2026 barisnya muncul setelah siap.',
+  'seg.prep.read': 'Membuka rekaman\u2026',
+  'admin.unlocked': 'Kontrol admin ditampilkan di bagian bawah Bantuan.',
+  'invite.codeIntro': 'Periksa bahwa kode ini sama dengan yang dilihat peneliti Anda:',
+  'invite.codeMissing': 'Perangkat ini tidak bisa mendapatkan kode pemasangan. Minta peneliti Anda mengirim tautan undangan baru.',
+  'invite.codeAria': 'Kode pemasangan: {code}',
+  'pair.title': 'Menunggu peneliti Anda',
+  'pair.note': 'Bacakan kode ini kepada peneliti Anda. Kode tetap di sini sampai mereka menyetujui perangkat ini \u2014 Anda tidak perlu mencatatnya.',
+  'panel.inst.codeAria': 'Kode pemasangan: {code}',
+  'panel.inst.codeHint': 'Ini harus SAMA dengan enam digit yang ditampilkan perangkat. Jangan setujui jika tidak sama, atau jika orang tersebut tidak bisa menyebutkannya.',
+  'panel.inst.codeLegacy': 'Perangkat ini ditautkan oleh versi aplikasi lama dan tidak menampilkan kode pemasangan. Bandingkan sidik kunci di bawah ini sebagai gantinya.',
+  'admin.locked': 'Kontrol admin disembunyikan lagi.',
+  'admin.title': 'Kontrol admin',
+  'admin.note': 'Untuk peneliti yang memulihkan perangkat ini. Melepas pasangan tetap menyimpan semua teks dan rekaman \u2014 hanya tautan ke peneliti yang diakhiri. Menghapus semua data tidak.',
+  'admin.unpair': 'Lepaskan perangkat ini',
+  'admin.unpairConfirm': 'Lepaskan perangkat ini dari penelitinya?\n\nTeks, rekaman, dan pengaturan Anda tetap ada di perangkat ini. Hanya tautannya yang dihapus, dan aplikasi kembali menjadi aplikasi mandiri.',
+  'admin.unpairDone': 'Perangkat ini sudah dilepas. Tidak ada yang dihapus. Minta peneliti menghapusnya di panel mereka juga, lalu kirim tautan undangan baru bila ingin memasangkannya kembali.',
+  'admin.unpairNone': 'Perangkat ini tidak dipasangkan dengan peneliti.',
+  'admin.panel': 'Panel peneliti\u2026',
+  'seg.prep.convert': 'Menyiapkan rekaman untuk penyelarasan yang tepat\u2026',
+  'seg.prep.decode': 'Membaca suara\u2026',
+  'seg.prep.peaks': 'Menggambar bentuk gelombang\u2026 {pct}%',
   'setup.tabWarn': 'Perangkat ini belum siap dipakai: {n} pengaturan perlu diperhatikan.',
   'panel.f.consentAudioFile': 'Pengingat lisan \u2014 berkas suara di perangkat ini',
   'setup.offMark': '(tidak berlaku untuk aplikasi mandiri)',
@@ -2283,10 +2334,8 @@ id: {
   'toast.autosaveFailed': 'Simpan otomatis gagal: {msg}',
   'toast.setupReceived': 'Pengaturan bahasa diterima dan disimpan. Anda siap membuat teks baru.',
   'toast.linked': 'Terhubung untuk pengelolaan jarak jauh.',
-  'toast.linkedFp': 'Terhubung. Kode perangkat Anda: {fp} — bacakan ke peneliti Anda untuk disetujui.',
   'toast.linkMismatch': 'Undangan itu untuk aplikasi yang lain.',
   'invite.title': 'Hubungkan perangkat ini?',
-  'invite.unknownName': 'Seorang peneliti',
   'invite.warn': 'Ini memungkinkan mereka mengelola perangkat ini dan menerima teks yang Anda pilih untuk dikirim. Terima hanya jika Anda memang meminta terhubung dengan orang ini.',
   'invite.accept': 'Hubungkan',
   'invite.decline': 'Tolak',

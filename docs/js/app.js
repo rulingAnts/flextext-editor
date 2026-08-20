@@ -21,7 +21,7 @@ import { makeZip } from './zip.js';
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay,
          wireWaveSeek, requestReveal, takeReveal, followLine,
          initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut,
-         stripSplitAtPlayhead } from './segment-strips.js';
+         stripSplitAtPlayhead, segProgress } from './segment-strips.js';
 import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME, buildSourceManifest,
          sanitizeBase, extOf, mediaNameFor, derivedWavName,
          loosePlan, buildLooseConversion, durationVerdict } from './seg-exports.js';
@@ -369,7 +369,7 @@ function openHelp() {
   helpReturnView = currentView();
   if (helpReturnView === 'help') helpReturnView = 'texts';
   applyHelpResearchVisibility();
-  if (!RECORD_MODE) applyDeleteAllButton(); applyInviteButton();   // ensure the gated Delete-All button is present + current
+  if (!RECORD_MODE) applyDeleteAllButton(); applyInviteButton(); applyAdminDrawer();   // ensure the gated Delete-All button is present + current
   show('help');
 }
 
@@ -1211,6 +1211,28 @@ function glossJoinLines(i) {
  * open would draw one text's waveform under another's segments. */
 let cutShownFor = null;   // the doc whose strips are currently on screen — see below
 
+/* ONE reporter for both tabs (Seth, 2026-08-20): "we need to always make sure our UI is responsive
+ * and gives the user some kind of 'loading' response/status bar."
+ *
+ * The Cut tab and the Baseline strips run the SAME preparation — working WAV, then peaks — so they
+ * get the same words in the same order rather than two drifting sets. Stages arrive as bare keys
+ * from whichever module is doing the work; this is where they become sentences, because the engine
+ * modules must not carry copy.
+ *
+ * ⚠ A stage with no number passes null and the bar goes indeterminate. Never substitute a guess:
+ * a bar that sticks at an invented 40% is what teaches a user to ignore bars. */
+function segPrep(sel) {
+  const el = () => $(sel);
+  return (stage, frac) => {
+    const pct = typeof frac === 'number' && isFinite(frac) ? Math.round(frac * 100) : null;
+    const msg = stage === 'peaks' ? t('seg.prep.peaks', { pct: pct == null ? 0 : pct })
+              : stage === 'convert' ? t('seg.prep.convert')
+              : stage === 'decode' ? t('seg.prep.decode')
+              : t('seg.prep.read');
+    segProgress(el(), msg, frac);
+  };
+}
+
 async function prepareCutAudio() {
   const forDoc = current && current.id;
   const main = $('#cut-main'), loading = $('#cut-loading');
@@ -1225,8 +1247,10 @@ async function prepareCutAudio() {
   const reentry = main && !main.hidden && cutShownFor === forDoc;
   if (main && !reentry) main.hidden = true;
   if (loading && !reentry) loading.hidden = false;
+  const prog = segPrep('#cut-loading');
+  if (!reentry) prog('read', null);
   let media = forDoc ? await db.getMedia(forDoc).catch(() => null) : null;
-  media = await segWorkingMedia(forDoc, media, current && current.title);
+  media = await segWorkingMedia(forDoc, media, current && current.title, prog);
   if (!current || current.id !== forDoc || activeTab !== 'cut') return;
   if (!media || !media.blob) {
     /* No recording ⇒ nothing to cut. The tab should not have been reachable, but say so rather than
@@ -1235,10 +1259,15 @@ async function prepareCutAudio() {
      * editor opens before the attach finishes) and for an assigned text whose audio is still
      * downloading. Telling those users "this text has no recording" is both wrong and alarming. */
     const coming = !!(current.pendingAudio || attachingAudioFor === forDoc);
-    if (loading) { loading.hidden = false; loading.textContent = t(coming ? 'seg.loadingAudio' : 'cut.noAudio'); }
+    /* ⚠ THE TEXT SPAN, NOT THE CONTAINER. Writing textContent on #cut-loading itself would delete
+     * the bar element inside it, and the next text that DOES load would then have no bar to fill. */
+    if (loading) {
+      loading.hidden = false;
+      segProgress(loading, t(coming ? 'seg.loadingAudio' : 'cut.noAudio'), coming ? null : 0);
+    }
     return;
   }
-  await ensurePeaks(forDoc, media.blob, (playerReadyFor === forDoc && player && player.decodedBuffer) ? player.decodedBuffer() : null);
+  await ensurePeaks(forDoc, media.blob, (playerReadyFor === forDoc && player && player.decodedBuffer) ? player.decodedBuffer() : null, prog);
   if (!current || current.id !== forDoc || activeTab !== 'cut') return;
   if (loading) loading.hidden = true;
   if (main) main.hidden = false;
@@ -1350,9 +1379,11 @@ function switchTab(tab, landing) {
       $('#segment-strips').hidden = true;
       $('#baseline-text').hidden = true;
       $('#seg-loading').hidden = false;
+      const prog = segPrep('#seg-loading');
+      prog('read', null);
       (async () => {
         let media = stripsFor ? await db.getMedia(stripsFor).catch(() => null) : null;
-        media = await segWorkingMedia(stripsFor, media, current && current.title);   // same WAV the player uses
+        media = await segWorkingMedia(stripsFor, media, current && current.title, prog);   // same WAV the player uses
         if (!current || current.id !== stripsFor || !isEditorTab(activeTab)) return;  // doc switched under us
         /* ⚠ NO AUDIO ⇒ THE CLASSIC EDITOR (Seth): "our app should fall back on the basic editor if
          * there's no attached audio file." Strips over a doc with no recording are all pending by
@@ -1366,7 +1397,7 @@ function switchTab(tab, landing) {
           $('#baseline-text').hidden = false;   // ⚠ LAST: applyBaseline reads DOM truth, so the
           return;                               //    value must be in place before it is visible.
         }
-        await ensurePeaks(stripsFor, media.blob, (playerReadyFor === stripsFor && player && player.decodedBuffer) ? player.decodedBuffer() : null);
+        await ensurePeaks(stripsFor, media.blob, (playerReadyFor === stripsFor && player && player.decodedBuffer) ? player.decodedBuffer() : null, prog);
         if (!current || current.id !== stripsFor || !isEditorTab(activeTab)) return;
         $('#seg-loading').hidden = true;
         $('#segment-strips').hidden = false;
@@ -1538,13 +1569,18 @@ function isAudioLocked(rec) {
  * working copy lives beside it under its own key and is a pure derivation (lossy→PCM adds no
  * information; this is a timeline fix, not an upgrade — see audio-archival-standards).
  */
-async function segWorkingMedia(docId, media, title = '') {
+async function segWorkingMedia(docId, media, title = '', onProgress) {
   if (!media || !media.blob) return media;
   const isWav = /wav$/i.test(media.mimeType || '') || /\.wav$/i.test(media.name || '');
   if (isWav || !segmentationEnabled()) return media;
   const key = 'segwav:' + docId;
   const cached = await db.getMedia(key).catch(() => null);
   if (cached && cached.blob && cached.srcName === media.name) return cached;
+  /* ⚠ ONLY PAST THE CACHE CHECK. Announcing the conversion before we know one is needed would flash
+   * 'preparing…' at every open of an already-converted text — a status line that cries wolf is the
+   * one people learn to read past. This point is reached only when the work is genuinely about to
+   * happen, and everything after it is seconds long on a field phone. */
+  if (typeof onProgress === 'function') onProgress('convert', null);
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const buf = await ctx.decodeAudioData(await media.blob.arrayBuffer());
@@ -3698,7 +3734,10 @@ function applyLiveSettings() {
 // apps by default; on a MANAGED device only if the researcher enabled it for that device (settings
 // .deleteAllEnabled). Off by default for managed devices.
 function deleteAllAllowed() {
-  return !Sync.hasSession() || loadSettings().deleteAllEnabled === true;
+  /* ⚠ adminUnlocked() OVERRIDES the researcher's setting, on purpose — see the admin drawer. The
+   * default (off for managed devices) protects a coworker from wiping their own work; it must not
+   * also stop the researcher holding that same phone from recovering it. */
+  return !Sync.hasSession() || loadSettings().deleteAllEnabled === true || adminUnlocked();
 }
 async function runDeleteAll() {
   if (!confirm(t('delall.confirm'))) return;
@@ -3941,7 +3980,7 @@ async function claimInvite(inviteId, secret, interactive) {
     const r = await Sync.claim(inviteId, secret);
     if (r.ok) {
       if (r.accepted) toast(t('invite.alreadyLinked'), 5000);   // reused (the other app's link): already set up
-      else showInviteConsent(r.researcher);                      // B: user must see who is connecting + accept
+      else showInviteConsent();                                  // B: the field user must approve this enrollment
       return true;
     }
     if (r.error === 'already_linked') { toast(t('invite.linkedElsewhere'), 9000); return true; }
@@ -4020,6 +4059,43 @@ function showInvitePasteModal() {
   setTimeout(() => wrap.querySelector('#invite-paste-box').focus(), 0);
 }
 
+/* THE PAIRING BANNER — the code, in large type, for as long as the pairing is unfinished.
+ *
+ * Seth, 2026-08-20: "show a large type, 6 digit random code that is persistent and visible on both
+ * devices until both ends have approved the pairing."
+ *
+ * ⚠ THE BUG THIS REPLACES, stated plainly because it is easy to reintroduce: the device's code used
+ * to live ONLY inside a 12-second toast. No screen in the editor would show it again — not Settings,
+ * not Help — while the researcher's panel went on refusing to approve until the coworker read it
+ * aloud. Someone who blinked was not inconvenienced, they were STUCK, and the only correct move left
+ * was to refuse. A value another party depends on must never be carried by a transient control.
+ *
+ * ⚠ SO IT COMES DOWN ON THE OUTCOME, NEVER ON A CLOCK — the same rule the panel's pending markers
+ * follow. Sync.pairCode() is '' once the poll has seen the approval, and that is the only thing that
+ * retires this. */
+let pairBannerEl = null;
+function refreshPairBanner() {
+  const code = (typeof Sync !== 'undefined' && Sync.pairCode) ? Sync.pairCode() : '';
+  if (!code) { if (pairBannerEl) pairBannerEl.hidden = true; return; }
+  if (!pairBannerEl) {
+    pairBannerEl = document.createElement('div');
+    pairBannerEl.id = 'pair-banner';
+    pairBannerEl.className = 'pair-banner';
+    /* aria-live so the code is ANNOUNCED when it appears, and role=status rather than alert: this is
+     * a standing state to be read at leisure, not an interruption. */
+    pairBannerEl.setAttribute('role', 'status');
+    pairBannerEl.setAttribute('aria-live', 'polite');
+    (document.body || document.documentElement).appendChild(pairBannerEl);
+  }
+  /* ⚠ SPACED-OUT DIGITS FOR THE SCREEN READER ONLY. "420349" is read as four hundred and twenty
+   * thousand three hundred and forty-nine, which nobody can compare against a panel; "4 2 0 3 4 9"
+   * is. The visible text stays unspaced so the two screens look identical. */
+  pairBannerEl.innerHTML = `<div class="pair-banner-title">${esc(t('pair.title'))}</div>`
+    + `<div class="pair-code" aria-label="${esc(t('invite.codeAria', { code: code.split('').join(' ') }))}">${esc(code)}</div>`
+    + `<div class="pair-banner-note">${esc(t('pair.note'))}</div>`;
+  pairBannerEl.hidden = false;
+}
+
 // The editor's entry point for the paste flow: a link at the bottom of the Help
 // view (admin territory, reachable via "?"), shown only while UNenrolled — the
 // recorder paints its own copy inside renderRecordView.
@@ -4056,17 +4132,32 @@ function applyInviteButton() {
 // B (enrollment consent): show WHO is enrolling this device (Google name + avatar) and require the
 // field user to Accept before anything flows — the worker won't deliver the data key until they do,
 // so a phished/hijacked invite is inert without a deliberate human OK. Re-shown on reload until decided.
-function showInviteConsent(researcher) {
+function showInviteConsent() {
   if (document.querySelector('[data-invite-consent]')) return;   // never stack
-  const r = researcher || {};
   const wrap = document.createElement('div');
   wrap.className = 'modal';
   wrap.dataset.inviteConsent = '1';
-  const av = r.avatar
-    ? `<img class="invite-avatar" src="${esc(r.avatar)}" alt="" referrerpolicy="no-referrer" width="56" height="56">` : '';
+  /* ⚠ THE RESEARCHER'S NAME, EMAIL AND FACE ARE NO LONGER SHOWN HERE (Seth, 2026-08-20). This
+   * screen used to answer "do you recognise this person?" with a photo and an address, which put a
+   * named individual's contact details on the lock screen of every device that opens an invite
+   * link — including one that later leaves the team's control. Minimising what a device carries
+   * about the people in a project is part of the privacy and research-ethics obligations this suite
+   * owes the communities it serves.
+   *
+   * ⚠ AND THE CHECK IT REPLACES IS STRONGER, not merely quieter. "Do you recognise this face" is
+   * answerable by anyone who has seen the researcher's public profile; "does this number match the
+   * one on their screen" is answerable only by someone actually in contact with them, about THIS
+   * pairing. The code is what the person is asked to verify, so the code is what this screen shows.
+   *
+   * ⚠ `researcher` is still ACCEPTED and still stored on the session — the recorder's own flow and
+   * the worker response both carry it, and removing it here is a UI decision, not a protocol one. */
+  const code = Sync.pairCode();
+  const codeBlock = code
+    ? `<p class="note">${esc(t('invite.codeIntro'))}</p><div class="pair-code" role="text" aria-label="${esc(t('invite.codeAria', { code: code.split('').join(' ') }))}">${esc(code)}</div>`
+    : `<p class="note">${esc(t('invite.codeMissing'))}</p>`;
   wrap.innerHTML = `<div class="modal-card" role="dialog" aria-modal="true">
     <h3>${esc(t('invite.title'))}</h3>
-    <div class="invite-who">${av}<div><div class="invite-name">${esc(r.name || t('invite.unknownName'))}</div>${r.email ? `<div class="note">${esc(r.email)}</div>` : ''}</div></div>
+    ${codeBlock}
     <p class="banner warn-banner">${esc(t('invite.warn'))}</p>
     <button class="primary-btn" data-iv="accept">${esc(t('invite.accept'))}</button>
     <button class="link-btn" data-iv="decline">${esc(t('invite.decline'))}</button>
@@ -4078,8 +4169,11 @@ function showInviteConsent(researcher) {
     const res = await Sync.accept();
     close();
     if (res.ok) {
-      const fp = await Sync.deviceFingerprint().catch(() => null);   // device code for the out-of-band check
-      toast(fp ? t('toast.linkedFp', { fp }) : t('toast.linked'), 12000);
+      /* ⚠ NO TOAST WITH THE CODE IN IT. That toast WAS this bug: it carried the only copy of a value
+       * the researcher's panel then refused to proceed without, and it expired. The banner below
+       * stays up until the pairing is approved, so the question "what is my code" has an answer for
+       * as long as anyone can be asking it. */
+      refreshPairBanner();
     } else toast(t('invite.acceptFailed'), 6000);
     if (RECORD_MODE) renderRecordList(); else renderDocList();
   });
@@ -6275,9 +6369,12 @@ function applyHelpResearchVisibility() {
 }
 
 function toggleResearchHidden() {
-  // On a managed install the gesture is the passphrase-gated way IN: open the researcher
-  // panel instead of exposing the local Settings tab (which stays remote-managed only).
-  if (Sync.hasSession()) { if (researcherPanelApi) researcherPanelApi.open(); return; }
+  /* ⚠ A managed install still does NOT get the local Settings tab — settings stay remote-managed.
+   * It used to open the researcher panel here instead; that route now lives as a button in the
+   * admin drawer (see applyAdminDrawer), because opening it from this function navigated away from
+   * the very drawer the gesture exists to reveal. Nothing is lost: the drawer opens on the same
+   * gesture and the panel is one tap further in. */
+  if (Sync.hasSession()) return;
   if (isResearchHidden()) {
     localStorage.removeItem(RESEARCH_HIDDEN_KEY);
     toast(t('research.enabled'));
@@ -6288,25 +6385,132 @@ function toggleResearchHidden() {
   applyResearchVisibility();
 }
 
+/* ---------------- THE ADMIN DRAWER — the back-door for a stuck device (Seth, 2026-08-20) --------
+ * "We need a back-door for researchers to be able to unpair stuck editor clients without data loss
+ * or clearing browser storage. Used to be clicking the help menu seven times exposed settings
+ * normally hidden. I think now what we should do is have that enable or disable the pair/unpair and
+ * erase all buttons at the bottom of the help menu, even if the researcher disabled them in the
+ * researcher panel."
+ *
+ * ⚠ WHY A LOCAL BACK-DOOR AT ALL, when the researcher panel can already revoke a device: because
+ * the panel's revoke travels over the NETWORK, and a device is usually "stuck" precisely when that
+ * route does not work — offline, a binding the worker no longer recognises, a session that will not
+ * settle. The panel can only fix a device that is still listening. This gesture works on a phone in
+ * a village with no signal, held in the researcher's hand.
+ *
+ * ⚠ AND IT OVERRIDES THE RESEARCHER'S OWN SETTING, deliberately. deleteAllEnabled is off by default
+ * for managed devices so a coworker cannot wipe their work by accident — a good default that
+ * becomes a trap the moment the device needs recovering and the person holding it is the researcher.
+ * The gesture is the distinction: seven deliberate taps is not something a wet screen or a barely
+ * literate user does by accident, which was the reason the gesture targets the small ? button
+ * rather than the title bar in the first place.
+ *
+ * ⚠ UNPAIRING IS NOT ERASING. Unpair drops the BINDING and the researcher's Drive links and keeps
+ * every text, recording and setting — that is the whole point of "without data loss or clearing
+ * browser storage". Delete-All is the other button and it is the destructive one. They sit together
+ * because they are found together, not because they are alike; the drawer says which is which. */
+const ADMIN_UNLOCK_KEY = 'flextext-admin-unlock';
+function adminUnlocked() { return !!localStorage.getItem(ADMIN_UNLOCK_KEY); }
+
+function toggleAdminUnlock() {
+  const on = !adminUnlocked();
+  if (on) localStorage.setItem(ADMIN_UNLOCK_KEY, '1');
+  else localStorage.removeItem(ADMIN_UNLOCK_KEY);
+  applyDeleteAllButton();      // its gate now answers differently
+  applyAdminDrawer();
+  /* ⚠ SHOW THE DRAWER, do not just announce it. The buttons live at the bottom of Help, so a
+   * researcher who fires the gesture from the texts list would otherwise be told something had
+   * happened somewhere they cannot see. Only on unlock — locking from inside Help should leave you
+   * where you are. */
+  if (on && currentView() !== 'help') openHelp();
+  toast(t(on ? 'admin.unlocked' : 'admin.locked'), 6000);
+}
+
+/* Unpair THIS device, locally and completely, without touching a single text.
+ *
+ * ⚠ LOCAL ONLY, and that is not a shortcut. There is no client→server "release" call — the worker
+ * learns a device is gone when the researcher revokes it in the panel, which is a separate and still
+ * necessary step. What this fixes is the DEVICE: a binding it cannot use is dropped so the app
+ * becomes standalone again and the coworker can keep working. Saying otherwise in the UI would be a
+ * lie about what the button did. */
+async function runAdminUnpair() {
+  if (!Sync.hasSession()) { toast(t('admin.unpairNone'), 6000); return; }
+  if (!confirm(t('admin.unpairConfirm'))) return;
+  Sync.clearSession();
+  /* The same scrub a researcher-initiated revoke does — a Drive folder this device may no longer
+   * reach must not be left behind claiming to be live. See onSyncRevoked for why consentAudioFile
+   * goes with them. */
+  const st = loadSettings();
+  for (const k of ['uploadFolder', 'uploadUrl', 'consentAudio', 'consentAudioUrl', 'consentAudioFile']) delete st[k];
+  saveSettings(st);
+  settings = loadSettings();
+  applyLiveSettings();
+  applyAdminDrawer();
+  toast(t('admin.unpairDone'), 10000);
+}
+
+/* The drawer itself: built once, then shown/hidden. It is APPENDED to the Help view, the same way
+ * the Delete-All and invite buttons already are, so there is one convention for "admin territory
+ * lives at the bottom of Help" rather than two. */
+function applyAdminDrawer() {
+  const view = $('#view-help'); if (!view) return;
+  let box = $('#admin-drawer');
+  if (!adminUnlocked()) { if (box) box.hidden = true; return; }
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'admin-drawer';
+    box.className = 'admin-drawer';
+    box.innerHTML = '<h3></h3><p class="note"></p>'
+      + '<button type="button" id="btn-admin-unpair" class="secondary-btn"></button>'
+      + '<button type="button" id="btn-admin-panel" class="secondary-btn"></button>';
+    box.querySelector('#btn-admin-unpair').addEventListener('click', runAdminUnpair);
+    /* ⚠ THE PANEL ROUTE MOVED HERE RATHER THAN DISAPPEARING. The gesture used to open the researcher
+     * panel outright on a managed install — the only way in on a coworker's phone, since the
+     * Researcher button is hidden unless an account is signed up on the device. Opening it outright
+     * is now wrong (it navigates away from the drawer this gesture exists to reveal), so it is a
+     * button in the drawer: same route, one more tap, and visible instead of secret. */
+    box.querySelector('#btn-admin-panel').addEventListener('click', () => {
+      if (researcherPanelApi) researcherPanelApi.open();
+    });
+    view.appendChild(box);
+  }
+  box.querySelector('h3').textContent = t('admin.title');
+  box.querySelector('p').textContent = t('admin.note');
+  const unpair = box.querySelector('#btn-admin-unpair');
+  unpair.textContent = t('admin.unpair');
+  unpair.disabled = !Sync.hasSession();
+  box.querySelector('#btn-admin-panel').textContent = t('admin.panel');
+  box.hidden = false;
+  /* ⚠ LAST, so the drawer is the bottom of the view even though Delete-All was appended earlier.
+   * Delete-All is the destructive one and belongs BELOW the recoverable controls, not above them. */
+  const del = $('#btn-delete-all');
+  if (del && del.parentNode === view) view.appendChild(del);
+}
+
 function setupResearchToggle() {
+  /* ⚠ ONE GESTURE, TWO JOBS, in this order. It still does what it always did — the Settings tab on a
+   * standalone device — and it now also toggles the admin drawer, which is the half that works when
+   * a device is stuck. Both, rather than a replacement, because the old behaviour is documented in
+   * the field and someone reaching for it should still find it. */
+  const fire = () => { toggleResearchHidden(); toggleAdminUnlock(); };
   // Desktop: Ctrl+Alt+R.
   document.addEventListener('keydown', (e) => {
     if (e.ctrlKey && e.altKey && !e.shiftKey && (e.key === 'r' || e.key === 'R')) {
       e.preventDefault();
-      toggleResearchHidden();
+      fire();
     }
   });
   // Touch devices have no keyboard: tap the small ? (Help) button 7× in quick
-  // succession to toggle the Research tab. Targeting the Help button — not the
-  // whole title bar — avoids accidental triggers from stray taps (barely
-  // literate users, wet screens), while staying recoverable without Ctrl+Alt+R.
+  // succession. Targeting the Help button — not the whole title bar — avoids accidental
+  // triggers from stray taps (barely literate users, wet screens), while staying
+  // recoverable without Ctrl+Alt+R.
   let taps = 0, last = 0;
   $$('.help-btn').forEach((el) => {
     el.addEventListener('click', () => {
       const now = Date.now();
       taps = now - last < 1500 ? taps + 1 : 1;
       last = now;
-      if (taps >= 7) { taps = 0; toggleResearchHidden(); }
+      if (taps >= 7) { taps = 0; fire(); }
     });
   });
 }
@@ -7589,6 +7793,15 @@ function setup() {
      * event on screen tying any of it together. One sentence turns three mysteries into one fact.
      * Shown long, because it changes what the person can do next. */
     onStatus: (kind) => {
+      /* Every status the sync engine reports is a possible end of the pairing — 'linked' takes the
+       * banner down, 'pending'/'needs-accept' keep it up. Cheap, and it means the banner cannot be
+       * left behind by a path nobody thought of. */
+      refreshPairBanner();
+      /* ⚠ AND SAY SO WHEN IT FINISHES. Removing the accept-time toast (it was the bug) left the
+       * successful end of a pairing with no event at all: the banner simply vanished, which reads as
+       * "something went wrong" quite as easily as "you are linked". onStatus('linked') fires once,
+       * on the transition, so this is the completion notice and cannot repeat every poll. */
+      if (kind === 'linked') toast(t('toast.linked'), 8000);
       if (kind !== 'revoked') return;
       toast(t('sync.revokedNotice'), 10000);
       updateShareButton();     // the Send button's contents just changed — repaint it now
@@ -7606,7 +7819,11 @@ function setup() {
   // re-shows the consent dialog. (handleInviteParam shows it for a fresh link; this covers a reload
   // without the link. The dialog guards against stacking, and a claim still in flight has no
   // instanceId yet, so pendingConsent() returns null until the claim lands.)
-  { const pend = Sync.pendingConsent(); if (pend) showInviteConsent(pend.researcher); }
+  { if (Sync.pendingConsent()) showInviteConsent(); }
+  /* ⚠ AND ON EVERY LOAD, not only when a status arrives. A device left overnight mid-pairing, or one
+   * whose user reloaded to "make it work", must come back up still showing its code — that reload is
+   * exactly what someone does when they think the app has lost their place. */
+  refreshPairBanner();
 
   // Language selector — present in both the editor and the recorder.
   const langSel = $('#lang-select');

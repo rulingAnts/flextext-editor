@@ -43,8 +43,33 @@ await call('POST', '/v1/researcher/admin/backfill-projects', OWNER, {});
 console.log('a project id is DISCOVERABLE — the members routes are unreachable otherwise');
 const list = await call('GET', '/v1/projects', OWNER);
 ok(list.status === 200, `GET /v1/projects is 200 (got ${list.status})`);
-const projectId = list.json && list.json.owned && list.json.owned[0] && list.json.owned[0].project_id;
-ok(!!projectId, `it returns the owned project's id (${projectId ? 'yes' : 'NO — everything below is unaddressable'})`);
+const owned = (list.json && list.json.owned) || [];
+const projectId = (owned.find((p) => p.drive_folder_id) || {}).project_id;
+const unmigratedId = (owned.find((p) => !p.drive_folder_id) || {}).project_id;
+ok(!!projectId, `it returns the MIGRATED project's id (${projectId ? 'yes' : 'NO — everything below is unaddressable'})`);
+ok(!!unmigratedId, 'and the unmigrated one, which the gate below needs');
+
+console.log('\nsharing is REFUSED until the owner has migrated to project folders');
+{
+  /* ⚠ Seth, 2026-08-20: *"No researcher sharing if the researcher hasn't migrated to the project
+   * model and doesn't have project folders."* The reason is structural rather than procedural: a
+   * member is confined to a project FOLDER — they must not reach *"the root folder outside of
+   * projects shared with them"* — so their file listing has to be ROOTED at that folder. On a flat,
+   * unmigrated estate the devices sit directly under master and there is no subtree to root at, so
+   * the confinement has nothing to stand on.
+   *
+   * Refused at the moment a person is present to be told. Added-but-sees-nothing is indistinguishable
+   * from a bug, and the owner would have no way to tell which it was. */
+  const res = await call('POST', `/v1/projects/${unmigratedId}/members`, OWNER, {
+    researcher_id: FIXTURE.outsiderId, caps: {},
+  });
+  ok(res.status === 409 && res.json && res.json.error === 'not_migrated',
+     `⚠ an unmigrated project refuses to be shared (got ${res.status} ${res.json && res.json.error})`);
+  ok(res.json && /migrate/i.test(res.json.message || ''),
+     'and says what to do about it, not merely that it failed');
+  ok((await call('GET', `/v1/projects/${unmigratedId}/members`, OWNER)).json.members.length === 0,
+     'and nobody was added — the refusal is before the write, not a rollback after it');
+}
 
 console.log('\nbefore being added, the guest is nobody');
 {

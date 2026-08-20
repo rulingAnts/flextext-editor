@@ -1222,6 +1222,44 @@ successfully and more failure-prone or less secure"*:
   to."* Dropping it means members get NO Drive access — which is where the code already sits today
   (the account-wide routes are inert for members), so that fallback needs no work, only a decision.
 
+### WORKING TOWARD: moving texts BETWEEN projects (Seth, 2026-08-20)
+
+> *"We do want to keep at least in consideration a future plan to be able to move texts across
+> projects as long as the person doing the move has access to both projects (and the owner should be
+> able to allow or disallow permission to an invited researcher to transfer texts out of the project
+> to other projects)."* And: *"Doesn't necessarily need to be implemented right now, but it is a
+> feature we're working toward."*
+
+Not built. Recorded because three things about it are cheap to note now and expensive to discover
+during implementation.
+
+**1. ⚠ It needs TWO grant resolutions, not one — and that is a shape, not a difficulty.** Every
+capability so far is *may X do this inside project P*, and `authMember` resolves exactly one project
+per call. A cross-project move is the first operation that is a relationship BETWEEN two projects:
+it must resolve the SOURCE (with the transfer-out capability) and the DESTINATION (with the right to
+receive) separately, then act. Two calls to the existing helper compose into that cleanly; trying to
+express it as one resolution is the wrong turn, and the tempting one.
+
+**2. ⚠ The capability is DIRECTIONAL, which is unusual here and easy to make symmetric by accident.**
+Seth's phrasing is *"transfer texts OUT of the project"* — the source owner controls whether their
+assistant may export work elsewhere. Receiving is governed by the destination's own capabilities.
+A single `moveTexts` boolean checked on both ends would collapse that distinction and hand the
+source owner's veto to the destination.
+
+**3. ⚠ Cross-project is NOT the existing move.** `/v1/instances/<id>/texts/<docId>/move` moves a text
+between DEVICES within one owner's estate (v1.js:3864), and `projects/assign` moves CONTAINERS, never
+texts (v1.js:3195). Neither is this operation; both are useful precedent for the Drive mechanics
+(re-parent by id, tokens name fileIds so nothing is orphaned).
+
+**Open question to settle when it is built, not now:** Ki is per-instance and `member_key` grants are
+per-project, so a text arriving in another project lands where the existing grants do not reach.
+Today's `/move` sidesteps this by minting fresh Drive URLs from the OWNER's account rather than
+re-wrapping keys — that may extend cleanly, or may not when the two projects have different owners.
+Flagged as a question rather than assumed either way.
+
+Nothing in Phase C forecloses it, and the per-project Unassigned that this section already requires
+is a prerequisite either way.
+
 ### FUTURE, NOT NOW: recursive projects
 
 Seth, 2026-08-20: *"Eventually we may consider having the ability for projects to be recursive — that

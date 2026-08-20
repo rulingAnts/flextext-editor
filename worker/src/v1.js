@@ -2452,6 +2452,31 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       if (who === ctx.owner.researcher_id) return j({ error: 'owner_is_not_a_member' }, 400, origin, env);
       const caps = validateCaps(body.caps);
       if (!caps) return j({ error: 'bad_caps' }, 400, origin, env);
+      /* ⚠ NO SHARING BEFORE THE OWNER HAS MIGRATED TO PROJECT FOLDERS (Seth, 2026-08-20): *"No
+       * researcher sharing if the researcher hasn't migrated to the project model and doesn't have
+       * project folders."*
+       *
+       * The boundary a member is confined to IS a Drive project folder — Seth's rule is that they
+       * must not reach *"the root folder outside of projects shared with them"*, so a member's file
+       * listing has to be ROOTED at that folder rather than walked from the account master and
+       * filtered afterwards. On a FLAT, unmigrated estate the device folders sit directly under
+       * master and there is no such subtree to root at, so the confinement has nothing to stand on.
+       *
+       * `drive_folder_id` is exactly that signal: reconcileProjects stamps it from the researcher's
+       * real Drive project folder, and it stays NULL when there is none. Refusing HERE — at the one
+       * moment a person is present to be told — is the whole point; discovering it later means a
+       * member who was added successfully and can see nothing, with no way to tell that from a bug.
+       *
+       * ⚠ Fails closed for a Drive outage or a disconnected account too, which is correct: all three
+       * are "there is no project folder to confine them to". Self-healing — the reconcile runs on
+       * every panel load, so migrating and reopening the panel clears it with nothing to re-run. */
+      const home = await env.DB.prepare('SELECT drive_folder_id FROM project WHERE project_id=?')
+        .bind(projectId).first();
+      if (!home || !home.drive_folder_id) {
+        return j({ error: 'not_migrated',
+                   message: 'This project has no Drive project folder yet. Migrate the estate to projects before sharing it.' },
+                 409, origin, env);
+      }
       /* The grantee must EXIST and be approved. A membership row naming nobody is unreachable
        * forever, and the owner would have no way to tell it from a working one. */
       const them = await env.DB.prepare('SELECT researcher_id FROM researcher WHERE researcher_id=? AND approved=1')

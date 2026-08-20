@@ -49,6 +49,9 @@ export const FIXTURE = {
   outsiderId: '00000000-0000-4000-8000-000000000002',
   outsiderSecret: 'local-rig-outsider-secret-not-a-real-credential',
   outsiderEmail: 'outsider@example.invalid',
+  /* One project WITH a Drive folder and one WITHOUT — the two sides of the sharing gate. */
+  migratedProjectId: '00000000-0000-4000-8000-0000000000b1',
+  unmigratedProjectId: '00000000-0000-4000-8000-0000000000b2',
 };
 
 const sha256hex = (s) => createHash('sha256').update(s).digest('hex');
@@ -85,6 +88,21 @@ INSERT INTO researcher (researcher_id, secret_hash, email_sha256, settings_blob,
 VALUES ('${FIXTURE.outsiderId}', '${sha256hex(FIXTURE.outsiderSecret)}',
         '${sha256hex('outsider-email-key')}', '{}', 0, ${now},
         'local-rig-outsider-sub', '${FIXTURE.outsiderEmail}', 'Local Rig Outsider', 1, 'oauth');
+
+/* ⚠ TWO PROJECTS, ONE MIGRATED AND ONE NOT — because sharing is gated on the owner having a real
+ * Drive project folder (Seth, 2026-08-20: "No researcher sharing if the researcher hasn't migrated
+ * to the project model"). The rig has no Google, so reconcileProjects can never resolve a folder
+ * here and EVERY project would otherwise be unmigrated — leaving the gate either untestable or
+ * permanently on. Seeding both states is what makes the refusal AND the success path reachable
+ * without a test-only backdoor in the worker, which is the thing this codebase must not grow.
+ *
+ * The migrated one is created FIRST so backfillProjectsFor adopts the instances into it
+ * (ORDER BY created_at LIMIT 1) and finds drive_folder_id already set, skipping the Drive call. */
+DELETE FROM project;
+INSERT INTO project (project_id, owner_id, name, created_at, drive_folder_id)
+VALUES ('${FIXTURE.migratedProjectId}', '${FIXTURE.researcherId}', 'Rig Migrated Project', ${now}, 'rig-drive-folder-migrated');
+INSERT INTO project (project_id, owner_id, name, created_at, drive_folder_id)
+VALUES ('${FIXTURE.unmigratedProjectId}', '${FIXTURE.researcherId}', 'Rig Unmigrated Project', ${now + 1000}, NULL);
 
 DELETE FROM session;
 INSERT INTO session (session_id, researcher_id, secret_hash, created_at, last_seen_at, expires_at,

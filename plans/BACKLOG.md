@@ -2144,6 +2144,57 @@ being UTC *and* the absence of any label.
 would rewrite history for cosmetics — and folder names are display-only precisely so nothing depends
 on them (identity is the `flextextDoc` tag), so old names can simply stay wrong.
 
+## Export to Bloom books / Bloom Library (SIL) — explore next week (Seth, 2026-08-20)
+
+> *"for the sake of interesting stakeholders who aren't interested in linguistics and language
+> documentation for its own sake until they see it applied to things they care about: explore an
+> export path from our app's results to Bloom books (Bloom Library by SIL)."*
+
+**The strategic point is the real one.** A recorded, transcribed, translated text is an artefact only
+a linguist values. The same content as a *book a child can read and hear* is legible to funders,
+churches, education offices and communities themselves. This is the shortest path from what the app
+already produces to something a non-specialist can hold.
+
+### ⚠ The piece that makes this OURS rather than a generic export
+
+Bloom's **Talking Book** feature pairs audio with text blocks — and segmentation already gives us
+**per-phrase time offsets against the original recording** (§ Audio Segmentation Mode). Most people
+making a talking book have to record it phrase by phrase inside Bloom; we would arrive with a natural
+recording already aligned. That is a real advantage and it is worth leading with.
+
+### What maps, and what does not — say this out loud rather than discovering it in a demo
+
+| FlexText | Bloom |
+|---|---|
+| baseline phrase | a text block on a page (vernacular) |
+| free translation | the second language field on the same page |
+| aligned segment times | per-block talking-book audio |
+| **word glosses** | **nothing — lost in this direction** |
+| — | **images, which we have none of** |
+
+⚠ **So the export is a SCAFFOLD, not a finished book**, and it must be described that way. A book with
+no pictures is not a book anyone wants; somebody still has to illustrate it. Overselling this to a
+stakeholder is worse than not building it.
+
+### Verify before committing to a shape (a morning's work, not a guess)
+
+- **The package format** — a Bloom book is HTML-plus-assets in a folder; `.bloomPUB` is the bundled
+  form. Confirm what current Bloom actually imports, and from which version.
+- ⚠ **The audio model.** Bloom has historically wanted ONE AUDIO FILE PER TEXT BLOCK rather than
+  offsets into a long recording. If that still holds, export must SPLIT the recording per segment —
+  which we can already do (the preview page does per-segment playback, and `seg-exports.js` writes
+  derived WAVs), but it changes the deliverable from "one file plus timings" to "N files plus a
+  manifest", and that is the difference between an afternoon and a week.
+- **Language codes** — we hold vern/anal writing systems; Bloom uses BCP-47. Probably a direct map,
+  worth confirming against a real book.
+
+### Scope the first attempt narrowly
+
+Produce a FILE the researcher imports into Bloom. ⚠ Do NOT start with Bloom Library upload — that is
+an account, an API and a publishing decision (who owns it, what licence, is the community consenting
+to public hosting) and it drags the consent model in with it. One thing at a time: a file first, and
+whether it should ever be published is a separate conversation with its own ethics.
+
 ## Three deferred at the projects release (Seth, 2026-08-20) — none a blocker
 
 Recorded at the moment of shipping, with their priority as stated rather than as re-guessed later.

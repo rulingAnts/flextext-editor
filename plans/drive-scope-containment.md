@@ -49,11 +49,42 @@ That distinction produces two consequences, and the second is the counterintuiti
   grant followed the file at creation. Nothing here depends on that, but anyone reasoning about
   containment should know the boundary is the *set of files we made*, not the folder they sit in.
 
-There is no narrower scope that would work. `drive.appdata` is tighter still, but it writes to a
-hidden application-data folder the user cannot see or share — and the entire point of this suite is
-that a researcher's texts and recordings are **their own visible files in their own Drive**, shareable
-with FLEx, with ELAN, with a colleague. Trading that away for a scope reduction would break the data
-custody model, which is the more important protection.
+## `drive.appdata` — considered, and rejected on the arithmetic
+
+Seth, 2026-08-20: *"Actually, drive.appdata would be OK with me. It's OK with me if they can only
+access files through the researcher panel, as long as that route actually works."*
+
+⚠ **It buys nothing against the risk that prompted the question.** Both scopes give the app access to
+exactly zero of a researcher's other files. `drive.file` reaches only files this app created;
+`drive.appdata` reaches only files this app created inside a hidden folder. For *"a hole in our suite
+must not reach their wider Drive"*, the protection is already total, and it is enforced at Google
+rather than by our code. The difference between the two scopes is not containment at all — it is who
+ELSE can see the FlexText files. Which is a custody question, and the answer there runs the other way:
+
+- **Application-data files cannot be shared with anyone, ever.** Permissions cannot be set on them.
+  That makes the next two items on the roadmap — an owner inviting a guest researcher to a project,
+  and transferring devices or ownership between researchers — not difficult but structurally
+  impossible.
+- **Existing estates cannot be moved there.** `appDataFolder` and `drive` are separate spaces, and
+  files are not re-parented across them. Migrating live accounts would mean downloading every text
+  and recording and re-uploading it, leaving the originals behind: a bulk migration over real field
+  data, bought with no reduction in reach.
+- **The archival story inverts, and this is the one that matters most.** Today a researcher's texts
+  are their own visible files: they open in FLEx and ELAN, they can be handed to a colleague or an
+  archive, and they outlive this software. In the app-data folder they are invisible, retrievable
+  only through our own panel, and effectively unrecoverable if this project ever stops running. For
+  a suite holding the language, voices and consent records of indigenous communities, durable
+  custody by the community's own researcher is a protection, not a convenience — and appdata trades
+  it away for a security improvement of zero.
+
+**The one genuine difference, and what was done about it.** Under `drive.file`, a file the USER
+selects in a Google Picker becomes reachable by the app. That is the only route by which this suite
+could ever hold a handle on something it did not create, and `drive.appdata` has no equivalent. It
+cannot open by accident — someone has to add the Picker — so it is pinned by assertion instead:
+`test/google-only-auth.test.mjs` fails if `google.picker`, `apis.google.com` or `gapi.` appears in
+client code. That single line buys the whole appdata guarantee while keeping visible, shareable,
+archivable files. If a future feature genuinely needs a file the researcher already owns, that is the
+moment to re-open this deliberately.
 
 ⚠ **A widening would also cost far more than the code change suggests.** `drive.file` is not a
 restricted scope. Moving to `drive` or `drive.readonly` would pull the project into Google's

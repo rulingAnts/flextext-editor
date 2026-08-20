@@ -92,6 +92,24 @@ console.log('\nthe Drive scope is drive.file and nothing wider');
   const panel = read('../docs/js/app.js') + read('../docs/js/researcher.js') + read('../docs/js/upload.js');
   ok(!/accounts\.google\.com|auth\/drive/.test(panel),
      'and no client-side code mints a Google token of its own — the worker is the one chokepoint');
+  /* ⚠ NO GOOGLE PICKER. THIS IS THE ONE ASSERTION THAT MAKES drive.file AS TIGHT AS drive.appdata.
+   *
+   * Seth, 2026-08-20, considering appdata: "It's OK with me if they can only access files through
+   * the researcher panel." The containment he was after is already ours — both scopes reach exactly
+   * zero of a researcher's other files — with ONE exception. Under drive.file, a file the USER
+   * selects in a Google Picker becomes reachable by the app. That is the only route by which this
+   * suite could ever hold a handle on something it did not create, and it cannot open by accident:
+   * someone has to add the Picker.
+   *
+   * So this assertion is what lets us keep visible, shareable, archivable files in the researcher's
+   * own Drive — which appdata would have cost us, along with sharing a project, transferring
+   * ownership, and any recovery of the data if this project stops running — while giving up nothing
+   * in reach. If a future feature wants a file the researcher already owns, that is the moment to
+   * re-open this deliberately, not to quietly satisfy the grep. */
+  const clients = ['../docs/js/app.js', '../docs/js/researcher.js', '../docs/js/researcher-panel.js',
+                   '../docs/js/upload.js'].map(read).join('');
+  ok(!/google\.picker|apis\.google\.com|gapi\./.test(clients),
+     '⚠ no Google Picker — the ONLY way drive.file could reach a file this app did not create');
 }
 
 console.log('\nan unreadable scope degrades, it does not deny');

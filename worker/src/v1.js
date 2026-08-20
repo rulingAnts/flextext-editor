@@ -2050,6 +2050,35 @@ export async function handleV1(request, env, ctx, url, path, origin) {
   if (m === 'GET' && seg.length === 2 && seg[1] === 'researcher') {
     const r = await authResearcher(request, env);
     if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    /* ⚠ SELF-HEALING PROJECT CREATION, and it is not an optimisation — without it this design has a
+     * hole that opens the day after the backfill runs (Seth, 2026-08-20: "will we have a way for our
+     * researchers to move forward without having to paste code in their JS consoles?").
+     *
+     * NOTHING creates a project at signup. The operator backfill mints one per EXISTING researcher
+     * and then it is done; an account created afterwards has none. That is harmless today, but Phase
+     * C authorizes from `instance.project_id`, and invariant I4 says an unresolvable grant DENIES —
+     * so the new researcher would fail closed and be locked out of their own devices, with the only
+     * remedy being an operator re-running a backfill nobody knew was needed.
+     *
+     * A one-time migration that has to be re-run for every new arrival is not a migration, it is a
+     * standing chore. So the same idempotent routine runs lazily here: if the caller has no project,
+     * they get one now.
+     *
+     * ⚠ SELF-LIMITING BY CONSTRUCTION, which is what makes it safe on a route the panel polls every
+     * 12 seconds. The cost in the normal case is ONE indexed lookup on `project(owner_id)`. The
+     * expensive branch runs only when that returns nothing, and its FIRST act is to write the row
+     * that makes it never run again — so even if the Drive half fails, it cannot loop.
+     *
+     * ⚠ AND IT MUST NEVER FAIL THE DASHBOARD. A researcher whose panel will not load because their
+     * project could not be minted is strictly worse off than one with no project row, so this
+     * swallows and warns. The operator backfill remains as the deliberate, reportable repair. */
+    if (isApproved(r, env)) {
+      try {
+        const mine = await env.DB.prepare('SELECT project_id FROM project WHERE owner_id=? LIMIT 1')
+          .bind(r.researcher_id).first();
+        if (!mine) await backfillProjectsFor(env, r, now);
+      } catch (e2) { try { console.warn('lazy project mint failed for', r.researcher_id, safeErr(e2)); } catch { /* noop */ } }
+    }
     /* MAINTENANCE NOTICE — an operator-set flag, read on the poll the panel already makes.
      *
      * ⚠ RIDES THIS RESPONSE ON PURPOSE. The panel polls it every 12 s, so the notice appears and

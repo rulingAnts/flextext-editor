@@ -70,5 +70,34 @@ console.log('\nboth namespaces are written in ONE act, so they cannot drift');
   ok(/UPDATE crowd_recorder SET project_id=\?/.test(assign), 'crowd recorders move too');
 }
 
+/* ── A ONE-TIME MIGRATION THAT MUST BE RE-RUN IS A STANDING CHORE ──────────────────────────────
+ * Seth, 2026-08-20: "will we have a way for our researchers to move forward without having to paste
+ * code in their JS consoles?"
+ *
+ * ⚠ THE HOLE THAT QUESTION FOUND. Nothing creates a project at signup — the operator backfill mints
+ * one per EXISTING researcher and is then finished. An account created the next day has none, and
+ * Phase C authorizes from instance.project_id with I4 saying an unresolvable grant DENIES. So the
+ * new researcher fails closed, locked out of their own devices, and the only remedy is an operator
+ * re-running a backfill nobody knew was needed. */
+console.log('\na researcher who signs up tomorrow gets a project without anyone being asked');
+{
+  const at = worker.indexOf("// GET /v1/researcher — control-panel view");
+  const route = worker.slice(at, at + 2600);
+  ok(/SELECT project_id FROM project WHERE owner_id=\? LIMIT 1/.test(route),
+     'the dashboard checks whether the caller has a project');
+  ok(/if \(!mine\) await backfillProjectsFor\(env, r, now\);/.test(route),
+     '...and mints one with the SAME idempotent routine, rather than a second implementation');
+  ok(/if \(isApproved\(r, env\)\) \{/.test(route),
+     'only for an approved account — a pending one has nothing to own yet');
+  ok(/catch \(e2\)[\s\S]{0,120}?lazy project mint failed/.test(route),
+     '⚠ and it can never fail the dashboard — a panel that will not load is worse than a missing row');
+  /* ⚠ The self-limiting property is what makes this safe on a route polled every 12s: the expensive
+   * branch runs only when the lookup returns nothing, and backfillProjectsFor's FIRST act is to
+   * write the row that stops it running again. */
+  const bf = worker.match(/async function backfillProjectsFor[\s\S]*?\n\}/)[0];
+  ok(bf.indexOf('INSERT INTO project') < bf.indexOf('driveEnsureDefaultProject'),
+     '⚠ the D1 row is written BEFORE the Drive call, so a Drive failure cannot make this loop');
+}
+
 console.log(fail ? `\nFAILED (${fail})` : '\nPASSED');
 process.exit(fail ? 1 : 0);

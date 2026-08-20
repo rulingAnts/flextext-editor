@@ -2144,6 +2144,40 @@ being UTC *and* the absence of any label.
 would rewrite history for cosmetics — and folder names are display-only precisely so nothing depends
 on them (identity is the `flextextDoc` tag), so old names can simply stay wrong.
 
+## Project-level default settings — after the multi-researcher release (Seth, 2026-08-20)
+
+> *"We will want to have project-level default settings for new devices with the ability to apply
+> those settings to daughter devices. But that's for later, after we get the multiple researchers
+> release working later today."*
+
+**It is a TEMPLATE, not inheritance** — and the wording says so: *defaults for new devices*, plus an
+explicit *apply to daughter devices*. That is the simpler and much safer of the two shapes:
+
+| template (this) | live inheritance (not this) |
+|---|---|
+| copied into a device at creation; the device then owns its settings and may diverge | the project's value wins continuously, and a device's own setting is either overridden or a permanent exception |
+| "apply to all" is a deliberate act with a visible before/after | every project edit silently rewrites every device, including ones tuned for a reason |
+| no new precedence rules anywhere | every read of a setting needs to know which layer won |
+
+⚠ **It probably needs NO new storage and NO worker change.** Device settings already live in the
+researcher's E2EE settings blob (`settingsCache`, wrapped under Kr, `desired_blob`/`desired_rev` per
+instance). A project default is one more key in that same blob, keyed by the project's FOLDER ID —
+the same identifier the estate already uses. No D1 column, no new authority, nothing to drift, and
+the worker keeps seeing only ciphertext.
+
+**Two rules to carry over from the migration work, because they are the same problem:**
+
+- ⚠ **"Apply to daughter devices" OVERWRITES settings somebody may have tuned per device** — a
+  recording format chosen for one handset, a consent mode for one village. It must PREVIEW: which
+  devices, which settings, what changes to what. Same discipline as the folder migration, for the
+  same reason.
+- **A device created into a project takes the template at birth** — which is exactly the path v426
+  built for folders (`projectFolderId` at instance creation), so the hook already exists.
+
+⚠ **Sequenced explicitly AFTER the multi-researcher release**, and not merely by preference: project
+defaults are settings that a MEMBER may or may not be allowed to change, so building them before the
+grant model exists would bake in an answer to a question that has not been asked yet.
+
 ## The scheduled DRIFT DETECTOR — designed, not built (Seth, 2026-08-19)
 
 > ⚠ **SEQUENCED, and the order is deliberate** (Seth): *"Let's do these audits as soon as we've

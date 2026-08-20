@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v430';
+export const ENGINE_VERSION = 'v431';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -682,6 +682,22 @@ en: {
   'install.text': 'You can install this app on your device — it then works without internet, like a normal app.',
   'install.btn': 'Install app',
   'install.done': 'App installed — find it on your home screen or desktop.',
+  /* ⚠ THE LEGACY-ORIGIN NOTICE. The old site still WORKS, which is exactly why it needs saying: a
+   * device can sit there for months looking healthy while receiving no updates.
+   *
+   * ⚠ Step order is data safety. A PWA's identity is its ORIGIN, so the new site is a DIFFERENT
+   * installed app with empty storage — the texts on this device do not follow, and nothing can carry
+   * them across. Upload FIRST; after re-pairing on the new site, anything not uploaded is stranded
+   * here. Texts do not need deleting, only uploading — they come back by assignment. */
+  'legacy.warn': 'This device is paired using an old website that is no longer receiving updates.',
+  'legacy.how': 'How to move it to the new site',
+  'legacy.title': 'Moving this device to the new site',
+  'legacy.why': 'The new site is a separate app on your device, so the texts stored here do not move across on their own. Upload them first and they will come back to the new one.',
+  'legacy.step1': 'Upload every text on this device, so nothing is left behind. You do not need to delete anything.',
+  'legacy.step2': 'Ask your researcher to unlink this device and send you a new invite link.',
+  'legacy.step3': 'Open the new link and pair again. Your researcher can then send your texts back to you.',
+  'legacy.keep': 'Until you do this, the app here keeps working \u2014 it just stops getting improvements and fixes.',
+  'legacy.close': 'Close',
   'webkit.warning': 'This app does not fully work in Safari, or in any browser on an iPhone or iPad. On Apple phones and tablets, even Chrome and Firefox secretly use Safari underneath, so switching browsers there will not help. On a Mac, use Chrome or Firefox instead of Safari. On an iPhone or iPad, switch to a computer (Windows, Mac, or Linux) or an Android device.',
 
   'help.title': 'Help',
@@ -2405,6 +2421,15 @@ id: {
   'install.text': 'Aplikasi ini bisa dipasang di perangkat Anda — setelah itu bisa dipakai tanpa internet, seperti aplikasi biasa.',
   'install.btn': 'Pasang aplikasi',
   'install.done': 'Aplikasi terpasang — cari di layar utama atau desktop.',
+  'legacy.warn': 'Perangkat ini dipasangkan lewat situs lama yang sudah tidak lagi menerima pembaruan.',
+  'legacy.how': 'Cara memindahkannya ke situs baru',
+  'legacy.title': 'Memindahkan perangkat ini ke situs baru',
+  'legacy.why': 'Situs baru adalah aplikasi terpisah di perangkat Anda, jadi teks yang tersimpan di sini tidak ikut berpindah dengan sendirinya. Unggah dulu, nanti teksnya kembali di aplikasi yang baru.',
+  'legacy.step1': 'Unggah semua teks di perangkat ini supaya tidak ada yang tertinggal. Anda tidak perlu menghapus apa pun.',
+  'legacy.step2': 'Minta peneliti Anda melepas tautan perangkat ini dan mengirimkan tautan undangan yang baru.',
+  'legacy.step3': 'Buka tautan baru itu lalu pasangkan lagi. Peneliti Anda kemudian dapat mengirimkan teks-teks Anda kembali.',
+  'legacy.keep': 'Sampai Anda melakukannya, aplikasi di sini tetap berjalan \u2014 hanya saja tidak lagi mendapat perbaikan dan peningkatan.',
+  'legacy.close': 'Tutup',
   'webkit.warning': 'Aplikasi ini tidak berfungsi penuh di Safari, atau di browser apa pun pada iPhone atau iPad. Di ponsel dan tablet Apple, bahkan Chrome dan Firefox memakai Safari di belakang layar, jadi berganti browser di sana tidak akan membantu. Di Mac, pakai Chrome atau Firefox, bukan Safari. Di iPhone atau iPad, gunakan komputer (Windows, Mac, atau Linux) atau perangkat Android.',
 
   'help.title': 'Bantuan',

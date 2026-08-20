@@ -1324,6 +1324,10 @@ main {
   border-bottom: 2px solid var(--border); margin-bottom: 8px; }
 .rp-store-phead .note { font-weight: 400; }
 .rp-store-project > .rp-store-group { margin-left: 12px; }
+/* The legacy-origin directions. A plain numbered list — the ORDER is the content here (upload
+ * before re-pairing, or the texts are stranded), so it must read as steps rather than as advice. */
+.legacy-steps { margin: 12px 0; padding-left: 22px; }
+.legacy-steps li { margin: 8px 0; }
 /* Destination TILES. The radio stays the control (keyboard, screen readers, group semantics) and is
  * visually hidden; the whole label is the hit target and highlights when checked.
  *

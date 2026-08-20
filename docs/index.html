@@ -59,6 +59,14 @@
 
 <main>
 
+<!-- ⚠ LEGACY ORIGIN. Shown ONLY on rulingants.github.io, where the app still runs but no longer
+     receives updates. Deliberately NOT dismissible: a device that quietly stops updating is the
+     failure this is warning about, so a dismissed banner would hide exactly the thing it exists
+     to say. -->
+<div id="legacy-origin" class="banner warn-banner" hidden>
+  <span data-i18n="legacy.warn"></span>
+  <button id="legacy-how" class="link-btn" data-i18n="legacy.how"></button>
+</div>
 <div id="webkit-warning" class="banner warn-banner" hidden>
   <span data-i18n="webkit.warning"></span>
   <button class="banner-dismiss" data-dismiss="webkit-warning" title="✕">✕</button>

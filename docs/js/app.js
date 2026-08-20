@@ -6965,7 +6965,54 @@ function updateInstallBanner() {
   $('#install-banner').hidden = !installPrompt || isStandalone() || !!dismissed;
 }
 
+/* ⚠ THE LEGACY ORIGIN NOTICE — rulingants.github.io only, inert everywhere else.
+ *
+ * The Pages estate still serves a working app, and that is the danger: it keeps working while
+ * receiving no updates, so a device can sit there for months looking healthy. Seth: "this device is
+ * paired using an old website that is no longer receiving updates."
+ *
+ * ⚠ THE DIRECTIONS' ORDER IS DATA-SAFETY, NOT TIDINESS. A PWA's identity is its ORIGIN, so moving to
+ * the new site gives a DIFFERENT installed app with an empty IndexedDB — the local texts do not
+ * follow, and nothing can carry them across (the Drive re-parenting machinery works on folders, not
+ * on browser storage). So uploading comes FIRST: after the device is revoked and re-paired on the
+ * new origin, anything not uploaded is stranded on the old one and unreachable.
+ *
+ * Texts do NOT need removing — only uploading. They return by assignment from Drive. */
+const LEGACY_ORIGIN_HOST = 'rulingants.github.io';
+
+function legacyDirectionsModal() {
+  const wrap = document.createElement('div');
+  wrap.className = 'modal';
+  wrap.innerHTML = `<div class="modal-card" role="dialog" aria-modal="true">
+    <h3>${esc(t('legacy.title'))}</h3>
+    <p class="note">${esc(t('legacy.why'))}</p>
+    <ol class="legacy-steps">
+      <li>${esc(t('legacy.step1'))}</li>
+      <li>${esc(t('legacy.step2'))}</li>
+      <li>${esc(t('legacy.step3'))}</li>
+    </ol>
+    <p class="note">${esc(t('legacy.keep'))}</p>
+    <button class="primary-btn" data-close>${esc(t('legacy.close'))}</button>
+  </div>`;
+  document.body.appendChild(wrap);
+  const close = () => wrap.remove();
+  wrap.querySelector('[data-close]').addEventListener('click', close);
+  wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
+  document.addEventListener('keydown', function onKey(e) {
+    if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey, true); }
+  }, true);
+}
+
 function setupBanners() {
+  if (location.hostname === LEGACY_ORIGIN_HOST) {
+    const el = $('#legacy-origin');
+    if (el) {
+      el.hidden = false;
+      const how = $('#legacy-how');
+      if (how) how.addEventListener('click', legacyDirectionsModal);
+    }
+  }
+
   // Dismiss buttons (persisted per banner).
   $$('.banner-dismiss').forEach(b => b.addEventListener('click', () => {
     const id = b.dataset.dismiss;

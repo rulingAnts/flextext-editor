@@ -315,22 +315,67 @@ separate stores). It is to stop *asserting* a failure the client cannot verify: 
 failure say the device **may** have been created and re-render the dashboard, so the truth is on
 screen rather than in a claim.
 
-### The "shows in two tabs" half is NOT explained, and needs the researcher's actual rows
+### The "shows in two tabs" half IS explained — the panel does not refresh what decides the tab
 
-`projectScope()` partitions D1 instances — `insts.filter(projOfInst(it) === sel)` versus
-`strayInsts` — so for one render a single instance row lands in exactly ONE tab. Two tabs therefore
-needs either:
+Seth, 2026-08-20: *"I often have to manually refresh to see changes in the researcher panel."* That
+is not a vague impression; it is a documented property of `renderDashboard`, and it lands exactly on
+the derivation this report is about.
 
-- **two instance rows** (so step 1 ran twice — but the auto-retry route is ruled out above, leaving a
-  double submit past `busy()`), or
-- **one row whose tab flips between renders**, which `projOfInst` genuinely can do: it prefers the
-  worker-stamped `instanceId` and falls back to `oauth_folder_id`, and the estate is built from
-  Drive's **eventually-consistent search index** (the v167 lesson, already flagged in the panel).
-  A device whose folder was created seconds ago reads as project-less until the index catches up.
+**Which tab a device appears in is a function of `estateCache`.** `projectScope` → `projOfInst`
+reads the worker-stamped `instanceId` off `estate.devices`, falling back to `oauth_folder_id`. And:
 
-The second is the more likely and self-heals; the first does not. **They are distinguishable only
-from the data** — `SELECT instance_id, nickname, oauth_folder_id, project_id, created_at FROM
-instance WHERE researcher_id=? ORDER BY created_at` settles it in one query. Ask before guessing.
+> `⚠ THE ESTATE DOES NOT RIDE THE 12s POLL` … *"`renderDashboard` refetches `estateCache` only on a
+> FULL render (initial load, manual Refresh, or after an action); the poll passes `prefetched` and
+> deliberately skips the Drive round trip."* — researcher-panel.js, its own comment
+
+So the poll DOES pick up the new instance (that comes from `listView`, i.e. D1) but joins it against
+an estate fetched **before the device existed**. No estate entry ⇒ `projOfInst` returns `''` ⇒ the
+device lands in **"Not in a project yet"** and stays there until something forces a full render.
+
+Three things compound it, and all three were active in the reported sequence:
+
+1. **The failure path of the new-device modal does not re-render.** Success does
+   `m.close(); renderDashboard();`; the catch does only `errToast(err)`. So after a failed create
+   there is no estate refetch — and the modal stays open.
+2. **An open modal suspends polling entirely** — `pollDashboard` returns early on
+   `document.querySelector('.modal')`, and re-checks after every await. So the panel is not merely
+   stale, it is frozen.
+3. **Revoking the first device is an ACTION**, which triggers a full render and refetches the estate
+   — at which point the second device's folder is finally visible and it **moves** to the project
+   tab. That is precisely the moment the researcher describes noticing the duplicate.
+
+⚠ **And a genuine SIMULTANEOUS double is available too**, without needing a duplicate row: the
+Projects card counts `estate.devices` by folder parentage (`devices.filter(d => d.projectId ===
+p.folderId)`) while the tab bar partitions **D1 instances** through the stale-estate join. Two
+derivations, two sources, one screen — they can disagree at the same instant, which is what "shows
+up twice" reads like to anyone not holding the code.
+
+**Still worth the query before closing it**, because a genuine duplicate row is the one variant this
+does not explain: `SELECT instance_id, nickname, oauth_folder_id, project_id, created_at FROM
+instance WHERE researcher_id=? ORDER BY created_at`. Two rows ⇒ a double submit past `busy()`. One
+row ⇒ this section is the whole answer.
+
+### The general fix, which is bigger than this report
+
+The estate is skipped on the poll for a real reason — it is a Drive round trip, and the comment
+argues the unassigned card changes "on the timescale of a researcher removing a text, not seconds".
+That reasoning was sound when the estate only fed a storage card. It stopped being sound when
+**project membership** started being derived from it: tab assignment is not a slow-moving display
+detail, it changes the moment a device is created.
+
+Options, cheapest first — none chosen yet:
+
+- **Refetch the estate after the actions that invalidate it** (create/revoke a device, move a
+  container), including on the FAILURE paths. Narrow, no new polling cost, fixes this report.
+- **Let `viewSig` notice an instance the estate has never heard of** — an instance in `listView`
+  with no matching `estate.devices` entry is a known-stale signal, and could trigger ONE estate
+  refetch rather than a poll-rate one.
+- **Poll the estate at a slower cadence** (say every 5th tick) — simple, but pays a Drive round trip
+  forever to fix a transient.
+
+⚠ Whatever is chosen, `viewSig` is the trap: anything rendered that is not in the signature never
+repaints, and the signature's own comment says the estate entries in it "CANNOT change on the poll
+path". Adding a refetch without teaching the signature to notice it would change nothing on screen.
 
 ### Judgment: not urgent, but do not let it sit behind Phase C
 
@@ -341,7 +386,9 @@ touches the panel; the duplicate needs the query first.
 
 ⚠ Related but separate, and already fixed: D1 having only ONE project row for two Drive project
 folders (2026-08-20, `reconcileProjects`). That made "not in a project yet" wrong for real reasons
-too, so re-check this report against a reconciled estate before digging further.
+too, so re-check this report against a reconciled estate before digging further. ⚠ Note that
+`reconcileProjects` hangs off `drive-estate`, so it too runs on FULL renders only — the repair
+lands on a panel LOAD or manual Refresh, not within a poll tick.
 
 ## LATER: revisit auto-cutting a LONG recording (Seth, 2026-08-20)
 

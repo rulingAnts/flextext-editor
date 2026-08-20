@@ -245,8 +245,14 @@ console.log('\nthe unassigned gate is computed from DEVICE INVENTORY, and only i
    * without these two exclusions a text mid-assignment or mid-move was offered for deletion while it
    * was the only copy of live work. Reclaim-space reads the same predicate, and that one does not
    * go through Drive's trash. */
-  ok(/!pendingMoves\.has\(tx\.docId\) && !inFlight\.has\(tx\.docId\)/.test(modal),
+  /* ⚠ The protection is unchanged; where it lives is not. It used to sit inside `isUnassigned`,
+   * which ALSO decides which group a text is listed under — so an in-flight text appeared under no
+   * heading at all, invisible in the one view whose job is to show what is really in Drive. Placement
+   * and safety are different questions and are now asked separately. */
+  ok(/const inFlightTx = \(tx\) => pendingMoves\.has\(tx\.docId\) \|\| inFlight\.has\(tx\.docId\);/.test(modal),
      '...and not mid-move or mid-assignment');
+  ok(/const isUnassigned = \(tx\) => !assigned\.has\(tx\.docId\);/.test(modal),
+     '...but placement no longer depends on it, so nothing can fall out of every group');
   ok(/function inFlightAssignIds\(\)/.test(panel)
      && /if \(p\.kind === 'assign' && p\.docId\) ids\.add\(p\.docId\)/.test(panel),
      'in-flight assignments are derived from the SHARED server-side pending map, not just this browser');
@@ -257,8 +263,8 @@ console.log('\nthe unassigned gate is computed from DEVICE INVENTORY, and only i
    * and a gate keyed on deviceFolderId would get it exactly backwards. */
   ok(!/isUnassigned[\s\S]{0,120}deviceFolderId/.test(modal),
      'the gate never keys on the folder location, only on inventory');
-  ok(/\$\{un \? `<button[^`]*data-storedel=/.test(modal),
-     'Remove is rendered ONLY for an unassigned text');
+  ok(/\$\{un && !inFlightTx\(tx\)/.test(modal),
+     'Remove is rendered ONLY for an unassigned text that is not in flight');
   ok(/confirm\(t\('panel\.store\.deleteConfirm'/.test(modal), 'and still asks first');
   ok(/Researcher\.trashFiles\(\[b\.dataset\.storedel\]/.test(modal),
      'removal TRASHES (30-day recoverable), it does not delete');
@@ -458,11 +464,20 @@ console.log('\nthe UNASSIGNED card is on the dashboard, and is NOT a pseudo-inst
   ok(/data-uact="drop"/.test(card) && /panel\.store\.delete/.test(card),
      '"Delete" replaces "Remove from Device" — there is no device to remove it from');
 
-  /* A text mid-MOVE is between devices, not unassigned. Listing it here would offer to delete
-   * Drive's only copy while the destination is still fetching it. */
+  /* ⚠ REVERSED, AND THE REASON MATTERS. This used to require that a text mid-move be EXCLUDED from
+   * the list — reasonable-sounding, since offering to delete Drive's only copy while a destination is
+   * still fetching would be bad. But excluding it made the text INVISIBLE: assigned to a device that
+   * had never paired, swept into Unassigned, and then filtered out of the one view that would have
+   * shown it. A researcher who cannot see a text cannot act on it at all, which is strictly worse
+   * than any wrong placement.
+   *
+   * So it is listed and LOCKED: the pending flag rides on the row, and the destructive action is
+   * withheld — which is the only thing the exclusion was ever protecting. */
   const sel = (panel.match(/function unassignedTexts[\s\S]*?\n\}/) || [''])[0];
   ok(/!assigned\.has\(tx\.docId\)/.test(sel), 'unassigned = no device inventory claims it');
-  ok(/!pendingMoves\.has\(tx\.docId\)/.test(sel), '...and a text mid-move is excluded');
+  ok(/pending: pendingMoves\.has\(tx\.docId\) \|\| inFlight\.has\(tx\.docId\)/.test(sel),
+     '...and a text mid-move is FLAGGED, never filtered out');
+  ok(!/&& !pendingMoves\.has\(tx\.docId\)/.test(sel), '...nothing is hidden by being in flight');
 
   // The estate is a Drive round trip: it must not ride the 12s poll.
   ok(/if \(!prefetched && Researcher\.isApprovedSelf\(\)\) \{[\s\S]{0,400}Researcher\.driveEstate\(\)/.test(panel),

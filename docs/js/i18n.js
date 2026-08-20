@@ -951,6 +951,11 @@ internet after the first time.</p>
    * counting against quota until drive-purge empties the trash. The confirm carries both facts, so
    * the word never promises a finality the action does not have. */
   'panel.store.delete': 'Delete',
+  /* ⚠ SHOWN, NOT HIDDEN. A text on its way to a device used to be filtered OUT of both the
+   * Unassigned card and the storage modal, so it was invisible while sitting plainly in Drive.
+   * It is listed with this tag instead, and its destructive action withheld \u2014 which was the
+   * only thing the hiding was ever protecting. */
+  'panel.store.inFlight': 'on its way\u2026',
   'panel.store.deleteConfirm': 'Delete “{title}”?\n\nIt moves to your Google Drive trash and stays recoverable at drive.google.com/trash for 30 days. Until you reclaim the space from this screen it still counts against your Drive quota.',
   'panel.store.deleted': 'Moved to Drive trash.',
   'panel.store.trashHeld': '{size} in your Drive trash ({n} FlexText file(s))',
@@ -2645,6 +2650,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.unassigned.moveTitle': 'Pindahkan \u201c{title}\u201d ke perangkat',
   'panel.unassigned.moveIntro': 'Teks dikirim ke perangkat dan folder Drive-nya dikembalikan ke bawah perangkat itu.',
   'panel.store.delete': 'Hapus',
+  'panel.store.inFlight': 'sedang dikirim\u2026',
   'panel.store.deleteConfirm': 'Hapus “{title}”?\n\nBerkas dipindahkan ke sampah Google Drive dan masih dapat dipulihkan di drive.google.com/trash selama 30 hari. Selama belum Anda klaim kembali dari layar ini, ruangnya masih terhitung dalam kuota Drive Anda.',
   'panel.store.deleted': 'Dipindahkan ke sampah Drive.',
   'panel.store.trashHeld': '{size} di sampah Drive Anda ({n} berkas FlexText)',

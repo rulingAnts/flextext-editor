@@ -4299,8 +4299,17 @@ function unassignedTexts(estate) {
    *
    * This is the SECOND bug from that one predicate shape (the sweep was the first, v407). Any new
    * rule phrased as "no device reports it" must be checked against the crowd case before it ships. */
-  return estate.texts.filter((tx) => tx.docId && !assigned.has(tx.docId) && !tx.fromCrowd
-    && !pendingMoves.has(tx.docId) && !inFlight.has(tx.docId));
+  /* ⚠ IN FLIGHT MEANS SHOWN-AND-LOCKED, NEVER HIDDEN. These two were exclusions, and that is how a
+   * text became invisible in the panel AND the storage modal at once while sitting plainly in Drive:
+   * the sweep filed it under Unassigned, and a stale pending-move record then removed it from the one
+   * view that would have shown it. A researcher who cannot SEE a text cannot do anything about it,
+   * which is strictly worse than any wrong placement.
+   *
+   * The original reason for hiding was sound and is preserved differently: an in-flight text must not
+   * offer to delete Drive's only copy while a destination is still fetching it. So it is listed, with
+   * a pending tag, and its destructive action is withheld — see renderUnassignedCard. */
+  return estate.texts.filter((tx) => tx.docId && !assigned.has(tx.docId) && !tx.fromCrowd)
+    .map((tx) => ({ ...tx, pending: pendingMoves.has(tx.docId) || inFlight.has(tx.docId) }));
 }
 
 /* The texts sitting in ONE crowd recorder's folder. A recorder is a container of texts exactly as a
@@ -4741,8 +4750,10 @@ function renderUnassignedCard(estate, projectFolderId) {
       </div>
       <div class="rp-text-actions">
         ${iid ? filesMenuHtml(iid, tx.docId, tx.title || '') : ''}
-        <button class="link-btn" data-uact="adopt" data-id="${esc(tx.docId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.move.btn'))}</button>
-        <button class="link-btn rp-revoke" data-uact="drop" data-folder="${esc(tx.folderId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.store.delete'))}</button>
+        ${tx.pending
+          ? `<span class="rp-tag rp-tag-moving">${esc(t('panel.store.inFlight'))}</span>`
+          : `<button class="link-btn" data-uact="adopt" data-id="${esc(tx.docId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.move.btn'))}</button>
+             <button class="link-btn rp-revoke" data-uact="drop" data-folder="${esc(tx.folderId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.store.delete'))}</button>`}
       </div>
     </li>`).join('');
   const collapsed = !unassignedOpen;
@@ -4950,8 +4961,27 @@ function sweepUnassigned(estate) {
      * computed from where the folder ACTUALLY SITS. Move a crowd text onto a device and it stops
      * being crowd-born, so if that device later drops it, it sweeps normally — no second rule and
      * nothing to keep in sync. (§16.9: crowd is a source, never a destination.) */
+    /* ⚠ A TEXT ON A DEVICE THAT HAS NEVER PAIRED IS NOT UNASSIGNED — IT IS WAITING.
+     *
+     * THIRD TIME for this predicate shape, and the sweep's own comment above says to check every new
+     * rule against it. "No device reports it" is PERMANENTLY TRUE of a device that has never paired:
+     * it has no installs, so it has no inventory, so it can never claim anything. Assigning a text to
+     * a not-yet-paired device — which Seth calls out as important — therefore looked exactly like
+     * abandonment, and the sweep hauled the text out of the device's folder into Unassigned.
+     *
+     * Found in production data again, not in review: the 00:56 snapshot had "Yuli Kwodu Deda" sitting
+     * in `Dani Dictionary / Unassigned` seconds after being assigned to `Wemis Wanimbo's Phone`.
+     *
+     * ⚠ SELF-CORRECTING, like the crowd exclusion: this asks whether the CONTAINER's instance has
+     * ever reported, so the moment that device pairs and sends its first inventory the text sweeps
+     * under the ordinary rules. No second rule, nothing to keep in sync. */
+    const waitingForPairing = (tx) => {
+      const dev = (estate.devices || []).find((d) => d.folderId === tx.deviceFolderId);
+      const iid = dev && dev.instanceId;
+      return !!iid && !instanceReported(iid);
+    };
     const ids = estate.texts
-      .filter((tx) => tx && tx.docId && !tx.inUnassigned && !tx.fromCrowd
+      .filter((tx) => tx && tx.docId && !tx.inUnassigned && !tx.fromCrowd && !waitingForPairing(tx)
         && !assigned.has(tx.docId) && !pendingMoves.has(tx.docId) && !inFlight.has(tx.docId))
       .map((tx) => tx.docId)
       .slice(0, UNASSIGN_BATCH);
@@ -5045,8 +5075,14 @@ function storageModal() {
      * streaming into. Reclaim-space reads this too, and that one is not recoverable from Drive's
      * trash. */
     const inFlight = inFlightAssignIds();
-    const isUnassigned = (tx) => !assigned.has(tx.docId)
-      && !pendingMoves.has(tx.docId) && !inFlight.has(tx.docId);
+    /* ⚠ TWO DIFFERENT QUESTIONS, AND CONFLATING THEM MADE A TEXT VANISH. `isUnassigned` was doing
+     * double duty: deciding WHICH GROUP a text belongs to, and whether it is safe to offer Remove.
+     * An in-flight text then answered "no" to both — so it appeared under no heading at all, in the
+     * one view whose whole job is to show what is actually in Drive.
+     *
+     * Placement is about where the text IS. Safety is about what may be done to it. */
+    const isUnassigned = (tx) => !assigned.has(tx.docId);
+    const inFlightTx = (tx) => pendingMoves.has(tx.docId) || inFlight.has(tx.docId);
 
     const row = (tx) => {
       const un = isUnassigned(tx);
@@ -5059,7 +5095,9 @@ function storageModal() {
         </div>
         <div class="rp-store-actions">
           ${firstInstanceId() ? filesMenuHtml(firstInstanceId(), tx.docId, tx.title || '') : ''}
-          ${un ? `<button class="link-btn rp-revoke" data-storedel="${esc(tx.folderId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.store.delete'))}</button>` : ''}
+          ${un && !inFlightTx(tx)
+            ? `<button class="link-btn rp-revoke" data-storedel="${esc(tx.folderId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.store.delete'))}</button>`
+            : (inFlightTx(tx) ? `<span class="rp-tag rp-tag-moving">${esc(t('panel.store.inFlight'))}</span>` : '')}
         </div>
       </div>`;
     };

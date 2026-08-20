@@ -1317,6 +1317,13 @@ main {
 .crowd-status { font-size: 1.15rem; margin: 18px 0; }
 /* Projects card. The rows read like device rows on purpose — a project IS a container of
  * containers, and giving it its own visual language would suggest it is a different kind of thing. */
+/* Storage, nested: project > container > texts. The project rule is heavier than the container
+ * heading so the two levels read as levels rather than as a longer list. */
+.rp-store-project { margin: 18px 0; }
+.rp-store-phead { font-size: 1.05rem; font-weight: 700; padding: 4px 0;
+  border-bottom: 2px solid var(--border); margin-bottom: 8px; }
+.rp-store-phead .note { font-weight: 400; }
+.rp-store-project > .rp-store-group { margin-left: 12px; }
 /* Grouped move destinations. The heading and the rule are what make "a different project" a
  * visible fact rather than a label somebody has to read carefully. */
 .rp-move-group { margin: 10px 0; }

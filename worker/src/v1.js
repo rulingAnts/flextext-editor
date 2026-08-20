@@ -659,6 +659,16 @@ function buildDriveEstate(files) {
       // Where the folder ACTUALLY sits, so the panel can show the Drive truth and can tell which
       // texts still need sweeping from the ones already filed.
       inUnassigned: unassignedIds.has(dev),
+      /* ⚠ WHICH PROJECT THIS TEXT IS IN — and it cannot be derived client-side, which is why its
+       * absence made the per-project Unassigned card empty in EVERY tab. A text's container is its
+       * parent; the container's parent is the project. For a text under a device or a crowd folder
+       * the panel could just about have joined that itself, but for one sitting in a project's
+       * `Unassigned` folder it never could: `deviceFolderId` is deliberately '' there (an Unassigned
+       * folder is not a device), so there was nothing left to join on.
+       *
+       * Computed here because this is the only place that holds the whole tree. Additive: a field
+       * appearing in a response that previously omitted it. */
+      projectId: projectIds.has(parentOf(byId.get(dev) || {})) ? parentOf(byId.get(dev) || {}) : '',
       bytes: a.bytes,
       files: a.files,
       done: (f.appProperties || {}).flextextDone === '1',
@@ -3761,7 +3771,29 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       await env.DB.prepare(
         'INSERT INTO crowd_recorder (crowd_id, researcher_id, label, enabled, config_json, drive_folder, created_at, estate) VALUES (?,?,?,?,?,?,?,?)'
       ).bind(crowd_id, r.researcher_id, label, 1, JSON.stringify(normCrowdConfig(body.config)), '', now, 'cloud').run();
-      return j({ crowd_id, estate: 'cloud' }, 200, origin, env);
+      /* ⚠ BORN INTO THE PROJECT ON SCREEN — the same gap v426 closed for devices, one function over,
+       * and missed then. driveEnsureCrowdFolder resolves its parent from `rec.project_id`, which is
+       * always NULL, so it falls back to the DEFAULT project: a recorder created while looking at a
+       * second project would silently appear in the first. Eager creation makes Drive parentage the
+       * record from birth, exactly as for a device. Best-effort: a Drive failure must not lose the
+       * recorder that was just created — it falls back to the lazy path. */
+      const wantProject = String(body.projectFolderId || '').replace(/[^\w-]/g, '').slice(0, 128);
+      let folderId = '';
+      if (wantProject) {
+        try {
+          const access = await driveAccessToken(env, r);
+          const dest = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(wantProject) + '?fields=id,appProperties');
+          if (((dest.appProperties || {}).flextextRole || '') === 'project') {
+            const name = 'Crowd — ' + label;
+            const f = await driveJson(access, 'POST', 'https://www.googleapis.com/drive/v3/files?fields=id',
+              { name, mimeType: 'application/vnd.google-apps.folder', parents: [wantProject],
+                appProperties: { flextextRole: 'crowd' } });
+            folderId = f.id;
+            await env.DB.prepare('UPDATE crowd_recorder SET oauth_folder_id=? WHERE crowd_id=?').bind(f.id, crowd_id).run();
+          }
+        } catch { /* the recorder exists; its folder can still be made lazily */ }
+      }
+      return j({ crowd_id, estate: 'cloud', folderId }, 200, origin, env);
     }
 
     // Everything below addresses one recorder.

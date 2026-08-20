@@ -379,6 +379,43 @@ test('projects UI', async () => {
        'the confirm says plainly that these are different projects');
   }
 
+  /* ⚠ THE AUDIT FINDINGS (2026-08-20). Seth, after finding three bugs one at a time: "can you run an
+   * audit to find any more bugs that honestly should have been predictable? It's kind of annoying for
+   * me to have to find bugs one at a time when you probably could find them ahead of time." Each of
+   * these was found by pattern, not by a researcher hitting it. */
+  console.log('\nthe audit findings stay fixed');
+  {
+    /* ⚠ A TEXT CARRIES ITS OWN projectId, and it cannot be derived client-side. The first
+     * per-project Unassigned filter joined through estate.devices on deviceFolderId — but an
+     * unassigned text has NO device folder by construction (the estate reports '' when the parent is
+     * not a device), so the filter matched nothing in EVERY tab and the card was silently empty
+     * everywhere, not just in the new project where it was noticed. */
+    ok(/projectId: projectIds\.has\(parentOf\(byId\.get\(dev\) \|\| \{\}\)\)/.test(worker),
+       'the worker stamps each text with its project');
+    ok(/texts = texts\.filter\(\(tx\) => \(tx\.projectId \|\| ''\) === projectFolderId\);/.test(panel),
+       '...and the Unassigned card filters on THAT, not on a device join that cannot match');
+
+    /* ⚠ Same gap as v426's device path, one function over, missed then: a crowd recorder created
+     * while a second project is open would silently appear in the first. */
+    ok(/const wantProject = String\(body\.projectFolderId \|\| ''\)/.test(worker),
+       'crowd creation accepts a target project');
+    ok(/Researcher\.crowdCreate\(label, '', Object\.assign\(\{\}, CROWD_DEFAULT_CONFIG\), intoProject\)/.test(panel),
+       '...and the panel passes the tab on screen, exactly as it does for a device');
+
+    // The storage view is hierarchical: project > container > texts, each project with its own pile.
+    const sbp = fn('const storeByProject');
+    ok(/if \(!projects\.length\) \{/.test(sbp),
+       'a flat estate gets the old flat output, byte for byte');
+    ok(/panel\.move\.unassignedOf/.test(sbp),
+       'each project lists ITS OWN Unassigned, named after it');
+    ok(/panel\.proj\.outside/.test(sbp),
+       'and anything no project claims is still shown — this view must account for all of Drive');
+
+    // Console rename acted on projects[0] — the wrong project the moment a second one existed.
+    ok(/const proj = \(currentProject && ids\.has\(currentProject\)\)/.test(panel),
+       'fxProjects("rename") renames the project on screen');
+  }
+
   console.log(fail ? `\nFAILED (${fail})\n` : '\nall passed\n');
   if (fail) process.exit(1);
 });

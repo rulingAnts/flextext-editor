@@ -778,8 +778,11 @@ export function uploadDelete(instanceId, docId)   { return pushCommand(instanceI
  * design. Never put secrets in a crowd config; the panel warns the researcher likewise. */
 
 export function crowdList() { return api('GET', '/v1/crowd'); }
-export function crowdCreate(label, driveFolder, config) {
-  return api('POST', '/v1/crowd', { body: { label, drive_folder: driveFolder, config }, retry: false });   // non-idempotent: don't risk a duplicate recorder on a lost response
+/* `projectFolderId` makes the worker create this recorder's Drive folder EAGERLY under that project —
+ * otherwise it is minted lazily and lands in the DEFAULT project, so a recorder created while a
+ * second project is open would silently appear in the first. Same shape as createInstance. */
+export function crowdCreate(label, driveFolder, config, projectFolderId) {
+  return api('POST', '/v1/crowd', { body: { label, drive_folder: driveFolder, config, ...(projectFolderId ? { projectFolderId } : {}) }, retry: false });   // non-idempotent: don't risk a duplicate recorder on a lost response
 }
 export function crowdUpdate(id, patch) { return api('PUT', `/v1/crowd/${encodeURIComponent(id)}`, { body: patch }); }
 export function crowdDelete(id) { return api('DELETE', `/v1/crowd/${encodeURIComponent(id)}`, { retry: false }); }   // non-idempotent (a retry after success would 404)

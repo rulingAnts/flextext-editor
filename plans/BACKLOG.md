@@ -2443,7 +2443,19 @@ drive, however small it looks.
 Three items. Recorded now with the facts gathered, so the later pass starts from data rather than
 from a fresh survey.
 
-### 1. Collapse `main` and `productionWeb`
+### 1. Collapse `main` and `productionWeb` — ⚠ PROMOTED: before multi-researcher, after this release
+
+> ⚠ **Re-sequenced (Seth, 2026-08-20), and the reason is measured rather than aesthetic:**
+> *"I think we maybe need to work on removing the main/productionWeb split sooner rather than
+> later. It's too costly in terms of time when we're developing gradually, testing things one at a
+> time like this. Which sometimes we do need to do. Let's make a plan and fix this BEFORE working
+> on multiple researchers (but AFTER this release ships)."*
+
+The cost showed up in practice today: a single-bug fix costs a full triple Cloudflare build, and
+an evening of one-bug-at-a-time iteration paid that repeatedly. The two branches are
+fast-forward-identical at every release **by definition**, so the second build buys nothing that
+the first did not already prove.
+
 
 **The bottleneck is real and it is structural, not a habit.** Both branches build the SAME Cloudflare
 Worker per app, so every release is two pushes that must be spaced and verified — and the spacing is

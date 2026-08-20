@@ -717,7 +717,11 @@ export function initResearcherPanel(d) {
         if (verb === 'rename') {
           if (!name) return 'usage: fxProjects("rename", "New project name")';
           const est = await Researcher.driveEstate();
-          const proj = ((est.projects || [])[0] || {}).folderId;
+          // The project ON SCREEN, not projects[0] — which renamed the wrong one the moment a
+          // second project existed.
+          const ids = new Set((est.projects || []).map((p) => p.folderId));
+          const proj = (currentProject && ids.has(currentProject)) ? currentProject
+                                                                   : ((est.projects || [])[0] || {}).folderId;
           if (!proj) return 'no project folder yet — run fxProjects("migrate", "…") first';
           return show(await Researcher.projectRename(proj, name));
         }
@@ -3604,7 +3608,9 @@ function newCrowdModal() {
     const label = m.el.querySelector('#rp-cr-label').value.trim();
     if (!label) return deps.toast(t('panel.crowd.needLabel'), 4000);
     try {
-      const r = await Researcher.crowdCreate(label, '', Object.assign({}, CROWD_DEFAULT_CONFIG));
+      // Born into the project on screen, exactly as a new device is (v426).
+      const intoProject = (currentProject && currentProject !== STRAY_TAB) ? currentProject : '';
+      const r = await Researcher.crowdCreate(label, '', Object.assign({}, CROWD_DEFAULT_CONFIG), intoProject);
       m.close();
       await refreshCrowd();   // also pulls the server-defaulted budgets for the edit modal below
       deps.toast(t('panel.crowd.created'), 4000);
@@ -4735,9 +4741,11 @@ function renderUnassignedCard(estate, projectFolderId) {
    * heading. Unscoped (flat estate) it behaves exactly as before. */
   let texts = unassignedTexts(estate);
   if (projectFolderId) {
-    const byFolder = new Map(((estate && estate.devices) || []).map((d) => [d.folderId, d.projectId || '']));
-    texts = texts.filter((tx) => byFolder.get(tx.deviceFolderId) === projectFolderId
-                              || tx.projectId === projectFolderId);
+    /* ⚠ ON THE TEXT'S OWN projectId, which the worker stamps. The first version joined through
+     * `estate.devices` on `deviceFolderId` — and an unassigned text has NO device folder by
+     * construction (the estate reports '' when the parent is not a device), so the filter matched
+     * nothing in EVERY tab and the Unassigned card was silently empty everywhere. */
+    texts = texts.filter((tx) => (tx.projectId || '') === projectFolderId);
   }
   if (!texts.length) return '';
   const bytes = texts.reduce((a, t) => a + (t.bytes || 0), 0);
@@ -5061,7 +5069,8 @@ function storageModal() {
 
     // Group: one per device (in estate order), then everything with no device.
     const groups = new Map();
-    for (const d of estate.devices || []) groups.set(d.folderId, { name: d.name, texts: [] });
+    // folderId rides along so the groups can be nested under their project (storeByProject).
+    for (const d of estate.devices || []) groups.set(d.folderId, { folderId: d.folderId, name: d.name, texts: [] });
     const loose = [];
     for (const tx of estate.texts || []) {
       const g = groups.get(tx.deviceFolderId);
@@ -5102,6 +5111,57 @@ function storageModal() {
       </div>`;
     };
 
+    /* ⚠ THE STORAGE VIEW IS HIERARCHICAL TOO (Seth, 2026-08-20: it "needs to cover ALL Google Drive
+     * storage (organized hierarchically by device/container and project)").
+     *
+     * Container groups are nested under their project, each project carrying its own total, and each
+     * project's own Unassigned pile listed with it — because there is one per project, and a single
+     * shared "unassigned" heading would put one project's set-aside texts under another's roof.
+     *
+     * ⚠ Flat estate ⇒ unchanged output, byte for byte: with no projects this returns the container
+     * groups followed by one Unassigned group, exactly as before.
+     *
+     * ⚠ FUTURE-FACING, deliberately: the totals are computed per project rather than only for the
+     * account, because a member will one day need "this project's use against this project's limit"
+     * for a Drive they do not own. Nothing here reads the owner's quota per project yet — that needs
+     * the grant model — but the shape no longer has to be rebuilt to say it. */
+    const storeByProject = (est, groups, loose, groupHtml) => {
+      const projects = (est.projects || []);
+      if (!projects.length) {
+        return [...groups.values()].map((g) => groupHtml(g.name, g.texts)).join('')
+             + groupHtml(t('panel.store.unassignedGroup'), loose);
+      }
+      const projOfFolder = new Map((est.devices || []).map((d) => [d.folderId, d.projectId || '']));
+      const out = [];
+      const claimed = new Set();
+      for (const p of projects) {
+        const mine = [...groups.values()].filter((g) => projOfFolder.get(g.folderId) === p.folderId);
+        mine.forEach((g) => claimed.add(g.folderId));
+        const un = loose.filter((tx) => (tx.projectId || '') === p.folderId);
+        const bytes = mine.reduce((a, g) => a + g.texts.reduce((b, x) => b + x.bytes, 0), 0)
+                    + un.reduce((a, x) => a + x.bytes, 0);
+        const n = mine.reduce((a, g) => a + g.texts.length, 0) + un.length;
+        if (!n) continue;
+        out.push(`<div class="rp-store-project">
+          <div class="rp-store-phead">${esc(p.name || t('panel.proj.defaultName'))}
+            <span class="note">${esc(gb(bytes))} · ${esc(t('panel.store.nTexts', { n }))}</span></div>
+          ${mine.map((g) => groupHtml(g.name, g.texts)).join('')}
+          ${groupHtml(t('panel.move.unassignedOf', { project: p.name || t('panel.proj.defaultName') }), un)}
+        </div>`);
+      }
+      /* Anything no project claims — an interrupted migration, or a text filed before projects
+       * existed. Shown, never dropped: this view's whole job is to account for what is in Drive. */
+      const strayGroups = [...groups.values()].filter((g) => !claimed.has(g.folderId));
+      const strayLoose = loose.filter((tx) => !projects.some((p) => (tx.projectId || '') === p.folderId));
+      if (strayGroups.length || strayLoose.length) {
+        out.push(`<div class="rp-store-project">
+          <div class="rp-store-phead">${esc(t('panel.proj.outside'))}</div>
+          ${strayGroups.map((g) => groupHtml(g.name, g.texts)).join('')}
+          ${groupHtml(t('panel.store.unassignedGroup'), strayLoose)}</div>`);
+      }
+      return out.join('');
+    };
+
     const groupHtml = (name, texts) => {
       if (!texts.length) return '';
       const sum = texts.reduce((a, x) => a + x.bytes, 0);
@@ -5118,8 +5178,7 @@ function storageModal() {
         <div><div>${esc(t('panel.store.trashHeld', { size: gb(trashed.bytes), n: trashed.n }))}</div>
         <div class="note">${esc(t('panel.store.trashWhy'))}</div></div>
         <button class="secondary-btn" data-storepurge>${esc(t('panel.store.reclaim'))}</button></div>` : ''}
-      ${[...groups.values()].map((g) => groupHtml(g.name, g.texts)).join('')}
-      ${groupHtml(t('panel.store.unassignedGroup'), loose)}
+      ${storeByProject(estate, groups, loose, groupHtml)}
       ${(estate.texts || []).length ? '' : `<p class="note">${esc(t('panel.store.empty'))}</p>`}
       <div class="rp-store-snap">
         <button class="link-btn" data-storesnap>${esc(t('panel.store.snapshot'))}</button>

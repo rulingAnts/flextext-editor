@@ -227,6 +227,54 @@ state, and the wrapped-Ki key map in `settings_blob`.
 useful; cross-account only after, with the key and pairing limits stated in the UI rather than
 discovered.
 
+## NEXT RELEASE: a text whose audio is still arriving opens in the CLASSIC editor (Seth, 2026-08-20)
+
+> *"It initially loaded the classic text editor while the audio was loading. And then after I
+> switched tabs it switched to audio segmentation mode… You can type in the baseline textbox, but
+> then when you switch to another tab and back it renders as audio-segmentation-enabled and whatever
+> you typed in the baseline tab ends up on the first line. […] Suffice to say it is a bit of a UI
+> glitch that we should plan to fix in our NEXT release."*
+
+Found during the v440 test drive. ⚠ **PRE-EXISTING — it is in productionWeb (v433) too**, so v440
+neither causes it nor makes it worse. Filed for the next release as Seth asked, not held against
+this one.
+
+**DIAGNOSED, and it is an asymmetry rather than a mystery.** The Baseline tab's segmentation branch
+treats "no media" as one case:
+
+```js
+if (!media || !media.blob) {  …show #baseline-text…  return; }
+```
+
+The Cut tab already distinguishes the two, and says why in its own comment:
+
+```js
+const coming = !!(current.pendingAudio || attachingAudioFor === forDoc);
+loading.textContent = t(coming ? 'seg.loadingAudio' : 'cut.noAudio');
+```
+
+So on the Cut tab an arriving recording says "Loading the recording…", while on the Baseline tab the
+identical state silently falls back to the classic textarea — indistinguishable from a text that
+genuinely has no audio. That window is the normal case for a text just made from a file (the editor
+opens before the attach finishes) and for an assigned text still downloading.
+
+**Why the typing goes to line 1.** `applyBaseline` is gated on DOM truth, so a VISIBLE textarea is
+read as the user's intent on tab-leave. `reconcileBaseline(..., {flatSegments:true})` then makes one
+paragraph per line, and the strips render that as the first span.
+
+⚠ **Text is never lost, and that is worth stating** — the words survive into the doc. What is wrong
+is that the user was offered an editor they should not have been, and the result lands somewhere
+they did not choose.
+
+**The fix is the Cut tab's guard, applied here**: when `pendingAudio` or `attachingAudioFor` says a
+recording is on its way, keep `#seg-loading` up (with `seg.loadingAudio`) instead of revealing the
+textarea, and let the existing re-entry path render the strips when it lands.
+
+⚠ **Not yet known**: what happens with TWO OR MORE typed lines. Seth did not try it. Expect
+`reconcileBaseline` to make one paragraph per line and the seed to divide the recording evenly as
+`timeEstimated` (dashed) — text intact, alignment a guess — but that is reasoning, not a test. Check
+it while fixing.
+
 ## LATER: the recorder and crowd recorder do not refresh themselves after a recording (Seth, 2026-08-20)
 
 > *"Our recorder app needs some work with UI responsiveness and auto-refreshing, as does the crowd

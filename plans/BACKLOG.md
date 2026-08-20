@@ -35,6 +35,57 @@ Recorded verbatim because the order is his and it is not the order the work natu
    "leave the bytes and move the index" are three genuinely different products with different
    failure modes. Decide which one it is before building any of it.
 
+## FUTURE: permission prompts are asked too broadly and too often (Seth, 2026-08-20)
+
+> *"On the crowd recorder (and other recorders maybe?) it asks for recording permissions at multiple
+> points during the process (once for the consent response and once for the actual recording). Also,
+> for editor and recorder, our location permissions request may need to be scoped more narrowly —
+> when a new recording consent is triggered/recorded, rather than for the whole app all the time."*
+
+Both are future fixes, filed with what the code actually does so neither gets re-diagnosed from the
+symptom.
+
+### Location: asked once, app-wide, at first tap — and that is DELIBERATE
+
+`primeGeolocationOnce()` runs from app setup (`app.js`) and attaches a one-shot `pointerdown`
+listener, so the browser's location prompt fires on the **first tap anywhere in the app**, whether or
+not a consent recording will ever be taken. `readGeoIfGranted()` then reads silently during consent,
+never prompting.
+
+⚠ **Its comment states the reason, and any fix has to solve that problem rather than rediscover
+it:** *"The location permission popup is too disruptive to fire mid-consent, so on the first user tap
+we make the single request at a calm moment."* Moving the prompt to consent time puts a system
+dialog in the middle of asking a speaker for their consent — which is the worst possible moment for a
+modal, and is exactly what the current design was avoiding.
+
+So this is a genuine trade-off, not an oversight: **scope** (asked app-wide, always) versus
+**timing** (asked at a calm moment). Seth now wants scope prioritised. Something has to give, and the
+plausible middle is priming at the START of the consent flow — after the speaker has been told what
+is about to happen but before the recording itself — rather than at first tap or mid-consent. Worth
+designing rather than moving one function call.
+
+⚠ And the narrower scope is the more defensible one for a suite carrying research-ethics obligations:
+location should be collected when it is part of a consent record, not held ambiently because the app
+happened to open.
+
+### Microphone: asked more than once in the crowd flow
+
+Two separate opens exist in one session when the consent response is itself a recording
+(`consentResp=record`): the consent-assent recorder, then the actual text recording. There are three
+`getUserMedia` call sites — `record-pcm.js` (lossless), `startMediaRecorder`, and the record-mode
+path — and nothing shares a stream or a grant between them.
+
+⚠ **A hypothesis to TEST before designing anything, not to build on:** in a top-level page Chromium
+persists a mic grant for the origin, so a second `getUserMedia` should not re-prompt — which suggests
+the doubled prompt is specific to the crowd recorder being an **IFRAME EMBED**, where the grant is
+per-frame and depends on the embedding page's permissions policy. The code already knows this area is
+strange: `crowdShowFrameEscape` exists because a frame without `allow="microphone"` fails with no
+prompt at all, indistinguishable from a user Block.
+
+So the first task is to establish **where** the second prompt actually comes from — embed vs
+top-level, and which two call sites — because "open the mic once and keep the stream" and "fix the
+iframe permissions policy" are completely different fixes and only one of them will work.
+
 ## FUTURE FEATURE: "Clonezilla for the suite" — snapshot and restore an estate (Seth, 2026-08-20)
 
 > *"a workflow that makes a manual backup copy (on Google Drive) of the whole Google Drive folder

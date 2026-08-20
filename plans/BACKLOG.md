@@ -284,6 +284,65 @@ neutering the guard fails three assertions by name.
 removes the window in which anyone can type at all — so the answer no longer matters in practice and
 was never established. If the branch is ever reached again, it is still unknown.
 
+## SOON-ISH: "creating the device failed" but the device exists — and then shows in two tabs (Seth, 2026-08-20)
+
+Reported by a researcher, verbatim sequence: one existing project with one device → created a second
+project → added a device for it, changed their mind, left it **awaiting key** → added a *second* new
+device, which "processed for a minute, then showed a message that it had failed to create the new
+device" → revoked the first new device. Result: the first is gone as expected, and **the second
+appears twice — under the new project's tab AND under "Not in a project yet"**, despite the panel
+having said its creation failed.
+
+### The "failed but exists" half is EXPLAINED, and it is a compensating action that did not complete
+
+`createInstance` (researcher.js) is three acts, not one:
+
+1. `POST /v1/instances` — inserts the row. Correctly `retry: false`, so this is **not** a duplicate
+   from an auto-retried POST; that theory was checked and is wrong.
+2. generate Ki, wrap it to Kr, and CAS it into the settings blob (`fetchSettings` → `putSettings`,
+   up to 4 conflict retries).
+3. On any failure in 2, a **best-effort `revokeInstance`** so a keyless instance is not stranded —
+   already commented `/* leave for manual cleanup */`.
+
+So the row is created first and the failure the researcher saw came from step 2 or its cleanup. The
+minute of processing says the network was unwell at exactly the moment step 3 needed it, and step 3
+is the one call in the sequence with no compensation of its own. **The panel then reports the whole
+thing as a flat failure**, which is the actively harmful part: the researcher believes nothing
+happened and takes corrective action against a false picture.
+
+⚠ The cheap, honest fix is not "make it atomic" (it cannot be — D1 and the settings blob are
+separate stores). It is to stop *asserting* a failure the client cannot verify: on a step-2/3
+failure say the device **may** have been created and re-render the dashboard, so the truth is on
+screen rather than in a claim.
+
+### The "shows in two tabs" half is NOT explained, and needs the researcher's actual rows
+
+`projectScope()` partitions D1 instances — `insts.filter(projOfInst(it) === sel)` versus
+`strayInsts` — so for one render a single instance row lands in exactly ONE tab. Two tabs therefore
+needs either:
+
+- **two instance rows** (so step 1 ran twice — but the auto-retry route is ruled out above, leaving a
+  double submit past `busy()`), or
+- **one row whose tab flips between renders**, which `projOfInst` genuinely can do: it prefers the
+  worker-stamped `instanceId` and falls back to `oauth_folder_id`, and the estate is built from
+  Drive's **eventually-consistent search index** (the v167 lesson, already flagged in the panel).
+  A device whose folder was created seconds ago reads as project-less until the index catches up.
+
+The second is the more likely and self-heals; the first does not. **They are distinguishable only
+from the data** — `SELECT instance_id, nickname, oauth_folder_id, project_id, created_at FROM
+instance WHERE researcher_id=? ORDER BY created_at` settles it in one query. Ask before guessing.
+
+### Judgment: not urgent, but do not let it sit behind Phase C
+
+Nothing here loses work — the device is real, it can be revoked, and the tab flip corrects itself.
+It is a *confusion* bug, and its cost is that people act on a false report (this researcher revoked
+a device partly because of it). The message fix is small and worth doing in the next release that
+touches the panel; the duplicate needs the query first.
+
+⚠ Related but separate, and already fixed: D1 having only ONE project row for two Drive project
+folders (2026-08-20, `reconcileProjects`). That made "not in a project yet" wrong for real reasons
+too, so re-check this report against a reconciled estate before digging further.
+
 ## LATER: revisit auto-cutting a LONG recording (Seth, 2026-08-20)
 
 > *"At some point we need to revisit what happens with auto-cutting a long text (like 16 minutes

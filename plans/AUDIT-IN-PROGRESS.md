@@ -1,0 +1,125 @@
+# Phase C authorization audit — LIVE SNAPSHOT (auto-written, do not edit)
+
+⚠ This file exists because the previous fan-out audit's output was lost to a container reset
+(project-split.md:721). It is rewritten every ~90s from the run's journal so findings survive
+a reset. It is DELETED once the audit is written up properly — if you are reading it in a
+finished repo, the run did not complete.
+
+Agent results captured so far: **2**
+
+## a0331010e172c246c
+
+```json
+{
+  "findings": [
+    {
+      "title": "Text-scoped routes resolve the text by a caller-supplied docId through an account-wide Drive search, so a member can steal a text out of another project",
+      "severity": "critical",
+      "file": "worker/src/v1.js",
+      "line": 3868,
+      "claim": "POST /v1/instances/<id>/texts/<docId>/adopt (and .../move) authorize on the instanceId in the path but then locate the text folder by a caller-supplied docId with a Drive-wide tag search that is never constrained to the project authMember resolved \u2014 so a member of project A can re-parent a text folder belonging to project B into a device folder inside project A.",
+      "attack": "Researcher M is a project_member of project A with caps {\"assignTexts\":true}; the owner also owns project B, which M is not a member of (or was removed from, and still holds the docIds). M knows a docId of a text in project B. M sends POST /v1/instances/<A-instance-id>/texts/<B-docId>/adopt with body {}. authMember({instance: A-instance}, 'assignTexts') resolves project A and returns ok. The route then runs the tag query for flextextDoc='<B-docId>' over spaces=drive (the owner's WHOLE Drive), finds project B's text folder, and calls driveReparent(access, f.id, toFolder, f.parents) where toFolder is a device folder in project A. Project B's text \u2014 every uploaded recording, flextext and consent file in it \u2014 is now physically inside project A, where M has drive:read/assignTexts, and its flextextUnassigned tag is cleared so nothing sweeps it back. Same sequence works via POST .../texts/<B-docId>/move {to:<another A instance>}.",
+      "evidence": "worker/src/v1.js:3855-3875 \u2014\n  if (m === 'POST' && sub === 'texts' && seg.length === 6 && seg[5] === 'adopt') {\n    const ctx = await authMember(request, env, { instance: instanceId }, 'assignTexts');\n    ...\n    const docId = String(seg[4] || '').replace(/[^\\w-]/g, '').slice(0, 64);\n    ...\n    const fq = encodeURIComponent(`appProperties has { key='flextextDoc' and value='${docId}' } and mimeType='application/vnd.google-apps.folder' and trashed=false`);\n    const found = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files?spaces=drive&orderBy=createdTime&fields=files(id,parents)&q=' + fq);\n    const f = (found.files || [])[0];\n    ...\n      if (!(f.parents || []).includes(toFolder)) await driveReparent(access, f.id, toFolder, f.parents);\nThe identical unscoped search is repeated in /move at v1.js:3909-3910. Nothing between the authMember call and the reparent compares the found folder's parents to the resolved project's drive_folder_id."
+    },
+    {
+      "title": "A member with assignTexts can mint a bearer streaming URL for ANY file in the owner's Drive (promptFileId is unscoped and unvalidated)",
+      "severity": "critical",
+      "file": "worker/src/v1.js",
+      "line": 3828,
+      "claim": "The mint call sites pass caller-supplied Drive file ids straight into mintTextfileUrl with r = ctx.owner, and /v1/textfile's member-revocation check validates only that the minter still belongs to the SCOPED instance's project \u2014 never that the file is inside that project \u2014 so assignTexts in one project yields read access to every app-created file in the owner's whole Drive, including other projects and the account master folder.",
+      "attack": "Researcher M is a project_member of project A with {\"assignTexts\":true}. M obtains any Drive file id from the owner's account outside project A (e.g. from the enumeration in the /texts/<docId>/files finding, or cached from a project they were removed from). M sends POST /v1/instances/<A-instance-id>/texts/anything/assignment/finish with {\"promptFileId\":\"<foreign-file-id>\",\"ttlDays\":400}. authMember passes on project A. mintTextfileUrl is called with researcherId = ctx.owner.researcher_id, fileId = the foreign id, scope = null, minterId = M, so the token is v1-shaped with tk.m = M and a 400-day expiry. The response hands M the URL. GET /v1/textfile/<token> takes the `tk.m && !tk.i` branch, which asks only 'is M still a member of ANY project this owner owns' \u2014 true, because of project A \u2014 and then streams the file with the owner's Drive token to an unauthenticated fetch. The same works with audioFileId/flextextFileId on /move and /adopt, where the scope is a project-A instance and the membership check passes for the same reason.",
+      "evidence": "worker/src/v1.js:3826-3828 \u2014\n  const audioUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.audioFileId, '', ttlMs, scope, ctx.caller.researcher_id);\n  const flextextUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.flextextFileId, '', ttlMs, scope, ctx.caller.researcher_id);\n  const promptUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.promptFileId, '', ttlMs, null, ctx.caller.researcher_id);\nmintTextfileUrl (v1.js:1209-1210) does no validation at all: `if (!fileId) return null; const tk = { r: researcherId, f: fileId, ... }`.\nRedemption, v1.js:1885-1896:\n  ok2 = tk.i ? ...'FROM project_member pm JOIN instance i ON i.project_id=pm.project_id WHERE pm.researcher_id=? AND i.instance_id=?'\n             : ...'FROM project_member pm JOIN project p ON p.project_id=pm.project_id WHERE pm.researcher_id=? AND p.owner_id=?'\nNeither query mentions tk.f. clampTtlDays (v1.js:1186-1190) allows up to 400 days."
+    },
+    {
+      "title": "GET /v1/instances/<id>/texts/<docId>/files lists any text in the owner's entire Drive, not just the resolved project's",
+      "severity": "high",
+      "file": "worker/src/v1.js",
+      "line": 3676,
+      "claim": "The route authorizes drive:read against the instance in the path, then runs the flextextDoc tag search over spaces=drive with a docId the caller fully controls, returning folder ids, file ids, names and sizes for a text that may belong to a different project of the same owner.",
+      "attack": "Researcher M is a project_member of project A with {\"drive\":\"read\"}. M sends GET /v1/instances/<A-instance-id>/texts/<docId-belonging-to-project-B>/files. authMember resolves project A and passes; the `owned` re-check only confirms the A instance still belongs to the owner. The Drive query is then account-wide, so the response body carries project B's text folderId, its originalsFolderId, and every child file's id, name, size, mime and role. Those file ids feed directly into the mint finding above to read the bytes.",
+      "evidence": "worker/src/v1.js:3663-3680 \u2014\n  const ctx = await authMember(request, env, { instance: instanceId }, 'drive:read');\n  ...\n  const docId = String(seg[4] || '').replace(/[^\\w-]/g, '').slice(0, 64);\n  ...\n  const fq = encodeURIComponent(`appProperties has { key='flextextDoc' and value='${docId}' } and mimeType='application/vnd.google-apps.folder' and trashed=false`);\n  const found = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files?spaces=drive&orderBy=createdTime&fields=files(id)&q=' + fq);\n  ... return j({ folderId, originalsFolderId: ..., files }, 200, origin, env);\nThe comment on driveEnsureTextFolder states the same property explicitly (v1.js:1134-1136): \"The tag search is scoped to trashed=false but NOT to the parent\"."
+    },
+    {
+      "title": "assignment/upload/start writes to an entirely unvalidated caller-supplied Drive parent folder",
+      "severity": "high",
+      "file": "worker/src/v1.js",
+      "line": 3765,
+      "claim": "`parent` comes straight from body.originalsFolderId with no files.get check, no parentage check and no relation to the instance, text or project that authMember resolved, so a member with assignTexts can create files anywhere in the owner's app-created Drive tree \u2014 another project's folders, another project's text folders, or the FlexText Uploads master folder.",
+      "attack": "Researcher M is a project_member of project A with {\"assignTexts\":true}. M first calls GET /v1/instances/<A-instance-id>/texts/<B-docId>/files (previous finding) to learn project B's text folder id F. M then calls POST /v1/instances/<A-instance-id>/texts/<any-docId>/assignment/upload/start with {\"name\":\"consent.wav\",\"mime\":\"audio/wav\",\"size\":1024,\"kind\":\"audio\",\"originalsFolderId\":\"F\"}. The route sets parent = \"F\" verbatim and opens a Drive resumable session with parents:[F] under the OWNER's token; M then PUTs the bytes through .../assignment/upload/chunk. The file lands inside project B, planted with a legitimate flextextRole tag, and project B's devices/panel will treat it as source material. The same call with F = the master folder id writes outside every project.",
+      "evidence": "worker/src/v1.js:3763-3777 \u2014\n  const access = await driveAccessToken(env, r);\n  let parent = String(body.originalsFolderId || '');\n  if (body.kind === 'consent-prompt') { parent = await driveEnsureDeviceFolder(...); }\n  if (!parent) return j({ error: 'bad_folder' }, 400, origin, env);\n  const init = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id', {\n    method: 'POST', headers: { Authorization: 'Bearer ' + access, ... },\n    body: JSON.stringify({ name, mimeType: mime, parents: [parent], appProperties: { flextextRole: role } }),\n  });\nThe sibling begin route has the same hole one level up (v1.js:3737): `driveEnsureTextFolder(access, deviceFolder, docId, body.title, body.folderId)`, whose knownId path returns any caller-named folder that merely exists and is untrashed (v1.js:1147-1153)."
+    },
+    {
+      "title": "/texts/<docId>/move accepts a destination instance in a different project of the same owner",
+      "severity": "medium",
+      "file": "worker/src/v1.js",
+      "line": 3900,
+      "claim": "The destination instance named in body.to is validated only against the owner's researcher_id, never against ctx.project_id, so a member of one project can push a text into a device belonging to a project they have no grant on.",
+      "attack": "Researcher M is a project_member of project A with {\"assignTexts\":true} and knows an instance id in the owner's project B (for example from a membership in B that has since been deleted). M sends POST /v1/instances/<A-instance-id>/texts/<A-docId>/move {\"to\":\"<B-instance-id>\"}. authMember resolves project A from the path instance and passes. The `to` lookup binds researcher_id = ctx.owner.researcher_id, which is the same denormalized owner for every one of that owner's instances in every project, so the B instance resolves; the text folder is then re-parented under B's device folder and delivery tokens are minted for it. A member acting outside their project boundary silently re-homes project A's data into project B.",
+      "evidence": "worker/src/v1.js:3890-3903 \u2014\n  const ctx = await authMember(request, env, { instance: instanceId }, 'assignTexts');\n  ...\n  const r = ctx.owner;   // the PROJECT OWNER's row\n  const toId = String(body.to || '');\n  ...\n  const to = await env.DB.prepare('SELECT instance_id, nickname, oauth_folder_id FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')\n    .bind(toId, r.researcher_id).first();\n  if (!from || !to) return j({ error: 'not_found' }, 404, origin, env);\nNo second authMember({ instance: toId }) call and no comparison of the destination's project_id with ctx.project_id appears anywhere in the route."
+    },
+    {
+      "title": "The assign and uploadDelete commands are gated on manageDevices, bypassing the separately-defined assignTexts capability",
+      "severity": "low",
+      "file": "worker/src/v1.js",
+      "line": 3554,
+      "claim": "POST /v1/instances/<id>/command requires only manageDevices, yet the command types it accepts include 'assign', 'delete' and 'uploadDelete' \u2014 the text-assignment and text-removal actions that validateCaps models as the distinct assignTexts capability everywhere else.",
+      "attack": "The owner adds researcher M to project A with caps {\"manageDevices\":true} and deliberately withholds assignTexts, intending M to enroll and rename devices but not to hand out or remove texts. M sends POST /v1/instances/<A-instance-id>/command with {\"command\":{\"type\":\"assign\",\"id\":\"<docId>\",\"url\":\"<any url>\"}} \u2014 accepted, queued with by = M, and delivered to the field device on its next poll. The same call with {\"type\":\"uploadDelete\",\"id\":\"<docId>\"} makes a device upload-and-delete a text. Neither requires the capability the owner withheld.",
+      "evidence": "worker/src/v1.js:3554-3564 \u2014\n  const ctx = await authMember(request, env, { instance: instanceId }, 'manageDevices');\n  ...\n  if (cmd.type === 'assign' && !cmd.id) return j({ error: 'assign_needs_id' }, 400, origin, env);     // \u00a7F.5\n  if (!['assign', 'delete', 'changeSettings', 'triggerUpload', 'uploadDelete', 'setDone'].includes(cmd.type)) return j({ error: 'unknown_command' }, 400, origin, env);\nvalidateCaps (v1.js:497) lists 'assignTexts' as its own capability, and the neighbouring assignment routes gate on it (v1.js:3724, 3748, 3791, 3806, 3855, 3890); the command lane never consults it for the assign/delete/uploadDelete types."
+    }
+  ]
+}
+```
+
+## ab0f470f9d88fe8bc
+
+```json
+{
+  "findings": [
+    {
+      "title": "Member removal does not revoke key grants \u2014 the sweep keys on member_key.project_id, which is '' or stale",
+      "severity": "high",
+      "file": "worker/src/v1.js",
+      "line": 2501,
+      "claim": "DELETE /v1/projects/<id>/members deletes member_key rows by project_id, but member_key.project_id is a write-time snapshot that is the empty string whenever the instance had no project_id at grant time \u2014 so the sweep matches nothing, the removed member's wrapped Ki survives, and GET /v1/researcher/keys hands it back forever.",
+      "attack": "1) Owner O has migrated project P (project.drive_folder_id set). 2) O creates a device: POST /v1/instances {nickname} \u2014 the INSERT at v1.js:3471 lists no project_id column, so instance X has project_id NULL. 3) O adds member M: POST /v1/projects/P/members {researcher_id:M, caps:{manageDevices:true}} -> 200. 4) O grants M the device key: POST /v1/researcher/keys {instance_id:X, grants:[{researcher_id:O,wrapped_ki:...},{researcher_id:M,wrapped_ki:...}]}. Because X.project_id is NULL, both rows are written with project_id='' (v1.js:2300). 5) O removes M: DELETE /v1/projects/P/members {researcher_id:M} -> {ok:true, removed:1, grants_removed:0}; the approval log records '0 grant(s)'. 6) M, now a non-member, calls GET /v1/researcher/keys with no instance filter -> still returns {instance_id:X, wrapped_ki:...}, because that query (v1.js:2314) filters only on researcher_id and has no membership check at all. M keeps decrypting device X's E2EE material indefinitely. The same failure occurs without the '' case: grant M a key while X is in project P, then move X to project Q (POST /v1/researcher/projects/assign rewrites instance.project_id but nothing rewrites member_key.project_id \u2014 no UPDATE member_key exists anywhere in the file); removing M from Q now deletes nothing.",
+      "evidence": "v1.js:2300 \u2014 `).bind(String(proj.project_id || ''), instanceId, String(g.researcher_id), version, String(g.wrapped_ki), r.researcher_id, now));` with its own comment at 2292-2299: \"'' means \\\"no project yet\\\" ... \u26a0 Phase C must treat '' as unassigned rather than as a project id.\"\nv1.js:2501 \u2014 `env.DB.prepare('DELETE FROM member_key WHERE project_id=? AND researcher_id=?').bind(projectId, who),` under the comment \"\u26a0 ONE BATCH, so a member can never be left listed-but-keyless or keyless-but-listed.\"\nv1.js:2314 \u2014 `: env.DB.prepare('SELECT instance_id, key_version, wrapped_ki FROM member_key WHERE researcher_id=? ORDER BY instance_id, key_version DESC')` \u2014 no project or membership predicate.\nv1.js:3471 \u2014 `'INSERT INTO instance (instance_id, researcher_id, type, nickname, desired_blob, desired_rev, revoked, created_at, estate) VALUES (?,?,?,?,?,0,0,?,?)'` \u2014 project_id is never written on creation."
+    },
+    {
+      "title": "docId-keyed Drive routes search the owner's entire estate \u2014 a capability in one project acts on every project",
+      "severity": "high",
+      "file": "worker/src/v1.js",
+      "line": 3868,
+      "claim": "authMember binds only the instanceId in the URL; the docId path segment is then used in an unparented, estate-wide Drive query, so a member holding assignTexts/drive:read in one project can list, re-parent and stream texts belonging to a different project of the same owner.",
+      "attack": "Member M holds drive:read in project Q (so M legitimately learns Q's docIds \u2014 the device reports M can decrypt with their member_key Ki enumerate them) and assignTexts on device D_P in project P. M calls POST /v1/instances/D_P/texts/<docId_from_Q>/adopt. authMember resolves D_P -> project P -> M has assignTexts -> ok:true. The route then searches the OWNER's whole Drive for the flextextDoc tag (no parent constraint, v1.js:3868), finds Q's text folder, and re-parents it under D_P's device folder \u2014 i.e. moves another project's text into M's project \u2014 then mints streaming URLs for its files. Read-only variant needing no assignTexts: GET /v1/instances/<any instance M can reach>/texts/<docId_from_Q>/files (v1.js:3678) returns Q's file ids, names and sizes. POST .../texts/<docId>/move (v1.js:3909) is the third instance of the same query.",
+      "evidence": "v1.js:3868 \u2014 `const fq = encodeURIComponent(\\`appProperties has { key='flextextDoc' and value='${docId}' } and mimeType='application/vnd.google-apps.folder' and trashed=false\\`);` followed at 3869 by a `spaces=drive` search and at 3874 by `if (!(f.parents || []).includes(toFolder)) await driveReparent(access, f.id, toFolder, f.parents);`\nThe helper's own comment at v1.js:1134 already flags the shape: \"\u26a0 The tag search is scoped to trashed=false but NOT to the parent\".\nThe only binding done before it is `authMember(request, env, { instance: instanceId }, 'assignTexts')` (v1.js:3855) plus `SELECT ... FROM instance WHERE instance_id=? AND researcher_id=?` \u2014 nothing constrains docId to ctx.project_id, which is never read anywhere in the file."
+    },
+    {
+      "title": "assignment/finish mints an owner-authority bearer URL for any caller-supplied Drive file id",
+      "severity": "high",
+      "file": "worker/src/v1.js",
+      "line": 3826,
+      "claim": "POST /v1/instances/<id>/texts/<docId>/assignment/finish passes body.audioFileId / flextextFileId / promptFileId straight into mintTextfileUrl with the PROJECT OWNER's researcher_id and no check that the file lives in the text folder, the device folder, or the project subtree \u2014 so a member with assignTexts turns any file id in the owner's app-created estate into a credential-free 90-day download URL.",
+      "attack": "Member M has assignTexts on device D_P in project P. M obtains a file id from another project Q \u2014 e.g. from the GET .../texts/<docId_Q>/files listing described in the previous finding, or from a period when M was a member of Q. M calls POST /v1/instances/D_P/texts/<any docId>/assignment/finish {flextextFileId: '<fileId from Q>', ttlDays: 400}. authMember passes (D_P is in P and M has assignTexts). The route mints a token carrying r=owner.researcher_id and f=<fileId from Q>; TTL is clamped only to 7..400 days by clampTtlDays. M then GETs the returned /v1/textfile/<token> with no headers at all: the worker mints an access token from the OWNER's stored refresh token (driveAccessToken(env, owner), v1.js:1854/1899) and streams the bytes. The v2 scope check only verifies that instance D_P is still live; it never relates the file to the instance or the project.",
+      "evidence": "v1.js:3826-3828 \u2014 `const audioUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.audioFileId, '', ttlMs, scope, ctx.caller.researcher_id);` / `const flextextUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.flextextFileId, ...)` / `const promptUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.promptFileId, '', ttlMs, null, ctx.caller.researcher_id);`\nv1.js:1210 \u2014 `if (!fileId) return null;` is the ONLY validation mintTextfileUrl performs on fileId.\nThe route's preceding checks (v1.js:3810-3815) validate only the instance and that at least one id is present: `if (!body.audioFileId && !body.flextextFileId && !body.promptFileId) return j({ error: 'nothing_to_mint' }, 400, origin, env);`\nThe adjacent removed-route comment at v1.js:3934 states the intended rule this violates: \"Do not reintroduce a route that fetches a URL the caller chose.\""
+    },
+    {
+      "title": "assignment/upload/start writes into any caller-supplied parent folder in the owner's Drive",
+      "severity": "medium",
+      "file": "worker/src/v1.js",
+      "line": 3765,
+      "claim": "body.originalsFolderId is used verbatim as the Drive `parents` for a resumable upload created with the project owner's token, with no check that the folder is inside the text, the device, or the project \u2014 so a member with assignTexts can plant files anywhere in the owner's estate, including another project's folders and the account master folder.",
+      "attack": "Member M has assignTexts on device D_P in project P. M learns a folder id outside P \u2014 e.g. the account master 'FlexText Uploads' id or another project's folder id, both returned by GET .../texts/<docId>/files as `folderId`/`originalsFolderId`, or by adopt's `folderId` response. M calls POST /v1/instances/D_P/texts/<docId>/assignment/upload/start {kind:'flextext', name:'consent.flextext', size:N, originalsFolderId:'<foreign folder id>'} -> 200 with an uploadId, then PUTs the bytes to .../assignment/upload/chunk. The file lands in the foreign folder tagged flextextRole:'source-flextext', where the owner's panel and the other project's device will treat it as legitimate source material.",
+      "evidence": "v1.js:3765-3771 \u2014 `let parent = String(body.originalsFolderId || '');` ... `if (!parent) return j({ error: 'bad_folder' }, 400, origin, env);` then `body: JSON.stringify({ name, mimeType: mime, parents: [parent], appProperties: { flextextRole: role } }),` with `Authorization: 'Bearer ' + access` where `access = await driveAccessToken(env, r)` and `const r = ctx.owner;`. The only prior binding is `authMember(request, env, { instance: instanceId }, 'assignTexts')` at v1.js:3748 plus an instance-ownership SELECT; `parent` is never compared to the device folder, the text folder, or the project subtree."
+    },
+    {
+      "title": "POST /v1/researcher/keys decides authorization itself and answers 403, making instance ids enumerable",
+      "severity": "low",
+      "file": "worker/src/v1.js",
+      "line": 2280,
+      "claim": "This route is project data but bypasses authMember (a second authorization authority, against I1) and distinguishes 'exists but not yours' (403) from 'does not exist' (404), so any authenticated researcher can probe whether an arbitrary instance GUID exists.",
+      "attack": "Researcher A (any approved account, member of nothing) POSTs /v1/researcher/keys {instance_id:'<guess>', grants:[{researcher_id:'x', wrapped_ki:'y'}]}. A non-existent id returns 404 not_found (v1.js:2273); an id belonging to another researcher returns 403 forbidden (v1.js:2280). The two responses are distinguishable, which is exactly the oracle the design forbids and which check-project-scoping.sh tests for \u2014 but that script only inspects lines matching `if (!ctx.ok`, so this route, having no authMember call, is invisible to it. The route also omits `AND revoked=0` on the instance lookup and skips the not_migrated gate that POST /v1/projects/<id>/members enforces.",
+      "evidence": "v1.js:2271-2280 \u2014 `const inst = await env.DB.prepare('SELECT instance_id, project_id, researcher_id FROM instance WHERE instance_id=?').bind(instanceId).first();` / `if (!inst) return j({ error: 'not_found' }, 404, origin, env);` ... `if (r.researcher_id !== proj.owner_id) return j({ error: 'forbidden' }, 403, origin, env);`\nContrast v1.js:2371 in the sibling DELETE route, which was converted: `if (!ctx.ok || !ctx.isOwner) return j({ error: 'not_found' }, 404, origin, env);`\ncheck-project-scoping.sh: `if grep 'if (!ctx.ok' \"$W\" | grep -q '}, 403,'` \u2014 the guard only sees authMember call sites."
+    }
+  ]
+}
+```

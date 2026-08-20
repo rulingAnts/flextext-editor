@@ -1201,7 +1201,7 @@ export function clampTtlDays(v) {
  * Additive on purpose: scope is optional, and a v1 token minted before this change still serves
  * exactly as it did. TTL semantics are deliberately UNCHANGED here — shortening them is visible to
  * researchers who set a delivery window, so it is a separate decision, not a side effect of this. */
-async function mintTextfileUrl(env, urlOrigin, researcherId, fileId, extract, ttlMs, scope) {
+async function mintTextfileUrl(env, urlOrigin, researcherId, fileId, extract, ttlMs, scope, minterId) {
   if (!fileId) return null;
   /* ⚠ `n` AND `iat` ARE FREE NOW AND CANNOT BE ADDED LATER — not to tokens already in the field,
    * which is the whole point. Without a per-token id the only way to withdraw one URL is to revoke
@@ -1210,6 +1210,14 @@ async function mintTextfileUrl(env, urlOrigin, researcherId, fileId, extract, tt
   const tk = { r: researcherId, f: fileId, x: extract || '', e: Date.now() + (ttlMs || 90 * 86400000),
                n: crypto.randomUUID(), iat: Date.now() };
   if (scope && scope.instanceId) { tk.v = 2; tk.i = scope.instanceId; if (scope.docId) tk.d = scope.docId; }
+  /* ⚠ `m` — WHO MINTED THIS, recorded ONLY when that is not the Drive owner (invariant I2).
+   * A member with assignTexts mints URLs into the OWNER's Drive and, having minted them, has seen
+   * them. The token is otherwise self-standing: its contents are its whole authority, so removing
+   * that member leaves them holding 90 days of read access to those files with no grant behind it.
+   * Stamping the minter is what lets redemption ask whether the grant still stands.
+   * Absent for owner-minted tokens, which is every token in the field today — so they are read
+   * exactly as before rather than being invalidated by a deploy. */
+  if (minterId && minterId !== researcherId) tk.m = minterId;
   return urlOrigin + '/v1/textfile/' + encodeURIComponent(await encAtRest(env, JSON.stringify(tk)));
 }
 
@@ -1849,6 +1857,39 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       const live = await env.DB.prepare('SELECT instance_id FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
         .bind(tk.i, tk.r).first();
       if (!live) return j({ error: 'gone' }, 410, origin, env);
+    }
+    /* ⚠ A MEMBER-MINTED TOKEN IS A POINTER, GOOD ONLY WHILE THE GRANT IS (invariant I2).
+     *
+     * The design calls this required, not optional, before members ship, and the reason is that the
+     * token is otherwise SELF-STANDING: everything needed to serve it travels inside it, so it
+     * outlives the authority that created it. A member with assignTexts mints URLs into the owner's
+     * Drive and has necessarily seen them; remove that member and, without this, they keep reading
+     * those files for the rest of the 90 days with no grant behind it. Revocation that leaves a
+     * 90-day tail is not revocation.
+     *
+     * ⚠ OWNER-MINTED TOKENS ARE UNTOUCHED — `m` is absent on every token in the field today, so this
+     * costs them not one query. The check runs only for tokens a member created.
+     *
+     * ⚠ AND YES, THIS CAN CUT OFF A FIELD DEVICE mid-assignment when its minter is removed. That is
+     * the intended trade and it is recoverable: the owner re-assigns and a fresh URL is minted. The
+     * alternative — leaving the link live because a device is innocent — is exactly the 90-day tail,
+     * and it is not fixable after the fact because nobody can tell who still holds the URL. */
+    if (tk.m && tk.m !== tk.r) {
+      let ok2 = null;
+      try {
+        ok2 = tk.i
+          ? await env.DB.prepare(
+              'SELECT 1 AS ok FROM project_member pm JOIN instance i ON i.project_id=pm.project_id '
+              + 'WHERE pm.researcher_id=? AND i.instance_id=?').bind(tk.m, tk.i).first()
+          /* No scoped instance (a v1-shaped token that still names a minter): fall back to "are they
+           * still a member of ANY project this owner owns". Coarser, and deliberately so — the
+           * precise question is unanswerable without the instance, and the coarse one still closes
+           * on removal, which is what the invariant is about. */
+          : await env.DB.prepare(
+              'SELECT 1 AS ok FROM project_member pm JOIN project p ON p.project_id=pm.project_id '
+              + 'WHERE pm.researcher_id=? AND p.owner_id=?').bind(tk.m, tk.r).first();
+      } catch { ok2 = null; }      // unreadable membership DENIES (I4), never serves
+      if (!ok2) return j({ error: 'gone' }, 410, origin, env);
     }
     try {
       const access = await driveAccessToken(env, owner);
@@ -3752,9 +3793,9 @@ export async function handleV1(request, env, ctx, url, path, origin) {
          * 410 the moment the minting device were revoked, and would never work for a crowd page.
          * Deliberately unscoped; do not "fix" the inconsistency by scoping it. */
         const scope = { instanceId, docId };
-        const audioUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.audioFileId, '', ttlMs, scope);
-        const flextextUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.flextextFileId, '', ttlMs, scope);
-        const promptUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.promptFileId, '', ttlMs);
+        const audioUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.audioFileId, '', ttlMs, scope, ctx.caller.researcher_id);
+        const flextextUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.flextextFileId, '', ttlMs, scope, ctx.caller.researcher_id);
+        const promptUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.promptFileId, '', ttlMs, null, ctx.caller.researcher_id);
         if (docId && (audioUrl || flextextUrl)) {
           await logApproval(env, request, 'assigned_upload', docId.slice(0, 12) + '…', '→ ' + (inst.nickname || '?'), ctx.caller.drive_email);
         }
@@ -3807,7 +3848,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         // Same private, time-boxed streaming tokens the move flow mints — the device downloads
         // through /v1/textfile exactly as it would for any assignment.
         // Scoped to the DESTINATION device — it is the one that will fetch these.
-        const mint = (fileId, extract) => mintTextfileUrl(env, url.origin, r.researcher_id, fileId, extract, 0, { instanceId: to.instance_id, docId });
+        const mint = (fileId, extract) => mintTextfileUrl(env, url.origin, r.researcher_id, fileId, extract, 0, { instanceId: to.instance_id, docId }, ctx.caller.researcher_id);
         const flextextUrl = await mint(body.flextextFileId) || await mint(body.extractFromZipId, 'flextext');
         const audioUrl = await mint(body.audioFileId);
         await logApproval(env, request, 'text_adopted', docId, to.nickname || '', ctx.caller.drive_email);
@@ -3847,7 +3888,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         // Streaming tokens (default 90-day TTL) for whatever content the panel identified. Opaque
         // + time-boxed, bound to this researcher; the /v1/textfile endpoint validates and streams.
         // Scoped to the DESTINATION device — it is the one that will fetch these.
-        const mint = (fileId, extract) => mintTextfileUrl(env, url.origin, r.researcher_id, fileId, extract, 0, { instanceId: to.instance_id, docId });
+        const mint = (fileId, extract) => mintTextfileUrl(env, url.origin, r.researcher_id, fileId, extract, 0, { instanceId: to.instance_id, docId }, ctx.caller.researcher_id);
         const flextextUrl = await mint(body.flextextFileId) || await mint(body.extractFromZipId, 'flextext');
         const audioUrl = await mint(body.audioFileId);
         await logApproval(env, request, 'text_moved', docId.slice(0, 12) + '…', (from.nickname || '?') + ' → ' + (to.nickname || '?'), ctx.caller.drive_email);

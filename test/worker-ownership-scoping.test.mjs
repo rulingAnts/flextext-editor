@@ -90,9 +90,15 @@ console.log('\nminted /v1/textfile URLs are scoped, and therefore revocable');
    * field and into a crowd recorder's config, which has no instance at all — so scoping it would
    * 410 it the moment the minting device were revoked. Audio and flextext are a delivery to ONE
    * device and are scoped; the prompt is not. The inconsistency is the correct behaviour. */
-  ok(/body\.promptFileId, '', ttlMs\);/.test(code),
+  /* ⚠ MATCHED ON THE SCOPE ARGUMENT, NOT ON THE WHOLE CALL. The first version pinned the literal
+   * text `body.promptFileId, '', ttlMs);` — which broke the day mintTextfileUrl gained a trailing
+   * `minterId` parameter (I2), even though the prompt was still, correctly, unscoped. A test that
+   * fails when the behaviour it names is UNCHANGED trains people to edit the assertion without
+   * reading it, which is how the next real regression gets waved through. So: assert that the
+   * prompt's scope argument is absent-or-null, and that the delivery mints pass a real one. */
+  ok(/body\.promptFileId, '', ttlMs(\)|, null)/.test(code),
      'the consent prompt is minted WITHOUT a scope');
-  ok(/body\.audioFileId, '', ttlMs, scope\)/.test(code) && /body\.flextextFileId, '', ttlMs, scope\)/.test(code),
+  ok(/body\.audioFileId, '', ttlMs, scope[,)]/.test(code) && /body\.flextextFileId, '', ttlMs, scope[,)]/.test(code),
      '...while the assignment audio and flextext are scoped');
   // A per-token id cannot be added to tokens already in the field, so it must be carried from day one.
   ok(/n: crypto\.randomUUID\(\), iat: Date\.now\(\)/.test(code),

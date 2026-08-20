@@ -141,7 +141,10 @@
      segments[i] IS baseline paragraph i. See segments.js cutAtPlayhead / joinWithPrevious. -->
 <section id="view-cut" class="view" hidden>
   <p class="tab-hint" data-i18n-html="cut.hint"></p>
-  <p id="cut-loading" class="note seg-loading" hidden data-i18n="seg.loadingAudio">Loading the recording…</p>
+  <p id="cut-loading" class="note seg-loading" hidden role="status" aria-live="polite">
+    <span class="seg-loading-text" data-i18n="seg.loadingAudio">Loading the recording…</span>
+    <span class="seg-loading-bar is-indeterminate" aria-hidden="true"><i></i></span>
+  </p>
   <div id="cut-main" hidden>
     <!-- ⚠ NO WHOLE-FILE WAVEFORM HERE. The shared dock player above IS the overview: on this tab it
          marks the cuts already made inside its own waveform (Player.setBoundaries), so there is one
@@ -171,7 +174,10 @@
   </p>
   <!-- Shown while the recording decodes, INSTEAD of the strips. A span seeded before the duration
        is known is a wrong alignment written to the doc, not a placeholder — see switchTab. -->
-  <p id="seg-loading" class="note seg-loading" hidden data-i18n="seg.loadingAudio">Loading the recording…</p>
+  <p id="seg-loading" class="note seg-loading" hidden role="status" aria-live="polite">
+    <span class="seg-loading-text" data-i18n="seg.loadingAudio">Loading the recording…</span>
+    <span class="seg-loading-bar is-indeterminate" aria-hidden="true"><i></i></span>
+  </p>
   <div id="segment-strips" hidden></div>
       <textarea id="baseline-text" class="baseline-area" spellcheck="false" data-i18n-ph="baseline.placeholder"></textarea>
 </section>

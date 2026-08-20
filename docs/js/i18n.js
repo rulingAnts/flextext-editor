@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v435';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = '';
+export const BUILD_TAG = 'cut-load-status v1';
 
 const S = {
 en: {
@@ -266,6 +266,15 @@ en: {
   'setup.localNote': 'Changes are saved as you make them. Saved on this device only.',
   'setup.savedLive': 'Saved \u2713',
   'seg.loadingAudio': 'Loading the recording\u2026 the lines appear once it is ready.',
+  /* ⚠ STAGE NAMES, not one word. Preparing a recording is three jobs of very different lengths, and
+   * the slowest of them (re-encoding a lossy file to the WAV working copy) is the one a user is
+   * most likely to think has hung. Naming the stage is what turns a wait into a wait-for-something.
+   * Kept short: these sit under a bar on a phone, and the coworkers this suite is for may be barely
+   * literate — the sentence in seg.loadingAudio above carries the explanation. */
+  'seg.prep.read': 'Opening the recording\u2026',
+  'seg.prep.convert': 'Preparing the recording for precise alignment\u2026',
+  'seg.prep.decode': 'Reading the sound\u2026',
+  'seg.prep.peaks': 'Drawing the waveform\u2026 {pct}%',
   'setup.tabWarn': 'This device is not ready to use: {n} setting(s) need attention.',
   'panel.f.consentAudioFile': 'Spoken reminder \u2014 sound file on this device',
   /* ⚠ Every one of these is shown UNDER its disabled control and toasted when it is clicked. A
@@ -2048,6 +2057,10 @@ id: {
   'setup.localNote': 'Perubahan disimpan sambil Anda membuatnya. Disimpan di perangkat ini saja.',
   'setup.savedLive': 'Tersimpan ✓',
   'seg.loadingAudio': 'Memuat rekaman\u2026 barisnya muncul setelah siap.',
+  'seg.prep.read': 'Membuka rekaman\u2026',
+  'seg.prep.convert': 'Menyiapkan rekaman untuk penyelarasan yang tepat\u2026',
+  'seg.prep.decode': 'Membaca suara\u2026',
+  'seg.prep.peaks': 'Menggambar bentuk gelombang\u2026 {pct}%',
   'setup.tabWarn': 'Perangkat ini belum siap dipakai: {n} pengaturan perlu diperhatikan.',
   'panel.f.consentAudioFile': 'Pengingat lisan \u2014 berkas suara di perangkat ini',
   'setup.offMark': '(tidak berlaku untuk aplikasi mandiri)',

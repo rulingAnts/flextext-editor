@@ -90,10 +90,61 @@ const inEnAndId = (k) => {
 console.log('\nthe strips stay hidden until the peaks are in');
 ok(/\$\('#segment-strips'\)\.hidden = true;\s*\n\s*\$\('#baseline-text'\)\.hidden = true;\s*\n\s*\$\('#seg-loading'\)\.hidden = false;/.test(app),
    'entering the tab shows the loading line, NOT an empty strip list');
-ok(/await ensurePeaks\([\s\S]{0,220}?\$\('#seg-loading'\)\.hidden = true;\s*\n\s*\$\('#segment-strips'\)\.hidden = false;\s*\n\s*renderStrips\(\);/.test(app),
+/* ⚠ The window was 220 and is now 260 for ONE reason: ensurePeaks gained a progress argument, which
+ * cost 6 characters and put the real code 221 apart. The assertion is about ORDER and PROXIMITY —
+ * that nothing else slipped in between the await and the reveal — and both still hold. Widen it
+ * again only for the same kind of reason, and never past the point where a whole statement fits. */
+ok(/await ensurePeaks\([\s\S]{0,260}?\$\('#seg-loading'\)\.hidden = true;\s*\n\s*\$\('#segment-strips'\)\.hidden = false;\s*\n\s*renderStrips\(\);/.test(app),
    'and they are revealed only AFTER ensurePeaks resolves');
-ok(/id="seg-loading"[^>]*hidden[^>]*data-i18n="seg\.loadingAudio"/.test(html), 'the placeholder exists in the markup');
+ok(/id="seg-loading"[\s\S]{0,160}?class="seg-loading-text" data-i18n="seg\.loadingAudio"/.test(html),
+   'the placeholder exists in the markup, with its text in a child span');
 ok(inEnAndId('seg.loadingAudio') === 2, 'and is translated in BOTH languages');
+
+/* ── THE WAIT MUST LOOK LIKE A WAIT (Seth, 2026-08-20) ─────────────────────────────────────────
+ * "If there are real constraints with loading speed we can't get around, we need to always make
+ * sure our UI is responsive and gives the user some kind of 'loading' response/status bar."
+ *
+ * Preparing a recording cannot be made fast — a lossy source is decoded and re-encoded, then every
+ * sample is bucketed. What it CAN stop doing is looking like a hang. */
+console.log('\nthe loading line reports stages and the work yields to the UI');
+{
+  const strips = src;   // segment-strips.js, already read at the top of this file
+  const css = readFileSync(new URL('../docs/css/app.css', import.meta.url), 'utf8');
+
+  ok(/id="seg-loading"[\s\S]{0,260}?class="seg-loading-bar/.test(html)
+     && /id="cut-loading"[\s\S]{0,260}?class="seg-loading-bar/.test(html),
+     'both tabs carry a bar, not just a sentence');
+  ok(/id="seg-loading"[^>]*role="status"[^>]*aria-live="polite"/.test(html)
+     && /id="cut-loading"[^>]*role="status"[^>]*aria-live="polite"/.test(html),
+     '...and announce their stage changes, so the wait is not silent to a screen reader');
+  ok(/export function segProgress/.test(strips), 'there is ONE place that writes the indicator');
+  ok(/\.seg-loading-bar\.is-indeterminate/.test(css) && /@keyframes seg-loading-sweep/.test(css),
+     'a stage that cannot measure itself sweeps rather than showing a made-up percentage');
+  ok(/prefers-reduced-motion[\s\S]{0,200}?animation: none/.test(css),
+     '...and reduced-motion stops the sweep without hiding the bar — the bar IS the status');
+
+  /* ⚠ THE HALF THAT ACTUALLY MATTERS. A bar in front of a blocking loop is worse than no bar: it
+   * converts "the app is frozen" into "the app is frozen AND lying". */
+  const ensure = strips.match(/export async function ensurePeaks[\s\S]*?\n\}/)[0];
+  ok(/await yieldToUi\(\)/.test(ensure), 'the bucketing loop YIELDS, so the bar can actually repaint');
+  ok(/nowMs\(\) - sliceStart > SLICE_MS/.test(ensure),
+     '...sliced by TIME, so a slow phone gets the same responsiveness as a fast one');
+  ok(/setTimeout/.test(strips) && !/requestAnimationFrame\(\) =>/.test(strips)
+     && /yieldToUi = \(\) => new Promise\(\(r\) => setTimeout\(r, 0\)\)/.test(strips),
+     '⚠ via setTimeout, not rAF — rAF does not fire in a backgrounded tab and the load would stall');
+
+  /* ⚠ A LOOP THAT AWAITS CAN BE OVERTAKEN. Before it yielded, ensurePeaks was atomic between its
+   * cache reset and the write of the finished array. Now a second call for a different doc can
+   * interleave, and the loser must not publish its peaks over the winner's. */
+  ok(/const myRun = \+\+peaksRun;/.test(ensure) && (ensure.match(/peaksRun !== myRun/g) || []).length >= 2,
+     'a superseded run returns without writing — one text\'s waveform under another\'s segments');
+
+  ok(/segProgress\(loading, t\(coming \? 'seg\.loadingAudio' : 'cut\.noAudio'\)/.test(app)
+     && !/loading\.textContent = /.test(app),
+     '⚠ nothing writes textContent on the CONTAINER — that would delete the bar inside it');
+  for (const k of ['seg.prep.read', 'seg.prep.convert', 'seg.prep.decode', 'seg.prep.peaks'])
+    ok(inEnAndId(k) === 2, `${k} is translated in BOTH languages`);
+}
 
 console.log('\nno audio at all falls back to the classic editor');
 ok(/if \(!media \|\| !media\.blob\) \{/.test(app), 'the no-media case is handled explicitly');

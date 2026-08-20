@@ -2298,3 +2298,38 @@ main {
 /* The crowd page's version line — the one app with no badge and no service worker, so nothing else
    can report which engine it is running. Quiet, but present. */
 .crowd-ver { margin-top: 18px; text-align: center; font-size: .75rem; opacity: .45; }
+
+/* ── The audio-preparation loading indicator (Seth, 2026-08-20) ────────────────────────────────
+   "If there are real constraints with loading speed we can't get around, we need to always make
+   sure our UI is responsive and gives the user some kind of 'loading' response/status bar."
+
+   Two states, and the difference between them is honesty rather than decoration: a stage that can
+   count its own work fills the bar; a stage that cannot (a browser-internal decode) runs
+   .is-indeterminate and sweeps, saying "working" without inventing a percentage.
+
+   ⚠ prefers-reduced-motion stops the sweep rather than hiding the bar — the bar is the STATUS, and
+   a user who has asked for less motion still needs to know the app is busy. */
+.seg-loading { display: flex; flex-direction: column; gap: 8px; }
+.seg-loading-bar {
+  position: relative; overflow: hidden;
+  height: 4px; border-radius: 2px;
+  background: var(--border);
+}
+.seg-loading-bar > i {
+  display: block; height: 100%; width: 0;
+  border-radius: inherit;
+  background: var(--blue);
+  transition: width .18s linear;
+}
+.seg-loading-bar.is-indeterminate > i {
+  width: 35%; transition: none;
+  animation: seg-loading-sweep 1.15s ease-in-out infinite;
+}
+@keyframes seg-loading-sweep {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(340%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .seg-loading-bar.is-indeterminate > i { animation: none; width: 100%; opacity: .45; }
+  .seg-loading-bar > i { transition: none; }
+}

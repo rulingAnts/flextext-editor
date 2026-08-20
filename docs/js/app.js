@@ -21,7 +21,7 @@ import { makeZip } from './zip.js';
 import { initStrips, renderStrips, stopStrips, ensurePeaks, docSegments, drawSpanWave, wireSegPlay,
          wireWaveSeek, requestReveal, takeReveal, followLine,
          initCut, renderCut, cutHere, cutJoinPrev, cutTogglePlay, cutGuessSplits, stopCut,
-         stripSplitAtPlayhead } from './segment-strips.js';
+         stripSplitAtPlayhead, segProgress } from './segment-strips.js';
 import { wavWithBext, captureBext, assembleSegEntries, MANIFEST_NAME, buildSourceManifest,
          sanitizeBase, extOf, mediaNameFor, derivedWavName,
          loosePlan, buildLooseConversion, durationVerdict } from './seg-exports.js';
@@ -1211,6 +1211,28 @@ function glossJoinLines(i) {
  * open would draw one text's waveform under another's segments. */
 let cutShownFor = null;   // the doc whose strips are currently on screen — see below
 
+/* ONE reporter for both tabs (Seth, 2026-08-20): "we need to always make sure our UI is responsive
+ * and gives the user some kind of 'loading' response/status bar."
+ *
+ * The Cut tab and the Baseline strips run the SAME preparation — working WAV, then peaks — so they
+ * get the same words in the same order rather than two drifting sets. Stages arrive as bare keys
+ * from whichever module is doing the work; this is where they become sentences, because the engine
+ * modules must not carry copy.
+ *
+ * ⚠ A stage with no number passes null and the bar goes indeterminate. Never substitute a guess:
+ * a bar that sticks at an invented 40% is what teaches a user to ignore bars. */
+function segPrep(sel) {
+  const el = () => $(sel);
+  return (stage, frac) => {
+    const pct = typeof frac === 'number' && isFinite(frac) ? Math.round(frac * 100) : null;
+    const msg = stage === 'peaks' ? t('seg.prep.peaks', { pct: pct == null ? 0 : pct })
+              : stage === 'convert' ? t('seg.prep.convert')
+              : stage === 'decode' ? t('seg.prep.decode')
+              : t('seg.prep.read');
+    segProgress(el(), msg, frac);
+  };
+}
+
 async function prepareCutAudio() {
   const forDoc = current && current.id;
   const main = $('#cut-main'), loading = $('#cut-loading');
@@ -1225,8 +1247,10 @@ async function prepareCutAudio() {
   const reentry = main && !main.hidden && cutShownFor === forDoc;
   if (main && !reentry) main.hidden = true;
   if (loading && !reentry) loading.hidden = false;
+  const prog = segPrep('#cut-loading');
+  if (!reentry) prog('read', null);
   let media = forDoc ? await db.getMedia(forDoc).catch(() => null) : null;
-  media = await segWorkingMedia(forDoc, media, current && current.title);
+  media = await segWorkingMedia(forDoc, media, current && current.title, prog);
   if (!current || current.id !== forDoc || activeTab !== 'cut') return;
   if (!media || !media.blob) {
     /* No recording ⇒ nothing to cut. The tab should not have been reachable, but say so rather than
@@ -1235,10 +1259,15 @@ async function prepareCutAudio() {
      * editor opens before the attach finishes) and for an assigned text whose audio is still
      * downloading. Telling those users "this text has no recording" is both wrong and alarming. */
     const coming = !!(current.pendingAudio || attachingAudioFor === forDoc);
-    if (loading) { loading.hidden = false; loading.textContent = t(coming ? 'seg.loadingAudio' : 'cut.noAudio'); }
+    /* ⚠ THE TEXT SPAN, NOT THE CONTAINER. Writing textContent on #cut-loading itself would delete
+     * the bar element inside it, and the next text that DOES load would then have no bar to fill. */
+    if (loading) {
+      loading.hidden = false;
+      segProgress(loading, t(coming ? 'seg.loadingAudio' : 'cut.noAudio'), coming ? null : 0);
+    }
     return;
   }
-  await ensurePeaks(forDoc, media.blob, (playerReadyFor === forDoc && player && player.decodedBuffer) ? player.decodedBuffer() : null);
+  await ensurePeaks(forDoc, media.blob, (playerReadyFor === forDoc && player && player.decodedBuffer) ? player.decodedBuffer() : null, prog);
   if (!current || current.id !== forDoc || activeTab !== 'cut') return;
   if (loading) loading.hidden = true;
   if (main) main.hidden = false;
@@ -1350,9 +1379,11 @@ function switchTab(tab, landing) {
       $('#segment-strips').hidden = true;
       $('#baseline-text').hidden = true;
       $('#seg-loading').hidden = false;
+      const prog = segPrep('#seg-loading');
+      prog('read', null);
       (async () => {
         let media = stripsFor ? await db.getMedia(stripsFor).catch(() => null) : null;
-        media = await segWorkingMedia(stripsFor, media, current && current.title);   // same WAV the player uses
+        media = await segWorkingMedia(stripsFor, media, current && current.title, prog);   // same WAV the player uses
         if (!current || current.id !== stripsFor || !isEditorTab(activeTab)) return;  // doc switched under us
         /* ⚠ NO AUDIO ⇒ THE CLASSIC EDITOR (Seth): "our app should fall back on the basic editor if
          * there's no attached audio file." Strips over a doc with no recording are all pending by
@@ -1366,7 +1397,7 @@ function switchTab(tab, landing) {
           $('#baseline-text').hidden = false;   // ⚠ LAST: applyBaseline reads DOM truth, so the
           return;                               //    value must be in place before it is visible.
         }
-        await ensurePeaks(stripsFor, media.blob, (playerReadyFor === stripsFor && player && player.decodedBuffer) ? player.decodedBuffer() : null);
+        await ensurePeaks(stripsFor, media.blob, (playerReadyFor === stripsFor && player && player.decodedBuffer) ? player.decodedBuffer() : null, prog);
         if (!current || current.id !== stripsFor || !isEditorTab(activeTab)) return;
         $('#seg-loading').hidden = true;
         $('#segment-strips').hidden = false;
@@ -1538,13 +1569,18 @@ function isAudioLocked(rec) {
  * working copy lives beside it under its own key and is a pure derivation (lossy→PCM adds no
  * information; this is a timeline fix, not an upgrade — see audio-archival-standards).
  */
-async function segWorkingMedia(docId, media, title = '') {
+async function segWorkingMedia(docId, media, title = '', onProgress) {
   if (!media || !media.blob) return media;
   const isWav = /wav$/i.test(media.mimeType || '') || /\.wav$/i.test(media.name || '');
   if (isWav || !segmentationEnabled()) return media;
   const key = 'segwav:' + docId;
   const cached = await db.getMedia(key).catch(() => null);
   if (cached && cached.blob && cached.srcName === media.name) return cached;
+  /* ⚠ ONLY PAST THE CACHE CHECK. Announcing the conversion before we know one is needed would flash
+   * 'preparing…' at every open of an already-converted text — a status line that cries wolf is the
+   * one people learn to read past. This point is reached only when the work is genuinely about to
+   * happen, and everything after it is seconds long on a field phone. */
+  if (typeof onProgress === 'function') onProgress('convert', null);
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const buf = await ctx.decodeAudioData(await media.blob.arrayBuffer());

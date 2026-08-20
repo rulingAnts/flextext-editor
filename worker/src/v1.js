@@ -1869,7 +1869,15 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       .map((g) => env.DB.prepare(
         'INSERT OR REPLACE INTO member_key (project_id, instance_id, researcher_id, key_version, wrapped_ki, wrapped_by, created_at) '
         + 'VALUES (?,?,?,?,?,?,?)'
-      ).bind(proj.project_id, instanceId, String(g.researcher_id), version, String(g.wrapped_ki), r.researcher_id, now));
+      /* ⚠ `|| ''` IS LOAD-BEARING: member_key.project_id is TEXT NOT NULL, and the dual-read branch
+       * above deliberately yields project_id = null for an instance the backfill has not reached —
+       * which is EVERY instance today, because the D1 project table is still empty while projects
+       * live as Drive folders. Binding that null failed the constraint, threw the whole batch, and
+       * returned 500. The client swallowed it per instance, so 31 grants failed in silence and the
+       * migration looked like it had simply found nothing to do.
+       * '' means "no project yet" and is the same sentinel buildDriveEstate already uses for a text
+       * with no project. ⚠ Phase C must treat '' as unassigned rather than as a project id. */
+      ).bind(String(proj.project_id || ''), instanceId, String(g.researcher_id), version, String(g.wrapped_ki), r.researcher_id, now));
     await env.DB.batch(writes);
     return j({ ok: true, stored: writes.length, key_version: version }, 200, origin, env);
   }

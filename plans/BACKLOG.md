@@ -79,6 +79,43 @@ Plausible ways through, none free, to be chosen deliberately rather than default
 **Priority: later, as Seth said.** Nothing here is load-bearing while the researcher set is seven
 people who are all known personally. It becomes real the moment sign-up is genuinely open.
 
+## SOON: an unassigned box cannot move a text to ANOTHER project's unassigned box (Seth, 2026-08-20)
+
+> *"We still can't move texts from one unassigned box to the unassigned box on another project.
+> That's something I'd like somewhat soon. All other moves work as expected though."*
+
+Confirmed still open after v434's test drive. Every other move works: device→device, device→unassigned,
+and both of those across projects. The one gap is unassigned→unassigned across projects.
+
+The worker is already capable — `drive-unassign` accepts an explicit `projectFolderId` (added
+2026-08-20) and verifies the target really is a project folder before trusting it. So this is a
+CLIENT gap: the source-less move flow that both the Unassigned card and crowd rows use offers devices
+as destinations but not other projects' unassigned boxes. The fix is in `groupedDestinations` /
+the source-less move modal, not in the backend.
+
+⚠ Keep the confirm distinction Seth asked for when it lands: moving across projects already has its
+own confirm, precisely so a cross-project move cannot be made by the same reflex as a local one.
+
+## LATER, FOR FABLE: audit researcher-panel latency and cross-app sync responsiveness (Seth, 2026-08-20)
+
+> *"There's significant lag in the researcher panel and auto refreshing/syncing across our apps, but
+> a lot of that is due to having actually a pretty poor connection. It's still very functional within
+> the realm of expectations. Later when we have time we can task Fable with auditing and finding ways
+> to improve that without compromising the guards we have in place to prevent partial downloads,
+> things dropped or reset or un-cached as a result of connection instability or working offline."*
+
+⚠ **The constraint is the whole job.** Most obvious speed-ups here trade away exactly the property the
+suite exists for. The guards that must survive any change: chunked/resumable uploads with probe-first
+resume, the absorb-then-delete rule on native captures, offline-first caching, the optimistic-locked
+settings writes, and the estate-settle polling that exists because Drive's search index lags a write.
+Anything that makes the panel feel faster by assuming the network is good is a regression on a field
+device, not an improvement.
+
+Two concrete leads already in hand from the client-vs-server audit: `GET /v1/researcher/drive-estate`
+is unlimited, uncached and polled while doing TWO full `driveListAll` passes (each paged to 20k
+files); and the panel polls `GET /v1/researcher` every 12s. Neither is the cause of a bad-connection
+day, but both are real work per tick.
+
 ## FUTURE: permission prompts are asked too broadly and too often (Seth, 2026-08-20)
 
 > *"On the crowd recorder (and other recorders maybe?) it asks for recording permissions at multiple

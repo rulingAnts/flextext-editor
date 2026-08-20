@@ -368,13 +368,22 @@ async function ensureKeypair(v) {
  * ⚠ Only the MISSING ones. Re-granting everything on every sign-in would be a POST per device per
  * sign-in for no change, and `member_key` writes are INSERT OR REPLACE — so it would also rewrite
  * rows the owner may have deliberately re-keyed. */
-async function selfGrantMissing() {
+async function selfGrantMissing(live) {
   const me = currentAccountId();
   if (!me || !myPub) return;
   if (!settingsCache) await fetchSettings();
   const legacy = (settingsCache && settingsCache.wrappedKis) || {};
   const have = await loadGrants();
-  for (const instanceId of Object.keys(legacy)) {
+  /* ⚠ ONLY LIVE INSTANCES. The legacy key store is append-only — it keeps a wrapped Ki for every
+   * instance this researcher has EVER created, revoked ones included (31 entries against 12 live
+   * devices on the first account to run this). Granting the dead ones means a POST that can only
+   * 404, once per sign-in, for ever. When the caller cannot say which are live we fall back to the
+   * whole store rather than granting nothing — a wasted request beats a missed migration. */
+  const ids = Array.isArray(live) && live.length
+    ? live.map((i) => i.instance_id).filter((id) => legacy[id])
+    : Object.keys(legacy);
+  let failed = 0;
+  for (const instanceId of ids) {
     if (have[instanceId]) continue;
     try {
       const ki = kiCache.get(instanceId) || await unwrapKey(Kr, legacy[instanceId]);
@@ -385,8 +394,17 @@ async function selfGrantMissing() {
         body: { instance_id: instanceId, grants: [{ researcher_id: me, wrapped_ki }] }, retry: false,
       });
       if (grantCache) grantCache[instanceId] = wrapped_ki;
-    } catch { /* one device failing must not stop the rest; the legacy path still serves it */ }
+    } catch (e) {
+      /* ⚠ LOG IT. One device failing must not stop the rest — but the first version of this
+       * swallowed the error entirely, and when a worker-side NOT NULL constraint rejected all 31
+       * grants the migration reported nothing at all: no rows written, no errors, and devices still
+       * opening via the legacy path. A silent fallback that works is the hardest kind of bug to
+       * notice, so failures are counted and named even though they are survivable. */
+      failed++;
+      if (failed <= 3) console.warn('key grant failed for', instanceId, (e && e.message) || e);
+    }
   }
+  if (failed) console.warn(`key grants: ${failed} of ${ids.length} failed (legacy key path still serves them)`);
 }
 
 // The grants THIS researcher holds, fetched once per unlock. Newest key_version first from the
@@ -408,7 +426,7 @@ export async function ensureResearcherKeys(v) {
   try {
     if (!Kr) return false;
     await ensureKeypair(v);
-    await selfGrantMissing();
+    await selfGrantMissing(v && v.instances);
     return true;
   } catch (e) {
     console.warn('researcher key setup deferred:', (e && e.message) || e);

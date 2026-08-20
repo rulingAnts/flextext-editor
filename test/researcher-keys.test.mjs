@@ -100,8 +100,28 @@ console.log('\nthe self-grant writes only what is MISSING, and satisfies the wra
   ok(/if \(have\[instanceId\]\) continue;/.test(g),
      '⚠ instances that already have a grant are skipped — not re-granted on every sign-in');
   ok(/researcher_id: me/.test(g), 'the grant names this researcher, who is the owner of their own store');
-  ok(/catch \{/.test(g), 'one device failing does not stop the rest');
+  ok(/catch \(e\)/.test(g) && /console\.warn/.test(g),
+     '⚠ a failed grant is LOGGED, not swallowed — 31 silent failures once looked like "nothing to do"');
+  ok(/failed\+\+/.test(g), 'and counted, so the summary says how many');
+  ok(/Array\.isArray\(live\)/.test(g),
+     'revoked instances are skipped — the legacy store keeps every device ever created');
   ok(/owner_grant_required/.test(worker), 'and the worker still rejects a set without the owner\'s copy');
+}
+
+/* ⚠ THE BUG THIS SECTION EXISTS FOR. member_key.project_id is TEXT NOT NULL, and the worker's
+ * dual-read branch deliberately produces project_id = null for an instance the backfill has not
+ * reached — which was EVERY instance, since projects live as Drive folders and the D1 project table
+ * is empty. Binding that null violated the constraint, threw the D1 batch, and 500'd. All 31 grants
+ * failed, the client swallowed each one, and the migration looked like it had found nothing to do.
+ * The tell was in the database, not the UI: with_keypair 1, member_keys 0. */
+console.log('\nthe grant write can survive an instance with no project id');
+{
+  const at = worker.indexOf("seg[2] === 'keys'");
+  const route = worker.slice(at, at + 3000);
+  ok(/String\(proj\.project_id \|\| ''\)/.test(route),
+     '⚠ project_id is coerced — NULL into a NOT NULL column threw the whole batch');
+  ok(/TEXT NOT NULL/.test(read('../worker/migrate-projects.sql').split('member_key')[1] || ''),
+     '...and the column really is NOT NULL, which is why the coercion is required rather than tidy');
 }
 
 console.log('\nthe legacy store is never deleted by any of this');

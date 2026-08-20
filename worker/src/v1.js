@@ -325,7 +325,21 @@ async function verifyTurnstile(token, ip, env) {
  */
 const SESSION_CAP = 5;                              // browsers signed in at once; oldest is evicted
 const SESSION_TTL_STAY = 90 * 24 * 60 * 60 * 1000;  // "stay signed in" ON — 90 days, slid on each use
-const SESSION_TTL_TRANSIENT = 24 * 60 * 60 * 1000;  // OFF: the user has told us this is not their machine
+/* ⚠ OFF IS THE DEFAULT, AND THAT IS THE DECISION, NOT AN OVERSIGHT (Seth, 2026-08-20). The failure
+ * modes are asymmetric, which is what settles it: forgetting to TICK it costs a re-login, while
+ * forgetting to UNTICK it on a machine that is not yours leaves a 90-day credential behind on it.
+ * *"A researcher only needs to forget that once or twice and then they can check it. Better than
+ * forgetting the other way when security is important."*
+ *
+ * ⚠ This line used to read "the user has told us this is not their machine" — which an UNTICKED
+ * DEFAULT cannot support. Nobody told us anything; this is the safe assumption standing in until
+ * they say otherwise, and the distinction matters to whoever next reasons about what the flag means.
+ *
+ * The client half is the same decision: `staySignedIn()` returns false when the key is absent, and
+ * with it off the credential lives in sessionStorage — so it is gone when the tab closes, before any
+ * server-side session is consulted. Two mechanisms, one policy. Do not flip either to make sign-in
+ * stickier; a researcher asking for that can tick the box. */
+const SESSION_TTL_TRANSIENT = 24 * 60 * 60 * 1000;
 
 /* A coarse, human label — "Chrome on Windows". ⚠ The User-Agent is client-controlled and is being
  * actively reduced by browsers, so this is a HINT for recognising your own session in a list, never

@@ -206,7 +206,16 @@ It bit twice in one evening, and the second time it delayed a release a research
 two `plans/` pushes queued two more `main` builds, and `main` and `productionWeb` build the same
 Workers, so the production push had to wait behind prose.
 
-**The discipline, until the durable fix lands:**
+**THE RULE, stated the simple way (Seth, 2026-08-20):** *"we can wait on pushing staging until we're
+actually ready to test something."* **Push `staging` when you want a BUILD, not when you have a
+commit.** A commit is free; a push costs a build of every Worker on that branch. Those are different
+events and only one of them is worth spending.
+
+⚠ This also settles what to do when a stop hook asks for a push mid-conversation: commit, and say
+that the push is being held. An automated reminder does not know a release is in flight, and it is
+not a reason to spend a build window.
+
+**The rest of the discipline, until the durable fix lands:**
 
 - ⚠ **Hold docs commits while a release is in flight.** Commit them locally; push after
   `productionWeb` has landed. A stop hook asking for a push is not a reason to spend a build window.

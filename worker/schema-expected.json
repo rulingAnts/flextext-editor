@@ -98,6 +98,7 @@
     ],
     "project": [
       "created_at",
+      "drive_folder_id",
       "name",
       "owner_id",
       "project_id"

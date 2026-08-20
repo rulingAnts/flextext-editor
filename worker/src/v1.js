@@ -74,15 +74,30 @@ function bytesToB64url(buf) {
 }
 function normEmail(e) { return String(e || '').trim().toLowerCase(); }
 
-// Researcher allowlist (A) + request/approve onboarding: env-listed emails are auto-approved
-// OWNERS (they can approve others); anyone else signs in PENDING (inert) until an owner approves
-// them. isApproved() gates the privileged endpoints — owners always pass (even if their row
-// predates the `approved` column, since it checks the env list too).
-function isOwner(email, env) {
+/* Researcher allowlist (A) + request/approve onboarding: env-listed emails are auto-approved
+ * OPERATORS (they can approve others); anyone else signs in PENDING (inert) until an operator
+ * approves them. isApproved() gates the privileged endpoints — operators always pass (even if their
+ * row predates the `approved` column, since it checks the env list too).
+ *
+ * ⚠ NAMED `isOperator`, NOT `isOwner`, AND THE DISTINCTION IS ABOUT TO MATTER (project-split
+ * II.0.9). This asks "is this email in ALLOWED_RESEARCHERS" — a DEPLOYMENT question about who
+ * administers this installation. It has nothing to do with `project.owner_id`, which is a DATA
+ * question about who owns one project and is the word Phase C is about to use everywhere.
+ *
+ * The design doc requires the rename BEFORE the word "owner" appears in project code, because the
+ * two are easy to conflate and conflating them is a privilege bug in the direction that matters: an
+ * operator check where a project-owner check belongs would let the deployment's admin act on a
+ * project they do not own, and a project-owner check where an operator check belongs would let any
+ * researcher approve accounts. Different questions, different answers, no shared vocabulary.
+ *
+ * ⚠ The WIRE value stays `not_owner`. It is an API response string, not an internal name, and no
+ * client inspects it (grepped) — but changing a response shape for a rename would be a compat risk
+ * taken for tidiness, which is the wrong trade. */
+function isOperator(email, env) {
   const a = String(env.ALLOWED_RESEARCHERS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
   return a.length > 0 && a.includes(normEmail(email));
 }
-function isApproved(r, env) { return !!(r && (r.approved || isOwner(r.drive_email, env))); }
+function isApproved(r, env) { return !!(r && (r.approved || isOperator(r.drive_email, env))); }
 
 // The domain of an address, for the approved_domain allowlist. Split on the LAST '@' (a local part
 // may legally contain one) and lowercase. Returns '' for anything not address-shaped, which can
@@ -1444,15 +1459,37 @@ function defaultProjectName(row) {
  * construction — every write is conditional on the row not already being there — so it is safe to
  * re-run after a partial failure, which is the property a backfill actually needs. */
 async function backfillProjectsFor(env, row, now) {
-  let project = await env.DB.prepare('SELECT project_id FROM project WHERE owner_id=? ORDER BY created_at LIMIT 1')
+  let project = await env.DB.prepare('SELECT project_id, drive_folder_id FROM project WHERE owner_id=? ORDER BY created_at LIMIT 1')
     .bind(row.researcher_id).first();
   let created = false;
   if (!project) {
     const project_id = crypto.randomUUID();
     await env.DB.prepare('INSERT INTO project (project_id, owner_id, name, created_at) VALUES (?,?,?,?)')
       .bind(project_id, row.researcher_id, defaultProjectName(row), now).run();
-    project = { project_id };
+    project = { project_id, drive_folder_id: null };
     created = true;
+  }
+  /* ⚠ RESOLVE THE DRIVE FOLDER, because without it this project cannot be scoped. Phase C's Drive
+   * rules (R2-1) work by FOLDER PARENTAGE — "which folders belong to the project this member may
+   * see" — and that question is unanswerable until the D1 row points at a folder.
+   *
+   * ⚠ FAILURE IS A REAL STATE, NOT AN ERROR. A researcher who has never connected Drive has no
+   * folder to point at, and a Drive outage must not fail a backfill whose D1 work already
+   * succeeded. Both leave drive_folder_id NULL, which Phase C reads as "no Drive scoping possible
+   * here" and which FAILS CLOSED (invariant I4) rather than falling back to the whole estate.
+   *
+   * Conditional on absence like every other write here, so re-running never re-points a project
+   * somebody has since moved. */
+  let driveFolder = project.drive_folder_id || null;
+  if (!driveFolder && row.drive_refresh_enc) {
+    try {
+      const access = await driveAccessToken(env, row);
+      driveFolder = await driveEnsureDefaultProject(access, defaultProjectName(row));
+      if (driveFolder) {
+        await env.DB.prepare('UPDATE project SET drive_folder_id=? WHERE project_id=? AND drive_folder_id IS NULL')
+          .bind(driveFolder, project.project_id).run();
+      }
+    } catch { driveFolder = null; }   // no Drive, or Drive unwell — the D1 half still stands
   }
   /* Only rows that have NO project yet are adopted: re-running must never move an instance that has
    * since been placed somewhere deliberately. */
@@ -1462,6 +1499,7 @@ async function backfillProjectsFor(env, row, now) {
     .bind(project.project_id, row.researcher_id).run();
   return {
     project_id: project.project_id,
+    drive_folder_id: driveFolder,
     created,
     instances: (inst.meta && inst.meta.changes) || 0,
     crowd: (crowd.meta && crowd.meta.changes) || 0,
@@ -1662,10 +1700,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     // A (allowlist) + request/approve: env-listed emails are auto-approved OWNERS; anyone else may
     // sign in but their account is created PENDING (inert) until an owner approves it in the panel.
     // No hard reject here — the isApproved() gate on the privileged endpoints is what protects them.
-    const owner = isOwner(email, env);
+    const operator = isOperator(email, env);
     // Pre-approved DOMAIN (D1 `approved_domain`): approved on sight, but as an ordinary researcher.
-    // Owner rights come only from the env list, so no database row can ever grant them.
-    const domainOk = owner ? false : await isDomainApproved(email, env);
+    // Operator rights come only from the env list, so no database row can ever grant them.
+    const domainOk = operator ? false : await isDomainApproved(email, env);
     const name = claims.name || ''; const picture = claims.picture || '';
     let row = await env.DB.prepare(
       'SELECT researcher_id, CASE WHEN drive_refresh_enc IS NOT NULL THEN 1 ELSE 0 END AS has_drive FROM researcher WHERE google_sub=?'
@@ -1689,13 +1727,13 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         'INSERT INTO researcher (researcher_id, secret_hash, email_sha256, settings_blob, settings_rev, created_at, google_sub, kr_server_enc, drive_refresh_enc, drive_email, email_enc, display_name, avatar_url, approved) VALUES (?,?,?,?,0,?,?,?,?,?,?,?,?,?)'
       ).bind(researcher_id, legacyKill, await emailKey(email, env), JSON.stringify({}), now, sub,
              await encAtRest(env, krB64), tok.refresh_token ? await encAtRest(env, tok.refresh_token) : null,
-             email, await encAtRest(env, email), name, picture, (owner || domainOk) ? 1 : 0).run();
+             email, await encAtRest(env, email), name, picture, (operator || domainOk) ? 1 : 0).run();
       row = { researcher_id, __created: true };
       // Every account creation is logged, whether it was auto-approved or left pending, so the log
       // answers "when did this person first appear" and not merely "when was someone approved".
-      await logApproval(env, request, owner || domainOk ? 'account_auto_approved' : 'account_signup',
+      await logApproval(env, request, operator || domainOk ? 'account_auto_approved' : 'account_signup',
                         email || sub,
-                        owner ? 'owner allowlist (ALLOWED_RESEARCHERS)'
+                        operator ? 'operator allowlist (ALLOWED_RESEARCHERS)'
                               : domainOk ? 'pre-approved domain: ' + emailDomain(email)
                               : 'pending — awaiting manual approval',
                         'system');
@@ -1706,7 +1744,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         'A new researcher account signed in with Google for the first time.',
         'Email: ' + (email || '(none)'),
         'Name: ' + (name || '(none)'),
-        owner
+        operator
           ? 'This address is on ALLOWED_RESEARCHERS, so it was auto-approved as an OWNER.'
           : domainOk
             ? 'Its domain (' + emailDomain(email) + ') is in your pre-approved list, so it was '
@@ -1728,7 +1766,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       if (email) { sets.push('drive_email=?'); binds.push(email); }
       sets.push('display_name=?'); binds.push(name);
       sets.push('avatar_url=?'); binds.push(picture);
-      if (owner) { sets.push('approved=?'); binds.push(1); }   // env-listed owners are always approved
+      if (operator) { sets.push('approved=?'); binds.push(1); }   // env-listed operators are always approved
       binds.push(row.researcher_id);
       await env.DB.prepare('UPDATE researcher SET ' + sets.join(', ') + ' WHERE researcher_id=?').bind(...binds).run();
     }
@@ -1753,7 +1791,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       });
     }
 
-    /* Tell the owner their account was just signed into. NOT on the account's first ever sign-in:
+    /* Tell the account holder their account was just signed into. NOT on the account's first ever sign-in:
      * the person is standing right there having just created it, and an alert about your own signup
      * is the noise that teaches people to ignore the ones that matter. `waitUntil`, so a slow or
      * failing mail can never delay the redirect the researcher is waiting on. */
@@ -1812,7 +1850,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
   if (m === 'POST' && seg.length === 4 && seg[1] === 'researcher' && seg[2] === 'admin' && seg[3] === 'backfill-projects') {
     const r = await authResearcher(request, env);
     if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
-    if (!isOwner(r.drive_email, env)) return j({ error: 'not_owner' }, 403, origin, env);
+    if (!isOperator(r.drive_email, env)) return j({ error: 'not_owner' }, 403, origin, env);
     const rows = await env.DB.prepare('SELECT researcher_id, display_name, drive_email FROM researcher').all();
     const report = { researchers: 0, projects_created: 0, instances_adopted: 0, crowd_adopted: 0 };
     for (const who of (rows && rows.results) || []) {
@@ -2031,7 +2069,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       if (flag && flag.value) maintenance = String(flag.value).slice(0, 500);
     } catch { /* table absent (pre-migration) or read failed — no notice, never an error */ }
     const approved = isApproved(r, env);
-    const owner = isOwner(r.drive_email, env);
+    const operator = isOperator(r.drive_email, env);
     let insts = [];
     let pending;
     if (approved) {
@@ -2050,12 +2088,12 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           'SELECT install_id, status, accepted, pair_code, reported_blob, reported_rev, ack_seq, last_seen_at, pubkey, wipe_state, wipe_at, (wrapped_key IS NOT NULL) AS has_key FROM install WHERE instance_id=? AND wipe_hidden=0 AND (revoked=0 OR wipe_state IS NOT NULL)'
         ).bind(it.instance_id).all()).results || [];
       }
-      // Owners see pending researcher requests to approve/decline (fellow owners excluded).
-      if (owner) {
+      // Operators see pending researcher requests to approve/decline (fellow operators excluded).
+      if (operator) {
         const rows = (await env.DB.prepare(
           'SELECT researcher_id, drive_email AS email, display_name, avatar_url, created_at FROM researcher WHERE approved=0 ORDER BY created_at'
         ).all()).results || [];
-        pending = rows.filter((p) => !isOwner(p.email, env));
+        pending = rows.filter((p) => !isOperator(p.email, env));
       }
     }
     /* ⚠ `pubkey` / `wrapped_privkey` ride this response so the panel can adopt an EXISTING keypair
@@ -2068,7 +2106,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
      * next line. It exposes nothing this response did not already expose; a client without Kr can do
      * nothing with it. The 409-adoption path stays regardless — it is what settles the race when two
      * browsers publish at the same moment, which no response field can prevent. */
-    return j({ approved, is_owner: owner, pending,
+    return j({ approved, is_owner: operator, pending,
                settings: r.settings_blob, settings_rev: r.settings_rev, instances: insts,
                maintenance: maintenance || undefined,
                kr: r.kr_server_enc ? await decAtRest(env, r.kr_server_enc) : undefined,
@@ -2080,7 +2118,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
   if (m === 'POST' && seg.length === 3 && seg[1] === 'researcher' && seg[2] === 'approve') {
     const r = await authResearcher(request, env);
     if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
-    if (!isOwner(r.drive_email, env)) return j({ error: 'not_owner' }, 403, origin, env);
+    if (!isOperator(r.drive_email, env)) return j({ error: 'not_owner' }, 403, origin, env);
     const body = await readJson(request) || {};
     if (!body.researcher_id) return j({ error: 'bad_body' }, 400, origin, env);
     // Read the subject BEFORE acting — after a decline the row is gone, so both paths capture it
@@ -2097,7 +2135,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
   if (m === 'POST' && seg.length === 3 && seg[1] === 'researcher' && seg[2] === 'decline') {
     const r = await authResearcher(request, env);
     if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
-    if (!isOwner(r.drive_email, env)) return j({ error: 'not_owner' }, 403, origin, env);
+    if (!isOperator(r.drive_email, env)) return j({ error: 'not_owner' }, 403, origin, env);
     const body = await readJson(request) || {};
     if (!body.researcher_id) return j({ error: 'bad_body' }, 400, origin, env);
     // ⚠ MUST read the e-mail BEFORE the DELETE. This is the case that proved the log was needed:
@@ -2125,7 +2163,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
   if (seg.length >= 3 && seg[1] === 'researcher' && seg[2] === 'domains') {
     const r = await authResearcher(request, env);
     if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
-    if (!isOwner(r.drive_email, env)) return j({ error: 'not_owner' }, 403, origin, env);
+    if (!isOperator(r.drive_email, env)) return j({ error: 'not_owner' }, 403, origin, env);
     const sub = seg[3] || '';
 
     if (m === 'GET' && !sub) {
@@ -2539,6 +2577,19 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         { name, mimeType: 'application/vnd.google-apps.folder',
           parents: [await driveMasterFolder(access)],
           appProperties: { flextextRole: 'project' } });
+      /* ⚠ ONE ACT WRITES BOTH, which is what keeps the two namespaces from drifting. The Drive
+       * folder holds the bytes; the D1 row is what `project_member`, `member_key` and
+       * `instance.project_id` key on. Creating one without the other is how they got out of step in
+       * the first place — every Drive project folder in production today has no D1 row at all.
+       *
+       * ⚠ THE D1 WRITE IS NOT ALLOWED TO FAIL THE REQUEST. The folder already exists at this point;
+       * throwing here would leave the user with a project they can see in Drive and an error on
+       * screen, and a retry would mint a SECOND folder. A missing row is recoverable by the
+       * idempotent backfill; a duplicate folder is not recoverable at all. */
+      try {
+        await env.DB.prepare('INSERT INTO project (project_id, owner_id, name, created_at, drive_folder_id) VALUES (?,?,?,?,?)')
+          .bind(crypto.randomUUID(), r.researcher_id, name, now, f.id).run();
+      } catch (e2) { try { console.warn('project row not written for', f.id, safeErr(e2)); } catch { /* noop */ } }
       await logApproval(env, request, 'project_created', name, f.id, r.drive_email);
       return j({ ok: true, folderId: f.id, name }, 200, origin, env);
     } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
@@ -2547,13 +2598,25 @@ export async function handleV1(request, env, ctx, url, path, origin) {
   /* POST /v1/researcher/projects/assign { folderId, projectFolderId } — move ONE container (a device
    * folder or a crowd recorder folder) into a project. Its texts ride along as children.
    *
-   * ⚠ DRIVE PARENTAGE IS THE ONLY RECORD, and that is deliberate rather than unfinished. It would be
-   * easy to also write `instance.project_id` here — but that column belongs to Phase B's D1 project
-   * table, whose rows are GUIDs from a `project` table that has been applied to no database. Writing
-   * a DRIVE folder id into it would put a second, differently-shaped answer to "which project is this
-   * in" into a second store: precisely the drift this whole design has been arranged to make
-   * impossible. One authority. The estate derives membership from parentage, and the panel reads the
-   * estate.
+   * ⚠ THIS COMMENT USED TO SAY "DRIVE PARENTAGE IS THE ONLY RECORD", and the reasoning was right at
+   * the time: writing a DRIVE folder id into `instance.project_id` — a column holding GUIDs from a
+   * `project` table that had been applied to no database — would have put a second,
+   * differently-shaped answer to "which project is this in" into a second store.
+   *
+   * What changed is that the two shapes are now JOINED (`project.drive_folder_id`, 2026-08-20), so
+   * the D1 project for a Drive folder is a lookup rather than a guess. That makes the objection
+   * answerable, and it makes the update REQUIRED: Phase C authorizes from `instance.project_id`, so
+   * a container that moved in Drive while D1 still said otherwise would be authorized against the
+   * project it just left.
+   *
+   * ⚠ SO BOTH ARE WRITTEN IN ONE ACT (invariant I3). They cannot drift because nothing updates one
+   * without the other — not because anyone remembers to. Drive still holds the bytes and the panel
+   * still reads the estate; D1 answers "who may act on this", and only that.
+   *
+   * ⚠ NO MATCHING D1 PROJECT ⇒ project_id IS CLEARED, NOT LEFT STALE. A Drive folder with no D1 row
+   * is a project Phase C cannot authorize against, and NULL means exactly that — unscoped, failing
+   * closed (I4). Leaving the old value would be the one genuinely dangerous outcome: authorization
+   * against a project the container is demonstrably no longer in.
    *
    * ⚠ A container keeps its folder ID across the move, so nothing that resolves by id notices —
    * pending uploads, minted URLs and the device's own record all keep working mid-move. */
@@ -2576,6 +2639,20 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       if (role && role !== 'crowd') return j({ error: 'not_a_container' }, 400, origin, env);
       if (src.mimeType !== 'application/vnd.google-apps.folder') return j({ error: 'not_a_container' }, 400, origin, env);
       await driveReparent(access, src.id, projectFolderId, src.parents);
+      /* Keep D1 in step with the move — see the note above. Scoped to the caller's own rows, so this
+       * can never re-home somebody else's container, and matched on oauth_folder_id because that is
+       * how a container is identified in Drive. */
+      try {
+        const destRow = await env.DB.prepare('SELECT project_id FROM project WHERE drive_folder_id=? AND owner_id=?')
+          .bind(projectFolderId, r.researcher_id).first();
+        const newPid = destRow ? destRow.project_id : null;
+        await env.DB.batch([
+          env.DB.prepare('UPDATE instance SET project_id=? WHERE oauth_folder_id=? AND researcher_id=?')
+            .bind(newPid, folderId, r.researcher_id),
+          env.DB.prepare('UPDATE crowd_recorder SET project_id=? WHERE oauth_folder_id=? AND researcher_id=?')
+            .bind(newPid, folderId, r.researcher_id),
+        ]);
+      } catch (e2) { try { console.warn('project_id not updated for', folderId, safeErr(e2)); } catch { /* noop */ } }
       await logApproval(env, request, 'project_assign', src.name || folderId, projectFolderId, r.drive_email);
       return j({ ok: true, folderId, projectFolderId }, 200, origin, env);
     } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
@@ -2737,7 +2814,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
   if (m === 'GET' && seg.length === 3 && seg[1] === 'researcher' && seg[2] === 'approvals') {
     const r = await authResearcher(request, env);
     if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
-    if (!isOwner(r.drive_email, env)) return j({ error: 'not_owner' }, 403, origin, env);
+    if (!isOperator(r.drive_email, env)) return j({ error: 'not_owner' }, 403, origin, env);
     const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '200', 10) || 200, 1), 1000);
     let rows = [];
     try {

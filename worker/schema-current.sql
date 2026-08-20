@@ -120,7 +120,7 @@ CREATE TABLE IF NOT EXISTS project (
   owner_id     TEXT NOT NULL,                -- researcher_id of the ONE owner
   name         TEXT NOT NULL,                -- plaintext, like instance.nickname
   created_at   INTEGER NOT NULL
-);
+, drive_folder_id TEXT);                     -- the Drive folder this project's bytes live in; NULL = not resolved
 
 CREATE TABLE IF NOT EXISTS project_member (
   project_id    TEXT NOT NULL,

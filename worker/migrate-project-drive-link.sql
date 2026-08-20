@@ -1,0 +1,35 @@
+-- Project ⇄ Drive link (2026-08-20): give the D1 `project` row a pointer to its Drive folder.
+--
+-- ⚠ WHY THIS IS NEEDED BEFORE ANY AUTHORIZATION WORK. There are currently TWO unrelated things
+-- called "a project" and nothing joins them:
+--
+--   * D1 `project.project_id` — a GUID, written only by the backfill endpoint. `member_key`,
+--     `project_member` and `instance.project_id` all key on it.
+--   * a Drive FOLDER tagged `flextextRole:'project'` — minted by POST /v1/researcher/projects/create
+--     and returned by buildDriveEstate. The entire panel UI addresses projects by this folder id.
+--
+-- Phase C scopes every route by the caller's project grants, and those grants live in D1. But the
+-- Drive routes — the ones II.5c calls the dangerous half, because they walk the owner's whole estate
+-- — can only be scoped by FOLDER PARENTAGE (round-2 finding R2-1). Without a link between the two
+-- namespaces there is no way to ask "which Drive folders belong to the project this member may
+-- see", so the most important scoping rule in the design cannot be expressed at all.
+--
+-- ⚠ WHICH SIDE IS AUTHORITATIVE, stated so it is not re-litigated: D1 is authoritative for
+-- AUTHORIZATION (who may do what), Drive stays authoritative for BYTES (where files live). That
+-- split is forced, not chosen — `project_member` and `member_key` already have `project_id` in their
+-- PRIMARY KEYs, so moving authorization onto Drive folder ids would mean rebuilding both tables, and
+-- R2-6 forbids table rebuilds outright ("additive ALTER/CREATE only, no table rebuilds, ever").
+--
+-- ⚠ NULLABLE, and it must stay so. A project whose Drive folder has not been resolved yet is a real
+-- state — a researcher who has never connected Drive has no folder to point at — and it must not be
+-- an error. Phase C reads NULL as "no Drive scoping possible for this project", which fails CLOSED
+-- (invariant I4) rather than falling back to the whole estate.
+--
+-- Additive and nullable, so the CURRENTLY DEPLOYED worker keeps working against a database carrying
+-- it: nothing selects this column until the worker that knows about it is deployed.
+--
+-- D1 has no IF NOT EXISTS for ADD COLUMN, so run ONCE; a second run errors harmlessly on
+-- "duplicate column name".
+--   wrangler d1 execute flextext-connectivity --remote --file=migrate-project-drive-link.sql
+
+ALTER TABLE project ADD COLUMN drive_folder_id TEXT;

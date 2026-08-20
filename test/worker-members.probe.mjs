@@ -6,9 +6,10 @@
  * whole point of Phase C, could not be exercised even once. Every claim about sharing was a claim
  * about code that did not exist.
  *
- * What it pins: a member gets exactly what they were granted and nothing else; the `see` list bounds
- * a capability rather than merely decorating it; removal takes the KEY GRANTS with it, so revocation
- * is an act and not a UI state; and the owner cannot be demoted into a member row.
+ * What it pins: a member gets exactly the capabilities they were granted and nothing else, across
+ * the whole project (which IS the access boundary — see project-authz for the cross-project denial);
+ * removal takes the KEY GRANTS with it, so revocation is an act and not a UI state; and the owner
+ * cannot be demoted into a member row.
  *
  * Run: bash test/local-rig.sh   (or: node test/worker-members.probe.mjs http://127.0.0.1:8787)
  */
@@ -56,25 +57,25 @@ console.log('\nbefore being added, the guest is nobody');
 console.log('\ncaps are VALIDATED on the way in — an owner must be told, not silently granted nothing');
 {
   const bad = [
-    [{ see: 'some' }, 'see must be "all" or a list'],
-    [{ see: 'all', manageDevices: 'yes' }, 'a truthy STRING is not a boolean grant'],
-    [{ see: 'all', drive: 'write' }, 'drive is read|manage, nothing else'],
-    [{ see: 'all', wipe: true }, '⚠ wipe cannot be delegated in v1 — accepting and ignoring it would be a lie'],
-    [{ see: 'all', madeUpCap: true }, 'an unknown capability name is refused, not stored'],
+    [{ manageDevices: 'yes' }, 'a truthy STRING is not a boolean grant'],
+    [{ drive: 'write' }, 'drive is read|manage, nothing else'],
+    [{ wipe: true }, '⚠ wipe cannot be delegated in v1 — accepting and ignoring it would be a lie'],
+    [{ madeUpCap: true }, 'an unknown capability name is refused, not stored'],
+    [{ see: 'all' }, '⚠ `see` is refused too — the per-device list was removed, and silently dropping it would let a caller believe they had narrowed access'],
   ];
   for (const [caps, label] of bad) {
     const res = await call('POST', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: FIXTURE.outsiderId, caps });
     ok(res.status === 400 && res.json && res.json.error === 'bad_caps', `${label} (got ${res.status})`);
   }
-  const self = await call('POST', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: FIXTURE.researcherId, caps: { see: 'all' } });
+  const self = await call('POST', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: FIXTURE.researcherId, caps: {} });
   ok(self.status === 400, `⚠ the owner cannot be added as a member (got ${self.status}) — ownership is project.owner_id, and a second answer could disagree with it`);
-  const ghost = await call('POST', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: 'no-such-researcher', caps: { see: 'all' } });
+  const ghost = await call('POST', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: 'no-such-researcher', caps: {} });
   ok(ghost.status === 404, `a membership row naming nobody is refused (got ${ghost.status})`);
 }
 
-console.log('\nadded with ONE device visible and assignTexts only');
+console.log('\nadded with assignTexts only — project-wide, because the project IS the scope');
 const add = await call('POST', `/v1/projects/${projectId}/members`, OWNER, {
-  researcher_id: FIXTURE.outsiderId, caps: { see: [idA], assignTexts: true },
+  researcher_id: FIXTURE.outsiderId, caps: { assignTexts: true },
 });
 ok(add.status === 200, `the guest is added (got ${add.status})`);
 ok(add.json && add.json.caps && add.json.caps.manageDevices === undefined,
@@ -97,12 +98,16 @@ console.log('\nthe grant is exactly what was given');
    * never gets that far. So "past authorization" is exactly "not not_found". */
   const reach = await call('POST', `/v1/instances/${idA}/texts/probedoc/adopt`, GUEST, {});
   ok(reach.status !== 404,
-     `assignTexts on the VISIBLE device gets PAST authorization (got ${reach.status} — 502 oauth_unconfigured on the rig, never 404)`);
+     `assignTexts gets PAST authorization (got ${reach.status} — 502 oauth_unconfigured on the rig, never 404)`);
   ok((await call('POST', `/v1/instances/${idA}/rename`, GUEST, { nickname: 'x' })).status === 404,
      '⚠ manageDevices was NOT granted, so rename is refused even on the visible device');
-  const blocked = await call('POST', `/v1/instances/${idB}/texts/probedoc/adopt`, GUEST, {});
-  ok(blocked.status === 404 && blocked.status !== reach.status,
-     `⚠⚠ THE see LIST BOUNDS THE CAPABILITY: the same grant that reached device A is refused on device B (${reach.status} vs ${blocked.status})`);
+  /* ⚠ BOTH devices are now reachable, and that is the DECISION rather than a loosening that slipped
+   * through: the project is the boundary (Seth, 2026-08-20), so a member holding assignTexts holds
+   * it for everything in the project. The per-device list that used to be asserted here was removed
+   * because Drive could not honour it. Cross-PROJECT denial is tested in project-authz. */
+  const second = await call('POST', `/v1/instances/${idB}/texts/probedoc/adopt`, GUEST, {});
+  ok(second.status === reach.status,
+     `⚠ the SECOND device in the same project is reached identically (${reach.status} vs ${second.status}) — project-wide means project-wide`);
   ok((await call('POST', `/v1/instances/${idA}/installs/nope/wipe`, GUEST, {})).status === 404,
      'wipe stays owner-only whatever the member holds');
 }
@@ -157,7 +162,7 @@ console.log('\nUNCONVERTED Drive routes are INERT for a member, not leaky — th
    * which would have succeeded. If this ever returns 200, a member is reading the owner's estate
    * through a route nobody converted. */
   await call('POST', `/v1/projects/${projectId}/members`, OWNER, {
-    researcher_id: FIXTURE.outsiderId, caps: { see: 'all', drive: 'manage' },
+    researcher_id: FIXTURE.outsiderId, caps: { drive: 'manage' },
   });
   for (const [method, path, label] of [
     ['GET', '/v1/researcher/drive-estate', 'drive-estate'],

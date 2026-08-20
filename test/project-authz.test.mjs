@@ -14,7 +14,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 
-const { authMember } = await import('../worker/src/v1.js');
+const { authMember, validateCaps } = await import('../worker/src/v1.js');
 
 let fail = 0;
 const ok = (c, m) => { console.log(`  ${c ? 'ok  ' : 'FAIL'}  ${m}`); if (!c) fail++; };
@@ -76,26 +76,26 @@ const call = async (db, who, target, cap) => authMember(req(who, 'sec-' + who), 
 /* ---------------------------------------------------------------- */
 console.log('\nidentity first: no credential is 401, a wrong one is not an authorization question at all');
 {
-  const db = freshDb(); await seed(db, '{"see":"all"}');
+  const db = freshDb(); await seed(db, '{}');
   ok(await authMember({ headers: { get: () => null } }, d1(db), { instance: INST }, null) === null,
      'no headers → null, so the route answers 401 exactly as authResearcher does');
   ok(await authMember(req(OWNER, 'wrong-secret'), d1(db), { instance: INST }, null) === null,
      '⚠ a bad secret is null, NOT { ok:false } — it must never reach the membership lookup');
 }
 
-console.log('\nthe owner passes everything, and carries see:"all" so no route needs an owner branch');
+console.log('\nthe owner passes everything');
 {
-  const db = freshDb(); await seed(db, '{"see":"all"}');
+  const db = freshDb(); await seed(db, '{}');
   const c = await call(db, OWNER, { instance: INST }, 'manageDevices');
   ok(c && c.ok && c.isOwner, 'owner is authorized');
-  ok(c.see === 'all', '⚠ see:"all" — a filter written for members is then correct for the owner too');
+  ok(c.see === undefined, '⚠ and carries NO visibility list — the project is the boundary, so there is nothing narrower to report');
   ok(c.owner.researcher_id === OWNER && c.caller.researcher_id === OWNER, 'owner and caller coincide');
   ok((await call(db, OWNER, { instance: INST }, 'cancelOthers')).ok, 'and a capability they have no row for');
 }
 
 console.log('\ncaller and owner are SEPARATE — the conflation this helper exists to prevent');
 {
-  const db = freshDb(); await seed(db, '{"see":"all","manageDevices":true}');
+  const db = freshDb(); await seed(db, '{"manageDevices":true}');
   const c = await call(db, MEMBER, { instance: INST }, 'manageDevices');
   ok(c && c.ok && !c.isOwner, 'the member is authorized');
   ok(c.owner.researcher_id === OWNER,
@@ -108,7 +108,7 @@ console.log('\ncaller and owner are SEPARATE — the conflation this helper exis
 
 console.log('\na non-member is denied, and denial is indistinguishable from absence');
 {
-  const db = freshDb(); await seed(db, '{"see":"all"}');
+  const db = freshDb(); await seed(db, '{}');
   const c = await call(db, STRANGER, { instance: INST }, null);
   ok(c && c.ok === false, 'a stranger is denied');
   const gone = await call(db, STRANGER, { project: 'p-does-not-exist' }, null);
@@ -118,7 +118,7 @@ console.log('\na non-member is denied, and denial is indistinguishable from abse
 
 console.log('\ncapabilities are required, not assumed');
 {
-  const db = freshDb(); await seed(db, '{"see":"all","assignTexts":true}');
+  const db = freshDb(); await seed(db, '{"assignTexts":true}');
   ok((await call(db, MEMBER, { instance: INST }, 'assignTexts')).ok, 'a capability they hold passes');
   ok((await call(db, MEMBER, { instance: INST }, 'manageDevices')).ok === false,
      '⚠ a capability they do NOT hold denies — membership is not authority');
@@ -127,20 +127,74 @@ console.log('\ncapabilities are required, not assumed');
 
 console.log('\ndrive is a LEVEL, not a flag — manage implies read, read does not imply manage');
 {
-  const db = freshDb(); await seed(db, '{"see":"all","drive":"read"}');
+  const db = freshDb(); await seed(db, '{"drive":"read"}');
   ok((await call(db, MEMBER, { project: PROJ }, 'drive:read')).ok, 'read grants drive:read');
   ok((await call(db, MEMBER, { project: PROJ }, 'drive:manage')).ok === false,
      '⚠ read does NOT grant drive:manage — trash and purge are the destructive half');
-  const db2 = freshDb(); await seed(db2, '{"see":"all","drive":"manage"}');
+  const db2 = freshDb(); await seed(db2, '{"drive":"manage"}');
   ok((await call(db2, MEMBER, { project: PROJ }, 'drive:read')).ok, '⚠ manage implies read, or every list route needs two checks');
 }
 
-console.log('\nthe per-device `see` list bounds a capability — what they may do vs. what they may do it TO');
+console.log('\nvalidateCaps: an owner must be TOLD, not silently granted nothing');
 {
-  const db = freshDb(); await seed(db, `{"see":["${INST}"],"manageDevices":true}`);
-  ok((await call(db, MEMBER, { instance: INST }, 'manageDevices')).ok, 'the listed device is reachable');
-  ok((await call(db, MEMBER, { instance: OTHER_INST }, 'manageDevices')).ok === false,
-     '⚠⚠ a device OUTSIDE the see list is denied even WITH the capability — checked here so no route can forget it');
+  /* ⚠ EXPORTED SO IT CAN BE TESTED HERE. It was reachable only through the rig, and a mutation that
+   * accepted every unknown capability name survived the entire unit suite — the exact silent
+   * widening this function exists to prevent, invisible to the fastest feedback loop anyone runs.
+   *
+   * authMember also DENIES on caps it cannot parse, so a bad record already fails safe at read time.
+   * That is not a reason to skip validation: failing safe at READ time means the owner saved a
+   * permission set that grants nothing, saw no error, and believes their assistant has access. The
+   * write is the only moment a person is present to be told. */
+  ok(validateCaps({}) !== null, 'an empty set is valid — a member with no capabilities is a real state');
+  ok(validateCaps({ manageDevices: true }).manageDevices === true, 'a granted boolean survives');
+  ok(validateCaps({ manageDevices: false }).manageDevices === undefined,
+     'an ungranted one is ABSENT, not false — so unknown keys cannot accumulate meaning');
+  ok(validateCaps({ drive: 'read' }).drive === 'read' && validateCaps({ drive: 'manage' }).drive === 'manage',
+     'drive read and manage both pass');
+
+  for (const [bad, why] of [
+    [null, 'null'],
+    ['all', 'a string instead of an object'],
+    [[], 'an array'],
+    [{ manageDevices: 'yes' }, '⚠ a truthy STRING — the value that reads as a grant while never having been one'],
+    [{ manageDevices: 1 }, 'a truthy NUMBER, same reason'],
+    [{ drive: 'write' }, 'a drive level that does not exist'],
+    [{ wipe: true }, '⚠ wipe — owner-only in v1, so accepting and ignoring it would tell an owner they had delegated it'],
+    [{ forceRemove: true }, 'force-remove, same'],
+    [{ madeUpCap: true }, '⚠ an unknown capability NAME — the mutation that survived the whole suite'],
+    [{ see: 'all' }, '⚠ `see` — the per-device list was REMOVED, and silently dropping it would let a caller believe they had narrowed access'],
+    [{ see: ['i-1'] }, 'a see LIST, likewise'],
+  ]) {
+    ok(validateCaps(bad) === null, `refused: ${why}`);
+  }
+}
+
+console.log('\nthe PROJECT is the boundary — a capability reaches everything in it, and nothing outside');
+{
+  /* ⚠ THIS REPLACED A PER-DEVICE `see` LIST, removed the same night it was written (Seth,
+   * 2026-08-20): *"let's not get device and text specific for access"* — because a narrower rule
+   * could not be made TRUE. Device routes could honour it; Google Drive is addressed by FILE ID and
+   * could not, so the list would have claimed to hide a device that stayed reachable through any
+   * docId-routed Drive route. A checkbox the owner relies on and that does not hold is worse than no
+   * checkbox.
+   *
+   * What is asserted now is the boundary Drive CAN enforce, and it still has two sides: a member
+   * reaches every device in their project, and none outside it. Checking only the second half would
+   * pass even if members could reach nothing at all. */
+  const db = freshDb(); await seed(db, '{"manageDevices":true}');
+  ok((await call(db, MEMBER, { instance: INST }, 'manageDevices')).ok, 'a member reaches a device in their project');
+  ok((await call(db, MEMBER, { instance: OTHER_INST }, 'manageDevices')).ok,
+     'and EVERY device in it — membership is not narrowed per device any more');
+
+  // A second project, owned by someone else, holding its own device.
+  db.prepare('INSERT INTO project (project_id, owner_id, name, created_at) VALUES (?,?,?,?)')
+    .run('p-2', STRANGER, 'Dani Dictionary', NOW);
+  db.prepare('INSERT INTO "instance" (instance_id, researcher_id, type, nickname, desired_rev, revoked, created_at, project_id) VALUES (?,?,?,?,0,0,?,?)')
+    .run('i-other', STRANGER, '', 'Other Device', NOW, 'p-2');
+  ok((await call(db, MEMBER, { instance: 'i-other' }, 'manageDevices')).ok === false,
+     '⚠⚠ and is denied a device in ANOTHER project while holding the very same capability');
+  ok((await call(db, OWNER, { instance: 'i-other' }, 'manageDevices')).ok === false,
+     '⚠ so is their project OWNER — owning one project confers nothing in another');
 }
 
 console.log('\nthe DUAL-READ window: a NULL project is owner-only legacy access, never a member door');
@@ -148,7 +202,7 @@ console.log('\nthe DUAL-READ window: a NULL project is owner-only legacy access,
   /* ⚠ THIS IS THE BRANCH THAT WOULD HAVE BROKEN PRODUCTION IF IT DENIED. 12 live rows had a NULL
    * project_id when this was written — researchers who had not signed in since the backfill. The
    * assertions come in pairs: the legacy owner keeps working, and NOBODY ELSE arrives through it. */
-  const db = freshDb(); await seed(db, '{"see":"all","manageDevices":true}');
+  const db = freshDb(); await seed(db, '{"manageDevices":true}');
   db.prepare('UPDATE "instance" SET project_id=NULL WHERE instance_id=?').run(INST);
 
   const legacy = await call(db, OWNER, { instance: INST }, 'manageDevices');
@@ -170,7 +224,7 @@ console.log('\nthe DUAL-READ window: a NULL project is owner-only legacy access,
 
 console.log('\nfail closed on every unresolvable step (I4)');
 {
-  const db = freshDb(); await seed(db, '{"see":"all"}');
+  const db = freshDb(); await seed(db, '{}');
   db.prepare('UPDATE "instance" SET project_id=NULL WHERE instance_id=?').run(INST);
   ok((await call(db, MEMBER, { instance: INST }, null)).ok === false,
      'an instance with no project denies A MEMBER (the legacy branch above admits only its own researcher_id)');
@@ -181,7 +235,7 @@ console.log('\nfail closed on every unresolvable step (I4)');
   db.prepare('UPDATE "instance" SET project_id=? WHERE instance_id=?').run('', INST);
   db.prepare('INSERT INTO project (project_id, owner_id, name, created_at) VALUES (?,?,?,?)').run('', OWNER, 'pseudo', NOW);
   db.prepare('INSERT INTO project_member (project_id, researcher_id, caps, added_at, added_by) VALUES (?,?,?,?,?)')
-    .run('', MEMBER, '{"see":"all"}', NOW, OWNER);
+    .run('', MEMBER, '{}', NOW, OWNER);
   ok((await call(db, MEMBER, { instance: INST }, null)).ok === false,
      "⚠⚠ project_id='' is UNASSIGNED, not a project id — the member_key sentinel since v435. Reading it as an id would make every unassigned row a member of one shared pseudo-project");
   ok((await call(db, MEMBER, {}, null)).ok === false, 'an untyped target resolves nothing and denies');
@@ -192,7 +246,7 @@ console.log('\nunreadable caps DENY rather than defaulting to an empty grant');
 {
   /* ⚠ TARGETED AT A PROJECT, NOT AN INSTANCE, AND WITH NO needCap — deliberately the ONLY path on
    * which caps validity is the sole possible reason to deny. The first version of this asked about
-   * an instance, where a caps value of {} makes `see` empty and the per-device check denies first:
+   * an instance, and a caps value that parses to {} grants no capability:
    * every assertion passed, and kept passing when the validity check was neutered. It certified a
    * guard it was not exercising. Found by mutation, which is the whole point of running them. */
   for (const bad of ['not json at all', '[]', 'null', '"all"', '42']) {
@@ -202,13 +256,13 @@ console.log('\nunreadable caps DENY rather than defaulting to an empty grant');
   }
   // The control: valid caps on that same path DO authorize, so the check above is not passing
   // simply because this path denies everything.
-  const good = freshDb(); await seed(good, '{"see":"all"}');
+  const good = freshDb(); await seed(good, '{}');
   ok((await call(good, MEMBER, { project: PROJ }, null)).ok, 'and valid caps on the same path authorize');
 }
 
 console.log('\na revoked device is not a target');
 {
-  const db = freshDb(); await seed(db, '{"see":"all","manageDevices":true}');
+  const db = freshDb(); await seed(db, '{"manageDevices":true}');
   db.prepare('UPDATE "instance" SET revoked=1 WHERE instance_id=?').run(INST);
   ok((await call(db, MEMBER, { instance: INST }, 'manageDevices')).ok === false, 'a revoked instance resolves no project and denies');
 }

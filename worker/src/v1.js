@@ -462,17 +462,24 @@ async function authInstall(req, env, instanceId, installId) {
  * Returns a NORMALISED object or null. Normalising rather than passing the input through is what
  * stops unknown keys accumulating in the column — a future capability name would otherwise already
  * be present with a meaning nobody chose. */
-function validateCaps(raw) {
+export function validateCaps(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const out = {};
-  /* `see` is 'all' or an explicit list of instance ids. An empty list is LEGAL and means "no devices
-   * yet" — a member added before being given anything, which is a real intermediate state and not
-   * the same as a mistake. */
-  if (raw.see === 'all') out.see = 'all';
-  else if (Array.isArray(raw.see)) {
-    if (raw.see.length > 500) return null;
-    out.see = raw.see.map((x) => String(x).replace(/[^\w-]/g, '').slice(0, 64)).filter(Boolean);
-  } else return null;
+  /* ⚠ THERE IS NO PER-DEVICE VISIBILITY LIST, and its absence is the decision (Seth, 2026-08-20):
+   * *"I'm really not sure how granular we need our access to be at this point beyond project scope.
+   * And if an owner researcher needs it to be more specific than that, all he or she has to do is
+   * just create a separate project for that scope."*
+   *
+   * A `see` list was built first and removed on the same night, because it could not be made true.
+   * Device routes could honour it, but Google Drive is addressed by FILE ID — a member restricted to
+   * one device could still open another's files through any docId-routed Drive route. Keeping the
+   * list would have meant a checkbox that SAYS a device is hidden while it is not, which is worse
+   * than no checkbox: the owner would rely on it. The honest boundary is the one Drive can actually
+   * enforce, and that is the project.
+   *
+   * So: membership in a project grants access to everything IN that project, and the capabilities
+   * below say what may be DONE. Finer separation is a separate project — which is how Seth's own
+   * estate is already arranged (Fayu Text Corpus and Dani Dictionary). */
 
   for (const k of ['manageDevices', 'assignTexts', 'createInvites', 'cancelOthers']) {
     if (raw[k] === undefined) continue;
@@ -487,7 +494,7 @@ function validateCaps(raw) {
    * a silent drop. Those stay owner-only in v1 (round-1 finding 6); accepting the key and ignoring it
    * would tell an owner they had delegated something they had not. */
   for (const k of Object.keys(raw)) {
-    if (!['see', 'manageDevices', 'assignTexts', 'createInvites', 'cancelOthers', 'drive'].includes(k)) return null;
+    if (!['manageDevices', 'assignTexts', 'createInvites', 'cancelOthers', 'drive'].includes(k)) return null;
   }
   return out;
 }
@@ -580,7 +587,7 @@ export async function authMember(req, env, target, needCap) {
    * rather than leaving it to be inferred. */
   if (!project_id) {
     if (addressedRow && legacyOwner && legacyOwner === caller.researcher_id) {
-      return { ok: true, caller, owner: caller, project_id: '', caps: {}, isOwner: true, see: 'all', legacy: true };
+      return { ok: true, caller, owner: caller, project_id: '', caps: {}, isOwner: true, legacy: true };
     }
     return deny;
   }
@@ -600,8 +607,8 @@ export async function authMember(req, env, target, needCap) {
   const isOwner = project.owner_id === caller.researcher_id;
   if (isOwner) {
     // The owner has no project_member row by construction (ownership is project.owner_id) and passes
-    // every capability. `see: 'all'` so callers need no separate owner branch when filtering.
-    return { ok: true, caller, owner, project_id, caps: {}, isOwner: true, see: 'all' };
+    // every capability.
+    return { ok: true, caller, owner, project_id, caps: {}, isOwner: true };
   }
 
   let member = null;
@@ -623,11 +630,9 @@ export async function authMember(req, env, target, needCap) {
   // cannot read; defaulting to {} would be the same outcome by accident rather than by decision.
   if (!caps || typeof caps !== 'object' || Array.isArray(caps)) return deny;
 
-  const see = caps.see === 'all' ? 'all' : (Array.isArray(caps.see) ? caps.see.map(String) : []);
-  /* PER-DEVICE OVERRIDE. A `see` list is a visibility allow-list, so a member with `manageDevices`
-   * still cannot touch a device outside it — the capability says what they may do, the list says to
-   * what. Checked here rather than per route so no route can forget it. */
-  if (target && target.instance && see !== 'all' && !see.includes(String(target.instance))) return deny;
+  /* ⚠ NO PER-DEVICE CHECK HERE — see validateCaps. The project IS the boundary, so resolving the
+   * target to this project (above) is the whole of the scoping. Anything narrower would have to be
+   * enforceable in Drive too, and it is not. */
 
   if (needCap) {
     const want = String(needCap);
@@ -639,7 +644,7 @@ export async function authMember(req, env, target, needCap) {
       return deny;
     }
   }
-  return { ok: true, caller, owner, project_id, caps, isOwner: false, see };
+  return { ok: true, caller, owner, project_id, caps, isOwner: false };
 }
 
 /* ---------------- Drive delivery (crowd submissions + researcher OAuth) ----------------

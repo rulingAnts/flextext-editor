@@ -104,6 +104,29 @@ researcher is offline. That is the design that makes no-login field sync possibl
 sufficiently deep compromise of the worker reaches **every researcher's FlexText texts and
 recordings** — not their wider Drive, but everything this suite has ever put in it.
 
+⚠ **And inside that bound the reach is TOTAL, not partial — do not let the narrow scope suggest
+otherwise.** It was reasoned, plausibly, that the worker never lists or queries Drive, so a
+compromised one could create files but would have to GUESS file ids to touch anything existing. The
+code says otherwise, and the correction matters because it is the difference between a small residual
+and a complete one:
+
+- `driveListAll` (v1.js) is an **unqualified listing** — `q=trashed=false`, no folder constraint,
+  paged to 20,000 files, returning `id`, `name`, `size`, `parents` and `appProperties`. It is `ls -R`
+  over everything the token can see, and `/drive-estate` calls it on a ~12-second panel poll.
+- Around fifteen further searches resolve folders by `appProperties` tag or by `'<id>' in parents`.
+- Every mutating verb is already implemented and reachable: `driveReparent` (PATCH
+  addParents/removeParents), `DELETE` by file id, and content reads via `?alt=media` in five places.
+
+So nothing has to be guessed: one call enumerates the estate with ids, and moving, deleting and
+downloading are already built. The Drive contents are plaintext by necessity — they have to open in
+FLEx and ELAN — so the E2EE that protects D1 metadata does not protect them.
+
+⚠ **The reassuring half of the same correction: knowing a file id buys nothing outside the grant
+set.** `drive.file` is grant-based, not id-based. A guessed id, an id leaked from elsewhere, an id
+from a shared link — `files.get`, PATCH and DELETE against any of them fail. There is no
+"if they could discover the ids" pathway into a researcher's other files, which is exactly why the
+outer boundary is worth relying on: it is not obscurity, and it does not weaken as ids become known.
+
 Being precise about this matters. The protections here exist to honour the privacy and research-ethics
 obligations the suite carries to the communities whose language, voices and consent records it holds,
 and the honest statement of the residual is part of that: the scope makes the *outer* boundary
@@ -120,7 +143,8 @@ Two facts about the token store worth having written down before an incident rat
 
 ## Options worth considering later, roughly in order of value for effort
 
-1. **Isolate the token store from the metadata store.** Refresh tokens sit in the same D1 row as
+1. **Isolate the token store from the metadata store.** ⚠ Ranked first because of the paragraph
+   above: the reach inside the bound is total, so the token IS the boundary that is left. Refresh tokens sit in the same D1 row as
    everything else, so any read primitive that reaches researcher rows reaches tokens. Moving them
    behind a separate binding with its own key narrows what a single query bug yields. Cheap, additive,
    no client change — the best ratio on this list.

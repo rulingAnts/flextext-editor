@@ -1538,6 +1538,8 @@ async function renderDashboard(prefetched) {
       renderDashboard(lastData || undefined);   // cached: switching tabs is not a Drive round trip
       return;
     }
+    if (act === 'new') { projectNewModal(); return; }
+    if (act === 'moveto') { projectAssignModal(el.dataset.folder, el.dataset.name || ''); return; }
     if (act === 'rename') { projectRenameModal(el.dataset.folder, el.dataset.name || ''); }
   }));
   lastSig = viewSig(data);
@@ -2813,6 +2815,7 @@ async function renderInstanceCard(it, deviceCount) {
         <button class="secondary-btn" data-iact="settings" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}">${esc(t('panel.inst.settings'))}</button>
         <button class="secondary-btn" data-iact="invite" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}">${esc(t('panel.inst.invite'))}</button>
         <button class="secondary-btn" data-iact="assign" data-i="${esc(it.instance_id)}">${esc(t('panel.inst.assign'))}</button>
+        ${projectMoveBtn(it)}
         <button class="link-btn rp-revoke" data-iact="revoke" data-i="${esc(it.instance_id)}" data-name="${esc(it.nickname || '')}">${esc(t('panel.inst.revoke'))}</button>
       </div>
     </div>
@@ -3003,7 +3006,10 @@ function newDeviceModal() {
     const nick = m.el.querySelector('#rp-new-nick').value.trim();
     if (!nick) return deps.toast(t('panel.new.needNick'), 4000);
     try {
-      const inst = await Researcher.createInstance(nick);
+      /* Born into the project on screen. `currentProject` is the tab the researcher is looking at;
+       * STRAY_TAB and a flat estate both mean "no project named", which is the lazy default. */
+      const intoProject = (currentProject && currentProject !== STRAY_TAB) ? currentProject : '';
+      const inst = await Researcher.createInstance(nick, intoProject);
       m.close(); renderDashboard();
       // A new device has no settings yet — open them straight away so it gets configured. Invite-link
       // creation stays blocked until the required fields are filled in, so this isn't skippable.
@@ -4301,6 +4307,7 @@ function renderProjectsCard(estate) {
     ${rows}
     ${stray ? `<p class="banner warn-banner">${esc(t('panel.proj.stray', { n: stray }))}</p>
       <button class="secondary-btn" data-pact="setup">${esc(t('panel.proj.finish'))}</button>` : ''}
+    <div class="rp-inst-actions"><button class="secondary-btn" data-pact="new">${esc(t('panel.proj.new'))}</button></div>
   </div>`;
 }
 
@@ -4438,6 +4445,82 @@ async function projectsUndoModal() {
   }));
 }
 
+/* A new project is EMPTY until a container is moved into it — deliberately. Creating a project must
+ * not guess which devices belong to it, and an empty project with a clear "move a device here" path
+ * is honest where an auto-populated one would be a guess presented as a decision. */
+async function projectNewModal() {
+  const m = modal(`<h3>${esc(t('panel.proj.newTitle'))}</h3>
+    <p class="note">${esc(t('panel.proj.newIntro'))}</p>
+    <label class="rp-field"><span>${esc(t('panel.proj.nameLabel'))}</span>
+      <input id="rp-proj-name" spellcheck="false" placeholder="${esc(t('panel.proj.newPlaceholder'))}"></label>
+    <div class="rp-adm-say" id="rp-proj-say" hidden></div>
+    <div class="modal-actions">
+      <button class="secondary-btn" data-m="cancel">${esc(t('panel.assign.cancel'))}</button>
+      <button class="primary-btn" data-m="go">${esc(t('panel.proj.newGo'))}</button>
+    </div>`);
+  m.el.querySelector('[data-m="cancel"]').onclick = m.close;
+  m.el.querySelector('[data-m="go"]').addEventListener('click', (e) => busy(e.target, async () => {
+    const name = m.el.querySelector('#rp-proj-name').value.trim();
+    if (!name) return;
+    try {
+      const r = await Researcher.projectCreate(name);
+      /* Drive's search index lags a write, so wait for the new project to actually appear rather than
+       * painting a dashboard that still shows one project (§16.27's lesson, same cause). */
+      for (let i = 0; i < 6; i++) {
+        let est = null;
+        try { est = await Researcher.driveEstate(); } catch { est = null; }
+        if (est && (est.projects || []).some((p) => p.folderId === r.folderId)) { estateCache = est; break; }
+        await sleep(1500);
+      }
+      currentProject = r.folderId;                     // open the thing that was just made
+      m.close();
+      deps.toast(t('panel.proj.created', { name }), 5000);
+      renderFromSettledEstate();
+    } catch (err) {
+      const el = m.el.querySelector('#rp-proj-say');
+      el.hidden = false; el.className = 'rp-adm-say rp-adm-err'; el.textContent = String(err.message || err);
+    }
+  }));
+}
+
+/* Move ONE container into another project. The texts inside ride along as children, and the folder
+ * keeps its id — so pending uploads, minted URLs and the device's own record all survive the move. */
+async function projectAssignModal(folderId, label) {
+  const projects = ((estateCache && estateCache.projects) || []);
+  const here = ((estateCache && estateCache.devices) || []).find((d) => d.folderId === folderId);
+  const options = projects.filter((p) => p.folderId !== (here && here.projectId));
+  if (!options.length) { deps.toast(t('panel.proj.noOtherProject'), 5000); return; }
+  const m = modal(`<h3>${esc(t('panel.proj.moveTitle', { name: label }))}</h3>
+    <p class="note">${esc(t('panel.proj.moveIntro'))}</p>
+    ${options.map((p, i) => `<label class="rp-field"><input type="radio" name="rp-proj-to" value="${esc(p.folderId)}"${i === 0 ? ' checked' : ''}> ${esc(p.name || t('panel.proj.defaultName'))}</label>`).join('')}
+    <div class="rp-adm-say" id="rp-proj-say" hidden></div>
+    <div class="modal-actions">
+      <button class="secondary-btn" data-m="cancel">${esc(t('panel.assign.cancel'))}</button>
+      <button class="primary-btn" data-m="go">${esc(t('panel.proj.moveGo'))}</button>
+    </div>`);
+  m.el.querySelector('[data-m="cancel"]').onclick = m.close;
+  m.el.querySelector('[data-m="go"]').addEventListener('click', (e) => busy(e.target, async () => {
+    const to = (m.el.querySelector('input[name="rp-proj-to"]:checked') || {}).value;
+    if (!to) return;
+    try {
+      await Researcher.projectAssign(folderId, to);
+      for (let i = 0; i < 6; i++) {                    // settle: the re-parent is a search-index write
+        let est = null;
+        try { est = await Researcher.driveEstate(); } catch { est = null; }
+        const d = est && (est.devices || []).find((x) => x.folderId === folderId);
+        if (d && d.projectId === to) { estateCache = est; break; }
+        await sleep(1500);
+      }
+      m.close();
+      deps.toast(t('panel.proj.moved'), 5000);
+      renderFromSettledEstate();
+    } catch (err) {
+      const el = m.el.querySelector('#rp-proj-say');
+      el.hidden = false; el.className = 'rp-adm-say rp-adm-err'; el.textContent = String(err.message || err);
+    }
+  }));
+}
+
 async function projectRenameModal(folderId, current) {
   const m = modal(`<h3>${esc(t('panel.proj.renameTitle'))}</h3>
     <label class="rp-field"><span>${esc(t('panel.proj.nameLabel'))}</span>
@@ -4526,6 +4609,23 @@ function projectScope(insts, estate, crowdRecs) {
     insts: sel === STRAY_TAB ? strayInsts : insts.filter((it) => projOfInst(it) === sel),
     recs: sel === STRAY_TAB ? strayRecs : (crowdRecs || []).filter((r) => projOf(r.oauth_folder_id) === sel),
   };
+}
+
+/* "Move to project…" on a device card — rendered ONLY when there is somewhere to move it to, i.e.
+ * two or more projects exist. A control that always errs into "there is no other project" is worse
+ * than an absent one: it teaches the researcher that the button does not work.
+ *
+ * ⚠ It needs the device's FOLDER, not its instance id — the move is a Drive re-parent, and Drive
+ * parentage is the only record of which project a container is in. A device whose folder has never
+ * been created (no upload yet, made before eager creation) has nothing to move, and correctly
+ * renders no button. */
+function projectMoveBtn(it) {
+  const projects = ((estateCache && estateCache.projects) || []);
+  if (projects.length < 2) return '';
+  const dev = ((estateCache && estateCache.devices) || [])
+    .find((d) => (d.instanceId && d.instanceId === it.instance_id) || d.folderId === it.oauth_folder_id);
+  if (!dev) return '';
+  return `<button class="secondary-btn" data-pact="moveto" data-folder="${esc(dev.folderId)}" data-name="${esc(it.nickname || '')}">${esc(t('panel.proj.moveBtn'))}</button>`;
 }
 
 function renderProjectSwitcher(scope) {

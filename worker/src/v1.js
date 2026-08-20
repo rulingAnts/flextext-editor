@@ -2547,6 +2547,67 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
   }
 
+  /* POST /v1/researcher/projects/create { name } — a SECOND (third, fourth…) project.
+   *
+   * ⚠ NEVER tagged `flextextDefault`. That tag marks the ONE folder new containers fall back into
+   * when nothing else says where they belong (`driveDefaultProjectFolder`), so a second folder
+   * carrying it would make that lookup ambiguous — `orderBy=createdTime` would silently pick the
+   * older one and every new device would land in whichever project happened to be created first.
+   * Exactly one default, minted by the migration, forever. */
+  if (m === 'POST' && seg.length === 4 && seg[1] === 'researcher' && seg[2] === 'projects' && seg[3] === 'create') {
+    const r = await authResearcher(request, env);
+    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    const body = await readJson(request) || {};
+    const name = String(body.name || '').replace(/[\\/:*?"<>|]+/g, '_').trim().slice(0, 120);
+    if (!name) return j({ error: 'bad_body' }, 400, origin, env);
+    try {
+      const access = await driveAccessToken(env, r);
+      const f = await driveJson(access, 'POST', 'https://www.googleapis.com/drive/v3/files?fields=id',
+        { name, mimeType: 'application/vnd.google-apps.folder',
+          parents: [await driveMasterFolder(access)],
+          appProperties: { flextextRole: 'project' } });
+      await logApproval(env, request, 'project_created', name, f.id, r.drive_email);
+      return j({ ok: true, folderId: f.id, name }, 200, origin, env);
+    } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
+  }
+
+  /* POST /v1/researcher/projects/assign { folderId, projectFolderId } — move ONE container (a device
+   * folder or a crowd recorder folder) into a project. Its texts ride along as children.
+   *
+   * ⚠ DRIVE PARENTAGE IS THE ONLY RECORD, and that is deliberate rather than unfinished. It would be
+   * easy to also write `instance.project_id` here — but that column belongs to Phase B's D1 project
+   * table, whose rows are GUIDs from a `project` table that has been applied to no database. Writing
+   * a DRIVE folder id into it would put a second, differently-shaped answer to "which project is this
+   * in" into a second store: precisely the drift this whole design has been arranged to make
+   * impossible. One authority. The estate derives membership from parentage, and the panel reads the
+   * estate.
+   *
+   * ⚠ A container keeps its folder ID across the move, so nothing that resolves by id notices —
+   * pending uploads, minted URLs and the device's own record all keep working mid-move. */
+  if (m === 'POST' && seg.length === 4 && seg[1] === 'researcher' && seg[2] === 'projects' && seg[3] === 'assign') {
+    const r = await authResearcher(request, env);
+    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    const body = await readJson(request) || {};
+    const folderId = String(body.folderId || '').replace(/[^\w-]/g, '').slice(0, 128);
+    const projectFolderId = String(body.projectFolderId || '').replace(/[^\w-]/g, '').slice(0, 128);
+    if (!folderId || !projectFolderId) return j({ error: 'bad_body' }, 400, origin, env);
+    try {
+      const access = await driveAccessToken(env, r);
+      // Both ends verified before anything moves: a project that is really a project, and a container
+      // that is really a container (never a TEXT — moving one of those would re-home somebody's work).
+      const dest = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(projectFolderId) + '?fields=id,appProperties');
+      if (((dest.appProperties || {}).flextextRole || '') !== 'project') return j({ error: 'not_a_project' }, 400, origin, env);
+      const src = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(folderId) + '?fields=id,name,parents,appProperties,mimeType');
+      const role = (src.appProperties || {}).flextextRole || '';
+      if ((src.appProperties || {}).flextextDoc) return j({ error: 'is_a_text' }, 400, origin, env);
+      if (role && role !== 'crowd') return j({ error: 'not_a_container' }, 400, origin, env);
+      if (src.mimeType !== 'application/vnd.google-apps.folder') return j({ error: 'not_a_container' }, 400, origin, env);
+      await driveReparent(access, src.id, projectFolderId, src.parents);
+      await logApproval(env, request, 'project_assign', src.name || folderId, projectFolderId, r.drive_email);
+      return j({ ok: true, folderId, projectFolderId }, 200, origin, env);
+    } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
+  }
+
   /* POST /v1/researcher/projects/rename { folderId, name } — the researcher names their own project
    * (Seth, 2026-08-19). Display only: the folder is found by its `flextextDefault` / `flextextProject`
    * TAG, never by name, so a rename cannot orphan a device folder, a text, or a pending upload. */
@@ -2763,7 +2824,30 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     await env.DB.prepare(
       'INSERT INTO instance (instance_id, researcher_id, type, nickname, desired_blob, desired_rev, revoked, created_at, estate) VALUES (?,?,?,?,?,0,0,?,?)'
     ).bind(instance_id, r.researcher_id, type, nickname, JSON.stringify({ settings: {}, commands: [] }), now, 'cloud').run();
-    return j({ instance_id, type, nickname, estate: 'cloud' }, 200, origin, env);
+    /* ⚠ CREATE THE DEVICE FOLDER EAGERLY WHEN A PROJECT IS NAMED — the only way a new device can land
+     * in the project the researcher is actually looking at.
+     *
+     * Normally the folder is created lazily, on first upload, and its parent comes from
+     * `driveProjectFolderFor` which falls back to the DEFAULT project. That is right when nobody has
+     * said otherwise, and wrong the moment there are several projects: every new device would appear
+     * in the default one regardless of where it was created.
+     *
+     * Eager creation also makes Drive PARENTAGE the record from birth, which is the same single
+     * authority everything else here uses — no `project_id` written anywhere, nothing to drift.
+     * Best-effort: a Drive failure must not lose the instance that was just created, so the device
+     * simply falls back to the lazy path and the default project. */
+    const wantProject = String((body && body.projectFolderId) || '').replace(/[^\w-]/g, '').slice(0, 128);
+    let folderId = '';
+    if (wantProject) {
+      try {
+        const access = await driveAccessToken(env, r);
+        const dest = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(wantProject) + '?fields=id,appProperties');
+        if (((dest.appProperties || {}).flextextRole || '') === 'project') {
+          folderId = await driveEnsureDeviceFolder(env, access, instance_id, nickname, '', wantProject);
+        }
+      } catch { /* the instance exists; the folder can still be made lazily */ }
+    }
+    return j({ instance_id, type, nickname, estate: 'cloud', folderId }, 200, origin, env);
   }
 
   // Routes under /v1/instances/<id>/...

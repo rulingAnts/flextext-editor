@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v425';
+export const ENGINE_VERSION = 'v426';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v425';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'projects v6';
+export const BUILD_TAG = 'projects v7';
 
 const S = {
 en: {
@@ -1209,6 +1209,18 @@ internet after the first time.</p>
   'panel.proj.outside': 'Not in a project yet',
   'panel.proj.emptyProject': 'No devices in this project yet.',
   'panel.proj.outsideNote': 'These have not been moved into a project yet. Nothing is lost \u2014 they work exactly as before \u2014 but the folder update did not finish.',
+  'panel.proj.new': 'New project\u2026',
+  'panel.proj.newTitle': 'New project',
+  'panel.proj.newIntro': 'A new project starts empty. Move a device or a crowd recorder into it, or create one while the project is open \u2014 anything created here is born inside it.',
+  'panel.proj.newPlaceholder': 'e.g. Dani Dictionary',
+  'panel.proj.newGo': 'Create project',
+  'panel.proj.created': '\u201c{name}\u201d created.',
+  'panel.proj.moveBtn': 'Move to project\u2026',
+  'panel.proj.moveTitle': 'Move \u201c{name}\u201d to another project',
+  'panel.proj.moveIntro': 'The device keeps its texts, its history and its pairing \u2014 only which project it sits in changes. Nothing on the device itself is affected.',
+  'panel.proj.moveGo': 'Move it',
+  'panel.proj.moved': 'Moved.',
+  'panel.proj.noOtherProject': 'There is no other project to move it to yet.',
   'panel.proj.rename': 'Rename',
   'panel.proj.renameTitle': 'Rename project',
   'panel.proj.renameNote': 'Display only. The folder is found by its tag, never by its name, so this cannot orphan a device, a text or an upload in progress.',
@@ -2865,6 +2877,18 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.proj.outside': 'Belum masuk proyek',
   'panel.proj.emptyProject': 'Belum ada perangkat di proyek ini.',
   'panel.proj.outsideNote': 'Ini belum dipindahkan ke dalam proyek. Tidak ada yang hilang \u2014 semuanya bekerja seperti sebelumnya \u2014 tetapi pembaruan folder belum selesai.',
+  'panel.proj.new': 'Proyek baru\u2026',
+  'panel.proj.newTitle': 'Proyek baru',
+  'panel.proj.newIntro': 'Proyek baru dimulai kosong. Pindahkan perangkat atau perekam publik ke dalamnya, atau buat yang baru selagi proyek ini terbuka \u2014 apa pun yang dibuat di sini lahir di dalamnya.',
+  'panel.proj.newPlaceholder': 'mis. Kamus Dani',
+  'panel.proj.newGo': 'Buat proyek',
+  'panel.proj.created': '\u201c{name}\u201d dibuat.',
+  'panel.proj.moveBtn': 'Pindahkan ke proyek\u2026',
+  'panel.proj.moveTitle': 'Pindahkan \u201c{name}\u201d ke proyek lain',
+  'panel.proj.moveIntro': 'Perangkat tetap membawa teks, riwayat, dan pemasangannya \u2014 hanya proyek tempatnya berada yang berubah. Tidak ada yang berubah pada perangkat itu sendiri.',
+  'panel.proj.moveGo': 'Pindahkan',
+  'panel.proj.moved': 'Dipindahkan.',
+  'panel.proj.noOtherProject': 'Belum ada proyek lain sebagai tujuan.',
   'panel.proj.rename': 'Ganti nama',
   'panel.proj.renameTitle': 'Ganti nama proyek',
   'panel.proj.renameNote': 'Hanya tampilan. Folder ditemukan lewat tandanya, bukan namanya, jadi ini tidak dapat memutus kaitan perangkat, teks, atau unggahan yang sedang berjalan.',

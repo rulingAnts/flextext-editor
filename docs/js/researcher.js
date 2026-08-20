@@ -306,9 +306,12 @@ async function getKi(instanceId) {
 // Create a typed instance and mint its Ki, wrapped under Kr into the key store. The read-modify-write
 // of the key store is optimistic-locked: on a 409 (a concurrent tab wrote first) we refetch the
 // freshest blob and re-apply, so an instance's wrapped Ki can never be silently lost.
-export async function createInstance(nickname) {
+export async function createInstance(nickname, projectFolderId) {
   requireUnlocked();
-  const r = await api('POST', '/v1/instances', { body: { nickname }, retry: false }); // unified (no type); non-idempotent → don't risk a duplicate instance on a lost response
+  /* `projectFolderId` makes the worker create this device's Drive folder EAGERLY, under that project
+   * — otherwise the folder is minted lazily on first upload and lands in the DEFAULT project, so a
+   * device created while looking at a second project would silently appear in the first. */
+  const r = await api('POST', '/v1/instances', { body: { nickname, ...(projectFolderId ? { projectFolderId } : {}) }, retry: false }); // unified (no type); non-idempotent → don't risk a duplicate instance on a lost response
   const Ki = await generateKey();
   const wrapped = await wrapKey(Kr, Ki);
   try {
@@ -615,6 +618,16 @@ export function projectsMigrate(fields) {
 }
 export function projectsUnmigrate(fields) {
   return api('POST', '/v1/researcher/projects/unmigrate', { body: fields || {}, retry: false });
+}
+/* A SECOND project. The worker refuses to tag it `flextextDefault`, so the "where do new containers
+ * go" lookup stays unambiguous however many projects exist. */
+export function projectCreate(name) {
+  return api('POST', '/v1/researcher/projects/create', { body: { name }, retry: false });
+}
+/* Move one container (device folder or crowd folder) into a project. Drive parentage is the only
+ * record — see the route for why nothing is written to D1. */
+export function projectAssign(folderId, projectFolderId) {
+  return api('POST', '/v1/researcher/projects/assign', { body: { folderId, projectFolderId }, retry: false });
 }
 export function projectRename(folderId, name) {
   return api('POST', '/v1/researcher/projects/rename', { body: { folderId, name } });

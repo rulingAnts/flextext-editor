@@ -346,7 +346,13 @@ console.log('\nthe DONE marker never blocks an upload');
   ok(!/await driveTextHousekeeping\(/.test(worker), 'no awaited call survives anywhere');
   /* Both jobs (return-from-Unassigned + done marker) share ONE Drive read inside that single
    * waitUntil, so folding the second job in did not add a round trip to the upload. */
-  ok((worker.match(/driveJson\(access, 'GET',[\s\S]{0,200}fields=id,name,parents,appProperties/g) || []).length === 1,
+  /* ⚠ SCOPED TO THE FUNCTION. This counted matches across the WHOLE worker, so it was really
+   * asserting "no other route anywhere ever fetches these fields" — which is not the claim, and it
+   * broke the day projects/assign needed the same field list to verify a container before moving it.
+   * The subject is driveTextHousekeeping's own body. */
+  const hk = worker.slice(worker.indexOf('async function driveTextHousekeeping'));
+  const hkBody = hk.slice(0, hk.indexOf('\n}\n'));
+  ok((hkBody.match(/driveJson\(access, 'GET',[\s\S]{0,200}fields=id,name,parents,appProperties/g) || []).length === 1,
      'and both jobs share a single Drive read');
 }
 

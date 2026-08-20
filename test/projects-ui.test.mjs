@@ -296,6 +296,48 @@ test('projects UI', async () => {
     ok(/scope\.projects\.map/.test(sw), '...and every project in the estate gets a tab');
   }
 
+  /* ⚠ A HIERARCHY WITH ONE PROJECT IS UNTESTED (Seth: "I need a way to create New projects to truly
+   * test whether the hierarchy works correctly in Drive, D1, and researcher UI" … "need to be able
+   * to move and CREATE new containers in each project"). Three routes make the shape real. */
+  console.log('\nprojects can be created, and containers moved into and born into them');
+  {
+    ok(/seg\[3\] === 'create'/.test(worker), 'a project can be created');
+    /* ⚠ EXACTLY ONE DEFAULT, FOREVER. flextextDefault marks the folder new containers fall back
+     * into; a second one carrying it makes driveDefaultProjectFolder's orderBy=createdTime pick the
+     * older silently, and every new device lands in whichever project happened to be first. */
+    /* ⚠ Slice to the CATCH, not to the first `return j(` — the first one is the bad_body guard, which
+     * sits well before the code this is about, so the shorter slice never contained the line it was
+     * asserting on and passed against a mutant that tagged every new project as the default. */
+    const create = worker.slice(worker.indexOf("seg[3] === 'create'"));
+    const createBody = create.slice(0, create.indexOf('} catch'));
+    ok(/appProperties: \{ flextextRole: 'project' \}/.test(createBody) && !/flextextDefault/.test(createBody),
+       '...and a NEW project is never tagged as the default');
+
+    ok(/seg\[3\] === 'assign'/.test(worker), 'a container can be moved between projects');
+    const assign = worker.slice(worker.indexOf("seg[3] === 'assign'"));
+    const assignBody = assign.slice(0, assign.indexOf('} catch'));
+    ok(/error: 'is_a_text'/.test(assignBody), 'moving a TEXT is refused — that would re-home somebody\'s work');
+    ok(/error: 'not_a_project'/.test(assignBody), 'the destination must really be a project');
+    ok(/error: 'not_a_container'/.test(assignBody), '...and the source must really be a container');
+    /* ⚠ DRIVE PARENTAGE IS THE ONLY RECORD. Writing a Drive folder id into instance.project_id —
+     * a column belonging to Phase B's D1 project GUIDs — would put a second, differently-shaped
+     * answer to "which project is this in" into a second store. One authority. */
+    ok(!/project_id/.test(assignBody), 'and NOTHING is written to D1 — parentage is the single authority');
+
+    // A device created while a project is open must be BORN in it, not in the default.
+    ok(/const wantProject = String\(\(body && body\.projectFolderId\)/.test(worker),
+       'instance creation accepts a target project');
+    ok(/driveEnsureDeviceFolder\(env, access, instance_id, nickname, '', wantProject\)/.test(worker),
+       '...and creates the folder EAGERLY under it, rather than lazily in the default project');
+    ok(/const intoProject = \(currentProject && currentProject !== STRAY_TAB\) \? currentProject : '';/.test(panel),
+       'the panel passes the tab on screen');
+
+    /* A control that always errs into "there is no other project" teaches that the button is
+     * broken, so it is not rendered until there is somewhere to go. */
+    ok(/if \(projects\.length < 2\) return '';/.test(fn('function projectMoveBtn')),
+       'Move to project… appears only once a second project exists');
+  }
+
   console.log(fail ? `\nFAILED (${fail})\n` : '\nall passed\n');
   if (fail) process.exit(1);
 });

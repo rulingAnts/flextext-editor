@@ -2578,10 +2578,28 @@ async function renderInstanceCard(it, deviceCount) {
       const action = ins.accepted
         ? `<button class="primary-btn" data-iact="approve" data-i="${esc(it.instance_id)}" data-id="${esc(ins.install_id)}">${esc(t('panel.inst.approve'))}</button>`
         : `<div class="note rp-waiting">${esc(t('panel.inst.waitingAccept'))}</div>`;
+      /* ⚠ THE CODE IS THE HEADLINE; the fingerprint moved to fine print (Seth, 2026-08-20).
+       * This card used to ask the researcher to visually match a long hex fingerprint against one
+       * the device showed for twelve seconds and then forgot. When the coworker could not produce
+       * it, the honest response was to refuse to approve — which is exactly what happened, and the
+       * pairing dead-ended. Six digits, big, on both screens, until both ends approve.
+       *
+       * ⚠ THE FINGERPRINT STAYS, though, because it is still the stronger check and costs nothing
+       * to keep: the six digits are ~20 bits, and anyone who wants the full comparison should be
+       * able to have it. It is DEMOTED, not deleted.
+       *
+       * ⚠ An install claimed by an engine from before this shipped has no pair_code. Say so rather
+       * than rendering an empty box — "no code" and "code is blank" look identical otherwise, and
+       * the fingerprint line below is then the only thing to match on. */
+      const pc = ins.pair_code || '';
+      const codeHtml = pc
+        ? `<div class="rp-pair-code" aria-label="${esc(t('panel.inst.codeAria', { code: String(pc).split('').join(' ') }))}">${esc(pc)}</div>
+           <div class="note rp-verify">${esc(t('panel.inst.codeHint'))}</div>`
+        : `<div class="note rp-verify">${esc(t('panel.inst.codeLegacy'))}</div>`;
       installsHtml += `<div class="rp-install rp-install-pending">
         <div><div>${esc(t('panel.inst.newInstall'))}</div>
-          <div class="rp-mono rp-fp">${esc(t('panel.inst.fingerprint'))}: ${esc(fp)}</div>
-          <div class="note rp-verify">${esc(t('panel.inst.verifyHint'))}</div></div>
+          ${codeHtml}
+          <div class="rp-mono rp-fp">${esc(t('panel.inst.fingerprint'))}: ${esc(fp)}</div></div>
         ${action}
       </div>`;
     } else {

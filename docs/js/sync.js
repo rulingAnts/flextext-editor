@@ -45,6 +45,22 @@ export function enrollment() {
 }
 export function clearSession() { localStorage.removeItem(SESSION_KEY); resetKeys(); }
 
+/* THE PAIRING CODE — six digits the worker minted for THIS pending pairing, shown in large type on
+ * this device and in the researcher's panel until both ends have approved.
+ *
+ * ⚠ IT IS A STORED FACT, NOT A MOMENT. The whole reason this exists is that the old code lived only
+ * inside a 12-second toast, so a coworker who blinked had permanently lost the value the panel was
+ * demanding they read aloud — with no screen anywhere that would show it again. Anything that can
+ * ask "what is the code" must be able to ask it at any time, which means reading it from the
+ * session rather than being handed it once.
+ *
+ * Empty string once the pairing is over (or for a session claimed by an engine from before this
+ * existed), which is what the banner reads to take itself down. */
+export function pairCode() {
+  const s = loadSession();
+  return (s && s.pairCode) || '';
+}
+
 // Streaming-upload target for THIS enrolled device (null when unmanaged, pending,
 // not yet user-accepted, or before Sync.start injected the iface): the worker
 // route that lands bundles in the researcher's own Drive ("FlexText Uploads /
@@ -235,7 +251,7 @@ export async function claim(inviteId, inviteSecret) {
   if (s && s.instanceId) {
     // Same invite re-opened — e.g. the OTHER app's link for this same device → REUSE: no re-claim,
     // no re-consent, no re-approval. The other app just works off the shared session.
-    if (s.inviteId === inviteId) return { ok: true, type: s.type, status: s.status, researcher: s.researcher, accepted: !!s.accepted, reused: true };
+    if (s.inviteId === inviteId) return { ok: true, type: s.type, status: s.status, researcher: s.researcher, accepted: !!s.accepted, pairCode: s.pairCode || '', reused: true };
     // A DIFFERENT invite while still linked → REFUSE (claim guard); never silently move a live device
     // to another instance. If the old binding was revoked, poll() auto-releases first, so a legitimate
     // re-link still works after a revoke.
@@ -248,7 +264,7 @@ export async function claim(inviteId, inviteSecret) {
     // explicitly shared) — a phished/hijacked enrollment can't grab the pre-existing corpus.
     s = { inviteId, installId: uuid(), installSecret: randTok(24), instanceId: null,
           type: null, status: 'claiming', desiredRev: -1, ackSeq: 0, pubkey: null, wrappedKey: null,
-          enrolledAt: Date.now(), accepted: false, researcher: null };
+          enrolledAt: Date.now(), accepted: false, researcher: null, pairCode: '' };
     // E2EE model A: mint an RSA-OAEP keypair ONCE per identity. The private key is
     // stored non-extractable in IndexedDB and never leaves; only the public key is
     // sent (and re-sent identically on idempotent retry, so the worker's first-write
@@ -276,7 +292,12 @@ export async function claim(inviteId, inviteSecret) {
     s.instanceId = r.instance_id;
     s.type = r.type;
     s.status = r.status || 'pending';
-    s.researcher = r.researcher || s.researcher || null;   // who is enrolling (shown for the B consent prompt)
+    s.researcher = r.researcher || s.researcher || null;   // who is enrolling (kept for the recorder; the editor no longer shows it)
+    /* ⚠ NEVER OVERWRITE A CODE WE HOLD WITH AN EMPTY ONE. An older worker — or one mid-deploy —
+     * answers a claim without pair_code at all, and this same line runs on the idempotent retry
+     * path. Blanking here would take the number off this screen while the panel still shows it,
+     * which is precisely the "they don't match" dead end the code exists to end. */
+    if (r.pair_code) s.pairCode = String(r.pair_code);
     // KEEP s.inviteId: re-opening this invite (the other app's link for the same device) is then
     // recognized as already-claimed → reused, instead of minting a new identity that clobbers this one.
     saveSession(s);
@@ -365,7 +386,11 @@ export async function poll() {
     // B (consent): do not engage — no key, no commands, no report — until the field user has
     // accepted this enrollment. Defense-in-depth; the worker also refuses key delivery unaccepted.
     if (!s.accepted) { if (iface.onStatus) iface.onStatus('needs-accept'); return; }
-    if (s.status !== 'approved') { s.status = 'approved'; saveSession(s); if (iface.onStatus) iface.onStatus('linked'); }
+    /* ⚠ AND THE PAIRING CODE DIES HERE, with the pairing it describes. This is the one place the
+     * device learns it was approved, so it is the one place that can honestly retire the number —
+     * the worker has already cleared its copy, and a code left on screen after the panel stopped
+     * showing one is a coworker reading out something nobody can match. */
+    if (s.status !== 'approved') { s.status = 'approved'; s.pairCode = ''; saveSession(s); if (iface.onStatus) iface.onStatus('linked'); }
     // E2EE gate (model A): we can neither decrypt commands nor encrypt a report
     // without Ki. While approved, every GET (since stays -1) carries wrapped_key once
     // the researcher has delivered it; until then HOLD — never advance the rev cursor,

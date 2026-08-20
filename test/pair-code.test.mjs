@@ -70,5 +70,68 @@ ok(/status: 'pending', pair_code:/.test(worker),
 ok(/researcher: inst \? \{ name: inst\.display_name/.test(worker),
    '⚠ the researcher profile is still RETURNED — dropping it from the device UI is a client change, and removing it here would break the recorder too');
 
+/* ---------------- the client and panel halves ---------------- */
+const app = read('../docs/js/app.js');
+const sync = read('../docs/js/sync.js');
+const panel = read('../docs/js/researcher-panel.js');
+const css = read('../docs/css/app.css');
+const i18n = read('../docs/js/i18n.js');
+const i18nBlock = (code) => {
+  const at = i18n.indexOf(`\n${code}: {`);
+  if (at < 0) return '';
+  const rest = i18n.slice(at + 1);
+  const nxt = rest.search(/\n[a-z]{2,3}: \{/);
+  return nxt < 0 ? i18n.slice(at) : i18n.slice(at, at + 1 + nxt);
+};
+const inEnAndId = (k) => {
+  const re = new RegExp(`^  '${k.replace(/\./g, '\\.')}':`, 'm');
+  return (re.test(i18nBlock('en')) ? 1 : 0) + (re.test(i18nBlock('id')) ? 1 : 0);
+};
+
+console.log('\nthe device keeps the code as a FACT, not as a moment');
+ok(/export function pairCode\(\)/.test(sync), 'anything can ask for the code at any time');
+ok(/if \(r\.pair_code\) s\.pairCode = String\(r\.pair_code\);/.test(sync),
+   '⚠ a claim WITHOUT a code never blanks one we hold — an older or mid-deploy worker would otherwise take the number off this screen while the panel still shows it');
+ok(/s\.status = 'approved'; s\.pairCode = '';/.test(sync),
+   '⚠ and it dies exactly when the pairing does — the poll seeing approval is the one honest moment to retire it');
+
+console.log('\nthe code is on screen for as long as the pairing is unfinished');
+ok(/function refreshPairBanner\(\)/.test(app), 'there is a standing banner, not a toast');
+ok(!/toast\.linkedFp/.test(app),
+   '⚠ THE TOAST THAT CARRIED THE ONLY COPY OF THE CODE IS GONE — this is the bug, in one line');
+ok(/position: fixed/.test(css.slice(css.indexOf('.pair-banner {'))),
+   'it is fixed, so wandering to another view does not lose it');
+ok((app.match(/refreshPairBanner\(\)/g) || []).length >= 4,
+   'painted on accept, on every sync status, and on load — a reload mid-pairing still shows it');
+ok(/onStatus: \(kind\) => \{[\s\S]{0,400}?refreshPairBanner\(\);/.test(app),
+   '...and EVERY status repaints it, so no unforeseen path can leave it stranded');
+ok(/if \(kind === 'linked'\) toast\(t\('toast\.linked'\)/.test(app),
+   '⚠ and the SUCCESSFUL end of a pairing still says so — dropping the accept-time toast left the banner just vanishing, which reads as failure');
+
+console.log('\nthe device no longer shows who the researcher is');
+ok(!/invite-avatar/.test(app) && !/invite\.unknownName/.test(app),
+   '⚠ no face and no name on the consent screen — a device that leaves the team should not carry them');
+ok(!/r\.email \? `<div class="note">/.test(app), '...nor the email address');
+ok(/const code = Sync\.pairCode\(\);/.test(app), 'the code is what the consent screen shows instead');
+ok(/invite\.codeMissing/.test(app),
+   '...and it SAYS SO when there is no code, rather than rendering an empty box');
+
+console.log('\nthe panel leads with the same number');
+ok(/rp-pair-code/.test(panel) && /panel\.inst\.codeHint/.test(panel), 'the code is the headline on a pending install');
+ok(/const pc = ins\.pair_code \|\| '';/.test(panel), 'read from the worker payload, not recomputed');
+ok(/panel\.inst\.codeLegacy/.test(panel),
+   '⚠ an install claimed before this shipped has NO code, and the card says so rather than showing a blank');
+ok(/panel\.inst\.fingerprint/.test(panel),
+   '⚠ the fingerprint is DEMOTED, not deleted — six digits is ~20 bits and the full compare must stay available');
+ok(/split\(''\)\.join\(' '\)/.test(panel) && /split\(''\)\.join\(' '\)/.test(app),
+   'both ends space the digits for the screen reader — "420349" is read as a number nobody can compare');
+ok(/tabular-nums/.test(css) && /letter-spacing/.test(css.slice(css.indexOf('.pair-code'))),
+   'and both render identically, so a mismatch is obvious rather than a squint');
+
+console.log('\nevery new string is translated');
+for (const k of ['invite.codeIntro', 'invite.codeMissing', 'invite.codeAria', 'pair.title', 'pair.note',
+                 'panel.inst.codeAria', 'panel.inst.codeHint', 'panel.inst.codeLegacy'])
+  ok(inEnAndId(k) === 2, `${k} in BOTH languages`);
+
 console.log(fail ? `\nFAILED (${fail})` : '\nPASSED');
 process.exit(fail ? 1 : 0);

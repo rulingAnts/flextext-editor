@@ -4059,6 +4059,43 @@ function showInvitePasteModal() {
   setTimeout(() => wrap.querySelector('#invite-paste-box').focus(), 0);
 }
 
+/* THE PAIRING BANNER — the code, in large type, for as long as the pairing is unfinished.
+ *
+ * Seth, 2026-08-20: "show a large type, 6 digit random code that is persistent and visible on both
+ * devices until both ends have approved the pairing."
+ *
+ * ⚠ THE BUG THIS REPLACES, stated plainly because it is easy to reintroduce: the device's code used
+ * to live ONLY inside a 12-second toast. No screen in the editor would show it again — not Settings,
+ * not Help — while the researcher's panel went on refusing to approve until the coworker read it
+ * aloud. Someone who blinked was not inconvenienced, they were STUCK, and the only correct move left
+ * was to refuse. A value another party depends on must never be carried by a transient control.
+ *
+ * ⚠ SO IT COMES DOWN ON THE OUTCOME, NEVER ON A CLOCK — the same rule the panel's pending markers
+ * follow. Sync.pairCode() is '' once the poll has seen the approval, and that is the only thing that
+ * retires this. */
+let pairBannerEl = null;
+function refreshPairBanner() {
+  const code = (typeof Sync !== 'undefined' && Sync.pairCode) ? Sync.pairCode() : '';
+  if (!code) { if (pairBannerEl) pairBannerEl.hidden = true; return; }
+  if (!pairBannerEl) {
+    pairBannerEl = document.createElement('div');
+    pairBannerEl.id = 'pair-banner';
+    pairBannerEl.className = 'pair-banner';
+    /* aria-live so the code is ANNOUNCED when it appears, and role=status rather than alert: this is
+     * a standing state to be read at leisure, not an interruption. */
+    pairBannerEl.setAttribute('role', 'status');
+    pairBannerEl.setAttribute('aria-live', 'polite');
+    (document.body || document.documentElement).appendChild(pairBannerEl);
+  }
+  /* ⚠ SPACED-OUT DIGITS FOR THE SCREEN READER ONLY. "420349" is read as four hundred and twenty
+   * thousand three hundred and forty-nine, which nobody can compare against a panel; "4 2 0 3 4 9"
+   * is. The visible text stays unspaced so the two screens look identical. */
+  pairBannerEl.innerHTML = `<div class="pair-banner-title">${esc(t('pair.title'))}</div>`
+    + `<div class="pair-code" aria-label="${esc(t('invite.codeAria', { code: code.split('').join(' ') }))}">${esc(code)}</div>`
+    + `<div class="pair-banner-note">${esc(t('pair.note'))}</div>`;
+  pairBannerEl.hidden = false;
+}
+
 // The editor's entry point for the paste flow: a link at the bottom of the Help
 // view (admin territory, reachable via "?"), shown only while UNenrolled — the
 // recorder paints its own copy inside renderRecordView.
@@ -4097,15 +4134,30 @@ function applyInviteButton() {
 // so a phished/hijacked invite is inert without a deliberate human OK. Re-shown on reload until decided.
 function showInviteConsent(researcher) {
   if (document.querySelector('[data-invite-consent]')) return;   // never stack
-  const r = researcher || {};
   const wrap = document.createElement('div');
   wrap.className = 'modal';
   wrap.dataset.inviteConsent = '1';
-  const av = r.avatar
-    ? `<img class="invite-avatar" src="${esc(r.avatar)}" alt="" referrerpolicy="no-referrer" width="56" height="56">` : '';
+  /* ⚠ THE RESEARCHER'S NAME, EMAIL AND FACE ARE NO LONGER SHOWN HERE (Seth, 2026-08-20). This
+   * screen used to answer "do you recognise this person?" with a photo and an address, which put a
+   * named individual's contact details on the lock screen of every device that opens an invite
+   * link — including one that later leaves the team's control. Minimising what a device carries
+   * about the people in a project is part of the privacy and research-ethics obligations this suite
+   * owes the communities it serves.
+   *
+   * ⚠ AND THE CHECK IT REPLACES IS STRONGER, not merely quieter. "Do you recognise this face" is
+   * answerable by anyone who has seen the researcher's public profile; "does this number match the
+   * one on their screen" is answerable only by someone actually in contact with them, about THIS
+   * pairing. The code is what the person is asked to verify, so the code is what this screen shows.
+   *
+   * ⚠ `researcher` is still ACCEPTED and still stored on the session — the recorder's own flow and
+   * the worker response both carry it, and removing it here is a UI decision, not a protocol one. */
+  const code = Sync.pairCode();
+  const codeBlock = code
+    ? `<p class="note">${esc(t('invite.codeIntro'))}</p><div class="pair-code" role="text" aria-label="${esc(t('invite.codeAria', { code: code.split('').join(' ') }))}">${esc(code)}</div>`
+    : `<p class="note">${esc(t('invite.codeMissing'))}</p>`;
   wrap.innerHTML = `<div class="modal-card" role="dialog" aria-modal="true">
     <h3>${esc(t('invite.title'))}</h3>
-    <div class="invite-who">${av}<div><div class="invite-name">${esc(r.name || t('invite.unknownName'))}</div>${r.email ? `<div class="note">${esc(r.email)}</div>` : ''}</div></div>
+    ${codeBlock}
     <p class="banner warn-banner">${esc(t('invite.warn'))}</p>
     <button class="primary-btn" data-iv="accept">${esc(t('invite.accept'))}</button>
     <button class="link-btn" data-iv="decline">${esc(t('invite.decline'))}</button>
@@ -4117,8 +4169,11 @@ function showInviteConsent(researcher) {
     const res = await Sync.accept();
     close();
     if (res.ok) {
-      const fp = await Sync.deviceFingerprint().catch(() => null);   // device code for the out-of-band check
-      toast(fp ? t('toast.linkedFp', { fp }) : t('toast.linked'), 12000);
+      /* ⚠ NO TOAST WITH THE CODE IN IT. That toast WAS this bug: it carried the only copy of a value
+       * the researcher's panel then refused to proceed without, and it expired. The banner below
+       * stays up until the pairing is approved, so the question "what is my code" has an answer for
+       * as long as anyone can be asking it. */
+      refreshPairBanner();
     } else toast(t('invite.acceptFailed'), 6000);
     if (RECORD_MODE) renderRecordList(); else renderDocList();
   });
@@ -7738,6 +7793,15 @@ function setup() {
      * event on screen tying any of it together. One sentence turns three mysteries into one fact.
      * Shown long, because it changes what the person can do next. */
     onStatus: (kind) => {
+      /* Every status the sync engine reports is a possible end of the pairing — 'linked' takes the
+       * banner down, 'pending'/'needs-accept' keep it up. Cheap, and it means the banner cannot be
+       * left behind by a path nobody thought of. */
+      refreshPairBanner();
+      /* ⚠ AND SAY SO WHEN IT FINISHES. Removing the accept-time toast (it was the bug) left the
+       * successful end of a pairing with no event at all: the banner simply vanished, which reads as
+       * "something went wrong" quite as easily as "you are linked". onStatus('linked') fires once,
+       * on the transition, so this is the completion notice and cannot repeat every poll. */
+      if (kind === 'linked') toast(t('toast.linked'), 8000);
       if (kind !== 'revoked') return;
       toast(t('sync.revokedNotice'), 10000);
       updateShareButton();     // the Send button's contents just changed — repaint it now
@@ -7756,6 +7820,10 @@ function setup() {
   // without the link. The dialog guards against stacking, and a claim still in flight has no
   // instanceId yet, so pendingConsent() returns null until the claim lands.)
   { const pend = Sync.pendingConsent(); if (pend) showInviteConsent(pend.researcher); }
+  /* ⚠ AND ON EVERY LOAD, not only when a status arrives. A device left overnight mid-pairing, or one
+   * whose user reloaded to "make it work", must come back up still showing its code — that reload is
+   * exactly what someone does when they think the app has lost their place. */
+  refreshPairBanner();
 
   // Language selector — present in both the editor and the recorder.
   const langSel = $('#lang-select');

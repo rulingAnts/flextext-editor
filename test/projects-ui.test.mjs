@@ -338,6 +338,47 @@ test('projects UI', async () => {
        'Move to project… appears only once a second project exists');
   }
 
+  /* ⚠ CROSS-PROJECT MOVES: POSSIBLE, NEVER ACCIDENTAL (Seth, 2026-08-20). "We don't want it to be
+   * easy to accidentally move texts across projects, and also clear that each project has its own
+   * 'unassigned' box, not some universal, unassigned anywhere box."
+   *
+   * Both were wrong before: every device was listed flat, so one three projects away looked exactly
+   * like the one next door; and a single "Google Drive (Unassigned)" row implied a universal box
+   * that does not exist. */
+  console.log('\nmove destinations are grouped by project, and crossing one is deliberate');
+  {
+    const g = fn('function groupedDestinations');
+    ok(!!g, 'destinations are grouped');
+    ok(/if \(!projects\.length\) return '';/.test(g),
+       'a flat estate gets the ungrouped list it always had — the callers fall back to it');
+    ok(/\(b\.folderId === homeProject\) - \(a\.folderId === homeProject\)/.test(g),
+       'the text\'s OWN project is listed first');
+    ok(/const away = p\.folderId !== homeProject/.test(g) && /panel\.move\.otherProject/.test(g),
+       '...and every other project is headed and marked as such');
+    ok(/const checked = ok && first && !away;/.test(g),
+       'the default selection can never land in another project');
+    ok(/panel\.proj\.outside/.test(g),
+       'devices no project claims are still reachable, in their own labelled group');
+
+    const cc = fn('function confirmCrossProject');
+    ok(/if \(!homeProject \|\| !to \|\| to === homeProject\) return true;/.test(cc),
+       'a same-project move is not interrupted');
+    ok(/panel\.move\.crossConfirm/.test(cc), '...and a cross-project one must be confirmed by name');
+    // Both modals gate on it — the device move AND the source-less one.
+    ok((panel.match(/confirmCrossProject\(to, homeProject\)/g) || []).length === 2,
+       'both the device move and the source-less move go through the gate');
+
+    /* ⚠ Each project has its OWN Unassigned. drive-unassign files a text into the Unassigned of ITS
+     * OWN container's project and takes no target, so exactly one is offered — named after that
+     * project, which makes the per-project truth visible where it matters. */
+    ok(/panel\.move\.unassignedOf/.test(panel) && /panel\.move\.unassignedPerProject/.test(panel),
+       'the Unassigned option is named after its project, with the per-project rule stated');
+    const en = (k) => (i18n.match(new RegExp(`'${k.replace(/\./g, '\\.')}': '([^']*)'`)) || [])[1] || '';
+    ok(/\{project\}/.test(en('panel.move.unassignedOf')), '...and the name is interpolated, not generic');
+    ok(/different projects/i.test(en('panel.move.crossConfirm')),
+       'the confirm says plainly that these are different projects');
+  }
+
   console.log(fail ? `\nFAILED (${fail})\n` : '\nall passed\n');
   if (fail) process.exit(1);
 });

@@ -202,8 +202,12 @@ console.log('\nUnassigned is a real destination on a DEVICE move — and nothing
    * and filing it early would put it in the assign queue while a device still holds it — the exact
    * state the sweep exists to resolve. */
   ok(!/driveUnassign/.test(mv), 'and the folder is left where it is — the sweep files it afterwards');
-  ok(/opt\('__unassigned'[\s\S]{0,200}?false, !deviceOk\)/.test(mv),
+  /* The label gained a project name (each project has its OWN Unassigned box), so the option now
+   * spans more source — but the two flags either side of it are the claim: never disabled, and
+   * pre-selected exactly when no device can receive the text. */
+  ok(/opt\('__unassigned'[\s\S]{0,400}?false, !deviceOk\)/.test(mv),
      'Unassigned is never disabled, and is pre-selected exactly when no device can receive the text');
+  ok(/panel\.move\.unassignedOf/.test(mv), '...and it is named after the project whose box it is');
 }
 
 console.log('\n...and a text NO DEVICE HOLDS goes through the source-less flow, not /move');

@@ -1317,6 +1317,14 @@ main {
 .crowd-status { font-size: 1.15rem; margin: 18px 0; }
 /* Projects card. The rows read like device rows on purpose — a project IS a container of
  * containers, and giving it its own visual language would suggest it is a different kind of thing. */
+/* Grouped move destinations. The heading and the rule are what make "a different project" a
+ * visible fact rather than a label somebody has to read carefully. */
+.rp-move-group { margin: 10px 0; }
+.rp-move-group-h { font-weight: 600; padding: 4px 0; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.rp-move-away { border-left: 3px solid var(--border); padding-left: 10px; }
+.rp-move-away .rp-move-group-h { color: var(--muted); }
+.rp-badge-warn { background: #fdf0d5; color: #7a4b00; }
+@media (prefers-color-scheme: dark) { .rp-badge-warn { background: #4a3a1a; color: #f0d9a8; } }
 /* The project SWITCHER. Tabs rather than a dropdown while the count is small: the set of projects a
  * researcher can open is itself information, and a dropdown hides it behind a click. It scrolls
  * horizontally rather than wrapping into a growing block, so a long list costs width, never height. */

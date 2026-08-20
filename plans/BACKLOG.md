@@ -488,6 +488,40 @@ announces itself instead of reading as a complete one.
 - It should work OFFLINE, printing the local half and saying plainly that the server half is
   unavailable — a field device with no signal is exactly when someone wants it.
 
+## NEXT IN PHASE C: the account-wide Drive routes are still unconverted (2026-08-20)
+
+Phase C increment 2 landed everything except R2-1, the Drive half. **Stopping there is safe, and it
+is safe for a reason worth writing down rather than trusting.**
+
+`drive-estate`, `drive-purge`, `trash` and `drive-file/<id>` still resolve through `authResearcher`,
+which hands back **the caller's own researcher row**. So a member calling them acts on their OWN
+Drive, never the owner's — an unconverted route means *"members cannot do that yet"*, not a leak.
+That is precisely the property R2-4's filter shape was chosen to give, and
+`worker-members.probe.mjs` now pins it: a member holding `drive: "manage"` gets 502 from all three,
+because the route reached Drive with THEIR credentials and they have none. ⚠ If that assertion ever
+returns 200, a member is reading the owner's estate through a route nobody converted.
+
+**Consequence for now:** the `drive` capability grants nothing except on
+`/v1/instances/<id>/texts/<docId>/files`, which IS converted and IS bounded (per-instance, and the
+`see` list applies). Do not offer `drive: read/manage` in the sharing UI as though it did more.
+
+### What converting them actually requires — and the decision it is blocked on
+
+1. `driveListAll` is **account-wide**. Scoping the estate means resolving the project's folders
+   (`instance.oauth_folder_id WHERE project_id=?`) and filtering to those parents.
+2. `drive-purge` takes **no id list** and empties the whole trash. It needs an explicitly derived
+   list, not a filter applied afterwards (R2-4).
+3. `trash` takes an **unverified** `fileIds`; every parent must be checked.
+4. `drive-file/<id>` serves **any** file id.
+
+⚠ And design-gap 5 is the blocker on the rest: a member with `see` restricted to device A but
+`drive: read` can still reach device B's file NAMES through docId-routed routes, because Drive
+folders are per-device with plaintext names. The doc's own recommendation is **accept + disclose**
+("Drive read shows all project files, including devices hidden from them"), because a filtered
+estate that leaks to direct docIds is worse than an honest sentence. **That is decision II.D7 and it
+is Seth's, not a default to pick.** Cross-PROJECT scoping (1–4 above) is not blocked on it and is
+the part actually worth building first.
+
 ## SOON: a REVOKED device keeps its holder's name and their text index, forever (Seth, 2026-08-20)
 
 > Seth, on stale rows: *"probably better practice to have that cleaned up… Especially if we're being

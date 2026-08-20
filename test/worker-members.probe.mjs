@@ -144,5 +144,32 @@ console.log('\npubkey lookup returns the KEY and no identity');
   ok((await call('GET', '/v1/researcher/pubkey/nobody-at-all', OWNER)).status === 404, 'an unknown id is not_found');
 }
 
+console.log('\nUNCONVERTED Drive routes are INERT for a member, not leaky — the R2-4 property');
+{
+  /* ⚠ THIS IS THE ASSERTION THAT MAKES "CONVERT ONE ROUTE AT A TIME" SURVIVABLE, so it is worth
+   * pinning rather than assuming. The account-wide Drive routes still resolve through
+   * authResearcher, which hands back THE CALLER'S OWN researcher row. So a member calling them acts
+   * on their own (empty) Drive, never the owner's — an unconverted route means "members cannot do
+   * that yet", which is the whole reason a partial conversion is safe.
+   *
+   * The guest fixture has no drive_refresh_enc, so reaching Drive with THEIR row fails at OAuth.
+   * That failure is the evidence: it proves the route used the guest's row and not the owner's,
+   * which would have succeeded. If this ever returns 200, a member is reading the owner's estate
+   * through a route nobody converted. */
+  await call('POST', `/v1/projects/${projectId}/members`, OWNER, {
+    researcher_id: FIXTURE.outsiderId, caps: { see: 'all', drive: 'manage' },
+  });
+  for (const [method, path, label] of [
+    ['GET', '/v1/researcher/drive-estate', 'drive-estate'],
+    ['POST', '/v1/researcher/drive-purge', 'drive-purge'],
+    ['GET', '/v1/researcher/drive-file/any-file-id', 'drive-file'],
+  ]) {
+    const res = await call(method, path, GUEST, method === 'POST' ? {} : null);
+    ok(res.status !== 200,
+       `⚠ ${label}: a member with drive:manage gets ${res.status}, NOT the owner's estate — the route acts on the caller's own Drive`);
+  }
+  await call('DELETE', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: FIXTURE.outsiderId });
+}
+
 console.log(fail ? `\n${fail} FAILED\n` : '\nPASS\n');
 process.exit(fail ? 1 : 0);

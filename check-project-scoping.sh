@@ -42,7 +42,11 @@ fi
 
 # 3. Denial must not be distinguishable from absence. A 403 beside an authMember guard would turn
 #    the endpoint into an oracle for which instance and project ids exist.
-if grep -n 'if (!ctx.ok' "$W" | grep -q '403'; then
+# ⚠ NO `grep -n` HERE. The first version piped `grep -n` into `grep 403` and matched the LINE
+#    NUMBER — line 4030 contains "403" — so it failed on a file with no 403 in it at all. A check
+#    that cries wolf gets muted, which this repo's own tests call worse than no check. Match the
+#    status ARGUMENT in its actual syntax instead.
+if grep 'if (!ctx.ok' "$W" | grep -q '}, 403,'; then
   bad x "⚠ an authMember guard answers 403 — denial must be not_found, or the API enumerates ids"
 else
   good ok "no authMember guard answers 403 — denial is indistinguishable from absence"

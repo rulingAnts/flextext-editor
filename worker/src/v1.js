@@ -3226,8 +3226,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
 
     // POST .../rename — edit the nickname anytime.
     if (m === 'POST' && sub === 'rename' && seg.length === 4) {
-      const r = await authResearcher(request, env);
-      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      const ctx = await authMember(request, env, { instance: instanceId }, 'manageDevices');
+      if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+      if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+      const r = ctx.owner;   // the PROJECT OWNER's row: Drive acts in their account (R2-5)
       const body = await readJson(request);
       const nickname = body && (body.nickname || '').trim();
       if (!nickname) return j({ error: 'nickname_required' }, 400, origin, env);
@@ -3248,8 +3250,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
 
     // POST .../invite — mint a one-time invite (returns the secret ONCE).
     if (m === 'POST' && sub === 'invite' && seg.length === 4) {
-      const r = await authResearcher(request, env);
-      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      const ctx = await authMember(request, env, { instance: instanceId }, 'createInvites');
+      if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+      if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+      const r = ctx.owner;   // the PROJECT OWNER's row: Drive acts in their account (R2-5)
       const owned = await env.DB.prepare('SELECT instance_id FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
         .bind(instanceId, r.researcher_id).first();
       if (!owned) return j({ error: 'not_found' }, 404, origin, env);
@@ -3270,8 +3274,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
 
     // POST .../command — append a command to `desired` (CAS, §E.2). Enforce id+type (§F.5).
     if (m === 'POST' && sub === 'command' && seg.length === 4) {
-      const r = await authResearcher(request, env);
-      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      const ctx = await authMember(request, env, { instance: instanceId }, 'manageDevices');
+      if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+      if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+      const r = ctx.owner;   // the PROJECT OWNER's row: Drive acts in their account (R2-5)
       const body = await readJson(request);
       const cmd = body && body.command;
       if (!cmd || typeof cmd.type !== 'string') return j({ error: 'bad_command' }, 400, origin, env);
@@ -3301,7 +3307,15 @@ export async function handleV1(request, env, ctx, url, path, origin) {
          * blob ever needs trimming, store a separate high-water `next_seq` on the instance row
          * instead of inferring it from the array. Covered by test/command-seq-invariant.test.mjs. */
         const seq = (blob.commands.length ? blob.commands[blob.commands.length - 1].seq : 0) + 1;
-        blob.commands.push({ ...cmd, seq, at: now });
+        /* ⚠ `by` IS THE ISSUER, and it is written now so that `cancelOthers` can be enforced later.
+         * Commands recorded no author at all, which the design flags as a SCHEMA gap rather than a UI
+         * one: without it "may cancel a command someone ELSE queued" is not a rule that can be
+         * checked, only one that can be described. Starting to record it now means the capability
+         * becomes enforceable for every command queued from today, instead of needing a backfill that
+         * cannot be written — nobody can reconstruct who issued a command after the fact.
+         * ctx.caller, never ctx.owner: the point is WHO ACTED. Additive inside the command object, so
+         * devices and old APKs (which read type/id/seq) ignore it. */
+        blob.commands.push({ ...cmd, seq, at: now, by: ctx.caller.researcher_id });
         const newRev = inst.desired_rev + 1;
         const res = await env.DB.prepare('UPDATE instance SET desired_blob=?, desired_rev=? WHERE instance_id=? AND desired_rev=?')
           .bind(JSON.stringify(blob), newRev, instanceId, inst.desired_rev).run();
@@ -3326,8 +3340,19 @@ export async function handleV1(request, env, ctx, url, path, origin) {
      * mid-edit, or two panels acting at once, cannot corrupt the blob.
      */
     if (m === 'POST' && sub === 'command' && seg.length === 5 && seg[4] === 'cancel') {
-      const r = await authResearcher(request, env);
-      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      /* ⚠ GATED ON manageDevices FOR NOW, NOT ON `cancelOthers`, and the difference is honest rather
+       * than an oversight. The design wants cancelling your OWN queued command ungated (that is undo,
+       * not authority) and someone ELSE's gated on `cancelOthers`. That distinction needs the command
+       * to name its issuer — which it only started doing in the route above, so every command queued
+       * BEFORE today has no `by` field and no way to acquire one. Splitting the rule now would
+       * therefore treat the entire existing backlog as "someone else's" or as "mine", and both
+       * answers are wrong.
+       * manageDevices is the strictly-safe interim: never wider than today (this was owner-only), and
+       * it becomes the fallback for authorless commands once `cancelOthers` lands. */
+      const ctx = await authMember(request, env, { instance: instanceId }, 'manageDevices');
+      if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+      if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+      const r = ctx.owner;
       const body = await readJson(request) || {};
       const seq = parseInt(body.seq, 10);
       if (!Number.isFinite(seq) || seq <= 0) return j({ error: 'bad_seq' }, 400, origin, env);
@@ -3358,8 +3383,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
      * Returns [] (not an error) when the folder does not exist yet — a text with no uploads is a
      * normal state, not a failure. */
     if (m === 'GET' && sub === 'texts' && seg.length === 6 && seg[5] === 'files') {
-      const r = await authResearcher(request, env);
-      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      const ctx = await authMember(request, env, { instance: instanceId }, 'drive:read');
+      if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+      if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+      const r = ctx.owner;   // the PROJECT OWNER's row: Drive acts in their account (R2-5)
       const owned = await env.DB.prepare('SELECT instance_id FROM instance WHERE instance_id=? AND researcher_id=?')
         .bind(instanceId, r.researcher_id).first();
       if (!owned) return j({ error: 'not_found' }, 404, origin, env);
@@ -3417,8 +3444,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     // assignment/ child, created as needed. folderId is a panel-remembered echo (files.get
     // verification beats the eventually-consistent tag search — the v167 dedupe mechanism).
     if (m === 'POST' && sub === 'texts' && seg.length === 7 && seg[5] === 'assignment' && seg[6] === 'begin') {
-      const r = await authResearcher(request, env);
-      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      const ctx = await authMember(request, env, { instance: instanceId }, 'assignTexts');
+      if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+      if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+      const r = ctx.owner;   // the PROJECT OWNER's row: Drive acts in their account (R2-5)
       const inst = await env.DB.prepare('SELECT instance_id, nickname, oauth_folder_id FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
         .bind(instanceId, r.researcher_id).first();
       if (!inst) return j({ error: 'not_found' }, 404, origin, env);
@@ -3439,8 +3468,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     // researcher via `rr`). kind names the role tag; 'consent-prompt' targets the DEVICE folder
     // (a prompt is per-device, not per-text — the docId segment is ignored for it).
     if (m === 'POST' && sub === 'texts' && seg.length === 8 && seg[5] === 'assignment' && seg[6] === 'upload' && seg[7] === 'start') {
-      const r = await authResearcher(request, env);
-      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      const ctx = await authMember(request, env, { instance: instanceId }, 'assignTexts');
+      if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+      if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+      const r = ctx.owner;   // the PROJECT OWNER's row: Drive acts in their account (R2-5)
       const inst = await env.DB.prepare('SELECT instance_id, nickname, oauth_folder_id FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
         .bind(instanceId, r.researcher_id).first();
       if (!inst) return j({ error: 'not_found' }, 404, origin, env);
@@ -3480,8 +3511,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     // PUT .../texts/<docId>/assignment/upload/chunk — same wire contract as the device chunk
     // relay; ownership key is `rr` (researcher), never `i` (install).
     if (m === 'PUT' && sub === 'texts' && seg.length === 8 && seg[5] === 'assignment' && seg[6] === 'upload' && seg[7] === 'chunk') {
-      const r = await authResearcher(request, env);
-      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      const ctx = await authMember(request, env, { instance: instanceId }, 'assignTexts');
+      if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+      if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+      const r = ctx.owner;   // the PROJECT OWNER's row: Drive acts in their account (R2-5)
       let sess = null;
       try { sess = JSON.parse(await decAtRest(env, request.headers.get('x-fx-upload') || '')); } catch { sess = null; }
       if (!sess || !sess.u || sess.rr !== r.researcher_id) return j({ error: 'bad_upload' }, 403, origin, env);
@@ -3493,8 +3526,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     // ttlDays} → private streaming URLs for the E2EE assign command (and the settings push's
     // prompt-URL field). TTL researcher-configurable; the server clamp is authoritative.
     if (m === 'POST' && sub === 'texts' && seg.length === 7 && seg[5] === 'assignment' && seg[6] === 'finish') {
-      const r = await authResearcher(request, env);
-      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      const ctx = await authMember(request, env, { instance: instanceId }, 'assignTexts');
+      if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+      if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+      const r = ctx.owner;   // the PROJECT OWNER's row: Drive acts in their account (R2-5)
       const inst = await env.DB.prepare('SELECT instance_id, nickname FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
         .bind(instanceId, r.researcher_id).first();
       if (!inst) return j({ error: 'not_found' }, 404, origin, env);
@@ -3515,7 +3550,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         const flextextUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.flextextFileId, '', ttlMs, scope);
         const promptUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.promptFileId, '', ttlMs);
         if (docId && (audioUrl || flextextUrl)) {
-          await logApproval(env, request, 'assigned_upload', docId.slice(0, 12) + '…', '→ ' + (inst.nickname || '?'), r.drive_email);
+          await logApproval(env, request, 'assigned_upload', docId.slice(0, 12) + '…', '→ ' + (inst.nickname || '?'), ctx.caller.drive_email);
         }
         return j({ ok: true, ttlDays, audioUrl, flextextUrl, promptUrl }, 200, origin, env);
       } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
@@ -3540,8 +3575,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
      * other direction: the folder comes OUT of Unassigned and under the adopting device, and the
      * `flextextUnassigned` tag is cleared so the return-trip logic will not fight it later. */
     if (m === 'POST' && sub === 'texts' && seg.length === 6 && seg[5] === 'adopt') {
-      const r = await authResearcher(request, env);
-      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      const ctx = await authMember(request, env, { instance: instanceId }, 'assignTexts');
+      if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+      if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+      const r = ctx.owner;   // the PROJECT OWNER's row: Drive acts in their account (R2-5)
       const body = await readJson(request) || {};
       const docId = String(seg[4] || '').replace(/[^\w-]/g, '').slice(0, 64);
       if (!docId) return j({ error: 'bad_doc' }, 400, origin, env);
@@ -3567,14 +3604,16 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         const mint = (fileId, extract) => mintTextfileUrl(env, url.origin, r.researcher_id, fileId, extract, 0, { instanceId: to.instance_id, docId });
         const flextextUrl = await mint(body.flextextFileId) || await mint(body.extractFromZipId, 'flextext');
         const audioUrl = await mint(body.audioFileId);
-        await logApproval(env, request, 'text_adopted', docId, to.nickname || '', r.drive_email);
+        await logApproval(env, request, 'text_adopted', docId, to.nickname || '', ctx.caller.drive_email);
         return j({ ok: true, folderId, flextextUrl, audioUrl }, 200, origin, env);
       } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
     }
 
     if (m === 'POST' && sub === 'texts' && seg.length === 6 && seg[5] === 'move') {
-      const r = await authResearcher(request, env);
-      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      const ctx = await authMember(request, env, { instance: instanceId }, 'assignTexts');
+      if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+      if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+      const r = ctx.owner;   // the PROJECT OWNER's row: Drive acts in their account (R2-5)
       const body = await readJson(request) || {};
       const toId = String(body.to || '');
       const docId = String(seg[4] || '').replace(/[^\w-]/g, '').slice(0, 64);
@@ -3605,7 +3644,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         const mint = (fileId, extract) => mintTextfileUrl(env, url.origin, r.researcher_id, fileId, extract, 0, { instanceId: to.instance_id, docId });
         const flextextUrl = await mint(body.flextextFileId) || await mint(body.extractFromZipId, 'flextext');
         const audioUrl = await mint(body.audioFileId);
-        await logApproval(env, request, 'text_moved', docId.slice(0, 12) + '…', (from.nickname || '?') + ' → ' + (to.nickname || '?'), r.drive_email);
+        await logApproval(env, request, 'text_moved', docId.slice(0, 12) + '…', (from.nickname || '?') + ' → ' + (to.nickname || '?'), ctx.caller.drive_email);
         return j({ ok: true, movedFolder, flextextUrl, audioUrl }, 200, origin, env);
       } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
     }
@@ -3622,8 +3661,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
 
     // POST .../revoke — revoke the whole instance.
     if (m === 'POST' && sub === 'revoke' && seg.length === 4) {
-      const r = await authResearcher(request, env);
-      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      const ctx = await authMember(request, env, { instance: instanceId }, 'manageDevices');
+      if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+      if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+      const r = ctx.owner;   // the PROJECT OWNER's row: Drive acts in their account (R2-5)
       /* ⚠ OWNERSHIP IS ESTABLISHED FIRST, NOT CARRIED BY ONE STATEMENT OF THE BATCH.
        * This used to be a two-statement batch where only the FIRST carried `AND researcher_id=?`;
        * the second was a bare `UPDATE install SET revoked=1 WHERE instance_id=?`. A D1 batch is
@@ -3659,8 +3700,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
 
       // POST .../approve — researcher approves a pending install (anti-leaked-link, §D.3).
       if (m === 'POST' && isub === 'approve' && seg.length === 6) {
-        const r = await authResearcher(request, env);
-        if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+        const ctx = await authMember(request, env, { instance: instanceId }, 'manageDevices');
+        if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+        if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+        const r = ctx.owner;   // the PROJECT OWNER's row: Drive acts in their account (R2-5)
         const owned = await env.DB.prepare(
           'SELECT i.install_id FROM install i JOIN instance n ON n.instance_id=i.instance_id WHERE i.install_id=? AND i.instance_id=? AND n.researcher_id=?'
         ).bind(installId, instanceId, r.researcher_id).first();
@@ -3686,8 +3729,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       // POST .../key — researcher delivers Ki WRAPPED to this install's pubkey (E2EE model A).
       // The Worker stores opaque ciphertext only; it never sees Ki.
       if (m === 'POST' && isub === 'key' && seg.length === 6) {
-        const r = await authResearcher(request, env);
-        if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+        const ctx = await authMember(request, env, { instance: instanceId }, 'manageDevices');
+        if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+        if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+        const r = ctx.owner;   // the PROJECT OWNER's row: Drive acts in their account (R2-5)
         const owned = await env.DB.prepare(
           'SELECT i.install_id, i.accepted FROM install i JOIN instance n ON n.instance_id=i.instance_id WHERE i.install_id=? AND i.instance_id=? AND n.researcher_id=?'
         ).bind(installId, instanceId, r.researcher_id).first();
@@ -3713,8 +3758,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       // POST .../revoke — researcher revokes one install (lost device). UNLINK only: the device gets 410
       // on its next poll → auto-releases but KEEPS its local texts (the researcher can't retrieve them after).
       if (m === 'POST' && isub === 'revoke' && seg.length === 6) {
-        const r = await authResearcher(request, env);
-        if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+        const ctx = await authMember(request, env, { instance: instanceId }, 'manageDevices');
+        if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+        if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+        const r = ctx.owner;   // the PROJECT OWNER's row: Drive acts in their account (R2-5)
         const owned = await env.DB.prepare(
           'SELECT i.install_id FROM install i JOIN instance n ON n.instance_id=i.instance_id WHERE i.install_id=? AND i.instance_id=? AND n.researcher_id=?'
         ).bind(installId, instanceId, r.researcher_id).first();
@@ -3728,8 +3775,13 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       // (delivered plaintext in the desired lane below, so it lands in ANY device state — even one never
       // keyed). Step-up TOTP when the researcher has 2FA, since this is destructive + remote + irreversible.
       if (m === 'POST' && isub === 'wipe' && seg.length === 6) {
-        const r = await authResearcher(request, env);
-        if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+        /* OWNER-ONLY in v1 (round-1 finding 6): remote wipe and force-remove destroy a field
+         * device's work, and no capability delegates that yet. `isOwner` covers the legacy
+         * dual-read path too, so an unmigrated instance behaves exactly as it does today. */
+        const ctx = await authMember(request, env, { instance: instanceId }, null);
+        if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+        if (!ctx.ok || !ctx.isOwner) return j({ error: 'not_found' }, 404, origin, env);
+        const r = ctx.owner;
         const owned = await env.DB.prepare(
           'SELECT i.install_id FROM install i JOIN instance n ON n.instance_id=i.instance_id WHERE i.install_id=? AND i.instance_id=? AND n.researcher_id=?'
         ).bind(installId, instanceId, r.researcher_id).first();
@@ -3761,8 +3813,13 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       // ARMED: hide it from the panel but DO NOT delete the row + DO NOT clear wipe_state, so if that device
       // ever reconnects (weeks/months later) it still receives the wipe. (A normal unlink would lose it.)
       if (m === 'POST' && isub === 'force-remove' && seg.length === 6) {
-        const r = await authResearcher(request, env);
-        if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+        /* OWNER-ONLY in v1 (round-1 finding 6): remote wipe and force-remove destroy a field
+         * device's work, and no capability delegates that yet. `isOwner` covers the legacy
+         * dual-read path too, so an unmigrated instance behaves exactly as it does today. */
+        const ctx = await authMember(request, env, { instance: instanceId }, null);
+        if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+        if (!ctx.ok || !ctx.isOwner) return j({ error: 'not_found' }, 404, origin, env);
+        const r = ctx.owner;
         const owned = await env.DB.prepare(
           'SELECT i.install_id FROM install i JOIN instance n ON n.instance_id=i.instance_id WHERE i.install_id=? AND i.instance_id=? AND n.researcher_id=?'
         ).bind(installId, instanceId, r.researcher_id).first();

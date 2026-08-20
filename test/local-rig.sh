@@ -51,6 +51,7 @@ echo
 NO_PROXY='*' node test/worker-sessions.test.mjs "http://127.0.0.1:$PORT" || STATUS=1
 echo
 NO_PROXY='*' node test/worker-projects.test.mjs "http://127.0.0.1:$PORT" || STATUS=1
+NO_PROXY='*' node test/worker-route-scoping.probe.mjs "http://127.0.0.1:$PORT" || STATUS=1
 
 if [ "$KEEP" = "1" ]; then
   echo

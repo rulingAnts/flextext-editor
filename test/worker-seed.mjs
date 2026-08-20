@@ -41,6 +41,14 @@ export const FIXTURE = {
   /* An already-expired one, to prove expiry is enforced rather than merely recorded. */
   expiredSessionId: '00000000-0000-4000-8000-0000000000a2',
   expiredSessionSecret: 'local-rig-fixture-expired-session-token',
+  /* A SECOND approved researcher who owns nothing here. Phase C's central claim is that a
+   * researcher outside a project cannot reach it, and that claim is untestable with one fixture —
+   * every request would be the owner's, so every route would pass and the rig would certify an
+   * authorization model it never exercised. Deliberately NOT an operator (absent from
+   * ALLOWED_RESEARCHERS), so it is an ordinary account rather than one carrying deployment rights. */
+  outsiderId: '00000000-0000-4000-8000-000000000002',
+  outsiderSecret: 'local-rig-outsider-secret-not-a-real-credential',
+  outsiderEmail: 'outsider@example.invalid',
 };
 
 const sha256hex = (s) => createHash('sha256').update(s).digest('hex');
@@ -72,6 +80,11 @@ INSERT INTO researcher (researcher_id, secret_hash, email_sha256, settings_blob,
 VALUES ('${FIXTURE.researcherId}', '${sha256hex(FIXTURE.researcherSecret)}',
         '${sha256hex('fixture-email-key')}', '{}', 0, ${now},
         '${FIXTURE.googleSub}', '${FIXTURE.driveEmail}', 'Local Rig Fixture', 1, 'oauth');
+INSERT INTO researcher (researcher_id, secret_hash, email_sha256, settings_blob, settings_rev,
+                        created_at, google_sub, drive_email, display_name, approved, drive_mode)
+VALUES ('${FIXTURE.outsiderId}', '${sha256hex(FIXTURE.outsiderSecret)}',
+        '${sha256hex('outsider-email-key')}', '{}', 0, ${now},
+        'local-rig-outsider-sub', '${FIXTURE.outsiderEmail}', 'Local Rig Outsider', 1, 'oauth');
 
 DELETE FROM session;
 INSERT INTO session (session_id, researcher_id, secret_hash, created_at, last_seen_at, expires_at,

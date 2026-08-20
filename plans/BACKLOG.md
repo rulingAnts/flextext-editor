@@ -2144,6 +2144,45 @@ being UTC *and* the absence of any label.
 would rewrite history for cosmetics — and folder names are display-only precisely so nothing depends
 on them (identity is the `flextextDoc` tag), so old names can simply stay wrong.
 
+## Three deferred at the projects release (Seth, 2026-08-20) — none a blocker
+
+Recorded at the moment of shipping, with their priority as stated rather than as re-guessed later.
+The release went out because a researcher was waiting behind the maintenance banner to set up a new
+device, and the migration is the piece that was holding him.
+
+### 1. ⚠ Radio/tile alignment — SUITE-WIDE, and newly urgent for a reason
+
+> *"radio tile alignment is a problem ACROSS our app suite that we should audit and clean up later.
+> Just so far it hasn't been a big, blocking problem. But it actually could cause problems for the
+> users who are joining now."*
+
+The move modal was fixed in v429 (tiles), but the CAUSE is general: `.rp-field` is a stacked
+label-above-input layout, so any bare radio rendered inside one sits centred ABOVE the following
+option's text. Everywhere that pattern appears, the control and its label are visually mismatched.
+
+⚠ **Why it stops being cosmetic:** it has been survivable because the people using it already knew
+what the options were. New researchers do not, and a mis-selected option in a modal that moves data
+is not a cosmetic outcome. `tileOpt()` in researcher-panel.js is the fix to propagate; the audit is
+finding every `rp-field` containing a radio or checkbox.
+
+### 2. The target Unassigned box does not show the text until the source device finishes
+
+Cosmetic, and it does work. A text filed into another project's box is re-parented immediately, but
+the row appears only once the upload-first removal completes — because until then it is legitimately
+still on the source device and shown as in-flight there. ⚠ So the honest fix is not to show it in two
+places at once, but to show it in the DESTINATION as pending too. Low value, real subtlety.
+
+### 3. A text cannot be moved from one project's Unassigned to another's — NEXT release
+
+> *"looks like I can't move texts from one project's unassigned to another's. We do want that to
+> work, but we don't want to make it a pre-condition for pushing a release."*
+
+v429 added another project's box as a destination from a DEVICE. The source-less flow
+(`adoptTextModal`) offers device destinations plus its own project's box, and the cross-project box
+path there was not wired — so an already-unassigned text has nowhere to go but a device. The pieces
+all exist (`drive-unassign` takes a target project, `confirmCrossProjectFile` exists); this is
+connecting them, not building them.
+
 ## The editor should show its own paired device nickname (Seth, 2026-08-20)
 
 > *"Would be good for our FlexText Editor UI to show its own paired device name/nickname somewhere in

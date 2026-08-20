@@ -227,6 +227,33 @@ state, and the wrapped-Ki key map in `settings_blob`.
 useful; cross-account only after, with the key and pairing limits stated in the UI rather than
 discovered.
 
+## LATER: the recorder and crowd recorder do not refresh themselves after a recording (Seth, 2026-08-20)
+
+> *"Our recorder app needs some work with UI responsiveness and auto-refreshing, as does the crowd
+> recorder. I had to refresh the page after recording (although I'm not 100% sure there isn't a
+> difference between production and staging on this). But those are later issues."*
+
+Observed on the staging recorder during the v439 pairing test drive: a recording completed and the
+list did not show it until the page was reloaded.
+
+⚠ **NOT YET DIAGNOSED, and the report itself flags the doubt worth keeping** — Seth is unsure whether
+staging and production differ here. So the first job is to reproduce on BOTH and say which, rather
+than to start fixing. A "fix" for a staging-only artefact would be a change to field code for no
+field benefit.
+
+Two leads worth checking first, both cheap:
+- `renderRecordList()` is called from the save path and from `applyLiveSettings`, but the recorder
+  rebuilds its whole view in `renderRecordView()` — if the save path repaints only one of them, the
+  new row exists in storage and not on screen, which is exactly this shape.
+- The researcher panel has the identical bug class already documented THREE times (viewSig missing a
+  field, pending markers, the maintenance banner). Worth checking whether the recorder has its own
+  version of "the thing that decides whether to redraw cannot see what changed".
+
+Related and probably the same sitting: this is the same family as the loading-status work in v436 —
+a UI that has done something but does not say so. Group them if someone picks this up.
+
+**Priority: later, as Seth said.** Nothing is lost — the recording is saved and a reload shows it.
+
 ## KNOWN ISSUE, LOW PRIORITY: un-checking "Done" shows a toast and then nothing (Seth, 2026-08-20)
 
 > *"Unchecking 'done' gives a brief toast promising to relay the command, but no 'pending' UI change

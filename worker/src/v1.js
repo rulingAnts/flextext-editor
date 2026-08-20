@@ -452,6 +452,46 @@ async function authInstall(req, env, instanceId, installId) {
   return row;
 }
 
+/* VALIDATE CAPS BEFORE THEY ARE STORED, never on the way out.
+ *
+ * ⚠ authMember DENIES on caps it cannot parse, which makes an invalid record fail safe — but failing
+ * safe at READ time means an owner can save a permission set that silently grants nothing, see no
+ * error, and believe their assistant has access. The write is the only moment anyone is present to
+ * be told. Validating in both places is not redundancy; they catch different failures.
+ *
+ * Returns a NORMALISED object or null. Normalising rather than passing the input through is what
+ * stops unknown keys accumulating in the column — a future capability name would otherwise already
+ * be present with a meaning nobody chose. */
+function validateCaps(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const out = {};
+  /* `see` is 'all' or an explicit list of instance ids. An empty list is LEGAL and means "no devices
+   * yet" — a member added before being given anything, which is a real intermediate state and not
+   * the same as a mistake. */
+  if (raw.see === 'all') out.see = 'all';
+  else if (Array.isArray(raw.see)) {
+    if (raw.see.length > 500) return null;
+    out.see = raw.see.map((x) => String(x).replace(/[^\w-]/g, '').slice(0, 64)).filter(Boolean);
+  } else return null;
+
+  for (const k of ['manageDevices', 'assignTexts', 'createInvites', 'cancelOthers']) {
+    if (raw[k] === undefined) continue;
+    if (typeof raw[k] !== 'boolean') return null;   // a truthy STRING here would read as a grant
+    if (raw[k]) out[k] = true;                      // store only what is granted; absent === false
+  }
+  if (raw.drive !== undefined) {
+    if (raw.drive !== 'read' && raw.drive !== 'manage') return null;
+    out.drive = raw.drive;
+  }
+  /* ⚠ NO WIPE OR FORCE-REMOVE CAPABILITY EXISTS, and an attempt to grant one is an ERROR rather than
+   * a silent drop. Those stay owner-only in v1 (round-1 finding 6); accepting the key and ignoring it
+   * would tell an owner they had delegated something they had not. */
+  for (const k of Object.keys(raw)) {
+    if (!['see', 'manageDevices', 'assignTexts', 'createInvites', 'cancelOthers', 'drive'].includes(k)) return null;
+  }
+  return out;
+}
+
 /* ---------------- PROJECT AUTHORIZATION (Phase C) ----------------
  *
  * `authMember` is the ONE place that answers "may this researcher do this to this thing". II.4 calls
@@ -2229,6 +2269,172 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           .bind(r.researcher_id);
     const rows = await q.all();
     return j({ keys: (rows && rows.results) || [] }, 200, origin, env);
+  }
+
+  /* GET /v1/researcher/pubkey/<researcher_id> — read ANOTHER researcher's public key, so a grant can
+   * be wrapped to them. Without this, cross-researcher wrapping is simply impossible: every grant
+   * must be sealed to the grantee's key, and there was no way to obtain one.
+   *
+   * ⚠ RETURNS THE KEY AND NOTHING ELSE — no email, no display name, no avatar. Seth's rule for
+   * pairing generalised: "we do want the researcher's identity not to be advertised in the pairing
+   * process. EXACTLY the same for anything that needs to be paired." An id-to-identity lookup for
+   * any authenticated caller is precisely the directory that rule refuses, and the wrapping needs
+   * only the key.
+   *
+   * ⚠ NOT SCOPED TO A SHARED PROJECT, deliberately: at the moment you invite someone you do not yet
+   * share one, so a membership check here would make the first invite unbuildable. What bounds it
+   * instead is that researcher_ids are random GUIDs — the caller must already have been given the
+   * id — and that a public key is public by definition. Nothing here is a secret; the sensitive
+   * thing would have been the identity, which is not returned. */
+  if (m === 'GET' && seg.length === 4 && seg[1] === 'researcher' && seg[2] === 'pubkey') {
+    const r = await authResearcher(request, env);
+    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    const who = String(seg[3] || '').replace(/[^\w-]/g, '').slice(0, 64);
+    if (!who) return j({ error: 'bad_body' }, 400, origin, env);
+    const row = await env.DB.prepare('SELECT researcher_id, pubkey FROM researcher WHERE researcher_id=? AND approved=1')
+      .bind(who).first();
+    /* A researcher who has not generated a keypair yet is not_found rather than a null key: the
+     * caller cannot wrap to them either way, and one answer is easier to handle than two. */
+    if (!row || !row.pubkey) return j({ error: 'not_found' }, 404, origin, env);
+    return j({ researcher_id: row.researcher_id, pubkey: row.pubkey }, 200, origin, env);
+  }
+
+  /* DELETE /v1/researcher/keys { instance_id, researcher_id, key_version? } — REVOKE a grant.
+   *
+   * ⚠ WITHOUT THIS, "revocable" WAS UNIMPLEMENTABLE. Grants could be written and never withdrawn, so
+   * every sentence in the design about revoking a member's access described something no code could
+   * do. It is the other half of the ledger, not an optimisation.
+   *
+   * ⚠ OWNER-ONLY, and it REFUSES TO DELETE THE OWNER'S OWN COPY. That is the exact mirror of the
+   * wrap-to-owner invariant on the write path: the insert refuses a set without the owner's copy so
+   * the owner can always read the key, and this refuses to remove it so they cannot lose that by a
+   * slip. Otherwise an owner could revoke themselves out of their own device's key with no way back
+   * — the key is wrapped to keys the worker cannot read, so nothing could reconstruct it.
+   *
+   * ⚠ E2EE HONESTY: deleting the row stops the worker HANDING OVER the wrapped key. It cannot
+   * un-know a key the member already fetched and cached. Real revocation is rotation (Phase E, which
+   * the key_version column exists for); this is the step that must precede it and the step that
+   * stops the ledger being append-only. Say so in the UI rather than implying more. */
+  if (m === 'DELETE' && seg.length === 3 && seg[1] === 'researcher' && seg[2] === 'keys') {
+    const body = await readJson(request) || {};
+    const instanceId = String(body.instance_id || '');
+    const grantee = String(body.researcher_id || '');
+    if (!instanceId || !grantee) return j({ error: 'bad_body' }, 400, origin, env);
+    const ctx = await authMember(request, env, { instance: instanceId }, null);
+    if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+    if (!ctx.ok || !ctx.isOwner) return j({ error: 'not_found' }, 404, origin, env);
+    if (grantee === ctx.owner.researcher_id) {
+      return j({ error: 'owner_grant_required' }, 400, origin, env);
+    }
+    const ver = body.key_version == null ? null : Math.max(1, parseInt(body.key_version, 10) || 1);
+    const res = ver == null
+      ? await env.DB.prepare('DELETE FROM member_key WHERE instance_id=? AND researcher_id=?')
+          .bind(instanceId, grantee).run()
+      : await env.DB.prepare('DELETE FROM member_key WHERE instance_id=? AND researcher_id=? AND key_version=?')
+          .bind(instanceId, grantee, ver).run();
+    await logApproval(env, request, 'grant_revoked', grantee.slice(0, 12) + '…', instanceId.slice(0, 12) + '…', ctx.caller.drive_email);
+    return j({ ok: true, removed: (res.meta && res.meta.changes) || 0 }, 200, origin, env);
+  }
+
+  /* GET /v1/projects — the projects this researcher owns, and the ones they have been added to.
+   *
+   * ⚠ WITHOUT THIS THE MEMBERS ROUTES ARE UNREACHABLE. Every one of them is addressed by
+   * project_id, and until now no endpoint returned one — the id existed only in D1 and in the
+   * backfill's own local variables. This is not a convenience listing; it is the only way a client
+   * can name the thing it wants to manage.
+   *
+   * ⚠ IDENTITY IS NOT ADVERTISED HERE EITHER. A joined project carries its NAME and its owner's
+   * opaque id — never the owner's email or display name. Seth's pairing rule generalised: a member
+   * needs to know WHICH project they are in, which the name answers; who the human behind it is, is
+   * a separate disclosure that belongs to whoever chooses to make it. */
+  if (m === 'GET' && seg.length === 2 && seg[1] === 'projects') {
+    const r = await authResearcher(request, env);
+    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    const owned = await env.DB.prepare(
+      'SELECT project_id, name, drive_folder_id, created_at FROM project WHERE owner_id=? ORDER BY created_at'
+    ).bind(r.researcher_id).all();
+    let joined = { results: [] };
+    try {
+      joined = await env.DB.prepare(
+        'SELECT p.project_id, p.name, p.owner_id, m.caps FROM project_member m '
+        + 'JOIN project p ON p.project_id=m.project_id WHERE m.researcher_id=? ORDER BY m.added_at'
+      ).bind(r.researcher_id).all();
+    } catch { /* the table may predate this deploy; an empty joined list is the honest answer */ }
+    return j({
+      owned: ((owned && owned.results) || []),
+      joined: ((joined && joined.results) || []).map((x) => {
+        let caps = null; try { caps = JSON.parse(x.caps || '{}'); } catch { caps = null; }
+        return { project_id: x.project_id, name: x.name, owner_id: x.owner_id, caps, invalid: caps === null };
+      }),
+    }, 200, origin, env);
+  }
+
+  /* /v1/projects/<project_id>/members — OWNER-ONLY membership management (II.4).
+   *
+   * ⚠ THE OWNER IS NEVER A ROW HERE. Ownership is `project.owner_id`; a project_member row for the
+   * owner would be a second, weaker answer to "who owns this" that could disagree with the first —
+   * and the one that disagrees is always the one some code path trusts. Adding oneself is refused.
+   *
+   * ⚠ REMOVING A MEMBER ALSO DELETES THEIR KEY GRANTS, in the same batch. Without that, "removed"
+   * would mean "no longer listed" while they still hold every wrapped Ki the ledger handed them —
+   * revocation as a UI state rather than an act (invariant I5). Full rotation is Phase E; this is
+   * the part that must not wait for it. */
+  if (seg.length === 4 && seg[1] === 'projects' && seg[3] === 'members') {
+    const projectId = String(seg[2] || '');
+    const ctx = await authMember(request, env, { project: projectId }, null);
+    if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+    if (!ctx.ok || !ctx.isOwner) return j({ error: 'not_found' }, 404, origin, env);
+
+    if (m === 'GET') {
+      const rows = await env.DB.prepare(
+        'SELECT researcher_id, caps, added_at, added_by FROM project_member WHERE project_id=? ORDER BY added_at'
+      ).bind(projectId).all();
+      /* Caps are returned PARSED. The panel would otherwise JSON.parse a column written by another
+       * browser, which is the kind of thing that throws in the middle of a render. */
+      const members = ((rows && rows.results) || []).map((x) => {
+        let caps = null; try { caps = JSON.parse(x.caps || '{}'); } catch { caps = null; }
+        return { researcher_id: x.researcher_id, caps, added_at: x.added_at, added_by: x.added_by,
+                 invalid: caps === null };
+      });
+      return j({ project_id: projectId, members }, 200, origin, env);
+    }
+
+    if (m === 'POST') {
+      const body = await readJson(request) || {};
+      const who = String(body.researcher_id || '').replace(/[^\w-]/g, '').slice(0, 64);
+      if (!who) return j({ error: 'bad_body' }, 400, origin, env);
+      if (who === ctx.owner.researcher_id) return j({ error: 'owner_is_not_a_member' }, 400, origin, env);
+      const caps = validateCaps(body.caps);
+      if (!caps) return j({ error: 'bad_caps' }, 400, origin, env);
+      /* The grantee must EXIST and be approved. A membership row naming nobody is unreachable
+       * forever, and the owner would have no way to tell it from a working one. */
+      const them = await env.DB.prepare('SELECT researcher_id FROM researcher WHERE researcher_id=? AND approved=1')
+        .bind(who).first();
+      if (!them) return j({ error: 'no_such_researcher' }, 404, origin, env);
+      await env.DB.prepare(
+        'INSERT OR REPLACE INTO project_member (project_id, researcher_id, caps, added_at, added_by) VALUES (?,?,?,?,?)'
+      ).bind(projectId, who, JSON.stringify(caps), now, ctx.caller.researcher_id).run();
+      await logApproval(env, request, 'member_added', who.slice(0, 12) + '…', Object.keys(caps).join(','), ctx.caller.drive_email);
+      return j({ ok: true, researcher_id: who, caps }, 200, origin, env);
+    }
+
+    if (m === 'DELETE') {
+      const body = await readJson(request) || {};
+      const who = String(body.researcher_id || '').replace(/[^\w-]/g, '').slice(0, 64);
+      if (!who) return j({ error: 'bad_body' }, 400, origin, env);
+      /* ⚠ ONE BATCH, so a member can never be left listed-but-keyless or keyless-but-listed. The
+       * grant delete is scoped by project_id as well as researcher_id: a person may be a member of
+       * two projects, and removing them from one must not touch the other. */
+      const res = await env.DB.batch([
+        env.DB.prepare('DELETE FROM project_member WHERE project_id=? AND researcher_id=?').bind(projectId, who),
+        env.DB.prepare('DELETE FROM member_key WHERE project_id=? AND researcher_id=?').bind(projectId, who),
+      ]);
+      const gone = (res && res[0] && res[0].meta && res[0].meta.changes) || 0;
+      const keys = (res && res[1] && res[1].meta && res[1].meta.changes) || 0;
+      await logApproval(env, request, 'member_removed', who.slice(0, 12) + '…', keys + ' grant(s)', ctx.caller.drive_email);
+      return j({ ok: true, removed: gone, grants_removed: keys }, 200, origin, env);
+    }
+    return j({ error: 'method_not_allowed' }, 405, origin, env);
   }
 
   /* GET /v1/researcher/sessions — the list that makes the cap safe rather than merely annoying:

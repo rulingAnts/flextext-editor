@@ -9,9 +9,9 @@ via GitHub Pages.
 | Branch | Purpose |
 |---|---|
 | `main` | **Releasable trunk.** Small same-day changes and finished feature merges. A release is `merge --ff-only main` into `productionWeb`, so main must stay shippable at all times. |
-| `productionWeb` | **The live site.** Deployed by GitHub Pages to https://rulingants.github.io/flextext-editor/ . Pushing it also triggers `sync-satellites.yml`, which publishes the satellite mirrors AFTER verifying the editor is live. Never push without Seth's explicit test-drive sign-off. |
-| `staging` | **The dev site.** `main` + in-progress feature merges (`--no-ff`), built by Cloudflare's git integration into the `flextext-staging` Worker at **https://staging-flextext-editor.68mh29kgsd.workers.dev/** (free tier; root `wrangler.toml` serves `./docs` as a static site). This is where Seth test-drives features before a production release. Verify a deploy landed by curling `/sw.js` for the new version. ⚠ The **Paragraph Analysis tool is a SEPARATE Worker** and is NOT on that origin — its staging build is **https://staging-paragraph-analysis-tool.68mh29kgsd.workers.dev/**, which serves the engine under `/flextext-editor/js/…` (so check the engine version by curling `/flextext-editor/js/i18n.js` for `ENGINE_VERSION`, not `/sw.js`). Both auto-build from a `staging` push. |
-| feature branches | e.g. `segmentation2` (shipped as v158), `seg-exports` (in test). Branch from `main`, merge `--no-ff` into `staging` to test, ff into `main` only when complete + approved. |
+| `productionWeb` | **The live site.** The ONLY branch that builds on push: a push deploys all five Cloudflare Workers automatically, and GitHub Pages rebuilds https://rulingants.github.io/flextext-editor/ . ⚠ `sync-satellites.yml` no longer fires on push (v432) — the three Pages mirrors keep SERVING but stopped receiving updates; publish one deliberately with `workflow_dispatch` if ever needed. Never push without Seth's explicit test-drive sign-off. |
+| `staging` | **The dev site.** `main` + in-progress feature merges (`--no-ff`). ⚠ Since 2026-08-20 a `staging` push builds NOTHING — you deploy it deliberately: Actions → **Deploy to staging / preview**, ticking only the apps you are testing. They publish to `https://staging-<worker>.68mh29kgsd.workers.dev/` (editor, researcher, recorder, crowd, paragraph-analysis-tool). ⚠ The **Paragraph Analysis tool is a SEPARATE Worker** and is NOT on the editor origin — check its engine version by curling `/flextext-editor/js/i18n.js` for `ENGINE_VERSION`, not `/sw.js`. ⚠ Because apps are ticked individually, staging's five aliases can sit at DIFFERENT versions; tick everything a change spans. |
+| feature branches | e.g. `segmentation2` (shipped as v158), `seg-exports` (in test). Branch from `main`, merge `--no-ff` into `staging` to test, ff into `main` only when complete + approved. Their own preview estate is still available and is deliberately kept (Seth, 2026-08-20: *"usually not needed, but sometimes needed"*) — run the same staging workflow with that branch selected and it publishes to `<branch>-<worker>…`. |
 
 > **⚠ The OLD `segmentation` branch is OBSOLETE** (superseded by `segmentation2`, which shipped to
 > production as v158 on 2026-08-03). It was removed from `main` by revert (`1ef6df2`) and must never
@@ -61,179 +61,89 @@ was moved off, and each cherry-pick re-offered the SHELL hunk that caused the v1
 - ⚠ If a branch was ever removed from `main` by revert (as `segmentation` was), **rebase it onto
   `main`, never merge it** — a merge meets the reverts and silently reinstates nothing.
 
-### 🚩 IT IS NOT ONLY staging-vs-main: TWO PUSHES TO THE *SAME* BRANCH COLLIDE TOO (2026-08-18)
+### 🚩 BUILDS ARE MANUAL NOW — a push no longer costs anything (2026-08-20)
 
-Recurred, and in the more confusing direction. Two commits were pushed to `staging` about a minute
-apart: the first carried a BROKEN version bump (editor v385, satellites still v384) and the second
-was the fix. Cloudflare built the FIRST, which failed the integrity gate exactly as designed — and
-SUPERSEDED the second, which is the one that would have passed. The dashboard then shows a red
-failure whose message is completely accurate and completely out of date, next to a skipped build
-nobody looks at, and the branch itself is green. Reading the top row alone tells you the opposite of
-the truth.
+**Pushing `main`, `staging` or a feature branch builds NOTHING.** Commit and push as freely as you
+like. A build happens only when you ask for one, or when you push `productionWeb`.
 
-**So the spacing rule is not about which BRANCH you push — it is about how often the same Worker is
-asked to build.** One push, wait for its build to finish, then the next.
+This replaces four sections of workarounds that used to live here — same-branch collisions,
+`staging`-versus-`main` cancellation, docs commits costing a full estate build. Those hazards were
+all consequences of one fact, which is no longer true: Cloudflare's git integration built every
+Worker on every push to any branch it could see. Seth, 2026-08-20: *"I'm fed up with how long it
+takes in between each iteration."*
 
-**Recovery is unchanged:** re-run the superseded deployment from the Cloudflare dashboard, or push
-ONE more commit, on its own, and let it build. Never fix a failed build by pushing the fix
-immediately after the thing that broke it — that is what causes this.
+**How it works now:**
 
-⚠ **And the cause of the broken commit, which is its own rule: a version bump is ATOMIC across FOUR
-files.** `./bump-version.sh` writes `docs/sw.js`, `docs/js/i18n.js`, and the VERSION + ENGINE lines of
-`satellites/text-recorder/sw.js`, `satellites/flextext-researcher/sw.js` and
-`paragraph-analysis/sw.js`. Staging selectively (`git add docs test`) shipped half of it. **Commit a
-bump with `git add -A`, or not at all.** Note that `version-sync` passes locally in that state,
-because it reads the WORKING TREE — the drift only exists in the commit, which is why it surfaced on
-a build server rather than on the desk.
-
-### 🚩 PUSHING `staging` AND `main` BACK-TO-BACK CANCELS ONE OF THE BUILDS (2026-08-07)
-
-**Wait for the staging build to finish before pushing `main` (or vice versa). Do not fire both
-within a couple of minutes.**
-
-Both branches build the **same Cloudflare Worker** per app (`apps/researcher` → `flextext-researcher`,
-and so on). Cloudflare supersedes an in-flight build when a newer one is queued for that Worker, so
-the second push cancels the first — and the survivor publishes to *its own* preview alias:
-
-| pushed branch | alias the build publishes to |
+| you do | what builds |
 |---|---|
-| `staging` | `https://staging-<worker>.68mh29kgsd.workers.dev/` |
-| `main` | `https://main-<worker>.68mh29kgsd.workers.dev/` |
+| push `main` / `staging` / a feature branch | **nothing** |
+| push `productionWeb` | all five apps, automatically, as before |
+| Actions → **Deploy to staging / preview** | only the apps you tick, from the branch you pick |
 
-**What it looks like when it bites** (v299, and it cost a test round): staging was pushed at 08:39:03
-and `main` seconds later. Only the `main` build finished — its log header reads
-`== PREVIEW upload (branch: main → alias: main) ==` — so `staging-flextext-researcher` was left
-serving **v298** while every local check said v299. The panel's badge read `v298/v234`, which is a
-correctly MATCHED pair, so nothing looked broken; it was simply the previous build.
+- **Cloudflare side:** each of the five app Workers has *Builds for non-production branches*
+  **unchecked** (Settings → Build → Branch control). Production branch stays `productionWeb`; the
+  Deploy and Version commands stay `bash deploy.sh`. That single checkbox is the whole mechanism —
+  the git integration is still connected, so a production push works exactly as it always did.
+- **GitHub side:** `deploy-staging.yml` (per-app checkboxes, any branch except `productionWeb`) and
+  `deploy-production.yml` (no inputs at all, `productionWeb` only), both calling
+  `deploy-apps.yml`. ⚠ They RUN each app's `deploy.sh` rather than reimplementing it, so branch
+  routing, version-sync and the SHELL-path check have exactly one implementation.
+  `test/deploy-workflows.test.mjs` pins that, and checks the production app list against the folders
+  actually on disk so a sixth app cannot be silently left out of a release.
 
-**How to tell this apart from a stale service worker**, because they present identically:
-`fxUpdate()` reporting *"already on the latest version (vNNN)"* means the SW asked the SERVER and
-the server really is on vNNN. That is an origin that never rebuilt, not a cache — no amount of
-reloading will fix it. A genuinely stale SW updates instead of saying that.
+**Where a manual build lands:** `https://<branch>-<worker>.68mh29kgsd.workers.dev` — branch
+lowercased, non-alphanumerics to `-`, capped at 63 chars. So run it from `staging` for the
+`staging-*` sites. **Feature-branch previews stay available on purpose** (Seth: *"usually not
+needed, but sometimes needed"*) — just pick that branch in the dropdown.
 
-**The fix when it happens:** re-run the cancelled deployment from the Cloudflare dashboard, or push
-one more commit to the branch that lost, on its own. Read the build log's `branch: X → alias: X`
-line before believing any deploy landed.
+⚠ **`versions upload` is not a deployment.** A manual build creates a version and moves the alias;
+production traffic is untouched. Cloudflare's Version History labels it *"Manually deployed"*, which
+means "not from a git build", NOT "now live" — check `deployments list` if you ever need to be sure
+which version is actually serving.
 
-#### 🚩🚩 RELEASING: NEVER FIRE `main` AND `productionWeb` TOGETHER — WAIT, THEN **VERIFY** (Seth, 2026-08-08)
+⚠ **A branch's five aliases can sit at different versions**, because you tick apps individually. If
+you are testing something that spans apps, tick all of them.
 
-**The rule that does not depend on knowing the mechanism: push ONE branch, confirm its deploy
-actually landed, and only then push the other.** Not "wait 5–10 minutes" — a timer is a guess. The
-gate is the Cloudflare log header reading `branch: X → alias: X` for the push you just made, plus
-the live origin serving the new version.
+#### What is still true about `productionWeb`
 
-**⚠ Which order is correct is NOT settled — do not write one into a script yet.** What is known:
+The one build trigger left is a `productionWeb` push, so the release-day cautions still apply *to
+that branch only*:
 
-- Seth: *"push productionWeb first, wait a very long time (like 5–10 minutes), and then push main.
-  Because I think if we push two in a row like that, it skips productionWeb."* Then, immediately:
-  *"Maybe pushing main first and then waiting would work. Or something. I'm really not sure."*
-- Observed behaviour is **not** the clean "second push supersedes the first" of the staging/main case
-  above. `productionWeb` has been seen to **stall or be skipped entirely**, needing a **manual re-run
-  from the Cloudflare dashboard** — which is a different failure from being cancelled by a newer
-  build, and is why the reasoning "push production second so it wins" is unsafe.
+- **Two `productionWeb` pushes within a couple of minutes still collide** — the newer build
+  supersedes the older for the same Worker. One push, let it finish, then the next.
+- ⚠ **A `productionWeb` build has been seen to stall or be skipped entirely**, needing a manual
+  re-run from the Cloudflare dashboard. That is a different failure from being cancelled, it is
+  INTERMITTENT, and it is why a release is verified rather than assumed. Read the build log's
+  `branch: X → alias: X` line and confirm the live origin serves the new version before believing a
+  deploy landed.
+- The `main` half of the old rule is **gone**: pushing `main` no longer builds anything, so it can
+  never cancel or delay a release. Push it whenever.
 
-⚠ **So do not reason about who wins. Assume any second push within the window can cost you the
-production deploy, and space them by verification.** `main` can sit unpushed indefinitely — the
-commits are identical whenever it goes out, and tidiness is worth nothing against a release that
-silently did not ship.
+**Recorded releases, kept because the skip is intermittent and the sample is small:** v318
+(2026-08-08, `main` then `productionWeb` seconds apart — everything deployed anyway), v396
+(2026-08-19, spaced ~5 min — both estates green), v414 (2026-08-19, each push gated on confirming
+the previous had landed — both green, and `Publish satellites` passed its gate for real). All three
+pushed `main` first; the reverse has never been tried, so nothing here settles the ORDER, and it is
+not worth an experiment on production traffic. From v433 the question is mostly moot: only one of
+the two branches builds.
 
-**Settle it next release:** push one branch, watch the dashboard, and record which deployments appear
-and in what state. Two clean observations would turn this into a real rule; until then this section
-is deliberately agnostic.
+⚠ **Verification is still half manual.** The GitHub Actions API reaches workflow results, so an
+agent can confirm the Pages gate and now the app deploys directly. **Cloudflare has no API path from
+the agent sandbox** (egress to `*.workers.dev`, `rulingants.github.io`, `connect.flextext.app` and
+`pat.flextext.app` is blocked), so the five Workers still need a human on the dashboard. Allowing
+those hosts in the environment's network policy would close it.
 
-#### Observations so far — the skip is INTERMITTENT, not deterministic
+#### Docs commits are free now
 
-| release | what was done | outcome |
-|---|---|---|
-| v318 (2026-08-08) | `main` pushed 05:18:13, `productionWeb` seconds later | **Every Cloudflare site deployed from `productionWeb`** — verified by Seth on the dashboard across all Workers built from this repo. Pages + all three satellite mirrors green too. |
-| v396 (2026-08-19) | `main` pushed ≈09:39, `productionWeb` at 09:44:08 — **spaced by ~5 min**, deliberately | **Both estates fully green.** Seth verified on the Cloudflare dashboard that the `main` AND `productionWeb` builds all completed and the production sites serve v396. Pages built, and `Publish satellites` passed its gate for real (each satellite spent ~15 s in "Wait for the live editor to serve this commit's engine", then 200-checked every precached path, then published). |
-| v414 (2026-08-19) | staging verified serving on all 5 Workers, THEN `main`, then `productionWeb` — each push gated on confirming the previous one had landed, not on a timer | **Both estates green.** Seth verified the Cloudflare dashboard for all five Workers on all three branches. `Publish satellites` passed its gate for real — all three jobs spent **~60 s** in "Wait for the live editor to serve this commit's engine" (14:07:11→14:08:11), then 200-checked every precached path, then published. |
+The old rule was *"push `staging` when you want a BUILD, not when you have a commit"*, because a
+docs-only push cost a build of every Worker. **That cost is gone** for `main`, `staging` and feature
+branches — push documentation whenever you like.
 
-**What v396 adds to the picture, stated no more strongly than it deserves:** this is the FIRST
-recorded release where the two pushes were deliberately spaced and both estates were then verified.
-It is one clean observation that **`main` first, spaced, then `productionWeb`** works end to end.
-
-⚠ It does **not** settle the ORDER, and nobody should read it as doing so. Every recorded release —
-v318 and v396 alike — has pushed `main` first; the reverse has never been tried, so there is no
-evidence about it either way. What v396 supports is the SPACING, which is the part the rule above
-actually asks for. Keep recording releases here; the order question needs a different experiment, and
-it is not worth running one deliberately on production traffic.
-
-⚠ **The verification gap — HALF of it is already closed, and the closed half is the cheap one.**
-Direct HTTP is still blocked: this sandbox's egress policy blocks `rulingants.github.io`,
-`*.workers.dev`, `connect.flextext.app` and `pat.flextext.app`, so `check-release-integrity.sh`
-run from here returns `HTTP 000000` for every path and the preview aliases are unreachable.
-
-But the PAGES gate never needed direct HTTP. `sync-satellites.yml` runs that same script as its
-ordering gate, and the **GitHub Actions API reaches the workflow's own results** — so an agent can
-confirm, per satellite, that the engine-wait step blocked, that every precached path 200-checked,
-and that the mirror published. That was done for the first time on v414 (run #74) and is now the
-expected way to verify the Pages half; do not ask Seth to eyeball what the API already reports.
-
-**Cloudflare is the half that remains manual** — there is no API path to it from here, so the five
-Workers still need a human on the dashboard. Allowing those four hosts in the environment's
-network policy (claude.ai/code → this repo's environment) would close that half too.
-
-⚠ **The original note said "the agent could not perform the gate itself" and that was true when
-written.** It stayed written for several releases after it stopped being wholly true, which is its
-own lesson: a limitation recorded once gets believed indefinitely. Re-test the limits occasionally
-rather than inheriting them.
-
-⚠ **So v318 was NOT a broken release** — do not read the caution above as a post-mortem of one. It
-records a failure mode Seth has *seen*, which v318 then did not reproduce despite being pushed in
-exactly the risky pattern. That is the worst kind of hazard to reason about: it lets a bad habit look
-safe for several releases before it costs one. Keep spacing the pushes and keep verifying; the reason
-is the tail, not the average.
-
-⚠ **What made v318 hard to judge from inside the release**, and is the durable lesson: the Pages
-estate has its own gate (`sync-satellites.yml` waits for the live editor to serve the pushed version
-and 200-checks every precached path before publishing), so it shipped green and *nothing looked
-wrong*. Cloudflare has no equivalent gate. **A green satellite workflow says nothing about
-Cloudflare** — they are independent estates off the same push, and only one of them can fail loudly.
-Check the dashboard; do not infer one estate from the other.
-
-**Do NOT push to `productionWeb` without the maintainer's explicit OK.** It's the
-live site that real users (field translators in the village) load — a broken push
-breaks their work. Develop and test on `main` first.
-
-### 🚩 A DOCS-ONLY PUSH STILL COSTS A FULL CLOUDFLARE BUILD (2026-08-20)
-
-**The version-bump rule below is not enough. A commit that changes NOTHING a site serves — a plan, a
-backlog note, this file — still triggers a build of every Cloudflare Worker on that branch, because
-the build is wired to the BRANCH, not to what changed.**
-
-It bit twice in one evening, and the second time it delayed a release a researcher was waiting on:
-two `plans/` pushes queued two more `main` builds, and `main` and `productionWeb` build the same
-Workers, so the production push had to wait behind prose.
-
-**THE RULE, stated the simple way (Seth, 2026-08-20):** *"we can wait on pushing staging until we're
-actually ready to test something."* **Push `staging` when you want a BUILD, not when you have a
-commit.** A commit is free; a push costs a build of every Worker on that branch. Those are different
-events and only one of them is worth spending.
-
-⚠ This also settles what to do when a stop hook asks for a push mid-conversation: commit, and say
-that the push is being held. An automated reminder does not know a release is in flight, and it is
-not a reason to spend a build window.
-
-**The rest of the discipline, until the durable fix lands:**
-
-- ⚠ **Hold docs commits while a release is in flight.** Commit them locally; push after
-  `productionWeb` has landed. A stop hook asking for a push is not a reason to spend a build window.
-- **Batch them.** Five plan updates in one commit cost one build; five commits cost five.
-- ⚠ **Never push a docs commit BETWEEN `main` and `productionWeb`.** That is the one gap where an
-  extra build is not merely wasteful — it restarts the spacing you were waiting out.
-
-**The durable fixes, in order of how much they help:**
-
-1. **Build watch paths.** Cloudflare Workers Builds can include/exclude paths per Worker, so a build
-   only fires when something it actually serves changes (`docs/`, `apps/`, `satellites/`,
-   `paragraph-analysis/`, the wrangler configs). One dashboard setting per Worker, five Workers, once
-   — and this whole class of waste disappears. ⚠ Verify the exclusion does not skip a build that
-   SHOULD happen: `bump-version.sh` touches `docs/` and the satellite `sw.js` files, so any pattern
-   must include all of them or a release silently does not deploy.
-2. **Collapsing `main` and `productionWeb`** (see plans/BACKLOG.md) halves the number of builds any
-   release costs, for the separate reason that the two branches are identical at every release.
-
+⚠ **The one place the old caution still holds is `productionWeb`**: a docs commit pushed there does
+still build all five. Keep prose off that branch, and land the version commit LAST in a release push
+— Cloudflare labels a build with the TIP commit, so a release whose tip is a `plans:` commit shows up
+in the dashboard looking like a docs build, which is exactly the wrong thing to be reading during
+release verification. (That happened on v433.)
 ### 🚩 PLANNING DOCS DO NOT GET A VERSION BUMP (Seth, 2026-08-07)
 
 **"Plan changes don't need version bumps or to be tested on staging, if all that's changed is

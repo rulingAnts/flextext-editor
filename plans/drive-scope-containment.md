@@ -171,3 +171,62 @@ the scope.
 `drive.file`. It is deliberately literal: it will fail on `drive.readonly`, on `drive.metadata`, and
 on bare `auth/drive`, including inside a comment, because a scope that appears in a comment today is
 a scope someone pastes into the request tomorrow.
+
+
+## Deleting a researcher account does not revoke the Google grant (Seth, 2026-08-20)
+
+> *"deleting a researcher account does not delete Google OAuth access granted to our app via that
+> account. That's worth thinking about, though I don't really know if we need to take any action or
+> what action to take, and neither is particularly high or immediate priority."*
+
+**Confirmed in the code.** Neither deletion path calls Google's revocation endpoint:
+
+- `POST /v1/researcher/delete` (self-delete) runs one atomic D1 batch and returns. The grant is
+  untouched.
+- The owner's **decline** of a pending account (`DELETE FROM researcher … AND approved=0`) does the
+  same, and this one is worth calling out separately because it is the path most likely to be used
+  on an account created by someone who should not have had one.
+
+### How much this actually exposes, stated honestly
+
+**Less than it sounds, but not nothing, and the reasons are worth separating.**
+
+Deleting the row destroys `drive_refresh_enc` — our only copy of the token — so after the delete the
+worker cannot use the grant even though the grant is still live. The refresh token is never logged
+(checked: it appears only as ciphertext in D1 and as an in-memory value on the token-exchange path).
+So there is no live capability sitting around afterwards.
+
+Two things keep it from being purely cosmetic:
+
+1. ⚠ **D1 point-in-time recovery undoes the deletion.** A restore brings the encrypted refresh token
+   back, and the grant it refers to is still valid because nobody ever told Google otherwise. That
+   turns "we no longer hold the token" into "we no longer hold the token unless the database is
+   rolled back", which is a materially weaker sentence.
+2. **It quietly contradicts what deletion appears to mean.** A researcher who deletes their account
+   and then looks at Google Account → Security → third-party access still sees this app listed with
+   Drive permission. For a suite whose entire premise is that the researcher owns their own data and
+   can withdraw at will, an account deletion that visibly leaves access behind reads as a deletion
+   that did not work — and the person best placed to notice is exactly the person who cared enough
+   to delete.
+
+### The action, if and when it is taken
+
+Small and additive: before the delete batch, POST the refresh token to
+`https://oauth2.googleapis.com/revoke`. Revoking a refresh token revokes the whole grant, including
+every access token derived from it, which is precisely the intent.
+
+Three constraints that matter more than the call itself:
+
+- **Revoke BEFORE the delete**, since the delete destroys the token the revoke needs.
+- ⚠ **A failed revoke must never block the deletion.** The user asked for their account to be
+  removed; a Google outage is not a reason to refuse. Attempt it, catch, and delete regardless.
+- ⚠ **But do not fire-and-forget it either.** A silent failure recreates exactly the situation this
+  section describes, while looking solved. Log the outcome (`oauth_revoke_failed`) so a grant left
+  standing is visible rather than assumed away.
+
+Apply it to both paths — self-delete and owner-decline — and to any future "disconnect Drive" action.
+The researcher's FILES are correctly untouched by all of this: they are the researcher's own
+property, and deleting them is not what account deletion means.
+
+**Priority: low, as Seth put it.** It belongs behind the token-store isolation above, which addresses
+a live capability rather than a dormant one.

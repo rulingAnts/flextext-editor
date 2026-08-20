@@ -35,6 +35,18 @@ Recorded verbatim because the order is his and it is not the order the work natu
    "leave the bytes and move the index" are three genuinely different products with different
    failure modes. Decide which one it is before building any of it.
 
+## LOW PRIORITY: account deletion leaves the Google grant standing (Seth, 2026-08-20)
+
+Deleting a researcher account — self-delete, or an owner declining a pending one — never calls
+Google's revocation endpoint, so the app stays listed under the researcher's third-party access with
+Drive permission intact. Confirmed in the code; Seth filed it explicitly as not urgent.
+
+Exposure is limited (the delete destroys our only copy of the refresh token, which is never logged),
+but two things stop it being cosmetic: a D1 point-in-time restore brings the token back against a
+grant nobody revoked, and a deletion that visibly leaves access behind contradicts what deletion
+means to the person who asked for it. Fix, constraints and ordering are in
+[`drive-scope-containment.md`](drive-scope-containment.md).
+
 ## TO-DO (when Fable is available): a system-resource and cheap-device audit (Seth, 2026-08-14)
 
 > *"An audit for system resources and cheap phone/laptop compatibility would be in order. Let's not

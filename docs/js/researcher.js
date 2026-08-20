@@ -22,7 +22,8 @@
 import {
   generateKey, wrapKey, unwrapKey,
   importKeyB64, encryptJSON, decryptJSON,
-  importPublicKeyB64, wrapKeyForInstall,
+  importPublicKeyB64, wrapKeyForInstall, unwrapKeyFromResearcher,
+  generateResearcherKeypair, exportPublicKeyB64, exportPrivateKeyB64, importPrivateKeyB64,
 } from './crypto.js';
 
 const AUTH_KEY = 'flextext-researcher-auth';
@@ -39,6 +40,9 @@ let Kr = null;                 // the researcher's random DATA key (memory only)
 let settingsCache = null;      // last-known settings_blob: { wrappedKis:{} }
 let settingsRev = null;        // its server rev, for optimistic-locked writes (anti silent clobber)
 let kiCache = new Map();       // instance_id -> Ki CryptoKey (unwrapped under Kr)
+let myPriv = null;             // this researcher's RSA private key (memory only; unwrapped under Kr)
+let myPub = null;              // ...and its public half, for wrapping grants to myself
+let grantCache = null;         // instance_id -> wrapped_ki from member_key; fetched once per unlock
 let approvedSelf = false;      // is THIS researcher approved (active)? false = pending (request/approve)
 let ownerSelf = false;         // is THIS researcher an owner (can approve others)?
 
@@ -63,7 +67,7 @@ function saveAuth(a) { try { (staySignedIn() ? localStorage : sessionStorage).se
 
 export function isSignedUp() { return !!loadAuth(); }
 export function isUnlocked() { return !!Kr; }
-export function lock() { Kr = null; settingsCache = null; settingsRev = null; kiCache = new Map(); approvedSelf = false; ownerSelf = false; movesPlain = null; movesCipher = null; prefsPlain = null; prefsCipher = null; }
+export function lock() { Kr = null; myPriv = null; myPub = null; grantCache = null; settingsCache = null; settingsRev = null; kiCache = new Map(); approvedSelf = false; ownerSelf = false; movesPlain = null; movesCipher = null; prefsPlain = null; prefsCipher = null; }
 /* ⚠ Signing out now REVOKES THE SERVER SESSION as well as clearing local storage. That call used to
  * not exist here at all — the endpoint was unreachable dead code — which meant a "signed out"
  * browser's credential stayed valid until the next sign-in rotated it. It is only safe to wire up
@@ -224,6 +228,13 @@ export async function bootstrap() {
   if (v.email) { const a = loadAuth(); if (a && a.email !== v.email) { a.email = v.email; saveAuth(a); } }
   approvedSelf = !!v.approved; ownerSelf = !!v.is_owner;
   setAccountMarker(currentAccountId());   // remember which account owns this browser's offline data (switch-guard)
+  /* ⚠ DELIBERATELY NOT AWAITED. Publishing the keypair is one round trip, but the first sign-in
+   * after this update also self-grants EVERY device already owned — one POST each, and the largest
+   * account here has 31. Awaiting would hold the dashboard behind work whose entire result is
+   * invisible: until it finishes, `getKi()` simply keeps using the legacy Kr-wrapped store, which is
+   * exactly what it did yesterday. It also cannot throw — `ensureResearcherKeys` swallows and warns —
+   * so sign-in has nothing to fail on. */
+  ensureResearcherKeys(v).catch(() => {});
   return { ok: true, email: v.email, approved: approvedSelf, isOwner: ownerSelf };
 }
 
@@ -290,9 +301,148 @@ function requireUnlocked() { if (!Kr) throw new Error('locked'); }
 
 // Unwrap an instance's Ki under Kr (cached). Loads the key store if needed. Throws
 // 'no_key_for_instance' if absent.
+/* ---------------- Phase B: the researcher keypair and Ki GRANTS ----------------
+ *
+ * WHAT CHANGES, AND WHY IT HAS TO. Until now a Ki lived in exactly one place: wrapped under Kr in
+ * this researcher's own `settings_blob.wrappedKis`. That works precisely as long as one researcher
+ * owns everything, because Kr is theirs alone — and it is why a second researcher cannot be given a
+ * device today. There is no way to hand someone a Ki without handing them Kr, which would hand them
+ * everything.
+ *
+ * So each researcher now has an RSA keypair, and a Ki reaches a person by being wrapped TO THAT
+ * PERSON'S public key — one `member_key` row per (instance, researcher). Sharing becomes additive:
+ * granting someone a device writes one more row and changes nothing that already exists, and
+ * revoking is deleting it.
+ *
+ * ⚠ THE MIGRATION IS CLIENT-DRIVEN, WHICH IS A DECISION AND NOT A DEFAULT (II.D1, Seth 2026-08-20).
+ * The worker holds Kr for Google accounts and COULD re-wrap everyone's keys itself in one pass —
+ * faster, and it would finish on a known date. It does not, because the property worth having is
+ * that the server never uses that access: the comment "the worker can't unwrap" should be becoming
+ * more true over time, not less. The cost is that migration finishes when each researcher next signs
+ * in, and an account that never signs in never migrates — which is acceptable only because the
+ * LEGACY PATH KEEPS WORKING INDEFINITELY. Nothing below ever deletes `wrappedKis`.
+ *
+ * ⚠ EVERY STEP HERE IS BEST-EFFORT AND MUST NEVER BLOCK SIGN-IN. A researcher whose key work fails —
+ * offline, a 500, a browser without the primitives — still signs in and still opens every device
+ * they already owned, via the legacy path. That is the whole reason the legacy path stays.
+ */
+
+/* Publish this account's keypair, or adopt the one already published.
+ *
+ * ⚠ THE 409 IS THE INTERESTING CASE, not an error to log and move past. Two browsers of the same
+ * account can reach this at the same moment on first sign-in after the update. The worker's write is
+ * conditional (`WHERE pubkey IS NULL`), so exactly one wins; the loser MUST adopt the winner's pair
+ * rather than keep its own, because grants are already being wrapped to the winner's public key. A
+ * loser that kept its own keypair would be unable to read its own grants — silently, and only
+ * discovered later when a device would not open. */
+async function ensureKeypair(v) {
+  if (myPriv && myPub) return true;
+  // The bootstrap response already carried them if they exist: no extra round trip on the common path.
+  if (v && v.pubkey && v.wrapped_privkey) {
+    const pkcs8 = (await decryptJSON(Kr, v.wrapped_privkey) || {}).pkcs8;
+    if (!pkcs8) throw new Error('bad_wrapped_privkey');
+    myPriv = await importPrivateKeyB64(pkcs8);
+    myPub = await importPublicKeyB64(v.pubkey);
+    return true;
+  }
+  const pair = await generateResearcherKeypair();
+  const pubB64 = await exportPublicKeyB64(pair.publicKey);
+  const wrapped = await encryptJSON(Kr, { pkcs8: await exportPrivateKeyB64(pair.privateKey) });
+  try {
+    await api('POST', '/v1/researcher/pubkey', { body: { pubkey: pubB64, wrapped_privkey: wrapped }, retry: false });
+    myPriv = pair.privateKey; myPub = pair.publicKey;
+  } catch (e) {
+    if (e.status !== 409 || !e.data || !e.data.pubkey) throw e;
+    const pkcs8 = (await decryptJSON(Kr, e.data.wrapped_privkey) || {}).pkcs8;   // adopt the winner's
+    if (!pkcs8) throw new Error('bad_wrapped_privkey');
+    myPriv = await importPrivateKeyB64(pkcs8);
+    myPub = await importPublicKeyB64(e.data.pubkey);
+  }
+  return true;
+}
+
+/* Bring the grant ledger up to date with the legacy key store: for every instance whose Ki this
+ * researcher holds under Kr but has no `member_key` row for, write one wrapped to their own public
+ * key. This is the SELF-GRANT, and it is what makes a later grant-to-someone-else a one-row change.
+ *
+ * ⚠ Only the MISSING ones. Re-granting everything on every sign-in would be a POST per device per
+ * sign-in for no change, and `member_key` writes are INSERT OR REPLACE — so it would also rewrite
+ * rows the owner may have deliberately re-keyed. */
+async function selfGrantMissing() {
+  const me = currentAccountId();
+  if (!me || !myPub) return;
+  if (!settingsCache) await fetchSettings();
+  const legacy = (settingsCache && settingsCache.wrappedKis) || {};
+  const have = await loadGrants();
+  for (const instanceId of Object.keys(legacy)) {
+    if (have[instanceId]) continue;
+    try {
+      const ki = kiCache.get(instanceId) || await unwrapKey(Kr, legacy[instanceId]);
+      const wrapped_ki = await wrapKeyForInstall(myPub, ki);
+      /* The worker REJECTS any grant set without the project owner's copy. Self-granting satisfies
+       * that by construction — I am the owner of everything in my own legacy store. */
+      await api('POST', '/v1/researcher/keys', {
+        body: { instance_id: instanceId, grants: [{ researcher_id: me, wrapped_ki }] }, retry: false,
+      });
+      if (grantCache) grantCache[instanceId] = wrapped_ki;
+    } catch { /* one device failing must not stop the rest; the legacy path still serves it */ }
+  }
+}
+
+// The grants THIS researcher holds, fetched once per unlock. Newest key_version first from the
+// worker, so the first row seen for an instance is the one to use.
+async function loadGrants() {
+  if (grantCache) return grantCache;
+  const out = {};
+  try {
+    const v = await api('GET', '/v1/researcher/keys');
+    for (const row of (v && v.keys) || []) if (!out[row.instance_id]) out[row.instance_id] = row.wrapped_ki;
+  } catch { /* offline or not migrated: the legacy path still resolves every owned device */ }
+  grantCache = out;
+  return out;
+}
+
+/* Publish the keypair and catch the ledger up. Best-effort by contract: the caller does not await a
+ * result it will act on, and nothing here is allowed to throw into sign-in. */
+export async function ensureResearcherKeys(v) {
+  try {
+    if (!Kr) return false;
+    await ensureKeypair(v);
+    await selfGrantMissing();
+    return true;
+  } catch (e) {
+    console.warn('researcher key setup deferred:', (e && e.message) || e);
+    return false;
+  }
+}
+
+/* Ki resolution, in order: memory → my `member_key` grant → the legacy Kr-wrapped store.
+ *
+ * ⚠ THE LEGACY STEP IS LAST AND STAYS FOREVER. It is what makes the client-driven migration safe:
+ * a researcher mid-migration, offline, or on a browser that never completed the keypair step still
+ * opens every device they own. Removing it is a separate decision requiring evidence that every
+ * account has migrated — not a tidy-up. */
 async function getKi(instanceId) {
   requireUnlocked();
   if (kiCache.has(instanceId)) return kiCache.get(instanceId);
+
+  if (myPriv) {
+    const grants = await loadGrants();
+    const wrapped = grants[instanceId];
+    if (wrapped) {
+      try {
+        const ki = await unwrapKeyFromResearcher(myPriv, wrapped);
+        kiCache.set(instanceId, ki);
+        return ki;
+      } catch {
+        /* ⚠ A grant that will not unwrap is NOT a reason to fail if I own the legacy copy. This is
+         * the sabotage case the wrap-to-owner invariant admits: the worker can enforce that an
+         * owner's grant EXISTS, never that its ciphertext is well-formed. Fall through, so a bad
+         * row degrades to the legacy key instead of locking the owner out of their own device. */
+      }
+    }
+  }
+
   if (!settingsCache) await fetchSettings();
   const wrapped = settingsCache && settingsCache.wrappedKis && settingsCache.wrappedKis[instanceId];
   if (!wrapped) throw new Error('no_key_for_instance');

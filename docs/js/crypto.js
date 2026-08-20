@@ -119,6 +119,34 @@ export async function unwrapKeyFromResearcher(installPrivateKey, wrappedB64) {
   const raw = await crypto.subtle.decrypt({ name: 'RSA-OAEP' }, installPrivateKey, b64ToBytes(wrappedB64));
   return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
 }
+/* ---- the RESEARCHER's own keypair (Phase B: member key grants) ----
+ *
+ * ⚠ EXTRACTABLE, UNLIKE AN INSTALL'S — and the difference is deliberate, not an oversight.
+ *
+ * An install's private key is non-extractable because it lives on exactly one device and must never
+ * leave it: there is nowhere it would legitimately go. A RESEARCHER signs in from several browsers
+ * and must be able to read their key grants from all of them, and the only thing that travels
+ * between those browsers is Kr. So the private key is exported, wrapped under Kr, and stored on the
+ * researcher row as `wrapped_privkey`; a new browser fetches it and unwraps it with Kr.
+ *
+ * What that costs, stated plainly: anyone who holds Kr can recover this private key. That is already
+ * true of everything Kr protects, so it adds no exposure — but it does mean this key is exactly as
+ * strong as Kr and no stronger, and it must never be described as if it were an independent factor.
+ */
+export async function generateResearcherKeypair() {
+  return crypto.subtle.generateKey(
+    { name: 'RSA-OAEP', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+    true, ['encrypt', 'decrypt']          // extractable: the private half is wrapped under Kr, see above
+  );
+}
+export async function exportPrivateKeyB64(privateKey) {
+  return bytesToB64(await crypto.subtle.exportKey('pkcs8', privateKey));
+}
+// Import a researcher private key for DECRYPT only — it unwraps grants, it never wraps them.
+export async function importPrivateKeyB64(b64) {
+  return crypto.subtle.importKey('pkcs8', b64ToBytes(b64), { name: 'RSA-OAEP', hash: 'SHA-256' }, true, ['decrypt']);
+}
+
 // Short fingerprint of a public key (SHA-256 of SPKI) — for out-of-band verification at approval.
 export async function publicKeyFingerprint(publicKey) {
   const h = await crypto.subtle.digest('SHA-256', await crypto.subtle.exportKey('spki', publicKey));

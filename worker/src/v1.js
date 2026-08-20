@@ -2028,10 +2028,21 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         pending = rows.filter((p) => !isOwner(p.email, env));
       }
     }
+    /* ⚠ `pubkey` / `wrapped_privkey` ride this response so the panel can adopt an EXISTING keypair
+     * at unlock without a round trip of its own. Without them the client's only way to discover a
+     * published keypair is to generate a throwaway one and POST it to collect the 409 that carries
+     * the real pair back — an RSA-2048 generation on every fresh browser session, for ever, to
+     * learn something the bootstrap already had in hand.
+     *
+     * Additive and safe to return: `wrapped_privkey` is ciphertext under Kr, and `kr` is on the very
+     * next line. It exposes nothing this response did not already expose; a client without Kr can do
+     * nothing with it. The 409-adoption path stays regardless — it is what settles the race when two
+     * browsers publish at the same moment, which no response field can prevent. */
     return j({ approved, is_owner: owner, pending,
                settings: r.settings_blob, settings_rev: r.settings_rev, instances: insts,
                maintenance: maintenance || undefined,
                kr: r.kr_server_enc ? await decAtRest(env, r.kr_server_enc) : undefined,
+               pubkey: r.pubkey || undefined, wrapped_privkey: r.wrapped_privkey || undefined,
                email: r.drive_email || undefined }, 200, origin, env);
   }
 

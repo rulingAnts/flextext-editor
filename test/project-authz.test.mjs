@@ -143,11 +143,37 @@ console.log('\nthe per-device `see` list bounds a capability — what they may d
      '⚠⚠ a device OUTSIDE the see list is denied even WITH the capability — checked here so no route can forget it');
 }
 
+console.log('\nthe DUAL-READ window: a NULL project is owner-only legacy access, never a member door');
+{
+  /* ⚠ THIS IS THE BRANCH THAT WOULD HAVE BROKEN PRODUCTION IF IT DENIED. 12 live rows had a NULL
+   * project_id when this was written — researchers who had not signed in since the backfill. The
+   * assertions come in pairs: the legacy owner keeps working, and NOBODY ELSE arrives through it. */
+  const db = freshDb(); await seed(db, '{"see":"all","manageDevices":true}');
+  db.prepare('UPDATE "instance" SET project_id=NULL WHERE instance_id=?').run(INST);
+
+  const legacy = await call(db, OWNER, { instance: INST }, 'manageDevices');
+  ok(legacy && legacy.ok && legacy.isOwner,
+     '⚠ the instance\'s own researcher_id still manages it — design-gap 4 pins that column as always equal to the owner');
+  ok(legacy.legacy === true, 'and the context SAYS it took the legacy path rather than leaving it to be inferred');
+  ok(legacy.project_id === '', 'with no project id invented for it');
+
+  ok((await call(db, MEMBER, { instance: INST }, 'manageDevices')).ok === false,
+     '⚠⚠ A MEMBER OF THE PROJECT IS STILL DENIED — the branch never consults project_member, so it cannot be a fall-through to wider access (I4)');
+  ok((await call(db, STRANGER, { instance: INST }, null)).ok === false, 'and a stranger is denied');
+
+  /* The capability argument must be ignored on this path rather than checked against {} — the legacy
+   * owner had every power before Phase C and must not silently lose one. */
+  for (const cap of ['assignTexts', 'createInvites', 'drive:manage', 'cancelOthers']) {
+    ok((await call(db, OWNER, { instance: INST }, cap)).ok, `legacy owner keeps ${cap}, exactly as before Phase C`);
+  }
+}
+
 console.log('\nfail closed on every unresolvable step (I4)');
 {
   const db = freshDb(); await seed(db, '{"see":"all"}');
   db.prepare('UPDATE "instance" SET project_id=NULL WHERE instance_id=?').run(INST);
-  ok((await call(db, MEMBER, { instance: INST }, null)).ok === false, 'an instance with no project denies');
+  ok((await call(db, MEMBER, { instance: INST }, null)).ok === false,
+     'an instance with no project denies A MEMBER (the legacy branch above admits only its own researcher_id)');
   /* ⚠ A project row IS created with project_id='' here, on purpose. Without it the empty string
    * denies merely because the lookup finds nothing, and the explicit guard could be deleted with
    * every test still green — which is what the mutation run showed. With it, only the guard stands

@@ -501,23 +501,49 @@ export async function authMember(req, env, target, needCap) {
   /* Resolve the target's project. Each branch reads the project_id off the row that OWNS the
    * relationship, never off anything the caller sent. */
   let project_id = '';
+  let legacyOwner = '';           // instance.researcher_id — see the dual-read branch below
+  let addressedRow = false;       // did the target actually resolve to a row at all?
   try {
     if (target && target.instance) {
-      const row = await env.DB.prepare('SELECT project_id FROM instance WHERE instance_id=? AND revoked=0')
+      const row = await env.DB.prepare('SELECT project_id, researcher_id FROM instance WHERE instance_id=? AND revoked=0')
         .bind(String(target.instance)).first();
-      project_id = (row && row.project_id) || '';
+      if (row) { addressedRow = true; project_id = row.project_id || ''; legacyOwner = row.researcher_id || ''; }
     } else if (target && target.crowd) {
-      const row = await env.DB.prepare('SELECT project_id FROM crowd_recorder WHERE crowd_id=?')
+      const row = await env.DB.prepare('SELECT project_id, researcher_id FROM crowd_recorder WHERE crowd_id=?')
         .bind(String(target.crowd)).first();
-      project_id = (row && row.project_id) || '';
+      if (row) { addressedRow = true; project_id = row.project_id || ''; legacyOwner = row.researcher_id || ''; }
     } else if (target && target.project) {
       project_id = String(target.project);
     }
   } catch { return deny; }
-  /* ⚠ '' IS UNASSIGNED, NOT A PROJECT ID — the sentinel member_key has carried since v435, whose own
-   * write path warns Phase C must read it this way. Treating it as an id would make every
-   * unassigned row a member of one shared pseudo-project. */
-  if (!project_id) return deny;
+
+  /* ⚠ '' / NULL IS UNASSIGNED, NOT A PROJECT ID. Treating it as one would make every unassigned row
+   * a member of a single shared pseudo-project — the same reading member_key's write path has warned
+   * about since v435.
+   *
+   * ⚠⚠ BUT IT CANNOT SIMPLY DENY, AND THAT WOULD HAVE BROKEN PRODUCTION. `instance.project_id` is
+   * filled lazily, on the owner's next panel load — 12 production rows were still NULL when this was
+   * written, belonging to researchers who had not signed in since the backfill shipped. A route
+   * converted to deny on NULL would lock those researchers out of their OWN devices, and the failure
+   * would arrive silently, weeks later, for whoever had been away longest. This is the dual-read
+   * window the design mandates ("researcher_id STAYS (dual-read window)", II.5 B).
+   *
+   * ⚠ AND IT DOES NOT WEAKEN I4, because of what it deliberately does NOT do: it consults
+   * `project_member` not at all. The ONLY researcher it can ever authorize is the instance's own
+   * `researcher_id`, which design-gap 4 pins as "a maintained denormalization: ALWAYS equal to the
+   * project's owner_id". So the widest this branch reaches is exactly the pre-Phase-C behaviour for
+   * that one row — a member can never arrive through it, which is the fall-through the plan forbids.
+   * Fail-closed for everyone else, unchanged.
+   *
+   * It closes on its own: every lazy mint removes rows from it, and it is unreachable once none are
+   * left. `legacy: true` rides the context so a route (or a diagnostic) can SAY it took this path
+   * rather than leaving it to be inferred. */
+  if (!project_id) {
+    if (addressedRow && legacyOwner && legacyOwner === caller.researcher_id) {
+      return { ok: true, caller, owner: caller, project_id: '', caps: {}, isOwner: true, see: 'all', legacy: true };
+    }
+    return deny;
+  }
 
   const project = await env.DB.prepare('SELECT project_id, owner_id FROM project WHERE project_id=?')
     .bind(project_id).first().catch(() => null);

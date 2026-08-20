@@ -166,6 +166,33 @@ still build all five. Keep prose off that branch, and land the version commit LA
 — Cloudflare labels a build with the TIP commit, so a release whose tip is a `plans:` commit shows up
 in the dashboard looking like a docs build, which is exactly the wrong thing to be reading during
 release verification. (That happened on v433.)
+### 🚩 RAISE THE MAINTENANCE FLAG BEFORE EVERY WORKER DEPLOY (Seth, 2026-08-20)
+
+**"Before we deploy the worker, we should always raise the maintenance flag and then take it down
+after I confirm that it looks like it worked and nothing broke."**
+
+The order, every time:
+
+1. Actions → **Maintenance notice** → `raise` (optionally with a message).
+2. Actions → **Deploy worker**.
+3. Seth checks the panel and confirms nothing broke.
+4. Actions → **Maintenance notice** → `clear`.
+
+**Why it is cheap enough to do unconditionally:** the notice is a D1 `ops_flag` row the worker
+returns on `GET /v1/researcher`, which the panel already polls every 12s — so it appears and
+disappears within one tick, with no deploy and no release. ⚠ And it is **researcher-panel only**:
+`test/maintenance-notice.test.mjs` fails the build if `app.js` ever learns to render it, so raising
+it can never interrupt a field translator working offline. It costs a researcher a banner and costs
+everyone else nothing, which is why there is no threshold below which you skip it.
+
+⚠ **A worker deploy is the one change with no staged rollout.** The sites have preview aliases and a
+branch estate; the worker has one production version serving every device and every panel at once.
+The flag is the only warning anyone gets.
+
+⚠ This rule was written the day it was NOT followed: v433's worker (the Google-only auth change) was
+deployed without raising it. Nothing broke, which is exactly how a skipped safety step earns its
+place in the habit.
+
 ### 🚩 PLANNING DOCS DO NOT GET A VERSION BUMP (Seth, 2026-08-07)
 
 **"Plan changes don't need version bumps or to be tested on staging, if all that's changed is

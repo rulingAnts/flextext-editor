@@ -251,7 +251,7 @@ export async function claim(inviteId, inviteSecret) {
   if (s && s.instanceId) {
     // Same invite re-opened — e.g. the OTHER app's link for this same device → REUSE: no re-claim,
     // no re-consent, no re-approval. The other app just works off the shared session.
-    if (s.inviteId === inviteId) return { ok: true, type: s.type, status: s.status, researcher: s.researcher, accepted: !!s.accepted, pairCode: s.pairCode || '', reused: true };
+    if (s.inviteId === inviteId) return { ok: true, type: s.type, status: s.status, accepted: !!s.accepted, pairCode: s.pairCode || '', reused: true };
     // A DIFFERENT invite while still linked → REFUSE (claim guard); never silently move a live device
     // to another instance. If the old binding was revoked, poll() auto-releases first, so a legitimate
     // re-link still works after a revoke.
@@ -264,7 +264,7 @@ export async function claim(inviteId, inviteSecret) {
     // explicitly shared) — a phished/hijacked enrollment can't grab the pre-existing corpus.
     s = { inviteId, installId: uuid(), installSecret: randTok(24), instanceId: null,
           type: null, status: 'claiming', desiredRev: -1, ackSeq: 0, pubkey: null, wrappedKey: null,
-          enrolledAt: Date.now(), accepted: false, researcher: null, pairCode: '' };
+          enrolledAt: Date.now(), accepted: false, pairCode: '' };
     // E2EE model A: mint an RSA-OAEP keypair ONCE per identity. The private key is
     // stored non-extractable in IndexedDB and never leaves; only the public key is
     // sent (and re-sent identically on idempotent retry, so the worker's first-write
@@ -292,7 +292,20 @@ export async function claim(inviteId, inviteSecret) {
     s.instanceId = r.instance_id;
     s.type = r.type;
     s.status = r.status || 'pending';
-    s.researcher = r.researcher || s.researcher || null;   // who is enrolling (kept for the recorder; the editor no longer shows it)
+    /* ⚠ THE ENROLLING RESEARCHER'S NAME, EMAIL AND AVATAR ARE DELIBERATELY NOT STORED (Seth,
+     * 2026-08-20: "we do want the researcher's identity not to be advertised in the pairing
+     * process… EXACTLY the same for anything that needs to be paired").
+     *
+     * Taking them off the consent SCREEN was only half of it. This line used to persist them into
+     * localStorage on every paired device, where they would sit for the life of the install — so a
+     * device that later left the team's control still carried a named individual's contact details.
+     * Minimising what a device holds about the people in a project is part of the privacy and
+     * research-ethics obligations this suite owes the communities it serves, and the surest way not
+     * to hold something is never to write it down.
+     *
+     * ⚠ The worker still SENDS r.researcher, and that is fine — it is a protocol we share with
+     * already-deployed clients, and changing it would blank the consent screen of every editor and
+     * recorder still on the old build. We simply drop it on the floor. */
     /* ⚠ NEVER OVERWRITE A CODE WE HOLD WITH AN EMPTY ONE. An older worker — or one mid-deploy —
      * answers a claim without pair_code at all, and this same line runs on the idempotent retry
      * path. Blanking here would take the number off this screen while the panel still shows it,
@@ -302,7 +315,7 @@ export async function claim(inviteId, inviteSecret) {
     // recognized as already-claimed → reused, instead of minting a new identity that clobbers this one.
     saveSession(s);
     if (iface && iface.onStatus) iface.onStatus(s.status);
-    return { ok: true, type: s.type, status: s.status, researcher: s.researcher, accepted: !!s.accepted };
+    return { ok: true, type: s.type, status: s.status, accepted: !!s.accepted };
   } catch (e) {
     // Network failure on claim is recoverable — the local identity persisted, so a
     // later retry of the same invite reuses it. A definitive rejection clears it.
@@ -332,7 +345,7 @@ export async function accept() {
 // connecting) on claim AND on reload until the user accepts or declines. null otherwise.
 export function pendingConsent() {
   const s = loadSession();
-  return (s && s.instanceId && !s.accepted) ? { instanceId: s.instanceId, installId: s.installId, researcher: s.researcher || null } : null;
+  return (s && s.instanceId && !s.accepted) ? { instanceId: s.instanceId, installId: s.installId } : null;
 }
 
 // This install's public-key fingerprint (formatted), for OUT-OF-BAND verification at
@@ -487,6 +500,15 @@ export function start(injected) {
     setTimeout(() => poll(), jitter);
   });
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') schedule(); });
+  /* ⚠ AND SCRUB WHAT IS ALREADY WRITTEN DOWN. Not storing it from now on does nothing for the
+   * devices that paired BEFORE this build — they are carrying a researcher's name, email and avatar
+   * in localStorage right now, and those are exactly the installs the change is for. One cheap pass
+   * at startup, then the field is gone for good. Deliberately unconditional and silent: there is
+   * nothing for a user to decide here, and it removes data rather than changing behaviour. */
+  {
+    const s0 = loadSession();
+    if (s0 && s0.researcher) { delete s0.researcher; saveSession(s0); }
+  }
   if (hasSession()) {
     // Rehydrate Ki from IndexedDB (private key) + the persisted wrapped blob, THEN
     // poll — so the first tick can already decrypt/encrypt without a round-trip.

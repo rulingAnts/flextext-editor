@@ -113,6 +113,20 @@ ok(!/invite-avatar/.test(app) && !/invite\.unknownName/.test(app),
    '⚠ no face and no name on the consent screen — a device that leaves the team should not carry them');
 ok(!/r\.email \? `<div class="note">/.test(app), '...nor the email address');
 ok(/const code = Sync\.pairCode\(\);/.test(app), 'the code is what the consent screen shows instead');
+ok(/function showInviteConsent\(\) \{/.test(app),
+   '...and the function no longer even TAKES a researcher — nothing can drift back into showing one');
+/* ⚠ TAKING IT OFF THE SCREEN WAS HALF THE JOB (Seth, 2026-08-20: "we do want the researcher's
+ * identity not to be advertised in the pairing process… EXACTLY the same for anything that needs to
+ * be paired"). The device also used to WRITE it to localStorage, where it sat for the life of the
+ * install — on precisely the devices that might later leave the team's control. */
+ok(!/s\.researcher = r\.researcher/.test(sync),
+   '⚠ the device does not STORE the researcher identity at all');
+ok(!/researcher: s\.researcher/.test(sync),
+   '...and does not hand it back out to callers either');
+ok(/if \(s0 && s0\.researcher\) \{ delete s0\.researcher; saveSession\(s0\); \}/.test(sync),
+   '⚠ and a device paired BEFORE this build is scrubbed at startup — not storing it from now on does nothing for those');
+ok(/The worker still SENDS r\.researcher/.test(sync),
+   'the PROTOCOL is unchanged, so already-deployed editors and recorders keep working');
 ok(/invite\.codeMissing/.test(app),
    '...and it SAYS SO when there is no code, rather than rendering an empty box');
 

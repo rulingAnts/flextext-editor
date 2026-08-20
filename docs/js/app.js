@@ -3980,7 +3980,7 @@ async function claimInvite(inviteId, secret, interactive) {
     const r = await Sync.claim(inviteId, secret);
     if (r.ok) {
       if (r.accepted) toast(t('invite.alreadyLinked'), 5000);   // reused (the other app's link): already set up
-      else showInviteConsent(r.researcher);                      // B: user must see who is connecting + accept
+      else showInviteConsent();                                  // B: the field user must approve this enrollment
       return true;
     }
     if (r.error === 'already_linked') { toast(t('invite.linkedElsewhere'), 9000); return true; }
@@ -4132,7 +4132,7 @@ function applyInviteButton() {
 // B (enrollment consent): show WHO is enrolling this device (Google name + avatar) and require the
 // field user to Accept before anything flows — the worker won't deliver the data key until they do,
 // so a phished/hijacked invite is inert without a deliberate human OK. Re-shown on reload until decided.
-function showInviteConsent(researcher) {
+function showInviteConsent() {
   if (document.querySelector('[data-invite-consent]')) return;   // never stack
   const wrap = document.createElement('div');
   wrap.className = 'modal';
@@ -7819,7 +7819,7 @@ function setup() {
   // re-shows the consent dialog. (handleInviteParam shows it for a fresh link; this covers a reload
   // without the link. The dialog guards against stacking, and a claim still in flight has no
   // instanceId yet, so pendingConsent() returns null until the claim lands.)
-  { const pend = Sync.pendingConsent(); if (pend) showInviteConsent(pend.researcher); }
+  { if (Sync.pendingConsent()) showInviteConsent(); }
   /* ⚠ AND ON EVERY LOAD, not only when a status arrives. A device left overnight mid-pairing, or one
    * whose user reloaded to "make it work", must come back up still showing its code — that reload is
    * exactly what someone does when they think the app has lost their place. */

@@ -686,6 +686,101 @@ Both make bad data accumulate right now, so fixing them stops the pile growing w
 Drive/worker work above, which is worker-only and carries no SHELL risk. That asymmetry is a good
 argument for doing the worker half first.
 
+### ⚠ THE DRIVE HALF — DECIDED, and it is a SWEEP-THEN-MOVE, not a rename (Seth, 2026-08-20)
+
+> Seth: *"for the sake of organization, especially with ADHD (like me), we need some way in Drive for
+> revoked devices to end up in a 'Revoked' or 'Remove' or other folder so that I'm not confused about
+> which ones are active and which ones aren't. Also, all the text folders should end up in
+> 'Unassigned' in any case… What I don't want is stale Google Drive clutter and no idea which is
+> stale and which is not. For someone with my brain that's a real problem. I also don't want to
+> delete things carelessly for which it would be good to save originals."*
+
+**The decided shape: revoke → sweep the texts to Unassigned → move the now-EMPTY device folder into
+a "Revoked" container.** In that order, and the order is the whole design.
+
+⚠ **WHY A CONTAINER IS SAFE ONLY AFTER THE SWEEP, and unsafe before it.** `buildDriveEstate` defines
+a device as a folder whose parent is in `containerParents = new Set([masterId, ...projectIds])`
+(v1.js:804, filter at :820-821). Nest a device folder inside a plain "Revoked" folder while its
+texts are still in it and: it stops being a device, its texts lose `device`/`deviceFolderId`
+(:858-859), and their `projectId` join (:877) resolves against the Revoked folder and yields `''` —
+so those texts vanish from every project tab AND from the per-project Unassigned card. Once the
+folder is EMPTY that entire failure mode has nothing to act on: the folder simply leaves the estate
+view, which is exactly the decluttering being asked for. **Verified against the source, not assumed.**
+
+⚠ **DO NOT give the folder a `flextextRole`** to mark it. The device filter requires
+`!roleOf(f) || roleOf(f) === 'crowd'` (v1.js:820-821), so any other role drops it out of `devices`,
+and `projects/assign` would reject it as `not_a_container` (v1.js:3202) — the route behind the
+panel's "Move to project…" button. A NON-role `appProperties` key is safe; the filter reads only
+`flextextDoc` and the role.
+
+**Marking follows the `(done)` precedent** (v1.js:951-960): `appProperties.flextextRevoked='1'` as
+truth PLUS a visible name suffix. The tag is what code reads; ⚠ the SUFFIX is what Seth actually
+asked for, because an appProperty is invisible in Drive's own UI and the requirement is legibility
+while looking at Drive in Finder.
+
+**Reuse `drive-unassign`, do not write a second sweep** (v1.js:2925-3021). It already resolves each
+text's OWN project's Unassigned (`targetFor`, :2959-2981), creates it on demand, re-parents, and tags
+`flextextUnassigned:'1'` so an adopt can bring it back (:3009-3010, cleared at :3849-3850).
+⚠ It is bounded at `CAP = 10, BUDGET_MS = 9000` and returns `remaining` because the ~50-subrequest
+cap already killed `drive-purge` twice (:2984-2994). Any revoke-time bulk Drive work inherits that
+ceiling and must report a remainder the same way.
+
+⚠ **D1 FLAGS FIRST, DRIVE SECOND.** Revoke today makes ZERO Drive calls — two D1 UPDATEs and a
+return (v1.js:3941-3945, verified) — so it cannot half-fail. Revocation must never become dependent
+on Drive being reachable. Sweep and move are best-effort follow-ups, resumable, never preconditions.
+
+✅ **AND TWO PROPERTIES ALREADY HOLD, so the move is safe by construction:** minted assignment URLs
+name a fileId, never a path (v1.js:1216), and re-check `revoked=0` at redemption (:1861-1866); device
+and text folders resolve by ID and by TAG, never by parent (v1.js:1015-1025, :934-937). Moving or
+renaming a folder therefore cannot orphan a pending upload or an outstanding URL.
+
+⚠ **WHAT HAPPENS TODAY, which this replaces:** the texts already drift into Unassigned — `sweepUnassigned`
+runs only on a FULL panel render, 12 ids at a time (researcher-panel.js:1434, :5064), and its
+exclusions do not protect a revoked device's texts because `assignedDocIds()` reads `lastData.instances`
+which no longer contains the instance. So it happens silently, partially, and only while someone has
+the panel open. The work is to make it deliberate, not to invent it.
+
+### ⚠ "The history metadata file isn't working so far" — it was never built
+
+Seth referred to *"our history metadata file (which isn't working so far, but will be)"*. Checked:
+**`flextext-history.json` has ZERO code** — no writer, no reader, no filename constant, no test. It
+exists only as a settled DESIGN in `plans/drive-as-truth.md:1408-1425` and §16.13 (:1440-1495), whose
+own text says *"Shape (not yet built — this is the decision, not the implementation)"*. Nothing is
+broken; it is unstarted. Worth stating plainly because "not working yet" and "does not exist" lead to
+very different next actions.
+
+**And the nickname has nowhere to live today.** `manifest.source.name` is `''` in every manifest ever
+written — the schema has the slot and none of the three call sites passes a name (app.js:4619,
+app.js:6974, researcher-panel.js:3369; verified). ⚠ Do NOT fill it: the manifest is written ONCE and
+is immutable by contract (seg-exports.js:1073-1080, pinned by test/manifest-provenance.test.mjs),
+while a nickname is researcher-set and renameable — a frozen name would quietly disagree with the
+panel after the first rename. The correct carrier is a **name-at-event-time snapshot in the history
+file**: *"at time T this device was called X"* stays true forever, and it is precisely what makes the
+D1 forget survivable.
+
+**The keystone, and it is small:** the device folder carries NO tag linking it to its instance —
+`driveEnsureDeviceFolder` creates it with `parents` and nothing else (v1.js:1029-1031, verified). One
+`flextextInstance` appProperty there is the cheapest durable device→folder link that survives both a
+folder move and the D1 forget, and it is what makes `manifest.source.id` resolvable from Drive alone.
+Everything else in this section depends on it.
+
+### ⚠ TWO LIVE BUGS found while mapping this — independent, small, worth fixing first
+
+Both make bad data accumulate right now, so fixing them stops the pile growing while the rest is built.
+
+1. **Every assigned text ships empty writing systems and a wrong birth time.** The assignment queue
+   record writes `at: Date.now()` (researcher-panel.js:3224) but the manifest builder reads
+   `rec.queuedAt`, `rec.vernLang` and `rec.analLang` (:3359-3361) — none of which is ever set. So
+   `originatedAt` becomes the moment the UPLOAD ran, not the assignment, and `writingSystems` is
+   `{vern:'', anal:''}` on every assigned text. Verified.
+2. **`manifest.consent.mode` is always `'off'`.** It reads `settings.consentMode` (app.js:4608), a key
+   deliberately DELETED during settings migration (`delete s.consentMode`, app.js:250). Nothing reads
+   `mode`, so it went unnoticed and no test pins it. Verified.
+
+⚠ Both are in `docs/js/`, so they need a version bump and ride the satellite coupling — unlike the
+Drive/worker work above, which is worker-only and carries no SHELL risk. That asymmetry is a good
+argument for doing the worker half first.
+
 ### Sequencing
 
 ⚠ **After Phase C, and specifically after member removal exists** — which it now does. Removing a

@@ -5,7 +5,7 @@
 a reset. It is DELETED once the audit is written up properly — if you are reading it in a
 finished repo, the run did not complete.
 
-Agent results captured so far: **6**
+Agent results captured so far: **7**
 
 ## a0331010e172c246c
 
@@ -265,5 +265,15 @@ Agent results captured so far: **6**
       "evidence": "worker/src/v1.js:1028-1029 \u2014 `const parent = projectFolderId || (await drivePriorProjectParent(access, existingId))` / `|| await driveMasterFolder(access);`. Member-reachable call sites all pass five arguments, never the sixth: 3736 `driveEnsureDeviceFolder(env, access, instanceId, inst.nickname, inst.oauth_folder_id)` (begin), 3767 (upload/start, consent-prompt), 3867 (adopt), 3905 (move). Contrast POST /v1/instances at 3492, which does pass a project: `driveEnsureDeviceFolder(env, access, instance_id, nickname, '', wantProject)`. The members gate at 2473-2482 states the rule this breaks: \u201ca member's file listing has to be ROOTED at that folder rather than walked from the account master\u201d."
     }
   ]
+}
+```
+
+## a1da61f5b972ea650
+
+```json
+{
+  "refuted": false,
+  "reasoning": "Confirmed by direct trace. worker/src/v1.js:3855-3888 (adopt) and 3903-3920 (move) call authMember(request, env, { instance: instanceId }, 'assignTexts'), which resolves the project SOLELY from the instance row (v1.js:548-556) and never sees the docId. The routes then take the caller-supplied docId from the path, sanitize it, and run an unscoped Drive query with the OWNER's token \u2014 `files?spaces=drive&orderBy=createdTime&fields=files(id,parents)&q=appProperties has { key='flextextDoc' and value='<docId>' } ...` \u2014 and reparent whatever it finds: `if (!(f.parents || []).includes(toFolder)) await driveReparent(access, f.id, toFolder, f.parents);`, then clears the flextextUnassigned tag. No step between authMember and driveReparent compares the found folder's parents to the resolved project's drive_folder_id; `grep drive_folder_id` shows it is read only at 1679/1700/1706/1760-1794/2400/2473/3234/3271, never inside the /v1/instances block. driveReparent (v1.js:924) validates nothing. The destination instance lookup binds `researcher_id = r.researcher_id` where r = ctx.owner, i.e. the owner, not ctx.project_id \u2014 so any instance of the same owner is a legal destination, which is exactly what makes two projects of one owner mutually reachable. Routing is reachable as claimed (instanceId = seg[2], sub = seg[3], v1.js:3501-3502; no pre-guard on the block). The same unscoped query appears a third time at 3678 in GET .../texts/<docId>/files behind only 'drive:read', giving a read-only cross-project variant, and driveEnsureTextFolder's header (v1.js:1134-1136) states the property outright: \"The tag search is scoped to trashed=false but NOT to the parent\". Refutation attempts that failed: (a) no guard exists anywhere on the path; (b) the docId-knowledge precondition is realistic and does not require enumeration \u2014 a member of project A who legitimately learned a docId while the text was in A, whose owner then moved it into project B to take it out of that assistant's reach, can pull it straight back with the docId they already hold; (c) it is not deliberate-and-correct: plans/project-split.md:1134 states \"a member must not reach another project\", II.D7 is amended to say Seth meant other PROJECTS, and PART VII.1 explicitly records that the Drive-side project scoping this requires is NOT built yet. Known-and-deferred is still a live violation of the stated invariant in the code under audit.",
+  "correction": "The finding holds as stated. Two refinements for whoever fixes it: (1) it is not confined to adopt/move \u2014 the identical unscoped docId tag search is also at v1.js:3678 in GET .../texts/<docId>/files, gated only by 'drive:read', which is the read/enumerate half of the same hole and the way an attacker confirms a foreign docId and harvests its file ids; (2) the repo's own plan (plans/project-split.md PART VII.1) argues that fixing this with a parents-vs-drive_folder_id check would be the WRONG mechanism, because text folders are deliberately mobile (tag-addressed, never parent-addressed: driveEnsureTextFolder's header, buildDriveEstate's \"never by where they sit\", and the Unassigned sweep all depend on that), so a parentage check would deny legitimately swept or hand-filed texts. The prescribed fix is a D1 drive_object(file_or_folder_id, doc_id, instance_id, project_id, ...) map authorized by one indexed lookup, with an operator-gated backfill."
 }
 ```

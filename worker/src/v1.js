@@ -3588,11 +3588,22 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       if (asResearcher && inst.researcher_id !== asResearcher.researcher_id) return j({ error: 'forbidden' }, 403, origin, env);
       // Provisional installs (§D.3) receive NO commands until approved.
       if (install && install.status !== 'approved') {
-        return j({ pending: true, type: inst.type, desired_rev: inst.desired_rev }, 200, origin, env);
+        return j({ pending: true, type: inst.type, nickname: inst.nickname || '', desired_rev: inst.desired_rev }, 200, origin, env);
       }
       if (inst.desired_rev <= since) return new Response(null, { status: 204, headers: v1Cors(origin, env) });
       const blob = inst.desired_blob ? JSON.parse(inst.desired_blob) : { settings: {}, commands: [] };
-      return j({ type: inst.type, desired_rev: inst.desired_rev, settings: blob.settings || {}, commands: blob.commands || [], wrapped_key: install ? (install.wrapped_key || null) : undefined }, 200, origin, env);
+      /* ⚠ `nickname` RIDES BOTH BRANCHES (Seth, 2026-08-20): "we also need a way to be 100% sure
+       * that the device we're using DOES in fact match the device listed in the tile." A device has
+       * never been told the name its researcher gave it, so the only way to identify the app in front
+       * of you was to compare engine versions and guess — which is exactly how an hour went into
+       * asking whether a text list was empty or simply the wrong window.
+       *
+       * It rides the PENDING branch too, so the name is on screen while the pairing code is, which is
+       * the moment two people are trying to agree on which device they are talking about.
+       *
+       * Additive: an older client ignores the field. Not secret — it is the device owner's own name
+       * for their own device, shown only on that device. */
+      return j({ type: inst.type, nickname: inst.nickname || '', desired_rev: inst.desired_rev, settings: blob.settings || {}, commands: blob.commands || [], wrapped_key: install ? (install.wrapped_key || null) : undefined }, 200, origin, env);
     }
   }
 

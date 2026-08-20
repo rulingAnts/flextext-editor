@@ -185,5 +185,28 @@ ok(!/unwrapKeyFromResearcher/.test(researcher),
 ok(/unwrapKeyFromResearcher/.test(read('../docs/js/sync.js')),
    'the install still uses its own, so this fix did not weaken the device side');
 
+/* ── A DEVICE MUST KNOW ITS OWN NAME (Seth, 2026-08-20) ─────────────────────────────────────────
+ * > "we also need a way to be 100% sure that the device we're using DOES in fact match the device
+ * >  listed in the tile."
+ *
+ * ⚠ THE COST OF NOT HAVING IT, recorded because it was nearly a false emergency. An editor showing
+ * an empty text list was taken for a device whose texts had been destroyed by unpairing; it was a
+ * different browser profile that had never held them. IndexedDB is per-origin and the doc store is
+ * not session-scoped, so the two are indistinguishable from the outside — and the panel names
+ * devices while the device was never told its name. */
+console.log('\nthe device is told the name its researcher gave it');
+ok(/nickname: inst\.nickname \|\| ''/.test(worker),
+   'the poll carries it');
+ok((worker.match(/nickname: inst\.nickname \|\| ''/g) || []).length === 2,
+   '⚠ ...on BOTH branches — the pending one too, so the name is on screen while the pairing code is');
+ok(/export function deviceNickname/.test(sync), 'the device stores and exposes it');
+ok(/r\.nickname !== s\.nickname/.test(sync),
+   '⚠ and updates on EVERY poll, so a rename in the panel actually reaches the device');
+ok(/function refreshDeviceName/.test(app) && /class = 'app-device'/.test(app.replace(/className/g, 'class')),
+   'it is rendered beside the app title');
+ok(/host\.appendChild\(el\)/.test(app) && !/\.app-title'\)\.textContent/.test(app),
+   '⚠ APPENDED, never textContent on .app-title — the editor\'s title holds the logo <img>');
+ok(inEnAndId('device.nameAria') === 2, 'and its screen-reader label is in BOTH languages');
+
 console.log(fail ? `\nFAILED (${fail})` : '\nPASSED');
 process.exit(fail ? 1 : 0);

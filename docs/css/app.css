@@ -2394,3 +2394,20 @@ main {
 .pair-banner-title { font-weight: 600; }
 .pair-banner .pair-code { margin: 6px 0 8px; }
 .pair-banner-note { color: var(--muted); font-size: 13px; line-height: 1.35; }
+
+/* The researcher-given device name, beside the app title (Seth, 2026-08-20).
+   ⚠ Quieter than the app name and separated by a rule, so it reads as "which install is this"
+   rather than as part of the product's name. It can be a person's name and it can be long, so it
+   truncates rather than pushing the tabs off a phone screen. */
+.app-device {
+  margin-left: 10px;
+  padding-left: 10px;
+  border-left: 1px solid currentColor;
+  font-weight: 400;
+  opacity: .8;
+  max-width: 38vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}

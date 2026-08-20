@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v439';
+export const ENGINE_VERSION = 'v440';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v439';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'pair-code v2';
+export const BUILD_TAG = 'pair-code v3';
 
 const S = {
 en: {
@@ -281,6 +281,9 @@ en: {
   'invite.codeMissing': 'This device could not get a pairing code. Ask your researcher to send a new invite link.',
   'invite.codeAria': 'Pairing code: {code}',
   'pair.title': 'Waiting for your researcher',
+  /* ⚠ The visible name is bare (it reads as a continuation of the app title); this is what a
+   * screen reader announces instead, since "Wemis Wanimbo's Phone" alone has no context. */
+  'device.nameAria': 'This device is named {name} by your researcher',
   'pair.note': 'Read this code to your researcher. It stays here until they approve this device \u2014 you do not have to write it down.',
   'panel.inst.codeAria': 'Pairing code: {code}',
   'panel.inst.codeHint': 'This must be the SAME six digits the device is showing. Do not approve if it is not, or if the person cannot tell you it.',
@@ -2084,6 +2087,7 @@ id: {
   'invite.codeMissing': 'Perangkat ini tidak bisa mendapatkan kode pemasangan. Minta peneliti Anda mengirim tautan undangan baru.',
   'invite.codeAria': 'Kode pemasangan: {code}',
   'pair.title': 'Menunggu peneliti Anda',
+  'device.nameAria': 'Perangkat ini diberi nama {name} oleh peneliti Anda',
   'pair.note': 'Bacakan kode ini kepada peneliti Anda. Kode tetap di sini sampai mereka menyetujui perangkat ini \u2014 Anda tidak perlu mencatatnya.',
   'panel.inst.codeAria': 'Kode pemasangan: {code}',
   'panel.inst.codeHint': 'Ini harus SAMA dengan enam digit yang ditampilkan perangkat. Jangan setujui jika tidak sama, atau jika orang tersebut tidak bisa menyebutkannya.',

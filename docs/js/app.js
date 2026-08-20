@@ -4073,6 +4073,35 @@ function showInvitePasteModal() {
  * ⚠ SO IT COMES DOWN ON THE OUTCOME, NEVER ON A CLOCK — the same rule the panel's pending markers
  * follow. Sync.pairCode() is '' once the poll has seen the approval, and that is the only thing that
  * retires this. */
+/* THE DEVICE'S OWN NAME, in the title bar (Seth, 2026-08-20).
+ *
+ * > "we also need a way to be 100% sure that the device we're using DOES in fact match the device
+ * >  listed in the tile… the Title after Flextext Editor or Flextext Recorder also lists the
+ * >  'device nickname' after it that the researcher put in the researcher panel."
+ *
+ * ⚠ WHY THIS IS WORTH A WORKER FIELD. The panel names devices and the device was never told, so the
+ * only way to identify the install in front of you was to compare engine versions and guess. That
+ * ambiguity produced a genuine scare during the v439 test drive: an editor showing an empty text
+ * list could not be told apart from a DIFFERENT editor, in another browser profile, that had simply
+ * never held those texts. IndexedDB is per-origin and the doc store is not session-scoped, so the
+ * two are indistinguishable from the outside — for several minutes it looked like unpairing had
+ * destroyed a coworker's work. A name on screen ends that in one glance.
+ *
+ * ⚠ APPENDED, NEVER textContent ON THE TITLE. The editor's .app-title contains the logo <img>;
+ * rewriting its text would delete the logo. Its own element, created once. */
+function refreshDeviceName() {
+  const host = document.querySelector('.app-title');
+  if (!host) return;
+  const name = (typeof Sync !== 'undefined' && Sync.deviceNickname) ? Sync.deviceNickname() : '';
+  let el = host.querySelector('.app-device');
+  if (!name) { if (el) el.remove(); return; }
+  if (!el) { el = document.createElement('span'); el.className = 'app-device'; host.appendChild(el); }
+  el.textContent = name;
+  /* The full sentence for a screen reader: visually this reads as a continuation of the app name,
+   * but announced on its own it is just a bare person's name with no context. */
+  el.setAttribute('aria-label', t('device.nameAria', { name }));
+}
+
 let pairBannerEl = null;
 function refreshPairBanner() {
   const code = (typeof Sync !== 'undefined' && Sync.pairCode) ? Sync.pairCode() : '';
@@ -7797,6 +7826,7 @@ function setup() {
        * banner down, 'pending'/'needs-accept' keep it up. Cheap, and it means the banner cannot be
        * left behind by a path nobody thought of. */
       refreshPairBanner();
+      refreshDeviceName();     // 'named' arrives when a poll first learns it, and on any rename
       /* ⚠ AND SAY SO WHEN IT FINISHES. Removing the accept-time toast (it was the bug) left the
        * successful end of a pairing with no event at all: the banner simply vanished, which reads as
        * "something went wrong" quite as easily as "you are linked". onStatus('linked') fires once,
@@ -7824,6 +7854,7 @@ function setup() {
    * whose user reloaded to "make it work", must come back up still showing its code — that reload is
    * exactly what someone does when they think the app has lost their place. */
   refreshPairBanner();
+  refreshDeviceName();   // a paired device knows its name from the stored session, before any poll
 
   // Language selector — present in both the editor and the recorder.
   const langSel = $('#lang-select');

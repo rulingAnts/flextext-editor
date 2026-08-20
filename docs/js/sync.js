@@ -61,6 +61,21 @@ export function pairCode() {
   return (s && s.pairCode) || '';
 }
 
+/* The name THIS device's researcher gave it in the panel ("Wemis Wanimbo's Phone").
+ *
+ * ⚠ WHY A DEVICE NEEDS TO KNOW ITS OWN NAME (Seth, 2026-08-20): "we also need a way to be 100% sure
+ * that the device we're using DOES in fact match the device listed in the tile." Until now it could
+ * not: the panel names devices and the device was never told, so identifying the app in front of you
+ * meant comparing engine versions and guessing. That ambiguity cost real time during the v439 test
+ * drive — an editor showing an empty text list could not be told apart from a DIFFERENT editor,
+ * on another origin, that had simply never had those texts.
+ *
+ * Empty until the first poll answers, and for a device that is not paired at all. */
+export function deviceNickname() {
+  const s = loadSession();
+  return (s && s.nickname) || '';
+}
+
 // Streaming-upload target for THIS enrolled device (null when unmanaged, pending,
 // not yet user-accepted, or before Sync.start injected the iface): the worker
 // route that lands bundles in the researcher's own Drive ("FlexText Uploads /
@@ -392,7 +407,9 @@ export async function poll() {
     if (r._status === 204) { await maybeReport(s); return; }   // nothing new
     if (r.pending) {                                           // awaiting researcher approval (§D.3)
       if (s.status !== 'pending' && iface.onStatus) iface.onStatus('pending');
-      s.status = 'pending'; saveSession(s);
+      s.status = 'pending';
+      if (r.nickname && r.nickname !== s.nickname) { s.nickname = r.nickname; if (iface.onStatus) iface.onStatus('named'); }
+      saveSession(s);
       await maybeReport(s);
       return;
     }
@@ -403,6 +420,10 @@ export async function poll() {
      * device learns it was approved, so it is the one place that can honestly retire the number —
      * the worker has already cleared its copy, and a code left on screen after the panel stopped
      * showing one is a coworker reading out something nobody can match. */
+    /* ⚠ EVERY POLL, not just the first. A researcher renaming a device in the panel must reach the
+     * device — a name that silently means "whatever it was called when you paired" is the same
+     * ambiguity this exists to remove, just slower to notice. */
+    if (r.nickname && r.nickname !== s.nickname) { s.nickname = r.nickname; saveSession(s); if (iface.onStatus) iface.onStatus('named'); }
     if (s.status !== 'approved') { s.status = 'approved'; s.pairCode = ''; saveSession(s); if (iface.onStatus) iface.onStatus('linked'); }
     // E2EE gate (model A): we can neither decrypt commands nor encrypt a report
     // without Ki. While approved, every GET (since stays -1) carries wrapped_key once

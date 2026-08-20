@@ -227,7 +227,7 @@ state, and the wrapped-Ki key map in `settings_blob`.
 useful; cross-account only after, with the key and pairing limits stated in the UI rather than
 discovered.
 
-## NEXT RELEASE: a text whose audio is still arriving opens in the CLASSIC editor (Seth, 2026-08-20)
+## ~~NEXT RELEASE: a text whose audio is still arriving opens in the CLASSIC editor~~ — FIXED v442 (Seth, 2026-08-20)
 
 > *"It initially loaded the classic text editor while the audio was loading. And then after I
 > switched tabs it switched to audio segmentation mode… You can type in the baseline textbox, but
@@ -274,6 +274,15 @@ textarea, and let the existing re-entry path render the strips when it lands.
 `reconcileBaseline` to make one paragraph per line and the seed to divide the recording evenly as
 `timeEstimated` (dashed) — text intact, alignment a guess — but that is reasoning, not a test. Check
 it while fixing.
+
+**FIXED in v442**, exactly as predicted above: the Baseline branch now runs the same
+`pendingAudio || attachingAudioFor` test the Cut tab has had since v433, keeps `#seg-loading` up
+while a recording is on its way, and never reveals the textarea on that path. Mutation-tested —
+neutering the guard fails three assertions by name.
+
+⚠ The TWO-LINE question is still open. It was a prediction, it stayed a prediction, and the fix
+removes the window in which anyone can type at all — so the answer no longer matters in practice and
+was never established. If the branch is ever reached again, it is still unknown.
 
 ## LATER: the recorder and crowd recorder do not refresh themselves after a recording (Seth, 2026-08-20)
 

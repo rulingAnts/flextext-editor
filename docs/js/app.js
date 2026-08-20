@@ -1390,6 +1390,30 @@ function switchTab(tab, landing) {
          * construction — every line a "⋯" and a flat slab, and no way to ever fix one, because
          * there is no timeline to align to. The textarea can at least be typed in. */
         if (!media || !media.blob) {
+          /* ⚠ "NO AUDIO" AND "AUDIO NOT HERE YET" ARE DIFFERENT, and treating them alike is the
+           * glitch Seth found in the v440 test drive: "it initially loaded the classic text editor
+           * while the audio was loading… whatever you typed in the baseline tab ends up on the first
+           * line."
+           *
+           * That window is the NORMAL case, not an edge one — newDocFromAudio enters the editor
+           * BEFORE it awaits attachAudioFile, and an assigned text's recording is still downloading.
+           * Revealing the textarea there offers an editor the user should never have been given, and
+           * because applyBaseline is gated on DOM TRUTH a visible textarea IS their intent on
+           * tab-leave: whatever they typed is committed and lands as the first span once the strips
+           * finally render. The words are not lost, but they arrive somewhere nobody chose.
+           *
+           * prepareCutAudio has drawn this distinction since v433; the Baseline tab simply never
+           * did. Same test, same two states, so the two tabs now behave alike. */
+          const coming = !!(current.pendingAudio || attachingAudioFor === stripsFor);
+          if (coming) {
+            /* Keep waiting. The tab is re-entered when the attach lands (attachAudioFile re-enters,
+             * and the download path re-renders), so the strips appear without anything further here.
+             * ⚠ The textarea stays HIDDEN — that is the whole fix. */
+            segProgress($('#seg-loading'), t('seg.loadingAudio'), null);
+            $('#seg-loading').hidden = false;
+            $('#segment-strips').hidden = true;
+            return;
+          }
           $('#seg-loading').hidden = true;
           $('#segment-strips').hidden = true;
           $('#baseline-text').value = getBaselineParagraphs(current.doc).join('\n');

@@ -146,6 +146,35 @@ console.log('\nthe loading line reports stages and the work yields to the UI');
     ok(inEnAndId(k) === 2, `${k} is translated in BOTH languages`);
 }
 
+/* ── "NO AUDIO" IS NOT "AUDIO NOT HERE YET" (Seth, v440 test drive) ─────────────────────────────
+ * "It initially loaded the classic text editor while the audio was loading… whatever you typed in
+ * the baseline tab ends up on the first line."
+ *
+ * ⚠ THE WINDOW IS THE NORMAL CASE, not an edge one: newDocFromAudio enters the editor BEFORE it
+ * awaits attachAudioFile, and an assigned text's recording is still downloading. Revealing the
+ * textarea there hands the user an editor they should never have had — and because applyBaseline is
+ * gated on DOM TRUTH, a VISIBLE textarea is read as their intent on tab-leave, so what they typed is
+ * committed and lands as the first span. The words survive; they arrive somewhere nobody chose.
+ *
+ * prepareCutAudio has drawn this distinction since v433. The Baseline tab never did. */
+console.log('\naudio that is still ARRIVING keeps the loading state, not the classic editor');
+{
+  /* Sliced from the guard to the line that reveals the textarea, so "what happens before the
+   * textarea appears" is exactly what is asserted — no brace-matching regex to go stale. */
+  const at = app.indexOf('const coming = !!(current.pendingAudio || attachingAudioFor === stripsFor);');
+  ok(at >= 0, 'the Baseline branch tests whether a recording is on its way');
+  const g = at < 0 ? '' : app.slice(at, app.indexOf("$('#baseline-text').value", at));
+  ok(/if \(coming\) \{/.test(g) && /return;/.test(g),
+     '...and RETURNS while it is, rather than falling through to the textarea');
+  const before = g.slice(0, g.indexOf('return;'));
+  ok(!/#baseline-text'\)\.hidden = false/.test(before),
+     '⚠ the textarea stays HIDDEN on that path — that is the entire fix');
+  ok(/\$\('#seg-loading'\)\.hidden = false/.test(before) && /seg\.loadingAudio/.test(before),
+     '...and the loading line says so, the same words the Cut tab uses');
+  ok(/const coming = !!\(current\.pendingAudio \|\| attachingAudioFor === forDoc\)/.test(app),
+     'the Cut tab still has its own copy — the two tabs answer the same question the same way');
+}
+
 console.log('\nno audio at all falls back to the classic editor');
 ok(/if \(!media \|\| !media\.blob\) \{/.test(app), 'the no-media case is handled explicitly');
 ok(/\$\('#baseline-text'\)\.value = getBaselineParagraphs\(current\.doc\)\.join\('\\n'\);[\s\S]{0,160}\$\('#baseline-text'\)\.hidden = false;/.test(app),

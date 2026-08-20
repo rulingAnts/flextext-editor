@@ -196,6 +196,35 @@ Check the dashboard; do not infer one estate from the other.
 live site that real users (field translators in the village) load — a broken push
 breaks their work. Develop and test on `main` first.
 
+### 🚩 A DOCS-ONLY PUSH STILL COSTS A FULL CLOUDFLARE BUILD (2026-08-20)
+
+**The version-bump rule below is not enough. A commit that changes NOTHING a site serves — a plan, a
+backlog note, this file — still triggers a build of every Cloudflare Worker on that branch, because
+the build is wired to the BRANCH, not to what changed.**
+
+It bit twice in one evening, and the second time it delayed a release a researcher was waiting on:
+two `plans/` pushes queued two more `main` builds, and `main` and `productionWeb` build the same
+Workers, so the production push had to wait behind prose.
+
+**The discipline, until the durable fix lands:**
+
+- ⚠ **Hold docs commits while a release is in flight.** Commit them locally; push after
+  `productionWeb` has landed. A stop hook asking for a push is not a reason to spend a build window.
+- **Batch them.** Five plan updates in one commit cost one build; five commits cost five.
+- ⚠ **Never push a docs commit BETWEEN `main` and `productionWeb`.** That is the one gap where an
+  extra build is not merely wasteful — it restarts the spacing you were waiting out.
+
+**The durable fixes, in order of how much they help:**
+
+1. **Build watch paths.** Cloudflare Workers Builds can include/exclude paths per Worker, so a build
+   only fires when something it actually serves changes (`docs/`, `apps/`, `satellites/`,
+   `paragraph-analysis/`, the wrangler configs). One dashboard setting per Worker, five Workers, once
+   — and this whole class of waste disappears. ⚠ Verify the exclusion does not skip a build that
+   SHOULD happen: `bump-version.sh` touches `docs/` and the satellite `sw.js` files, so any pattern
+   must include all of them or a release silently does not deploy.
+2. **Collapsing `main` and `productionWeb`** (see plans/BACKLOG.md) halves the number of builds any
+   release costs, for the separate reason that the two branches are identical at every release.
+
 ### 🚩 PLANNING DOCS DO NOT GET A VERSION BUMP (Seth, 2026-08-07)
 
 **"Plan changes don't need version bumps or to be tested on staging, if all that's changed is

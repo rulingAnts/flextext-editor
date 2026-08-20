@@ -1,0 +1,22 @@
+-- Pairing-code migration (2026-08-20): the device and the researcher panel must show the SAME
+-- short code, in large type, on both screens, until both ends have approved the pairing.
+--
+-- WHY A STORED CODE RATHER THAN A DERIVED ONE. The obvious cheap version is to truncate the
+-- install's public-key fingerprint to six digits — no schema change, no deploy ordering. It is
+-- also weaker than the fingerprint it replaces: six digits is ~20 bits, so a device wanting to be
+-- approved in place of the expected one can generate keypairs offline until its own fingerprint
+-- starts with the same six digits, which is about a million tries. A code the WORKER mints is not
+-- something a device can steer, and it is valid only for the one pending pairing it belongs to.
+--
+-- ⚠ ADDITIVE AND NULLABLE, per the backend-first rule: the CURRENTLY DEPLOYED worker keeps working
+-- against a database carrying this column, because it never selects it. That is what allows this to
+-- be migrated and deployed before any client knows the column exists.
+--
+-- D1 has no IF NOT EXISTS for ADD COLUMN, so run ONCE; a second run errors harmlessly on
+-- "duplicate column name".
+--   wrangler d1 execute flextext-connectivity --remote --file=migrate-pair-code.sql
+
+-- Six decimal digits, minted at claim, shown on both screens, cleared when the researcher approves.
+-- NULL means "no pairing in progress" — an already-approved install, or one claimed by an engine
+-- from before this existed.
+ALTER TABLE install ADD COLUMN pair_code TEXT;

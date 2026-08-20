@@ -81,7 +81,7 @@ CREATE TABLE IF NOT EXISTS install (
   created_at    INTEGER NOT NULL,
   pubkey        TEXT,                         -- E2EE model A: install's RSA-OAEP public key (SPKI b64), sent at claim
   wrapped_key   TEXT                          -- E2EE model A: per-instance key Ki wrapped to this install's pubkey by the researcher (Worker NEVER sees Ki)
-, accepted INTEGER NOT NULL DEFAULT 0, wipe_state  TEXT, wipe_at     INTEGER, wipe_hidden INTEGER NOT NULL DEFAULT 0);
+, accepted INTEGER NOT NULL DEFAULT 0, wipe_state  TEXT, wipe_at     INTEGER, wipe_hidden INTEGER NOT NULL DEFAULT 0, pair_code TEXT);
 
 CREATE TABLE IF NOT EXISTS "instance" (
   instance_id   TEXT PRIMARY KEY,

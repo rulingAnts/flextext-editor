@@ -48,6 +48,7 @@
       "install_id",
       "instance_id",
       "last_seen_at",
+      "pair_code",
       "pubkey",
       "reported_blob",
       "reported_rev",

@@ -29,6 +29,28 @@ async function sha256hex(s) {
   return [...new Uint8Array(d)].map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+/* A six-digit pairing code — the number the device and the researcher panel both show, in large
+ * type, until the pairing is approved on both ends.
+ *
+ * ⚠ MINTED HERE, NOT DERIVED FROM THE DEVICE'S KEY, and that is the point of the whole change. The
+ * cheap version truncates the install's public-key fingerprint, which costs no schema and no deploy
+ * ordering — and is weaker than the fingerprint it replaces: six digits is ~20 bits, so a device
+ * wanting to be approved in place of the expected one can grind keypairs offline until its own
+ * fingerprint starts with the same six digits. A worker-minted code is not something a device can
+ * steer, and it belongs to exactly one pending pairing.
+ *
+ * ⚠ REJECTION SAMPLING, not `% 1000000`. The bias from folding 2^32 onto a million is small, but a
+ * biased pairing code is a smaller keyspace than it claims to be, and "small enough not to matter"
+ * is not a property anyone re-derives when they next read this. The loop discards the short tail
+ * above the last whole multiple of 1e6 and is expected to run ~1.0002 times. */
+function mintPairCode() {
+  const LIMIT = Math.floor(0x100000000 / 1000000) * 1000000;
+  const buf = new Uint32Array(1);
+  let n;
+  do { crypto.getRandomValues(buf); n = buf[0]; } while (n >= LIMIT);
+  return String(n % 1000000).padStart(6, '0');
+}
+
 // Constant-time compare of equal-length strings (hashes/tokens).
 function ctEq(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
@@ -2025,7 +2047,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         it.installs = (await env.DB.prepare(
           // Show live installs + ones with a wipe in flight (pending/confirmed) so the panel can render
           // the wipe state; hide ordinary-revoked (unlinked) and force-removed (wipe_hidden) rows.
-          'SELECT install_id, status, accepted, reported_blob, reported_rev, ack_seq, last_seen_at, pubkey, wipe_state, wipe_at, (wrapped_key IS NOT NULL) AS has_key FROM install WHERE instance_id=? AND wipe_hidden=0 AND (revoked=0 OR wipe_state IS NOT NULL)'
+          'SELECT install_id, status, accepted, pair_code, reported_blob, reported_rev, ack_seq, last_seen_at, pubkey, wipe_state, wipe_at, (wrapped_key IS NOT NULL) AS has_key FROM install WHERE instance_id=? AND wipe_hidden=0 AND (revoked=0 OR wipe_state IS NOT NULL)'
         ).bind(it.instance_id).all()).results || [];
       }
       // Owners see pending researcher requests to approve/decline (fellow owners excluded).
@@ -3247,7 +3269,11 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           'SELECT i.install_id FROM install i JOIN instance n ON n.instance_id=i.instance_id WHERE i.install_id=? AND i.instance_id=? AND n.researcher_id=?'
         ).bind(installId, instanceId, r.researcher_id).first();
         if (!owned) return j({ error: 'not_found' }, 404, origin, env);
-        await env.DB.prepare("UPDATE install SET status='approved' WHERE install_id=?").bind(installId).run();
+        /* ⚠ AND THE CODE GOES. It exists to be compared while a pairing is in progress; once the
+         * researcher has approved, both ends are done with it, and keeping it would ship a
+         * live-looking pairing code in every dashboard payload for the life of the device. NULL is
+         * also the signal the DEVICE reads to stop showing its pairing screen. */
+        await env.DB.prepare("UPDATE install SET status='approved', pair_code=NULL WHERE install_id=?").bind(installId).run();
         return j({ ok: true }, 200, origin, env);
       }
 
@@ -3586,10 +3612,14 @@ export async function handleV1(request, env, ctx, url, path, origin) {
 
     // Idempotent retry: this same install already won (lost-response recovery, §D.1).
     if (inv.claimed_at && inv.claimed_install === installId) {
-      const ok = await env.DB.prepare('SELECT install_id FROM install WHERE install_id=? AND instance_id=?').bind(installId, inv.instance_id).first();
+      const ok = await env.DB.prepare('SELECT install_id, pair_code FROM install WHERE install_id=? AND instance_id=?').bind(installId, inv.instance_id).first();
       if (ok) {
         const inst = await env.DB.prepare('SELECT n.type, r.display_name, r.avatar_url, r.drive_email FROM instance n JOIN researcher r ON r.researcher_id=n.researcher_id WHERE n.instance_id=?').bind(inv.instance_id).first();
-        return j({ instance_id: inv.instance_id, type: inst && inst.type, status: 'pending', researcher: inst ? { name: inst.display_name || '', avatar: inst.avatar_url || '', email: inst.drive_email || '' } : null }, 200, origin, env);
+        /* ⚠ THE SAME CODE, NOT A FRESH ONE. This is the lost-response retry path: the device is
+         * asking again because it never saw the first answer, and it may already be showing the code
+         * to a researcher who is reading it aloud. Re-minting here would change the number on one
+         * screen only — the exact "they don't match" dead end this feature exists to remove. */
+        return j({ instance_id: inv.instance_id, type: inst && inst.type, status: 'pending', pair_code: ok.pair_code || '', researcher: inst ? { name: inst.display_name || '', avatar: inst.avatar_url || '', email: inst.drive_email || '' } : null }, 200, origin, env);
       }
     }
     if (inv.claimed_at) return j({ error: 'already_claimed' }, 409, origin, env);
@@ -3598,11 +3628,12 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     // (guarded on still-unclaimed + not-expired), and revoke prior installs of the
     // instance (single-live-device, §D.4) only if THIS install wins the claim.
     const secretHash = await sha256hex(installSecret);
+    const pairCode = mintPairCode();
     await env.DB.batch([
       env.DB.prepare(
-        'INSERT OR IGNORE INTO install (install_id, instance_id, secret_hash, status, reported_rev, ack_seq, revoked, created_at, pubkey) ' +
-        "SELECT ?, instance_id, ?, 'pending', 0, 0, 0, ?, ? FROM invite WHERE invite_id=? AND claimed_at IS NULL AND (expires_at IS NULL OR expires_at>?)"
-      ).bind(installId, secretHash, now, pubkey, inviteId, now),
+        'INSERT OR IGNORE INTO install (install_id, instance_id, secret_hash, status, reported_rev, ack_seq, revoked, created_at, pubkey, pair_code) ' +
+        "SELECT ?, instance_id, ?, 'pending', 0, 0, 0, ?, ?, ? FROM invite WHERE invite_id=? AND claimed_at IS NULL AND (expires_at IS NULL OR expires_at>?)"
+      ).bind(installId, secretHash, now, pubkey, pairCode, inviteId, now),
       env.DB.prepare(
         'UPDATE invite SET claimed_at=?, claimed_install=? WHERE invite_id=? AND claimed_at IS NULL AND (expires_at IS NULL OR expires_at>?)'
       ).bind(now, installId, inviteId, now),
@@ -3615,7 +3646,11 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     const after = await env.DB.prepare('SELECT claimed_install FROM invite WHERE invite_id=?').bind(inviteId).first();
     if (!after || after.claimed_install !== installId) return j({ error: 'already_claimed' }, 409, origin, env);
     const inst = await env.DB.prepare('SELECT n.type, r.display_name, r.avatar_url, r.drive_email FROM instance n JOIN researcher r ON r.researcher_id=n.researcher_id WHERE n.instance_id=?').bind(inv.instance_id).first();
-    return j({ instance_id: inv.instance_id, type: inst && inst.type, status: 'pending', researcher: inst ? { name: inst.display_name || '', avatar: inst.avatar_url || '', email: inst.drive_email || '' } : null }, 200, origin, env);
+    /* ⚠ READ BACK rather than returning `pairCode`. The INSERT is OR IGNORE, so on the path where a
+     * row already existed the STORED code is the one both screens must show — trusting the local
+     * variable would hand this device a number the panel will never display. */
+    const mine = await env.DB.prepare('SELECT pair_code FROM install WHERE install_id=?').bind(installId).first();
+    return j({ instance_id: inv.instance_id, type: inst && inst.type, status: 'pending', pair_code: (mine && mine.pair_code) || '', researcher: inst ? { name: inst.display_name || '', avatar: inst.avatar_url || '', email: inst.drive_email || '' } : null }, 200, origin, env);
   }
 
   /* ---------------- Drive delivery mode (researcher-authed) ---------------- */

@@ -47,6 +47,15 @@ grant nobody revoked, and a deletion that visibly leaves access behind contradic
 means to the person who asked for it. Fix, constraints and ordering are in
 [`drive-scope-containment.md`](drive-scope-containment.md).
 
+⚠ **The same question about APPROVAL has a split answer, checked 2026-08-20.** Individual approval
+does NOT survive a deletion — approving writes only `approved=1` on that row, so a hand-approved
+researcher comes back PENDING. But **domain pre-approval does**, which means deleting the account of
+someone whose organisation's domain is on the list is not a removal at all: they reappear, approved,
+on their next sign-in. That mismatch between what deletion looks like and what it does is the part
+worth acting on, and the likely fix is a warning at the moment of the wrong expectation rather than
+new mechanism. ⚠ Not by remembering deleted addresses in order to refuse them — that retains personal
+data as a side effect of erasing it.
+
 ## TO-DO (when Fable is available): a system-resource and cheap-device audit (Seth, 2026-08-14)
 
 > *"An audit for system resources and cheap phone/laptop compatibility would be in order. Let's not

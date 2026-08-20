@@ -230,3 +230,41 @@ property, and deleting them is not what account deletion means.
 
 **Priority: low, as Seth put it.** It belongs behind the token-store isolation above, which addresses
 a live capability rather than a dormant one.
+
+### The related question: does APPROVAL survive a deletion too?
+
+> Seth, 2026-08-20: *"do we want an account to be automatically approved a second time? Probably
+> that's no problem, but it's a problem worth asking."*
+
+Worth asking, and the code gives a split answer — the individual half is already safe, the domain
+half is not, and it is the domain half that deserves the note.
+
+**Individual approval does NOT survive.** Approving a researcher runs exactly one statement,
+`UPDATE researcher SET approved=1 WHERE researcher_id=?`. It writes nothing to `approved_domain` and
+nothing outside that row, so deleting the account destroys the approval with it. Someone approved by
+hand, then deleted, comes back **pending** on their next sign-in and needs approving again. That is
+the behaviour one would want, and it is already what happens.
+
+⚠ **Domain pre-approval does survive, and that makes account deletion NOT a way to remove someone.**
+`isDomainApproved` checks the hashed domain against `approved_domain` on every sign-in. A researcher
+whose organisation's domain is on that list is auto-approved *every time they sign in*, including
+immediately after their account is deleted. Delete them and they simply reappear, approved, the next
+time they open the panel — and nothing on screen says why.
+
+That is the version of this worth acting on eventually, because it is a **mismatch between what
+deletion looks like and what it does**. The removal action for a domain-approved person is to take
+the domain off the list (or to have not approved by domain for that organisation); deleting the
+account is not it, and someone will one day expect it to be. The same is true a step further out for
+`ALLOWED_RESEARCHERS`: an env-listed owner is re-approved as an OWNER on sign-in, by design, and no
+database action can change that — which is the correct arrangement (no row can grant owner rights),
+but is another case where deletion is not removal.
+
+**If this is ever fixed, the shape is probably a panel that says so** rather than new mechanism: when
+an owner deletes or declines an account whose domain is pre-approved, tell them plainly that this
+person will be re-approved on their next sign-in and offer the domain list as the place to act. A
+warning at the moment of the wrong expectation is worth more than a policy change, and it cannot
+drift out of step with the approval rules the way a duplicated check would.
+
+⚠ Do NOT "fix" this by suppressing auto-approval for previously-deleted addresses. That would mean
+keeping a record of deleted people in order to refuse them — retaining personal data as a side effect
+of erasing it, which is the wrong trade for this suite whatever it buys.

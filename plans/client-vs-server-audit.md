@@ -18,6 +18,32 @@ about a present hole.
 
 ---
 
+## Disposition (Seth, 2026-08-20) — this audit does NOT authorise a refactor
+
+> *"Let's not be TOO crazy with major architecture changes that could break things and don't fix or
+> improve things in any significant way. But as we're building new things, definitely weighing what
+> should be server side and what should be client side and what we may want to move to or re-enforce
+> on the server side is worth auditing."*
+
+That is the correct reading of the findings, and it is recorded here so the ranked table below is
+never mistaken for a work order.
+
+**Nothing here is a migration of working code.** Item 1 is a comment. Items 2 and 3 are not moves at
+all — they are *"build Phase C right the first time"*, which costs nothing extra because that code
+does not exist yet and is the cheapest moment there will ever be to place it correctly. Item 4 is two
+small additive worker touches. Item 5 is new work, after Phase C.
+
+**And two findings are explicit recommendations to CHANGE NOTHING** (F3, F4), written up at length
+precisely so a future sweep for "client-side guards" does not treat them as a to-do list.
+
+⚠ **The standing rule this establishes for new work:** when building anything that decides what a
+person may reach, place the check server-side *at the moment it is written*. Retro-fitting one later
+means touching a working system for no visible feature, which is the risk Seth is right to refuse —
+so the way to avoid ever needing that is to not create the debt. Ask the placement question during
+design, not during audit.
+
+---
+
 ## The principle this audit is ranked by (Seth, 2026-08-20)
 
 > *"Gates that are client-side rather than server side are higher risk for break or collision and

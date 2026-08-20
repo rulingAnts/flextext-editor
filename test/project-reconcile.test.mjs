@@ -33,9 +33,9 @@ function d1(db) {
   const stmt = (sql) => ({
     sql, args: [],
     bind(...a) { this.args = a; return this; },
-    all() { return { results: db.prepare(sql).all(...this.args) }; },
-    first() { return db.prepare(sql).all(...this.args)[0] || null; },
-    run() { const r = db.prepare(sql).run(...this.args); writes++; return { meta: { changes: Number(r.changes) } }; },
+    async all() { return { results: db.prepare(sql).all(...this.args) }; },
+    async first() { return db.prepare(sql).all(...this.args)[0] || null; },
+    async run() { const r = db.prepare(sql).run(...this.args); writes++; return { meta: { changes: Number(r.changes) } }; },
   });
   return {
     DB: {

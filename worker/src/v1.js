@@ -438,6 +438,130 @@ async function authInstall(req, env, instanceId, installId) {
   return row;
 }
 
+/* ---------------- PROJECT AUTHORIZATION (Phase C) ----------------
+ *
+ * `authMember` is the ONE place that answers "may this researcher do this to this thing". II.4 calls
+ * for one helper and one shape, and the reason is invariant I1: with two places to ask, the second
+ * one is where the hole is.
+ *
+ * ⚠ IT DOES NOT RETURN A RESEARCHER ROW, and that is deliberate against the obvious alternative.
+ * Making it drop-in compatible with `authResearcher` — hand back one row and let call sites carry on
+ * — requires that row to be BOTH "whose Drive we act in" and "who is acting". For the owner those
+ * are the same researcher, which is exactly why the conflation would survive every single-member
+ * test and then mis-attribute every member action the day sharing ships. It is the same confusion
+ * `isOwner` → `isOperator` was renamed to prevent, one layer down.
+ *
+ * So the two are named separately and a converted route says which it means:
+ *   · `owner`  — the FULL researcher row of the project's owner. Whole-row on purpose: R2-5,
+ *                `driveAccessToken(env, row)` and `verifySecondFactor(row, …)` take rows, and ~56
+ *                call sites read fields straight off one. A synthesized object breaks them silently.
+ *   · `caller` — the FULL researcher row of whoever is actually making the request, for attribution
+ *                (`logApproval`, `wrapped_by`, command authorship). NEVER for Drive.
+ *
+ * ⚠ FAIL CLOSED (I4). Every unresolvable step — no such target, no project, no membership row,
+ * unparseable caps, a missing table — DENIES. It never falls back to `researcher_id` scoping, which
+ * would widen access at precisely the moment something is already wrong.
+ *
+ * ⚠ AND DENIAL IS INDISTINGUISHABLE FROM ABSENCE. `{ ok: false }` is returned whether the project
+ * does not exist, the caller is not a member, or they lack the capability — so a route can answer
+ * `not_found` for all three. A distinct "forbidden" would turn every endpoint into an oracle for
+ * which project and instance ids exist.
+ *
+ * Returns:
+ *   null                → not authenticated at all; the route answers 401, exactly as authResearcher
+ *   { ok: false }       → authenticated but not authorized; the route answers not_found
+ *   { ok: true, caller, owner, project_id, caps, isOwner, see }
+ *
+ * `target` is TYPED — `{ instance }`, `{ crowd }` or `{ project }` — never a bare id to be guessed
+ * at. An auth boundary that infers what it was handed is one id-collision away from resolving the
+ * wrong project.
+ *
+ * `needCap` is null (membership alone suffices — a read), a capability name (`manageDevices`,
+ * `assignTexts`, `createInvites`, `cancelOthers`), or `drive:read` / `drive:manage`.
+ */
+export async function authMember(req, env, target, needCap) {
+  const caller = await authResearcher(req, env);
+  if (!caller) return null;                       // 401 — no identity at all
+  const deny = { ok: false };
+
+  /* Resolve the target's project. Each branch reads the project_id off the row that OWNS the
+   * relationship, never off anything the caller sent. */
+  let project_id = '';
+  try {
+    if (target && target.instance) {
+      const row = await env.DB.prepare('SELECT project_id FROM instance WHERE instance_id=? AND revoked=0')
+        .bind(String(target.instance)).first();
+      project_id = (row && row.project_id) || '';
+    } else if (target && target.crowd) {
+      const row = await env.DB.prepare('SELECT project_id FROM crowd_recorder WHERE crowd_id=?')
+        .bind(String(target.crowd)).first();
+      project_id = (row && row.project_id) || '';
+    } else if (target && target.project) {
+      project_id = String(target.project);
+    }
+  } catch { return deny; }
+  /* ⚠ '' IS UNASSIGNED, NOT A PROJECT ID — the sentinel member_key has carried since v435, whose own
+   * write path warns Phase C must read it this way. Treating it as an id would make every
+   * unassigned row a member of one shared pseudo-project. */
+  if (!project_id) return deny;
+
+  const project = await env.DB.prepare('SELECT project_id, owner_id FROM project WHERE project_id=?')
+    .bind(project_id).first().catch(() => null);
+  if (!project || !project.owner_id) return deny;
+
+  /* The owner's row is fetched even when the caller IS the owner, rather than reusing `caller`: it
+   * keeps ONE definition of "the row Drive acts through", so a converted route cannot accidentally
+   * work for the owner via a path that would be wrong for a member. */
+  const owner = project.owner_id === caller.researcher_id
+    ? caller
+    : await env.DB.prepare('SELECT * FROM researcher WHERE researcher_id=?').bind(project.owner_id).first().catch(() => null);
+  if (!owner) return deny;
+
+  const isOwner = project.owner_id === caller.researcher_id;
+  if (isOwner) {
+    // The owner has no project_member row by construction (ownership is project.owner_id) and passes
+    // every capability. `see: 'all'` so callers need no separate owner branch when filtering.
+    return { ok: true, caller, owner, project_id, caps: {}, isOwner: true, see: 'all' };
+  }
+
+  let member = null;
+  try {
+    member = await env.DB.prepare('SELECT caps FROM project_member WHERE project_id=? AND researcher_id=?')
+      .bind(project_id, caller.researcher_id).first();
+  } catch (e) {
+    /* A missing table denies rather than throwing a 500 — but NOT silently. Same reasoning as the
+     * session lane: the degraded behaviour must be survivable and the missing migration must be
+     * visible, or it goes unnoticed until sharing mysteriously does not work. */
+    try { await secLog(env, req, 'project_member_table_missing', { error: String((e && e.message) || e).slice(0, 120) }); } catch { /* noop */ }
+    return deny;
+  }
+  if (!member) return deny;                       // not a member of this project
+
+  let caps = null;
+  try { caps = JSON.parse(member.caps || '{}'); } catch { caps = null; }
+  // ⚠ Unparseable caps DENY. "Grant nothing" is the only safe reading of a permission record we
+  // cannot read; defaulting to {} would be the same outcome by accident rather than by decision.
+  if (!caps || typeof caps !== 'object' || Array.isArray(caps)) return deny;
+
+  const see = caps.see === 'all' ? 'all' : (Array.isArray(caps.see) ? caps.see.map(String) : []);
+  /* PER-DEVICE OVERRIDE. A `see` list is a visibility allow-list, so a member with `manageDevices`
+   * still cannot touch a device outside it — the capability says what they may do, the list says to
+   * what. Checked here rather than per route so no route can forget it. */
+  if (target && target.instance && see !== 'all' && !see.includes(String(target.instance))) return deny;
+
+  if (needCap) {
+    const want = String(needCap);
+    if (want === 'drive:read') {
+      if (caps.drive !== 'read' && caps.drive !== 'manage') return deny;
+    } else if (want === 'drive:manage') {
+      if (caps.drive !== 'manage') return deny;
+    } else if (!caps[want]) {
+      return deny;
+    }
+  }
+  return { ok: true, caller, owner, project_id, caps, isOwner: false, see };
+}
+
 /* ---------------- Drive delivery (crowd submissions + researcher OAuth) ----------------
  *
  * ONE delivery path (2026-07-13, the Apps Script relay upload leg is RETIRED):

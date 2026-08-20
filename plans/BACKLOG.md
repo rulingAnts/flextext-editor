@@ -435,9 +435,46 @@ holds versus the containers Drive holds, `member_key` grants versus `project_mem
   Phase C that can drift apart
 - version skew across the five apps
 
+### The second half Seth asked for: capture the LOGS too, behind a UI BUTTON
+
+> *"maybe some kind of universal dump of all browser web dev tools logs that have anything to do
+> with our web app saved as a text file. And have a UI button that triggers it instead of just a
+> console function. … So then I can have my friend run that and send me the text file."*
+
+That last sentence is the requirement, and it changes the design: **the person running it is a field
+user who will not open a console.** A console-only helper cannot serve the case that motivated it.
+
+**Doable — with one honest boundary.** A web page CANNOT read the browser's DevTools console or
+Network history; no API exposes it, and none is coming. What it can do is **capture its own** from
+startup, which for our purposes is nearly the same thing because almost everything in that console
+is ours:
+
+| capture | how |
+|---|---|
+| our console output | wrap `console.log/warn/error/info` at the TOP of the entry module into a capped ring buffer |
+| uncaught errors | `window.onerror` + `unhandledrejection` (with stack) |
+| network | wrap our own `fetch` — method, path, status, duration, size. NEVER bodies or headers |
+| CSP violations | the `securitypolicyviolation` event |
+| service-worker logs | a separate context: the SW ring-buffers its own and `postMessage`s them on request |
+
+⚠ **State the blind spots in the file itself**, or the reader will assume silence means nothing
+happened: anything logged before the wrapper installs (little, if it is first), browser-generated
+console text we never see (a resource 404, the detailed CORS explanation behind an opaque fetch
+rejection), and other tabs.
+
+The button: Help menu is the natural home — and the **admin drawer** (seven taps) is the natural
+place for it if it should not clutter a field translator's UI. Output is one text file via a Blob
+download, combining the state dump above and the captured log, so there is exactly ONE artefact to
+send rather than two to correlate.
+
+⚠ **Cap the buffer and say so.** A ring buffer means a long session DROPS its oldest entries — and
+the interesting event is often the first one. Record the drop count in the header so a truncated log
+announces itself instead of reading as a complete one.
+
 ### Constraints, from rules this repo already enforces
 
-- ⚠ **A console entry point, NEVER a keyboard shortcut** — the existing rule, and its reason is
+- ⚠ **A UI button AND a console entry point.** The button is the requirement (a field user sends
+  the file); the console name is for us. NEVER a keyboard shortcut — the existing rule, and its reason is
   concrete: a ⌃⌥E binding could never fire on a Mac, because Option+E is a dead key. Register it
   beside `fxUpdate()` / `fxLinks()` / `fxProjects()` and document it in DEVELOPERS.md, which is
   where the list lives.

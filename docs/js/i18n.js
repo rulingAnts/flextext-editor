@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v431';
+export const ENGINE_VERSION = 'v432';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -414,7 +414,12 @@ en: {
   'para.ungroupDemoted': 'That group was the HEAD of the group above it. Its members have joined that group as ordinary members, so the group above is now a symmetrical (coordinate) join with no head. Set a new head there if you want one.',
   'panel.deprecated.coworkers': 'Moving your coworkers (upload first!)',
   'panel.inst.legacyBadge': 'old address',
-  'panel.inst.legacyTip': 'This device is still on the old web address. It keeps working and keeps syncing for now — the old addresses will not be supported forever, though no end date is set yet. Move it when it suits their workload, and upload everything before you delete anything.',
+  /* ⚠ REWRITTEN 2026-08-20, when the mirrors were retired. The old text said the addresses "will not
+   * be supported forever, though no end date is set yet" — true when written, and now stale: updates
+   * have STOPPED. It also missed the consequence that actually bites, which is not the device
+   * freezing but the SKEW: the researcher panel keeps advancing while the device does not, and the
+   * two negotiate over commands, inventory shapes and engine versions. */
+  'panel.inst.legacyTip': 'This device is still on the old web address, which has stopped receiving updates. It keeps working and keeps syncing today. \u26a0 But your researcher panel does keep updating, so the gap between them will grow and something between the two is likely to break eventually. Move it when it suits their workload: upload everything first, then unlink the device and send a fresh invite link. Nothing needs deleting.',
   'panel.deprecated.dismiss': 'Hide until next time',
   'panel.crowd.turnstile': 'Block bots (Turnstile)',
   'panel.crowd.turnstileNote': 'Invisibly blocks automated abuse; real people only rarely see a quick challenge. Leave it on unless it causes problems.',
@@ -689,14 +694,24 @@ en: {
    * installed app with empty storage — the texts on this device do not follow, and nothing can carry
    * them across. Upload FIRST; after re-pairing on the new site, anything not uploaded is stranded
    * here. Texts do not need deleting, only uploading — they come back by assignment. */
-  'legacy.warn': 'This device is paired using an old website that is no longer receiving updates.',
+  /* ⚠ THE INCENTIVE HAD TO BE INVERTED (Seth, 2026-08-20). The first wording sold the move as access
+   * to improvements — which, to the person who most needs to move, reads as an argument for STAYING:
+   * "no new updates" is good news to someone who hates learning anything he does not have to.
+   *
+   * So the message leads with CONTINUITY, not novelty. What he cares about is that it keeps working,
+   * and the honest fact is that it will not: the researcher's side keeps moving and the gap grows.
+   * Moving now is the cheap version of a move that happens either way. No countdown, no nagging, no
+   * doing it for him — the case is made once and the choice is left with him. */
+  'legacy.warn': 'This device is using an old website that has stopped receiving updates. It works today, but in time it will stop working properly with your researcher\u2019s system.',
   'legacy.how': 'How to move it to the new site',
   'legacy.title': 'Moving this device to the new site',
-  'legacy.why': 'The new site is a separate app on your device, so the texts stored here do not move across on their own. Upload them first and they will come back to the new one.',
+  'legacy.why': 'Nothing changes about how you work \u2014 the new site is the same app at a new address. Moving now takes a few minutes. Leaving it means doing the same move later, in the middle of something, after it has already stopped working.',
   'legacy.step1': 'Upload every text on this device, so nothing is left behind. You do not need to delete anything.',
-  'legacy.step2': 'Ask your researcher to unlink this device and send you a new invite link.',
+  'legacy.step2': 'Ask your researcher to unlink this device and send you a new invite link. They do this from their side \u2014 there is nothing for you to set up.',
   'legacy.step3': 'Open the new link and pair again. Your researcher can then send your texts back to you.',
-  'legacy.keep': 'Until you do this, the app here keeps working \u2014 it just stops getting improvements and fixes.',
+  /* ⚠ Says what staying COSTS, without a deadline nobody can honour. The skew is the real mechanism:
+   * the researcher's side keeps advancing, this one does not, and the two talk to each other. */
+  'legacy.keep': 'Your texts are safe either way \u2014 this is not urgent today. But the researcher\u2019s side keeps being updated while this one no longer is, so the two will drift apart until something between them stops working. There is no deadline; it is simply easier now than later.',
   'legacy.close': 'Close',
   'webkit.warning': 'This app does not fully work in Safari, or in any browser on an iPhone or iPad. On Apple phones and tablets, even Chrome and Firefox secretly use Safari underneath, so switching browsers there will not help. On a Mac, use Chrome or Firefox instead of Safari. On an iPhone or iPad, switch to a computer (Windows, Mac, or Linux) or an Android device.',
 
@@ -1210,7 +1225,7 @@ internet after the first time.</p>
   'panel.proj.flatTag': 'update needed',
   /* ⚠ NOT A PITCH (\u00a716.28). Projects are one-way, permanent and for everyone, so this says what
    * is going to happen and why it is safe \u2014 never why you might like it. */
-  'panel.proj.introFlat': 'Your Google Drive folders are still in the old layout. FlexText now keeps every device, crowd recorder and unassigned text inside a project folder, which is what lets a project be shared with another researcher without giving away the rest. Your folders need to be moved once. Nothing is copied, renamed or deleted, and every text keeps its own folder and files exactly as they are.',
+  'panel.proj.introFlat': 'FlexText keeps every device, crowd recorder and unassigned text inside a project folder, which is what lets a project be shared with another researcher without giving away the rest. Setting yours up takes one step. Nothing is copied, renamed or deleted, and every text keeps its own folder and files exactly as they are.',
   'panel.proj.setup': 'Update the folder layout\u2026',
   'panel.proj.finish': 'Finish setting up\u2026',
   'panel.proj.setupTitle': 'Update the folder layout',
@@ -1219,6 +1234,11 @@ internet after the first time.</p>
   'panel.proj.setupIntro': 'These folders will move in Google Drive. Nothing is copied, renamed or deleted, and every text keeps its own folder and its files exactly as they are.',
   'panel.proj.planCount': '{n} folder(s) would move under the project:',
   'panel.proj.planNone': 'Nothing needs to move \u2014 everything is already where it should be.',
+  /* An account with no devices yet still needs its project folder; the migration creates one
+   * whether or not anything moves. Saying "nothing needs to move" and disabling the button left
+   * these accounts prompted and blocked. */
+  'panel.proj.planEmptyNew': 'You have nothing to move yet. This just creates your project, ready for your first device.',
+  'panel.proj.goEmpty': 'Create my project',
   'panel.proj.kind.device': 'device',
   'panel.proj.kind.crowd': 'crowd recorder',
   'panel.proj.kind.unassigned': 'unassigned texts',
@@ -2165,7 +2185,7 @@ id: {
   'para.ungroupDemoted': 'Kelompok itu adalah HEAD dari kelompok di atasnya. Anggotanya kini bergabung sebagai anggota biasa, sehingga kelompok di atas menjadi gabungan simetris (koordinat) tanpa head. Tetapkan head baru di sana jika Anda menginginkannya.',
   'panel.deprecated.coworkers': 'Memindahkan rekan kerja (kirim dulu!)',
   'panel.inst.legacyBadge': 'alamat lama',
-  'panel.inst.legacyTip': 'Perangkat ini masih memakai alamat web lama. Untuk saat ini tetap berfungsi dan tersinkronisasi — tetapi alamat lama tidak akan didukung selamanya, walaupun tanggal akhirnya belum ditetapkan. Pindahkan saat sesuai dengan beban kerja mereka, dan kirim semuanya sebelum menghapus apa pun.',
+  'panel.inst.legacyTip': 'Perangkat ini masih memakai alamat web lama, yang sudah berhenti menerima pembaruan. Hari ini masih berfungsi dan tersinkronisasi. \u26a0 Tetapi panel peneliti Anda tetap diperbarui, sehingga selisih antara keduanya akan makin besar dan cepat atau lambat ada yang tidak cocok lagi. Pindahkan saat sesuai dengan beban kerja mereka: unggah semuanya dulu, lalu lepas tautan perangkat dan kirim tautan undangan baru. Tidak ada yang perlu dihapus.',
   'panel.deprecated.dismiss': 'Sembunyikan sampai lain kali',
   'panel.crowd.turnstile': 'Blokir bot (Turnstile)',
   'panel.crowd.turnstileNote': 'Memblokir penyalahgunaan otomatis tanpa terlihat; orang sungguhan hanya sesekali melihat tantangan singkat. Biarkan aktif kecuali menimbulkan masalah.',
@@ -2421,14 +2441,14 @@ id: {
   'install.text': 'Aplikasi ini bisa dipasang di perangkat Anda — setelah itu bisa dipakai tanpa internet, seperti aplikasi biasa.',
   'install.btn': 'Pasang aplikasi',
   'install.done': 'Aplikasi terpasang — cari di layar utama atau desktop.',
-  'legacy.warn': 'Perangkat ini dipasangkan lewat situs lama yang sudah tidak lagi menerima pembaruan.',
+  'legacy.warn': 'Perangkat ini memakai situs lama yang sudah berhenti menerima pembaruan. Hari ini masih berfungsi, tetapi lama-kelamaan tidak akan cocok lagi dengan sistem peneliti Anda.',
   'legacy.how': 'Cara memindahkannya ke situs baru',
   'legacy.title': 'Memindahkan perangkat ini ke situs baru',
-  'legacy.why': 'Situs baru adalah aplikasi terpisah di perangkat Anda, jadi teks yang tersimpan di sini tidak ikut berpindah dengan sendirinya. Unggah dulu, nanti teksnya kembali di aplikasi yang baru.',
+  'legacy.why': 'Cara kerja Anda tidak berubah \u2014 situs baru adalah aplikasi yang sama di alamat baru. Pindah sekarang hanya perlu beberapa menit. Menundanya berarti melakukan pemindahan yang sama nanti, di tengah pekerjaan, setelah semuanya terlanjur berhenti berfungsi.',
   'legacy.step1': 'Unggah semua teks di perangkat ini supaya tidak ada yang tertinggal. Anda tidak perlu menghapus apa pun.',
-  'legacy.step2': 'Minta peneliti Anda melepas tautan perangkat ini dan mengirimkan tautan undangan yang baru.',
+  'legacy.step2': 'Minta peneliti Anda melepas tautan perangkat ini dan mengirimkan tautan undangan yang baru. Itu dilakukan dari sisi mereka \u2014 Anda tidak perlu menyiapkan apa pun.',
   'legacy.step3': 'Buka tautan baru itu lalu pasangkan lagi. Peneliti Anda kemudian dapat mengirimkan teks-teks Anda kembali.',
-  'legacy.keep': 'Sampai Anda melakukannya, aplikasi di sini tetap berjalan \u2014 hanya saja tidak lagi mendapat perbaikan dan peningkatan.',
+  'legacy.keep': 'Teks Anda aman dalam hal apa pun \u2014 ini tidak mendesak hari ini. Namun sisi peneliti terus diperbarui sementara sisi ini tidak, jadi keduanya akan makin berbeda sampai ada yang tidak lagi berfungsi. Tidak ada tenggat; hanya saja sekarang lebih mudah daripada nanti.',
   'legacy.close': 'Tutup',
   'webkit.warning': 'Aplikasi ini tidak berfungsi penuh di Safari, atau di browser apa pun pada iPhone atau iPad. Di ponsel dan tablet Apple, bahkan Chrome dan Firefox memakai Safari di belakang layar, jadi berganti browser di sana tidak akan membantu. Di Mac, pakai Chrome atau Firefox, bukan Safari. Di iPhone atau iPad, gunakan komputer (Windows, Mac, atau Linux) atau perangkat Android.',
 
@@ -2907,6 +2927,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.proj.setupIntro': 'Folder-folder ini akan dipindahkan di Google Drive. Tidak ada yang disalin, diganti nama, atau dihapus, dan setiap teks tetap memiliki foldernya sendiri beserta berkasnya.',
   'panel.proj.planCount': '{n} folder akan dipindahkan ke dalam proyek:',
   'panel.proj.planNone': 'Tidak ada yang perlu dipindahkan \u2014 semuanya sudah pada tempatnya.',
+  'panel.proj.planEmptyNew': 'Belum ada yang perlu dipindahkan. Ini hanya membuat proyek Anda, siap untuk perangkat pertama.',
+  'panel.proj.goEmpty': 'Buat proyek saya',
   'panel.proj.kind.device': 'perangkat',
   'panel.proj.kind.crowd': 'perekam publik',
   'panel.proj.kind.unassigned': 'teks tidak tertugas',

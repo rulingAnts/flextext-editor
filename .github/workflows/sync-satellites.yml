@@ -23,12 +23,21 @@
 
 name: Publish satellites
 
+# ⚠ RETIRED (Seth, 2026-08-20). The push trigger is GONE: the three legacy GitHub Pages mirrors keep
+# SERVING exactly what they serve today, and keep working for whoever is on them, but they stop
+# receiving updates. That is the whole retirement strategy — "the old satellite sites still keep
+# serving what they're serving, and functioning as they function now, but don't keep pushing updates
+# to them anymore. And warn the user. Just that."
+#
+# ⚠ THE FILE IS KEPT, NOT DELETED, and `workflow_dispatch` still works — so a mirror can be published
+# deliberately if one ever has to be. Deleting it would also delete the ordering GATE below (wait for
+# the live editor, 200-check every precached path), which is the thing that prevented the v108 outage
+# and is worth keeping readable even in retirement.
+#
+# ⚠ What this does NOT do: it does not take any site down, and it does not touch the legacy EDITOR at
+# rulingants.github.io/flextext-editor/, which is published by this repo's own GitHub Pages and is a
+# separate decision.
 on:
-  push:
-    branches: [productionWeb]
-    paths:
-      - 'satellites/**'
-      - 'docs/**'
   workflow_dispatch:
     inputs:
       only:

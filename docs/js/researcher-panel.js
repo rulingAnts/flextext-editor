@@ -4482,7 +4482,14 @@ async function projectsRunToEnd(apply, say) {
 }
 
 function projectPlanHtml(plan) {
-  if (!plan.count) return `<p class="note">${esc(t('panel.proj.planNone'))}</p>`;
+  /* ⚠ NOTHING TO MOVE IS NOT NOTHING TO DO. A researcher with no devices yet — a brand-new account,
+   * or one that predates all this and never added anything — still needs their project folder, and
+   * the migration creates it whether or not anything moves. The first version disabled the button on
+   * `count === 0`, so those accounts were told their folders needed updating and then prevented from
+   * updating them: prompted, blocked, with no way forward. */
+  if (!plan.count) {
+    return `<p class="note">${esc(t(plan.wouldCreateProject ? 'panel.proj.planEmptyNew' : 'panel.proj.planNone'))}</p>`;
+  }
   return `<p class="note">${esc(t('panel.proj.planCount', { n: plan.count }))}</p>
     <ul class="rp-proj-plan">${plan.moves.map((mv) =>
       `<li>${esc(mv.name || '?')} <span class="note">${esc(t('panel.proj.kind.' + (mv.kind === 'crowd' ? 'crowd' : mv.kind === 'unassigned' ? 'unassigned' : 'device')))}</span></li>`).join('')}</ul>`;
@@ -4518,7 +4525,7 @@ async function projectsSetupModal() {
     <div class="rp-adm-say" id="rp-proj-say" hidden></div>
     <div class="modal-actions">
       <button class="secondary-btn" data-m="cancel">${esc(t('panel.assign.cancel'))}</button>
-      <button class="primary-btn" data-m="go"${plan.count ? '' : ' disabled'}>${esc(t('panel.proj.go'))}</button>
+      <button class="primary-btn" data-m="go"${(plan.count || plan.wouldCreateProject) ? '' : ' disabled'}>${esc(t(plan.count ? 'panel.proj.go' : 'panel.proj.goEmpty'))}</button>
     </div>`);
   const say = (txt) => { const el = m.el.querySelector('#rp-proj-say'); el.hidden = false; el.className = 'rp-adm-say'; el.textContent = txt; };
   m.el.querySelector('[data-m="cancel"]').onclick = m.close;

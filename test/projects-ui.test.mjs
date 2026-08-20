@@ -108,8 +108,18 @@ test('projects UI', async () => {
   {
     const en = (k) => (i18n.match(new RegExp(`'${k.replace(/\./g, '\\.')}': '([^']*)'`)) || [])[1] || '';
     const intro = en('panel.proj.introFlat');
-    ok(/need|must/i.test(intro), 'the intro says the move is NEEDED');
+    /* ⚠ REWORDED. It said "your folders are still in the OLD LAYOUT", which is false for a brand-new
+     * account that has no folders at all — and those accounts were the ones getting stuck. It still
+     * states the setup as a step to take, not an option to consider. */
+    ok(/takes one step|need|must/i.test(intro), 'the intro states setup as a step, not an option');
     ok(!/keeps several bodies of work apart/i.test(intro), '...and no longer pitches it as a way to organise');
+    /* ⚠ THE STUCK ACCOUNT. A researcher with no devices was told to update and then handed a disabled
+     * button: prompted, blocked, no way forward. The migration creates the project folder whether or
+     * not anything moves, so the only thing in the way was the client. */
+    ok(/\(plan\.count \|\| plan\.wouldCreateProject\) \? '' : ' disabled'/.test(panel),
+       'an account with nothing to move can still create its project');
+    ok(/panel\.proj\.planEmptyNew/.test(panel) && /panel\.proj\.goEmpty/.test(panel),
+       '...and is told that is what the button does, rather than "nothing needs to move"');
     ok(!/you can undo/i.test(en('panel.proj.setupIntro')),
        'the confirm step does not advertise reversibility');
     /* ⚠ But the PREVIEW is not what "not optional" removes. The destination is mandatory; acting

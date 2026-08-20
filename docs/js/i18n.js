@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v432';
+export const ENGINE_VERSION = 'v433';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -766,6 +766,10 @@ internet after the first time.</p>
   'panel.signin.btn': 'Sign in with Google',
   'panel.signin.connecting': 'Connecting…',
   'panel.signin.expired': 'Your session expired — please sign in again.',
+  /* Shown when Google sign-in succeeded but the Drive permission was left unticked. Says what the
+   * permission is FOR before it says what to do — "grant this scope" means nothing to a translator,
+   * and the honest reason (their work lives in their own Drive) is also the reassuring one. */
+  'panel.signin.driveRequired': 'FlexText keeps your texts and recordings in your own Google Drive, so that permission is not optional. Please sign in again and leave the Google Drive box ticked.',
   'panel.conn.title': 'Reconnecting',
   'panel.conn.offline': 'Can’t reach the server right now. The app keeps retrying automatically — you stay signed in, and it recovers on its own when the connection comes back.',
   'panel.conn.reconnecting': 'Reconnecting… (retrying automatically)',
@@ -2504,6 +2508,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.signin.btn': 'Masuk dengan Google',
   'panel.signin.connecting': 'Menghubungkan…',
   'panel.signin.expired': 'Sesi Anda berakhir — silakan masuk lagi.',
+  'panel.signin.driveRequired': 'FlexText menyimpan teks dan rekaman Anda di Google Drive Anda sendiri, jadi izin itu tidak opsional. Silakan masuk lagi dan biarkan kotak Google Drive tetap tercentang.',
   'panel.conn.title': 'Menyambung ulang',
   'panel.conn.offline': 'Tidak dapat menghubungi server saat ini. Aplikasi terus mencoba lagi otomatis — Anda tetap masuk, dan akan pulih sendiri saat koneksi kembali.',
   'panel.conn.reconnecting': 'Menyambung ulang… (mencoba lagi otomatis)',

@@ -5,6 +5,36 @@
 > one is the way in.
 
 
+## NEXT, IN ORDER (Seth, 2026-08-20) — the queue after v433
+
+Recorded verbatim because the order is his and it is not the order the work naturally suggests.
+
+1. **The GitHub → Cloudflare build process.** Blocking everything below it: *"we need to fix our
+   GitHub->Cloudflare build process before going any farther."* Already decided (2026-08-19): two
+   MANUAL wrangler workflows — one for `staging`, one for `productionWeb` — calling a single
+   reusable workflow, and Cloudflare's git integration disconnected so a repo push stops building
+   anything. It is the root fix for the build-collision rule that this file and CLAUDE.md both carry
+   several paragraphs of workarounds for, and Seth's reason is cost as much as correctness: *"that's
+   costing us a lot on the speed of our development. And also probably AI tokens."*
+   ⚠ Touching `.github/workflows/**` needs his explicit OK plus a cost estimate first.
+
+2. **Multiple researchers sharing a project.** *"an owner inviting and able to revoke and have
+   granular access controls for a guest/assistant researcher."* The isolation requirement is already
+   locked in `plans/project-split.md` II.5c and is absolute: an invited researcher gets no access of
+   ANY kind — UI, API, Drive permission, worker endpoint, JS object — outside what they were given,
+   and all of it revokable. Seth asked for *"some planning discussion first before we move straight
+   to implementation."*
+
+3. **Movement between owners**, which the item above makes possible and which is its own design
+   problem: *"the ability to transfer devices across projects with different owners and also
+   transfer ownership/Google Drive root parentage between researchers."*
+   ⚠ The second half is the hard one and should not be waved through with the first. Every folder in
+   an estate lives in ONE researcher's Drive under `drive.file` scope — the scope only reaches files
+   this app created FOR THAT USER — so transferring ownership is not a re-parent, it is a change of
+   which Google account holds the bytes. Drive's own ownership transfer, a copy-and-repoint, and
+   "leave the bytes and move the index" are three genuinely different products with different
+   failure modes. Decide which one it is before building any of it.
+
 ## TO-DO (when Fable is available): a system-resource and cheap-device audit (Seth, 2026-08-14)
 
 > *"An audit for system resources and cheap phone/laptop compatibility would be in order. Let's not

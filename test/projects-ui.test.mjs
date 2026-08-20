@@ -45,9 +45,45 @@ test('projects UI', async () => {
     ok(/if \(!projects\.length\)/.test(card), 'it branches on whether any project folder exists');
     ok(/data-pact="setup"/.test(card), 'and offers setup rather than performing it');
     /* ⚠ A render function that CALLED the migration would migrate on every repaint, including the
-     * 12s poll. Rendering must stay free of side effects. */
+     * 12s poll. Rendering must stay free of side effects — with ONE exception, below, which is
+     * allowed precisely because it can never move anything. */
     ok(!/projectsMigrate|projectsUnmigrate|projectRename/.test(card),
        'rendering calls no project route at all — a repaint must never move a folder');
+  }
+
+  /* ⚠ AN ACCOUNT WITH NOTHING TO MOVE IS NEVER SHOWN THE MIGRATION CARD (Seth, 2026-08-20).
+   *
+   * v432 fixed the wrong half of this: it noticed that an account with no devices met the card and
+   * then a DISABLED button, and enabled the button. But a brand-new researcher should simply START
+   * in the project layout, and an older empty account should arrive there without being told its
+   * folders are wrong and asked to authorise a repair — "an unsettling sounding extra step" for
+   * people who have nothing wrong with them. Four of the seven production accounts have no devices.
+   *
+   * The rules that keep this honest:
+   *   - the decision comes from the WORKER's dry run — the same call the modal previews with — not
+   *     from a second client-side guess at "is this estate empty", which could drift from it;
+   *   - it acts only when `count` is 0, so it can create folders and can never move one;
+   *   - it runs at most once per panel session, or the 12s poll would re-ask forever;
+   *   - a FAILED check falls through to the card, because offering a button that works beats hiding
+   *     the only way forward — which is the exact trap v432 climbed out of. */
+  console.log('\nan estate with nothing to move is set up silently, and the card never appears');
+  {
+    const card = fn('function renderProjectsCard');
+    const ens = fn('async function ensureProjectLayout');
+    ok(/layoutState === 'idle' \|\| layoutState === 'running'/.test(card),
+       'while the check is pending the flat-estate card renders NOTHING');
+    ok(/return '';/.test(card.slice(card.indexOf('layoutState'))), '...it returns an empty string, not a placeholder');
+    ok(!!ens, 'the silent path exists');
+    ok(ens.indexOf('dry: true') < ens.indexOf('dry: false'),
+       'it asks the worker what would move BEFORE it acts');
+    ok(/if \(plan && !plan\.count\)/.test(ens),
+       '⚠ it acts ONLY when the worker says nothing would move — never on a plan with moves in it');
+    ok(/layoutState = 'done'/.test(ens) && /layoutState = 'failed'/.test(ens),
+       'both outcomes are terminal: the poll cannot re-run this');
+    ok(/estateSettle\(true\)/.test(ens),
+       "...and it waits out Drive's lagging search index before repainting");
+    ok(/catch \{ layoutState = 'failed'; \}/.test(ens) && /renderFromSettledEstate\(\)/.test(ens),
+       'a failure re-renders, which is what puts the manual card back on screen');
   }
 
   console.log('\nevery action previews first, and dry:false only ever comes from a press');

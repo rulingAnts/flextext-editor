@@ -285,7 +285,10 @@ function applyUrlSettings() {
     // researcher panel's consumeGauth() reads it LATER in setup(), so stripping
     // it here would silently drop the session and bounce back to the sign-in
     // screen. route() consumes + strips it once the creds are saved.
-    const keepHash = /[#&]gauth=/.test(location.hash || '') ? location.hash : '';
+    // `gauth(_error)?=`: the worker now also returns #gauth_error=drive_required when Google
+    // sign-in succeeded but Drive access was declined. Same rule — the panel reads it later, so
+    // stripping it here would swallow the only explanation the researcher is going to get.
+    const keepHash = /[#&]gauth(_error)?=/.test(location.hash || '') ? location.hash : '';
     history.replaceState(null, '', location.pathname + keepHash);
   }
   return { gotSettings, settingsChanged, task };

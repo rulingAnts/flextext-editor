@@ -788,6 +788,16 @@ function close() { stopDashPoll(); deps.goHome(); }
 
 async function route() {
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+  /* Returning from Google having DECLINED Drive. The worker refuses to create (or to half-update)
+   * an account that cannot reach Drive, and sends the researcher back with this fragment instead of
+   * a session — so the panel has to explain it, or the trip looks like sign-in simply failed.
+   * Checked BEFORE consumeGauth because there is no session in this fragment to consume. */
+  const declined = /[#&]gauth_error=([^&]+)/.exec(location.hash || '');
+  if (declined) {
+    try { history.replaceState(null, '', location.pathname + location.search); } catch { /* noop */ }
+    return renderSignIn(t(decodeURIComponent(declined[1]) === 'drive_required'
+      ? 'panel.signin.driveRequired' : 'panel.signin.expired'));
+  }
   // Returning from Google? Consume #gauth=<id>.<token>, then strip it from the address bar.
   if (Researcher.consumeGauth()) { try { history.replaceState(null, '', location.pathname + location.search); } catch { /* noop */ } }
   if (!Researcher.isSignedUp()) return renderSignIn();
@@ -4388,6 +4398,41 @@ function projectOf(estate, folderId) {
   return ((estate && estate.projects) || []).find((p) => p.folderId === folderId) || null;
 }
 
+/* Drives the silent path above.
+ *
+ * ⚠ IT REUSES THE MIGRATE ROUTE, AND THAT IS NOT A MISNOMER TO FIX WITH A SECOND ENDPOINT. With
+ * nothing to move, `projects/migrate` does exactly one thing: `driveEnsureDefaultProject`, which
+ * creates the master folder and the project folder if they do not exist. For a BRAND-NEW account
+ * that is not a migration at all — it is the estate being created correctly in the first place,
+ * which is precisely what should happen. Adding a second route that made the same two Drive calls
+ * would give the "where does a project come from" question two answers, and two answers is how they
+ * start to differ.
+ * A tiny state machine rather than a bare boolean because
+ * `renderProjectsCard` runs on every dashboard paint INCLUDING the poll's, so the three states it
+ * has to tell apart are "not asked yet", "asking — draw nothing" and "asked, draw the answer".
+ * Deliberately once per panel session: a researcher who declines nothing and simply has containers
+ * to move should not re-run a dry run every poll. */
+let layoutState = 'idle';          // idle | running | done | failed
+
+async function ensureProjectLayout() {
+  if (layoutState !== 'idle') return;
+  layoutState = 'running';
+  try {
+    const plan = await Researcher.projectsMigrate({ dry: true });
+    if (plan && !plan.count) {
+      /* Nothing moves, so there is nothing to preview and nothing to consent to — the call only
+       * creates the folder this account was always going to need. `name` is passed because the
+       * worker cannot know what language the researcher reads. */
+      await Researcher.projectsMigrate({ name: t('panel.proj.defaultName'), dry: false });
+      layoutState = 'done';
+      await estateSettle(true);      // Drive's search index lags the write; render the settled shape
+    } else {
+      layoutState = 'done';          // there IS something to move → the card takes it from here
+    }
+  } catch { layoutState = 'failed'; }
+  renderFromSettledEstate();
+}
+
 function renderProjectsCard(estate) {
   if (!estate || !Array.isArray(estate.devices)) return '';
   const projects = estate.projects || [];
@@ -4398,6 +4443,28 @@ function renderProjectsCard(estate) {
    * panel must not teach otherwise. The dry-run preview is NOT what "not optional" removes — the
    * researcher still sees which folders will move before they move. */
   if (!projects.length) {
+    /* ⚠ AN ACCOUNT WITH NOTHING TO MOVE MUST NOT BE ASKED TO MOVE IT (Seth, 2026-08-20).
+     *
+     * v432 fixed the wrong half. It noticed that an account with no devices was shown the migration
+     * card and then handed a DISABLED button, and it enabled the button. But a researcher who has
+     * nothing to migrate should never meet the card at all: a brand-new account should simply START
+     * in the project layout, and an older empty one should arrive there without being told its
+     * folders are wrong and asked to authorise a repair. The step is unsettling precisely because it
+     * sounds like something is broken — and for these accounts nothing is.
+     *
+     * So: on a flat estate, ASK THE WORKER what would move before drawing anything. Nothing to move
+     * ⇒ run the migration silently (it creates the project folder, and on a truly new account the
+     * master folder too) and re-render into the normal dashboard. Something to move ⇒ the card
+     * appears, unchanged, because those moves SHOULD be previewed and consented to.
+     *
+     * ⚠ The predicate is the worker's own dry run — the same call the modal previews with — and not
+     * a second client-side guess at "is this estate empty". A local guess would be one more thing
+     * that can disagree with the worker as the estate shape evolves; this cannot drift, because
+     * there is only one answer and both paths read it.
+     *
+     * A FAILED check falls through to the card. Offering a manual button that works is a much better
+     * failure than hiding the only way forward, which is the trap v432 was already dug out of. */
+    if (layoutState === 'idle' || layoutState === 'running') { ensureProjectLayout(); return ''; }
     return `<div class="rp-card rp-projects">
       <div class="rp-inst-top"><span class="rp-inst-name">${esc(t('panel.proj.title'))}</span>
         <span class="rp-badge rp-badge-type">${esc(t('panel.proj.flatTag'))}</span></div>

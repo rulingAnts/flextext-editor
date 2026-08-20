@@ -132,8 +132,6 @@ async function hmacHex(keyStr, msg) {
 }
 // Email lookup key — HMAC so a D1 dump can't confirm an address without SERVER_HMAC_KEY.
 function emailKey(email, env) { return hmacHex(env.SERVER_HMAC_KEY || '', 'email:' + normEmail(email)); }
-// Stable dummy salt for unknown emails → /salt never reveals whether an account exists.
-async function dummySalt(email, env) { return (await hmacHex(env.SERVER_HMAC_KEY || '', 'salt:' + normEmail(email))).slice(0, 22); }
 
 // AES-GCM key derived from SERVER_HMAC_KEY — encrypts email + TOTP secret AT REST (so a bare
 // D1 dump leaks neither).
@@ -156,14 +154,6 @@ async function decAtRest(env, token) {
     const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64urlToBytes(iv) }, key, b64urlToBytes(ct));
     return new TextDecoder().decode(pt);
   } catch { return null; }
-}
-
-// Recover the data key Kr from its escrow copy (RSA-OAEP) using the Worker escrow private key.
-// Returns Kr's raw bytes (b64url) for the reset client to re-wrap. Never logged/stored.
-async function escrowRecover(env, escrowKrB64) {
-  const priv = await crypto.subtle.importKey('pkcs8', b64urlToBytes(env.ESCROW_PRIVATE_KEY), { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['decrypt']);
-  const raw = await crypto.subtle.decrypt({ name: 'RSA-OAEP' }, priv, b64urlToBytes(escrowKrB64));
-  return bytesToB64url(raw);
 }
 
 // ---- TOTP (RFC 6238 — HMAC-SHA1, 6 digits, 30s step, ±1 window) ----
@@ -210,36 +200,6 @@ async function verifySecondFactor(row, env, code) {
   const idx = codes.indexOf(h);
   if (idx >= 0) { codes.splice(idx, 1); return { ok: true, backupCodes: codes }; }
   return { ok: false };
-}
-
-// Shared reset-path 2FA gate. Verifies the second factor (non-consuming — a backup code is only burned
-// by the caller, atomically, at /confirm) and self-locks the token after repeated failed GUESSES, so
-// /reset/verify and /reset/confirm share ONE 5-strike budget against the same token row (an attacker
-// can't move guessing to whichever endpoint is "unlocked"). A no-code probe that merely discovers
-// "TOTP required" is not a guess and does NOT burn an attempt. Returns {ok:true, sf} or {ok:false, error}.
-async function gateResetToken(env, tokenHash, row, code) {
-  const sf = await verifySecondFactor(row, env, code);
-  if (sf.ok) return { ok: true, sf };
-  if (code) {   // only real guesses count toward the lock; the discovery probe is free for honest users
-    await env.DB.prepare('UPDATE reset SET attempts=attempts+1, used=CASE WHEN attempts+1>=5 THEN 1 ELSE used END WHERE token_hash=?').bind(tokenHash).run();
-  }
-  return { ok: false, error: code ? 'bad_totp' : 'totp_required' };
-}
-
-/* Password-reset email. Routed through the ONE Resend helper in seclog.js so a failed send is
- * LOGGED — it never was here: this function used to own a second copy of the fetch, returned a
- * boolean, and its caller discarded it, so a rejected reset produced no log line at all while the
- * endpoint still answered "if that account exists, we sent a link". */
-async function sendResetEmail(env, request, toEmail, link) {
-  return sendEmail(env, request, {
-    to: toEmail,
-    subject: 'Reset your FlexText researcher password',
-    html: `<p>We received a request to reset your FlexText researcher password.</p>
-<p><a href="${link}">Reset your password</a> — this link expires in 1 hour and can be used once.</p>
-<p>If you did not request this, you can safely ignore this email.</p>`,
-    event: 'reset_email',
-    from: SIGNIN_FROM,   // researcher-facing, like the sign-in notice
-  });
 }
 
 /* Origin allow-list matching, shared by the /v1 CORS headers and index.js's /drive gate.
@@ -1544,74 +1504,45 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
   }
 
-  // POST /v1/researcher — signup with EMAIL + PASSWORD-derived material (the password never reaches
-  // the server). Turnstile-gated, fail-closed. Unique email. Stores the escrow copy of Kr (for email
-  // recovery) + the email encrypted at rest. Body: { email, salt, authSecret, wrappedKr, escrowKr,
-  // turnstileToken } — salt/authSecret/wrappedKr/escrowKr were all derived/built on the client.
-  if (m === 'POST' && seg.length === 2 && seg[1] === 'researcher') {
-    if (!env.TURNSTILE_SECRET) return j({ error: 'signup_unavailable' }, 503, origin, env);
-    const ip = request.headers.get('CF-Connecting-IP') || 'anon';
-    if (env.SIGNUP_LIMIT) {
-      const { success } = await env.SIGNUP_LIMIT.limit({ key: `signup:${ip}` });
-      if (!success) return j({ error: 'rate_limited' }, 429, origin, env);
-    }
-    const body = await readJson(request) || {};
-    if (!await verifyTurnstile(body.turnstileToken, ip, env)) return j({ error: 'turnstile_failed' }, 403, origin, env);
-    const email = normEmail(body.email);
-    if (!email || !email.includes('@')) return j({ error: 'bad_email' }, 400, origin, env);
-    if (!body.salt || !body.authSecret || !body.wrappedKr || !body.escrowKr) return j({ error: 'bad_body' }, 400, origin, env);
-    const ekey = await emailKey(email, env);
-    if (await env.DB.prepare('SELECT researcher_id FROM researcher WHERE email_sha256=?').bind(ekey).first()) {
-      return j({ error: 'email_taken' }, 409, origin, env);
-    }
-    const researcher_id = crypto.randomUUID();
-    await env.DB.prepare(
-      'INSERT INTO researcher (researcher_id, secret_hash, email_sha256, settings_blob, settings_rev, created_at, salt, wrapped_kr, escrow_kr, email_enc, totp_enabled) VALUES (?,?,?,?,0,?,?,?,?,?,0)'
-    ).bind(researcher_id, await sha256hex(body.authSecret), ekey, JSON.stringify({}), now,
-           String(body.salt), String(body.wrappedKr), String(body.escrowKr), await encAtRest(env, email)).run();
-    secAlert(env, ctx, request, 'New researcher account (password signup)', [
-      'A new researcher account was created with email + password.',
-      'Email: ' + email,
-      'This account is PENDING and can do nothing until you approve it in the researcher panel.',
-    ]);
-    return j({ researcher_id }, 200, origin, env);
+  /* ⚠ THE EMAIL + PASSWORD LANE IS RETIRED (Seth, 2026-08-20). GOOGLE IS THE ONLY WAY IN.
+   *
+   * WHY, and why this is a deletion rather than a deprecation: too much of this suite is Google
+   * Drive to support an account that has no Google behind it. Every text, every recording and
+   * every project folder lives in the researcher's own Drive; a password account could sign in and
+   * then do essentially nothing, and the researcher panel would be broken for it in ways nobody
+   * would ever bother to fix.
+   *
+   * ⚠ NOBODY IS LOCKED OUT BY THIS. Checked against production D1 before removing it: all seven
+   * researcher accounts are Google (`google_sub` set, `wrapped_kr` NULL on every row) — the
+   * password lane has never been used by a single account. It is dead code that accepts
+   * credentials, which is the kind of dead code worth removing rather than leaving to rot.
+   *
+   * The shipped client stopped offering it long ago: `renderSignIn()` is one "Sign in with Google"
+   * button and `authSecret` appears nowhere in docs/js. These routes were reachable only by a
+   * direct POST.
+   *
+   * 410 GONE rather than 404, and rather than silent deletion: an old cached engine or a bookmarked
+   * script gets an answer that says the lane is over, not one that looks like a broken deploy.
+   *
+   * ⚠ What is deliberately NOT removed: `researcher.secret_hash` and its verifier. It is still the
+   * fallback credential when session creation throws in the Google callback (see the degrade path
+   * there) and every already-installed panel may still be holding one. The COLUMNS (salt,
+   * wrapped_kr, escrow_kr, backup_codes) also stay — migrations here are additive-only, and they
+   * are NULL on every row anyway. TOTP stays too: it is the step-up factor on remote wipe, which
+   * Google-lane researchers use. */
+  if (m === 'POST' && seg[1] === 'researcher' && (
+        seg.length === 2                                                   // signup
+        || (seg.length === 3 && (seg[2] === 'salt' || seg[2] === 'login' || seg[2] === 'password'))
+        || (seg.length === 4 && seg[2] === 'reset'))) {                     // reset request/verify/confirm
+    return j({ error: 'password_lane_retired', message: 'Researcher accounts sign in with Google.' }, 410, origin, env);
   }
 
-  // POST /v1/researcher/salt — pre-auth: returns ONLY the salt (the client needs it to derive
-  // authSecret). NEVER returns wrapped_kr here (that would allow offline password cracking). Unknown
-  // emails get a stable dummy salt → no account-existence enumeration.
-  if (m === 'POST' && seg.length === 3 && seg[1] === 'researcher' && seg[2] === 'salt') {
-    const ip = request.headers.get('CF-Connecting-IP') || 'anon';
-    if (env.SIGNUP_LIMIT) { const { success } = await env.SIGNUP_LIMIT.limit({ key: `salt:${ip}` }); if (!success) return j({ error: 'rate_limited' }, 429, origin, env); }
-    const body = await readJson(request) || {};
-    const email = normEmail(body.email);
-    if (!email) return j({ error: 'bad_email' }, 400, origin, env);
-    const row = await env.DB.prepare('SELECT salt FROM researcher WHERE email_sha256=?').bind(await emailKey(email, env)).first();
-    return j({ salt: (row && row.salt) || await dummySalt(email, env) }, 200, origin, env);
-  }
-
-  // POST /v1/researcher/login — verify authSecret (+ TOTP if enabled) → researcher_id + wrapped_kr.
-  // The client uses researcher_id + authSecret as the per-call API credential thereafter.
-  if (m === 'POST' && seg.length === 3 && seg[1] === 'researcher' && seg[2] === 'login') {
-    const ip = request.headers.get('CF-Connecting-IP') || 'anon';
-    if (env.SIGNUP_LIMIT) { const { success } = await env.SIGNUP_LIMIT.limit({ key: `login:${ip}` }); if (!success) return j({ error: 'rate_limited' }, 429, origin, env); }
-    const body = await readJson(request) || {};
-    const email = normEmail(body.email);
-    if (!email || !body.authSecret) return j({ error: 'bad_body' }, 400, origin, env);
-    const row = await env.DB.prepare('SELECT * FROM researcher WHERE email_sha256=?').bind(await emailKey(email, env)).first();
-    if (!row || !ctEq(await sha256hex(body.authSecret), row.secret_hash)) return j({ error: 'bad_login' }, 401, origin, env);
-    if (row.totp_enabled) {
-      if (env.SIGNUP_LIMIT) { const { success } = await env.SIGNUP_LIMIT.limit({ key: `2fa:${row.researcher_id}` }); if (!success) return j({ error: 'rate_limited' }, 429, origin, env); }
-      const sf = await verifySecondFactor(row, env, body.totpCode);
-      if (!sf.ok) return j({ error: body.totpCode ? 'bad_totp' : 'totp_required' }, 401, origin, env);
-      if (sf.backupCodes) await env.DB.prepare('UPDATE researcher SET backup_codes=? WHERE researcher_id=?').bind(JSON.stringify(sf.backupCodes), row.researcher_id).run();
-    }
-    return j({ researcher_id: row.researcher_id, wrapped_kr: row.wrapped_kr, totp_enabled: !!row.totp_enabled }, 200, origin, env);
-  }
-
-  // GET /v1/escrow-pubkey — the Worker escrow public key (clients wrap Kr to it at signup).
+  // GET /v1/escrow-pubkey — retired with the lane above: the escrow copy of Kr existed so a
+  // FORGOTTEN PASSWORD could be recovered by email, and there are no passwords now. (The
+  // ESCROW_PRIVATE_KEY / ESCROW_PUBLIC_KEY worker secrets are unreferenced after this and can be
+  // deleted from the dashboard whenever convenient — this code no longer reads either one.)
   if (m === 'GET' && seg.length === 2 && seg[1] === 'escrow-pubkey') {
-    return j({ pubkey: env.ESCROW_PUBLIC_KEY || null }, 200, origin, env);
+    return j({ error: 'password_lane_retired' }, 410, origin, env);
   }
 
   // ----- Google Sign-In (OIDC) — researcher identity, unified with Drive OAuth -----
@@ -1674,6 +1605,38 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     let claims; try { claims = JSON.parse(atob(tok.id_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))); } catch { return j({ error: 'bad_id_token' }, 502, origin, env); }
     const sub = claims.sub; const email = normEmail(claims.email || '');
     if (!sub) return j({ error: 'no_sub' }, 502, origin, env);
+    const back = String(st.r || 'https://rulingants.github.io/flextext-editor/').replace(/[?#].*$/, '');
+
+    /* ⚠ DRIVE ACCESS IS NOT OPTIONAL, AND GOOGLE LETS THE PERSON SAY IT IS.
+     *
+     * Google's granular-consent screen renders every non-identity scope as its own CHECKBOX, and
+     * there is NO Cloud Console setting that marks one required — Google's documented answer is
+     * that the app inspects what was actually granted. Untick `drive.file` and the exchange below
+     * still SUCCEEDS: identity is granted, and `access_type=offline` still returns a refresh token.
+     * So the row we would write looks fully connected — `drive_refresh_enc` set, `drive_email` set,
+     * the panel's own "Drive connected" test satisfied — while every Drive call made with that
+     * token fails on insufficient scope. That is the worst available shape: a researcher who signs
+     * in, sees a dashboard, and cannot create a folder or open a text, with nothing on screen
+     * saying why.
+     *
+     * This suite keeps ALL of its data in the researcher's own Drive. An account without Drive is
+     * not a degraded account; it is not an account. So it is refused at the door rather than
+     * created broken.
+     *
+     * `tok.scope` is what Google says was actually granted (incremental auth included), so it is
+     * the only honest signal available here without spending a Drive round trip on every sign-in.
+     *
+     * ⚠ An ABSENT or empty `scope` is treated as UNVERIFIABLE, not as declined. This callback is
+     * the one path the local rig cannot exercise and every researcher sign-in goes through it — if
+     * Google ever changes the response shape, the failure must be "the guard stopped guarding, and
+     * said so in the log", never "nobody can sign in". Degrade, never deny: the same rule the
+     * session fallback below follows, for the same reason. */
+    const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+    const grantedRaw = String(tok.scope || '');
+    const driveGranted = grantedRaw ? grantedRaw.split(/\s+/).includes(DRIVE_SCOPE) : true;
+    if (!grantedRaw) {
+      await secLog(env, request, 'oauth_scope_unreadable', { who: email || sub });
+    }
     // A (allowlist) + request/approve: env-listed emails are auto-approved OWNERS; anyone else may
     // sign in but their account is created PENDING (inert) until an owner approves it in the panel.
     // No hard reject here — the isApproved() gate on the privileged endpoints is what protects them.
@@ -1682,7 +1645,17 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     // Owner rights come only from the env list, so no database row can ever grant them.
     const domainOk = owner ? false : await isDomainApproved(email, env);
     const name = claims.name || ''; const picture = claims.picture || '';
-    let row = await env.DB.prepare('SELECT researcher_id FROM researcher WHERE google_sub=?').bind(sub).first();
+    let row = await env.DB.prepare(
+      'SELECT researcher_id, CASE WHEN drive_refresh_enc IS NOT NULL THEN 1 ELSE 0 END AS has_drive FROM researcher WHERE google_sub=?'
+    ).bind(sub).first();
+    /* Refuse only when this sign-in would leave the account WITHOUT Drive: a brand-new account, or
+     * an existing one that has never stored a refresh token. An established researcher who unticks
+     * the box on a re-consent keeps the grant they already gave — see the update branch below,
+     * which is where declining would otherwise do its real damage. */
+    if (!driveGranted && !(row && row.has_drive)) {
+      await secLog(env, request, 'oauth_drive_scope_declined', { who: email || sub, existing: !!row });
+      return Response.redirect(back + '#gauth_error=drive_required', 302);
+    }
     /* Phase A: the token handed back is a SESSION, not researcher.secret_hash. The fragment shape
      * `<researcher_id>.<token>` is unchanged, so the client needs no edit to keep working. */
     const stay = !(st && st.s === 0);   /* absent => 90 days: an OLD panel must not start expiring daily */
@@ -1725,7 +1698,11 @@ export async function handleV1(request, env, ctx, url, path, origin) {
        * be a lie while it lived. Rotating it to garbage retires it on the first session-lane sign-in.
        * google_sub accounts ONLY — the password lane's secret_hash is a durable verifier (R2-3). */
       const sets = ['secret_hash=?']; const binds = [legacyKill];
-      if (tok.refresh_token) { sets.push('drive_refresh_enc=?'); binds.push(await encAtRest(env, tok.refresh_token)); }
+      /* ⚠ `&& driveGranted` is the whole point. A returning researcher who unticks Drive on a
+       * re-consent still gets a refresh token — one that cannot touch Drive. Storing it would
+       * REPLACE their working grant with a dead one and disconnect an account that was fine a
+       * second ago, which is a far worse outcome than the sign-in they were attempting. */
+      if (tok.refresh_token && driveGranted) { sets.push('drive_refresh_enc=?'); binds.push(await encAtRest(env, tok.refresh_token)); }
       if (email) { sets.push('drive_email=?'); binds.push(email); }
       sets.push('display_name=?'); binds.push(name);
       sets.push('avatar_url=?'); binds.push(picture);
@@ -1733,7 +1710,6 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       binds.push(row.researcher_id);
       await env.DB.prepare('UPDATE researcher SET ' + sets.join(', ') + ' WHERE researcher_id=?').bind(...binds).run();
     }
-    const back = String(st.r || 'https://rulingants.github.io/flextext-editor/').replace(/[?#].*$/, '');
     const isNewAccount = !!row.__created;
     /* ⚠ THE ONE PATH THE LOCAL RIG CANNOT TEST is this one: a real Google round trip. Sessions are
      * exercised from seeded rows, but the callback that CREATES them only ever runs in production —
@@ -1962,110 +1938,6 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     const res = await env.DB.prepare('UPDATE session SET revoked=1 WHERE session_id=? AND researcher_id=? AND revoked=0')
       .bind(seg[3], r.researcher_id).run();
     if (!(res.meta && res.meta.changes)) return j({ error: 'not_found' }, 404, origin, env);
-    return j({ ok: true }, 200, origin, env);
-  }
-
-  // POST /v1/researcher/reset/request — always 200 ("if it exists, we sent a link"). Emails a
-  // one-time token via Resend if the account exists. Rate-limited (anti email-bomb / enumeration).
-  if (m === 'POST' && seg.length === 4 && seg[1] === 'researcher' && seg[2] === 'reset' && seg[3] === 'request') {
-    const ip = request.headers.get('CF-Connecting-IP') || 'anon';
-    if (env.SIGNUP_LIMIT) { const { success } = await env.SIGNUP_LIMIT.limit({ key: `reset:${ip}` }); if (!success) return j({ error: 'rate_limited' }, 429, origin, env); }
-    const body = await readJson(request) || {};
-    const email = normEmail(body.email);
-    let devToken = null;
-    if (email) {
-      const row = await env.DB.prepare('SELECT researcher_id, email_enc, escrow_kr FROM researcher WHERE email_sha256=?').bind(await emailKey(email, env)).first();
-      if (row && row.escrow_kr) {
-        const token = randTok(24);
-        await env.DB.prepare('INSERT INTO reset (token_hash, researcher_id, expires_at, used, created_at) VALUES (?,?,?,0,?)')
-          .bind(await sha256hex(token), row.researcher_id, now + 3600 * 1000, now).run();
-        const base = String(body.appBase || 'https://rulingants.github.io/flextext-editor/').replace(/[?#].*$/, '');
-        const to = await decAtRest(env, row.email_enc) || email;
-        await sendResetEmail(env, request, to, `${base}?reset=${encodeURIComponent(token)}`);
-        // dev-only test hook; gated to localhost origins so even a leaked flag can't echo a token to a real client
-        if (env.DEV_ECHO_RESET && /^https?:\/\/localhost(:\d+)?$/.test(origin || '')) devToken = token;
-      }
-    }
-    return j(devToken ? { ok: true, devToken } : { ok: true }, 200, origin, env);
-  }
-
-  // POST /v1/researcher/reset/verify — token (+ TOTP if enabled) → recover Kr from escrow. Does NOT
-  // consume the token OR the 2FA factor (both happen at /confirm). Returns Kr (raw, b64) so the client
-  // can re-wrap it. Hardened against reset-token replay / TOTP-oracle abuse: per-IP + per-account rate
-  // limits, and the token self-locks after a few failed 2FA attempts (so an attacker who intercepts the
-  // emailed token still can't brute the second factor regardless of IP rotation).
-  if (m === 'POST' && seg.length === 4 && seg[1] === 'researcher' && seg[2] === 'reset' && seg[3] === 'verify') {
-    const ip = request.headers.get('CF-Connecting-IP') || 'anon';
-    if (env.SIGNUP_LIMIT) { const { success } = await env.SIGNUP_LIMIT.limit({ key: `resetverify:${ip}` }); if (!success) return j({ error: 'rate_limited' }, 429, origin, env); }
-    const body = await readJson(request) || {};
-    if (!body.token) return j({ error: 'bad_body' }, 400, origin, env);
-    const th = await sha256hex(body.token);
-    const rt = await env.DB.prepare('SELECT * FROM reset WHERE token_hash=?').bind(th).first();
-    if (!rt || rt.used || rt.expires_at <= now) return j({ error: 'bad_token' }, 401, origin, env);
-    const row = await env.DB.prepare('SELECT * FROM researcher WHERE researcher_id=?').bind(rt.researcher_id).first();
-    if (!row || !row.escrow_kr) return j({ error: 'bad_token' }, 401, origin, env);
-    if (row.totp_enabled) {
-      if (env.SIGNUP_LIMIT) { const { success } = await env.SIGNUP_LIMIT.limit({ key: `2fa:${row.researcher_id}` }); if (!success) return j({ error: 'rate_limited' }, 429, origin, env); }
-      const g = await gateResetToken(env, th, row, body.totpCode);    // shared 5-strike lock with /confirm
-      if (!g.ok) return j({ error: g.error }, 401, origin, env);
-    }
-    let kr;
-    try { kr = await escrowRecover(env, row.escrow_kr); } catch { return j({ error: 'escrow_failed' }, 500, origin, env); }
-    // The data key just left the escrow. If this was not the account holder, someone has both the
-    // emailed reset token and (if enabled) the second factor — the single most serious event this
-    // worker can observe, so it alerts even though the request itself succeeded.
-    secAlert(env, ctx, request, 'Escrow key recovery completed', [
-      'A password reset successfully recovered a researcher data key from escrow.',
-      'Researcher id: ' + rt.researcher_id,
-      'If this was not you or a researcher you were expecting to help, treat it as a compromise: '
-        + 'the reset token was emailed to that account address.',
-    ]);
-    return j({ kr }, 200, origin, env);
-  }
-
-  // POST /v1/researcher/reset/confirm — set new password material; consume the token. Kr is unchanged
-  // (the client re-wrapped the recovered Kr under the new password), so all existing data survives.
-  // TOTP-gated too (mirrors /login + /verify): an intercepted reset token alone cannot take over a 2FA
-  // account — /confirm rotates the API credential, so it MUST re-prove the second factor, not just hold
-  // the token. A used backup code is burned atomically (same batch) with the token + password rotation.
-  if (m === 'POST' && seg.length === 4 && seg[1] === 'researcher' && seg[2] === 'reset' && seg[3] === 'confirm') {
-    const ip = request.headers.get('CF-Connecting-IP') || 'anon';
-    if (env.SIGNUP_LIMIT) { const { success } = await env.SIGNUP_LIMIT.limit({ key: `resetconfirm:${ip}` }); if (!success) return j({ error: 'rate_limited' }, 429, origin, env); }
-    const body = await readJson(request) || {};
-    if (!body.token || !body.salt || !body.authSecret || !body.wrappedKr) return j({ error: 'bad_body' }, 400, origin, env);
-    const th = await sha256hex(body.token);
-    const rt = await env.DB.prepare('SELECT * FROM reset WHERE token_hash=?').bind(th).first();
-    if (!rt || rt.used || rt.expires_at <= now) return j({ error: 'bad_token' }, 401, origin, env);
-    const row = await env.DB.prepare('SELECT * FROM researcher WHERE researcher_id=?').bind(rt.researcher_id).first();
-    if (!row) return j({ error: 'bad_token' }, 401, origin, env);
-    let g = null;
-    if (row.totp_enabled) {
-      if (env.SIGNUP_LIMIT) { const { success } = await env.SIGNUP_LIMIT.limit({ key: `2fa:${row.researcher_id}` }); if (!success) return j({ error: 'rate_limited' }, 429, origin, env); }
-      g = await gateResetToken(env, th, row, body.totpCode);          // same shared 5-strike lock as /verify — can't brute here either
-      if (!g.ok) return j({ error: g.error }, 401, origin, env);
-    }
-    // Consume the token FIRST (atomic guard): only the winner of a concurrent double-confirm rotates the
-    // credential, so a losing concurrent request can't clobber the new password (TOCTOU on the rotate).
-    const consumed = await env.DB.prepare('UPDATE reset SET used=1 WHERE token_hash=? AND used=0').bind(th).run();
-    if (!consumed.meta.changes) return j({ error: 'bad_token' }, 401, origin, env);
-    const writes = [
-      env.DB.prepare('UPDATE researcher SET salt=?, secret_hash=?, wrapped_kr=? WHERE researcher_id=?')
-        .bind(String(body.salt), await sha256hex(body.authSecret), String(body.wrappedKr), rt.researcher_id),
-    ];
-    if (g && g.sf.backupCodes) writes.push(env.DB.prepare('UPDATE researcher SET backup_codes=? WHERE researcher_id=?').bind(JSON.stringify(g.sf.backupCodes), row.researcher_id));
-    await env.DB.batch(writes);
-    return j({ ok: true }, 200, origin, env);
-  }
-
-  // POST /v1/researcher/password — (authed) change password while signed in. New salt + authSecret
-  // hash + wrappedKr; escrow_kr stays (Kr unchanged → all data + escrow recovery survive).
-  if (m === 'POST' && seg.length === 3 && seg[1] === 'researcher' && seg[2] === 'password') {
-    const r = await authResearcher(request, env);
-    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
-    const body = await readJson(request);
-    if (!body || !body.salt || !body.authSecret || !body.wrappedKr) return j({ error: 'bad_body' }, 400, origin, env);
-    await env.DB.prepare('UPDATE researcher SET salt=?, secret_hash=?, wrapped_kr=? WHERE researcher_id=?')
-      .bind(String(body.salt), await sha256hex(body.authSecret), String(body.wrappedKr), r.researcher_id).run();
     return j({ ok: true }, 200, origin, env);
   }
 

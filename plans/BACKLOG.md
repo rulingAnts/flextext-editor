@@ -390,6 +390,67 @@ too, so re-check this report against a reconciled estate before digging further.
 `reconcileProjects` hangs off `drive-estate`, so it too runs on FULL renders only — the repair
 lands on a panel LOAD or manual Refresh, not within a poll tick.
 
+## AFTER PHASE C+D: one universal diagnostic dump, `fxDump()` (Seth, 2026-08-20)
+
+> *"a sort of universal diagnostic data dump console function would be useful. Let's implement that
+> soon (after Phase C and D are basically working)."*
+
+⚠ **Sequenced deliberately after C and D**, and not only because they are more urgent: the dump's
+whole value is printing the state that matters, and Phase C/D CHANGE what that is — a project's
+members, a viewer's caps, which grants exist. Writing it first means writing it twice.
+
+### Why this earns its place — every item is a real diagnosis from 2026-08-20
+
+The day this was asked, four separate questions each needed a hand-written D1 query or a code read:
+
+| the question | what it took |
+|---|---|
+| "why does the panel not show the pairing code?" | reading `listView()` to find the enumerated-rebuild trap |
+| "why does one researcher's device appear in two tabs?" | still unanswered — needs `SELECT … FROM instance WHERE researcher_id=?` |
+| "did the backfill break anybody's data?" | four dispatched `wrangler d1 execute` runs |
+| "is D1 in step with Drive?" | comparing a screenshot of Drive against a `project` row by eye |
+
+⚠ **The last one is the shape of most of them: two stores that are supposed to agree, and no cheap
+way to ask whether they do.** That is the function's real job — not "print some state" but **print
+the DISAGREEMENTS**, because the state itself is mostly uninteresting when it is correct.
+
+### What it should print
+
+**Local (device or panel, from the browser console):** engine + sw VERSION and `BUILD_TAG`, which
+worker base and estate this origin points at, instance/install ids, `desired_rev` vs `ack_seq`,
+IndexedDB doc count and bytes, pending uploads, whether a Ki is resolvable for each instance, and
+the settings that change behaviour (`segmentation`, export toggles, consent mode).
+
+**Server (the panel, authenticated):** the caller's projects and role in each, the instances D1
+holds versus the containers Drive holds, `member_key` grants versus `project_member` rows, and
+`instance.project_id` versus the Drive folder's actual parent.
+
+**And the derived answers, which are the point:**
+
+- containers in Drive with no D1 instance, and instances with no Drive folder
+- a `project_id` that disagrees with Drive parentage (what `reconcileProjects` repairs — the dump
+  should be able to SAY it, not just leave it repaired silently)
+- `member_key` rows whose `project_id` is `''` while the instance now has a real one
+- a grant with no matching `project_member` row, or a member with no grant — the two halves of
+  Phase C that can drift apart
+- version skew across the five apps
+
+### Constraints, from rules this repo already enforces
+
+- ⚠ **A console entry point, NEVER a keyboard shortcut** — the existing rule, and its reason is
+  concrete: a ⌃⌥E binding could never fire on a Mac, because Option+E is a dead key. Register it
+  beside `fxUpdate()` / `fxLinks()` / `fxProjects()` and document it in DEVELOPERS.md, which is
+  where the list lives.
+- ⚠ **It will be pasted into chat and issue threads, so it must be safe to publish.** No secrets, no
+  refresh tokens, no wrapped keys, no `x-fx-secret`, and no other researcher's email. Ids are fine;
+  credentials never are. Given `check-secrets.sh` exists precisely because credentials reached a
+  public repo once, the dump needs a test asserting its output carries none — the format-based scan
+  already knows what those look like.
+- ⚠ **Read-only.** A diagnostic that repairs is a diagnostic nobody can safely run twice, and the
+  repair belongs where the authority is (the worker), not in a console helper.
+- It should work OFFLINE, printing the local half and saying plainly that the server half is
+  unavailable — a field device with no signal is exactly when someone wants it.
+
 ## LATER: revisit auto-cutting a LONG recording (Seth, 2026-08-20)
 
 > *"At some point we need to revisit what happens with auto-cutting a long text (like 16 minutes

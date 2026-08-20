@@ -127,11 +127,33 @@ pushed `main` first; the reverse has never been tried, so nothing here settles t
 not worth an experiment on production traffic. From v433 the question is mostly moot: only one of
 the two branches builds.
 
-⚠ **Verification is still half manual.** The GitHub Actions API reaches workflow results, so an
-agent can confirm the Pages gate and now the app deploys directly. **Cloudflare has no API path from
-the agent sandbox** (egress to `*.workers.dev`, `rulingants.github.io`, `connect.flextext.app` and
-`pat.flextext.app` is blocked), so the five Workers still need a human on the dashboard. Allowing
-those hosts in the environment's network policy would close it.
+### ⚠ VERIFICATION IS NOT MANUAL ANY MORE — an agent can confirm a release end to end (2026-08-20)
+
+This section said for weeks that Cloudflare could only be verified by a human on the dashboard. That
+was **false**, and it was believed because it was written down once. Both halves are reachable from
+the agent sandbox:
+
+- **Cloudflare:** dispatch *wrangler (one-off command)* with
+  `deployments list --config ../apps/<app>/wrangler.toml` and read which version holds 100% of
+  traffic, with its timestamp. That is a stronger check than the dashboard — it says what is
+  SERVING, not merely what built. (v433 was confirmed this way on all five Workers before anyone
+  opened a browser.)
+- **GitHub Pages:** the `pages build and deployment` run appears in the Actions API with its head
+  SHA and conclusion.
+- **Staging/preview:** the deploy workflow's own log prints
+  `Version Preview Alias URL: https://<branch>-<worker>…`, so "has staging finished" is answerable
+  without asking anyone (Seth, 2026-08-20: *"YOU can tell when the staging build has finished and is
+  live"*).
+
+⚠ Direct HTTP is still blocked — egress to `*.workers.dev`, `rulingants.github.io`,
+`connect.flextext.app` and `pat.flextext.app` returns 000/403 — so `check-release-integrity.sh` run
+from the sandbox proves nothing. That is a real limit, and it is the ONLY one; do not let it stand in
+for "verification is manual". Allowing those four hosts in the environment's network policy would
+close the remainder.
+
+⚠ **The general lesson, which is why this is written at length:** a limitation recorded once gets
+believed indefinitely, by humans and agents alike. Re-test the limits occasionally rather than
+inheriting them. This is the second time that has been the finding in this file.
 
 #### Docs commits are free now
 

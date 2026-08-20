@@ -2144,6 +2144,70 @@ being UTC *and* the absence of any label.
 would rewrite history for cosmetics — and folder names are display-only precisely so nothing depends
 on them (identity is the `flextextDoc` tag), so old names can simply stay wrong.
 
+## Move the site builds off Cloudflare's git integration onto GitHub Actions (Seth, 2026-08-20)
+
+> *"changing our build process (if we can do that without disrupting any current cloudflare site
+> content) so that builds are only triggered by wrangler on GitHub workflows and not by every single
+> repo change detected by CloudFlare."* — explicitly to be explored AFTER the productionWeb build.
+
+**This is better than the dashboard "build watch paths" idea recorded in CLAUDE.md, and the reason is
+not the filtering — it is WHERE the filtering lives.** GitHub Actions has `on.push.paths` natively,
+so the rule sits in the repo: reviewable, diffable, and impossible to have quietly differ between
+five Workers. A dashboard setting is five separate places to get right and nowhere to see them.
+
+**The pattern is already proven here.** `worker-deploy.yml` deploys the connectivity Worker with
+`wrangler-action` and the same two secrets (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`). Five
+more targets is the same mechanism, not a new one — and one workflow run could deploy all five,
+turning six builds per release into one.
+
+**Cost: free.** Public repo, standard `ubuntu-latest`. (Stated because CLAUDE.md requires an explicit
+estimate before any `.github/workflows/**` change — which this is.)
+
+### ⚠ Four things that must survive the move, or it is a downgrade
+
+1. **THE STRUCTURAL GUARD.** `apps/*/build.sh` currently REFUSES to build when the branch is not
+   `productionWeb` and was not routed through `deploy.sh` — that is what makes it impossible for a
+   feature branch to overwrite the live site. Any workflow replacing it needs an equivalent that is
+   structural, not a flag someone remembers to set. ⚠ A `workflow_dispatch` with a free-text branch
+   input is precisely where production gets overwritten by a typo.
+2. **BRANCH PREVIEWS.** `https://<branch>-<worker>.68mh29kgsd.workers.dev` are automatic today, and
+   the whole feature-branch policy leans on them ("test a MAJOR feature on its OWN branch preview").
+   Manual-only deploys would quietly kill that. Keep a push-triggered workflow for non-production
+   branches — with `paths:` filters, which is what removes the waste without removing the previews.
+3. **VERIFY DISCONNECTING DOES NOT UNSERVE ANYTHING.** A deployed Worker should keep serving when its
+   build integration is removed — the deployment is not the connection. ⚠ Should, not does: confirm
+   on ONE Worker (the crowd one, least critical) before touching the editor or the researcher panel.
+4. **THE VERSION-BUMP SURFACE.** Any `paths:` filter must include everything `bump-version.sh`
+   touches — `docs/sw.js`, `docs/js/i18n.js`, and all three satellite `sw.js` files — or a release
+   will look pushed and silently not deploy, which is the exact failure CLAUDE.md's deploy-order
+   section exists to prevent.
+
+### ⚠ Sequencing — FIRST, and ahead of the branch collapse
+
+> *"That's probably actually more important than merging main and productionWeb. And more solves the
+> root problem."* (Seth)
+
+⚠ **This reverses what this section said when first written** ("do it after the collapse, so the
+workflows are written once"). That was optimising for a small cost — a few lines of branch handling
+rewritten — and missing the larger point.
+
+**The collapse is an optimisation; this is the root cause.** Collapsing halves the number of builds a
+release costs, but every push still builds. Moving to Actions with `paths:` filters means an
+irrelevant push builds **nothing at all** — the plans, notes, tests and worker changes that made up
+most of tonight's waste stop costing anything, whatever branch they land on. The collapse then takes
+what remains from two to one.
+
+**And the risk profile points the same way**, which is the part that settles it:
+
+| | Actions move | branch collapse |
+|---|---|---|
+| reversible? | yes — reconnect the git integration | not cheaply: the branch NAME is load-bearing in the Pages source, the sync-satellites trigger, `deploy.sh` routing, `check-release-integrity.sh`'s default ref and the pre-push hook |
+| blast radius if wrong | a build does not fire; nothing is served wrongly | the release mechanism itself |
+| fixes the waste? | at the source | halves it |
+
+Doing the reversible root-cause fix before the irreversible optimisation is the right order, and the
+few lines of branch handling that get rewritten afterwards are a trivial price for it.
+
 ## Export to Bloom books / Bloom Library (SIL) — explore next week (Seth, 2026-08-20)
 
 > *"for the sake of interesting stakeholders who aren't interested in linguistics and language
@@ -2556,7 +2620,13 @@ drive, however small it looks.
 Three items. Recorded now with the facts gathered, so the later pass starts from data rather than
 from a fresh survey.
 
-### 1. Collapse `main` and `productionWeb` — ⚠ PROMOTED: before multi-researcher, after this release
+### 1. Collapse `main` and `productionWeb` — after the Actions build move
+
+> ⚠ **Re-sequenced again (Seth, 2026-08-20):** the GitHub Actions build move now comes FIRST —
+> *"more important than merging main and productionWeb… and more solves the root problem."* This
+> collapse halves the builds a release costs; the Actions move stops irrelevant pushes building at
+> all. And it is the reversible one of the two. See the Actions entry for the full argument.
+
 
 > ⚠ **Re-sequenced (Seth, 2026-08-20), and the reason is measured rather than aesthetic:**
 > *"I think we maybe need to work on removing the main/productionWeb split sooner rather than

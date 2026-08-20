@@ -488,6 +488,71 @@ announces itself instead of reading as a complete one.
 - It should work OFFLINE, printing the local half and saying plainly that the server half is
   unavailable — a field device with no signal is exactly when someone wants it.
 
+## SOON: a REVOKED device keeps its holder's name and their text index, forever (Seth, 2026-08-20)
+
+> Seth, on stale rows: *"probably better practice to have that cleaned up… Especially if we're being
+> security/privacy conscious."*
+
+He is right, and it is stronger than housekeeping: it is the same rule
+`test/d1-minimization-invariants.test.mjs` already enforces for titles, applied to fields the rules
+have not reached yet. §10.4 is one long argument about making a database dump worth as little as
+possible; these rows work against it.
+
+### What a revoked row actually retains
+
+`revoke` is a flag flip. Nothing is cleared. So indefinitely afterwards:
+
+| table | field | what it is |
+|---|---|---|
+| `instance` | `nickname` | routinely **a person's real name** — "Wemis Wanimbo's Phone", "Yohanis Suhu (Intel Mac)" |
+| `instance` | `desired_blob` | settings + queued commands, **plaintext** (the worker JSON.parses it) |
+| `install` | `reported_blob` | device info + the text/recording list (titleHash, not titles) |
+| `install` | `wrapped_key`, `pubkey` | key material for a device that no longer exists |
+
+Production on 2026-08-20:
+
+| project | live | revoked | revoked but still holding a Drive folder |
+|---|---|---|---|
+| Fayu Text Corpus | 3 | **28** | 13 |
+| Dani Dictionary | 1 | **2** | 2 |
+
+⚠ Most of that is Seth's own development account across months of testing, so it overstates what a
+real researcher accumulates. It does not overstate the *shape* of the problem, which is that nothing
+ever removes any of it.
+
+### ⚠ The obvious fix is wrong, and wrong in a way that would feel like success
+
+**Deleting the D1 row does not remove the name.** The Drive folder is still called
+"Yohanis Suhu (Intel Mac)" — the name is on the folder, and the rename route deliberately keeps it
+in step. What the delete removes is the JOIN: which device produced which texts. So the visible
+identifier survives and the provenance dies, which is the exact opposite of the intended trade.
+
+**The shape that works is MINIMISE, DON'T DELETE:**
+
+1. **Clear the payload, keep the skeleton.** On revoke (or after a retention window): blank
+   `nickname`, `desired_blob`, `reported_blob`. Keep `instance_id`, `oauth_folder_id`, timestamps and
+   `researcher_id` — provenance and audit survive, the personal data does not.
+2. **Delete `member_key` rows for revoked instances outright.** The most sensitive thing in the set,
+   and the most useless: key material for a device that cannot be reached. `DELETE FROM member_key
+   WHERE instance_id IN (SELECT instance_id FROM instance WHERE revoked=1)`.
+3. **Decide the Drive half deliberately**, because it is where the name actually lives. Rename the
+   folder to a neutral label on revoke? Leave it, on the grounds that the researcher's own Drive is
+   theirs to organise? ⚠ This is a decision for Seth, not a default to pick — and until it is made,
+   step 1 buys less than it appears to.
+4. `approval_log` is append-only and separate, so device history is NOT lost by any of this. That
+   argument does not block the work — worth stating, since it is the first objection anyone raises.
+
+### Sequencing
+
+⚠ **After Phase C, and specifically after member removal exists** — which it now does. Removing a
+member already deletes their grants (2026-08-20); revoked-device cleanup is the same idea one level
+down, and building both against one retention helper is cheaper than retrofitting the second.
+
+⚠ **And it wants a `wipe_state`-style guard**: a revoked device may still be OFFLINE IN THE FIELD
+holding unuploaded work. Minimising its server-side row must not be read anywhere as "this device is
+finished" — the remote-wipe machinery already distinguishes those states and should be consulted
+before inventing another.
+
 ## LATER: revisit auto-cutting a LONG recording (Seth, 2026-08-20)
 
 > *"At some point we need to revisit what happens with auto-cutting a long text (like 16 minutes

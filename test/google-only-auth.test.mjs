@@ -72,6 +72,28 @@ console.log('\nthe Google callback enforces the Drive scope');
      'the refusal spares an established account: it checks whether Drive is already connected');
 }
 
+/* ⚠ THE ONLY DRIVE SCOPE IS drive.file, AND THAT IS A SECURITY BOUNDARY, NOT A PREFERENCE.
+ *
+ * `drive.file` is a PER-FILE grant: the app reaches a file only because it created it. A researcher's
+ * other Drive contents are unreachable at Google's servers rather than by our own care, which is why
+ * it is worth pinning. Widen this and every hole in this worker reaches a researcher's whole Drive —
+ * and the project also acquires Google's restricted-scope obligations, which it does not have today.
+ *
+ * Matched against the RAW source including comments, on purpose: a broader scope written in a comment
+ * is a broader scope someone pastes into the request next month. If a future feature needs a file the
+ * researcher already owns, the answer is the Google Picker — it hands over that one file under the
+ * scope we already hold. See plans/drive-scope-containment.md. */
+console.log('\nthe Drive scope is drive.file and nothing wider');
+{
+  const scopes = worker.match(/auth\/drive[a-z.]*/g) || [];
+  ok(scopes.length > 0, 'the worker does name a Drive scope (the grep still finds something)');
+  ok(scopes.every((x) => x === 'auth/drive.file'),
+     `every Drive scope named anywhere is drive.file — found: ${[...new Set(scopes)].join(', ')}`);
+  const panel = read('../docs/js/app.js') + read('../docs/js/researcher.js') + read('../docs/js/upload.js');
+  ok(!/accounts\.google\.com|auth\/drive/.test(panel),
+     'and no client-side code mints a Google token of its own — the worker is the one chokepoint');
+}
+
 console.log('\nan unreadable scope degrades, it does not deny');
 {
   const cb = code.slice(code.indexOf("seg[3] === 'callback'"));

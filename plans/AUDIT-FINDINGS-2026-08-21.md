@@ -12,6 +12,13 @@ Six attack lenses, then three adversarial refuters per candidate finding (refute
 finding survives only on a 2-of-3 majority). **23 candidates → 17 distinct locations confirmed**;
 53 upheld votes against 16 refutations.
 
+✅ **THE MISSING PASS IS SCHEDULED** (Seth, 2026-08-21: *"Please do have it rerun that or at least
+finish it. We want a thorough audit."*). `plans/audit-sweep-workflow.js` is committed and ready —
+run it with `Workflow({ scriptPath: 'plans/audit-sweep-workflow.js' })`. It is the SWEEP ONLY: round
+one's six lenses are written up below, and re-running them would spend the budget rediscovering
+known findings. ⚠ The original run CANNOT be resumed — workflow resume is same-session only — which
+is why the script is self-contained and lives in the repo rather than a session scratch directory.
+
 ⚠ **The run is NOT the clean sweep the plan asks for.** Its last four agents — the entire second
 attack round and the completeness critic — **died on the monthly spend limit**, which is what
 killed this same audit the previous two times. So round one and its verification are complete and

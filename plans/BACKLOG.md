@@ -509,7 +509,10 @@ text/file sharing deferred until VII.1's `drive_object` scoping exists.
 
 ⚠ **The audit did NOT get a clean run.** Its second attack round and completeness critic died on the
 monthly spend limit — the third time that has killed this same audit. Findings are trustworthy;
-coverage is unproven.
+coverage is unproven. ✅ Seth asked for it to be finished: `plans/audit-sweep-workflow.js` is
+committed and runs exactly the missing pass. ⚠ Sequenced AFTER the fixes deliberately — if the limit
+bites a fourth time it must cost the audit, not the fixes, which are decided and do not depend on
+the sweep's outcome.
 
 Scheduled to Fable for 2026-08-23 (trigger `trig_01U9JcZ8cDdZcH6h3fB4J6no`).
 

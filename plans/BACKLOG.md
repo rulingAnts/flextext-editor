@@ -488,6 +488,31 @@ announces itself instead of reading as a complete one.
 - It should work OFFLINE, printing the local half and saying plainly that the server half is
   unavailable — a field device with no signal is exactly when someone wants it.
 
+## ⛔ PHASE C INCREMENT 2 IS BLOCKED FROM DEPLOY — audit, 2026-08-21
+
+**17 confirmed findings, 3 critical. See `plans/AUDIT-FINDINGS-2026-08-21.md`.** Nothing is
+deployed and no `project_member` rows exist, so production is unaffected — but the authorization
+half cannot ship as written.
+
+**One root cause accounts for nine of them:** routes authorize the project correctly and then act on
+a Drive text or file id supplied by the CALLER, resolved by a tag search across the owner's ENTIRE
+Drive. A member of one project can list, read, relocate or write into another project's texts using
+the owner's Drive authority. ⚠ The account-wide search is old and deliberate; converting those
+routes to `authMember` on 2026-08-20 is what made it REACHABLE by a member — the conversion removed
+the only thing making it safe.
+
+**The decided fix is to narrow the capabilities, not to rush the Drive work:** `manageDevices` and
+`createInvites` never take a caller-supplied Drive id and are safe; `assignTexts` and `drive` are
+where every finding lives, and `validateCaps` should REFUSE them for now. That makes member support
+shippable as DEVICE MANAGEMENT — rename, settings, commands, revoke, enrol coworkers — with
+text/file sharing deferred until VII.1's `drive_object` scoping exists.
+
+⚠ **The audit did NOT get a clean run.** Its second attack round and completeness critic died on the
+monthly spend limit — the third time that has killed this same audit. Findings are trustworthy;
+coverage is unproven.
+
+Scheduled to Fable for 2026-08-23 (trigger `trig_01U9JcZ8cDdZcH6h3fB4J6no`).
+
 ## DECIDED 2026-08-20: the Drive permission checkbox does NOT ship in Phase D
 
 Seth agreed: don't offer a control that looks functional and is not.

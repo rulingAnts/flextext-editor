@@ -155,8 +155,10 @@ console.log('\nwhat that member CAN do, and what they still cannot');
    * manageDevices — which this member HAS — so a single "commands are refused" assertion would pass
    * for the wrong reason. Text-scoped command types must be refused while device-scoped ones
    * succeed, through the same route, with the same credentials, in the same breath. */
+  /* ⚠ `enc`, not a plaintext `settings` — the worker now refuses an unencrypted payload, and
+   * pushCommand has always encrypted, so this is the shape a real client sends. */
   const deviceCmd = await call('POST', `/v1/instances/${idA}/command`, GUEST,
-    { command: { type: 'changeSettings', settings: { vern: 'fau' } } });
+    { command: { type: 'changeSettings', enc: 'opaque-ciphertext' } });
   ok(deviceCmd.status === 200, `✅ a DEVICE command (changeSettings) is accepted (got ${deviceCmd.status})`);
   for (const type of ['assign', 'delete', 'uploadDelete', 'setDone']) {
     const res = await call('POST', `/v1/instances/${idA}/command`, GUEST,
@@ -263,6 +265,56 @@ console.log('\npubkey lookup returns the KEY and no identity');
   ok(!JSON.stringify(got.json).includes('@') && got.json.display_name === undefined,
      '⚠ and gets no email and no display name — the wrapping needs the key, not the person');
   ok((await call('GET', '/v1/researcher/pubkey/nobody-at-all', OWNER)).status === 404, 'an unknown id is not_found');
+}
+
+console.log('\n⚠⚠ a member cannot repoint a device\'s BACKEND through changeSettings');
+{
+  /* THE SWEEP FINDING THAT DISPROVED THE CAPABILITY-DEFERRAL HEURISTIC. The rule written into
+   * validateCaps was "every dangerous route is one where the member names a Drive file or text".
+   * changeSettings names no Drive id at all: the worker validated cmd.type and nothing else, so
+   *   { type:'changeSettings', settings:{ relayWorker:'https://…' } }
+   * from a member holding only manageDevices repointed the device's whole backend — install
+   * credentials on its next poll, every upload thereafter, and a fabricated desired lane answering
+   * { wipe:true }, which sync.js honours before every gate. A WIPE, delegated by a capability, which
+   * check-project-scoping.sh asserts cannot happen — bypassed without touching the wipe route.
+   *
+   * The worker CANNOT read settings (they are E2EE), so it cannot allow-list keys. What it CAN
+   * enforce is the shape: pushCommand has always encrypted, so a plaintext payload is a shape no
+   * legitimate client has ever sent. The device-side refusal of relayWorker is the other half. */
+  await call('POST', `/v1/projects/${projectId}/members`, OWNER, {
+    researcher_id: FIXTURE.outsiderId, caps: { manageDevices: true },
+  });
+  const attack = await call('POST', `/v1/instances/${idA}/command`, GUEST,
+    { command: { type: 'changeSettings', settings: { relayWorker: 'https://evil.example' } } });
+  ok(attack.status === 400 && attack.json && attack.json.error === 'payload_must_be_encrypted',
+     `⚠⚠ a PLAINTEXT settings payload is refused (got ${attack.status} ${attack.json && attack.json.error})`);
+
+  /* ⚠ And the refusal must be about the SHAPE, not about the key name — an attacker choosing a
+   * different setting must hit the same wall, or the fix is a blocklist of one string. */
+  const anyPlain = await call('POST', `/v1/instances/${idA}/command`, GUEST,
+    { command: { type: 'changeSettings', settings: { vern: 'fau' } } });
+  ok(anyPlain.status === 400 && anyPlain.json.error === 'payload_must_be_encrypted',
+     'any plaintext settings payload is refused, not just the dangerous key — the check is on the shape');
+
+  /* An ENCRYPTED command still goes through, so this did not simply break settings pushes. The rig
+   * cannot produce real ciphertext, but `enc` is opaque to the worker by design — its presence is
+   * the whole of what the worker checks. */
+  const enc = await call('POST', `/v1/instances/${idA}/command`, GUEST,
+    { command: { type: 'changeSettings', enc: 'opaque-ciphertext-the-worker-never-reads' } });
+  ok(enc.status === 200, `✅ an ENCRYPTED changeSettings is still accepted (got ${enc.status}) — device management is not broken`);
+  await call('DELETE', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: FIXTURE.outsiderId });
+}
+
+console.log('\n⚠ a grant survives the device MOVING between projects, and removal still catches it');
+{
+  /* ⚠ THE SWEEP FOUND THIS INSIDE THE PREVIOUS FIX. instance.project_id is MUTABLE — /projects/assign
+   * rewrites it when a container moves — so resolving grants through the CURRENT project misses one
+   * minted while the device sat in the project the member is being removed from. Neither clause
+   * fires, nothing else removes the row, and the response says grants_removed: 0 next to ok: true.
+   * The rig has no Drive, so the move is simulated by asking whether BOTH match paths are present. */
+  const src = readFileSync(new URL('../worker/src/v1.js', import.meta.url), 'utf8');
+  ok(/DELETE FROM member_key WHERE researcher_id=\? AND \(project_id=\? OR instance_id IN \(/.test(src),
+     '⚠ removal matches the stale project_id snapshot AND the live instance subquery — neither alone is sufficient');
 }
 
 console.log('\nkey delivery no longer makes instance ids ENUMERABLE');

@@ -495,9 +495,17 @@ export function validateCaps(raw) {
    * conversion did not introduce the search, it removed the thing that made it safe. So the fix is
    * to stop handing out the capabilities that reach it, NOT to patch nine routes.
    *
-   * The dividing line is exact and worth keeping: EVERY dangerous route is one where the member
-   * names a Drive file or text; EVERY safe route works only from D1, or from the device's own
-   * stored oauth_folder_id. manageDevices and createInvites are on the safe side of it.
+   * ⚠⚠ THE DIVIDING LINE THIS ORIGINALLY CLAIMED IS FALSE, AND THE CORRECTION MATTERS MORE THAN THE
+   * RULE. It read: "EVERY dangerous route is one where the member names a Drive file or text; EVERY
+   * safe route works only from D1." The 2026-08-21 SWEEP disproved it within hours — `changeSettings`
+   * names no Drive id at all, yet a member holding only manageDevices could use it to repoint a
+   * field device's entire backend (see the guard on that route). The heuristic was seductive because
+   * it explained all nine findings of the previous round; it was still wrong, and a rule that
+   * explains the last outage is not thereby a rule about the next one.
+   *
+   * So: deferring assignTexts and drive closes the DRIVE-ID class specifically. It is not a proof
+   * that what remains is safe, and nothing here should be read as one. manageDevices reaches the
+   * command lane, which reaches the device's own settings, which is a control plane of its own.
    *
    * ⚠ REFUSED, NEVER SILENTLY DROPPED — the same rule as `see` and `wipe` below. An owner who ticks
    * "can assign texts" and is quietly given nothing believes their assistant has access they do not
@@ -2573,10 +2581,21 @@ export async function handleV1(request, env, ctx, url, path, origin) {
        * window closes on its own as instances acquire projects. */
       const res = await env.DB.batch([
         env.DB.prepare('DELETE FROM project_member WHERE project_id=? AND researcher_id=?').bind(projectId, who),
+        /* ⚠ ALSO MATCHES THE STALE member_key.project_id, and that clause is not redundant — the
+         * sweep found the gap it fills. `instance.project_id` is MUTABLE: /projects/assign rewrites
+         * it when a container moves (and must, or authorization would follow the project the device
+         * just left). So a grant minted while the device sat in THIS project is no longer matched by
+         * the subquery once the device has moved to another project of the same owner — neither
+         * clause fires, nothing else ever removes the row, and the removal cheerfully reports
+         * grants_removed: 0 alongside ok: true.
+         *
+         * Matching the snapshot as well catches exactly that: the grant recorded WHERE IT WAS MINTED.
+         * Neither column alone is sufficient — the snapshot misses the legacy '' rows (the bug this
+         * whole statement was written to fix), and the subquery misses moved devices. Both, ORed. */
         env.DB.prepare(
-          'DELETE FROM member_key WHERE researcher_id=? AND instance_id IN ('
-          + 'SELECT instance_id FROM instance WHERE project_id=? OR (project_id IS NULL AND researcher_id=?))'
-        ).bind(who, projectId, ctx.owner.researcher_id),
+          'DELETE FROM member_key WHERE researcher_id=? AND (project_id=? OR instance_id IN ('
+          + 'SELECT instance_id FROM instance WHERE project_id=? OR (project_id IS NULL AND researcher_id=?)))'
+        ).bind(who, projectId, projectId, ctx.owner.researcher_id),
       ]);
       const gone = (res && res[0] && res[0].meta && res[0].meta.changes) || 0;
       const keys = (res && res[1] && res[1].meta && res[1].meta.changes) || 0;
@@ -3679,6 +3698,28 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       const TEXT_COMMANDS = ['assign', 'delete', 'uploadDelete', 'setDone'];
       if (TEXT_COMMANDS.includes(cmd.type) && !ctx.isOwner && !ctx.caps.assignTexts) {
         return j({ error: 'not_found' }, 404, origin, env);
+      }
+      /* ⚠⚠ changeSettings MUST RIDE `enc`, AND A PLAINTEXT `settings` IS REFUSED OUTRIGHT.
+       *
+       * The 2026-08-21 sweep found the hole this closes, and it defeated the capability deferral
+       * without naming a Drive id at all: the worker validated `cmd.type` and nothing else, so a
+       * member holding only manageDevices could send
+       *   { type: 'changeSettings', settings: { relayWorker: 'https://…' } }
+       * The device MERGES researcher-supplied keys (app.js:3845) and `settings.relayWorker` is
+       * exactly what `workerBase()` returns — the origin for the poll, the report lane and every
+       * upload. One command repointed a field device's entire backend: install credentials on the
+       * next poll, every subsequent recording and text uploaded to the attacker instead of the
+       * owner's Drive, and a fabricated desired lane answering { wipe: true }, which sync.js honours
+       * "before every gate". That last one delegates a WIPE — which check-project-scoping.sh
+       * asserts no capability can do, and which this bypassed without ever touching the wipe route.
+       *
+       * ⚠ THE REAL FIX IS DEVICE-SIDE and lives in app.js, because settings are E2EE and THE WORKER
+       * CANNOT READ THEM — it can never allow-list keys it cannot see. This check is the half the
+       * worker CAN enforce, and it is worth having: `pushCommand` has always encrypted (researcher.js
+       * :569 `enc: await encryptJSON(Ki, payload)`), so a plaintext payload is a shape no legitimate
+       * client has ever sent, and refusing it costs nothing and stops anyone who holds no Ki. */
+      if (cmd.type === 'changeSettings' && !cmd.enc) {
+        return j({ error: 'payload_must_be_encrypted' }, 400, origin, env);
       }
       for (let attempt = 0; attempt < 5; attempt++) {
         const inst = await env.DB.prepare('SELECT desired_blob, desired_rev, type FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')

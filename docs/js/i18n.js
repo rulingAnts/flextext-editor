@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v442';
+export const ENGINE_VERSION = 'v443';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v442';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'baseline-loading v1';
+export const BUILD_TAG = 'phase-c-authz v1';
 
 const S = {
 en: {
@@ -347,6 +347,9 @@ en: {
   'research.enabled': 'Settings tab enabled.',
   'research.disabled': 'Settings tab hidden. To bring it back, tap the ? (Help) button 7 times (or press Ctrl+Alt+R).',
   'sync.settingsUpdated': 'Your researcher updated this device’s settings.',
+  /* Shown when a pushed settings change tried to set a key a remote command may never set. It is
+   * named rather than silently dropped: a researcher who sent one has to know it did not apply. */
+  'sync.settingsKeyRefused': 'A setting your researcher sent was not applied ({keys}) — that one can only be changed on this device.',
   'sync.revoked': 'Your researcher unlinked this device — it’s a standalone app again.',
   // ---- crowd recorder + drive delivery + per-text delete + auto-backup (v94) ----
   'crowd.appName': 'Record a story',
@@ -2145,6 +2148,7 @@ id: {
   'research.enabled': 'Tab Pengaturan diaktifkan.',
   'research.disabled': 'Tab Pengaturan disembunyikan. Untuk memunculkannya lagi, ketuk tombol ? (Bantuan) 7 kali (atau tekan Ctrl+Alt+R).',
   'sync.settingsUpdated': 'Peneliti Anda memperbarui pengaturan perangkat ini.',
+  'sync.settingsKeyRefused': 'Satu pengaturan yang dikirim peneliti tidak diterapkan ({keys}) — yang itu hanya bisa diubah di perangkat ini.',
   'sync.revoked': 'Peneliti Anda melepas tautan perangkat ini — kini menjadi aplikasi mandiri lagi.',
   // ---- crowd recorder + drive delivery + per-text delete + auto-backup (v94) ----
   'crowd.appName': 'Rekam cerita',

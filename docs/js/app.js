@@ -3842,7 +3842,30 @@ async function syncDispatch(cmd) {
       // MERGE only the researcher-supplied keys; never a whole-object overwrite that
       // would wipe a power-user's relayWorker / uploadFolder (plan §F.1).
       const s = loadSettings();
-      Object.assign(s, cmd.settings || {});
+      /* ⚠⚠ A REMOTE COMMAND MAY NEVER SET A CONTROL-PLANE KEY. `relayWorker` is what workerBase()
+       * returns — the origin this device polls, reports to and uploads to. A pushed settings patch
+       * that could set it would hand whoever sent it the device's entire backend: the install
+       * credentials on the next poll, every recording and text thereafter, and a fabricated desired
+       * lane answering { wipe: true }, which sync.js honours before every gate. The 2026-08-21 sweep
+       * demonstrated exactly that from a member holding only manageDevices.
+       *
+       * ⚠ THIS HAS TO LIVE HERE, not in the worker. Settings are E2EE — the worker stores ciphertext
+       * and cannot inspect what it is forwarding, so it can never allow-list these keys. The device
+       * is the only place that sees them in the clear, which makes it the only place the rule can be
+       * enforced. The worker's matching check (a payload must be encrypted) is defence in depth, not
+       * the fix.
+       *
+       * ⚠ It is a REFUSAL, not a silent strip: a researcher who pushed one needs to know it did not
+       * apply. Setting it locally — the settings UI, a dev URL — is untouched and still works. */
+      const REMOTE_FORBIDDEN = ['relayWorker'];
+      const patch = { ...(cmd.settings || {}) };
+      const refused = REMOTE_FORBIDDEN.filter((k) => Object.prototype.hasOwnProperty.call(patch, k));
+      for (const k of refused) delete patch[k];
+      if (refused.length) {
+        try { console.warn('changeSettings: refused control-plane key(s)', refused.join(', ')); } catch { /* noop */ }
+        try { toast(t('sync.settingsKeyRefused', { keys: refused.join(', ') }), 8000); } catch { /* noop */ }
+      }
+      Object.assign(s, patch);
       saveSettings(s);
       // A pushed app-language (setting D) takes effect live — set it BEFORE the re-render so the menus
       // repaint in the new language right away (only on the actual push; the local toggle still works after).

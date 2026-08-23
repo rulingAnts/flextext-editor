@@ -488,6 +488,68 @@ announces itself instead of reading as a complete one.
 - It should work OFFLINE, printing the local half and saying plainly that the server half is
   unavailable — a field device with no signal is exactly when someone wants it.
 
+## VIDEO SOURCES (.mp4) — audio extraction first, preview later (Seth, 2026-08-21)
+
+> *"Can our editor app make use of video files (like mp4)? For now just automatically extracting and
+> using just the audio is good enough, but in the near future we'll want to be able to see the video
+> playing in a small preview viewer somehow. But THAT part is for later."*
+
+**Most of the machinery already exists, and it is not the part anyone would guess.**
+
+`segWorkingMedia` (app.js:1595) already takes ANY non-WAV media, decodes it with `decodeAudioData`,
+re-encodes to 16-bit WAV, stores it under `segwav:<docId>` as `derived:true`, and leaves the original
+untouched. That IS audio extraction — built for the lossy-source timeline fix (AAC priming makes
+decode and playback disagree by ~44ms), and a video container is the same problem wearing a
+different hat. Playback needs nothing either: media plays via `URL.createObjectURL(blob)` on an
+`<audio>` element, and Chrome plays an MP4's audio track through one.
+
+⚠ **The blocker is the FILE PICKERS, not the pipeline.** Five inputs in `docs/index.html` (lines 89,
+93, 173, 225, 296) accept `audio/*` plus an extension list. An `.mp4` simply cannot be selected.
+Adding `video/mp4,video/quicktime,.mp4,.mov` is the bulk of the change.
+
+⚠ The `/^audio\//` guard at app.js:5826 is NOT a blocker — it is the CONSENT PROMPT picker only, and
+should stay audio-only: a consent prompt is played aloud to a speaker.
+
+### ⚠ MUST BE TESTED BEFORE BUILDING — cannot be verified from source
+
+**Does `decodeAudioData` accept an MP4 that contains a VIDEO track?** Chrome is expected to decode
+the audio track and ignore the video, which is what makes the whole approach work — but that is an
+expectation, not a verified fact, and this container has no ffmpeg and no Playwright to test it. If
+it throws, extraction needs a real demuxer (a large dependency, and a new top-level import in
+`js/app.js` is a new SHELL entry in the editor AND every satellite sw.js — the v108 outage).
+**Test on Android Chrome with a real phone-camera MP4 before any of this is scoped.**
+
+Second thing to test: whether `<audio src=blob:...>` reports correct `duration` for an MP4. The
+segmentation seeds divide the recording by duration, so a wrong or `Infinity` duration produces a
+false alignment rather than an error.
+
+### ⚠ THREE DECISIONS, and the first one bites in the field
+
+1. **Video bytes must never ride a field upload.** An MP4 is many times the size of its audio, and a
+   field device would store AND upload the video over expensive bandwidth. There is exact precedent
+   to follow rather than invent: the derived WAV and the preview HTML already ride LOCAL bundles
+   only, because *"field upload bandwidth never pays for embedded audio."* Video should follow the
+   same rule, with more force.
+2. **But do not extract-and-discard.** The archival rule is that the ORIGINAL is never touched,
+   replaced or deleted (app.js:1591). It also happens to be what the future preview viewer needs. So:
+   keep the video locally, derive the audio as the working copy, exclude the video from uploads.
+   Those three are the same decision, which is a good sign it is the right one.
+3. **`segWorkingMedia` only runs when segmentation is enabled** (app.js:1598). In the classic editor
+   a video would stay the media as-is — fine for playback, but no extraction happens, so the WAV
+   working copy the exports assume would not exist. Decide whether video import forces the
+   conversion regardless of mode.
+
+### Smaller things that follow
+
+- The derived WAV's BWF `bext` names its lossy origin (`seg-exports.js:1006`); a video origin should
+  be named too — the honesty stamp is the point, and "derived from video" is a different fact.
+- `paragraph-ui.js` (134, 191) picks the audio file out of a drop by `/^audio\//` or an extension
+  list; PAT would need the same widening or it silently ignores a dropped video.
+- The recorder and crowd satellites use their own capture paths and are unaffected.
+
+**Sequence:** test the decode → widen the pickers → force the WAV derivation for video → exclude
+video from uploads → (later, separately) the preview viewer.
+
 ## ⛔ PHASE C INCREMENT 2 IS BLOCKED FROM DEPLOY — audit, 2026-08-21
 
 **17 confirmed findings, 3 critical. See `plans/AUDIT-FINDINGS-2026-08-21.md`.** Nothing is

@@ -3742,7 +3742,28 @@ export async function handleV1(request, env, ctx, url, path, origin) {
          * obvious optimisation. Pruning breaks the chain above and reintroduces seq reuse. If the
          * blob ever needs trimming, store a separate high-water `next_seq` on the instance row
          * instead of inferring it from the array. Covered by test/command-seq-invariant.test.mjs. */
-        const seq = (blob.commands.length ? blob.commands[blob.commands.length - 1].seq : 0) + 1;
+        /* ⚠⚠ A HIGH-WATER MARK, NOT THE ARRAY TAIL — and the comment above prescribed exactly this
+         * before the sweep proved it was needed. The chain it describes ("cancel refuses any
+         * seq <= max(ack_seq) ⟹ acked commands can never be removed ⟹ the tail is always
+         * >= max(ack_seq)") rests on `install.ack_seq` being a true record of what the device has
+         * executed. It is not: the device advances its LOCAL cursor the instant dispatch returns
+         * (sync.js:447) and only then attempts the report, which is best-effort and silently
+         * swallowed on failure (sync.js:486). In the field that gap is hours or days.
+         *
+         * So the sequence that actually happens: device executes seq 7 and cannot report; the
+         * server still reads ack_seq 6; a cancel of 7 passes the guard and removes the entry; the
+         * tail falls back to 6; the NEXT command is minted as 7 again — and the device filters
+         * `c.seq > s.ackSeq`, so 7 is not greater than its local 7 and it SKIPS THAT COMMAND
+         * FOREVER. No error anywhere; the researcher watches nothing happen. That is the failure the
+         * comment above warns about, arriving through cancel rather than through pruning.
+         *
+         * `nextSeq` lives in the BLOB, not in a new column, so there is no migration: an existing
+         * blob has none, `Math.max(tail, 0) + 1` is exactly today's arithmetic, and it
+         * self-initialises on the first append. Cancel rewrites the blob but never lowers it, which
+         * is the whole point — a seq, once issued, is spent. */
+        const tailSeq = blob.commands.length ? blob.commands[blob.commands.length - 1].seq : 0;
+        const seq = Math.max(tailSeq, blob.nextSeq || 0) + 1;
+        blob.nextSeq = seq;
         /* ⚠ `by` IS THE ISSUER, and it is written now so that `cancelOthers` can be enforced later.
          * Commands recorded no author at all, which the design flags as a SCHEMA gap rather than a UI
          * one: without it "may cancel a command someone ELSE queued" is not a rule that can be
@@ -3800,6 +3821,14 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         const acked = await env.DB.prepare('SELECT MAX(ack_seq) AS a FROM install WHERE instance_id=? AND revoked=0')
           .bind(instanceId).first();
         const maxAck = (acked && acked.a) || 0;
+        /* ⚠ THIS GUARD IS NECESSARY BUT NOT SUFFICIENT, and saying so is the honest part. ack_seq is
+         * server state that LAGS execution by an unbounded interval, so passing it does not prove
+         * the device has not already acted — only that it has not yet SAID so. A destructive command
+         * (delete, uploadDelete) may be long finished when this returns ok. The reused-seq
+         * consequence is fixed above by nextSeq; the "cancel may be too late" half cannot be fixed
+         * here at all, because nothing in the protocol reports execution before it happens.
+         * `ack_seq` rides the response so a caller can say what the withdrawal was based on rather
+         * than implying certainty. */
         if (seq <= maxAck) return j({ error: 'already_delivered', ack_seq: maxAck }, 409, origin, env);
         const blob = inst.desired_blob ? JSON.parse(inst.desired_blob) : { settings: {}, commands: [] };
         const before = (blob.commands || []).length;
@@ -3808,7 +3837,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         const newRev = inst.desired_rev + 1;
         const res = await env.DB.prepare('UPDATE instance SET desired_blob=?, desired_rev=? WHERE instance_id=? AND desired_rev=?')
           .bind(JSON.stringify(blob), newRev, instanceId, inst.desired_rev).run();
-        if (res.meta.changes === 1) return j({ ok: true, cancelled: seq, desired_rev: newRev }, 200, origin, env);
+        if (res.meta.changes === 1) return j({ ok: true, cancelled: seq, desired_rev: newRev, ack_seq: maxAck }, 200, origin, env);
       }
       return j({ error: 'conflict_retry' }, 409, origin, env);
     }

@@ -86,6 +86,15 @@ const pendingPoll = await call('GET', `/v1/instances/${instanceId}?since=-1`, { 
 ok(pendingPoll.status === 200, `pending device poll is 200 (got ${pendingPoll.status})`);
 ok(pendingPoll.json && pendingPoll.json.pending === true,
    'a pending install is told { pending: true } and receives NO commands');
+/* ⚠⚠ THE DEVICE IS TOLD THE NAME ITS RESEARCHER GAVE IT (v440), asserted on the VALUE a real device
+ * receives rather than on the source text. It shipped BROKEN and stayed broken in production: the
+ * desired-lane SELECT omitted the `nickname` column, so `inst.nickname || ''` was always ''.
+ * pair-code.test.mjs asserted only that the string appeared in the worker — true the whole time, and
+ * worth nothing. Drop `nickname` from that SELECT and this fails by name.
+ * ⚠ It rides the PENDING branch too, which is the branch that matters most: the pairing screen is
+ * exactly where two people are trying to confirm they are holding the same device. */
+ok(pendingPoll.json && pendingPoll.json.nickname === 'Probe Device',
+   `⚠⚠ the PENDING poll carries the researcher's name for the device (got ${JSON.stringify(pendingPoll.json && pendingPoll.json.nickname)}, want "Probe Device")`);
 
 /* ---- 5. RESEARCHER approves; DEVICE accepts (the two-sided enrolment gate) ---- */
 const approve = await call('POST', `/v1/instances/${instanceId}/installs/${installId}/approve`, { headers: RESEARCHER, body: {} });
@@ -97,6 +106,8 @@ ok(accept.status === 200, `POST …/accept is 200, authed by the install secret 
 const poll = await call('GET', `/v1/instances/${instanceId}?since=-1`, { headers: DEVICE });
 ok(poll.status === 200, `approved device poll is 200 (got ${poll.status})`);
 has(poll.json, ['type', 'desired_rev', 'settings', 'commands'], 'desired-lane response');
+ok(poll.json && poll.json.nickname === 'Probe Device',
+   `⚠⚠ and the APPROVED poll carries it too (got ${JSON.stringify(poll.json && poll.json.nickname)}) — sync.js re-reads it on EVERY poll so a rename reaches the device`);
 
 /* The idle short-circuit: nothing new → 204, which is what keeps village polling cheap. */
 const idle = await call('GET', `/v1/instances/${instanceId}?since=${poll.json.desired_rev}`, { headers: DEVICE });

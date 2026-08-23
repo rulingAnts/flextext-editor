@@ -195,10 +195,21 @@ ok(/unwrapKeyFromResearcher/.test(read('../docs/js/sync.js')),
  * not session-scoped, so the two are indistinguishable from the outside — and the panel names
  * devices while the device was never told its name. */
 console.log('\nthe device is told the name its researcher gave it');
-ok(/nickname: inst\.nickname \|\| ''/.test(worker),
-   'the poll carries it');
-ok((worker.match(/nickname: inst\.nickname \|\| ''/g) || []).length === 2,
-   '⚠ ...on BOTH branches — the pending one too, so the name is on screen while the pairing code is');
+/* ⚠⚠ THESE USED TO PIN THE SOURCE TEXT `nickname: inst.nickname`, and they PASSED FOR THE ENTIRE
+ * TIME THE FEATURE WAS BROKEN — the string was on both branches while the desired-lane SELECT omitted
+ * the `nickname` column, so the value sent was always ''. A source-text assertion cannot tell "the
+ * code says it" from "the code does it". The REAL check is in test/worker-device-compat.probe.mjs,
+ * against a real worker. What is left here is the half a static read can honestly establish: that the
+ * column is SELECTED and that it is SENT on each branch — the exact pairing that was broken.
+ * ⚠ Matched on the two RESPONSE SHAPES, not on a COUNT of the string anywhere in the file: a count
+ * breaks when a comment mentions the field, and an assertion a prose edit can fail is one people
+ * learn to "fix" without reading. */
+ok(/SELECT desired_blob, desired_rev, type, revoked, researcher_id, nickname FROM instance/.test(worker),
+   '⚠ the desired-lane SELECT includes the nickname COLUMN — omitting it is what made the value always empty');
+ok(/\{ pending: true, type: inst\.type, nickname: inst\.nickname/.test(worker),
+   '⚠ ...sent on the PENDING branch — the name is on screen while the pairing code is');
+ok(/return j\(\{ type: inst\.type, nickname: inst\.nickname/.test(worker),
+   '⚠ ...and on the APPROVED branch, so a later rename reaches the device too');
 ok(/export function deviceNickname/.test(sync), 'the device stores and exposes it');
 ok(/r\.nickname !== s\.nickname/.test(sync),
    '⚠ and updates on EVERY poll, so a rename in the panel actually reaches the device');

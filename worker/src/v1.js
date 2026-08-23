@@ -3687,7 +3687,17 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       // it lands in any device state (even one lost mid-enrollment that never received its key).
       if (install && install.wipe_state === 'requested') return j({ wipe: true }, 200, origin, env);
 
-      const inst = await env.DB.prepare('SELECT desired_blob, desired_rev, type, revoked, researcher_id FROM instance WHERE instance_id=?')
+      /* ⚠ `nickname` IS IN THIS COLUMN LIST, and it was missing for the whole life of the feature.
+       * Both branches below send `nickname: inst.nickname || ''`, so an absent column made that
+       * `undefined || ''` — every device was told its name was the empty string, on the pending
+       * screen and after approval, which is the one moment two people are trying to agree which
+       * device they are holding. Shipped broken in v440 and live until 2026-08-23.
+       *
+       * ⚠ It went unnoticed because test/pair-code.test.mjs asserted the SOURCE STRING
+       * `nickname: inst.nickname` appeared twice — which it did, while always evaluating to ''.
+       * A test that pins source text can vouch for a feature that does nothing; the real check now
+       * lives in test/worker-device-compat.probe.mjs and asserts the VALUE a device receives. */
+      const inst = await env.DB.prepare('SELECT desired_blob, desired_rev, type, revoked, researcher_id, nickname FROM instance WHERE instance_id=?')
         .bind(instanceId).first();
       if (!inst) return j({ error: 'not_found' }, 404, origin, env);
       if (inst.revoked) return j({ error: 'revoked' }, 410, origin, env);   // whole-instance revoke → client auto-releases

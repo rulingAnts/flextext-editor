@@ -98,12 +98,30 @@ console.log('\ncaps are VALIDATED on the way in — an owner must be told, not s
   ok(ghost.status === 404, `a membership row naming nobody is refused (got ${ghost.status})`);
 }
 
-console.log('\nadded with assignTexts only — project-wide, because the project IS the scope');
+console.log('\nthe DEFERRED capabilities cannot be granted at all (audit remediation)');
+{
+  /* ⚠ THIS IS THE SECURITY PROPERTY THE v1 FIX RESTS ON, so it is tested at the API rather than only
+   * in validateCaps' unit tests: nine of the audit's seventeen findings share one root cause, and
+   * every one of those nine is reachable only through `assignTexts` or `drive`. If either can be
+   * written, the whole remediation is undone silently. */
+  for (const caps of [{ assignTexts: true }, { drive: 'read' }, { drive: 'manage' },
+                      { manageDevices: true, assignTexts: true }]) {
+    const res = await call('POST', `/v1/projects/${projectId}/members`, OWNER, {
+      researcher_id: FIXTURE.outsiderId, caps,
+    });
+    ok(res.status === 400 && res.json && res.json.error === 'bad_caps',
+       `⚠ refused: ${JSON.stringify(caps)} (got ${res.status} ${res.json && res.json.error})`);
+  }
+  ok((await call('GET', `/v1/projects/${projectId}/members`, OWNER)).json.members.length === 0,
+     'and none of those attempts left a member row behind');
+}
+
+console.log('\nadded with manageDevices — device management is what v1 members get');
 const add = await call('POST', `/v1/projects/${projectId}/members`, OWNER, {
-  researcher_id: FIXTURE.outsiderId, caps: { assignTexts: true },
+  researcher_id: FIXTURE.outsiderId, caps: { manageDevices: true },
 });
 ok(add.status === 200, `the guest is added (got ${add.status})`);
-ok(add.json && add.json.caps && add.json.caps.manageDevices === undefined,
+ok(add.json && add.json.caps && add.json.caps.assignTexts === undefined,
    'caps come back NORMALISED — absent means false, so unknown keys cannot accumulate');
 {
   const seen = await call('GET', '/v1/projects', GUEST);
@@ -113,26 +131,39 @@ ok(add.json && add.json.caps && add.json.caps.manageDevices === undefined,
      '⚠ and no email anywhere in the joined listing — identity is not advertised');
 }
 
-console.log('\nthe grant is exactly what was given');
+console.log('\nwhat that member CAN do, and what they still cannot');
 {
-  /* ⚠ THE GRANTED AND UNGRANTED DEVICES MUST DIFFER, and this pair is the only thing that keeps the
-   * see-list assertion below from being vacuous. The first version asserted `status !== 404 || true`
-   * — a tautology, which would have passed even if BOTH devices were refused, certifying a bounded
-   * capability while testing nothing. Verified by hand against the rig: the granted device reaches
-   * Drive and dies there (502 oauth_unconfigured, the rig having no Google), while the ungranted one
-   * never gets that far. So "past authorization" is exactly "not not_found". */
-  const reach = await call('POST', `/v1/instances/${idA}/texts/probedoc/adopt`, GUEST, {});
-  ok(reach.status !== 404,
-     `assignTexts gets PAST authorization (got ${reach.status} — 502 oauth_unconfigured on the rig, never 404)`);
-  ok((await call('POST', `/v1/instances/${idA}/rename`, GUEST, { nickname: 'x' })).status === 404,
-     '⚠ manageDevices was NOT granted, so rename is refused even on the visible device');
-  /* ⚠ BOTH devices are now reachable, and that is the DECISION rather than a loosening that slipped
-   * through: the project is the boundary (Seth, 2026-08-20), so a member holding assignTexts holds
-   * it for everything in the project. The per-device list that used to be asserted here was removed
-   * because Drive could not honour it. Cross-PROJECT denial is tested in project-authz. */
-  const second = await call('POST', `/v1/instances/${idB}/texts/probedoc/adopt`, GUEST, {});
-  ok(second.status === reach.status,
-     `⚠ the SECOND device in the same project is reached identically (${reach.status} vs ${second.status}) — project-wide means project-wide`);
+  ok((await call('POST', `/v1/instances/${idA}/rename`, GUEST, { nickname: 'Renamed By Member' })).status === 200,
+     '✅ rename works — this is the useful half, and it never takes a caller-supplied Drive id');
+  ok((await call('POST', `/v1/instances/${idB}/rename`, GUEST, { nickname: 'Also Renamed' })).status === 200,
+     'on every device in the project, because the project IS the boundary');
+
+  /* ⚠ THE TEXT LANE IS CLOSED, and closed by the capability being ungrantable rather than by each
+   * route being patched. These are the nine same-root findings, tested as unreachable. */
+  for (const [method, path, label] of [
+    ['GET', `/v1/instances/${idA}/texts/probedoc/files`, 'list a text\'s files (was drive:read)'],
+    ['POST', `/v1/instances/${idA}/texts/probedoc/adopt`, 'adopt a text (was assignTexts)'],
+    ['POST', `/v1/instances/${idA}/texts/probedoc/move`, 'move a text (was assignTexts)'],
+    ['POST', `/v1/instances/${idA}/texts/probedoc/assignment/begin`, 'begin an assignment'],
+  ]) {
+    const res = await call(method, path, GUEST, method === 'GET' ? null : {});
+    ok(res.status === 404, `⚠ ${label}: refused (got ${res.status})`);
+  }
+
+  /* ⚠ THE COMMAND GATE, and the pair is what makes it meaningful. The route is gated on
+   * manageDevices — which this member HAS — so a single "commands are refused" assertion would pass
+   * for the wrong reason. Text-scoped command types must be refused while device-scoped ones
+   * succeed, through the same route, with the same credentials, in the same breath. */
+  const deviceCmd = await call('POST', `/v1/instances/${idA}/command`, GUEST,
+    { command: { type: 'changeSettings', settings: { vern: 'fau' } } });
+  ok(deviceCmd.status === 200, `✅ a DEVICE command (changeSettings) is accepted (got ${deviceCmd.status})`);
+  for (const type of ['assign', 'delete', 'uploadDelete', 'setDone']) {
+    const res = await call('POST', `/v1/instances/${idA}/command`, GUEST,
+      { command: { type, id: 'probedoc' } });
+    ok(res.status === 404 && res.status !== deviceCmd.status,
+       `⚠ a TEXT command (${type}) is refused through that same route (got ${res.status} vs ${deviceCmd.status})`);
+  }
+
   ok((await call('POST', `/v1/instances/${idA}/installs/nope/wipe`, GUEST, {})).status === 404,
      'wipe stays owner-only whatever the member holds');
 }
@@ -187,7 +218,7 @@ console.log('\nUNCONVERTED Drive routes are INERT for a member, not leaky — th
    * which would have succeeded. If this ever returns 200, a member is reading the owner's estate
    * through a route nobody converted. */
   await call('POST', `/v1/projects/${projectId}/members`, OWNER, {
-    researcher_id: FIXTURE.outsiderId, caps: { drive: 'manage' },
+    researcher_id: FIXTURE.outsiderId, caps: { manageDevices: true },
   });
   for (const [method, path, label] of [
     ['GET', '/v1/researcher/drive-estate', 'drive-estate'],
@@ -196,7 +227,7 @@ console.log('\nUNCONVERTED Drive routes are INERT for a member, not leaky — th
   ]) {
     const res = await call(method, path, GUEST, method === 'POST' ? {} : null);
     ok(res.status !== 200,
-       `⚠ ${label}: a member with drive:manage gets ${res.status}, NOT the owner's estate — the route acts on the caller's own Drive`);
+       `⚠ ${label}: a member gets ${res.status}, NOT the owner's estate — the route acts on the caller's own Drive`);
   }
   await call('DELETE', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: FIXTURE.outsiderId });
 }

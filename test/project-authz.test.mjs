@@ -127,6 +127,11 @@ console.log('\ncapabilities are required, not assumed');
 
 console.log('\ndrive is a LEVEL, not a flag — manage implies read, read does not imply manage');
 {
+  /* ⚠ THESE CAPS CANNOT CURRENTLY BE WRITTEN — validateCaps refuses `drive` outright in v1 (the
+   * audit's nine same-root findings all live behind it). The rows here are seeded straight into D1,
+   * which is deliberate: authMember's LEVEL handling is kept and kept tested so that re-enabling the
+   * capability is a one-line change to validateCaps rather than a re-derivation of what read and
+   * manage mean. Defence in depth, and a smaller diff on the way back. */
   const db = freshDb(); await seed(db, '{"drive":"read"}');
   ok((await call(db, MEMBER, { project: PROJ }, 'drive:read')).ok, 'read grants drive:read');
   ok((await call(db, MEMBER, { project: PROJ }, 'drive:manage')).ok === false,
@@ -146,11 +151,12 @@ console.log('\nvalidateCaps: an owner must be TOLD, not silently granted nothing
    * permission set that grants nothing, saw no error, and believes their assistant has access. The
    * write is the only moment a person is present to be told. */
   ok(validateCaps({}) !== null, 'an empty set is valid — a member with no capabilities is a real state');
+  ok(validateCaps({ manageDevices: true, createInvites: true, cancelOthers: true }) !== null,
+     'the three capabilities that survive v1 all pass together — device management is still a real grant');
   ok(validateCaps({ manageDevices: true }).manageDevices === true, 'a granted boolean survives');
   ok(validateCaps({ manageDevices: false }).manageDevices === undefined,
      'an ungranted one is ABSENT, not false — so unknown keys cannot accumulate meaning');
-  ok(validateCaps({ drive: 'read' }).drive === 'read' && validateCaps({ drive: 'manage' }).drive === 'manage',
-     'drive read and manage both pass');
+  ok(validateCaps({ createInvites: true }).createInvites === true, 'createInvites survives');
 
   for (const [bad, why] of [
     [null, 'null'],
@@ -158,7 +164,12 @@ console.log('\nvalidateCaps: an owner must be TOLD, not silently granted nothing
     [[], 'an array'],
     [{ manageDevices: 'yes' }, '⚠ a truthy STRING — the value that reads as a grant while never having been one'],
     [{ manageDevices: 1 }, 'a truthy NUMBER, same reason'],
-    [{ drive: 'write' }, 'a drive level that does not exist'],
+    [{ drive: 'read' }, '⚠ drive READ — deferred in v1, and refused rather than dropped so an owner is never told they granted it'],
+    [{ drive: 'manage' }, '⚠ drive MANAGE, likewise'],
+    [{ drive: 'write' }, 'a drive level that never existed'],
+    [{ assignTexts: true }, '⚠⚠ assignTexts — every one of the audit\'s nine same-root findings lives behind this and drive'],
+    [{ assignTexts: false }, 'assignTexts even when FALSE — the name itself is refused, so a UI cannot round-trip it back'],
+    [{ manageDevices: true, assignTexts: true }, 'a valid capability does not smuggle a deferred one in beside it'],
     [{ wipe: true }, '⚠ wipe — owner-only in v1, so accepting and ignoring it would tell an owner they had delegated it'],
     [{ forceRemove: true }, 'force-remove, same'],
     [{ madeUpCap: true }, '⚠ an unknown capability NAME — the mutation that survived the whole suite'],

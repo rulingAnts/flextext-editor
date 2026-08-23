@@ -481,20 +481,46 @@ export function validateCaps(raw) {
    * below say what may be DONE. Finer separation is a separate project — which is how Seth's own
    * estate is already arranged (Fayu Text Corpus and Dani Dictionary). */
 
-  for (const k of ['manageDevices', 'assignTexts', 'createInvites', 'cancelOthers']) {
+  /* ⚠⚠ `assignTexts` AND `drive` ARE REFUSED IN v1, and this is remediation rather than caution.
+   * The 2026-08-21 audit confirmed 17 findings; NINE of them share one root cause and every one of
+   * those nine lives behind these two capabilities. Routes authorize the project correctly and then
+   * act on a Drive text or file id supplied by the CALLER, resolved by a tag search across the
+   * owner's ENTIRE Drive — so a member of one project could list, read, relocate or write into
+   * another project's texts using the owner's Drive authority. See
+   * plans/AUDIT-FINDINGS-2026-08-21.md.
+   *
+   * ⚠ The account-wide search is OLD, deliberate and documented (driveEnsureTextFolder: "the tag
+   * search is scoped to trashed=false but NOT to the parent"). It was harmless while those routes
+   * were owner-only. Converting them to authMember is what made it reachable by a member — the
+   * conversion did not introduce the search, it removed the thing that made it safe. So the fix is
+   * to stop handing out the capabilities that reach it, NOT to patch nine routes.
+   *
+   * The dividing line is exact and worth keeping: EVERY dangerous route is one where the member
+   * names a Drive file or text; EVERY safe route works only from D1, or from the device's own
+   * stored oauth_folder_id. manageDevices and createInvites are on the safe side of it.
+   *
+   * ⚠ REFUSED, NEVER SILENTLY DROPPED — the same rule as `see` and `wipe` below. An owner who ticks
+   * "can assign texts" and is quietly given nothing believes their assistant has access they do not
+   * have, and nothing will tell them otherwise until it matters.
+   *
+   * TO RE-ENABLE: they come back when Drive access is resolved per project rather than per account
+   * (VII.1's drive_object table, which needs only project_id now that access is project-scoped).
+   * Move the name from DEFERRED_CAPS back into the loop; the route-side gates already exist. */
+  const DEFERRED_CAPS = ['assignTexts', 'drive'];
+  for (const k of DEFERRED_CAPS) {
+    if (raw[k] !== undefined) return null;
+  }
+
+  for (const k of ['manageDevices', 'createInvites', 'cancelOthers']) {
     if (raw[k] === undefined) continue;
     if (typeof raw[k] !== 'boolean') return null;   // a truthy STRING here would read as a grant
     if (raw[k]) out[k] = true;                      // store only what is granted; absent === false
-  }
-  if (raw.drive !== undefined) {
-    if (raw.drive !== 'read' && raw.drive !== 'manage') return null;
-    out.drive = raw.drive;
   }
   /* ⚠ NO WIPE OR FORCE-REMOVE CAPABILITY EXISTS, and an attempt to grant one is an ERROR rather than
    * a silent drop. Those stay owner-only in v1 (round-1 finding 6); accepting the key and ignoring it
    * would tell an owner they had delegated something they had not. */
   for (const k of Object.keys(raw)) {
-    if (!['manageDevices', 'assignTexts', 'createInvites', 'cancelOthers', 'drive'].includes(k)) return null;
+    if (!['manageDevices', 'createInvites', 'cancelOthers'].includes(k)) return null;
   }
   return out;
 }
@@ -3562,6 +3588,25 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       // uploadDelete = upload-then-delete (per-text remote removal; engine ≥ v94 — older
       // clients warn-and-ack it harmlessly, so the panel gates the button on engineVersion).
       if (!['assign', 'delete', 'changeSettings', 'triggerUpload', 'uploadDelete', 'setDone'].includes(cmd.type)) return j({ error: 'unknown_command' }, 400, origin, env);
+      /* ⚠ TEXT-SCOPED COMMANDS NEED assignTexts, NOT manageDevices. The route is gated on
+       * manageDevices because queueing a command IS device management — but four of the six command
+       * types operate on a TEXT, and one of them (`delete`) destroys a field worker's transcription.
+       * Gating the whole route on manageDevices therefore hands the entire text lane to anyone who
+       * can rename a device. The audit caught `assign` and `uploadDelete`; `delete` and `setDone`
+       * are the same shape and are included because leaving them would keep the hole open under a
+       * different name.
+       *
+       * ⚠ This costs the OWNER nothing — isOwner passes every capability — so it changes behaviour
+       * only for members, which is the point. With assignTexts refused in v1 it closes the lane
+       * entirely; when assignTexts returns it becomes the correct gate rather than needing to be
+       * remembered then.
+       *
+       * not_found rather than a distinct error, for the same reason every other capability denial
+       * answers not_found: one refusal shape, so no route becomes an oracle by being the odd one. */
+      const TEXT_COMMANDS = ['assign', 'delete', 'uploadDelete', 'setDone'];
+      if (TEXT_COMMANDS.includes(cmd.type) && !ctx.isOwner && !ctx.caps.assignTexts) {
+        return j({ error: 'not_found' }, 404, origin, env);
+      }
       for (let attempt = 0; attempt < 5; attempt++) {
         const inst = await env.DB.prepare('SELECT desired_blob, desired_rev, type FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
           .bind(instanceId, r.researcher_id).first();

@@ -267,6 +267,25 @@ console.log('\npubkey lookup returns the KEY and no identity');
   ok((await call('GET', '/v1/researcher/pubkey/nobody-at-all', OWNER)).status === 404, 'an unknown id is not_found');
 }
 
+console.log('\nthe desired lane does not leak whether an instance EXISTS or is REVOKED');
+{
+  /* ⚠ ONE authenticated caller used to get THREE distinguishable answers for an id they do not own:
+   * 404 for a nonexistent id, 410 for a real instance since revoked, 403 for a real live one. That
+   * is an oracle for the existence AND the revocation state of every device id anyone has ever seen
+   * — an old invite link, a support screenshot, a project they were removed from. The assertion is
+   * that all three cases now answer IDENTICALLY, which is why all three are asked. */
+  const live = await call('GET', `/v1/instances/${idA}`, GUEST);
+  const missing = await call('GET', '/v1/instances/00000000-0000-4000-8000-00000000dead', GUEST);
+  const dev = await call('POST', '/v1/instances', OWNER, { type: '', nickname: 'Revoked Probe' });
+  await call('POST', `/v1/instances/${dev.json.instance_id}/revoke`, OWNER, {});
+  const revoked = await call('GET', `/v1/instances/${dev.json.instance_id}`, GUEST);
+
+  ok(live.status === 404, `a REAL live instance the caller does not own answers 404 (got ${live.status})`);
+  ok(missing.status === live.status && revoked.status === live.status,
+     `⚠⚠ and a nonexistent id and a REVOKED one answer identically (${missing.status}/${live.status}/${revoked.status}) — otherwise existence and revocation state are readable`);
+  ok(live.json && live.json.error === 'not_found', 'never `forbidden`, and never `revoked`, which is what leaked it');
+}
+
 console.log('\n⚠⚠ a member cannot repoint a device\'s BACKEND through changeSettings');
 {
   /* THE SWEEP FINDING THAT DISPROVED THE CAPABILITY-DEFERRAL HEURISTIC. The rule written into

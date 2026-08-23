@@ -4473,8 +4473,22 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       const inst = await env.DB.prepare('SELECT desired_blob, desired_rev, type, revoked, researcher_id FROM instance WHERE instance_id=?')
         .bind(instanceId).first();
       if (!inst) return j({ error: 'not_found' }, 404, origin, env);
+      /* ⚠ THE OWNERSHIP CHECK COMES FIRST, AND ANSWERS not_found — both halves matter, and both were
+       * wrong (2026-08-21 sweep). It used to answer 403 AFTER the revoked check, which gave ONE
+       * authenticated caller three distinguishable answers for an id they do not own: 404 for an id
+       * that does not exist, 410 for a real instance since revoked, 403 for a real live one. That is
+       * an oracle for both the existence and the revocation state of every device id anybody has
+       * ever seen — in an old invite link, a support screenshot, a project they were removed from.
+       *
+       * Reordered so a caller who is not entitled to the instance learns nothing about it, and the
+       * refusal is the same not_found every other denial answers.
+       *
+       * ⚠ THE INSTALL LANE IS UNTOUCHED: `asResearcher` is null when an install authenticated, so a
+       * revoked DEVICE still gets its 410 and still auto-releases. That behaviour is load-bearing —
+       * without it a revoked phone 401-loops forever and strands the coworker — and it is exactly
+       * what the device-compat probe pins. */
+      if (asResearcher && inst.researcher_id !== asResearcher.researcher_id) return j({ error: 'not_found' }, 404, origin, env);
       if (inst.revoked) return j({ error: 'revoked' }, 410, origin, env);   // whole-instance revoke → client auto-releases
-      if (asResearcher && inst.researcher_id !== asResearcher.researcher_id) return j({ error: 'forbidden' }, 403, origin, env);
       // Provisional installs (§D.3) receive NO commands until approved.
       if (install && install.status !== 'approved') {
         return j({ pending: true, type: inst.type, nickname: inst.nickname || '', desired_rev: inst.desired_rev }, 200, origin, env);

@@ -80,16 +80,39 @@ echo "the converted routes did not quietly revert"
 #    correct for the 22 genuinely account-scoped routes (auth, TOTP, reset, settings blob, approval)
 #    — this bounds the check to the block that was converted.
 start=$(grep -n '^  // Routes under /v1/instances/<id>/\.\.\.' "$W" | cut -d: -f1)
-if [ -z "${start:-}" ]; then
-  bad x "could not locate the /v1/instances/<id> block — this check has gone stale, fix it rather than deleting it"
+# ⚠ BOUND THE BLOCK PROPERLY. An earlier version scanned a guessed window of N lines past the start;
+#   too small and it missed routes, too large and it swept in unrelated ones and cried wolf. The
+#   block closes at the first line that is exactly two spaces and a brace.
+blockend=$(awk -v s="${start:-0}" 'NR>s && /^  \}$/ {print NR; exit}' "$W")
+if [ -z "${start:-}" ] || [ -z "${blockend:-}" ]; then
+  bad x "could not delimit the /v1/instances/<id> block — this check has gone stale, fix it rather than deleting it"
 else
-  # The block runs to the end of the instances handler; bound the scan generously and let the
-  # per-line check do the work.
-  hits=$(awk -v s="$start" 'NR>s && NR<s+700 && /const r = await authResearcher/' "$W" | wc -l | tr -d ' ')
-  if [ "$hits" = 0 ]; then
-    good ok "no route under /v1/instances/<id> resolves auth with authResearcher"
+  # ⚠ MATCH ANY BINDING FORM, not `const r = await`. The first version grepped that exact text and
+  #   MISSED `else asResearcher = await authResearcher(request, env);` in the desired-lane route —
+  #   reporting "no route resolves auth with authResearcher" while one did, and while that route
+  #   answered 403 and leaked both the existence and the revocation state of any instance id
+  #   (2026-08-21 sweep). A guard that passes over the thing it guards is worse than none, because
+  #   it gets quoted as evidence.
+  hits=$(awk -v s="$start" -v e="$blockend" 'NR>s && NR<e && /await authResearcher\(/' "$W" | wc -l | tr -d ' ')
+  # Exactly one is expected: the desired-lane route serves BOTH the install and the panel from one
+  # path, so it legitimately resolves a researcher identity. What it must not do is answer 403.
+  if [ "$hits" -le 1 ]; then
+    good ok "only the dual-lane desired route resolves a researcher identity here ($hits)"
   else
-    bad x "⚠ $hits route(s) under /v1/instances/<id> still call authResearcher — a new route reached for the old pattern"
+    bad x "⚠ $hits route(s) under /v1/instances/<id> call authResearcher — a new route reached for the old pattern"
+  fi
+
+  # ⚠ A 403 THAT DECIDES OWNERSHIP IS AN ID ORACLE; a 403 for a caller who has ALREADY proved a
+  #   binding to this resource is not. Both live in this block, so the rule is stated by ERROR CODE
+  #   rather than by status alone: `bad_upload` (a mismatched upload-session token) and
+  #   `not_approved` (an install that authenticated but is not approved yet) are the two that are
+  #   about state, not about whether you may address this id. Anything else answering 403 here is an
+  #   authorization denial and must be not_found.
+  rogue=$(awk -v s="$start" -v e="$blockend" 'NR>s && NR<e && /\}, 403,/ && !/bad_upload/ && !/not_approved/' "$W" | wc -l | tr -d ' ')
+  if [ "$rogue" = 0 ]; then
+    good ok "no authorization denial under /v1/instances/<id> answers 403 — ids stay unenumerable"
+  else
+    bad x "⚠ $rogue authorization denial(s) under /v1/instances/<id> answer 403 — that enumerates instance ids"
   fi
 fi
 

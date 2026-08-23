@@ -462,6 +462,20 @@ async function authInstall(req, env, instanceId, installId) {
  * Returns a NORMALISED object or null. Normalising rather than passing the input through is what
  * stops unknown keys accumulating in the column — a future capability name would otherwise already
  * be present with a meaning nobody chose. */
+/* ⚠ ONE LIST, CONSULTED ON BOTH THE WRITE AND THE READ PATH. It began as a local inside
+ * validateCaps — a WRITE-time filter — and the completeness critic caught what that left open:
+ * authMember never called validateCaps, so a project_member row already containing
+ * {"drive":"manage"} or {"assignTexts":true} would still be honoured, reopening all nine same-root
+ * findings. Such a row could arrive from a future migration, an operator's D1 console, or simply
+ * from a build predating the deferral.
+ *
+ * The irony is that validateCaps' own comment argues the discipline this violated — "Validating in
+ * both places is not redundancy; they catch different failures" — and the deferral was implemented
+ * in exactly one of them. A write-path guarantee was being read as a system property.
+ *
+ * TO RE-ENABLE A CAPABILITY: remove its name here, once. Both paths follow. */
+export const DEFERRED_CAPS = ['assignTexts', 'drive'];
+
 export function validateCaps(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const out = {};
@@ -514,7 +528,6 @@ export function validateCaps(raw) {
    * TO RE-ENABLE: they come back when Drive access is resolved per project rather than per account
    * (VII.1's drive_object table, which needs only project_id now that access is project-scoped).
    * Move the name from DEFERRED_CAPS back into the loop; the route-side gates already exist. */
-  const DEFERRED_CAPS = ['assignTexts', 'drive'];
   for (const k of DEFERRED_CAPS) {
     if (raw[k] !== undefined) return null;
   }
@@ -679,6 +692,21 @@ export async function authMember(req, env, target, needCap) {
   /* ⚠ NO PER-DEVICE CHECK HERE — see validateCaps. The project IS the boundary, so resolving the
    * target to this project (above) is the whole of the scoping. Anything narrower would have to be
    * enforceable in Drive too, and it is not. */
+
+  /* ⚠ A STORED DEFERRED CAPABILITY DENIES THE WHOLE RECORD, at READ time, whatever the row says.
+   * validateCaps refuses to WRITE these; this refuses to HONOUR them, and the two catch different
+   * failures — the write path cannot police a row it did not write.
+   *
+   * Denying the entire context rather than masking the offending key is deliberate: a record that
+   * should have been impossible is evidence something else is wrong, and quietly serving the rest of
+   * it would hide that. No such row exists today, so nothing legitimate is refused; if one appears,
+   * failing loudly is the outcome worth having. */
+  for (const k of DEFERRED_CAPS) {
+    if (caps[k] !== undefined) {
+      try { await secLog(env, req, 'deferred_cap_in_stored_row', { project_id, cap: k }); } catch { /* noop */ }
+      return deny;
+    }
+  }
 
   if (needCap) {
     const want = String(needCap);
@@ -4194,9 +4222,26 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       // POST .../key — researcher delivers Ki WRAPPED to this install's pubkey (E2EE model A).
       // The Worker stores opaque ciphertext only; it never sees Ki.
       if (m === 'POST' && isub === 'key' && seg.length === 6) {
-        const ctx = await authMember(request, env, { instance: instanceId }, 'manageDevices');
+        /* ⚠⚠ OWNER-ONLY. Gated on manageDevices until the completeness critic pointed out what that
+         * meant: `body.wrapped_key` is OPAQUE CIPHERTEXT the worker cannot inspect, and this route
+         * bumps desired_rev in the same batch precisely so the device ADOPTS it. So a member holding
+         * the one capability v1 ships could install a Ki THEY chose — after which the owner's stored
+         * Ki no longer decrypts the device's reports, and the owner's own encrypted commands stop
+         * being readable by it. E2EE sabotage, from device management.
+         *
+         * The worker cannot validate its way out of this: it cannot read the key, so "is this the
+         * right key" is not a question it can ask. The only available control is WHO may ask, and
+         * the design already says: key sovereignty is the owner's. `POST /v1/researcher/keys` is
+         * owner-only for the same reason, and the wrap-to-owner invariant exists so that "the owner
+         * can always read and revoke every key" is true by construction.
+         *
+         * ⚠ CONSEQUENCE, STATED: a member with createInvites can enrol a coworker's device but
+         * cannot key it — the device waits for the owner. That is a real gap in member-run
+         * enrolment, and it is the correct side to err on while the alternative is a member being
+         * able to lock the owner out of their own device. Revisit with rotation (Phase E). */
+        const ctx = await authMember(request, env, { instance: instanceId }, null);
         if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
-        if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+        if (!ctx.ok || !ctx.isOwner) return j({ error: 'not_found' }, 404, origin, env);
         const r = ctx.owner;   // the PROJECT OWNER's row: Drive acts in their account (R2-5)
         const owned = await env.DB.prepare(
           'SELECT i.install_id, i.accepted FROM install i JOIN instance n ON n.instance_id=i.instance_id WHERE i.install_id=? AND i.instance_id=? AND n.researcher_id=?'

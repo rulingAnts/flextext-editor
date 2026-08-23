@@ -32,12 +32,63 @@ grep -q 'export async function authMember(' "$W" \
 #    ok:false (not_found). A route that checks only `if (!ctx)` treats a DENIED context as authorized,
 #    because { ok:false } is truthy. That single missing check is the whole hole, and it looks
 #    completely reasonable on the screen.
+# ⚠ CHECKED PER CALL SITE, NOT BY GLOBAL COUNT. Comparing totals was the original form, and the
+#   completeness critic named its flaw: two guards in one route mask a route with none, and the
+#   totals still balance. Each call must have its own guard within a few lines of it.
 calls=$(grep -c 'await authMember(request, env' "$W" || true)
-guards=$(grep -c 'if (!ctx.ok' "$W" || true)
-if [ "$calls" -gt 0 ] && [ "$guards" -ge "$calls" ]; then
-  good ok "all $calls authMember call sites guard on !ctx.ok ($guards guards)"
+unguarded=0
+while IFS= read -r ln; do
+  [ -z "$ln" ] && continue
+  if ! sed -n "${ln},$((ln + 5))p" "$W" | grep -q 'if (!ctx.ok'; then unguarded=$((unguarded + 1)); fi
+done < <(grep -n 'await authMember(request, env' "$W" | cut -d: -f1)
+if [ "$unguarded" = 0 ]; then
+  good ok "each of the $calls authMember call sites has its OWN !ctx.ok guard"
 else
-  bad x "⚠ $calls authMember call(s) but only $guards !ctx.ok guard(s) — a denied context is TRUTHY, so a missing guard authorizes it"
+  bad x "⚠ $unguarded authMember call site(s) have no !ctx.ok guard — a denied context is TRUTHY, so one missing guard authorizes it"
+fi
+
+# ⚠ THE DEFERRAL MUST BE ENFORCED AT READ TIME TOO. validateCaps is a WRITE-time filter and
+#   authMember never calls it, so a project_member row already carrying a deferred capability would
+#   otherwise be honoured — reopening every finding the deferral closed. One list, both paths.
+if grep -q 'export const DEFERRED_CAPS' "$W" && [ "$(grep -c 'for (const k of DEFERRED_CAPS)' "$W")" -ge 2 ]; then
+  good ok "DEFERRED_CAPS is refused on BOTH the write path and the read path"
+else
+  bad x "⚠ DEFERRED_CAPS is enforced in only one place — a stored row would reopen what the deferral closed"
+fi
+
+# ⚠ THE TEXT-COMMAND GATE. Without it manageDevices reaches the text lane through queued commands,
+#   including `delete`, which destroys a field worker's transcription.
+# ⚠ THE LIST AS WELL AS THE GATE. Checking only for the gate line let an EMPTIED list survive a
+#   mutation — the `if` was still there and gated nothing. A guard that checks a mechanism exists,
+#   without checking it has anything to act on, is the same species of false pass as the grep that
+#   missed `asResearcher`.
+tc_gate=$(grep -c "TEXT_COMMANDS.includes(cmd.type) && !ctx.isOwner && !ctx.caps.assignTexts" "$W" || true)
+tc_all=0
+for c in assign delete uploadDelete setDone; do
+  grep "const TEXT_COMMANDS = \[" "$W" | grep -q "'$c'" || tc_all=1
+done
+if [ "$tc_gate" -ge 1 ] && [ "$tc_all" = 0 ]; then
+  good ok "text-scoped commands still require assignTexts, and all four are still listed"
+else
+  bad x "⚠ the TEXT_COMMANDS gate is gone or its list was emptied — manageDevices would reach assign/delete/uploadDelete/setDone"
+fi
+
+# ⚠ A PAYLOAD-BEARING changeSettings MUST BE ENCRYPTED. Settings are E2EE so the worker cannot
+#   allow-list keys; refusing a plaintext payload is the half it CAN enforce, and it is what stops a
+#   caller holding no Ki from repointing a field device's entire backend.
+if grep -q "cmd.type === 'changeSettings' && !cmd.enc" "$W"; then
+  good ok "a plaintext changeSettings payload is refused"
+else
+  bad x "⚠ changeSettings accepts a plaintext payload — that is the backend-repointing attack"
+fi
+
+# ⚠ KEY DELIVERY IS OWNER-ONLY. wrapped_key is opaque ciphertext the worker cannot inspect, and the
+#   route bumps desired_rev so the device ADOPTS it — so a member could install a Ki they chose and
+#   lock the owner out of their own device.
+if grep -A 30 "isub === 'key' && seg.length === 6" "$W" | grep -q 'ctx.isOwner'; then
+  good ok "install key delivery is owner-only"
+else
+  bad x "⚠ key delivery is not owner-only — a member could install a Ki of their own choosing"
 fi
 
 # 3. Denial must not be distinguishable from absence. A 403 beside an authMember guard would turn

@@ -52,6 +52,27 @@ else
   good ok "no authMember guard answers 403 — denial is indistinguishable from absence"
 fi
 
+# 3b. ⚠ `allowRevoked` MUST ALWAYS BE OWNER-ONLY. It lets authMember resolve a REVOKED instance,
+#     which cleanup routes need (you cannot withdraw a grant against a device you can no longer
+#     address) — but a capability reaching a revoked device through that door would mean "revoked"
+#     stopped meaning revoked. Enforced here rather than trusted, because the flag is one word and
+#     reads as harmless at the call site.
+ar=$(grep -c 'allowRevoked: true' "$W" || true)
+if [ "$ar" = 0 ]; then
+  good ok "no route opts into resolving revoked instances"
+else
+  bad_sites=0
+  while IFS= read -r ln; do
+    # the isOwner requirement must appear within a few lines of the opt-in
+    if ! sed -n "${ln},$((ln + 6))p" "$W" | grep -q 'ctx.isOwner'; then bad_sites=$((bad_sites + 1)); fi
+  done < <(grep -n 'allowRevoked: true' "$W" | cut -d: -f1)
+  if [ "$bad_sites" = 0 ]; then
+    good ok "all $ar allowRevoked call site(s) also require ctx.isOwner"
+  else
+    bad x "⚠ $bad_sites allowRevoked call site(s) do NOT require ctx.isOwner — a capability must never reach a revoked device"
+  fi
+fi
+
 echo
 echo "the converted routes did not quietly revert"
 

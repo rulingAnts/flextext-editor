@@ -188,6 +188,65 @@ console.log('\nremoval takes the KEY GRANTS with it — revocation is an act, no
      'and the capability is gone with the membership');
 }
 
+console.log('\n⚠ a grant carrying the LEGACY \'\' project sentinel is revoked too');
+{
+  /* ⚠ THE BUG THIS PINS MADE REVOCATION COSMETIC (2026-08-21 audit). member_key.project_id is a
+   * DENORMALISATION written at grant time, and it is `''` on every grant minted before the project
+   * existed — the v435 write path binds `String(proj.project_id || '')`. The first removal sweep
+   * matched on that column, so it skipped exactly the OLDEST grants: the member was listed as
+   * removed while still holding every wrapped Ki the ledger had handed them.
+   *
+   * The rig cannot mint a `''` grant through the API any more (instances have projects by now), so
+   * the sentinel is reproduced the only way left — a grant written while the row still looks
+   * unassigned — which is precisely the state the production rows are in. */
+  const dev = await call('POST', '/v1/instances', OWNER, { type: '', nickname: 'Sentinel Device' });
+  const sid = dev.json && dev.json.instance_id;
+  ok(!!sid, 'created a device before it has been adopted into a project');
+
+  /* Grant BEFORE the backfill adopts it: instance.project_id is NULL, so the worker stores '' . */
+  const g = await call('POST', '/v1/researcher/keys', OWNER, {
+    instance_id: sid, key_version: 1,
+    grants: [{ researcher_id: FIXTURE.researcherId, wrapped_ki: 'OWNER-COPY' },
+             { researcher_id: FIXTURE.outsiderId, wrapped_ki: 'GUEST-LEGACY-COPY' }],
+  });
+  ok(g.status === 200, `a grant is stored while the instance is unassigned (got ${g.status})`);
+
+  await call('POST', `/v1/projects/${projectId}/members`, OWNER, {
+    researcher_id: FIXTURE.outsiderId, caps: { manageDevices: true },
+  });
+  ok((await call('GET', `/v1/researcher/keys?instance=${sid}`, GUEST)).json.keys.length === 1,
+     'the guest holds the legacy-sentinel key');
+
+  const del = await call('DELETE', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: FIXTURE.outsiderId });
+  ok(del.status === 200, `the guest is removed (got ${del.status})`);
+  ok((await call('GET', `/v1/researcher/keys?instance=${sid}`, GUEST)).json.keys.length === 0,
+     '⚠⚠ and the SENTINEL grant went with them — resolved through `instance`, not through the denormalised column');
+}
+
+console.log('\n⚠ a grant can still be withdrawn AFTER the device is revoked');
+{
+  /* ⚠ authMember resolves instances with revoked=0, so requiring a live device made this
+   * impossible — revoke the phone and the owner could no longer withdraw the grants held against
+   * it, which is the one moment they most want to. `allowRevoked` is the narrow opt-in, and
+   * check-project-scoping.sh enforces that every use of it is owner-only. */
+  const dev = await call('POST', '/v1/instances', OWNER, { type: '', nickname: 'Doomed Device' });
+  const did = dev.json && dev.json.instance_id;
+  await call('POST', '/v1/researcher/keys', OWNER, {
+    instance_id: did, key_version: 1,
+    grants: [{ researcher_id: FIXTURE.researcherId, wrapped_ki: 'OWNER-COPY' },
+             { researcher_id: FIXTURE.outsiderId, wrapped_ki: 'GUEST-COPY' }],
+  });
+  ok((await call('POST', `/v1/instances/${did}/revoke`, OWNER, {})).status === 200, 'the device is revoked');
+  const del = await call('DELETE', '/v1/researcher/keys', OWNER,
+    { instance_id: did, researcher_id: FIXTURE.outsiderId });
+  ok(del.status === 200 && del.json.removed >= 1,
+     `⚠ the grant is still withdrawable (got ${del.status}, removed ${del.json && del.json.removed}) — a revoked device is exactly when you want this`);
+  const stranger = await call('DELETE', '/v1/researcher/keys', GUEST,
+    { instance_id: did, researcher_id: FIXTURE.researcherId });
+  ok(stranger.status === 404,
+     '⚠ and allowRevoked did NOT open the door to anyone else — it is owner-only, enforced by the containment script');
+}
+
 console.log('\nthe owner can never revoke their OWN copy of a device key');
 {
   const res = await call('DELETE', '/v1/researcher/keys', OWNER, { instance_id: idA, researcher_id: FIXTURE.researcherId });

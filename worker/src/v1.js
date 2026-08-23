@@ -578,8 +578,20 @@ export async function authMember(req, env, target, needCap) {
   let addressedRow = false;       // did the target actually resolve to a row at all?
   try {
     if (target && target.instance) {
-      const row = await env.DB.prepare('SELECT project_id, researcher_id FROM instance WHERE instance_id=? AND revoked=0')
-        .bind(String(target.instance)).first();
+      /* ⚠ `allowRevoked` EXISTS FOR CLEANUP ROUTES ONLY, and it is opt-in because the default must
+       * stay strict: a revoked device is unreachable, so resolving one would otherwise let an
+       * authorized caller keep acting on a device that has been withdrawn.
+       *
+       * But REVOKING A KEY GRANT is an act on a LEDGER ROW, not on a device, and requiring the
+       * device to be live made it impossible (2026-08-21 audit): revoke the phone and the owner
+       * could no longer withdraw the grants held against it — the one case where you most want to.
+       * The same applies to the retention work, which must delete grants for revoked instances.
+       *
+       * ⚠ EVERY CALL SITE THAT SETS IT MUST ALSO REQUIRE ctx.isOwner, and check-project-scoping.sh
+       * enforces that. A capability must never reach a revoked device through this door. */
+      const sql = 'SELECT project_id, researcher_id FROM instance WHERE instance_id=?'
+        + (target.allowRevoked ? '' : ' AND revoked=0');
+      const row = await env.DB.prepare(sql).bind(String(target.instance)).first();
       if (row) { addressedRow = true; project_id = row.project_id || ''; legacyOwner = row.researcher_id || ''; }
     } else if (target && target.crowd) {
       const row = await env.DB.prepare('SELECT project_id, researcher_id FROM crowd_recorder WHERE crowd_id=?')
@@ -2392,7 +2404,9 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     const instanceId = String(body.instance_id || '');
     const grantee = String(body.researcher_id || '');
     if (!instanceId || !grantee) return j({ error: 'bad_body' }, 400, origin, env);
-    const ctx = await authMember(request, env, { instance: instanceId }, null);
+    /* allowRevoked: withdrawing a grant must work AFTER the device is revoked — see authMember.
+     * Owner-only, which is what makes the opt-in safe. */
+    const ctx = await authMember(request, env, { instance: instanceId, allowRevoked: true }, null);
     if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
     if (!ctx.ok || !ctx.isOwner) return j({ error: 'not_found' }, 404, origin, env);
     if (grantee === ctx.owner.researcher_id) {
@@ -2519,12 +2533,33 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       const body = await readJson(request) || {};
       const who = String(body.researcher_id || '').replace(/[^\w-]/g, '').slice(0, 64);
       if (!who) return j({ error: 'bad_body' }, 400, origin, env);
-      /* ⚠ ONE BATCH, so a member can never be left listed-but-keyless or keyless-but-listed. The
-       * grant delete is scoped by project_id as well as researcher_id: a person may be a member of
-       * two projects, and removing them from one must not touch the other. */
+      /* ⚠ ONE BATCH, so a member can never be left listed-but-keyless or keyless-but-listed.
+       *
+       * ⚠⚠ RESOLVED THROUGH `instance`, NOT through `member_key.project_id` — and the first version
+       * of this got it wrong in a way that left revocation cosmetic (2026-08-21 audit). That column
+       * is a DENORMALISATION written at grant time, and it is `''` on every grant minted before the
+       * project existed: the v435 write path binds `String(proj.project_id || '')` and its own
+       * comment warns that Phase C must read `''` as unassigned. Matching on it therefore skipped
+       * exactly the oldest grants — the member stayed listed as removed while still holding every
+       * wrapped Ki the ledger had handed them.
+       *
+       * The instance table is the authority for which project a device is in, so ask it. The second
+       * clause covers the DUAL-READ WINDOW: a grant minted while `instance.project_id` was still
+       * NULL also carries `''`, and its instance is identified only by belonging to this project's
+       * owner (design-gap 4 pins instance.researcher_id as always equal to the project's owner_id).
+       *
+       * ⚠ That clause is deliberately BROADER THAN STRICTLY NEEDED: an owner with two projects and
+       * an unassigned device will have that device's grants revoked when the member is removed from
+       * EITHER project. Nothing can distinguish them — the device is in no project — and for a
+       * REVOCATION the safe direction is to remove too much rather than too little. Re-granting is
+       * one call; a key that should have been withdrawn and was not cannot be recalled at all. The
+       * window closes on its own as instances acquire projects. */
       const res = await env.DB.batch([
         env.DB.prepare('DELETE FROM project_member WHERE project_id=? AND researcher_id=?').bind(projectId, who),
-        env.DB.prepare('DELETE FROM member_key WHERE project_id=? AND researcher_id=?').bind(projectId, who),
+        env.DB.prepare(
+          'DELETE FROM member_key WHERE researcher_id=? AND instance_id IN ('
+          + 'SELECT instance_id FROM instance WHERE project_id=? OR (project_id IS NULL AND researcher_id=?))'
+        ).bind(who, projectId, ctx.owner.researcher_id),
       ]);
       const gone = (res && res[0] && res[0].meta && res[0].meta.changes) || 0;
       const keys = (res && res[1] && res[1].meta && res[1].meta.changes) || 0;

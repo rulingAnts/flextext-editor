@@ -1,34 +1,75 @@
 # Phase C authorization audit — findings, 2026-08-21
 
-⚠ **NOT DEPLOYED, AND MUST NOT BE.** Everything below is in `worker/src/v1.js` on branch
-`claude/cut-tab-waveform-displays-2owdfx`. Increment 1 (the project namespace join) IS in
-production and is not implicated. No `project_member` rows exist anywhere, so nothing here is
-reachable in the field today — this is a design flaw caught before shipping, which is what the
-gate was for.
+⚠ **NOT DEPLOYED.** All of this is on branch `claude/cut-tab-waveform-displays-2owdfx`. Increment 1
+(the project namespace join) IS in production and is not implicated. No `project_member` rows exist
+anywhere, so nothing here was ever reachable in the field — every finding was caught before shipping,
+which is what the gate was for.
 
-## Provenance, stated plainly
+## Status: ROUND 1 + SWEEP COMPLETE. ALL 23 CONFIRMED FINDINGS FIXED. NOT YET A CLEAN RUN.
 
-Six attack lenses, then three adversarial refuters per candidate finding (refute-by-default, a
-finding survives only on a 2-of-3 majority). **23 candidates → 17 distinct locations confirmed**;
-53 upheld votes against 16 refutations.
+| | round 1 | sweep |
+|---|---|---|
+| lenses | 6 | 3 |
+| candidates | 23 | 12 |
+| **confirmed** | **17** | **6** (4 distinct — two pairs were one defect reported twice) |
+| refuted | 16 votes | 6 |
+| fate | all fixed | all fixed |
 
-✅ **THE MISSING PASS IS SCHEDULED** (Seth, 2026-08-21: *"Please do have it rerun that or at least
-finish it. We want a thorough audit."*). `plans/audit-sweep-workflow.js` is committed and ready —
-run it with `Workflow({ scriptPath: 'plans/audit-sweep-workflow.js' })`. It is the SWEEP ONLY: round
-one's six lenses are written up below, and re-running them would spend the budget rediscovering
-known findings. ⚠ The original run CANNOT be resumed — workflow resume is same-session only — which
-is why the script is self-contained and lives in the repo rather than a session scratch directory.
+Plus the completeness critic's own findings, two of which were live defects in the REMEDIATION and
+are also fixed (read-time capability enforcement; owner-only key delivery).
 
-⚠ **The run is NOT the clean sweep the plan asks for.** Its last four agents — the entire second
-attack round and the completeness critic — **died on the monthly spend limit**, which is what
-killed this same audit the previous two times. So round one and its verification are complete and
-trustworthy; *"what did nobody think to look for?"* was never asked. Treat the findings as real
-and the coverage as unproven.
+⚠ **THE CRITIC'S VERDICT WAS "NO — NOT A CLEAN RUN", AND IT STILL STANDS**, though for a smaller
+reason than when it was written. Its three grounds were: four live defects open (now fixed); the
+write-time-only deferral (now fixed); and a containment script with four blind spots (now fixed, and
+mutation-tested). What remains is §"STILL OPEN" below — items nobody has yet examined. **A clean run
+means a sweep that finds nothing, and no sweep has yet been run against the CURRENT code.**
 
-⚠ Findings were auto-snapshotted to git every 90s during the run, because the previous attempt
-lost its output to a workspace reset (project-split.md:721). The workspace reset twice more while
-this was being written up, and the snapshot is the only reason any of it survived. The raw agent
-output was `plans/AUDIT-IN-PROGRESS.md`; this file replaces it.
+## What the two rounds actually proved, and what they did not
+
+**Round 1's nine same-root findings were closed by making the CAPABILITY ungrantable, not by fixing
+the routes.** The account-wide `docId` tag searches are still there, untouched. That is a deliberate
+trade — see the fix section — but it means the Drive lane is deferred, not repaired.
+
+⚠ **And the heuristic that justified it was FALSE.** validateCaps claimed "EVERY dangerous route is
+one where the member names a Drive file or text; EVERY safe route works only from D1." The sweep
+disproved it within hours via `changeSettings`, which names no Drive id and could repoint a field
+device's entire backend. **A rule that explains the last outage is not thereby a rule about the next
+one** — that sentence is now in the source where the rule used to be.
+
+---
+
+## STILL OPEN — examined by nobody, filed rather than fixed
+
+None of these is reachable by a v1 member holding only `manageDevices`/`createInvites`, which is why
+they are filed rather than blocking. They are recorded because the next person to widen capabilities
+inherits every one of them.
+
+1. **`GET /v1/researcher/keys` has no membership, project or revoked predicate.** It is the ONLY way
+   a member learns any instance id — `GET /v1/researcher` lists devices by `researcher_id`, so a
+   member sees none of the project's. That makes this query the precondition for every member-side
+   attack in the confirmed list, and it is unscoped.
+2. **The INSTALL lane of `GET /v1/instances/<id>` answers three distinguishable states BEFORE any
+   authentication succeeds** — `{wipe:true}` 200, `revoked` 410, or 401 — from a wrong or absent
+   install secret. The researcher branch 20 lines below was fixed; nobody looked above it.
+3. **`POST /v1/researcher/delete` deletes no `project`, `project_member`, `member_key` or `session`
+   rows.** Auth fails closed (the researcher row is gone), so this is retention rather than access —
+   but grants outlive the instances they name and `GET /v1/researcher/keys` keeps serving them.
+   Belongs with the revoked-row minimisation work.
+4. **`authMember`'s `{ crowd }` target has ZERO call sites.** Every crowd route is still
+   `WHERE researcher_id=?`, and `crowd_recorder.project_id` is written and never read for
+   authorization. Fail-closed, but a third of the typed target surface is untested dead code and the
+   containment script never scans `/v1/crowd`.
+5. **⚠ A MEMBER-ENROLLED DEVICE SHOWS THE FIELD USER THE WRONG HUMAN.** The identity presented at the
+   accept gate resolves through `instance.researcher_id`, which is always the project OWNER — so when
+   a member enrols a coworker's device, the person confirming sees the owner's identity rather than
+   the researcher actually enrolling them. That is a correctness question about the ANTI-PHISHING
+   gate, whose whole purpose is that the field user can tell who they are being linked to.
+6. **No attribution for member device actions.** `logApproval` fires for member_added, grant_revoked
+   and text_moved — but not for rename, instance revoke, install revoke, approve, key delivery or
+   invite. A command's `by` field is the only member action an owner can attribute. No stated
+   invariant requires this; it is a gap nobody has looked at.
+
+---
 
 ---
 

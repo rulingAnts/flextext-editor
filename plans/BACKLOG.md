@@ -550,33 +550,31 @@ false alignment rather than an error.
 **Sequence:** test the decode → widen the pickers → force the WAV derivation for video → exclude
 video from uploads → (later, separately) the preview viewer.
 
-## ⛔ PHASE C INCREMENT 2 IS BLOCKED FROM DEPLOY — audit, 2026-08-21
+## PHASE C INCREMENT 2 — all 23 audit findings FIXED, still not a clean run (2026-08-21)
 
-**17 confirmed findings, 3 critical. See `plans/AUDIT-FINDINGS-2026-08-21.md`.** Nothing is
-deployed and no `project_member` rows exist, so production is unaffected — but the authorization
-half cannot ship as written.
+**See `plans/AUDIT-FINDINGS-2026-08-21.md`.** Two adversarial rounds (6 lenses + 3), 35 candidates,
+23 confirmed, all fixed — plus two live defects the completeness critic found in the REMEDIATION
+itself. Nothing is deployed and no `project_member` rows exist, so none of it was ever reachable.
 
-**One root cause accounts for nine of them:** routes authorize the project correctly and then act on
-a Drive text or file id supplied by the CALLER, resolved by a tag search across the owner's ENTIRE
-Drive. A member of one project can list, read, relocate or write into another project's texts using
-the owner's Drive authority. ⚠ The account-wide search is old and deliberate; converting those
-routes to `authMember` on 2026-08-20 is what made it REACHABLE by a member — the conversion removed
-the only thing making it safe.
+**What members get in v1: DEVICE MANAGEMENT.** `manageDevices` and `createInvites`. `assignTexts`
+and `drive` are refused on BOTH the write and the read path — nine of round 1's findings live behind
+them, and they close by making the capability ungrantable rather than by repairing the routes. The
+account-wide `docId` searches are still there; the Drive lane is deferred, not fixed.
 
-**The decided fix is to narrow the capabilities, not to rush the Drive work:** `manageDevices` and
-`createInvites` never take a caller-supplied Drive id and are safe; `assignTexts` and `drive` are
-where every finding lives, and `validateCaps` should REFUSE them for now. That makes member support
-shippable as DEVICE MANAGEMENT — rename, settings, commands, revoke, enrol coworkers — with
-text/file sharing deferred until VII.1's `drive_object` scoping exists.
+⚠ **THE HEURISTIC THAT JUSTIFIED THE DEFERRAL WAS FALSE, and that is the lesson worth carrying.** It
+read "EVERY dangerous route is one where the member names a Drive file or text." The sweep disproved
+it within hours: `changeSettings` names no Drive id and let a member repoint a field device's entire
+backend — install credentials, every upload, and a wipe. A rule that explains the last outage is not
+thereby a rule about the next one.
 
-⚠ **The audit did NOT get a clean run.** Its second attack round and completeness critic died on the
-monthly spend limit — the third time that has killed this same audit. Findings are trustworthy;
-coverage is unproven. ✅ Seth asked for it to be finished: `plans/audit-sweep-workflow.js` is
-committed and runs exactly the missing pass. ⚠ Sequenced AFTER the fixes deliberately — if the limit
-bites a fourth time it must cost the audit, not the fixes, which are decided and do not depend on
-the sweep's outcome.
+⚠ **NOT A CLEAN RUN YET.** The critic's verdict was a plain NO. Its three grounds are now addressed,
+but **no sweep has run against the CURRENT code**, and six items nobody examined are filed under
+"STILL OPEN" in the findings doc — none reachable by a v1 member, all inherited by whoever widens
+capabilities. Re-run `Workflow({ scriptPath: 'plans/audit-sweep-workflow.js' })` before shipping.
 
-Scheduled to Fable for 2026-08-23 (trigger `trig_01U9JcZ8cDdZcH6h3fB4J6no`).
+⚠ **Before ANY deploy:** this now includes a `docs/` change (v443), so it carries the satellite
+version coupling, not just a worker push. And two live bugs unrelated to Phase C are still unfixed —
+the assigned-text manifest fields and `consent.mode`, both filed above.
 
 ## DECIDED 2026-08-20: the Drive permission checkbox does NOT ship in Phase D
 

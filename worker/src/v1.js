@@ -1260,7 +1260,20 @@ async function mintTextfileUrl(env, urlOrigin, researcherId, fileId, extract, tt
    * Stamping the minter is what lets redemption ask whether the grant still stands.
    * Absent for owner-minted tokens, which is every token in the field today — so they are read
    * exactly as before rather than being invalidated by a deploy. */
-  if (minterId && minterId !== researcherId) tk.m = minterId;
+  if (minterId && minterId !== researcherId) {
+    /* ⚠ A MEMBER MAY NOT MINT AN UNSCOPED TOKEN. Redemption revokes a member-minted URL by resolving
+     * the minter's grant, and it can only ask the PRECISE question — "are they still a member of the
+     * project this instance belongs to" — when the token names an instance. Without one it could
+     * only fall back to "a member of ANY project of this owner", so removing someone from the
+     * project the file belongs to would leave the URL alive on the strength of an unrelated
+     * membership (2026-08-21 audit).
+     *
+     * Refusing to mint is better than checking loosely at redemption: it removes the coarse path
+     * rather than improving it, and it fails at the moment a person is present rather than silently
+     * later. Owner-minted tokens are untouched — they carry no `m` at all. */
+    if (!(scope && scope.instanceId)) return null;
+    tk.m = minterId;
+  }
   return urlOrigin + '/v1/textfile/' + encodeURIComponent(await encAtRest(env, JSON.stringify(tk)));
 }
 
@@ -2300,23 +2313,27 @@ export async function handleV1(request, env, ctx, url, path, origin) {
    * the member and re-keying. Sabotage-detectable, not silently-subvertible, which is the strongest
    * claim any E2EE sharing scheme can make. */
   if (m === 'POST' && seg.length === 3 && seg[1] === 'researcher' && seg[2] === 'keys') {
-    const r = await authResearcher(request, env);
-    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
     const body = await readJson(request) || {};
     const instanceId = String(body.instance_id || '');
     const grants = Array.isArray(body.grants) ? body.grants : null;
     if (!instanceId || !grants || !grants.length) return j({ error: 'bad_body' }, 400, origin, env);
 
-    const inst = await env.DB.prepare('SELECT instance_id, project_id, researcher_id FROM instance WHERE instance_id=?')
-      .bind(instanceId).first();
-    if (!inst) return j({ error: 'not_found' }, 404, origin, env);
-    /* Dual-read window: project_id may still be NULL on an instance the backfill has not reached,
-     * in which case the owner is researcher_id — which the backfill will make equal anyway. */
-    const proj = inst.project_id
-      ? await env.DB.prepare('SELECT project_id, owner_id FROM project WHERE project_id=?').bind(inst.project_id).first()
-      : { project_id: null, owner_id: inst.researcher_id };
-    if (!proj) return j({ error: 'not_found' }, 404, origin, env);
-    if (r.researcher_id !== proj.owner_id) return j({ error: 'forbidden' }, 403, origin, env);
+    /* ⚠ THIS ROUTE USED TO DECIDE AUTHORIZATION ITSELF, and answered 403 when the caller was not the
+     * owner — which made every instance id ENUMERABLE (2026-08-21 audit): a nonexistent id returned
+     * not_found and a real one belonging to somebody else returned forbidden, so the two answers
+     * told an unauthenticated-for-this-resource caller which ids exist.
+     *
+     * Both halves are fixed by going through authMember: one authority (I1) instead of a second
+     * hand-rolled ownership check, and one refusal shape. `allowRevoked` is NOT set — delivering a
+     * NEW key to a revoked device is meaningless, unlike WITHDRAWING one from it.
+     *
+     * The legacy branch inside authMember covers the dual-read window this code used to handle by
+     * hand, and yields the same values: project_id '' and the instance's researcher_id as owner. */
+    const ctx = await authMember(request, env, { instance: instanceId }, null);
+    if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+    if (!ctx.ok || !ctx.isOwner) return j({ error: 'not_found' }, 404, origin, env);
+    const proj = { project_id: ctx.project_id || null, owner_id: ctx.owner.researcher_id };
+    const r = ctx.owner;
 
     if (!grants.some((g) => g && g.researcher_id === proj.owner_id && g.wrapped_ki)) {
       return j({ error: 'owner_grant_required' }, 400, origin, env);
@@ -3550,6 +3567,27 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         const access = await driveAccessToken(env, r);
         const dest = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(wantProject) + '?fields=id,appProperties');
         if (((dest.appProperties || {}).flextextRole || '') === 'project') {
+          /* ⚠ STAMP D1 TOO, and only from a folder just VERIFIED to be a project of this researcher.
+           *
+           * This route deliberately writes no project_id in the INSERT — Drive parentage is the
+           * authority, and the note above explains why nothing should drift from it. But leaving it
+           * NULL means every NEW device enters the dual-read window, so the window never closes, and
+           * a MEMBER cannot manage a device until the owner happens to open the panel and let
+           * reconcileProjects catch up. That is a functional gap rather than a hole — the legacy
+           * branch only ever admits the instance's own researcher_id — but it is one a member would
+           * experience as "the new phone is missing" with nothing to explain it.
+           *
+           * Not drift: it is the same join `/projects/assign` already performs, keyed on the folder
+           * whose role was checked one line above. If the lookup finds nothing the device simply
+           * stays unassigned, which is exactly today's behaviour. */
+          try {
+            const prow = await env.DB.prepare('SELECT project_id FROM project WHERE drive_folder_id=? AND owner_id=?')
+              .bind(wantProject, r.researcher_id).first();
+            if (prow && prow.project_id) {
+              await env.DB.prepare('UPDATE instance SET project_id=? WHERE instance_id=? AND project_id IS NULL')
+                .bind(prow.project_id, instance_id).run();
+            }
+          } catch (e2) { try { console.warn('project_id not stamped for', instance_id, safeErr(e2)); } catch { /* noop */ } }
           folderId = await driveEnsureDeviceFolder(env, access, instance_id, nickname, '', wantProject);
         }
       } catch { /* the instance exists; the folder can still be made lazily */ }

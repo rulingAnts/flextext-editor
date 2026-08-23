@@ -14,6 +14,7 @@
  * Run: bash test/local-rig.sh   (or: node test/worker-members.probe.mjs http://127.0.0.1:8787)
  */
 import { FIXTURE } from './worker-seed.mjs';
+import { readFileSync } from 'node:fs';
 
 const BASE = process.argv[2] || process.env.FX_PROBE_BASE || 'http://127.0.0.1:8787';
 let fail = 0;
@@ -262,6 +263,56 @@ console.log('\npubkey lookup returns the KEY and no identity');
   ok(!JSON.stringify(got.json).includes('@') && got.json.display_name === undefined,
      '⚠ and gets no email and no display name — the wrapping needs the key, not the person');
   ok((await call('GET', '/v1/researcher/pubkey/nobody-at-all', OWNER)).status === 404, 'an unknown id is not_found');
+}
+
+console.log('\nkey delivery no longer makes instance ids ENUMERABLE');
+{
+  /* ⚠ THE ORACLE THIS CLOSES: the route decided ownership itself and answered 403 when the caller
+   * was not the owner, while a nonexistent id answered not_found. Two different answers told a
+   * caller which instance ids are REAL — and instance ids are the addressing for every device
+   * route. The two cases must be indistinguishable.
+   *
+   * Asserting only "a stranger is refused" would pass with the 403 still in place, so the shape is
+   * what is pinned, and both cases are asked in the same breath. */
+  /* ⚠ THE GUEST MUST BE A MEMBER HERE, and the first version of this test forgot it — so
+   * authMember returned { ok:false } and answered 404 before the ownership branch was ever reached.
+   * The test passed, and passed with the 403 still in place: a mutation restoring the oracle changed
+   * nothing. The leak lives in the gap between "member of this project" and "owner of it", so the
+   * caller has to be standing IN that gap for the assertion to mean anything. */
+  await call('POST', `/v1/projects/${projectId}/members`, OWNER, {
+    researcher_id: FIXTURE.outsiderId, caps: { manageDevices: true },
+  });
+  const real = await call('POST', '/v1/researcher/keys', GUEST, {
+    instance_id: idA, key_version: 1,
+    grants: [{ researcher_id: FIXTURE.researcherId, wrapped_ki: 'X' }],
+  });
+  const fake = await call('POST', '/v1/researcher/keys', GUEST, {
+    instance_id: 'no-such-instance-at-all', key_version: 1,
+    grants: [{ researcher_id: FIXTURE.researcherId, wrapped_ki: 'X' }],
+  });
+  ok(real.status === 404, `a REAL instance owned by someone else answers 404 (got ${real.status})`);
+  ok(real.status === fake.status && (real.json || {}).error === (fake.json || {}).error,
+     `⚠⚠ and answers IDENTICALLY to an id that does not exist (${real.status}/${(real.json||{}).error} vs ${fake.status}/${(fake.json||{}).error}) — otherwise the API enumerates devices`);
+  ok((real.json || {}).error !== 'forbidden', 'never `forbidden`, which is what leaked it');
+  await call('DELETE', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: FIXTURE.outsiderId });
+}
+
+console.log('\na member cannot mint an UNSCOPED textfile URL');
+{
+  /* ⚠ Redemption can only ask the precise revocation question — "still a member of the project this
+   * INSTANCE belongs to" — when the token names an instance. An unscoped member-minted token could
+   * only be checked against "a member of ANY project of this owner", so removing them from the
+   * project the file belongs to would leave the URL alive on an unrelated membership. Minting is
+   * refused rather than the check loosened.
+   *
+   * ⚠ Not directly reachable today — assignTexts is refused in v1, so no member can reach a mint
+   * site at all. Pinned now because it becomes reachable the moment that capability returns, and
+   * that is exactly when nobody will remember this. */
+  const src = readFileSync(new URL('../worker/src/v1.js', import.meta.url), 'utf8');
+  ok(/if \(!\(scope && scope\.instanceId\)\) return null;/.test(src),
+     'mintTextfileUrl refuses to mint when a minter is recorded and no instance scope is given');
+  ok(/if \(minterId && minterId !== researcherId\) \{/.test(src),
+     'and the minter is still recorded only when it is NOT the Drive owner — owner tokens are untouched');
 }
 
 console.log('\nUNCONVERTED Drive routes are INERT for a member, not leaky — the R2-4 property');

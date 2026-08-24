@@ -139,12 +139,27 @@ console.log('\nthe worker never fetches a URL the caller chose');
 {
   console.log('\nthe desired lane cannot be scoped into bricking the estate');
   const lane = worker.slice(worker.indexOf("Distinguish a REVOKED install from a bad secret"));
-  const body = lane.slice(0, 3000);
+  /* ⚠⚠ ENDS AT THE NEXT ROUTE, NOT AT A BYTE COUNT. This was `slice(0, 3000)`, and on 2026-08-24 a
+   * ten-line COMMENT added above the SELECT pushed the code these assertions look for past 3000 —
+   * so three of them failed reporting "an ownership write has slipped its scope" when nothing had
+   * slipped anywhere. A window measured in characters silently counts prose, which means writing a
+   * comment can fail a security assertion; that is a trap, not a check.
+   * `/v1/invites/` is the next route after this lane, so the window now grows and shrinks with the
+   * lane itself. The fallback keeps the test honest if that anchor ever moves: better to search a
+   * little too much (the regexes take the FIRST match, which is this lane's) than to search too
+   * little and silently assert nothing. */
+  const nextRoute = lane.indexOf('/v1/invites/');
+  const body = lane.slice(0, nextRoute > 0 ? nextRoute : 8000);
   const installSel = /SELECT revoked, wipe_state FROM install WHERE([^']*)'/.exec(body);
   ok(!!installSel, 'the install revoked-vs-bad-secret lookup is findable');
   ok(installSel && !/project/i.test(installSel[1]),
      'it does NOT filter by project — a NULL project_id mid-backfill would read as "absent" ⇒ 410 ⇒ every device unlinks');
-  const instSel = /SELECT desired_blob, desired_rev, type, revoked, researcher_id FROM instance WHERE([^']*)'/.exec(body);
+  /* ⚠ ANCHORED ON `desired_blob` AND THE WHERE CLAUSE, not on the full column list. This pinned every
+   * column by name and broke the moment `nickname` was added to the SELECT (2026-08-24) — a fix that
+   * had nothing to do with what this checks. What it actually asserts is that the WHERE clause does
+   * not filter by project; the columns selected are none of its business, and pinning them made an
+   * unrelated correct change look like a scoping regression. */
+  const instSel = /SELECT desired_blob[^']*FROM instance WHERE([^']*)'/.exec(body);
   ok(!!instSel, 'the instance lookup is findable');
   ok(instSel && !/project/i.test(instSel[1]), '...and it does not filter by project either');
   /* And the asymmetry that makes this survivable: a MISSING instance is 404, which the client does

@@ -89,7 +89,11 @@ VALUES ('${FIXTURE.expiredSessionId}', '${FIXTURE.researcherId}', '${sha256hex(F
 const tmp = join(WORKER, '.seed-local.sql');
 writeFileSync(tmp, sql);
 
-const d1 = (args) => execFileSync('npx', ['wrangler', 'd1', 'execute', 'DB', '--local', '--env', 'staging', ...args],
+/* ⚠ PINNED to the same wrangler the rig and the deploy use — see local-rig.sh. Bare `npx wrangler`
+ * follows whatever is newest, so the seed could apply the schema with a different toolchain from the
+ * one under test, and a fresh version's first run is slow enough to look like a hang. */
+const WRANGLER = 'wrangler@' + (process.env.WRANGLER_VERSION || '4.118.0');
+const d1 = (args) => execFileSync('npx', ['--yes', WRANGLER, 'd1', 'execute', 'DB', '--local', '--env', 'staging', ...args],
   { cwd: WORKER, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 
 console.log('applying schema-current.sql to the LOCAL D1…');

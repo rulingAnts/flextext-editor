@@ -16,6 +16,13 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 PORT="${FX_RIG_PORT:-8787}"
+# ⚠⚠ PINNED, AND PINNED TO THE VERSION THE DEPLOY USES (.github/workflows/worker-deploy.yml
+# `wranglerVersion`). Bare `npx wrangler` resolves to whatever is newest at that moment, so the rig
+# silently tested a DIFFERENT wrangler from the one that ships — and it moved mid-session on
+# 2026-08-24 (4.118.0 -> 4.125.0), whose cold start took long enough to look like a hang. A test rig
+# whose toolchain drifts on its own is not reproducible, which is the one thing a rig is for.
+# ⚠ Keep this equal to the deploy's pin; bump both together and re-run the rig afterwards.
+WRANGLER_VERSION="${WRANGLER_VERSION:-4.118.0}"
 LOG="$(mktemp -t flextext-rig-XXXX.log)"
 KEEP=0; [ "${1:-}" = "--keep" ] && KEEP=1
 
@@ -24,13 +31,29 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# ⚠⚠ WIPE THE LOCAL D1 FIRST. schema-current.sql is all CREATE TABLE IF NOT EXISTS, and the miniflare
+# database PERSISTS between runs in worker/.wrangler/state — so a table that already exists is left
+# exactly as it was and a NEWLY ADDED COLUMN never appears. The failure is horrible to read: the
+# schema applies "successfully", then every INSERT naming the new column 500s, and the probes report
+# twenty unrelated-looking failures in the device lane. (2026-08-23: cost a full debugging cycle
+# chasing invite.invited_by.) A fresh clone or CI never sees it; only local re-runs across a schema
+# change do, which is exactly when you are least expecting it.
+#
+# Wiping is free — every row here is a synthetic fixture re-seeded on the next line — so it is
+# unconditional rather than a flag nobody would remember to pass. FX_RIG_KEEP_DB=1 opts out for the
+# rare case of inspecting state a previous run left behind.
+if [ "${FX_RIG_KEEP_DB:-0}" != "1" ]; then
+  echo "== wiping the local D1 (schema is IF NOT EXISTS; a stale table hides new columns) =="
+  rm -rf worker/.wrangler/state/v3/d1
+fi
+
 echo "== seeding the local D1 (synthetic fixtures — never production rows) =="
 node test/worker-seed.mjs
 
 echo "== starting the worker on :$PORT (log: $LOG) =="
 # ALLOWED_RESEARCHERS makes the fixture an OPERATOR, which the projects backfill endpoint requires.
 # --var overrides the wrangler.toml value for this run only; nothing is written to any config.
-( cd worker && npx wrangler dev --env staging --local --port "$PORT" --ip 127.0.0.1 \
+( cd worker && npx --yes wrangler@"$WRANGLER_VERSION" dev --env staging --local --port "$PORT" --ip 127.0.0.1 \
     --var ALLOWED_RESEARCHERS:fixture@example.invalid --var SERVER_HMAC_KEY:local-rig-not-a-secret \
     >"$LOG" 2>&1 ) &
 WPID=$!

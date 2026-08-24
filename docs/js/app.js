@@ -8142,6 +8142,11 @@ window.__app = {
   applyBaseline,
 };
 // Dev-only queue inspection hooks — never exposed on the production host.
+// syncDispatch is exposed here so the device-side command handlers (notably the changeSettings
+// REMOTE_FORBIDDEN guard) can be exercised in a real browser: the full E2EE push is untestable on
+// the hermetic local rig (no Google, no seeded Kr), and the poll path won't dispatch without a
+// delivered Ki, so a dev console is the only way to drive the real handler + its toast + i18n.
+// See DEVELOPERS.md → "Console entry points".
 if (isDevHost(location.hostname)) {
-  Object.assign(window.__app, { uploadView, renderUploadQueue, allowedButtons, uploadDocById, buildBundleFor });
+  Object.assign(window.__app, { uploadView, renderUploadQueue, allowedButtons, uploadDocById, buildBundleFor, syncDispatch });
 }

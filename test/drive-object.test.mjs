@@ -7,7 +7,7 @@
  * Run: node test/drive-object.test.mjs
  */
 import { DatabaseSync } from 'node:sqlite';
-import { stampDriveObject, resolveDriveObject } from '../worker/src/drive-object.js';
+import { stampDriveObject, resolveDriveObject, deriveDriveObjectRows } from '../worker/src/drive-object.js';
 
 let fail = 0;
 const ok = (c, m) => { console.log(`  ${c ? 'ok  ' : 'FAIL'}  ${m}`); if (!c) fail++; };
@@ -74,6 +74,45 @@ console.log('\na malformed stamp writes nothing (never a row that cannot be reso
   await stampDriveObject(d1(db), { objectId: '', kind: 'text', now: 1 });
   await stampDriveObject(d1(db), { objectId: 'x', kind: '', now: 1 });
   ok(db.prepare('SELECT COUNT(*) c FROM drive_object').get().c === 0, 'no object id or no kind → no row');
+}
+
+console.log('\nthe backfill brain derives project/instance/doc by walking parentage');
+{
+  const FOLDER = 'application/vnd.google-apps.folder';
+  // master > projectFolderP (project P) > deviceFolderD (device D, instance.projectId=P) > textT (doc1) > originalsO > file1
+  // master > deviceFolderE (device E, instance.projectId=NULL — dual-read) directly (unassigned)
+  // master > crowdFolderC (crowd, project P)
+  const files = [
+    { id: 'master', parents: [], appProperties: { flextextRole: 'uploads-master' }, mimeType: FOLDER },
+    { id: 'projP',  parents: ['master'], appProperties: { flextextRole: 'project' }, mimeType: FOLDER },
+    { id: 'devD',   parents: ['projP'], appProperties: {}, mimeType: FOLDER },
+    { id: 'textT',  parents: ['devD'], appProperties: { flextextDoc: 'doc1' }, mimeType: FOLDER },
+    { id: 'origO',  parents: ['textT'], appProperties: { flextextRole: 'originals' }, mimeType: FOLDER },
+    { id: 'file1',  parents: ['origO'], appProperties: {}, mimeType: 'application/octet-stream' },
+    { id: 'devE',   parents: ['master'], appProperties: {}, mimeType: FOLDER },
+    { id: 'crowdC', parents: ['master'], appProperties: { flextextRole: 'crowd' }, mimeType: FOLDER },
+  ];
+  const deviceByFolder = new Map([['devD', { instanceId: 'D', projectId: 'P' }], ['devE', { instanceId: 'E', projectId: null }], ['crowdC', { instanceId: null, projectId: 'P' }]]);
+  const projByFolder = new Map([['projP', 'P']]);
+  const rows = deriveDriveObjectRows(files, deviceByFolder, projByFolder, 'owner1', 5);
+  const byId = Object.fromEntries(rows.map((r) => [r.objectId, r]));
+
+  ok(!byId['master'], 'the master folder is skipped — it is not a project object');
+  ok(byId['projP'] && byId['projP'].kind === 'project' && byId['projP'].projectId === 'P' && byId['projP'].instanceId === null,
+     'the project folder → kind=project, its own project, no instance');
+  ok(byId['devD'] && byId['devD'].kind === 'device' && byId['devD'].projectId === 'P' && byId['devD'].instanceId === 'D',
+     'the device folder → device, project P, instance D');
+  ok(byId['textT'] && byId['textT'].kind === 'text' && byId['textT'].docId === 'doc1' && byId['textT'].projectId === 'P' && byId['textT'].instanceId === 'D',
+     'the text folder → text, doc1, inherits project P + instance D by walking up');
+  ok(byId['origO'] && byId['origO'].kind === 'originals' && byId['origO'].docId === 'doc1' && byId['origO'].projectId === 'P',
+     'the originals child → originals, doc1 from its text-folder ancestor, project P');
+  ok(byId['file1'] && byId['file1'].kind === 'file' && byId['file1'].docId === 'doc1' && byId['file1'].projectId === 'P' && byId['file1'].instanceId === 'D',
+     '⚠ the FILE deep under originals still resolves doc1 + project P + instance D — the whole point of the walk');
+  ok(byId['devE'] && byId['devE'].kind === 'device' && byId['devE'].projectId === null,
+     'a device still directly under master → project NULL (unassigned, fails closed for a member)');
+  ok(byId['crowdC'] && byId['crowdC'].kind === 'crowd' && byId['crowdC'].projectId === 'P',
+     'a crowd folder → crowd, its project');
+  ok(rows.every((r) => r.createdBy === 'owner1' && r.now === 5), 'every row carries the owner + timestamp');
 }
 
 console.log(fail ? `\n${fail} FAILED\n` : '\nPASS\n');

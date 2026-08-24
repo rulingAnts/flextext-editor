@@ -14,7 +14,7 @@
 
 import { secAlert, secLog, sendEmail } from './seclog.js';
 import { teardownUnmigratedProjectRows } from './project-teardown.js';
-import { stampDriveObject } from './drive-object.js';
+import { stampDriveObject, deriveDriveObjectRows } from './drive-object.js';
 
 /* ---------------- crypto + helpers ---------------- */
 
@@ -1841,6 +1841,40 @@ function defaultProjectName(row) {
 /* Mint the owner's project and adopt their instances + crowd recorders into it. IDEMPOTENT by
  * construction — every write is conditional on the row not already being there — so it is safe to
  * re-run after a partial failure, which is the property a backfill actually needs. */
+/* Backfill drive_object for ONE researcher's whole estate (Phase 2). Lists their Drive, builds the
+ * device/crowd- and project-folder maps from D1, derives a row per object by parentage (the tested
+ * deriveDriveObjectRows), and upserts them. Idempotent — a second run over the same estate re-stamps
+ * to the same values. Skips a researcher with no Drive token (nothing to list).
+ *
+ * ⚠ BATCHED, and bounded by driveListAll's own 20k page cap. A field estate is hundreds to low
+ * thousands of objects; batching the upserts keeps it to a handful of D1 round trips rather than one
+ * per object. */
+async function backfillDriveObjectsFor(env, researcher, now) {
+  if (!researcher.drive_refresh_enc) return { skipped: true, files: 0, stamped: 0 };
+  const access = await driveAccessToken(env, researcher);
+  const files = await driveListAll(access, false);
+  const insts = ((await env.DB.prepare('SELECT instance_id, oauth_folder_id, project_id FROM instance WHERE researcher_id=?').bind(researcher.researcher_id).all()).results) || [];
+  const crowds = ((await env.DB.prepare('SELECT crowd_id, oauth_folder_id, project_id FROM crowd_recorder WHERE researcher_id=?').bind(researcher.researcher_id).all()).results) || [];
+  const deviceByFolder = new Map();
+  for (const i of insts) if (i.oauth_folder_id) deviceByFolder.set(i.oauth_folder_id, { instanceId: i.instance_id, projectId: i.project_id || null });
+  for (const c of crowds) if (c.oauth_folder_id) deviceByFolder.set(c.oauth_folder_id, { instanceId: null, projectId: c.project_id || null });
+  const projs = ((await env.DB.prepare('SELECT project_id, drive_folder_id FROM project WHERE owner_id=?').bind(researcher.researcher_id).all()).results) || [];
+  const projByFolder = new Map();
+  for (const p of projs) if (p.drive_folder_id) projByFolder.set(p.drive_folder_id, p.project_id);
+
+  const rows = deriveDriveObjectRows(files, deviceByFolder, projByFolder, researcher.researcher_id, now);
+  const SQL = 'INSERT INTO drive_object (object_id, kind, doc_id, instance_id, project_id, created_by, created_at) '
+    + 'VALUES (?,?,?,?,?,?,?) ON CONFLICT(object_id) DO UPDATE SET kind=excluded.kind, doc_id=excluded.doc_id, '
+    + 'instance_id=excluded.instance_id, project_id=excluded.project_id';
+  let stamped = 0;
+  for (let i = 0; i < rows.length; i += 100) {
+    const chunk = rows.slice(i, i + 100);
+    await env.DB.batch(chunk.map((r) => env.DB.prepare(SQL).bind(r.objectId, r.kind, r.docId, r.instanceId, r.projectId, r.createdBy, r.now)));
+    stamped += chunk.length;
+  }
+  return { skipped: false, files: files.length, stamped };
+}
+
 async function backfillProjectsFor(env, row, now) {
   let project = await env.DB.prepare('SELECT project_id, drive_folder_id FROM project WHERE owner_id=? ORDER BY created_at LIMIT 1')
     .bind(row.researcher_id).first();
@@ -2388,6 +2422,36 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     }
     await logApproval(env, request, 'projects_backfilled',
       report.researchers + ' researcher(s)', report.projects_created + ' project(s) created', r.drive_email);
+    return j(report, 200, origin, env);
+  }
+
+  /* POST /v1/researcher/admin/backfill-drive-objects — OPERATOR-ONLY, IDEMPOTENT (Phase 2).
+   *
+   * Populate drive_object for the EXISTING estate — the objects created before the stamping in
+   * Phase 1b existed. Same operator gate, per-researcher loop and re-runnable shape as
+   * backfill-projects. Nothing authorizes on drive_object until Phase 3, so this is safe to run any
+   * number of times, before or after that ships; a second run re-stamps to the same values.
+   *
+   * ⚠ A researcher with no Drive token is skipped (nothing to list) rather than failing the whole
+   * run — one disconnected account must not stop the backfill for everyone else. */
+  if (m === 'POST' && seg.length === 4 && seg[1] === 'researcher' && seg[2] === 'admin' && seg[3] === 'backfill-drive-objects') {
+    const r = await authResearcher(request, env);
+    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    if (!isOperator(r.drive_email, env)) return j({ error: 'not_owner' }, 403, origin, env);
+    const rows = await env.DB.prepare('SELECT researcher_id, drive_email, drive_refresh_enc, kr_server_enc, drive_mode FROM researcher').all();
+    const report = { researchers: 0, skipped: 0, files: 0, stamped: 0, errors: 0 };
+    for (const who of (rows && rows.results) || []) {
+      report.researchers++;
+      try {
+        const out = await backfillDriveObjectsFor(env, who, now);
+        if (out.skipped) report.skipped++;
+        report.files += out.files; report.stamped += out.stamped;
+      } catch (e) {
+        report.errors++;
+        try { await secLog(env, request, 'drive_object_backfill_failed', { researcher: String(who.researcher_id).slice(0, 12), error: String((e && e.message) || e).slice(0, 120) }); } catch { /* noop */ }
+      }
+    }
+    await logApproval(env, request, 'drive_objects_backfilled', report.researchers + ' researcher(s)', report.stamped + ' object(s)', r.drive_email);
     return j(report, 200, origin, env);
   }
 

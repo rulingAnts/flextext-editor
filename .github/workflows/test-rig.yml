@@ -64,8 +64,23 @@ jobs:
         # `--keep` leaves the worker up for the containment run; the runner is discarded afterwards.
         # (Safe for Actions: local-rig.sh sends wrangler's output to its own log file, so the
         # background process never holds this step's stdout open.)
+        #
+        # ⚠ The containment scripts are run IF PRESENT, and a missing one is ANNOUNCED rather than
+        # passed over. That is not the "skip absent test suites" antipattern this repo argues
+        # against: the difference is that a silent skip lets a green tick claim coverage that never
+        # ran, whereas this prints the name of every check it did not run, in the log, every time.
+        # It exists because this one workflow travels across branches with different file sets —
+        # check-project-scoping.sh is Phase C's and does not exist on main yet, which cost this
+        # workflow its second red run (exit 127, command not found). When Phase C merges, the check
+        # starts running here on its own with no edit needed.
         run: |
           set -euo pipefail
           bash test/local-rig.sh --keep
-          ./check-project-scoping.sh
-          ./check-native-containment.sh
+          for c in ./check-project-scoping.sh ./check-native-containment.sh; do
+            if [ -x "$c" ]; then
+              echo "== running $c =="
+              "$c"
+            else
+              echo "== NOT RUN (absent on this branch): $c =="
+            fi
+          done

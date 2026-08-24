@@ -53,8 +53,19 @@ node test/worker-seed.mjs
 echo "== starting the worker on :$PORT (log: $LOG) =="
 # ALLOWED_RESEARCHERS makes the fixture an OPERATOR, which the projects backfill endpoint requires.
 # --var overrides the wrangler.toml value for this run only; nothing is written to any config.
+#
+# ⚠ ALLOWED_ORIGINS ADMITS THE LOCAL DEV PAGES, and without it the RESEARCHER PANEL cannot be tested
+# at all: [env.staging] lists only the staging + preview workers.dev origins, so a panel served from
+# localhost is refused at the CORS preflight before it can even ask for its data. That is why the
+# whole researcher UI had only ever been verified by reading source. The ports are the dev rigs'
+# (dev-serve.sh 8012/8013, dev_server.py 8765/8766, plain http.server 8011).
+# ⚠ THIS IS AN OVERRIDE FOR THIS RUN ONLY. It never touches wrangler.toml, so the DEPLOYED worker
+# still allowlists nothing on localhost — the property that keeps a field device from being pointed
+# at a laptop stays exactly as it was.
+FX_RIG_ORIGINS="${FX_RIG_ORIGINS:-http://localhost:8012,http://localhost:8013,http://localhost:8011,http://localhost:8765,https://localhost:8765,http://localhost:8766,http://127.0.0.1:8012,http://127.0.0.1:8013}"
 ( cd worker && npx --yes wrangler@"$WRANGLER_VERSION" dev --env staging --local --port "$PORT" --ip 127.0.0.1 \
     --var ALLOWED_RESEARCHERS:fixture@example.invalid --var SERVER_HMAC_KEY:local-rig-not-a-secret \
+    --var ALLOWED_ORIGINS:"$FX_RIG_ORIGINS" \
     >"$LOG" 2>&1 ) &
 WPID=$!
 

@@ -17,7 +17,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomUUID, createCipheriv, randomBytes } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -65,6 +65,38 @@ export const FIXTURE = {
 
 const sha256hex = (s) => createHash('sha256').update(s).digest('hex');
 
+/* ---------------- Kr, encrypted at rest exactly as the worker does it ----------------
+ *
+ * ⚠ WHY THIS EXISTS. GET /v1/researcher returns `kr` = decAtRest(researcher.kr_server_enc), and the
+ * PANEL's bootstrap() throws `no_kr` without it. So while this column was NULL the researcher panel
+ * could not be loaded at all against the rig — every browser check of the panel was impossible, which
+ * is why the whole researcher UI had only ever been verified by reading source.
+ *
+ * ⚠ IT IS NOT A BACKDOOR, and the distinction matters. Kr is the researcher's own data key; the
+ * worker already stores it (that is what "operator-recoverable escrow" means) and hands it back to an
+ * authenticated caller. Seeding one for a synthetic fixture reproduces the NORMAL state of a real
+ * account, and it is worthless: it decrypts a local in-memory database holding nothing, under a
+ * SERVER_HMAC_KEY that is printed in local-rig.sh.
+ *
+ * The format is worker/src/v1.js encAtRest(): AES-256-GCM under SHA-256(SERVER_HMAC_KEY), written as
+ * b64url(iv) + '.' + b64url(ciphertext || authTag). Node puts the GCM tag in a separate buffer while
+ * WebCrypto appends it to the ciphertext, so the tag is concatenated here — get that wrong and
+ * decAtRest catches its own error and returns null, i.e. the panel fails with no_kr again and says
+ * nothing about why. */
+const RIG_HMAC_KEY = process.env.FX_RIG_HMAC_KEY || 'local-rig-not-a-secret';
+const b64url = (buf) => Buffer.from(buf).toString('base64')
+  .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+function encAtRest(plaintext) {
+  const key = createHash('sha256').update(RIG_HMAC_KEY).digest();   // serverAesKey()
+  const iv = randomBytes(12);
+  const c = createCipheriv('aes-256-gcm', key, iv);
+  const ct = Buffer.concat([c.update(String(plaintext), 'utf8'), c.final(), c.getAuthTag()]);
+  return b64url(iv) + '.' + b64url(ct);
+}
+/* A FIXED Kr, so a panel session survives a re-seed: the browser caches nothing about it, but a
+ * stable value keeps a failing run reproducible, which is the same reason every id here is fixed. */
+const KR_PLAINTEXT = b64url(Buffer.alloc(32, 7));   // 32-byte AES key, base64 — importKeyB64()'s shape
+
 if (process.argv.includes('--print')) {
   console.log(JSON.stringify(FIXTURE, null, 2));
   process.exit(0);
@@ -88,15 +120,15 @@ DELETE FROM invite;
 DELETE FROM instance;
 DELETE FROM researcher;
 INSERT INTO researcher (researcher_id, secret_hash, email_sha256, settings_blob, settings_rev,
-                        created_at, google_sub, drive_email, display_name, approved, drive_mode)
+                        created_at, google_sub, drive_email, display_name, approved, drive_mode, kr_server_enc)
 VALUES ('${FIXTURE.researcherId}', '${sha256hex(FIXTURE.researcherSecret)}',
         '${sha256hex('fixture-email-key')}', '{}', 0, ${now},
-        '${FIXTURE.googleSub}', '${FIXTURE.driveEmail}', 'Local Rig Fixture', 1, 'oauth');
+        '${FIXTURE.googleSub}', '${FIXTURE.driveEmail}', 'Local Rig Fixture', 1, 'oauth', '${encAtRest(KR_PLAINTEXT)}');
 INSERT INTO researcher (researcher_id, secret_hash, email_sha256, settings_blob, settings_rev,
-                        created_at, google_sub, drive_email, display_name, approved, drive_mode)
+                        created_at, google_sub, drive_email, display_name, approved, drive_mode, kr_server_enc)
 VALUES ('${FIXTURE.outsiderId}', '${sha256hex(FIXTURE.outsiderSecret)}',
         '${sha256hex('outsider-email-key')}', '{}', 0, ${now},
-        'local-rig-outsider-sub', '${FIXTURE.outsiderEmail}', 'Local Rig Outsider', 1, 'oauth');
+        'local-rig-outsider-sub', '${FIXTURE.outsiderEmail}', 'Local Rig Outsider', 1, 'oauth', '${encAtRest(KR_PLAINTEXT)}');
 
 /* ⚠ TWO PROJECTS, ONE MIGRATED AND ONE NOT — because sharing is gated on the owner having a real
  * Drive project folder (Seth, 2026-08-20: "No researcher sharing if the researcher hasn't migrated

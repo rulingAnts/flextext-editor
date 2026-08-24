@@ -3789,6 +3789,11 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           await driveJson(access, 'PATCH', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(inst.oauth_folder_id) + '?fields=id', { name: nickname });
         }
       } catch { /* cosmetic only */ }
+      /* ⚠ ATTRIBUTION. Recorded with ctx.caller — WHO ACTED — never ctx.owner, whose Drive the work
+       * runs against. They are the same researcher for an owner, which is exactly why conflating them
+       * would pass every test today and name the wrong person the day sharing ships. Nobody can
+       * reconstruct an actor after the fact, so this has to be written at the moment it happens. */
+      await logApproval(env, request, 'device_renamed', instanceId.slice(0, 12) + '…', nickname, ctx.caller.drive_email);
       return j({ ok: true }, 200, origin, env);
     }
 
@@ -3816,6 +3821,11 @@ export async function handleV1(request, env, ctx, url, path, origin) {
        * back to 'pages', sending new coworkers to the legacy apps (Seth, 2026-08-05). Server truth
        * at mint time cannot miss. */
       const ie = await env.DB.prepare('SELECT estate FROM instance WHERE instance_id=?').bind(instanceId).first();
+      /* ⚠ ATTRIBUTION. Recorded with ctx.caller — WHO ACTED — never ctx.owner, whose Drive the work
+       * runs against. They are the same researcher for an owner, which is exactly why conflating them
+       * would pass every test today and name the wrong person the day sharing ships. Nobody can
+       * reconstruct an actor after the fact, so this has to be written at the moment it happens. */
+      await logApproval(env, request, 'device_invited', instanceId.slice(0, 12) + '…', 'invite minted', ctx.caller.drive_email);
       return j({ invite_id, secret, expires_at, estate: (ie && ie.estate) || 'pages' }, 200, origin, env);
     }
 
@@ -4310,13 +4320,17 @@ export async function handleV1(request, env, ctx, url, path, origin) {
        * Fixed by doing what the sibling `installs/<iid>/revoke` route immediately below already
        * does: resolve ownership, 404 on a miss, and only then write. Re-revoking still returns 200,
        * so no deployed panel changes behaviour. */
-      const ownedInst = await env.DB.prepare('SELECT instance_id FROM instance WHERE instance_id=? AND researcher_id=?')
+      const ownedInst = await env.DB.prepare('SELECT instance_id, nickname FROM instance WHERE instance_id=? AND researcher_id=?')
         .bind(instanceId, r.researcher_id).first();
       if (!ownedInst) return j({ error: 'not_found' }, 404, origin, env);
       await env.DB.batch([
         env.DB.prepare('UPDATE instance SET revoked=1 WHERE instance_id=? AND researcher_id=?').bind(instanceId, r.researcher_id),
         env.DB.prepare('UPDATE install SET revoked=1 WHERE instance_id=?').bind(instanceId),
       ]);
+      /* ⚠ ATTRIBUTION — ctx.caller (WHO ACTED), never ctx.owner (whose Drive the work runs in).
+       * Identical for an owner, which is exactly why conflating them would pass every test today and
+       * name the wrong person the day sharing ships. Nobody can reconstruct an actor afterwards. */
+      await logApproval(env, request, 'device_revoked', instanceId.slice(0, 12) + '…', ownedInst.nickname || '', ctx.caller.drive_email);
       return j({ ok: true }, 200, origin, env);
     }
 
@@ -4340,6 +4354,11 @@ export async function handleV1(request, env, ctx, url, path, origin) {
          * live-looking pairing code in every dashboard payload for the life of the device. NULL is
          * also the signal the DEVICE reads to stop showing its pairing screen. */
         await env.DB.prepare("UPDATE install SET status='approved', pair_code=NULL WHERE install_id=?").bind(installId).run();
+      /* ⚠ ATTRIBUTION. Recorded with ctx.caller — WHO ACTED — never ctx.owner, whose Drive the work
+       * runs against. They are the same researcher for an owner, which is exactly why conflating them
+       * would pass every test today and name the wrong person the day sharing ships. Nobody can
+       * reconstruct an actor after the fact, so this has to be written at the moment it happens. */
+        await logApproval(env, request, 'install_approved', installId.slice(0, 12) + '…', instanceId.slice(0, 12) + '…', ctx.caller.drive_email);
         return j({ ok: true }, 200, origin, env);
       }
 
@@ -4396,6 +4415,9 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           env.DB.prepare('UPDATE install SET wrapped_key=? WHERE install_id=?').bind(body.wrapped_key, installId),
           env.DB.prepare('UPDATE instance SET desired_rev=desired_rev+1 WHERE instance_id=?').bind(instanceId),
         ]);
+        /* ⚠ ATTRIBUTION — ctx.caller (WHO ACTED), never ctx.owner. Key delivery is owner-only today,
+         * so these agree; recording the caller is what keeps that true if it ever widens. */
+        await logApproval(env, request, 'device_key_delivered', installId.slice(0, 12) + '…', instanceId.slice(0, 12) + '…', ctx.caller.drive_email);
         return j({ ok: true }, 200, origin, env);
       }
 

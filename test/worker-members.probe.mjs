@@ -210,6 +210,30 @@ console.log('\nwhat that member CAN do, and what they still cannot');
      'wipe stays owner-only whatever the member holds');
 }
 
+console.log('\n⚠⚠ a member device action is ATTRIBUTED to the MEMBER, not the owner');
+{
+  /* ⚠ THE WHOLE POINT OF ctx.caller vs ctx.owner, made observable. The member renamed idA above; the
+   * owner reads the append-only log and must find that rename recorded against the MEMBER's email.
+   * Log with ctx.owner instead — the drop-in-compatible mistake that passes every single-member test
+   * — and the actor here is the owner's address, and this fails. Before 2026-08-24 these five actions
+   * (rename, invite, revoke, approve, key) recorded NOTHING at all, so there was no actor to be
+   * wrong; the assertion below would find no entry. */
+  const log = await call('GET', '/v1/researcher/approvals?limit=50', OWNER);
+  ok(log.status === 200, `the owner can read the access log (got ${log.status})`);
+  const renames = (log.json.approvals || []).filter((e) => e.kind === 'device_renamed');
+  ok(renames.length >= 1, `the member's rename was recorded at all (${renames.length}) — five member actions used to log nothing`);
+  /* ⚠ TARGET THE MEMBER'S OWN RENAME BY ITS NEW NAME, not "any rename". The OWNER renames devices
+   * elsewhere in this flow and those are CORRECTLY owner-attributed, so "no rename is owner-attributed"
+   * would be wrong. The detail field of a device_renamed entry is the new nickname; the member set
+   * 'Renamed By Member' above. */
+  const mine = renames.find((e) => e.detail === 'Renamed By Member');
+  ok(!!mine, `the member's specific rename ('Renamed By Member') is in the log`);
+  ok(mine && mine.actor === FIXTURE.outsiderEmail,
+     `⚠⚠ and it is attributed to the MEMBER (${mine && mine.actor}), not the owner — ctx.caller, not ctx.owner`);
+  ok(mine && mine.actor !== FIXTURE.driveEmail,
+     `⚠ conflating caller with owner would have named ${FIXTURE.driveEmail} here`);
+}
+
 console.log('\nremoval takes the KEY GRANTS with it — revocation is an act, not a UI state');
 {
   await call('POST', '/v1/researcher/keys', OWNER, {

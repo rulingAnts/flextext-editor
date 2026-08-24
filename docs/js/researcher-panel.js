@@ -1450,6 +1450,11 @@ async function renderDashboard(prefetched) {
       <span class="rp-spacer"></span>
       ${data.isOwner ? `<button class="link-btn rp-admin-btn" data-act="admin">${esc(t('panel.admin.btn'))}</button>` : ''}
       <button class="link-btn" data-act="storage">${esc(t('panel.store.btn'))}</button>
+      ${/* ⚠ NOT gated on data.isOwner — that flag is the OPERATOR of this deployment (see isOperator
+          in the worker), not the owner of a project, and gating on it would hide sharing from every
+          researcher but the admin. The membership routes are owner-only server-side and answer 404
+          to anyone else, so the button is safe to show and the modal reports what it finds. */''}
+      <button class="link-btn" data-act="coworkers">${esc(t('panel.share.btn'))}</button>
       <button class="link-btn" data-act="history">${esc(t('panel.hist.btn'))}</button>
       <button class="link-btn" data-act="utilities">${esc(t('panel.util.btn'))}</button>
       <button class="link-btn" data-act="account">${esc(t('panel.dash.account'))}</button>
@@ -1504,6 +1509,7 @@ async function renderDashboard(prefetched) {
     refresh: () => renderDashboard(),
     admin: () => adminModal(),
     storage: () => storageModal(),
+    coworkers: () => coworkersModal(),
     history: () => historyModal(),
     utilities: () => utilitiesModal(),
     account: () => accountModal(),
@@ -5957,10 +5963,169 @@ function clockMs(ms) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
+/* ---------------- coworkers on a project (Phase D — the sharing surface) ----------------
+ *
+ * Owner-side membership management for the D1 `project` boundary: who else may help look after this
+ * project's DEVICES. Backed entirely by routes that already exist (`GET /v1/projects`,
+ * `GET|POST|DELETE /v1/projects/<id>/members`), so this ships with no worker change and no deploy.
+ *
+ * ⚠ THE D1 PROJECT IS NOT THE DRIVE PROJECT FOLDER the dashboard tabs already show. Those are keyed
+ * by folder id and come from the estate; this is keyed by `project_id` and is the authorization
+ * boundary. They correspond one-to-one after migration, and `drive_folder_id` is what links them —
+ * which is also why the worker refuses to share a project that has none (`not_migrated`).
+ *
+ * ⚠ THE DRIVE CAPABILITY IS ABSENT, NOT DISABLED (handoff §8). `assignTexts` and `drive` are refused
+ * by the worker's `validateCaps` — a checkbox for them would either 400 the whole grant or, worse,
+ * read as a promise that files can be shared. What ships is exactly what the worker will honour:
+ * `manageDevices` and `createInvites`, both plain booleans. If a key is ever added here that
+ * validateCaps does not accept, EVERY add fails with `bad_caps` — the allowlist is strict on purpose.
+ *
+ * ⚠ WHAT A MEMBER CANNOT YET SEE. Their own dashboard still lists devices with
+ * `WHERE researcher_id=?` (the owner), so a coworker added here can be authorized for a device and
+ * still see an empty device list in their panel until that read is project-scoped. This UI is the
+ * owner's half; it is honest about the grant it makes, and the member-side view is the next step. */
+async function coworkersModal() {
+  const m = modal(`<h3>${esc(t('panel.share.title'))}</h3>
+    <p class="note">${esc(t('panel.share.intro'))}</p>
+    <div id="rp-share-body"><p class="note">${esc(t('panel.share.loading'))}</p></div>
+    <hr class="rp-sep">
+    <button class="link-btn" data-m="close">${esc(t('panel.util.close'))}</button>`, true);
+  m.el.querySelector('[data-m="close"]').onclick = m.close;
+
+  const body = m.el.querySelector('#rp-share-body');
+  let owned = [];
+  let selected = '';
+
+  /* The worker's own error names, turned into sentences that say what to DO. Anything unrecognised
+   * falls through to the raw message rather than a generic apology — a message nobody can act on is
+   * worse than an ugly one. */
+  const sayErr = (err) => {
+    const k = (err && err.message) || '';
+    if (k === 'no_such_researcher') return t('panel.share.errNoSuch');
+    if (k === 'not_migrated') return t('panel.share.errNotMigrated');
+    if (k === 'owner_is_not_a_member') return t('panel.share.errSelf');
+    if (k === 'bad_caps' || k === 'bad_body') return t('panel.share.errCaps');
+    return String(k || err);
+  };
+
+  const capWords = (caps) => {
+    const out = [];
+    if (caps && caps.manageDevices) out.push(t('panel.share.capManage'));
+    if (caps && caps.createInvites) out.push(t('panel.share.capInvite'));
+    return out.length ? out.join(', ') : t('panel.share.capNone');
+  };
+
+  async function paint() {
+    const proj = owned.find((p) => p.project_id === selected) || null;
+    if (!proj) { body.innerHTML = `<p class="note">${esc(t('panel.share.noProjects'))}</p>`; return; }
+    /* Only render the picker when there is a choice to make: one project is every account on day
+     * one, and a select with a single option is a control that cannot do anything. */
+    const picker = owned.length > 1
+      ? `<label class="rp-field"><span>${esc(t('panel.share.project'))}</span>
+           <select id="rp-share-proj">${owned.map((p) =>
+             `<option value="${esc(p.project_id)}"${p.project_id === selected ? ' selected' : ''}>${esc(p.name || p.project_id)}</option>`).join('')}</select></label>`
+      : `<div class="rp-field"><span>${esc(t('panel.share.project'))}</span>
+           <div class="rp-readonly">${esc(proj.name || proj.project_id)}</div></div>`;
+
+    let members = null, listErr = null;
+    try { members = (await Researcher.listMembers(selected)).members || []; }
+    catch (e) { listErr = e; }
+
+    body.innerHTML = `${picker}
+      ${listErr ? `<p class="note rp-adm-err">${esc(sayErr(listErr))}</p>` : `
+      <div class="rp-share-list">${members.length ? members.map((x) => `
+        <div class="rp-install rp-share-row">
+          <div><div class="invite-name">${esc(x.researcher_id)}</div>
+            <div class="note">${x.invalid ? esc(t('panel.share.invalidCaps'))
+                                          : esc(t('panel.share.memberCaps', { caps: capWords(x.caps) }))}</div></div>
+          <div class="rp-inst-actions">
+            <button class="link-btn rp-revoke" data-sact="remove" data-rid="${esc(x.researcher_id)}">${esc(t('panel.share.remove'))}</button>
+          </div>
+        </div>`).join('') : `<p class="note">${esc(t('panel.share.none'))}</p>`}</div>`}
+      <hr class="rp-sep">
+      <div class="rp-adm-sec">
+        <div class="rp-adm-h">${esc(t('panel.share.addTitle'))}</div>
+        <label class="rp-field"><span>${esc(t('panel.share.idLabel'))}</span>
+          <input id="rp-share-id" spellcheck="false" autocapitalize="off" placeholder="${esc(t('panel.share.idPh'))}"></label>
+        <p class="note">${esc(t('panel.share.idNote'))}</p>
+        ${/* ⚠ A FIELDSET, not an rp-field: `.rp-field input` styles a control as a TEXT BOX (border,
+             padding, full width), which a checkbox inherits too — it renders as a stretched box with
+             its label pushed away. rp-fieldset is the house idiom for a group of checkboxes. */''}
+        <fieldset class="rp-fieldset">
+          <legend>${esc(t('panel.share.capsLabel'))}</legend>
+          <label class="check-label"><input type="checkbox" id="rp-share-manage"> ${esc(t('panel.share.capManageLabel'))}</label>
+          <label class="check-label"><input type="checkbox" id="rp-share-invite"> ${esc(t('panel.share.capInviteLabel'))}</label>
+        </fieldset>
+        <p class="note">${esc(t('panel.share.driveNote'))}</p>
+        ${/* The revocation-honesty rule moved UPSTREAM (project-split.md): the owner should learn what
+             cannot be taken back BEFORE granting, not discover it while revoking. One box, plain
+             language, both halves kept distinct — what is unrewindable (knowledge) and what is
+             merely stoppable (actions). */''}
+        <div class="warn-banner rp-share-warn">
+          <div><strong>${esc(t('panel.share.warnTitle'))}</strong>
+            <p class="note">${esc(t('panel.share.warnSee'))}</p>
+            <p class="note">${esc(t('panel.share.warnDo'))}</p>
+            <p class="note">${esc(t('panel.share.warnWhy'))}</p></div>
+        </div>
+        <button class="primary-btn" id="rp-share-add">${esc(t('panel.share.addGo'))}</button>
+        <div id="rp-share-say" class="rp-adm-say" hidden></div>
+      </div>`;
+
+    const say = (msg, bad) => {
+      const el = body.querySelector('#rp-share-say');
+      el.hidden = false; el.className = 'rp-adm-say' + (bad ? ' rp-adm-err' : ''); el.textContent = msg;
+    };
+
+    const sel = body.querySelector('#rp-share-proj');
+    if (sel) sel.onchange = () => { selected = sel.value; paint(); };
+
+    body.querySelectorAll('[data-sact="remove"]').forEach((el) => el.addEventListener('click', () => {
+      if (!confirm(t('panel.share.removeConfirm', { name: proj.name || proj.project_id }))) return;
+      busy(el, async () => {
+        try { await Researcher.removeMember(selected, el.dataset.rid); deps.toast(t('panel.share.removed'), 5000); await paint(); }
+        catch (e) { say(sayErr(e), true); }
+      });
+    }));
+
+    body.querySelector('#rp-share-add').addEventListener('click', (e) => busy(e.target, async () => {
+      const who = body.querySelector('#rp-share-id').value.trim();
+      if (!who) return;
+      /* Send ONLY what is ticked. validateCaps stores "granted" and treats absent as false, so
+       * sending `false` values would be noise — and any key it does not know refuses the whole grant. */
+      const caps = {};
+      if (body.querySelector('#rp-share-manage').checked) caps.manageDevices = true;
+      if (body.querySelector('#rp-share-invite').checked) caps.createInvites = true;
+      try {
+        await Researcher.addMember(selected, who, caps);
+        deps.toast(t('panel.share.added', { who }), 5000);
+        await paint();
+      } catch (err) { say(sayErr(err), true); }
+    }));
+  }
+
+  try {
+    const r = await Researcher.listProjects();
+    owned = r.owned || [];
+    selected = (owned[0] && owned[0].project_id) || '';
+  } catch (e) {
+    body.innerHTML = `<p class="note rp-adm-err">${esc(sayErr(e))}</p>`;
+    return;
+  }
+  await paint();
+}
+
 function accountModal() {
   const m = modal(`
     <h3>${esc(t('panel.account.title'))}</h3>
     <div class="rp-field"><span>${esc(t('panel.account.signedInAs'))}</span><div class="rp-readonly">${esc(Researcher.accountEmail() || '')}</div></div>
+    ${/* ⚠ THE OTHER HALF OF "add a coworker". An owner adds someone BY RESEARCHER ID, because the
+        worker deliberately offers no id-to-identity lookup (that would be a directory of everyone
+        on the deployment — see the pubkey route). So the id has to be handed over deliberately by
+        the person it belongs to, and until this existed there was nowhere for them to read it. */''}
+    <div class="rp-field"><span>${esc(t('panel.account.rid'))}</span>
+      <div class="rp-readonly rp-rid">${esc(Researcher.currentAccountId() || '')}</div>
+      <button class="link-btn" data-m="ridcopy">${esc(t('panel.account.ridCopy'))}</button>
+      <p class="note">${esc(t('panel.account.ridNote'))}</p></div>
     <label class="check-label"><input type="checkbox" data-m="stay"${Researcher.staySignedIn() ? ' checked' : ''}> ${esc(t('panel.account.stay'))}</label>
     <p class="note">${esc(t('panel.account.stayNote'))}</p>
     <button class="link-btn" data-m="signout">${esc(t('panel.account.signout'))}</button>
@@ -5976,6 +6141,10 @@ function accountModal() {
     <button class="link-btn" data-m="close">${esc(t('panel.invite.close'))}</button>`, true);
 
   m.el.querySelector('[data-m="close"]').onclick = m.close;
+  m.el.querySelector('[data-m="ridcopy"]').onclick = async () => {
+    try { await navigator.clipboard.writeText(Researcher.currentAccountId() || ''); deps.toast(t('panel.account.ridCopied'), 3000); }
+    catch { /* clipboard refused (permissions, insecure context) — the id is on screen to select by hand */ }
+  };
   m.el.querySelector('[data-m="stay"]').onchange = (e) => Researcher.setStaySignedIn(e.target.checked);
   m.el.querySelector('[data-m="signout"]').onclick = () => {
     if (!confirm(t('panel.account.confirmSignout'))) return;

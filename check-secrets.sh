@@ -111,7 +111,14 @@ for f in $FILES; do
   # Skip binaries: a false positive inside a DLL is noise, and a credential pasted into one is not
   # the failure mode anyone has. `-I` makes grep treat binary as non-matching.
   for p in "${PATTERNS[@]}"; do
-    hit=$(printf '%s' "$content" | grep -InE -m1 "$p" 2>/dev/null | head -1) || true
+    # ⚠ `-e` IS LOAD-BEARING, not tidiness. The PEM pattern begins with `-----`, so without it grep
+    # parses the pattern as OPTIONS and dies with "unrecognized option" — and because stderr is
+    # discarded and the failure is tolerated, the miss was completely silent. The result: the very
+    # first rule in the list, "any PEM private key", never fired once in a file not already caught by
+    # its .pem EXTENSION (found 2026-08-24 by mutation-testing the guard's own test, which had been
+    # crediting the extension rule for the content rule's assertion). Any pattern starting with `-`
+    # is unreachable without this.
+    hit=$(printf '%s' "$content" | grep -InE -m1 -e "$p" 2>/dev/null | head -1) || true
     if [ -n "$hit" ]; then
       report "CREDENTIAL $f:${hit%%:*}" "matches the format of a real key — rotate it if it is genuine, and do not push"
       break

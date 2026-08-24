@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v443';
+export const ENGINE_VERSION = 'v444';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v443';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'phase-c-authz v1';
+export const BUILD_TAG = 'phase-d-sharing v1';
 
 const S = {
 en: {
@@ -1317,6 +1317,54 @@ internet after the first time.</p>
   'panel.proj.renameNote': 'Display only. The folder is found by its tag, never by its name, so this cannot orphan a device, a text or an upload in progress.',
   'panel.proj.renameGo': 'Rename',
   'panel.proj.renamed': 'Project renamed.',
+  /* Sharing a project with a coworker (Phase D). ⚠ The wording is bound by the repo's framing rule:
+   * say what the protection SAFEGUARDS — the privacy of the communities in the recordings and their
+   * intellectual and cultural heritage — never a guess about who it guards against. */
+  'panel.share.btn': 'Coworkers',
+  'panel.share.title': 'Coworkers on this project',
+  'panel.share.intro': 'A coworker you add here can help you look after this project’s devices. They never get access to your Google Drive — only to the devices in this one project.',
+  'panel.share.project': 'Project',
+  'panel.share.loading': 'Loading…',
+  'panel.share.none': 'Nobody else is on this project yet — it is just you.',
+  'panel.share.owner': 'You own this project.',
+  'panel.share.notOwner': 'Only the owner of a project can add or remove coworkers.',
+  'panel.share.noProjects': 'You have no projects yet.',
+  'panel.share.memberCaps': 'Can: {caps}',
+  'panel.share.capNone': 'nothing yet — they can see this project’s devices but change nothing',
+  'panel.share.capManage': 'manage devices',
+  'panel.share.capInvite': 'invite devices',
+  'panel.share.invalidCaps': '⚠ This coworker’s permissions could not be read. Remove and re-add them.',
+  'panel.share.remove': 'Remove',
+  'panel.share.removeConfirm': 'Remove this coworker from “{name}”?\n\nThey lose access from their next request, and the device keys they were given are deleted. What they have already seen or downloaded cannot be taken back.',
+  'panel.share.removed': 'Coworker removed.',
+  'panel.share.addTitle': 'Add a coworker',
+  'panel.share.idLabel': 'Their researcher ID',
+  'panel.share.idPh': 'Paste the ID they sent you',
+  /* ⚠ BY ID, NOT BY EMAIL, and that is the same rule the pairing flow follows: an id-to-identity
+   * lookup for any signed-in caller would be a directory of every researcher on the deployment.
+   * The id is a random GUID, so it has to be handed over deliberately by the person it belongs to. */
+  'panel.share.idNote': 'Ask your coworker to open their own panel → Account, and send you the researcher ID shown there. They must have signed in and been approved first.',
+  'panel.share.capsLabel': 'What they may do',
+  'panel.share.capManageLabel': 'Manage devices — change settings, rename, revoke, approve installs',
+  'panel.share.capInviteLabel': 'Invite devices — create pairing links for new devices',
+  /* ⚠ THE DRIVE CAPABILITY IS ABSENT ON PURPOSE, not disabled: a checkbox that says a coworker can
+   * be given file access would be a promise this version cannot keep. Files stay with the owner. */
+  'panel.share.driveNote': 'Coworkers cannot be given access to your Google Drive files in this version. Assigning texts and downloading files stay with you, the owner.',
+  'panel.share.warnTitle': 'How much do you need to trust this person?',
+  'panel.share.warnSee': 'They will be able to read everything this project’s devices have recorded and reported. Removing them later stops what they can do NEXT — it cannot take back what they have already read or saved.',
+  'panel.share.warnDo': 'Anything they do while trusted is real: settings they change, devices they revoke or pair. Removing them ends it from their next request; it does not undo what was already done.',
+  'panel.share.warnWhy': 'This project holds the language, voices and consent records of the community it serves. Adding someone here extends that trust to them.',
+  'panel.share.addGo': 'Add coworker',
+  'panel.share.added': '“{who}” can now help with this project.',
+  'panel.share.errNoSuch': 'No approved researcher has that ID. Check the ID, and that they have signed in and been approved.',
+  'panel.share.errNotMigrated': 'This project has no Drive project folder yet. Set up project folders before sharing it.',
+  'panel.share.errSelf': 'That is your own ID — you already own this project.',
+  'panel.share.errCaps': 'Those permissions were refused. Tick only the boxes shown here.',
+  /* The other half of the flow: a coworker has to be able to FIND the id an owner asks them for. */
+  'panel.account.rid': 'Your researcher ID',
+  'panel.account.ridNote': 'Send this to a project owner who wants to add you as a coworker. It identifies you and nothing else — it is not a password.',
+  'panel.account.ridCopy': 'Copy ID',
+  'panel.account.ridCopied': 'Researcher ID copied.',
   'panel.proj.undo': 'Undo \u2014 go back to a flat folder',
   'panel.proj.undoTitle': 'Undo the project folder',
   'panel.proj.undoIntro': 'This puts every folder back directly under FlexText Uploads, exactly where it was. The project folder is moved to Drive trash only if it is completely empty afterwards.',
@@ -3026,6 +3074,45 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.proj.renameNote': 'Hanya tampilan. Folder ditemukan lewat tandanya, bukan namanya, jadi ini tidak dapat memutus kaitan perangkat, teks, atau unggahan yang sedang berjalan.',
   'panel.proj.renameGo': 'Ganti nama',
   'panel.proj.renamed': 'Nama proyek diganti.',
+  'panel.share.btn': 'Rekan kerja',
+  'panel.share.title': 'Rekan kerja di proyek ini',
+  'panel.share.intro': 'Rekan kerja yang Anda tambahkan di sini dapat membantu Anda mengurus perangkat proyek ini. Mereka tidak pernah mendapat akses ke Google Drive Anda — hanya ke perangkat dalam proyek ini saja.',
+  'panel.share.project': 'Proyek',
+  'panel.share.loading': 'Memuat…',
+  'panel.share.none': 'Belum ada orang lain di proyek ini — baru Anda sendiri.',
+  'panel.share.owner': 'Anda pemilik proyek ini.',
+  'panel.share.notOwner': 'Hanya pemilik proyek yang dapat menambah atau menghapus rekan kerja.',
+  'panel.share.noProjects': 'Anda belum memiliki proyek.',
+  'panel.share.memberCaps': 'Dapat: {caps}',
+  'panel.share.capNone': 'belum ada — mereka dapat melihat perangkat proyek ini tetapi tidak dapat mengubah apa pun',
+  'panel.share.capManage': 'mengelola perangkat',
+  'panel.share.capInvite': 'mengundang perangkat',
+  'panel.share.invalidCaps': '⚠ Izin rekan kerja ini tidak dapat dibaca. Hapus lalu tambahkan kembali.',
+  'panel.share.remove': 'Hapus',
+  'panel.share.removeConfirm': 'Hapus rekan kerja ini dari “{name}”?\n\nAkses mereka berhenti mulai permintaan berikutnya, dan kunci perangkat yang pernah diberikan kepada mereka dihapus. Apa yang sudah mereka lihat atau unduh tidak dapat ditarik kembali.',
+  'panel.share.removed': 'Rekan kerja dihapus.',
+  'panel.share.addTitle': 'Tambah rekan kerja',
+  'panel.share.idLabel': 'ID peneliti mereka',
+  'panel.share.idPh': 'Tempelkan ID yang mereka kirimkan',
+  'panel.share.idNote': 'Minta rekan kerja Anda membuka panel mereka sendiri → Akun, lalu mengirimkan ID peneliti yang tertera di sana. Mereka harus sudah masuk dan disetujui terlebih dahulu.',
+  'panel.share.capsLabel': 'Apa yang boleh mereka lakukan',
+  'panel.share.capManageLabel': 'Mengelola perangkat — mengubah pengaturan, mengganti nama, mencabut, menyetujui pemasangan',
+  'panel.share.capInviteLabel': 'Mengundang perangkat — membuat tautan penyandingan untuk perangkat baru',
+  'panel.share.driveNote': 'Rekan kerja tidak dapat diberi akses ke berkas Google Drive Anda pada versi ini. Menugaskan teks dan mengunduh berkas tetap menjadi hak Anda sebagai pemilik.',
+  'panel.share.warnTitle': 'Seberapa besar Anda perlu memercayai orang ini?',
+  'panel.share.warnSee': 'Mereka akan dapat membaca semua yang telah direkam dan dilaporkan oleh perangkat proyek ini. Menghapus mereka nanti menghentikan apa yang dapat mereka lakukan SELANJUTNYA — itu tidak dapat menarik kembali apa yang sudah mereka baca atau simpan.',
+  'panel.share.warnDo': 'Apa pun yang mereka lakukan selagi dipercaya bersifat nyata: pengaturan yang mereka ubah, perangkat yang mereka cabut atau sandingkan. Menghapus mereka menghentikannya mulai permintaan berikutnya; itu tidak membatalkan apa yang sudah terjadi.',
+  'panel.share.warnWhy': 'Proyek ini menyimpan bahasa, suara, dan catatan persetujuan komunitas yang dilayaninya. Menambahkan seseorang di sini memperluas kepercayaan itu kepada mereka.',
+  'panel.share.addGo': 'Tambah rekan kerja',
+  'panel.share.added': '“{who}” kini dapat membantu proyek ini.',
+  'panel.share.errNoSuch': 'Tidak ada peneliti disetujui dengan ID tersebut. Periksa ID-nya, dan pastikan mereka sudah masuk dan disetujui.',
+  'panel.share.errNotMigrated': 'Proyek ini belum memiliki folder proyek Drive. Siapkan folder proyek sebelum membagikannya.',
+  'panel.share.errSelf': 'Itu ID Anda sendiri — Anda sudah menjadi pemilik proyek ini.',
+  'panel.share.errCaps': 'Izin tersebut ditolak. Centang hanya kotak yang ditampilkan di sini.',
+  'panel.account.rid': 'ID peneliti Anda',
+  'panel.account.ridNote': 'Kirimkan ini kepada pemilik proyek yang ingin menambahkan Anda sebagai rekan kerja. Ini hanya menandai identitas Anda — bukan kata sandi.',
+  'panel.account.ridCopy': 'Salin ID',
+  'panel.account.ridCopied': 'ID peneliti disalin.',
   'panel.proj.undo': 'Batalkan \u2014 kembali ke folder datar',
   'panel.proj.undoTitle': 'Batalkan folder proyek',
   'panel.proj.undoIntro': 'Ini mengembalikan setiap folder langsung ke bawah FlexText Uploads, persis seperti semula. Folder proyek dipindahkan ke sampah Drive hanya jika benar-benar kosong setelahnya.',

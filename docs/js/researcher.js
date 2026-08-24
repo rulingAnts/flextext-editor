@@ -801,6 +801,48 @@ export function projectRename(folderId, name) {
   return api('POST', '/v1/researcher/projects/rename', { body: { folderId, name } });
 }
 
+/* ---------------- project MEMBERSHIP (Phase D — the sharing surface) ----------------
+ *
+ * These four wrap the D1-`project` authorization routes, NOT the Drive-estate project grouping the
+ * dashboard already shows (that is folder-keyed and comes from drive-estate). The `project_id` here
+ * is the D1 authorization boundary — `owned[].project_id` / `joined[].project_id` from listProjects.
+ *
+ * ⚠ v1 CAPS ARE EXACTLY `{ manageDevices?, createInvites? }` and NOTHING ELSE — the worker's
+ * validateCaps is a strict allowlist that 400s on any other key (Drive, `see`, cancelOthers, wipe).
+ * The panel must offer only those two; the Drive capability is DEFERRED until per-project Drive
+ * scoping (drive_object Phase 3) exists, and ships absent from the UI, not greyed out. */
+
+/* The caller's projects, split the way the home screen wants them:
+ *   { owned:  [{ project_id, name, drive_folder_id, created_at }],       // "Mine"
+ *     joined: [{ project_id, name, owner_id, caps, invalid }] }          // "Joined"
+ * A `drive_folder_id` of null on an owned project means it has not been migrated to a Drive project
+ * folder yet — sharing it is refused (not_migrated) until it has one. */
+export function listProjects() { return api('GET', '/v1/projects'); }
+
+/* Members of ONE project the caller OWNS (owner-only route; a non-owner gets 404 not_found, which is
+ * how the worker keeps denial indistinguishable from absence). Caps come back PARSED, with
+ * `invalid:true` on a row the worker could not parse rather than throwing mid-render. */
+export function listMembers(projectId) {
+  return api('GET', `/v1/projects/${encodeURIComponent(projectId)}/members`);
+}
+
+/* Add (or replace) a coworker on a project the caller owns. `caps` is `{ manageDevices?, createInvites? }`.
+ * ⚠ retry:false — a lost response must not re-POST: the grant is idempotent (INSERT OR REPLACE) but
+ * a blind retry would re-log a second member_added entry for one human action. The worker refuses
+ * the owner's own id (owner_is_not_a_member), an unmigrated project (not_migrated, 409) and a
+ * researcher who does not exist / is unapproved (no_such_researcher, 404). */
+export function addMember(projectId, researcherId, caps) {
+  return api('POST', `/v1/projects/${encodeURIComponent(projectId)}/members`,
+             { body: { researcher_id: researcherId, caps: caps || {} }, retry: false });
+}
+
+/* Remove a coworker. ⚠ The worker deletes their key grants in the SAME batch, so removal is a real
+ * revocation, not a UI state — see the route. retry:false for the same reason as addMember. */
+export function removeMember(projectId, researcherId) {
+  return api('DELETE', `/v1/projects/${encodeURIComponent(projectId)}/members`,
+             { body: { researcher_id: researcherId }, retry: false });
+}
+
 /* Permanently delete the FlexText files ALREADY IN TRASH — the only thing that actually reclaims
  * quota, since usageInDriveTrash counts inside usage. Scoped to our own files by drive.file; this
  * is NOT "empty the user's Drive trash". retry:false — a lost response must not double-delete. */

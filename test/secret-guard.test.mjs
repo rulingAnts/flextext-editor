@@ -104,7 +104,18 @@ console.log('\nit catches real credential shapes, and does not cry wolf');
   mkdirSync(join(dir, 'sub'), { recursive: true });
 
   const scan = () => {
-    execFileSync('git', ['-C', dir, 'add', '-A']);
+    /* ⚠ `-f`, AND THE REASON IS THE WHOLE POINT OF THIS FILE. A developer's GLOBAL gitignore
+     * (core.excludesFile) commonly lists `*.pem` / `*.key` / `.env` — Seth's does — and a plain
+     * `git add -A` honours it, so the fixture's decoy secret is never staged. check-secrets.sh then
+     * scans a tree with no secret in it, finds nothing, and the "catches a PEM private key"
+     * assertion FAILS on the maintainer's machine while passing on a CI runner that has no global
+     * excludes. A guard test whose verdict depends on whose laptop it runs on is not a guard.
+     *
+     * Forcing the add is safe here — `dir` is a throwaway temp repo that is never pushed — and it is
+     * also the honest fixture: the incident this guards against was a secret that WAS committed, so
+     * the test must be able to stage one. It does not weaken the check under test; check-secrets.sh
+     * still has to find it on its own. */
+    execFileSync('git', ['-C', dir, 'add', '-A', '-f']);
     try { execFileSync(join(dir, 'check-secrets.sh'), { cwd: dir, stdio: 'pipe' }); return 0; }
     catch (e) { return e.status; }
   };
@@ -118,7 +129,13 @@ console.log('\nit catches real credential shapes, and does not cry wolf');
   ok(scan() === 0, 'prose about passwords, a .example template and a README do NOT trip it');
 
   const cases = [
-    ['sub/deploy.pem', '-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----\n', 'a PEM private key'],
+    ['sub/deploy.pem', '-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----\n', 'a .pem FILE TYPE, whatever is in it'],
+    /* ⚠ THE SAME KEY UNDER AN INNOCUOUS NAME, and this is the case that actually tests the PEM
+     * CONTENT pattern. The `.pem` case above cannot: check-secrets.sh catches that file by its
+     * EXTENSION, so it passes with the content rule deleted — which is exactly what a mutation test
+     * found (2026-08-24). Two rules were being credited to one assertion; a key pasted into
+     * `config.txt` is the shape the content rule exists for, and nothing else here exercises it. */
+    ['sub/config.txt', 'key = """\n-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----\n"""\n', 'a PEM private key pasted into an ordinary text file'],
     ['sub/notes.txt', 'TOKEN=ghp_' + '0123456789abcdefghijABCDEFGHIJ0123' + '\n', 'a GitHub token pasted into a text file'],
     ['sub/aws.txt', 'id=AKIA' + 'ABCDEFGHIJKLMNOP' + '\n', 'an AWS access key id'],
     ['sub/url.txt', 'db=https://admin:hunter2@db.internal/app\n', 'credentials embedded in a URL'],

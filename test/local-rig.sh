@@ -18,9 +18,9 @@ cd "$(dirname "$0")/.."
 PORT="${FX_RIG_PORT:-8787}"
 # ⚠⚠ PINNED, AND PINNED TO THE VERSION THE DEPLOY USES (.github/workflows/worker-deploy.yml
 # `wranglerVersion`). Bare `npx wrangler` resolves to whatever is newest at that moment, so the rig
-# silently tested a DIFFERENT wrangler from the one that ships — and it moved mid-session on
+# silently tested a DIFFERENT wrangler from the one that ships — and it moved on its own on
 # 2026-08-24 (4.118.0 -> 4.125.0), whose cold start took long enough to look like a hang. A test rig
-# whose toolchain drifts on its own is not reproducible, which is the one thing a rig is for.
+# whose toolchain drifts underneath it is not reproducible, which is the one thing a rig is for.
 # ⚠ Keep this equal to the deploy's pin; bump both together and re-run the rig afterwards.
 WRANGLER_VERSION="${WRANGLER_VERSION:-4.118.0}"
 LOG="$(mktemp -t flextext-rig-XXXX.log)"

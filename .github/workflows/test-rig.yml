@@ -1,0 +1,86 @@
+# The full test rig on a Linux runner — the same `bash test/local-rig.sh` a laptop runs, against a
+# real workerd and a real (local) D1.
+#
+# ⚠ WHY THIS EXISTS. Until now the rig ran ONLY on whichever machine happened to have wrangler
+# working, which made "the tests pass" a statement about a person's laptop rather than about the
+# repository. Two consequences, both seen for real:
+#   · the rig's wrangler was unpinned, so it silently followed whatever npm published — on
+#     2026-08-24 it moved 4.118.0 -> 4.125.0 mid-session and the cold start looked like a hang;
+#   · nothing ran the rig on a push, so a change could reach `main` having been verified nowhere.
+# A Linux runner makes the answer reproducible and independent of any workstation. (It also matches
+# the standing decision to use GitHub Actions for Linux testing rather than keeping a Linux VM.)
+#
+# ⚠ COST: FREE. Public repo + standard `ubuntu-latest` runner, which GitHub does not meter. Nothing
+# here uses a larger runner, a matrix, or a schedule — the three things that would start costing.
+# Do not add a `schedule:` trigger without deciding that deliberately.
+#
+# ⚠ It deploys NOTHING and holds NO secrets. `--local` runs workerd and D1 on the runner itself, so
+# there is no Cloudflare credential in this workflow and no way for it to touch production.
+name: Test rig
+on:
+  push:
+    branches-ignore:
+      # productionWeb pushes already run the release-integrity + satellite workflows, and a release is
+      # not the moment to discover a red test — it should have been red on the branch.
+      - productionWeb
+  pull_request:
+  workflow_dispatch:
+
+# One run per branch: a second push supersedes the first rather than queueing behind it.
+concurrency:
+  group: test-rig-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rig:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Pure-node tests (no worker needed)
+        # Run these FIRST and separately: they are fast, and if they fail the rig's output would
+        # otherwise bury them under a worker boot log.
+        run: |
+          bash ./check-secrets.sh
+          node test/version-sync.test.mjs
+          node test/worker-schema.test.mjs
+
+      - name: The rig (real workerd + real D1) and the containment checks
+        # local-rig.sh boots wrangler, seeds synthetic fixtures, and runs the device-compat probe plus
+        # the session/projects/route-scoping/members suites. It exits non-zero if any assertion fails.
+        # ⚠ WRANGLER_VERSION is pinned inside local-rig.sh to the version worker-deploy.yml ships;
+        # this job deliberately does NOT override it, so CI tests the toolchain that deploys.
+        #
+        # ⚠⚠ ONE STEP, WITH `--keep`, AND THAT IS NOT TIDINESS. check-native-containment.sh runs the
+        # WHOLE test suite, and several of those suites (worker-projects, worker-sessions) talk to a
+        # worker on :8787 — they fail with ECONNREFUSED if the rig has already torn its worker down.
+        # Splitting these into two steps therefore produces a permanently red check for an entirely
+        # environmental reason, and a check that cries wolf gets muted, which is worse than no check.
+        # `--keep` leaves the worker up for the containment run; the runner is discarded afterwards.
+        # (Safe for Actions: local-rig.sh sends wrangler's output to its own log file, so the
+        # background process never holds this step's stdout open.)
+        #
+        # ⚠ The containment scripts are run IF PRESENT, and a missing one is ANNOUNCED rather than
+        # passed over. That is not the "skip absent test suites" antipattern this repo argues
+        # against: the difference is that a silent skip lets a green tick claim coverage that never
+        # ran, whereas this prints the name of every check it did not run, in the log, every time.
+        # It exists because this one workflow travels across branches with different file sets —
+        # check-project-scoping.sh is Phase C's and does not exist on main yet, which cost this
+        # workflow its second red run (exit 127, command not found). When Phase C merges, the check
+        # starts running here on its own with no edit needed.
+        run: |
+          set -euo pipefail
+          bash test/local-rig.sh --keep
+          for c in ./check-project-scoping.sh ./check-native-containment.sh; do
+            if [ -x "$c" ]; then
+              echo "== running $c =="
+              "$c"
+            else
+              echo "== NOT RUN (absent on this branch): $c =="
+            fi
+          done

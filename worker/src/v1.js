@@ -4640,9 +4640,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
        * device they are holding. Shipped broken in v440 and live on productionWeb until 2026-08-23.
        *
        * ⚠ It went unnoticed because test/pair-code.test.mjs asserted the SOURCE STRING
-       * `nickname: inst.nickname || ''` appeared twice — which it did, while always evaluating to ''.
-       * A test that pins source text can vouch for a feature that does nothing; the replacement
-       * asserts the VALUE a real device receives. Add a column here and you must also send it. */
+       * `nickname: inst.nickname` appeared twice — which it did, while always evaluating to ''.
+       * A test that pins source text can vouch for a feature that does nothing; the real check now
+       * lives in test/worker-device-compat.probe.mjs and asserts the VALUE a real device receives.
+       * Add a column to this SELECT and you must also send it. */
       const inst = await env.DB.prepare('SELECT desired_blob, desired_rev, type, revoked, researcher_id, nickname FROM instance WHERE instance_id=?')
         .bind(instanceId).first();
       if (!inst) return j({ error: 'not_found' }, 404, origin, env);

@@ -89,9 +89,9 @@ ok(pendingPoll.json && pendingPoll.json.pending === true,
 /* ⚠⚠ THE DEVICE IS TOLD THE NAME ITS RESEARCHER GAVE IT (v440), asserted on the VALUE a real device
  * receives rather than on the source text. It shipped BROKEN and stayed broken on productionWeb:
  * the desired-lane SELECT omitted the `nickname` column, so `inst.nickname || ''` was always ''.
- * test/pair-code.test.mjs asserted only that the string `nickname: inst.nickname || ''` appeared in
- * the worker — true the whole time, and worth nothing. Drop `nickname` from that SELECT and this
- * fails by name; that is the difference between the two kinds of assertion.
+ * test/pair-code.test.mjs asserted only that the string appeared in the worker — true the whole
+ * time, and worth nothing. Drop `nickname` from that SELECT and this fails by name; that is the
+ * difference between the two kinds of assertion.
  * ⚠ It rides the PENDING branch too, which is the branch that matters most: the pairing screen is
  * exactly where two people are trying to confirm they are holding the same device. */
 ok(pendingPoll.json && pendingPoll.json.nickname === 'Probe Device',

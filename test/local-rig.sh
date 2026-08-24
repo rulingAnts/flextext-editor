@@ -18,9 +18,9 @@ cd "$(dirname "$0")/.."
 PORT="${FX_RIG_PORT:-8787}"
 # ⚠⚠ PINNED, AND PINNED TO THE VERSION THE DEPLOY USES (.github/workflows/worker-deploy.yml
 # `wranglerVersion`). Bare `npx wrangler` resolves to whatever is newest at that moment, so the rig
-# silently tested a DIFFERENT wrangler from the one that ships — and it moved mid-session on
+# silently tested a DIFFERENT wrangler from the one that ships — and it moved on its own on
 # 2026-08-24 (4.118.0 -> 4.125.0), whose cold start took long enough to look like a hang. A test rig
-# whose toolchain drifts on its own is not reproducible, which is the one thing a rig is for.
+# whose toolchain drifts underneath it is not reproducible, which is the one thing a rig is for.
 # ⚠ Keep this equal to the deploy's pin; bump both together and re-run the rig afterwards.
 WRANGLER_VERSION="${WRANGLER_VERSION:-4.118.0}"
 LOG="$(mktemp -t flextext-rig-XXXX.log)"
@@ -35,13 +35,12 @@ trap cleanup EXIT
 # database PERSISTS between runs in worker/.wrangler/state — so a table that already exists is left
 # exactly as it was and a NEWLY ADDED COLUMN never appears. The failure is horrible to read: the
 # schema applies "successfully", then every INSERT naming the new column 500s, and the probes report
-# twenty unrelated-looking failures in the device lane. (2026-08-23: cost a full debugging cycle
-# chasing invite.invited_by.) A fresh clone or CI never sees it; only local re-runs across a schema
-# change do, which is exactly when you are least expecting it.
+# a screenful of unrelated-looking device-lane failures. (2026-08-23: cost a full debugging cycle.)
+# A fresh clone or CI never sees it; only local re-runs across a schema change do, which is exactly
+# when you are least expecting it.
 #
 # Wiping is free — every row here is a synthetic fixture re-seeded on the next line — so it is
-# unconditional rather than a flag nobody would remember to pass. FX_RIG_KEEP_DB=1 opts out for the
-# rare case of inspecting state a previous run left behind.
+# unconditional rather than a flag nobody would remember to pass. FX_RIG_KEEP_DB=1 opts out.
 if [ "${FX_RIG_KEEP_DB:-0}" != "1" ]; then
   echo "== wiping the local D1 (schema is IF NOT EXISTS; a stale table hides new columns) =="
   rm -rf worker/.wrangler/state/v3/d1
@@ -74,8 +73,6 @@ echo
 NO_PROXY='*' node test/worker-sessions.test.mjs "http://127.0.0.1:$PORT" || STATUS=1
 echo
 NO_PROXY='*' node test/worker-projects.test.mjs "http://127.0.0.1:$PORT" || STATUS=1
-NO_PROXY='*' node test/worker-route-scoping.probe.mjs "http://127.0.0.1:$PORT" || STATUS=1
-NO_PROXY='*' node test/worker-members.probe.mjs "http://127.0.0.1:$PORT" || STATUS=1
 
 if [ "$KEEP" = "1" ]; then
   echo

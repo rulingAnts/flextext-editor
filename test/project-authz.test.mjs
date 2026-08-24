@@ -118,11 +118,15 @@ console.log('\na non-member is denied, and denial is indistinguishable from abse
 
 console.log('\ncapabilities are required, not assumed');
 {
-  /* ⚠ `cancelOthers` STANDS IN FOR "a capability they hold", because assignTexts and drive are now
-   * refused at READ time as well as write time — a row carrying either grants nothing at all. Using
-   * one of them here would assert the opposite of the deferral. */
-  const db = freshDb(); await seed(db, '{"cancelOthers":true}');
-  ok((await call(db, MEMBER, { instance: INST }, 'cancelOthers')).ok, 'a capability they hold passes');
+  /* ⚠ THE STAND-IN FOR "a capability they hold" MUST BE ONE THAT IS STILL GRANTABLE, and the set has
+   * shrunk twice. assignTexts and drive are refused at READ time as well as write time, so a row
+   * carrying either grants nothing; `cancelOthers` joined them on 2026-08-24 (it was grantable but
+   * enforced nowhere, which told an owner they had delegated something they had not). Using any
+   * deferred name here would assert the opposite of the deferral — the row would be DENIED WHOLE and
+   * this test would fail for a reason that has nothing to do with what it is checking.
+   * That leaves manageDevices and createInvites, so: holds createInvites, lacks manageDevices. */
+  const db = freshDb(); await seed(db, '{"createInvites":true}');
+  ok((await call(db, MEMBER, { instance: INST }, 'createInvites')).ok, 'a capability they hold passes');
   ok((await call(db, MEMBER, { instance: INST }, 'manageDevices')).ok === false,
      '⚠ a capability they do NOT hold denies — membership is not authority');
   ok((await call(db, MEMBER, { instance: INST }, null)).ok, 'and membership alone suffices for a read');

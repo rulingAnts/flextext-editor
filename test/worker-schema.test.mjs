@@ -68,6 +68,7 @@ const FILES = [
   'migrate-ops-flag.sql',
   'migrate-pair-code.sql',
   'migrate-project-drive-link.sql',
+  'migrate-invite-inviter.sql',
 ];
 
 /* Split on `;` at end of line — the house SQL style, one statement per line-group, no triggers or

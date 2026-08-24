@@ -105,8 +105,15 @@ console.log('\nthe DEFERRED capabilities cannot be granted at all (audit remedia
    * in validateCaps' unit tests: nine of the audit's seventeen findings share one root cause, and
    * every one of those nine is reachable only through `assignTexts` or `drive`. If either can be
    * written, the whole remediation is undone silently. */
+  /* ⚠ `cancelOthers` IS IN THIS LIST from 2026-08-24. It is deferred for a DIFFERENT reason from the
+   * Drive pair — the cancel route is safe, but the own/other rule needs every command to name its
+   * issuer and the pre-`by` backlog cannot. It was grantable and enforced nowhere, i.e. an owner
+   * ticking it was told they had delegated something they had not. Refusing is the same discipline
+   * the Drive caps get, for the same reason: the write is the only moment anyone is present to hear
+   * "no". */
   for (const caps of [{ assignTexts: true }, { drive: 'read' }, { drive: 'manage' },
-                      { manageDevices: true, assignTexts: true }]) {
+                      { manageDevices: true, assignTexts: true },
+                      { cancelOthers: true }, { manageDevices: true, cancelOthers: true }]) {
     const res = await call('POST', `/v1/projects/${projectId}/members`, OWNER, {
       researcher_id: FIXTURE.outsiderId, caps,
     });
@@ -115,6 +122,30 @@ console.log('\nthe DEFERRED capabilities cannot be granted at all (audit remedia
   }
   ok((await call('GET', `/v1/projects/${projectId}/members`, OWNER)).json.members.length === 0,
      'and none of those attempts left a member row behind');
+}
+
+console.log('\n⚠⚠ removal takes a LEGACY-\'\' grant whose device has MOVED to another project (2026-08-23 sweep)');
+{
+  /* ⚠ THIS RUNS BEFORE ANY OTHER outsider removal ON PURPOSE. The seeded grant it checks
+   * (member_key.project_id='' on FIXTURE.movedDeviceId, which sits in FIXTURE.movedProjectId) is
+   * consumed by the FIRST removal of the outsider once the fix is in — so any later placement would
+   * see it already gone and could not tell the fix from its absence.
+   *
+   * The gap: a grant minted while the device was unassigned carries the '' sentinel; once that device
+   * is stamped into a DIFFERENT project than the one the member is removed from, the removal's snapshot
+   * clause ('' != projectId) and its subquery (device now in the other project, neither this one nor
+   * NULL) BOTH miss it. Before the third DELETE arm, the grant survived removal and GET keys — which
+   * selects by researcher_id alone — kept handing it to the removed member. Neuter that arm in
+   * worker/src/v1.js and the final assertion here fails by name. */
+  ok((await call('GET', `/v1/researcher/keys?instance=${FIXTURE.movedDeviceId}`, GUEST)).json.keys.length === 1,
+     'the guest holds a legacy-\'\' grant on a device that has since moved to another project');
+  await call('POST', `/v1/projects/${projectId}/members`, OWNER, {
+    researcher_id: FIXTURE.outsiderId, caps: { manageDevices: true },
+  });
+  const del = await call('DELETE', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: FIXTURE.outsiderId });
+  ok(del.status === 200, `the guest is removed (got ${del.status})`);
+  ok((await call('GET', `/v1/researcher/keys?instance=${FIXTURE.movedDeviceId}`, GUEST)).json.keys.length === 0,
+     '⚠⚠ and the MOVED-device \'\' grant went with them — the snapshot missed it (\'\'≠id) and the subquery missed it (device is in another project), so the third arm catches it');
 }
 
 console.log('\nadded with manageDevices — device management is what v1 members get');
@@ -255,6 +286,25 @@ console.log('\nthe owner can never revoke their OWN copy of a device key');
   const res = await call('DELETE', '/v1/researcher/keys', OWNER, { instance_id: idA, researcher_id: FIXTURE.researcherId });
   ok(res.status === 400 && res.json.error === 'owner_grant_required',
      `⚠ refused (got ${res.status}) — the mirror of the wrap-to-owner invariant; the key is wrapped to keys the worker cannot read, so nothing could reconstruct it`);
+
+  /* ⚠⚠ ...AND NOT THROUGH THE OTHER DOOR EITHER. Removing "the owner" as a member runs the member_key
+   * DELETE with researcher_id = the owner, which would destroy the very copies the refusal above
+   * protects — the same unrecoverable end, reached by a route that merely was not thinking about it.
+   * The POST branch has always refused owner_is_not_a_member; DELETE did not, until the third ORed
+   * arm (added 2026-08-23) widened what that statement reaches to the owner's own legacy-'' grants on
+   * devices that have since been assigned. Both halves are asserted: the refusal AND the survival of
+   * the key, because a refusal that still deleted something would pass a status-only check. */
+  /* ⚠ The owner's copy here is the SEEDED '' -sentinel row, not one minted through the API. A grant
+   * written via POST /v1/researcher/keys against this device is stamped with the device's REAL
+   * project_id, which the third arm (project_id='') can never match — so an API-seeded version of
+   * this assertion passes even with the guard removed. It did, until the mutation test caught it. */
+  ok((await call('GET', `/v1/researcher/keys?instance=${FIXTURE.movedDeviceId}`, OWNER)).json.keys.length >= 1,
+     'the owner holds a legacy-\'\' copy on the moved device — the state the third arm reaches');
+  const selfRemove = await call('DELETE', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: FIXTURE.researcherId });
+  ok(selfRemove.status === 400 && selfRemove.json.error === 'owner_is_not_a_member',
+     `⚠⚠ removing the OWNER as a member is refused (got ${selfRemove.status} ${selfRemove.json && selfRemove.json.error}) — DELETE now mirrors POST`);
+  ok((await call('GET', `/v1/researcher/keys?instance=${FIXTURE.movedDeviceId}`, OWNER)).json.keys.length >= 1,
+     '⚠⚠ and the owner STILL holds their key — wrap-to-owner survives the member-removal path, not just the revoke route');
 }
 
 console.log('\npubkey lookup returns the KEY and no identity');
@@ -411,6 +461,31 @@ console.log('\nUNCONVERTED Drive routes are INERT for a member, not leaky — th
        `⚠ ${label}: a member gets ${res.status}, NOT the owner's estate — the route acts on the caller's own Drive`);
   }
   await call('DELETE', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: FIXTURE.outsiderId });
+}
+
+console.log('\n⚠⚠ a MEMBER-minted invite names the MEMBER to the field user, not the owner (anti-phishing gate)');
+{
+  /* The pairing accept gate exists so the person being linked can recognise WHO is linking them. A
+   * device enrolled by a member used to be shown the OWNER's identity, because pairing resolved
+   * through instance.researcher_id (always the owner). invited_by fixes it. Neuter the invited_by
+   * stamp on the invite INSERT, or the COALESCE in pairingIdentity, and this fails: the email comes
+   * back as the owner's. idA is in the member's project (backfilled into projectId at the top), so a
+   * member with createInvites may mint for it. */
+  await call('POST', `/v1/projects/${projectId}/members`, OWNER, {
+    researcher_id: FIXTURE.outsiderId, caps: { manageDevices: true, createInvites: true },
+  });
+  const inv = await call('POST', `/v1/instances/${idA}/invite`, GUEST, {});
+  ok(inv.status === 200 && inv.json && inv.json.invite_id,
+     `the member mints an invite for a device in their project (got ${inv.status})`);
+  const memberInstallId = '00000000-0000-4000-8000-00000000c1c1';
+  const claim = await call('POST', `/v1/invites/${inv.json.invite_id}/claim`,
+    { 'x-fx-invite-secret': inv.json.secret },
+    { install_id: memberInstallId, install_secret: 'member-invite-probe-secret', pubkey: 'SPKI-PROBE' });
+  ok(claim.status === 200, `the device claims it (got ${claim.status})`);
+  ok(claim.json && claim.json.researcher && claim.json.researcher.email === FIXTURE.outsiderEmail,
+     `⚠⚠ and is shown the MEMBER's identity (${claim.json && claim.json.researcher && claim.json.researcher.email}) — the person actually linking the device`);
+  ok(claim.json && claim.json.researcher && claim.json.researcher.email !== FIXTURE.driveEmail,
+     `⚠ explicitly NOT the owner's (${FIXTURE.driveEmail}) — showing the owner would vouch for the wrong person`);
 }
 
 console.log(fail ? `\n${fail} FAILED\n` : '\nPASS\n');

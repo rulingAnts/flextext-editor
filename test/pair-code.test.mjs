@@ -67,8 +67,8 @@ ok((worker.match(/mintPairCode\(\)/g) || []).length === 2,
 console.log('\nnothing existing changed shape — old clients must keep working');
 ok(/status: 'pending', pair_code:/.test(worker),
    'pair_code is ADDED to the claim response beside the existing fields, not instead of any');
-ok(/researcher: inst \? \{ name: inst\.display_name/.test(worker),
-   '⚠ the researcher profile is still RETURNED — dropping it from the device UI is a client change, and removing it here would break the recorder too');
+ok(/researcher: who\.researcher/.test(worker) && /name: row\.display_name/.test(worker),
+   '⚠ the researcher profile is still RETURNED (now via pairingIdentity) — dropping it from the device UI is a client change, and removing it here would break the recorder too');
 
 /* ---------------- the client and panel halves ---------------- */
 const app = read('../docs/js/app.js');
@@ -195,10 +195,24 @@ ok(/unwrapKeyFromResearcher/.test(read('../docs/js/sync.js')),
  * not session-scoped, so the two are indistinguishable from the outside — and the panel names
  * devices while the device was never told its name. */
 console.log('\nthe device is told the name its researcher gave it');
-ok(/nickname: inst\.nickname \|\| ''/.test(worker),
-   'the poll carries it');
-ok((worker.match(/nickname: inst\.nickname \|\| ''/g) || []).length === 2,
-   '⚠ ...on BOTH branches — the pending one too, so the name is on screen while the pairing code is');
+/* ⚠⚠ THESE TWO ASSERTIONS USED TO PIN THE SOURCE TEXT `nickname: inst.nickname || ''`, and they
+ * PASSED FOR THE ENTIRE TIME THE FEATURE WAS BROKEN — the string was there on both branches while
+ * the desired-lane SELECT omitted the `nickname` column, so the value sent was always ''. v440
+ * shipped that way and it was live on productionWeb until 2026-08-23.
+ *
+ * A source-text assertion cannot tell "the code says it" from "the code does it". The REAL check is
+ * in test/worker-device-compat.probe.mjs, which asserts the VALUE a real device receives on both the
+ * pending and approved polls, against a real worker. What is left here is the half a static read can
+ * actually establish: that the column is selected AND sent — the exact pairing that was broken. */
+ok(/SELECT desired_blob, desired_rev, type, revoked, researcher_id, nickname FROM instance/.test(worker),
+   '⚠ the desired-lane SELECT includes the nickname COLUMN — omitting it is what made the value always empty');
+/* ⚠ MATCHED ON THE TWO RESPONSE SHAPES, not on a COUNT of the string anywhere in the file. The
+ * count version broke the moment the fix added a comment mentioning the field — a static assertion
+ * that a prose edit can fail is one people learn to "fix" without reading. */
+ok(/\{ pending: true, type: inst\.type, nickname: inst\.nickname/.test(worker),
+   '⚠ ...sent on the PENDING branch — the name is on screen while the pairing code is');
+ok(/return j\(\{ type: inst\.type, nickname: inst\.nickname/.test(worker),
+   '⚠ ...and on the APPROVED branch, so a later rename reaches the device too');
 ok(/export function deviceNickname/.test(sync), 'the device stores and exposes it');
 ok(/r\.nickname !== s\.nickname/.test(sync),
    '⚠ and updates on EVERY poll, so a rename in the panel actually reaches the device');

@@ -52,6 +52,15 @@ export const FIXTURE = {
   /* One project WITH a Drive folder and one WITHOUT — the two sides of the sharing gate. */
   migratedProjectId: '00000000-0000-4000-8000-0000000000b1',
   unmigratedProjectId: '00000000-0000-4000-8000-0000000000b2',
+  /* A SECOND migrated project, and a device that lives in it holding a LEGACY-'' grant — the exact
+   * state the 2026-08-21 second sweep found unreachable by the member-removal cleanup: a grant
+   * minted while the device was unassigned (member_key.project_id='') whose instance has since been
+   * stamped into a DIFFERENT project than the one a member is removed from. The rig cannot reach this
+   * through the API (assign needs Drive; backfill only adopts into the FIRST project), so it is
+   * seeded. Created LAST so GET /v1/projects' `ORDER BY created_at` leaves the probe's existing
+   * migrated/unmigrated resolution untouched. */
+  movedProjectId: '00000000-0000-4000-8000-0000000000b3',
+  movedDeviceId: '00000000-0000-4000-8000-0000000000d1',
 };
 
 const sha256hex = (s) => createHash('sha256').update(s).digest('hex');
@@ -103,6 +112,27 @@ INSERT INTO project (project_id, owner_id, name, created_at, drive_folder_id)
 VALUES ('${FIXTURE.migratedProjectId}', '${FIXTURE.researcherId}', 'Rig Migrated Project', ${now}, 'rig-drive-folder-migrated');
 INSERT INTO project (project_id, owner_id, name, created_at, drive_folder_id)
 VALUES ('${FIXTURE.unmigratedProjectId}', '${FIXTURE.researcherId}', 'Rig Unmigrated Project', ${now + 1000}, NULL);
+/* A SECOND migrated project (created LAST so the probe's owned-projects lookup still resolves to the
+ * FIRST migrated one), plus a device that lives in it carrying a LEGACY-'' member_key grant to the
+ * outsider. This is the ONE state the member-removal cleanup could not reach through the API — a
+ * grant minted while the device was unassigned ('' sentinel) whose device has since moved to a
+ * project OTHER than the one the member is removed from. worker-members.probe.mjs asserts the removal
+ * now takes it; neutering the third DELETE arm in v1.js makes that assertion fail.
+ * (No backticks in this comment: it lives inside a template literal, and a stray one ends the string.) */
+INSERT INTO project (project_id, owner_id, name, created_at, drive_folder_id)
+VALUES ('${FIXTURE.movedProjectId}', '${FIXTURE.researcherId}', 'Rig Moved-Into Project', ${now + 2000}, 'rig-drive-folder-moved');
+INSERT INTO instance (instance_id, researcher_id, type, nickname, desired_blob, desired_rev, revoked, created_at, estate, project_id)
+VALUES ('${FIXTURE.movedDeviceId}', '${FIXTURE.researcherId}', '', 'Moved Device', '{"settings":{},"commands":[]}', 0, 0, ${now}, 'cloud', '${FIXTURE.movedProjectId}');
+INSERT INTO member_key (project_id, instance_id, researcher_id, key_version, wrapped_ki, wrapped_by, created_at)
+VALUES ('', '${FIXTURE.movedDeviceId}', '${FIXTURE.outsiderId}', 1, 'GUEST-MOVED-SENTINEL-COPY', '${FIXTURE.researcherId}', ${now});
+/* The OWNER's wrap-to-owner copy of the same device key, ALSO carrying the '' sentinel. This is the
+ * state that makes the owner-removal hazard reproducible: the third DELETE arm matches
+ * (project_id='' AND instance owned by the owner), so removing "the owner" as a member would destroy
+ * the owner's own unrecoverable copy. It must be SEEDED — a grant written through the API against
+ * this device is stamped with the device's real project_id and would never match that arm, which is
+ * how the first version of the assertion passed with the guard removed. */
+INSERT INTO member_key (project_id, instance_id, researcher_id, key_version, wrapped_ki, wrapped_by, created_at)
+VALUES ('', '${FIXTURE.movedDeviceId}', '${FIXTURE.researcherId}', 1, 'OWNER-MOVED-SENTINEL-COPY', '${FIXTURE.researcherId}', ${now});
 
 DELETE FROM session;
 INSERT INTO session (session_id, researcher_id, secret_hash, created_at, last_seen_at, expires_at,
@@ -120,7 +150,11 @@ VALUES ('${FIXTURE.expiredSessionId}', '${FIXTURE.researcherId}', '${sha256hex(F
 const tmp = join(WORKER, '.seed-local.sql');
 writeFileSync(tmp, sql);
 
-const d1 = (args) => execFileSync('npx', ['wrangler', 'd1', 'execute', 'DB', '--local', '--env', 'staging', ...args],
+/* ⚠ PINNED to the same wrangler the rig and the deploy use — see local-rig.sh. Bare `npx wrangler`
+ * follows whatever is newest, so the seed could apply the schema with a different toolchain from the
+ * one under test, and a fresh version's first run is slow enough to look like a hang. */
+const WRANGLER = 'wrangler@' + (process.env.WRANGLER_VERSION || '4.118.0');
+const d1 = (args) => execFileSync('npx', ['--yes', WRANGLER, 'd1', 'execute', 'DB', '--local', '--env', 'staging', ...args],
   { cwd: WORKER, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 
 console.log('applying schema-current.sql to the LOCAL D1…');

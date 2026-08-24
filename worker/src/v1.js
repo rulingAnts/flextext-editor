@@ -442,6 +442,25 @@ async function authResearcher(req, env) {
 
 // Bind the install secret to the EXACT addressed row (Hardening §E.1): proves
 // install A cannot touch install B, and a revoked device is rejected.
+/* Who the PAIRING screen names to the field user: the researcher who MINTED the invite, resolved
+ * through invite.invited_by — NOT the instance owner. The accept gate exists so the person being
+ * linked can recognise WHO is linking them; when a project member enrols a device that is the
+ * MEMBER, and instance.researcher_id is always the owner (a maintained denormalisation), so joining
+ * on it would vouch for the wrong person. COALESCE falls back to the instance owner when invited_by
+ * is NULL — every pre-migration invite, and every owner-minted one — which is the unchanged
+ * behaviour. Identity IS returned here on purpose (unlike the pubkey lookup, which hides it): the
+ * whole point of the gate is that the field user sees who is enrolling their device. */
+async function pairingIdentity(env, inv) {
+  const row = await env.DB.prepare(
+    'SELECT n.type, r.display_name, r.avatar_url, r.drive_email FROM instance n '
+    + 'JOIN researcher r ON r.researcher_id=COALESCE(?, n.researcher_id) WHERE n.instance_id=?'
+  ).bind(inv.invited_by || null, inv.instance_id).first();
+  return {
+    type: row && row.type,
+    researcher: row ? { name: row.display_name || '', avatar: row.avatar_url || '', email: row.drive_email || '' } : null,
+  };
+}
+
 async function authInstall(req, env, instanceId, installId) {
   const secret = req.headers.get('x-fx-secret') || '';
   if (!secret) return null;
@@ -473,8 +492,34 @@ async function authInstall(req, env, instanceId, installId) {
  * both places is not redundancy; they catch different failures" — and the deferral was implemented
  * in exactly one of them. A write-path guarantee was being read as a system property.
  *
- * TO RE-ENABLE A CAPABILITY: remove its name here, once. Both paths follow. */
-export const DEFERRED_CAPS = ['assignTexts', 'drive'];
+ * TO RE-ENABLE A CAPABILITY: remove its name here, once. Both paths follow.
+ *
+ * ⚠⚠ TWO DIFFERENT REASONS LIVE IN THIS ONE LIST, and confusing them would send the next person to
+ * the wrong fix:
+ *   · `assignTexts` / `drive` — the ROUTE IS NOT SAFE YET. Those routes still run account-wide Drive
+ *     searches on a caller-supplied id. They come back when Drive access is resolved per project
+ *     (VII.1's drive_object table). The capability is withheld because honouring it would be unsafe.
+ *   · `cancelOthers` — the ROUTE IS FINE; the RULE IS NOT EXPRESSIBLE YET. The design wants
+ *     cancelling your OWN queued command ungated (that is undo, not authority) and someone ELSE's
+ *     gated on this capability. That needs every command to name its issuer, and commands recorded
+ *     no author until `by` started being written (see the command-append route). Every command
+ *     queued before then has none and cannot acquire one — nobody can reconstruct who issued a
+ *     command after the fact — so splitting the rule now would treat the whole existing backlog as
+ *     either "mine" or "someone else's", and BOTH answers are wrong.
+ *
+ * ⚠ WHY IT IS REFUSED RATHER THAN LEFT GRANTABLE-BUT-INERT (Seth, 2026-08-24). Until now the cancel
+ * route gated on `manageDevices`, so ticking `cancelOthers` stored a capability that granted exactly
+ * nothing. That is the failure this file's own rule names twenty lines below — "an owner who ticks
+ * 'can assign texts' and is quietly given nothing believes their assistant has access they do not
+ * have, and nothing will tell them otherwise until it matters". It applied to this key too, and the
+ * whole point of a REFUSAL is that the owner finds out while someone is still present to be told.
+ * Note the direction: it under-delivered authority, so nothing was ever over-granted by it.
+ *
+ * TO RE-ENABLE `cancelOthers`: remove it here, put it back in the grant loop and the unknown-key
+ * list below, and split the cancel route on `cmd.by === ctx.caller.researcher_id` — with a decided
+ * answer for authorless commands. By then the backlog predating `by` will have aged out, which is
+ * what makes the question answerable rather than merely older. */
+export const DEFERRED_CAPS = ['assignTexts', 'drive', 'cancelOthers'];
 
 export function validateCaps(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
@@ -532,7 +577,7 @@ export function validateCaps(raw) {
     if (raw[k] !== undefined) return null;
   }
 
-  for (const k of ['manageDevices', 'createInvites', 'cancelOthers']) {
+  for (const k of ['manageDevices', 'createInvites']) {
     if (raw[k] === undefined) continue;
     if (typeof raw[k] !== 'boolean') return null;   // a truthy STRING here would read as a grant
     if (raw[k]) out[k] = true;                      // store only what is granted; absent === false
@@ -541,7 +586,7 @@ export function validateCaps(raw) {
    * a silent drop. Those stay owner-only in v1 (round-1 finding 6); accepting the key and ignoring it
    * would tell an owner they had delegated something they had not. */
   for (const k of Object.keys(raw)) {
-    if (!['manageDevices', 'createInvites', 'cancelOthers'].includes(k)) return null;
+    if (!['manageDevices', 'createInvites'].includes(k)) return null;
   }
   return out;
 }
@@ -2586,6 +2631,21 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       const body = await readJson(request) || {};
       const who = String(body.researcher_id || '').replace(/[^\w-]/g, '').slice(0, 64);
       if (!who) return j({ error: 'bad_body' }, 400, origin, env);
+      /* ⚠⚠ THE OWNER IS NOT REMOVABLE, and this guard is about the member_key DELETE below, not about
+       * the project_member row (the owner never has one, so that half is a harmless no-op).
+       *
+       * Without it, `who` = the owner makes that statement read
+       * `DELETE FROM member_key WHERE researcher_id=<owner> AND (…)` — i.e. it destroys the OWNER'S
+       * OWN wrap-to-owner copies of the device keys. Those are wrapped to keys the worker cannot
+       * read, so nothing can reconstruct them: the owner would permanently lose the ability to
+       * decrypt their own devices. That is precisely what DELETE /v1/researcher/keys refuses by name
+       * (`owner_grant_required`), and this route could reach the same end by another door.
+       *
+       * ⚠ It mirrors the POST branch's `owner_is_not_a_member` deliberately: "the owner is never a
+       * project_member row" is one rule, and both verbs must say so, or the invariant holds on the
+       * way in and not on the way out. Owner-only route, so this is a footgun rather than an
+       * escalation — but an unrecoverable one. */
+      if (who === ctx.owner.researcher_id) return j({ error: 'owner_is_not_a_member' }, 400, origin, env);
       /* ⚠ ONE BATCH, so a member can never be left listed-but-keyless or keyless-but-listed.
        *
        * ⚠⚠ RESOLVED THROUGH `instance`, NOT through `member_key.project_id` — and the first version
@@ -2617,13 +2677,29 @@ export async function handleV1(request, env, ctx, url, path, origin) {
          * clause fires, nothing else ever removes the row, and the removal cheerfully reports
          * grants_removed: 0 alongside ok: true.
          *
-         * Matching the snapshot as well catches exactly that: the grant recorded WHERE IT WAS MINTED.
-         * Neither column alone is sufficient — the snapshot misses the legacy '' rows (the bug this
-         * whole statement was written to fix), and the subquery misses moved devices. Both, ORed. */
+         * THREE clauses, ORed, because each alone leaves a class untouched:
+         *  1. project_id=?  — the snapshot: the grant recorded WHERE IT WAS MINTED, a real project id.
+         *  2. instance in this project OR still unassigned to this owner — where the device is NOW.
+         *  3. project_id='' AND instance owned by this owner — the LEGACY-SENTINEL grants.
+         * Clause 3 was the second sweep's finding: a grant minted while the device was unassigned
+         * carries the '' sentinel (the v435 write path binds String(proj.project_id || '')), and once
+         * that device is assigned into a DIFFERENT project it satisfies neither clause 1 (''≠id) nor
+         * clause 2 (project_id is now the other id, not NULL, not this one). Clause 2's own
+         * `project_id IS NULL` half only reaches a '' -sentinel grant while the device is STILL
+         * unassigned. So the intersection "minted-while-unassigned AND since-moved-elsewhere" fell
+         * through both, the grant survived removal, and GET /v1/researcher/keys — which selects by
+         * researcher_id alone — kept handing it to the removed member.
+         *
+         * ⚠ Clause 3 is deliberately BROAD, in the same direction the whole statement already leans:
+         * it removes EVERY '' -sentinel grant this member holds on any of the owner's devices, not
+         * only the one that moved. For a REVOCATION that is the safe direction — re-granting is one
+         * call, a key that should have been withdrawn and was not cannot be recalled — and '' only
+         * ever appears on the owner's own devices, so nothing outside the owner's estate is reached. */
         env.DB.prepare(
           'DELETE FROM member_key WHERE researcher_id=? AND (project_id=? OR instance_id IN ('
-          + 'SELECT instance_id FROM instance WHERE project_id=? OR (project_id IS NULL AND researcher_id=?)))'
-        ).bind(who, projectId, projectId, ctx.owner.researcher_id),
+          + 'SELECT instance_id FROM instance WHERE project_id=? OR (project_id IS NULL AND researcher_id=?))'
+          + " OR (project_id='' AND instance_id IN (SELECT instance_id FROM instance WHERE researcher_id=?)))"
+        ).bind(who, projectId, projectId, ctx.owner.researcher_id, ctx.owner.researcher_id),
       ]);
       const gone = (res && res[0] && res[0].meta && res[0].meta.changes) || 0;
       const keys = (res && res[1] && res[1].meta && res[1].meta.changes) || 0;
@@ -3685,8 +3761,11 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       const invite_id = crypto.randomUUID();
       const secret = randTok(18);
       const expires_at = now + ttl * 1000;
-      await env.DB.prepare('INSERT INTO invite (invite_id, instance_id, secret_hash, expires_at, created_at) VALUES (?,?,?,?,?)')
-        .bind(invite_id, instanceId, await sha256hex(secret), expires_at, now).run();
+      /* ⚠ invited_by = ctx.caller, NOT ctx.owner. The pairing accept gate names this researcher to
+       * the field user so they can recognise who is enrolling their device; when a member mints the
+       * invite it must be the MEMBER, not the project owner. See pairingIdentity(). */
+      await env.DB.prepare('INSERT INTO invite (invite_id, instance_id, secret_hash, expires_at, created_at, invited_by) VALUES (?,?,?,?,?,?)')
+        .bind(invite_id, instanceId, await sha256hex(secret), expires_at, now, ctx.caller.researcher_id).run();
       /* ⚠ RETURN THE ESTATE WITH THE INVITE. The panel used to look the instance up in its cached
        * dashboard, which a BRAND-NEW device is not in yet — so the lookup missed and the link fell
        * back to 'pages', sending new coworkers to the legacy apps (Seth, 2026-08-05). Server truth
@@ -3825,15 +3904,25 @@ export async function handleV1(request, env, ctx, url, path, origin) {
      * mid-edit, or two panels acting at once, cannot corrupt the blob.
      */
     if (m === 'POST' && sub === 'command' && seg.length === 5 && seg[4] === 'cancel') {
-      /* ⚠ GATED ON manageDevices FOR NOW, NOT ON `cancelOthers`, and the difference is honest rather
-       * than an oversight. The design wants cancelling your OWN queued command ungated (that is undo,
-       * not authority) and someone ELSE's gated on `cancelOthers`. That distinction needs the command
-       * to name its issuer — which it only started doing in the route above, so every command queued
-       * BEFORE today has no `by` field and no way to acquire one. Splitting the rule now would
+      /* ⚠ GATED ON manageDevices, NOT ON `cancelOthers`, and the difference is honest rather than an
+       * oversight. The design wants cancelling your OWN queued command ungated (that is undo, not
+       * authority) and someone ELSE's gated on `cancelOthers`. That distinction needs the command to
+       * name its issuer — which it only started doing in the route above, so every command queued
+       * BEFORE that has no `by` field and no way to acquire one. Splitting the rule now would
        * therefore treat the entire existing backlog as "someone else's" or as "mine", and both
        * answers are wrong.
        * manageDevices is the strictly-safe interim: never wider than today (this was owner-only), and
-       * it becomes the fallback for authorless commands once `cancelOthers` lands. */
+       * it becomes the fallback for authorless commands once `cancelOthers` lands.
+       *
+       * ⚠ AND `cancelOthers` IS NOW UNGRANTABLE (DEFERRED_CAPS, 2026-08-24) rather than merely
+       * unenforced here, so the two halves finally agree. While it was grantable, ticking it stored a
+       * capability this route never consulted — an owner told they had delegated something they had
+       * not, which is exactly what validateCaps refuses to do for every other key. Withholding it is
+       * the honest state until the split above can actually be made.
+       *
+       * ⚠ CONSEQUENCE, STATED so it is a decision and not a discovery: a member with `manageDevices`
+       * can cancel a command the OWNER queued. That was already true and is unchanged; what changed
+       * is that nobody is now told otherwise by a checkbox. */
       const ctx = await authMember(request, env, { instance: instanceId }, 'manageDevices');
       if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
       if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
@@ -4544,7 +4633,17 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       // it lands in any device state (even one lost mid-enrollment that never received its key).
       if (install && install.wipe_state === 'requested') return j({ wipe: true }, 200, origin, env);
 
-      const inst = await env.DB.prepare('SELECT desired_blob, desired_rev, type, revoked, researcher_id FROM instance WHERE instance_id=?')
+      /* ⚠ `nickname` IS IN THIS COLUMN LIST, and it was missing for the whole life of the feature.
+       * Both branches below send `nickname: inst.nickname || ''`, so an absent column made that
+       * `undefined || ''` — every device was told its name was the empty string, on the pending
+       * screen and after approval, which is the one moment two people are trying to agree which
+       * device they are holding. Shipped broken in v440 and live on productionWeb until 2026-08-23.
+       *
+       * ⚠ It went unnoticed because test/pair-code.test.mjs asserted the SOURCE STRING
+       * `nickname: inst.nickname || ''` appeared twice — which it did, while always evaluating to ''.
+       * A test that pins source text can vouch for a feature that does nothing; the replacement
+       * asserts the VALUE a real device receives. Add a column here and you must also send it. */
+      const inst = await env.DB.prepare('SELECT desired_blob, desired_rev, type, revoked, researcher_id, nickname FROM instance WHERE instance_id=?')
         .bind(instanceId).first();
       if (!inst) return j({ error: 'not_found' }, 404, origin, env);
       /* ⚠ THE OWNERSHIP CHECK COMES FIRST, AND ANSWERS not_found — both halves matter, and both were
@@ -4602,12 +4701,12 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     if (inv.claimed_at && inv.claimed_install === installId) {
       const ok = await env.DB.prepare('SELECT install_id, pair_code FROM install WHERE install_id=? AND instance_id=?').bind(installId, inv.instance_id).first();
       if (ok) {
-        const inst = await env.DB.prepare('SELECT n.type, r.display_name, r.avatar_url, r.drive_email FROM instance n JOIN researcher r ON r.researcher_id=n.researcher_id WHERE n.instance_id=?').bind(inv.instance_id).first();
+        const who = await pairingIdentity(env, inv);
         /* ⚠ THE SAME CODE, NOT A FRESH ONE. This is the lost-response retry path: the device is
          * asking again because it never saw the first answer, and it may already be showing the code
          * to a researcher who is reading it aloud. Re-minting here would change the number on one
          * screen only — the exact "they don't match" dead end this feature exists to remove. */
-        return j({ instance_id: inv.instance_id, type: inst && inst.type, status: 'pending', pair_code: ok.pair_code || '', researcher: inst ? { name: inst.display_name || '', avatar: inst.avatar_url || '', email: inst.drive_email || '' } : null }, 200, origin, env);
+        return j({ instance_id: inv.instance_id, type: who.type, status: 'pending', pair_code: ok.pair_code || '', researcher: who.researcher }, 200, origin, env);
       }
     }
     if (inv.claimed_at) return j({ error: 'already_claimed' }, 409, origin, env);
@@ -4633,12 +4732,12 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     // Confirm we won the race (D1 serializes batches; a loser sees claimed_install != us).
     const after = await env.DB.prepare('SELECT claimed_install FROM invite WHERE invite_id=?').bind(inviteId).first();
     if (!after || after.claimed_install !== installId) return j({ error: 'already_claimed' }, 409, origin, env);
-    const inst = await env.DB.prepare('SELECT n.type, r.display_name, r.avatar_url, r.drive_email FROM instance n JOIN researcher r ON r.researcher_id=n.researcher_id WHERE n.instance_id=?').bind(inv.instance_id).first();
+    const who = await pairingIdentity(env, inv);
     /* ⚠ READ BACK rather than returning `pairCode`. The INSERT is OR IGNORE, so on the path where a
      * row already existed the STORED code is the one both screens must show — trusting the local
      * variable would hand this device a number the panel will never display. */
     const mine = await env.DB.prepare('SELECT pair_code FROM install WHERE install_id=?').bind(installId).first();
-    return j({ instance_id: inv.instance_id, type: inst && inst.type, status: 'pending', pair_code: (mine && mine.pair_code) || '', researcher: inst ? { name: inst.display_name || '', avatar: inst.avatar_url || '', email: inst.drive_email || '' } : null }, 200, origin, env);
+    return j({ instance_id: inv.instance_id, type: who.type, status: 'pending', pair_code: (mine && mine.pair_code) || '', researcher: who.researcher }, 200, origin, env);
   }
 
   /* ---------------- Drive delivery mode (researcher-authed) ---------------- */

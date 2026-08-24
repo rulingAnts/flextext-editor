@@ -80,6 +80,7 @@
       "expires_at",
       "instance_id",
       "invite_id",
+      "invited_by",
       "secret_hash"
     ],
     "member_key": [

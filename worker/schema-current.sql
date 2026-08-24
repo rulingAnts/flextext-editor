@@ -102,7 +102,7 @@ CREATE TABLE IF NOT EXISTS invite (
   claimed_at      INTEGER,                    -- atomic single-use marker
   claimed_install TEXT,                       -- which client-minted install_id won the claim
   created_at      INTEGER NOT NULL
-);
+, invited_by TEXT);                           -- the researcher who minted it, shown at pairing so the field user sees who is linking them; NULL falls back to the instance owner (migrate-invite-inviter.sql)
 
 CREATE TABLE IF NOT EXISTS member_key (
   project_id    TEXT NOT NULL,

@@ -181,6 +181,21 @@ async function stampFolder(env, fields) {
   catch (e) { try { console.warn('drive_object stamp failed', String(fields && fields.objectId || '').slice(0, 40), String((e && e.message) || e).slice(0, 100)); } catch { /* noop */ } }
 }
 
+/* Stamp a child object (text folder, originals, file) by INHERITING its parent's project/instance
+ * from the parent's already-stamped drive_object row — every creation flow stamps the parent
+ * (device/crowd folder) first, so the chain resolves top-down. If the parent is not yet stamped
+ * (a pre-existing folder the backfill has not reached), the child stamps with NULL project, which
+ * fails closed and is corrected by the backfill. Same fail-safe wrapper as stampFolder. */
+async function stampChild(env, { objectId, kind, docId = null, parentId }) {
+  if (!objectId || !parentId) return;
+  try {
+    const parent = await env.DB.prepare('SELECT instance_id, project_id, created_by FROM drive_object WHERE object_id=?').bind(parentId).first();
+    await stampDriveObject(env.DB, { objectId, kind, docId,
+      instanceId: parent ? parent.instance_id : null, projectId: parent ? parent.project_id : null,
+      createdBy: parent ? parent.created_by : null, now: Date.now() });
+  } catch (e) { try { console.warn('drive_object child stamp failed', String(objectId).slice(0, 40), String((e && e.message) || e).slice(0, 100)); } catch { /* noop */ } }
+}
+
 // AES-GCM key derived from SERVER_HMAC_KEY — encrypts email + TOTP secret AT REST (so a bare
 // D1 dump leaks neither).
 async function serverAesKey(env) {
@@ -1470,9 +1485,12 @@ function crowdTextTitle(rec, at) {
 async function driveEnsureCrowdTextFolder(env, access, rec, subId, at) {
   const crowdFolder = await driveEnsureCrowdFolder(env, access, rec);
   const textFolder = await driveEnsureTextFolder(access, crowdFolder, subId, crowdTextTitle(rec, at), '');
+  await stampChild(env, { objectId: textFolder, kind: 'text', docId: subId, parentId: crowdFolder });
   // …/originals/, the same child a device's source package lands in. The submission zip and its
   // manifest go in there, not in the text folder root, so the two origins produce one shape.
-  return { textFolder, originals: await driveEnsureChildFolder(access, textFolder, 'originals', 'originals') };
+  const originals = await driveEnsureChildFolder(access, textFolder, 'originals', 'originals');
+  await stampChild(env, { objectId: originals, kind: 'originals', docId: subId, parentId: textFolder });
+  return { textFolder, originals };
 }
 
 /* Lift the CLIENT-WRITTEN manifest out of a delivered submission zip and place it beside the zip in
@@ -4552,6 +4570,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           const textFolder = body.docId
             ? await driveEnsureTextFolder(access, deviceFolder, body.docId, body.docTitle, body.folderId)
             : deviceFolder;
+          if (body.docId && textFolder !== deviceFolder) await stampChild(env, { objectId: textFolder, kind: 'text', docId: body.docId, parentId: deviceFolder });
           /* ⚠ NEVER AWAITED — the done marker must not sit in the upload's critical path.
            * It is cosmetic (a tag + a folder-name suffix), while this path is the single most
            * important one in the system: a field device on a bad connection pushing a text it may
@@ -4569,6 +4588,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           const folder = (body.sub === 'originals' && body.docId)
             ? await driveEnsureChildFolder(access, textFolder, 'originals', 'originals')
             : textFolder;
+          if (body.sub === 'originals' && body.docId && folder !== textFolder) await stampChild(env, { objectId: folder, kind: 'originals', docId: body.docId, parentId: textFolder });
           const role = String(body.role || '').trim().slice(0, 40);
           const init = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id', {
             method: 'POST',
@@ -4649,6 +4669,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           const access = await driveAccessToken(env, inst);
           const deviceFolder = await driveEnsureDeviceFolder(env, access, instanceId, inst.inst_nickname, inst.inst_folder);
           const textFolder = docId ? await driveEnsureTextFolder(access, deviceFolder, docId, docTitle, knownFolder) : deviceFolder;
+          if (docId && textFolder !== deviceFolder) await stampChild(env, { objectId: textFolder, kind: 'text', docId, parentId: deviceFolder });
           if (docId && sub !== 'originals') {
             // Query param, NOT a header: a custom header needs a CORS allow-list entry, and until
             // this worker is deployed the browser refuses the whole upload at preflight. See the
@@ -4661,7 +4682,9 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           const folder = (sub === 'originals' && docId)
             ? await driveEnsureChildFolder(access, textFolder, 'originals', 'originals')
             : textFolder;
+          if (sub === 'originals' && docId && folder !== textFolder) await stampChild(env, { objectId: folder, kind: 'originals', docId, parentId: textFolder });
           const fileId = await driveUpload(access, folder, name, buf, mime, role ? { flextextRole: role } : null);
+          await stampChild(env, { objectId: fileId, kind: 'file', docId: docId || null, parentId: folder });
           // folderId rides back so the device REMEMBERS it (strong-consistency dedupe above).
           // ⚠ The TEXT folder, never `folder`: see the chunked path — echoing the originals/ child
           // would redirect every later bare .flextext into it.

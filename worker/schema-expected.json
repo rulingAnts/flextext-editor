@@ -41,6 +41,15 @@
       "status",
       "sub_id"
     ],
+    "drive_object": [
+      "created_at",
+      "created_by",
+      "doc_id",
+      "instance_id",
+      "kind",
+      "object_id",
+      "project_id"
+    ],
     "install": [
       "accepted",
       "ack_seq",
@@ -161,6 +170,9 @@
     ]
   },
   "indexes": [
+    "drive_object_doc",
+    "drive_object_instance",
+    "drive_object_project",
     "idx_approval_log_at",
     "idx_crowd_researcher",
     "idx_crowd_sub",

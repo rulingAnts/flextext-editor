@@ -197,3 +197,16 @@ CREATE TABLE IF NOT EXISTS ops_flag (
   value      TEXT NOT NULL,
   updated_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS drive_object (
+  object_id   TEXT PRIMARY KEY,
+  kind        TEXT NOT NULL,
+  doc_id      TEXT,
+  instance_id TEXT,
+  project_id  TEXT,
+  created_by  TEXT,
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS drive_object_project  ON drive_object(project_id);
+CREATE INDEX IF NOT EXISTS drive_object_instance ON drive_object(instance_id);
+CREATE INDEX IF NOT EXISTS drive_object_doc      ON drive_object(doc_id);

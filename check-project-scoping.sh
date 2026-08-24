@@ -35,12 +35,15 @@ grep -q 'export async function authMember(' "$W" \
 # ⚠ CHECKED PER CALL SITE, NOT BY GLOBAL COUNT. Comparing totals was the original form, and the
 #   completeness critic named its flaw: two guards in one route mask a route with none, and the
 #   totals still balance. Each call must have its own guard within a few lines of it.
-calls=$(grep -c 'await authMember(request, env' "$W" || true)
+# ⚠ MATCH `await authMember(` — ANY args — not `authMember(request, env`. The narrow form was blind
+#   to a call whose first parameter a formatter renamed or a helper spelled differently, which is
+#   exactly a NEW unguarded call site sliding past the check that exists to find it (sweep #11).
+calls=$(grep -c 'await authMember(' "$W" || true)
 unguarded=0
 while IFS= read -r ln; do
   [ -z "$ln" ] && continue
   if ! sed -n "${ln},$((ln + 5))p" "$W" | grep -q 'if (!ctx.ok'; then unguarded=$((unguarded + 1)); fi
-done < <(grep -n 'await authMember(request, env' "$W" | cut -d: -f1)
+done < <(grep -n 'await authMember(' "$W" | cut -d: -f1)
 if [ "$unguarded" = 0 ]; then
   good ok "each of the $calls authMember call sites has its OWN !ctx.ok guard"
 else
@@ -55,6 +58,20 @@ if grep -q 'export const DEFERRED_CAPS' "$W" && [ "$(grep -c 'for (const k of DE
 else
   bad x "⚠ DEFERRED_CAPS is enforced in only one place — a stored row would reopen what the deferral closed"
 fi
+
+# ⚠⚠ THE NINE DRIVE FINDINGS ARE GATED, NOT REPAIRED. `assignTexts` and `drive` sitting in
+#   DEFERRED_CAPS is the ONLY thing keeping the account-wide docId Drive-search routes unreachable —
+#   validateCaps refuses to write them and authMember refuses to honour a stored row carrying them.
+#   Removing either name re-arms all nine at once, at a line with no other review. This is the loud
+#   stop (completeness critic, 2026-08-24). They come back only AFTER Drive access is resolved per
+#   project (the drive_object table), never by editing this list alone.
+for cap in assignTexts drive; do
+  if grep -qE "DEFERRED_CAPS = \\[[^]]*'$cap'" "$W"; then
+    good ok "'$cap' is still ungrantable — in DEFERRED_CAPS, so the nine Drive routes stay unreachable"
+  else
+    bad x "⚠⚠ '$cap' has LEFT DEFERRED_CAPS — this re-arms nine audit findings at once. Project-scope the Drive routes (drive_object) BEFORE shipping this."
+  fi
+done
 
 # ⚠ THE TEXT-COMMAND GATE. Without it manageDevices reaches the text lane through queued commands,
 #   including `delete`, which destroys a field worker's transcription.
@@ -170,10 +187,16 @@ fi
 # 5. Wipe and force-remove stay owner-only (round-1 finding 6). These destroy a field device's work
 #    and no capability delegates them in v1.
 for act in wipe force-remove; do
-  if grep -A 12 "isub === '$act'" "$W" | grep -q '!ctx.isOwner'; then
-    good ok "$act is still owner-only"
+  missing=0; total=0
+  while IFS= read -r ln; do
+    [ -z "$ln" ] && continue
+    total=$((total + 1))
+    if ! sed -n "${ln},$((ln + 12))p" "$W" | grep -q '!ctx.isOwner'; then missing=$((missing + 1)); fi
+  done < <(grep -n "isub === '$act'" "$W" | cut -d: -f1)
+  if [ "$total" -ge 1 ] && [ "$missing" = 0 ]; then
+    good ok "$act is still owner-only (each of $total handler(s) checks ctx.isOwner)"
   else
-    bad x "⚠ $act no longer checks ctx.isOwner — a capability must never delegate destroying a device's work in v1"
+    bad x "⚠ $act: $missing of $total handler(s) miss the ctx.isOwner check (0 handlers also fails) — one guarded site must not mask an unguarded one"
   fi
 done
 

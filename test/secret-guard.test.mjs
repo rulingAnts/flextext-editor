@@ -20,7 +20,7 @@ import { readFileSync, existsSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, mkdirSync, cpSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // fileURLToPath, not .pathname — the latter leaves a space in the repo path %20-encoded, so
@@ -53,6 +53,26 @@ console.log('\nthe hook actually gates the push on the scan');
    * the one thing every leaked key has in common. */
   const secretsBlock = hook.slice(hook.indexOf('1. SECRETS'), hook.indexOf('2. WORKFLOWS'));
   ok(!/ALLOW_[A-Z_]*=/.test(secretsBlock), 'and the SECRETS check has no override env var of its own');
+
+  /* ⚠⚠ THE FILE GIT ACTUALLY RUNS is .git/hooks/pre-push (in the COMMON git dir, so worktrees share
+   * it), NOT the tracked hooks/pre-push above. This test used to read only the tracked copy, so it
+   * passed while the INSTALLED hook could be a stale version that never calls check-secrets at all —
+   * false assurance, which is the precise failure this file exists to prevent (uncovered sweep #9).
+   *   · absent  → informational: a fresh checkout / CI does not run local hooks, and install-hooks.sh
+   *               is how it gets there; the tracked hook is the source of truth.
+   *   · present but stale → HARD FAIL: an installed hook that does not run the scan is active false
+   *               assurance, and the only way to end it is to re-install the tracked one. */
+  let commonDir = '.git';
+  try { commonDir = execFileSync('git', ['rev-parse', '--git-common-dir'], { cwd: root, encoding: 'utf8' }).trim(); }
+  catch { /* not a git dir — leave the default */ }
+  const installedHook = isAbsolute(commonDir) ? join(commonDir, 'hooks', 'pre-push') : join(root, commonDir, 'hooks', 'pre-push');
+  if (existsSync(installedHook)) {
+    const live = readFileSync(installedHook, 'utf8');
+    ok(/check-secrets\.sh/.test(live) && /\|\| exit 1/.test(live),
+       `⚠⚠ the INSTALLED hook (${installedHook}) also runs check-secrets and exits nonzero — a stale installed hook that skips the scan is the false-assurance case #9. Re-install: ./install-hooks.sh (remove the old one first if it refuses).`);
+  } else {
+    console.log('  --    no installed .git/hooks/pre-push (fresh checkout / CI) — run ./install-hooks.sh; the tracked hook above is the source of truth');
+  }
 }
 
 console.log('\nthe self-reference exemption cannot become a hiding place');

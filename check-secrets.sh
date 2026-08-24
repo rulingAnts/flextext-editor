@@ -34,9 +34,27 @@ esac
 
 case "$MODE" in
   staged)  FILES=$(git diff --cached --name-only --diff-filter=ACMR) ;;
-  range)   FILES=$(git diff --name-only --diff-filter=ACMR "$RANGE" 2>/dev/null) ;;
+  range)   FILES=$(git log --diff-filter=ACMR --name-only --pretty=format: "$RANGE" 2>/dev/null | sort -u) ;;
   tracked) FILES=$(git ls-files) ;;
 esac
+
+# ⚠⚠ SCAN THE BYTES THAT ARE ACTUALLY PUSHED / COMMITTED, NOT THE WORKING TREE. The old code listed
+#   the changed files and then grepped the CURRENT copy on disk — so a secret added in one commit and
+#   redacted in a later commit of the same push scanned clean, while the blob carrying it shipped
+#   anyway (sweep #10). The whole premise of this guard is that a push to a public repo is
+#   irreversible, so it must inspect what the push contains:
+#     range  → every ADDED line across the range's history (the redact-in-a-later-commit case), via
+#              `git log -p`; a line a commit introduced is caught even if a sibling commit removes it.
+#     staged → the STAGED blob (`git show :path`), which is what a commit will contain — not an
+#              unstaged working-tree edit that will not be committed.
+#     tracked→ the working tree, which is the right thing for "is the tree as it stands clean".
+scan_source() {
+  case "$MODE" in
+    range)  git log -p --no-color -U0 "$RANGE" -- "$1" 2>/dev/null | grep '^+' ;;
+    staged) git show ":$1" 2>/dev/null ;;
+    *)      cat "$1" 2>/dev/null ;;
+  esac
+}
 [ -n "${FILES:-}" ] || { echo "check-secrets: nothing to scan."; exit 0; }
 
 # ⚠ THIS FILE AND ITS DOCUMENTATION DESCRIBE THE PATTERNS, so they match themselves. A guard that
@@ -80,7 +98,6 @@ report() { printf '  %s\n    %s\n' "$1" "$2"; fails=$((fails+1)); }
 
 echo "check-secrets: scanning ${MODE}…"
 for f in $FILES; do
-  [ -f "$f" ] || continue
   is_selfref "$f" && continue
 
   if printf '%s' "$f" | grep -qiE "$BAD_NAMES" && ! printf '%s' "$f" | grep -qiE "$OK_NAMES"; then
@@ -88,10 +105,13 @@ for f in $FILES; do
     continue      # do not also grep it; one clear reason beats two
   fi
 
+  content=$(scan_source "$f")
+  [ -n "$content" ] || continue
+
   # Skip binaries: a false positive inside a DLL is noise, and a credential pasted into one is not
   # the failure mode anyone has. `-I` makes grep treat binary as non-matching.
   for p in "${PATTERNS[@]}"; do
-    hit=$(grep -InE -m1 "$p" "$f" 2>/dev/null | head -1) || true
+    hit=$(printf '%s' "$content" | grep -InE -m1 "$p" 2>/dev/null | head -1) || true
     if [ -n "$hit" ]; then
       report "CREDENTIAL $f:${hit%%:*}" "matches the format of a real key — rotate it if it is genuine, and do not push"
       break

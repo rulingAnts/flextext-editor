@@ -13,6 +13,7 @@
  */
 
 import { secAlert, secLog, sendEmail } from './seclog.js';
+import { teardownUnmigratedProjectRows } from './project-teardown.js';
 
 /* ---------------- crypto + helpers ---------------- */
 
@@ -3366,9 +3367,9 @@ export async function handleV1(request, env, ctx, url, path, origin) {
                    moves: plan, count: plan.length,
                    wouldTrashProject: plan.length === (inside.files || []).length }, 200, origin, env);
       }
-      let moved = 0, i = 0;
+      let moved = 0, i = 0; const movedIds = [];
       for (; i < back.length && i < 20; i++) {
-        try { await driveReparent(access, back[i].id, master, back[i].parents); moved++; }
+        try { await driveReparent(access, back[i].id, master, back[i].parents); moved++; movedIds.push(back[i].id); }
         catch { /* keep going */ }
       }
       /* Trash the project folder only when it is EMPTY — never with anything still inside. Trash is
@@ -3386,8 +3387,19 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           }
         } catch { /* leaving an empty project folder is harmless — the estate reads both shapes */ }
       }
+      /* ⚠ FORGET IT IN D1 TOO. The Drive move above is only half the un-migration; without this the
+       * project row, its memberships and every moved device's stale project_id survive, and authMember
+       * keeps honouring a coworker's manageDevices over a project the owner just dismantled (uncovered
+       * sweep #7). Gated on trashedProject for the project/member deletion so a partial move never tears
+       * down a project still holding containers. Best-effort: a D1 hiccup must not fail an unmigration
+       * whose Drive half already succeeded — reconcile will not undo the folder move, so a stale row is
+       * recoverable, but a failed HTTP response would make the caller retry the Drive work needlessly. */
+      let d1teardown = { unassigned: 0, forgottenProjectId: null };
+      try { d1teardown = await teardownUnmigratedProjectRows(env.DB, r.researcher_id, movedIds, projectFolder, trashedProject); }
+      catch (e) { try { await secLog(env, request, 'unmigrate_d1_teardown_failed', { error: String((e && e.message) || e).slice(0, 120) }); } catch { /* noop */ } }
       await logApproval(env, request, 'projects_unmigrate', 'default', moved + ' container(s)', r.drive_email);
       return j({ ok: true, dry: false, direction: 'unmigrate', moved, trashedProject,
+                 forgotten: d1teardown.forgottenProjectId, unassigned: d1teardown.unassigned,
                  remaining: Math.max(0, back.length - i) }, 200, origin, env);
     } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
   }

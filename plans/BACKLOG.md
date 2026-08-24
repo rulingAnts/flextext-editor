@@ -227,7 +227,17 @@ state, and the wrapped-Ki key map in `settings_blob`.
 useful; cross-account only after, with the key and pairing limits stated in the UI rather than
 discovered.
 
-## ~~NEXT RELEASE: a text whose audio is still arriving opens in the CLASSIC editor~~ — FIXED v442 (Seth, 2026-08-20)
+## NEXT RELEASE: a text whose audio is still arriving opens in the CLASSIC editor — fixed on `main` at v442, ⚠ **NOT RELEASED** (re-checked 2026-08-24)
+
+> ⚠ **The strikethrough here used to say "FIXED v442", which was true of the tree and false of every
+> field device.** `origin/productionWeb` is **v441** and has **zero** occurrences of the guard
+> (`attachingAudioFor === stripsFor`, `docs/js/app.js:1407`); `origin/main` and `origin/staging`
+> (v442) have one. So the bug Seth reported in the v440 test drive is still live in Papua today, and
+> the fix has been sitting one fast-forward away since 2026-08-20.
+>
+> "Fixed" means fixed **where the user is**. Until a release marks it, this entry stays open — that
+> is the whole reason it was missed. **Ship it: clear `BUILD_TAG` on `main` (currently
+> `'baseline-loading v1'`), `./bump-version.sh v445`, test-drive staging, ff `main` → `productionWeb`.**
 
 > *"It initially loaded the classic text editor while the audio was loading. And then after I
 > switched tabs it switched to audio segmentation mode… You can type in the baseline textbox, but

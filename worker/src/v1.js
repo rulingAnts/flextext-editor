@@ -14,6 +14,7 @@
 
 import { secAlert, secLog, sendEmail } from './seclog.js';
 import { teardownUnmigratedProjectRows } from './project-teardown.js';
+import { stampDriveObject } from './drive-object.js';
 
 /* ---------------- crypto + helpers ---------------- */
 
@@ -170,6 +171,15 @@ async function hmacHex(keyStr, msg) {
 }
 // Email lookup key — HMAC so a D1 dump can't confirm an address without SERVER_HMAC_KEY.
 function emailKey(email, env) { return hmacHex(env.SERVER_HMAC_KEY || '', 'email:' + normEmail(email)); }
+
+/* Stamp a drive_object row for a folder/file the worker just created — NEVER letting a stamping
+ * failure break the Drive operation that succeeded. A missed stamp is not a hole: the object is
+ * denied to members (fail-closed) until the Phase 2 backfill covers it, and the owner reaches it
+ * through ownership regardless. So catch, log, and carry on. See worker/src/drive-object.js. */
+async function stampFolder(env, fields) {
+  try { await stampDriveObject(env.DB, { ...fields, now: fields.now || Date.now() }); }
+  catch (e) { try { console.warn('drive_object stamp failed', String(fields && fields.objectId || '').slice(0, 40), String((e && e.message) || e).slice(0, 100)); } catch { /* noop */ } }
+}
 
 // AES-GCM key derived from SERVER_HMAC_KEY — encrypts email + TOTP secret AT REST (so a bare
 // D1 dump leaks neither).
@@ -1150,6 +1160,10 @@ async function driveEnsureDeviceFolder(env, access, instanceId, nickname, existi
   const f = await driveJson(access, 'POST', 'https://www.googleapis.com/drive/v3/files?fields=id',
     { name, mimeType: 'application/vnd.google-apps.folder', parents: [parent] });
   await env.DB.prepare('UPDATE instance SET oauth_folder_id=? WHERE instance_id=?').bind(f.id, instanceId).run();
+  /* Stamp it: one chokepoint covers every device-folder creation. project_id + owner come off the
+   * instance row so the caller need not thread them; NULL project_id is a valid unassigned state. */
+  const irow = await env.DB.prepare('SELECT project_id, researcher_id FROM instance WHERE instance_id=?').bind(instanceId).first();
+  await stampFolder(env, { objectId: f.id, kind: 'device', instanceId, projectId: (irow && irow.project_id) || null, createdBy: irow && irow.researcher_id });
   return f.id;
 }
 
@@ -1420,6 +1434,7 @@ async function driveEnsureCrowdFolder(env, access, rec) {
     { name, mimeType: 'application/vnd.google-apps.folder', parents: [parent],
       appProperties: { flextextRole: 'crowd' } });
   await env.DB.prepare('UPDATE crowd_recorder SET oauth_folder_id=? WHERE crowd_id=?').bind(f.id, rec.crowd_id).run();
+  await stampFolder(env, { objectId: f.id, kind: 'crowd', instanceId: null, projectId: rec.project_id || null, createdBy: rec.researcher_id });
   return f.id;
 }
 
@@ -4108,6 +4123,9 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         const deviceFolder = await driveEnsureDeviceFolder(env, access, instanceId, inst.nickname, inst.oauth_folder_id);
         const folder = await driveEnsureTextFolder(access, deviceFolder, docId, body.title, body.folderId);
         const originalsFolderId = await driveEnsureChildFolder(access, folder, 'originals', 'originals');
+        // Stamp the text + its originals with the authorizing project (device folder self-stamps).
+        await stampFolder(env, { objectId: folder, kind: 'text', docId, instanceId, projectId: ctx.project_id || null, createdBy: ctx.caller.researcher_id });
+        await stampFolder(env, { objectId: originalsFolderId, kind: 'originals', docId, instanceId, projectId: ctx.project_id || null, createdBy: ctx.caller.researcher_id });
         return j({ ok: true, folderId: folder, originalsFolderId }, 200, origin, env);
       } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
     }

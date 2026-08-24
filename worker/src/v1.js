@@ -2439,17 +2439,62 @@ export async function handleV1(request, env, ctx, url, path, origin) {
   }
 
   /* GET /v1/researcher/keys?instance=<id> — the grants THIS researcher holds, for getKi()'s
-   * resolution order (memory → member_key → the legacy settings_blob map). */
+   * resolution order (memory → member_key → the legacy settings_blob map).
+   *
+   * ⚠⚠ SCOPED AT READ TIME, AND THAT IS THE WHOLE POINT (2026-08-24). This used to select on
+   * `researcher_id=?` alone, which made THE EXISTENCE OF THE ROW the authorization. Every other fix
+   * in this area has been to a DELETION path — remove a member, revoke a grant — and that approach
+   * is incomplete by construction: it can only be as complete as our list of ways a row goes stale,
+   * and the sweeps kept finding another one.
+   *
+   * The one that has no deletion path at all: MOVING A DEVICE BETWEEN PROJECTS. /projects/assign
+   * rewrites `instance.project_id` and never touches member_key, so a member of the project the
+   * device LEFT keeps a grant nobody will ever delete — there is no removal event to hang the
+   * cleanup on, because nobody was removed from anything.
+   *
+   * So entitlement is now RE-DERIVED on every read, from the state that is authoritative right now:
+   *   · the caller owns the instance — covers the owner, and the dual-read window where
+   *     instance.project_id is still NULL (design-gap 4: instance.researcher_id is a maintained
+   *     denormalisation of the project's owner);
+   *   · or the caller holds a project_member row for the instance's CURRENT project.
+   * A former member matches neither, and neither does a member of the project a device has left.
+   *
+   * ⚠ member_key.project_id IS DELIBERATELY NOT CONSULTED. It is a snapshot written at grant time
+   * ('' on anything minted before the project existed), so it answers "where was this minted", never
+   * "where is this device now". Asking the instance is what makes the answer current.
+   *
+   * ⚠ THE DELETION PATHS STAY. This is defence in depth, not a replacement: a withdrawn grant should
+   * actually leave the database rather than merely stop being served, both because the ciphertext is
+   * one D1 dump away from a former member and because "revocation is an act, not a UI state" is the
+   * property the member-removal batch exists to hold.
+   *
+   * ⚠ FALLS BACK TO OWNERSHIP-ONLY if project_member cannot be read (a database predating that
+   * migration). Narrower, never wider: the owner keeps their own keys and members get nothing, which
+   * is the safe direction for a degraded read. */
   if (m === 'GET' && seg.length === 3 && seg[1] === 'researcher' && seg[2] === 'keys') {
     const r = await authResearcher(request, env);
     if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
     const want = url.searchParams.get('instance') || '';
-    const q = want
-      ? env.DB.prepare('SELECT instance_id, key_version, wrapped_ki FROM member_key WHERE researcher_id=? AND instance_id=? ORDER BY key_version DESC')
-          .bind(r.researcher_id, want)
-      : env.DB.prepare('SELECT instance_id, key_version, wrapped_ki FROM member_key WHERE researcher_id=? ORDER BY instance_id, key_version DESC')
-          .bind(r.researcher_id);
-    const rows = await q.all();
+    const OWNED = 'instance_id IN (SELECT instance_id FROM instance WHERE researcher_id=?)';
+    const MEMBER_OF_CURRENT_PROJECT =
+      'instance_id IN (SELECT i.instance_id FROM instance i'
+      + ' JOIN project_member pm ON pm.project_id=i.project_id'
+      + ' WHERE pm.researcher_id=? AND i.project_id IS NOT NULL)';
+    const cols = 'SELECT instance_id, key_version, wrapped_ki FROM member_key';
+    const tail = want ? ' AND instance_id=? ORDER BY key_version DESC'
+                      : ' ORDER BY instance_id, key_version DESC';
+    let rows = null;
+    try {
+      const sql = `${cols} WHERE researcher_id=? AND (${OWNED} OR ${MEMBER_OF_CURRENT_PROJECT})${tail}`;
+      const binds = want ? [r.researcher_id, r.researcher_id, r.researcher_id, want]
+                         : [r.researcher_id, r.researcher_id, r.researcher_id];
+      rows = await env.DB.prepare(sql).bind(...binds).all();
+    } catch (e) {
+      try { await secLog(env, request, 'member_key_scope_degraded', { error: String((e && e.message) || e).slice(0, 120) }); } catch { /* noop */ }
+      const sql = `${cols} WHERE researcher_id=? AND ${OWNED}${tail}`;
+      const binds = want ? [r.researcher_id, r.researcher_id, want] : [r.researcher_id, r.researcher_id];
+      rows = await env.DB.prepare(sql).bind(...binds).all();
+    }
     return j({ keys: (rows && rows.results) || [] }, 200, origin, env);
   }
 

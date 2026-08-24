@@ -137,15 +137,23 @@ console.log('\n⚠⚠ removal takes a LEGACY-\'\' grant whose device has MOVED t
    * NULL) BOTH miss it. Before the third DELETE arm, the grant survived removal and GET keys — which
    * selects by researcher_id alone — kept handing it to the removed member. Neuter that arm in
    * worker/src/v1.js and the final assertion here fails by name. */
-  ok((await call('GET', `/v1/researcher/keys?instance=${FIXTURE.movedDeviceId}`, GUEST)).json.keys.length === 1,
-     'the guest holds a legacy-\'\' grant on a device that has since moved to another project');
+  /* ⚠⚠ MEASURED BY grants_removed, NOT BY READING THE KEY BACK, and the reason is a trap this test
+   * fell into. Read-time scoping (2026-08-24) means GET /v1/researcher/keys already declines to serve
+   * a grant on a device outside the caller's projects — which is exactly this grant. So the old
+   * "guest can read it / now they cannot" pair became VACUOUS: it read 0 before the removal and 0
+   * after, and passed while asserting nothing about whether the row was deleted at all.
+   *
+   * grants_removed is the DELETE's own count of rows it destroyed, so it measures the thing this test
+   * is about — that revocation is an act rather than a UI state — and it is unaffected by whether the
+   * read path would have served the row. Neuter the third ORed arm in worker/src/v1.js and this drops
+   * to 0 and fails by name. */
   await call('POST', `/v1/projects/${projectId}/members`, OWNER, {
     researcher_id: FIXTURE.outsiderId, caps: { manageDevices: true },
   });
   const del = await call('DELETE', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: FIXTURE.outsiderId });
   ok(del.status === 200, `the guest is removed (got ${del.status})`);
-  ok((await call('GET', `/v1/researcher/keys?instance=${FIXTURE.movedDeviceId}`, GUEST)).json.keys.length === 0,
-     '⚠⚠ and the MOVED-device \'\' grant went with them — the snapshot missed it (\'\'≠id) and the subquery missed it (device is in another project), so the third arm catches it');
+  ok(del.json && del.json.grants_removed >= 1,
+     `⚠⚠ and the MOVED-device '' grant was DELETED (${del.json && del.json.grants_removed} row(s)) — the snapshot missed it (''≠id) and the subquery missed it (the device is in another project), so the third arm is what caught it`);
 }
 
 console.log('\nadded with manageDevices — device management is what v1 members get');
@@ -248,13 +256,15 @@ console.log('\n⚠ a grant carrying the LEGACY \'\' project sentinel is revoked 
   await call('POST', `/v1/projects/${projectId}/members`, OWNER, {
     researcher_id: FIXTURE.outsiderId, caps: { manageDevices: true },
   });
-  ok((await call('GET', `/v1/researcher/keys?instance=${sid}`, GUEST)).json.keys.length === 1,
-     'the guest holds the legacy-sentinel key');
-
+  /* ⚠ THE READ PATH NO LONGER SERVES THIS GRANT EITHER, and that is correct rather than a
+   * regression: the device is UNASSIGNED (project_id NULL), so it belongs to no project and no
+   * membership can reach it — the project IS the boundary, and fail-closed is the reading invariant
+   * I4 requires. It also means "guest can read it / now cannot" would assert nothing here, so this
+   * measures the DELETE's own row count, like the moved-device case above. */
   const del = await call('DELETE', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: FIXTURE.outsiderId });
   ok(del.status === 200, `the guest is removed (got ${del.status})`);
-  ok((await call('GET', `/v1/researcher/keys?instance=${sid}`, GUEST)).json.keys.length === 0,
-     '⚠⚠ and the SENTINEL grant went with them — resolved through `instance`, not through the denormalised column');
+  ok(del.json && del.json.grants_removed >= 1,
+     `⚠⚠ and the SENTINEL grant was DELETED (${del.json && del.json.grants_removed} row(s)) — resolved through \`instance\`, not through the denormalised column`);
 }
 
 console.log('\n⚠ a grant can still be withdrawn AFTER the device is revoked');
@@ -460,6 +470,46 @@ console.log('\nUNCONVERTED Drive routes are INERT for a member, not leaky — th
     ok(res.status !== 200,
        `⚠ ${label}: a member gets ${res.status}, NOT the owner's estate — the route acts on the caller's own Drive`);
   }
+  await call('DELETE', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: FIXTURE.outsiderId });
+}
+
+console.log('\n⚠⚠ a grant STOPS BEING SERVED when the device leaves the project — no removal event exists');
+{
+  /* ⚠ THE HOLE THIS CLOSES HAS NO DELETION PATH, which is why read-time scoping was the fix rather
+   * than another cleanup. /projects/assign rewrites instance.project_id and never touches member_key,
+   * so when a device MOVES to another project, a member of the project it LEFT keeps a grant that
+   * nothing will ever delete — nobody was removed from anything, so there is no event to hang a
+   * cleanup on. GET /v1/researcher/keys used to select on researcher_id alone, making the row's
+   * existence the authorization; it now re-derives entitlement from where the device is NOW.
+   *
+   * FIXTURE.movedDeviceId is seeded into movedProjectId, and the guest is a member of `projectId`
+   * only — so the guest is exactly "a member of some other project" with a live grant on it. */
+  await call('POST', `/v1/projects/${projectId}/members`, OWNER, {
+    researcher_id: FIXTURE.outsiderId, caps: { manageDevices: true },
+  });
+  /* ⚠⚠ THE GRANT IS MINTED HERE RATHER THAN RELIED ON FROM THE FIXTURE, and that is not tidiness.
+   * The seeded one is consumed by the member-removal test above, so this section originally read 0
+   * whether or not the scoping existed — it PASSED WITH THE SCOPING REMOVED, i.e. asserted nothing.
+   * The mutation test is the only reason that was noticed, and it is the second time in this file an
+   * order dependency made a real assertion vacuous. Minting a fresh grant makes the check independent
+   * of what ran before it. */
+  const regrant = await call('POST', '/v1/researcher/keys', OWNER, {
+    instance_id: FIXTURE.movedDeviceId, key_version: 2,
+    grants: [{ researcher_id: FIXTURE.researcherId, wrapped_ki: 'OWNER-COPY-V2' },
+             { researcher_id: FIXTURE.outsiderId, wrapped_ki: 'GUEST-COPY-V2' }],
+  });
+  ok(regrant.status === 200, `a live grant exists on the moved device (got ${regrant.status})`);
+  const seen = await call('GET', `/v1/researcher/keys?instance=${FIXTURE.movedDeviceId}`, GUEST);
+  ok(seen.status === 200,
+     `the grant row EXISTS and the request succeeds (got ${seen.status})`);
+  ok((seen.json.keys || []).length === 0,
+     '⚠⚠ but it is NOT SERVED — the device is in a project this member does not belong to, and no removal ever happened');
+
+  /* The other half, or the assertion above would pass just as well if the route returned nothing to
+   * anyone: the OWNER still gets their own copy of the very same device's key. */
+  const mine = await call('GET', `/v1/researcher/keys?instance=${FIXTURE.movedDeviceId}`, OWNER);
+  ok((mine.json.keys || []).length >= 1,
+     '⚠ while the OWNER still receives it — scoping must not cost the owner access to their own device');
   await call('DELETE', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: FIXTURE.outsiderId });
 }
 

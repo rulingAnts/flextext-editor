@@ -1,7 +1,29 @@
 # Lost-or-stolen device policy — design (Seth, 2026-08-24)
 
-Status: **DESIGN, not built.** Captured from a live design conversation so the intent survives. Three
-decisions still open (bottom). Nothing here is coded yet.
+Status: **DESIGN COMPLETE, not built.** Captured from a live design conversation so the intent
+survives. All decisions resolved (see the Decisions section). Nothing here is coded yet.
+
+## ⚠ THE CORE ARCHITECTURE: trigger and action are TWO INDEPENDENT SETTINGS (Seth)
+
+*"What triggers a 'lost/stolen' status and what happens when that status is triggered should be two
+separate and independent settings."* Do not fuse them. There are two axes, chosen independently:
+
+- **TRIGGER — what marks a device lost/stolen:**
+  - the researcher flags it manually in the panel (always available); AND/OR
+  - an **offline-time trigger**: the device has gone longer than a set time without a login.
+    **OFF by default.** For contexts where the connection is reliable but the stakes and risk are
+    higher, a researcher may want a hair-trigger that flags — and can go straight to wiping — after N
+    time offline.
+- **ACTION — what happens once triggered:** the immediate lock/encrypt/quarantine (below), then the
+  wipe policy (preserve-then-wipe vs privacy-first).
+
+⚠ **The offline-timer self-wipe lives on BOTH sides**, and that is what makes it work when the device
+is unreachable: the researcher panel can send the wipe request when it can reach the device, OR **the
+editor self-wipes locally when its allotted offline time has elapsed without a login** — no server
+contact needed. This is the one mechanism that reaches a device that never reconnects, and it
+partially answers the honest limit below: a seized device that stays dark still wipes itself when its
+own clock runs out. (It does NOT defeat someone who pulls the storage before the timer fires — that
+stays the casual-holder bar.)
 
 > ⚠ FRAMING (repo rule, enforced by test/threat-language.test.mjs): describe what this PROTECTS —
 > the texts and consent records on a device **that has left the team's hands** — never speculate in
@@ -81,14 +103,36 @@ a skilled holder with physical possession can eventually reach. So:
   engine `docs/js/app.js` (lock UI, encrypt at rest, keep sync running). Because it touches the
   engine it carries the satellite version coupling — a deliberate feature build, not a patch.
 
-## Open decisions (Seth's calls)
+## Decisions — RESOLVED (Seth, 2026-08-24)
 
-1. **Default policy** — preserve-then-wipe (proposed, given the field hazard + archival value), with
-   privacy-first as the deliberate opt-in? Or default the other way?
-2. **Where the choice lives** — project-wide default, per-device choice at flag time, or both
-   (proposed: project default + per-device override)?
-3. **Panel-login tightening** — now or later, and how tight? Today a panel stays signed in 90 days
-   (sliding). Proposed: shorter panel TTL + one-click "sign out everywhere". Deferrable.
+1. **No default policy for NEW devices — force a conscious choice.** When a device is set up, the
+   preserve-then-wipe vs privacy-first choice (and the trigger settings) are **required fields**: the
+   researcher cannot save or push changes without deciding. For **existing devices right now**,
+   default to **preserve-then-wipe**, AND **highlight/warn every existing device where the choice has
+   not been made** so it gets made deliberately rather than inherited silently.
+2. **The offline-time trigger is OFF by default**, but sits **adjacent and prominent** in the UI to
+   the preserve-vs-privacy choice — a researcher who needs a hair-trigger must not miss that it
+   exists. It is independent of the action (axis separation above).
+3. **Where the choice lives: project default FIRST, per-device override.** And more broadly: a
+   project carries **project-wide defaults for ALL device settings**, configured when a new project is
+   set up. Setting a value in a project offers to **save it as the default for new devices** OR
+   **apply/overwrite it on all existing devices** — the researcher picks which. Individual devices can
+   still override.
+4. **Panel-login tightening: yes**, as proposed — shorter panel session TTL + one-click "sign out
+   everywhere". (Field-device offline tolerance is unaffected; this is the panel half only.)
+
+## ⚠ Documentation requirement (Seth, 2026-08-24) — build-time, not now
+
+When this ships, the **honest limit must be stated plainly to users**, especially in the **README and
+the technical documentation (DEVELOPERS.md)**: the at-rest protection is against a casual holder, not
+a determined expert with the device in hand; the timer self-wipe needs the device's own clock to run;
+a device whose storage is pulled first is beyond reach. Users must understand what protection they
+are actually getting.
+
+⚠ Framed per the repo rule (test/threat-language.test.mjs): describe what it PROTECTS — the privacy
+of the community and the intellectual property / cultural heritage of indigenous groups — and NEVER
+name the specific threat it protects against. No adversary narrative; the protection is justified by
+what it safeguards.
 
 ## Related
 

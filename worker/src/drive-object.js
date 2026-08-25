@@ -99,6 +99,69 @@ export async function moveDriveObjectContainer(db, { folderId, projectId = null 
   ).bind(projectId, folderId, folderId).run();
 }
 
+/* ---------------- PHASE 3 GATES — per-project authorization for caller-supplied ids ----------------
+ *
+ * The nine 2026-08-21 findings shared one root: a route authorizes the INSTANCE correctly, then acts
+ * on a caller-supplied docId/fileId resolved by an account-wide search under the OWNER's Drive
+ * authority — so a member of one project could reach another project's objects. These two gates are
+ * the repair (not the deferral): every id a caller supplies is resolved through drive_object and
+ * checked against the caller's project BEFORE any Drive act.
+ *
+ * ⚠ THE OWNER PASSES ON OWNERSHIP ALONE — allowed even when no row exists, because the owner's
+ * boundary is their own Drive (drive.file scope), and pre-drive_object objects must keep working
+ * for them. That bypass is what makes wiring these gates BEHAVIOUR-PRESERVING for every production
+ * caller today (members cannot reach these routes while assignTexts/drive sit in DEFERRED_CAPS).
+ * A MEMBER requires: a row, in THEIR project, whose device — if it names one — is not revoked
+ * (the Phase 2 backfill stamped revoked devices' folders too; instance.revoked is checked HERE
+ * because nothing upstream does).
+ *
+ * ⚠ DENY MEANS 404 AT THE ROUTE, never 403 — denial must stay indistinguishable from absence
+ * (check-project-scoping.sh pins this for every authMember guard). */
+
+/* May this caller act on DOC `docId`? Returns { allowed, folderId } — folderId is the text folder's
+ * object_id when a row exists (a scoped, indexed replacement for the account-wide Drive tag search;
+ * '' when absent and the caller falls back to Drive under their own authority).
+ *
+ * `mode` — 'existing' (the doc must already be known: list/adopt/move) or 'create' (assignment
+ * begin: a doc with NO row anywhere is a NEW text and is allowed — creation stamps it into the
+ * caller's project — while a row in ANOTHER project still denies; without the distinction a member
+ * with assignTexts could never create a text, or could squat an existing doc id cross-project). */
+export async function authorizeDocForProject(db, { docId, projectId = '', isOwner = false, mode = 'existing' }) {
+  if (!docId) return { allowed: false, folderId: '' };
+  const rows = [];
+  {
+    const q = await db.prepare(
+      'SELECT o.object_id, o.project_id, o.instance_id, i.revoked AS inst_revoked '
+      + "FROM drive_object o LEFT JOIN instance i ON i.instance_id=o.instance_id "
+      + "WHERE o.doc_id=? AND o.kind='text'"
+    ).bind(docId).all();
+    for (const r of ((q && q.results) || [])) rows.push(r);
+  }
+  const mine = rows.find((r) => projectId && r.project_id === projectId && !r.inst_revoked);
+  if (isOwner) {
+    // Ownership is the boundary; prefer the project-matching folder, else any known one.
+    return { allowed: true, folderId: (mine || rows[0] || {}).object_id || '' };
+  }
+  if (mine) return { allowed: true, folderId: mine.object_id };
+  // 'create': unknown everywhere → a new text, allowed (it will be stamped into this project).
+  if (mode === 'create' && rows.length === 0) return { allowed: true, folderId: '' };
+  return { allowed: false, folderId: '' };
+}
+
+/* May this caller act on Drive OBJECT `objectId` (a file or folder id — trash, drive-file)? Same
+ * contract: owner passes on ownership; a member needs a row in their project on a non-revoked
+ * device. Returns { allowed, row }. */
+export async function authorizeObjectForProject(db, { objectId, projectId = '', isOwner = false }) {
+  if (!objectId) return { allowed: false, row: null };
+  const row = await db.prepare(
+    'SELECT o.object_id, o.kind, o.doc_id, o.instance_id, o.project_id, i.revoked AS inst_revoked '
+    + 'FROM drive_object o LEFT JOIN instance i ON i.instance_id=o.instance_id WHERE o.object_id=?'
+  ).bind(objectId).first();
+  if (isOwner) return { allowed: true, row: row || null };
+  if (row && projectId && row.project_id === projectId && !row.inst_revoked) return { allowed: true, row };
+  return { allowed: false, row: null };
+}
+
 /* THE BACKFILL BRAIN (Phase 2). Given the whole Drive file list (driveListAll) plus two D1 maps,
  * derive one drive_object row per object by walking parentage — the pure, testable half of the
  * operator-gated backfill route, which only fetches the inputs and batch-inserts the output.

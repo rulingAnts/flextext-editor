@@ -8,7 +8,8 @@
  */
 import { DatabaseSync } from 'node:sqlite';
 import { stampDriveObject, resolveDriveObject, deriveDriveObjectRows,
-         moveDriveObjectText, moveDriveObjectContainer } from '../worker/src/drive-object.js';
+         moveDriveObjectText, moveDriveObjectContainer,
+         authorizeDocForProject, authorizeObjectForProject } from '../worker/src/drive-object.js';
 
 let fail = 0;
 const ok = (c, m) => { console.log(`  ${c ? 'ok  ' : 'FAIL'}  ${m}`); if (!c) fail++; };
@@ -22,6 +23,7 @@ function d1(db) {
         bind(...a) { args = a; return this; },
         run() { const r = st.run(...args); return { meta: { changes: Number(r.changes) || 0 } }; },
         first() { return st.get(...args) ?? null; },
+        all() { return { results: st.all(...args) }; },
       };
     },
   };
@@ -32,7 +34,7 @@ function freshDb() {
   db.exec(`CREATE TABLE drive_object (
     object_id TEXT PRIMARY KEY, kind TEXT NOT NULL, doc_id TEXT, instance_id TEXT,
     project_id TEXT, created_by TEXT, created_at INTEGER NOT NULL);
-  CREATE TABLE instance (instance_id TEXT PRIMARY KEY, researcher_id TEXT, oauth_folder_id TEXT, project_id TEXT);
+  CREATE TABLE instance (instance_id TEXT PRIMARY KEY, researcher_id TEXT, oauth_folder_id TEXT, project_id TEXT, revoked INTEGER DEFAULT 0);
   CREATE TABLE project (project_id TEXT PRIMARY KEY, owner_id TEXT, drive_folder_id TEXT);`);
   return db;
 }
@@ -123,7 +125,7 @@ console.log('\nMOVE-SYNC — drive_object.project_id must track every re-parent 
 console.log('\na text move re-homes the WHOLE doc — folder, originals, files — in one act');
 {
   const db = freshDb();
-  db.exec(`INSERT INTO instance VALUES ('devA','owner1','fldA','P1'), ('devB','owner1','fldB','P2');
+  db.exec(`INSERT INTO instance VALUES ('devA','owner1','fldA','P1',0), ('devB','owner1','fldB','P2',0);
            INSERT INTO project VALUES ('P1','owner1','pf1'), ('P2','owner1','pf2');`);
   for (const [oid, kind] of [['tf', 'text'], ['of', 'originals'], ['f1', 'file'], ['f2', 'file']]) {
     await stampDriveObject(d1(db), { objectId: oid, kind, docId: 'doc9', instanceId: 'devA', projectId: 'P1', createdBy: 'owner1', now: 1 });
@@ -138,7 +140,7 @@ console.log('\na text move re-homes the WHOLE doc — folder, originals, files �
 console.log('\nfiling into Unassigned clears the instance — an unassigned text belongs to no device');
 {
   const db = freshDb();
-  db.exec(`INSERT INTO instance VALUES ('devA','owner1','fldA','P1');
+  db.exec(`INSERT INTO instance VALUES ('devA','owner1','fldA','P1',0);
            INSERT INTO project VALUES ('P1','owner1','pf1'), ('P2','owner1','pf2');`);
   await stampDriveObject(d1(db), { objectId: 'tf', kind: 'text', docId: 'doc9', instanceId: 'devA', projectId: 'P1', createdBy: 'owner1', now: 1 });
   await moveDriveObjectText(d1(db), { docId: 'doc9', ownerId: 'owner1', projectId: 'P2', instanceId: null });
@@ -150,7 +152,7 @@ console.log('\nfiling into Unassigned clears the instance — an unassigned text
 console.log('\n⚠ OWNER SCOPING: a same-docId row in ANOTHER account must not move (doc_id is client-minted)');
 {
   const db = freshDb();
-  db.exec(`INSERT INTO instance VALUES ('devA','owner1','fldA','P1'), ('devX','owner2','fldX','PX');
+  db.exec(`INSERT INTO instance VALUES ('devA','owner1','fldA','P1',0), ('devX','owner2','fldX','PX',0);
            INSERT INTO project VALUES ('P1','owner1','pf1'), ('P2','owner1','pf2'), ('PX','owner2','pfx');`);
   // Same doc_id in two estates — three ownership shapes for owner1, one row for owner2.
   await stampDriveObject(d1(db), { objectId: 'mine-inst', kind: 'text', docId: 'dup', instanceId: 'devA', projectId: null, createdBy: 'member9', now: 1 });
@@ -170,7 +172,7 @@ console.log('\n⚠ OWNER SCOPING: a same-docId row in ANOTHER account must not m
 console.log('\na container move re-homes the folder row AND every row of the instance that owns it');
 {
   const db = freshDb();
-  db.exec(`INSERT INTO instance VALUES ('devA','owner1','fldA','P1'), ('devB','owner1','fldB','P1');
+  db.exec(`INSERT INTO instance VALUES ('devA','owner1','fldA','P1',0), ('devB','owner1','fldB','P1',0);
            INSERT INTO project VALUES ('P1','owner1','pf1'), ('P2','owner1','pf2');`);
   await stampDriveObject(d1(db), { objectId: 'fldA', kind: 'device', instanceId: 'devA', projectId: 'P1', createdBy: 'owner1', now: 1 });
   await stampDriveObject(d1(db), { objectId: 'tA', kind: 'text', docId: 'd1', instanceId: 'devA', projectId: 'P1', createdBy: 'owner1', now: 1 });
@@ -195,6 +197,69 @@ console.log('\na CROWD container (no instance) moves only its own folder row');
   const p = (oid) => db.prepare('SELECT project_id FROM drive_object WHERE object_id=?').get(oid).project_id;
   ok(p('crowdF') === 'P2', 'the crowd folder row moved');
   ok(p('crowdText') === 'P1', 'its submission rows stay put (no instance key) — healed by the backfill, honestly not synced here');
+}
+
+console.log('\nPHASE 3 GATES — the per-project repair of the nine account-wide findings');
+
+console.log('\nauthorizeDocForProject: a member reaches only their own project\'s docs');
+{
+  const db = freshDb();
+  db.exec(`INSERT INTO instance VALUES ('devA','owner1','fldA','P1',0), ('devR','owner1','fldR','P1',1);
+           INSERT INTO project VALUES ('P1','owner1','pf1'), ('P2','owner1','pf2');`);
+  await stampDriveObject(d1(db), { objectId: 'tfA', kind: 'text', docId: 'docA', instanceId: 'devA', projectId: 'P1', createdBy: 'owner1', now: 1 });
+  await stampDriveObject(d1(db), { objectId: 'tfB', kind: 'text', docId: 'docB', instanceId: null, projectId: 'P2', createdBy: 'owner1', now: 1 });
+  await stampDriveObject(d1(db), { objectId: 'tfR', kind: 'text', docId: 'docR', instanceId: 'devR', projectId: 'P1', createdBy: 'owner1', now: 1 });
+
+  let g = await authorizeDocForProject(d1(db), { docId: 'docA', projectId: 'P1', isOwner: false });
+  ok(g.allowed && g.folderId === 'tfA', 'their own project\'s doc: allowed, and the folder id comes back scoped (no Drive search)');
+  g = await authorizeDocForProject(d1(db), { docId: 'docB', projectId: 'P1', isOwner: false });
+  ok(!g.allowed, '⚠⚠ another project\'s doc: DENIED — the exact cross-project reach the nine findings shared');
+  g = await authorizeDocForProject(d1(db), { docId: 'nowhere', projectId: 'P1', isOwner: false });
+  ok(!g.allowed, 'an unknown doc: denied (fails closed — no row is not "allowed")');
+  g = await authorizeDocForProject(d1(db), { docId: 'docR', projectId: 'P1', isOwner: false });
+  ok(!g.allowed, '⚠ a REVOKED device\'s doc: denied even in their own project — the backfill stamped revoked estates too, and nothing upstream checks revoked');
+  g = await authorizeDocForProject(d1(db), { docId: 'docA', projectId: '', isOwner: false });
+  ok(!g.allowed, 'a member with no project (legacy/unassigned ctx): denied');
+}
+
+console.log('\nauthorizeDocForProject: mode=create lets a member MAKE a text without letting them squat one');
+{
+  const db = freshDb();
+  db.exec("INSERT INTO project VALUES ('P1','owner1','pf1'), ('P2','owner1','pf2');");
+  await stampDriveObject(d1(db), { objectId: 'tfB', kind: 'text', docId: 'docB', instanceId: null, projectId: 'P2', createdBy: 'owner1', now: 1 });
+  let g = await authorizeDocForProject(d1(db), { docId: 'brand-new', projectId: 'P1', isOwner: false, mode: 'create' });
+  ok(g.allowed && g.folderId === '', 'a doc known NOWHERE is a new text: allowed (creation will stamp it into P1)');
+  g = await authorizeDocForProject(d1(db), { docId: 'docB', projectId: 'P1', isOwner: false, mode: 'create' });
+  ok(!g.allowed, '⚠ but a doc that EXISTS in another project is not "new" — create mode still denies the squat');
+  g = await authorizeDocForProject(d1(db), { docId: 'brand-new', projectId: 'P1', isOwner: false });
+  ok(!g.allowed, 'and the default (existing) mode does NOT inherit create\'s leniency');
+}
+
+console.log('\nthe OWNER passes on ownership alone — wiring the gates changes nothing for production');
+{
+  const db = freshDb();
+  db.exec("INSERT INTO project VALUES ('P1','owner1','pf1');");
+  await stampDriveObject(d1(db), { objectId: 'tfA', kind: 'text', docId: 'docA', instanceId: null, projectId: 'P1', createdBy: 'owner1', now: 1 });
+  let g = await authorizeDocForProject(d1(db), { docId: 'docA', projectId: '', isOwner: true });
+  ok(g.allowed && g.folderId === 'tfA', 'owner + known doc: allowed, folder returned');
+  g = await authorizeDocForProject(d1(db), { docId: 'never-stamped', projectId: '', isOwner: true });
+  ok(g.allowed && g.folderId === '', '⚠ owner + UNKNOWN doc: still allowed with no folder — pre-drive_object objects keep working via the Drive fallback');
+  const o = await authorizeObjectForProject(d1(db), { objectId: 'never-stamped', isOwner: true });
+  ok(o.allowed, 'same for a raw object id');
+}
+
+console.log('\nauthorizeObjectForProject: file/folder ids obey the same boundary');
+{
+  const db = freshDb();
+  db.exec(`INSERT INTO instance VALUES ('devR','owner1','fldR','P1',1);
+           INSERT INTO project VALUES ('P1','owner1','pf1'), ('P2','owner1','pf2');`);
+  await stampDriveObject(d1(db), { objectId: 'file1', kind: 'file', docId: 'd', instanceId: null, projectId: 'P1', createdBy: 'owner1', now: 1 });
+  await stampDriveObject(d1(db), { objectId: 'file2', kind: 'file', docId: 'd', instanceId: null, projectId: 'P2', createdBy: 'owner1', now: 1 });
+  await stampDriveObject(d1(db), { objectId: 'fileR', kind: 'file', docId: 'd', instanceId: 'devR', projectId: 'P1', createdBy: 'owner1', now: 1 });
+  ok((await authorizeObjectForProject(d1(db), { objectId: 'file1', projectId: 'P1' })).allowed, 'member: own-project file allowed');
+  ok(!(await authorizeObjectForProject(d1(db), { objectId: 'file2', projectId: 'P1' })).allowed, '⚠ other-project file denied');
+  ok(!(await authorizeObjectForProject(d1(db), { objectId: 'fileR', projectId: 'P1' })).allowed, '⚠ revoked-device file denied');
+  ok(!(await authorizeObjectForProject(d1(db), { objectId: 'ghost', projectId: 'P1' })).allowed, 'unknown file denied');
 }
 
 console.log(fail ? `\n${fail} FAILED\n` : '\nPASS\n');

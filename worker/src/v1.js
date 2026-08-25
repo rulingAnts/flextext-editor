@@ -14,7 +14,8 @@
 
 import { secAlert, secLog, sendEmail } from './seclog.js';
 import { teardownUnmigratedProjectRows } from './project-teardown.js';
-import { stampDriveObject, deriveDriveObjectRows, moveDriveObjectText, moveDriveObjectContainer } from './drive-object.js';
+import { stampDriveObject, deriveDriveObjectRows, moveDriveObjectText, moveDriveObjectContainer,
+         authorizeDocForProject, authorizeObjectForProject } from './drive-object.js';
 
 /* ---------------- crypto + helpers ---------------- */
 
@@ -4252,6 +4253,12 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       if (!owned) return j({ error: 'not_found' }, 404, origin, env);
       const docId = String(seg[4] || '').replace(/[^\w-]/g, '').slice(0, 64);
       if (!docId) return j({ error: 'bad_doc' }, 400, origin, env);
+      /* Phase 3 gate (drive-object.js): the DOC itself must be reachable by this caller — in their
+       * project, not on a revoked device — before any account-wide Drive act. Owner passes on
+       * ownership, so this changes nothing for today's callers; it is what makes the route real for
+       * a member instead of merely gated. Deny is 404, indistinguishable from absence. */
+      const gate = await authorizeDocForProject(env.DB, { docId, projectId: ctx.project_id || '', isOwner: ctx.isOwner });
+      if (!gate.allowed) return j({ error: 'not_found' }, 404, origin, env);
       /* ⚠ MODIFIES AN EXISTING ENDPOINT → STAGING-WORKER-TESTED FIRST (spec rule 9): the folder
        * filter + assignment merge below change what shipped panels receive. All new JSON fields
        * are additive (old panels ignore originalsFolderId; they never classified folder rows as
@@ -4313,6 +4320,13 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       if (!inst) return j({ error: 'not_found' }, 404, origin, env);
       const docId = String(seg[4] || '').replace(/[^\w-]/g, '').slice(0, 64);
       if (!docId) return j({ error: 'bad_doc' }, 400, origin, env);
+      /* Phase 3 gate, mode 'create': a doc known NOWHERE is a new text and may be begun (creation
+       * stamps it into this project); a doc that exists in ANOTHER project denies — a member with
+       * assignTexts must be able to create without being able to squat. Owner passes regardless. */
+      {
+        const gate = await authorizeDocForProject(env.DB, { docId, projectId: ctx.project_id || '', isOwner: ctx.isOwner, mode: 'create' });
+        if (!gate.allowed) return j({ error: 'not_found' }, 404, origin, env);
+      }
       const body = await readJson(request) || {};
       try {
         const access = await driveAccessToken(env, r);
@@ -4338,6 +4352,14 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       const inst = await env.DB.prepare('SELECT instance_id, nickname, oauth_folder_id FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
         .bind(instanceId, r.researcher_id).first();
       if (!inst) return j({ error: 'not_found' }, 404, origin, env);
+      /* Phase 3 gate — same 'create' contract as begin (the consent-prompt kind rides a PLACEHOLDER
+       * docId segment, which resolves as "known nowhere" and must stay allowed). Defense in depth:
+       * the session begin already gated, but this route is separately addressable. */
+      {
+        const gDoc = String(seg[4] || '').replace(/[^\w-]/g, '').slice(0, 64);
+        const gate = await authorizeDocForProject(env.DB, { docId: gDoc, projectId: ctx.project_id || '', isOwner: ctx.isOwner, mode: 'create' });
+        if (!gate.allowed) return j({ error: 'not_found' }, 404, origin, env);
+      }
       const body = await readJson(request) || {};
       const size = parseInt(body.size, 10) || 0;
       if (size < 1 || size > 2 * 1024 * 1024 * 1024) return j({ error: 'bad_size' }, 400, origin, env);
@@ -4397,6 +4419,15 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         .bind(instanceId, r.researcher_id).first();
       if (!inst) return j({ error: 'not_found' }, 404, origin, env);
       const docId = String(seg[4] || '').replace(/[^\w-]/g, '').slice(0, 64);
+      /* Phase 3 gate — 'create' like begin/start (consent-prompt's placeholder docId included).
+       * ⚠ KNOWN PHASE 4 BLOCKER, deliberately not solved here: the fileIds in the body are
+       * caller-supplied and mint streaming URLs. For a MEMBER they must be verified to live under
+       * this doc's folder (their own uploads are not yet stamped when finish runs, so the object
+       * gate alone would break the flow). Recorded in plans/drive-object-plan.md; owner-only today. */
+      {
+        const gate = await authorizeDocForProject(env.DB, { docId, projectId: ctx.project_id || '', isOwner: ctx.isOwner, mode: 'create' });
+        if (!gate.allowed) return j({ error: 'not_found' }, 404, origin, env);
+      }
       const body = await readJson(request) || {};
       if (!body.audioFileId && !body.flextextFileId && !body.promptFileId) return j({ error: 'nothing_to_mint' }, 400, origin, env);
       const ttlDays = clampTtlDays(body.ttlDays);
@@ -4445,6 +4476,12 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       const body = await readJson(request) || {};
       const docId = String(seg[4] || '').replace(/[^\w-]/g, '').slice(0, 64);
       if (!docId) return j({ error: 'bad_doc' }, 400, origin, env);
+      /* Phase 3 gate: adopting is acting on an EXISTING doc — it must be reachable by this caller
+       * (their project, not a revoked device) before the account-wide Drive search runs. */
+      {
+        const gate = await authorizeDocForProject(env.DB, { docId, projectId: ctx.project_id || '', isOwner: ctx.isOwner });
+        if (!gate.allowed) return j({ error: 'not_found' }, 404, origin, env);
+      }
       const to = await env.DB.prepare('SELECT instance_id, nickname, oauth_folder_id FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
         .bind(instanceId, r.researcher_id).first();
       if (!to) return j({ error: 'not_found' }, 404, origin, env);
@@ -4485,6 +4522,13 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       const toId = String(body.to || '');
       const docId = String(seg[4] || '').replace(/[^\w-]/g, '').slice(0, 64);
       if (!docId || !toId || toId === instanceId) return j({ error: 'bad_move' }, 400, origin, env);
+      /* Phase 3 gate: moving acts on an EXISTING doc — reachable by this caller or 404. (The
+       * destination instance is separately checked below; a cross-PROJECT member move will need its
+       * own rule when members gain assignTexts — today both ends are the owner's.) */
+      {
+        const gate = await authorizeDocForProject(env.DB, { docId, projectId: ctx.project_id || '', isOwner: ctx.isOwner });
+        if (!gate.allowed) return j({ error: 'not_found' }, 404, origin, env);
+      }
       const from = await env.DB.prepare('SELECT instance_id, nickname, oauth_folder_id FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
         .bind(instanceId, r.researcher_id).first();
       const to = await env.DB.prepare('SELECT instance_id, nickname, oauth_folder_id, project_id FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')

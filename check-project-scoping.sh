@@ -294,6 +294,27 @@ else
   bad x "⚠ $syncmiss re-parent site(s) never sync drive_object (or the site count collapsed: $synctotal, expected ≥7) — project_id goes stale on move"
 fi
 
+# 8. DRIVE ROUTES GATE THE OBJECT, NOT JUST THE INSTANCE (Phase 3). Every route that resolves auth
+#    with the assignTexts or drive:read capability acts on a caller-supplied doc/file id afterwards
+#    — the shared root of the nine 2026-08-21 findings. Each must call authorizeDocForProject within
+#    30 lines of its authMember. The one exemption: the chunk relay, whose authority is the
+#    encrypted upload-session token (sess.rr) minted by an already-gated start — identified here by
+#    its x-fx-upload header read, so renaming that header must update this check.
+gmiss=0; gtotal=0
+while IFS= read -r ln; do
+  [ -z "$ln" ] && continue
+  if sed -n "${ln},$((ln + 12))p" "$W" | grep -q "x-fx-upload"; then continue; fi
+  gtotal=$((gtotal + 1))
+  if ! sed -n "${ln},$((ln + 30))p" "$W" | grep -q "authorizeDocForProject"; then
+    gmiss=$((gmiss + 1)); say FAIL "  capability-gated Drive route at line $ln never gates the doc id"
+  fi
+done < <(grep -n "authMember(request, env, { instance: instanceId }, 'assignTexts')\|authMember(request, env, { instance: instanceId }, 'drive:read')" "$W" | cut -d: -f1)
+if [ "$gtotal" -ge 6 ] && [ "$gmiss" = 0 ]; then
+  good ok "every assignTexts/drive:read route gates the caller-supplied doc id ($gtotal site(s))"
+else
+  bad x "⚠ $gmiss capability-gated Drive route(s) act on a doc id without the Phase 3 gate (or the count collapsed: $gtotal, expected ≥6)"
+fi
+
 echo
 if [ "$fail" = 0 ]; then echo "PASS — project data is reachable only through a resolved grant."; else echo "FAILED"; fi
 exit "$fail"

@@ -1,8 +1,25 @@
 # drive_object — the per-project Drive authorization table (build plan)
 
-Status: **Phase 1 in progress.** This is the spec fix VII.1 called "DO THIS FIRST" and the completeness
-critic's precondition for un-deferring `assignTexts`/`drive` — the nine gated Drive findings are
-*unreachable, not repaired*, and this is what repairs them.
+Status (2026-08-26): **Phases 1, 1b, 2 BUILT AND DEPLOYED** (table live in prod D1, creation stamping
+live, 723-object backfill run). **Phase 3 BUILT, NOT DEPLOYED** — on the feature branch:
+move-sync at all seven re-parent sites (`moveDriveObjectText`/`Container`, containment check 7) and
+per-project gates on all six capability-gated instance Drive routes
+(`authorizeDocForProject`/`ObjectForProject`, containment check 8; owner passes on ownership, so the
+conversion is behaviour-preserving until caps un-defer). This was the spec fix VII.1 called "DO THIS
+FIRST": the nine gated Drive findings are now *repaired at the routes*, not merely unreachable.
+
+**⚠ PHASE 4 BLOCKERS — what still stands between here and un-deferring `assignTexts`/`drive`:**
+1. `assignment/finish`'s caller-supplied fileIds mint streaming URLs unverified. A member's own
+   uploads are not yet stamped when finish runs, so the object gate alone would break the flow —
+   finish must verify the ids live under the doc's folder (one files.get parents check) or stamp
+   uploads at the chunk relay's completion. Noted in the route comment.
+2. The account-level routes members would need for Drive access (`drive-file`, `trash`,
+   `drive-estate`) are still `authResearcher` + owner's-own-Drive — a member calling drive-estate
+   gets THEIR empty Drive (silent wrong data, not a loud 404). Their member versions are a design
+   question (project-rooted listing), not a gate bolt-on.
+3. A member cross-project `/move` needs its own rule (today both ends are the owner's).
+4. Revoked-device drive_object rows: the gates deny them for members (tested), but the retention
+   build (BACKLOG sweep-then-move) should eventually clean them.
 
 ## The problem it fixes (VII.1 / R2-1)
 

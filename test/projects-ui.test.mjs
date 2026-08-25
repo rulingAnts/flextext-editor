@@ -523,7 +523,7 @@ test('projects UI', async () => {
      * the sweep itself — behaviour is unchanged. */
     ok(/const wantTarget = String\(body\.projectFolderId \|\| ''\)/.test(worker),
        'drive-unassign accepts a target project');
-    ok(/if \(forceProject\) \{/.test(worker), '...and uses it in place of per-text resolution');
+    ok(/if \(forceProject\) proj = forceProject;/.test(worker), '...and uses it in place of per-text resolution');
     ok(/=== 'project'\) forceProject = dest\.id;/.test(worker),
        '...only after verifying it really is a project folder');
   }

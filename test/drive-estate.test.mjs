@@ -400,7 +400,12 @@ console.log('\nUNASSIGNED: the folder tree tells the truth, and can find its way
 
   const sweep = (worker.match(/drive-unassign'\) \{[\s\S]*?\n  \}/) || [''])[0];
   ok(/\(f\.parents \|\| \[\]\)\.includes\(target\)\) continue;/.test(sweep), 'moving an already-filed text is a no-op');
-  ok(/flextextUnassigned: '1'/.test(sweep), 'a swept folder is TAGGED as swept');
+  /* ⚠ The CONDITIONAL is the point, not an implementation detail: '1' only for the per-text SWEEP,
+   * cleared for a researcher-DIRECTED (forceProject) filing — the tag is what the housekeeping
+   * return trip trusts, and stamping directed filings as "swept" is what let it silently undo an
+   * explicit cross-project move (issue #13). Pinning the bare '1' again would re-open that. */
+  ok(/flextextUnassigned: forceProject \? '' : '1'/.test(sweep),
+     'a swept folder is TAGGED as swept — and a DIRECTED filing is explicitly NOT (issue #13)');
   ok(/catch \{ \/\* one text failing must not abort the sweep/.test(sweep), 'one failure does not abort the batch');
 
   /* ⚠ THE RETURN TRIP ONLY UNDOES OUR OWN SWEEP. If it moved any folder whose parent was not the

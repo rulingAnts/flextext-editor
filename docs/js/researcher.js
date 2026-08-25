@@ -856,8 +856,16 @@ export function drivePurge() { return api('POST', '/v1/researcher/drive-purge', 
 /* `projectFolderId` files the texts in THAT project's Unassigned instead of each text's own — the
  * only way to set a text aside under a different project. Omitted (the sweep, every shipped client)
  * keeps the original per-text behaviour. */
-export function driveUnassign(docIds, projectFolderId) {
-  return api('POST', '/v1/researcher/drive-unassign', { body: { docIds, ...(projectFolderId ? { projectFolderId } : {}) }, retry: false });
+/* `folders` ({docId: folderId}, optional) is the ECHO that survives Drive's search-index lag: the
+ * worker's tag search is eventually consistent and used to swallow a miss silently — the researcher's
+ * explicit filing did nothing and reported success (issue #13's first symptom). files.get by the
+ * echoed id is strongly consistent (the v167 dedupe lesson); the worker verifies the id actually IS
+ * that doc's folder before trusting it. Old workers ignore the field. */
+export function driveUnassign(docIds, projectFolderId, folders) {
+  return api('POST', '/v1/researcher/drive-unassign', {
+    body: { docIds, ...(projectFolderId ? { projectFolderId } : {}), ...(folders ? { folders } : {}) },
+    retry: false,
+  });
 }
 
 /* Move the researcher's own app-created files to Drive TRASH (30-day recoverable — never a

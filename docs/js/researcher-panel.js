@@ -1526,7 +1526,11 @@ async function renderDashboard(prefetched) {
       return;
     }
     // busy(): the manifest check lists the folder first, so the button must not look dead meanwhile.
-    if (el.dataset.uact === 'adopt') { busy(el, () => adoptTextModal(el.dataset.id, el.dataset.title || '')); return; }
+    /* ⚠ { unassign: true } is what makes the "Unassigned — <project>" destination tiles render at
+     * all. Without it, moving a text that is ALREADY unassigned offered only devices — so a project
+     * with no devices could not receive it, and a cross-project filing was impossible from this
+     * card while the crowd row two lines down could do it (issue #12). Same modal, same flag. */
+    if (el.dataset.uact === 'adopt') { busy(el, () => adoptTextModal(el.dataset.id, el.dataset.title || '', { unassign: true })); return; }
     /* Move… on a CROWD row — the SAME source-less flow the Unassigned card uses, because a crowd
      * recording is held by no device either. Destinations: any device, or Unassigned (Seth: "any
      * text anywhere, except to a crowd recorder"). It reaches a device through /adopt rather than
@@ -4283,7 +4287,7 @@ async function moveTextModal(fromId, docId, title) {
          * rather than after it — the folder id is stable, so the device's final upload lands
          * correctly either way. */
         const target = to.startsWith('__unassigned:') ? to.slice(13) : '';
-        if (target) await Researcher.driveUnassign([docId], target);
+        if (target) await Researcher.driveUnassign([docId], target, unassignFolderEcho([docId]));
         /* The upload-first removal, identical to the del-text path: a fresh Drive copy lands BEFORE
          * the device drops its own. Nothing is re-parented here — the text is still on the device
          * until the delete confirms, and filing it early would put it in the assign queue while a
@@ -4991,7 +4995,8 @@ async function adoptTextModal(docId, title, opts = {}) {
       if (to.startsWith('__unassigned')) {
         // A re-parent and nothing else. drive-unassign already takes explicit ids — the sweep is
         // simply a batched caller of the same route, so filing one text adds no machinery.
-        await Researcher.driveUnassign([docId], to.startsWith('__unassigned:') ? to.slice(13) : '');
+        await Researcher.driveUnassign([docId], to.startsWith('__unassigned:') ? to.slice(13) : '',
+                                       unassignFolderEcho([docId]));
         m.close();
         deps.toast(t('panel.move.filed'), 6000);
         renderDashboard();
@@ -5125,8 +5130,24 @@ function sweepUnassigned(estate) {
       .map((tx) => tx.docId)
       .slice(0, UNASSIGN_BATCH);
     if (!ids.length) return;
-    Researcher.driveUnassign(ids).catch(() => { /* retried by the next full render */ });
+    Researcher.driveUnassign(ids, '', unassignFolderEcho(ids, estate))
+      .catch(() => { /* retried by the next full render */ });
   } catch { /* the sweep must never break the dashboard it rides on */ }
+}
+
+/* The {docId: folderId} echo driveUnassign sends so a filing survives Drive's search-index lag —
+ * the panel already knows every text's folder from the estate, and files.get by id is strongly
+ * consistent where the worker's tag search is not (issue #13's silent no-op half). Falls back to
+ * the cached estate so the modal call sites need no estate in hand; undefined when nothing is
+ * known, which old and new workers alike treat as "search as before". */
+function unassignFolderEcho(ids, est) {
+  const texts = ((est || estateCache || {}).texts) || [];
+  const map = {};
+  for (const id of ids) {
+    const tx = texts.find((t) => t && t.docId === id && t.folderId);
+    if (tx) map[id] = tx.folderId;
+  }
+  return Object.keys(map).length ? map : undefined;
 }
 
 /* THE MAINTENANCE BANNER — an operator-set notice, refreshed by the poll the panel already makes.

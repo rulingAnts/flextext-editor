@@ -730,12 +730,20 @@ function landingTab(tab) {
   if (!landOnCutEnabled()) return tab;
   if (!docHasNoText(current.doc)) return tab;               // words already ⇒ this is transcription
   /* ⚠ ONLY WITH AUDIO — landing a text-only doc on a cutting screen would be nonsense. An ALIGNED
-   * span is the proof: reconcile() seeds the whole-file span only once the recording has decoded and
-   * its duration is known, so `some(isAligned)` means "there is real audio and we have measured it".
-   * A doc whose spans are all pending has no timeline to cut against. Checking this rather than a
-   * media record keeps the decision SYNCHRONOUS — the media lookup is async, and awaiting it here
-   * would flash the Baseline tab before switching. */
-  if (!docSegments(current.doc).some(isAligned)) return tab;
+   * span proves decoded audio: reconcile() seeds the whole-file span once the recording has decoded
+   * and its duration is known. But a NEW recording — the exact case this setting names — has audio
+   * the reconcile has NOT measured yet: still downloading (assignment) or still decoding (fresh
+   * capture). Requiring alignment alone meant the setting never fired on the FIRST open, the only
+   * open that matters for a new recording (issue #9). So the record's own synchronous fields count
+   * too: audioSource (attached/downloaded) or pendingAudio still en route — but not a pendingAudio
+   * whose download already FAILED, which has no timeline coming. Landing on Cut mid-arrival shows
+   * Cut's own loading screen, resolved by finalizeAudioDownload's re-enter when the bytes land.
+   * All three checks are record fields — the decision stays SYNCHRONOUS (a media lookup would
+   * flash the Baseline tab before switching). */
+  const audioHere = docSegments(current.doc).some(isAligned)
+    || !!current.audioSource
+    || !!(current.pendingAudio && !current.audioError);
+  if (!audioHere) return tab;
   return 'cut';
 }
 
@@ -2925,6 +2933,12 @@ async function finalizeAudioDownload(rec) {
     current = rec;
     if (player) player.loadedFor = null;
     if (isEditorTab(activeTab)) refreshPlayer();
+    /* ⚠ SAME RE-ENTER AS attachAudioFile, SAME REASON: the open tab set itself up while the audio
+     * was still arriving, and a background download completing is not a tab switch and not a
+     * settings change — nothing else will notice. Without this, a text opened onto Cut mid-download
+     * (landingTab now lands there — issue #9) shows "Loading the recording…" FOREVER once the bytes
+     * have actually landed; refreshPlayer alone updates only the transport bar. */
+    if (segmentationEnabled() && isEditorTab(activeTab)) switchTab(activeTab);
     toast(t('player.downloaded'));
   }
 }

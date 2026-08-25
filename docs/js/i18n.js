@@ -1160,8 +1160,11 @@ internet after the first time.</p>
   'panel.inst.minsAgo': '{n} min ago',
   'panel.inst.hrsAgo': '{n} h ago',
   'panel.inst.daysAgo': '{n} d ago',
-  'panel.up.local': 'not uploaded',
-  'panel.up.changed': 'changed since upload',
+  /* ⚠ These two chips name their DIRECTION on purpose (issue #5): the old "not uploaded" read as a
+   * workflow state ("no changes on device") when it means the DEVICE has never sent its copy up —
+   * true even for a freshly assigned text whose files are already in Drive from the assignment. */
+  'panel.up.local': 'no upload from this device yet',
+  'panel.up.changed': 'edited on device — not yet uploaded',
   'panel.up.uploaded': 'uploaded ✓',
   'panel.up.requested': 'request sent…',
   'panel.up.slow': 'awaiting device\u2026',
@@ -2938,8 +2941,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.inst.minsAgo': '{n} mnt lalu',
   'panel.inst.hrsAgo': '{n} jam lalu',
   'panel.inst.daysAgo': '{n} hr lalu',
-  'panel.up.local': 'belum diunggah',
-  'panel.up.changed': 'berubah sejak unggah',
+  'panel.up.local': 'belum ada unggahan dari perangkat ini',
+  'panel.up.changed': 'diedit di perangkat — belum diunggah',
   'panel.up.uploaded': 'terunggah ✓',
   'panel.up.requested': 'permintaan terkirim…',
   'panel.up.slow': 'menunggu perangkat\u2026',

@@ -843,6 +843,43 @@ export function removeMember(projectId, researcherId) {
              { body: { researcher_id: researcherId }, retry: false });
 }
 
+/* Wrap each given device's Ki to a MEMBER's published key and store the grants — the owner-side
+ * mint without which a membership can read nothing: addMember writes only the project_member row,
+ * and metadata is E2EE, so until a wrapped Ki exists the member sees ciphertext (correctly).
+ *
+ * ⚠ EVERY SET CARRIES THE OWNER'S OWN COPY TOO — the worker refuses the write without it
+ * (owner_grant_required, the wrap-to-owner invariant), and re-sending it is a harmless
+ * INSERT OR REPLACE of a row that already says the same thing.
+ *
+ * Throws 'member_no_pubkey' when the member has never opened the panel (no published keypair —
+ * nothing to wrap to; the UI must say so, since the fix is an action on THEIR side). Per-device
+ * failures are counted, not thrown: one broken device must not stop the rest of the estate. */
+export async function grantKeysToMember(memberId, instanceIds) {
+  requireUnlocked();
+  const me = currentAccountId();
+  if (!me || !myPub) throw new Error('not_signed_up');
+  let p = null;
+  try { p = await api('GET', `/v1/researcher/pubkey/${encodeURIComponent(memberId)}`); }
+  catch (e) { throw new Error(e && e.status === 404 ? 'member_no_pubkey' : (e && e.message) || 'pubkey_fetch_failed'); }
+  const theirPub = await importPublicKeyB64(p.pubkey);
+  let granted = 0, failed = 0;
+  for (const instanceId of (instanceIds || [])) {
+    try {
+      const ki = await getKi(instanceId);
+      const grants = [
+        { researcher_id: me, wrapped_ki: await wrapKeyForInstall(myPub, ki) },
+        { researcher_id: memberId, wrapped_ki: await wrapKeyForInstall(theirPub, ki) },
+      ];
+      await api('POST', '/v1/researcher/keys', { body: { instance_id: instanceId, grants }, retry: false });
+      granted++;
+    } catch (e) {
+      failed++;
+      if (failed <= 3) console.warn('member key grant failed for', instanceId, (e && e.message) || e);
+    }
+  }
+  return { granted, failed };
+}
+
 /* Permanently delete the FlexText files ALREADY IN TRASH — the only thing that actually reclaims
  * quota, since usageInDriveTrash counts inside usage. Scoped to our own files by drive.file; this
  * is NOT "empty the user's Drive trash". retry:false — a lost response must not double-delete. */

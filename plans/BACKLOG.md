@@ -79,7 +79,29 @@ Plausible ways through, none free, to be chosen deliberately rather than default
 **Priority: later, as Seth said.** Nothing here is load-bearing while the researcher set is seven
 people who are all known personally. It becomes real the moment sign-up is genuinely open.
 
-## SOON: an unassigned box cannot move a text to ANOTHER project's unassigned box (Seth, 2026-08-20)
+## ~~SOON: an unassigned box cannot move a text to ANOTHER project's unassigned box~~ — FIXED on the feature branch 2026-08-26 (NOT released)
+
+> Also filed as GitHub issue #12. One flag: the Unassigned card's Move button called
+> `adoptTextModal` without `{ unassign: true }`, so `groupedDestinations` never emitted the
+> `__unassigned:` tiles from exactly the card whose texts are already unassigned — while the crowd
+> row two lines down passed the flag and could file cross-project all along. Fixed at the call site
+> (commit 249df8c, feature branch), pinned by test/files-modal-and-move-gate. The cross-project
+> confirm Seth asked for was already in the modal and now actually fires from this card.
+
+## PHASE D GAP — a device created AFTER a membership gets no member key grants (2026-08-26)
+
+`grantKeysToMember` (researcher.js) mints wrapped Kis for a project's devices at the moment a
+coworker is ADDED — but nothing re-mints when a NEW device is created in that project afterwards,
+so the member sees the new device's rows and reads ciphertext. Small follow-up, two halves:
+- worker: `GET /v1/projects/<id>/members` additionally returns, per member, which of the project's
+  instances they hold a `member_key` row for (additive field; the owner cannot see this today —
+  GET /keys returns only the CALLER's grants).
+- client: a `memberGrantSweep` on panel load (selfGrantMissing's pattern): for each owned project
+  with members, mint the missing grants. Idempotent (INSERT OR REPLACE), so over-running is free.
+Until then the workaround is remove + re-add the member (removal deletes their grants; re-adding
+re-mints for every current device) — the panel's own error strings already say so.
+
+## SOON (superseded original entry follows for context)
 
 > *"We still can't move texts from one unassigned box to the unassigned box on another project.
 > That's something I'd like somewhat soon. All other moves work as expected though."*

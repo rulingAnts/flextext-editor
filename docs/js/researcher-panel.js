@@ -6118,10 +6118,42 @@ async function coworkersModal() {
       if (body.querySelector('#rp-share-invite').checked) caps.createInvites = true;
       try {
         await Researcher.addMember(selected, who, caps);
-        deps.toast(t('panel.share.added', { who }), 5000);
+        /* ⚠ THE MEMBERSHIP ROW ALONE READS NOTHING — metadata is E2EE, so the member needs each
+         * device's Ki wrapped to THEIR key, and the owner is the only party who can mint that.
+         * Minted here, at the one moment the owner is present. Instances are resolved through the
+         * estate (folder → project folder → this project), the only join that survives renames. */
+        const iids = projectInstanceIds(proj);
+        let keyed = null;
+        try { keyed = iids.length ? await Researcher.grantKeysToMember(who, iids) : { granted: 0, failed: 0 }; }
+        catch (e2) { keyed = { granted: 0, failed: 0, err: e2 }; }
+        if (keyed.err && String(keyed.err.message) === 'member_no_pubkey') {
+          /* Not an error to bury: the fix is on THEIR side (open the panel once), and until then
+           * the membership is real but blind. Say exactly that. */
+          say(t('panel.share.addedNoKeys', { who }), true);
+        } else if (keyed.err || keyed.failed) {
+          say(t('panel.share.addedSomeKeys', { who, n: keyed.granted, m: iids.length }), true);
+        } else {
+          deps.toast(t('panel.share.addedKeyed', { who, n: keyed.granted }), 6000);
+        }
         await paint();
       } catch (err) { say(sayErr(err), true); }
     }));
+  }
+
+  /* The devices of ONE owned project, resolved estate-side: project row → drive_folder_id →
+   * estate devices under that folder → their instance ids (estate instanceId first, oauth join as
+   * the fallback for a device the estate has not stamped yet). Empty when Drive is unreachable —
+   * the caller reports that honestly rather than pretending the grant happened. */
+  function projectInstanceIds(proj) {
+    const pf = proj && proj.drive_folder_id;
+    if (!pf) return [];
+    const devs = ((estateCache && estateCache.devices) || []).filter((d) => d.projectId === pf && d.kind !== 'crowd');
+    const out = new Set(devs.map((d) => d.instanceId).filter(Boolean));
+    const folders = new Set(devs.map((d) => d.folderId).filter(Boolean));
+    for (const i of ((lastData && lastData.instances) || [])) {
+      if (i.oauth_folder_id && folders.has(i.oauth_folder_id)) out.add(i.instance_id);
+    }
+    return [...out];
   }
 
   try {

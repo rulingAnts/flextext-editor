@@ -231,6 +231,40 @@ This is the part that has caused real outages when done wrong — read
 - Security posture: open signup + rate limit + owner approval tiers; escrowed recovery; optional
   TOTP; security log (`worker/src/seclog.js`) with email alerts. See `notes/connectivity-*.md`.
 
+### 6.1 Projects, coworkers, and per-object Drive authorization (Phase C/D, 2026-08)
+
+- **A project is the access boundary.** `authMember(req, env, target, needCap)` in
+  `worker/src/v1.js` is the single authority: the owner (`project.owner_id`) holds everything;
+  a coworker (`project_member` row) gets exactly the capabilities granted — v1 grants only
+  `manageDevices` and `createInvites` (`validateCaps` is a strict allowlist; the Drive
+  capabilities are deferred until per-project Drive access is complete). Denial is always **404,
+  indistinguishable from absence** — never 403, which would enumerate ids.
+- **Membership alone reads nothing.** Metadata is E2EE, so adding a coworker also mints them
+  **wrapped device keys**: the panel wraps each project device's Ki to the member's published
+  RSA key (`grantKeysToMember`, `docs/js/researcher.js`) and stores grants via
+  `POST /v1/researcher/keys` — every grant set must include the **owner's own copy**
+  (the wrap-to-owner invariant: a key the owner cannot read is refused at write time).
+- **`drive_object`** (`worker/src/drive-object.js`) maps every worker-created Drive object
+  (folder or file) to `{kind, doc_id, instance_id, project_id}`. Two invariants, both
+  containment-script-enforced (`check-project-scoping.sh`): **creation ⟹ stamped** (every folder
+  the worker creates writes a row) and **move ⟹ synced** (every re-parent updates
+  `project_id` in the same act). Routes that take a caller-supplied doc/file id resolve it here
+  (`authorizeDocForProject` / `authorizeObjectForProject`) — the owner passes on ownership, a
+  member needs a row in their project on a non-revoked device.
+- **Ops flags** (`ops_flag` table, no deploy needed): `maintenance` shows a researcher-panel
+  banner; `freeze` shows a sterner banner **and locks every researcher-lane mutation** (423
+  `maintenance_freeze` — deliberately not 5xx, which clients retry) for risky
+  production-only tests. The gate keys on the `x-fx-researcher` header, so **field devices can
+  never meet it**; the operator is exempt; signout stays open. Raise/clear via
+  `POST /v1/researcher/admin/ops-flag {key, value}` (operator-only, allow-listed keys, logged);
+  empty value clears.
+- **Unassign filings echo folder ids.** `drive-unassign` accepts `folders: {docId: folderId}`
+  alongside `docIds` — the same strongly-consistent `files.get` fallback the upload path uses,
+  because the tag search's eventual consistency silently no-opped explicit moves. Ids it still
+  cannot find come back in `skipped`, never swallowed. The `flextextUnassigned:'1'` tag means
+  "the sweep filed this" and is **cleared** on researcher-directed filings, so the housekeeping
+  return-trip cannot undo an explicit cross-project move.
+
 ## 7. Native shells & the bridge contract
 
 The web engine auto-updates; an installed APK does not. So the native layer is kept so thin it

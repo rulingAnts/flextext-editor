@@ -52,6 +52,53 @@ export async function resolveDriveObject(db, objectId) {
   ).bind(objectId).first()) || null;
 }
 
+/* ---------------- MOVE-SYNC (Phase 3 prerequisite) ----------------
+ *
+ * ⚠ THE INVARIANT: drive_object.project_id tracks where the object IS NOW. Every Drive re-parent
+ * the worker performs must update the rows it moved, or resolveDriveObject authorizes against the
+ * project the object just left — stale in the dangerous direction. The two shapes below cover all
+ * seven move points in v1.js (drive-unassign, adopt, /move, the housekeeping return trip, migrate,
+ * unmigrate, projects/assign); a NEW re-parent call site must call one of them in the same act.
+ *
+ * Best-effort like stampDriveObject: a failed sync is healed by the idempotent backfill; a thrown
+ * error inside a move route would leave Drive moved and the route reporting failure. */
+
+/* A TEXT moved (device → unassigned, unassigned → device, device → device). Updates every row of
+ * the doc — the text folder, originals/, and the files inside — in one indexed UPDATE, because
+ * they all carry doc_id and they all moved together.
+ *
+ * ⚠ OWNER-SCOPED, because doc_id is CLIENT-generated: two accounts can hold the same doc_id, and
+ * an unscoped UPDATE would re-home a stranger's rows. A row belongs to this owner iff any of:
+ * its instance belongs to the owner, its project belongs to the owner, or the owner created it.
+ * Every row this suite has ever minted for the owner matches at least one clause (backfilled rows
+ * carry created_by=owner; member-created rows carry the owner's instance or project); a same-docId
+ * row in another account matches none. */
+export async function moveDriveObjectText(db, { docId, ownerId, projectId = null, instanceId = null }) {
+  if (!docId || !ownerId) return;
+  await db.prepare(
+    'UPDATE drive_object SET project_id=?, instance_id=? WHERE doc_id=? AND ('
+    + 'created_by=? '
+    + 'OR instance_id IN (SELECT instance_id FROM instance WHERE researcher_id=?) '
+    + 'OR project_id IN (SELECT project_id FROM project WHERE owner_id=?))'
+  ).bind(projectId, instanceId, docId, ownerId, ownerId, ownerId).run();
+}
+
+/* A CONTAINER moved between projects (a device folder, a crowd folder, or the account-level
+ * Unassigned — migrate, unmigrate, projects/assign). One statement re-homes the folder row AND, for
+ * a device folder, every row of the instance that owns it — texts, originals, files — because a
+ * container's descendants all carry its instance_id and they all moved with it.
+ *
+ * For a crowd or unassigned container the subquery matches nothing and only the folder row moves;
+ * their descendants keep project_id from creation-time inheritance (stampChild) and the backfill.
+ * No owner scoping needed: object_id and oauth_folder_id are Drive ids, globally unique. */
+export async function moveDriveObjectContainer(db, { folderId, projectId = null }) {
+  if (!folderId) return;
+  await db.prepare(
+    'UPDATE drive_object SET project_id=? WHERE object_id=? '
+    + 'OR instance_id IN (SELECT instance_id FROM instance WHERE oauth_folder_id=?)'
+  ).bind(projectId, folderId, folderId).run();
+}
+
 /* THE BACKFILL BRAIN (Phase 2). Given the whole Drive file list (driveListAll) plus two D1 maps,
  * derive one drive_object row per object by walking parentage — the pure, testable half of the
  * operator-gated backfill route, which only fetches the inputs and batch-inserts the output.

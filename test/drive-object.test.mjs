@@ -7,7 +7,8 @@
  * Run: node test/drive-object.test.mjs
  */
 import { DatabaseSync } from 'node:sqlite';
-import { stampDriveObject, resolveDriveObject, deriveDriveObjectRows } from '../worker/src/drive-object.js';
+import { stampDriveObject, resolveDriveObject, deriveDriveObjectRows,
+         moveDriveObjectText, moveDriveObjectContainer } from '../worker/src/drive-object.js';
 
 let fail = 0;
 const ok = (c, m) => { console.log(`  ${c ? 'ok  ' : 'FAIL'}  ${m}`); if (!c) fail++; };
@@ -30,7 +31,9 @@ function freshDb() {
   const db = new DatabaseSync(':memory:');
   db.exec(`CREATE TABLE drive_object (
     object_id TEXT PRIMARY KEY, kind TEXT NOT NULL, doc_id TEXT, instance_id TEXT,
-    project_id TEXT, created_by TEXT, created_at INTEGER NOT NULL);`);
+    project_id TEXT, created_by TEXT, created_at INTEGER NOT NULL);
+  CREATE TABLE instance (instance_id TEXT PRIMARY KEY, researcher_id TEXT, oauth_folder_id TEXT, project_id TEXT);
+  CREATE TABLE project (project_id TEXT PRIMARY KEY, owner_id TEXT, drive_folder_id TEXT);`);
   return db;
 }
 
@@ -113,6 +116,85 @@ console.log('\nthe backfill brain derives project/instance/doc by walking parent
   ok(byId['crowdC'] && byId['crowdC'].kind === 'crowd' && byId['crowdC'].projectId === 'P',
      'a crowd folder → crowd, its project');
   ok(rows.every((r) => r.createdBy === 'owner1' && r.now === 5), 'every row carries the owner + timestamp');
+}
+
+console.log('\nMOVE-SYNC — drive_object.project_id must track every re-parent (issue #13\'s D1 half)');
+
+console.log('\na text move re-homes the WHOLE doc — folder, originals, files — in one act');
+{
+  const db = freshDb();
+  db.exec(`INSERT INTO instance VALUES ('devA','owner1','fldA','P1'), ('devB','owner1','fldB','P2');
+           INSERT INTO project VALUES ('P1','owner1','pf1'), ('P2','owner1','pf2');`);
+  for (const [oid, kind] of [['tf', 'text'], ['of', 'originals'], ['f1', 'file'], ['f2', 'file']]) {
+    await stampDriveObject(d1(db), { objectId: oid, kind, docId: 'doc9', instanceId: 'devA', projectId: 'P1', createdBy: 'owner1', now: 1 });
+  }
+  // device A (P1) → device B (P2): the cross-project device-to-device move
+  await moveDriveObjectText(d1(db), { docId: 'doc9', ownerId: 'owner1', projectId: 'P2', instanceId: 'devB' });
+  const rows = db.prepare("SELECT object_id, project_id, instance_id FROM drive_object WHERE doc_id='doc9'").all();
+  ok(rows.length === 4 && rows.every((x) => x.project_id === 'P2' && x.instance_id === 'devB'),
+     'all four rows now carry project P2 + device B');
+}
+
+console.log('\nfiling into Unassigned clears the instance — an unassigned text belongs to no device');
+{
+  const db = freshDb();
+  db.exec(`INSERT INTO instance VALUES ('devA','owner1','fldA','P1');
+           INSERT INTO project VALUES ('P1','owner1','pf1'), ('P2','owner1','pf2');`);
+  await stampDriveObject(d1(db), { objectId: 'tf', kind: 'text', docId: 'doc9', instanceId: 'devA', projectId: 'P1', createdBy: 'owner1', now: 1 });
+  await moveDriveObjectText(d1(db), { docId: 'doc9', ownerId: 'owner1', projectId: 'P2', instanceId: null });
+  const row = db.prepare("SELECT project_id, instance_id FROM drive_object WHERE object_id='tf'").get();
+  ok(row.project_id === 'P2' && row.instance_id === null,
+     '⚠ project P2, instance NULL — the #13 shape: a cross-project Unassigned filing the sync must record');
+}
+
+console.log('\n⚠ OWNER SCOPING: a same-docId row in ANOTHER account must not move (doc_id is client-minted)');
+{
+  const db = freshDb();
+  db.exec(`INSERT INTO instance VALUES ('devA','owner1','fldA','P1'), ('devX','owner2','fldX','PX');
+           INSERT INTO project VALUES ('P1','owner1','pf1'), ('P2','owner1','pf2'), ('PX','owner2','pfx');`);
+  // Same doc_id in two estates — three ownership shapes for owner1, one row for owner2.
+  await stampDriveObject(d1(db), { objectId: 'mine-inst', kind: 'text', docId: 'dup', instanceId: 'devA', projectId: null, createdBy: 'member9', now: 1 });
+  await stampDriveObject(d1(db), { objectId: 'mine-proj', kind: 'file', docId: 'dup', instanceId: null, projectId: 'P1', createdBy: 'member9', now: 1 });
+  await stampDriveObject(d1(db), { objectId: 'mine-created', kind: 'file', docId: 'dup', instanceId: null, projectId: null, createdBy: 'owner1', now: 1 });
+  await stampDriveObject(d1(db), { objectId: 'theirs', kind: 'text', docId: 'dup', instanceId: 'devX', projectId: 'PX', createdBy: 'owner2', now: 1 });
+  await moveDriveObjectText(d1(db), { docId: 'dup', ownerId: 'owner1', projectId: 'P2', instanceId: null });
+  const p = (oid) => db.prepare('SELECT project_id FROM drive_object WHERE object_id=?').get(oid).project_id;
+  ok(p('mine-inst') === 'P2', 'owner-instance row moved (member-created, matched via the instance clause)');
+  ok(p('mine-proj') === 'P2', 'owner-project row moved');
+  ok(p('mine-created') === 'P2', 'owner-created row moved');
+  ok(p('theirs') === 'PX', '⚠⚠ the OTHER account\'s same-docId row did NOT move — the scoping is the security property');
+  ok((await (async () => { await moveDriveObjectText(d1(db), { docId: '', ownerId: 'owner1' }); await moveDriveObjectText(d1(db), { docId: 'dup', ownerId: '' }); return p('theirs'); })()) === 'PX',
+     'and a missing docId or owner writes nothing at all');
+}
+
+console.log('\na container move re-homes the folder row AND every row of the instance that owns it');
+{
+  const db = freshDb();
+  db.exec(`INSERT INTO instance VALUES ('devA','owner1','fldA','P1'), ('devB','owner1','fldB','P1');
+           INSERT INTO project VALUES ('P1','owner1','pf1'), ('P2','owner1','pf2');`);
+  await stampDriveObject(d1(db), { objectId: 'fldA', kind: 'device', instanceId: 'devA', projectId: 'P1', createdBy: 'owner1', now: 1 });
+  await stampDriveObject(d1(db), { objectId: 'tA', kind: 'text', docId: 'd1', instanceId: 'devA', projectId: 'P1', createdBy: 'owner1', now: 1 });
+  await stampDriveObject(d1(db), { objectId: 'fA', kind: 'file', docId: 'd1', instanceId: 'devA', projectId: 'P1', createdBy: 'owner1', now: 1 });
+  await stampDriveObject(d1(db), { objectId: 'fldB', kind: 'device', instanceId: 'devB', projectId: 'P1', createdBy: 'owner1', now: 1 });
+  await moveDriveObjectContainer(d1(db), { folderId: 'fldA', projectId: 'P2' });
+  const p = (oid) => db.prepare('SELECT project_id FROM drive_object WHERE object_id=?').get(oid).project_id;
+  ok(p('fldA') === 'P2' && p('tA') === 'P2' && p('fA') === 'P2', 'device folder + its text + its file all moved to P2');
+  ok(p('fldB') === 'P1', 'the sibling device did NOT move');
+  // unmigrate shape: back to no project
+  await moveDriveObjectContainer(d1(db), { folderId: 'fldA', projectId: null });
+  ok(p('fldA') === null && p('tA') === null, 'projectId null (unmigrate) re-homes to unassigned — fails closed for members');
+}
+
+console.log('\na CROWD container (no instance) moves only its own folder row');
+{
+  const db = freshDb();
+  db.exec(`INSERT INTO project VALUES ('P1','owner1','pf1'), ('P2','owner1','pf2');`);
+  await stampDriveObject(d1(db), { objectId: 'crowdF', kind: 'crowd', instanceId: null, projectId: 'P1', createdBy: 'owner1', now: 1 });
+  await stampDriveObject(d1(db), { objectId: 'crowdText', kind: 'text', docId: 'cs1', instanceId: null, projectId: 'P1', createdBy: 'owner1', now: 1 });
+  await moveDriveObjectContainer(d1(db), { folderId: 'crowdF', projectId: 'P2' });
+  const p = (oid) => db.prepare('SELECT project_id FROM drive_object WHERE object_id=?').get(oid).project_id;
+  ok(p('crowdF') === 'P2', 'the crowd folder row moved');
+  ok(p('crowdText') === 'P1', 'its submission rows stay put (no instance key) — healed by the backfill, honestly not synced here');
 }
 
 console.log(fail ? `\n${fail} FAILED\n` : '\nPASS\n');

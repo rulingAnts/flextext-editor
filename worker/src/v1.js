@@ -14,7 +14,7 @@
 
 import { secAlert, secLog, sendEmail } from './seclog.js';
 import { teardownUnmigratedProjectRows } from './project-teardown.js';
-import { stampDriveObject, deriveDriveObjectRows } from './drive-object.js';
+import { stampDriveObject, deriveDriveObjectRows, moveDriveObjectText, moveDriveObjectContainer } from './drive-object.js';
 
 /* ---------------- crypto + helpers ---------------- */
 
@@ -1095,20 +1095,34 @@ async function driveReparent(access, fileId, toFolder, oldParents) {
  * return trip needs explicit code because driveEnsureTextFolder resolves a folder by id/tag and
  * NEVER by parent, so a text that came back to a device would otherwise live in Unassigned forever.
  * `want` is null for "no change" (old engines send no done-ness at all). */
-async function driveTextHousekeeping(access, folderId, { want = null, deviceFolder = '', title = '' } = {}) {
+async function driveTextHousekeeping(access, folderId, { want = null, deviceFolder = '', title = '', env = null, ownerId = '', instanceId = '', projectId = null } = {}) {
   if (!folderId) return;
   try {
     const cur = await driveJson(access, 'GET',
       'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(folderId) + '?fields=id,name,parents,appProperties');
     const props = cur.appProperties || {};
-    // RETURN TRIP: only ever moves it OUT of Unassigned, never re-files a folder the researcher
-    // deliberately put somewhere else in their own Drive.
+    /* RETURN TRIP: only ever moves it OUT of Unassigned, never re-files a folder the researcher
+     * deliberately put somewhere else in their own Drive.
+     *
+     * ⚠ THE TAG IS THE WHOLE AUTHORITY HERE, so its write side must be honest: `'1'` means "the
+     * SWEEP filed this while the device still held it", and drive-unassign now clears it on a
+     * researcher-DIRECTED (forceProject) filing precisely so this trip cannot undo an explicit
+     * cross-project move — which it did, on every upload of an unsynced text, with every response
+     * reporting success (issue #13). If this check ever reads anything but the tag, re-derive that
+     * distinction first. */
     if (deviceFolder && !(cur.parents || []).includes(deviceFolder)) {
       const unassigned = props.flextextUnassigned === '1';
       if (unassigned) {
         await driveReparent(access, folderId, deviceFolder, cur.parents);
         await driveJson(access, 'PATCH', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(folderId) + '?fields=id',
           { appProperties: { flextextUnassigned: '' } });
+        /* The return is a MOVE like any other: the doc's drive_object rows come home to the device
+         * (its project rides along). Same best-effort contract as the rest of this function — the
+         * doc id comes off the folder's own tag, so no extra read. */
+        const docId = props.flextextDoc || '';
+        if (env && ownerId && docId) {
+          await moveDriveObjectText(env.DB, { docId, ownerId, projectId: projectId || null, instanceId: instanceId || null });
+        }
       }
     }
     if (want === null) return;
@@ -3346,27 +3360,41 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       } catch { /* flat estate — no projects */ }
       const containerProject = new Map();          // container folder id -> project folder id ('' = flat)
       const unassignedFor = new Map();             // project folder id -> its Unassigned folder id
+      /* Returns BOTH the Unassigned folder to file into and the project folder it belongs to — the
+       * second is what the D1 sync below keys on, so it must come from the same resolution rather
+       * than being re-derived (two derivations is how Drive and D1 drift). */
       const targetFor = async (containerId) => {
-        if (forceProject) {
-          if (!unassignedFor.has(forceProject)) unassignedFor.set(forceProject, await driveUnassignedFolder(env, access, forceProject, r.researcher_id));
-          return unassignedFor.get(forceProject);
+        let proj;
+        if (forceProject) proj = forceProject;
+        else if (!projectFolders.size) proj = '';
+        else {
+          if (!containerProject.has(containerId)) {
+            let p = '';
+            try {
+              const c = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(containerId) + '?fields=id,parents');
+              const up = (c.parents || [])[0] || '';
+              p = projectFolders.has(up) ? up : '';
+            } catch { p = ''; }
+            containerProject.set(containerId, p);
+          }
+          proj = containerProject.get(containerId);
         }
-        if (!projectFolders.size) {
-          if (!unassignedFor.has('')) unassignedFor.set('', await driveUnassignedFolder(env, access, '', r.researcher_id));
-          return unassignedFor.get('');
-        }
-        if (!containerProject.has(containerId)) {
-          let proj = '';
-          try {
-            const c = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(containerId) + '?fields=id,parents');
-            const up = (c.parents || [])[0] || '';
-            proj = projectFolders.has(up) ? up : '';
-          } catch { proj = ''; }
-          containerProject.set(containerId, proj);
-        }
-        const proj = containerProject.get(containerId);
         if (!unassignedFor.has(proj)) unassignedFor.set(proj, await driveUnassignedFolder(env, access, proj, r.researcher_id));
-        return unassignedFor.get(proj);
+        return { target: unassignedFor.get(proj), projFolder: proj };
+      };
+      /* The D1 project a filing lands under — one lookup per distinct project folder, through the
+       * binding (no subrequest). '' (flat) and an unknown folder both resolve to NULL, which fails
+       * closed for members. Owner-scoped: a caller-supplied folder id belonging to someone else's
+       * project must resolve to nothing, not to their project. */
+      const pidCache = new Map();
+      const pidOf = async (projFolder) => {
+        if (!projFolder) return null;
+        if (!pidCache.has(projFolder)) {
+          const prow = await env.DB.prepare('SELECT project_id FROM project WHERE drive_folder_id=? AND owner_id=?')
+            .bind(projFolder, r.researcher_id).first().catch(() => null);
+          pidCache.set(projFolder, (prow && prow.project_id) || null);
+        }
+        return pidCache.get(projFolder);
       };
       /* ⚠ BOUNDED BELOW THE SUBREQUEST CAP — this route accepted 200 docIds and spent up to THREE
        * Drive subrequests on each (tag search + re-parent PATCH + tag PATCH). That is ~600 against a
@@ -3379,8 +3407,19 @@ export async function handleV1(request, env, ctx, url, path, origin) {
        * caller drains `remainingIds` on its next sweep; the route is idempotent, so re-sending an
        * id that already moved costs one search and does nothing. */
       // 10, down from 12: the per-text work is unchanged at 3 subrequests, but the project/container
-      // resolution above costs a few more up front. 10x3 + ~6 = 36, still clear of the ~50 ceiling.
+      // resolution above costs a few more up front. 10x3 + ~6 + the echo budget's 4 = 40, still
+      // clear of the ~50 ceiling. (pidOf and the drive_object sync ride the D1 binding — free.)
       const CAP = 10, BUDGET_MS = 9000;
+      /* ⚠ THE TAG SEARCH IS EVENTUALLY CONSISTENT, and `if (!f) continue` used to swallow the miss
+       * SILENTLY — the text was neither moved nor reported, the response said success, and the
+       * researcher's explicit cross-project move did nothing (issue #13's first symptom: "the folder
+       * has not moved"). files.get BY ID is strongly consistent (the v167 dedupe-contract lesson),
+       * so a client that knows the folder id can echo it in `body.folders` {docId: folderId} and the
+       * filing survives the index lag. Bounded to 4 echo GETs per call to stay under the subrequest
+       * ceiling; anything still unfound is REPORTED in `skipped` rather than swallowed. */
+      const folderEcho = (body.folders && typeof body.folders === 'object' && !Array.isArray(body.folders)) ? body.folders : {};
+      let echoBudget = 4;
+      const skipped = [];
       const started = Date.now();
       let moved = 0, i = 0;
       for (; i < ids.length && i < CAP && (Date.now() - started) < BUDGET_MS; i++) {
@@ -3388,25 +3427,48 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         try {
           const q = encodeURIComponent(`appProperties has { key='flextextDoc' and value='${id}' } and mimeType='application/vnd.google-apps.folder' and trashed=false`);
           const found = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files?spaces=drive&orderBy=createdTime&fields=files(id,parents)&q=' + q);
-          const f = (found.files || [])[0];
-          if (!f) continue;                                  // no folder (legacy text) — nothing to move
-          const target = await targetFor((f.parents || [])[0] || '');
-          if (!target) continue;
+          let f = (found.files || [])[0];
+          if (!f) {
+            const echoed = String(folderEcho[id] || '').replace(/[^\w-]/g, '').slice(0, 128);
+            if (echoed && echoBudget > 0) {
+              echoBudget--;
+              try {
+                const g = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(echoed) + '?fields=id,parents,trashed,appProperties');
+                // Trust but verify: the echoed id must actually BE this doc's folder, not any id the
+                // client happens to hold.
+                if (g && !g.trashed && (g.appProperties || {}).flextextDoc === id) f = { id: g.id, parents: g.parents };
+              } catch { /* echo miss — falls through to skipped */ }
+            }
+          }
+          if (!f) { skipped.push(id); continue; }            // no folder found (legacy text, or index lag with no echo)
+          const { target, projFolder } = await targetFor((f.parents || [])[0] || '');
+          if (!target) { skipped.push(id); continue; }
+          /* D1 sync FIRST and unconditionally — even an already-filed folder can carry a stale
+           * drive_object row (filings made before this sync existed). Idempotent, no subrequest.
+           * instanceId null: an unassigned text belongs to no device. */
+          await moveDriveObjectText(env.DB, { docId: id, ownerId: r.researcher_id,
+                                              projectId: await pidOf(projFolder), instanceId: null });
           if ((f.parents || []).includes(target)) continue;   // already there — idempotent
           await driveReparent(access, f.id, target, f.parents);
-          // Tagged so the RETURN trip can tell "we swept this" from "the researcher filed it here".
+          /* ⚠ THE TAG SAYS "SWEPT", NOT "UNASSIGNED" — and stamping it on researcher-directed
+           * filings too is exactly what made issue #13: driveTextHousekeeping's return trip reads
+           * the tag as "we swept this while the device still held it" and moves the folder BACK
+           * under the device on its next upload, silently undoing an explicit cross-project move.
+           * So a forceProject filing CLEARS the tag (the researcher chose this home; nothing may
+           * "return" it), and only the per-text sweep stamps it. */
           await driveJson(access, 'PATCH', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(f.id) + '?fields=id',
-            { appProperties: { flextextUnassigned: '1' } });
+            { appProperties: { flextextUnassigned: forceProject ? '' : '1' } });
           moved++;
         } catch { /* one text failing must not abort the sweep */ }
       }
       // A COUNT plus the ids, matching drive-purge and the trash route so a caller can loop on
-      // `remaining` without learning a third convention.
+      // `remaining` without learning a third convention. `skipped` (additive, v445 clients) lists
+      // ids that were CONSUMED but not moved — retry those WITH a folder echo, don't just re-send.
       const remainingIds = ids.slice(i);
       // `folderId` kept for shipped clients: with several projects there is no single target, so it
       // reports the first one used. Nothing reads it as authoritative.
       return j({ moved, folderId: [...unassignedFor.values()][0] || '',
-                 remaining: remainingIds.length, remainingIds }, 200, origin, env);
+                 remaining: remainingIds.length, remainingIds, skipped }, 200, origin, env);
     } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
   }
 
@@ -3459,19 +3521,27 @@ export async function handleV1(request, env, ctx, url, path, origin) {
          * folder minted RIGHT HERE may not exist yet (reconcileProjects writes it on the next panel
          * load) — stamping with a NULL project_id is the honest state, and the reconcile/backfill
          * upserts the join later. */
-        {
-          const prow = await env.DB.prepare('SELECT project_id, owner_id FROM project WHERE drive_folder_id=?')
-            .bind(target).first().catch(() => null);
-          await stampFolder(env, { objectId: target, kind: 'project', instanceId: null,
-                                   projectId: (prow && prow.project_id) || null, createdBy: r.researcher_id });
-        }
+        // The D1 project the containers are moving INTO — one owner-scoped lookup serves the stamp
+        // AND the per-container sync below. A freshly minted target folder has no row yet
+        // (reconcileProjects writes it next panel load), so NULL is the honest interim and the
+        // backfill corrects it.
+        const targetRow = await env.DB.prepare('SELECT project_id FROM project WHERE drive_folder_id=? AND owner_id=?')
+          .bind(target, r.researcher_id).first().catch(() => null);
+        const targetPid = (targetRow && targetRow.project_id) || null;
+        await stampFolder(env, { objectId: target, kind: 'project', instanceId: null,
+                                 projectId: targetPid, createdBy: r.researcher_id });
         /* Bounded like every Drive loop here: one PATCH per container, plus the handful above. A real
          * estate has a few containers, so a single pass finishes — but `remaining` exists so an
          * unusually large one drains over successive calls rather than dying halfway. */
         const CAP = 20;
         let moved = 0, i = 0;
         for (; i < movers.length && i < CAP; i++) {
-          try { await driveReparent(access, movers[i].id, target, movers[i].parents); moved++; }
+          try {
+            await driveReparent(access, movers[i].id, target, movers[i].parents); moved++;
+            // Move-sync: the container's drive_object rows (and, for a device, its whole subtree)
+            // follow it into the project. Per moved container, inside the same try.
+            await moveDriveObjectContainer(env.DB, { folderId: movers[i].id, projectId: targetPid });
+          }
           catch { /* one container failing must not abort the rest */ }
         }
         await logApproval(env, request, 'projects_migrate', 'default', moved + ' container(s)', r.drive_email);
@@ -3495,7 +3565,12 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       }
       let moved = 0, i = 0; const movedIds = [];
       for (; i < back.length && i < 20; i++) {
-        try { await driveReparent(access, back[i].id, master, back[i].parents); moved++; movedIds.push(back[i].id); }
+        try {
+          await driveReparent(access, back[i].id, master, back[i].parents); moved++; movedIds.push(back[i].id);
+          // Move-sync, the reverse direction: back under master = in no project. NULL fails closed
+          // for members, which is exactly right for a container that just left the project model.
+          await moveDriveObjectContainer(env.DB, { folderId: back[i].id, projectId: null });
+        }
         catch { /* keep going */ }
       }
       /* Trash the project folder only when it is EMPTY — never with anything still inside. Trash is
@@ -3631,6 +3706,9 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           env.DB.prepare('UPDATE crowd_recorder SET project_id=? WHERE oauth_folder_id=? AND researcher_id=?')
             .bind(newPid, folderId, r.researcher_id),
         ]);
+        // The drive_object rows are part of the same act: the container's row plus (for a device)
+        // everything the instance owns — texts, originals, files — re-home in one indexed UPDATE.
+        await moveDriveObjectContainer(env.DB, { folderId, projectId: newPid });
       } catch (e2) { try { console.warn('project_id not updated for', folderId, safeErr(e2)); } catch { /* noop */ } }
       await logApproval(env, request, 'project_assign', src.name || folderId, projectFolderId, r.drive_email);
       return j({ ok: true, folderId, projectFolderId }, 200, origin, env);
@@ -4382,6 +4460,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           if (!(f.parents || []).includes(toFolder)) await driveReparent(access, f.id, toFolder, f.parents);
           await driveJson(access, 'PATCH', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(f.id) + '?fields=id',
             { appProperties: { flextextUnassigned: '' } });
+          // Move-sync: the doc's drive_object rows come out of Unassigned onto the adopting device,
+          // in its project (ctx authorized exactly that instance, so ctx.project_id IS the target's).
+          await moveDriveObjectText(env.DB, { docId, ownerId: r.researcher_id,
+                                              projectId: ctx.project_id || null, instanceId: to.instance_id });
         }
         // Same private, time-boxed streaming tokens the move flow mints — the device downloads
         // through /v1/textfile exactly as it would for any assignment.
@@ -4405,7 +4487,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       if (!docId || !toId || toId === instanceId) return j({ error: 'bad_move' }, 400, origin, env);
       const from = await env.DB.prepare('SELECT instance_id, nickname, oauth_folder_id FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
         .bind(instanceId, r.researcher_id).first();
-      const to = await env.DB.prepare('SELECT instance_id, nickname, oauth_folder_id FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
+      const to = await env.DB.prepare('SELECT instance_id, nickname, oauth_folder_id, project_id FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
         .bind(toId, r.researcher_id).first();
       if (!from || !to) return j({ error: 'not_found' }, 404, origin, env);
       try {
@@ -4422,6 +4504,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           await driveJson(access, 'PATCH', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(f.id)
             + '?addParents=' + encodeURIComponent(toFolder) + (oldParents ? '&removeParents=' + encodeURIComponent(oldParents) : '') + '&fields=id');
           movedFolder = true;
+          // Move-sync: the doc re-homes to the DESTINATION device and its project — which may be a
+          // different project (a cross-project device-to-device move is legal for one owner).
+          await moveDriveObjectText(env.DB, { docId, ownerId: r.researcher_id,
+                                              projectId: to.project_id || null, instanceId: to.instance_id });
         }
         // Streaming tokens (default 90-day TTL) for whatever content the panel identified. Opaque
         // + time-boxed, bound to this researcher; the /v1/textfile endpoint validates and streams.
@@ -4653,7 +4739,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         if (!install) return j({ error: 'unauthorized' }, 401, origin, env);
         if (install.status !== 'approved') return j({ error: 'not_approved' }, 403, origin, env);
         const inst = await env.DB.prepare(
-          'SELECT i.nickname AS inst_nickname, i.oauth_folder_id AS inst_folder, i.revoked AS inst_revoked, r.* FROM instance i JOIN researcher r ON r.researcher_id=i.researcher_id WHERE i.instance_id=?'
+          'SELECT i.nickname AS inst_nickname, i.oauth_folder_id AS inst_folder, i.revoked AS inst_revoked, i.project_id AS inst_project, r.* FROM instance i JOIN researcher r ON r.researcher_id=i.researcher_id WHERE i.instance_id=?'
         ).bind(instanceId).first();
         if (!inst || inst.inst_revoked) return j({ error: 'revoked' }, 410, origin, env);
         if (!inst.drive_refresh_enc) return j({ error: 'no_drive' }, 409, origin, env);
@@ -4679,9 +4765,11 @@ export async function handleV1(request, env, ctx, url, path, origin) {
            * folder. ctx.waitUntil lets it finish AFTER the response, so a failure or a slow Drive
            * costs the upload nothing. Absent => null => no change (old engines send nothing). */
           if (body.docId && body.sub !== 'originals') {
+            // env + identity ride along so a return trip can sync the doc's drive_object rows home.
             ctx.waitUntil(driveTextHousekeeping(access, textFolder, {
               want: body.done === '1' ? true : body.done === '0' ? false : null,
-              deviceFolder, title: body.docTitle }));
+              deviceFolder, title: body.docTitle,
+              env, ownerId: inst.researcher_id, instanceId, projectId: inst.inst_project || null }));
           }
           // Same v2 source-package routing as the single-POST path: `sub` picks the originals/
           // child, `role` becomes the tag consumers match on instead of the filename.
@@ -4740,7 +4828,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         if (!install) return j({ error: 'unauthorized' }, 401, origin, env);
         if (install.status !== 'approved') return j({ error: 'not_approved' }, 403, origin, env);
         const inst = await env.DB.prepare(
-          'SELECT i.nickname AS inst_nickname, i.oauth_folder_id AS inst_folder, i.revoked AS inst_revoked, r.* FROM instance i JOIN researcher r ON r.researcher_id=i.researcher_id WHERE i.instance_id=?'
+          'SELECT i.nickname AS inst_nickname, i.oauth_folder_id AS inst_folder, i.revoked AS inst_revoked, i.project_id AS inst_project, r.* FROM instance i JOIN researcher r ON r.researcher_id=i.researcher_id WHERE i.instance_id=?'
         ).bind(instanceId).first();
         if (!inst || inst.inst_revoked) return j({ error: 'revoked' }, 410, origin, env);
         if (!inst.drive_refresh_enc) return j({ error: 'no_drive' }, 409, origin, env);   // → relay fallback
@@ -4777,7 +4865,8 @@ export async function handleV1(request, env, ctx, url, path, origin) {
             // waitUntil, not await: see the chunked path — cosmetic work never blocks an upload.
             const hd = url.searchParams.get('done');
             ctx.waitUntil(driveTextHousekeeping(access, textFolder, {
-              want: hd === '1' ? true : hd === '0' ? false : null, deviceFolder, title: docTitle }));
+              want: hd === '1' ? true : hd === '0' ? false : null, deviceFolder, title: docTitle,
+              env, ownerId: inst.researcher_id, instanceId, projectId: inst.inst_project || null }));
           }
           const folder = (sub === 'originals' && docId)
             ? await driveEnsureChildFolder(access, textFolder, 'originals', 'originals')

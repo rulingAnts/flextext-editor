@@ -26,6 +26,17 @@ WRANGLER_VERSION="${WRANGLER_VERSION:-4.118.0}"
 LOG="$(mktemp -t flextext-rig-XXXX.log)"
 KEEP=0; [ "${1:-}" = "--keep" ] && KEEP=1
 
+# ⚠ REFUSE TO START OVER A STALE WORKER. A --keep worker from an earlier session still bound to
+# :8787 answers some of this run's probes with ITS state — and this run just wiped the D1 files out
+# from under it, so it answers them with 500s. The failure reads as ~27 unrelated route breakages
+# (2026-08-26: a full debugging cycle spent proving fresh edits innocent). Fail loudly instead;
+# killing another process is the operator's call, not a test script's.
+if lsof -nP -iTCP:8787 -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "FATAL: something is already listening on :8787 (a stale --keep worker?)." >&2
+  echo "       pkill -f 'wrangler dev'; pkill -f workerd   # then re-run" >&2
+  exit 1
+fi
+
 cleanup() {
   if [ "$KEEP" = "0" ] && [ -n "${WPID:-}" ]; then kill "$WPID" 2>/dev/null || true; fi
 }

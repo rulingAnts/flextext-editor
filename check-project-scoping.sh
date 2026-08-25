@@ -267,6 +267,33 @@ for helper in driveEnsureTextFolder driveEnsureChildFolder driveEnsureDefaultPro
   fi
 done
 
+# 7. MOVE ⟹ SYNCED (drive-object.js move helpers). Every Drive re-parent the worker performs must
+#    update the drive_object rows it moved, or resolveDriveObject authorizes against the project the
+#    object just LEFT — stale in the dangerous direction (and the D1 half of issue #13). Two shapes
+#    of re-parent exist: driveReparent() calls, and the one inline addParents= PATCH in /move.
+#    Each must have a moveDriveObjectText/Container within 10 lines before or 22 after (the
+#    drive-unassign sync deliberately runs BEFORE its re-parent; projects/assign's sits after a
+#    batch). driveTextHousekeeping's own body and the driveReparent definition are the exemptions.
+#    Site enumeration: every driveReparent(access…) CALL — the definition is excluded BY NAME,
+#    because its first parameter is also `access` (the first version of this check assumed the
+#    signature differed and flagged the definition itself) — plus /move's inline addParents PATCH
+#    found by its own `movedFolder = true` marker; that marker is load-bearing for this check, so
+#    renaming it must update both.
+syncmiss=0; synctotal=0
+while IFS= read -r ln; do
+  [ -z "$ln" ] && continue
+  synctotal=$((synctotal + 1))
+  from=$((ln - 10)); [ "$from" -lt 1 ] && from=1
+  if ! sed -n "${from},$((ln + 22))p" "$W" | grep -q "moveDriveObjectText\|moveDriveObjectContainer"; then
+    syncmiss=$((syncmiss + 1)); say FAIL "  re-parent at line $ln has no drive_object move-sync within its window"
+  fi
+done < <(grep -n "driveReparent(access\|movedFolder = true" "$W" | grep -v "function driveReparent" | cut -d: -f1)
+if [ "$synctotal" -ge 7 ] && [ "$syncmiss" = 0 ]; then
+  good ok "every Drive re-parent syncs drive_object in the same act ($synctotal site(s))"
+else
+  bad x "⚠ $syncmiss re-parent site(s) never sync drive_object (or the site count collapsed: $synctotal, expected ≥7) — project_id goes stale on move"
+fi
+
 echo
 if [ "$fail" = 0 ]; then echo "PASS — project data is reachable only through a resolved grant."; else echo "FAILED"; fi
 exit "$fail"

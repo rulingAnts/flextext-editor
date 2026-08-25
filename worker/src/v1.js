@@ -1041,7 +1041,7 @@ function buildDriveEstate(files) {
  * whichever device used to have it, which is simply false to anyone browsing Drive. Same philosophy
  * as originals/ and the "(done)" suffix: the folder tree should describe the truth without our
  * tools. Tagged like every other structural folder so it is found by role, not by name. */
-async function driveUnassignedFolder(access, projectFolderId) {
+async function driveUnassignedFolder(env, access, projectFolderId, createdBy) {
   /* ⚠ ONE PER PROJECT, NOT ONE PER ACCOUNT — and this had to change in the SAME commit as the
    * project layer, never after it. The previous version searched globally for role='unassigned' and
    * took the first hit; with a folder per project that is an ARBITRARY project's folder, so the
@@ -1052,14 +1052,29 @@ async function driveUnassignedFolder(access, projectFolderId) {
    * With no project folder (the flat estate) the parent is master and the behaviour is exactly what
    * it was. */
   const parent = projectFolderId || await driveMasterFolder(access);
-  const q = encodeURIComponent(`'${parent}' in parents and appProperties has { key='flextextRole' and value='unassigned' } and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+  /* The D1 project this folder is authorized under — resolved from the JOIN column, never from the
+   * folder name. NULL (flat estate, or a Drive folder with no D1 row yet) fails closed for members
+   * and is healed by the backfill; see drive-object.js. */
+  const prow = projectFolderId
+    ? await env.DB.prepare('SELECT project_id FROM project WHERE drive_folder_id=?').bind(projectFolderId).first().catch(() => null)
+    : null;
+  const projectId = (prow && prow.project_id) || null;
   try {
+    const q = encodeURIComponent(`'${parent}' in parents and appProperties has { key='flextextRole' and value='unassigned' } and mimeType='application/vnd.google-apps.folder' and trashed=false`);
     const found = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files?spaces=drive&orderBy=createdTime&fields=files(id)&q=' + q);
-    if (found.files && found.files.length) return found.files[0].id;
+    if (found.files && found.files.length) {
+      /* Re-stamp the found folder too, not just a created one: an Unassigned minted before this
+       * function stamped (or by an older worker) self-heals on first touch instead of waiting for
+       * an operator backfill. One D1 upsert; location fields refresh, creation facts persist. */
+      await stampFolder(env, { objectId: found.files[0].id, kind: 'unassigned', instanceId: null, projectId, createdBy: createdBy || null });
+      return found.files[0].id;
+    }
   } catch { /* fall through to create */ }
   const f = await driveJson(access, 'POST', 'https://www.googleapis.com/drive/v3/files?fields=id',
     { name: 'Unassigned', mimeType: 'application/vnd.google-apps.folder',
       parents: [parent], appProperties: { flextextRole: 'unassigned' } });
+  // Creation ⟹ stamped (drive-object.js). The one place account-level Unassigned folders are born.
+  await stampFolder(env, { objectId: f.id, kind: 'unassigned', instanceId: null, projectId, createdBy: createdBy || null });
   return f.id;
 }
 
@@ -1905,6 +1920,10 @@ async function backfillProjectsFor(env, row, now) {
       if (driveFolder) {
         await env.DB.prepare('UPDATE project SET drive_folder_id=? WHERE project_id=? AND drive_folder_id IS NULL')
           .bind(driveFolder, project.project_id).run();
+        // Creation ⟹ stamped: the lazy mint is how every NEW account gets its first project folder,
+        // so a hole here re-opens on every signup. Upsert — re-running heals, never duplicates.
+        await stampFolder(env, { objectId: driveFolder, kind: 'project', instanceId: null,
+                                 projectId: project.project_id, createdBy: row.researcher_id });
       }
     } catch { driveFolder = null; }   // no Drive, or Drive unwell — the D1 half still stands
   }
@@ -3329,11 +3348,11 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       const unassignedFor = new Map();             // project folder id -> its Unassigned folder id
       const targetFor = async (containerId) => {
         if (forceProject) {
-          if (!unassignedFor.has(forceProject)) unassignedFor.set(forceProject, await driveUnassignedFolder(access, forceProject));
+          if (!unassignedFor.has(forceProject)) unassignedFor.set(forceProject, await driveUnassignedFolder(env, access, forceProject, r.researcher_id));
           return unassignedFor.get(forceProject);
         }
         if (!projectFolders.size) {
-          if (!unassignedFor.has('')) unassignedFor.set('', await driveUnassignedFolder(access, ''));
+          if (!unassignedFor.has('')) unassignedFor.set('', await driveUnassignedFolder(env, access, '', r.researcher_id));
           return unassignedFor.get('');
         }
         if (!containerProject.has(containerId)) {
@@ -3346,7 +3365,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           containerProject.set(containerId, proj);
         }
         const proj = containerProject.get(containerId);
-        if (!unassignedFor.has(proj)) unassignedFor.set(proj, await driveUnassignedFolder(access, proj));
+        if (!unassignedFor.has(proj)) unassignedFor.set(proj, await driveUnassignedFolder(env, access, proj, r.researcher_id));
         return unassignedFor.get(proj);
       };
       /* ⚠ BOUNDED BELOW THE SUBREQUEST CAP — this route accepted 200 docIds and spent up to THREE
@@ -3436,6 +3455,16 @@ export async function handleV1(request, env, ctx, url, path, origin) {
                      wouldCreateProject: !projectFolder, moves: plan, count: plan.length }, 200, origin, env);
         }
         const target = projectFolder || await driveEnsureDefaultProject(access, body.name);
+        /* Creation ⟹ stamped, and self-healing for a pre-existing folder. The D1 project row for a
+         * folder minted RIGHT HERE may not exist yet (reconcileProjects writes it on the next panel
+         * load) — stamping with a NULL project_id is the honest state, and the reconcile/backfill
+         * upserts the join later. */
+        {
+          const prow = await env.DB.prepare('SELECT project_id, owner_id FROM project WHERE drive_folder_id=?')
+            .bind(target).first().catch(() => null);
+          await stampFolder(env, { objectId: target, kind: 'project', instanceId: null,
+                                   projectId: (prow && prow.project_id) || null, createdBy: r.researcher_id });
+        }
         /* Bounded like every Drive loop here: one PATCH per container, plus the handful above. A real
          * estate has a few containers, so a single pass finishes — but `remaining` exists so an
          * unusually large one drains over successive calls rather than dying halfway. */
@@ -3514,24 +3543,31 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     const body = await readJson(request) || {};
     const name = String(body.name || '').replace(/[\\/:*?"<>|]+/g, '_').trim().slice(0, 120);
     if (!name) return j({ error: 'bad_body' }, 400, origin, env);
+    /* ⚠ ONE ACT WRITES ALL THREE — the Drive folder, the D1 project row, and the drive_object
+     * stamp — which is what keeps the namespaces from drifting. The Drive folder holds the bytes;
+     * the D1 row is what `project_member`, `member_key` and `instance.project_id` key on; the
+     * stamp is what per-project Drive authorization resolves. Creating one without the others is
+     * how they got out of step in the first place — every Drive project folder in production
+     * predating the join had no D1 row at all.
+     *
+     * ⚠ THE D1 WRITES ARE NOT ALLOWED TO FAIL THE REQUEST. The folder exists the moment the POST
+     * returns; throwing after that would leave the user a project they can see in Drive and an
+     * error on screen, and a retry would mint a SECOND folder. A missing row/stamp is recoverable
+     * by the idempotent backfill; a duplicate folder is not recoverable at all. */
     try {
       const access = await driveAccessToken(env, r);
       const f = await driveJson(access, 'POST', 'https://www.googleapis.com/drive/v3/files?fields=id',
         { name, mimeType: 'application/vnd.google-apps.folder',
           parents: [await driveMasterFolder(access)],
           appProperties: { flextextRole: 'project' } });
-      /* ⚠ ONE ACT WRITES BOTH, which is what keeps the two namespaces from drifting. The Drive
-       * folder holds the bytes; the D1 row is what `project_member`, `member_key` and
-       * `instance.project_id` key on. Creating one without the other is how they got out of step in
-       * the first place — every Drive project folder in production today has no D1 row at all.
-       *
-       * ⚠ THE D1 WRITE IS NOT ALLOWED TO FAIL THE REQUEST. The folder already exists at this point;
-       * throwing here would leave the user with a project they can see in Drive and an error on
-       * screen, and a retry would mint a SECOND folder. A missing row is recoverable by the
-       * idempotent backfill; a duplicate folder is not recoverable at all. */
       try {
+        const project_id = crypto.randomUUID();
         await env.DB.prepare('INSERT INTO project (project_id, owner_id, name, created_at, drive_folder_id) VALUES (?,?,?,?,?)')
-          .bind(crypto.randomUUID(), r.researcher_id, name, now, f.id).run();
+          .bind(project_id, r.researcher_id, name, now, f.id).run();
+        // Creation ⟹ stamped (drive-object.js). If the INSERT threw we skip this too — the
+        // backfill heals both halves together from parentage.
+        await stampFolder(env, { objectId: f.id, kind: 'project', instanceId: null,
+                                 projectId: project_id, createdBy: r.researcher_id });
       } catch (e2) { try { console.warn('project row not written for', f.id, safeErr(e2)); } catch { /* noop */ } }
       await logApproval(env, request, 'project_created', name, f.id, r.drive_email);
       return j({ ok: true, folderId: f.id, name }, 200, origin, env);
@@ -5037,7 +5073,19 @@ export async function handleV1(request, env, ctx, url, path, origin) {
               { name, mimeType: 'application/vnd.google-apps.folder', parents: [wantProject],
                 appProperties: { flextextRole: 'crowd' } });
             folderId = f.id;
-            await env.DB.prepare('UPDATE crowd_recorder SET oauth_folder_id=? WHERE crowd_id=?').bind(f.id, crowd_id).run();
+            /* ⚠ THE D1 PROJECT RIDES ALONG WITH THE FOLDER (invariant I3, same one act as
+             * projects/assign). This INSERT used to leave crowd_recorder.project_id NULL even when
+             * born into a chosen project — so authMember's { crowd } target would have authorized
+             * it through the legacy owner branch forever, and drive_object had no row for the new
+             * folder at all. Owner-scoped lookup: wantProject is caller-supplied, and a folder id
+             * belonging to someone else's project must resolve to nothing, not to their project. */
+            const prow = await env.DB.prepare('SELECT project_id FROM project WHERE drive_folder_id=? AND owner_id=?')
+              .bind(wantProject, r.researcher_id).first().catch(() => null);
+            await env.DB.prepare('UPDATE crowd_recorder SET oauth_folder_id=?, project_id=? WHERE crowd_id=?')
+              .bind(f.id, (prow && prow.project_id) || null, crowd_id).run();
+            // Creation ⟹ stamped (drive-object.js) — the eager twin of driveEnsureCrowdFolder's stamp.
+            await stampFolder(env, { objectId: f.id, kind: 'crowd', instanceId: null,
+                                     projectId: (prow && prow.project_id) || null, createdBy: r.researcher_id });
           }
         } catch { /* the recorder exists; its folder can still be made lazily */ }
       }

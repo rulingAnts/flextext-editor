@@ -200,6 +200,73 @@ for act in wipe force-remove; do
   fi
 done
 
+# 6. CREATION ⟹ STAMPED (drive-object.js). Phase 3 authorizes Drive objects by their drive_object
+#    row, so a folder the worker creates WITHOUT stamping becomes invisible to that authorization —
+#    a fail-closed hole a member hits as "denied with no way to reach it", healed only by an
+#    operator backfill nobody knows is needed. Two shapes to pin:
+#
+#    a) Every INLINE folder-creation POST must have a stampFolder/stampChild within 15 lines after
+#       it. Exempt, by name and for a reason:
+#         driveMasterFolder      — the master is not a project object (the backfill skips it too)
+#         driveSelfTest          — creates-and-deletes an ephemeral probe folder
+#         driveEnsureTextFolder / driveEnsureChildFolder / driveEnsureDefaultProject /
+#         driveEnsureDeviceFolder — helpers; they lack instance/project context, so their CALLERS
+#         stamp (checked in b). driveEnsureDeviceFolder and driveUnassignedFolder stamp inside.
+#    b) Every CALL SITE of the caller-stamps helpers must have a stamp within 14 lines after it.
+#
+#    ⚠ The line windows are deliberately tight. If a legitimate stamp ends up further away,
+#    restructure the code to keep creation and stamp adjacent — distance is how the invariant rots.
+creations=$(grep -n "driveJson(access, 'POST', 'https://www.googleapis.com/drive/v3/files?fields=id'" "$W" | cut -d: -f1)
+unstamped=0; stamped_inline=0
+for ln in $creations; do
+  # Only folder creations: the metadata body names the folder mimeType within the next 4 lines.
+  if ! sed -n "${ln},$((ln + 4))p" "$W" | grep -q "vnd.google-apps.folder"; then continue; fi
+  # Which function is this site inside? (nearest preceding function definition)
+  fn=$(awk -v n="$ln" 'NR<=n && /^(async )?function [A-Za-z]/ { f=$0 } END { print f }' "$W" | sed 's/.*function \([A-Za-z0-9_]*\).*/\1/')
+  case "$fn" in
+    driveMasterFolder|driveSelfTest|driveEnsureTextFolder|driveEnsureChildFolder|driveEnsureDefaultProject) continue ;;
+  esac
+  if sed -n "${ln},$((ln + 15))p" "$W" | grep -q "stampFolder\|stampChild"; then
+    stamped_inline=$((stamped_inline + 1))
+  else
+    unstamped=$((unstamped + 1))
+    say FAIL "  folder creation at line $ln (in ${fn:-top level}) has no stamp within 15 lines"
+  fi
+done
+if [ "$unstamped" = 0 ] && [ "$stamped_inline" -ge 4 ]; then
+  good ok "every inline folder creation stamps a drive_object row ($stamped_inline site(s))"
+else
+  bad x "⚠ $unstamped folder creation(s) never stamp drive_object — invisible to per-project authorization (or the sites count collapsed: $stamped_inline)"
+fi
+#    ⚠ THE STAMP MUST NAME THE VARIABLE THE HELPER RETURNED — proximity alone is not enough. The
+#    first version of this loop only required "a stamp within 14 lines", and its own mutation test
+#    caught the hole: deleting the TEXT-folder stamp at a site that also stamps `originals/` two
+#    lines later still passed, because the originals stamp sat inside the window. A guard that a
+#    neighbouring stamp can satisfy guards nothing.
+for helper in driveEnsureTextFolder driveEnsureChildFolder driveEnsureDefaultProject; do
+  miss=0; total=0
+  while IFS= read -r ln; do
+    [ -z "$ln" ] && continue
+    total=$((total + 1))
+    # The variable receiving the helper's return: last `<name> =` on the call line or the two lines
+    # above it (covers `const x = await helper(...)` and the multi-line ternary assignments).
+    from=$((ln - 2)); [ "$from" -lt 1 ] && from=1
+    # ` = [^=]` so a comparison (`sub === 'originals'`) can never read as an assignment — the first
+    # version grabbed `sub` from exactly that and flagged two healthy sites.
+    var=$(sed -n "${from},${ln}p" "$W" | grep -oE '[A-Za-z_][A-Za-z0-9_]* = [^=]' | tail -1 | awk '{print $1}')
+    if [ -z "$var" ]; then
+      miss=$((miss + 1)); say FAIL "  $helper call at line $ln: could not find the receiving variable — check gone stale"
+    elif ! sed -n "${ln},$((ln + 14))p" "$W" | grep -Eq "objectId: ${var}[,.\}]"; then
+      miss=$((miss + 1)); say FAIL "  $helper call at line $ln: no stamp names \`objectId: ${var}\` within 14 lines"
+    fi
+  done < <(grep -n "await ${helper}(" "$W" | grep -v "function ${helper}" | cut -d: -f1)
+  if [ "$total" -ge 1 ] && [ "$miss" = 0 ]; then
+    good ok "$helper: all $total call site(s) stamp the object it returned"
+  else
+    bad x "⚠ $helper: $miss of $total call site(s) never stamp what it returned (0 sites also fails — the helper or this check went stale)"
+  fi
+done
+
 echo
 if [ "$fail" = 0 ]; then echo "PASS — project data is reachable only through a resolved grant."; else echo "FAILED"; fi
 exit "$fail"

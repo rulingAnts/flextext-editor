@@ -6016,6 +6016,11 @@ async function coworkersModal() {
   const body = m.el.querySelector('#rp-share-body');
   let owned = [];
   let selected = '';
+  /* ⚠ A message that must OUTLIVE a repaint. The add flow reports its outcome and then repaints the
+   * member list — but the say() element lives inside the repainted body, so an inline warning shown
+   * before paint() was destroyed by it (browser-verified on the rig: the no-estate warning never
+   * appeared, the one state where the owner most needs telling). paint() re-shows this at its end. */
+  let notice = null;
 
   /* The worker's own error names, turned into sentences that say what to DO. Anything unrecognised
    * falls through to the raw message rather than a generic apology — a message nobody can act on is
@@ -6096,6 +6101,8 @@ async function coworkersModal() {
       const el = body.querySelector('#rp-share-say');
       el.hidden = false; el.className = 'rp-adm-say' + (bad ? ' rp-adm-err' : ''); el.textContent = msg;
     };
+    // A message carried across the repaint (see `notice` above) is shown into the FRESH body here.
+    if (notice) { say(notice.msg, notice.bad); notice = null; }
 
     const sel = body.querySelector('#rp-share-proj');
     if (sel) sel.onchange = () => { selected = sel.value; paint(); };
@@ -6124,14 +6131,25 @@ async function coworkersModal() {
          * estate (folder → project folder → this project), the only join that survives renames. */
         const iids = projectInstanceIds(proj);
         let keyed = null;
-        try { keyed = iids.length ? await Researcher.grantKeysToMember(who, iids) : { granted: 0, failed: 0 }; }
-        catch (e2) { keyed = { granted: 0, failed: 0, err: e2 }; }
+        if (iids.length) {
+          try { keyed = await Researcher.grantKeysToMember(who, iids); }
+          catch (e2) { keyed = { granted: 0, failed: 0, err: e2 }; }
+        } else {
+          /* ⚠ ZERO DEVICES HAS TWO MEANINGS and only one is fine. A genuinely empty project keys
+           * nothing and that is a success; an UNREACHABLE ESTATE (Drive down, offline) also yields
+           * zero — but then devices exist that the member cannot read, behind a cheerful toast.
+           * The estate cache distinguishes them: no devices listed anywhere ⇒ we cannot know. */
+          keyed = { granted: 0, failed: 0, noEstate: !((estateCache && estateCache.devices) || []).length };
+        }
         if (keyed.err && String(keyed.err.message) === 'member_no_pubkey') {
           /* Not an error to bury: the fix is on THEIR side (open the panel once), and until then
-           * the membership is real but blind. Say exactly that. */
-          say(t('panel.share.addedNoKeys', { who }), true);
+           * the membership is real but blind. Say exactly that — via `notice`, which survives the
+           * repaint below. */
+          notice = { msg: t('panel.share.addedNoKeys', { who }), bad: true };
+        } else if (keyed.noEstate) {
+          notice = { msg: t('panel.share.addedNoEstate', { who }), bad: true };
         } else if (keyed.err || keyed.failed) {
-          say(t('panel.share.addedSomeKeys', { who, n: keyed.granted, m: iids.length }), true);
+          notice = { msg: t('panel.share.addedSomeKeys', { who, n: keyed.granted, m: iids.length }), bad: true };
         } else {
           deps.toast(t('panel.share.addedKeyed', { who, n: keyed.granted }), 6000);
         }

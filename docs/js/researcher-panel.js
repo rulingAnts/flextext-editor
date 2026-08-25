@@ -1494,6 +1494,11 @@ async function renderDashboard(prefetched) {
              legacy panel to the Pages editor; on localhost to the dev rig. -->
         <a class="secondary-btn rp-open-editor" href="${esc(HOME.editor)}" target="_blank" rel="noopener noreferrer">${esc(t('panel.dash.openEditor'))}</a>
       </div>
+      ${/* ⚠ Opening the editor does NOT pair it (issue #3): a new researcher clicked this, met an
+          unlinked editor, and reasonably read the link as broken. Say what the button does and
+          what pairing actually takes — one line, only while they have no devices yet (the moment
+          the confusion exists; a researcher with devices knows). */''}
+      ${!insts.length ? `<p class="note">${esc(t('panel.dash.openEditorNote'))}</p>` : ''}
     </div>
     ${renderProjectsCard(estateCache)}
     ${(() => {
@@ -3109,7 +3114,11 @@ async function inviteModal(instanceId) {
       <div class="rp-field"><span>${esc(label)}</span>
         <textarea class="rp-linkbox" readonly rows="2" data-url="${key}">${esc(urls[key])}</textarea>
         <div class="rp-inst-actions"><button class="secondary-btn" data-copy="${key}">${esc(t('panel.invite.copy'))}</button>
-        <button class="link-btn" data-share="${key}">${esc(t('panel.invite.share'))}</button></div></div>`;
+        <button class="link-btn" data-share="${key}">${esc(t('panel.invite.share'))}</button>
+        ${/* Issue #3's honest half: pairing THIS browser is just opening the claim link here — a
+            plain anchor, so it cannot silently skip the settings gate (the invite already passed
+            it) and works exactly like the link a coworker would tap. */''}
+        <a class="link-btn" href="${esc(urls[key])}" target="_blank" rel="noopener noreferrer">${esc(t('panel.invite.openHere'))}</a></div></div>`;
     m.el.querySelector('.modal-card').innerHTML = `
       <h3>${esc(t('panel.invite.title'))}</h3>
       <p class="note">${esc(t('panel.invite.introUnified'))}</p>
@@ -3660,9 +3669,16 @@ async function crowdAction(el) {
 // Create flow mirrors newDeviceModal: ask only for a label, create with safe defaults, then drop
 // straight into the edit modal so the recorder gets its Drive folder before anyone shares the link.
 function newCrowdModal() {
+  /* Same destination note as newDeviceModal (issue #7): born-into-the-tab is real and invisible,
+   * and the crowd dialog was the last place the surprise survived. */
+  const crIntoProject = (currentProject && currentProject !== STRAY_TAB) ? currentProject : '';
+  const crProjName = crIntoProject
+    ? ((((estateCache && estateCache.projects) || []).find((p) => p.folderId === crIntoProject) || {}).name || '')
+    : '';
   const m = modal(`
     <h3>${esc(t('panel.crowd.newTitle'))}</h3>
     <p class="note">${esc(t('panel.crowd.newIntro'))}</p>
+    ${crProjName ? `<p class="note">${esc(t('panel.crowd.intoProject', { name: crProjName }))}</p>` : ''}
     <label class="rp-field"><span>${esc(t('panel.crowd.label'))}</span><input id="rp-cr-label" spellcheck="false" placeholder="${esc(t('panel.crowd.labelPh'))}"></label>
     <button class="primary-btn" data-m="create">${esc(t('panel.crowd.create'))}</button>
     <button class="link-btn" data-m="cancel">${esc(t('panel.set.cancel'))}</button>`);

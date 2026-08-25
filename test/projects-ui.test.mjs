@@ -169,8 +169,12 @@ test('projects UI', async () => {
     const card = fn('function renderProjectsCard');
     /* An interrupted run leaves containers under master. The estate reads that shape correctly, so
      * nothing is broken — but a card that looked finished would hide a job still to do. */
-    ok(/const stray = devices\.filter\(\(d\) => !d\.projectId\)\.length;/.test(card),
-       'containers still outside a project are counted');
+    /* liveDevice() rode in with issue #10: revoked devices leave Drive folders behind, and counting
+     * those told a researcher with zero paired devices they had four. Stray containers are still
+     * counted — but only ones backed by a live pairing (with a raw-count fallback when the estate
+     * carries no live signal at all; see the comment at the filter). */
+    ok(/const stray = devices\.filter\(\(d\) => !d\.projectId && liveDevice\(d\)\)\.length;/.test(card),
+       'containers still outside a project are counted — live-backed ones only (issue #10)');
     ok(/panel\.proj\.stray/.test(card) && /panel\.proj\.finish/.test(card),
        'and reported with a way to finish the job');
   }

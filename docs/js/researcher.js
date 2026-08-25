@@ -1061,6 +1061,11 @@ export function driveTest() { return api('POST', '/v1/researcher/drive/test', { 
  * session, not of one render, and every caller of listView() would otherwise have to thread it. */
 let maintenanceNotice = '';
 export function maintenance() { return maintenanceNotice; }
+/* The WRITE-LOCK notice (ops_flag `freeze`) — independent of the banner-only `maintenance` flag:
+ * while set, the worker refuses every researcher-lane mutation with 423 maintenance_freeze. Same
+ * module-state pattern, same poll. */
+let freezeNotice = '';
+export function freeze() { return freezeNotice; }
 
 export async function listView() {
   requireUnlocked();
@@ -1069,6 +1074,7 @@ export async function listView() {
   /* ⚠ ENUMERATED REBUILD — see the warning further down: a field the server adds is INVISIBLE to the
    * panel unless it is named here. `estate` was lost exactly this way twice. */
   maintenanceNotice = typeof v.maintenance === 'string' ? v.maintenance : '';
+  freezeNotice = typeof v.freeze === 'string' ? v.freeze : '';
   if (v.settings) { settingsCache = safeParse(v.settings) || settingsCache; if (settingsCache && !settingsCache.wrappedKis) settingsCache.wrappedKis = {}; if (settingsCache && !settingsCache.instanceSettings) settingsCache.instanceSettings = {}; }
   if (typeof v.settings_rev === 'number') settingsRev = v.settings_rev;
   const instances = [];

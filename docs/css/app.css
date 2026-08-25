@@ -2297,6 +2297,14 @@ main {
   .rp-maint { border-color: #8a6400; background: #2b2310; color: #f0dfae; }
   .rp-maint .note { color: #cbb277; }
 }
+/* The write-lock banner (ops_flag `freeze`): a restriction, not an advisory — so it reads a shade
+   sterner than the amber notice, without shouting "broken" in red. */
+.rp-maint.rp-frozen { border-color: #c4571d; background: #fdf0e7; color: #4a2410; }
+.rp-maint.rp-frozen .note { color: #7a4a22; }
+@media (prefers-color-scheme: dark) {
+  .rp-maint.rp-frozen { border-color: #8a3f12; background: #2b1a10; color: #f0c9ae; }
+  .rp-maint.rp-frozen .note { color: #cb9877; }
+}
 
 /* Pre-migration Drive snapshot (storage modal footer — see §17.0 in plans/drive-as-truth.md). */
 .rp-store-snap { margin-top: 14px; padding-top: 10px; border-top: 1px solid rgba(128,128,128,.3); }

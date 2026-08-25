@@ -2074,6 +2074,39 @@ export async function handleV1(request, env, ctx, url, path, origin) {
   const m = request.method;
   const now = Date.now();
 
+  /* ---------------- MAINTENANCE FREEZE (Seth, 2026-08-26) ----------------
+   *
+   * A second, INDEPENDENT ops_flag: `maintenance` is a banner and nothing else; `freeze` is a
+   * banner PLUS a write lock on researcher-side mutation, for the deploys that are extra risky,
+   * only testable in production, and may need rolling back — where a researcher moving texts or
+   * pushing settings mid-rollout adds exactly the entropy the rollback would then have to
+   * distinguish from the change under test. Raise either, or both.
+   *
+   * ⚠ RESEARCHER LANE ONLY, BY CONSTRUCTION. The gate keys on the x-fx-researcher header, which no
+   * field-device or install lane ever sends — a translator uploading hours of work offline in
+   * Papua must never meet this flag, exactly like the maintenance notice (researcher-panel only,
+   * test-enforced). GETs pass so the panel keeps showing live state (with the banner) while
+   * locked; signout passes so nobody is trapped in a session; the OPERATOR passes so the person
+   * running the risky deploy can still drive the test — the flag exists FOR their test, and it is
+   * one more D1 read only while frozen.
+   *
+   * 423 (Locked), deliberately NOT 503: the client api() treats 5xx as transient and would retry
+   * a frozen write through its whole backoff ladder before telling the human anything. 423
+   * surfaces immediately, and the panel maps it to the freeze message. */
+  if (m !== 'GET' && m !== 'OPTIONS' && request.headers.get('x-fx-researcher')) {
+    let frozen = null;
+    try {
+      const f = await env.DB.prepare('SELECT value FROM ops_flag WHERE key=?').bind('freeze').first();
+      if (f && f.value) frozen = String(f.value).slice(0, 500);
+    } catch { /* table absent (pre-migration) — no freeze */ }
+    if (frozen && !(seg[1] === 'researcher' && seg[2] === 'signout')) {
+      const rr = await authResearcher(request, env);
+      if (!(rr && isOperator(rr.drive_email, env))) {
+        return j({ error: 'maintenance_freeze', message: frozen }, 423, origin, env);
+      }
+    }
+  }
+
   /* GET /v1/textfile/<token> — stream a researcher-Drive file to an assigned DEVICE.
    * The token is opaque (AES-GCM under SERVER_HMAC_KEY), time-boxed (90 days), and names the
    * researcher + file, so the URL works from a plain fetch with no headers — which is exactly how
@@ -2468,6 +2501,27 @@ export async function handleV1(request, env, ctx, url, path, origin) {
    *
    * ⚠ A researcher with no Drive token is skipped (nothing to list) rather than failing the whole
    * run — one disconnected account must not stop the backfill for everyone else. */
+  /* POST /v1/researcher/admin/ops-flag { key, value } — the operator raises/clears an ops flag
+   * without a deploy and without the dashboard: 'maintenance' (banner only) or 'freeze' (banner +
+   * the researcher-lane write lock at the top of handleV1). Empty value = clear. Allow-listed keys,
+   * because ops_flag is a k/v table and this route must not become a generic write. Logged like
+   * every other operator act, so raising the freeze is itself in the approvals history. */
+  if (m === 'POST' && seg.length === 4 && seg[1] === 'researcher' && seg[2] === 'admin' && seg[3] === 'ops-flag') {
+    const r = await authResearcher(request, env);
+    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    if (!isOperator(r.drive_email, env)) return j({ error: 'not_owner' }, 403, origin, env);
+    const body = await readJson(request) || {};
+    const key = String(body.key || '');
+    if (!['maintenance', 'freeze'].includes(key)) return j({ error: 'bad_key' }, 400, origin, env);
+    const value = String(body.value || '').slice(0, 500);
+    try {
+      if (value) await env.DB.prepare('INSERT OR REPLACE INTO ops_flag (key, value, updated_at) VALUES (?,?,?)').bind(key, value, now).run();
+      else await env.DB.prepare('DELETE FROM ops_flag WHERE key=?').bind(key).run();
+    } catch (e) { return j({ error: 'flag_write_failed', message: safeErr(e) }, 500, origin, env); }
+    await logApproval(env, request, value ? 'ops_flag_raised' : 'ops_flag_cleared', key, value.slice(0, 80), r.drive_email);
+    return j({ ok: true, key, value }, 200, origin, env);
+  }
+
   if (m === 'POST' && seg.length === 4 && seg[1] === 'researcher' && seg[2] === 'admin' && seg[3] === 'backfill-drive-objects') {
     const r = await authResearcher(request, env);
     if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
@@ -3021,10 +3075,14 @@ export async function handleV1(request, env, ctx, url, path, origin) {
      *
      * Best-effort by construction: if this read throws, the panel loses a BANNER. It must never take
      * down the dashboard that the banner is trying to warn people about. */
-    let maintenance = null;
+    let maintenance = null, freeze = null;
     try {
       const flag = await env.DB.prepare('SELECT value FROM ops_flag WHERE key=?').bind('maintenance').first();
       if (flag && flag.value) maintenance = String(flag.value).slice(0, 500);
+      // The write lock's banner rides the same poll (see the freeze gate at the top of handleV1):
+      // the panel shows it proactively rather than letting the first refused write break the news.
+      const fz = await env.DB.prepare('SELECT value FROM ops_flag WHERE key=?').bind('freeze').first();
+      if (fz && fz.value) freeze = String(fz.value).slice(0, 500);
     } catch { /* table absent (pre-migration) or read failed — no notice, never an error */ }
     const approved = isApproved(r, env);
     const operator = isOperator(r.drive_email, env);
@@ -3066,7 +3124,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
      * browsers publish at the same moment, which no response field can prevent. */
     return j({ approved, is_owner: operator, pending,
                settings: r.settings_blob, settings_rev: r.settings_rev, instances: insts,
-               maintenance: maintenance || undefined,
+               maintenance: maintenance || undefined, freeze: freeze || undefined,
                kr: r.kr_server_enc ? await decAtRest(env, r.kr_server_enc) : undefined,
                pubkey: r.pubkey || undefined, wrapped_privkey: r.wrapped_privkey || undefined,
                email: r.drive_email || undefined }, 200, origin, env);

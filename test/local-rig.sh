@@ -98,6 +98,9 @@ echo
 NO_PROXY='*' node test/worker-projects.test.mjs "http://127.0.0.1:$PORT" || STATUS=1
 NO_PROXY='*' node test/worker-route-scoping.probe.mjs "http://127.0.0.1:$PORT" || STATUS=1
 NO_PROXY='*' node test/worker-members.probe.mjs "http://127.0.0.1:$PORT" || STATUS=1
+# ⚠ LAST, deliberately: it freezes the worker mid-probe (clearing on every path, but a crash
+# between raise and clear must not poison an earlier suite).
+NO_PROXY='*' node test/worker-freeze.probe.mjs "http://127.0.0.1:$PORT" || STATUS=1
 
 if [ "$KEEP" = "1" ]; then
   echo

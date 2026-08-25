@@ -386,6 +386,12 @@ function closeHelp() {
 
 async function renderDocList() {
   const docs = await db.listDocs();
+  /* Researcher-pushed OPTION (issue #11), default off: alphabetical order for coworkers with long
+   * text lists. numeric:true so "Text 2" sorts before "Text 10"; base sensitivity so case and
+   * accents do not scatter entries. Default (absent/false) keeps most-recently-modified first. */
+  if (settings.sortAlpha === true) {
+    docs.sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), undefined, { numeric: true, sensitivity: 'base' }));
+  }
   const ul = $('#doc-list');
   ul.innerHTML = '';
   $('#doc-list-empty').hidden = docs.length > 0;
@@ -4015,7 +4021,7 @@ async function syncGatherInventory() {
                    'recordFormat', 'agc', 'nr', 'echo', 'norm',
                    'consentAsk', 'consentConfirm', 'consentMode', 'consentMsg', 'consentResp', 'consentAudioUrl',
                    'appLang', 'uploadFolder', 'toolbarButtons', 'sendOptions', 'autoDelUploaded', 'recordWelcome', 'deleteAllEnabled',
-                   'autoBackup', 'autoBackupMins', 'maxRecordSeconds', 'allowDelete', 'doneEnabled',
+                   'autoBackup', 'autoBackupMins', 'maxRecordSeconds', 'allowDelete', 'doneEnabled', 'sortAlpha',
                    'segmentation', 'backspaceJoin', 'cutTab', 'landOnCut', 'joinSplitBaseline', 'joinSplitGloss', 'cutJoinTexted', 'exportEaf', 'exportSaymore', 'exportPreview', 'exportJson']) {
     if (settings[k] !== undefined) snap[k] = settings[k];
   }
@@ -5363,6 +5369,8 @@ const SETUP_GROUPS = [
     { k: 'allowDelete', type: 'checkbox', off: 'setup.off.allowDelete' },
     // "Done" reports to a researcher and auto-uploads. Neither end exists here.
     { k: 'doneEnabled', type: 'checkbox', off: 'setup.off.doneEnabled' },
+    // Fully meaningful standalone (a local list order), so no `off` note — unlike its neighbours.
+    { k: 'sortAlpha', type: 'checkbox' },
   ] },
 ];
 

@@ -603,6 +603,9 @@ const GROUPS = [
     // Show the coworker an optional "Done" button on each text; marking done auto-uploads
     // and surfaces a "done" badge to the researcher. Off by default.
     { k: 'doneEnabled', type: 'checkbox' },
+    // Keep the device's texts list in alphabetical order (numeric-aware). Off by default —
+    // most-recently-modified first, as it has always been (issue #11).
+    { k: 'sortAlpha', type: 'checkbox' },
   ] },
 ];
 
@@ -954,7 +957,16 @@ async function busy(btn, fn) {
   const old = btn.textContent; btn.disabled = true; btn.classList.add('rp-busy');
   try { return await fn(); } finally { btn.disabled = false; btn.classList.remove('rp-busy'); btn.textContent = old; }
 }
-function errToast(e) { deps.toast(t('panel.err', { msg: (e && e.message) || String(e) }), 6000); }
+function errToast(e) {
+  /* The freeze refusal is not an error to garble into panel.err: it names a deliberate operator
+   * state, and the server message says why. Long duration — the person just lost a click's work. */
+  if (e && e.message === 'maintenance_freeze') {
+    const msg = (e.data && e.data.message) || Researcher.freeze() || '';
+    deps.toast(t('panel.freeze.refused', { msg }), 10000);
+    return;
+  }
+  deps.toast(t('panel.err', { msg: (e && e.message) || String(e) }), 6000);
+}
 
 /* a body-level overlay modal: closes on backdrop click or Escape, moves focus in,
  * traps Tab, and restores focus on close. Returns { el, close }. */
@@ -3037,9 +3049,17 @@ async function instanceAction(el) {
 /* ---------------- modals: new device / invite / assign / account ---------------- */
 
 function newDeviceModal() {
+  /* Born into the project on screen (resolved once, so the NOTE below and the create call cannot
+   * disagree). `currentProject` is the tab the researcher is looking at; STRAY_TAB and a flat
+   * estate both mean "no project named", which is the lazy default. */
+  const intoProject = (currentProject && currentProject !== STRAY_TAB) ? currentProject : '';
+  const projName = intoProject
+    ? ((((estateCache && estateCache.projects) || []).find((p) => p.folderId === intoProject) || {}).name || '')
+    : '';
   const m = modal(`
     <h3>${esc(t('panel.new.title'))}</h3>
     <label class="rp-field"><span>${esc(t('panel.new.nick'))}</span><input id="rp-new-nick" placeholder="${esc(t('panel.new.nickPh'))}" spellcheck="false"></label>
+    ${projName ? `<p class="note">${esc(t('panel.new.intoProject', { name: projName }))}</p>` : ''}
     <p class="note">${esc(t('panel.new.unifiedNote'))}</p>
     <button class="primary-btn" data-m="create">${esc(t('panel.new.create'))}</button>
     <button class="link-btn" data-m="cancel">${esc(t('panel.new.cancel'))}</button>`);
@@ -3047,18 +3067,23 @@ function newDeviceModal() {
   m.el.querySelector('[data-m="create"]').onclick = (e) => busy(e.target, async () => {
     const nick = m.el.querySelector('#rp-new-nick').value.trim();
     if (!nick) return deps.toast(t('panel.new.needNick'), 4000);
+    /* ⚠ TWO TRY BLOCKS, because "the device could not be created" and "the device exists but its
+     * settings were not delivered" are DIFFERENT facts, and one catch made them one message —
+     * which is how a researcher came to see "failed to create" over a device that existed, then
+     * met it later as a ghost (issue #6). Creation failure ends here; anything after names the
+     * true state and points at the retry (the device card's Settings). */
+    let inst = null;
+    try { inst = await Researcher.createInstance(nick, intoProject); }
+    catch (err) { errToast(err); return; }
+    m.close(); renderDashboard();
+    // A new device has no settings yet — open them straight away so it gets configured. Invite-link
+    // creation stays blocked until the required fields are filled in, so this isn't skippable.
+    deps.toast(t('panel.new.configure'), 5000);
     try {
-      /* Born into the project on screen. `currentProject` is the tab the researcher is looking at;
-       * STRAY_TAB and a flat estate both mean "no project named", which is the lazy default. */
-      const intoProject = (currentProject && currentProject !== STRAY_TAB) ? currentProject : '';
-      const inst = await Researcher.createInstance(nick, intoProject);
-      m.close(); renderDashboard();
-      // A new device has no settings yet — open them straight away so it gets configured. Invite-link
-      // creation stays blocked until the required fields are filled in, so this isn't skippable.
-      deps.toast(t('panel.new.configure'), 5000);
       await openSettingsModal({ kind: 'instance', instance: { instance_id: inst.instance_id, nickname: inst.nickname, installs: [] } });
+    } catch (err) {
+      deps.toast(t('panel.new.createdNotConfigured'), 9000);
     }
-    catch (err) { errToast(err); }
   });
 }
 
@@ -4500,8 +4525,18 @@ function renderProjectsCard(estate) {
       <div class="rp-inst-actions"><button class="primary-btn" data-pact="setup">${esc(t('panel.proj.setup'))}</button></div>
     </div>`;
   }
+  /* ⚠ COUNT ONLY LIVE-BACKED DEVICES (issue #10, interim ahead of the decided sweep-then-move
+   * retention design). Revoking clears the PAIRING but leaves the device's Drive folder, so a
+   * pair-and-revoke cycle left "4 devices" on a project with zero paired. Live means: the estate
+   * stamped an instanceId (only revoked=0 rows are stamped), OR the folder matches a live
+   * instance's oauth_folder_id (a live device the estate has not stamped yet). Crowd folders count
+   * as themselves. Fallback: if NOTHING anywhere carries either signal (an older worker's estate),
+   * count raw rather than showing zero everywhere — a wrong count beats a lying one. */
+  const liveFolders = new Set((((lastData || {}).instances) || []).map((i) => i.oauth_folder_id).filter(Boolean));
+  const anyLiveSignal = devices.some((d) => d.instanceId) || liveFolders.size > 0;
+  const liveDevice = (d) => d.kind === 'crowd' || !anyLiveSignal || !!d.instanceId || liveFolders.has(d.folderId);
   const rows = projects.map((p) => {
-    const mine = devices.filter((d) => d.projectId === p.folderId);
+    const mine = devices.filter((d) => d.projectId === p.folderId && liveDevice(d));
     return `<div class="rp-proj-row">
       <div class="rp-text-main">
         <div class="rp-text-title">${esc(p.name || t('panel.proj.defaultName'))}</div>
@@ -4515,7 +4550,7 @@ function renderProjectsCard(estate) {
   /* ⚠ Containers still under MASTER after a migration are not an error state to hide — a half
    * migrated tree is exactly what an interrupted run leaves, and the estate reads it correctly. Say
    * so, and offer the run again, rather than letting it look finished. */
-  const stray = devices.filter((d) => !d.projectId).length;
+  const stray = devices.filter((d) => !d.projectId && liveDevice(d)).length;
   /* ⚠ NO UNDO BUTTON HERE, DELIBERATELY (§16.28). A prominent "go back to a flat folder" IS the
    * optionality message whatever the surrounding words say — a destination you are invited to leave
    * is a mode. The undo has NOT been deleted: `fxProjects('undo')` opens the same modal, preview and
@@ -5167,13 +5202,27 @@ function unassignFolderEcho(ids, est) {
  * The message is operator-authored and arrives over the wire, so it is escaped like any other server
  * string — free, and the habit is what keeps the one that isn't free from slipping through. */
 function maintenanceBanner() {
+  /* Two independent flags (Seth, 2026-08-26): `maintenance` is a banner and nothing else; `freeze`
+   * is a banner PLUS the worker-side write lock (423 on every researcher mutation). Both can be up
+   * at once — the freeze banner leads, because it states a restriction rather than an advisory. */
+  const fz = Researcher.freeze();
   const msg = Researcher.maintenance();
-  if (!msg) return '';
-  return `<div class="rp-maint" role="status">
-    <strong>${esc(t('panel.maint.title'))}</strong>
-    <div>${esc(msg)}</div>
-    <div class="note">${esc(t('panel.maint.advice'))}</div>
-  </div>`;
+  let out = '';
+  if (fz) {
+    out += `<div class="rp-maint rp-frozen" role="status">
+      <strong>${esc(t('panel.freeze.title'))}</strong>
+      <div>${esc(fz)}</div>
+      <div class="note">${esc(t('panel.freeze.advice'))}</div>
+    </div>`;
+  }
+  if (msg) {
+    out += `<div class="rp-maint" role="status">
+      <strong>${esc(t('panel.maint.title'))}</strong>
+      <div>${esc(msg)}</div>
+      <div class="note">${esc(t('panel.maint.advice'))}</div>
+    </div>`;
+  }
+  return out;
 }
 
 function assignedDocIds() {

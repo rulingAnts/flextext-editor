@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v451';
+export const ENGINE_VERSION = 'v452';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v451';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'phase-cd v6';
+export const BUILD_TAG = 'phase-cd v7';
 
 const S = {
 en: {
@@ -1189,6 +1189,8 @@ internet after the first time.</p>
   'panel.new.configure': 'Device created — now set its languages and other settings.',
   'panel.new.unifiedNote': 'One device = one person’s phone, tablet, or browser. It can run the editor, the recorder, or both — you’ll get a link for each.',
   'panel.new.intoProject': 'This device will belong to the project “{name}” (the tab you have open).',
+  'panel.new.intoShared': 'This device will be created inside “{name}” — the shared project you have open. It will belong to that project’s owner, and you keep managing it.',
+  'panel.new.sharedNoCap': 'You don’t have permission to add devices to the shared project “{name}”, so this device will be created in your own account instead.',
   'panel.new.createdNotConfigured': 'The device was created. Its settings were not delivered — open the device’s Settings to push them.',
   'panel.invite.title': 'Invite link',
   'panel.invite.loading': 'Creating link…',
@@ -2991,6 +2993,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.new.configure': 'Perangkat dibuat — sekarang atur bahasa dan pengaturan lainnya.',
   'panel.new.unifiedNote': 'Satu perangkat = satu ponsel, tablet, atau peramban seseorang. Bisa menjalankan editor, perekam, atau keduanya — Anda akan mendapat tautan untuk masing-masing.',
   'panel.new.intoProject': 'Perangkat ini akan menjadi bagian proyek “{name}” (tab yang sedang Anda buka).',
+  'panel.new.intoShared': 'Perangkat ini akan dibuat di dalam “{name}” — proyek berbagi yang sedang Anda buka. Perangkat ini milik pemilik proyek, dan Anda tetap dapat mengelolanya.',
+  'panel.new.sharedNoCap': 'Anda tidak punya izin menambah perangkat ke proyek berbagi “{name}”, jadi perangkat ini akan dibuat di akun Anda sendiri.',
   'panel.new.createdNotConfigured': 'Perangkat sudah dibuat. Pengaturannya belum terkirim — buka Pengaturan perangkat untuk mengirimnya.',
   'panel.invite.title': 'Tautan undangan',
   'panel.invite.loading': 'Membuat tautan…',

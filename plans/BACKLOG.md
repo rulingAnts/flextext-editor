@@ -3883,3 +3883,28 @@ use" rule.
 Turnstile-gated per submission, so a "fresh session" restart costs a new bot check. The retry ladder
 has to distinguish a dead Drive session from a spent Turnstile token, which the researcher path never
 has to think about.
+
+## Minimise cleartext email addresses in D1 — after the multi-researcher system is fully functional (Seth, 2026-08-27)
+
+> *"As much as possible, we want to avoid clear text e-mail addresses in the D1 data, but that can
+> be something for us to fix in a later release, after this system is fully functional."* And the
+> standing bar until then: *"Let's just make sure we're not adding NEW plain text data"* of the kind
+> that identifies the people in a project.
+
+**What D1 holds in cleartext today (the inventory to shrink):** `researcher.drive_email` /
+`display_name` / `avatar_url` (Google sign-in identity — read by the owner-side Coworkers modal and
+the drive-status card), and operational rows that reference researchers by UUID (fine — UUIDs name
+rows, not people). The E2EE metadata blobs already keep device/text names out of D1; the researcher
+identity row is the remaining cleartext class.
+
+**Direction when built:** the same wrap-to-owner pattern the rest of the metadata uses — identity
+encrypted under a key the account (and where sharing requires it, the project owner) holds, with
+only what routing genuinely needs left readable. Blockers to design around: the operator approval
+queue reads emails to decide approvals; password-reset/escrow flows key on email; the Coworkers
+identity row (2026-08-27) reads name/email over an owner-authed route. None are unsolvable; all are
+why this waits for "fully functional" rather than riding the current batch.
+
+**What was checked TODAY (2026-08-27) about not adding new cleartext:** the member-view and
+member-create work sends researcher identity only owner-panel-ward over authed routes (the Coworkers
+modal join); the claim/pairing surface now sends NO researcher identity to devices at all (the pair
+code is the recognition mechanism); new secLog rows reference UUIDs, never emails.

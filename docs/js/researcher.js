@@ -409,15 +409,28 @@ async function selfGrantMissing(live) {
 
 // The grants THIS researcher holds, fetched once per unlock. Newest key_version first from the
 // worker, so the first row seen for an instance is the one to use.
+let grantsFetchedAt = 0;   // wall-clock of the last /keys fetch ATTEMPT — the keyless-retry throttle
 async function loadGrants() {
   if (grantCache) return grantCache;
   const out = {};
+  grantsFetchedAt = Date.now();   // attempts count too, or a dead network would retry every tick
   try {
     const v = await api('GET', '/v1/researcher/keys');
     for (const row of (v && v.keys) || []) if (!out[row.instance_id]) out[row.instance_id] = row.wrapped_ki;
   } catch { /* offline or not migrated: the legacy path still resolves every owned device */ }
   grantCache = out;
   return out;
+}
+
+/* A grant can LAND while this seat is open — the owner's panel sweeps and delivers, and "delivered
+ * automatically once they sign in" is a promise the UI makes out loud. A cache fetched once per
+ * unlock would hold the old answer until a reload, so a shared device that stays keyless earns one
+ * refetch per minute, not per tick: the 12s poll calls this on every keyless device it renders. */
+async function refreshGrantsIfStale(instanceId) {
+  if (Date.now() - grantsFetchedAt < 60000) return null;
+  grantCache = null;
+  await loadGrants();
+  try { return await getKi(instanceId); } catch { return null; }
 }
 
 /* Publish the keypair and catch the ledger up. Best-effort by contract: the caller does not await a
@@ -854,6 +867,37 @@ export function removeMember(projectId, researcherId) {
  * Throws 'member_no_pubkey' when the member has never opened the panel (no published keypair —
  * nothing to wrap to; the UI must say so, since the fix is an action on THEIR side). Per-device
  * failures are counted, not thrown: one broken device must not stop the rest of the estate. */
+/* Create a device INSIDE a project someone shared with me (manageDevices), then deliver its
+ * bootstrap key set in the same act: Ki is minted HERE, on the member's seat — nobody else has it —
+ * and wrapped to both the owner (the wrap-to-owner invariant; the worker refuses the set without
+ * it) and to me. If the key delivery fails the device is keyless for everyone, so the error is
+ * loud and names the cleanup (the owner revokes the husk); nothing retries into ambiguity. */
+export async function createMemberInstance(projectId, nickname) {
+  requireUnlocked();
+  const me = currentAccountId();
+  if (!me || !myPub) throw new Error('not_signed_up');
+  let ownerPub = null, ownerId = null;
+  const r = await api('POST', `/v1/projects/${encodeURIComponent(projectId)}/instances`,
+    { body: { nickname }, retry: false });   // non-idempotent → don't risk a duplicate on a lost response
+  try {
+    ownerId = r.owner_id;
+    const p = await api('GET', `/v1/researcher/pubkey/${encodeURIComponent(ownerId)}`)
+      .catch((e) => { throw new Error(e && e.status === 404 ? 'owner_no_pubkey' : (e && e.message) || 'pubkey_fetch_failed'); });
+    ownerPub = await importPublicKeyB64(p.pubkey);
+    const Ki = await generateKey();
+    const grants = [
+      { researcher_id: ownerId, wrapped_ki: await wrapKeyForInstall(ownerPub, Ki) },
+      { researcher_id: me, wrapped_ki: await wrapKeyForInstall(myPub, Ki) },
+    ];
+    await api('POST', '/v1/researcher/keys', { body: { instance_id: r.instance_id, grants }, retry: false });
+    kiCache.set(r.instance_id, Ki);
+    if (grantCache) grantCache[r.instance_id] = grants[1].wrapped_ki;
+  } catch (e) {
+    throw new Error('member_key_bootstrap_failed:' + ((e && e.message) || e));
+  }
+  return r;
+}
+
 export async function grantKeysToMember(memberId, instanceIds) {
   requireUnlocked();
   const me = currentAccountId();
@@ -1125,6 +1169,7 @@ export async function listView() {
     for (const inst of (mp.instances || [])) {
       let Ki = null;
       try { Ki = await getKi(inst.instance_id); } catch { /* no grant delivered yet — render locked */ }
+      if (!Ki) Ki = await refreshGrantsIfStale(inst.instance_id);   // it may have landed since (throttled)
       const installs = [];
       for (const ins of (inst.installs || [])) {
         let inventory = null;

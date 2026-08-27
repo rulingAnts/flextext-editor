@@ -258,6 +258,21 @@ This is the part that has caused real outages when done wrong — read
   never meet it**; the operator is exempt; signout stays open. Raise/clear via
   `POST /v1/researcher/admin/ops-flag {key, value}` (operator-only, allow-listed keys, logged);
   empty value clears.
+- **What is shared between researcher accounts, and what deliberately is not (Seth, 2026-08-27).**
+  The v1 contract: **existing devices, their settings, and their texts are accessible to every
+  researcher on the project** — delivered account-to-account as wrapped `member_key` rows in D1,
+  so a member signs in anywhere and their grants are simply there. **In-flight artifacts are NOT
+  shared, and this is accepted, not pending**: *(a) unclaimed invite links* — a link's secret is
+  displayed once at mint and only its hash is stored, so no account (including the minter's) can
+  ever re-display it; any capable seat mints a fresh link instead, and the invite modal says so.
+  This is a consequence of not persisting claimable secrets, not a gap to engineer around.
+  *(b) key minting needs a key-holding client online once* — grants are wrapped client-side by a
+  session that holds the device key (the owner's, or the creating member's), because the worker
+  holds only ciphertext it cannot re-wrap. That is the E2EE trade, made deliberately.
+  *(c) another account's pending commands / queued actions* — the D1 rows exist and read-scoping
+  them across accounts is future work (see `plans/BACKLOG.md`), deferred rather than designed out.
+  When one of these reads as "sharing is broken" during testing, check this list first: the same
+  symptoms have now been misattributed to key failure three times in one day.
 - **Unassign filings echo folder ids.** `drive-unassign` accepts `folders: {docId: folderId}`
   alongside `docIds` — the same strongly-consistent `files.get` fallback the upload path uses,
   because the tag search's eventual consistency silently no-opped explicit moves. Ids it still

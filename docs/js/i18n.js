@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v456';
+export const ENGINE_VERSION = 'v457';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v456';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'phase-cd v11';
+export const BUILD_TAG = 'phase-cd v12';
 
 const S = {
 en: {
@@ -1200,6 +1200,7 @@ internet after the first time.</p>
   'panel.invite.recorderLink': 'Recorder link (record audio only)',
   'panel.invite.expires': 'Expires {when}',
   'panel.invite.copy': 'Copy link',
+  'panel.invite.freshNote': 'This is a newly made link — links are shown once and can never be re-displayed, by anyone. If a coworker already sent this device a link, that one stays valid too; this is a new one, not a copy of theirs.',
   'panel.invite.share': 'Share…',
   'panel.invite.openHere': 'Open on this device',
   'panel.invite.close': 'Close',
@@ -1356,6 +1357,7 @@ internet after the first time.</p>
   'panel.joined.noteNone': 'You can see this project\u2019s devices, but no abilities have been granted to you yet.',
   'panel.joined.keyPending': 'This device\u2019s key has not been delivered to you yet. The project owner\u2019s panel sends it automatically the next time they open it \u2014 nothing is wrong with the device.',
   'panel.set.unconfigured': 'Nothing is set on this device yet \u2014 the blank fields mean nobody has configured it, not that anything failed. Fill them in and push to set it up.',
+  'panel.joined.needsSetup': 'Not set up yet \u2014 open Settings and fill in the required fields first. Invite links and text assignment unlock once the device is configured.',
   'panel.joined.empty': 'No devices in this project yet.',
   'panel.share.awaitingKey': 'has not signed in yet — device keys will be delivered automatically once they do',
   'panel.share.increaseConfirm': 'You are giving this coworker MORE ability than before. Anything they do with it is real — settings changed, devices paired or revoked — and removing them later stops future actions, not past ones. Continue?',
@@ -3007,6 +3009,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.invite.recorderLink': 'Tautan Perekam (rekam audio saja)',
   'panel.invite.expires': 'Kedaluwarsa {when}',
   'panel.invite.copy': 'Salin tautan',
+  'panel.invite.freshNote': 'Ini tautan yang baru dibuat — tautan hanya ditampilkan sekali dan tidak bisa ditampilkan ulang oleh siapa pun. Jika rekan kerja sudah mengirim tautan untuk perangkat ini, tautan itu tetap berlaku; yang ini tautan baru, bukan salinannya.',
   'panel.invite.share': 'Bagikan…',
   'panel.invite.openHere': 'Buka di perangkat ini',
   'panel.invite.close': 'Tutup',
@@ -3141,6 +3144,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.joined.noteNone': 'Anda dapat melihat perangkat proyek ini, tetapi belum ada kemampuan yang diberikan kepada Anda.',
   'panel.joined.keyPending': 'Kunci perangkat ini belum terkirim kepada Anda. Panel pemilik proyek mengirimkannya otomatis saat mereka membukanya lagi — perangkat ini baik-baik saja.',
   'panel.set.unconfigured': 'Belum ada pengaturan pada perangkat ini — kolom kosong berarti belum dikonfigurasi siapa pun, bukan ada yang gagal. Isi lalu kirim untuk menyiapkannya.',
+  'panel.joined.needsSetup': 'Belum disiapkan — buka Pengaturan dan isi kolom wajib dulu. Tautan undangan dan penugasan teks terbuka setelah perangkat dikonfigurasi.',
   'panel.joined.empty': 'Belum ada perangkat di proyek ini.',
   'panel.share.awaitingKey': 'belum pernah masuk — kunci perangkat akan terkirim otomatis setelah mereka masuk',
   'panel.share.increaseConfirm': 'Anda memberi rekan kerja ini kemampuan LEBIH dari sebelumnya. Apa pun yang mereka lakukan dengannya itu nyata — pengaturan berubah, perangkat dipasangkan atau dicabut — dan menghapus mereka nanti menghentikan tindakan berikutnya, bukan yang sudah terjadi. Lanjutkan?',

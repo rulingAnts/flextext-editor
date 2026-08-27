@@ -1081,7 +1081,9 @@ function viewSig(data) {
       (data.memberProjects || []).map((mp) => [
         mp.project_id, mp.name, JSON.stringify(mp.caps || {}),
         (mp.instances || []).map((it) => [
-          it.instance_id, it.nickname, it.type, it.hasKey,
+          // desired_rev: configuring on ANY seat flips this card's buttons (mConfigured) — without
+          // it here, the unlock only appeared after an unrelated change happened to repaint.
+          it.instance_id, it.nickname, it.type, it.hasKey, it.desired_rev,
           (it.installs || []).map((ins) => [
             ins.install_id, ins.status, ins.accepted, ins.has_key, ins.wipe_state,
             ins.inventory && ins.inventory.engineVersion,
@@ -2633,9 +2635,16 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
    * repaints the buttons in the moment hasKey flips (it is in viewSig). The act-gate in
    * instanceAction stays as the backstop for stale DOM. */
   const mKeyless = !!memberCtx && it.hasKey === false;
+  /* ⚠ AN UNCONFIGURED SHARED DEVICE OFFERS ONLY SETTINGS (Seth, 2026-08-27: "don't give them a UI
+   * path that gives them an error"). Invite would bounce into the required-settings gate and
+   * Assign has nothing sane to land on — both appear once the device is configured. Settings
+   * REMAINS on purpose: it is the productive path (configuring happens through it), and it opens
+   * with the nobody-has-configured-this-yet note rather than an error. desired_rev > 0 is the
+   * cheap, already-present truth for "someone has pushed settings at least once". */
+  const mConfigured = !memberCtx || Number(it.desired_rev || 0) > 0;
   const mManage = (!memberCtx || !!mCaps.manageDevices) && !mKeyless;
-  const mInvite = (!memberCtx || !!mCaps.createInvites) && !mKeyless;
-  const mAssign = (!memberCtx || !!mCaps.assignTexts) && !mKeyless;   // texts: assign, done, delete
+  const mInvite = (!memberCtx || !!mCaps.createInvites) && !mKeyless && mConfigured;
+  const mAssign = (!memberCtx || !!mCaps.assignTexts) && !mKeyless && mConfigured;   // texts: assign, done, delete
   const installs = it.installs || [];
   const anyPending = installs.some((i) => i.status === 'pending');
   // Collected while the installs render, then shown in the COLLAPSED header too. A collapse that
@@ -2924,6 +2933,7 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
         <a href="${MIGRATE_DOC}" target="_blank" rel="noopener">${esc(t('panel.deprecated.coworkers'))}</a></p>` : ''}
       ${installsHtml || `<p class="note">${esc(t('panel.inst.noInstall'))}</p>`}
       ${mKeyless ? `<p class="note">${esc(t('panel.joined.keyPending'))}</p>` : ''}
+      ${memberCtx && !mKeyless && !mConfigured ? `<p class="note">${esc(t('panel.joined.needsSetup'))}</p>` : ''}
       <div class="rp-inst-actions">
         ${mManage ? `<button class="secondary-btn" data-iact="settings" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}">${esc(t('panel.inst.settings'))}</button>` : ''}
         ${mInvite ? `<button class="secondary-btn" data-iact="invite" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}">${esc(t('panel.inst.invite'))}</button>` : ''}
@@ -3209,6 +3219,12 @@ async function inviteModal(instanceId) {
     m.el.querySelector('.modal-card').innerHTML = `
       <h3>${esc(t('panel.invite.title'))}</h3>
       <p class="note">${esc(t('panel.invite.introUnified'))}</p>
+      ${/* Links are minted FRESH on every open and shown once (only a hash is stored), so nobody —
+          including the minter — can re-display an earlier link. Said here because a coworker
+          clicking "Invite link" after someone else already sent one would otherwise assume they
+          are LOOKING at that link (Seth, 2026-08-27); earlier links stay claimable until claimed
+          or expired. */''}
+      <p class="note">${esc(t('panel.invite.freshNote'))}</p>
       <!-- ⚠ WARN THE RESEARCHER, NEVER THE DEVICE USER (Seth, 2026-08-07). Claiming an invite makes
            the device managed: its Settings tab disappears and everything on it comes from here, so
            whatever the coworker had set up themselves is superseded the moment they tap the link.

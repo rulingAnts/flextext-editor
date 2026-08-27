@@ -997,8 +997,34 @@ export async function getInstanceSettings(instanceId) {
   requireUnlocked();
   if (!settingsCache) await fetchSettings();
   const enc = settingsCache && settingsCache.instanceSettings && settingsCache.instanceSettings[instanceId];
-  if (!enc) return null;
-  try { return await decryptJSON(Kr, enc); } catch { return null; }
+  if (enc) { try { return await decryptJSON(Kr, enc); } catch { /* fall through to the shared lane */ } }
+  /* ⚠ THE SNAPSHOT ABOVE IS PER-RESEARCHER — encrypted under MY Kr, written by MY pushes — so on
+   * its own it made every other researcher's configuration invisible: the owner opened a device the
+   * member had configured and pushed, and saw a blank form claiming nobody had set it up (Seth,
+   * 2026-08-27 — the last "sharing is broken" symptom standing after the key work, and it was never
+   * keys). The SHARED truth has existed all along in the device's own desired lane: every
+   * changeSettings command is encrypted under Ki, and Ki is exactly what project sharing grants.
+   * So: my own snapshot first (no round trip), then the device's lane, newest changeSettings wins —
+   * whoever pushed it. An unclaimed device never acks, so its configuration is always still there;
+   * a paired device's reported inventory already crossed seats via listView. null now honestly
+   * means "nobody has configured this" (or this seat holds no key, which the member UI gates
+   * before ever opening a form). */
+  try {
+    const Ki = await getKi(instanceId);
+    const d = await api('GET', `/v1/instances/${encodeURIComponent(instanceId)}?since=-1`);
+    const cmds = (d && d.commands) || [];
+    for (let i = cmds.length - 1; i >= 0; i--) {
+      const c = cmds[i];
+      if (c && c.type === 'changeSettings' && c.enc) {
+        try {
+          const p = await decryptJSON(Ki, typeof c.enc === 'string' ? JSON.parse(c.enc) : c.enc);
+          if (p && p.settings) return p.settings;
+        } catch { /* one undecryptable command must not hide an older readable one */ }
+      }
+    }
+    if (d && d.settings && Object.keys(d.settings).length) return d.settings;
+  } catch { /* no key, revoked, offline — null keeps its meaning */ }
+  return null;
 }
 /* ---------------- account-scoped panel state (shared across the researcher's browsers) ----------------
  *

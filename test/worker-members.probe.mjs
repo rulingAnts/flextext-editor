@@ -745,5 +745,27 @@ console.log('\n⚠⚠ a member with manageDevices CREATES a device inside the sh
   await call('POST', `/v1/instances/${mid}/revoke`, OWNER, {});
 }
 
+console.log('\n⚠ a changeSettings pushed by ONE researcher rides the desired lane to EVERY keyed researcher');
+{
+  /* The per-researcher prefill snapshot is Kr-encrypted and invisible across seats BY DESIGN; the
+   * cross-seat truth is the device's own desired lane, whose changeSettings payloads are encrypted
+   * under Ki — the very key project sharing grants. The client reads it as a fallback
+   * (getInstanceSettings, v457); this pins the server half: the command a member needs is actually
+   * IN the member-authorized read. Ciphertext is opaque to the worker, so a placeholder enc object
+   * stands in for a real one — the crypto half is exercised by the client end to end. */
+  await call('POST', `/v1/projects/${projectId}/members`, OWNER, {
+    researcher_id: FIXTURE.outsiderId, caps: { manageDevices: true },
+  });
+  const push = await call('POST', `/v1/instances/${idA}/command`, OWNER,
+    { command: { type: 'changeSettings', enc: { v: 1, iv: 'UFJPQkUtSVY', ct: 'UFJPQkUtQ1Q' } } });
+  ok(push.status === 200, `the owner pushes a changeSettings command (got ${push.status})`);
+  const lane = await call('GET', `/v1/instances/${idA}?since=-1`, GUEST);
+  const cmds = (lane.json && lane.json.commands) || [];
+  const cs = cmds.filter((c) => c && c.type === 'changeSettings');
+  ok(lane.status === 200 && cs.length > 0 && !!cs[cs.length - 1].enc,
+     `the MEMBER's desired-lane read carries it, enc intact (got ${lane.status}, ${cs.length} changeSettings)`);
+  await call('DELETE', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: FIXTURE.outsiderId });
+}
+
 console.log(fail ? `\n${fail} FAILED\n` : '\nPASS\n');
 process.exit(fail ? 1 : 0);

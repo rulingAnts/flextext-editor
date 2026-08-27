@@ -181,6 +181,64 @@ ok(add.json && add.json.caps && add.json.caps.assignTexts === undefined,
   ok(!!me && me.email === 'outsider@example.invalid',
      `the OWNER's members list carries the member's identity (email: ${me && me.email})`);
   ok(me && 'display_name' in me && 'avatar_url' in me, '...and the display fields ride along (empty-string when unset)');
+  /* The grant-sweep's diff inputs (2026-08-27): which live devices this member already holds keys
+   * for, and whether they even HAVE a published key to wrap to. Without these the owner could not
+   * see the created-after-membership gap at all — GET /keys only ever shows the CALLER's grants. */
+  ok(me && Array.isArray(me.granted), `the members list says which live devices each member holds grants for (${me && (me.granted || []).length} here)`);
+  ok(me && me.pubkey_set === false,
+     'and whether their key is published — honestly FALSE here (the fixture outsider never publishes one), which is exactly the state the sweep must report rather than wrap to');
+}
+
+console.log('\nTHE MEMBER-SIDE VIEW — the poll and the desired lane finally answer a member');
+{
+  /* GET /v1/researcher gains memberProjects (additive): each joined project with its LIVE devices
+   * in the same shape `instances` uses. And the dual-lane desired route's researcher branch now
+   * consults membership instead of raw owner-equality — a member polling a granted device got
+   * not_found the first time a real member tried (2026-08-27, live). */
+  const home = await call('GET', '/v1/researcher', GUEST);
+  const mp = (home.json && home.json.memberProjects) || [];
+  ok(home.status === 200 && mp.length === 1, `the member's own poll carries their joined project (${mp.length})`);
+  ok(mp[0] && mp[0].project_id && mp[0].caps && Array.isArray(mp[0].instances),
+     '...with caps and the project\'s live devices');
+  ok((mp[0].instances || []).some((i) => i.instance_id === idA),
+     '...including the device the capability tests act on');
+  ok((mp[0].instances || []).every((i) => !i.revoked), 'revoked devices are excluded — the same line the keys route holds');
+  const ownHome = await call('GET', '/v1/researcher', OWNER);
+  ok(ownHome.json.memberProjects === undefined,
+     '⚠ a researcher who is a member of nothing sees NO field at all — the poll is byte-identical for every current account');
+  const dp = await call('GET', `/v1/instances/${idA}?since=-1`, GUEST);
+  ok(dp.status === 200 || dp.status === 204,
+     `⚠ the desired lane now answers a MEMBER (got ${dp.status}) — it was not_found for every member until today`);
+  const outsiderPoll = await call('GET', `/v1/instances/${FIXTURE.movedDeviceId}?since=-1`, GUEST);
+  ok(outsiderPoll.status === 404,
+     `...while a device OUTSIDE their projects stays absence-shaped (got ${outsiderPoll.status})`);
+}
+
+console.log('\nEDITING permissions is EFFECTIVE — reduced caps refuse on the very next request');
+{
+  /* Seth, live-testing the new Change-permissions UI (2026-08-27): "I don't have an easy way to
+   * test whether those permission settings are actually effective." This is that test, as the
+   * round-trip the UI performs: the edit is the same INSERT OR REPLACE the add uses, and the caps
+   * it stores must be the caps the very next request is judged by — no session, no cache, no lag. */
+  // Widen first (the edit-as-INCREASE case), so both capabilities are demonstrably live…
+  const widen = await call('POST', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: FIXTURE.outsiderId, caps: { manageDevices: true, createInvites: true } });
+  ok(widen.status === 200, `the owner widens the caps (got ${widen.status})`);
+  ok((await call('POST', `/v1/instances/${idA}/rename`, GUEST, { nickname: 'Caps Loop 1' })).status === 200,
+     'with manageDevices: rename succeeds');
+  ok((await call('POST', `/v1/instances/${idA}/invite`, GUEST, {})).status === 200,
+     'with createInvites: minting succeeds');
+  // …then strip to nothing: both must refuse on the VERY NEXT request…
+  const down = await call('POST', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: FIXTURE.outsiderId, caps: {} });
+  ok(down.status === 200, `the owner edits the caps DOWN to none (got ${down.status})`);
+  ok((await call('POST', `/v1/instances/${idA}/rename`, GUEST, { nickname: 'Caps Loop 2' })).status === 404,
+     '⚠⚠ the SAME rename now 404s — a reduced capability refuses immediately');
+  ok((await call('POST', `/v1/instances/${idA}/invite`, GUEST, {})).status === 404,
+     '⚠⚠ and so does minting — createInvites is gone the moment it was unticked');
+  // …then restore the section's original grant, and the ability is back just as immediately.
+  const up = await call('POST', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: FIXTURE.outsiderId, caps: { manageDevices: true } });
+  ok(up.status === 200, `the owner edits them back (got ${up.status})`);
+  ok((await call('POST', `/v1/instances/${idA}/rename`, GUEST, { nickname: 'Caps Loop 3' })).status === 200,
+     '...and the ability returns just as immediately — stoppable, restorable, never sticky');
 }
 
 console.log('\nwhat that member CAN do, and what they still cannot');

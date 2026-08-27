@@ -2814,16 +2814,32 @@ export async function handleV1(request, env, ctx, url, path, origin) {
        * nothing the exchange did not already establish. LEFT JOIN: a member row whose researcher
        * was deleted still lists (and still must be removable) rather than vanishing. */
       const rows = await env.DB.prepare(
-        'SELECT m.researcher_id, m.caps, m.added_at, m.added_by, r.display_name, r.drive_email, r.avatar_url '
+        'SELECT m.researcher_id, m.caps, m.added_at, m.added_by, r.display_name, r.drive_email, r.avatar_url, '
+        + '(r.pubkey IS NOT NULL) AS pubkey_set '
         + 'FROM project_member m LEFT JOIN researcher r ON r.researcher_id=m.researcher_id '
         + 'WHERE m.project_id=? ORDER BY m.added_at'
       ).bind(projectId).all();
+      /* WHICH LIVE DEVICES each member holds a key grant for — the field the owner-side grant
+       * SWEEP diffs against (a device created AFTER a membership got no grants, and until this
+       * existed the OWNER had no way to see that: GET /keys returns only the CALLER's own grants).
+       * One query for the whole project, merged in JS — never a per-member subquery. */
+      const grows = await env.DB.prepare(
+        'SELECT researcher_id, instance_id FROM member_key WHERE instance_id IN '
+        + '(SELECT instance_id FROM instance WHERE project_id=? AND revoked=0)'
+      ).bind(projectId).all().catch(() => null);
+      const grantedBy = new Map();
+      for (const g of ((grows && grows.results) || [])) {
+        if (!grantedBy.has(g.researcher_id)) grantedBy.set(g.researcher_id, new Set());
+        grantedBy.get(g.researcher_id).add(g.instance_id);
+      }
       /* Caps are returned PARSED. The panel would otherwise JSON.parse a column written by another
        * browser, which is the kind of thing that throws in the middle of a render. */
       const members = ((rows && rows.results) || []).map((x) => {
         let caps = null; try { caps = JSON.parse(x.caps || '{}'); } catch { caps = null; }
         return { researcher_id: x.researcher_id, caps, added_at: x.added_at, added_by: x.added_by,
                  display_name: x.display_name || '', email: x.drive_email || '', avatar_url: x.avatar_url || '',
+                 pubkey_set: !!x.pubkey_set,
+                 granted: [...(grantedBy.get(x.researcher_id) || [])],
                  invalid: caps === null };
       });
       return j({ project_id: projectId, members }, 200, origin, env);
@@ -3137,7 +3153,40 @@ export async function handleV1(request, env, ctx, url, path, origin) {
      * next line. It exposes nothing this response did not already expose; a client without Kr can do
      * nothing with it. The 409-adoption path stays regardless — it is what settles the race when two
      * browsers publish at the same moment, which no response field can prevent. */
-    return j({ approved, is_owner: operator, pending,
+    /* MEMBER PROJECTS (2026-08-27, additive — the member-side dashboard at last). Each project this
+     * caller was invited into, with its LIVE devices in exactly the shape `instances` uses, so the
+     * panel renders them through the same code path. Only researchers who ARE members pay anything
+     * here (one indexed lookup decides); every other account's poll is byte-identical to before,
+     * and shipped clients ignore the field — the enumerated-rebuild trap cuts the other way too.
+     *
+     * What rides is what membership already entitles: reported blobs are E2EE under Ki, which is
+     * precisely the key the member holds; pair codes are part of the install-approval flow that
+     * manageDevices delegates. Revoked devices are excluded — the same line the keys route and the
+     * Phase 3 gates hold. */
+    let memberProjects;
+    if (approved) {
+      try {
+        const mrows = (await env.DB.prepare(
+          'SELECT p.project_id, p.name, p.owner_id, m.caps FROM project_member m JOIN project p ON p.project_id=m.project_id WHERE m.researcher_id=?'
+        ).bind(r.researcher_id).all()).results || [];
+        if (mrows.length) {
+          memberProjects = [];
+          for (const p of mrows) {
+            let caps = {}; try { caps = JSON.parse(p.caps || '{}') || {}; } catch { caps = {}; }
+            const devs = (await env.DB.prepare(
+              'SELECT instance_id, type, nickname, desired_rev, revoked, estate, oauth_folder_id FROM instance WHERE project_id=? AND revoked=0'
+            ).bind(p.project_id).all()).results || [];
+            for (const it of devs) {
+              it.installs = (await env.DB.prepare(
+                'SELECT install_id, status, accepted, pair_code, reported_blob, reported_rev, ack_seq, last_seen_at, pubkey, wipe_state, wipe_at, (wrapped_key IS NOT NULL) AS has_key FROM install WHERE instance_id=? AND wipe_hidden=0 AND (revoked=0 OR wipe_state IS NOT NULL)'
+              ).bind(it.instance_id).all()).results || [];
+            }
+            memberProjects.push({ project_id: p.project_id, name: p.name || '', owner_id: p.owner_id, caps, instances: devs });
+          }
+        }
+      } catch { /* the member view must never cost anyone the dashboard — absent beats broken */ }
+    }
+    return j({ approved, is_owner: operator, pending, memberProjects,
                settings: r.settings_blob, settings_rev: r.settings_rev, instances: insts,
                maintenance: maintenance || undefined, freeze: freeze || undefined,
                kr: r.kr_server_enc ? await decAtRest(env, r.kr_server_enc) : undefined,
@@ -5087,7 +5136,17 @@ export async function handleV1(request, env, ctx, url, path, origin) {
        * revoked DEVICE still gets its 410 and still auto-releases. That behaviour is load-bearing —
        * without it a revoked phone 401-loops forever and strands the coworker — and it is exactly
        * what the device-compat probe pins. */
-      if (asResearcher && inst.researcher_id !== asResearcher.researcher_id) return j({ error: 'not_found' }, 404, origin, env);
+      /* ⚠ MEMBERSHIP COUNTS, NOT JUST OWNERSHIP (2026-08-27, the member-view work): a coworker
+       * with a project grant polls a device's desired state exactly like the owner's panel does,
+       * and the raw owner-equality that stood here answered them not_found — found live the first
+       * time a real member tried. authMember is the one authority (I1); it resolves the owner path
+       * identically, keeps denial absence-shaped, and needs no capability — this is a READ, the
+       * same visibility that membership itself grants. The install lane below stays untouched. */
+      if (asResearcher && inst.researcher_id !== asResearcher.researcher_id) {
+        const ctx = await authMember(request, env, { instance: instanceId }, null);
+        if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+        if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+      }
       if (inst.revoked) return j({ error: 'revoked' }, 410, origin, env);   // whole-instance revoke → client auto-releases
       // Provisional installs (§D.3) receive NO commands until approved.
       if (install && install.status !== 'approved') {

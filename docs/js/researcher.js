@@ -1110,7 +1110,45 @@ export async function listView() {
      * This is the SECOND time — mintInvite() below lost the same field the same way. Add new server
      * fields HERE as well as at the call site. */
     instances.push({ instance_id: inst.instance_id, type: inst.type, nickname: inst.nickname,
-                     desired_rev: inst.desired_rev, estate: inst.estate, installs });
+                     desired_rev: inst.desired_rev, estate: inst.estate,
+                     /* oauth_folder_id was DROPPED here — the enumerated-rebuild trap's fourth
+                      * strike, silent this time: the grant sweep's folder-join fallback read
+                      * undefined and quietly matched nothing. */
+                     oauth_folder_id: inst.oauth_folder_id || '', installs });
   }
-  return { settings_rev: v.settings_rev, instances, isOwner: ownerSelf, pending: v.pending || [] };
+  /* MEMBER PROJECTS (2026-08-27): the projects this researcher was invited into, devices massaged
+   * through the SAME decrypt path as `instances` — getKi() serves a member's granted Ki exactly as
+   * it serves an owner's own. ⚠ Named here or it does not exist (the trap above, again). */
+  const memberProjects = [];
+  for (const mp of (v.memberProjects || [])) {
+    const devs = [];
+    for (const inst of (mp.instances || [])) {
+      let Ki = null;
+      try { Ki = await getKi(inst.instance_id); } catch { /* no grant delivered yet — render locked */ }
+      const installs = [];
+      for (const ins of (inst.installs || [])) {
+        let inventory = null;
+        if (Ki && ins.reported_blob) {
+          try { inventory = await decryptJSON(Ki, safeParse(ins.reported_blob)); }
+          catch { inventory = { error: 'undecryptable' }; }
+        }
+        installs.push({
+          install_id: ins.install_id, status: ins.status,
+          accepted: Number(ins.accepted) === 1,
+          has_key: Number(ins.has_key) === 1, pubkey: ins.pubkey || null,
+          ack_seq: ins.ack_seq, reported_rev: ins.reported_rev, last_seen_at: ins.last_seen_at,
+          wipe_state: ins.wipe_state || null, wipe_at: ins.wipe_at || null,
+          pair_code: ins.pair_code || '', inventory,
+        });
+      }
+      devs.push({ instance_id: inst.instance_id, type: inst.type, nickname: inst.nickname,
+                  desired_rev: inst.desired_rev, estate: inst.estate,
+                  oauth_folder_id: inst.oauth_folder_id || '', installs,
+                  hasKey: !!Ki });
+    }
+    memberProjects.push({ project_id: mp.project_id, name: mp.name || '', owner_id: mp.owner_id,
+                          caps: mp.caps || {}, instances: devs });
+  }
+  return { settings_rev: v.settings_rev, instances, isOwner: ownerSelf, pending: v.pending || [],
+           memberProjects };
 }

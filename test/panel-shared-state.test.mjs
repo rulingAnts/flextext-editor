@@ -129,7 +129,7 @@ console.log('\na wiped device is a record, not a control surface');
   ok(/const wiped = ins\.wipe_state === 'confirmed';/.test(panel), 'a confirmed wipe is recognised');
   for (const [re, what] of [
     [/const canDelText = engNum >= 94 && !wiped;/, 'Remove-from-device'],
-    [/const canSetDone = engNum >= 138 && !wiped;/, 'the Done toggle'],
+    [/const canSetDone = engNum >= 138 && !wiped && !memberCtx;/, 'the Done toggle'],
     [/: \(deleting \|\| wiped\) \? ''/, 'Upload'],
     [/const del = \(!d\.id \|\| d\.__assigning \|\| wiped\) \? ''/, 'the delete control'],
     [/\|\| uploading \|\| wiped\) \? ''/, 'Move'],

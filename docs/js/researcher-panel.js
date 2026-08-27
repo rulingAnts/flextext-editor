@@ -1073,6 +1073,24 @@ function viewSig(data) {
        * The signature is not a performance detail — it is the list of everything the panel is
        * allowed to notice. */
       Researcher.maintenance(),
+      Researcher.freeze(),   // the write-lock banner is rendered state too — same rule as the notice
+      /* MEMBER PROJECTS are rendered state (2026-08-27) — the fourth time the rule above earns its
+       * keep, this time BEFORE the bug shipped: a coworker renaming a device, a new install
+       * appearing, a report landing — all change what the joined section shows, and none of it
+       * would redraw without these entries. Same fields the owner cards key on. */
+      (data.memberProjects || []).map((mp) => [
+        mp.project_id, mp.name, JSON.stringify(mp.caps || {}),
+        (mp.instances || []).map((it) => [
+          it.instance_id, it.nickname, it.type, it.hasKey,
+          (it.installs || []).map((ins) => [
+            ins.install_id, ins.status, ins.accepted, ins.has_key, ins.wipe_state,
+            ins.inventory && ins.inventory.engineVersion,
+            ins.inventory && Array.isArray(ins.inventory.items)
+              ? ins.inventory.items.map((d) => [d.id, d.title, d.uploadState, d.hasAudio, d.done])
+              : null,
+          ]),
+        ]),
+      ]),
       /* ⚠ THE ESTATE DOES NOT RIDE THE 12s POLL — read this before trusting the two lines below.
        *
        * `renderDashboard` refetches `estateCache` only on a FULL render (initial load, manual
@@ -1448,6 +1466,7 @@ async function renderDashboard(prefetched) {
 
   // deviceCount passed explicitly (not taken from map's array arg): it decides the collapse default.
   const cards = await Promise.all(insts.map((it) => renderInstanceCard(it, insts.length)));
+  const joinedSections = await renderJoinedSections(data);
   root.querySelector('.rp-body').innerHTML = `
     ${maintenanceBanner()}
     <div id="rp-live-ver" class="rp-live${liveVersions === null ? ' rp-live-offline' : ''}">${esc(liveVerText())}</div>
@@ -1517,7 +1536,8 @@ async function renderDashboard(prefetched) {
         ${scope.sel === STRAY_TAB ? '' : renderUnassignedCard(estateCache, scope.sel)}
         ${scope.insts.length ? mine : `<p class="note rp-empty">${esc(t('panel.proj.emptyProject'))}</p>`}
         ${scope.recs.length && Researcher.isApprovedSelf() ? renderCrowdCard(scope.recs, estateCache) : ''}`;
-    })()}`;
+    })()}
+    ${joinedSections}`;
 
   wireActs({
     exit: close,
@@ -1584,6 +1604,8 @@ async function renderDashboard(prefetched) {
     if (act === 'rename') { projectRenameModal(el.dataset.folder, el.dataset.name || ''); }
   }));
   lastSig = viewSig(data);
+  // Session-once, fire-and-forget, after the paint it must never delay (see memberGrantSweep).
+  memberGrantSweep();
   // The in-place refresh promised the researcher their place back — keep it (see the top).
   if (keepTop !== null && scroller && scroller.isConnected) scroller.scrollTop = keepTop;
   startDashPoll();
@@ -2583,7 +2605,15 @@ function ackOf(instances, instanceId) {
  * text with no manifest now gets a single link to its Drive folder instead of a reconstructed list.
  * The History log still retains the assigned URLs; nothing reads them per-render any more. */
 
-async function renderInstanceCard(it, deviceCount) {
+async function renderInstanceCard(it, deviceCount, memberCtx = null) {
+  /* memberCtx = { caps, projectName } renders this card for a COWORKER's joined project: every
+   * control maps to what the worker will actually honour for a member — manageDevices keeps
+   * settings/upload/approve/revoke, createInvites keeps the invite button, the assignTexts-gated
+   * text actions and the owner-only wipe/force-remove are ABSENT (not greyed out — the same rule
+   * as the Drive capability), and the Files menus wait for the deferred drive:read. */
+  const mCaps = memberCtx ? (memberCtx.caps || {}) : null;
+  const mManage = !memberCtx || !!mCaps.manageDevices;
+  const mInvite = !memberCtx || !!mCaps.createInvites;
   const installs = it.installs || [];
   const anyPending = installs.some((i) => i.status === 'pending');
   // Collected while the installs render, then shown in the COLLAPSED header too. A collapse that
@@ -2603,7 +2633,7 @@ async function renderInstanceCard(it, deviceCount) {
       // B: no key can be delivered until the field user accepts on their device — so until then
       // show "waiting for the user" instead of Approve (the worker would 409 the key anyway).
       const action = ins.accepted
-        ? `<button class="primary-btn" data-iact="approve" data-i="${esc(it.instance_id)}" data-id="${esc(ins.install_id)}">${esc(t('panel.inst.approve'))}</button>`
+        ? (mManage ? `<button class="primary-btn" data-iact="approve" data-i="${esc(it.instance_id)}" data-id="${esc(ins.install_id)}">${esc(t('panel.inst.approve'))}</button>` : '')
         : `<div class="note rp-waiting">${esc(t('panel.inst.waitingAccept'))}</div>`;
       /* ⚠ THE CODE IS THE HEADLINE; the fingerprint moved to fine print (Seth, 2026-08-20).
        * This card used to ask the researcher to visually match a long hex fingerprint against one
@@ -2730,12 +2760,12 @@ async function renderInstanceCard(it, deviceCount) {
           : (deleting || wiped) ? ''                        // being removed, or the device is gone
           : uploading
             ? (queued ? cancelBtn('Upload') : takenTag)
-            : ` <button class="link-btn rp-up" data-iact="upload" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-fileid="${esc(d.uploadedFileId || '')}">${esc(t(label))}</button>`;
+            : (mManage ? ` <button class="link-btn rp-up" data-iact="upload" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-fileid="${esc(d.uploadedFileId || '')}">${esc(t(label))}</button>` : '');
         // Upload-first remote delete (v94+): the device uploads a fresh timestamped copy, THEN deletes.
         // The chip belongs to the device LOSING the text. The destination's half of the move is its
         // pending ASSIGNMENT, which its own ghost row already tells.
         const moveChip = mvSource ? ` <span class="rp-tag rp-tag-moving">${esc(t(mv.stage === 'assigned' ? 'panel.move.waitingDest' : 'panel.move.removingSrc'))}</span>` : '';
-        const moveBtn = (!d.id || mv || d.__assigning || deleting || uploading || wiped) ? ''
+        const moveBtn = (memberCtx || !d.id || mv || d.__assigning || deleting || uploading || wiped) ? ''
           : ` <button class="link-btn" data-iact="move-text" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.move.btn'))}</button>`;
         /* A move is NOTHING MORE than a pending assignment and a pending removal, each cancellable
          * on its own (Seth, 2026-08-19) — so no move-specific control exists. The removal wears the
@@ -2751,12 +2781,12 @@ async function renderInstanceCard(it, deviceCount) {
           : mvSource ? cancelRemovalBtn                     // committed, not yet issued as a command
           : uploading ? ''                                  // cancel the upload first, or wait it out
           : canDelText
-            ? ` <button class="link-btn rp-revoke" data-iact="del-text" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.inst.delText'))}</button>`
+            ? (memberCtx ? '' : ` <button class="link-btn rp-revoke" data-iact="del-text" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.inst.delText'))}</button>`)
             : ` <button class="link-btn rp-revoke" disabled title="${esc(t('panel.inst.delNeedsUpdate'))}">${esc(t('panel.inst.delText'))}</button>`;
         // The done tag is a TOGGLE when the engine understands the setDone COMMAND — the dispatch
         // case shipped in v138. Gating on setDocDone's age (v100) was wrong: an older device ACKS
         // the unknown command and silently does nothing, which reads as "the toggle is broken".
-        const canSetDone = engNum >= 138 && !wiped;
+        const canSetDone = engNum >= 138 && !wiped && !memberCtx;   // members: the tag shows, the toggle is assignTexts-gated
         const doneTag = d.done
           ? (canSetDone ? `<button class="rp-tag rp-tag-done rp-tag-btn" data-iact="toggle-done" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-done="1" title="${esc(t('panel.inst.toggleDoneTip'))}">${esc(t('panel.inst.doneTag'))}</button>`
                         : `<span class="rp-tag rp-tag-done">${esc(t('panel.inst.doneTag'))}</span>`)
@@ -2773,7 +2803,8 @@ async function renderInstanceCard(it, deviceCount) {
         // when opened (filesMenuHtml), falling back to the static artifacts when there is no
         // folder yet. Rendering it unconditionally is the point of the per-text folder: the menu
         // is now the one place all of a text's artifacts live.
-        const dl = filesMenuHtml(it.instance_id, d.id, d.title || '');
+        // Members: the menu's listing rides drive:read, which is deferred — absent, not broken.
+        const dl = memberCtx ? '' : filesMenuHtml(it.instance_id, d.id, d.title || '');
         // (5) The row reads in two lines: title + state chip, then muted metadata; actions sit on
         // the right. The tags stopped fighting the title for attention — that was Seth's "plain
         // line of text with plain hyperlinks is getting busy and ugly".
@@ -2823,8 +2854,8 @@ async function renderInstanceCard(it, deviceCount) {
             <button class="link-btn rp-revoke" data-iact="force-remove" data-i="${I}" data-id="${D}">${esc(t('panel.wipe.removeBtn'))}</button>`;
           if (ins.wipe_state === 'requested') return `<div class="note rp-wipe-pending">${esc(t('panel.wipe.pending', { when: lastSeen(ins.wipe_at) }))}</div>
             <button class="link-btn rp-revoke" data-iact="force-remove" data-i="${I}" data-id="${D}">${esc(t('panel.wipe.forceRemoveBtn'))}</button>`;
-          return `<button class="link-btn rp-revoke" data-iact="revoke-install" data-i="${I}" data-id="${D}">${esc(t('panel.inst.revokeInstall'))}</button>
-            <button class="link-btn rp-danger" data-iact="wipe-install" data-i="${I}" data-id="${D}" data-name="${esc(it.nickname || '')}">${esc(t('panel.wipe.btn'))}</button>`;
+          return `${mManage ? `<button class="link-btn rp-revoke" data-iact="revoke-install" data-i="${I}" data-id="${D}">${esc(t('panel.inst.revokeInstall'))}</button>` : ''}
+            ${memberCtx ? '' : `<button class="link-btn rp-danger" data-iact="wipe-install" data-i="${I}" data-id="${D}" data-name="${esc(it.nickname || '')}">${esc(t('panel.wipe.btn'))}</button>`}`;
         })()}
       </div>`;
     }
@@ -2871,17 +2902,24 @@ async function renderInstanceCard(it, deviceCount) {
         <a href="${MIGRATE_DOC}" target="_blank" rel="noopener">${esc(t('panel.deprecated.coworkers'))}</a></p>` : ''}
       ${installsHtml || `<p class="note">${esc(t('panel.inst.noInstall'))}</p>`}
       <div class="rp-inst-actions">
-        <button class="secondary-btn" data-iact="settings" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}">${esc(t('panel.inst.settings'))}</button>
-        <button class="secondary-btn" data-iact="invite" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}">${esc(t('panel.inst.invite'))}</button>
-        <button class="secondary-btn" data-iact="assign" data-i="${esc(it.instance_id)}">${esc(t('panel.inst.assign'))}</button>
-        ${projectMoveBtn(it)}
-        <button class="link-btn rp-revoke" data-iact="revoke" data-i="${esc(it.instance_id)}" data-name="${esc(it.nickname || '')}">${esc(t('panel.inst.revoke'))}</button>
+        ${mManage ? `<button class="secondary-btn" data-iact="settings" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}">${esc(t('panel.inst.settings'))}</button>` : ''}
+        ${mInvite ? `<button class="secondary-btn" data-iact="invite" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}">${esc(t('panel.inst.invite'))}</button>` : ''}
+        ${memberCtx ? '' : `<button class="secondary-btn" data-iact="assign" data-i="${esc(it.instance_id)}">${esc(t('panel.inst.assign'))}</button>`}
+        ${memberCtx ? '' : projectMoveBtn(it)}
+        ${mManage ? `<button class="link-btn rp-revoke" data-iact="revoke" data-i="${esc(it.instance_id)}" data-name="${esc(it.nickname || '')}">${esc(t('panel.inst.revoke'))}</button>` : ''}
       </div>
     </div>
   </div>`;
 }
 
 let lastView = null;
+/* An instance by id from EITHER side of the view — owned, or a joined project's (2026-08-27).
+ * Every action handler that resolves an instance goes through this, or member cards' buttons
+ * would find nothing and silently do nothing. */
+function viewInst(v, id) {
+  return ((v && v.instances) || []).find((x) => x.instance_id === id)
+    || ((v && v.memberProjects) || []).flatMap((mp) => mp.instances || []).find((x) => x.instance_id === id);
+}
 
 async function instanceAction(el) {
   const id = el.dataset.i, installId = el.dataset.id, type = el.dataset.type;
@@ -2905,7 +2943,7 @@ async function instanceAction(el) {
     }
     if (act === 'approve') {
       lastView = await Researcher.listView();
-      const inst = lastView.instances.find((x) => x.instance_id === id);
+      const inst = viewInst(lastView, id);
       const ins = inst && inst.installs.find((x) => x.install_id === installId);
       await busy(el, () => Researcher.approveInstall(id, installId, ins && ins.pubkey));
       deps.toast(t('panel.inst.approved'), 4000);
@@ -2931,7 +2969,7 @@ async function instanceAction(el) {
       // device itself) isn't forced through a redundant re-save.
       const snap = await Researcher.getInstanceSettings(id).catch(() => null);
       lastView = await Researcher.listView();
-      const inst = lastView.instances.find((x) => x.instance_id === id);
+      const inst = viewInst(lastView, id);
       const effective = snap || (inst && firstInventorySettings(inst));
       const probs = effective ? validateDeviceSettings(settingsToRaw(effective)) : null;
       if (!effective || (probs && probs.length)) {
@@ -3045,7 +3083,7 @@ async function instanceAction(el) {
       deps.toast(t(want ? 'panel.move.doneSent' : 'panel.move.notDoneSent'), 4000);
     } else if (act === 'settings') {
       lastView = await Researcher.listView();
-      const inst = lastView.instances.find((x) => x.instance_id === id);
+      const inst = viewInst(lastView, id);
       openSettingsModal({ kind: 'instance', instance: inst });
     }
   } catch (e) { errToast(e); }
@@ -5195,6 +5233,91 @@ function sweepUnassigned(estate) {
   } catch { /* the sweep must never break the dashboard it rides on */ }
 }
 
+/* The devices of ONE owned project, resolved estate-side: project row → drive_folder_id →
+ * estate devices under that folder → their instance ids (estate instanceId first, oauth join as
+ * the fallback for a device the estate has not stamped yet). Empty when Drive is unreachable —
+ * callers report that honestly rather than pretending a grant happened. (Hoisted from
+ * coworkersModal so the grant sweep below shares the ONE derivation.) */
+function projectInstanceIds(proj) {
+  const pf = proj && proj.drive_folder_id;
+  if (!pf) return [];
+  const devs = ((estateCache && estateCache.devices) || []).filter((d) => d.projectId === pf && d.kind !== 'crowd');
+  const out = new Set(devs.map((d) => d.instanceId).filter(Boolean));
+  const folders = new Set(devs.map((d) => d.folderId).filter(Boolean));
+  for (const i of ((lastData && lastData.instances) || [])) {
+    if (i.oauth_folder_id && folders.has(i.oauth_folder_id)) out.add(i.instance_id);
+  }
+  return [...out];
+}
+
+/* THE GRANT SWEEP (2026-08-27) — closes the created-after-membership gap for good. A device made
+ * AFTER a coworker was added got no key grants, so the member saw ciphertext (or, before the
+ * member view, nothing) until the owner removed and re-added them — a workaround the panel's own
+ * error strings had to document. The members list now reports per-member `granted` + `pubkey_set`
+ * (the worker join), so the OWNER's panel can diff and heal silently: for each owned project's
+ * member with a published key, mint exactly the missing grants.
+ *
+ * ⚠ ONCE PER SESSION, fire-and-forget, and it must never break the dashboard it rides on: every
+ * failure is a console.warn and a retry next session. Idempotent by construction (INSERT OR
+ * REPLACE server-side), so over-running costs nothing but requests. Runs AFTER a render so the
+ * estate cache it diffs against is as settled as it gets. */
+let grantSweepRan = false;
+async function memberGrantSweep() {
+  if (grantSweepRan || !Researcher.isApprovedSelf()) return;
+  grantSweepRan = true;
+  try {
+    const pj = await Researcher.listProjects();
+    let healed = 0;
+    for (const proj of (pj.owned || [])) {
+      if (!proj.drive_folder_id) continue;
+      let members = [];
+      try { members = (await Researcher.listMembers(proj.project_id)).members || []; }
+      catch { continue; }
+      if (!members.length) continue;
+      const iids = projectInstanceIds(proj);
+      if (!iids.length) continue;
+      for (const m of members) {
+        if (m.invalid || !m.pubkey_set) continue;   // nothing to wrap to yet — reported on their row
+        const have = new Set(m.granted || []);
+        const missing = iids.filter((id) => !have.has(id));
+        if (!missing.length) continue;
+        try {
+          const r = await Researcher.grantKeysToMember(m.researcher_id, missing);
+          healed += r.granted || 0;
+        } catch (e) { console.warn('grant sweep:', m.researcher_id, (e && e.message) || e); }
+      }
+    }
+    if (healed) deps.toast(t('panel.share.sweepHealed', { n: healed }), 6000);
+  } catch (e) { console.warn('grant sweep skipped:', (e && e.message) || e); }
+}
+
+/* THE JOINED-PROJECTS SECTION (2026-08-27) — the member-side dashboard, v1. One card per project
+ * this researcher was invited into, rendering the SAME device cards the owner sees through
+ * renderInstanceCard's memberCtx: controls map to the member's capabilities, Drive surfaces are
+ * absent (not greyed out), and everything decrypts through the member's own key grants. There is
+ * deliberately NO Drive/estate column for joined projects — the honest v1 of the member Drive
+ * question, not a bad answer to it. */
+async function renderJoinedSections(data) {
+  const mps = (data && data.memberProjects) || [];
+  if (!mps.length) return '';
+  const parts = [];
+  for (const mp of mps) {
+    const caps = mp.caps || {};
+    const cards = await Promise.all((mp.instances || []).map((it) =>
+      renderInstanceCard(it, (mp.instances || []).length, { caps, projectName: mp.name })));
+    const capBits = [];
+    if (caps.manageDevices) capBits.push(t('panel.share.capManage'));
+    if (caps.createInvites) capBits.push(t('panel.share.capInvite'));
+    parts.push(`<div class="rp-card rp-joined">
+      <div class="rp-inst-top"><span class="rp-inst-name">${esc(t('panel.joined.title', { name: mp.name || '?' }))}</span>
+        <span class="rp-badge rp-badge-type">${esc(t('panel.joined.tag'))}</span></div>
+      <p class="note">${esc(capBits.length ? t('panel.joined.note', { caps: capBits.join(', ') }) : t('panel.joined.noteNone'))}</p>
+      ${cards.join('') || `<p class="note">${esc(t('panel.joined.empty'))}</p>`}
+    </div>`);
+  }
+  return parts.join('');
+}
+
 /* The {docId: folderId} echo driveUnassign sends so a filing survives Drive's search-index lag —
  * the panel already knows every text's folder from the estate, and files.get by id is strongly
  * consistent where the worker's tag search is not (issue #13's silent no-op half). Falls back to
@@ -6145,7 +6268,7 @@ async function coworkersModal() {
                 does not send identity yet). */''}
             ${(x.display_name || x.email) ? `<div class="note rp-rid-sm">${esc(x.researcher_id)}</div>` : ''}
             <div class="note" data-mcaps="${i}">${x.invalid ? esc(t('panel.share.invalidCaps'))
-                                          : esc(t('panel.share.memberCaps', { caps: capWords(x.caps) }))}</div>
+                                          : esc(t('panel.share.memberCaps', { caps: capWords(x.caps) }))}${x.pubkey_set === false ? ' · ' + esc(t('panel.share.awaitingKey')) : ''}</div>
             <div class="rp-share-edit" data-medit="${i}" hidden>
               <label class="check-label"><input type="checkbox" data-mem="${i}" data-cap="manageDevices" ${x.caps && x.caps.manageDevices ? 'checked' : ''}> ${esc(t('panel.share.capManageLabel'))}</label>
               <label class="check-label"><input type="checkbox" data-mem="${i}" data-cap="createInvites" ${x.caps && x.caps.createInvites ? 'checked' : ''}> ${esc(t('panel.share.capInviteLabel'))}</label>
@@ -6269,21 +6392,6 @@ async function coworkersModal() {
     }));
   }
 
-  /* The devices of ONE owned project, resolved estate-side: project row → drive_folder_id →
-   * estate devices under that folder → their instance ids (estate instanceId first, oauth join as
-   * the fallback for a device the estate has not stamped yet). Empty when Drive is unreachable —
-   * the caller reports that honestly rather than pretending the grant happened. */
-  function projectInstanceIds(proj) {
-    const pf = proj && proj.drive_folder_id;
-    if (!pf) return [];
-    const devs = ((estateCache && estateCache.devices) || []).filter((d) => d.projectId === pf && d.kind !== 'crowd');
-    const out = new Set(devs.map((d) => d.instanceId).filter(Boolean));
-    const folders = new Set(devs.map((d) => d.folderId).filter(Boolean));
-    for (const i of ((lastData && lastData.instances) || [])) {
-      if (i.oauth_folder_id && folders.has(i.oauth_folder_id)) out.add(i.instance_id);
-    }
-    return [...out];
-  }
 
   try {
     const r = await Researcher.listProjects();

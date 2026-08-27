@@ -183,6 +183,33 @@ ok(add.json && add.json.caps && add.json.caps.assignTexts === undefined,
   ok(me && 'display_name' in me && 'avatar_url' in me, '...and the display fields ride along (empty-string when unset)');
 }
 
+console.log('\nEDITING permissions is EFFECTIVE — reduced caps refuse on the very next request');
+{
+  /* Seth, live-testing the new Change-permissions UI (2026-08-27): "I don't have an easy way to
+   * test whether those permission settings are actually effective." This is that test, as the
+   * round-trip the UI performs: the edit is the same INSERT OR REPLACE the add uses, and the caps
+   * it stores must be the caps the very next request is judged by — no session, no cache, no lag. */
+  // Widen first (the edit-as-INCREASE case), so both capabilities are demonstrably live…
+  const widen = await call('POST', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: FIXTURE.outsiderId, caps: { manageDevices: true, createInvites: true } });
+  ok(widen.status === 200, `the owner widens the caps (got ${widen.status})`);
+  ok((await call('POST', `/v1/instances/${idA}/rename`, GUEST, { nickname: 'Caps Loop 1' })).status === 200,
+     'with manageDevices: rename succeeds');
+  ok((await call('POST', `/v1/instances/${idA}/invite`, GUEST, {})).status === 200,
+     'with createInvites: minting succeeds');
+  // …then strip to nothing: both must refuse on the VERY NEXT request…
+  const down = await call('POST', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: FIXTURE.outsiderId, caps: {} });
+  ok(down.status === 200, `the owner edits the caps DOWN to none (got ${down.status})`);
+  ok((await call('POST', `/v1/instances/${idA}/rename`, GUEST, { nickname: 'Caps Loop 2' })).status === 404,
+     '⚠⚠ the SAME rename now 404s — a reduced capability refuses immediately');
+  ok((await call('POST', `/v1/instances/${idA}/invite`, GUEST, {})).status === 404,
+     '⚠⚠ and so does minting — createInvites is gone the moment it was unticked');
+  // …then restore the section's original grant, and the ability is back just as immediately.
+  const up = await call('POST', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: FIXTURE.outsiderId, caps: { manageDevices: true } });
+  ok(up.status === 200, `the owner edits them back (got ${up.status})`);
+  ok((await call('POST', `/v1/instances/${idA}/rename`, GUEST, { nickname: 'Caps Loop 3' })).status === 200,
+     '...and the ability returns just as immediately — stoppable, restorable, never sticky');
+}
+
 console.log('\nwhat that member CAN do, and what they still cannot');
 {
   ok((await call('POST', `/v1/instances/${idA}/rename`, GUEST, { nickname: 'Renamed By Member' })).status === 200,

@@ -129,7 +129,7 @@ console.log('\na wiped device is a record, not a control surface');
   ok(/const wiped = ins\.wipe_state === 'confirmed';/.test(panel), 'a confirmed wipe is recognised');
   for (const [re, what] of [
     [/const canDelText = engNum >= 94 && !wiped;/, 'Remove-from-device'],
-    [/const canSetDone = engNum >= 138 && !wiped && !memberCtx;/, 'the Done toggle'],
+    [/const canSetDone = engNum >= 138 && !wiped && mAssign;/, 'the Done toggle'],   // mAssign = assignTexts cap (v456); the !wiped half is what this pin protects
     [/: \(deleting \|\| wiped\) \? ''/, 'Upload'],
     [/const del = \(!d\.id \|\| d\.__assigning \|\| wiped\) \? ''/, 'the delete control'],
     [/\|\| uploading \|\| wiped\) \? ''/, 'Move'],

@@ -3125,9 +3125,19 @@ function newDeviceModal() {
   const projName = intoProject
     ? ((((estateCache && estateCache.projects) || []).find((p) => p.folderId === intoProject) || {}).name || '')
     : '';
+  /* A SHARED tab on screen creates INTO that shared project when the owner granted manageDevices —
+   * the device is born the owner's, in their Drive, keyed by this seat (createMemberInstance).
+   * Without the cap the create falls back to the researcher's OWN estate, and the note SAYS so
+   * up front — a device silently landing outside the tab you were looking at read as data loss
+   * (Seth, 2026-08-27: "it put it in a 'not in a project yet' tab"). */
+  const sharedMp = isMemberTab(currentProject)
+    ? ((lastData && lastData.memberProjects) || []).find((x) => memberTabId(x.project_id) === currentProject) : null;
+  const intoShared = sharedMp && (sharedMp.caps || {}).manageDevices ? sharedMp : null;
   const m = modal(`
     <h3>${esc(t('panel.new.title'))}</h3>
     <label class="rp-field"><span>${esc(t('panel.new.nick'))}</span><input id="rp-new-nick" placeholder="${esc(t('panel.new.nickPh'))}" spellcheck="false"></label>
+    ${intoShared ? `<p class="note">${esc(t('panel.new.intoShared', { name: sharedMp.name || '?' }))}</p>` : ''}
+    ${sharedMp && !intoShared ? `<p class="note">${esc(t('panel.new.sharedNoCap', { name: sharedMp.name || '?' }))}</p>` : ''}
     ${projName ? `<p class="note">${esc(t('panel.new.intoProject', { name: projName }))}</p>` : ''}
     <p class="note">${esc(t('panel.new.unifiedNote'))}</p>
     <button class="primary-btn" data-m="create">${esc(t('panel.new.create'))}</button>
@@ -3142,7 +3152,11 @@ function newDeviceModal() {
      * met it later as a ghost (issue #6). Creation failure ends here; anything after names the
      * true state and points at the retry (the device card's Settings). */
     let inst = null;
-    try { inst = await Researcher.createInstance(nick, intoProject); }
+    try {
+      inst = intoShared
+        ? await Researcher.createMemberInstance(intoShared.project_id, nick)
+        : await Researcher.createInstance(nick, intoProject);
+    }
     catch (err) { errToast(err); return; }
     m.close(); renderDashboard();
     // A new device has no settings yet — open them straight away so it gets configured. Invite-link

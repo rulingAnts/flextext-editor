@@ -637,14 +637,13 @@ console.log('\n⚠⚠ a REVOKED device\'s grant stops being served to the MEMBER
   await call('DELETE', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: FIXTURE.outsiderId });
 }
 
-console.log('\n⚠⚠ a MEMBER-minted invite names the MEMBER to the field user, not the owner (anti-phishing gate)');
+console.log('\n⚠⚠ a claim hands the device NO researcher identity — the pair code is the recognition mechanism');
 {
-  /* The pairing accept gate exists so the person being linked can recognise WHO is linking them. A
-   * device enrolled by a member used to be shown the OWNER's identity, because pairing resolved
-   * through instance.researcher_id (always the owner). invited_by fixes it. Neuter the invited_by
-   * stamp on the invite INSERT, or the COALESCE in pairingIdentity, and this fails: the email comes
-   * back as the owner's. idA is in the member's project (backfilled into projectId at the top), so a
-   * member with createInvites may mint for it. */
+  /* Reversed deliberately (Seth, 2026-08-27): a paired field device can end up in untrusted hands,
+   * and it must not carry — or ever have been handed — the identity of the people running the
+   * project. The claim response therefore carries no name, email or avatar, whoever minted the
+   * invite; the PAIR CODE on both screens is what vouches for the link. A member with createInvites
+   * may mint (idA is in their project), which this block also keeps pinned. */
   await call('POST', `/v1/projects/${projectId}/members`, OWNER, {
     researcher_id: FIXTURE.outsiderId, caps: { manageDevices: true, createInvites: true },
   });
@@ -656,10 +655,73 @@ console.log('\n⚠⚠ a MEMBER-minted invite names the MEMBER to the field user,
     { 'x-fx-invite-secret': inv.json.secret },
     { install_id: memberInstallId, install_secret: 'member-invite-probe-secret', pubkey: 'SPKI-PROBE' });
   ok(claim.status === 200, `the device claims it (got ${claim.status})`);
-  ok(claim.json && claim.json.researcher && claim.json.researcher.email === FIXTURE.outsiderEmail,
-     `⚠⚠ and is shown the MEMBER's identity (${claim.json && claim.json.researcher && claim.json.researcher.email}) — the person actually linking the device`);
-  ok(claim.json && claim.json.researcher && claim.json.researcher.email !== FIXTURE.driveEmail,
-     `⚠ explicitly NOT the owner's (${FIXTURE.driveEmail}) — showing the owner would vouch for the wrong person`);
+  ok(claim.json && claim.json.pair_code && String(claim.json.pair_code).length > 0,
+     'the claim carries the pair code — the one thing the two screens match');
+  const leaked = JSON.stringify(claim.json || {});
+  ok(!('researcher' in (claim.json || {})),
+     '⚠⚠ and NO researcher object — a device out of the team’s control must not hold who runs the project');
+  ok(!leaked.includes(FIXTURE.outsiderEmail) && !leaked.includes(FIXTURE.driveEmail),
+     '⚠⚠ no email of ANY researcher appears anywhere in the claim response');
+  // the idempotent-retry path answers from a different branch — it must be identity-free too
+  const retry = await call('POST', `/v1/invites/${inv.json.invite_id}/claim`,
+    { 'x-fx-invite-secret': inv.json.secret },
+    { install_id: memberInstallId, install_secret: 'member-invite-probe-secret', pubkey: 'SPKI-PROBE' });
+  ok(retry.status === 200 && !('researcher' in (retry.json || {}))
+     && !JSON.stringify(retry.json || {}).includes(FIXTURE.driveEmail),
+     `the lost-response retry is identity-free the same way (got ${retry.status})`);
+}
+
+console.log('\n⚠⚠ a member with manageDevices CREATES a device inside the shared project — and bootstraps its keys ONCE');
+{
+  /* The device is born the OWNER's (researcher_id = owner), in the project, and the member delivers
+   * the initial key set through the bootstrap door: allowed only while the instance has ZERO key
+   * rows, and only with the owner's wrap in the set. Every arm here is a probe of a distinct rule —
+   * weaken one and its line names it. */
+  await call('POST', `/v1/projects/${projectId}/members`, OWNER, {
+    researcher_id: FIXTURE.outsiderId, caps: { manageDevices: true, createInvites: true },
+  });
+  const made = await call('POST', `/v1/projects/${projectId}/instances`, GUEST, { nickname: 'Member Made' });
+  ok(made.status === 200 && made.json && made.json.instance_id,
+     `member creates a device in the shared project (got ${made.status})`);
+  ok(made.json && made.json.owner_id === FIXTURE.researcherId,
+     'the response names the project OWNER — the wrap-to-owner target');
+  const mid = made.json && made.json.instance_id;
+  const ownHome = await call('GET', '/v1/researcher', OWNER);
+  ok(((ownHome.json && ownHome.json.instances) || []).some((x) => x.instance_id === mid),
+     "the device is the OWNER's: it rides the owner's own poll like any other");
+  const noOwner = await call('POST', '/v1/researcher/keys', GUEST,
+    { instance_id: mid, grants: [{ researcher_id: FIXTURE.outsiderId, wrapped_ki: 'W-SELF' }] });
+  ok(noOwner.status === 400 && noOwner.json && noOwner.json.error === 'owner_grant_required',
+     `bootstrap WITHOUT the owner wrap is refused (got ${noOwner.status} ${noOwner.json && noOwner.json.error})`);
+  const boot = await call('POST', '/v1/researcher/keys', GUEST, {
+    instance_id: mid, grants: [
+      { researcher_id: FIXTURE.researcherId, wrapped_ki: 'W-OWNER' },
+      { researcher_id: FIXTURE.outsiderId, wrapped_ki: 'W-SELF' },
+    ],
+  });
+  ok(boot.status === 200 && boot.json && boot.json.stored === 2,
+     `bootstrap WITH the owner wrap lands both rows (got ${boot.status}, stored ${boot.json && boot.json.stored})`);
+  const again = await call('POST', '/v1/researcher/keys', GUEST, {
+    instance_id: mid, grants: [
+      { researcher_id: FIXTURE.researcherId, wrapped_ki: 'W-OWNER-EVIL' },
+      { researcher_id: FIXTURE.outsiderId, wrapped_ki: 'W-SELF-EVIL' },
+    ],
+  });
+  ok(again.status === 404,
+     `⚠⚠ the door is ONE-SHOT: a second member write is refused once any key row exists (got ${again.status})`);
+  const ownerRewrite = await call('POST', '/v1/researcher/keys', OWNER, {
+    instance_id: mid, grants: [{ researcher_id: FIXTURE.researcherId, wrapped_ki: 'W-OWNER-2' }],
+  });
+  ok(ownerRewrite.status === 200, `the OWNER may still rewrite grants at any time (got ${ownerRewrite.status})`);
+  // strip the cap: creation and bootstrap both close
+  await call('POST', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: FIXTURE.outsiderId, caps: { createInvites: true } });
+  const noCap = await call('POST', `/v1/projects/${projectId}/instances`, GUEST, { nickname: 'No Cap' });
+  ok(noCap.status === 404, `without manageDevices, creation is the uniform 404 (got ${noCap.status})`);
+  await call('DELETE', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: FIXTURE.outsiderId });
+  const gone = await call('POST', `/v1/projects/${projectId}/instances`, GUEST, { nickname: 'Not A Member' });
+  ok(gone.status === 404, `a non-member gets the same 404 (got ${gone.status})`);
+  // leave no husk behind: the fixture DB is reused across probe runs
+  await call('POST', `/v1/instances/${mid}/revoke`, OWNER, {});
 }
 
 console.log(fail ? `\n${fail} FAILED\n` : '\nPASS\n');

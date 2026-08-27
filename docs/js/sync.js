@@ -318,9 +318,9 @@ export async function claim(inviteId, inviteSecret) {
      * research-ethics obligations this suite owes the communities it serves, and the surest way not
      * to hold something is never to write it down.
      *
-     * ⚠ The worker still SENDS r.researcher, and that is fine — it is a protocol we share with
-     * already-deployed clients, and changing it would blank the consent screen of every editor and
-     * recorder still on the old build. We simply drop it on the floor. */
+     * ⚠ Since 2026-08-27 the worker no longer sends r.researcher at all — the pair code is the
+     * recognition mechanism on both screens. The drop-on-the-floor here stays: an older worker
+     * (or one mid-deploy) still sends it, and this line is what guarantees it goes nowhere. */
     /* ⚠ NEVER OVERWRITE A CODE WE HOLD WITH AN EMPTY ONE. An older worker — or one mid-deploy —
      * answers a claim without pair_code at all, and this same line runs on the idempotent retry
      * path. Blanking here would take the number off this screen while the panel still shows it,

@@ -469,23 +469,18 @@ async function authResearcher(req, env) {
 
 // Bind the install secret to the EXACT addressed row (Hardening §E.1): proves
 // install A cannot touch install B, and a revoked device is rejected.
-/* Who the PAIRING screen names to the field user: the researcher who MINTED the invite, resolved
- * through invite.invited_by — NOT the instance owner. The accept gate exists so the person being
- * linked can recognise WHO is linking them; when a project member enrols a device that is the
- * MEMBER, and instance.researcher_id is always the owner (a maintained denormalisation), so joining
- * on it would vouch for the wrong person. COALESCE falls back to the instance owner when invited_by
- * is NULL — every pre-migration invite, and every owner-minted one — which is the unchanged
- * behaviour. Identity IS returned here on purpose (unlike the pubkey lookup, which hides it): the
- * whole point of the gate is that the field user sees who is enrolling their device. */
+/* ⚠ NO RESEARCHER IDENTITY GOES TO THE CLAIMING DEVICE — REVERSED DELIBERATELY (Seth, 2026-08-27).
+ * This used to return the inviting researcher's name/email/avatar for the pairing accept screen.
+ * A paired field device can end up in untrusted hands, and it must not carry — or ever have been
+ * handed — the identity of the people running the project. The PAIR CODE is the recognition
+ * mechanism: the researcher reads it from their panel, the field user from their device, and the
+ * match is what vouches for the link, whoever minted the invite. The device side stopped storing
+ * and rendering the identity on 2026-08-20 (sync.js scrubs old copies); this closes the sending
+ * half. invited_by is still stamped on the invite row — owner-side audit, never device-visible. */
 async function pairingIdentity(env, inv) {
-  const row = await env.DB.prepare(
-    'SELECT n.type, r.display_name, r.avatar_url, r.drive_email FROM instance n '
-    + 'JOIN researcher r ON r.researcher_id=COALESCE(?, n.researcher_id) WHERE n.instance_id=?'
-  ).bind(inv.invited_by || null, inv.instance_id).first();
-  return {
-    type: row && row.type,
-    researcher: row ? { name: row.display_name || '', avatar: row.avatar_url || '', email: row.drive_email || '' } : null,
-  };
+  const row = await env.DB.prepare('SELECT type FROM instance WHERE instance_id=?')
+    .bind(inv.instance_id).first();
+  return { type: row && row.type };
 }
 
 async function authInstall(req, env, instanceId, installId) {
@@ -2598,9 +2593,21 @@ export async function handleV1(request, env, ctx, url, path, origin) {
      * hand, and yields the same values: project_id '' and the instance's researcher_id as owner. */
     const ctx = await authMember(request, env, { instance: instanceId }, null);
     if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
-    if (!ctx.ok || !ctx.isOwner) return j({ error: 'not_found' }, 404, origin, env);
+    if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+    /* ⚠ THE MEMBER BOOTSTRAP DOOR, and it is deliberately this narrow: a member (manageDevices) may
+     * write a key set ONLY while the instance has NO key rows at all — the one moment that exists,
+     * the birth of a device they just created, when nobody else CAN mint (the Ki lives only in
+     * their page). Once any row exists, members are shut out again, so an existing device's grants
+     * can never be replaced from a member seat — overwrite-sabotage stays owner-only impossible.
+     * The wrap-to-owner check below still applies to the bootstrap set, so even this door cannot
+     * mint a device the owner cannot read. Denial is the uniform 404. */
+    if (!ctx.isOwner) {
+      if (!(ctx.caps || {}).manageDevices) return j({ error: 'not_found' }, 404, origin, env);
+      const existing = await env.DB.prepare('SELECT COUNT(*) AS n FROM member_key WHERE instance_id=?')
+        .bind(instanceId).first().catch(() => null);
+      if (!existing || Number(existing.n) > 0) return j({ error: 'not_found' }, 404, origin, env);
+    }
     const proj = { project_id: ctx.project_id || null, owner_id: ctx.owner.researcher_id };
-    const r = ctx.owner;
 
     if (!grants.some((g) => g && g.researcher_id === proj.owner_id && g.wrapped_ki)) {
       return j({ error: 'owner_grant_required' }, 400, origin, env);
@@ -2619,7 +2626,9 @@ export async function handleV1(request, env, ctx, url, path, origin) {
        * migration looked like it had simply found nothing to do.
        * '' means "no project yet" and is the same sentinel buildDriveEstate already uses for a text
        * with no project. ⚠ Phase C must treat '' as unassigned rather than as a project id. */
-      ).bind(String(proj.project_id || ''), instanceId, String(g.researcher_id), version, String(g.wrapped_ki), r.researcher_id, now));
+      /* wrapped_by records the CALLER, not the owner — for an owner's grant they are the same row,
+       * and for a member bootstrap the ledger must say which member minted it. */
+      ).bind(String(proj.project_id || ''), instanceId, String(g.researcher_id), version, String(g.wrapped_ki), ctx.caller.researcher_id, now));
     await env.DB.batch(writes);
     return j({ ok: true, stored: writes.length, key_version: version }, 200, origin, env);
   }
@@ -2788,6 +2797,48 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         return { project_id: x.project_id, name: x.name, owner_id: x.owner_id, caps, invalid: caps === null };
       }),
     }, 200, origin, env);
+  }
+
+  /* POST /v1/projects/<project_id>/instances — create a device INSIDE a shared project (Seth,
+   * 2026-08-27: "Member researchers still can't create a device in a project shared with them").
+   *
+   * The instance belongs to the project OWNER, not the caller: researcher_id is the owner's, the
+   * Drive folder is minted in the OWNER's Drive under the project folder, and project_id is stamped
+   * in the INSERT itself (the project IS the address here — no folder round-trip to infer it from).
+   * A member-created device is thereby indistinguishable from an owner-created one, which is the
+   * point: every later rule (revoke, wipe, member caps, retention) has exactly one device shape.
+   *
+   * Gated on manageDevices via authMember — the owner passes trivially, a member needs the cap, and
+   * everyone else gets the uniform 404. The caller must then deliver the key set through the
+   * bootstrap door in POST /v1/researcher/keys (owner wrap REQUIRED there — a member cannot mint a
+   * device the owner cannot read). Until that lands the device is keyless and shows as such. */
+  if (m === 'POST' && seg.length === 4 && seg[1] === 'projects' && seg[3] === 'instances') {
+    const projectId = String(seg[2] || '');
+    const ctx = await authMember(request, env, { project: projectId }, 'manageDevices');
+    if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+    if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+    const body = await readJson(request);
+    const nickname = body && (body.nickname || '').trim();
+    if (!nickname) return j({ error: 'nickname_required' }, 400, origin, env);
+    const project = await env.DB.prepare('SELECT project_id, owner_id, drive_folder_id FROM project WHERE project_id=?')
+      .bind(projectId).first().catch(() => null);
+    if (!project) return j({ error: 'not_found' }, 404, origin, env);
+    const instance_id = crypto.randomUUID();
+    // estate 'cloud' unconditionally — same policy decision as the owner-route INSERT above.
+    await env.DB.prepare(
+      'INSERT INTO instance (instance_id, researcher_id, type, nickname, desired_blob, desired_rev, revoked, created_at, estate, project_id) VALUES (?,?,?,?,?,0,0,?,?,?)'
+    ).bind(instance_id, ctx.owner.researcher_id, '', nickname, JSON.stringify({ settings: {}, commands: [] }), now, 'cloud', projectId).run();
+    /* Eager device folder in the OWNER's Drive, best-effort exactly like the owner route: a Drive
+     * failure must not lose the instance, the folder falls back to the lazy path. */
+    let folderId = '';
+    if (project.drive_folder_id) {
+      try {
+        const access = await driveAccessToken(env, ctx.owner);
+        folderId = await driveEnsureDeviceFolder(env, access, instance_id, nickname, '', project.drive_folder_id);
+      } catch { /* lazy path serves it */ }
+    }
+    try { await secLog(env, request, 'member_instance_created', { project: projectId, instance: instance_id, by: ctx.caller.researcher_id, owner: ctx.isOwner }); } catch { /* noop */ }
+    return j({ instance_id, type: '', nickname, estate: 'cloud', folderId, project_id: projectId, owner_id: project.owner_id }, 200, origin, env);
   }
 
   /* /v1/projects/<project_id>/members — OWNER-ONLY membership management (II.4).
@@ -4157,9 +4208,9 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       const invite_id = crypto.randomUUID();
       const secret = randTok(18);
       const expires_at = now + ttl * 1000;
-      /* ⚠ invited_by = ctx.caller, NOT ctx.owner. The pairing accept gate names this researcher to
-       * the field user so they can recognise who is enrolling their device; when a member mints the
-       * invite it must be the MEMBER, not the project owner. See pairingIdentity(). */
+      /* ⚠ invited_by = ctx.caller, NOT ctx.owner — the AUDIT record of who actually minted this
+       * invite (a member may). Owner-side only: since 2026-08-27 no researcher identity is sent to
+       * the claiming device at all — the pair code is the recognition mechanism there. */
       await env.DB.prepare('INSERT INTO invite (invite_id, instance_id, secret_hash, expires_at, created_at, invited_by) VALUES (?,?,?,?,?,?)')
         .bind(invite_id, instanceId, await sha256hex(secret), expires_at, now, ctx.caller.researcher_id).run();
       /* ⚠ RETURN THE ESTATE WITH THE INVITE. The panel used to look the instance up in its cached
@@ -5192,7 +5243,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
          * asking again because it never saw the first answer, and it may already be showing the code
          * to a researcher who is reading it aloud. Re-minting here would change the number on one
          * screen only — the exact "they don't match" dead end this feature exists to remove. */
-        return j({ instance_id: inv.instance_id, type: who.type, status: 'pending', pair_code: ok.pair_code || '', researcher: who.researcher }, 200, origin, env);
+        return j({ instance_id: inv.instance_id, type: who.type, status: 'pending', pair_code: ok.pair_code || '' }, 200, origin, env);
       }
     }
     if (inv.claimed_at) return j({ error: 'already_claimed' }, 409, origin, env);
@@ -5223,7 +5274,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
      * row already existed the STORED code is the one both screens must show — trusting the local
      * variable would hand this device a number the panel will never display. */
     const mine = await env.DB.prepare('SELECT pair_code FROM install WHERE install_id=?').bind(installId).first();
-    return j({ instance_id: inv.instance_id, type: who.type, status: 'pending', pair_code: (mine && mine.pair_code) || '', researcher: who.researcher }, 200, origin, env);
+    return j({ instance_id: inv.instance_id, type: who.type, status: 'pending', pair_code: (mine && mine.pair_code) || '' }, 200, origin, env);
   }
 
   /* ---------------- Drive delivery mode (researcher-authed) ---------------- */

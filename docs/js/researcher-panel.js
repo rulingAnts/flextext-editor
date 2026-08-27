@@ -6131,7 +6131,10 @@ async function coworkersModal() {
           <div class="invite-who">${x.avatar_url ? `<img class="invite-avatar" src="${esc(x.avatar_url)}" alt="" referrerpolicy="no-referrer" width="40" height="40">` : ''}
             <div><div class="invite-name">${esc(x.display_name || x.email || x.researcher_id)}</div>
             ${x.email && x.display_name ? `<div class="note">${esc(x.email)}</div>` : ''}
-            <div class="note rp-rid-sm">${esc(x.researcher_id)}</div>
+            ${/* Only when a real name renders above — otherwise the name line IS the id, and this
+                line printed the same UUID twice (Seth's first look at v447, against a worker that
+                does not send identity yet). */''}
+            ${(x.display_name || x.email) ? `<div class="note rp-rid-sm">${esc(x.researcher_id)}</div>` : ''}
             <div class="note" data-mcaps="${i}">${x.invalid ? esc(t('panel.share.invalidCaps'))
                                           : esc(t('panel.share.memberCaps', { caps: capWords(x.caps) }))}</div>
             <div class="rp-share-edit" data-medit="${i}" hidden>

@@ -151,6 +151,28 @@ is unlimited, uncached and polled while doing TWO full `driveListAll` passes (ea
 files); and the panel polls `GET /v1/researcher` every 12s. Neither is the cause of a bad-connection
 day, but both are real work per tick.
 
+## FUTURE: right-to-left language support — Arabic-script vernaculars (Seth, 2026-08-27)
+
+> *"That'll be most challenging in our gloss/free translation tab. Future feature, not now."*
+
+The data-language case (an RTL VERNACULAR and/or analysis language), distinct from an RTL UI
+language (full panel mirroring — separate, bigger, unrequested). Three shapes to support: RTL vern
++ LTR analysis (Arabic text glossed in English/Indonesian — the common one), the reverse, both RTL.
+
+What makes it tractable when its time comes:
+- Direction should DERIVE from the writing system (script subtag: -Arab etc.), with a per-WS
+  override in settings — never a global toggle. The WS codes already ride the flextext.
+- `dir="auto"` on every text input/textarea (baseline, gloss fields, free translation) gets the
+  easy majority free — browsers do per-paragraph bidi. The REAL work is Seth's point: the
+  interlinear ROW on the Gloss tab — token ORDER must flow right-to-left for an RTL vernacular
+  while each token's gloss beneath may be LTR, and wrapping must break rows from the right.
+  (CSS: row-reverse/rtl direction on the token row + logical properties instead of left/right.)
+- ⚠ The TIME AXIS NEVER FLIPS: Cut-tab strips, mini-waves, and the player run left→right by
+  convention regardless of text direction — only text runs RTL. Mixing these is the classic
+  RTL-audio-tool mistake.
+- FLEx itself renders RTL interlinear; its behaviour is the round-trip fidelity reference.
+- Exports need dir too: the HTML preview (dir on the container), EAF is direction-neutral.
+
 ## FUTURE: permission prompts are asked too broadly and too often (Seth, 2026-08-20)
 
 > *"On the crowd recorder (and other recorders maybe?) it asks for recording permissions at multiple

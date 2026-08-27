@@ -165,5 +165,27 @@ console.log('\ncustody history is NOT in the manifest');
      'nothing append-only lives in a document whose value is that it was written once');
 }
 
+console.log('\nTHE WRITERS FEED THE BUILDER REAL PROVENANCE — a write-once document is wrong forever');
+{
+  /* ⚠ Found in the 2026-08-25 triage, fixed 2026-08-27; these pins keep both halves honest.
+   *
+   * The PANEL's assign queue reads queuedAt / vernLang / analLang off the queue record when the
+   * runner builds the manifest — and for weeks nothing WROTE them, so every assigned text shipped
+   * writingSystems {vern:'',anal:''} and originatedAt equal to whenever the upload happened to run.
+   * The enqueue must capture provenance AT QUEUE TIME (settings decrypted then, clock read then). */
+  const enq = panel.slice(panel.indexOf('const docId = crypto.randomUUID();'), panel.indexOf('runAssignUpload(docId)'));
+  ok(/queuedAt: Date\.now\(\)/.test(enq), 'the enqueue writes queuedAt — what originatedAt is built from');
+  ok(/vernLang: \(wsCodes && wsCodes\.vernLang\) \|\| ''/.test(enq) && /analLang: \(wsCodes && wsCodes\.analLang\) \|\| ''/.test(enq),
+     '...and the writing systems, from the settings snapshot decrypted at queue time');
+  ok(/getInstanceSettings\(instanceId\)/.test(enq), '...fetched for the record, not assumed in scope from a validation branch');
+
+  /* The DEVICE's consent.mode must come through the ACCESSOR: the raw `settings.consentMode` is the
+   * legacy single value and device-setup deletes it on every save, so reading it made every
+   * manifest say 'off' whatever the device actually asked. */
+  const call = app.slice(app.indexOf('const manifest = buildSourceManifest({'), app.indexOf('source: { kind: \'device\''));
+  ok(/consentAskList\(\)/.test(call), "consent.mode derives through consentAskList() — both dialects, never the deleted key");
+  ok(!/mode: settings\.consentMode/.test(call), '...and the raw legacy key is gone from the call');
+}
+
 console.log(fail ? `\nFAILED (${fail})\n` : '\nall passed\n');
 process.exit(fail ? 1 : 0);

@@ -540,6 +540,36 @@ console.log('\n⚠⚠ a grant STOPS BEING SERVED when the device leaves the proj
      `the grant row EXISTS and the request succeeds (got ${seen.status})`);
   ok((seen.json.keys || []).length === 0,
      '⚠⚠ but it is NOT SERVED — the device is in a project this member does not belong to, and no removal ever happened');
+}
+
+console.log('\n⚠⚠ a REVOKED device\'s grant stops being served to the MEMBER — the owner keeps theirs');
+{
+  /* Found LIVE (2026-08-27): Seth revoked the shared test device mid-session, and the member seat
+   * kept receiving its wrapped key on every poll. Same read-time-scoping reasoning as the moved
+   * device above — revocation deletes no member_key rows, so the SELECT must re-derive entitlement
+   * and a dead device must stop qualifying FOR MEMBERS. The OWNER's own copies must keep serving:
+   * owner sovereignty says they can always see every key, and withdrawing grants from a revoked
+   * device (allowRevoked on the DELETE route) presumes they can still enumerate them. */
+  const d = await call('POST', '/v1/instances', OWNER, { type: '', nickname: 'Revoked Grant Device' });
+  const rid = d.json && d.json.instance_id;
+  ok(!!rid, 'a fresh device exists');
+  await call('POST', '/v1/researcher/admin/backfill-projects', OWNER, {});   // adopt it into the member's project
+  const g = await call('POST', '/v1/researcher/keys', OWNER, {
+    instance_id: rid,
+    grants: [{ researcher_id: FIXTURE.researcherId, wrapped_ki: 'OWNER-RV' },
+             { researcher_id: FIXTURE.outsiderId, wrapped_ki: 'GUEST-RV' }],
+  });
+  ok(g.status === 200, `granted while the device lives (got ${g.status})`);
+  const before = await call('GET', `/v1/researcher/keys?instance=${rid}`, GUEST);
+  ok((before.json.keys || []).length === 1, 'served to the member while the device lives');
+  const rv = await call('POST', `/v1/instances/${rid}/revoke`, OWNER, {});
+  ok(rv.status === 200, `the owner revokes the device (got ${rv.status})`);
+  const after = await call('GET', `/v1/researcher/keys?instance=${rid}`, GUEST);
+  ok((after.json.keys || []).length === 0,
+     '⚠⚠ the MEMBER is no longer served the revoked device\'s key');
+  const own = await call('GET', `/v1/researcher/keys?instance=${rid}`, OWNER);
+  ok((own.json.keys || []).length >= 1,
+     '⚠ while the OWNER still is — wrap-to-owner copies survive revocation (owner sovereignty)');
 
   /* The other half, or the assertion above would pass just as well if the route returned nothing to
    * anyone: the OWNER still gets their own copy of the very same device's key. */

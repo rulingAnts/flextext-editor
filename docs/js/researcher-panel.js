@@ -3262,10 +3262,19 @@ function assignModal(instanceId) {
     // The docId is minted HERE, so this is the only place that knows which assignment produced
     // which text (the history event is written by the queue runner once the assign really sends).
     const docId = crypto.randomUUID();
+    /* ⚠ PROVENANCE IS CAPTURED AT QUEUE TIME OR NEVER. The manifest the queue runner writes later
+     * reads queuedAt / vernLang / analLang off THIS record — and until 2026-08-27 nothing wrote
+     * them, so every assigned text shipped writingSystems {vern:'',anal:''} and an originatedAt
+     * equal to whenever the UPLOAD happened to run. Manifests are written once and immutable by
+     * contract, so those wrong values were permanent. The settings snapshot is decrypted locally
+     * (Kr) and may legitimately be absent for an unconfigured device — '' stays honest there. */
+    const wsCodes = await Researcher.getInstanceSettings(instanceId).catch(() => null);
     // ABSORB INTO INDEXEDDB BEFORE ANYTHING ELSE (locked decision 8): once this write lands, the
     // assignment survives connection drops, panel reloads and retries — the queue owns it now.
     await db.putMedia(AQ_PREFIX + docId, {
       instanceId, title, ttlDays: assignTtlDays(), state: 'queued', at: Date.now(),
+      queuedAt: Date.now(),
+      vernLang: (wsCodes && wsCodes.vernLang) || '', analLang: (wsCodes && wsCodes.analLang) || '',
       audio: audioFile ? { blob: audioFile, name: audioFile.name, mime: audioFile.type || 'application/octet-stream', size: audioFile.size } : null,
       // Stored as the TEXT we just validated (not the File) — what was checked is what ships.
       flextext: ftFile ? { blob: new Blob([ftText], { type: 'application/xml' }), name: ftFile.name, mime: 'application/xml', size: ftFile.size } : null,
@@ -6131,7 +6140,10 @@ async function coworkersModal() {
           <div class="invite-who">${x.avatar_url ? `<img class="invite-avatar" src="${esc(x.avatar_url)}" alt="" referrerpolicy="no-referrer" width="40" height="40">` : ''}
             <div><div class="invite-name">${esc(x.display_name || x.email || x.researcher_id)}</div>
             ${x.email && x.display_name ? `<div class="note">${esc(x.email)}</div>` : ''}
-            <div class="note rp-rid-sm">${esc(x.researcher_id)}</div>
+            ${/* Only when a real name renders above — otherwise the name line IS the id, and this
+                line printed the same UUID twice (Seth's first look at v447, against a worker that
+                does not send identity yet). */''}
+            ${(x.display_name || x.email) ? `<div class="note rp-rid-sm">${esc(x.researcher_id)}</div>` : ''}
             <div class="note" data-mcaps="${i}">${x.invalid ? esc(t('panel.share.invalidCaps'))
                                           : esc(t('panel.share.memberCaps', { caps: capWords(x.caps) }))}</div>
             <div class="rp-share-edit" data-medit="${i}" hidden>

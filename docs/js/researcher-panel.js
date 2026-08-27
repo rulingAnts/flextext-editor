@@ -1617,8 +1617,9 @@ async function renderDashboard(prefetched) {
     if (act === 'rename') { projectRenameModal(el.dataset.folder, el.dataset.name || ''); }
   }));
   lastSig = viewSig(data);
-  // Session-once, fire-and-forget, after the paint it must never delay (see memberGrantSweep).
-  memberGrantSweep();
+  // Fire-and-forget, after the paint it must never delay. Full renders force a pass — a device
+  // created moments ago gets its member grants NOW, not next session (see memberGrantSweep).
+  memberGrantSweep(!prefetched);
   // The in-place refresh promised the researcher their place back — keep it (see the top).
   if (keepTop !== null && scroller && scroller.isConnected) scroller.scrollTop = keepTop;
   startDashPoll();
@@ -2953,6 +2954,17 @@ async function instanceAction(el) {
       collapsedCards.set(id, nowCollapsed);
       saveCollapsed(Researcher.currentAccountId());   // persist BEFORE the next render reads it back
       return;
+    }
+    /* A shared device whose key has not reached this seat yet cannot have its settings read or its
+     * installs approved — both need Ki, which only the owner's panel can wrap for us. Say WHY and
+     * when it will fix itself, instead of surfacing a raw no_key_for_instance (the no-silently-
+     * disabled-controls rule). Fresh listView on purpose: the grant may have landed since the
+     * cards painted, and a stale "not yet" here would block a healed member. */
+    if (act === 'settings' || act === 'approve') {
+      const v = await Researcher.listView();
+      const owned = ((v && v.instances) || []).some((x) => x.instance_id === id);
+      const mInst = owned ? null : viewInst(v, id);
+      if (mInst && mInst.hasKey === false) { deps.toast(t('panel.joined.keyPending'), 8000); return; }
     }
     if (act === 'approve') {
       lastView = await Researcher.listView();
@@ -5304,10 +5316,17 @@ function projectInstanceIds(proj) {
  * failure is a console.warn and a retry next session. Idempotent by construction (INSERT OR
  * REPLACE server-side), so over-running costs nothing but requests. Runs AFTER a render so the
  * estate cache it diffs against is as settled as it gets. */
-let grantSweepRan = false;
-async function memberGrantSweep() {
-  if (grantSweepRan || !Researcher.isApprovedSelf()) return;
-  grantSweepRan = true;
+let grantSweepRan = false, grantSweepBusy = false;
+async function memberGrantSweep(force) {
+  /* ⚠ NOT session-once any more — that was the gap Seth hit live (2026-08-27): a device created
+   * AFTER the session's sweep got no member grant until the owner's next sign-in, so the member
+   * saw the device but no_key_for_instance on everything inside it. Now every FULL render forces
+   * a pass (initial load, the Refresh button, post-action renders — all human-triggered, so the
+   * listProjects+listMembers cost lands where a Drive round trip already does); poll repaints
+   * keep the old once-per-session behaviour so the 12s tick stays flat. The busy flag stops two
+   * overlapping full renders from double-granting. */
+  if (grantSweepBusy || (grantSweepRan && !force) || !Researcher.isApprovedSelf()) return;
+  grantSweepRan = true; grantSweepBusy = true;
   try {
     const pj = await Researcher.listProjects();
     let healed = 0;

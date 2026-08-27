@@ -2626,8 +2626,15 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
    * text actions and the owner-only wipe/force-remove are ABSENT (not greyed out — the same rule
    * as the Drive capability), and the Files menus wait for the deferred drive:read. */
   const mCaps = memberCtx ? (memberCtx.caps || {}) : null;
-  const mManage = !memberCtx || !!mCaps.manageDevices;
-  const mInvite = !memberCtx || !!mCaps.createInvites;
+  /* ⚠ A SHARED DEVICE THIS SEAT CANNOT KEY RENDERS WITH NO CONTROLS AT ALL (Seth, 2026-08-27:
+   * "don't have the invite button or the settings button or the assign button or anything else
+   * clickable by them"). Buttons that would only toast a refusal are absence-with-explanation
+   * instead: the card stays visible, one note says the key arrives automatically, and the poll
+   * repaints the buttons in the moment hasKey flips (it is in viewSig). The act-gate in
+   * instanceAction stays as the backstop for stale DOM. */
+  const mKeyless = !!memberCtx && it.hasKey === false;
+  const mManage = (!memberCtx || !!mCaps.manageDevices) && !mKeyless;
+  const mInvite = (!memberCtx || !!mCaps.createInvites) && !mKeyless;
   const installs = it.installs || [];
   const anyPending = installs.some((i) => i.status === 'pending');
   // Collected while the installs render, then shown in the COLLAPSED header too. A collapse that
@@ -2915,6 +2922,7 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
       ${isLegacyDevice ? `<p class="banner warn-banner rp-legacy-tip">${esc(t('panel.inst.legacyTip'))}
         <a href="${MIGRATE_DOC}" target="_blank" rel="noopener">${esc(t('panel.deprecated.coworkers'))}</a></p>` : ''}
       ${installsHtml || `<p class="note">${esc(t('panel.inst.noInstall'))}</p>`}
+      ${mKeyless ? `<p class="note">${esc(t('panel.joined.keyPending'))}</p>` : ''}
       <div class="rp-inst-actions">
         ${mManage ? `<button class="secondary-btn" data-iact="settings" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}">${esc(t('panel.inst.settings'))}</button>` : ''}
         ${mInvite ? `<button class="secondary-btn" data-iact="invite" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}">${esc(t('panel.inst.invite'))}</button>` : ''}

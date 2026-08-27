@@ -193,6 +193,16 @@ The flag is the only warning anyone gets.
 deployed without raising it. Nothing broke, which is exactly how a skipped safety step earns its
 place in the habit.
 
+**⚠ AND: HAND SETH A SELF-SERVICE ROLLBACK PROCEDURE BEFORE EVERY WORKER DEPLOY (Seth,
+2026-08-27).** A Claude session can hit its usage limit mid-deploy; production must never be stuck
+broken with the only person who knows the rollback unavailable. So BEFORE dispatching the deploy,
+the message to Seth includes: (1) the currently-serving **version id** — captured via a
+`deployments list` dispatch just beforehand, because that id is the rollback target and it is only
+knowable BEFORE the deploy replaces it; (2) the exact recovery clicks: Actions → *wrangler (one-off
+command)* → args `rollback` (or `versions deploy <captured-id>@100%` to be explicit); (3) how to
+clear a stuck banner: Actions → *Maintenance notice* → `clear`. No worker deploy without this
+message first.
+
 ### 🚩 PLANNING DOCS DO NOT GET A VERSION BUMP (Seth, 2026-08-07)
 
 **"Plan changes don't need version bumps or to be tested on staging, if all that's changed is

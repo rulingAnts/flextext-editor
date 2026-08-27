@@ -181,6 +181,37 @@ ok(add.json && add.json.caps && add.json.caps.assignTexts === undefined,
   ok(!!me && me.email === 'outsider@example.invalid',
      `the OWNER's members list carries the member's identity (email: ${me && me.email})`);
   ok(me && 'display_name' in me && 'avatar_url' in me, '...and the display fields ride along (empty-string when unset)');
+  /* The grant-sweep's diff inputs (2026-08-27): which live devices this member already holds keys
+   * for, and whether they even HAVE a published key to wrap to. Without these the owner could not
+   * see the created-after-membership gap at all — GET /keys only ever shows the CALLER's grants. */
+  ok(me && Array.isArray(me.granted), `the members list says which live devices each member holds grants for (${me && (me.granted || []).length} here)`);
+  ok(me && me.pubkey_set === false,
+     'and whether their key is published — honestly FALSE here (the fixture outsider never publishes one), which is exactly the state the sweep must report rather than wrap to');
+}
+
+console.log('\nTHE MEMBER-SIDE VIEW — the poll and the desired lane finally answer a member');
+{
+  /* GET /v1/researcher gains memberProjects (additive): each joined project with its LIVE devices
+   * in the same shape `instances` uses. And the dual-lane desired route's researcher branch now
+   * consults membership instead of raw owner-equality — a member polling a granted device got
+   * not_found the first time a real member tried (2026-08-27, live). */
+  const home = await call('GET', '/v1/researcher', GUEST);
+  const mp = (home.json && home.json.memberProjects) || [];
+  ok(home.status === 200 && mp.length === 1, `the member's own poll carries their joined project (${mp.length})`);
+  ok(mp[0] && mp[0].project_id && mp[0].caps && Array.isArray(mp[0].instances),
+     '...with caps and the project\'s live devices');
+  ok((mp[0].instances || []).some((i) => i.instance_id === idA),
+     '...including the device the capability tests act on');
+  ok((mp[0].instances || []).every((i) => !i.revoked), 'revoked devices are excluded — the same line the keys route holds');
+  const ownHome = await call('GET', '/v1/researcher', OWNER);
+  ok(ownHome.json.memberProjects === undefined,
+     '⚠ a researcher who is a member of nothing sees NO field at all — the poll is byte-identical for every current account');
+  const dp = await call('GET', `/v1/instances/${idA}?since=-1`, GUEST);
+  ok(dp.status === 200 || dp.status === 204,
+     `⚠ the desired lane now answers a MEMBER (got ${dp.status}) — it was not_found for every member until today`);
+  const outsiderPoll = await call('GET', `/v1/instances/${FIXTURE.movedDeviceId}?since=-1`, GUEST);
+  ok(outsiderPoll.status === 404,
+     `...while a device OUTSIDE their projects stays absence-shaped (got ${outsiderPoll.status})`);
 }
 
 console.log('\nEDITING permissions is EFFECTIVE — reduced caps refuse on the very next request');

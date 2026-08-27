@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v449';
+export const ENGINE_VERSION = 'v450';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v449';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'phase-cd v4';
+export const BUILD_TAG = 'phase-cd v5';
 
 const S = {
 en: {
@@ -1306,6 +1306,7 @@ internet after the first time.</p>
   'panel.proj.nContainers': '{n} device(s) and recorder(s)',
   'panel.proj.stray': '{n} folder(s) are still outside the project. Nothing is lost \u2014 they are read exactly as before \u2014 but the move did not finish.',
   'panel.proj.outside': 'Not in a project yet',
+  'panel.proj.sharedTag': 'shared',
   'panel.proj.emptyProject': 'No devices in this project yet.',
   'panel.proj.outsideNote': 'These have not been moved into a project yet. Nothing is lost \u2014 they work exactly as before \u2014 but the folder update did not finish.',
   'panel.proj.new': 'New project\u2026',
@@ -3087,6 +3088,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.proj.nContainers': '{n} perangkat dan perekam',
   'panel.proj.stray': '{n} folder masih di luar proyek. Tidak ada yang hilang \u2014 semuanya tetap terbaca seperti sebelumnya \u2014 tetapi pemindahan belum selesai.',
   'panel.proj.outside': 'Belum masuk proyek',
+  'panel.proj.sharedTag': 'dibagikan',
   'panel.proj.emptyProject': 'Belum ada perangkat di proyek ini.',
   'panel.proj.outsideNote': 'Ini belum dipindahkan ke dalam proyek. Tidak ada yang hilang \u2014 semuanya bekerja seperti sebelumnya \u2014 tetapi pembaruan folder belum selesai.',
   'panel.proj.new': 'Proyek baru\u2026',

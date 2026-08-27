@@ -1466,7 +1466,14 @@ async function renderDashboard(prefetched) {
 
   // deviceCount passed explicitly (not taken from map's array arg): it decides the collapse default.
   const cards = await Promise.all(insts.map((it) => renderInstanceCard(it, insts.length)));
-  const joinedSections = await renderJoinedSections(data);
+  /* Tab scope is resolved BEFORE the template so the async pieces can be built for exactly the
+   * layout that will render: a shared TAB's content when the tabbed layout has one selected, or
+   * the flat layout's shared card sections when there is no strip to live in. Never both. */
+  const scope = projectScope(insts, estateCache, crowdCache, data.memberProjects);
+  const selMp = scope && isMemberTab(scope.sel)
+    ? (data.memberProjects || []).find((m) => memberTabId(m.project_id) === scope.sel) : null;
+  const memberTabContent = selMp ? await renderMemberProjectContent(selMp) : '';
+  const joinedSections = scope ? '' : await renderJoinedSections(data);
   root.querySelector('.rp-body').innerHTML = `
     ${maintenanceBanner()}
     <div id="rp-live-ver" class="rp-live${liveVersions === null ? ' rp-live-offline' : ''}">${esc(liveVerText())}</div>
@@ -1523,21 +1530,27 @@ async function renderDashboard(prefetched) {
     ${(() => {
       /* ONE PROJECT AT A TIME once projects exist; the classic flat layout otherwise, byte for byte.
        * `scope` is null on a flat estate, which is the whole backward-compatibility story. */
-      const scope = projectScope(insts, estateCache, crowdCache);
       if (!scope) {
         return `${renderUnassignedCard(estateCache)}
           ${insts.length ? cards.join('') : `<p class="note rp-empty">${esc(t('panel.dash.empty'))}</p>`}
-          ${Researcher.isApprovedSelf() ? renderCrowdCard(crowdCache, estateCache) : ''}`;
+          ${Researcher.isApprovedSelf() ? renderCrowdCard(crowdCache, estateCache) : ''}
+          ${joinedSections}`;
       }
       currentProject = scope.sel;                       // persist the resolved tab, not the stale one
+      /* A shared tab replaces the WHOLE owned-content column: no Unassigned card (that is a Drive
+       * view of the owner's estate), no crowd card, no owned device cards — the member sees exactly
+       * what the owner shared, rendered from data.memberProjects and nothing else. */
+      if (selMp) {
+        return `${renderProjectSwitcher(scope)}
+          ${memberTabContent}`;
+      }
       const idx = new Map(insts.map((it, i) => [it.instance_id, i]));
       const mine = scope.insts.map((it) => cards[idx.get(it.instance_id)]).join('');
       return `${renderProjectSwitcher(scope)}
         ${scope.sel === STRAY_TAB ? '' : renderUnassignedCard(estateCache, scope.sel)}
         ${scope.insts.length ? mine : `<p class="note rp-empty">${esc(t('panel.proj.emptyProject'))}</p>`}
         ${scope.recs.length && Researcher.isApprovedSelf() ? renderCrowdCard(scope.recs, estateCache) : ''}`;
-    })()}
-    ${joinedSections}`;
+    })()}`;
 
   wireActs({
     exit: close,
@@ -3094,8 +3107,9 @@ async function instanceAction(el) {
 function newDeviceModal() {
   /* Born into the project on screen (resolved once, so the NOTE below and the create call cannot
    * disagree). `currentProject` is the tab the researcher is looking at; STRAY_TAB and a flat
-   * estate both mean "no project named", which is the lazy default. */
-  const intoProject = (currentProject && currentProject !== STRAY_TAB) ? currentProject : '';
+   * estate both mean "no project named", which is the lazy default — and so does a SHARED tab:
+   * its id is a D1 uuid, not a Drive folder, and the new device is the researcher's own. */
+  const intoProject = (currentProject && currentProject !== STRAY_TAB && !isMemberTab(currentProject)) ? currentProject : '';
   const projName = intoProject
     ? ((((estateCache && estateCache.projects) || []).find((p) => p.folderId === intoProject) || {}).name || '')
     : '';
@@ -3718,7 +3732,7 @@ async function crowdAction(el) {
 function newCrowdModal() {
   /* Same destination note as newDeviceModal (issue #7): born-into-the-tab is real and invisible,
    * and the crowd dialog was the last place the surprise survived. */
-  const crIntoProject = (currentProject && currentProject !== STRAY_TAB) ? currentProject : '';
+  const crIntoProject = (currentProject && currentProject !== STRAY_TAB && !isMemberTab(currentProject)) ? currentProject : '';
   const crProjName = crIntoProject
     ? ((((estateCache && estateCache.projects) || []).find((p) => p.folderId === crIntoProject) || {}).name || '')
     : '';
@@ -3734,8 +3748,9 @@ function newCrowdModal() {
     const label = m.el.querySelector('#rp-cr-label').value.trim();
     if (!label) return deps.toast(t('panel.crowd.needLabel'), 4000);
     try {
-      // Born into the project on screen, exactly as a new device is (v426).
-      const intoProject = (currentProject && currentProject !== STRAY_TAB) ? currentProject : '';
+      // Born into the project on screen, exactly as a new device is (v426); a shared tab is not a
+      // Drive project of ours, so it too means "no project named".
+      const intoProject = (currentProject && currentProject !== STRAY_TAB && !isMemberTab(currentProject)) ? currentProject : '';
       const r = await Researcher.crowdCreate(label, '', Object.assign({}, CROWD_DEFAULT_CONFIG), intoProject);
       m.close();
       await refreshCrowd();   // also pulls the server-defaulted budgets for the edit modal below
@@ -4901,11 +4916,24 @@ async function projectRenameModal(folderId, current) {
  * researcher must be able to reach them — but they are not IN a project and must not be shown as if
  * they were. */
 const STRAY_TAB = '__none';
-let currentProject = null;          // folderId | STRAY_TAB | null (= pick the first)
+/* SHARED-PROJECT TABS live in the same strip as owned ones but in their OWN id namespace: a member
+ * tab's id is `member:<D1 project uuid>`, never a Drive folderId. The prefix is what keeps the two
+ * estates from ever being confused — every Drive-side action (new device into project, crowd
+ * create, rename) either checks `ids.has()` or is guarded with isMemberTab(), so a D1 uuid can
+ * never be handed to Drive as a folder. (Seth, 2026-08-27: shared projects render as tabs, not as
+ * a card section that reads like a sub-project of whichever tab is open.) */
+const MEMBER_TAB_PREFIX = 'member:';
+const memberTabId = (pid) => MEMBER_TAB_PREFIX + pid;
+const isMemberTab = (id) => typeof id === 'string' && id.startsWith(MEMBER_TAB_PREFIX);
+let currentProject = null;          // folderId | STRAY_TAB | member:<id> | null (= pick the first)
 
-function projectScope(insts, estate, crowdRecs) {
+function projectScope(insts, estate, crowdRecs, memberProjects) {
   const projects = (estate && estate.projects) || [];
+  /* ⚠ A flat estate STAYS flat (the whole backward-compatibility story below) even when shares
+   * exist — the flat branch renders shares as their own card sections instead, where nothing
+   * above them can be misread as their parent. Tabs only exist once projects do. */
   if (!projects.length) return null;
+  const mps = memberProjects || [];
   /* ⚠ PREFER THE WORKER'S OWN ANSWER. `instanceId` is stamped onto each estate device server-side,
    * where the D1 rows and the Drive tree are both already in hand — one derivation of the
    * relationship instead of two. The folder-id lookup stays as a FALLBACK for a worker that predates
@@ -4925,14 +4953,20 @@ function projectScope(insts, estate, crowdRecs) {
    * to another account. Falling back to the first project is always safe; falling back to "whatever
    * was stored" would render an empty dashboard that looks like the devices are gone. */
   let sel = currentProject;
-  if (sel === STRAY_TAB && !hasStrays) sel = null;
-  if (sel !== STRAY_TAB && !ids.has(sel)) sel = null;
+  if (sel === STRAY_TAB) { if (!hasStrays) sel = null; }
+  else if (isMemberTab(sel)) {
+    // A share can be revoked between renders; falling back to the first owned project is the
+    // same "never render an empty dashboard" rule the stale-folderId branch below follows.
+    if (!mps.some((m) => memberTabId(m.project_id) === sel)) sel = null;
+  }
+  else if (!ids.has(sel)) sel = null;
   if (sel === null) sel = projects[0].folderId;
   const selProject = projects.find((p) => p.folderId === sel) || null;
+  const ownedSel = sel !== STRAY_TAB && !isMemberTab(sel);
   return {
-    projects, hasStrays, sel, selProject, projOf, projOfInst,
-    insts: sel === STRAY_TAB ? strayInsts : insts.filter((it) => projOfInst(it) === sel),
-    recs: sel === STRAY_TAB ? strayRecs : (crowdRecs || []).filter((r) => projOf(r.oauth_folder_id) === sel),
+    projects, hasStrays, sel, selProject, projOf, projOfInst, memberProjects: mps,
+    insts: sel === STRAY_TAB ? strayInsts : ownedSel ? insts.filter((it) => projOfInst(it) === sel) : [],
+    recs: sel === STRAY_TAB ? strayRecs : ownedSel ? (crowdRecs || []).filter((r) => projOf(r.oauth_folder_id) === sel) : [],
   };
 }
 
@@ -4961,6 +4995,15 @@ function renderProjectSwitcher(scope) {
       aria-current="${on ? 'true' : 'false'}">${esc(label)}</button>`;
   const tabs = scope.projects.map((p) => tab(p.folderId, p.name || t('panel.proj.defaultName'), p.folderId === scope.sel));
   if (scope.hasStrays) tabs.push(tab(STRAY_TAB, t('panel.proj.outside'), scope.sel === STRAY_TAB));
+  /* Shared projects ride the SAME strip, last and visibly different — a distinct tab, never a
+   * section under someone else's tab (which read as a sub-project). The "(shared)" tag is part of
+   * the label so it survives every styling context (narrow screens, high-contrast). */
+  for (const mp of scope.memberProjects || []) {
+    const id = memberTabId(mp.project_id);
+    const on = id === scope.sel;
+    tabs.push(`<button class="rp-ptab rp-ptab-shared${on ? ' rp-ptab-on' : ''}" data-pact="pick" data-p="${esc(id)}"
+      aria-current="${on ? 'true' : 'false'}">${esc(mp.name || '?')} <span class="rp-ptab-sharedtag">${esc(t('panel.proj.sharedTag'))}</span></button>`);
+  }
   return `<div class="rp-ptabs" role="tablist" aria-label="${esc(t('panel.proj.title'))}">
       ${tabs.join('')}
       ${scope.selProject ? `<button class="link-btn rp-ptab-rename" data-pact="rename"
@@ -5297,22 +5340,30 @@ async function memberGrantSweep() {
  * absent (not greyed out), and everything decrypts through the member's own key grants. There is
  * deliberately NO Drive/estate column for joined projects — the honest v1 of the member Drive
  * question, not a bad answer to it. */
+/* ONE shared project's body: the coworker badge + caps note + member-gated device cards. Used two
+ * ways — as the content of a shared TAB (tabbed layout; the tab carries the name), and wrapped in
+ * a titled card by renderJoinedSections (flat layout, where there is no strip to live in). */
+async function renderMemberProjectContent(mp) {
+  const caps = mp.caps || {};
+  const cards = await Promise.all((mp.instances || []).map((it) =>
+    renderInstanceCard(it, (mp.instances || []).length, { caps, projectName: mp.name })));
+  const capBits = [];
+  if (caps.manageDevices) capBits.push(t('panel.share.capManage'));
+  if (caps.createInvites) capBits.push(t('panel.share.capInvite'));
+  return `<p class="note rp-joined-note"><span class="rp-badge rp-badge-type">${esc(t('panel.joined.tag'))}</span>
+      ${esc(capBits.length ? t('panel.joined.note', { caps: capBits.join(', ') }) : t('panel.joined.noteNone'))}</p>
+    ${cards.join('') || `<p class="note">${esc(t('panel.joined.empty'))}</p>`}`;
+}
+
+// Flat-estate fallback only: shares as their own card sections (no tab strip exists to put them in).
 async function renderJoinedSections(data) {
   const mps = (data && data.memberProjects) || [];
   if (!mps.length) return '';
   const parts = [];
   for (const mp of mps) {
-    const caps = mp.caps || {};
-    const cards = await Promise.all((mp.instances || []).map((it) =>
-      renderInstanceCard(it, (mp.instances || []).length, { caps, projectName: mp.name })));
-    const capBits = [];
-    if (caps.manageDevices) capBits.push(t('panel.share.capManage'));
-    if (caps.createInvites) capBits.push(t('panel.share.capInvite'));
     parts.push(`<div class="rp-card rp-joined">
-      <div class="rp-inst-top"><span class="rp-inst-name">${esc(t('panel.joined.title', { name: mp.name || '?' }))}</span>
-        <span class="rp-badge rp-badge-type">${esc(t('panel.joined.tag'))}</span></div>
-      <p class="note">${esc(capBits.length ? t('panel.joined.note', { caps: capBits.join(', ') }) : t('panel.joined.noteNone'))}</p>
-      ${cards.join('') || `<p class="note">${esc(t('panel.joined.empty'))}</p>`}
+      <div class="rp-inst-top"><span class="rp-inst-name">${esc(t('panel.joined.title', { name: mp.name || '?' }))}</span></div>
+      ${await renderMemberProjectContent(mp)}
     </div>`);
   }
   return parts.join('');

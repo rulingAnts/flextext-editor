@@ -1371,6 +1371,13 @@ main {
   white-space: nowrap; }
 .rp-ptab:hover { color: var(--text); }
 .rp-ptab-on { color: var(--text); font-weight: 600; border-bottom-color: var(--blue); }
+/* Shared-project tabs: same strip, visibly different — italic label, a small "(shared)" tag, and a
+ * dashed underline when selected, so "whose project am I in" is answered by the tab itself. */
+.rp-ptab-shared { font-style: italic; }
+.rp-ptab-shared.rp-ptab-on { border-bottom-style: dashed; }
+.rp-ptab-sharedtag { font-style: normal; font-size: 0.78rem; color: var(--blue);
+  border: 1px solid var(--blue); border-radius: 9px; padding: 0 6px; margin-left: 2px; }
+.rp-joined-note .rp-badge { margin-right: 6px; }
 .rp-ptab-rename { margin-left: auto; padding-left: 12px; flex: 0 0 auto; }
 .rp-proj-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; }
 .rp-proj-row + .rp-proj-row { border-top: 1px solid var(--border); }

@@ -1073,6 +1073,24 @@ function viewSig(data) {
        * The signature is not a performance detail — it is the list of everything the panel is
        * allowed to notice. */
       Researcher.maintenance(),
+      Researcher.freeze(),   // the write-lock banner is rendered state too — same rule as the notice
+      /* MEMBER PROJECTS are rendered state (2026-08-27) — the fourth time the rule above earns its
+       * keep, this time BEFORE the bug shipped: a coworker renaming a device, a new install
+       * appearing, a report landing — all change what the joined section shows, and none of it
+       * would redraw without these entries. Same fields the owner cards key on. */
+      (data.memberProjects || []).map((mp) => [
+        mp.project_id, mp.name, JSON.stringify(mp.caps || {}),
+        (mp.instances || []).map((it) => [
+          it.instance_id, it.nickname, it.type, it.hasKey,
+          (it.installs || []).map((ins) => [
+            ins.install_id, ins.status, ins.accepted, ins.has_key, ins.wipe_state,
+            ins.inventory && ins.inventory.engineVersion,
+            ins.inventory && Array.isArray(ins.inventory.items)
+              ? ins.inventory.items.map((d) => [d.id, d.title, d.uploadState, d.hasAudio, d.done])
+              : null,
+          ]),
+        ]),
+      ]),
       /* ⚠ THE ESTATE DOES NOT RIDE THE 12s POLL — read this before trusting the two lines below.
        *
        * `renderDashboard` refetches `estateCache` only on a FULL render (initial load, manual
@@ -1584,6 +1602,8 @@ async function renderDashboard(prefetched) {
     if (act === 'rename') { projectRenameModal(el.dataset.folder, el.dataset.name || ''); }
   }));
   lastSig = viewSig(data);
+  // Session-once, fire-and-forget, after the paint it must never delay (see memberGrantSweep).
+  memberGrantSweep();
   // The in-place refresh promised the researcher their place back — keep it (see the top).
   if (keepTop !== null && scroller && scroller.isConnected) scroller.scrollTop = keepTop;
   startDashPoll();
@@ -5195,6 +5215,64 @@ function sweepUnassigned(estate) {
   } catch { /* the sweep must never break the dashboard it rides on */ }
 }
 
+/* The devices of ONE owned project, resolved estate-side: project row → drive_folder_id →
+ * estate devices under that folder → their instance ids (estate instanceId first, oauth join as
+ * the fallback for a device the estate has not stamped yet). Empty when Drive is unreachable —
+ * callers report that honestly rather than pretending a grant happened. (Hoisted from
+ * coworkersModal so the grant sweep below shares the ONE derivation.) */
+function projectInstanceIds(proj) {
+  const pf = proj && proj.drive_folder_id;
+  if (!pf) return [];
+  const devs = ((estateCache && estateCache.devices) || []).filter((d) => d.projectId === pf && d.kind !== 'crowd');
+  const out = new Set(devs.map((d) => d.instanceId).filter(Boolean));
+  const folders = new Set(devs.map((d) => d.folderId).filter(Boolean));
+  for (const i of ((lastData && lastData.instances) || [])) {
+    if (i.oauth_folder_id && folders.has(i.oauth_folder_id)) out.add(i.instance_id);
+  }
+  return [...out];
+}
+
+/* THE GRANT SWEEP (2026-08-27) — closes the created-after-membership gap for good. A device made
+ * AFTER a coworker was added got no key grants, so the member saw ciphertext (or, before the
+ * member view, nothing) until the owner removed and re-added them — a workaround the panel's own
+ * error strings had to document. The members list now reports per-member `granted` + `pubkey_set`
+ * (the worker join), so the OWNER's panel can diff and heal silently: for each owned project's
+ * member with a published key, mint exactly the missing grants.
+ *
+ * ⚠ ONCE PER SESSION, fire-and-forget, and it must never break the dashboard it rides on: every
+ * failure is a console.warn and a retry next session. Idempotent by construction (INSERT OR
+ * REPLACE server-side), so over-running costs nothing but requests. Runs AFTER a render so the
+ * estate cache it diffs against is as settled as it gets. */
+let grantSweepRan = false;
+async function memberGrantSweep() {
+  if (grantSweepRan || !Researcher.isApprovedSelf()) return;
+  grantSweepRan = true;
+  try {
+    const pj = await Researcher.listProjects();
+    let healed = 0;
+    for (const proj of (pj.owned || [])) {
+      if (!proj.drive_folder_id) continue;
+      let members = [];
+      try { members = (await Researcher.listMembers(proj.project_id)).members || []; }
+      catch { continue; }
+      if (!members.length) continue;
+      const iids = projectInstanceIds(proj);
+      if (!iids.length) continue;
+      for (const m of members) {
+        if (m.invalid || !m.pubkey_set) continue;   // nothing to wrap to yet — reported on their row
+        const have = new Set(m.granted || []);
+        const missing = iids.filter((id) => !have.has(id));
+        if (!missing.length) continue;
+        try {
+          const r = await Researcher.grantKeysToMember(m.researcher_id, missing);
+          healed += r.granted || 0;
+        } catch (e) { console.warn('grant sweep:', m.researcher_id, (e && e.message) || e); }
+      }
+    }
+    if (healed) deps.toast(t('panel.share.sweepHealed', { n: healed }), 6000);
+  } catch (e) { console.warn('grant sweep skipped:', (e && e.message) || e); }
+}
+
 /* The {docId: folderId} echo driveUnassign sends so a filing survives Drive's search-index lag —
  * the panel already knows every text's folder from the estate, and files.get by id is strongly
  * consistent where the worker's tag search is not (issue #13's silent no-op half). Falls back to
@@ -6145,7 +6223,7 @@ async function coworkersModal() {
                 does not send identity yet). */''}
             ${(x.display_name || x.email) ? `<div class="note rp-rid-sm">${esc(x.researcher_id)}</div>` : ''}
             <div class="note" data-mcaps="${i}">${x.invalid ? esc(t('panel.share.invalidCaps'))
-                                          : esc(t('panel.share.memberCaps', { caps: capWords(x.caps) }))}</div>
+                                          : esc(t('panel.share.memberCaps', { caps: capWords(x.caps) }))}${x.pubkey_set === false ? ' · ' + esc(t('panel.share.awaitingKey')) : ''}</div>
             <div class="rp-share-edit" data-medit="${i}" hidden>
               <label class="check-label"><input type="checkbox" data-mem="${i}" data-cap="manageDevices" ${x.caps && x.caps.manageDevices ? 'checked' : ''}> ${esc(t('panel.share.capManageLabel'))}</label>
               <label class="check-label"><input type="checkbox" data-mem="${i}" data-cap="createInvites" ${x.caps && x.caps.createInvites ? 'checked' : ''}> ${esc(t('panel.share.capInviteLabel'))}</label>
@@ -6269,21 +6347,6 @@ async function coworkersModal() {
     }));
   }
 
-  /* The devices of ONE owned project, resolved estate-side: project row → drive_folder_id →
-   * estate devices under that folder → their instance ids (estate instanceId first, oauth join as
-   * the fallback for a device the estate has not stamped yet). Empty when Drive is unreachable —
-   * the caller reports that honestly rather than pretending the grant happened. */
-  function projectInstanceIds(proj) {
-    const pf = proj && proj.drive_folder_id;
-    if (!pf) return [];
-    const devs = ((estateCache && estateCache.devices) || []).filter((d) => d.projectId === pf && d.kind !== 'crowd');
-    const out = new Set(devs.map((d) => d.instanceId).filter(Boolean));
-    const folders = new Set(devs.map((d) => d.folderId).filter(Boolean));
-    for (const i of ((lastData && lastData.instances) || [])) {
-      if (i.oauth_folder_id && folders.has(i.oauth_folder_id)) out.add(i.instance_id);
-    }
-    return [...out];
-  }
 
   try {
     const r = await Researcher.listProjects();

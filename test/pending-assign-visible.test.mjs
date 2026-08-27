@@ -101,7 +101,7 @@ console.log('\nit offers only actions that can actually be honoured');
 {
   ok(/const up = d\.__assigning\s*\n?\s*\? \(queued \? cancelBtn\('Assign'\) : takenTag\)/.test(panel),
      'cancel while queued; once taken it says so instead of offering a cancel that would be refused');
-  ok(/const moveBtn = \(!d\.id \|\| mv \|\| d\.__assigning/.test(panel),
+  ok(/const moveBtn = \(memberCtx \|\| !d\.id \|\| mv \|\| d\.__assigning/.test(panel),
      'no Move — the device does not have the text yet');
   ok(/const del = \(!d\.id \|\| d\.__assigning \|\| wiped\) \? ''/.test(panel),
      'and no Remove-from-device, for the same reason (nor on a device that has been wiped)');

@@ -1466,6 +1466,7 @@ async function renderDashboard(prefetched) {
 
   // deviceCount passed explicitly (not taken from map's array arg): it decides the collapse default.
   const cards = await Promise.all(insts.map((it) => renderInstanceCard(it, insts.length)));
+  const joinedSections = await renderJoinedSections(data);
   root.querySelector('.rp-body').innerHTML = `
     ${maintenanceBanner()}
     <div id="rp-live-ver" class="rp-live${liveVersions === null ? ' rp-live-offline' : ''}">${esc(liveVerText())}</div>
@@ -1535,7 +1536,8 @@ async function renderDashboard(prefetched) {
         ${scope.sel === STRAY_TAB ? '' : renderUnassignedCard(estateCache, scope.sel)}
         ${scope.insts.length ? mine : `<p class="note rp-empty">${esc(t('panel.proj.emptyProject'))}</p>`}
         ${scope.recs.length && Researcher.isApprovedSelf() ? renderCrowdCard(scope.recs, estateCache) : ''}`;
-    })()}`;
+    })()}
+    ${joinedSections}`;
 
   wireActs({
     exit: close,
@@ -2911,6 +2913,13 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
 }
 
 let lastView = null;
+/* An instance by id from EITHER side of the view — owned, or a joined project's (2026-08-27).
+ * Every action handler that resolves an instance goes through this, or member cards' buttons
+ * would find nothing and silently do nothing. */
+function viewInst(v, id) {
+  return ((v && v.instances) || []).find((x) => x.instance_id === id)
+    || ((v && v.memberProjects) || []).flatMap((mp) => mp.instances || []).find((x) => x.instance_id === id);
+}
 
 async function instanceAction(el) {
   const id = el.dataset.i, installId = el.dataset.id, type = el.dataset.type;
@@ -2934,7 +2943,7 @@ async function instanceAction(el) {
     }
     if (act === 'approve') {
       lastView = await Researcher.listView();
-      const inst = lastView.instances.find((x) => x.instance_id === id);
+      const inst = viewInst(lastView, id);
       const ins = inst && inst.installs.find((x) => x.install_id === installId);
       await busy(el, () => Researcher.approveInstall(id, installId, ins && ins.pubkey));
       deps.toast(t('panel.inst.approved'), 4000);
@@ -2960,7 +2969,7 @@ async function instanceAction(el) {
       // device itself) isn't forced through a redundant re-save.
       const snap = await Researcher.getInstanceSettings(id).catch(() => null);
       lastView = await Researcher.listView();
-      const inst = lastView.instances.find((x) => x.instance_id === id);
+      const inst = viewInst(lastView, id);
       const effective = snap || (inst && firstInventorySettings(inst));
       const probs = effective ? validateDeviceSettings(settingsToRaw(effective)) : null;
       if (!effective || (probs && probs.length)) {
@@ -3074,7 +3083,7 @@ async function instanceAction(el) {
       deps.toast(t(want ? 'panel.move.doneSent' : 'panel.move.notDoneSent'), 4000);
     } else if (act === 'settings') {
       lastView = await Researcher.listView();
-      const inst = lastView.instances.find((x) => x.instance_id === id);
+      const inst = viewInst(lastView, id);
       openSettingsModal({ kind: 'instance', instance: inst });
     }
   } catch (e) { errToast(e); }
@@ -5280,6 +5289,33 @@ async function memberGrantSweep() {
     }
     if (healed) deps.toast(t('panel.share.sweepHealed', { n: healed }), 6000);
   } catch (e) { console.warn('grant sweep skipped:', (e && e.message) || e); }
+}
+
+/* THE JOINED-PROJECTS SECTION (2026-08-27) — the member-side dashboard, v1. One card per project
+ * this researcher was invited into, rendering the SAME device cards the owner sees through
+ * renderInstanceCard's memberCtx: controls map to the member's capabilities, Drive surfaces are
+ * absent (not greyed out), and everything decrypts through the member's own key grants. There is
+ * deliberately NO Drive/estate column for joined projects — the honest v1 of the member Drive
+ * question, not a bad answer to it. */
+async function renderJoinedSections(data) {
+  const mps = (data && data.memberProjects) || [];
+  if (!mps.length) return '';
+  const parts = [];
+  for (const mp of mps) {
+    const caps = mp.caps || {};
+    const cards = await Promise.all((mp.instances || []).map((it) =>
+      renderInstanceCard(it, (mp.instances || []).length, { caps, projectName: mp.name })));
+    const capBits = [];
+    if (caps.manageDevices) capBits.push(t('panel.share.capManage'));
+    if (caps.createInvites) capBits.push(t('panel.share.capInvite'));
+    parts.push(`<div class="rp-card rp-joined">
+      <div class="rp-inst-top"><span class="rp-inst-name">${esc(t('panel.joined.title', { name: mp.name || '?' }))}</span>
+        <span class="rp-badge rp-badge-type">${esc(t('panel.joined.tag'))}</span></div>
+      <p class="note">${esc(capBits.length ? t('panel.joined.note', { caps: capBits.join(', ') }) : t('panel.joined.noteNone'))}</p>
+      ${cards.join('') || `<p class="note">${esc(t('panel.joined.empty'))}</p>`}
+    </div>`);
+  }
+  return parts.join('');
 }
 
 /* The {docId: folderId} echo driveUnassign sends so a filing survives Drive's search-index lag —

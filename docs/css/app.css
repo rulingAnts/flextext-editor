@@ -2433,3 +2433,6 @@ main {
 /* Coworker rows: the raw researcher id, kept visible but subordinate to the person's name. */
 .rp-rid-sm { font-family: ui-monospace, monospace; font-size: 11px; opacity: .75; word-break: break-all; }
 .rp-share-edit { margin-top: 6px; }
+
+/* A joined (coworker) project's card: visually a peer of the owner's cards, with a quiet accent. */
+.rp-joined { border-left: 3px solid #2d5e9e; }

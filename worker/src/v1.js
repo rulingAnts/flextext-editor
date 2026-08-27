@@ -541,7 +541,12 @@ async function authInstall(req, env, instanceId, installId) {
  * list below, and split the cancel route on `cmd.by === ctx.caller.researcher_id` — with a decided
  * answer for authorless commands. By then the backlog predating `by` will have aged out, which is
  * what makes the question answerable rather than merely older. */
-export const DEFERRED_CAPS = ['assignTexts', 'drive', 'cancelOthers'];
+export const DEFERRED_CAPS = ['drive', 'cancelOthers'];
+/* `assignTexts` UN-DEFERRED (Seth, 2026-08-27: device texts and their status must be "visible and
+ * modifiable by both researchers"). The nine routes it reaches were already authMember-gated when
+ * this flipped, and the drive_object containment gates (checks 6/7/8) scope every caller-supplied
+ * doc id to the member's own project — the cross-project /move question the old deferral parked is
+ * answered by construction now, and the members probe exercises the cap live. */
 
 export function validateCaps(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
@@ -599,7 +604,7 @@ export function validateCaps(raw) {
     if (raw[k] !== undefined) return null;
   }
 
-  for (const k of ['manageDevices', 'createInvites']) {
+  for (const k of ['manageDevices', 'createInvites', 'assignTexts']) {
     if (raw[k] === undefined) continue;
     if (typeof raw[k] !== 'boolean') return null;   // a truthy STRING here would read as a grant
     if (raw[k]) out[k] = true;                      // store only what is granted; absent === false
@@ -608,7 +613,7 @@ export function validateCaps(raw) {
    * a silent drop. Those stay owner-only in v1 (round-1 finding 6); accepting the key and ignoring it
    * would tell an owner they had delegated something they had not. */
   for (const k of Object.keys(raw)) {
-    if (!['manageDevices', 'createInvites'].includes(k)) return null;
+    if (!['manageDevices', 'createInvites', 'assignTexts'].includes(k)) return null;
   }
   return out;
 }

@@ -422,16 +422,9 @@ async function loadGrants() {
   return out;
 }
 
-/* A grant can LAND while this seat is open — the owner's panel sweeps and delivers, and "delivered
- * automatically once they sign in" is a promise the UI makes out loud. A cache fetched once per
- * unlock would hold the old answer until a reload, so a shared device that stays keyless earns one
- * refetch per minute, not per tick: the 12s poll calls this on every keyless device it renders. */
-async function refreshGrantsIfStale(instanceId) {
-  if (Date.now() - grantsFetchedAt < 60000) return null;
-  grantCache = null;
-  await loadGrants();
-  try { return await getKi(instanceId); } catch { return null; }
-}
+/* (v453) The keyless-retry logic lives INSIDE getKi now — one chokepoint heals every path
+ * (settings, approve, invite, exports, the listView loops) instead of each caller special-casing.
+ * grantsFetchedAt above is its throttle. */
 
 /* Publish the keypair and catch the ledger up. Best-effort by contract: the caller does not await a
  * result it will act on, and nothing here is allowed to throw into sign-in. */
@@ -476,7 +469,30 @@ async function getKi(instanceId) {
 
   if (!settingsCache) await fetchSettings();
   const wrapped = settingsCache && settingsCache.wrappedKis && settingsCache.wrappedKis[instanceId];
-  if (!wrapped) throw new Error('no_key_for_instance');
+  if (!wrapped) {
+    /* ⚠ SELF-HEAL BEFORE FAILING — the cross-seat lag bug, fixed at the ONE chokepoint (v453).
+     * Keys are GRANTED on other seats while this one is open: the owner's sweep delivers to a
+     * member, a member's bootstrap delivers to the owner. The grant list was fetched once per
+     * unlock, so every such key looked missing until a reload — the owner opening a member-created
+     * device saw a blank settings form minutes after it worked on the member's screen (Seth,
+     * 2026-08-27: "created by the member and unusable by the owner"). One throttled refetch turns
+     * "reload the page" into "click again" everywhere getKi serves: settings, approve, invite,
+     * exports. 15s keeps a keyless device's 12s redraw from hammering while staying under any
+     * human's retry cadence. */
+    if (myPriv && Date.now() - grantsFetchedAt > 15000) {
+      grantCache = null;
+      const fresh = await loadGrants();
+      const w2 = fresh[instanceId];
+      if (w2) {
+        try {
+          const ki = await unwrapGrantForResearcher(myPriv, w2);
+          kiCache.set(instanceId, ki);
+          return ki;
+        } catch { /* same sabotage-tolerance as above */ }
+      }
+    }
+    throw new Error('no_key_for_instance');
+  }
   const ki = await unwrapKey(Kr, wrapped);
   kiCache.set(instanceId, ki);
   return ki;
@@ -1168,8 +1184,7 @@ export async function listView() {
     const devs = [];
     for (const inst of (mp.instances || [])) {
       let Ki = null;
-      try { Ki = await getKi(inst.instance_id); } catch { /* no grant delivered yet — render locked */ }
-      if (!Ki) Ki = await refreshGrantsIfStale(inst.instance_id);   // it may have landed since (throttled)
+      try { Ki = await getKi(inst.instance_id); } catch { /* no grant delivered yet — render locked; getKi itself retries stale grants */ }
       const installs = [];
       for (const ins of (inst.installs || [])) {
         let inventory = null;

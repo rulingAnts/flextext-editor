@@ -88,6 +88,19 @@ people who are all known personally. It becomes real the moment sign-up is genui
 > (commit 249df8c, feature branch), pinned by test/files-modal-and-move-gate. The cross-project
 > confirm Seth asked for was already in the modal and now actually fires from this card.
 
+## SOON: a TYPEABLE invite code beside the invite URL (researcher request via Seth, 2026-08-27)
+
+A researcher asked for a shorter, manually typeable alternative to the invite link — for devices
+where pasting a long URL is impractical. Shape: keep the URL exactly as-is; ADD a short one-time
+code (8–10 base32 chars, shown grouped: AB3D-7F2K) the worker maps to a pending invite. The paste
+box already accepts arbitrary text, so parseInviteInput learns the code shape and calls a resolve
+endpoint that returns the id+secret the normal claim flow needs.
+
+⚠ THE SECURITY SHAPE IS THE FEATURE: a short code is guessable where the long fragment secret is
+not. Required: short TTL (minutes-to-hours, not the link's 7 days), single use, aggressive
+rate-limiting on the resolve route (per-IP and per-code), and the code NEVER printed in logs. The
+panel shows both forms at mint time. Build after the Phase D member work settles.
+
 ## PHASE D GAP — a device created AFTER a membership gets no member key grants (2026-08-26)
 
 `grantKeysToMember` (researcher.js) mints wrapped Kis for a project's devices at the moment a

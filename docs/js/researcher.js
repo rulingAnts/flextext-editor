@@ -1017,7 +1017,10 @@ export async function getInstanceSettings(instanceId) {
       const c = cmds[i];
       if (c && c.type === 'changeSettings' && c.enc) {
         try {
-          const p = await decryptJSON(Ki, typeof c.enc === 'string' ? JSON.parse(c.enc) : c.enc);
+          /* c.enc IS the "iv.ct" token string encryptJSON mints — hand it to decryptJSON verbatim.
+           * (v458 shipped a JSON.parse "normalization" here that threw on every real token, so the
+           * fallback nulled out while the lane sat full — found by walking the live bytes.) */
+          const p = await decryptJSON(Ki, c.enc);
           if (p && p.settings) return p.settings;
         } catch { /* one undecryptable command must not hide an older readable one */ }
       }

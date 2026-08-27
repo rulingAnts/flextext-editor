@@ -79,7 +79,42 @@ Plausible ways through, none free, to be chosen deliberately rather than default
 **Priority: later, as Seth said.** Nothing here is load-bearing while the researcher set is seven
 people who are all known personally. It becomes real the moment sign-up is genuinely open.
 
-## SOON: an unassigned box cannot move a text to ANOTHER project's unassigned box (Seth, 2026-08-20)
+## ~~SOON: an unassigned box cannot move a text to ANOTHER project's unassigned box~~ — FIXED on the feature branch 2026-08-26 (NOT released)
+
+> Also filed as GitHub issue #12. One flag: the Unassigned card's Move button called
+> `adoptTextModal` without `{ unassign: true }`, so `groupedDestinations` never emitted the
+> `__unassigned:` tiles from exactly the card whose texts are already unassigned — while the crowd
+> row two lines down passed the flag and could file cross-project all along. Fixed at the call site
+> (commit 249df8c, feature branch), pinned by test/files-modal-and-move-gate. The cross-project
+> confirm Seth asked for was already in the modal and now actually fires from this card.
+
+## SOON: a TYPEABLE invite code beside the invite URL (researcher request via Seth, 2026-08-27)
+
+A researcher asked for a shorter, manually typeable alternative to the invite link — for devices
+where pasting a long URL is impractical. Shape: keep the URL exactly as-is; ADD a short one-time
+code (8–10 base32 chars, shown grouped: AB3D-7F2K) the worker maps to a pending invite. The paste
+box already accepts arbitrary text, so parseInviteInput learns the code shape and calls a resolve
+endpoint that returns the id+secret the normal claim flow needs.
+
+⚠ THE SECURITY SHAPE IS THE FEATURE: a short code is guessable where the long fragment secret is
+not. Required: short TTL (minutes-to-hours, not the link's 7 days), single use, aggressive
+rate-limiting on the resolve route (per-IP and per-code), and the code NEVER printed in logs. The
+panel shows both forms at mint time. Build after the Phase D member work settles.
+
+## PHASE D GAP — a device created AFTER a membership gets no member key grants (2026-08-26)
+
+`grantKeysToMember` (researcher.js) mints wrapped Kis for a project's devices at the moment a
+coworker is ADDED — but nothing re-mints when a NEW device is created in that project afterwards,
+so the member sees the new device's rows and reads ciphertext. Small follow-up, two halves:
+- worker: `GET /v1/projects/<id>/members` additionally returns, per member, which of the project's
+  instances they hold a `member_key` row for (additive field; the owner cannot see this today —
+  GET /keys returns only the CALLER's grants).
+- client: a `memberGrantSweep` on panel load (selfGrantMissing's pattern): for each owned project
+  with members, mint the missing grants. Idempotent (INSERT OR REPLACE), so over-running is free.
+Until then the workaround is remove + re-add the member (removal deletes their grants; re-adding
+re-mints for every current device) — the panel's own error strings already say so.
+
+## SOON (superseded original entry follows for context)
 
 > *"We still can't move texts from one unassigned box to the unassigned box on another project.
 > That's something I'd like somewhat soon. All other moves work as expected though."*
@@ -227,7 +262,17 @@ state, and the wrapped-Ki key map in `settings_blob`.
 useful; cross-account only after, with the key and pairing limits stated in the UI rather than
 discovered.
 
-## ~~NEXT RELEASE: a text whose audio is still arriving opens in the CLASSIC editor~~ — FIXED v442 (Seth, 2026-08-20)
+## NEXT RELEASE: a text whose audio is still arriving opens in the CLASSIC editor — fixed on `main` at v442, ⚠ **NOT RELEASED** (re-checked 2026-08-24)
+
+> ⚠ **The strikethrough here used to say "FIXED v442", which was true of the tree and false of every
+> field device.** `origin/productionWeb` is **v441** and has **zero** occurrences of the guard
+> (`attachingAudioFor === stripsFor`, `docs/js/app.js:1407`); `origin/main` and `origin/staging`
+> (v442) have one. So the bug Seth reported in the v440 test drive is still live in Papua today, and
+> the fix has been sitting one fast-forward away since 2026-08-20.
+>
+> "Fixed" means fixed **where the user is**. Until a release marks it, this entry stays open — that
+> is the whole reason it was missed. **Ship it: clear `BUILD_TAG` on `main` (currently
+> `'baseline-loading v1'`), `./bump-version.sh v445`, test-drive staging, ff `main` → `productionWeb`.**
 
 > *"It initially loaded the classic text editor while the audio was loading. And then after I
 > switched tabs it switched to audio segmentation mode… You can type in the baseline textbox, but
@@ -283,6 +328,602 @@ neutering the guard fails three assertions by name.
 ⚠ The TWO-LINE question is still open. It was a prediction, it stayed a prediction, and the fix
 removes the window in which anyone can type at all — so the answer no longer matters in practice and
 was never established. If the branch is ever reached again, it is still unknown.
+
+## SOON-ISH: "creating the device failed" but the device exists — and then shows in two tabs (Seth, 2026-08-20)
+
+Reported by a researcher, verbatim sequence: one existing project with one device → created a second
+project → added a device for it, changed their mind, left it **awaiting key** → added a *second* new
+device, which "processed for a minute, then showed a message that it had failed to create the new
+device" → revoked the first new device. Result: the first is gone as expected, and **the second
+appears twice — under the new project's tab AND under "Not in a project yet"**, despite the panel
+having said its creation failed.
+
+### The "failed but exists" half is EXPLAINED, and it is a compensating action that did not complete
+
+`createInstance` (researcher.js) is three acts, not one:
+
+1. `POST /v1/instances` — inserts the row. Correctly `retry: false`, so this is **not** a duplicate
+   from an auto-retried POST; that theory was checked and is wrong.
+2. generate Ki, wrap it to Kr, and CAS it into the settings blob (`fetchSettings` → `putSettings`,
+   up to 4 conflict retries).
+3. On any failure in 2, a **best-effort `revokeInstance`** so a keyless instance is not stranded —
+   already commented `/* leave for manual cleanup */`.
+
+So the row is created first and the failure the researcher saw came from step 2 or its cleanup. The
+minute of processing says the network was unwell at exactly the moment step 3 needed it, and step 3
+is the one call in the sequence with no compensation of its own. **The panel then reports the whole
+thing as a flat failure**, which is the actively harmful part: the researcher believes nothing
+happened and takes corrective action against a false picture.
+
+⚠ The cheap, honest fix is not "make it atomic" (it cannot be — D1 and the settings blob are
+separate stores). It is to stop *asserting* a failure the client cannot verify: on a step-2/3
+failure say the device **may** have been created and re-render the dashboard, so the truth is on
+screen rather than in a claim.
+
+### The "shows in two tabs" half IS explained — the panel does not refresh what decides the tab
+
+Seth, 2026-08-20: *"I often have to manually refresh to see changes in the researcher panel."* That
+is not a vague impression; it is a documented property of `renderDashboard`, and it lands exactly on
+the derivation this report is about.
+
+**Which tab a device appears in is a function of `estateCache`.** `projectScope` → `projOfInst`
+reads the worker-stamped `instanceId` off `estate.devices`, falling back to `oauth_folder_id`. And:
+
+> `⚠ THE ESTATE DOES NOT RIDE THE 12s POLL` … *"`renderDashboard` refetches `estateCache` only on a
+> FULL render (initial load, manual Refresh, or after an action); the poll passes `prefetched` and
+> deliberately skips the Drive round trip."* — researcher-panel.js, its own comment
+
+So the poll DOES pick up the new instance (that comes from `listView`, i.e. D1) but joins it against
+an estate fetched **before the device existed**. No estate entry ⇒ `projOfInst` returns `''` ⇒ the
+device lands in **"Not in a project yet"** and stays there until something forces a full render.
+
+Three things compound it, and all three were active in the reported sequence:
+
+1. **The failure path of the new-device modal does not re-render.** Success does
+   `m.close(); renderDashboard();`; the catch does only `errToast(err)`. So after a failed create
+   there is no estate refetch — and the modal stays open.
+2. **An open modal suspends polling entirely** — `pollDashboard` returns early on
+   `document.querySelector('.modal')`, and re-checks after every await. So the panel is not merely
+   stale, it is frozen.
+3. **Revoking the first device is an ACTION**, which triggers a full render and refetches the estate
+   — at which point the second device's folder is finally visible and it **moves** to the project
+   tab. That is precisely the moment the researcher describes noticing the duplicate.
+
+⚠ **And a genuine SIMULTANEOUS double is available too**, without needing a duplicate row: the
+Projects card counts `estate.devices` by folder parentage (`devices.filter(d => d.projectId ===
+p.folderId)`) while the tab bar partitions **D1 instances** through the stale-estate join. Two
+derivations, two sources, one screen — they can disagree at the same instant, which is what "shows
+up twice" reads like to anyone not holding the code.
+
+**Still worth the query before closing it**, because a genuine duplicate row is the one variant this
+does not explain: `SELECT instance_id, nickname, oauth_folder_id, project_id, created_at FROM
+instance WHERE researcher_id=? ORDER BY created_at`. Two rows ⇒ a double submit past `busy()`. One
+row ⇒ this section is the whole answer.
+
+### The general fix, which is bigger than this report
+
+The estate is skipped on the poll for a real reason — it is a Drive round trip, and the comment
+argues the unassigned card changes "on the timescale of a researcher removing a text, not seconds".
+That reasoning was sound when the estate only fed a storage card. It stopped being sound when
+**project membership** started being derived from it: tab assignment is not a slow-moving display
+detail, it changes the moment a device is created.
+
+Options, cheapest first — none chosen yet:
+
+- **Refetch the estate after the actions that invalidate it** (create/revoke a device, move a
+  container), including on the FAILURE paths. Narrow, no new polling cost, fixes this report.
+- **Let `viewSig` notice an instance the estate has never heard of** — an instance in `listView`
+  with no matching `estate.devices` entry is a known-stale signal, and could trigger ONE estate
+  refetch rather than a poll-rate one.
+- **Poll the estate at a slower cadence** (say every 5th tick) — simple, but pays a Drive round trip
+  forever to fix a transient.
+
+⚠ Whatever is chosen, `viewSig` is the trap: anything rendered that is not in the signature never
+repaints, and the signature's own comment says the estate entries in it "CANNOT change on the poll
+path". Adding a refetch without teaching the signature to notice it would change nothing on screen.
+
+### Judgment: not urgent, but do not let it sit behind Phase C
+
+Nothing here loses work — the device is real, it can be revoked, and the tab flip corrects itself.
+It is a *confusion* bug, and its cost is that people act on a false report (this researcher revoked
+a device partly because of it). The message fix is small and worth doing in the next release that
+touches the panel; the duplicate needs the query first.
+
+⚠ Related but separate, and already fixed: D1 having only ONE project row for two Drive project
+folders (2026-08-20, `reconcileProjects`). That made "not in a project yet" wrong for real reasons
+too, so re-check this report against a reconciled estate before digging further. ⚠ Note that
+`reconcileProjects` hangs off `drive-estate`, so it too runs on FULL renders only — the repair
+lands on a panel LOAD or manual Refresh, not within a poll tick.
+
+## AFTER PHASE C+D: one universal diagnostic dump, `fxDump()` (Seth, 2026-08-20)
+
+> *"a sort of universal diagnostic data dump console function would be useful. Let's implement that
+> soon (after Phase C and D are basically working)."*
+
+⚠ **Sequenced deliberately after C and D**, and not only because they are more urgent: the dump's
+whole value is printing the state that matters, and Phase C/D CHANGE what that is — a project's
+members, a viewer's caps, which grants exist. Writing it first means writing it twice.
+
+### Why this earns its place — every item is a real diagnosis from 2026-08-20
+
+The day this was asked, four separate questions each needed a hand-written D1 query or a code read:
+
+| the question | what it took |
+|---|---|
+| "why does the panel not show the pairing code?" | reading `listView()` to find the enumerated-rebuild trap |
+| "why does one researcher's device appear in two tabs?" | still unanswered — needs `SELECT … FROM instance WHERE researcher_id=?` |
+| "did the backfill break anybody's data?" | four dispatched `wrangler d1 execute` runs |
+| "is D1 in step with Drive?" | comparing a screenshot of Drive against a `project` row by eye |
+
+⚠ **The last one is the shape of most of them: two stores that are supposed to agree, and no cheap
+way to ask whether they do.** That is the function's real job — not "print some state" but **print
+the DISAGREEMENTS**, because the state itself is mostly uninteresting when it is correct.
+
+### What it should print
+
+**Local (device or panel, from the browser console):** engine + sw VERSION and `BUILD_TAG`, which
+worker base and estate this origin points at, instance/install ids, `desired_rev` vs `ack_seq`,
+IndexedDB doc count and bytes, pending uploads, whether a Ki is resolvable for each instance, and
+the settings that change behaviour (`segmentation`, export toggles, consent mode).
+
+**Server (the panel, authenticated):** the caller's projects and role in each, the instances D1
+holds versus the containers Drive holds, `member_key` grants versus `project_member` rows, and
+`instance.project_id` versus the Drive folder's actual parent.
+
+**And the derived answers, which are the point:**
+
+- containers in Drive with no D1 instance, and instances with no Drive folder
+- a `project_id` that disagrees with Drive parentage (what `reconcileProjects` repairs — the dump
+  should be able to SAY it, not just leave it repaired silently)
+- `member_key` rows whose `project_id` is `''` while the instance now has a real one
+- a grant with no matching `project_member` row, or a member with no grant — the two halves of
+  Phase C that can drift apart
+- version skew across the five apps
+
+### The second half Seth asked for: capture the LOGS too, behind a UI BUTTON
+
+> *"maybe some kind of universal dump of all browser web dev tools logs that have anything to do
+> with our web app saved as a text file. And have a UI button that triggers it instead of just a
+> console function. … So then I can have my friend run that and send me the text file."*
+
+That last sentence is the requirement, and it changes the design: **the person running it is a field
+user who will not open a console.** A console-only helper cannot serve the case that motivated it.
+
+**Doable — with one honest boundary.** A web page CANNOT read the browser's DevTools console or
+Network history; no API exposes it, and none is coming. What it can do is **capture its own** from
+startup, which for our purposes is nearly the same thing because almost everything in that console
+is ours:
+
+| capture | how |
+|---|---|
+| our console output | wrap `console.log/warn/error/info` at the TOP of the entry module into a capped ring buffer |
+| uncaught errors | `window.onerror` + `unhandledrejection` (with stack) |
+| network | wrap our own `fetch` — method, path, status, duration, size. NEVER bodies or headers |
+| CSP violations | the `securitypolicyviolation` event |
+| service-worker logs | a separate context: the SW ring-buffers its own and `postMessage`s them on request |
+
+⚠ **State the blind spots in the file itself**, or the reader will assume silence means nothing
+happened: anything logged before the wrapper installs (little, if it is first), browser-generated
+console text we never see (a resource 404, the detailed CORS explanation behind an opaque fetch
+rejection), and other tabs.
+
+The button: Help menu is the natural home — and the **admin drawer** (seven taps) is the natural
+place for it if it should not clutter a field translator's UI. Output is one text file via a Blob
+download, combining the state dump above and the captured log, so there is exactly ONE artefact to
+send rather than two to correlate.
+
+⚠ **Cap the buffer and say so.** A ring buffer means a long session DROPS its oldest entries — and
+the interesting event is often the first one. Record the drop count in the header so a truncated log
+announces itself instead of reading as a complete one.
+
+### Constraints, from rules this repo already enforces
+
+- ⚠ **A UI button AND a console entry point.** The button is the requirement (a field user sends
+  the file); the console name is for us. NEVER a keyboard shortcut — the existing rule, and its reason is
+  concrete: a ⌃⌥E binding could never fire on a Mac, because Option+E is a dead key. Register it
+  beside `fxUpdate()` / `fxLinks()` / `fxProjects()` and document it in DEVELOPERS.md, which is
+  where the list lives.
+- ⚠ **It will be pasted into chat and issue threads, so it must be safe to publish.** No secrets, no
+  refresh tokens, no wrapped keys, no `x-fx-secret`, and no other researcher's email. Ids are fine;
+  credentials never are. Given `check-secrets.sh` exists precisely because credentials reached a
+  public repo once, the dump needs a test asserting its output carries none — the format-based scan
+  already knows what those look like.
+- ⚠ **Read-only.** A diagnostic that repairs is a diagnostic nobody can safely run twice, and the
+  repair belongs where the authority is (the worker), not in a console helper.
+- It should work OFFLINE, printing the local half and saying plainly that the server half is
+  unavailable — a field device with no signal is exactly when someone wants it.
+
+## VIDEO SOURCES (.mp4) — audio extraction first, preview later (Seth, 2026-08-21)
+
+> *"Can our editor app make use of video files (like mp4)? For now just automatically extracting and
+> using just the audio is good enough, but in the near future we'll want to be able to see the video
+> playing in a small preview viewer somehow. But THAT part is for later."*
+
+**Most of the machinery already exists, and it is not the part anyone would guess.**
+
+`segWorkingMedia` (app.js:1595) already takes ANY non-WAV media, decodes it with `decodeAudioData`,
+re-encodes to 16-bit WAV, stores it under `segwav:<docId>` as `derived:true`, and leaves the original
+untouched. That IS audio extraction — built for the lossy-source timeline fix (AAC priming makes
+decode and playback disagree by ~44ms), and a video container is the same problem wearing a
+different hat. Playback needs nothing either: media plays via `URL.createObjectURL(blob)` on an
+`<audio>` element, and Chrome plays an MP4's audio track through one.
+
+⚠ **The blocker is the FILE PICKERS, not the pipeline.** Five inputs in `docs/index.html` (lines 89,
+93, 173, 225, 296) accept `audio/*` plus an extension list. An `.mp4` simply cannot be selected.
+Adding `video/mp4,video/quicktime,.mp4,.mov` is the bulk of the change.
+
+⚠ The `/^audio\//` guard at app.js:5826 is NOT a blocker — it is the CONSENT PROMPT picker only, and
+should stay audio-only: a consent prompt is played aloud to a speaker.
+
+### ⚠ MUST BE TESTED BEFORE BUILDING — cannot be verified from source
+
+**Does `decodeAudioData` accept an MP4 that contains a VIDEO track?** Chrome is expected to decode
+the audio track and ignore the video, which is what makes the whole approach work — but that is an
+expectation, not a verified fact, and this container has no ffmpeg and no Playwright to test it. If
+it throws, extraction needs a real demuxer (a large dependency, and a new top-level import in
+`js/app.js` is a new SHELL entry in the editor AND every satellite sw.js — the v108 outage).
+**Test on Android Chrome with a real phone-camera MP4 before any of this is scoped.**
+
+Second thing to test: whether `<audio src=blob:...>` reports correct `duration` for an MP4. The
+segmentation seeds divide the recording by duration, so a wrong or `Infinity` duration produces a
+false alignment rather than an error.
+
+### ⚠ THREE DECISIONS, and the first one bites in the field
+
+1. **Video bytes must never ride a field upload.** An MP4 is many times the size of its audio, and a
+   field device would store AND upload the video over expensive bandwidth. There is exact precedent
+   to follow rather than invent: the derived WAV and the preview HTML already ride LOCAL bundles
+   only, because *"field upload bandwidth never pays for embedded audio."* Video should follow the
+   same rule, with more force.
+2. **But do not extract-and-discard.** The archival rule is that the ORIGINAL is never touched,
+   replaced or deleted (app.js:1591). It also happens to be what the future preview viewer needs. So:
+   keep the video locally, derive the audio as the working copy, exclude the video from uploads.
+   Those three are the same decision, which is a good sign it is the right one.
+3. **`segWorkingMedia` only runs when segmentation is enabled** (app.js:1598). In the classic editor
+   a video would stay the media as-is — fine for playback, but no extraction happens, so the WAV
+   working copy the exports assume would not exist. Decide whether video import forces the
+   conversion regardless of mode.
+
+### Smaller things that follow
+
+- The derived WAV's BWF `bext` names its lossy origin (`seg-exports.js:1006`); a video origin should
+  be named too — the honesty stamp is the point, and "derived from video" is a different fact.
+- `paragraph-ui.js` (134, 191) picks the audio file out of a drop by `/^audio\//` or an extension
+  list; PAT would need the same widening or it silently ignores a dropped video.
+- The recorder and crowd satellites use their own capture paths and are unaffected.
+
+**Sequence:** test the decode → widen the pickers → force the WAV derivation for video → exclude
+video from uploads → (later, separately) the preview viewer.
+
+## PHASE C INCREMENT 2 — all 23 audit findings FIXED, still not a clean run (2026-08-21)
+
+**See `plans/AUDIT-FINDINGS-2026-08-21.md`.** Two adversarial rounds (6 lenses + 3), 35 candidates,
+23 confirmed, all fixed — plus two live defects the completeness critic found in the REMEDIATION
+itself. Nothing is deployed and no `project_member` rows exist, so none of it was ever reachable.
+
+**What members get in v1: DEVICE MANAGEMENT.** `manageDevices` and `createInvites`. `assignTexts`
+and `drive` are refused on BOTH the write and the read path — nine of round 1's findings live behind
+them, and they close by making the capability ungrantable rather than by repairing the routes. The
+account-wide `docId` searches are still there; the Drive lane is deferred, not fixed.
+
+⚠ **THE HEURISTIC THAT JUSTIFIED THE DEFERRAL WAS FALSE, and that is the lesson worth carrying.** It
+read "EVERY dangerous route is one where the member names a Drive file or text." The sweep disproved
+it within hours: `changeSettings` names no Drive id and let a member repoint a field device's entire
+backend — install credentials, every upload, and a wipe. A rule that explains the last outage is not
+thereby a rule about the next one.
+
+⚠ **NOT A CLEAN RUN YET.** The critic's verdict was a plain NO. Its three grounds are now addressed,
+but **no sweep has run against the CURRENT code**, and six items nobody examined are filed under
+"STILL OPEN" in the findings doc — none reachable by a v1 member, all inherited by whoever widens
+capabilities. Re-run `Workflow({ scriptPath: 'plans/audit-sweep-workflow.js' })` before shipping.
+
+⚠ **Before ANY deploy:** this now includes a `docs/` change (v443), so it carries the satellite
+version coupling, not just a worker push. And two live bugs unrelated to Phase C are still unfixed —
+the assigned-text manifest fields and `consent.mode`, both filed above.
+
+## DECIDED 2026-08-20: the Drive permission checkbox does NOT ship in Phase D
+
+Seth agreed: don't offer a control that looks functional and is not.
+
+The `drive: read|manage` capability is accepted and stored, and today it grants access on exactly
+ONE route — `GET /v1/instances/<id>/texts/<docId>/files`. Every account-wide Drive route still
+resolves through `authResearcher`, so a member calling one acts on **their own** Drive and gets an
+error. That is safe (and pinned by a rig assertion), but it means a "Drive access" checkbox in the
+sharing UI would be a promise the backend does not keep.
+
+**So: leave it out of the sharing UI entirely until the Drive routes are converted.** Not greyed
+out, not "coming soon" — absent. A disabled control still tells the owner the feature exists and
+invites them to wait for it; an absent one lets the UI describe what the system actually does. Add
+it in the same release that makes it true.
+
+## NEXT IN PHASE C: the account-wide Drive routes are still unconverted (2026-08-20)
+
+Phase C increment 2 landed everything except R2-1, the Drive half. **Stopping there is safe, and it
+is safe for a reason worth writing down rather than trusting.**
+
+`drive-estate`, `drive-purge`, `trash` and `drive-file/<id>` still resolve through `authResearcher`,
+which hands back **the caller's own researcher row**. So a member calling them acts on their OWN
+Drive, never the owner's — an unconverted route means *"members cannot do that yet"*, not a leak.
+That is precisely the property R2-4's filter shape was chosen to give, and
+`worker-members.probe.mjs` now pins it: a member holding `drive: "manage"` gets 502 from all three,
+because the route reached Drive with THEIR credentials and they have none. ⚠ If that assertion ever
+returns 200, a member is reading the owner's estate through a route nobody converted.
+
+**Consequence for now:** the `drive` capability grants nothing except on
+`/v1/instances/<id>/texts/<docId>/files`, which IS converted and IS bounded (per-instance, and the
+`see` list applies). Do not offer `drive: read/manage` in the sharing UI as though it did more.
+
+### What converting them actually requires — and the decision it is blocked on
+
+1. `driveListAll` is **account-wide**. Scoping the estate means resolving the project's folders
+   (`instance.oauth_folder_id WHERE project_id=?`) and filtering to those parents.
+2. `drive-purge` takes **no id list** and empties the whole trash. It needs an explicitly derived
+   list, not a filter applied afterwards (R2-4).
+3. `trash` takes an **unverified** `fileIds`; every parent must be checked.
+4. `drive-file/<id>` serves **any** file id.
+
+⚠ And design-gap 5 is the blocker on the rest: a member with `see` restricted to device A but
+`drive: read` can still reach device B's file NAMES through docId-routed routes, because Drive
+folders are per-device with plaintext names. The doc's own recommendation is **accept + disclose**
+("Drive read shows all project files, including devices hidden from them"), because a filtered
+estate that leaks to direct docIds is worse than an honest sentence. **That is decision II.D7 and it
+is Seth's, not a default to pick.** Cross-PROJECT scoping (1–4 above) is not blocked on it and is
+the part actually worth building first.
+
+## SOON: a REVOKED device keeps its holder's name and their text index, forever (Seth, 2026-08-20)
+
+> Seth, on stale rows: *"probably better practice to have that cleaned up… Especially if we're being
+> security/privacy conscious."*
+
+He is right, and it is stronger than housekeeping: it is the same rule
+`test/d1-minimization-invariants.test.mjs` already enforces for titles, applied to fields the rules
+have not reached yet. §10.4 is one long argument about making a database dump worth as little as
+possible; these rows work against it.
+
+### What a revoked row actually retains
+
+`revoke` is a flag flip. Nothing is cleared. So indefinitely afterwards:
+
+| table | field | what it is |
+|---|---|---|
+| `instance` | `nickname` | routinely **a person's real name** — "Wemis Wanimbo's Phone", "Yohanis Suhu (Intel Mac)" |
+| `instance` | `desired_blob` | settings + queued commands, **plaintext** (the worker JSON.parses it) |
+| `install` | `reported_blob` | device info + the text/recording list (titleHash, not titles) |
+| `install` | `wrapped_key`, `pubkey` | key material for a device that no longer exists |
+
+Production on 2026-08-20:
+
+| project | live | revoked | revoked but still holding a Drive folder |
+|---|---|---|---|
+| Fayu Text Corpus | 3 | **28** | 13 |
+| Dani Dictionary | 1 | **2** | 2 |
+
+⚠ Most of that is Seth's own development account across months of testing, so it overstates what a
+real researcher accumulates. It does not overstate the *shape* of the problem, which is that nothing
+ever removes any of it.
+
+### ⚠ The obvious fix is wrong, and wrong in a way that would feel like success
+
+**Deleting the D1 row does not remove the name.** The Drive folder is still called
+"Yohanis Suhu (Intel Mac)" — the name is on the folder, and the rename route deliberately keeps it
+in step. What the delete removes is the JOIN: which device produced which texts. So the visible
+identifier survives and the provenance dies, which is the exact opposite of the intended trade.
+
+**The shape that works is MINIMISE, DON'T DELETE:**
+
+1. **Clear the payload, keep the skeleton.** On revoke (or after a retention window): blank
+   `nickname`, `desired_blob`, `reported_blob`. Keep `instance_id`, `oauth_folder_id`, timestamps and
+   `researcher_id` — provenance and audit survive, the personal data does not.
+2. **Delete `member_key` rows for revoked instances outright.** The most sensitive thing in the set,
+   and the most useless: key material for a device that cannot be reached. `DELETE FROM member_key
+   WHERE instance_id IN (SELECT instance_id FROM instance WHERE revoked=1)`.
+3. **Decide the Drive half deliberately**, because it is where the name actually lives. Rename the
+   folder to a neutral label on revoke? Leave it, on the grounds that the researcher's own Drive is
+   theirs to organise? ⚠ This is a decision for Seth, not a default to pick — and until it is made,
+   step 1 buys less than it appears to.
+4. `approval_log` is append-only and separate, so device history is NOT lost by any of this. That
+   argument does not block the work — worth stating, since it is the first objection anyone raises.
+
+### ⚠ THE DRIVE HALF — DECIDED, and it is a SWEEP-THEN-MOVE, not a rename (Seth, 2026-08-20)
+
+> Seth: *"for the sake of organization, especially with ADHD (like me), we need some way in Drive for
+> revoked devices to end up in a 'Revoked' or 'Remove' or other folder so that I'm not confused about
+> which ones are active and which ones aren't. Also, all the text folders should end up in
+> 'Unassigned' in any case… What I don't want is stale Google Drive clutter and no idea which is
+> stale and which is not. For someone with my brain that's a real problem. I also don't want to
+> delete things carelessly for which it would be good to save originals."*
+
+**The decided shape: revoke → sweep the texts to Unassigned → move the now-EMPTY device folder into
+a "Revoked" container.** In that order, and the order is the whole design.
+
+⚠ **WHY A CONTAINER IS SAFE ONLY AFTER THE SWEEP, and unsafe before it.** `buildDriveEstate` defines
+a device as a folder whose parent is in `containerParents = new Set([masterId, ...projectIds])`
+(v1.js:804, filter at :820-821). Nest a device folder inside a plain "Revoked" folder while its
+texts are still in it and: it stops being a device, its texts lose `device`/`deviceFolderId`
+(:858-859), and their `projectId` join (:877) resolves against the Revoked folder and yields `''` —
+so those texts vanish from every project tab AND from the per-project Unassigned card. Once the
+folder is EMPTY that entire failure mode has nothing to act on: the folder simply leaves the estate
+view, which is exactly the decluttering being asked for. **Verified against the source, not assumed.**
+
+⚠ **DO NOT give the folder a `flextextRole`** to mark it. The device filter requires
+`!roleOf(f) || roleOf(f) === 'crowd'` (v1.js:820-821), so any other role drops it out of `devices`,
+and `projects/assign` would reject it as `not_a_container` (v1.js:3202) — the route behind the
+panel's "Move to project…" button. A NON-role `appProperties` key is safe; the filter reads only
+`flextextDoc` and the role.
+
+**Marking follows the `(done)` precedent** (v1.js:951-960): `appProperties.flextextRevoked='1'` as
+truth PLUS a visible name suffix. The tag is what code reads; ⚠ the SUFFIX is what Seth actually
+asked for, because an appProperty is invisible in Drive's own UI and the requirement is legibility
+while looking at Drive in Finder.
+
+**Reuse `drive-unassign`, do not write a second sweep** (v1.js:2925-3021). It already resolves each
+text's OWN project's Unassigned (`targetFor`, :2959-2981), creates it on demand, re-parents, and tags
+`flextextUnassigned:'1'` so an adopt can bring it back (:3009-3010, cleared at :3849-3850).
+⚠ It is bounded at `CAP = 10, BUDGET_MS = 9000` and returns `remaining` because the ~50-subrequest
+cap already killed `drive-purge` twice (:2984-2994). Any revoke-time bulk Drive work inherits that
+ceiling and must report a remainder the same way.
+
+⚠ **D1 FLAGS FIRST, DRIVE SECOND.** Revoke today makes ZERO Drive calls — two D1 UPDATEs and a
+return (v1.js:3941-3945, verified) — so it cannot half-fail. Revocation must never become dependent
+on Drive being reachable. Sweep and move are best-effort follow-ups, resumable, never preconditions.
+
+✅ **AND TWO PROPERTIES ALREADY HOLD, so the move is safe by construction:** minted assignment URLs
+name a fileId, never a path (v1.js:1216), and re-check `revoked=0` at redemption (:1861-1866); device
+and text folders resolve by ID and by TAG, never by parent (v1.js:1015-1025, :934-937). Moving or
+renaming a folder therefore cannot orphan a pending upload or an outstanding URL.
+
+⚠ **WHAT HAPPENS TODAY, which this replaces:** the texts already drift into Unassigned — `sweepUnassigned`
+runs only on a FULL panel render, 12 ids at a time (researcher-panel.js:1434, :5064), and its
+exclusions do not protect a revoked device's texts because `assignedDocIds()` reads `lastData.instances`
+which no longer contains the instance. So it happens silently, partially, and only while someone has
+the panel open. The work is to make it deliberate, not to invent it.
+
+### ⚠ "The history metadata file isn't working so far" — it was never built
+
+Seth referred to *"our history metadata file (which isn't working so far, but will be)"*. Checked:
+**`flextext-history.json` has ZERO code** — no writer, no reader, no filename constant, no test. It
+exists only as a settled DESIGN in `plans/drive-as-truth.md:1408-1425` and §16.13 (:1440-1495), whose
+own text says *"Shape (not yet built — this is the decision, not the implementation)"*. Nothing is
+broken; it is unstarted. Worth stating plainly because "not working yet" and "does not exist" lead to
+very different next actions.
+
+**And the nickname has nowhere to live today.** `manifest.source.name` is `''` in every manifest ever
+written — the schema has the slot and none of the three call sites passes a name (app.js:4619,
+app.js:6974, researcher-panel.js:3369; verified). ⚠ Do NOT fill it: the manifest is written ONCE and
+is immutable by contract (seg-exports.js:1073-1080, pinned by test/manifest-provenance.test.mjs),
+while a nickname is researcher-set and renameable — a frozen name would quietly disagree with the
+panel after the first rename. The correct carrier is a **name-at-event-time snapshot in the history
+file**: *"at time T this device was called X"* stays true forever, and it is precisely what makes the
+D1 forget survivable.
+
+**The keystone, and it is small:** the device folder carries NO tag linking it to its instance —
+`driveEnsureDeviceFolder` creates it with `parents` and nothing else (v1.js:1029-1031, verified). One
+`flextextInstance` appProperty there is the cheapest durable device→folder link that survives both a
+folder move and the D1 forget, and it is what makes `manifest.source.id` resolvable from Drive alone.
+Everything else in this section depends on it.
+
+### ⚠ TWO LIVE BUGS found while mapping this — independent, small, worth fixing first
+
+Both make bad data accumulate right now, so fixing them stops the pile growing while the rest is built.
+
+1. **Every assigned text ships empty writing systems and a wrong birth time.** The assignment queue
+   record writes `at: Date.now()` (researcher-panel.js:3224) but the manifest builder reads
+   `rec.queuedAt`, `rec.vernLang` and `rec.analLang` (:3359-3361) — none of which is ever set. So
+   `originatedAt` becomes the moment the UPLOAD ran, not the assignment, and `writingSystems` is
+   `{vern:'', anal:''}` on every assigned text. Verified.
+2. **`manifest.consent.mode` is always `'off'`.** It reads `settings.consentMode` (app.js:4608), a key
+   deliberately DELETED during settings migration (`delete s.consentMode`, app.js:250). Nothing reads
+   `mode`, so it went unnoticed and no test pins it. Verified.
+
+⚠ Both are in `docs/js/`, so they need a version bump and ride the satellite coupling — unlike the
+Drive/worker work above, which is worker-only and carries no SHELL risk. That asymmetry is a good
+argument for doing the worker half first.
+
+### ⚠ THE DRIVE HALF — DECIDED, and it is a SWEEP-THEN-MOVE, not a rename (Seth, 2026-08-20)
+
+> Seth: *"for the sake of organization, especially with ADHD (like me), we need some way in Drive for
+> revoked devices to end up in a 'Revoked' or 'Remove' or other folder so that I'm not confused about
+> which ones are active and which ones aren't. Also, all the text folders should end up in
+> 'Unassigned' in any case… What I don't want is stale Google Drive clutter and no idea which is
+> stale and which is not. For someone with my brain that's a real problem. I also don't want to
+> delete things carelessly for which it would be good to save originals."*
+
+**The decided shape: revoke → sweep the texts to Unassigned → move the now-EMPTY device folder into
+a "Revoked" container.** In that order, and the order is the whole design.
+
+⚠ **WHY A CONTAINER IS SAFE ONLY AFTER THE SWEEP, and unsafe before it.** `buildDriveEstate` defines
+a device as a folder whose parent is in `containerParents = new Set([masterId, ...projectIds])`
+(v1.js:804, filter at :820-821). Nest a device folder inside a plain "Revoked" folder while its
+texts are still in it and: it stops being a device, its texts lose `device`/`deviceFolderId`
+(:858-859), and their `projectId` join (:877) resolves against the Revoked folder and yields `''` —
+so those texts vanish from every project tab AND from the per-project Unassigned card. Once the
+folder is EMPTY that entire failure mode has nothing to act on: the folder simply leaves the estate
+view, which is exactly the decluttering being asked for. **Verified against the source, not assumed.**
+
+⚠ **DO NOT give the folder a `flextextRole`** to mark it. The device filter requires
+`!roleOf(f) || roleOf(f) === 'crowd'` (v1.js:820-821), so any other role drops it out of `devices`,
+and `projects/assign` would reject it as `not_a_container` (v1.js:3202) — the route behind the
+panel's "Move to project…" button. A NON-role `appProperties` key is safe; the filter reads only
+`flextextDoc` and the role.
+
+**Marking follows the `(done)` precedent** (v1.js:951-960): `appProperties.flextextRevoked='1'` as
+truth PLUS a visible name suffix. The tag is what code reads; ⚠ the SUFFIX is what Seth actually
+asked for, because an appProperty is invisible in Drive's own UI and the requirement is legibility
+while looking at Drive in Finder.
+
+**Reuse `drive-unassign`, do not write a second sweep** (v1.js:2925-3021). It already resolves each
+text's OWN project's Unassigned (`targetFor`, :2959-2981), creates it on demand, re-parents, and tags
+`flextextUnassigned:'1'` so an adopt can bring it back (:3009-3010, cleared at :3849-3850).
+⚠ It is bounded at `CAP = 10, BUDGET_MS = 9000` and returns `remaining` because the ~50-subrequest
+cap already killed `drive-purge` twice (:2984-2994). Any revoke-time bulk Drive work inherits that
+ceiling and must report a remainder the same way.
+
+⚠ **D1 FLAGS FIRST, DRIVE SECOND.** Revoke today makes ZERO Drive calls — two D1 UPDATEs and a
+return (v1.js:3941-3945, verified) — so it cannot half-fail. Revocation must never become dependent
+on Drive being reachable. Sweep and move are best-effort follow-ups, resumable, never preconditions.
+
+✅ **AND TWO PROPERTIES ALREADY HOLD, so the move is safe by construction:** minted assignment URLs
+name a fileId, never a path (v1.js:1216), and re-check `revoked=0` at redemption (:1861-1866); device
+and text folders resolve by ID and by TAG, never by parent (v1.js:1015-1025, :934-937). Moving or
+renaming a folder therefore cannot orphan a pending upload or an outstanding URL.
+
+⚠ **WHAT HAPPENS TODAY, which this replaces:** the texts already drift into Unassigned — `sweepUnassigned`
+runs only on a FULL panel render, 12 ids at a time (researcher-panel.js:1434, :5064), and its
+exclusions do not protect a revoked device's texts because `assignedDocIds()` reads `lastData.instances`
+which no longer contains the instance. So it happens silently, partially, and only while someone has
+the panel open. The work is to make it deliberate, not to invent it.
+
+### ⚠ "The history metadata file isn't working so far" — it was never built
+
+Seth referred to *"our history metadata file (which isn't working so far, but will be)"*. Checked:
+**`flextext-history.json` has ZERO code** — no writer, no reader, no filename constant, no test. It
+exists only as a settled DESIGN in `plans/drive-as-truth.md:1408-1425` and §16.13 (:1440-1495), whose
+own text says *"Shape (not yet built — this is the decision, not the implementation)"*. Nothing is
+broken; it is unstarted. Worth stating plainly because "not working yet" and "does not exist" lead to
+very different next actions.
+
+**And the nickname has nowhere to live today.** `manifest.source.name` is `''` in every manifest ever
+written — the schema has the slot and none of the three call sites passes a name (app.js:4619,
+app.js:6974, researcher-panel.js:3369; verified). ⚠ Do NOT fill it: the manifest is written ONCE and
+is immutable by contract (seg-exports.js:1073-1080, pinned by test/manifest-provenance.test.mjs),
+while a nickname is researcher-set and renameable — a frozen name would quietly disagree with the
+panel after the first rename. The correct carrier is a **name-at-event-time snapshot in the history
+file**: *"at time T this device was called X"* stays true forever, and it is precisely what makes the
+D1 forget survivable.
+
+**The keystone, and it is small:** the device folder carries NO tag linking it to its instance —
+`driveEnsureDeviceFolder` creates it with `parents` and nothing else (v1.js:1029-1031, verified). One
+`flextextInstance` appProperty there is the cheapest durable device→folder link that survives both a
+folder move and the D1 forget, and it is what makes `manifest.source.id` resolvable from Drive alone.
+Everything else in this section depends on it.
+
+### ⚠ TWO LIVE BUGS found while mapping this — independent, small, worth fixing first
+
+Both make bad data accumulate right now, so fixing them stops the pile growing while the rest is built.
+
+1. **Every assigned text ships empty writing systems and a wrong birth time.** The assignment queue
+   record writes `at: Date.now()` (researcher-panel.js:3224) but the manifest builder reads
+   `rec.queuedAt`, `rec.vernLang` and `rec.analLang` (:3359-3361) — none of which is ever set. So
+   `originatedAt` becomes the moment the UPLOAD ran, not the assignment, and `writingSystems` is
+   `{vern:'', anal:''}` on every assigned text. Verified.
+2. **`manifest.consent.mode` is always `'off'`.** It reads `settings.consentMode` (app.js:4608), a key
+   deliberately DELETED during settings migration (`delete s.consentMode`, app.js:250). Nothing reads
+   `mode`, so it went unnoticed and no test pins it. Verified.
+
+⚠ Both are in `docs/js/`, so they need a version bump and ride the satellite coupling — unlike the
+Drive/worker work above, which is worker-only and carries no SHELL risk. That asymmetry is a good
+argument for doing the worker half first.
+
+### Sequencing
+
+⚠ **After Phase C, and specifically after member removal exists** — which it now does. Removing a
+member already deletes their grants (2026-08-20); revoked-device cleanup is the same idea one level
+down, and building both against one retention helper is cheaper than retrofitting the second.
+
+⚠ **And it wants a `wipe_state`-style guard**: a revoked device may still be OFFLINE IN THE FIELD
+holding unuploaded work. Minimising its server-side row must not be read anywhere as "this device is
+finished" — the remote-wipe machinery already distinguishes those states and should be consulted
+before inventing another.
 
 ## LATER: revisit auto-cutting a LONG recording (Seth, 2026-08-20)
 

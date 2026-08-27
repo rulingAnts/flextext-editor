@@ -41,6 +41,15 @@
       "status",
       "sub_id"
     ],
+    "drive_object": [
+      "created_at",
+      "created_by",
+      "doc_id",
+      "instance_id",
+      "kind",
+      "object_id",
+      "project_id"
+    ],
     "install": [
       "accepted",
       "ack_seq",
@@ -80,6 +89,7 @@
       "expires_at",
       "instance_id",
       "invite_id",
+      "invited_by",
       "secret_hash"
     ],
     "member_key": [
@@ -98,6 +108,7 @@
     ],
     "project": [
       "created_at",
+      "drive_folder_id",
       "name",
       "owner_id",
       "project_id"
@@ -159,6 +170,9 @@
     ]
   },
   "indexes": [
+    "drive_object_doc",
+    "drive_object_instance",
+    "drive_object_project",
     "idx_approval_log_at",
     "idx_crowd_researcher",
     "idx_crowd_sub",

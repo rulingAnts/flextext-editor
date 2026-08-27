@@ -331,18 +331,36 @@ work that has since shipped, and one (`parked-v319-v321`) predates the whole v35
 `git push origin --delete` returns **403** from the remote-execution environment (re-confirmed
 2026-08-17 with a live attempt): the credentials push but cannot delete refs. Run locally.
 
-**Safe — every branch below re-verified ZERO content difference against `productionWeb` (v383)
-immediately before this list was written.** `assign-by-upload` is 6 merges FROM staging with an
-empty three-dot diff; everything else is a plain ancestor of production.
+> ⚠⚠ **THIS LIST WENT STALE AND BECAME A DESTRUCTIVE COMMAND. Two names were removed on
+> 2026-08-24; re-verify ancestry before running it, every time.**
+>
+> The list was written on 2026-08-17 against `productionWeb` v383 and captioned "every branch below
+> re-verified ZERO content difference". That caption stayed true of the *text* while the repository
+> moved underneath it. By 2026-08-24 it named:
+>
+> - **`claude/cut-tab-waveform-displays-2owdfx` — +140 commits, NOT an ancestor of anything.** It
+>   carries the entire Phase C authorization layer, `drive_object` phases 1/1b/2 and Phase D, none
+>   of it merged anywhere — **and it is the source the LIVE production worker was deployed from**
+>   (`worker/src/v1.js` is 5412 lines here against 4151 on `productionWeb`; `authMember` and
+>   `drive-object.js` exist on no release branch). Deleting it would have destroyed the only copy
+>   of the code currently serving every field device.
+> - **`assign-by-upload` — +6 commits, also not an ancestor.**
+>
+> A list of branches to delete is a loaded command, so it decays in the one direction that costs
+> something. **Before running it:** `git fetch origin`, then for each name
+> `git merge-base --is-ancestor origin/<name> origin/productionWeb` — delete only what that accepts.
 
 ```sh
-git push origin --delete segmentation assign-by-upload parked-panel-and-matching \
-  segmentation2 seg-exports editor-fixes-v322 paragraph-analysis tok-pisin-l10n \
-  heads-model cycle-rest \
-  claude/assign-by-upload-build-7d5ee8 claude/assign-by-upload-build-uik28u \
-  claude/cut-tab-waveform-displays-2owdfx claude/paragraph-analysis-backlog-1bb9bd \
-  claude/prompt-too-large-error-d767f1 claude/unpaired-device-setup-w3u9ck \
-  claude/worker-cache-poisoning-536b2c
+# ⚠ Re-verify ancestry FIRST (see above). Correct as of 2026-08-24:
+for b in segmentation parked-panel-and-matching segmentation2 seg-exports \
+         editor-fixes-v322 paragraph-analysis tok-pisin-l10n heads-model cycle-rest \
+         claude/assign-by-upload-build-7d5ee8 claude/assign-by-upload-build-uik28u \
+         claude/paragraph-analysis-backlog-1bb9bd claude/prompt-too-large-error-d767f1 \
+         claude/unpaired-device-setup-w3u9ck claude/worker-cache-poisoning-536b2c; do
+  git merge-base --is-ancestor "origin/$b" origin/productionWeb \
+    && git push origin --delete "$b" \
+    || echo "SKIP $b — NOT an ancestor of productionWeb, it holds unmerged work"
+done
 ```
 
 Takes the repo from 24 branches to 9: the three trunks plus six carrying real decisions.

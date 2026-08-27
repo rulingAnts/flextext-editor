@@ -19,7 +19,18 @@ MIRROR="$HOME/GIT/.flextext-devserve-$PORT"    # PER-PORT: a second instance mus
 # symlink that becomes /flextext-editor/ must point THERE, not at the repo root.
 # FLEXTEXT_DOCS overrides the source — e.g. serve a git WORKTREE of another branch:
 #   FLEXTEXT_DOCS="$HOME/GIT/flextext-staging-test/docs" bash dev-serve.sh 8012
-EDITOR="${FLEXTEXT_DOCS:-$HOME/GIT/flextext editor/docs}"
+#
+# ⚠⚠ THE DEFAULT IS THE CHECKOUT THIS SCRIPT LIVES IN, not a hardcoded $HOME path. It used to be
+# "$HOME/GIT/flextext editor/docs", which meant running it FROM A WORKTREE served the MAIN checkout
+# instead — the branch you were testing was never loaded, and nothing said so. On 2026-08-23 that
+# silently served v441 while the branch under test was v443; the on-screen version badge is the only
+# reason it was caught, and only because the two numbers disagreed.
+#
+# Deriving it from the script's own location makes the common case correct by construction: a
+# worktree serves ITS OWN docs/. FLEXTEXT_DOCS still overrides for the deliberate cross-checkout case.
+# ⚠ Trust the version badge over your memory of which port is which — that is what it is for.
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+EDITOR="${FLEXTEXT_DOCS:-$SELF_DIR/docs}"
 RECORDER="$HOME/GIT/text-recorder"
 CROWD="$HOME/GIT/crowd-recorder"
 # The paragraph-analysis shell lives BESIDE docs/ in the same checkout, so follow whatever

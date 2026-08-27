@@ -169,8 +169,12 @@ test('projects UI', async () => {
     const card = fn('function renderProjectsCard');
     /* An interrupted run leaves containers under master. The estate reads that shape correctly, so
      * nothing is broken — but a card that looked finished would hide a job still to do. */
-    ok(/const stray = devices\.filter\(\(d\) => !d\.projectId\)\.length;/.test(card),
-       'containers still outside a project are counted');
+    /* liveDevice() rode in with issue #10: revoked devices leave Drive folders behind, and counting
+     * those told a researcher with zero paired devices they had four. Stray containers are still
+     * counted — but only ones backed by a live pairing (with a raw-count fallback when the estate
+     * carries no live signal at all; see the comment at the filter). */
+    ok(/const stray = devices\.filter\(\(d\) => !d\.projectId && liveDevice\(d\)\)\.length;/.test(card),
+       'containers still outside a project are counted — live-backed ones only (issue #10)');
     ok(/panel\.proj\.stray/.test(card) && /panel\.proj\.finish/.test(card),
        'and reported with a way to finish the job');
   }
@@ -365,10 +369,25 @@ test('projects UI', async () => {
     ok(/error: 'is_a_text'/.test(assignBody), 'moving a TEXT is refused — that would re-home somebody\'s work');
     ok(/error: 'not_a_project'/.test(assignBody), 'the destination must really be a project');
     ok(/error: 'not_a_container'/.test(assignBody), '...and the source must really be a container');
-    /* ⚠ DRIVE PARENTAGE IS THE ONLY RECORD. Writing a Drive folder id into instance.project_id —
-     * a column belonging to Phase B's D1 project GUIDs — would put a second, differently-shaped
-     * answer to "which project is this in" into a second store. One authority. */
-    ok(!/project_id/.test(assignBody), 'and NOTHING is written to D1 — parentage is the single authority');
+    /* ⚠ THIS ASSERTION USED TO SAY "NOTHING is written to D1 — parentage is the single authority",
+     * and it was right for as long as the two namespaces were unjoinable: writing a DRIVE folder id
+     * into instance.project_id — a column holding D1 project GUIDs — would have been a second,
+     * differently-shaped answer to "which project is this in".
+     *
+     * ⚠ WHAT CHANGED (2026-08-20): project.drive_folder_id joins them, so the D1 project for a Drive
+     * folder is a LOOKUP rather than a guess. That converts the update from drift into its opposite —
+     * Phase C authorizes from instance.project_id, so a container that moved in Drive while D1 still
+     * said otherwise would be authorized against the project it had just LEFT. The old invariant now
+     * describes the bug rather than preventing it.
+     *
+     * So what is pinned is the property that actually matters and always did: both are written in
+     * ONE act (invariant I3), so nothing can update one without the other. */
+    ok(/SELECT project_id FROM project WHERE drive_folder_id=\? AND owner_id=\?/.test(assignBody),
+       'the destination folder is resolved to its D1 project by the LINK, never guessed');
+    ok(/UPDATE instance SET project_id=\?/.test(assignBody) && /UPDATE crowd_recorder SET project_id=\?/.test(assignBody),
+       '...and D1 is updated in the SAME act as the Drive move, so the two cannot drift');
+    ok(/const newPid = destRow \? destRow\.project_id : null;/.test(assignBody),
+       '⚠ a folder with no D1 project CLEARS project_id — stale would authorize against the project just left');
 
     // A device created while a project is open must be BORN in it, not in the default.
     ok(/const wantProject = String\(\(body && body\.projectFolderId\)/.test(worker),
@@ -508,7 +527,7 @@ test('projects UI', async () => {
      * the sweep itself — behaviour is unchanged. */
     ok(/const wantTarget = String\(body\.projectFolderId \|\| ''\)/.test(worker),
        'drive-unassign accepts a target project');
-    ok(/if \(forceProject\) \{/.test(worker), '...and uses it in place of per-text resolution');
+    ok(/if \(forceProject\) proj = forceProject;/.test(worker), '...and uses it in place of per-text resolution');
     ok(/=== 'project'\) forceProject = dest\.id;/.test(worker),
        '...only after verifying it really is a project folder');
   }

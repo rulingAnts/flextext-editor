@@ -801,6 +801,85 @@ export function projectRename(folderId, name) {
   return api('POST', '/v1/researcher/projects/rename', { body: { folderId, name } });
 }
 
+/* ---------------- project MEMBERSHIP (Phase D — the sharing surface) ----------------
+ *
+ * These four wrap the D1-`project` authorization routes, NOT the Drive-estate project grouping the
+ * dashboard already shows (that is folder-keyed and comes from drive-estate). The `project_id` here
+ * is the D1 authorization boundary — `owned[].project_id` / `joined[].project_id` from listProjects.
+ *
+ * ⚠ v1 CAPS ARE EXACTLY `{ manageDevices?, createInvites? }` and NOTHING ELSE — the worker's
+ * validateCaps is a strict allowlist that 400s on any other key (Drive, `see`, cancelOthers, wipe).
+ * The panel must offer only those two; the Drive capability is DEFERRED until per-project Drive
+ * scoping (drive_object Phase 3) exists, and ships absent from the UI, not greyed out. */
+
+/* The caller's projects, split the way the home screen wants them:
+ *   { owned:  [{ project_id, name, drive_folder_id, created_at }],       // "Mine"
+ *     joined: [{ project_id, name, owner_id, caps, invalid }] }          // "Joined"
+ * A `drive_folder_id` of null on an owned project means it has not been migrated to a Drive project
+ * folder yet — sharing it is refused (not_migrated) until it has one. */
+export function listProjects() { return api('GET', '/v1/projects'); }
+
+/* Members of ONE project the caller OWNS (owner-only route; a non-owner gets 404 not_found, which is
+ * how the worker keeps denial indistinguishable from absence). Caps come back PARSED, with
+ * `invalid:true` on a row the worker could not parse rather than throwing mid-render. */
+export function listMembers(projectId) {
+  return api('GET', `/v1/projects/${encodeURIComponent(projectId)}/members`);
+}
+
+/* Add (or replace) a coworker on a project the caller owns. `caps` is `{ manageDevices?, createInvites? }`.
+ * ⚠ retry:false — a lost response must not re-POST: the grant is idempotent (INSERT OR REPLACE) but
+ * a blind retry would re-log a second member_added entry for one human action. The worker refuses
+ * the owner's own id (owner_is_not_a_member), an unmigrated project (not_migrated, 409) and a
+ * researcher who does not exist / is unapproved (no_such_researcher, 404). */
+export function addMember(projectId, researcherId, caps) {
+  return api('POST', `/v1/projects/${encodeURIComponent(projectId)}/members`,
+             { body: { researcher_id: researcherId, caps: caps || {} }, retry: false });
+}
+
+/* Remove a coworker. ⚠ The worker deletes their key grants in the SAME batch, so removal is a real
+ * revocation, not a UI state — see the route. retry:false for the same reason as addMember. */
+export function removeMember(projectId, researcherId) {
+  return api('DELETE', `/v1/projects/${encodeURIComponent(projectId)}/members`,
+             { body: { researcher_id: researcherId }, retry: false });
+}
+
+/* Wrap each given device's Ki to a MEMBER's published key and store the grants — the owner-side
+ * mint without which a membership can read nothing: addMember writes only the project_member row,
+ * and metadata is E2EE, so until a wrapped Ki exists the member sees ciphertext (correctly).
+ *
+ * ⚠ EVERY SET CARRIES THE OWNER'S OWN COPY TOO — the worker refuses the write without it
+ * (owner_grant_required, the wrap-to-owner invariant), and re-sending it is a harmless
+ * INSERT OR REPLACE of a row that already says the same thing.
+ *
+ * Throws 'member_no_pubkey' when the member has never opened the panel (no published keypair —
+ * nothing to wrap to; the UI must say so, since the fix is an action on THEIR side). Per-device
+ * failures are counted, not thrown: one broken device must not stop the rest of the estate. */
+export async function grantKeysToMember(memberId, instanceIds) {
+  requireUnlocked();
+  const me = currentAccountId();
+  if (!me || !myPub) throw new Error('not_signed_up');
+  let p = null;
+  try { p = await api('GET', `/v1/researcher/pubkey/${encodeURIComponent(memberId)}`); }
+  catch (e) { throw new Error(e && e.status === 404 ? 'member_no_pubkey' : (e && e.message) || 'pubkey_fetch_failed'); }
+  const theirPub = await importPublicKeyB64(p.pubkey);
+  let granted = 0, failed = 0;
+  for (const instanceId of (instanceIds || [])) {
+    try {
+      const ki = await getKi(instanceId);
+      const grants = [
+        { researcher_id: me, wrapped_ki: await wrapKeyForInstall(myPub, ki) },
+        { researcher_id: memberId, wrapped_ki: await wrapKeyForInstall(theirPub, ki) },
+      ];
+      await api('POST', '/v1/researcher/keys', { body: { instance_id: instanceId, grants }, retry: false });
+      granted++;
+    } catch (e) {
+      failed++;
+      if (failed <= 3) console.warn('member key grant failed for', instanceId, (e && e.message) || e);
+    }
+  }
+  return { granted, failed };
+}
+
 /* Permanently delete the FlexText files ALREADY IN TRASH — the only thing that actually reclaims
  * quota, since usageInDriveTrash counts inside usage. Scoped to our own files by drive.file; this
  * is NOT "empty the user's Drive trash". retry:false — a lost response must not double-delete. */
@@ -814,8 +893,16 @@ export function drivePurge() { return api('POST', '/v1/researcher/drive-purge', 
 /* `projectFolderId` files the texts in THAT project's Unassigned instead of each text's own — the
  * only way to set a text aside under a different project. Omitted (the sweep, every shipped client)
  * keeps the original per-text behaviour. */
-export function driveUnassign(docIds, projectFolderId) {
-  return api('POST', '/v1/researcher/drive-unassign', { body: { docIds, ...(projectFolderId ? { projectFolderId } : {}) }, retry: false });
+/* `folders` ({docId: folderId}, optional) is the ECHO that survives Drive's search-index lag: the
+ * worker's tag search is eventually consistent and used to swallow a miss silently — the researcher's
+ * explicit filing did nothing and reported success (issue #13's first symptom). files.get by the
+ * echoed id is strongly consistent (the v167 dedupe lesson); the worker verifies the id actually IS
+ * that doc's folder before trusting it. Old workers ignore the field. */
+export function driveUnassign(docIds, projectFolderId, folders) {
+  return api('POST', '/v1/researcher/drive-unassign', {
+    body: { docIds, ...(projectFolderId ? { projectFolderId } : {}), ...(folders ? { folders } : {}) },
+    retry: false,
+  });
 }
 
 /* Move the researcher's own app-created files to Drive TRASH (30-day recoverable — never a
@@ -974,6 +1061,11 @@ export function driveTest() { return api('POST', '/v1/researcher/drive/test', { 
  * session, not of one render, and every caller of listView() would otherwise have to thread it. */
 let maintenanceNotice = '';
 export function maintenance() { return maintenanceNotice; }
+/* The WRITE-LOCK notice (ops_flag `freeze`) — independent of the banner-only `maintenance` flag:
+ * while set, the worker refuses every researcher-lane mutation with 423 maintenance_freeze. Same
+ * module-state pattern, same poll. */
+let freezeNotice = '';
+export function freeze() { return freezeNotice; }
 
 export async function listView() {
   requireUnlocked();
@@ -982,6 +1074,7 @@ export async function listView() {
   /* ⚠ ENUMERATED REBUILD — see the warning further down: a field the server adds is INVISIBLE to the
    * panel unless it is named here. `estate` was lost exactly this way twice. */
   maintenanceNotice = typeof v.maintenance === 'string' ? v.maintenance : '';
+  freezeNotice = typeof v.freeze === 'string' ? v.freeze : '';
   if (v.settings) { settingsCache = safeParse(v.settings) || settingsCache; if (settingsCache && !settingsCache.wrappedKis) settingsCache.wrappedKis = {}; if (settingsCache && !settingsCache.instanceSettings) settingsCache.instanceSettings = {}; }
   if (typeof v.settings_rev === 'number') settingsRev = v.settings_rev;
   const instances = [];

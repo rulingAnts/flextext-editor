@@ -6,14 +6,91 @@
 #   CLOUDFLARE_API_TOKEN  — a token scoped to this account: Workers Scripts:Edit + D1:Edit
 #   CLOUDFLARE_ACCOUNT_ID — your Cloudflare account id (Dashboard → Workers → right sidebar)
 # These replace the VM's full `wrangler login`, so CI holds a *narrower* credential than the VM did.
+#
+# ⚠⚠ THIS WORKFLOW DEPLOYS THE BRANCH YOU PICK IN THE DROPDOWN, and that is the whole hazard.
+# `actions/checkout` takes no ref, so it checks out whatever ref the dispatch was run against —
+# there is one production Worker serving every device and every panel, and nothing about "Run
+# workflow" tells you which code you are about to put there. On 2026-08-23 a one-column bugfix was
+# deployed while the same clone held an entire unreviewed authorization rewrite on another branch;
+# picking the wrong entry in that dropdown would have shipped it silently, with a green tick.
+#
+# So before anything is deployed this prints WHAT IT IS ABOUT TO SHIP — the ref, the commit, and
+# every worker/ change that ref carries beyond `main` — and then refuses to continue unless you have
+# typed the branch name into the `confirm` box. The typing is the point: it is not a checkbox you can
+# tick by reflex, and the diff is in the log above it while you type.
+#
+# ⚠ `main` IS THE YARDSTICK because it is meant to match what is serving. If the diff below is not
+# empty for a routine deploy, that is the signal to stop: either you are on the wrong branch, or main
+# has drifted from production (which is exactly how the 2026-08-23 nickname bug stayed invisible —
+# main was two worker changes behind the live Worker and nothing could say so).
 name: Deploy worker
 on:
   workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type the BRANCH NAME you are deploying (must match exactly, or the run stops)"
+        required: true
+        type: string
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          # Full history: the report below diffs this ref against main, which a shallow clone cannot do.
+          fetch-depth: 0
+
+      - name: What this run would deploy
+        env:
+          REF: ${{ github.ref_name }}
+        run: |
+          echo "::group::Target"
+          echo "branch : $REF"
+          echo "commit : $(git rev-parse --short HEAD)  $(git log -1 --pretty=%s)"
+          echo "author : $(git log -1 --pretty='%an, %ad')"
+          echo "::endgroup::"
+
+          git fetch --quiet origin main || true
+
+          echo "::group::worker/ commits this ref carries beyond main"
+          if git rev-parse --verify --quiet origin/main >/dev/null; then
+            git log --oneline origin/main..HEAD -- worker/ || true
+            echo "--- (empty above means the worker matches main, which is the expected state) ---"
+          else
+            echo "origin/main unavailable — cannot compare"
+          fi
+          echo "::endgroup::"
+
+          echo "::group::worker/ diff vs main"
+          if git rev-parse --verify --quiet origin/main >/dev/null; then
+            git diff --stat origin/main...HEAD -- worker/ || true
+          fi
+          echo "::endgroup::"
+
+          # A non-worker diff cannot reach the Worker (only worker/ is deployed), but a LARGE one is
+          # worth seeing: it usually means the chosen branch is carrying unrelated feature work, which
+          # is the "wrong branch in the dropdown" symptom.
+          echo "::group::everything else this ref carries beyond main (NOT deployed, but a smell test)"
+          if git rev-parse --verify --quiet origin/main >/dev/null; then
+            git diff --stat origin/main...HEAD -- . ':(exclude)worker/' | tail -25 || true
+          fi
+          echo "::endgroup::"
+
+      - name: Confirm the branch
+        env:
+          REF: ${{ github.ref_name }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          # ⚠ Compared AFTER the report above, deliberately: if this stops the run, the log still
+          # records what was about to ship, which is the thing worth knowing afterwards.
+          if [ "$CONFIRM" != "$REF" ]; then
+            echo "::error::Refusing to deploy. You are on '$REF' but typed '$CONFIRM'."
+            echo "Re-run and type the branch name exactly — check the report above first: it lists"
+            echo "every worker/ change this branch carries beyond main."
+            exit 1
+          fi
+          echo "Confirmed: deploying '$REF'."
+
       - name: wrangler deploy
         uses: cloudflare/wrangler-action@v3
         with:

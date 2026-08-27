@@ -206,7 +206,7 @@ console.log('\nUnassigned is a real destination on a DEVICE move — and nothing
    * device still holds it. A DIFFERENT project's box has no such helper: the sweep files a text into
    * its own project, so any other target must be re-parented explicitly. */
   ok(/const target = to\.startsWith\('__unassigned:'\) \? to\.slice\(13\) : '';/.test(mv)
-     && /if \(target\) await Researcher\.driveUnassign\(\[docId\], target\);/.test(mv),
+     && /if \(target\) await Researcher\.driveUnassign\(\[docId\], target, unassignFolderEcho\(\[docId\]\)\);/.test(mv),
      'only a TARGETED box re-parents; the home box is still left to the sweep');
   /* The label gained a project name (each project has its OWN Unassigned box), so the option now
    * spans more source — but the two flags either side of it are the claim: never disabled, and
@@ -235,7 +235,7 @@ console.log('\n...and a text NO DEVICE HOLDS goes through the source-less flow, 
 
   ok(/opts\.unassign/.test(ad) && /'__unassigned'/.test(ad),
      'Unassigned is offered as a destination when the caller asks for it');
-  ok(/Researcher\.driveUnassign\(\[docId\], to\.startsWith\('__unassigned:'\) \? to\.slice\(13\) : ''\)/.test(ad),
+  ok(/Researcher\.driveUnassign\(\[docId\], to\.startsWith\('__unassigned:'\) \? to\.slice\(13\) : '',\n\s*unassignFolderEcho\(\[docId\]\)\)/.test(ad),
      '...and filing is a re-parent of one id, into a NAMED project when one was chosen');
 
   /* ⚠ The gate governs DEVICE destinations only: filing assigns nothing. Returning early on a
@@ -257,8 +257,10 @@ console.log('\nboth buttons show they are working while the folder is listed');
 {
   ok(/await busy\(el, \(\) => moveTextModal\(id, el\.dataset\.id, el\.dataset\.title \|\| ''\)\)/.test(panel),
      'Move… goes through busy()');
-  ok(/busy\(el, \(\) => adoptTextModal\(el\.dataset\.id, el\.dataset\.title \|\| ''\)\)/.test(panel),
-     'and so does the Unassigned Move…');
+  /* { unassign: true } rides in the pin: without it the Unassigned card's Move offered only devices
+   * — no cross-project filing, no deviceless project as a destination (issue #12). */
+  ok(/busy\(el, \(\) => adoptTextModal\(el\.dataset\.id, el\.dataset\.title \|\| '', \{ unassign: true \}\)\)/.test(panel),
+     'and so does the Unassigned Move… — with the Unassigned destinations enabled (issue #12)');
 }
 
 console.log('\nevery new string is in BOTH languages');

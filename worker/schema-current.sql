@@ -102,7 +102,7 @@ CREATE TABLE IF NOT EXISTS invite (
   claimed_at      INTEGER,                    -- atomic single-use marker
   claimed_install TEXT,                       -- which client-minted install_id won the claim
   created_at      INTEGER NOT NULL
-);
+, invited_by TEXT);                           -- the researcher who minted it, shown at pairing so the field user sees who is linking them; NULL falls back to the instance owner (migrate-invite-inviter.sql)
 
 CREATE TABLE IF NOT EXISTS member_key (
   project_id    TEXT NOT NULL,
@@ -120,7 +120,7 @@ CREATE TABLE IF NOT EXISTS project (
   owner_id     TEXT NOT NULL,                -- researcher_id of the ONE owner
   name         TEXT NOT NULL,                -- plaintext, like instance.nickname
   created_at   INTEGER NOT NULL
-);
+, drive_folder_id TEXT);                     -- the Drive folder this project's bytes live in; NULL = not resolved
 
 CREATE TABLE IF NOT EXISTS project_member (
   project_id    TEXT NOT NULL,
@@ -197,3 +197,16 @@ CREATE TABLE IF NOT EXISTS ops_flag (
   value      TEXT NOT NULL,
   updated_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS drive_object (
+  object_id   TEXT PRIMARY KEY,
+  kind        TEXT NOT NULL,
+  doc_id      TEXT,
+  instance_id TEXT,
+  project_id  TEXT,
+  created_by  TEXT,
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS drive_object_project  ON drive_object(project_id);
+CREATE INDEX IF NOT EXISTS drive_object_instance ON drive_object(instance_id);
+CREATE INDEX IF NOT EXISTS drive_object_doc      ON drive_object(doc_id);

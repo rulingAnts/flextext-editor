@@ -1,15 +1,23 @@
 #!/usr/bin/env bash
-# Catch a satellite serving the WRONG engine because the release process misfired.
+# Catch the LIVE Pages estate breaking underneath the people still standing on it.
 #
-#   ./check-release-integrity.sh                 # check everything
-#   ./check-release-integrity.sh paths <name>    # just one satellite's precached engine paths
+#   ./check-release-integrity.sh                 # check everything (the nightly run)
+#   ./check-release-integrity.sh paths <name>    # publish gate: one satellite's SOURCE path list
 #
-# WHY THIS EXISTS
-# A satellite's service worker precaches editor engine files BY PATH. Two ways that goes wrong:
-#   - published too EARLY: the paths 404, precacheAll() throws inside install's waitUntil, the SW
-#     install FAILS, and new installs get no offline shell at all. That happened on 2026-07-20.
-#   - published too LATE / not at all: the satellite keeps serving a STALE cached engine.
-# Neither is visible from the source tree — only from what the live sites actually serve.
+# WHY THIS EXISTS — REWRITTEN 2026-08-27, and the history matters. This began as the satellite
+# MIRROR pipeline's watchdog: mirror versions had to match the source, mirror trees must not
+# drift, and every precached path had to be live. v432 then FROZE the mirrors on purpose — they
+# stopped receiving updates but keep SERVING installed field apps — which turned the mirror
+# comparisons into permanent, by-design failures that buried the checks that still meant
+# something under a guaranteed nightly email. Two invariants survive, and they are the file now:
+#
+#   1. The live Pages EDITOR matches productionWeb — the only automated "did the Pages deploy
+#      actually complete" check anywhere, and Pages is still production for existing field users.
+#   2. Every engine path a FROZEN mirror's LIVE service worker precaches is still served by the
+#      live editor. Read from the LIVE sw.js deliberately, not the source copy: the frozen shells
+#      list OLD paths, and an editor release that drops one bricks exactly those installs'
+#      offline mode (the v108 class — precacheAll() throws inside install's waitUntil, and the SW
+#      install fails) with nothing else anywhere watching.
 #
 # WHAT THIS CANNOT SEE: any individual device's cache. A phone stuck on an old engine is invisible
 # from here, by construction. That is covered separately by the researcher panel's confirmed-stale
@@ -68,6 +76,29 @@ check_paths() {
   return $bad
 }
 
+# The nightly counterpart of check_paths, reading the path list from the LIVE mirror's own sw.js
+# (see the header: the frozen shells are the ones field installs actually run). A mirror serving no
+# sw.js is a skip, not a failure — crowd-recorder never had one.
+check_live_paths() {
+  local name="$1" bad=0
+  local sw
+  sw=$(curl -fsS "$BASE/$name/sw.js?cb=$RANDOM$$" 2>/dev/null) || { echo "  skip: $name serves no sw.js"; return 0; }
+  local paths
+  paths=$(printf '%s' "$sw" | grep -oE "'/flextext-editor/[^']+'" | tr -d "'" | sort -u)
+  [ -n "$paths" ] || { echo "  skip: $name's live sw.js precaches no engine paths"; return 0; }
+  while IFS= read -r p; do
+    local code
+    code=$(curl -s -o /dev/null -w "%{http_code}" "$BASE$p?cb=$RANDOM$$" || echo 000)
+    if [ "$code" != "200" ]; then
+      echo "  FAIL: $name's LIVE service worker precaches $p -> HTTP $code" >&2
+      echo "        Frozen field installs would lose their offline shell (the v108 class)." >&2
+      bad=1
+    fi
+  done <<< "$paths"
+  [ "$bad" = 0 ] && echo "  ok: $name — every path its live service worker precaches is still served"
+  return $bad
+}
+
 # Called by the publish workflow as its ordering gate.
 if [ "${1:-}" = "paths" ]; then
   check_paths "${2:?satellite name required}" || exit 1
@@ -89,50 +120,14 @@ else
   echo "  ok: editor live at $got, matching source"
 fi
 
-# 2. Each satellite's LIVE version must match its source here (this repo is the source of truth).
+# 2. Every engine path each FROZEN mirror still precaches must be live (see the header).
+#    (The old sections here — mirror version == source, mirror tree == source — were REMOVED
+#    2026-08-27: the mirrors are deliberately frozen at v432, so both had become permanent
+#    by-design failures that drowned the two real checks in a guaranteed nightly email. A check
+#    that cries wolf gets muted, which is worse than no check.)
 for name in $(src_list); do
-  src_exists "satellites/$name/sw.js" || { echo "  ok: $name has no sw.js (nothing to version)"; continue; }
-  s=$(src_version "satellites/$name/sw.js")
-  l=$(live_version "$BASE/$name/sw.js")
-  if [ -z "$l" ]; then
-    echo "  FAIL: $name — could not read its live version" >&2; fail=1
-  elif [ "$s" != "$l" ]; then
-    echo "  FAIL: $name source is $s but live serves $l — the mirror was not republished." >&2
-    echo "        Installed copies are precaching an engine that no longer matches this repo." >&2
-    fail=1
-  else
-    echo "  ok: $name live at $l, matching source"
-  fi
+  check_live_paths "$name" || fail=1
 done
-
-# 3. Every precached engine path must be live, for every satellite.
-for name in $(src_list); do
-  check_paths "$name" || fail=1
-done
-
-# 4. The published mirrors must not have drifted from the source. Anyone editing a mirror directly
-#    is editing something the next publish silently overwrites, so catch it while it is still true.
-if [ "${SKIP_MIRROR_DIFF:-0}" != "1" ]; then
-  for name in $(src_list); do
-    tmp=$(mktemp -d)
-    mkdir -p "$tmp/src"
-    git archive "$REF" "satellites/$name" 2>/dev/null | tar -x -C "$tmp/src" --strip-components=2 2>/dev/null
-    if git clone --depth 1 -q "https://github.com/rulingAnts/$name.git" "$tmp/m" 2>/dev/null; then
-      # DO-NOT-EDIT-HERE.md is generated at publish time and deliberately absent from the source.
-      if diff -rq --exclude=.git --exclude=.github --exclude=DO-NOT-EDIT-HERE.md \
-              "$tmp/src" "$tmp/m" >/tmp/mirror-diff-$name.txt 2>&1; then
-        echo "  ok: $name mirror matches source"
-      else
-        echo "  FAIL: $name mirror has drifted from $REF:satellites/$name/:" >&2
-        sed 's/^/        /' "/tmp/mirror-diff-$name.txt" | head -10 >&2
-        fail=1
-      fi
-    else
-      echo "  WARN: could not clone $name to compare (network, or repo renamed)" >&2
-    fi
-    rm -rf "$tmp"
-  done
-fi
 
 echo
 if [ "$fail" = 0 ]; then

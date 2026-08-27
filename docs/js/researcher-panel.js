@@ -603,6 +603,9 @@ const GROUPS = [
     // Show the coworker an optional "Done" button on each text; marking done auto-uploads
     // and surfaces a "done" badge to the researcher. Off by default.
     { k: 'doneEnabled', type: 'checkbox' },
+    // Keep the device's texts list in alphabetical order (numeric-aware). Off by default —
+    // most-recently-modified first, as it has always been (issue #11).
+    { k: 'sortAlpha', type: 'checkbox' },
   ] },
 ];
 
@@ -954,7 +957,16 @@ async function busy(btn, fn) {
   const old = btn.textContent; btn.disabled = true; btn.classList.add('rp-busy');
   try { return await fn(); } finally { btn.disabled = false; btn.classList.remove('rp-busy'); btn.textContent = old; }
 }
-function errToast(e) { deps.toast(t('panel.err', { msg: (e && e.message) || String(e) }), 6000); }
+function errToast(e) {
+  /* The freeze refusal is not an error to garble into panel.err: it names a deliberate operator
+   * state, and the server message says why. Long duration — the person just lost a click's work. */
+  if (e && e.message === 'maintenance_freeze') {
+    const msg = (e.data && e.data.message) || Researcher.freeze() || '';
+    deps.toast(t('panel.freeze.refused', { msg }), 10000);
+    return;
+  }
+  deps.toast(t('panel.err', { msg: (e && e.message) || String(e) }), 6000);
+}
 
 /* a body-level overlay modal: closes on backdrop click or Escape, moves focus in,
  * traps Tab, and restores focus on close. Returns { el, close }. */
@@ -1450,6 +1462,11 @@ async function renderDashboard(prefetched) {
       <span class="rp-spacer"></span>
       ${data.isOwner ? `<button class="link-btn rp-admin-btn" data-act="admin">${esc(t('panel.admin.btn'))}</button>` : ''}
       <button class="link-btn" data-act="storage">${esc(t('panel.store.btn'))}</button>
+      ${/* ⚠ NOT gated on data.isOwner — that flag is the OPERATOR of this deployment (see isOperator
+          in the worker), not the owner of a project, and gating on it would hide sharing from every
+          researcher but the admin. The membership routes are owner-only server-side and answer 404
+          to anyone else, so the button is safe to show and the modal reports what it finds. */''}
+      <button class="link-btn" data-act="coworkers">${esc(t('panel.share.btn'))}</button>
       <button class="link-btn" data-act="history">${esc(t('panel.hist.btn'))}</button>
       <button class="link-btn" data-act="utilities">${esc(t('panel.util.btn'))}</button>
       <button class="link-btn" data-act="account">${esc(t('panel.dash.account'))}</button>
@@ -1477,6 +1494,11 @@ async function renderDashboard(prefetched) {
              legacy panel to the Pages editor; on localhost to the dev rig. -->
         <a class="secondary-btn rp-open-editor" href="${esc(HOME.editor)}" target="_blank" rel="noopener noreferrer">${esc(t('panel.dash.openEditor'))}</a>
       </div>
+      ${/* ⚠ Opening the editor does NOT pair it (issue #3): a new researcher clicked this, met an
+          unlinked editor, and reasonably read the link as broken. Say what the button does and
+          what pairing actually takes — one line, only while they have no devices yet (the moment
+          the confusion exists; a researcher with devices knows). */''}
+      ${!insts.length ? `<p class="note">${esc(t('panel.dash.openEditorNote'))}</p>` : ''}
     </div>
     ${renderProjectsCard(estateCache)}
     ${(() => {
@@ -1504,6 +1526,7 @@ async function renderDashboard(prefetched) {
     refresh: () => renderDashboard(),
     admin: () => adminModal(),
     storage: () => storageModal(),
+    coworkers: () => coworkersModal(),
     history: () => historyModal(),
     utilities: () => utilitiesModal(),
     account: () => accountModal(),
@@ -1520,7 +1543,11 @@ async function renderDashboard(prefetched) {
       return;
     }
     // busy(): the manifest check lists the folder first, so the button must not look dead meanwhile.
-    if (el.dataset.uact === 'adopt') { busy(el, () => adoptTextModal(el.dataset.id, el.dataset.title || '')); return; }
+    /* ⚠ { unassign: true } is what makes the "Unassigned — <project>" destination tiles render at
+     * all. Without it, moving a text that is ALREADY unassigned offered only devices — so a project
+     * with no devices could not receive it, and a cross-project filing was impossible from this
+     * card while the crowd row two lines down could do it (issue #12). Same modal, same flag. */
+    if (el.dataset.uact === 'adopt') { busy(el, () => adoptTextModal(el.dataset.id, el.dataset.title || '', { unassign: true })); return; }
     /* Move… on a CROWD row — the SAME source-less flow the Unassigned card uses, because a crowd
      * recording is held by no device either. Destinations: any device, or Unassigned (Seth: "any
      * text anywhere, except to a crowd recorder"). It reaches a device through /adopt rather than
@@ -3027,9 +3054,17 @@ async function instanceAction(el) {
 /* ---------------- modals: new device / invite / assign / account ---------------- */
 
 function newDeviceModal() {
+  /* Born into the project on screen (resolved once, so the NOTE below and the create call cannot
+   * disagree). `currentProject` is the tab the researcher is looking at; STRAY_TAB and a flat
+   * estate both mean "no project named", which is the lazy default. */
+  const intoProject = (currentProject && currentProject !== STRAY_TAB) ? currentProject : '';
+  const projName = intoProject
+    ? ((((estateCache && estateCache.projects) || []).find((p) => p.folderId === intoProject) || {}).name || '')
+    : '';
   const m = modal(`
     <h3>${esc(t('panel.new.title'))}</h3>
     <label class="rp-field"><span>${esc(t('panel.new.nick'))}</span><input id="rp-new-nick" placeholder="${esc(t('panel.new.nickPh'))}" spellcheck="false"></label>
+    ${projName ? `<p class="note">${esc(t('panel.new.intoProject', { name: projName }))}</p>` : ''}
     <p class="note">${esc(t('panel.new.unifiedNote'))}</p>
     <button class="primary-btn" data-m="create">${esc(t('panel.new.create'))}</button>
     <button class="link-btn" data-m="cancel">${esc(t('panel.new.cancel'))}</button>`);
@@ -3037,18 +3072,23 @@ function newDeviceModal() {
   m.el.querySelector('[data-m="create"]').onclick = (e) => busy(e.target, async () => {
     const nick = m.el.querySelector('#rp-new-nick').value.trim();
     if (!nick) return deps.toast(t('panel.new.needNick'), 4000);
+    /* ⚠ TWO TRY BLOCKS, because "the device could not be created" and "the device exists but its
+     * settings were not delivered" are DIFFERENT facts, and one catch made them one message —
+     * which is how a researcher came to see "failed to create" over a device that existed, then
+     * met it later as a ghost (issue #6). Creation failure ends here; anything after names the
+     * true state and points at the retry (the device card's Settings). */
+    let inst = null;
+    try { inst = await Researcher.createInstance(nick, intoProject); }
+    catch (err) { errToast(err); return; }
+    m.close(); renderDashboard();
+    // A new device has no settings yet — open them straight away so it gets configured. Invite-link
+    // creation stays blocked until the required fields are filled in, so this isn't skippable.
+    deps.toast(t('panel.new.configure'), 5000);
     try {
-      /* Born into the project on screen. `currentProject` is the tab the researcher is looking at;
-       * STRAY_TAB and a flat estate both mean "no project named", which is the lazy default. */
-      const intoProject = (currentProject && currentProject !== STRAY_TAB) ? currentProject : '';
-      const inst = await Researcher.createInstance(nick, intoProject);
-      m.close(); renderDashboard();
-      // A new device has no settings yet — open them straight away so it gets configured. Invite-link
-      // creation stays blocked until the required fields are filled in, so this isn't skippable.
-      deps.toast(t('panel.new.configure'), 5000);
       await openSettingsModal({ kind: 'instance', instance: { instance_id: inst.instance_id, nickname: inst.nickname, installs: [] } });
+    } catch (err) {
+      deps.toast(t('panel.new.createdNotConfigured'), 9000);
     }
-    catch (err) { errToast(err); }
   });
 }
 
@@ -3074,7 +3114,11 @@ async function inviteModal(instanceId) {
       <div class="rp-field"><span>${esc(label)}</span>
         <textarea class="rp-linkbox" readonly rows="2" data-url="${key}">${esc(urls[key])}</textarea>
         <div class="rp-inst-actions"><button class="secondary-btn" data-copy="${key}">${esc(t('panel.invite.copy'))}</button>
-        <button class="link-btn" data-share="${key}">${esc(t('panel.invite.share'))}</button></div></div>`;
+        <button class="link-btn" data-share="${key}">${esc(t('panel.invite.share'))}</button>
+        ${/* Issue #3's honest half: pairing THIS browser is just opening the claim link here — a
+            plain anchor, so it cannot silently skip the settings gate (the invite already passed
+            it) and works exactly like the link a coworker would tap. */''}
+        <a class="link-btn" href="${esc(urls[key])}" target="_blank" rel="noopener noreferrer">${esc(t('panel.invite.openHere'))}</a></div></div>`;
     m.el.querySelector('.modal-card').innerHTML = `
       <h3>${esc(t('panel.invite.title'))}</h3>
       <p class="note">${esc(t('panel.invite.introUnified'))}</p>
@@ -3625,9 +3669,16 @@ async function crowdAction(el) {
 // Create flow mirrors newDeviceModal: ask only for a label, create with safe defaults, then drop
 // straight into the edit modal so the recorder gets its Drive folder before anyone shares the link.
 function newCrowdModal() {
+  /* Same destination note as newDeviceModal (issue #7): born-into-the-tab is real and invisible,
+   * and the crowd dialog was the last place the surprise survived. */
+  const crIntoProject = (currentProject && currentProject !== STRAY_TAB) ? currentProject : '';
+  const crProjName = crIntoProject
+    ? ((((estateCache && estateCache.projects) || []).find((p) => p.folderId === crIntoProject) || {}).name || '')
+    : '';
   const m = modal(`
     <h3>${esc(t('panel.crowd.newTitle'))}</h3>
     <p class="note">${esc(t('panel.crowd.newIntro'))}</p>
+    ${crProjName ? `<p class="note">${esc(t('panel.crowd.intoProject', { name: crProjName }))}</p>` : ''}
     <label class="rp-field"><span>${esc(t('panel.crowd.label'))}</span><input id="rp-cr-label" spellcheck="false" placeholder="${esc(t('panel.crowd.labelPh'))}"></label>
     <button class="primary-btn" data-m="create">${esc(t('panel.crowd.create'))}</button>
     <button class="link-btn" data-m="cancel">${esc(t('panel.set.cancel'))}</button>`);
@@ -4277,7 +4328,7 @@ async function moveTextModal(fromId, docId, title) {
          * rather than after it — the folder id is stable, so the device's final upload lands
          * correctly either way. */
         const target = to.startsWith('__unassigned:') ? to.slice(13) : '';
-        if (target) await Researcher.driveUnassign([docId], target);
+        if (target) await Researcher.driveUnassign([docId], target, unassignFolderEcho([docId]));
         /* The upload-first removal, identical to the del-text path: a fresh Drive copy lands BEFORE
          * the device drops its own. Nothing is re-parented here — the text is still on the device
          * until the delete confirms, and filing it early would put it in the assign queue while a
@@ -4490,8 +4541,18 @@ function renderProjectsCard(estate) {
       <div class="rp-inst-actions"><button class="primary-btn" data-pact="setup">${esc(t('panel.proj.setup'))}</button></div>
     </div>`;
   }
+  /* ⚠ COUNT ONLY LIVE-BACKED DEVICES (issue #10, interim ahead of the decided sweep-then-move
+   * retention design). Revoking clears the PAIRING but leaves the device's Drive folder, so a
+   * pair-and-revoke cycle left "4 devices" on a project with zero paired. Live means: the estate
+   * stamped an instanceId (only revoked=0 rows are stamped), OR the folder matches a live
+   * instance's oauth_folder_id (a live device the estate has not stamped yet). Crowd folders count
+   * as themselves. Fallback: if NOTHING anywhere carries either signal (an older worker's estate),
+   * count raw rather than showing zero everywhere — a wrong count beats a lying one. */
+  const liveFolders = new Set((((lastData || {}).instances) || []).map((i) => i.oauth_folder_id).filter(Boolean));
+  const anyLiveSignal = devices.some((d) => d.instanceId) || liveFolders.size > 0;
+  const liveDevice = (d) => d.kind === 'crowd' || !anyLiveSignal || !!d.instanceId || liveFolders.has(d.folderId);
   const rows = projects.map((p) => {
-    const mine = devices.filter((d) => d.projectId === p.folderId);
+    const mine = devices.filter((d) => d.projectId === p.folderId && liveDevice(d));
     return `<div class="rp-proj-row">
       <div class="rp-text-main">
         <div class="rp-text-title">${esc(p.name || t('panel.proj.defaultName'))}</div>
@@ -4505,7 +4566,7 @@ function renderProjectsCard(estate) {
   /* ⚠ Containers still under MASTER after a migration are not an error state to hide — a half
    * migrated tree is exactly what an interrupted run leaves, and the estate reads it correctly. Say
    * so, and offer the run again, rather than letting it look finished. */
-  const stray = devices.filter((d) => !d.projectId).length;
+  const stray = devices.filter((d) => !d.projectId && liveDevice(d)).length;
   /* ⚠ NO UNDO BUTTON HERE, DELIBERATELY (§16.28). A prominent "go back to a flat folder" IS the
    * optionality message whatever the surrounding words say — a destination you are invited to leave
    * is a mode. The undo has NOT been deleted: `fxProjects('undo')` opens the same modal, preview and
@@ -4985,7 +5046,8 @@ async function adoptTextModal(docId, title, opts = {}) {
       if (to.startsWith('__unassigned')) {
         // A re-parent and nothing else. drive-unassign already takes explicit ids — the sweep is
         // simply a batched caller of the same route, so filing one text adds no machinery.
-        await Researcher.driveUnassign([docId], to.startsWith('__unassigned:') ? to.slice(13) : '');
+        await Researcher.driveUnassign([docId], to.startsWith('__unassigned:') ? to.slice(13) : '',
+                                       unassignFolderEcho([docId]));
         m.close();
         deps.toast(t('panel.move.filed'), 6000);
         renderDashboard();
@@ -5119,8 +5181,24 @@ function sweepUnassigned(estate) {
       .map((tx) => tx.docId)
       .slice(0, UNASSIGN_BATCH);
     if (!ids.length) return;
-    Researcher.driveUnassign(ids).catch(() => { /* retried by the next full render */ });
+    Researcher.driveUnassign(ids, '', unassignFolderEcho(ids, estate))
+      .catch(() => { /* retried by the next full render */ });
   } catch { /* the sweep must never break the dashboard it rides on */ }
+}
+
+/* The {docId: folderId} echo driveUnassign sends so a filing survives Drive's search-index lag —
+ * the panel already knows every text's folder from the estate, and files.get by id is strongly
+ * consistent where the worker's tag search is not (issue #13's silent no-op half). Falls back to
+ * the cached estate so the modal call sites need no estate in hand; undefined when nothing is
+ * known, which old and new workers alike treat as "search as before". */
+function unassignFolderEcho(ids, est) {
+  const texts = ((est || estateCache || {}).texts) || [];
+  const map = {};
+  for (const id of ids) {
+    const tx = texts.find((t) => t && t.docId === id && t.folderId);
+    if (tx) map[id] = tx.folderId;
+  }
+  return Object.keys(map).length ? map : undefined;
 }
 
 /* THE MAINTENANCE BANNER — an operator-set notice, refreshed by the poll the panel already makes.
@@ -5140,13 +5218,27 @@ function sweepUnassigned(estate) {
  * The message is operator-authored and arrives over the wire, so it is escaped like any other server
  * string — free, and the habit is what keeps the one that isn't free from slipping through. */
 function maintenanceBanner() {
+  /* Two independent flags (Seth, 2026-08-26): `maintenance` is a banner and nothing else; `freeze`
+   * is a banner PLUS the worker-side write lock (423 on every researcher mutation). Both can be up
+   * at once — the freeze banner leads, because it states a restriction rather than an advisory. */
+  const fz = Researcher.freeze();
   const msg = Researcher.maintenance();
-  if (!msg) return '';
-  return `<div class="rp-maint" role="status">
-    <strong>${esc(t('panel.maint.title'))}</strong>
-    <div>${esc(msg)}</div>
-    <div class="note">${esc(t('panel.maint.advice'))}</div>
-  </div>`;
+  let out = '';
+  if (fz) {
+    out += `<div class="rp-maint rp-frozen" role="status">
+      <strong>${esc(t('panel.freeze.title'))}</strong>
+      <div>${esc(fz)}</div>
+      <div class="note">${esc(t('panel.freeze.advice'))}</div>
+    </div>`;
+  }
+  if (msg) {
+    out += `<div class="rp-maint" role="status">
+      <strong>${esc(t('panel.maint.title'))}</strong>
+      <div>${esc(msg)}</div>
+      <div class="note">${esc(t('panel.maint.advice'))}</div>
+    </div>`;
+  }
+  return out;
 }
 
 function assignedDocIds() {
@@ -5957,10 +6049,219 @@ function clockMs(ms) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
+/* ---------------- coworkers on a project (Phase D — the sharing surface) ----------------
+ *
+ * Owner-side membership management for the D1 `project` boundary: who else may help look after this
+ * project's DEVICES. Backed entirely by routes that already exist (`GET /v1/projects`,
+ * `GET|POST|DELETE /v1/projects/<id>/members`), so this ships with no worker change and no deploy.
+ *
+ * ⚠ THE D1 PROJECT IS NOT THE DRIVE PROJECT FOLDER the dashboard tabs already show. Those are keyed
+ * by folder id and come from the estate; this is keyed by `project_id` and is the authorization
+ * boundary. They correspond one-to-one after migration, and `drive_folder_id` is what links them —
+ * which is also why the worker refuses to share a project that has none (`not_migrated`).
+ *
+ * ⚠ THE DRIVE CAPABILITY IS ABSENT, NOT DISABLED (handoff §8). `assignTexts` and `drive` are refused
+ * by the worker's `validateCaps` — a checkbox for them would either 400 the whole grant or, worse,
+ * read as a promise that files can be shared. What ships is exactly what the worker will honour:
+ * `manageDevices` and `createInvites`, both plain booleans. If a key is ever added here that
+ * validateCaps does not accept, EVERY add fails with `bad_caps` — the allowlist is strict on purpose.
+ *
+ * ⚠ WHAT A MEMBER CANNOT YET SEE. Their own dashboard still lists devices with
+ * `WHERE researcher_id=?` (the owner), so a coworker added here can be authorized for a device and
+ * still see an empty device list in their panel until that read is project-scoped. This UI is the
+ * owner's half; it is honest about the grant it makes, and the member-side view is the next step. */
+async function coworkersModal() {
+  const m = modal(`<h3>${esc(t('panel.share.title'))}</h3>
+    <p class="note">${esc(t('panel.share.intro'))}</p>
+    <div id="rp-share-body"><p class="note">${esc(t('panel.share.loading'))}</p></div>
+    <hr class="rp-sep">
+    <button class="link-btn" data-m="close">${esc(t('panel.util.close'))}</button>`, true);
+  m.el.querySelector('[data-m="close"]').onclick = m.close;
+
+  const body = m.el.querySelector('#rp-share-body');
+  let owned = [];
+  let selected = '';
+  /* ⚠ A message that must OUTLIVE a repaint. The add flow reports its outcome and then repaints the
+   * member list — but the say() element lives inside the repainted body, so an inline warning shown
+   * before paint() was destroyed by it (browser-verified on the rig: the no-estate warning never
+   * appeared, the one state where the owner most needs telling). paint() re-shows this at its end. */
+  let notice = null;
+
+  /* The worker's own error names, turned into sentences that say what to DO. Anything unrecognised
+   * falls through to the raw message rather than a generic apology — a message nobody can act on is
+   * worse than an ugly one. */
+  const sayErr = (err) => {
+    const k = (err && err.message) || '';
+    if (k === 'no_such_researcher') return t('panel.share.errNoSuch');
+    if (k === 'not_migrated') return t('panel.share.errNotMigrated');
+    if (k === 'owner_is_not_a_member') return t('panel.share.errSelf');
+    if (k === 'bad_caps' || k === 'bad_body') return t('panel.share.errCaps');
+    return String(k || err);
+  };
+
+  const capWords = (caps) => {
+    const out = [];
+    if (caps && caps.manageDevices) out.push(t('panel.share.capManage'));
+    if (caps && caps.createInvites) out.push(t('panel.share.capInvite'));
+    return out.length ? out.join(', ') : t('panel.share.capNone');
+  };
+
+  async function paint() {
+    const proj = owned.find((p) => p.project_id === selected) || null;
+    if (!proj) { body.innerHTML = `<p class="note">${esc(t('panel.share.noProjects'))}</p>`; return; }
+    /* Only render the picker when there is a choice to make: one project is every account on day
+     * one, and a select with a single option is a control that cannot do anything. */
+    const picker = owned.length > 1
+      ? `<label class="rp-field"><span>${esc(t('panel.share.project'))}</span>
+           <select id="rp-share-proj">${owned.map((p) =>
+             `<option value="${esc(p.project_id)}"${p.project_id === selected ? ' selected' : ''}>${esc(p.name || p.project_id)}</option>`).join('')}</select></label>`
+      : `<div class="rp-field"><span>${esc(t('panel.share.project'))}</span>
+           <div class="rp-readonly">${esc(proj.name || proj.project_id)}</div></div>`;
+
+    let members = null, listErr = null;
+    try { members = (await Researcher.listMembers(selected)).members || []; }
+    catch (e) { listErr = e; }
+
+    body.innerHTML = `${picker}
+      ${listErr ? `<p class="note rp-adm-err">${esc(sayErr(listErr))}</p>` : `
+      <div class="rp-share-list">${members.length ? members.map((x) => `
+        <div class="rp-install rp-share-row">
+          <div><div class="invite-name">${esc(x.researcher_id)}</div>
+            <div class="note">${x.invalid ? esc(t('panel.share.invalidCaps'))
+                                          : esc(t('panel.share.memberCaps', { caps: capWords(x.caps) }))}</div></div>
+          <div class="rp-inst-actions">
+            <button class="link-btn rp-revoke" data-sact="remove" data-rid="${esc(x.researcher_id)}">${esc(t('panel.share.remove'))}</button>
+          </div>
+        </div>`).join('') : `<p class="note">${esc(t('panel.share.none'))}</p>`}</div>`}
+      <hr class="rp-sep">
+      <div class="rp-adm-sec">
+        <div class="rp-adm-h">${esc(t('panel.share.addTitle'))}</div>
+        <label class="rp-field"><span>${esc(t('panel.share.idLabel'))}</span>
+          <input id="rp-share-id" spellcheck="false" autocapitalize="off" placeholder="${esc(t('panel.share.idPh'))}"></label>
+        <p class="note">${esc(t('panel.share.idNote'))}</p>
+        ${/* ⚠ A FIELDSET, not an rp-field: `.rp-field input` styles a control as a TEXT BOX (border,
+             padding, full width), which a checkbox inherits too — it renders as a stretched box with
+             its label pushed away. rp-fieldset is the house idiom for a group of checkboxes. */''}
+        <fieldset class="rp-fieldset">
+          <legend>${esc(t('panel.share.capsLabel'))}</legend>
+          <label class="check-label"><input type="checkbox" id="rp-share-manage"> ${esc(t('panel.share.capManageLabel'))}</label>
+          <label class="check-label"><input type="checkbox" id="rp-share-invite"> ${esc(t('panel.share.capInviteLabel'))}</label>
+        </fieldset>
+        <p class="note">${esc(t('panel.share.driveNote'))}</p>
+        ${/* The revocation-honesty rule moved UPSTREAM (project-split.md): the owner should learn what
+             cannot be taken back BEFORE granting, not discover it while revoking. One box, plain
+             language, both halves kept distinct — what is unrewindable (knowledge) and what is
+             merely stoppable (actions). */''}
+        <div class="warn-banner rp-share-warn">
+          <div><strong>${esc(t('panel.share.warnTitle'))}</strong>
+            <p class="note">${esc(t('panel.share.warnSee'))}</p>
+            <p class="note">${esc(t('panel.share.warnDo'))}</p>
+            <p class="note">${esc(t('panel.share.warnWhy'))}</p></div>
+        </div>
+        <button class="primary-btn" id="rp-share-add">${esc(t('panel.share.addGo'))}</button>
+        <div id="rp-share-say" class="rp-adm-say" hidden></div>
+      </div>`;
+
+    const say = (msg, bad) => {
+      const el = body.querySelector('#rp-share-say');
+      el.hidden = false; el.className = 'rp-adm-say' + (bad ? ' rp-adm-err' : ''); el.textContent = msg;
+    };
+    // A message carried across the repaint (see `notice` above) is shown into the FRESH body here.
+    if (notice) { say(notice.msg, notice.bad); notice = null; }
+
+    const sel = body.querySelector('#rp-share-proj');
+    if (sel) sel.onchange = () => { selected = sel.value; paint(); };
+
+    body.querySelectorAll('[data-sact="remove"]').forEach((el) => el.addEventListener('click', () => {
+      if (!confirm(t('panel.share.removeConfirm', { name: proj.name || proj.project_id }))) return;
+      busy(el, async () => {
+        try { await Researcher.removeMember(selected, el.dataset.rid); deps.toast(t('panel.share.removed'), 5000); await paint(); }
+        catch (e) { say(sayErr(e), true); }
+      });
+    }));
+
+    body.querySelector('#rp-share-add').addEventListener('click', (e) => busy(e.target, async () => {
+      const who = body.querySelector('#rp-share-id').value.trim();
+      if (!who) return;
+      /* Send ONLY what is ticked. validateCaps stores "granted" and treats absent as false, so
+       * sending `false` values would be noise — and any key it does not know refuses the whole grant. */
+      const caps = {};
+      if (body.querySelector('#rp-share-manage').checked) caps.manageDevices = true;
+      if (body.querySelector('#rp-share-invite').checked) caps.createInvites = true;
+      try {
+        await Researcher.addMember(selected, who, caps);
+        /* ⚠ THE MEMBERSHIP ROW ALONE READS NOTHING — metadata is E2EE, so the member needs each
+         * device's Ki wrapped to THEIR key, and the owner is the only party who can mint that.
+         * Minted here, at the one moment the owner is present. Instances are resolved through the
+         * estate (folder → project folder → this project), the only join that survives renames. */
+        const iids = projectInstanceIds(proj);
+        let keyed = null;
+        if (iids.length) {
+          try { keyed = await Researcher.grantKeysToMember(who, iids); }
+          catch (e2) { keyed = { granted: 0, failed: 0, err: e2 }; }
+        } else {
+          /* ⚠ ZERO DEVICES HAS TWO MEANINGS and only one is fine. A genuinely empty project keys
+           * nothing and that is a success; an UNREACHABLE ESTATE (Drive down, offline) also yields
+           * zero — but then devices exist that the member cannot read, behind a cheerful toast.
+           * The estate cache distinguishes them: no devices listed anywhere ⇒ we cannot know. */
+          keyed = { granted: 0, failed: 0, noEstate: !((estateCache && estateCache.devices) || []).length };
+        }
+        if (keyed.err && String(keyed.err.message) === 'member_no_pubkey') {
+          /* Not an error to bury: the fix is on THEIR side (open the panel once), and until then
+           * the membership is real but blind. Say exactly that — via `notice`, which survives the
+           * repaint below. */
+          notice = { msg: t('panel.share.addedNoKeys', { who }), bad: true };
+        } else if (keyed.noEstate) {
+          notice = { msg: t('panel.share.addedNoEstate', { who }), bad: true };
+        } else if (keyed.err || keyed.failed) {
+          notice = { msg: t('panel.share.addedSomeKeys', { who, n: keyed.granted, m: iids.length }), bad: true };
+        } else {
+          deps.toast(t('panel.share.addedKeyed', { who, n: keyed.granted }), 6000);
+        }
+        await paint();
+      } catch (err) { say(sayErr(err), true); }
+    }));
+  }
+
+  /* The devices of ONE owned project, resolved estate-side: project row → drive_folder_id →
+   * estate devices under that folder → their instance ids (estate instanceId first, oauth join as
+   * the fallback for a device the estate has not stamped yet). Empty when Drive is unreachable —
+   * the caller reports that honestly rather than pretending the grant happened. */
+  function projectInstanceIds(proj) {
+    const pf = proj && proj.drive_folder_id;
+    if (!pf) return [];
+    const devs = ((estateCache && estateCache.devices) || []).filter((d) => d.projectId === pf && d.kind !== 'crowd');
+    const out = new Set(devs.map((d) => d.instanceId).filter(Boolean));
+    const folders = new Set(devs.map((d) => d.folderId).filter(Boolean));
+    for (const i of ((lastData && lastData.instances) || [])) {
+      if (i.oauth_folder_id && folders.has(i.oauth_folder_id)) out.add(i.instance_id);
+    }
+    return [...out];
+  }
+
+  try {
+    const r = await Researcher.listProjects();
+    owned = r.owned || [];
+    selected = (owned[0] && owned[0].project_id) || '';
+  } catch (e) {
+    body.innerHTML = `<p class="note rp-adm-err">${esc(sayErr(e))}</p>`;
+    return;
+  }
+  await paint();
+}
+
 function accountModal() {
   const m = modal(`
     <h3>${esc(t('panel.account.title'))}</h3>
     <div class="rp-field"><span>${esc(t('panel.account.signedInAs'))}</span><div class="rp-readonly">${esc(Researcher.accountEmail() || '')}</div></div>
+    ${/* ⚠ THE OTHER HALF OF "add a coworker". An owner adds someone BY RESEARCHER ID, because the
+        worker deliberately offers no id-to-identity lookup (that would be a directory of everyone
+        on the deployment — see the pubkey route). So the id has to be handed over deliberately by
+        the person it belongs to, and until this existed there was nowhere for them to read it. */''}
+    <div class="rp-field"><span>${esc(t('panel.account.rid'))}</span>
+      <div class="rp-readonly rp-rid">${esc(Researcher.currentAccountId() || '')}</div>
+      <button class="link-btn" data-m="ridcopy">${esc(t('panel.account.ridCopy'))}</button>
+      <p class="note">${esc(t('panel.account.ridNote'))}</p></div>
     <label class="check-label"><input type="checkbox" data-m="stay"${Researcher.staySignedIn() ? ' checked' : ''}> ${esc(t('panel.account.stay'))}</label>
     <p class="note">${esc(t('panel.account.stayNote'))}</p>
     <button class="link-btn" data-m="signout">${esc(t('panel.account.signout'))}</button>
@@ -5976,6 +6277,10 @@ function accountModal() {
     <button class="link-btn" data-m="close">${esc(t('panel.invite.close'))}</button>`, true);
 
   m.el.querySelector('[data-m="close"]').onclick = m.close;
+  m.el.querySelector('[data-m="ridcopy"]').onclick = async () => {
+    try { await navigator.clipboard.writeText(Researcher.currentAccountId() || ''); deps.toast(t('panel.account.ridCopied'), 3000); }
+    catch { /* clipboard refused (permissions, insecure context) — the id is on screen to select by hand */ }
+  };
   m.el.querySelector('[data-m="stay"]').onchange = (e) => Researcher.setStaySignedIn(e.target.checked);
   m.el.querySelector('[data-m="signout"]').onclick = () => {
     if (!confirm(t('panel.account.confirmSignout'))) return;

@@ -1289,6 +1289,16 @@ main {
 .rp-doclink { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; background: var(--panel); color: var(--muted); font-weight: 700; font-size: 12px; text-decoration: none; border: 1px solid var(--border, #ccc); }
 .rp-inst-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .rp-revoke { color: #a3261f; }
+/* Coworkers list (Phase D sharing). Row layout — the id/permissions on the left, Remove on the
+   right — wrapping on a narrow panel rather than squeezing a researcher GUID off the edge. */
+.rp-share-row { flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.rp-share-row .invite-name { font-family: ui-monospace, Menlo, monospace; font-size: 13px; word-break: break-all; }
+.rp-share-row .rp-inst-actions { margin-top: 0; }
+/* The trust warning shown BEFORE a grant. Block layout: it carries prose, not the single line the
+   banner rule assumes, and it must read as something to be read rather than dismissed. */
+.rp-share-warn { display: block; margin: 12px 0; }
+.rp-share-warn p.note { margin: 6px 0 0; }
+.rp-rid { font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
 .rp-empty { text-align: center; padding: 20px; }
 .rp-linkbox { width: 100%; box-sizing: border-box; font-family: ui-monospace, Menlo, monospace; font-size: 13px; border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
 
@@ -2286,6 +2296,14 @@ main {
 @media (prefers-color-scheme: dark) {
   .rp-maint { border-color: #8a6400; background: #2b2310; color: #f0dfae; }
   .rp-maint .note { color: #cbb277; }
+}
+/* The write-lock banner (ops_flag `freeze`): a restriction, not an advisory — so it reads a shade
+   sterner than the amber notice, without shouting "broken" in red. */
+.rp-maint.rp-frozen { border-color: #c4571d; background: #fdf0e7; color: #4a2410; }
+.rp-maint.rp-frozen .note { color: #7a4a22; }
+@media (prefers-color-scheme: dark) {
+  .rp-maint.rp-frozen { border-color: #8a3f12; background: #2b1a10; color: #f0c9ae; }
+  .rp-maint.rp-frozen .note { color: #cb9877; }
 }
 
 /* Pre-migration Drive snapshot (storage modal footer — see §17.0 in plans/drive-as-truth.md). */

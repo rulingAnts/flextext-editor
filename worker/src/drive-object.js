@@ -1,0 +1,215 @@
+/* Stamp a drive_object row when the worker creates (or re-resolves) a Drive folder or file.
+ *
+ * ⚠ THE INVARIANT THIS EXISTS TO HOLD: creation ⟹ stamped. A Drive object the worker makes without a
+ * drive_object row is a hole in the per-project authorization that Phase 3 will resolve here — the
+ * object would be denied to members with no way to reach it. So every driveEnsure* / upload path
+ * calls this, and it is kept in one place rather than inlined so it cannot be forgotten at one site.
+ *
+ * ⚠ EXTRACTED INTO ITS OWN MODULE like project-teardown.js, and for the same reason: the routes that
+ * create Drive objects are Drive-gated and cannot run on the hermetic rig, so the D1 half is a pure
+ * function exercised directly by test/drive-object.test.mjs against real SQLite through a thin shim.
+ *
+ * `db` is a D1-shaped binding: db.prepare(sql).bind(...args).run(). Nothing Cloudflare-specific here.
+ *
+ * See plans/drive-object-plan.md (build phases) and worker/migrate-drive-object.sql (the table).
+ */
+
+/* @param objectId   the Drive file OR folder id (the primary key).
+ * @param kind       device | text | originals | project | unassigned | crowd | file
+ * @param docId      flextext docId — for a text folder and the files inside it; NULL for the rest.
+ * @param instanceId the owning device; NULL for account-level objects (project, unassigned).
+ * @param projectId  ⚠ THE AUTHORIZATION KEY, where the object is NOW. NULL = unassigned (fails closed
+ *                   for members; the owner still reaches it through ownership).
+ * @param createdBy  researcher_id that created it (a CREATION fact — preserved across re-stamps).
+ * @param now        ms timestamp.
+ */
+export async function stampDriveObject(db, { objectId, kind, docId = null, instanceId = null, projectId = null, createdBy = null, now }) {
+  if (!objectId || !kind) return;   // nothing to key on — never write a row that cannot be resolved
+  /* ⚠ UPSERT that splits IMMUTABLE creation facts from the MUTABLE location. On a re-stamp (the same
+   * folder re-encountered, or re-resolved by tag), created_at and created_by are LEFT ALONE — they
+   * record who made it and when, which do not change — while kind/doc_id/instance_id/project_id are
+   * refreshed to the current truth. project_id in particular MUST track where the object is now, not
+   * a creation-time snapshot; that snapshot mistake is exactly what made member_key removal miss
+   * moved grants (see the read-time key-scoping fix). Moves keep it current by re-stamping. */
+  await db.prepare(
+    'INSERT INTO drive_object (object_id, kind, doc_id, instance_id, project_id, created_by, created_at) '
+    + 'VALUES (?,?,?,?,?,?,?) '
+    + 'ON CONFLICT(object_id) DO UPDATE SET kind=excluded.kind, doc_id=excluded.doc_id, '
+    + 'instance_id=excluded.instance_id, project_id=excluded.project_id'
+  ).bind(objectId, kind, docId, instanceId, projectId, createdBy, now).run();
+}
+
+/* Resolve a Drive object to the project that authorizes it — the single indexed lookup Phase 3's
+ * routes use in place of an account-wide tag search. Returns the row (object_id, kind, doc_id,
+ * instance_id, project_id, created_by) or null when the object is unknown to us.
+ *
+ * ⚠ A null return is NOT "allowed" — it is "we did not create this / have not backfilled it", which
+ * fails closed for a member. The owner reaches their own objects through ownership regardless. */
+export async function resolveDriveObject(db, objectId) {
+  if (!objectId) return null;
+  return (await db.prepare(
+    'SELECT object_id, kind, doc_id, instance_id, project_id, created_by FROM drive_object WHERE object_id=?'
+  ).bind(objectId).first()) || null;
+}
+
+/* ---------------- MOVE-SYNC (Phase 3 prerequisite) ----------------
+ *
+ * ⚠ THE INVARIANT: drive_object.project_id tracks where the object IS NOW. Every Drive re-parent
+ * the worker performs must update the rows it moved, or resolveDriveObject authorizes against the
+ * project the object just left — stale in the dangerous direction. The two shapes below cover all
+ * seven move points in v1.js (drive-unassign, adopt, /move, the housekeeping return trip, migrate,
+ * unmigrate, projects/assign); a NEW re-parent call site must call one of them in the same act.
+ *
+ * Best-effort like stampDriveObject: a failed sync is healed by the idempotent backfill; a thrown
+ * error inside a move route would leave Drive moved and the route reporting failure. */
+
+/* A TEXT moved (device → unassigned, unassigned → device, device → device). Updates every row of
+ * the doc — the text folder, originals/, and the files inside — in one indexed UPDATE, because
+ * they all carry doc_id and they all moved together.
+ *
+ * ⚠ OWNER-SCOPED, because doc_id is CLIENT-generated: two accounts can hold the same doc_id, and
+ * an unscoped UPDATE would re-home a stranger's rows. A row belongs to this owner iff any of:
+ * its instance belongs to the owner, its project belongs to the owner, or the owner created it.
+ * Every row this suite has ever minted for the owner matches at least one clause (backfilled rows
+ * carry created_by=owner; member-created rows carry the owner's instance or project); a same-docId
+ * row in another account matches none. */
+export async function moveDriveObjectText(db, { docId, ownerId, projectId = null, instanceId = null }) {
+  if (!docId || !ownerId) return;
+  await db.prepare(
+    'UPDATE drive_object SET project_id=?, instance_id=? WHERE doc_id=? AND ('
+    + 'created_by=? '
+    + 'OR instance_id IN (SELECT instance_id FROM instance WHERE researcher_id=?) '
+    + 'OR project_id IN (SELECT project_id FROM project WHERE owner_id=?))'
+  ).bind(projectId, instanceId, docId, ownerId, ownerId, ownerId).run();
+}
+
+/* A CONTAINER moved between projects (a device folder, a crowd folder, or the account-level
+ * Unassigned — migrate, unmigrate, projects/assign). One statement re-homes the folder row AND, for
+ * a device folder, every row of the instance that owns it — texts, originals, files — because a
+ * container's descendants all carry its instance_id and they all moved with it.
+ *
+ * For a crowd or unassigned container the subquery matches nothing and only the folder row moves;
+ * their descendants keep project_id from creation-time inheritance (stampChild) and the backfill.
+ * No owner scoping needed: object_id and oauth_folder_id are Drive ids, globally unique. */
+export async function moveDriveObjectContainer(db, { folderId, projectId = null }) {
+  if (!folderId) return;
+  await db.prepare(
+    'UPDATE drive_object SET project_id=? WHERE object_id=? '
+    + 'OR instance_id IN (SELECT instance_id FROM instance WHERE oauth_folder_id=?)'
+  ).bind(projectId, folderId, folderId).run();
+}
+
+/* ---------------- PHASE 3 GATES — per-project authorization for caller-supplied ids ----------------
+ *
+ * The nine 2026-08-21 findings shared one root: a route authorizes the INSTANCE correctly, then acts
+ * on a caller-supplied docId/fileId resolved by an account-wide search under the OWNER's Drive
+ * authority — so a member of one project could reach another project's objects. These two gates are
+ * the repair (not the deferral): every id a caller supplies is resolved through drive_object and
+ * checked against the caller's project BEFORE any Drive act.
+ *
+ * ⚠ THE OWNER PASSES ON OWNERSHIP ALONE — allowed even when no row exists, because the owner's
+ * boundary is their own Drive (drive.file scope), and pre-drive_object objects must keep working
+ * for them. That bypass is what makes wiring these gates BEHAVIOUR-PRESERVING for every production
+ * caller today (members cannot reach these routes while assignTexts/drive sit in DEFERRED_CAPS).
+ * A MEMBER requires: a row, in THEIR project, whose device — if it names one — is not revoked
+ * (the Phase 2 backfill stamped revoked devices' folders too; instance.revoked is checked HERE
+ * because nothing upstream does).
+ *
+ * ⚠ DENY MEANS 404 AT THE ROUTE, never 403 — denial must stay indistinguishable from absence
+ * (check-project-scoping.sh pins this for every authMember guard). */
+
+/* May this caller act on DOC `docId`? Returns { allowed, folderId } — folderId is the text folder's
+ * object_id when a row exists (a scoped, indexed replacement for the account-wide Drive tag search;
+ * '' when absent and the caller falls back to Drive under their own authority).
+ *
+ * `mode` — 'existing' (the doc must already be known: list/adopt/move) or 'create' (assignment
+ * begin: a doc with NO row anywhere is a NEW text and is allowed — creation stamps it into the
+ * caller's project — while a row in ANOTHER project still denies; without the distinction a member
+ * with assignTexts could never create a text, or could squat an existing doc id cross-project). */
+export async function authorizeDocForProject(db, { docId, projectId = '', isOwner = false, mode = 'existing' }) {
+  if (!docId) return { allowed: false, folderId: '' };
+  const rows = [];
+  {
+    const q = await db.prepare(
+      'SELECT o.object_id, o.project_id, o.instance_id, i.revoked AS inst_revoked '
+      + "FROM drive_object o LEFT JOIN instance i ON i.instance_id=o.instance_id "
+      + "WHERE o.doc_id=? AND o.kind='text'"
+    ).bind(docId).all();
+    for (const r of ((q && q.results) || [])) rows.push(r);
+  }
+  const mine = rows.find((r) => projectId && r.project_id === projectId && !r.inst_revoked);
+  if (isOwner) {
+    // Ownership is the boundary; prefer the project-matching folder, else any known one.
+    return { allowed: true, folderId: (mine || rows[0] || {}).object_id || '' };
+  }
+  if (mine) return { allowed: true, folderId: mine.object_id };
+  // 'create': unknown everywhere → a new text, allowed (it will be stamped into this project).
+  if (mode === 'create' && rows.length === 0) return { allowed: true, folderId: '' };
+  return { allowed: false, folderId: '' };
+}
+
+/* May this caller act on Drive OBJECT `objectId` (a file or folder id — trash, drive-file)? Same
+ * contract: owner passes on ownership; a member needs a row in their project on a non-revoked
+ * device. Returns { allowed, row }. */
+export async function authorizeObjectForProject(db, { objectId, projectId = '', isOwner = false }) {
+  if (!objectId) return { allowed: false, row: null };
+  const row = await db.prepare(
+    'SELECT o.object_id, o.kind, o.doc_id, o.instance_id, o.project_id, i.revoked AS inst_revoked '
+    + 'FROM drive_object o LEFT JOIN instance i ON i.instance_id=o.instance_id WHERE o.object_id=?'
+  ).bind(objectId).first();
+  if (isOwner) return { allowed: true, row: row || null };
+  if (row && projectId && row.project_id === projectId && !row.inst_revoked) return { allowed: true, row };
+  return { allowed: false, row: null };
+}
+
+/* THE BACKFILL BRAIN (Phase 2). Given the whole Drive file list (driveListAll) plus two D1 maps,
+ * derive one drive_object row per object by walking parentage — the pure, testable half of the
+ * operator-gated backfill route, which only fetches the inputs and batch-inserts the output.
+ *
+ * @param files          [{ id, parents:[id], appProperties:{flextextRole?,flextextDoc?}, mimeType }]
+ * @param deviceByFolder Map|obj  device folder id → { instanceId, projectId }  (instance.oauth_folder_id)
+ * @param projByFolder   Map|obj  project folder id → projectId                 (project.drive_folder_id)
+ * @param ownerId        the researcher whose estate this is (created_by)
+ * @returns [{ objectId, kind, docId, instanceId, projectId, createdBy, now }]
+ *
+ * ⚠ project_id is WHERE THE OBJECT PHYSICALLY SITS NOW: a project-folder ANCESTOR wins over the
+ * device's own instance.project_id, because parentage is the current truth and instance.project_id
+ * can lag. Falls back to the device's project when there is no project-folder ancestor (a device
+ * still directly under master). Fails to NULL (unassigned, member-denied) when nothing resolves.
+ */
+export function deriveDriveObjectRows(files, deviceByFolder, projByFolder, ownerId, now) {
+  const byId = new Map();
+  for (const f of (files || [])) byId.set(f.id, f);
+  const get = (m, id) => m && (typeof m.get === 'function' ? m.get(id) : m[id]);
+  const isFolder = (f) => f.mimeType === 'application/vnd.google-apps.folder';
+  const rows = [];
+  for (const f of (files || [])) {
+    const ap = f.appProperties || {};
+    const role = ap.flextextRole || '';
+    if (role === 'uploads-master') continue;                 // the master is not a project object
+    let kind;
+    if (role === 'project') kind = 'project';
+    else if (role === 'crowd') kind = 'crowd';
+    else if (role === 'unassigned') kind = 'unassigned';
+    else if (role === 'originals') kind = 'originals';
+    else if (ap.flextextDoc) kind = 'text';
+    else if (isFolder(f)) kind = get(deviceByFolder, f.id) ? 'device' : 'folder';
+    else kind = 'file';
+
+    let instanceId = null, projectId = null, docId = ap.flextextDoc || null;
+    let cur = f, guard = 0;
+    while (cur && guard++ < 64) {
+      const d = get(deviceByFolder, cur.id);
+      if (d) { if (instanceId == null) instanceId = d.instanceId || null; if (projectId == null) projectId = d.projectId || null; }
+      const p = get(projByFolder, cur.id);
+      if (p) projectId = p;                                   // a project-folder ancestor is authoritative
+      const fdoc = (cur.appProperties || {}).flextextDoc;
+      if (fdoc && docId == null) docId = fdoc;
+      const parentId = (cur.parents && cur.parents[0]) || null;
+      cur = parentId ? byId.get(parentId) : null;
+    }
+    if (kind === 'project') { instanceId = null; const p = get(projByFolder, f.id); if (p) projectId = p; }
+    rows.push({ objectId: f.id, kind, docId: docId || null, instanceId: instanceId || null, projectId: projectId || null, createdBy: ownerId || null, now });
+  }
+  return rows;
+}

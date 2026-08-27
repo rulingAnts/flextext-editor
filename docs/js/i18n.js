@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v442';
+export const ENGINE_VERSION = 'v446';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v442';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'baseline-loading v1';
+export const BUILD_TAG = 'phase-cd v1';
 
 const S = {
 en: {
@@ -347,6 +347,9 @@ en: {
   'research.enabled': 'Settings tab enabled.',
   'research.disabled': 'Settings tab hidden. To bring it back, tap the ? (Help) button 7 times (or press Ctrl+Alt+R).',
   'sync.settingsUpdated': 'Your researcher updated this device’s settings.',
+  /* Shown when a pushed settings change tried to set a key a remote command may never set. It is
+   * named rather than silently dropped: a researcher who sent one has to know it did not apply. */
+  'sync.settingsKeyRefused': 'A setting your researcher sent was not applied ({keys}) — that one can only be changed on this device.',
   'sync.revoked': 'Your researcher unlinked this device — it’s a standalone app again.',
   // ---- crowd recorder + drive delivery + per-text delete + auto-backup (v94) ----
   'crowd.appName': 'Record a story',
@@ -417,6 +420,7 @@ en: {
   'panel.crowd.delete': 'Delete',
   'panel.crowd.newTitle': 'New crowd recorder',
   'panel.crowd.newIntro': 'Give it a name (only you see it). You will set its Drive folder and consent text next.',
+  'panel.crowd.intoProject': 'This recorder will belong to the project “{name}” (the tab you have open).',
   'panel.crowd.label': 'Name',
   'panel.crowd.labelPh': 'e.g. Village stories 2026',
   'panel.crowd.create': 'Create',
@@ -1110,6 +1114,7 @@ internet after the first time.</p>
   'panel.dash.account': 'Account',
   'panel.dash.thisDevice': 'This device',
   'panel.dash.openEditor': 'Open FlexText Editor \u2197',
+  'panel.dash.openEditorNote': 'This opens the editor app — it does not pair this browser to your account. To work on a device (this one included), use “+ New device” and open its link there.',
   'panel.dash.empty': 'No devices yet. Add one to send an invite link to a field worker.',
   'panel.inst.pending': 'pending approval',
   'panel.inst.linked': 'linked',
@@ -1157,8 +1162,11 @@ internet after the first time.</p>
   'panel.inst.minsAgo': '{n} min ago',
   'panel.inst.hrsAgo': '{n} h ago',
   'panel.inst.daysAgo': '{n} d ago',
-  'panel.up.local': 'not uploaded',
-  'panel.up.changed': 'changed since upload',
+  /* ⚠ These two chips name their DIRECTION on purpose (issue #5): the old "not uploaded" read as a
+   * workflow state ("no changes on device") when it means the DEVICE has never sent its copy up —
+   * true even for a freshly assigned text whose files are already in Drive from the assignment. */
+  'panel.up.local': 'no upload from this device yet',
+  'panel.up.changed': 'edited on device — not yet uploaded',
   'panel.up.uploaded': 'uploaded ✓',
   'panel.up.requested': 'request sent…',
   'panel.up.slow': 'awaiting device\u2026',
@@ -1180,6 +1188,8 @@ internet after the first time.</p>
   'panel.new.needNick': 'Give the device a name.',
   'panel.new.configure': 'Device created — now set its languages and other settings.',
   'panel.new.unifiedNote': 'One device = one person’s phone, tablet, or browser. It can run the editor, the recorder, or both — you’ll get a link for each.',
+  'panel.new.intoProject': 'This device will belong to the project “{name}” (the tab you have open).',
+  'panel.new.createdNotConfigured': 'The device was created. Its settings were not delivered — open the device’s Settings to push them.',
   'panel.invite.title': 'Invite link',
   'panel.invite.loading': 'Creating link…',
   'panel.invite.intro': 'Send this one-time link to the field worker. The secret rides the link fragment and is used only once.',
@@ -1189,6 +1199,7 @@ internet after the first time.</p>
   'panel.invite.expires': 'Expires {when}',
   'panel.invite.copy': 'Copy link',
   'panel.invite.share': 'Share…',
+  'panel.invite.openHere': 'Open on this device',
   'panel.invite.close': 'Close',
   'panel.invite.copied': 'Link copied.',
   'panel.invite.shareText': 'Open this link to set up your text tool:',
@@ -1314,6 +1325,58 @@ internet after the first time.</p>
   'panel.proj.renameNote': 'Display only. The folder is found by its tag, never by its name, so this cannot orphan a device, a text or an upload in progress.',
   'panel.proj.renameGo': 'Rename',
   'panel.proj.renamed': 'Project renamed.',
+  /* Sharing a project with a coworker (Phase D). ⚠ The wording is bound by the repo's framing rule:
+   * say what the protection SAFEGUARDS — the privacy of the communities in the recordings and their
+   * intellectual and cultural heritage — never a guess about who it guards against. */
+  'panel.share.btn': 'Coworkers',
+  'panel.share.title': 'Coworkers on this project',
+  'panel.share.intro': 'A coworker you add here can help you look after this project’s devices. They never get access to your Google Drive — only to the devices in this one project.',
+  'panel.share.project': 'Project',
+  'panel.share.loading': 'Loading…',
+  'panel.share.none': 'Nobody else is on this project yet — it is just you.',
+  'panel.share.owner': 'You own this project.',
+  'panel.share.notOwner': 'Only the owner of a project can add or remove coworkers.',
+  'panel.share.noProjects': 'You have no projects yet.',
+  'panel.share.memberCaps': 'Can: {caps}',
+  'panel.share.capNone': 'nothing yet — they can see this project’s devices but change nothing',
+  'panel.share.capManage': 'manage devices',
+  'panel.share.capInvite': 'invite devices',
+  'panel.share.invalidCaps': '⚠ This coworker’s permissions could not be read. Remove and re-add them.',
+  'panel.share.remove': 'Remove',
+  'panel.share.removeConfirm': 'Remove this coworker from “{name}”?\n\nThey lose access from their next request, and the device keys they were given are deleted. What they have already seen or downloaded cannot be taken back.',
+  'panel.share.removed': 'Coworker removed.',
+  'panel.share.addTitle': 'Add a coworker',
+  'panel.share.idLabel': 'Their researcher ID',
+  'panel.share.idPh': 'Paste the ID they sent you',
+  /* ⚠ BY ID, NOT BY EMAIL, and that is the same rule the pairing flow follows: an id-to-identity
+   * lookup for any signed-in caller would be a directory of every researcher on the deployment.
+   * The id is a random GUID, so it has to be handed over deliberately by the person it belongs to. */
+  'panel.share.idNote': 'Ask your coworker to open their own panel → Account, and send you the researcher ID shown there. They must have signed in and been approved first.',
+  'panel.share.capsLabel': 'What they may do',
+  'panel.share.capManageLabel': 'Manage devices — change settings, rename, revoke, approve installs',
+  'panel.share.capInviteLabel': 'Invite devices — create pairing links for new devices',
+  /* ⚠ THE DRIVE CAPABILITY IS ABSENT ON PURPOSE, not disabled: a checkbox that says a coworker can
+   * be given file access would be a promise this version cannot keep. Files stay with the owner. */
+  'panel.share.driveNote': 'Coworkers cannot be given access to your Google Drive files in this version. Assigning texts and downloading files stay with you, the owner.',
+  'panel.share.warnTitle': 'How much do you need to trust this person?',
+  'panel.share.warnSee': 'They will be able to read everything this project’s devices have recorded and reported. Removing them later stops what they can do NEXT — it cannot take back what they have already read or saved.',
+  'panel.share.warnDo': 'Anything they do while trusted is real: settings they change, devices they revoke or pair. Removing them ends it from their next request; it does not undo what was already done.',
+  'panel.share.warnWhy': 'This project holds the language, voices and consent records of the community it serves. Adding someone here extends that trust to them.',
+  'panel.share.addGo': 'Add coworker',
+  'panel.share.added': '“{who}” can now help with this project.',
+  'panel.share.addedKeyed': '“{who}” can now help with this project — {n} device(s) unlocked for them.',
+  'panel.share.addedNoKeys': '“{who}” was added, but no devices could be unlocked for them yet: they have not opened their researcher panel, so there is no key to send theirs to. Ask them to sign in once, then remove and re-add them here.',
+  'panel.share.addedSomeKeys': '“{who}” was added, but only {n} of {m} device(s) could be unlocked for them. Remove and re-add them to retry, or check that Drive is reachable.',
+  'panel.share.addedNoEstate': '“{who}” was added, but Google Drive could not be reached, so no devices were unlocked for them yet. When Drive is back, remove and re-add them here to finish.',
+  'panel.share.errNoSuch': 'No approved researcher has that ID. Check the ID, and that they have signed in and been approved.',
+  'panel.share.errNotMigrated': 'This project has no Drive project folder yet. Set up project folders before sharing it.',
+  'panel.share.errSelf': 'That is your own ID — you already own this project.',
+  'panel.share.errCaps': 'Those permissions were refused. Tick only the boxes shown here.',
+  /* The other half of the flow: a coworker has to be able to FIND the id an owner asks them for. */
+  'panel.account.rid': 'Your researcher ID',
+  'panel.account.ridNote': 'Send this to a project owner who wants to add you as a coworker. It identifies you and nothing else — it is not a password.',
+  'panel.account.ridCopy': 'Copy ID',
+  'panel.account.ridCopied': 'Researcher ID copied.',
   'panel.proj.undo': 'Undo \u2014 go back to a flat folder',
   'panel.proj.undoTitle': 'Undo the project folder',
   'panel.proj.undoIntro': 'This puts every folder back directly under FlexText Uploads, exactly where it was. The project folder is moved to Drive trash only if it is completely empty afterwards.',
@@ -1322,6 +1385,9 @@ internet after the first time.</p>
   'panel.store.snapshotNote': 'A record of exactly what your FlexText folders look like right now. Take one before any big reorganisation \u2014 Google Drive does not remember where a folder used to be, so this file cannot be produced after the fact.',
   'panel.store.snapshotSaved': 'Snapshot saved \u2014 {n} items recorded. Keep it somewhere safe.',
   'panel.maint.title': 'Maintenance in progress',
+  'panel.freeze.title': 'Changes are temporarily locked',
+  'panel.freeze.advice': 'You can look at everything, but changes are paused while risky maintenance is tested. Field devices are not affected — recording and uploading continue as normal.',
+  'panel.freeze.refused': 'Changes are temporarily locked for maintenance: {msg}',
   'panel.maint.advice': 'Please avoid making changes in the researcher panel until this notice disappears. Your devices and their texts are unaffected.',
   'panel.dl.origin.assigned': 'assigned',
   'panel.dl.origin.recorded': 'recorded on the device',
@@ -1442,6 +1508,7 @@ internet after the first time.</p>
   'panel.f.deleteAllEnabled': 'Allow “Delete all data” on this device (full local wipe)',
   'panel.f.allowDelete': 'Let the coworker delete individual texts',
   'panel.f.doneEnabled': 'Show a “Done” button on each text (marking done auto-uploads it)',
+  'panel.f.sortAlpha': 'Keep the texts list in alphabetical order (otherwise: most recent first)',
   'panel.f.segmentation': 'Enable Audio Segmentation Mode',
   'panel.f.segmentationNote': 'The Baseline and Gloss tabs become time-aligned strips: a waveform per line, per-line playback, and Enter breaks the line at the playhead. Try it with one worker first before enabling it broadly. Turning it off later hides the tools but never deletes segment data.',
   /* Seth, 2026-08-13 — DEFAULT OFF, unlike segmentation. The join BUTTONS are the reliable route
@@ -2145,6 +2212,7 @@ id: {
   'research.enabled': 'Tab Pengaturan diaktifkan.',
   'research.disabled': 'Tab Pengaturan disembunyikan. Untuk memunculkannya lagi, ketuk tombol ? (Bantuan) 7 kali (atau tekan Ctrl+Alt+R).',
   'sync.settingsUpdated': 'Peneliti Anda memperbarui pengaturan perangkat ini.',
+  'sync.settingsKeyRefused': 'Satu pengaturan yang dikirim peneliti tidak diterapkan ({keys}) — yang itu hanya bisa diubah di perangkat ini.',
   'sync.revoked': 'Peneliti Anda melepas tautan perangkat ini — kini menjadi aplikasi mandiri lagi.',
   // ---- crowd recorder + drive delivery + per-text delete + auto-backup (v94) ----
   'crowd.appName': 'Rekam cerita',
@@ -2212,6 +2280,7 @@ id: {
   'panel.crowd.delete': 'Hapus',
   'panel.crowd.newTitle': 'Perekam publik baru',
   'panel.crowd.newIntro': 'Beri nama (hanya Anda yang melihatnya). Folder Drive dan teks izinnya diatur setelah ini.',
+  'panel.crowd.intoProject': 'Perekam ini akan menjadi bagian proyek “{name}” (tab yang sedang Anda buka).',
   'panel.crowd.label': 'Nama',
   'panel.crowd.labelPh': 'mis. Cerita kampung 2026',
   'panel.crowd.create': 'Buat',
@@ -2841,6 +2910,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.dash.account': 'Akun',
   'panel.dash.thisDevice': 'Perangkat ini',
   'panel.dash.openEditor': 'Buka FlexText Editor \u2197',
+  'panel.dash.openEditorNote': 'Ini membuka aplikasi editor — tidak memasangkan peramban ini ke akun Anda. Untuk bekerja di sebuah perangkat (termasuk yang ini), pakai “+ Perangkat baru” lalu buka tautannya di sana.',
   'panel.dash.empty': 'Belum ada perangkat. Tambahkan satu untuk mengirim tautan undangan ke pekerja lapangan.',
   'panel.inst.pending': 'menunggu persetujuan',
   'panel.inst.linked': 'terhubung',
@@ -2886,8 +2956,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.inst.minsAgo': '{n} mnt lalu',
   'panel.inst.hrsAgo': '{n} jam lalu',
   'panel.inst.daysAgo': '{n} hr lalu',
-  'panel.up.local': 'belum diunggah',
-  'panel.up.changed': 'berubah sejak unggah',
+  'panel.up.local': 'belum ada unggahan dari perangkat ini',
+  'panel.up.changed': 'diedit di perangkat — belum diunggah',
   'panel.up.uploaded': 'terunggah ✓',
   'panel.up.requested': 'permintaan terkirim…',
   'panel.up.slow': 'menunggu perangkat\u2026',
@@ -2907,6 +2977,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.new.needNick': 'Beri nama perangkat.',
   'panel.new.configure': 'Perangkat dibuat — sekarang atur bahasa dan pengaturan lainnya.',
   'panel.new.unifiedNote': 'Satu perangkat = satu ponsel, tablet, atau peramban seseorang. Bisa menjalankan editor, perekam, atau keduanya — Anda akan mendapat tautan untuk masing-masing.',
+  'panel.new.intoProject': 'Perangkat ini akan menjadi bagian proyek “{name}” (tab yang sedang Anda buka).',
+  'panel.new.createdNotConfigured': 'Perangkat sudah dibuat. Pengaturannya belum terkirim — buka Pengaturan perangkat untuk mengirimnya.',
   'panel.invite.title': 'Tautan undangan',
   'panel.invite.loading': 'Membuat tautan…',
   'panel.invite.intro': 'Kirim tautan sekali-pakai ini ke pekerja lapangan. Rahasianya ada di fragmen tautan dan hanya dipakai sekali.',
@@ -2916,6 +2988,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.invite.expires': 'Kedaluwarsa {when}',
   'panel.invite.copy': 'Salin tautan',
   'panel.invite.share': 'Bagikan…',
+  'panel.invite.openHere': 'Buka di perangkat ini',
   'panel.invite.close': 'Tutup',
   'panel.invite.copied': 'Tautan disalin.',
   'panel.invite.shareText': 'Buka tautan ini untuk menyiapkan alat teks Anda:',
@@ -3022,6 +3095,49 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.proj.renameNote': 'Hanya tampilan. Folder ditemukan lewat tandanya, bukan namanya, jadi ini tidak dapat memutus kaitan perangkat, teks, atau unggahan yang sedang berjalan.',
   'panel.proj.renameGo': 'Ganti nama',
   'panel.proj.renamed': 'Nama proyek diganti.',
+  'panel.share.btn': 'Rekan kerja',
+  'panel.share.title': 'Rekan kerja di proyek ini',
+  'panel.share.intro': 'Rekan kerja yang Anda tambahkan di sini dapat membantu Anda mengurus perangkat proyek ini. Mereka tidak pernah mendapat akses ke Google Drive Anda — hanya ke perangkat dalam proyek ini saja.',
+  'panel.share.project': 'Proyek',
+  'panel.share.loading': 'Memuat…',
+  'panel.share.none': 'Belum ada orang lain di proyek ini — baru Anda sendiri.',
+  'panel.share.owner': 'Anda pemilik proyek ini.',
+  'panel.share.notOwner': 'Hanya pemilik proyek yang dapat menambah atau menghapus rekan kerja.',
+  'panel.share.noProjects': 'Anda belum memiliki proyek.',
+  'panel.share.memberCaps': 'Dapat: {caps}',
+  'panel.share.capNone': 'belum ada — mereka dapat melihat perangkat proyek ini tetapi tidak dapat mengubah apa pun',
+  'panel.share.capManage': 'mengelola perangkat',
+  'panel.share.capInvite': 'mengundang perangkat',
+  'panel.share.invalidCaps': '⚠ Izin rekan kerja ini tidak dapat dibaca. Hapus lalu tambahkan kembali.',
+  'panel.share.remove': 'Hapus',
+  'panel.share.removeConfirm': 'Hapus rekan kerja ini dari “{name}”?\n\nAkses mereka berhenti mulai permintaan berikutnya, dan kunci perangkat yang pernah diberikan kepada mereka dihapus. Apa yang sudah mereka lihat atau unduh tidak dapat ditarik kembali.',
+  'panel.share.removed': 'Rekan kerja dihapus.',
+  'panel.share.addTitle': 'Tambah rekan kerja',
+  'panel.share.idLabel': 'ID peneliti mereka',
+  'panel.share.idPh': 'Tempelkan ID yang mereka kirimkan',
+  'panel.share.idNote': 'Minta rekan kerja Anda membuka panel mereka sendiri → Akun, lalu mengirimkan ID peneliti yang tertera di sana. Mereka harus sudah masuk dan disetujui terlebih dahulu.',
+  'panel.share.capsLabel': 'Apa yang boleh mereka lakukan',
+  'panel.share.capManageLabel': 'Mengelola perangkat — mengubah pengaturan, mengganti nama, mencabut, menyetujui pemasangan',
+  'panel.share.capInviteLabel': 'Mengundang perangkat — membuat tautan penyandingan untuk perangkat baru',
+  'panel.share.driveNote': 'Rekan kerja tidak dapat diberi akses ke berkas Google Drive Anda pada versi ini. Menugaskan teks dan mengunduh berkas tetap menjadi hak Anda sebagai pemilik.',
+  'panel.share.warnTitle': 'Seberapa besar Anda perlu memercayai orang ini?',
+  'panel.share.warnSee': 'Mereka akan dapat membaca semua yang telah direkam dan dilaporkan oleh perangkat proyek ini. Menghapus mereka nanti menghentikan apa yang dapat mereka lakukan SELANJUTNYA — itu tidak dapat menarik kembali apa yang sudah mereka baca atau simpan.',
+  'panel.share.warnDo': 'Apa pun yang mereka lakukan selagi dipercaya bersifat nyata: pengaturan yang mereka ubah, perangkat yang mereka cabut atau sandingkan. Menghapus mereka menghentikannya mulai permintaan berikutnya; itu tidak membatalkan apa yang sudah terjadi.',
+  'panel.share.warnWhy': 'Proyek ini menyimpan bahasa, suara, dan catatan persetujuan komunitas yang dilayaninya. Menambahkan seseorang di sini memperluas kepercayaan itu kepada mereka.',
+  'panel.share.addGo': 'Tambah rekan kerja',
+  'panel.share.added': '“{who}” kini dapat membantu proyek ini.',
+  'panel.share.addedKeyed': '“{who}” kini dapat membantu proyek ini — {n} perangkat dibuka untuk mereka.',
+  'panel.share.addedNoKeys': '“{who}” sudah ditambahkan, tetapi belum ada perangkat yang bisa dibuka untuk mereka: mereka belum pernah membuka panel peneliti, jadi belum ada kunci tujuan. Minta mereka masuk sekali, lalu hapus dan tambahkan lagi di sini.',
+  'panel.share.addedSomeKeys': '“{who}” sudah ditambahkan, tetapi hanya {n} dari {m} perangkat yang bisa dibuka untuk mereka. Hapus dan tambahkan lagi untuk mencoba ulang, atau pastikan Drive terjangkau.',
+  'panel.share.addedNoEstate': '“{who}” sudah ditambahkan, tetapi Google Drive tidak terjangkau sehingga belum ada perangkat yang dibuka untuk mereka. Saat Drive kembali, hapus dan tambahkan lagi di sini untuk menyelesaikannya.',
+  'panel.share.errNoSuch': 'Tidak ada peneliti disetujui dengan ID tersebut. Periksa ID-nya, dan pastikan mereka sudah masuk dan disetujui.',
+  'panel.share.errNotMigrated': 'Proyek ini belum memiliki folder proyek Drive. Siapkan folder proyek sebelum membagikannya.',
+  'panel.share.errSelf': 'Itu ID Anda sendiri — Anda sudah menjadi pemilik proyek ini.',
+  'panel.share.errCaps': 'Izin tersebut ditolak. Centang hanya kotak yang ditampilkan di sini.',
+  'panel.account.rid': 'ID peneliti Anda',
+  'panel.account.ridNote': 'Kirimkan ini kepada pemilik proyek yang ingin menambahkan Anda sebagai rekan kerja. Ini hanya menandai identitas Anda — bukan kata sandi.',
+  'panel.account.ridCopy': 'Salin ID',
+  'panel.account.ridCopied': 'ID peneliti disalin.',
   'panel.proj.undo': 'Batalkan \u2014 kembali ke folder datar',
   'panel.proj.undoTitle': 'Batalkan folder proyek',
   'panel.proj.undoIntro': 'Ini mengembalikan setiap folder langsung ke bawah FlexText Uploads, persis seperti semula. Folder proyek dipindahkan ke sampah Drive hanya jika benar-benar kosong setelahnya.',
@@ -3030,6 +3146,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.store.snapshotNote': 'Catatan persis seperti apa folder FlexText Anda saat ini. Ambil satu sebelum penataan ulang besar \u2014 Google Drive tidak mengingat lokasi folder sebelumnya, jadi berkas ini tidak bisa dibuat setelahnya.',
   'panel.store.snapshotSaved': 'Cuplikan tersimpan \u2014 {n} item tercatat. Simpan di tempat aman.',
   'panel.maint.title': 'Pemeliharaan sedang berlangsung',
+  'panel.freeze.title': 'Perubahan dikunci sementara',
+  'panel.freeze.advice': 'Anda tetap bisa melihat semuanya, tetapi perubahan dijeda selama pemeliharaan berisiko sedang diuji. Perangkat lapangan tidak terpengaruh — merekam dan mengunggah berjalan seperti biasa.',
+  'panel.freeze.refused': 'Perubahan dikunci sementara untuk pemeliharaan: {msg}',
   'panel.maint.advice': 'Mohon hindari membuat perubahan di panel peneliti sampai pemberitahuan ini hilang. Perangkat dan teks Anda tidak terpengaruh.',
   'panel.dl.origin.assigned': 'ditugaskan',
   'panel.dl.origin.recorded': 'direkam di perangkat',
@@ -3145,6 +3264,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.f.deleteAllEnabled': 'Izinkan “Hapus semua data” di perangkat ini (hapus total lokal)',
   'panel.f.allowDelete': 'Izinkan rekan kerja menghapus teks satu per satu',
   'panel.f.doneEnabled': 'Tampilkan tombol “Selesai” pada tiap teks (menandai selesai otomatis mengunggahnya)',
+  'panel.f.sortAlpha': 'Urutkan daftar teks menurut abjad (jika tidak: yang terbaru dahulu)',
   'panel.f.segmentation': 'Aktifkan Mode Segmentasi Audio',
   'panel.f.segmentationNote': 'Tab Ketik dan Terjemahan Balik menjadi potongan selaras waktu: gelombang suara per baris, pemutaran per baris, dan Enter memotong baris pada posisi putar. Coba dulu dengan satu rekan kerja sebelum diaktifkan lebih luas. Jika dimatikan nanti, alatnya disembunyikan tetapi data segmen tidak pernah dihapus.',
   /* Lihat catatan pada blok en \u2014 default MATI. */

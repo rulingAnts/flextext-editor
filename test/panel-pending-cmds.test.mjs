@@ -42,8 +42,14 @@ console.log('\nthe Worker hands back the seq it assigned');
 {
   ok(/return j\(\{ ok: true, seq, desired_rev: newRev \}/.test(worker),
      'POST .../command responds with { ok, seq, desired_rev }');
-  ok(/const seq = \(blob\.commands\.length \? blob\.commands\[blob\.commands\.length - 1\]\.seq : 0\) \+ 1;/.test(worker),
-     'the seq is monotonic per instance (last command + 1)');
+  /* ⚠ ASSERTS MONOTONICITY, NOT THE OLD EXPRESSION. This pinned the literal `last command + 1`
+   * source line, so it failed the moment that arithmetic was STRENGTHENED — the seq is now a
+   * high-water mark (`Math.max(tailSeq, blob.nextSeq || 0) + 1`) precisely so a cancelled seq can
+   * never be reissued, which is strictly more monotonic than what the test was defending. A test
+   * that fails when the property it names becomes MORE true teaches people to edit assertions
+   * without reading them, and the next real regression then walks through. */
+  ok(/const seq = Math\.max\(tailSeq, blob\.nextSeq \|\| 0\) \+ 1;/.test(worker),
+     'the seq is monotonic per instance, and never reissued after a cancel');
   ok(/if \(seq <= maxAck\) return j\(\{ error: 'already_delivered'/.test(worker),
      'cancel is refused once any install has acked past the seq — never a silent no-op');
 }

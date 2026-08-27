@@ -20,9 +20,12 @@ import { readFileSync, existsSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, mkdirSync, cpSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, isAbsolute } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const root = new URL('..', import.meta.url).pathname;
+// fileURLToPath, not .pathname — the latter leaves a space in the repo path %20-encoded, so
+// existsSync/execFileSync miss every file when the checkout lives under a directory with a space.
+const root = fileURLToPath(new URL('..', import.meta.url));
 const read = (p) => readFileSync(join(root, p), 'utf8');
 let fail = 0;
 const ok = (c, m) => { console.log(`  ${c ? 'ok  ' : 'FAIL'}  ${m}`); if (!c) fail++; };
@@ -50,6 +53,26 @@ console.log('\nthe hook actually gates the push on the scan');
    * the one thing every leaked key has in common. */
   const secretsBlock = hook.slice(hook.indexOf('1. SECRETS'), hook.indexOf('2. WORKFLOWS'));
   ok(!/ALLOW_[A-Z_]*=/.test(secretsBlock), 'and the SECRETS check has no override env var of its own');
+
+  /* ⚠⚠ THE FILE GIT ACTUALLY RUNS is .git/hooks/pre-push (in the COMMON git dir, so worktrees share
+   * it), NOT the tracked hooks/pre-push above. This test used to read only the tracked copy, so it
+   * passed while the INSTALLED hook could be a stale version that never calls check-secrets at all —
+   * false assurance, which is the precise failure this file exists to prevent (uncovered sweep #9).
+   *   · absent  → informational: a fresh checkout / CI does not run local hooks, and install-hooks.sh
+   *               is how it gets there; the tracked hook is the source of truth.
+   *   · present but stale → HARD FAIL: an installed hook that does not run the scan is active false
+   *               assurance, and the only way to end it is to re-install the tracked one. */
+  let commonDir = '.git';
+  try { commonDir = execFileSync('git', ['rev-parse', '--git-common-dir'], { cwd: root, encoding: 'utf8' }).trim(); }
+  catch { /* not a git dir — leave the default */ }
+  const installedHook = isAbsolute(commonDir) ? join(commonDir, 'hooks', 'pre-push') : join(root, commonDir, 'hooks', 'pre-push');
+  if (existsSync(installedHook)) {
+    const live = readFileSync(installedHook, 'utf8');
+    ok(/check-secrets\.sh/.test(live) && /\|\| exit 1/.test(live),
+       `⚠⚠ the INSTALLED hook (${installedHook}) also runs check-secrets and exits nonzero — a stale installed hook that skips the scan is the false-assurance case #9. Re-install: ./install-hooks.sh (remove the old one first if it refuses).`);
+  } else {
+    console.log('  --    no installed .git/hooks/pre-push (fresh checkout / CI) — run ./install-hooks.sh; the tracked hook above is the source of truth');
+  }
 }
 
 console.log('\nthe self-reference exemption cannot become a hiding place');
@@ -81,7 +104,18 @@ console.log('\nit catches real credential shapes, and does not cry wolf');
   mkdirSync(join(dir, 'sub'), { recursive: true });
 
   const scan = () => {
-    execFileSync('git', ['-C', dir, 'add', '-A']);
+    /* ⚠ `-f`, AND THE REASON IS THE WHOLE POINT OF THIS FILE. A developer's GLOBAL gitignore
+     * (core.excludesFile) commonly lists `*.pem` / `*.key` / `.env` — Seth's does — and a plain
+     * `git add -A` honours it, so the fixture's decoy secret is never staged. check-secrets.sh then
+     * scans a tree with no secret in it, finds nothing, and the "catches a PEM private key"
+     * assertion FAILS on the maintainer's machine while passing on a CI runner that has no global
+     * excludes. A guard test whose verdict depends on whose laptop it runs on is not a guard.
+     *
+     * Forcing the add is safe here — `dir` is a throwaway temp repo that is never pushed — and it is
+     * also the honest fixture: the incident this guards against was a secret that WAS committed, so
+     * the test must be able to stage one. It does not weaken the check under test; check-secrets.sh
+     * still has to find it on its own. */
+    execFileSync('git', ['-C', dir, 'add', '-A', '-f']);
     try { execFileSync(join(dir, 'check-secrets.sh'), { cwd: dir, stdio: 'pipe' }); return 0; }
     catch (e) { return e.status; }
   };
@@ -95,7 +129,13 @@ console.log('\nit catches real credential shapes, and does not cry wolf');
   ok(scan() === 0, 'prose about passwords, a .example template and a README do NOT trip it');
 
   const cases = [
-    ['sub/deploy.pem', '-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----\n', 'a PEM private key'],
+    ['sub/deploy.pem', '-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----\n', 'a .pem FILE TYPE, whatever is in it'],
+    /* ⚠ THE SAME KEY UNDER AN INNOCUOUS NAME, and this is the case that actually tests the PEM
+     * CONTENT pattern. The `.pem` case above cannot: check-secrets.sh catches that file by its
+     * EXTENSION, so it passes with the content rule deleted — which is exactly what a mutation test
+     * found (2026-08-24). Two rules were being credited to one assertion; a key pasted into
+     * `config.txt` is the shape the content rule exists for, and nothing else here exercises it. */
+    ['sub/config.txt', 'key = """\n-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----\n"""\n', 'a PEM private key pasted into an ordinary text file'],
     ['sub/notes.txt', 'TOKEN=ghp_' + '0123456789abcdefghijABCDEFGHIJ0123' + '\n', 'a GitHub token pasted into a text file'],
     ['sub/aws.txt', 'id=AKIA' + 'ABCDEFGHIJKLMNOP' + '\n', 'an AWS access key id'],
     ['sub/url.txt', 'db=https://admin:hunter2@db.internal/app\n', 'credentials embedded in a URL'],

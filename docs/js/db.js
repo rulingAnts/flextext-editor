@@ -57,8 +57,11 @@ export async function listDocs() {
       if (cur) {
         // pendingFlextext rides along (v332) so the list can show "still arriving" and refuse to
         // open a text whose content is in flight -- without a second read per row.
-        const { id, title, modified, created, segCount, glossed, done, pendingFlextext } = cur.value;
-        out.push({ id, title, modified, created, segCount, glossed, done, pendingFlextext: !!pendingFlextext });
+        // pendingAudio rides along too: renderDocList's assigned-audio arrival branch (progress
+        // bar + ticker) keys on it, and without it in this projection that branch was DEAD — an
+        // arriving recording showed a plain row, no bar, ever (found auditing issue #11's list).
+        const { id, title, modified, created, segCount, glossed, done, pendingFlextext, pendingAudio } = cur.value;
+        out.push({ id, title, modified, created, segCount, glossed, done, pendingFlextext: !!pendingFlextext, pendingAudio: pendingAudio || '' });
         cur.continue();
       } else {
         out.sort((a, b) => (b.modified || 0) - (a.modified || 0));

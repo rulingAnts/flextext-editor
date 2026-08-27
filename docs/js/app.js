@@ -386,6 +386,12 @@ function closeHelp() {
 
 async function renderDocList() {
   const docs = await db.listDocs();
+  /* Researcher-pushed OPTION (issue #11), default off: alphabetical order for coworkers with long
+   * text lists. numeric:true so "Text 2" sorts before "Text 10"; base sensitivity so case and
+   * accents do not scatter entries. Default (absent/false) keeps most-recently-modified first. */
+  if (settings.sortAlpha === true) {
+    docs.sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), undefined, { numeric: true, sensitivity: 'base' }));
+  }
   const ul = $('#doc-list');
   ul.innerHTML = '';
   $('#doc-list-empty').hidden = docs.length > 0;
@@ -730,12 +736,20 @@ function landingTab(tab) {
   if (!landOnCutEnabled()) return tab;
   if (!docHasNoText(current.doc)) return tab;               // words already ⇒ this is transcription
   /* ⚠ ONLY WITH AUDIO — landing a text-only doc on a cutting screen would be nonsense. An ALIGNED
-   * span is the proof: reconcile() seeds the whole-file span only once the recording has decoded and
-   * its duration is known, so `some(isAligned)` means "there is real audio and we have measured it".
-   * A doc whose spans are all pending has no timeline to cut against. Checking this rather than a
-   * media record keeps the decision SYNCHRONOUS — the media lookup is async, and awaiting it here
-   * would flash the Baseline tab before switching. */
-  if (!docSegments(current.doc).some(isAligned)) return tab;
+   * span proves decoded audio: reconcile() seeds the whole-file span once the recording has decoded
+   * and its duration is known. But a NEW recording — the exact case this setting names — has audio
+   * the reconcile has NOT measured yet: still downloading (assignment) or still decoding (fresh
+   * capture). Requiring alignment alone meant the setting never fired on the FIRST open, the only
+   * open that matters for a new recording (issue #9). So the record's own synchronous fields count
+   * too: audioSource (attached/downloaded) or pendingAudio still en route — but not a pendingAudio
+   * whose download already FAILED, which has no timeline coming. Landing on Cut mid-arrival shows
+   * Cut's own loading screen, resolved by finalizeAudioDownload's re-enter when the bytes land.
+   * All three checks are record fields — the decision stays SYNCHRONOUS (a media lookup would
+   * flash the Baseline tab before switching). */
+  const audioHere = docSegments(current.doc).some(isAligned)
+    || !!current.audioSource
+    || !!(current.pendingAudio && !current.audioError);
+  if (!audioHere) return tab;
   return 'cut';
 }
 
@@ -2925,6 +2939,12 @@ async function finalizeAudioDownload(rec) {
     current = rec;
     if (player) player.loadedFor = null;
     if (isEditorTab(activeTab)) refreshPlayer();
+    /* ⚠ SAME RE-ENTER AS attachAudioFile, SAME REASON: the open tab set itself up while the audio
+     * was still arriving, and a background download completing is not a tab switch and not a
+     * settings change — nothing else will notice. Without this, a text opened onto Cut mid-download
+     * (landingTab now lands there — issue #9) shows "Loading the recording…" FOREVER once the bytes
+     * have actually landed; refreshPlayer alone updates only the transport bar. */
+    if (segmentationEnabled() && isEditorTab(activeTab)) switchTab(activeTab);
     toast(t('player.downloaded'));
   }
 }
@@ -3842,7 +3862,30 @@ async function syncDispatch(cmd) {
       // MERGE only the researcher-supplied keys; never a whole-object overwrite that
       // would wipe a power-user's relayWorker / uploadFolder (plan §F.1).
       const s = loadSettings();
-      Object.assign(s, cmd.settings || {});
+      /* ⚠⚠ A REMOTE COMMAND MAY NEVER SET A CONTROL-PLANE KEY. `relayWorker` is what workerBase()
+       * returns — the origin this device polls, reports to and uploads to. A pushed settings patch
+       * that could set it would hand whoever sent it the device's entire backend: the install
+       * credentials on the next poll, every recording and text thereafter, and a fabricated desired
+       * lane answering { wipe: true }, which sync.js honours before every gate. The 2026-08-21 sweep
+       * demonstrated exactly that from a member holding only manageDevices.
+       *
+       * ⚠ THIS HAS TO LIVE HERE, not in the worker. Settings are E2EE — the worker stores ciphertext
+       * and cannot inspect what it is forwarding, so it can never allow-list these keys. The device
+       * is the only place that sees them in the clear, which makes it the only place the rule can be
+       * enforced. The worker's matching check (a payload must be encrypted) is defence in depth, not
+       * the fix.
+       *
+       * ⚠ It is a REFUSAL, not a silent strip: a researcher who pushed one needs to know it did not
+       * apply. Setting it locally — the settings UI, a dev URL — is untouched and still works. */
+      const REMOTE_FORBIDDEN = ['relayWorker'];
+      const patch = { ...(cmd.settings || {}) };
+      const refused = REMOTE_FORBIDDEN.filter((k) => Object.prototype.hasOwnProperty.call(patch, k));
+      for (const k of refused) delete patch[k];
+      if (refused.length) {
+        try { console.warn('changeSettings: refused control-plane key(s)', refused.join(', ')); } catch { /* noop */ }
+        try { toast(t('sync.settingsKeyRefused', { keys: refused.join(', ') }), 8000); } catch { /* noop */ }
+      }
+      Object.assign(s, patch);
       saveSettings(s);
       // A pushed app-language (setting D) takes effect live — set it BEFORE the re-render so the menus
       // repaint in the new language right away (only on the actual push; the local toggle still works after).
@@ -3978,7 +4021,7 @@ async function syncGatherInventory() {
                    'recordFormat', 'agc', 'nr', 'echo', 'norm',
                    'consentAsk', 'consentConfirm', 'consentMode', 'consentMsg', 'consentResp', 'consentAudioUrl',
                    'appLang', 'uploadFolder', 'toolbarButtons', 'sendOptions', 'autoDelUploaded', 'recordWelcome', 'deleteAllEnabled',
-                   'autoBackup', 'autoBackupMins', 'maxRecordSeconds', 'allowDelete', 'doneEnabled',
+                   'autoBackup', 'autoBackupMins', 'maxRecordSeconds', 'allowDelete', 'doneEnabled', 'sortAlpha',
                    'segmentation', 'backspaceJoin', 'cutTab', 'landOnCut', 'joinSplitBaseline', 'joinSplitGloss', 'cutJoinTexted', 'exportEaf', 'exportSaymore', 'exportPreview', 'exportJson']) {
     if (settings[k] !== undefined) snap[k] = settings[k];
   }
@@ -5326,6 +5369,8 @@ const SETUP_GROUPS = [
     { k: 'allowDelete', type: 'checkbox', off: 'setup.off.allowDelete' },
     // "Done" reports to a researcher and auto-uploads. Neither end exists here.
     { k: 'doneEnabled', type: 'checkbox', off: 'setup.off.doneEnabled' },
+    // Fully meaningful standalone (a local list order), so no `off` note — unlike its neighbours.
+    { k: 'sortAlpha', type: 'checkbox' },
   ] },
 ];
 
@@ -8119,6 +8164,11 @@ window.__app = {
   applyBaseline,
 };
 // Dev-only queue inspection hooks — never exposed on the production host.
+// syncDispatch is exposed here so the device-side command handlers (notably the changeSettings
+// REMOTE_FORBIDDEN guard) can be exercised in a real browser: the full E2EE push is untestable on
+// the hermetic local rig (no Google, no seeded Kr), and the poll path won't dispatch without a
+// delivered Ki, so a dev console is the only way to drive the real handler + its toast + i18n.
+// See DEVELOPERS.md → "Console entry points".
 if (isDevHost(location.hostname)) {
-  Object.assign(window.__app, { uploadView, renderUploadQueue, allowedButtons, uploadDocById, buildBundleFor });
+  Object.assign(window.__app, { uploadView, renderUploadQueue, allowedButtons, uploadDocById, buildBundleFor, syncDispatch });
 }

@@ -1123,12 +1123,167 @@ that looks right against a stub and deletes an archive against the real API.
 - **II.D3 — claim screen reads "«Project» — managed by «owner»"**, even when a member minted the
   link. Agreed.
 
-### II.D7 — DECIDED, and STRICTER than the earlier recommendation
+### ⚠⚠ II.D7 — CLARIFIED, AND IT WAS NEVER A CONFLICT (Seth, 2026-08-20). READ THIS FIRST.
+
+**The decision recorded below was never in tension with project scope. The RECORD over-specified it,
+and the over-specification is what scoped "the largest single piece of Phase C".**
+
+Asked directly whether *"blanket access to the project owner's Google Drive folder"* meant other
+PROJECTS or other TEXTS within the same project, Seth: **"I meant other projects."**
+
+So the requirement always was, and remains: **a member must not reach another project.** Project
+scope satisfies it exactly — not as a compromise, as the thing that was asked for.
+
+Seth, 2026-08-20, after being walked through what per-device scoping would and would not enforce:
+
+> *"I'm really not sure how granular we need our access to be at this point beyond project scope.
+> And if an owner researcher needs it to be more specific than that, all he or she has to do is just
+> create a separate project for that scope. So yeah, I'm thinking let's not get device and text
+> specific for access. Let's have the access be project specific (write access might be more
+> specific and various settings the assistant can and can't change, but those are all worker and UI,
+> etc issues within our app suite not drive permissions)."*
+
+And: *"for Drive access, per project is good enough."*
+
+| | what the record said | what was meant |
+|---|---|---|
+| Drive scope for a member | the member's **own grants** — named devices, named texts | **the project**, whole |
+| Cross-project access | refused | **refused** — unchanged, and the actual requirement |
+| Destructive routes (trash/purge) | scoped | **scoped** — R2-1, unchanged and still required |
+| Finer separation than a project | more capability plumbing | **a separate project**, the mechanism that already exists and that Seth's own estate already uses (Fayu Text Corpus, Dani Dictionary) |
+
+⚠ **THE LESSON, worth more than the correction.** One sentence — *"only to texts they've been given
+access to"* — was read literally and became a per-text access model, which then justified per-device
+filtering across ~13 Drive routes, a `drive_object` table keyed on `instance_id` and `doc_id`, and
+*"texts they created themselves"* as an access case the data model could not express. None of that
+was asked for. A requirement can be amplified by the act of writing it down carefully, and the
+amplified version reads exactly like diligence. **When a recorded requirement implies a large
+workstream, re-ask before scoping it** — the cost of the question is one sentence.
+
+⚠ **THE BOUNDARY IS THE PROJECT SUBTREE — NOT THE ACCOUNT ROOT.** Seth, clarifying immediately
+after: *"Or the root folder outside of projects shared with them… They shouldn't have access to the
+parent folder, I mean, or other projects."*
+
+So a member sees **the project folder(s) they belong to, and nothing above or beside them**. The
+master folder ("FlexText Uploads") is itself off limits, not merely its other children. This is
+stricter than "scope to the project" naively implemented, and it rules out the obvious shortcut:
+
+⚠ **A member's estate listing must be ROOTED at their project folder, never at master.**
+`driveListAll` and `buildDriveEstate` start from `driveMasterFolder` and walk down (v1.js:804 builds
+`containerParents` from `masterId` + project ids). Filtering that result *after* the walk still means
+the worker enumerated the whole account on the member's behalf, and one forgotten filter leaks it.
+Root the walk instead.
+
+**Two consequences that fall out of this, and both are better caught now than discovered:**
+
+1. ⚠ **On a FLAT (unmigrated) estate a member can have no Drive access at all.** Device folders sit
+   directly under master with no project folder to root at — which is exactly why `containerParents`
+   carries `masterId` (v1.js:802-804). There is no subtree to scope to, so the honest answer is to
+   refuse Drive access to members until that owner's estate is migrated. Fail-closed, and it says
+   what to do about it.
+2. ⚠ **Per-project "Unassigned" stops being tidiness and becomes REQUIRED.** R2-1 already noted the
+   Unassigned folder *"must be created per project once folders are project-scoped"*. With this
+   boundary it is load-bearing: an account-level Unassigned sits under master, OUTSIDE every project,
+   so every finished text swept into it would vanish from a member's view the moment it was swept —
+   and a member would watch texts disappear with no explanation. `targetFor` in `drive-unassign`
+   already resolves each text's OWN project's Unassigned (v1.js:2959-2981), so the machinery exists;
+   what matters is that nothing may fall back to an account-level one while members exist.
+
+⚠ **AND THE OVER-SPECIFIED VERSION WAS UNBUILDABLE ANYWAY.** Drive is addressed by **file id**, and
+this codebase deliberately does not treat parentage as an identity fact (VII.1). A per-device `see`
+list was built on 2026-08-20 and **removed the same night**: the instance routes honoured it and the
+rig proved they did, but no Drive route could, so it would have been a checkbox that SAYS a device is
+hidden while it stays reachable through any docId-routed fetch. An owner relies on such a checkbox.
+Two independent reasons to drop it, then — it was not wanted, and it could not have been made true.
+
+⚠ **WHAT DOES NOT CHANGE, and must not be read away by this entry:**
+1. **No account-wide access for members.** A member must never see, list, or touch another project's
+   folders. The earlier decision's core sentence — *"We don't want them having blanket access to the
+   project owner's Google Drive folder"* — is satisfied at the PROJECT boundary, not abandoned.
+2. **The destructive half is not a disclosure question** (R2-1). `drive-purge` today takes no file
+   list and empties the whole trash; `trash` takes an unverified id list. Disclosure is a fair
+   answer to a member SEEING more than their project; it is not a fair answer to a member DELETING
+   another project's archive.
+3. **VII.1's mechanism finding still applies.** Project-level scoping still cannot be resolved by
+   folder parentage, because `drive-unassign` re-parents texts into an account-wide Unassigned and
+   folders are found by TAG, never by where they sit. Something like the `drive_object` table is
+   still needed.
+
+✅ **BUT IT GETS MATERIALLY SMALLER**, which speaks directly to Seth's stated worry that *"getting
+into Google Drive access permissions may add layers of complexity that make it harder to implement
+successfully and more failure-prone or less secure"*:
+- `drive_object` needs `project_id` for authorization — `instance_id` / `doc_id` become display and
+  provenance, not access control.
+- No per-device filtering on ~13 routes; one project check per route.
+- *"Texts they created themselves"* stops being an access case that must be expressible.
+- ⚠ And Seth's fallback stands: *"If it turns out integration with Google Drive permissions and
+  Google Drive visibility is too fiddly and won't actually float, then the priority is making the
+  researcher panel side work and we can drop the Google Drive visibility integration if we need
+  to."* Dropping it means members get NO Drive access — which is where the code already sits today
+  (the account-wide routes are inert for members), so that fallback needs no work, only a decision.
+
+### WORKING TOWARD: moving texts BETWEEN projects (Seth, 2026-08-20)
+
+> *"We do want to keep at least in consideration a future plan to be able to move texts across
+> projects as long as the person doing the move has access to both projects (and the owner should be
+> able to allow or disallow permission to an invited researcher to transfer texts out of the project
+> to other projects)."* And: *"Doesn't necessarily need to be implemented right now, but it is a
+> feature we're working toward."*
+
+Not built. Recorded because three things about it are cheap to note now and expensive to discover
+during implementation.
+
+**1. ⚠ It needs TWO grant resolutions, not one — and that is a shape, not a difficulty.** Every
+capability so far is *may X do this inside project P*, and `authMember` resolves exactly one project
+per call. A cross-project move is the first operation that is a relationship BETWEEN two projects:
+it must resolve the SOURCE (with the transfer-out capability) and the DESTINATION (with the right to
+receive) separately, then act. Two calls to the existing helper compose into that cleanly; trying to
+express it as one resolution is the wrong turn, and the tempting one.
+
+**2. ⚠ The capability is DIRECTIONAL, which is unusual here and easy to make symmetric by accident.**
+Seth's phrasing is *"transfer texts OUT of the project"* — the source owner controls whether their
+assistant may export work elsewhere. Receiving is governed by the destination's own capabilities.
+A single `moveTexts` boolean checked on both ends would collapse that distinction and hand the
+source owner's veto to the destination.
+
+**3. ⚠ Cross-project is NOT the existing move.** `/v1/instances/<id>/texts/<docId>/move` moves a text
+between DEVICES within one owner's estate (v1.js:3864), and `projects/assign` moves CONTAINERS, never
+texts (v1.js:3195). Neither is this operation; both are useful precedent for the Drive mechanics
+(re-parent by id, tokens name fileIds so nothing is orphaned).
+
+**Open question to settle when it is built, not now:** Ki is per-instance and `member_key` grants are
+per-project, so a text arriving in another project lands where the existing grants do not reach.
+Today's `/move` sidesteps this by minting fresh Drive URLs from the OWNER's account rather than
+re-wrapping keys — that may extend cleanly, or may not when the two projects have different owners.
+Flagged as a question rather than assumed either way.
+
+Nothing in Phase C forecloses it, and the per-project Unassigned that this section already requires
+is a prerequisite either way.
+
+### FUTURE, NOT NOW: recursive projects
+
+Seth, 2026-08-20: *"Eventually we may consider having the ability for projects to be recursive — that
+is to contain sub-projects AND devices as sisters. But that probably would introduce a whole new
+level of complexity and entropy and redesign that might be more than we can handle right now. And
+more than we need right now."*
+
+Recorded because **nothing in Phase C forecloses it**, which is worth knowing before anyone designs
+around its absence: `parent_project_id` is an additive column (R2-6 permits it), and because
+authorization resolves in exactly one function (`authMember`), recursion would mean teaching that
+one function to walk a parent chain — not revisiting every route. That is a direct dividend of the
+one-authority invariant (I1). Do not build it; do not design against it either.
+
+### II.D7 — the EARLIER record (⚠ over-specified — read the entry above first)
+
 
 > Seth: *"We do want to make sure that invited/assistant researchers can only see/access what
 > they're given access to. We don't want them having blanket access to the project owner's Google
 > Drive folder, only to texts they've been given access to (or created themselves if they're allowed
 > to do that)."*
+
+⚠ **THE PARAGRAPH BELOW IS THE OVER-SPECIFICATION ITSELF — kept verbatim as the artefact it is, not
+as a live requirement.** Seth confirmed on 2026-08-20 that he meant other PROJECTS. Read it as
+history; the entry above is the decision.
 
 This **overrides Part III round 1's "accept + disclose"** and goes beyond R2-1's project-level fix:
 Drive access is scoped to the member's OWN GRANTS, not to the project, and never to the account.

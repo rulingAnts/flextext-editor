@@ -113,5 +113,28 @@ console.log('\n⚠ THE REGRESSION THIS EXISTS TO CATCH: pruning acked commands b
      'and the bare ack_seq=? form, which could write a stale maximum, is gone');
 }
 
+/* ⚠ A CANCELLED SEQ IS SPENT — the reuse the 2026-08-21 sweep found through cancel.
+ *
+ * The invariant above rests on "acked commands can never be removed", proved from install.ack_seq.
+ * That proof does not hold: the device advances its LOCAL cursor the instant dispatch returns
+ * (sync.js:447) and only then attempts a best-effort report that is swallowed on failure
+ * (sync.js:486). So a command can be EXECUTED and then cancelled, the array tail falls back, and the
+ * next command is minted with a seq the device has already passed — which it filters out
+ * (`c.seq > s.ackSeq`) and therefore SKIPS FOREVER, with no error anywhere.
+ *
+ * Source-level, like the rest of this file: the arithmetic is the invariant, and it is what a
+ * simplification would undo by "just using the tail again". */
+console.log('\na cancelled seq is never reissued');
+{
+  const src = readFileSync(new URL('../worker/src/v1.js', import.meta.url), 'utf8');
+  ok(/Math\.max\(tailSeq, blob\.nextSeq \|\| 0\) \+ 1/.test(src),
+     '⚠⚠ the next seq is a HIGH-WATER MARK, not the array tail — cancel cannot lower it');
+  ok(/blob\.nextSeq = seq;/.test(src), 'and the mark is persisted on every append');
+  ok(!/const seq = \(blob\.commands\.length \? blob\.commands\[blob\.commands\.length - 1\]\.seq : 0\) \+ 1;/.test(src),
+     'the bare tail+1 form is gone — that is the line the reuse came from');
+  ok(/nextSeq` lives in the BLOB/.test(src) || /no migration/.test(src),
+     'and it needs no migration, so an existing blob self-initialises to today\'s arithmetic');
+}
+
 console.log(fail ? `\nFAILED (${fail})` : '\nPASS');
 process.exit(fail ? 1 : 0);

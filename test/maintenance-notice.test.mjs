@@ -37,7 +37,9 @@ console.log('\nit is DATA, not a build — raising it is never a release');
 
 console.log('\na failed flag read costs a BANNER, never the dashboard');
 {
-  const blk = worker.slice(worker.indexOf('let maintenance = null;'), worker.indexOf('const approved = isApproved'));
+  // Two flags since 2026-08-26: `maintenance` (banner) + `freeze` (banner AND the write lock at the
+  // top of handleV1) — one declaration, one wrapped read block, same fail-soft contract for both.
+  const blk = worker.slice(worker.indexOf('let maintenance = null, freeze = null;'), worker.indexOf('const approved = isApproved'));
   ok(/try \{[\s\S]*\} catch \{/.test(blk), 'the read is wrapped');
   ok(/table absent \(pre-migration\)/.test(blk),
      '...including the pre-migration case, so deploying the worker before the migration is safe');
@@ -83,8 +85,12 @@ console.log('\nit cannot be dismissed, and it is escaped');
   const fn = panel.slice(panel.indexOf('function maintenanceBanner'), panel.indexOf('function assignedDocIds'));
   ok(!/dismiss|data-close|localStorage/.test(fn),
      'no dismiss control — a banner you can hide is one you hide before making changes anyway');
-  ok(/esc\(msg\)/.test(fn), 'the operator message is escaped like any other server string');
-  ok(/if \(!msg\) return '';/.test(fn), 'and it renders NOTHING when no notice is set');
+  ok(/esc\(msg\)/.test(fn) && /esc\(fz\)/.test(fn), 'both operator messages are escaped like any other server string');
+  /* Two banners since the freeze flag (2026-08-26), so "renders nothing when unset" is now
+   * structural: an empty accumulator, every banner chunk behind its own if, nothing appended
+   * unconditionally. */
+  ok(/let out = '';[\s\S]*if \(fz\) \{[\s\S]*if \(msg\) \{[\s\S]*return out;/.test(fn),
+     'and it renders NOTHING when no notice is set — both banners are conditional');
 }
 
 console.log(fail ? `\nFAILED (${fail})\n` : '\nall passed\n');

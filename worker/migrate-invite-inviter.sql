@@ -1,0 +1,22 @@
+-- Invite inviter (2026-08-23): record WHICH researcher minted an invite, so the anti-phishing
+-- pairing gate can show the field user the person who is actually linking them.
+--
+-- ⚠ WHY THIS IS NEEDED. When a device pairs, the worker returns the linking researcher's identity
+-- (name/avatar/email) so the field user can confirm who is enrolling their device — the whole point
+-- of the accept gate is that the person being linked can recognise who is linking them. That
+-- identity was resolved through `instance.researcher_id`, which is ALWAYS the project OWNER (a
+-- maintained denormalisation, design-gap 4). So the moment a project MEMBER — a coworker the owner
+-- has invited with `createInvites` — enrols a device, the field user is shown the OWNER's identity,
+-- not the coworker's. The gate then vouches for the wrong person. This column carries the actual
+-- minter so the pairing response can name them; `invited_by IS NULL` (every pre-existing invite, and
+-- any owner-minted one) falls back to the instance owner, i.e. the unchanged behaviour.
+--
+-- Additive and nullable, so the CURRENTLY DEPLOYED worker keeps working against a database carrying
+-- it: nothing selects this column until the worker that knows about it is deployed, and an invite
+-- minted by the old worker simply has NULL here and resolves to the owner as before.
+--
+-- D1 has no IF NOT EXISTS for ADD COLUMN, so run ONCE; a second run errors harmlessly on
+-- "duplicate column name".
+--   wrangler d1 execute flextext-connectivity --remote --file=migrate-invite-inviter.sql
+
+ALTER TABLE invite ADD COLUMN invited_by TEXT;

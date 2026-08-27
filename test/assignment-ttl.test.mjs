@@ -58,7 +58,16 @@ const researcherRow = {
   researcher_id: 'r1', secret_hash: await sha256hex('sec'), approved: 1,
   drive_email: 'res@example.org', drive_refresh_enc: await encAtRest('refresh-token'),
 };
-const instanceRow = { instance_id: 'i1', nickname: 'Tablet A', oauth_folder_id: 'dev-folder', revoked: 0 };
+/* ⚠ `researcher_id` IS REQUIRED HERE, and its absence was a fixture bug rather than a test of
+ * anything: the real column is NOT NULL, so a row without it describes a database state that cannot
+ * exist. It went unnoticed while these routes authorized through authResearcher, which never read
+ * the instance's owner. authMember does — it is the whole basis of the dual-read path — so an
+ * ownerless fixture now (correctly) fails to authorize. `project_id: null` keeps this fixture on
+ * that legacy path deliberately, which is also the state most production rows were in. */
+const instanceRow = {
+  instance_id: 'i1', nickname: 'Tablet A', oauth_folder_id: 'dev-folder', revoked: 0,
+  researcher_id: 'r1', project_id: null,
+};
 
 const db = {
   prepare(sql) {

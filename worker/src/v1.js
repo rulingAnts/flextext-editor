@@ -13,6 +13,9 @@
  */
 
 import { secAlert, secLog, sendEmail } from './seclog.js';
+import { teardownUnmigratedProjectRows } from './project-teardown.js';
+import { stampDriveObject, deriveDriveObjectRows, moveDriveObjectText, moveDriveObjectContainer,
+         authorizeDocForProject, authorizeObjectForProject } from './drive-object.js';
 
 /* ---------------- crypto + helpers ---------------- */
 
@@ -74,15 +77,30 @@ function bytesToB64url(buf) {
 }
 function normEmail(e) { return String(e || '').trim().toLowerCase(); }
 
-// Researcher allowlist (A) + request/approve onboarding: env-listed emails are auto-approved
-// OWNERS (they can approve others); anyone else signs in PENDING (inert) until an owner approves
-// them. isApproved() gates the privileged endpoints — owners always pass (even if their row
-// predates the `approved` column, since it checks the env list too).
-function isOwner(email, env) {
+/* Researcher allowlist (A) + request/approve onboarding: env-listed emails are auto-approved
+ * OPERATORS (they can approve others); anyone else signs in PENDING (inert) until an operator
+ * approves them. isApproved() gates the privileged endpoints — operators always pass (even if their
+ * row predates the `approved` column, since it checks the env list too).
+ *
+ * ⚠ NAMED `isOperator`, NOT `isOwner`, AND THE DISTINCTION IS ABOUT TO MATTER (project-split
+ * II.0.9). This asks "is this email in ALLOWED_RESEARCHERS" — a DEPLOYMENT question about who
+ * administers this installation. It has nothing to do with `project.owner_id`, which is a DATA
+ * question about who owns one project and is the word Phase C is about to use everywhere.
+ *
+ * The design doc requires the rename BEFORE the word "owner" appears in project code, because the
+ * two are easy to conflate and conflating them is a privilege bug in the direction that matters: an
+ * operator check where a project-owner check belongs would let the deployment's admin act on a
+ * project they do not own, and a project-owner check where an operator check belongs would let any
+ * researcher approve accounts. Different questions, different answers, no shared vocabulary.
+ *
+ * ⚠ The WIRE value stays `not_owner`. It is an API response string, not an internal name, and no
+ * client inspects it (grepped) — but changing a response shape for a rename would be a compat risk
+ * taken for tidiness, which is the wrong trade. */
+function isOperator(email, env) {
   const a = String(env.ALLOWED_RESEARCHERS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
   return a.length > 0 && a.includes(normEmail(email));
 }
-function isApproved(r, env) { return !!(r && (r.approved || isOwner(r.drive_email, env))); }
+function isApproved(r, env) { return !!(r && (r.approved || isOperator(r.drive_email, env))); }
 
 // The domain of an address, for the approved_domain allowlist. Split on the LAST '@' (a local part
 // may legally contain one) and lowercase. Returns '' for anything not address-shaped, which can
@@ -154,6 +172,30 @@ async function hmacHex(keyStr, msg) {
 }
 // Email lookup key — HMAC so a D1 dump can't confirm an address without SERVER_HMAC_KEY.
 function emailKey(email, env) { return hmacHex(env.SERVER_HMAC_KEY || '', 'email:' + normEmail(email)); }
+
+/* Stamp a drive_object row for a folder/file the worker just created — NEVER letting a stamping
+ * failure break the Drive operation that succeeded. A missed stamp is not a hole: the object is
+ * denied to members (fail-closed) until the Phase 2 backfill covers it, and the owner reaches it
+ * through ownership regardless. So catch, log, and carry on. See worker/src/drive-object.js. */
+async function stampFolder(env, fields) {
+  try { await stampDriveObject(env.DB, { ...fields, now: fields.now || Date.now() }); }
+  catch (e) { try { console.warn('drive_object stamp failed', String(fields && fields.objectId || '').slice(0, 40), String((e && e.message) || e).slice(0, 100)); } catch { /* noop */ } }
+}
+
+/* Stamp a child object (text folder, originals, file) by INHERITING its parent's project/instance
+ * from the parent's already-stamped drive_object row — every creation flow stamps the parent
+ * (device/crowd folder) first, so the chain resolves top-down. If the parent is not yet stamped
+ * (a pre-existing folder the backfill has not reached), the child stamps with NULL project, which
+ * fails closed and is corrected by the backfill. Same fail-safe wrapper as stampFolder. */
+async function stampChild(env, { objectId, kind, docId = null, parentId }) {
+  if (!objectId || !parentId) return;
+  try {
+    const parent = await env.DB.prepare('SELECT instance_id, project_id, created_by FROM drive_object WHERE object_id=?').bind(parentId).first();
+    await stampDriveObject(env.DB, { objectId, kind, docId,
+      instanceId: parent ? parent.instance_id : null, projectId: parent ? parent.project_id : null,
+      createdBy: parent ? parent.created_by : null, now: Date.now() });
+  } catch (e) { try { console.warn('drive_object child stamp failed', String(objectId).slice(0, 40), String((e && e.message) || e).slice(0, 100)); } catch { /* noop */ } }
+}
 
 // AES-GCM key derived from SERVER_HMAC_KEY — encrypts email + TOTP secret AT REST (so a bare
 // D1 dump leaks neither).
@@ -310,7 +352,21 @@ async function verifyTurnstile(token, ip, env) {
  */
 const SESSION_CAP = 5;                              // browsers signed in at once; oldest is evicted
 const SESSION_TTL_STAY = 90 * 24 * 60 * 60 * 1000;  // "stay signed in" ON — 90 days, slid on each use
-const SESSION_TTL_TRANSIENT = 24 * 60 * 60 * 1000;  // OFF: the user has told us this is not their machine
+/* ⚠ OFF IS THE DEFAULT, AND THAT IS THE DECISION, NOT AN OVERSIGHT (Seth, 2026-08-20). The failure
+ * modes are asymmetric, which is what settles it: forgetting to TICK it costs a re-login, while
+ * forgetting to UNTICK it on a machine that is not yours leaves a 90-day credential behind on it.
+ * *"A researcher only needs to forget that once or twice and then they can check it. Better than
+ * forgetting the other way when security is important."*
+ *
+ * ⚠ This line used to read "the user has told us this is not their machine" — which an UNTICKED
+ * DEFAULT cannot support. Nobody told us anything; this is the safe assumption standing in until
+ * they say otherwise, and the distinction matters to whoever next reasons about what the flag means.
+ *
+ * The client half is the same decision: `staySignedIn()` returns false when the key is absent, and
+ * with it off the credential lives in sessionStorage — so it is gone when the tab closes, before any
+ * server-side session is consulted. Two mechanisms, one policy. Do not flip either to make sign-in
+ * stickier; a researcher asking for that can tick the box. */
+const SESSION_TTL_TRANSIENT = 24 * 60 * 60 * 1000;
 
 /* A coarse, human label — "Chrome on Windows". ⚠ The User-Agent is client-controlled and is being
  * actively reduced by browsers, so this is a HINT for recognising your own session in a list, never
@@ -413,6 +469,25 @@ async function authResearcher(req, env) {
 
 // Bind the install secret to the EXACT addressed row (Hardening §E.1): proves
 // install A cannot touch install B, and a revoked device is rejected.
+/* Who the PAIRING screen names to the field user: the researcher who MINTED the invite, resolved
+ * through invite.invited_by — NOT the instance owner. The accept gate exists so the person being
+ * linked can recognise WHO is linking them; when a project member enrols a device that is the
+ * MEMBER, and instance.researcher_id is always the owner (a maintained denormalisation), so joining
+ * on it would vouch for the wrong person. COALESCE falls back to the instance owner when invited_by
+ * is NULL — every pre-migration invite, and every owner-minted one — which is the unchanged
+ * behaviour. Identity IS returned here on purpose (unlike the pubkey lookup, which hides it): the
+ * whole point of the gate is that the field user sees who is enrolling their device. */
+async function pairingIdentity(env, inv) {
+  const row = await env.DB.prepare(
+    'SELECT n.type, r.display_name, r.avatar_url, r.drive_email FROM instance n '
+    + 'JOIN researcher r ON r.researcher_id=COALESCE(?, n.researcher_id) WHERE n.instance_id=?'
+  ).bind(inv.invited_by || null, inv.instance_id).first();
+  return {
+    type: row && row.type,
+    researcher: row ? { name: row.display_name || '', avatar: row.avatar_url || '', email: row.drive_email || '' } : null,
+  };
+}
+
 async function authInstall(req, env, instanceId, installId) {
   const secret = req.headers.get('x-fx-secret') || '';
   if (!secret) return null;
@@ -421,6 +496,301 @@ async function authInstall(req, env, instanceId, installId) {
   ).bind(installId, instanceId).first();
   if (!row || !ctEq(await sha256hex(secret), row.secret_hash)) return null;
   return row;
+}
+
+/* VALIDATE CAPS BEFORE THEY ARE STORED, never on the way out.
+ *
+ * ⚠ authMember DENIES on caps it cannot parse, which makes an invalid record fail safe — but failing
+ * safe at READ time means an owner can save a permission set that silently grants nothing, see no
+ * error, and believe their assistant has access. The write is the only moment anyone is present to
+ * be told. Validating in both places is not redundancy; they catch different failures.
+ *
+ * Returns a NORMALISED object or null. Normalising rather than passing the input through is what
+ * stops unknown keys accumulating in the column — a future capability name would otherwise already
+ * be present with a meaning nobody chose. */
+/* ⚠ ONE LIST, CONSULTED ON BOTH THE WRITE AND THE READ PATH. It began as a local inside
+ * validateCaps — a WRITE-time filter — and the completeness critic caught what that left open:
+ * authMember never called validateCaps, so a project_member row already containing
+ * {"drive":"manage"} or {"assignTexts":true} would still be honoured, reopening all nine same-root
+ * findings. Such a row could arrive from a future migration, an operator's D1 console, or simply
+ * from a build predating the deferral.
+ *
+ * The irony is that validateCaps' own comment argues the discipline this violated — "Validating in
+ * both places is not redundancy; they catch different failures" — and the deferral was implemented
+ * in exactly one of them. A write-path guarantee was being read as a system property.
+ *
+ * TO RE-ENABLE A CAPABILITY: remove its name here, once. Both paths follow.
+ *
+ * ⚠⚠ TWO DIFFERENT REASONS LIVE IN THIS ONE LIST, and confusing them would send the next person to
+ * the wrong fix:
+ *   · `assignTexts` / `drive` — the ROUTE IS NOT SAFE YET. Those routes still run account-wide Drive
+ *     searches on a caller-supplied id. They come back when Drive access is resolved per project
+ *     (VII.1's drive_object table). The capability is withheld because honouring it would be unsafe.
+ *   · `cancelOthers` — the ROUTE IS FINE; the RULE IS NOT EXPRESSIBLE YET. The design wants
+ *     cancelling your OWN queued command ungated (that is undo, not authority) and someone ELSE's
+ *     gated on this capability. That needs every command to name its issuer, and commands recorded
+ *     no author until `by` started being written (see the command-append route). Every command
+ *     queued before then has none and cannot acquire one — nobody can reconstruct who issued a
+ *     command after the fact — so splitting the rule now would treat the whole existing backlog as
+ *     either "mine" or "someone else's", and BOTH answers are wrong.
+ *
+ * ⚠ WHY IT IS REFUSED RATHER THAN LEFT GRANTABLE-BUT-INERT (Seth, 2026-08-24). Until now the cancel
+ * route gated on `manageDevices`, so ticking `cancelOthers` stored a capability that granted exactly
+ * nothing. That is the failure this file's own rule names twenty lines below — "an owner who ticks
+ * 'can assign texts' and is quietly given nothing believes their assistant has access they do not
+ * have, and nothing will tell them otherwise until it matters". It applied to this key too, and the
+ * whole point of a REFUSAL is that the owner finds out while someone is still present to be told.
+ * Note the direction: it under-delivered authority, so nothing was ever over-granted by it.
+ *
+ * TO RE-ENABLE `cancelOthers`: remove it here, put it back in the grant loop and the unknown-key
+ * list below, and split the cancel route on `cmd.by === ctx.caller.researcher_id` — with a decided
+ * answer for authorless commands. By then the backlog predating `by` will have aged out, which is
+ * what makes the question answerable rather than merely older. */
+export const DEFERRED_CAPS = ['assignTexts', 'drive', 'cancelOthers'];
+
+export function validateCaps(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const out = {};
+  /* ⚠ THERE IS NO PER-DEVICE VISIBILITY LIST, and its absence is the decision (Seth, 2026-08-20):
+   * *"I'm really not sure how granular we need our access to be at this point beyond project scope.
+   * And if an owner researcher needs it to be more specific than that, all he or she has to do is
+   * just create a separate project for that scope."*
+   *
+   * A `see` list was built first and removed on the same night, because it could not be made true.
+   * Device routes could honour it, but Google Drive is addressed by FILE ID — a member restricted to
+   * one device could still open another's files through any docId-routed Drive route. Keeping the
+   * list would have meant a checkbox that SAYS a device is hidden while it is not, which is worse
+   * than no checkbox: the owner would rely on it. The honest boundary is the one Drive can actually
+   * enforce, and that is the project.
+   *
+   * So: membership in a project grants access to everything IN that project, and the capabilities
+   * below say what may be DONE. Finer separation is a separate project — which is how Seth's own
+   * estate is already arranged (Fayu Text Corpus and Dani Dictionary). */
+
+  /* ⚠⚠ `assignTexts` AND `drive` ARE REFUSED IN v1, and this is remediation rather than caution.
+   * The 2026-08-21 audit confirmed 17 findings; NINE of them share one root cause and every one of
+   * those nine lives behind these two capabilities. Routes authorize the project correctly and then
+   * act on a Drive text or file id supplied by the CALLER, resolved by a tag search across the
+   * owner's ENTIRE Drive — so a member of one project could list, read, relocate or write into
+   * another project's texts using the owner's Drive authority. See
+   * plans/AUDIT-FINDINGS-2026-08-21.md.
+   *
+   * ⚠ The account-wide search is OLD, deliberate and documented (driveEnsureTextFolder: "the tag
+   * search is scoped to trashed=false but NOT to the parent"). It was harmless while those routes
+   * were owner-only. Converting them to authMember is what made it reachable by a member — the
+   * conversion did not introduce the search, it removed the thing that made it safe. So the fix is
+   * to stop handing out the capabilities that reach it, NOT to patch nine routes.
+   *
+   * ⚠⚠ THE DIVIDING LINE THIS ORIGINALLY CLAIMED IS FALSE, AND THE CORRECTION MATTERS MORE THAN THE
+   * RULE. It read: "EVERY dangerous route is one where the member names a Drive file or text; EVERY
+   * safe route works only from D1." The 2026-08-21 SWEEP disproved it within hours — `changeSettings`
+   * names no Drive id at all, yet a member holding only manageDevices could use it to repoint a
+   * field device's entire backend (see the guard on that route). The heuristic was seductive because
+   * it explained all nine findings of the previous round; it was still wrong, and a rule that
+   * explains the last outage is not thereby a rule about the next one.
+   *
+   * So: deferring assignTexts and drive closes the DRIVE-ID class specifically. It is not a proof
+   * that what remains is safe, and nothing here should be read as one. manageDevices reaches the
+   * command lane, which reaches the device's own settings, which is a control plane of its own.
+   *
+   * ⚠ REFUSED, NEVER SILENTLY DROPPED — the same rule as `see` and `wipe` below. An owner who ticks
+   * "can assign texts" and is quietly given nothing believes their assistant has access they do not
+   * have, and nothing will tell them otherwise until it matters.
+   *
+   * TO RE-ENABLE: they come back when Drive access is resolved per project rather than per account
+   * (VII.1's drive_object table, which needs only project_id now that access is project-scoped).
+   * Move the name from DEFERRED_CAPS back into the loop; the route-side gates already exist. */
+  for (const k of DEFERRED_CAPS) {
+    if (raw[k] !== undefined) return null;
+  }
+
+  for (const k of ['manageDevices', 'createInvites']) {
+    if (raw[k] === undefined) continue;
+    if (typeof raw[k] !== 'boolean') return null;   // a truthy STRING here would read as a grant
+    if (raw[k]) out[k] = true;                      // store only what is granted; absent === false
+  }
+  /* ⚠ NO WIPE OR FORCE-REMOVE CAPABILITY EXISTS, and an attempt to grant one is an ERROR rather than
+   * a silent drop. Those stay owner-only in v1 (round-1 finding 6); accepting the key and ignoring it
+   * would tell an owner they had delegated something they had not. */
+  for (const k of Object.keys(raw)) {
+    if (!['manageDevices', 'createInvites'].includes(k)) return null;
+  }
+  return out;
+}
+
+/* ---------------- PROJECT AUTHORIZATION (Phase C) ----------------
+ *
+ * `authMember` is the ONE place that answers "may this researcher do this to this thing". II.4 calls
+ * for one helper and one shape, and the reason is invariant I1: with two places to ask, the second
+ * one is where the hole is.
+ *
+ * ⚠ IT DOES NOT RETURN A RESEARCHER ROW, and that is deliberate against the obvious alternative.
+ * Making it drop-in compatible with `authResearcher` — hand back one row and let call sites carry on
+ * — requires that row to be BOTH "whose Drive we act in" and "who is acting". For the owner those
+ * are the same researcher, which is exactly why the conflation would survive every single-member
+ * test and then mis-attribute every member action the day sharing ships. It is the same confusion
+ * `isOwner` → `isOperator` was renamed to prevent, one layer down.
+ *
+ * So the two are named separately and a converted route says which it means:
+ *   · `owner`  — the FULL researcher row of the project's owner. Whole-row on purpose: R2-5,
+ *                `driveAccessToken(env, row)` and `verifySecondFactor(row, …)` take rows, and ~56
+ *                call sites read fields straight off one. A synthesized object breaks them silently.
+ *   · `caller` — the FULL researcher row of whoever is actually making the request, for attribution
+ *                (`logApproval`, `wrapped_by`, command authorship). NEVER for Drive.
+ *
+ * ⚠ FAIL CLOSED (I4). Every unresolvable step — no such target, no project, no membership row,
+ * unparseable caps, a missing table — DENIES. It never falls back to `researcher_id` scoping, which
+ * would widen access at precisely the moment something is already wrong.
+ *
+ * ⚠ AND DENIAL IS INDISTINGUISHABLE FROM ABSENCE. `{ ok: false }` is returned whether the project
+ * does not exist, the caller is not a member, or they lack the capability — so a route can answer
+ * `not_found` for all three. A distinct "forbidden" would turn every endpoint into an oracle for
+ * which project and instance ids exist.
+ *
+ * Returns:
+ *   null                → not authenticated at all; the route answers 401, exactly as authResearcher
+ *   { ok: false }       → authenticated but not authorized; the route answers not_found
+ *   { ok: true, caller, owner, project_id, caps, isOwner, see }
+ *
+ * `target` is TYPED — `{ instance }`, `{ crowd }` or `{ project }` — never a bare id to be guessed
+ * at. An auth boundary that infers what it was handed is one id-collision away from resolving the
+ * wrong project.
+ *
+ * `needCap` is null (membership alone suffices — a read), a capability name (`manageDevices`,
+ * `assignTexts`, `createInvites`, `cancelOthers`), or `drive:read` / `drive:manage`.
+ */
+export async function authMember(req, env, target, needCap) {
+  const caller = await authResearcher(req, env);
+  if (!caller) return null;                       // 401 — no identity at all
+  const deny = { ok: false };
+
+  /* Resolve the target's project. Each branch reads the project_id off the row that OWNS the
+   * relationship, never off anything the caller sent. */
+  let project_id = '';
+  let legacyOwner = '';           // instance.researcher_id — see the dual-read branch below
+  let addressedRow = false;       // did the target actually resolve to a row at all?
+  try {
+    if (target && target.instance) {
+      /* ⚠ `allowRevoked` EXISTS FOR CLEANUP ROUTES ONLY, and it is opt-in because the default must
+       * stay strict: a revoked device is unreachable, so resolving one would otherwise let an
+       * authorized caller keep acting on a device that has been withdrawn.
+       *
+       * But REVOKING A KEY GRANT is an act on a LEDGER ROW, not on a device, and requiring the
+       * device to be live made it impossible (2026-08-21 audit): revoke the phone and the owner
+       * could no longer withdraw the grants held against it — the one case where you most want to.
+       * The same applies to the retention work, which must delete grants for revoked instances.
+       *
+       * ⚠ EVERY CALL SITE THAT SETS IT MUST ALSO REQUIRE ctx.isOwner, and check-project-scoping.sh
+       * enforces that. A capability must never reach a revoked device through this door. */
+      const sql = 'SELECT project_id, researcher_id FROM instance WHERE instance_id=?'
+        + (target.allowRevoked ? '' : ' AND revoked=0');
+      const row = await env.DB.prepare(sql).bind(String(target.instance)).first();
+      if (row) { addressedRow = true; project_id = row.project_id || ''; legacyOwner = row.researcher_id || ''; }
+    } else if (target && target.crowd) {
+      const row = await env.DB.prepare('SELECT project_id, researcher_id FROM crowd_recorder WHERE crowd_id=?')
+        .bind(String(target.crowd)).first();
+      if (row) { addressedRow = true; project_id = row.project_id || ''; legacyOwner = row.researcher_id || ''; }
+    } else if (target && target.project) {
+      project_id = String(target.project);
+    }
+  } catch { return deny; }
+
+  /* ⚠ '' / NULL IS UNASSIGNED, NOT A PROJECT ID. Treating it as one would make every unassigned row
+   * a member of a single shared pseudo-project — the same reading member_key's write path has warned
+   * about since v435.
+   *
+   * ⚠⚠ BUT IT CANNOT SIMPLY DENY, AND THAT WOULD HAVE BROKEN PRODUCTION. `instance.project_id` is
+   * filled lazily, on the owner's next panel load — 12 production rows were still NULL when this was
+   * written, belonging to researchers who had not signed in since the backfill shipped. A route
+   * converted to deny on NULL would lock those researchers out of their OWN devices, and the failure
+   * would arrive silently, weeks later, for whoever had been away longest. This is the dual-read
+   * window the design mandates ("researcher_id STAYS (dual-read window)", II.5 B).
+   *
+   * ⚠ AND IT DOES NOT WEAKEN I4, because of what it deliberately does NOT do: it consults
+   * `project_member` not at all. The ONLY researcher it can ever authorize is the instance's own
+   * `researcher_id`, which design-gap 4 pins as "a maintained denormalization: ALWAYS equal to the
+   * project's owner_id". So the widest this branch reaches is exactly the pre-Phase-C behaviour for
+   * that one row — a member can never arrive through it, which is the fall-through the plan forbids.
+   * Fail-closed for everyone else, unchanged.
+   *
+   * It closes on its own: every lazy mint removes rows from it, and it is unreachable once none are
+   * left. `legacy: true` rides the context so a route (or a diagnostic) can SAY it took this path
+   * rather than leaving it to be inferred. */
+  if (!project_id) {
+    if (addressedRow && legacyOwner && legacyOwner === caller.researcher_id) {
+      return { ok: true, caller, owner: caller, project_id: '', caps: {}, isOwner: true, legacy: true };
+    }
+    return deny;
+  }
+
+  const project = await env.DB.prepare('SELECT project_id, owner_id FROM project WHERE project_id=?')
+    .bind(project_id).first().catch(() => null);
+  if (!project || !project.owner_id) return deny;
+
+  /* The owner's row is fetched even when the caller IS the owner, rather than reusing `caller`: it
+   * keeps ONE definition of "the row Drive acts through", so a converted route cannot accidentally
+   * work for the owner via a path that would be wrong for a member. */
+  const owner = project.owner_id === caller.researcher_id
+    ? caller
+    : await env.DB.prepare('SELECT * FROM researcher WHERE researcher_id=?').bind(project.owner_id).first().catch(() => null);
+  if (!owner) return deny;
+
+  const isOwner = project.owner_id === caller.researcher_id;
+  if (isOwner) {
+    // The owner has no project_member row by construction (ownership is project.owner_id) and passes
+    // every capability.
+    return { ok: true, caller, owner, project_id, caps: {}, isOwner: true };
+  }
+
+  let member = null;
+  try {
+    member = await env.DB.prepare('SELECT caps FROM project_member WHERE project_id=? AND researcher_id=?')
+      .bind(project_id, caller.researcher_id).first();
+  } catch (e) {
+    /* A missing table denies rather than throwing a 500 — but NOT silently. Same reasoning as the
+     * session lane: the degraded behaviour must be survivable and the missing migration must be
+     * visible, or it goes unnoticed until sharing mysteriously does not work. */
+    try { await secLog(env, req, 'project_member_table_missing', { error: String((e && e.message) || e).slice(0, 120) }); } catch { /* noop */ }
+    return deny;
+  }
+  if (!member) return deny;                       // not a member of this project
+
+  let caps = null;
+  try { caps = JSON.parse(member.caps || '{}'); } catch { caps = null; }
+  // ⚠ Unparseable caps DENY. "Grant nothing" is the only safe reading of a permission record we
+  // cannot read; defaulting to {} would be the same outcome by accident rather than by decision.
+  if (!caps || typeof caps !== 'object' || Array.isArray(caps)) return deny;
+
+  /* ⚠ NO PER-DEVICE CHECK HERE — see validateCaps. The project IS the boundary, so resolving the
+   * target to this project (above) is the whole of the scoping. Anything narrower would have to be
+   * enforceable in Drive too, and it is not. */
+
+  /* ⚠ A STORED DEFERRED CAPABILITY DENIES THE WHOLE RECORD, at READ time, whatever the row says.
+   * validateCaps refuses to WRITE these; this refuses to HONOUR them, and the two catch different
+   * failures — the write path cannot police a row it did not write.
+   *
+   * Denying the entire context rather than masking the offending key is deliberate: a record that
+   * should have been impossible is evidence something else is wrong, and quietly serving the rest of
+   * it would hide that. No such row exists today, so nothing legitimate is refused; if one appears,
+   * failing loudly is the outcome worth having. */
+  for (const k of DEFERRED_CAPS) {
+    if (caps[k] !== undefined) {
+      try { await secLog(env, req, 'deferred_cap_in_stored_row', { project_id, cap: k }); } catch { /* noop */ }
+      return deny;
+    }
+  }
+
+  if (needCap) {
+    const want = String(needCap);
+    if (want === 'drive:read') {
+      if (caps.drive !== 'read' && caps.drive !== 'manage') return deny;
+    } else if (want === 'drive:manage') {
+      if (caps.drive !== 'manage') return deny;
+    } else if (!caps[want]) {
+      return deny;
+    }
+  }
+  return { ok: true, caller, owner, project_id, caps, isOwner: false };
 }
 
 /* ---------------- Drive delivery (crowd submissions + researcher OAuth) ----------------
@@ -672,7 +1042,7 @@ function buildDriveEstate(files) {
  * whichever device used to have it, which is simply false to anyone browsing Drive. Same philosophy
  * as originals/ and the "(done)" suffix: the folder tree should describe the truth without our
  * tools. Tagged like every other structural folder so it is found by role, not by name. */
-async function driveUnassignedFolder(access, projectFolderId) {
+async function driveUnassignedFolder(env, access, projectFolderId, createdBy) {
   /* ⚠ ONE PER PROJECT, NOT ONE PER ACCOUNT — and this had to change in the SAME commit as the
    * project layer, never after it. The previous version searched globally for role='unassigned' and
    * took the first hit; with a folder per project that is an ARBITRARY project's folder, so the
@@ -683,14 +1053,29 @@ async function driveUnassignedFolder(access, projectFolderId) {
    * With no project folder (the flat estate) the parent is master and the behaviour is exactly what
    * it was. */
   const parent = projectFolderId || await driveMasterFolder(access);
-  const q = encodeURIComponent(`'${parent}' in parents and appProperties has { key='flextextRole' and value='unassigned' } and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+  /* The D1 project this folder is authorized under — resolved from the JOIN column, never from the
+   * folder name. NULL (flat estate, or a Drive folder with no D1 row yet) fails closed for members
+   * and is healed by the backfill; see drive-object.js. */
+  const prow = projectFolderId
+    ? await env.DB.prepare('SELECT project_id FROM project WHERE drive_folder_id=?').bind(projectFolderId).first().catch(() => null)
+    : null;
+  const projectId = (prow && prow.project_id) || null;
   try {
+    const q = encodeURIComponent(`'${parent}' in parents and appProperties has { key='flextextRole' and value='unassigned' } and mimeType='application/vnd.google-apps.folder' and trashed=false`);
     const found = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files?spaces=drive&orderBy=createdTime&fields=files(id)&q=' + q);
-    if (found.files && found.files.length) return found.files[0].id;
+    if (found.files && found.files.length) {
+      /* Re-stamp the found folder too, not just a created one: an Unassigned minted before this
+       * function stamped (or by an older worker) self-heals on first touch instead of waiting for
+       * an operator backfill. One D1 upsert; location fields refresh, creation facts persist. */
+      await stampFolder(env, { objectId: found.files[0].id, kind: 'unassigned', instanceId: null, projectId, createdBy: createdBy || null });
+      return found.files[0].id;
+    }
   } catch { /* fall through to create */ }
   const f = await driveJson(access, 'POST', 'https://www.googleapis.com/drive/v3/files?fields=id',
     { name: 'Unassigned', mimeType: 'application/vnd.google-apps.folder',
       parents: [parent], appProperties: { flextextRole: 'unassigned' } });
+  // Creation ⟹ stamped (drive-object.js). The one place account-level Unassigned folders are born.
+  await stampFolder(env, { objectId: f.id, kind: 'unassigned', instanceId: null, projectId, createdBy: createdBy || null });
   return f.id;
 }
 
@@ -711,20 +1096,34 @@ async function driveReparent(access, fileId, toFolder, oldParents) {
  * return trip needs explicit code because driveEnsureTextFolder resolves a folder by id/tag and
  * NEVER by parent, so a text that came back to a device would otherwise live in Unassigned forever.
  * `want` is null for "no change" (old engines send no done-ness at all). */
-async function driveTextHousekeeping(access, folderId, { want = null, deviceFolder = '', title = '' } = {}) {
+async function driveTextHousekeeping(access, folderId, { want = null, deviceFolder = '', title = '', env = null, ownerId = '', instanceId = '', projectId = null } = {}) {
   if (!folderId) return;
   try {
     const cur = await driveJson(access, 'GET',
       'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(folderId) + '?fields=id,name,parents,appProperties');
     const props = cur.appProperties || {};
-    // RETURN TRIP: only ever moves it OUT of Unassigned, never re-files a folder the researcher
-    // deliberately put somewhere else in their own Drive.
+    /* RETURN TRIP: only ever moves it OUT of Unassigned, never re-files a folder the researcher
+     * deliberately put somewhere else in their own Drive.
+     *
+     * ⚠ THE TAG IS THE WHOLE AUTHORITY HERE, so its write side must be honest: `'1'` means "the
+     * SWEEP filed this while the device still held it", and drive-unassign now clears it on a
+     * researcher-DIRECTED (forceProject) filing precisely so this trip cannot undo an explicit
+     * cross-project move — which it did, on every upload of an unsynced text, with every response
+     * reporting success (issue #13). If this check ever reads anything but the tag, re-derive that
+     * distinction first. */
     if (deviceFolder && !(cur.parents || []).includes(deviceFolder)) {
       const unassigned = props.flextextUnassigned === '1';
       if (unassigned) {
         await driveReparent(access, folderId, deviceFolder, cur.parents);
         await driveJson(access, 'PATCH', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(folderId) + '?fields=id',
           { appProperties: { flextextUnassigned: '' } });
+        /* The return is a MOVE like any other: the doc's drive_object rows come home to the device
+         * (its project rides along). Same best-effort contract as the rest of this function — the
+         * doc id comes off the folder's own tag, so no extra read. */
+        const docId = props.flextextDoc || '';
+        if (env && ownerId && docId) {
+          await moveDriveObjectText(env.DB, { docId, ownerId, projectId: projectId || null, instanceId: instanceId || null });
+        }
       }
     }
     if (want === null) return;
@@ -806,6 +1205,10 @@ async function driveEnsureDeviceFolder(env, access, instanceId, nickname, existi
   const f = await driveJson(access, 'POST', 'https://www.googleapis.com/drive/v3/files?fields=id',
     { name, mimeType: 'application/vnd.google-apps.folder', parents: [parent] });
   await env.DB.prepare('UPDATE instance SET oauth_folder_id=? WHERE instance_id=?').bind(f.id, instanceId).run();
+  /* Stamp it: one chokepoint covers every device-folder creation. project_id + owner come off the
+   * instance row so the caller need not thread them; NULL project_id is a valid unassigned state. */
+  const irow = await env.DB.prepare('SELECT project_id, researcher_id FROM instance WHERE instance_id=?').bind(instanceId).first();
+  await stampFolder(env, { objectId: f.id, kind: 'device', instanceId, projectId: (irow && irow.project_id) || null, createdBy: irow && irow.researcher_id });
   return f.id;
 }
 
@@ -982,7 +1385,7 @@ export function clampTtlDays(v) {
  * Additive on purpose: scope is optional, and a v1 token minted before this change still serves
  * exactly as it did. TTL semantics are deliberately UNCHANGED here — shortening them is visible to
  * researchers who set a delivery window, so it is a separate decision, not a side effect of this. */
-async function mintTextfileUrl(env, urlOrigin, researcherId, fileId, extract, ttlMs, scope) {
+async function mintTextfileUrl(env, urlOrigin, researcherId, fileId, extract, ttlMs, scope, minterId) {
   if (!fileId) return null;
   /* ⚠ `n` AND `iat` ARE FREE NOW AND CANNOT BE ADDED LATER — not to tokens already in the field,
    * which is the whole point. Without a per-token id the only way to withdraw one URL is to revoke
@@ -991,6 +1394,27 @@ async function mintTextfileUrl(env, urlOrigin, researcherId, fileId, extract, tt
   const tk = { r: researcherId, f: fileId, x: extract || '', e: Date.now() + (ttlMs || 90 * 86400000),
                n: crypto.randomUUID(), iat: Date.now() };
   if (scope && scope.instanceId) { tk.v = 2; tk.i = scope.instanceId; if (scope.docId) tk.d = scope.docId; }
+  /* ⚠ `m` — WHO MINTED THIS, recorded ONLY when that is not the Drive owner (invariant I2).
+   * A member with assignTexts mints URLs into the OWNER's Drive and, having minted them, has seen
+   * them. The token is otherwise self-standing: its contents are its whole authority, so removing
+   * that member leaves them holding 90 days of read access to those files with no grant behind it.
+   * Stamping the minter is what lets redemption ask whether the grant still stands.
+   * Absent for owner-minted tokens, which is every token in the field today — so they are read
+   * exactly as before rather than being invalidated by a deploy. */
+  if (minterId && minterId !== researcherId) {
+    /* ⚠ A MEMBER MAY NOT MINT AN UNSCOPED TOKEN. Redemption revokes a member-minted URL by resolving
+     * the minter's grant, and it can only ask the PRECISE question — "are they still a member of the
+     * project this instance belongs to" — when the token names an instance. Without one it could
+     * only fall back to "a member of ANY project of this owner", so removing someone from the
+     * project the file belongs to would leave the URL alive on the strength of an unrelated
+     * membership (2026-08-21 audit).
+     *
+     * Refusing to mint is better than checking loosely at redemption: it removes the coarse path
+     * rather than improving it, and it fails at the moment a person is present rather than silently
+     * later. Owner-minted tokens are untouched — they carry no `m` at all. */
+    if (!(scope && scope.instanceId)) return null;
+    tk.m = minterId;
+  }
   return urlOrigin + '/v1/textfile/' + encodeURIComponent(await encAtRest(env, JSON.stringify(tk)));
 }
 
@@ -1055,6 +1479,7 @@ async function driveEnsureCrowdFolder(env, access, rec) {
     { name, mimeType: 'application/vnd.google-apps.folder', parents: [parent],
       appProperties: { flextextRole: 'crowd' } });
   await env.DB.prepare('UPDATE crowd_recorder SET oauth_folder_id=? WHERE crowd_id=?').bind(f.id, rec.crowd_id).run();
+  await stampFolder(env, { objectId: f.id, kind: 'crowd', instanceId: null, projectId: rec.project_id || null, createdBy: rec.researcher_id });
   return f.id;
 }
 
@@ -1090,9 +1515,12 @@ function crowdTextTitle(rec, at) {
 async function driveEnsureCrowdTextFolder(env, access, rec, subId, at) {
   const crowdFolder = await driveEnsureCrowdFolder(env, access, rec);
   const textFolder = await driveEnsureTextFolder(access, crowdFolder, subId, crowdTextTitle(rec, at), '');
+  await stampChild(env, { objectId: textFolder, kind: 'text', docId: subId, parentId: crowdFolder });
   // …/originals/, the same child a device's source package lands in. The submission zip and its
   // manifest go in there, not in the text folder root, so the two origins produce one shape.
-  return { textFolder, originals: await driveEnsureChildFolder(access, textFolder, 'originals', 'originals') };
+  const originals = await driveEnsureChildFolder(access, textFolder, 'originals', 'originals');
+  await stampChild(env, { objectId: originals, kind: 'originals', docId: subId, parentId: textFolder });
+  return { textFolder, originals };
 }
 
 /* Lift the CLIENT-WRITTEN manifest out of a delivered submission zip and place it beside the zip in
@@ -1443,16 +1871,76 @@ function defaultProjectName(row) {
 /* Mint the owner's project and adopt their instances + crowd recorders into it. IDEMPOTENT by
  * construction — every write is conditional on the row not already being there — so it is safe to
  * re-run after a partial failure, which is the property a backfill actually needs. */
+/* Backfill drive_object for ONE researcher's whole estate (Phase 2). Lists their Drive, builds the
+ * device/crowd- and project-folder maps from D1, derives a row per object by parentage (the tested
+ * deriveDriveObjectRows), and upserts them. Idempotent — a second run over the same estate re-stamps
+ * to the same values. Skips a researcher with no Drive token (nothing to list).
+ *
+ * ⚠ BATCHED, and bounded by driveListAll's own 20k page cap. A field estate is hundreds to low
+ * thousands of objects; batching the upserts keeps it to a handful of D1 round trips rather than one
+ * per object. */
+async function backfillDriveObjectsFor(env, researcher, now) {
+  if (!researcher.drive_refresh_enc) return { skipped: true, files: 0, stamped: 0 };
+  const access = await driveAccessToken(env, researcher);
+  const files = await driveListAll(access, false);
+  const insts = ((await env.DB.prepare('SELECT instance_id, oauth_folder_id, project_id FROM instance WHERE researcher_id=?').bind(researcher.researcher_id).all()).results) || [];
+  const crowds = ((await env.DB.prepare('SELECT crowd_id, oauth_folder_id, project_id FROM crowd_recorder WHERE researcher_id=?').bind(researcher.researcher_id).all()).results) || [];
+  const deviceByFolder = new Map();
+  for (const i of insts) if (i.oauth_folder_id) deviceByFolder.set(i.oauth_folder_id, { instanceId: i.instance_id, projectId: i.project_id || null });
+  for (const c of crowds) if (c.oauth_folder_id) deviceByFolder.set(c.oauth_folder_id, { instanceId: null, projectId: c.project_id || null });
+  const projs = ((await env.DB.prepare('SELECT project_id, drive_folder_id FROM project WHERE owner_id=?').bind(researcher.researcher_id).all()).results) || [];
+  const projByFolder = new Map();
+  for (const p of projs) if (p.drive_folder_id) projByFolder.set(p.drive_folder_id, p.project_id);
+
+  const rows = deriveDriveObjectRows(files, deviceByFolder, projByFolder, researcher.researcher_id, now);
+  const SQL = 'INSERT INTO drive_object (object_id, kind, doc_id, instance_id, project_id, created_by, created_at) '
+    + 'VALUES (?,?,?,?,?,?,?) ON CONFLICT(object_id) DO UPDATE SET kind=excluded.kind, doc_id=excluded.doc_id, '
+    + 'instance_id=excluded.instance_id, project_id=excluded.project_id';
+  let stamped = 0;
+  for (let i = 0; i < rows.length; i += 100) {
+    const chunk = rows.slice(i, i + 100);
+    await env.DB.batch(chunk.map((r) => env.DB.prepare(SQL).bind(r.objectId, r.kind, r.docId, r.instanceId, r.projectId, r.createdBy, r.now)));
+    stamped += chunk.length;
+  }
+  return { skipped: false, files: files.length, stamped };
+}
+
 async function backfillProjectsFor(env, row, now) {
-  let project = await env.DB.prepare('SELECT project_id FROM project WHERE owner_id=? ORDER BY created_at LIMIT 1')
+  let project = await env.DB.prepare('SELECT project_id, drive_folder_id FROM project WHERE owner_id=? ORDER BY created_at LIMIT 1')
     .bind(row.researcher_id).first();
   let created = false;
   if (!project) {
     const project_id = crypto.randomUUID();
     await env.DB.prepare('INSERT INTO project (project_id, owner_id, name, created_at) VALUES (?,?,?,?)')
       .bind(project_id, row.researcher_id, defaultProjectName(row), now).run();
-    project = { project_id };
+    project = { project_id, drive_folder_id: null };
     created = true;
+  }
+  /* ⚠ RESOLVE THE DRIVE FOLDER, because without it this project cannot be scoped. Phase C's Drive
+   * rules (R2-1) work by FOLDER PARENTAGE — "which folders belong to the project this member may
+   * see" — and that question is unanswerable until the D1 row points at a folder.
+   *
+   * ⚠ FAILURE IS A REAL STATE, NOT AN ERROR. A researcher who has never connected Drive has no
+   * folder to point at, and a Drive outage must not fail a backfill whose D1 work already
+   * succeeded. Both leave drive_folder_id NULL, which Phase C reads as "no Drive scoping possible
+   * here" and which FAILS CLOSED (invariant I4) rather than falling back to the whole estate.
+   *
+   * Conditional on absence like every other write here, so re-running never re-points a project
+   * somebody has since moved. */
+  let driveFolder = project.drive_folder_id || null;
+  if (!driveFolder && row.drive_refresh_enc) {
+    try {
+      const access = await driveAccessToken(env, row);
+      driveFolder = await driveEnsureDefaultProject(access, defaultProjectName(row));
+      if (driveFolder) {
+        await env.DB.prepare('UPDATE project SET drive_folder_id=? WHERE project_id=? AND drive_folder_id IS NULL')
+          .bind(driveFolder, project.project_id).run();
+        // Creation ⟹ stamped: the lazy mint is how every NEW account gets its first project folder,
+        // so a hole here re-opens on every signup. Upsert — re-running heals, never duplicates.
+        await stampFolder(env, { objectId: driveFolder, kind: 'project', instanceId: null,
+                                 projectId: project.project_id, createdBy: row.researcher_id });
+      }
+    } catch { driveFolder = null; }   // no Drive, or Drive unwell — the D1 half still stands
   }
   /* Only rows that have NO project yet are adopted: re-running must never move an instance that has
    * since been placed somewhere deliberately. */
@@ -1462,10 +1950,121 @@ async function backfillProjectsFor(env, row, now) {
     .bind(project.project_id, row.researcher_id).run();
   return {
     project_id: project.project_id,
+    drive_folder_id: driveFolder,
     created,
     instances: (inst.meta && inst.meta.changes) || 0,
     crowd: (crowd.meta && crowd.meta.changes) || 0,
   };
+}
+
+/* ---------------- ONE D1 PROJECT PER DRIVE PROJECT FOLDER ----------------
+ *
+ * ⚠ WHY THIS EXISTS, and it is not a tidiness fix. `backfillProjectsFor` mints exactly ONE project
+ * per researcher and points it at the DEFAULT Drive folder, because Phase B's model had no notion
+ * of a second one. A researcher who owns TWO project folders (Seth, 2026-08-20 — "Fayu Text Corpus"
+ * and "Dani Dictionary") therefore got ONE D1 row, and EVERY container was adopted into it —
+ * including the ones whose folders sit inside the other project.
+ *
+ * Under Phase C that is not a cosmetic mismatch. Authorization reads `instance.project_id`, so a
+ * grant naming the one project would authorize a member against devices from BOTH — precisely the
+ * isolation the phase exists to provide, absent on the very first estate it met. And the second
+ * folder had no D1 row at all, so `/projects/assign` into it resolved to NULL (fail-closed, but
+ * unusable).
+ *
+ * ⚠ DRIVE PARENTAGE IS THE AUTHORITY HERE, so this CORRECTS rather than merely fills. Adoption
+ * everywhere else is conditional on `project_id IS NULL` — the rule that re-running a backfill must
+ * never move what somebody placed deliberately. This is the one exception, and the reason it is one:
+ * a container's Drive parent is not a competing opinion about which project it is in, it is where
+ * the bytes physically are. When the two disagree, D1 is wrong by definition, and leaving it wrong
+ * means authorizing against a project the container is demonstrably not in (invariant I4's whole
+ * concern, arrived at from the other side).
+ *
+ * ⚠ NO EXTRA DRIVE CALL, AND NO WRITE IN THE STEADY STATE. The estate is already in hand at the
+ * call site, and every statement below is emitted only for a row whose value actually DIFFERS. A
+ * correct database polled every few seconds therefore issues nothing at all — which is what makes
+ * it safe to hang off a route the panel calls constantly.
+ *
+ * Pure D1 given an estate, so it is testable on the rig without Drive credentials — which the
+ * `drive_folder_id` resolution in the backfill above notably is not. */
+export async function reconcileProjects(env, researcherId, estate, now) {
+  const folders = (estate && estate.projects) || [];
+  if (!folders.length) return { projects: 0, writes: 0 };   // flat estate — nothing to mirror yet
+
+  const rows = (await env.DB.prepare(
+    'SELECT project_id, name, drive_folder_id FROM project WHERE owner_id=? ORDER BY created_at'
+  ).bind(researcherId).all()).results || [];
+  const byFolder = new Map(rows.filter((p) => p.drive_folder_id).map((p) => [p.drive_folder_id, p]));
+
+  /* A project row pointing at NO folder can scope nothing (Phase C reads a NULL folder as "no Drive
+   * scoping possible" and denies), so the first unmatched folder CLAIMS it rather than leaving an
+   * orphan sitting beside a fresh insert. Only when exactly one such row exists: with two, which
+   * folder each belongs to is a guess, and a guess here mis-files real devices. */
+  const orphans = rows.filter((p) => !p.drive_folder_id);
+  let claimable = orphans.length === 1 ? orphans[0] : null;
+
+  const writes = [];
+  for (const f of folders) {
+    const name = String(f.name || '').slice(0, 120);
+    const have = byFolder.get(f.folderId);
+    if (have) {
+      /* D1's `name` is a DENORMALISATION of the folder's name, exactly as `researcher_id` is a
+       * denormalisation of the project's owner. Keeping it in step is what stops Phase D's sharing
+       * UI offering a member "Seth Johnston's project" when the panel two tabs away says
+       * "Fayu Text Corpus". Display only — the folder ID is identity, here as everywhere. */
+      if (name && have.name !== name) {
+        writes.push(env.DB.prepare('UPDATE project SET name=? WHERE project_id=?').bind(name, have.project_id));
+        have.name = name;
+      }
+      continue;
+    }
+    if (claimable) {
+      writes.push(env.DB.prepare('UPDATE project SET drive_folder_id=?, name=? WHERE project_id=? AND drive_folder_id IS NULL')
+        .bind(f.folderId, name || claimable.name, claimable.project_id));
+      byFolder.set(f.folderId, { project_id: claimable.project_id, name: name || claimable.name });
+      claimable = null;
+      continue;
+    }
+    const pid = crypto.randomUUID();
+    writes.push(env.DB.prepare('INSERT INTO project (project_id, owner_id, name, created_at, drive_folder_id) VALUES (?,?,?,?,?)')
+      .bind(pid, researcherId, name || 'Project', now, f.folderId));
+    byFolder.set(f.folderId, { project_id: pid, name });
+  }
+
+  /* Which D1 project each CONTAINER should be in, read straight off the tree. `d.projectId` is the
+   * Drive id of the project folder the container sits in, or '' when it is still directly under
+   * master — and '' is left alone, because an unmigrated estate is a valid state, not a drift. */
+  const want = new Map();
+  for (const d of (estate.devices || [])) {
+    if (!d.projectId || !d.folderId) continue;
+    const p = byFolder.get(d.projectId);
+    if (p) want.set(d.folderId, p.project_id);
+  }
+  if (want.size) {
+    /* Revoked instances are included deliberately: their folders are still in the tree, and a
+     * revoked row with a stale project_id is a row that becomes wrong the moment it is un-revoked. */
+    for (const [table, col] of [['instance', 'instance'], ['crowd_recorder', 'crowd_recorder']]) {
+      const cur = (await env.DB.prepare(
+        `SELECT oauth_folder_id, project_id FROM ${table} WHERE researcher_id=? AND oauth_folder_id IS NOT NULL`
+      ).bind(researcherId).all()).results || [];
+      for (const x of cur) {
+        const pid = want.get(x.oauth_folder_id);
+        if (pid && x.project_id !== pid) {
+          writes.push(env.DB.prepare(`UPDATE ${col} SET project_id=? WHERE oauth_folder_id=? AND researcher_id=?`)
+            .bind(pid, x.oauth_folder_id, researcherId));
+        }
+      }
+    }
+  }
+
+  if (!writes.length) return { projects: byFolder.size, writes: 0 };
+  /* ⚠ BOUNDED, and the remainder is not lost — it lands on the next estate load, which the panel
+   * makes constantly. An unbounded batch is the failure mode `drive-purge` already learned twice:
+   * a big enough estate turns a correct loop into a request that dies. Projects are pushed before
+   * containers, so a truncated batch always leaves the rows a later pass needs. */
+  const CAP = 64;
+  const batch = writes.slice(0, CAP);
+  await env.DB.batch(batch);
+  return { projects: byFolder.size, writes: batch.length, remaining: Math.max(0, writes.length - CAP) };
 }
 
 export async function handleV1(request, env, ctx, url, path, origin) {
@@ -1474,6 +2073,39 @@ export async function handleV1(request, env, ctx, url, path, origin) {
   const seg = path.split('/').filter(Boolean); // ['v1', ...]
   const m = request.method;
   const now = Date.now();
+
+  /* ---------------- MAINTENANCE FREEZE (Seth, 2026-08-26) ----------------
+   *
+   * A second, INDEPENDENT ops_flag: `maintenance` is a banner and nothing else; `freeze` is a
+   * banner PLUS a write lock on researcher-side mutation, for the deploys that are extra risky,
+   * only testable in production, and may need rolling back — where a researcher moving texts or
+   * pushing settings mid-rollout adds exactly the entropy the rollback would then have to
+   * distinguish from the change under test. Raise either, or both.
+   *
+   * ⚠ RESEARCHER LANE ONLY, BY CONSTRUCTION. The gate keys on the x-fx-researcher header, which no
+   * field-device or install lane ever sends — a translator uploading hours of work offline in
+   * Papua must never meet this flag, exactly like the maintenance notice (researcher-panel only,
+   * test-enforced). GETs pass so the panel keeps showing live state (with the banner) while
+   * locked; signout passes so nobody is trapped in a session; the OPERATOR passes so the person
+   * running the risky deploy can still drive the test — the flag exists FOR their test, and it is
+   * one more D1 read only while frozen.
+   *
+   * 423 (Locked), deliberately NOT 503: the client api() treats 5xx as transient and would retry
+   * a frozen write through its whole backoff ladder before telling the human anything. 423
+   * surfaces immediately, and the panel maps it to the freeze message. */
+  if (m !== 'GET' && m !== 'OPTIONS' && request.headers.get('x-fx-researcher')) {
+    let frozen = null;
+    try {
+      const f = await env.DB.prepare('SELECT value FROM ops_flag WHERE key=?').bind('freeze').first();
+      if (f && f.value) frozen = String(f.value).slice(0, 500);
+    } catch { /* table absent (pre-migration) — no freeze */ }
+    if (frozen && !(seg[1] === 'researcher' && seg[2] === 'signout')) {
+      const rr = await authResearcher(request, env);
+      if (!(rr && isOperator(rr.drive_email, env))) {
+        return j({ error: 'maintenance_freeze', message: frozen }, 423, origin, env);
+      }
+    }
+  }
 
   /* GET /v1/textfile/<token> — stream a researcher-Drive file to an assigned DEVICE.
    * The token is opaque (AES-GCM under SERVER_HMAC_KEY), time-boxed (90 days), and names the
@@ -1497,6 +2129,39 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       const live = await env.DB.prepare('SELECT instance_id FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
         .bind(tk.i, tk.r).first();
       if (!live) return j({ error: 'gone' }, 410, origin, env);
+    }
+    /* ⚠ A MEMBER-MINTED TOKEN IS A POINTER, GOOD ONLY WHILE THE GRANT IS (invariant I2).
+     *
+     * The design calls this required, not optional, before members ship, and the reason is that the
+     * token is otherwise SELF-STANDING: everything needed to serve it travels inside it, so it
+     * outlives the authority that created it. A member with assignTexts mints URLs into the owner's
+     * Drive and has necessarily seen them; remove that member and, without this, they keep reading
+     * those files for the rest of the 90 days with no grant behind it. Revocation that leaves a
+     * 90-day tail is not revocation.
+     *
+     * ⚠ OWNER-MINTED TOKENS ARE UNTOUCHED — `m` is absent on every token in the field today, so this
+     * costs them not one query. The check runs only for tokens a member created.
+     *
+     * ⚠ AND YES, THIS CAN CUT OFF A FIELD DEVICE mid-assignment when its minter is removed. That is
+     * the intended trade and it is recoverable: the owner re-assigns and a fresh URL is minted. The
+     * alternative — leaving the link live because a device is innocent — is exactly the 90-day tail,
+     * and it is not fixable after the fact because nobody can tell who still holds the URL. */
+    if (tk.m && tk.m !== tk.r) {
+      let ok2 = null;
+      try {
+        ok2 = tk.i
+          ? await env.DB.prepare(
+              'SELECT 1 AS ok FROM project_member pm JOIN instance i ON i.project_id=pm.project_id '
+              + 'WHERE pm.researcher_id=? AND i.instance_id=?').bind(tk.m, tk.i).first()
+          /* No scoped instance (a v1-shaped token that still names a minter): fall back to "are they
+           * still a member of ANY project this owner owns". Coarser, and deliberately so — the
+           * precise question is unanswerable without the instance, and the coarse one still closes
+           * on removal, which is what the invariant is about. */
+          : await env.DB.prepare(
+              'SELECT 1 AS ok FROM project_member pm JOIN project p ON p.project_id=pm.project_id '
+              + 'WHERE pm.researcher_id=? AND p.owner_id=?').bind(tk.m, tk.r).first();
+      } catch { ok2 = null; }      // unreadable membership DENIES (I4), never serves
+      if (!ok2) return j({ error: 'gone' }, 410, origin, env);
     }
     try {
       const access = await driveAccessToken(env, owner);
@@ -1662,10 +2327,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     // A (allowlist) + request/approve: env-listed emails are auto-approved OWNERS; anyone else may
     // sign in but their account is created PENDING (inert) until an owner approves it in the panel.
     // No hard reject here — the isApproved() gate on the privileged endpoints is what protects them.
-    const owner = isOwner(email, env);
+    const operator = isOperator(email, env);
     // Pre-approved DOMAIN (D1 `approved_domain`): approved on sight, but as an ordinary researcher.
-    // Owner rights come only from the env list, so no database row can ever grant them.
-    const domainOk = owner ? false : await isDomainApproved(email, env);
+    // Operator rights come only from the env list, so no database row can ever grant them.
+    const domainOk = operator ? false : await isDomainApproved(email, env);
     const name = claims.name || ''; const picture = claims.picture || '';
     let row = await env.DB.prepare(
       'SELECT researcher_id, CASE WHEN drive_refresh_enc IS NOT NULL THEN 1 ELSE 0 END AS has_drive FROM researcher WHERE google_sub=?'
@@ -1689,13 +2354,13 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         'INSERT INTO researcher (researcher_id, secret_hash, email_sha256, settings_blob, settings_rev, created_at, google_sub, kr_server_enc, drive_refresh_enc, drive_email, email_enc, display_name, avatar_url, approved) VALUES (?,?,?,?,0,?,?,?,?,?,?,?,?,?)'
       ).bind(researcher_id, legacyKill, await emailKey(email, env), JSON.stringify({}), now, sub,
              await encAtRest(env, krB64), tok.refresh_token ? await encAtRest(env, tok.refresh_token) : null,
-             email, await encAtRest(env, email), name, picture, (owner || domainOk) ? 1 : 0).run();
+             email, await encAtRest(env, email), name, picture, (operator || domainOk) ? 1 : 0).run();
       row = { researcher_id, __created: true };
       // Every account creation is logged, whether it was auto-approved or left pending, so the log
       // answers "when did this person first appear" and not merely "when was someone approved".
-      await logApproval(env, request, owner || domainOk ? 'account_auto_approved' : 'account_signup',
+      await logApproval(env, request, operator || domainOk ? 'account_auto_approved' : 'account_signup',
                         email || sub,
-                        owner ? 'owner allowlist (ALLOWED_RESEARCHERS)'
+                        operator ? 'operator allowlist (ALLOWED_RESEARCHERS)'
                               : domainOk ? 'pre-approved domain: ' + emailDomain(email)
                               : 'pending — awaiting manual approval',
                         'system');
@@ -1706,7 +2371,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         'A new researcher account signed in with Google for the first time.',
         'Email: ' + (email || '(none)'),
         'Name: ' + (name || '(none)'),
-        owner
+        operator
           ? 'This address is on ALLOWED_RESEARCHERS, so it was auto-approved as an OWNER.'
           : domainOk
             ? 'Its domain (' + emailDomain(email) + ') is in your pre-approved list, so it was '
@@ -1728,7 +2393,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       if (email) { sets.push('drive_email=?'); binds.push(email); }
       sets.push('display_name=?'); binds.push(name);
       sets.push('avatar_url=?'); binds.push(picture);
-      if (owner) { sets.push('approved=?'); binds.push(1); }   // env-listed owners are always approved
+      if (operator) { sets.push('approved=?'); binds.push(1); }   // env-listed operators are always approved
       binds.push(row.researcher_id);
       await env.DB.prepare('UPDATE researcher SET ' + sets.join(', ') + ' WHERE researcher_id=?').bind(...binds).run();
     }
@@ -1753,7 +2418,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       });
     }
 
-    /* Tell the owner their account was just signed into. NOT on the account's first ever sign-in:
+    /* Tell the account holder their account was just signed into. NOT on the account's first ever sign-in:
      * the person is standing right there having just created it, and an alert about your own signup
      * is the noise that teaches people to ignore the ones that matter. `waitUntil`, so a slow or
      * failing mail can never delay the redirect the researcher is waiting on. */
@@ -1812,7 +2477,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
   if (m === 'POST' && seg.length === 4 && seg[1] === 'researcher' && seg[2] === 'admin' && seg[3] === 'backfill-projects') {
     const r = await authResearcher(request, env);
     if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
-    if (!isOwner(r.drive_email, env)) return j({ error: 'not_owner' }, 403, origin, env);
+    if (!isOperator(r.drive_email, env)) return j({ error: 'not_owner' }, 403, origin, env);
     const rows = await env.DB.prepare('SELECT researcher_id, display_name, drive_email FROM researcher').all();
     const report = { researchers: 0, projects_created: 0, instances_adopted: 0, crowd_adopted: 0 };
     for (const who of (rows && rows.results) || []) {
@@ -1824,6 +2489,57 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     }
     await logApproval(env, request, 'projects_backfilled',
       report.researchers + ' researcher(s)', report.projects_created + ' project(s) created', r.drive_email);
+    return j(report, 200, origin, env);
+  }
+
+  /* POST /v1/researcher/admin/backfill-drive-objects — OPERATOR-ONLY, IDEMPOTENT (Phase 2).
+   *
+   * Populate drive_object for the EXISTING estate — the objects created before the stamping in
+   * Phase 1b existed. Same operator gate, per-researcher loop and re-runnable shape as
+   * backfill-projects. Nothing authorizes on drive_object until Phase 3, so this is safe to run any
+   * number of times, before or after that ships; a second run re-stamps to the same values.
+   *
+   * ⚠ A researcher with no Drive token is skipped (nothing to list) rather than failing the whole
+   * run — one disconnected account must not stop the backfill for everyone else. */
+  /* POST /v1/researcher/admin/ops-flag { key, value } — the operator raises/clears an ops flag
+   * without a deploy and without the dashboard: 'maintenance' (banner only) or 'freeze' (banner +
+   * the researcher-lane write lock at the top of handleV1). Empty value = clear. Allow-listed keys,
+   * because ops_flag is a k/v table and this route must not become a generic write. Logged like
+   * every other operator act, so raising the freeze is itself in the approvals history. */
+  if (m === 'POST' && seg.length === 4 && seg[1] === 'researcher' && seg[2] === 'admin' && seg[3] === 'ops-flag') {
+    const r = await authResearcher(request, env);
+    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    if (!isOperator(r.drive_email, env)) return j({ error: 'not_owner' }, 403, origin, env);
+    const body = await readJson(request) || {};
+    const key = String(body.key || '');
+    if (!['maintenance', 'freeze'].includes(key)) return j({ error: 'bad_key' }, 400, origin, env);
+    const value = String(body.value || '').slice(0, 500);
+    try {
+      if (value) await env.DB.prepare('INSERT OR REPLACE INTO ops_flag (key, value, updated_at) VALUES (?,?,?)').bind(key, value, now).run();
+      else await env.DB.prepare('DELETE FROM ops_flag WHERE key=?').bind(key).run();
+    } catch (e) { return j({ error: 'flag_write_failed', message: safeErr(e) }, 500, origin, env); }
+    await logApproval(env, request, value ? 'ops_flag_raised' : 'ops_flag_cleared', key, value.slice(0, 80), r.drive_email);
+    return j({ ok: true, key, value }, 200, origin, env);
+  }
+
+  if (m === 'POST' && seg.length === 4 && seg[1] === 'researcher' && seg[2] === 'admin' && seg[3] === 'backfill-drive-objects') {
+    const r = await authResearcher(request, env);
+    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    if (!isOperator(r.drive_email, env)) return j({ error: 'not_owner' }, 403, origin, env);
+    const rows = await env.DB.prepare('SELECT researcher_id, drive_email, drive_refresh_enc, kr_server_enc, drive_mode FROM researcher').all();
+    const report = { researchers: 0, skipped: 0, files: 0, stamped: 0, errors: 0 };
+    for (const who of (rows && rows.results) || []) {
+      report.researchers++;
+      try {
+        const out = await backfillDriveObjectsFor(env, who, now);
+        if (out.skipped) report.skipped++;
+        report.files += out.files; report.stamped += out.stamped;
+      } catch (e) {
+        report.errors++;
+        try { await secLog(env, request, 'drive_object_backfill_failed', { researcher: String(who.researcher_id).slice(0, 12), error: String((e && e.message) || e).slice(0, 120) }); } catch { /* noop */ }
+      }
+    }
+    await logApproval(env, request, 'drive_objects_backfilled', report.researchers + ' researcher(s)', report.stamped + ' object(s)', r.drive_email);
     return j(report, 200, origin, env);
   }
 
@@ -1864,23 +2580,27 @@ export async function handleV1(request, env, ctx, url, path, origin) {
    * the member and re-keying. Sabotage-detectable, not silently-subvertible, which is the strongest
    * claim any E2EE sharing scheme can make. */
   if (m === 'POST' && seg.length === 3 && seg[1] === 'researcher' && seg[2] === 'keys') {
-    const r = await authResearcher(request, env);
-    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
     const body = await readJson(request) || {};
     const instanceId = String(body.instance_id || '');
     const grants = Array.isArray(body.grants) ? body.grants : null;
     if (!instanceId || !grants || !grants.length) return j({ error: 'bad_body' }, 400, origin, env);
 
-    const inst = await env.DB.prepare('SELECT instance_id, project_id, researcher_id FROM instance WHERE instance_id=?')
-      .bind(instanceId).first();
-    if (!inst) return j({ error: 'not_found' }, 404, origin, env);
-    /* Dual-read window: project_id may still be NULL on an instance the backfill has not reached,
-     * in which case the owner is researcher_id — which the backfill will make equal anyway. */
-    const proj = inst.project_id
-      ? await env.DB.prepare('SELECT project_id, owner_id FROM project WHERE project_id=?').bind(inst.project_id).first()
-      : { project_id: null, owner_id: inst.researcher_id };
-    if (!proj) return j({ error: 'not_found' }, 404, origin, env);
-    if (r.researcher_id !== proj.owner_id) return j({ error: 'forbidden' }, 403, origin, env);
+    /* ⚠ THIS ROUTE USED TO DECIDE AUTHORIZATION ITSELF, and answered 403 when the caller was not the
+     * owner — which made every instance id ENUMERABLE (2026-08-21 audit): a nonexistent id returned
+     * not_found and a real one belonging to somebody else returned forbidden, so the two answers
+     * told an unauthenticated-for-this-resource caller which ids exist.
+     *
+     * Both halves are fixed by going through authMember: one authority (I1) instead of a second
+     * hand-rolled ownership check, and one refusal shape. `allowRevoked` is NOT set — delivering a
+     * NEW key to a revoked device is meaningless, unlike WITHDRAWING one from it.
+     *
+     * The legacy branch inside authMember covers the dual-read window this code used to handle by
+     * hand, and yields the same values: project_id '' and the instance's researcher_id as owner. */
+    const ctx = await authMember(request, env, { instance: instanceId }, null);
+    if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+    if (!ctx.ok || !ctx.isOwner) return j({ error: 'not_found' }, 404, origin, env);
+    const proj = { project_id: ctx.project_id || null, owner_id: ctx.owner.researcher_id };
+    const r = ctx.owner;
 
     if (!grants.some((g) => g && g.researcher_id === proj.owner_id && g.wrapped_ki)) {
       return j({ error: 'owner_grant_required' }, 400, origin, env);
@@ -1905,18 +2625,319 @@ export async function handleV1(request, env, ctx, url, path, origin) {
   }
 
   /* GET /v1/researcher/keys?instance=<id> — the grants THIS researcher holds, for getKi()'s
-   * resolution order (memory → member_key → the legacy settings_blob map). */
+   * resolution order (memory → member_key → the legacy settings_blob map).
+   *
+   * ⚠⚠ SCOPED AT READ TIME, AND THAT IS THE WHOLE POINT (2026-08-24). This used to select on
+   * `researcher_id=?` alone, which made THE EXISTENCE OF THE ROW the authorization. Every other fix
+   * in this area has been to a DELETION path — remove a member, revoke a grant — and that approach
+   * is incomplete by construction: it can only be as complete as our list of ways a row goes stale,
+   * and the sweeps kept finding another one.
+   *
+   * The one that has no deletion path at all: MOVING A DEVICE BETWEEN PROJECTS. /projects/assign
+   * rewrites `instance.project_id` and never touches member_key, so a member of the project the
+   * device LEFT keeps a grant nobody will ever delete — there is no removal event to hang the
+   * cleanup on, because nobody was removed from anything.
+   *
+   * So entitlement is now RE-DERIVED on every read, from the state that is authoritative right now:
+   *   · the caller owns the instance — covers the owner, and the dual-read window where
+   *     instance.project_id is still NULL (design-gap 4: instance.researcher_id is a maintained
+   *     denormalisation of the project's owner);
+   *   · or the caller holds a project_member row for the instance's CURRENT project.
+   * A former member matches neither, and neither does a member of the project a device has left.
+   *
+   * ⚠ member_key.project_id IS DELIBERATELY NOT CONSULTED. It is a snapshot written at grant time
+   * ('' on anything minted before the project existed), so it answers "where was this minted", never
+   * "where is this device now". Asking the instance is what makes the answer current.
+   *
+   * ⚠ THE DELETION PATHS STAY. This is defence in depth, not a replacement: a withdrawn grant should
+   * actually leave the database rather than merely stop being served, both because the ciphertext is
+   * one D1 dump away from a former member and because "revocation is an act, not a UI state" is the
+   * property the member-removal batch exists to hold.
+   *
+   * ⚠ FALLS BACK TO OWNERSHIP-ONLY if project_member cannot be read (a database predating that
+   * migration). Narrower, never wider: the owner keeps their own keys and members get nothing, which
+   * is the safe direction for a degraded read. */
   if (m === 'GET' && seg.length === 3 && seg[1] === 'researcher' && seg[2] === 'keys') {
     const r = await authResearcher(request, env);
     if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
     const want = url.searchParams.get('instance') || '';
-    const q = want
-      ? env.DB.prepare('SELECT instance_id, key_version, wrapped_ki FROM member_key WHERE researcher_id=? AND instance_id=? ORDER BY key_version DESC')
-          .bind(r.researcher_id, want)
-      : env.DB.prepare('SELECT instance_id, key_version, wrapped_ki FROM member_key WHERE researcher_id=? ORDER BY instance_id, key_version DESC')
-          .bind(r.researcher_id);
-    const rows = await q.all();
+    const OWNED = 'instance_id IN (SELECT instance_id FROM instance WHERE researcher_id=?)';
+    const MEMBER_OF_CURRENT_PROJECT =
+      'instance_id IN (SELECT i.instance_id FROM instance i'
+      + ' JOIN project_member pm ON pm.project_id=i.project_id'
+      + ' WHERE pm.researcher_id=? AND i.project_id IS NOT NULL)';
+    const cols = 'SELECT instance_id, key_version, wrapped_ki FROM member_key';
+    const tail = want ? ' AND instance_id=? ORDER BY key_version DESC'
+                      : ' ORDER BY instance_id, key_version DESC';
+    let rows = null;
+    try {
+      const sql = `${cols} WHERE researcher_id=? AND (${OWNED} OR ${MEMBER_OF_CURRENT_PROJECT})${tail}`;
+      const binds = want ? [r.researcher_id, r.researcher_id, r.researcher_id, want]
+                         : [r.researcher_id, r.researcher_id, r.researcher_id];
+      rows = await env.DB.prepare(sql).bind(...binds).all();
+    } catch (e) {
+      try { await secLog(env, request, 'member_key_scope_degraded', { error: String((e && e.message) || e).slice(0, 120) }); } catch { /* noop */ }
+      const sql = `${cols} WHERE researcher_id=? AND ${OWNED}${tail}`;
+      const binds = want ? [r.researcher_id, r.researcher_id, want] : [r.researcher_id, r.researcher_id];
+      rows = await env.DB.prepare(sql).bind(...binds).all();
+    }
     return j({ keys: (rows && rows.results) || [] }, 200, origin, env);
+  }
+
+  /* GET /v1/researcher/pubkey/<researcher_id> — read ANOTHER researcher's public key, so a grant can
+   * be wrapped to them. Without this, cross-researcher wrapping is simply impossible: every grant
+   * must be sealed to the grantee's key, and there was no way to obtain one.
+   *
+   * ⚠ RETURNS THE KEY AND NOTHING ELSE — no email, no display name, no avatar. Seth's rule for
+   * pairing generalised: "we do want the researcher's identity not to be advertised in the pairing
+   * process. EXACTLY the same for anything that needs to be paired." An id-to-identity lookup for
+   * any authenticated caller is precisely the directory that rule refuses, and the wrapping needs
+   * only the key.
+   *
+   * ⚠ NOT SCOPED TO A SHARED PROJECT, deliberately: at the moment you invite someone you do not yet
+   * share one, so a membership check here would make the first invite unbuildable. What bounds it
+   * instead is that researcher_ids are random GUIDs — the caller must already have been given the
+   * id — and that a public key is public by definition. Nothing here is a secret; the sensitive
+   * thing would have been the identity, which is not returned. */
+  if (m === 'GET' && seg.length === 4 && seg[1] === 'researcher' && seg[2] === 'pubkey') {
+    const r = await authResearcher(request, env);
+    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    const who = String(seg[3] || '').replace(/[^\w-]/g, '').slice(0, 64);
+    if (!who) return j({ error: 'bad_body' }, 400, origin, env);
+    const row = await env.DB.prepare('SELECT researcher_id, pubkey FROM researcher WHERE researcher_id=? AND approved=1')
+      .bind(who).first();
+    /* A researcher who has not generated a keypair yet is not_found rather than a null key: the
+     * caller cannot wrap to them either way, and one answer is easier to handle than two. */
+    if (!row || !row.pubkey) return j({ error: 'not_found' }, 404, origin, env);
+    return j({ researcher_id: row.researcher_id, pubkey: row.pubkey }, 200, origin, env);
+  }
+
+  /* DELETE /v1/researcher/keys { instance_id, researcher_id, key_version? } — REVOKE a grant.
+   *
+   * ⚠ WITHOUT THIS, "revocable" WAS UNIMPLEMENTABLE. Grants could be written and never withdrawn, so
+   * every sentence in the design about revoking a member's access described something no code could
+   * do. It is the other half of the ledger, not an optimisation.
+   *
+   * ⚠ OWNER-ONLY, and it REFUSES TO DELETE THE OWNER'S OWN COPY. That is the exact mirror of the
+   * wrap-to-owner invariant on the write path: the insert refuses a set without the owner's copy so
+   * the owner can always read the key, and this refuses to remove it so they cannot lose that by a
+   * slip. Otherwise an owner could revoke themselves out of their own device's key with no way back
+   * — the key is wrapped to keys the worker cannot read, so nothing could reconstruct it.
+   *
+   * ⚠ E2EE HONESTY: deleting the row stops the worker HANDING OVER the wrapped key. It cannot
+   * un-know a key the member already fetched and cached. Real revocation is rotation (Phase E, which
+   * the key_version column exists for); this is the step that must precede it and the step that
+   * stops the ledger being append-only. Say so in the UI rather than implying more. */
+  if (m === 'DELETE' && seg.length === 3 && seg[1] === 'researcher' && seg[2] === 'keys') {
+    const body = await readJson(request) || {};
+    const instanceId = String(body.instance_id || '');
+    const grantee = String(body.researcher_id || '');
+    if (!instanceId || !grantee) return j({ error: 'bad_body' }, 400, origin, env);
+    /* allowRevoked: withdrawing a grant must work AFTER the device is revoked — see authMember.
+     * Owner-only, which is what makes the opt-in safe. */
+    const ctx = await authMember(request, env, { instance: instanceId, allowRevoked: true }, null);
+    if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+    if (!ctx.ok || !ctx.isOwner) return j({ error: 'not_found' }, 404, origin, env);
+    if (grantee === ctx.owner.researcher_id) {
+      return j({ error: 'owner_grant_required' }, 400, origin, env);
+    }
+    const ver = body.key_version == null ? null : Math.max(1, parseInt(body.key_version, 10) || 1);
+    const res = ver == null
+      ? await env.DB.prepare('DELETE FROM member_key WHERE instance_id=? AND researcher_id=?')
+          .bind(instanceId, grantee).run()
+      : await env.DB.prepare('DELETE FROM member_key WHERE instance_id=? AND researcher_id=? AND key_version=?')
+          .bind(instanceId, grantee, ver).run();
+    await logApproval(env, request, 'grant_revoked', grantee.slice(0, 12) + '…', instanceId.slice(0, 12) + '…', ctx.caller.drive_email);
+    return j({ ok: true, removed: (res.meta && res.meta.changes) || 0 }, 200, origin, env);
+  }
+
+  /* GET /v1/projects — the projects this researcher owns, and the ones they have been added to.
+   *
+   * ⚠ WITHOUT THIS THE MEMBERS ROUTES ARE UNREACHABLE. Every one of them is addressed by
+   * project_id, and until now no endpoint returned one — the id existed only in D1 and in the
+   * backfill's own local variables. This is not a convenience listing; it is the only way a client
+   * can name the thing it wants to manage.
+   *
+   * ⚠ IDENTITY IS NOT ADVERTISED HERE EITHER. A joined project carries its NAME and its owner's
+   * opaque id — never the owner's email or display name. Seth's pairing rule generalised: a member
+   * needs to know WHICH project they are in, which the name answers; who the human behind it is, is
+   * a separate disclosure that belongs to whoever chooses to make it. */
+  if (m === 'GET' && seg.length === 2 && seg[1] === 'projects') {
+    const r = await authResearcher(request, env);
+    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    const owned = await env.DB.prepare(
+      'SELECT project_id, name, drive_folder_id, created_at FROM project WHERE owner_id=? ORDER BY created_at'
+    ).bind(r.researcher_id).all();
+    let joined = { results: [] };
+    try {
+      joined = await env.DB.prepare(
+        'SELECT p.project_id, p.name, p.owner_id, m.caps FROM project_member m '
+        + 'JOIN project p ON p.project_id=m.project_id WHERE m.researcher_id=? ORDER BY m.added_at'
+      ).bind(r.researcher_id).all();
+    } catch { /* the table may predate this deploy; an empty joined list is the honest answer */ }
+    return j({
+      owned: ((owned && owned.results) || []),
+      joined: ((joined && joined.results) || []).map((x) => {
+        let caps = null; try { caps = JSON.parse(x.caps || '{}'); } catch { caps = null; }
+        return { project_id: x.project_id, name: x.name, owner_id: x.owner_id, caps, invalid: caps === null };
+      }),
+    }, 200, origin, env);
+  }
+
+  /* /v1/projects/<project_id>/members — OWNER-ONLY membership management (II.4).
+   *
+   * ⚠ THE OWNER IS NEVER A ROW HERE. Ownership is `project.owner_id`; a project_member row for the
+   * owner would be a second, weaker answer to "who owns this" that could disagree with the first —
+   * and the one that disagrees is always the one some code path trusts. Adding oneself is refused.
+   *
+   * ⚠ REMOVING A MEMBER ALSO DELETES THEIR KEY GRANTS, in the same batch. Without that, "removed"
+   * would mean "no longer listed" while they still hold every wrapped Ki the ledger handed them —
+   * revocation as a UI state rather than an act (invariant I5). Full rotation is Phase E; this is
+   * the part that must not wait for it. */
+  if (seg.length === 4 && seg[1] === 'projects' && seg[3] === 'members') {
+    const projectId = String(seg[2] || '');
+    const ctx = await authMember(request, env, { project: projectId }, null);
+    if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+    if (!ctx.ok || !ctx.isOwner) return j({ error: 'not_found' }, 404, origin, env);
+
+    if (m === 'GET') {
+      const rows = await env.DB.prepare(
+        'SELECT researcher_id, caps, added_at, added_by FROM project_member WHERE project_id=? ORDER BY added_at'
+      ).bind(projectId).all();
+      /* Caps are returned PARSED. The panel would otherwise JSON.parse a column written by another
+       * browser, which is the kind of thing that throws in the middle of a render. */
+      const members = ((rows && rows.results) || []).map((x) => {
+        let caps = null; try { caps = JSON.parse(x.caps || '{}'); } catch { caps = null; }
+        return { researcher_id: x.researcher_id, caps, added_at: x.added_at, added_by: x.added_by,
+                 invalid: caps === null };
+      });
+      return j({ project_id: projectId, members }, 200, origin, env);
+    }
+
+    if (m === 'POST') {
+      const body = await readJson(request) || {};
+      const who = String(body.researcher_id || '').replace(/[^\w-]/g, '').slice(0, 64);
+      if (!who) return j({ error: 'bad_body' }, 400, origin, env);
+      if (who === ctx.owner.researcher_id) return j({ error: 'owner_is_not_a_member' }, 400, origin, env);
+      const caps = validateCaps(body.caps);
+      if (!caps) return j({ error: 'bad_caps' }, 400, origin, env);
+      /* ⚠ NO SHARING BEFORE THE OWNER HAS MIGRATED TO PROJECT FOLDERS (Seth, 2026-08-20): *"No
+       * researcher sharing if the researcher hasn't migrated to the project model and doesn't have
+       * project folders."*
+       *
+       * The boundary a member is confined to IS a Drive project folder — Seth's rule is that they
+       * must not reach *"the root folder outside of projects shared with them"*, so a member's file
+       * listing has to be ROOTED at that folder rather than walked from the account master and
+       * filtered afterwards. On a FLAT, unmigrated estate the device folders sit directly under
+       * master and there is no such subtree to root at, so the confinement has nothing to stand on.
+       *
+       * `drive_folder_id` is exactly that signal: reconcileProjects stamps it from the researcher's
+       * real Drive project folder, and it stays NULL when there is none. Refusing HERE — at the one
+       * moment a person is present to be told — is the whole point; discovering it later means a
+       * member who was added successfully and can see nothing, with no way to tell that from a bug.
+       *
+       * ⚠ Fails closed for a Drive outage or a disconnected account too, which is correct: all three
+       * are "there is no project folder to confine them to". Self-healing — the reconcile runs on
+       * every panel load, so migrating and reopening the panel clears it with nothing to re-run. */
+      const home = await env.DB.prepare('SELECT drive_folder_id FROM project WHERE project_id=?')
+        .bind(projectId).first();
+      if (!home || !home.drive_folder_id) {
+        return j({ error: 'not_migrated',
+                   message: 'This project has no Drive project folder yet. Migrate the estate to projects before sharing it.' },
+                 409, origin, env);
+      }
+      /* The grantee must EXIST and be approved. A membership row naming nobody is unreachable
+       * forever, and the owner would have no way to tell it from a working one. */
+      const them = await env.DB.prepare('SELECT researcher_id FROM researcher WHERE researcher_id=? AND approved=1')
+        .bind(who).first();
+      if (!them) return j({ error: 'no_such_researcher' }, 404, origin, env);
+      await env.DB.prepare(
+        'INSERT OR REPLACE INTO project_member (project_id, researcher_id, caps, added_at, added_by) VALUES (?,?,?,?,?)'
+      ).bind(projectId, who, JSON.stringify(caps), now, ctx.caller.researcher_id).run();
+      await logApproval(env, request, 'member_added', who.slice(0, 12) + '…', Object.keys(caps).join(','), ctx.caller.drive_email);
+      return j({ ok: true, researcher_id: who, caps }, 200, origin, env);
+    }
+
+    if (m === 'DELETE') {
+      const body = await readJson(request) || {};
+      const who = String(body.researcher_id || '').replace(/[^\w-]/g, '').slice(0, 64);
+      if (!who) return j({ error: 'bad_body' }, 400, origin, env);
+      /* ⚠⚠ THE OWNER IS NOT REMOVABLE, and this guard is about the member_key DELETE below, not about
+       * the project_member row (the owner never has one, so that half is a harmless no-op).
+       *
+       * Without it, `who` = the owner makes that statement read
+       * `DELETE FROM member_key WHERE researcher_id=<owner> AND (…)` — i.e. it destroys the OWNER'S
+       * OWN wrap-to-owner copies of the device keys. Those are wrapped to keys the worker cannot
+       * read, so nothing can reconstruct them: the owner would permanently lose the ability to
+       * decrypt their own devices. That is precisely what DELETE /v1/researcher/keys refuses by name
+       * (`owner_grant_required`), and this route could reach the same end by another door.
+       *
+       * ⚠ It mirrors the POST branch's `owner_is_not_a_member` deliberately: "the owner is never a
+       * project_member row" is one rule, and both verbs must say so, or the invariant holds on the
+       * way in and not on the way out. Owner-only route, so this is a footgun rather than an
+       * escalation — but an unrecoverable one. */
+      if (who === ctx.owner.researcher_id) return j({ error: 'owner_is_not_a_member' }, 400, origin, env);
+      /* ⚠ ONE BATCH, so a member can never be left listed-but-keyless or keyless-but-listed.
+       *
+       * ⚠⚠ RESOLVED THROUGH `instance`, NOT through `member_key.project_id` — and the first version
+       * of this got it wrong in a way that left revocation cosmetic (2026-08-21 audit). That column
+       * is a DENORMALISATION written at grant time, and it is `''` on every grant minted before the
+       * project existed: the v435 write path binds `String(proj.project_id || '')` and its own
+       * comment warns that Phase C must read `''` as unassigned. Matching on it therefore skipped
+       * exactly the oldest grants — the member stayed listed as removed while still holding every
+       * wrapped Ki the ledger had handed them.
+       *
+       * The instance table is the authority for which project a device is in, so ask it. The second
+       * clause covers the DUAL-READ WINDOW: a grant minted while `instance.project_id` was still
+       * NULL also carries `''`, and its instance is identified only by belonging to this project's
+       * owner (design-gap 4 pins instance.researcher_id as always equal to the project's owner_id).
+       *
+       * ⚠ That clause is deliberately BROADER THAN STRICTLY NEEDED: an owner with two projects and
+       * an unassigned device will have that device's grants revoked when the member is removed from
+       * EITHER project. Nothing can distinguish them — the device is in no project — and for a
+       * REVOCATION the safe direction is to remove too much rather than too little. Re-granting is
+       * one call; a key that should have been withdrawn and was not cannot be recalled at all. The
+       * window closes on its own as instances acquire projects. */
+      const res = await env.DB.batch([
+        env.DB.prepare('DELETE FROM project_member WHERE project_id=? AND researcher_id=?').bind(projectId, who),
+        /* ⚠ ALSO MATCHES THE STALE member_key.project_id, and that clause is not redundant — the
+         * sweep found the gap it fills. `instance.project_id` is MUTABLE: /projects/assign rewrites
+         * it when a container moves (and must, or authorization would follow the project the device
+         * just left). So a grant minted while the device sat in THIS project is no longer matched by
+         * the subquery once the device has moved to another project of the same owner — neither
+         * clause fires, nothing else ever removes the row, and the removal cheerfully reports
+         * grants_removed: 0 alongside ok: true.
+         *
+         * THREE clauses, ORed, because each alone leaves a class untouched:
+         *  1. project_id=?  — the snapshot: the grant recorded WHERE IT WAS MINTED, a real project id.
+         *  2. instance in this project OR still unassigned to this owner — where the device is NOW.
+         *  3. project_id='' AND instance owned by this owner — the LEGACY-SENTINEL grants.
+         * Clause 3 was the second sweep's finding: a grant minted while the device was unassigned
+         * carries the '' sentinel (the v435 write path binds String(proj.project_id || '')), and once
+         * that device is assigned into a DIFFERENT project it satisfies neither clause 1 (''≠id) nor
+         * clause 2 (project_id is now the other id, not NULL, not this one). Clause 2's own
+         * `project_id IS NULL` half only reaches a '' -sentinel grant while the device is STILL
+         * unassigned. So the intersection "minted-while-unassigned AND since-moved-elsewhere" fell
+         * through both, the grant survived removal, and GET /v1/researcher/keys — which selects by
+         * researcher_id alone — kept handing it to the removed member.
+         *
+         * ⚠ Clause 3 is deliberately BROAD, in the same direction the whole statement already leans:
+         * it removes EVERY '' -sentinel grant this member holds on any of the owner's devices, not
+         * only the one that moved. For a REVOCATION that is the safe direction — re-granting is one
+         * call, a key that should have been withdrawn and was not cannot be recalled — and '' only
+         * ever appears on the owner's own devices, so nothing outside the owner's estate is reached. */
+        env.DB.prepare(
+          'DELETE FROM member_key WHERE researcher_id=? AND (project_id=? OR instance_id IN ('
+          + 'SELECT instance_id FROM instance WHERE project_id=? OR (project_id IS NULL AND researcher_id=?))'
+          + " OR (project_id='' AND instance_id IN (SELECT instance_id FROM instance WHERE researcher_id=?)))"
+        ).bind(who, projectId, projectId, ctx.owner.researcher_id, ctx.owner.researcher_id),
+      ]);
+      const gone = (res && res[0] && res[0].meta && res[0].meta.changes) || 0;
+      const keys = (res && res[1] && res[1].meta && res[1].meta.changes) || 0;
+      await logApproval(env, request, 'member_removed', who.slice(0, 12) + '…', keys + ' grant(s)', ctx.caller.drive_email);
+      return j({ ok: true, removed: gone, grants_removed: keys }, 200, origin, env);
+    }
+    return j({ error: 'method_not_allowed' }, 405, origin, env);
   }
 
   /* GET /v1/researcher/sessions — the list that makes the cap safe rather than merely annoying:
@@ -2012,6 +3033,35 @@ export async function handleV1(request, env, ctx, url, path, origin) {
   if (m === 'GET' && seg.length === 2 && seg[1] === 'researcher') {
     const r = await authResearcher(request, env);
     if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    /* ⚠ SELF-HEALING PROJECT CREATION, and it is not an optimisation — without it this design has a
+     * hole that opens the day after the backfill runs (Seth, 2026-08-20: "will we have a way for our
+     * researchers to move forward without having to paste code in their JS consoles?").
+     *
+     * NOTHING creates a project at signup. The operator backfill mints one per EXISTING researcher
+     * and then it is done; an account created afterwards has none. That is harmless today, but Phase
+     * C authorizes from `instance.project_id`, and invariant I4 says an unresolvable grant DENIES —
+     * so the new researcher would fail closed and be locked out of their own devices, with the only
+     * remedy being an operator re-running a backfill nobody knew was needed.
+     *
+     * A one-time migration that has to be re-run for every new arrival is not a migration, it is a
+     * standing chore. So the same idempotent routine runs lazily here: if the caller has no project,
+     * they get one now.
+     *
+     * ⚠ SELF-LIMITING BY CONSTRUCTION, which is what makes it safe on a route the panel polls every
+     * 12 seconds. The cost in the normal case is ONE indexed lookup on `project(owner_id)`. The
+     * expensive branch runs only when that returns nothing, and its FIRST act is to write the row
+     * that makes it never run again — so even if the Drive half fails, it cannot loop.
+     *
+     * ⚠ AND IT MUST NEVER FAIL THE DASHBOARD. A researcher whose panel will not load because their
+     * project could not be minted is strictly worse off than one with no project row, so this
+     * swallows and warns. The operator backfill remains as the deliberate, reportable repair. */
+    if (isApproved(r, env)) {
+      try {
+        const mine = await env.DB.prepare('SELECT project_id FROM project WHERE owner_id=? LIMIT 1')
+          .bind(r.researcher_id).first();
+        if (!mine) await backfillProjectsFor(env, r, now);
+      } catch (e2) { try { console.warn('lazy project mint failed for', r.researcher_id, safeErr(e2)); } catch { /* noop */ } }
+    }
     /* MAINTENANCE NOTICE — an operator-set flag, read on the poll the panel already makes.
      *
      * ⚠ RIDES THIS RESPONSE ON PURPOSE. The panel polls it every 12 s, so the notice appears and
@@ -2025,13 +3075,17 @@ export async function handleV1(request, env, ctx, url, path, origin) {
      *
      * Best-effort by construction: if this read throws, the panel loses a BANNER. It must never take
      * down the dashboard that the banner is trying to warn people about. */
-    let maintenance = null;
+    let maintenance = null, freeze = null;
     try {
       const flag = await env.DB.prepare('SELECT value FROM ops_flag WHERE key=?').bind('maintenance').first();
       if (flag && flag.value) maintenance = String(flag.value).slice(0, 500);
+      // The write lock's banner rides the same poll (see the freeze gate at the top of handleV1):
+      // the panel shows it proactively rather than letting the first refused write break the news.
+      const fz = await env.DB.prepare('SELECT value FROM ops_flag WHERE key=?').bind('freeze').first();
+      if (fz && fz.value) freeze = String(fz.value).slice(0, 500);
     } catch { /* table absent (pre-migration) or read failed — no notice, never an error */ }
     const approved = isApproved(r, env);
-    const owner = isOwner(r.drive_email, env);
+    const operator = isOperator(r.drive_email, env);
     let insts = [];
     let pending;
     if (approved) {
@@ -2050,12 +3104,12 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           'SELECT install_id, status, accepted, pair_code, reported_blob, reported_rev, ack_seq, last_seen_at, pubkey, wipe_state, wipe_at, (wrapped_key IS NOT NULL) AS has_key FROM install WHERE instance_id=? AND wipe_hidden=0 AND (revoked=0 OR wipe_state IS NOT NULL)'
         ).bind(it.instance_id).all()).results || [];
       }
-      // Owners see pending researcher requests to approve/decline (fellow owners excluded).
-      if (owner) {
+      // Operators see pending researcher requests to approve/decline (fellow operators excluded).
+      if (operator) {
         const rows = (await env.DB.prepare(
           'SELECT researcher_id, drive_email AS email, display_name, avatar_url, created_at FROM researcher WHERE approved=0 ORDER BY created_at'
         ).all()).results || [];
-        pending = rows.filter((p) => !isOwner(p.email, env));
+        pending = rows.filter((p) => !isOperator(p.email, env));
       }
     }
     /* ⚠ `pubkey` / `wrapped_privkey` ride this response so the panel can adopt an EXISTING keypair
@@ -2068,9 +3122,9 @@ export async function handleV1(request, env, ctx, url, path, origin) {
      * next line. It exposes nothing this response did not already expose; a client without Kr can do
      * nothing with it. The 409-adoption path stays regardless — it is what settles the race when two
      * browsers publish at the same moment, which no response field can prevent. */
-    return j({ approved, is_owner: owner, pending,
+    return j({ approved, is_owner: operator, pending,
                settings: r.settings_blob, settings_rev: r.settings_rev, instances: insts,
-               maintenance: maintenance || undefined,
+               maintenance: maintenance || undefined, freeze: freeze || undefined,
                kr: r.kr_server_enc ? await decAtRest(env, r.kr_server_enc) : undefined,
                pubkey: r.pubkey || undefined, wrapped_privkey: r.wrapped_privkey || undefined,
                email: r.drive_email || undefined }, 200, origin, env);
@@ -2080,7 +3134,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
   if (m === 'POST' && seg.length === 3 && seg[1] === 'researcher' && seg[2] === 'approve') {
     const r = await authResearcher(request, env);
     if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
-    if (!isOwner(r.drive_email, env)) return j({ error: 'not_owner' }, 403, origin, env);
+    if (!isOperator(r.drive_email, env)) return j({ error: 'not_owner' }, 403, origin, env);
     const body = await readJson(request) || {};
     if (!body.researcher_id) return j({ error: 'bad_body' }, 400, origin, env);
     // Read the subject BEFORE acting — after a decline the row is gone, so both paths capture it
@@ -2097,7 +3151,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
   if (m === 'POST' && seg.length === 3 && seg[1] === 'researcher' && seg[2] === 'decline') {
     const r = await authResearcher(request, env);
     if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
-    if (!isOwner(r.drive_email, env)) return j({ error: 'not_owner' }, 403, origin, env);
+    if (!isOperator(r.drive_email, env)) return j({ error: 'not_owner' }, 403, origin, env);
     const body = await readJson(request) || {};
     if (!body.researcher_id) return j({ error: 'bad_body' }, 400, origin, env);
     // ⚠ MUST read the e-mail BEFORE the DELETE. This is the case that proved the log was needed:
@@ -2125,7 +3179,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
   if (seg.length >= 3 && seg[1] === 'researcher' && seg[2] === 'domains') {
     const r = await authResearcher(request, env);
     if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
-    if (!isOwner(r.drive_email, env)) return j({ error: 'not_owner' }, 403, origin, env);
+    if (!isOperator(r.drive_email, env)) return j({ error: 'not_owner' }, 403, origin, env);
     const sub = seg[3] || '';
 
     if (m === 'GET' && !sub) {
@@ -2280,6 +3334,14 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           if (iid) d.instanceId = iid;
         }
       } catch { /* the estate is still correct without it; the panel falls back to its own join */ }
+      /* ⚠ AND WHILE THE WHOLE TREE IS IN HAND, MIRROR IT INTO D1 — same reasoning as the join
+       * above, one step further. This is the only place that holds both "which Drive project
+       * folders exist" and "which container sits in each", so it is the only place that can keep
+       * `project` and `instance.project_id` true to them. Costs no Drive call and, once correct,
+       * no write. Never allowed to fail the estate: a researcher must be able to look at their
+       * Drive when the bookkeeping is unwell. */
+      try { await reconcileProjects(env, r.researcher_id, estate, now); }
+      catch (e2) { try { console.warn('project reconcile skipped for', r.researcher_id, safeErr(e2)); } catch { /* noop */ } }
       const q = (about && about.storageQuota) || {};
       return j({
         /* `limit` is ABSENT on unlimited / pooled accounts. It is passed through as null and MUST
@@ -2357,27 +3419,41 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       } catch { /* flat estate — no projects */ }
       const containerProject = new Map();          // container folder id -> project folder id ('' = flat)
       const unassignedFor = new Map();             // project folder id -> its Unassigned folder id
+      /* Returns BOTH the Unassigned folder to file into and the project folder it belongs to — the
+       * second is what the D1 sync below keys on, so it must come from the same resolution rather
+       * than being re-derived (two derivations is how Drive and D1 drift). */
       const targetFor = async (containerId) => {
-        if (forceProject) {
-          if (!unassignedFor.has(forceProject)) unassignedFor.set(forceProject, await driveUnassignedFolder(access, forceProject));
-          return unassignedFor.get(forceProject);
+        let proj;
+        if (forceProject) proj = forceProject;
+        else if (!projectFolders.size) proj = '';
+        else {
+          if (!containerProject.has(containerId)) {
+            let p = '';
+            try {
+              const c = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(containerId) + '?fields=id,parents');
+              const up = (c.parents || [])[0] || '';
+              p = projectFolders.has(up) ? up : '';
+            } catch { p = ''; }
+            containerProject.set(containerId, p);
+          }
+          proj = containerProject.get(containerId);
         }
-        if (!projectFolders.size) {
-          if (!unassignedFor.has('')) unassignedFor.set('', await driveUnassignedFolder(access, ''));
-          return unassignedFor.get('');
+        if (!unassignedFor.has(proj)) unassignedFor.set(proj, await driveUnassignedFolder(env, access, proj, r.researcher_id));
+        return { target: unassignedFor.get(proj), projFolder: proj };
+      };
+      /* The D1 project a filing lands under — one lookup per distinct project folder, through the
+       * binding (no subrequest). '' (flat) and an unknown folder both resolve to NULL, which fails
+       * closed for members. Owner-scoped: a caller-supplied folder id belonging to someone else's
+       * project must resolve to nothing, not to their project. */
+      const pidCache = new Map();
+      const pidOf = async (projFolder) => {
+        if (!projFolder) return null;
+        if (!pidCache.has(projFolder)) {
+          const prow = await env.DB.prepare('SELECT project_id FROM project WHERE drive_folder_id=? AND owner_id=?')
+            .bind(projFolder, r.researcher_id).first().catch(() => null);
+          pidCache.set(projFolder, (prow && prow.project_id) || null);
         }
-        if (!containerProject.has(containerId)) {
-          let proj = '';
-          try {
-            const c = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(containerId) + '?fields=id,parents');
-            const up = (c.parents || [])[0] || '';
-            proj = projectFolders.has(up) ? up : '';
-          } catch { proj = ''; }
-          containerProject.set(containerId, proj);
-        }
-        const proj = containerProject.get(containerId);
-        if (!unassignedFor.has(proj)) unassignedFor.set(proj, await driveUnassignedFolder(access, proj));
-        return unassignedFor.get(proj);
+        return pidCache.get(projFolder);
       };
       /* ⚠ BOUNDED BELOW THE SUBREQUEST CAP — this route accepted 200 docIds and spent up to THREE
        * Drive subrequests on each (tag search + re-parent PATCH + tag PATCH). That is ~600 against a
@@ -2390,8 +3466,19 @@ export async function handleV1(request, env, ctx, url, path, origin) {
        * caller drains `remainingIds` on its next sweep; the route is idempotent, so re-sending an
        * id that already moved costs one search and does nothing. */
       // 10, down from 12: the per-text work is unchanged at 3 subrequests, but the project/container
-      // resolution above costs a few more up front. 10x3 + ~6 = 36, still clear of the ~50 ceiling.
+      // resolution above costs a few more up front. 10x3 + ~6 + the echo budget's 4 = 40, still
+      // clear of the ~50 ceiling. (pidOf and the drive_object sync ride the D1 binding — free.)
       const CAP = 10, BUDGET_MS = 9000;
+      /* ⚠ THE TAG SEARCH IS EVENTUALLY CONSISTENT, and `if (!f) continue` used to swallow the miss
+       * SILENTLY — the text was neither moved nor reported, the response said success, and the
+       * researcher's explicit cross-project move did nothing (issue #13's first symptom: "the folder
+       * has not moved"). files.get BY ID is strongly consistent (the v167 dedupe-contract lesson),
+       * so a client that knows the folder id can echo it in `body.folders` {docId: folderId} and the
+       * filing survives the index lag. Bounded to 4 echo GETs per call to stay under the subrequest
+       * ceiling; anything still unfound is REPORTED in `skipped` rather than swallowed. */
+      const folderEcho = (body.folders && typeof body.folders === 'object' && !Array.isArray(body.folders)) ? body.folders : {};
+      let echoBudget = 4;
+      const skipped = [];
       const started = Date.now();
       let moved = 0, i = 0;
       for (; i < ids.length && i < CAP && (Date.now() - started) < BUDGET_MS; i++) {
@@ -2399,25 +3486,48 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         try {
           const q = encodeURIComponent(`appProperties has { key='flextextDoc' and value='${id}' } and mimeType='application/vnd.google-apps.folder' and trashed=false`);
           const found = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files?spaces=drive&orderBy=createdTime&fields=files(id,parents)&q=' + q);
-          const f = (found.files || [])[0];
-          if (!f) continue;                                  // no folder (legacy text) — nothing to move
-          const target = await targetFor((f.parents || [])[0] || '');
-          if (!target) continue;
+          let f = (found.files || [])[0];
+          if (!f) {
+            const echoed = String(folderEcho[id] || '').replace(/[^\w-]/g, '').slice(0, 128);
+            if (echoed && echoBudget > 0) {
+              echoBudget--;
+              try {
+                const g = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(echoed) + '?fields=id,parents,trashed,appProperties');
+                // Trust but verify: the echoed id must actually BE this doc's folder, not any id the
+                // client happens to hold.
+                if (g && !g.trashed && (g.appProperties || {}).flextextDoc === id) f = { id: g.id, parents: g.parents };
+              } catch { /* echo miss — falls through to skipped */ }
+            }
+          }
+          if (!f) { skipped.push(id); continue; }            // no folder found (legacy text, or index lag with no echo)
+          const { target, projFolder } = await targetFor((f.parents || [])[0] || '');
+          if (!target) { skipped.push(id); continue; }
+          /* D1 sync FIRST and unconditionally — even an already-filed folder can carry a stale
+           * drive_object row (filings made before this sync existed). Idempotent, no subrequest.
+           * instanceId null: an unassigned text belongs to no device. */
+          await moveDriveObjectText(env.DB, { docId: id, ownerId: r.researcher_id,
+                                              projectId: await pidOf(projFolder), instanceId: null });
           if ((f.parents || []).includes(target)) continue;   // already there — idempotent
           await driveReparent(access, f.id, target, f.parents);
-          // Tagged so the RETURN trip can tell "we swept this" from "the researcher filed it here".
+          /* ⚠ THE TAG SAYS "SWEPT", NOT "UNASSIGNED" — and stamping it on researcher-directed
+           * filings too is exactly what made issue #13: driveTextHousekeeping's return trip reads
+           * the tag as "we swept this while the device still held it" and moves the folder BACK
+           * under the device on its next upload, silently undoing an explicit cross-project move.
+           * So a forceProject filing CLEARS the tag (the researcher chose this home; nothing may
+           * "return" it), and only the per-text sweep stamps it. */
           await driveJson(access, 'PATCH', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(f.id) + '?fields=id',
-            { appProperties: { flextextUnassigned: '1' } });
+            { appProperties: { flextextUnassigned: forceProject ? '' : '1' } });
           moved++;
         } catch { /* one text failing must not abort the sweep */ }
       }
       // A COUNT plus the ids, matching drive-purge and the trash route so a caller can loop on
-      // `remaining` without learning a third convention.
+      // `remaining` without learning a third convention. `skipped` (additive, v445 clients) lists
+      // ids that were CONSUMED but not moved — retry those WITH a folder echo, don't just re-send.
       const remainingIds = ids.slice(i);
       // `folderId` kept for shipped clients: with several projects there is no single target, so it
       // reports the first one used. Nothing reads it as authoritative.
       return j({ moved, folderId: [...unassignedFor.values()][0] || '',
-                 remaining: remainingIds.length, remainingIds }, 200, origin, env);
+                 remaining: remainingIds.length, remainingIds, skipped }, 200, origin, env);
     } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
   }
 
@@ -2466,13 +3576,31 @@ export async function handleV1(request, env, ctx, url, path, origin) {
                      wouldCreateProject: !projectFolder, moves: plan, count: plan.length }, 200, origin, env);
         }
         const target = projectFolder || await driveEnsureDefaultProject(access, body.name);
+        /* Creation ⟹ stamped, and self-healing for a pre-existing folder. The D1 project row for a
+         * folder minted RIGHT HERE may not exist yet (reconcileProjects writes it on the next panel
+         * load) — stamping with a NULL project_id is the honest state, and the reconcile/backfill
+         * upserts the join later. */
+        // The D1 project the containers are moving INTO — one owner-scoped lookup serves the stamp
+        // AND the per-container sync below. A freshly minted target folder has no row yet
+        // (reconcileProjects writes it next panel load), so NULL is the honest interim and the
+        // backfill corrects it.
+        const targetRow = await env.DB.prepare('SELECT project_id FROM project WHERE drive_folder_id=? AND owner_id=?')
+          .bind(target, r.researcher_id).first().catch(() => null);
+        const targetPid = (targetRow && targetRow.project_id) || null;
+        await stampFolder(env, { objectId: target, kind: 'project', instanceId: null,
+                                 projectId: targetPid, createdBy: r.researcher_id });
         /* Bounded like every Drive loop here: one PATCH per container, plus the handful above. A real
          * estate has a few containers, so a single pass finishes — but `remaining` exists so an
          * unusually large one drains over successive calls rather than dying halfway. */
         const CAP = 20;
         let moved = 0, i = 0;
         for (; i < movers.length && i < CAP; i++) {
-          try { await driveReparent(access, movers[i].id, target, movers[i].parents); moved++; }
+          try {
+            await driveReparent(access, movers[i].id, target, movers[i].parents); moved++;
+            // Move-sync: the container's drive_object rows (and, for a device, its whole subtree)
+            // follow it into the project. Per moved container, inside the same try.
+            await moveDriveObjectContainer(env.DB, { folderId: movers[i].id, projectId: targetPid });
+          }
           catch { /* one container failing must not abort the rest */ }
         }
         await logApproval(env, request, 'projects_migrate', 'default', moved + ' container(s)', r.drive_email);
@@ -2494,9 +3622,14 @@ export async function handleV1(request, env, ctx, url, path, origin) {
                    moves: plan, count: plan.length,
                    wouldTrashProject: plan.length === (inside.files || []).length }, 200, origin, env);
       }
-      let moved = 0, i = 0;
+      let moved = 0, i = 0; const movedIds = [];
       for (; i < back.length && i < 20; i++) {
-        try { await driveReparent(access, back[i].id, master, back[i].parents); moved++; }
+        try {
+          await driveReparent(access, back[i].id, master, back[i].parents); moved++; movedIds.push(back[i].id);
+          // Move-sync, the reverse direction: back under master = in no project. NULL fails closed
+          // for members, which is exactly right for a container that just left the project model.
+          await moveDriveObjectContainer(env.DB, { folderId: back[i].id, projectId: null });
+        }
         catch { /* keep going */ }
       }
       /* Trash the project folder only when it is EMPTY — never with anything still inside. Trash is
@@ -2514,8 +3647,19 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           }
         } catch { /* leaving an empty project folder is harmless — the estate reads both shapes */ }
       }
+      /* ⚠ FORGET IT IN D1 TOO. The Drive move above is only half the un-migration; without this the
+       * project row, its memberships and every moved device's stale project_id survive, and authMember
+       * keeps honouring a coworker's manageDevices over a project the owner just dismantled (uncovered
+       * sweep #7). Gated on trashedProject for the project/member deletion so a partial move never tears
+       * down a project still holding containers. Best-effort: a D1 hiccup must not fail an unmigration
+       * whose Drive half already succeeded — reconcile will not undo the folder move, so a stale row is
+       * recoverable, but a failed HTTP response would make the caller retry the Drive work needlessly. */
+      let d1teardown = { unassigned: 0, forgottenProjectId: null };
+      try { d1teardown = await teardownUnmigratedProjectRows(env.DB, r.researcher_id, movedIds, projectFolder, trashedProject); }
+      catch (e) { try { await secLog(env, request, 'unmigrate_d1_teardown_failed', { error: String((e && e.message) || e).slice(0, 120) }); } catch { /* noop */ } }
       await logApproval(env, request, 'projects_unmigrate', 'default', moved + ' container(s)', r.drive_email);
       return j({ ok: true, dry: false, direction: 'unmigrate', moved, trashedProject,
+                 forgotten: d1teardown.forgottenProjectId, unassigned: d1teardown.unassigned,
                  remaining: Math.max(0, back.length - i) }, 200, origin, env);
     } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
   }
@@ -2533,12 +3677,32 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     const body = await readJson(request) || {};
     const name = String(body.name || '').replace(/[\\/:*?"<>|]+/g, '_').trim().slice(0, 120);
     if (!name) return j({ error: 'bad_body' }, 400, origin, env);
+    /* ⚠ ONE ACT WRITES ALL THREE — the Drive folder, the D1 project row, and the drive_object
+     * stamp — which is what keeps the namespaces from drifting. The Drive folder holds the bytes;
+     * the D1 row is what `project_member`, `member_key` and `instance.project_id` key on; the
+     * stamp is what per-project Drive authorization resolves. Creating one without the others is
+     * how they got out of step in the first place — every Drive project folder in production
+     * predating the join had no D1 row at all.
+     *
+     * ⚠ THE D1 WRITES ARE NOT ALLOWED TO FAIL THE REQUEST. The folder exists the moment the POST
+     * returns; throwing after that would leave the user a project they can see in Drive and an
+     * error on screen, and a retry would mint a SECOND folder. A missing row/stamp is recoverable
+     * by the idempotent backfill; a duplicate folder is not recoverable at all. */
     try {
       const access = await driveAccessToken(env, r);
       const f = await driveJson(access, 'POST', 'https://www.googleapis.com/drive/v3/files?fields=id',
         { name, mimeType: 'application/vnd.google-apps.folder',
           parents: [await driveMasterFolder(access)],
           appProperties: { flextextRole: 'project' } });
+      try {
+        const project_id = crypto.randomUUID();
+        await env.DB.prepare('INSERT INTO project (project_id, owner_id, name, created_at, drive_folder_id) VALUES (?,?,?,?,?)')
+          .bind(project_id, r.researcher_id, name, now, f.id).run();
+        // Creation ⟹ stamped (drive-object.js). If the INSERT threw we skip this too — the
+        // backfill heals both halves together from parentage.
+        await stampFolder(env, { objectId: f.id, kind: 'project', instanceId: null,
+                                 projectId: project_id, createdBy: r.researcher_id });
+      } catch (e2) { try { console.warn('project row not written for', f.id, safeErr(e2)); } catch { /* noop */ } }
       await logApproval(env, request, 'project_created', name, f.id, r.drive_email);
       return j({ ok: true, folderId: f.id, name }, 200, origin, env);
     } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
@@ -2547,13 +3711,25 @@ export async function handleV1(request, env, ctx, url, path, origin) {
   /* POST /v1/researcher/projects/assign { folderId, projectFolderId } — move ONE container (a device
    * folder or a crowd recorder folder) into a project. Its texts ride along as children.
    *
-   * ⚠ DRIVE PARENTAGE IS THE ONLY RECORD, and that is deliberate rather than unfinished. It would be
-   * easy to also write `instance.project_id` here — but that column belongs to Phase B's D1 project
-   * table, whose rows are GUIDs from a `project` table that has been applied to no database. Writing
-   * a DRIVE folder id into it would put a second, differently-shaped answer to "which project is this
-   * in" into a second store: precisely the drift this whole design has been arranged to make
-   * impossible. One authority. The estate derives membership from parentage, and the panel reads the
-   * estate.
+   * ⚠ THIS COMMENT USED TO SAY "DRIVE PARENTAGE IS THE ONLY RECORD", and the reasoning was right at
+   * the time: writing a DRIVE folder id into `instance.project_id` — a column holding GUIDs from a
+   * `project` table that had been applied to no database — would have put a second,
+   * differently-shaped answer to "which project is this in" into a second store.
+   *
+   * What changed is that the two shapes are now JOINED (`project.drive_folder_id`, 2026-08-20), so
+   * the D1 project for a Drive folder is a lookup rather than a guess. That makes the objection
+   * answerable, and it makes the update REQUIRED: Phase C authorizes from `instance.project_id`, so
+   * a container that moved in Drive while D1 still said otherwise would be authorized against the
+   * project it just left.
+   *
+   * ⚠ SO BOTH ARE WRITTEN IN ONE ACT (invariant I3). They cannot drift because nothing updates one
+   * without the other — not because anyone remembers to. Drive still holds the bytes and the panel
+   * still reads the estate; D1 answers "who may act on this", and only that.
+   *
+   * ⚠ NO MATCHING D1 PROJECT ⇒ project_id IS CLEARED, NOT LEFT STALE. A Drive folder with no D1 row
+   * is a project Phase C cannot authorize against, and NULL means exactly that — unscoped, failing
+   * closed (I4). Leaving the old value would be the one genuinely dangerous outcome: authorization
+   * against a project the container is demonstrably no longer in.
    *
    * ⚠ A container keeps its folder ID across the move, so nothing that resolves by id notices —
    * pending uploads, minted URLs and the device's own record all keep working mid-move. */
@@ -2576,6 +3752,23 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       if (role && role !== 'crowd') return j({ error: 'not_a_container' }, 400, origin, env);
       if (src.mimeType !== 'application/vnd.google-apps.folder') return j({ error: 'not_a_container' }, 400, origin, env);
       await driveReparent(access, src.id, projectFolderId, src.parents);
+      /* Keep D1 in step with the move — see the note above. Scoped to the caller's own rows, so this
+       * can never re-home somebody else's container, and matched on oauth_folder_id because that is
+       * how a container is identified in Drive. */
+      try {
+        const destRow = await env.DB.prepare('SELECT project_id FROM project WHERE drive_folder_id=? AND owner_id=?')
+          .bind(projectFolderId, r.researcher_id).first();
+        const newPid = destRow ? destRow.project_id : null;
+        await env.DB.batch([
+          env.DB.prepare('UPDATE instance SET project_id=? WHERE oauth_folder_id=? AND researcher_id=?')
+            .bind(newPid, folderId, r.researcher_id),
+          env.DB.prepare('UPDATE crowd_recorder SET project_id=? WHERE oauth_folder_id=? AND researcher_id=?')
+            .bind(newPid, folderId, r.researcher_id),
+        ]);
+        // The drive_object rows are part of the same act: the container's row plus (for a device)
+        // everything the instance owns — texts, originals, files — re-home in one indexed UPDATE.
+        await moveDriveObjectContainer(env.DB, { folderId, projectId: newPid });
+      } catch (e2) { try { console.warn('project_id not updated for', folderId, safeErr(e2)); } catch { /* noop */ } }
       await logApproval(env, request, 'project_assign', src.name || folderId, projectFolderId, r.drive_email);
       return j({ ok: true, folderId, projectFolderId }, 200, origin, env);
     } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
@@ -2598,6 +3791,14 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       const f = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(folderId) + '?fields=id,appProperties');
       if (((f.appProperties || {}).flextextRole || '') !== 'project') return j({ error: 'not_a_project' }, 400, origin, env);
       await driveJson(access, 'PATCH', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(folderId) + '?fields=id', { name });
+      /* Keep D1's copy in step in the SAME act (invariant I3). The estate reconcile would catch this
+       * on the next panel load anyway, but relying on that would leave a window where the sharing UI
+       * names a project something its owner has just renamed away from. Scoped to the caller's own
+       * row, and never allowed to fail a rename that already succeeded in Drive. */
+      try {
+        await env.DB.prepare('UPDATE project SET name=? WHERE drive_folder_id=? AND owner_id=?')
+          .bind(name, folderId, r.researcher_id).run();
+      } catch (e2) { try { console.warn('project name not updated for', folderId, safeErr(e2)); } catch { /* noop */ } }
       return j({ ok: true, folderId, name }, 200, origin, env);
     } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
   }
@@ -2737,7 +3938,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
   if (m === 'GET' && seg.length === 3 && seg[1] === 'researcher' && seg[2] === 'approvals') {
     const r = await authResearcher(request, env);
     if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
-    if (!isOwner(r.drive_email, env)) return j({ error: 'not_owner' }, 403, origin, env);
+    if (!isOperator(r.drive_email, env)) return j({ error: 'not_owner' }, 403, origin, env);
     const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '200', 10) || 200, 1), 1000);
     let rows = [];
     try {
@@ -2816,6 +4017,27 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         const access = await driveAccessToken(env, r);
         const dest = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(wantProject) + '?fields=id,appProperties');
         if (((dest.appProperties || {}).flextextRole || '') === 'project') {
+          /* ⚠ STAMP D1 TOO, and only from a folder just VERIFIED to be a project of this researcher.
+           *
+           * This route deliberately writes no project_id in the INSERT — Drive parentage is the
+           * authority, and the note above explains why nothing should drift from it. But leaving it
+           * NULL means every NEW device enters the dual-read window, so the window never closes, and
+           * a MEMBER cannot manage a device until the owner happens to open the panel and let
+           * reconcileProjects catch up. That is a functional gap rather than a hole — the legacy
+           * branch only ever admits the instance's own researcher_id — but it is one a member would
+           * experience as "the new phone is missing" with nothing to explain it.
+           *
+           * Not drift: it is the same join `/projects/assign` already performs, keyed on the folder
+           * whose role was checked one line above. If the lookup finds nothing the device simply
+           * stays unassigned, which is exactly today's behaviour. */
+          try {
+            const prow = await env.DB.prepare('SELECT project_id FROM project WHERE drive_folder_id=? AND owner_id=?')
+              .bind(wantProject, r.researcher_id).first();
+            if (prow && prow.project_id) {
+              await env.DB.prepare('UPDATE instance SET project_id=? WHERE instance_id=? AND project_id IS NULL')
+                .bind(prow.project_id, instance_id).run();
+            }
+          } catch (e2) { try { console.warn('project_id not stamped for', instance_id, safeErr(e2)); } catch { /* noop */ } }
           folderId = await driveEnsureDeviceFolder(env, access, instance_id, nickname, '', wantProject);
         }
       } catch { /* the instance exists; the folder can still be made lazily */ }
@@ -2830,8 +4052,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
 
     // POST .../rename — edit the nickname anytime.
     if (m === 'POST' && sub === 'rename' && seg.length === 4) {
-      const r = await authResearcher(request, env);
-      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      const ctx = await authMember(request, env, { instance: instanceId }, 'manageDevices');
+      if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+      if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+      const r = ctx.owner;   // the PROJECT OWNER's row: Drive acts in their account (R2-5)
       const body = await readJson(request);
       const nickname = body && (body.nickname || '').trim();
       if (!nickname) return j({ error: 'nickname_required' }, 400, origin, env);
@@ -2847,13 +4071,20 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           await driveJson(access, 'PATCH', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(inst.oauth_folder_id) + '?fields=id', { name: nickname });
         }
       } catch { /* cosmetic only */ }
+      /* ⚠ ATTRIBUTION. Recorded with ctx.caller — WHO ACTED — never ctx.owner, whose Drive the work
+       * runs against. They are the same researcher for an owner, which is exactly why conflating them
+       * would pass every test today and name the wrong person the day sharing ships. Nobody can
+       * reconstruct an actor after the fact, so this has to be written at the moment it happens. */
+      await logApproval(env, request, 'device_renamed', instanceId.slice(0, 12) + '…', nickname, ctx.caller.drive_email);
       return j({ ok: true }, 200, origin, env);
     }
 
     // POST .../invite — mint a one-time invite (returns the secret ONCE).
     if (m === 'POST' && sub === 'invite' && seg.length === 4) {
-      const r = await authResearcher(request, env);
-      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      const ctx = await authMember(request, env, { instance: instanceId }, 'createInvites');
+      if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+      if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+      const r = ctx.owner;   // the PROJECT OWNER's row: Drive acts in their account (R2-5)
       const owned = await env.DB.prepare('SELECT instance_id FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
         .bind(instanceId, r.researcher_id).first();
       if (!owned) return j({ error: 'not_found' }, 404, origin, env);
@@ -2862,20 +4093,30 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       const invite_id = crypto.randomUUID();
       const secret = randTok(18);
       const expires_at = now + ttl * 1000;
-      await env.DB.prepare('INSERT INTO invite (invite_id, instance_id, secret_hash, expires_at, created_at) VALUES (?,?,?,?,?)')
-        .bind(invite_id, instanceId, await sha256hex(secret), expires_at, now).run();
+      /* ⚠ invited_by = ctx.caller, NOT ctx.owner. The pairing accept gate names this researcher to
+       * the field user so they can recognise who is enrolling their device; when a member mints the
+       * invite it must be the MEMBER, not the project owner. See pairingIdentity(). */
+      await env.DB.prepare('INSERT INTO invite (invite_id, instance_id, secret_hash, expires_at, created_at, invited_by) VALUES (?,?,?,?,?,?)')
+        .bind(invite_id, instanceId, await sha256hex(secret), expires_at, now, ctx.caller.researcher_id).run();
       /* ⚠ RETURN THE ESTATE WITH THE INVITE. The panel used to look the instance up in its cached
        * dashboard, which a BRAND-NEW device is not in yet — so the lookup missed and the link fell
        * back to 'pages', sending new coworkers to the legacy apps (Seth, 2026-08-05). Server truth
        * at mint time cannot miss. */
       const ie = await env.DB.prepare('SELECT estate FROM instance WHERE instance_id=?').bind(instanceId).first();
+      /* ⚠ ATTRIBUTION. Recorded with ctx.caller — WHO ACTED — never ctx.owner, whose Drive the work
+       * runs against. They are the same researcher for an owner, which is exactly why conflating them
+       * would pass every test today and name the wrong person the day sharing ships. Nobody can
+       * reconstruct an actor after the fact, so this has to be written at the moment it happens. */
+      await logApproval(env, request, 'device_invited', instanceId.slice(0, 12) + '…', 'invite minted', ctx.caller.drive_email);
       return j({ invite_id, secret, expires_at, estate: (ie && ie.estate) || 'pages' }, 200, origin, env);
     }
 
     // POST .../command — append a command to `desired` (CAS, §E.2). Enforce id+type (§F.5).
     if (m === 'POST' && sub === 'command' && seg.length === 4) {
-      const r = await authResearcher(request, env);
-      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      const ctx = await authMember(request, env, { instance: instanceId }, 'manageDevices');
+      if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+      if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+      const r = ctx.owner;   // the PROJECT OWNER's row: Drive acts in their account (R2-5)
       const body = await readJson(request);
       const cmd = body && body.command;
       if (!cmd || typeof cmd.type !== 'string') return j({ error: 'bad_command' }, 400, origin, env);
@@ -2883,6 +4124,47 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       // uploadDelete = upload-then-delete (per-text remote removal; engine ≥ v94 — older
       // clients warn-and-ack it harmlessly, so the panel gates the button on engineVersion).
       if (!['assign', 'delete', 'changeSettings', 'triggerUpload', 'uploadDelete', 'setDone'].includes(cmd.type)) return j({ error: 'unknown_command' }, 400, origin, env);
+      /* ⚠ TEXT-SCOPED COMMANDS NEED assignTexts, NOT manageDevices. The route is gated on
+       * manageDevices because queueing a command IS device management — but four of the six command
+       * types operate on a TEXT, and one of them (`delete`) destroys a field worker's transcription.
+       * Gating the whole route on manageDevices therefore hands the entire text lane to anyone who
+       * can rename a device. The audit caught `assign` and `uploadDelete`; `delete` and `setDone`
+       * are the same shape and are included because leaving them would keep the hole open under a
+       * different name.
+       *
+       * ⚠ This costs the OWNER nothing — isOwner passes every capability — so it changes behaviour
+       * only for members, which is the point. With assignTexts refused in v1 it closes the lane
+       * entirely; when assignTexts returns it becomes the correct gate rather than needing to be
+       * remembered then.
+       *
+       * not_found rather than a distinct error, for the same reason every other capability denial
+       * answers not_found: one refusal shape, so no route becomes an oracle by being the odd one. */
+      const TEXT_COMMANDS = ['assign', 'delete', 'uploadDelete', 'setDone'];
+      if (TEXT_COMMANDS.includes(cmd.type) && !ctx.isOwner && !ctx.caps.assignTexts) {
+        return j({ error: 'not_found' }, 404, origin, env);
+      }
+      /* ⚠⚠ changeSettings MUST RIDE `enc`, AND A PLAINTEXT `settings` IS REFUSED OUTRIGHT.
+       *
+       * The 2026-08-21 sweep found the hole this closes, and it defeated the capability deferral
+       * without naming a Drive id at all: the worker validated `cmd.type` and nothing else, so a
+       * member holding only manageDevices could send
+       *   { type: 'changeSettings', settings: { relayWorker: 'https://…' } }
+       * The device MERGES researcher-supplied keys (app.js:3845) and `settings.relayWorker` is
+       * exactly what `workerBase()` returns — the origin for the poll, the report lane and every
+       * upload. One command repointed a field device's entire backend: install credentials on the
+       * next poll, every subsequent recording and text uploaded to the attacker instead of the
+       * owner's Drive, and a fabricated desired lane answering { wipe: true }, which sync.js honours
+       * "before every gate". That last one delegates a WIPE — which check-project-scoping.sh
+       * asserts no capability can do, and which this bypassed without ever touching the wipe route.
+       *
+       * ⚠ THE REAL FIX IS DEVICE-SIDE and lives in app.js, because settings are E2EE and THE WORKER
+       * CANNOT READ THEM — it can never allow-list keys it cannot see. This check is the half the
+       * worker CAN enforce, and it is worth having: `pushCommand` has always encrypted (researcher.js
+       * :569 `enc: await encryptJSON(Ki, payload)`), so a plaintext payload is a shape no legitimate
+       * client has ever sent, and refusing it costs nothing and stops anyone who holds no Ki. */
+      if (cmd.type === 'changeSettings' && !cmd.enc) {
+        return j({ error: 'payload_must_be_encrypted' }, 400, origin, env);
+      }
       for (let attempt = 0; attempt < 5; attempt++) {
         const inst = await env.DB.prepare('SELECT desired_blob, desired_rev, type FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
           .bind(instanceId, r.researcher_id).first();
@@ -2904,8 +4186,37 @@ export async function handleV1(request, env, ctx, url, path, origin) {
          * obvious optimisation. Pruning breaks the chain above and reintroduces seq reuse. If the
          * blob ever needs trimming, store a separate high-water `next_seq` on the instance row
          * instead of inferring it from the array. Covered by test/command-seq-invariant.test.mjs. */
-        const seq = (blob.commands.length ? blob.commands[blob.commands.length - 1].seq : 0) + 1;
-        blob.commands.push({ ...cmd, seq, at: now });
+        /* ⚠⚠ A HIGH-WATER MARK, NOT THE ARRAY TAIL — and the comment above prescribed exactly this
+         * before the sweep proved it was needed. The chain it describes ("cancel refuses any
+         * seq <= max(ack_seq) ⟹ acked commands can never be removed ⟹ the tail is always
+         * >= max(ack_seq)") rests on `install.ack_seq` being a true record of what the device has
+         * executed. It is not: the device advances its LOCAL cursor the instant dispatch returns
+         * (sync.js:447) and only then attempts the report, which is best-effort and silently
+         * swallowed on failure (sync.js:486). In the field that gap is hours or days.
+         *
+         * So the sequence that actually happens: device executes seq 7 and cannot report; the
+         * server still reads ack_seq 6; a cancel of 7 passes the guard and removes the entry; the
+         * tail falls back to 6; the NEXT command is minted as 7 again — and the device filters
+         * `c.seq > s.ackSeq`, so 7 is not greater than its local 7 and it SKIPS THAT COMMAND
+         * FOREVER. No error anywhere; the researcher watches nothing happen. That is the failure the
+         * comment above warns about, arriving through cancel rather than through pruning.
+         *
+         * `nextSeq` lives in the BLOB, not in a new column, so there is no migration: an existing
+         * blob has none, `Math.max(tail, 0) + 1` is exactly today's arithmetic, and it
+         * self-initialises on the first append. Cancel rewrites the blob but never lowers it, which
+         * is the whole point — a seq, once issued, is spent. */
+        const tailSeq = blob.commands.length ? blob.commands[blob.commands.length - 1].seq : 0;
+        const seq = Math.max(tailSeq, blob.nextSeq || 0) + 1;
+        blob.nextSeq = seq;
+        /* ⚠ `by` IS THE ISSUER, and it is written now so that `cancelOthers` can be enforced later.
+         * Commands recorded no author at all, which the design flags as a SCHEMA gap rather than a UI
+         * one: without it "may cancel a command someone ELSE queued" is not a rule that can be
+         * checked, only one that can be described. Starting to record it now means the capability
+         * becomes enforceable for every command queued from today, instead of needing a backfill that
+         * cannot be written — nobody can reconstruct who issued a command after the fact.
+         * ctx.caller, never ctx.owner: the point is WHO ACTED. Additive inside the command object, so
+         * devices and old APKs (which read type/id/seq) ignore it. */
+        blob.commands.push({ ...cmd, seq, at: now, by: ctx.caller.researcher_id });
         const newRev = inst.desired_rev + 1;
         const res = await env.DB.prepare('UPDATE instance SET desired_blob=?, desired_rev=? WHERE instance_id=? AND desired_rev=?')
           .bind(JSON.stringify(blob), newRev, instanceId, inst.desired_rev).run();
@@ -2930,8 +4241,29 @@ export async function handleV1(request, env, ctx, url, path, origin) {
      * mid-edit, or two panels acting at once, cannot corrupt the blob.
      */
     if (m === 'POST' && sub === 'command' && seg.length === 5 && seg[4] === 'cancel') {
-      const r = await authResearcher(request, env);
-      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      /* ⚠ GATED ON manageDevices, NOT ON `cancelOthers`, and the difference is honest rather than an
+       * oversight. The design wants cancelling your OWN queued command ungated (that is undo, not
+       * authority) and someone ELSE's gated on `cancelOthers`. That distinction needs the command to
+       * name its issuer — which it only started doing in the route above, so every command queued
+       * BEFORE that has no `by` field and no way to acquire one. Splitting the rule now would
+       * therefore treat the entire existing backlog as "someone else's" or as "mine", and both
+       * answers are wrong.
+       * manageDevices is the strictly-safe interim: never wider than today (this was owner-only), and
+       * it becomes the fallback for authorless commands once `cancelOthers` lands.
+       *
+       * ⚠ AND `cancelOthers` IS NOW UNGRANTABLE (DEFERRED_CAPS, 2026-08-24) rather than merely
+       * unenforced here, so the two halves finally agree. While it was grantable, ticking it stored a
+       * capability this route never consulted — an owner told they had delegated something they had
+       * not, which is exactly what validateCaps refuses to do for every other key. Withholding it is
+       * the honest state until the split above can actually be made.
+       *
+       * ⚠ CONSEQUENCE, STATED so it is a decision and not a discovery: a member with `manageDevices`
+       * can cancel a command the OWNER queued. That was already true and is unchanged; what changed
+       * is that nobody is now told otherwise by a checkbox. */
+      const ctx = await authMember(request, env, { instance: instanceId }, 'manageDevices');
+      if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+      if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+      const r = ctx.owner;
       const body = await readJson(request) || {};
       const seq = parseInt(body.seq, 10);
       if (!Number.isFinite(seq) || seq <= 0) return j({ error: 'bad_seq' }, 400, origin, env);
@@ -2943,6 +4275,14 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         const acked = await env.DB.prepare('SELECT MAX(ack_seq) AS a FROM install WHERE instance_id=? AND revoked=0')
           .bind(instanceId).first();
         const maxAck = (acked && acked.a) || 0;
+        /* ⚠ THIS GUARD IS NECESSARY BUT NOT SUFFICIENT, and saying so is the honest part. ack_seq is
+         * server state that LAGS execution by an unbounded interval, so passing it does not prove
+         * the device has not already acted — only that it has not yet SAID so. A destructive command
+         * (delete, uploadDelete) may be long finished when this returns ok. The reused-seq
+         * consequence is fixed above by nextSeq; the "cancel may be too late" half cannot be fixed
+         * here at all, because nothing in the protocol reports execution before it happens.
+         * `ack_seq` rides the response so a caller can say what the withdrawal was based on rather
+         * than implying certainty. */
         if (seq <= maxAck) return j({ error: 'already_delivered', ack_seq: maxAck }, 409, origin, env);
         const blob = inst.desired_blob ? JSON.parse(inst.desired_blob) : { settings: {}, commands: [] };
         const before = (blob.commands || []).length;
@@ -2951,7 +4291,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         const newRev = inst.desired_rev + 1;
         const res = await env.DB.prepare('UPDATE instance SET desired_blob=?, desired_rev=? WHERE instance_id=? AND desired_rev=?')
           .bind(JSON.stringify(blob), newRev, instanceId, inst.desired_rev).run();
-        if (res.meta.changes === 1) return j({ ok: true, cancelled: seq, desired_rev: newRev }, 200, origin, env);
+        if (res.meta.changes === 1) return j({ ok: true, cancelled: seq, desired_rev: newRev, ack_seq: maxAck }, 200, origin, env);
       }
       return j({ error: 'conflict_retry' }, 409, origin, env);
     }
@@ -2962,13 +4302,21 @@ export async function handleV1(request, env, ctx, url, path, origin) {
      * Returns [] (not an error) when the folder does not exist yet — a text with no uploads is a
      * normal state, not a failure. */
     if (m === 'GET' && sub === 'texts' && seg.length === 6 && seg[5] === 'files') {
-      const r = await authResearcher(request, env);
-      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      const ctx = await authMember(request, env, { instance: instanceId }, 'drive:read');
+      if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+      if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+      const r = ctx.owner;   // the PROJECT OWNER's row: Drive acts in their account (R2-5)
       const owned = await env.DB.prepare('SELECT instance_id FROM instance WHERE instance_id=? AND researcher_id=?')
         .bind(instanceId, r.researcher_id).first();
       if (!owned) return j({ error: 'not_found' }, 404, origin, env);
       const docId = String(seg[4] || '').replace(/[^\w-]/g, '').slice(0, 64);
       if (!docId) return j({ error: 'bad_doc' }, 400, origin, env);
+      /* Phase 3 gate (drive-object.js): the DOC itself must be reachable by this caller — in their
+       * project, not on a revoked device — before any account-wide Drive act. Owner passes on
+       * ownership, so this changes nothing for today's callers; it is what makes the route real for
+       * a member instead of merely gated. Deny is 404, indistinguishable from absence. */
+      const gate = await authorizeDocForProject(env.DB, { docId, projectId: ctx.project_id || '', isOwner: ctx.isOwner });
+      if (!gate.allowed) return j({ error: 'not_found' }, 404, origin, env);
       /* ⚠ MODIFIES AN EXISTING ENDPOINT → STAGING-WORKER-TESTED FIRST (spec rule 9): the folder
        * filter + assignment merge below change what shipped panels receive. All new JSON fields
        * are additive (old panels ignore originalsFolderId; they never classified folder rows as
@@ -3021,19 +4369,31 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     // assignment/ child, created as needed. folderId is a panel-remembered echo (files.get
     // verification beats the eventually-consistent tag search — the v167 dedupe mechanism).
     if (m === 'POST' && sub === 'texts' && seg.length === 7 && seg[5] === 'assignment' && seg[6] === 'begin') {
-      const r = await authResearcher(request, env);
-      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      const ctx = await authMember(request, env, { instance: instanceId }, 'assignTexts');
+      if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+      if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+      const r = ctx.owner;   // the PROJECT OWNER's row: Drive acts in their account (R2-5)
       const inst = await env.DB.prepare('SELECT instance_id, nickname, oauth_folder_id FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
         .bind(instanceId, r.researcher_id).first();
       if (!inst) return j({ error: 'not_found' }, 404, origin, env);
       const docId = String(seg[4] || '').replace(/[^\w-]/g, '').slice(0, 64);
       if (!docId) return j({ error: 'bad_doc' }, 400, origin, env);
+      /* Phase 3 gate, mode 'create': a doc known NOWHERE is a new text and may be begun (creation
+       * stamps it into this project); a doc that exists in ANOTHER project denies — a member with
+       * assignTexts must be able to create without being able to squat. Owner passes regardless. */
+      {
+        const gate = await authorizeDocForProject(env.DB, { docId, projectId: ctx.project_id || '', isOwner: ctx.isOwner, mode: 'create' });
+        if (!gate.allowed) return j({ error: 'not_found' }, 404, origin, env);
+      }
       const body = await readJson(request) || {};
       try {
         const access = await driveAccessToken(env, r);
         const deviceFolder = await driveEnsureDeviceFolder(env, access, instanceId, inst.nickname, inst.oauth_folder_id);
         const folder = await driveEnsureTextFolder(access, deviceFolder, docId, body.title, body.folderId);
         const originalsFolderId = await driveEnsureChildFolder(access, folder, 'originals', 'originals');
+        // Stamp the text + its originals with the authorizing project (device folder self-stamps).
+        await stampFolder(env, { objectId: folder, kind: 'text', docId, instanceId, projectId: ctx.project_id || null, createdBy: ctx.caller.researcher_id });
+        await stampFolder(env, { objectId: originalsFolderId, kind: 'originals', docId, instanceId, projectId: ctx.project_id || null, createdBy: ctx.caller.researcher_id });
         return j({ ok: true, folderId: folder, originalsFolderId }, 200, origin, env);
       } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
     }
@@ -3043,11 +4403,21 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     // researcher via `rr`). kind names the role tag; 'consent-prompt' targets the DEVICE folder
     // (a prompt is per-device, not per-text — the docId segment is ignored for it).
     if (m === 'POST' && sub === 'texts' && seg.length === 8 && seg[5] === 'assignment' && seg[6] === 'upload' && seg[7] === 'start') {
-      const r = await authResearcher(request, env);
-      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      const ctx = await authMember(request, env, { instance: instanceId }, 'assignTexts');
+      if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+      if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+      const r = ctx.owner;   // the PROJECT OWNER's row: Drive acts in their account (R2-5)
       const inst = await env.DB.prepare('SELECT instance_id, nickname, oauth_folder_id FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
         .bind(instanceId, r.researcher_id).first();
       if (!inst) return j({ error: 'not_found' }, 404, origin, env);
+      /* Phase 3 gate — same 'create' contract as begin (the consent-prompt kind rides a PLACEHOLDER
+       * docId segment, which resolves as "known nowhere" and must stay allowed). Defense in depth:
+       * the session begin already gated, but this route is separately addressable. */
+      {
+        const gDoc = String(seg[4] || '').replace(/[^\w-]/g, '').slice(0, 64);
+        const gate = await authorizeDocForProject(env.DB, { docId: gDoc, projectId: ctx.project_id || '', isOwner: ctx.isOwner, mode: 'create' });
+        if (!gate.allowed) return j({ error: 'not_found' }, 404, origin, env);
+      }
       const body = await readJson(request) || {};
       const size = parseInt(body.size, 10) || 0;
       if (size < 1 || size > 2 * 1024 * 1024 * 1024) return j({ error: 'bad_size' }, 400, origin, env);
@@ -3084,8 +4454,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     // PUT .../texts/<docId>/assignment/upload/chunk — same wire contract as the device chunk
     // relay; ownership key is `rr` (researcher), never `i` (install).
     if (m === 'PUT' && sub === 'texts' && seg.length === 8 && seg[5] === 'assignment' && seg[6] === 'upload' && seg[7] === 'chunk') {
-      const r = await authResearcher(request, env);
-      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      const ctx = await authMember(request, env, { instance: instanceId }, 'assignTexts');
+      if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+      if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+      const r = ctx.owner;   // the PROJECT OWNER's row: Drive acts in their account (R2-5)
       let sess = null;
       try { sess = JSON.parse(await decAtRest(env, request.headers.get('x-fx-upload') || '')); } catch { sess = null; }
       if (!sess || !sess.u || sess.rr !== r.researcher_id) return j({ error: 'bad_upload' }, 403, origin, env);
@@ -3097,12 +4469,23 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     // ttlDays} → private streaming URLs for the E2EE assign command (and the settings push's
     // prompt-URL field). TTL researcher-configurable; the server clamp is authoritative.
     if (m === 'POST' && sub === 'texts' && seg.length === 7 && seg[5] === 'assignment' && seg[6] === 'finish') {
-      const r = await authResearcher(request, env);
-      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      const ctx = await authMember(request, env, { instance: instanceId }, 'assignTexts');
+      if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+      if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+      const r = ctx.owner;   // the PROJECT OWNER's row: Drive acts in their account (R2-5)
       const inst = await env.DB.prepare('SELECT instance_id, nickname FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
         .bind(instanceId, r.researcher_id).first();
       if (!inst) return j({ error: 'not_found' }, 404, origin, env);
       const docId = String(seg[4] || '').replace(/[^\w-]/g, '').slice(0, 64);
+      /* Phase 3 gate — 'create' like begin/start (consent-prompt's placeholder docId included).
+       * ⚠ KNOWN PHASE 4 BLOCKER, deliberately not solved here: the fileIds in the body are
+       * caller-supplied and mint streaming URLs. For a MEMBER they must be verified to live under
+       * this doc's folder (their own uploads are not yet stamped when finish runs, so the object
+       * gate alone would break the flow). Recorded in plans/drive-object-plan.md; owner-only today. */
+      {
+        const gate = await authorizeDocForProject(env.DB, { docId, projectId: ctx.project_id || '', isOwner: ctx.isOwner, mode: 'create' });
+        if (!gate.allowed) return j({ error: 'not_found' }, 404, origin, env);
+      }
       const body = await readJson(request) || {};
       if (!body.audioFileId && !body.flextextFileId && !body.promptFileId) return j({ error: 'nothing_to_mint' }, 400, origin, env);
       const ttlDays = clampTtlDays(body.ttlDays);
@@ -3115,11 +4498,11 @@ export async function handleV1(request, env, ctx, url, path, origin) {
          * 410 the moment the minting device were revoked, and would never work for a crowd page.
          * Deliberately unscoped; do not "fix" the inconsistency by scoping it. */
         const scope = { instanceId, docId };
-        const audioUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.audioFileId, '', ttlMs, scope);
-        const flextextUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.flextextFileId, '', ttlMs, scope);
-        const promptUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.promptFileId, '', ttlMs);
+        const audioUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.audioFileId, '', ttlMs, scope, ctx.caller.researcher_id);
+        const flextextUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.flextextFileId, '', ttlMs, scope, ctx.caller.researcher_id);
+        const promptUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.promptFileId, '', ttlMs, null, ctx.caller.researcher_id);
         if (docId && (audioUrl || flextextUrl)) {
-          await logApproval(env, request, 'assigned_upload', docId.slice(0, 12) + '…', '→ ' + (inst.nickname || '?'), r.drive_email);
+          await logApproval(env, request, 'assigned_upload', docId.slice(0, 12) + '…', '→ ' + (inst.nickname || '?'), ctx.caller.drive_email);
         }
         return j({ ok: true, ttlDays, audioUrl, flextextUrl, promptUrl }, 200, origin, env);
       } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
@@ -3144,11 +4527,19 @@ export async function handleV1(request, env, ctx, url, path, origin) {
      * other direction: the folder comes OUT of Unassigned and under the adopting device, and the
      * `flextextUnassigned` tag is cleared so the return-trip logic will not fight it later. */
     if (m === 'POST' && sub === 'texts' && seg.length === 6 && seg[5] === 'adopt') {
-      const r = await authResearcher(request, env);
-      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      const ctx = await authMember(request, env, { instance: instanceId }, 'assignTexts');
+      if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+      if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+      const r = ctx.owner;   // the PROJECT OWNER's row: Drive acts in their account (R2-5)
       const body = await readJson(request) || {};
       const docId = String(seg[4] || '').replace(/[^\w-]/g, '').slice(0, 64);
       if (!docId) return j({ error: 'bad_doc' }, 400, origin, env);
+      /* Phase 3 gate: adopting is acting on an EXISTING doc — it must be reachable by this caller
+       * (their project, not a revoked device) before the account-wide Drive search runs. */
+      {
+        const gate = await authorizeDocForProject(env.DB, { docId, projectId: ctx.project_id || '', isOwner: ctx.isOwner });
+        if (!gate.allowed) return j({ error: 'not_found' }, 404, origin, env);
+      }
       const to = await env.DB.prepare('SELECT instance_id, nickname, oauth_folder_id FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
         .bind(instanceId, r.researcher_id).first();
       if (!to) return j({ error: 'not_found' }, 404, origin, env);
@@ -3164,28 +4555,41 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           if (!(f.parents || []).includes(toFolder)) await driveReparent(access, f.id, toFolder, f.parents);
           await driveJson(access, 'PATCH', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(f.id) + '?fields=id',
             { appProperties: { flextextUnassigned: '' } });
+          // Move-sync: the doc's drive_object rows come out of Unassigned onto the adopting device,
+          // in its project (ctx authorized exactly that instance, so ctx.project_id IS the target's).
+          await moveDriveObjectText(env.DB, { docId, ownerId: r.researcher_id,
+                                              projectId: ctx.project_id || null, instanceId: to.instance_id });
         }
         // Same private, time-boxed streaming tokens the move flow mints — the device downloads
         // through /v1/textfile exactly as it would for any assignment.
         // Scoped to the DESTINATION device — it is the one that will fetch these.
-        const mint = (fileId, extract) => mintTextfileUrl(env, url.origin, r.researcher_id, fileId, extract, 0, { instanceId: to.instance_id, docId });
+        const mint = (fileId, extract) => mintTextfileUrl(env, url.origin, r.researcher_id, fileId, extract, 0, { instanceId: to.instance_id, docId }, ctx.caller.researcher_id);
         const flextextUrl = await mint(body.flextextFileId) || await mint(body.extractFromZipId, 'flextext');
         const audioUrl = await mint(body.audioFileId);
-        await logApproval(env, request, 'text_adopted', docId, to.nickname || '', r.drive_email);
+        await logApproval(env, request, 'text_adopted', docId, to.nickname || '', ctx.caller.drive_email);
         return j({ ok: true, folderId, flextextUrl, audioUrl }, 200, origin, env);
       } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
     }
 
     if (m === 'POST' && sub === 'texts' && seg.length === 6 && seg[5] === 'move') {
-      const r = await authResearcher(request, env);
-      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      const ctx = await authMember(request, env, { instance: instanceId }, 'assignTexts');
+      if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+      if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+      const r = ctx.owner;   // the PROJECT OWNER's row: Drive acts in their account (R2-5)
       const body = await readJson(request) || {};
       const toId = String(body.to || '');
       const docId = String(seg[4] || '').replace(/[^\w-]/g, '').slice(0, 64);
       if (!docId || !toId || toId === instanceId) return j({ error: 'bad_move' }, 400, origin, env);
+      /* Phase 3 gate: moving acts on an EXISTING doc — reachable by this caller or 404. (The
+       * destination instance is separately checked below; a cross-PROJECT member move will need its
+       * own rule when members gain assignTexts — today both ends are the owner's.) */
+      {
+        const gate = await authorizeDocForProject(env.DB, { docId, projectId: ctx.project_id || '', isOwner: ctx.isOwner });
+        if (!gate.allowed) return j({ error: 'not_found' }, 404, origin, env);
+      }
       const from = await env.DB.prepare('SELECT instance_id, nickname, oauth_folder_id FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
         .bind(instanceId, r.researcher_id).first();
-      const to = await env.DB.prepare('SELECT instance_id, nickname, oauth_folder_id FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
+      const to = await env.DB.prepare('SELECT instance_id, nickname, oauth_folder_id, project_id FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
         .bind(toId, r.researcher_id).first();
       if (!from || !to) return j({ error: 'not_found' }, 404, origin, env);
       try {
@@ -3202,14 +4606,18 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           await driveJson(access, 'PATCH', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(f.id)
             + '?addParents=' + encodeURIComponent(toFolder) + (oldParents ? '&removeParents=' + encodeURIComponent(oldParents) : '') + '&fields=id');
           movedFolder = true;
+          // Move-sync: the doc re-homes to the DESTINATION device and its project — which may be a
+          // different project (a cross-project device-to-device move is legal for one owner).
+          await moveDriveObjectText(env.DB, { docId, ownerId: r.researcher_id,
+                                              projectId: to.project_id || null, instanceId: to.instance_id });
         }
         // Streaming tokens (default 90-day TTL) for whatever content the panel identified. Opaque
         // + time-boxed, bound to this researcher; the /v1/textfile endpoint validates and streams.
         // Scoped to the DESTINATION device — it is the one that will fetch these.
-        const mint = (fileId, extract) => mintTextfileUrl(env, url.origin, r.researcher_id, fileId, extract, 0, { instanceId: to.instance_id, docId });
+        const mint = (fileId, extract) => mintTextfileUrl(env, url.origin, r.researcher_id, fileId, extract, 0, { instanceId: to.instance_id, docId }, ctx.caller.researcher_id);
         const flextextUrl = await mint(body.flextextFileId) || await mint(body.extractFromZipId, 'flextext');
         const audioUrl = await mint(body.audioFileId);
-        await logApproval(env, request, 'text_moved', docId.slice(0, 12) + '…', (from.nickname || '?') + ' → ' + (to.nickname || '?'), r.drive_email);
+        await logApproval(env, request, 'text_moved', docId.slice(0, 12) + '…', (from.nickname || '?') + ' → ' + (to.nickname || '?'), ctx.caller.drive_email);
         return j({ ok: true, movedFolder, flextextUrl, audioUrl }, 200, origin, env);
       } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
     }
@@ -3226,8 +4634,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
 
     // POST .../revoke — revoke the whole instance.
     if (m === 'POST' && sub === 'revoke' && seg.length === 4) {
-      const r = await authResearcher(request, env);
-      if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+      const ctx = await authMember(request, env, { instance: instanceId }, 'manageDevices');
+      if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+      if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+      const r = ctx.owner;   // the PROJECT OWNER's row: Drive acts in their account (R2-5)
       /* ⚠ OWNERSHIP IS ESTABLISHED FIRST, NOT CARRIED BY ONE STATEMENT OF THE BATCH.
        * This used to be a two-statement batch where only the FIRST carried `AND researcher_id=?`;
        * the second was a bare `UPDATE install SET revoked=1 WHERE instance_id=?`. A D1 batch is
@@ -3246,13 +4656,17 @@ export async function handleV1(request, env, ctx, url, path, origin) {
        * Fixed by doing what the sibling `installs/<iid>/revoke` route immediately below already
        * does: resolve ownership, 404 on a miss, and only then write. Re-revoking still returns 200,
        * so no deployed panel changes behaviour. */
-      const ownedInst = await env.DB.prepare('SELECT instance_id FROM instance WHERE instance_id=? AND researcher_id=?')
+      const ownedInst = await env.DB.prepare('SELECT instance_id, nickname FROM instance WHERE instance_id=? AND researcher_id=?')
         .bind(instanceId, r.researcher_id).first();
       if (!ownedInst) return j({ error: 'not_found' }, 404, origin, env);
       await env.DB.batch([
         env.DB.prepare('UPDATE instance SET revoked=1 WHERE instance_id=? AND researcher_id=?').bind(instanceId, r.researcher_id),
         env.DB.prepare('UPDATE install SET revoked=1 WHERE instance_id=?').bind(instanceId),
       ]);
+      /* ⚠ ATTRIBUTION — ctx.caller (WHO ACTED), never ctx.owner (whose Drive the work runs in).
+       * Identical for an owner, which is exactly why conflating them would pass every test today and
+       * name the wrong person the day sharing ships. Nobody can reconstruct an actor afterwards. */
+      await logApproval(env, request, 'device_revoked', instanceId.slice(0, 12) + '…', ownedInst.nickname || '', ctx.caller.drive_email);
       return j({ ok: true }, 200, origin, env);
     }
 
@@ -3263,8 +4677,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
 
       // POST .../approve — researcher approves a pending install (anti-leaked-link, §D.3).
       if (m === 'POST' && isub === 'approve' && seg.length === 6) {
-        const r = await authResearcher(request, env);
-        if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+        const ctx = await authMember(request, env, { instance: instanceId }, 'manageDevices');
+        if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+        if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+        const r = ctx.owner;   // the PROJECT OWNER's row: Drive acts in their account (R2-5)
         const owned = await env.DB.prepare(
           'SELECT i.install_id FROM install i JOIN instance n ON n.instance_id=i.instance_id WHERE i.install_id=? AND i.instance_id=? AND n.researcher_id=?'
         ).bind(installId, instanceId, r.researcher_id).first();
@@ -3274,6 +4690,11 @@ export async function handleV1(request, env, ctx, url, path, origin) {
          * live-looking pairing code in every dashboard payload for the life of the device. NULL is
          * also the signal the DEVICE reads to stop showing its pairing screen. */
         await env.DB.prepare("UPDATE install SET status='approved', pair_code=NULL WHERE install_id=?").bind(installId).run();
+      /* ⚠ ATTRIBUTION. Recorded with ctx.caller — WHO ACTED — never ctx.owner, whose Drive the work
+       * runs against. They are the same researcher for an owner, which is exactly why conflating them
+       * would pass every test today and name the wrong person the day sharing ships. Nobody can
+       * reconstruct an actor after the fact, so this has to be written at the moment it happens. */
+        await logApproval(env, request, 'install_approved', installId.slice(0, 12) + '…', instanceId.slice(0, 12) + '…', ctx.caller.drive_email);
         return j({ ok: true }, 200, origin, env);
       }
 
@@ -3290,8 +4711,27 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       // POST .../key — researcher delivers Ki WRAPPED to this install's pubkey (E2EE model A).
       // The Worker stores opaque ciphertext only; it never sees Ki.
       if (m === 'POST' && isub === 'key' && seg.length === 6) {
-        const r = await authResearcher(request, env);
-        if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+        /* ⚠⚠ OWNER-ONLY. Gated on manageDevices until the completeness critic pointed out what that
+         * meant: `body.wrapped_key` is OPAQUE CIPHERTEXT the worker cannot inspect, and this route
+         * bumps desired_rev in the same batch precisely so the device ADOPTS it. So a member holding
+         * the one capability v1 ships could install a Ki THEY chose — after which the owner's stored
+         * Ki no longer decrypts the device's reports, and the owner's own encrypted commands stop
+         * being readable by it. E2EE sabotage, from device management.
+         *
+         * The worker cannot validate its way out of this: it cannot read the key, so "is this the
+         * right key" is not a question it can ask. The only available control is WHO may ask, and
+         * the design already says: key sovereignty is the owner's. `POST /v1/researcher/keys` is
+         * owner-only for the same reason, and the wrap-to-owner invariant exists so that "the owner
+         * can always read and revoke every key" is true by construction.
+         *
+         * ⚠ CONSEQUENCE, STATED: a member with createInvites can enrol a coworker's device but
+         * cannot key it — the device waits for the owner. That is a real gap in member-run
+         * enrolment, and it is the correct side to err on while the alternative is a member being
+         * able to lock the owner out of their own device. Revisit with rotation (Phase E). */
+        const ctx = await authMember(request, env, { instance: instanceId }, null);
+        if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+        if (!ctx.ok || !ctx.isOwner) return j({ error: 'not_found' }, 404, origin, env);
+        const r = ctx.owner;   // the PROJECT OWNER's row: Drive acts in their account (R2-5)
         const owned = await env.DB.prepare(
           'SELECT i.install_id, i.accepted FROM install i JOIN instance n ON n.instance_id=i.instance_id WHERE i.install_id=? AND i.instance_id=? AND n.researcher_id=?'
         ).bind(installId, instanceId, r.researcher_id).first();
@@ -3311,14 +4751,19 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           env.DB.prepare('UPDATE install SET wrapped_key=? WHERE install_id=?').bind(body.wrapped_key, installId),
           env.DB.prepare('UPDATE instance SET desired_rev=desired_rev+1 WHERE instance_id=?').bind(instanceId),
         ]);
+        /* ⚠ ATTRIBUTION — ctx.caller (WHO ACTED), never ctx.owner. Key delivery is owner-only today,
+         * so these agree; recording the caller is what keeps that true if it ever widens. */
+        await logApproval(env, request, 'device_key_delivered', installId.slice(0, 12) + '…', instanceId.slice(0, 12) + '…', ctx.caller.drive_email);
         return j({ ok: true }, 200, origin, env);
       }
 
       // POST .../revoke — researcher revokes one install (lost device). UNLINK only: the device gets 410
       // on its next poll → auto-releases but KEEPS its local texts (the researcher can't retrieve them after).
       if (m === 'POST' && isub === 'revoke' && seg.length === 6) {
-        const r = await authResearcher(request, env);
-        if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+        const ctx = await authMember(request, env, { instance: instanceId }, 'manageDevices');
+        if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+        if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+        const r = ctx.owner;   // the PROJECT OWNER's row: Drive acts in their account (R2-5)
         const owned = await env.DB.prepare(
           'SELECT i.install_id FROM install i JOIN instance n ON n.instance_id=i.instance_id WHERE i.install_id=? AND i.instance_id=? AND n.researcher_id=?'
         ).bind(installId, instanceId, r.researcher_id).first();
@@ -3332,8 +4777,13 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       // (delivered plaintext in the desired lane below, so it lands in ANY device state — even one never
       // keyed). Step-up TOTP when the researcher has 2FA, since this is destructive + remote + irreversible.
       if (m === 'POST' && isub === 'wipe' && seg.length === 6) {
-        const r = await authResearcher(request, env);
-        if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+        /* OWNER-ONLY in v1 (round-1 finding 6): remote wipe and force-remove destroy a field
+         * device's work, and no capability delegates that yet. `isOwner` covers the legacy
+         * dual-read path too, so an unmigrated instance behaves exactly as it does today. */
+        const ctx = await authMember(request, env, { instance: instanceId }, null);
+        if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+        if (!ctx.ok || !ctx.isOwner) return j({ error: 'not_found' }, 404, origin, env);
+        const r = ctx.owner;
         const owned = await env.DB.prepare(
           'SELECT i.install_id FROM install i JOIN instance n ON n.instance_id=i.instance_id WHERE i.install_id=? AND i.instance_id=? AND n.researcher_id=?'
         ).bind(installId, instanceId, r.researcher_id).first();
@@ -3365,8 +4815,13 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       // ARMED: hide it from the panel but DO NOT delete the row + DO NOT clear wipe_state, so if that device
       // ever reconnects (weeks/months later) it still receives the wipe. (A normal unlink would lose it.)
       if (m === 'POST' && isub === 'force-remove' && seg.length === 6) {
-        const r = await authResearcher(request, env);
-        if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+        /* OWNER-ONLY in v1 (round-1 finding 6): remote wipe and force-remove destroy a field
+         * device's work, and no capability delegates that yet. `isOwner` covers the legacy
+         * dual-read path too, so an unmigrated instance behaves exactly as it does today. */
+        const ctx = await authMember(request, env, { instance: instanceId }, null);
+        if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+        if (!ctx.ok || !ctx.isOwner) return j({ error: 'not_found' }, 404, origin, env);
+        const r = ctx.owner;
         const owned = await env.DB.prepare(
           'SELECT i.install_id FROM install i JOIN instance n ON n.instance_id=i.instance_id WHERE i.install_id=? AND i.instance_id=? AND n.researcher_id=?'
         ).bind(installId, instanceId, r.researcher_id).first();
@@ -3386,7 +4841,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         if (!install) return j({ error: 'unauthorized' }, 401, origin, env);
         if (install.status !== 'approved') return j({ error: 'not_approved' }, 403, origin, env);
         const inst = await env.DB.prepare(
-          'SELECT i.nickname AS inst_nickname, i.oauth_folder_id AS inst_folder, i.revoked AS inst_revoked, r.* FROM instance i JOIN researcher r ON r.researcher_id=i.researcher_id WHERE i.instance_id=?'
+          'SELECT i.nickname AS inst_nickname, i.oauth_folder_id AS inst_folder, i.revoked AS inst_revoked, i.project_id AS inst_project, r.* FROM instance i JOIN researcher r ON r.researcher_id=i.researcher_id WHERE i.instance_id=?'
         ).bind(instanceId).first();
         if (!inst || inst.inst_revoked) return j({ error: 'revoked' }, 410, origin, env);
         if (!inst.drive_refresh_enc) return j({ error: 'no_drive' }, 409, origin, env);
@@ -3403,6 +4858,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           const textFolder = body.docId
             ? await driveEnsureTextFolder(access, deviceFolder, body.docId, body.docTitle, body.folderId)
             : deviceFolder;
+          if (body.docId && textFolder !== deviceFolder) await stampChild(env, { objectId: textFolder, kind: 'text', docId: body.docId, parentId: deviceFolder });
           /* ⚠ NEVER AWAITED — the done marker must not sit in the upload's critical path.
            * It is cosmetic (a tag + a folder-name suffix), while this path is the single most
            * important one in the system: a field device on a bad connection pushing a text it may
@@ -3411,15 +4867,18 @@ export async function handleV1(request, env, ctx, url, path, origin) {
            * folder. ctx.waitUntil lets it finish AFTER the response, so a failure or a slow Drive
            * costs the upload nothing. Absent => null => no change (old engines send nothing). */
           if (body.docId && body.sub !== 'originals') {
+            // env + identity ride along so a return trip can sync the doc's drive_object rows home.
             ctx.waitUntil(driveTextHousekeeping(access, textFolder, {
               want: body.done === '1' ? true : body.done === '0' ? false : null,
-              deviceFolder, title: body.docTitle }));
+              deviceFolder, title: body.docTitle,
+              env, ownerId: inst.researcher_id, instanceId, projectId: inst.inst_project || null }));
           }
           // Same v2 source-package routing as the single-POST path: `sub` picks the originals/
           // child, `role` becomes the tag consumers match on instead of the filename.
           const folder = (body.sub === 'originals' && body.docId)
             ? await driveEnsureChildFolder(access, textFolder, 'originals', 'originals')
             : textFolder;
+          if (body.sub === 'originals' && body.docId && folder !== textFolder) await stampChild(env, { objectId: folder, kind: 'originals', docId: body.docId, parentId: textFolder });
           const role = String(body.role || '').trim().slice(0, 40);
           const init = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id', {
             method: 'POST',
@@ -3471,7 +4930,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         if (!install) return j({ error: 'unauthorized' }, 401, origin, env);
         if (install.status !== 'approved') return j({ error: 'not_approved' }, 403, origin, env);
         const inst = await env.DB.prepare(
-          'SELECT i.nickname AS inst_nickname, i.oauth_folder_id AS inst_folder, i.revoked AS inst_revoked, r.* FROM instance i JOIN researcher r ON r.researcher_id=i.researcher_id WHERE i.instance_id=?'
+          'SELECT i.nickname AS inst_nickname, i.oauth_folder_id AS inst_folder, i.revoked AS inst_revoked, i.project_id AS inst_project, r.* FROM instance i JOIN researcher r ON r.researcher_id=i.researcher_id WHERE i.instance_id=?'
         ).bind(instanceId).first();
         if (!inst || inst.inst_revoked) return j({ error: 'revoked' }, 410, origin, env);
         if (!inst.drive_refresh_enc) return j({ error: 'no_drive' }, 409, origin, env);   // → relay fallback
@@ -3500,6 +4959,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           const access = await driveAccessToken(env, inst);
           const deviceFolder = await driveEnsureDeviceFolder(env, access, instanceId, inst.inst_nickname, inst.inst_folder);
           const textFolder = docId ? await driveEnsureTextFolder(access, deviceFolder, docId, docTitle, knownFolder) : deviceFolder;
+          if (docId && textFolder !== deviceFolder) await stampChild(env, { objectId: textFolder, kind: 'text', docId, parentId: deviceFolder });
           if (docId && sub !== 'originals') {
             // Query param, NOT a header: a custom header needs a CORS allow-list entry, and until
             // this worker is deployed the browser refuses the whole upload at preflight. See the
@@ -3507,12 +4967,15 @@ export async function handleV1(request, env, ctx, url, path, origin) {
             // waitUntil, not await: see the chunked path — cosmetic work never blocks an upload.
             const hd = url.searchParams.get('done');
             ctx.waitUntil(driveTextHousekeeping(access, textFolder, {
-              want: hd === '1' ? true : hd === '0' ? false : null, deviceFolder, title: docTitle }));
+              want: hd === '1' ? true : hd === '0' ? false : null, deviceFolder, title: docTitle,
+              env, ownerId: inst.researcher_id, instanceId, projectId: inst.inst_project || null }));
           }
           const folder = (sub === 'originals' && docId)
             ? await driveEnsureChildFolder(access, textFolder, 'originals', 'originals')
             : textFolder;
+          if (sub === 'originals' && docId && folder !== textFolder) await stampChild(env, { objectId: folder, kind: 'originals', docId, parentId: textFolder });
           const fileId = await driveUpload(access, folder, name, buf, mime, role ? { flextextRole: role } : null);
+          await stampChild(env, { objectId: fileId, kind: 'file', docId: docId || null, parentId: folder });
           // folderId rides back so the device REMEMBERS it (strong-consistency dedupe above).
           // ⚠ The TEXT folder, never `folder`: see the chunked path — echoing the originals/ child
           // would redirect every later bare .flextext into it.
@@ -3581,11 +5044,36 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       // it lands in any device state (even one lost mid-enrollment that never received its key).
       if (install && install.wipe_state === 'requested') return j({ wipe: true }, 200, origin, env);
 
-      const inst = await env.DB.prepare('SELECT desired_blob, desired_rev, type, revoked, researcher_id FROM instance WHERE instance_id=?')
+      /* ⚠ `nickname` IS IN THIS COLUMN LIST, and it was missing for the whole life of the feature.
+       * Both branches below send `nickname: inst.nickname || ''`, so an absent column made that
+       * `undefined || ''` — every device was told its name was the empty string, on the pending
+       * screen and after approval, which is the one moment two people are trying to agree which
+       * device they are holding. Shipped broken in v440 and live on productionWeb until 2026-08-23.
+       *
+       * ⚠ It went unnoticed because test/pair-code.test.mjs asserted the SOURCE STRING
+       * `nickname: inst.nickname` appeared twice — which it did, while always evaluating to ''.
+       * A test that pins source text can vouch for a feature that does nothing; the real check now
+       * lives in test/worker-device-compat.probe.mjs and asserts the VALUE a real device receives.
+       * Add a column to this SELECT and you must also send it. */
+      const inst = await env.DB.prepare('SELECT desired_blob, desired_rev, type, revoked, researcher_id, nickname FROM instance WHERE instance_id=?')
         .bind(instanceId).first();
       if (!inst) return j({ error: 'not_found' }, 404, origin, env);
+      /* ⚠ THE OWNERSHIP CHECK COMES FIRST, AND ANSWERS not_found — both halves matter, and both were
+       * wrong (2026-08-21 sweep). It used to answer 403 AFTER the revoked check, which gave ONE
+       * authenticated caller three distinguishable answers for an id they do not own: 404 for an id
+       * that does not exist, 410 for a real instance since revoked, 403 for a real live one. That is
+       * an oracle for both the existence and the revocation state of every device id anybody has
+       * ever seen — in an old invite link, a support screenshot, a project they were removed from.
+       *
+       * Reordered so a caller who is not entitled to the instance learns nothing about it, and the
+       * refusal is the same not_found every other denial answers.
+       *
+       * ⚠ THE INSTALL LANE IS UNTOUCHED: `asResearcher` is null when an install authenticated, so a
+       * revoked DEVICE still gets its 410 and still auto-releases. That behaviour is load-bearing —
+       * without it a revoked phone 401-loops forever and strands the coworker — and it is exactly
+       * what the device-compat probe pins. */
+      if (asResearcher && inst.researcher_id !== asResearcher.researcher_id) return j({ error: 'not_found' }, 404, origin, env);
       if (inst.revoked) return j({ error: 'revoked' }, 410, origin, env);   // whole-instance revoke → client auto-releases
-      if (asResearcher && inst.researcher_id !== asResearcher.researcher_id) return j({ error: 'forbidden' }, 403, origin, env);
       // Provisional installs (§D.3) receive NO commands until approved.
       if (install && install.status !== 'approved') {
         return j({ pending: true, type: inst.type, nickname: inst.nickname || '', desired_rev: inst.desired_rev }, 200, origin, env);
@@ -3625,12 +5113,12 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     if (inv.claimed_at && inv.claimed_install === installId) {
       const ok = await env.DB.prepare('SELECT install_id, pair_code FROM install WHERE install_id=? AND instance_id=?').bind(installId, inv.instance_id).first();
       if (ok) {
-        const inst = await env.DB.prepare('SELECT n.type, r.display_name, r.avatar_url, r.drive_email FROM instance n JOIN researcher r ON r.researcher_id=n.researcher_id WHERE n.instance_id=?').bind(inv.instance_id).first();
+        const who = await pairingIdentity(env, inv);
         /* ⚠ THE SAME CODE, NOT A FRESH ONE. This is the lost-response retry path: the device is
          * asking again because it never saw the first answer, and it may already be showing the code
          * to a researcher who is reading it aloud. Re-minting here would change the number on one
          * screen only — the exact "they don't match" dead end this feature exists to remove. */
-        return j({ instance_id: inv.instance_id, type: inst && inst.type, status: 'pending', pair_code: ok.pair_code || '', researcher: inst ? { name: inst.display_name || '', avatar: inst.avatar_url || '', email: inst.drive_email || '' } : null }, 200, origin, env);
+        return j({ instance_id: inv.instance_id, type: who.type, status: 'pending', pair_code: ok.pair_code || '', researcher: who.researcher }, 200, origin, env);
       }
     }
     if (inv.claimed_at) return j({ error: 'already_claimed' }, 409, origin, env);
@@ -3656,12 +5144,12 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     // Confirm we won the race (D1 serializes batches; a loser sees claimed_install != us).
     const after = await env.DB.prepare('SELECT claimed_install FROM invite WHERE invite_id=?').bind(inviteId).first();
     if (!after || after.claimed_install !== installId) return j({ error: 'already_claimed' }, 409, origin, env);
-    const inst = await env.DB.prepare('SELECT n.type, r.display_name, r.avatar_url, r.drive_email FROM instance n JOIN researcher r ON r.researcher_id=n.researcher_id WHERE n.instance_id=?').bind(inv.instance_id).first();
+    const who = await pairingIdentity(env, inv);
     /* ⚠ READ BACK rather than returning `pairCode`. The INSERT is OR IGNORE, so on the path where a
      * row already existed the STORED code is the one both screens must show — trusting the local
      * variable would hand this device a number the panel will never display. */
     const mine = await env.DB.prepare('SELECT pair_code FROM install WHERE install_id=?').bind(installId).first();
-    return j({ instance_id: inv.instance_id, type: inst && inst.type, status: 'pending', pair_code: (mine && mine.pair_code) || '', researcher: inst ? { name: inst.display_name || '', avatar: inst.avatar_url || '', email: inst.drive_email || '' } : null }, 200, origin, env);
+    return j({ instance_id: inv.instance_id, type: who.type, status: 'pending', pair_code: (mine && mine.pair_code) || '', researcher: who.researcher }, 200, origin, env);
   }
 
   /* ---------------- Drive delivery mode (researcher-authed) ---------------- */
@@ -3776,7 +5264,19 @@ export async function handleV1(request, env, ctx, url, path, origin) {
               { name, mimeType: 'application/vnd.google-apps.folder', parents: [wantProject],
                 appProperties: { flextextRole: 'crowd' } });
             folderId = f.id;
-            await env.DB.prepare('UPDATE crowd_recorder SET oauth_folder_id=? WHERE crowd_id=?').bind(f.id, crowd_id).run();
+            /* ⚠ THE D1 PROJECT RIDES ALONG WITH THE FOLDER (invariant I3, same one act as
+             * projects/assign). This INSERT used to leave crowd_recorder.project_id NULL even when
+             * born into a chosen project — so authMember's { crowd } target would have authorized
+             * it through the legacy owner branch forever, and drive_object had no row for the new
+             * folder at all. Owner-scoped lookup: wantProject is caller-supplied, and a folder id
+             * belonging to someone else's project must resolve to nothing, not to their project. */
+            const prow = await env.DB.prepare('SELECT project_id FROM project WHERE drive_folder_id=? AND owner_id=?')
+              .bind(wantProject, r.researcher_id).first().catch(() => null);
+            await env.DB.prepare('UPDATE crowd_recorder SET oauth_folder_id=?, project_id=? WHERE crowd_id=?')
+              .bind(f.id, (prow && prow.project_id) || null, crowd_id).run();
+            // Creation ⟹ stamped (drive-object.js) — the eager twin of driveEnsureCrowdFolder's stamp.
+            await stampFolder(env, { objectId: f.id, kind: 'crowd', instanceId: null,
+                                     projectId: (prow && prow.project_id) || null, createdBy: r.researcher_id });
           }
         } catch { /* the recorder exists; its folder can still be made lazily */ }
       }

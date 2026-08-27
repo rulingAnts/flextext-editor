@@ -683,7 +683,21 @@ export function initResearcherPanel(d) {
    * superseded; `mismatch` is the list that matters — it must be empty for the sharing claim to
    * hold. Sibling of fxDevices/fxLinks/fxProjects; recorded in DEVELOPERS.md. */
   if (typeof window !== 'undefined') {
-    window.fxSettingsAudit = async (filter) => {
+    window.fxSettingsAudit = async (filter, full) => {
+      /* EVERY field the form can store, by stored key — derived from the SAME GROUPS the form
+       * renders, so the audit's idea of "all settings" can never drift from the form's. appLang is
+       * excluded (a one-shot language command, legitimately absent); consentAudio is the derived
+       * twin of consentAudioUrl. A device missing a field was configured by an older form or has
+       * never been pushed it — the device treats absence as the default. */
+      const expected = (() => {
+        const ks = new Set();
+        for (const g of GROUPS) for (const f of groupFields(g)) {
+          if (f.type === 'action' || f.k === 'appLang') continue;
+          ks.add(f.k === 'autoDel' ? 'autoDelUploaded' : f.k === 'buttons' ? 'toolbarButtons' : f.k);
+        }
+        ks.add('consentAudio');
+        return ks;
+      })();
       const v = await Researcher.listView();
       const all = [...(v.instances || [])];
       for (const mp of (v.memberProjects || [])) all.push(...(mp.instances || []));
@@ -695,23 +709,34 @@ export function initResearcherPanel(d) {
         const snap = await Researcher.getInstanceSettings(it.instance_id).catch(() => null);
         const lane = await Researcher.readSettingsLane(it.instance_id).catch(() => null);
         const keys = new Set([...Object.keys(snap || {}), ...Object.keys(lane || {})]);
-        const mismatch = [], onlySnapshot = [], onlyLane = [];
+        const mismatch = [];
         for (const k of keys) {
-          const a = snap ? snap[k] : undefined, b = lane ? lane[k] : undefined;
-          if (snap && !lane) onlySnapshot.push(k);
-          else if (lane && !snap) onlyLane.push(k);
-          else if (JSON.stringify(a) !== JSON.stringify(b)) mismatch.push(`${k}: snap=${JSON.stringify(a)} lane=${JSON.stringify(b)}`);
+          if (snap && lane && JSON.stringify(snap[k]) !== JSON.stringify(lane[k])) {
+            mismatch.push(`${k}: snap=${JSON.stringify(snap[k])} lane=${JSON.stringify(lane[k])}`);
+          }
         }
+        const missing = lane ? [...expected].filter((k) => !(k in lane)) : null;
         report.push({ device: it.nickname || it.instance_id.slice(0, 8),
                       snapKeys: snap ? Object.keys(snap).length : null,
                       laneKeys: lane ? Object.keys(lane).length : null,
-                      mismatches: mismatch.length, detail: mismatch });
+                      mismatches: mismatch.length,
+                      missingFromLane: lane ? (missing.join(', ') || '—') : '(no lane copy)',
+                      detail: mismatch });
+        if (full) {
+          console.log(`--- ${it.nickname} — every field ---`);
+          console.table([...new Set([...expected, ...keys])].sort().map((k) => ({
+            field: k,
+            snapshot: snap && k in snap ? JSON.stringify(snap[k]) : '(absent)',
+            lane: lane && k in lane ? JSON.stringify(lane[k]) : '(absent)',
+            agree: snap && lane ? (JSON.stringify(snap[k]) === JSON.stringify(lane[k]) ? 'yes' : 'NO') : 'n/a',
+          })));
+        }
       }
       console.table(report.map(({ detail, ...r }) => r));
       for (const r of report) if (r.detail.length) console.warn(r.device, r.detail);
       return report.every((r) => !r.mismatches)
-        ? 'PASS: every device whose snapshot and lane both exist agrees key-for-key'
-        : 'MISMATCHES — see warnings above';
+        ? 'PASS: snapshot and lane agree key-for-key wherever both exist. (A snap≠lane mismatch means one side is STALE — since v461 forms always open on the lane, the device’s current truth.)'
+        : 'MISMATCHES — see warnings; the LANE side is what forms open on and what the device obeys';
     };
   }
 

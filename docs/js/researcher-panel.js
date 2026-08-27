@@ -676,6 +676,45 @@ export function initResearcherPanel(d) {
     };
   }
 
+  /* CONSOLE ENTRY POINT — `fxSettingsAudit(nickOrIdPrefix?)`. Answers "are ALL settings shared?"
+   * with data: for each device (own + shared), reads the LOCAL snapshot and the SHARED lane
+   * (readSettingsLane — the exact path another researcher's seat decrypts) and diffs them
+   * key-by-key. `onlySnapshot` keys are settings this seat pushed that predate the lane or were
+   * superseded; `mismatch` is the list that matters — it must be empty for the sharing claim to
+   * hold. Sibling of fxDevices/fxLinks/fxProjects; recorded in DEVELOPERS.md. */
+  if (typeof window !== 'undefined') {
+    window.fxSettingsAudit = async (filter) => {
+      const v = await Researcher.listView();
+      const all = [...(v.instances || [])];
+      for (const mp of (v.memberProjects || [])) all.push(...(mp.instances || []));
+      const pick = filter
+        ? all.filter((it) => (it.nickname || '').includes(filter) || it.instance_id.startsWith(filter))
+        : all;
+      const report = [];
+      for (const it of pick) {
+        const snap = await Researcher.getInstanceSettings(it.instance_id).catch(() => null);
+        const lane = await Researcher.readSettingsLane(it.instance_id).catch(() => null);
+        const keys = new Set([...Object.keys(snap || {}), ...Object.keys(lane || {})]);
+        const mismatch = [], onlySnapshot = [], onlyLane = [];
+        for (const k of keys) {
+          const a = snap ? snap[k] : undefined, b = lane ? lane[k] : undefined;
+          if (snap && !lane) onlySnapshot.push(k);
+          else if (lane && !snap) onlyLane.push(k);
+          else if (JSON.stringify(a) !== JSON.stringify(b)) mismatch.push(`${k}: snap=${JSON.stringify(a)} lane=${JSON.stringify(b)}`);
+        }
+        report.push({ device: it.nickname || it.instance_id.slice(0, 8),
+                      snapKeys: snap ? Object.keys(snap).length : null,
+                      laneKeys: lane ? Object.keys(lane).length : null,
+                      mismatches: mismatch.length, detail: mismatch });
+      }
+      console.table(report.map(({ detail, ...r }) => r));
+      for (const r of report) if (r.detail.length) console.warn(r.device, r.detail);
+      return report.every((r) => !r.mismatches)
+        ? 'PASS: every device whose snapshot and lane both exist agrees key-for-key'
+        : 'MISMATCHES — see warnings above';
+    };
+  }
+
   /* CONSOLE ENTRY POINT — `fxLinks()`. Replaces a ⌃⌥E shortcut that could never have worked on a
    * Mac: Option+E is the dead key that composes an acute accent, so `e.key` is never 'e' and the
    * handler never fired (Seth, 2026-08-05). A console function is the better shape anyway — there

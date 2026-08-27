@@ -1009,24 +1009,32 @@ export async function getInstanceSettings(instanceId) {
    * a paired device's reported inventory already crossed seats via listView. null now honestly
    * means "nobody has configured this" (or this seat holds no key, which the member UI gates
    * before ever opening a form). */
-  try {
-    const Ki = await getKi(instanceId);
-    const d = await api('GET', `/v1/instances/${encodeURIComponent(instanceId)}?since=-1`);
-    const cmds = (d && d.commands) || [];
-    for (let i = cmds.length - 1; i >= 0; i--) {
-      const c = cmds[i];
-      if (c && c.type === 'changeSettings' && c.enc) {
-        try {
-          /* c.enc IS the "iv.ct" token string encryptJSON mints — hand it to decryptJSON verbatim.
-           * (v458 shipped a JSON.parse "normalization" here that threw on every real token, so the
-           * fallback nulled out while the lane sat full — found by walking the live bytes.) */
-          const p = await decryptJSON(Ki, c.enc);
-          if (p && p.settings) return p.settings;
-        } catch { /* one undecryptable command must not hide an older readable one */ }
-      }
+  try { return await readSettingsLane(instanceId); }
+  catch { /* no key, revoked, offline — null keeps its meaning */ }
+  return null;
+}
+
+/* The lane-only read, exported on its own so it can be AUDITED: fxSettingsAudit compares this —
+ * the exact bytes another researcher's seat will decrypt — against the local snapshot, which is
+ * how "are ALL settings shared?" gets a checkable answer instead of an eyeballed one. */
+export async function readSettingsLane(instanceId) {
+  requireUnlocked();
+  const Ki = await getKi(instanceId);
+  const d = await api('GET', `/v1/instances/${encodeURIComponent(instanceId)}?since=-1`);
+  const cmds = (d && d.commands) || [];
+  for (let i = cmds.length - 1; i >= 0; i--) {
+    const c = cmds[i];
+    if (c && c.type === 'changeSettings' && c.enc) {
+      try {
+        /* c.enc IS the "iv.ct" token string encryptJSON mints — hand it to decryptJSON verbatim.
+         * (v458 shipped a JSON.parse "normalization" here that threw on every real token, so the
+         * fallback nulled out while the lane sat full — found by walking the live bytes.) */
+        const p = await decryptJSON(Ki, c.enc);
+        if (p && p.settings) return p.settings;
+      } catch { /* one undecryptable command must not hide an older readable one */ }
     }
-    if (d && d.settings && Object.keys(d.settings).length) return d.settings;
-  } catch { /* no key, revoked, offline — null keeps its meaning */ }
+  }
+  if (d && d.settings && Object.keys(d.settings).length) return d.settings;
   return null;
 }
 /* ---------------- account-scoped panel state (shared across the researcher's browsers) ----------------

@@ -2603,7 +2603,15 @@ function ackOf(instances, instanceId) {
  * text with no manifest now gets a single link to its Drive folder instead of a reconstructed list.
  * The History log still retains the assigned URLs; nothing reads them per-render any more. */
 
-async function renderInstanceCard(it, deviceCount) {
+async function renderInstanceCard(it, deviceCount, memberCtx = null) {
+  /* memberCtx = { caps, projectName } renders this card for a COWORKER's joined project: every
+   * control maps to what the worker will actually honour for a member — manageDevices keeps
+   * settings/upload/approve/revoke, createInvites keeps the invite button, the assignTexts-gated
+   * text actions and the owner-only wipe/force-remove are ABSENT (not greyed out — the same rule
+   * as the Drive capability), and the Files menus wait for the deferred drive:read. */
+  const mCaps = memberCtx ? (memberCtx.caps || {}) : null;
+  const mManage = !memberCtx || !!mCaps.manageDevices;
+  const mInvite = !memberCtx || !!mCaps.createInvites;
   const installs = it.installs || [];
   const anyPending = installs.some((i) => i.status === 'pending');
   // Collected while the installs render, then shown in the COLLAPSED header too. A collapse that
@@ -2623,7 +2631,7 @@ async function renderInstanceCard(it, deviceCount) {
       // B: no key can be delivered until the field user accepts on their device — so until then
       // show "waiting for the user" instead of Approve (the worker would 409 the key anyway).
       const action = ins.accepted
-        ? `<button class="primary-btn" data-iact="approve" data-i="${esc(it.instance_id)}" data-id="${esc(ins.install_id)}">${esc(t('panel.inst.approve'))}</button>`
+        ? (mManage ? `<button class="primary-btn" data-iact="approve" data-i="${esc(it.instance_id)}" data-id="${esc(ins.install_id)}">${esc(t('panel.inst.approve'))}</button>` : '')
         : `<div class="note rp-waiting">${esc(t('panel.inst.waitingAccept'))}</div>`;
       /* ⚠ THE CODE IS THE HEADLINE; the fingerprint moved to fine print (Seth, 2026-08-20).
        * This card used to ask the researcher to visually match a long hex fingerprint against one
@@ -2750,12 +2758,12 @@ async function renderInstanceCard(it, deviceCount) {
           : (deleting || wiped) ? ''                        // being removed, or the device is gone
           : uploading
             ? (queued ? cancelBtn('Upload') : takenTag)
-            : ` <button class="link-btn rp-up" data-iact="upload" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-fileid="${esc(d.uploadedFileId || '')}">${esc(t(label))}</button>`;
+            : (mManage ? ` <button class="link-btn rp-up" data-iact="upload" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-fileid="${esc(d.uploadedFileId || '')}">${esc(t(label))}</button>` : '');
         // Upload-first remote delete (v94+): the device uploads a fresh timestamped copy, THEN deletes.
         // The chip belongs to the device LOSING the text. The destination's half of the move is its
         // pending ASSIGNMENT, which its own ghost row already tells.
         const moveChip = mvSource ? ` <span class="rp-tag rp-tag-moving">${esc(t(mv.stage === 'assigned' ? 'panel.move.waitingDest' : 'panel.move.removingSrc'))}</span>` : '';
-        const moveBtn = (!d.id || mv || d.__assigning || deleting || uploading || wiped) ? ''
+        const moveBtn = (memberCtx || !d.id || mv || d.__assigning || deleting || uploading || wiped) ? ''
           : ` <button class="link-btn" data-iact="move-text" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.move.btn'))}</button>`;
         /* A move is NOTHING MORE than a pending assignment and a pending removal, each cancellable
          * on its own (Seth, 2026-08-19) — so no move-specific control exists. The removal wears the
@@ -2771,12 +2779,12 @@ async function renderInstanceCard(it, deviceCount) {
           : mvSource ? cancelRemovalBtn                     // committed, not yet issued as a command
           : uploading ? ''                                  // cancel the upload first, or wait it out
           : canDelText
-            ? ` <button class="link-btn rp-revoke" data-iact="del-text" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.inst.delText'))}</button>`
+            ? (memberCtx ? '' : ` <button class="link-btn rp-revoke" data-iact="del-text" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.inst.delText'))}</button>`)
             : ` <button class="link-btn rp-revoke" disabled title="${esc(t('panel.inst.delNeedsUpdate'))}">${esc(t('panel.inst.delText'))}</button>`;
         // The done tag is a TOGGLE when the engine understands the setDone COMMAND — the dispatch
         // case shipped in v138. Gating on setDocDone's age (v100) was wrong: an older device ACKS
         // the unknown command and silently does nothing, which reads as "the toggle is broken".
-        const canSetDone = engNum >= 138 && !wiped;
+        const canSetDone = engNum >= 138 && !wiped && !memberCtx;   // members: the tag shows, the toggle is assignTexts-gated
         const doneTag = d.done
           ? (canSetDone ? `<button class="rp-tag rp-tag-done rp-tag-btn" data-iact="toggle-done" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-done="1" title="${esc(t('panel.inst.toggleDoneTip'))}">${esc(t('panel.inst.doneTag'))}</button>`
                         : `<span class="rp-tag rp-tag-done">${esc(t('panel.inst.doneTag'))}</span>`)
@@ -2793,7 +2801,8 @@ async function renderInstanceCard(it, deviceCount) {
         // when opened (filesMenuHtml), falling back to the static artifacts when there is no
         // folder yet. Rendering it unconditionally is the point of the per-text folder: the menu
         // is now the one place all of a text's artifacts live.
-        const dl = filesMenuHtml(it.instance_id, d.id, d.title || '');
+        // Members: the menu's listing rides drive:read, which is deferred — absent, not broken.
+        const dl = memberCtx ? '' : filesMenuHtml(it.instance_id, d.id, d.title || '');
         // (5) The row reads in two lines: title + state chip, then muted metadata; actions sit on
         // the right. The tags stopped fighting the title for attention — that was Seth's "plain
         // line of text with plain hyperlinks is getting busy and ugly".
@@ -2843,8 +2852,8 @@ async function renderInstanceCard(it, deviceCount) {
             <button class="link-btn rp-revoke" data-iact="force-remove" data-i="${I}" data-id="${D}">${esc(t('panel.wipe.removeBtn'))}</button>`;
           if (ins.wipe_state === 'requested') return `<div class="note rp-wipe-pending">${esc(t('panel.wipe.pending', { when: lastSeen(ins.wipe_at) }))}</div>
             <button class="link-btn rp-revoke" data-iact="force-remove" data-i="${I}" data-id="${D}">${esc(t('panel.wipe.forceRemoveBtn'))}</button>`;
-          return `<button class="link-btn rp-revoke" data-iact="revoke-install" data-i="${I}" data-id="${D}">${esc(t('panel.inst.revokeInstall'))}</button>
-            <button class="link-btn rp-danger" data-iact="wipe-install" data-i="${I}" data-id="${D}" data-name="${esc(it.nickname || '')}">${esc(t('panel.wipe.btn'))}</button>`;
+          return `${mManage ? `<button class="link-btn rp-revoke" data-iact="revoke-install" data-i="${I}" data-id="${D}">${esc(t('panel.inst.revokeInstall'))}</button>` : ''}
+            ${memberCtx ? '' : `<button class="link-btn rp-danger" data-iact="wipe-install" data-i="${I}" data-id="${D}" data-name="${esc(it.nickname || '')}">${esc(t('panel.wipe.btn'))}</button>`}`;
         })()}
       </div>`;
     }
@@ -2891,11 +2900,11 @@ async function renderInstanceCard(it, deviceCount) {
         <a href="${MIGRATE_DOC}" target="_blank" rel="noopener">${esc(t('panel.deprecated.coworkers'))}</a></p>` : ''}
       ${installsHtml || `<p class="note">${esc(t('panel.inst.noInstall'))}</p>`}
       <div class="rp-inst-actions">
-        <button class="secondary-btn" data-iact="settings" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}">${esc(t('panel.inst.settings'))}</button>
-        <button class="secondary-btn" data-iact="invite" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}">${esc(t('panel.inst.invite'))}</button>
-        <button class="secondary-btn" data-iact="assign" data-i="${esc(it.instance_id)}">${esc(t('panel.inst.assign'))}</button>
-        ${projectMoveBtn(it)}
-        <button class="link-btn rp-revoke" data-iact="revoke" data-i="${esc(it.instance_id)}" data-name="${esc(it.nickname || '')}">${esc(t('panel.inst.revoke'))}</button>
+        ${mManage ? `<button class="secondary-btn" data-iact="settings" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}">${esc(t('panel.inst.settings'))}</button>` : ''}
+        ${mInvite ? `<button class="secondary-btn" data-iact="invite" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}">${esc(t('panel.inst.invite'))}</button>` : ''}
+        ${memberCtx ? '' : `<button class="secondary-btn" data-iact="assign" data-i="${esc(it.instance_id)}">${esc(t('panel.inst.assign'))}</button>`}
+        ${memberCtx ? '' : projectMoveBtn(it)}
+        ${mManage ? `<button class="link-btn rp-revoke" data-iact="revoke" data-i="${esc(it.instance_id)}" data-name="${esc(it.nickname || '')}">${esc(t('panel.inst.revoke'))}</button>` : ''}
       </div>
     </div>
   </div>`;

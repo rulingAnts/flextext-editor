@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v455';
+export const ENGINE_VERSION = 'v456';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v455';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'phase-cd v10';
+export const BUILD_TAG = 'phase-cd v11';
 
 const S = {
 en: {
@@ -1371,6 +1371,8 @@ internet after the first time.</p>
   'panel.share.capsLabel': 'What they may do',
   'panel.share.capManageLabel': 'Manage devices — change settings, rename, revoke, approve installs',
   'panel.share.capInviteLabel': 'Invite devices — create pairing links for new devices',
+  'panel.share.capAssign': 'work with texts',
+  'panel.share.capAssignLabel': 'Work with texts — assign texts, mark done, delete from devices',
   /* ⚠ THE DRIVE CAPABILITY IS ABSENT ON PURPOSE, not disabled: a checkbox that says a coworker can
    * be given file access would be a promise this version cannot keep. Files stay with the owner. */
   'panel.share.driveNote': 'Coworkers cannot be given access to your Google Drive files in this version. Assigning texts and downloading files stay with you, the owner.',
@@ -3151,6 +3153,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.share.capsLabel': 'Apa yang boleh mereka lakukan',
   'panel.share.capManageLabel': 'Mengelola perangkat — mengubah pengaturan, mengganti nama, mencabut, menyetujui pemasangan',
   'panel.share.capInviteLabel': 'Mengundang perangkat — membuat tautan penyandingan untuk perangkat baru',
+  'panel.share.capAssign': 'mengerjakan teks',
+  'panel.share.capAssignLabel': 'Mengerjakan teks — menugaskan teks, menandai selesai, menghapus dari perangkat',
   'panel.share.driveNote': 'Rekan kerja tidak dapat diberi akses ke berkas Google Drive Anda pada versi ini. Menugaskan teks dan mengunduh berkas tetap menjadi hak Anda sebagai pemilik.',
   'panel.share.warnTitle': 'Seberapa besar Anda perlu memercayai orang ini?',
   'panel.share.warnSee': 'Mereka akan dapat membaca semua yang telah direkam dan dilaporkan oleh perangkat proyek ini. Menghapus mereka nanti menghentikan apa yang dapat mereka lakukan SELANJUTNYA — itu tidak dapat menarik kembali apa yang sudah mereka baca atau simpan.',

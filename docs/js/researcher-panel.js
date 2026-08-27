@@ -2635,6 +2635,7 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
   const mKeyless = !!memberCtx && it.hasKey === false;
   const mManage = (!memberCtx || !!mCaps.manageDevices) && !mKeyless;
   const mInvite = (!memberCtx || !!mCaps.createInvites) && !mKeyless;
+  const mAssign = (!memberCtx || !!mCaps.assignTexts) && !mKeyless;   // texts: assign, done, delete
   const installs = it.installs || [];
   const anyPending = installs.some((i) => i.status === 'pending');
   // Collected while the installs render, then shown in the COLLAPSED header too. A collapse that
@@ -2802,12 +2803,12 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
           : mvSource ? cancelRemovalBtn                     // committed, not yet issued as a command
           : uploading ? ''                                  // cancel the upload first, or wait it out
           : canDelText
-            ? (memberCtx ? '' : ` <button class="link-btn rp-revoke" data-iact="del-text" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.inst.delText'))}</button>`)
+            ? (mAssign ? ` <button class="link-btn rp-revoke" data-iact="del-text" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.inst.delText'))}</button>` : '')
             : ` <button class="link-btn rp-revoke" disabled title="${esc(t('panel.inst.delNeedsUpdate'))}">${esc(t('panel.inst.delText'))}</button>`;
         // The done tag is a TOGGLE when the engine understands the setDone COMMAND — the dispatch
         // case shipped in v138. Gating on setDocDone's age (v100) was wrong: an older device ACKS
         // the unknown command and silently does nothing, which reads as "the toggle is broken".
-        const canSetDone = engNum >= 138 && !wiped && !memberCtx;   // members: the tag shows, the toggle is assignTexts-gated
+        const canSetDone = engNum >= 138 && !wiped && mAssign;   // the toggle follows the assignTexts capability
         const doneTag = d.done
           ? (canSetDone ? `<button class="rp-tag rp-tag-done rp-tag-btn" data-iact="toggle-done" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-done="1" title="${esc(t('panel.inst.toggleDoneTip'))}">${esc(t('panel.inst.doneTag'))}</button>`
                         : `<span class="rp-tag rp-tag-done">${esc(t('panel.inst.doneTag'))}</span>`)
@@ -2926,7 +2927,7 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
       <div class="rp-inst-actions">
         ${mManage ? `<button class="secondary-btn" data-iact="settings" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}">${esc(t('panel.inst.settings'))}</button>` : ''}
         ${mInvite ? `<button class="secondary-btn" data-iact="invite" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}">${esc(t('panel.inst.invite'))}</button>` : ''}
-        ${memberCtx ? '' : `<button class="secondary-btn" data-iact="assign" data-i="${esc(it.instance_id)}">${esc(t('panel.inst.assign'))}</button>`}
+        ${mAssign ? `<button class="secondary-btn" data-iact="assign" data-i="${esc(it.instance_id)}">${esc(t('panel.inst.assign'))}</button>` : ''}
         ${memberCtx ? '' : projectMoveBtn(it)}
         ${mManage ? `<button class="link-btn rp-revoke" data-iact="revoke" data-i="${esc(it.instance_id)}" data-name="${esc(it.nickname || '')}">${esc(t('panel.inst.revoke'))}</button>` : ''}
       </div>
@@ -5398,6 +5399,7 @@ async function renderMemberProjectContent(mp) {
   const capBits = [];
   if (caps.manageDevices) capBits.push(t('panel.share.capManage'));
   if (caps.createInvites) capBits.push(t('panel.share.capInvite'));
+  if (caps.assignTexts) capBits.push(t('panel.share.capAssign'));
   return `<p class="note rp-joined-note"><span class="rp-badge rp-badge-type">${esc(t('panel.joined.tag'))}</span>
       ${esc(capBits.length ? t('panel.joined.note', { caps: capBits.join(', ') }) : t('panel.joined.noteNone'))}</p>
     ${cards.join('') || `<p class="note">${esc(t('panel.joined.empty'))}</p>`}`;
@@ -6334,6 +6336,7 @@ async function coworkersModal() {
     const out = [];
     if (caps && caps.manageDevices) out.push(t('panel.share.capManage'));
     if (caps && caps.createInvites) out.push(t('panel.share.capInvite'));
+    if (caps && caps.assignTexts) out.push(t('panel.share.capAssign'));
     return out.length ? out.join(', ') : t('panel.share.capNone');
   };
 
@@ -6371,6 +6374,7 @@ async function coworkersModal() {
             <div class="rp-share-edit" data-medit="${i}" hidden>
               <label class="check-label"><input type="checkbox" data-mem="${i}" data-cap="manageDevices" ${x.caps && x.caps.manageDevices ? 'checked' : ''}> ${esc(t('panel.share.capManageLabel'))}</label>
               <label class="check-label"><input type="checkbox" data-mem="${i}" data-cap="createInvites" ${x.caps && x.caps.createInvites ? 'checked' : ''}> ${esc(t('panel.share.capInviteLabel'))}</label>
+              <label class="check-label"><input type="checkbox" data-mem="${i}" data-cap="assignTexts" ${x.caps && x.caps.assignTexts ? 'checked' : ''}> ${esc(t('panel.share.capAssignLabel'))}</label>
               <button class="secondary-btn" data-sact="editsave" data-rid="${esc(x.researcher_id)}" data-i="${i}">${esc(t('panel.share.editSave'))}</button>
             </div></div></div>
           <div class="rp-inst-actions">
@@ -6391,6 +6395,7 @@ async function coworkersModal() {
           <legend>${esc(t('panel.share.capsLabel'))}</legend>
           <label class="check-label"><input type="checkbox" id="rp-share-manage"> ${esc(t('panel.share.capManageLabel'))}</label>
           <label class="check-label"><input type="checkbox" id="rp-share-invite"> ${esc(t('panel.share.capInviteLabel'))}</label>
+          <label class="check-label"><input type="checkbox" id="rp-share-assign"> ${esc(t('panel.share.capAssignLabel'))}</label>
         </fieldset>
         <p class="note">${esc(t('panel.share.driveNote'))}</p>
         ${/* The revocation-honesty rule moved UPSTREAM (project-split.md): the owner should learn what
@@ -6456,6 +6461,7 @@ async function coworkersModal() {
       const caps = {};
       if (body.querySelector('#rp-share-manage').checked) caps.manageDevices = true;
       if (body.querySelector('#rp-share-invite').checked) caps.createInvites = true;
+      if (body.querySelector('#rp-share-assign').checked) caps.assignTexts = true;
       try {
         await Researcher.addMember(selected, who, caps);
         /* ⚠ THE MEMBERSHIP ROW ALONE READS NOTHING — metadata is E2EE, so the member needs each

@@ -3925,3 +3925,27 @@ Accepted gaps for now, each with its future shape:
 - **Unassigned texts / Drive estate**: owner-Drive views (Unassigned card, storage) stay owner-only
   until the deferred `drive` capability lands (Phase 4 — member Drive routes). This is the deliberate
   DEFERRED_CAPS line, not an oversight.
+
+## Concurrent researcher commands — the collision plan (Seth, 2026-08-27)
+
+> *"We may need a plan though for what happens when duplicate or contradictory commands are sent."*
+> Raised the day `assignTexts` was un-deferred, i.e. the day two accounts could first race.
+
+**What already holds (the mechanics are favorable):** commands are appended SERVER-side into the
+device's desired queue in D1 (requests serialize; no client read-modify-write of the queue), each
+carries a `seq` and — since the `by` stamp — its issuer; the device applies in order and acks
+`ack_seq`. So nothing is lost on a race, and "contradictory" resolves as last-command-wins in queue
+order, which is the same rule two browsers of ONE researcher already live under.
+
+**What is genuinely open, in rough priority:**
+1. **Duplicate assigns** — two researchers assigning the same text: does the device dedupe by doc
+   id, or hold two copies? Decide + pin with a device-compat probe.
+2. **delete-vs-assign races** — a delete queued after an assign of the same doc should win (queue
+   order says it does), but the PANEL's optimistic pending rows on the LOSING seat need to converge
+   rather than show a phantom.
+3. **Cross-account pending visibility** — the earlier backlog entry; solving it also softens 1 and
+   2, because a researcher SEES the other's queued command before duplicating it.
+4. **setDone toggling** — benign (idempotent last-wins), needs nothing beyond documentation.
+
+**Non-goal:** locking or reservation. Two researchers on one device is cooperative, low-frequency,
+and the queue is already ordered; a lock would add a stuck-lock failure mode for no real conflict.

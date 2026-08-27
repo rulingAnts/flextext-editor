@@ -102,17 +102,19 @@ console.log('\ncaps are VALIDATED on the way in — an owner must be told, not s
 console.log('\nthe DEFERRED capabilities cannot be granted at all (audit remediation)');
 {
   /* ⚠ THIS IS THE SECURITY PROPERTY THE v1 FIX RESTS ON, so it is tested at the API rather than only
-   * in validateCaps' unit tests: nine of the audit's seventeen findings share one root cause, and
-   * every one of those nine is reachable only through `assignTexts` or `drive`. If either can be
-   * written, the whole remediation is undone silently. */
+   * in validateCaps' unit tests: the audit routes reachable through `drive` stay refused until
+   * per-project Drive access is complete. `assignTexts` LEFT this list on 2026-08-27 (Seth: texts
+   * and their status must be modifiable by every researcher on the project) — its nine routes are
+   * authMember-gated and doc-scoped by the drive_object containment gates, and the capability's
+   * live effectiveness is probed below instead of its refusal here. */
   /* ⚠ `cancelOthers` IS IN THIS LIST from 2026-08-24. It is deferred for a DIFFERENT reason from the
-   * Drive pair — the cancel route is safe, but the own/other rule needs every command to name its
+   * Drive caps — the cancel route is safe, but the own/other rule needs every command to name its
    * issuer and the pre-`by` backlog cannot. It was grantable and enforced nowhere, i.e. an owner
    * ticking it was told they had delegated something they had not. Refusing is the same discipline
    * the Drive caps get, for the same reason: the write is the only moment anyone is present to hear
    * "no". */
-  for (const caps of [{ assignTexts: true }, { drive: 'read' }, { drive: 'manage' },
-                      { manageDevices: true, assignTexts: true },
+  for (const caps of [{ drive: 'read' }, { drive: 'manage' },
+                      { manageDevices: true, drive: 'read' },
                       { cancelOthers: true }, { manageDevices: true, cancelOthers: true }]) {
     const res = await call('POST', `/v1/projects/${projectId}/members`, OWNER, {
       researcher_id: FIXTURE.outsiderId, caps,
@@ -278,6 +280,25 @@ console.log('\nwhat that member CAN do, and what they still cannot');
 
   ok((await call('POST', `/v1/instances/${idA}/installs/nope/wipe`, GUEST, {})).status === 404,
      'wipe stays owner-only whatever the member holds');
+
+  /* ⚠ THE CAPABILITY IS LIVE, NOT JUST GRANTABLE (assignTexts un-deferred 2026-08-27). The same
+   * text commands refused above must succeed the moment the cap is granted, through the same
+   * route, same credentials — and go back to 404 when it is stripped. Grantable-but-dead was the
+   * cancelOthers failure mode; this pins the opposite direction. */
+  await call('POST', `/v1/projects/${projectId}/members`, OWNER, {
+    researcher_id: FIXTURE.outsiderId, caps: { manageDevices: true, assignTexts: true },
+  });
+  for (const type of ['assign', 'delete', 'uploadDelete', 'setDone']) {
+    const res = await call('POST', `/v1/instances/${idA}/command`, GUEST,
+      { command: { type, id: 'probedoc' } });
+    ok(res.status === 200, `⚠⚠ with assignTexts granted, ${type} is ACCEPTED (got ${res.status})`);
+  }
+  await call('POST', `/v1/projects/${projectId}/members`, OWNER, {
+    researcher_id: FIXTURE.outsiderId, caps: { manageDevices: true },
+  });
+  const strippedCmd = await call('POST', `/v1/instances/${idA}/command`, GUEST,
+    { command: { type: 'setDone', id: 'probedoc' } });
+  ok(strippedCmd.status === 404, `and stripping the cap closes it again (got ${strippedCmd.status})`);
 }
 
 console.log('\n⚠⚠ a member device action is ATTRIBUTED to the MEMBER, not the owner');

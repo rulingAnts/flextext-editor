@@ -1081,9 +1081,7 @@ function viewSig(data) {
       (data.memberProjects || []).map((mp) => [
         mp.project_id, mp.name, JSON.stringify(mp.caps || {}),
         (mp.instances || []).map((it) => [
-          // desired_rev: configuring on ANY seat flips this card's buttons (mConfigured) — without
-          // it here, the unlock only appeared after an unrelated change happened to repaint.
-          it.instance_id, it.nickname, it.type, it.hasKey, it.desired_rev,
+          it.instance_id, it.nickname, it.type, it.hasKey,
           (it.installs || []).map((ins) => [
             ins.install_id, ins.status, ins.accepted, ins.has_key, ins.wipe_state,
             ins.inventory && ins.inventory.engineVersion,
@@ -2635,16 +2633,14 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
    * repaints the buttons in the moment hasKey flips (it is in viewSig). The act-gate in
    * instanceAction stays as the backstop for stale DOM. */
   const mKeyless = !!memberCtx && it.hasKey === false;
-  /* ⚠ AN UNCONFIGURED SHARED DEVICE OFFERS ONLY SETTINGS (Seth, 2026-08-27: "don't give them a UI
-   * path that gives them an error"). Invite would bounce into the required-settings gate and
-   * Assign has nothing sane to land on — both appear once the device is configured. Settings
-   * REMAINS on purpose: it is the productive path (configuring happens through it), and it opens
-   * with the nobody-has-configured-this-yet note rather than an error. desired_rev > 0 is the
-   * cheap, already-present truth for "someone has pushed settings at least once". */
-  const mConfigured = !memberCtx || Number(it.desired_rev || 0) > 0;
+  /* ⚠ Buttons render per CAPABILITY, and the flows themselves speak when a device is not ready —
+   * the invite act toasts one line on a fully-unconfigured device instead of opening the
+   * settings-modal-plus-banner pile (Seth, 2026-08-27: "don't give them a UI path that gives them
+   * an error"). A desired_rev-based "configured" bit was tried and REVERTED the same day: renames
+   * bump the rev, so it vouched for devices nobody had configured. */
   const mManage = (!memberCtx || !!mCaps.manageDevices) && !mKeyless;
-  const mInvite = (!memberCtx || !!mCaps.createInvites) && !mKeyless && mConfigured;
-  const mAssign = (!memberCtx || !!mCaps.assignTexts) && !mKeyless && mConfigured;   // texts: assign, done, delete
+  const mInvite = (!memberCtx || !!mCaps.createInvites) && !mKeyless;
+  const mAssign = (!memberCtx || !!mCaps.assignTexts) && !mKeyless;   // texts: assign, done, delete
   const installs = it.installs || [];
   const anyPending = installs.some((i) => i.status === 'pending');
   // Collected while the installs render, then shown in the COLLAPSED header too. A collapse that
@@ -2933,7 +2929,6 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
         <a href="${MIGRATE_DOC}" target="_blank" rel="noopener">${esc(t('panel.deprecated.coworkers'))}</a></p>` : ''}
       ${installsHtml || `<p class="note">${esc(t('panel.inst.noInstall'))}</p>`}
       ${mKeyless ? `<p class="note">${esc(t('panel.joined.keyPending'))}</p>` : ''}
-      ${memberCtx && !mKeyless && !mConfigured ? `<p class="note">${esc(t('panel.joined.needsSetup'))}</p>` : ''}
       <div class="rp-inst-actions">
         ${mManage ? `<button class="secondary-btn" data-iact="settings" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}">${esc(t('panel.inst.settings'))}</button>` : ''}
         ${mInvite ? `<button class="secondary-btn" data-iact="invite" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}">${esc(t('panel.inst.invite'))}</button>` : ''}
@@ -3016,8 +3011,13 @@ async function instanceAction(el) {
       const inst = viewInst(lastView, id);
       const effective = snap || (inst && firstInventorySettings(inst));
       const probs = effective ? validateDeviceSettings(settingsToRaw(effective)) : null;
-      if (!effective || (probs && probs.length)) {
-        deps.toast(t(effective ? 'panel.invite.fixSettings' : 'panel.invite.needSettings'), 6000);
+      /* A FULLY-unconfigured device gets ONE quiet line and nothing else — no modal, no red
+       * banner, no error (Seth, 2026-08-27: "don't give them a UI path that gives them an
+       * error"). The bounce-into-Settings below is kept ONLY for the partially-configured case,
+       * where someone has started and the banner's links point at exactly what is missing. */
+      if (!effective) { deps.toast(t('panel.joined.needsSetup'), 8000); return; }
+      if (probs && probs.length) {
+        deps.toast(t('panel.invite.fixSettings'), 6000);
         if (inst) await openSettingsModal({ kind: 'instance', instance: inst }, { flagOnOpen: true });
         return;
       }

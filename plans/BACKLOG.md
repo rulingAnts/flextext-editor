@@ -3908,3 +3908,20 @@ why this waits for "fully functional" rather than riding the current batch.
 member-create work sends researcher identity only owner-panel-ward over authed routes (the Coworkers
 modal join); the claim/pairing surface now sends NO researcher identity to devices at all (the pair
 code is the recognition mechanism); new secLog rows reference UUIDs, never emails.
+
+## Cross-researcher visibility of unclaimed invites, pending commands, unassigned texts (Seth, 2026-08-27)
+
+> *"It would be better if they WERE shared, but it's ok in the short term if they don't work maybe."*
+
+Accepted gaps for now, each with its future shape:
+- **Unclaimed invite links**: the secret is shown once at mint and only its hash is stored, so another
+  seat can never RETRIEVE the same link — but any capable seat can mint a FRESH one (multiple
+  unclaimed invites coexist; a claim revokes prior installs, not prior invites). Future: show "an
+  unclaimed invite exists (minted by X, expires T)" on the card for every capable seat, so the second
+  researcher knows one is already out before minting another.
+- **Pending commands**: serverPending crosses BROWSERS of one researcher today, not researchers.
+  Future: surface a member's queued commands on the owner's card and vice versa (the D1 rows exist;
+  it is a read-scoping + viewSig change).
+- **Unassigned texts / Drive estate**: owner-Drive views (Unassigned card, storage) stay owner-only
+  until the deferred `drive` capability lands (Phase 4 — member Drive routes). This is the deliberate
+  DEFERRED_CAPS line, not an oversight.

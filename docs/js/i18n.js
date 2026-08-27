@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v452';
+export const ENGINE_VERSION = 'v453';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v452';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'phase-cd v7';
+export const BUILD_TAG = 'phase-cd v8';
 
 const S = {
 en: {
@@ -1355,6 +1355,7 @@ internet after the first time.</p>
   'panel.joined.note': 'You help look after this project\u2019s devices. You can: {caps}.',
   'panel.joined.noteNone': 'You can see this project\u2019s devices, but no abilities have been granted to you yet.',
   'panel.joined.keyPending': 'This device\u2019s key has not been delivered to you yet. The project owner\u2019s panel sends it automatically the next time they open it \u2014 nothing is wrong with the device.',
+  'panel.set.unconfigured': 'Nothing is set on this device yet \u2014 the blank fields mean nobody has configured it, not that anything failed. Fill them in and push to set it up.',
   'panel.joined.empty': 'No devices in this project yet.',
   'panel.share.awaitingKey': 'has not signed in yet — device keys will be delivered automatically once they do',
   'panel.share.increaseConfirm': 'You are giving this coworker MORE ability than before. Anything they do with it is real — settings changed, devices paired or revoked — and removing them later stops future actions, not past ones. Continue?',
@@ -3137,6 +3138,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.joined.note': 'Anda membantu mengurus perangkat proyek ini. Anda dapat: {caps}.',
   'panel.joined.noteNone': 'Anda dapat melihat perangkat proyek ini, tetapi belum ada kemampuan yang diberikan kepada Anda.',
   'panel.joined.keyPending': 'Kunci perangkat ini belum terkirim kepada Anda. Panel pemilik proyek mengirimkannya otomatis saat mereka membukanya lagi — perangkat ini baik-baik saja.',
+  'panel.set.unconfigured': 'Belum ada pengaturan pada perangkat ini — kolom kosong berarti belum dikonfigurasi siapa pun, bukan ada yang gagal. Isi lalu kirim untuk menyiapkannya.',
   'panel.joined.empty': 'Belum ada perangkat di proyek ini.',
   'panel.share.awaitingKey': 'belum pernah masuk — kunci perangkat akan terkirim otomatis setelah mereka masuk',
   'panel.share.increaseConfirm': 'Anda memberi rekan kerja ini kemampuan LEBIH dari sebelumnya. Apa pun yang mereka lakukan dengannya itu nyata — pengaturan berubah, perangkat dipasangkan atau dicabut — dan menghapus mereka nanti menghentikan tindakan berikutnya, bukan yang sudah terjadi. Lanjutkan?',

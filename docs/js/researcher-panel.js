@@ -2960,7 +2960,7 @@ async function instanceAction(el) {
      * when it will fix itself, instead of surfacing a raw no_key_for_instance (the no-silently-
      * disabled-controls rule). Fresh listView on purpose: the grant may have landed since the
      * cards painted, and a stale "not yet" here would block a healed member. */
-    if (act === 'settings' || act === 'approve') {
+    if (act === 'settings' || act === 'approve' || act === 'invite') {
       const v = await Researcher.listView();
       const owned = ((v && v.instances) || []).some((x) => x.instance_id === id);
       const mInst = owned ? null : viewInst(v, id);
@@ -6949,6 +6949,14 @@ async function openSettingsModal(target, opts = {}) {
   let source = {};
   source = (target.instance && await Researcher.getInstanceSettings(target.instance.instance_id).catch(() => null))
     || (target.instance && firstInventorySettings(target.instance)) || {};
+  /* An all-blank form on a device someone ELSE created reads as "sharing is broken" (Seth,
+   * 2026-08-27, three screenshots in a row) — when the truth is simply that nobody has configured
+   * the device yet. Say so. Keyless seats never reach this modal (the act gate toasts first), so
+   * blank HERE always means unconfigured, and the note is always true when shown. */
+  if (target.instance && !Object.keys(source).length) {
+    const h = box.querySelector('h3');
+    if (h) h.insertAdjacentHTML('afterend', `<p class="note">${esc(t('panel.set.unconfigured'))}</p>`);
+  }
   fillForm(box, toFormValues(source));
   // Group help buttons → the matching in-panel help modal (stacks over settings,
   // same pattern as the WS utility's "?" button).

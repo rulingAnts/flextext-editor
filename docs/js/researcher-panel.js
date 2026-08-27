@@ -3262,10 +3262,19 @@ function assignModal(instanceId) {
     // The docId is minted HERE, so this is the only place that knows which assignment produced
     // which text (the history event is written by the queue runner once the assign really sends).
     const docId = crypto.randomUUID();
+    /* ⚠ PROVENANCE IS CAPTURED AT QUEUE TIME OR NEVER. The manifest the queue runner writes later
+     * reads queuedAt / vernLang / analLang off THIS record — and until 2026-08-27 nothing wrote
+     * them, so every assigned text shipped writingSystems {vern:'',anal:''} and an originatedAt
+     * equal to whenever the UPLOAD happened to run. Manifests are written once and immutable by
+     * contract, so those wrong values were permanent. The settings snapshot is decrypted locally
+     * (Kr) and may legitimately be absent for an unconfigured device — '' stays honest there. */
+    const wsCodes = await Researcher.getInstanceSettings(instanceId).catch(() => null);
     // ABSORB INTO INDEXEDDB BEFORE ANYTHING ELSE (locked decision 8): once this write lands, the
     // assignment survives connection drops, panel reloads and retries — the queue owns it now.
     await db.putMedia(AQ_PREFIX + docId, {
       instanceId, title, ttlDays: assignTtlDays(), state: 'queued', at: Date.now(),
+      queuedAt: Date.now(),
+      vernLang: (wsCodes && wsCodes.vernLang) || '', analLang: (wsCodes && wsCodes.analLang) || '',
       audio: audioFile ? { blob: audioFile, name: audioFile.name, mime: audioFile.type || 'application/octet-stream', size: audioFile.size } : null,
       // Stored as the TEXT we just validated (not the File) — what was checked is what ships.
       flextext: ftFile ? { blob: new Blob([ftText], { type: 'application/xml' }), name: ftFile.name, mime: 'application/xml', size: ftFile.size } : null,

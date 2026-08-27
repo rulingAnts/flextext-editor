@@ -4648,7 +4648,12 @@ async function queueMediaUpload(docId) {
     files: parts.map((p) => ({ name: p.name, role: p.role, mime: p.mime, bytes: p.blob.size })),
     audio: { name: audioName, mime: parts[0].mime, bytes: media.blob.size, derived: false },
     consent: {
-      mode: settings.consentMode || 'off',
+      /* Derived through the ACCESSOR, not the raw key: `settings.consentMode` is the legacy single
+       * value and device-setup DELETES it on every save (the migration), so reading it here made
+       * every manifest say 'off' whatever the device actually asked (found in the 2026-08-25
+       * triage). consentAskList() speaks both dialects — modern array, legacy single — so the
+       * manifest records what the device really prompts: 'off', 'text', 'audio', or 'text+audio'. */
+      mode: (() => { const ask = consentAskList(); return ask.length ? ask.join('+') : 'off'; })(),
       prompt: !!rec.consentPromptClip,
       response: !!rec.consentClip,
       receipt: !!rec.consentReceipt,

@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v446';
+export const ENGINE_VERSION = 'v447';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v446';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'phase-cd v1';
+export const BUILD_TAG = 'phase-cd v2';
 
 const S = {
 en: {
@@ -1343,6 +1343,10 @@ internet after the first time.</p>
   'panel.share.capInvite': 'invite devices',
   'panel.share.invalidCaps': '⚠ This coworker’s permissions could not be read. Remove and re-add them.',
   'panel.share.remove': 'Remove',
+  'panel.share.edit': 'Change permissions',
+  'panel.share.editSave': 'Save permissions',
+  'panel.share.updated': 'Permissions updated.',
+  'panel.share.increaseConfirm': 'You are giving this coworker MORE ability than before. Anything they do with it is real — settings changed, devices paired or revoked — and removing them later stops future actions, not past ones. Continue?',
   'panel.share.removeConfirm': 'Remove this coworker from “{name}”?\n\nThey lose access from their next request, and the device keys they were given are deleted. What they have already seen or downloaded cannot be taken back.',
   'panel.share.removed': 'Coworker removed.',
   'panel.share.addTitle': 'Add a coworker',
@@ -3110,6 +3114,10 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.share.capInvite': 'mengundang perangkat',
   'panel.share.invalidCaps': '⚠ Izin rekan kerja ini tidak dapat dibaca. Hapus lalu tambahkan kembali.',
   'panel.share.remove': 'Hapus',
+  'panel.share.edit': 'Ubah izin',
+  'panel.share.editSave': 'Simpan izin',
+  'panel.share.updated': 'Izin diperbarui.',
+  'panel.share.increaseConfirm': 'Anda memberi rekan kerja ini kemampuan LEBIH dari sebelumnya. Apa pun yang mereka lakukan dengannya itu nyata — pengaturan berubah, perangkat dipasangkan atau dicabut — dan menghapus mereka nanti menghentikan tindakan berikutnya, bukan yang sudah terjadi. Lanjutkan?',
   'panel.share.removeConfirm': 'Hapus rekan kerja ini dari “{name}”?\n\nAkses mereka berhenti mulai permintaan berikutnya, dan kunci perangkat yang pernah diberikan kepada mereka dihapus. Apa yang sudah mereka lihat atau unduh tidak dapat ditarik kembali.',
   'panel.share.removed': 'Rekan kerja dihapus.',
   'panel.share.addTitle': 'Tambah rekan kerja',

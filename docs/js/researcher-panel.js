@@ -6124,12 +6124,23 @@ async function coworkersModal() {
 
     body.innerHTML = `${picker}
       ${listErr ? `<p class="note rp-adm-err">${esc(sayErr(listErr))}</p>` : `
-      <div class="rp-share-list">${members.length ? members.map((x) => `
-        <div class="rp-install rp-share-row">
-          <div><div class="invite-name">${esc(x.researcher_id)}</div>
-            <div class="note">${x.invalid ? esc(t('panel.share.invalidCaps'))
-                                          : esc(t('panel.share.memberCaps', { caps: capWords(x.caps) }))}</div></div>
+      <div class="rp-share-list">${members.length ? members.map((x, i) => `
+        <div class="rp-install rp-share-row" data-mrow="${i}">
+          ${/* Identity, not just the UUID (Seth, 2026-08-27): the worker joins the researcher row.
+              An older worker sends no identity fields — the ID renders alone, nothing breaks. */''}
+          <div class="invite-who">${x.avatar_url ? `<img class="invite-avatar" src="${esc(x.avatar_url)}" alt="" referrerpolicy="no-referrer" width="40" height="40">` : ''}
+            <div><div class="invite-name">${esc(x.display_name || x.email || x.researcher_id)}</div>
+            ${x.email && x.display_name ? `<div class="note">${esc(x.email)}</div>` : ''}
+            <div class="note rp-rid-sm">${esc(x.researcher_id)}</div>
+            <div class="note" data-mcaps="${i}">${x.invalid ? esc(t('panel.share.invalidCaps'))
+                                          : esc(t('panel.share.memberCaps', { caps: capWords(x.caps) }))}</div>
+            <div class="rp-share-edit" data-medit="${i}" hidden>
+              <label class="check-label"><input type="checkbox" data-mem="${i}" data-cap="manageDevices" ${x.caps && x.caps.manageDevices ? 'checked' : ''}> ${esc(t('panel.share.capManageLabel'))}</label>
+              <label class="check-label"><input type="checkbox" data-mem="${i}" data-cap="createInvites" ${x.caps && x.caps.createInvites ? 'checked' : ''}> ${esc(t('panel.share.capInviteLabel'))}</label>
+              <button class="secondary-btn" data-sact="editsave" data-rid="${esc(x.researcher_id)}" data-i="${i}">${esc(t('panel.share.editSave'))}</button>
+            </div></div></div>
           <div class="rp-inst-actions">
+            <button class="link-btn" data-sact="edit" data-i="${i}">${esc(t('panel.share.edit'))}</button>
             <button class="link-btn rp-revoke" data-sact="remove" data-rid="${esc(x.researcher_id)}">${esc(t('panel.share.remove'))}</button>
           </div>
         </div>`).join('') : `<p class="note">${esc(t('panel.share.none'))}</p>`}</div>`}
@@ -6172,6 +6183,29 @@ async function coworkersModal() {
     const sel = body.querySelector('#rp-share-proj');
     if (sel) sel.onchange = () => { selected = sel.value; paint(); };
 
+    body.querySelectorAll('[data-sact="edit"]').forEach((el) => el.addEventListener('click', () => {
+      const box = body.querySelector(`[data-medit="${el.dataset.i}"]`);
+      if (box) box.hidden = !box.hidden;
+    }));
+    body.querySelectorAll('[data-sact="editsave"]').forEach((el) => el.addEventListener('click', (e) => busy(e.target, async () => {
+      const i = el.dataset.i;
+      const caps = {};
+      body.querySelectorAll(`input[data-mem="${i}"]`).forEach((c) => { if (c.checked) caps[c.dataset.cap] = true; });
+      /* ⚠ WARN ON INCREASE, NEVER ON DECREASE (project-split.md trust-warning mechanics): widening
+       * what a person can do deserves the same pause as inviting them; narrowing never does. The
+       * add-form's warning box covers the invite; this confirm covers the increase. */
+      const before = (members.find((m) => m.researcher_id === el.dataset.rid) || {}).caps || {};
+      const increased = Object.keys(caps).some((k) => caps[k] && !before[k]);
+      if (increased && !confirm(t('panel.share.increaseConfirm'))) return;
+      try {
+        /* The add route is an upsert (INSERT OR REPLACE), so editing IS re-adding with new caps.
+         * Key grants are untouched — capabilities say what a member may DO; the keys they hold
+         * already exist and removal is the only thing that withdraws them. */
+        await Researcher.addMember(selected, el.dataset.rid, caps);
+        deps.toast(t('panel.share.updated'), 4000);
+        await paint();
+      } catch (err) { say(sayErr(err), true); }
+    })));
     body.querySelectorAll('[data-sact="remove"]').forEach((el) => el.addEventListener('click', () => {
       if (!confirm(t('panel.share.removeConfirm', { name: proj.name || proj.project_id }))) return;
       busy(el, async () => {

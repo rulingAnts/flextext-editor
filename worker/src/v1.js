@@ -2801,14 +2801,23 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     if (!ctx.ok || !ctx.isOwner) return j({ error: 'not_found' }, 404, origin, env);
 
     if (m === 'GET') {
+      /* JOINED to the researcher row for IDENTITY (Seth, 2026-08-27: "I have no info about the
+       * coworker except the ID"). Owner-only route, and the relationship is mutual — the member
+       * handed the owner their ID to be added at all — so showing the owner who a member IS
+       * (name/email/avatar, the same fields the operator's pending-approval list shows) reveals
+       * nothing the exchange did not already establish. LEFT JOIN: a member row whose researcher
+       * was deleted still lists (and still must be removable) rather than vanishing. */
       const rows = await env.DB.prepare(
-        'SELECT researcher_id, caps, added_at, added_by FROM project_member WHERE project_id=? ORDER BY added_at'
+        'SELECT m.researcher_id, m.caps, m.added_at, m.added_by, r.display_name, r.drive_email, r.avatar_url '
+        + 'FROM project_member m LEFT JOIN researcher r ON r.researcher_id=m.researcher_id '
+        + 'WHERE m.project_id=? ORDER BY m.added_at'
       ).bind(projectId).all();
       /* Caps are returned PARSED. The panel would otherwise JSON.parse a column written by another
        * browser, which is the kind of thing that throws in the middle of a render. */
       const members = ((rows && rows.results) || []).map((x) => {
         let caps = null; try { caps = JSON.parse(x.caps || '{}'); } catch { caps = null; }
         return { researcher_id: x.researcher_id, caps, added_at: x.added_at, added_by: x.added_by,
+                 display_name: x.display_name || '', email: x.drive_email || '', avatar_url: x.avatar_url || '',
                  invalid: caps === null };
       });
       return j({ project_id: projectId, members }, 200, origin, env);

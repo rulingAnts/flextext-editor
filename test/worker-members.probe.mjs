@@ -170,6 +170,18 @@ ok(add.json && add.json.caps && add.json.caps.assignTexts === undefined,
   ok(!JSON.stringify(seen.json.joined[0]).includes('@'),
      '⚠ and no email anywhere in the joined listing — identity is not advertised');
 }
+/* ⚠ IDENTITY FLOWS ONE WAY, and both directions are pinned. The OWNER sees who a member IS
+ * (name/email/avatar joined onto the members list — Seth, 2026-08-27: "I have no info about the
+ * coworker except the ID"), because the member handed them that ID deliberately. The MEMBER still
+ * sees the owner as an opaque id (the assertion above) — being added to a project must not hand
+ * out the owner's address. */
+{
+  const lst = await call('GET', `/v1/projects/${projectId}/members`, OWNER);
+  const me = ((lst.json && lst.json.members) || []).find((x) => x.researcher_id === FIXTURE.outsiderId);
+  ok(!!me && me.email === 'outsider@example.invalid',
+     `the OWNER's members list carries the member's identity (email: ${me && me.email})`);
+  ok(me && 'display_name' in me && 'avatar_url' in me, '...and the display fields ride along (empty-string when unset)');
+}
 
 console.log('\nwhat that member CAN do, and what they still cannot');
 {

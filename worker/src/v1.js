@@ -2662,10 +2662,16 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
     const want = url.searchParams.get('instance') || '';
     const OWNED = 'instance_id IN (SELECT instance_id FROM instance WHERE researcher_id=?)';
+    /* ⚠ i.revoked=0 IS THE MEMBER ARM'S CLAUSE ONLY (found live, 2026-08-27: Seth revoked the
+     * shared test device mid-session and the member seat kept receiving its wrapped key on every
+     * poll — revocation deletes no member_key rows, so the read must re-derive). The OWNED arm
+     * above deliberately has NO revoked filter: owner sovereignty means the owner can always see
+     * every key, and withdrawing a revoked device's grants (allowRevoked on the DELETE route)
+     * presumes they can still enumerate them. */
     const MEMBER_OF_CURRENT_PROJECT =
       'instance_id IN (SELECT i.instance_id FROM instance i'
       + ' JOIN project_member pm ON pm.project_id=i.project_id'
-      + ' WHERE pm.researcher_id=? AND i.project_id IS NOT NULL)';
+      + ' WHERE pm.researcher_id=? AND i.project_id IS NOT NULL AND i.revoked=0)';
     const cols = 'SELECT instance_id, key_version, wrapped_ki FROM member_key';
     const tail = want ? ' AND instance_id=? ORDER BY key_version DESC'
                       : ' ORDER BY instance_id, key_version DESC';

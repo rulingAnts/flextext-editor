@@ -151,6 +151,17 @@ console.log('\nthe stale-device alarm is actually wired to an install');
      'and an unknown live version leaves the confirmation clock untouched rather than erasing it');
 }
 
+{
+  /* The grant sweep's re-entrancy guard MUST clear (v454; v451 shipped it stuck): without the
+   * finally, the first sweep left grantSweepBusy=true for the life of the page, every later call
+   * returned at the top, and a device created mid-session never reached the members — while the
+   * "unlocked automatically" toast kept promising otherwise. */
+  ok(/finally \{ grantSweepBusy = false; \}/.test(panel),
+     'memberGrantSweep clears its busy flag in a finally — a stuck guard disables key delivery for the whole session');
+  ok(/memberGrantSweep\(!prefetched\)/.test(panel),
+     'and full renders force a sweep pass, so a just-created device is granted now, not next sign-in');
+}
+
 console.log(fail ? `\nFAILED (${fail}) — account state has drifted back into browser storage.\n`
                  : '\nPASS: account-scoped state is shared, and destructive actions are gated on it.\n');
 process.exit(fail ? 1 : 0);

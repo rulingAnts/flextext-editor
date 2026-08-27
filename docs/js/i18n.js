@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v453';
+export const ENGINE_VERSION = 'v454';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v453';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'phase-cd v8';
+export const BUILD_TAG = 'phase-cd v9';
 
 const S = {
 en: {
@@ -1118,7 +1118,7 @@ internet after the first time.</p>
   'panel.dash.empty': 'No devices yet. Add one to send an invite link to a field worker.',
   'panel.inst.pending': 'pending approval',
   'panel.inst.linked': 'linked',
-  'panel.inst.noKey': 'awaiting key',
+  'panel.inst.noKey': 'no device linked yet',
   'panel.inst.newInstall': 'New install waiting for approval',
   'panel.inst.fingerprint': 'Key fingerprint',
   'panel.inst.verifyHint': 'Confirm this fingerprint with the field worker before approving.',
@@ -2930,7 +2930,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.dash.empty': 'Belum ada perangkat. Tambahkan satu untuk mengirim tautan undangan ke pekerja lapangan.',
   'panel.inst.pending': 'menunggu persetujuan',
   'panel.inst.linked': 'terhubung',
-  'panel.inst.noKey': 'menunggu kunci',
+  'panel.inst.noKey': 'belum ada perangkat tertaut',
   'panel.inst.newInstall': 'Instalasi baru menunggu persetujuan',
   'panel.inst.fingerprint': 'Sidik kunci',
   'panel.inst.verifyHint': 'Pastikan sidik kunci ini dengan pekerja lapangan sebelum menyetujui.',

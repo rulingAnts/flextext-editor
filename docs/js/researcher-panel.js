@@ -5365,6 +5365,13 @@ async function memberGrantSweep(force) {
     }
     if (healed) deps.toast(t('panel.share.sweepHealed', { n: healed }), 6000);
   } catch (e) { console.warn('grant sweep skipped:', (e && e.message) || e); }
+  /* ⚠ THE FLAG MUST CLEAR OR THE SWEEP RUNS ONCE PER PAGE LOAD, EVER (v454 — this shipped broken
+   * in v451). Without this finally, the first sweep left busy=true forever, every later call —
+   * including the forced one right after creating a device — returned at the top, and the device
+   * created mid-session never reached the members (Seth: "keys are never being delivered at all").
+   * The visible promise ("new devices are unlocked for them automatically") was made by a toast
+   * whose mechanism was disabled by its own re-entrancy guard. */
+  finally { grantSweepBusy = false; }
 }
 
 /* THE JOINED-PROJECTS SECTION (2026-08-27) — the member-side dashboard, v1. One card per project

@@ -2429,3 +2429,7 @@ main {
   white-space: nowrap;
   vertical-align: bottom;
 }
+
+/* Coworker rows: the raw researcher id, kept visible but subordinate to the person's name. */
+.rp-rid-sm { font-family: ui-monospace, monospace; font-size: 11px; opacity: .75; word-break: break-all; }
+.rp-share-edit { margin-top: 6px; }

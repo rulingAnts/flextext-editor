@@ -113,8 +113,12 @@ console.log('\nthe DEFERRED capabilities cannot be granted at all (audit remedia
    * ticking it was told they had delegated something they had not. Refusing is the same discipline
    * the Drive caps get, for the same reason: the write is the only moment anyone is present to hear
    * "no". */
-  for (const caps of [{ drive: 'read' }, { drive: 'manage' },
-                      { manageDevices: true, drive: 'read' },
+  /* ⚠ `drive: 'read'` LEFT THIS LIST IN v468 — members needed file downloads, and its two routes are
+   * now project-scoped at the route (authMember + authorizeDocForProject, plus driveFileBelongsToDoc
+   * on the download). Its grantability and its gates are probed in the MEMBER FILE DOWNLOADS block
+   * below. `drive: 'manage'` stays refused: deletion and re-parenting are not delegable. */
+  for (const caps of [{ drive: 'manage' },
+                      { manageDevices: true, drive: 'manage' },
                       { cancelOthers: true }, { manageDevices: true, cancelOthers: true }]) {
     const res = await call('POST', `/v1/projects/${projectId}/members`, OWNER, {
       researcher_id: FIXTURE.outsiderId, caps,
@@ -869,6 +873,38 @@ console.log('\n⚠⚠ THE TOKEN EPOCH — a remote wipe withdraws streaming URLs
        `⚠ and the device nobody touched is UNAFFECTED (got ${bystanderAfter}, want ${before}) — silence is not a signal`);
   }
   for (const v of [victim, bystander]) await call('POST', `/v1/instances/${v.iid}/revoke`, OWNER, {});
+}
+
+console.log('\n⚠⚠ MEMBER FILE DOWNLOADS — drive:read is grantable, and the route gates the doc AND the file');
+{
+  /* v468. "There's really no meaningful sharing until that works" (Seth). The member path is a
+   * route that can only address a file THROUGH the text containing it, so it carries three gates:
+   * the capability, the doc, and proof the file lives under that doc. */
+  const grant = await call('POST', `/v1/projects/${projectId}/members`, OWNER, {
+    researcher_id: FIXTURE.outsiderId, caps: { drive: 'read' },
+  });
+  ok(grant.status === 200, `drive:'read' is grantable (got ${grant.status})`);
+  const stored = ((await call('GET', `/v1/projects/${projectId}/members`, OWNER)).json.members || [])
+    .find((x) => x.researcher_id === FIXTURE.outsiderId);
+  ok(stored && stored.caps && stored.caps.drive === 'read', "and stores as 'read'");
+
+  const manage = await call('POST', `/v1/projects/${projectId}/members`, OWNER, {
+    researcher_id: FIXTURE.outsiderId, caps: { drive: 'manage' },
+  });
+  ok(manage.status === 400,
+     `⚠⚠ drive:'manage' is REFUSED outright, not downgraded (got ${manage.status}) — deletion and re-parenting stay owner-only`);
+
+  await call('POST', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: FIXTURE.outsiderId, caps: { drive: 'read' } });
+  const foreign = await call('GET', `/v1/instances/${idA}/texts/probe-dl-doc/files/1ForeignFileNotUnderThisDoc`, GUEST);
+  ok(foreign.status === 404,
+     `⚠⚠ a foreign file id is refused even WITH drive:read (got ${foreign.status}) — the file must live under the doc`);
+
+  const noCap = await call('POST', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: FIXTURE.outsiderId, caps: {} });
+  ok(noCap.status === 200, 'capability removed for the negative case');
+  const denied = await call('GET', `/v1/instances/${idA}/texts/probe-dl-doc/files/1AnyFile`, GUEST);
+  ok(denied.status === 404, `without drive:read the download route is the uniform 404 (got ${denied.status})`);
+
+  await call('DELETE', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: FIXTURE.outsiderId });
 }
 
 console.log(fail ? `\n${fail} FAILED\n` : '\nPASS\n');

@@ -653,11 +653,22 @@ export function listTextFiles(instanceId, docId) {
  * worker change and a deploy for something the CALLER already knows: every call site has the file's
  * size from the Drive listing or the manifest. So the byte count is reported and the percentage is
  * computed by whoever has the denominator. Without onProgress the fast path is untouched. */
-export async function fetchDriveFile(fileId, onProgress) {
+/* `via` (optional) routes the download through the MEMBER-SAFE endpoint (v468):
+ * `{ instanceId, docId }` → GET .../texts/<docId>/files/<fileId>, which runs under the project
+ * OWNER's Drive token and proves the file belongs to that doc before streaming a byte.
+ *
+ * ⚠ WITHOUT IT the request goes to /v1/researcher/drive-file, which streams under the CALLER'S OWN
+ * token — correct for an owner reading their own estate, and silently useless for a member, who
+ * gets 404s from their own empty Drive rather than a refusal that explains itself. The panel passes
+ * `via` whenever it is rendering a shared project's device, so the same button works for both. */
+export async function fetchDriveFile(fileId, onProgress, via) {
   const a = (() => { try { return JSON.parse(sessionStorage.getItem(AUTH_KEY) || localStorage.getItem(AUTH_KEY)) || null; } catch { return null; } })();
   if (!a) throw new Error('not_signed_up');
   const base = (workerBaseFn() || '').replace(/\/+$/, '');
-  const r = await fetch(`${base}/v1/researcher/drive-file/${encodeURIComponent(fileId)}`, {
+  const path = (via && via.instanceId && via.docId)
+    ? `${base}/v1/instances/${encodeURIComponent(via.instanceId)}/texts/${encodeURIComponent(via.docId)}/files/${encodeURIComponent(fileId)}`
+    : `${base}/v1/researcher/drive-file/${encodeURIComponent(fileId)}`;
+  const r = await fetch(path, {
     headers: { 'x-fx-researcher': a.researcher_id, 'x-fx-secret': a.secret },
   });
   if (!r.ok) throw new Error('file_fetch_failed_' + r.status);

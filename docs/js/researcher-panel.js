@@ -1805,11 +1805,15 @@ function histHasMenu(e) { return FILES_MENU_ENABLED && !!(e.instanceId && e.docI
  *
  * The row keeps this span because it carries the identity (dataset) the modal is seeded from; the
  * LIST lives in the modal. */
-function filesMenuHtml(instanceId, docId, title, audioUrl, fileId) {
+function filesMenuHtml(instanceId, docId, title, audioUrl, fileId, viaMember) {
   if (!FILES_MENU_ENABLED) return '';
   if (!docId) return '';
   const au = /^https?:\/\//i.test(String(audioUrl || '')) ? audioUrl : '';
-  return `<span class="rp-dl" data-fmenu data-i="${esc(instanceId)}" data-id="${esc(docId)}" data-title="${esc(title || '')}" data-audio="${esc(au)}" data-fileid="${esc(fileId || '')}">
+  /* `data-viamember` selects the download LANE, not whether the button exists (v468). A member with
+   * drive:read downloads through the project-scoped route that runs under the owner's Drive token;
+   * the owner keeps the account route, which can also serve files from a bridged legacy identity
+   * that does not live under this doc's folder. */
+  return `<span class="rp-dl" data-fmenu${viaMember ? ' data-viamember="1"' : ''} data-i="${esc(instanceId)}" data-id="${esc(docId)}" data-title="${esc(title || '')}" data-audio="${esc(au)}" data-fileid="${esc(fileId || '')}">
     <button class="link-btn rp-dl-btn" aria-haspopup="dialog">${esc(t('panel.dl.btn'))} <span class="rp-dl-caret" aria-hidden="true">▾</span></button></span>`;
 }
 
@@ -2035,6 +2039,16 @@ function cleanupCandidates(allFiles) {
  * for that text. That's good enough."*). Pre-manifest texts get a link, not a reconstructed menu —
  * a folder link cannot be wrong, and the heuristic that used to fill this space is deleted rather
  * than carried. `listTextFiles` already returns `folderId`, so the link costs no extra call. */
+/* The member-safe download route for a files-menu wrapper, or null for the owner's own estate.
+ * `data-viamember` is set only when the card was rendered inside a shared project, and the owner's
+ * path is left EXACTLY as it was: their menu can list files from a bridged legacy identity whose
+ * folder is not this doc's, which the member route (correctly) refuses. Same button, two lanes. */
+function memberDlVia(wrap) {
+  if (!wrap || !wrap.dataset || !wrap.dataset.viamember) return null;
+  const instanceId = wrap.dataset.i, docId = wrap.dataset.id;
+  return (instanceId && docId) ? { instanceId, docId } : null;
+}
+
 async function populateFilesMenu(wrap) {
   if (wrap.dataset.loaded) return;
   wrap.dataset.loaded = '1';
@@ -2228,7 +2242,7 @@ async function menuFetch(wrap, fileId, onPct) {
     const report = onPct
       ? (got) => onPct(known ? Math.min(99, Math.round((got / known) * 100)) : null, got)
       : undefined;
-    wrap._cache.set(fileId, await Researcher.fetchDriveFile(fileId, report));
+    wrap._cache.set(fileId, await Researcher.fetchDriveFile(fileId, report, memberDlVia(wrap)));
   }
   return wrap._cache.get(fileId);
 }
@@ -2510,7 +2524,7 @@ async function downloadAllZip(btn) {
       add(f.name, await Researcher.fetchDriveFile(f.id, (bytes) => {
         const pct = f.size ? t('panel.dl.pct', { pct: Math.min(99, Math.round((bytes / f.size) * 100)), size: fmtSize(f.size) }) : fmtSize(bytes);
         dlStatus(wrapForStatus, head + ' ' + pct); jobSet(job, head + ' ' + pct);
-      }));
+      }, memberDlVia(wrapForStatus)));
     }
 
     /* GENERATED FILES RIDE ALONG (Seth, 2026-08-12: "can our Download All zip also generate and
@@ -2678,7 +2692,7 @@ function wireDownloadMenus(scope) {
             : fmtSize(got);
           jobSet(job, msg);
           dlStatus(wrap2, t('panel.dl.fetching', { name: fname }) + ' ' + msg);
-        }).then((blob) => {
+        }, memberDlVia(wrap2)).then((blob) => {
           const a = document.createElement('a');
           a.href = URL.createObjectURL(blob); a.download = fname;
           document.body.appendChild(a); a.click(); a.remove();
@@ -2740,6 +2754,7 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
   const mManage = (!memberCtx || !!mCaps.manageDevices) && !mKeyless;
   const mInvite = (!memberCtx || !!mCaps.createInvites) && !mKeyless;
   const mAssign = (!memberCtx || !!mCaps.assignTexts) && !mKeyless;   // texts: assign, done, delete
+  const mDrive = (!memberCtx || mCaps.drive === 'read' || mCaps.drive === 'manage') && !mKeyless;   // Files… menu
   const installs = it.installs || [];
   const anyPending = installs.some((i) => i.status === 'pending');
   // Collected while the installs render, then shown in the COLLAPSED header too. A collapse that
@@ -2930,7 +2945,11 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
         // folder yet. Rendering it unconditionally is the point of the per-text folder: the menu
         // is now the one place all of a text's artifacts live.
         // Members: the menu's listing rides drive:read, which is deferred — absent, not broken.
-        const dl = memberCtx ? '' : filesMenuHtml(it.instance_id, d.id, d.title || '');
+        /* ⚠ FILES ARE THE POINT OF SHARING (Seth, 2026-08-28: "there's really no meaningful sharing
+         * until that works"). A member holding drive:read gets the same Files… menu the owner has,
+         * downloading through the project-scoped route. Without the capability it is ABSENT rather
+         * than disabled — a dead control reads as broken. */
+        const dl = (memberCtx && !mDrive) ? '' : filesMenuHtml(it.instance_id, d.id, d.title || '', '', '', !!memberCtx);
         // (5) The row reads in two lines: title + state chip, then muted metadata; actions sit on
         // the right. The tags stopped fighting the title for attention — that was Seth's "plain
         // line of text with plain hyperlinks is getting busy and ugly".
@@ -5515,6 +5534,8 @@ async function renderMemberProjectContent(mp) {
   if (caps.manageDevices) capBits.push(t('panel.share.capManage'));
   if (caps.createInvites) capBits.push(t('panel.share.capInvite'));
   if (caps.assignTexts) capBits.push(t('panel.share.capAssign'));
+  if (caps.drive) capBits.push(t('panel.share.capDrive'));
+  if (caps.assignTexts) capBits.push(t('panel.share.capAssign'));
   return `<p class="note rp-joined-note"><span class="rp-badge rp-badge-type">${esc(t('panel.joined.tag'))}</span>
       ${esc(capBits.length ? t('panel.joined.note', { caps: capBits.join(', ') }) : t('panel.joined.noteNone'))}</p>
     ${cards.join('') || `<p class="note">${esc(t('panel.joined.empty'))}</p>`}`;
@@ -6452,6 +6473,7 @@ async function coworkersModal() {
     if (caps && caps.manageDevices) out.push(t('panel.share.capManage'));
     if (caps && caps.createInvites) out.push(t('panel.share.capInvite'));
     if (caps && caps.assignTexts) out.push(t('panel.share.capAssign'));
+    if (caps && caps.drive) out.push(t('panel.share.capDrive'));
     return out.length ? out.join(', ') : t('panel.share.capNone');
   };
 
@@ -6490,6 +6512,7 @@ async function coworkersModal() {
               <label class="check-label"><input type="checkbox" data-mem="${i}" data-cap="manageDevices" ${x.caps && x.caps.manageDevices ? 'checked' : ''}> ${esc(t('panel.share.capManageLabel'))}</label>
               <label class="check-label"><input type="checkbox" data-mem="${i}" data-cap="createInvites" ${x.caps && x.caps.createInvites ? 'checked' : ''}> ${esc(t('panel.share.capInviteLabel'))}</label>
               <label class="check-label"><input type="checkbox" data-mem="${i}" data-cap="assignTexts" ${x.caps && x.caps.assignTexts ? 'checked' : ''}> ${esc(t('panel.share.capAssignLabel'))}</label>
+              <label class="check-label"><input type="checkbox" data-mem="${i}" data-cap="drive" ${x.caps && x.caps.drive ? 'checked' : ''}> ${esc(t('panel.share.capDriveLabel'))}</label>
               <button class="secondary-btn" data-sact="editsave" data-rid="${esc(x.researcher_id)}" data-i="${i}">${esc(t('panel.share.editSave'))}</button>
             </div></div></div>
           <div class="rp-inst-actions">
@@ -6511,6 +6534,7 @@ async function coworkersModal() {
           <label class="check-label"><input type="checkbox" id="rp-share-manage"> ${esc(t('panel.share.capManageLabel'))}</label>
           <label class="check-label"><input type="checkbox" id="rp-share-invite"> ${esc(t('panel.share.capInviteLabel'))}</label>
           <label class="check-label"><input type="checkbox" id="rp-share-assign"> ${esc(t('panel.share.capAssignLabel'))}</label>
+          <label class="check-label"><input type="checkbox" id="rp-share-drive"> ${esc(t('panel.share.capDriveLabel'))}</label>
         </fieldset>
         <p class="note">${esc(t('panel.share.driveNote'))}</p>
         ${/* The revocation-honesty rule moved UPSTREAM (project-split.md): the owner should learn what
@@ -6554,7 +6578,12 @@ async function coworkersModal() {
     body.querySelectorAll('[data-sact="editsave"]').forEach((el) => el.addEventListener('click', (e) => busy(e.target, async () => {
       const i = el.dataset.i;
       const caps = {};
-      body.querySelectorAll(`input[data-mem="${i}"]`).forEach((c) => { if (c.checked) caps[c.dataset.cap] = true; });
+      /* ⚠ `drive` IS STRING-VALUED, every other cap is boolean. Sending `drive: true` makes the
+       * worker refuse the WHOLE record (validateCaps returns null → 400), so the edit would fail
+       * with a bare status code rather than saving. 'read' is the only value a member may hold. */
+      body.querySelectorAll(`input[data-mem="${i}"]`).forEach((c) => {
+        if (c.checked) caps[c.dataset.cap] = c.dataset.cap === 'drive' ? 'read' : true;
+      });
       /* ⚠ WARN ON INCREASE, NEVER ON DECREASE (project-split.md trust-warning mechanics): widening
        * what a person can do deserves the same pause as inviting them; narrowing never does. The
        * add-form's warning box covers the invite; this confirm covers the increase. */
@@ -6587,6 +6616,8 @@ async function coworkersModal() {
       if (body.querySelector('#rp-share-manage').checked) caps.manageDevices = true;
       if (body.querySelector('#rp-share-invite').checked) caps.createInvites = true;
       if (body.querySelector('#rp-share-assign').checked) caps.assignTexts = true;
+      // 'read' only — the worker refuses any other value outright (never downgrades it).
+      if (body.querySelector('#rp-share-drive').checked) caps.drive = 'read';
       try {
         await Researcher.addMember(selected, who, caps);
         /* ⚠ THE MEMBERSHIP ROW ALONE READS NOTHING — metadata is E2EE, so the member needs each

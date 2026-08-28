@@ -7181,6 +7181,29 @@ async function coworkersModal() {
          * them is the panel forgetting what it was told one field earlier — and since v503 the id is
          * all the SERVER knows, so the nickname is the only human-readable thing in reach. */
         const whoLabel = nick || who;
+        /* ⚠⚠ REPORT THE END STATE, NOT THE ATTEMPT COUNT (Seth, 2026-08-28: "this error is fairly
+         * consistently showing all the time… as far as I can tell, there isn't any glitch in what the
+         * researcher can actually access").
+         *
+         * grantKeysToMember counts how many WRAPS THREW. That is not the question the owner is asking,
+         * which is "can this coworker read my devices?" — and the two come apart routinely: a wrap for
+         * a device the member ALREADY holds a grant for can fail while their access is perfectly fine
+         * (they created it themselves, or an earlier sweep delivered it). The result was a red banner
+         * on a working outcome, every single time, which is the fastest way to teach someone to ignore
+         * a banner that will one day be real.
+         *
+         * So: ask the server what the member actually holds now, and report only what is GENUINELY
+         * missing. One extra round trip on a deliberate, once-per-coworker action. If the re-check
+         * itself fails we fall back to the attempt count rather than claiming success we cannot see. */
+        if (keyed && !keyed.err && keyed.failed) {
+          try {
+            const fresh = (await Researcher.listMembers(proj)).members || [];
+            const mine = fresh.find((x) => x.researcher_id === who);
+            const have = new Set((mine && mine.granted) || []);
+            const stillMissing = iids.filter((id) => !have.has(id));
+            keyed = { granted: iids.length - stillMissing.length, failed: stillMissing.length };
+          } catch { /* cannot re-check — keep the attempt count, which errs toward warning */ }
+        }
         if (keyed.err && String(keyed.err.message) === 'member_no_pubkey') {
           /* Not an error to bury: the fix is on THEIR side (open the panel once), and until then
            * the membership is real but blind. Say exactly that — via `notice`, which survives the

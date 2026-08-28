@@ -4199,6 +4199,16 @@ existing estate, and a second index that must never drift from Drive — in whic
 becomes UNREACHABLE rather than merely opaque. That trades a phishing-surface reduction for a data-
 availability risk, which is the wrong trade for a corpus of irreplaceable recordings.
 
+**Third cost, and the one most likely to bite (Seth):** *"more indexing that needs to be in sync and
+more round trip Google Drive requests, which are currently severely limited and slow."* This is
+sharper than it first sounds. Today several flows pass a Drive id STRAIGHT THROUGH to Drive with no
+lookup at all — the device echoes back the `folderId` it was handed, which is the entire v167 dedupe
+contract, built because the `appProperties` tag search is slow, rate-limited and
+eventually-consistent, and minted a fresh "Title (n)" folder on every upload until the echo replaced
+it. Handle indirection puts a D1 read in front of that path, and any handle that is unknown or stale
+degrades to precisely the Drive search v167 removed. A privacy change that reintroduces a
+duplicate-folder bug in the field would be a bad trade.
+
 **The scoped version that keeps most of the value:** handles for FOLDERS ONLY. Folder ids are
 already tracked, so it is a wire change rather than a new tracking obligation — and folders are what
 the request-access phish actually targets (you request access to a folder, and a folder id is what

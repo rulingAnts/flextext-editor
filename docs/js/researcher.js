@@ -609,7 +609,28 @@ export async function pushCommand(instanceId, type, opts = {}) {
   const Ki = await getKi(instanceId);
   const command = { type, enc: await encryptJSON(Ki, payload) };
   if (id) command.id = id;                                 // assign REQUIRES a plaintext id (worker §F.5)
-  const r = await api('POST', `/v1/instances/${encodeURIComponent(instanceId)}/command`, { body: { command } });
+  /* ⚠ RETRY A 409 HERE, AND ONLY HERE. The queue is appended under a compare-and-swap on
+   * `desired_rev`, so two researchers acting on the same device at the same moment make one of them
+   * lose the race — the worker exhausts its own retries and answers `conflict_retry`. Measured live
+   * with two accounts (2026-08-28): of 12 simultaneous pushes, 10 landed and 2 came back 409, with
+   * ZERO silent losses.
+   *
+   * A 409 from this route means the command DEFINITIVELY did not land — the CAS matched no row — so
+   * retrying cannot duplicate it. That is why it is safe here and is NOT a blanket `api()` rule:
+   * elsewhere a 409 can mean "already applied", where a retry would be a second write.
+   *
+   * Without this, losing the race surfaced to the researcher as a raw error on a button they had
+   * every right to press, and multi-researcher projects are precisely where that race exists. */
+  let r = null;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      r = await api('POST', `/v1/instances/${encodeURIComponent(instanceId)}/command`, { body: { command } });
+      break;
+    } catch (e) {
+      if (!(e && e.status === 409) || attempt >= 4) throw e;
+      await new Promise((res) => setTimeout(res, 120 * (attempt + 1)));
+    }
+  }
   return { ok: true, seq: r.seq, desired_rev: r.desired_rev };
 }
 

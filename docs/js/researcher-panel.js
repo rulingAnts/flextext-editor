@@ -4982,6 +4982,24 @@ async function estateSettle(wantProjects, say) {
  * prefetched path, which reuses `estateCache`. */
 function renderFromSettledEstate() { renderDashboard(lastData || undefined); }
 
+/* ⚠ WAIT FOR ONE PARTICULAR FOLDER TO DISAPPEAR — estateSettle cannot do this, and the difference is
+ * why this exists rather than another call to it. Its predicate is "are there any projects at all", a
+ * BOOLEAN, which does not move when one of several projects goes away.
+ *
+ * The lag is real and was watched live: a deleted project stayed on screen until a manual Refresh,
+ * because the estate is built from a SEARCH (files?q=trashed=false) and Drive's search index lags the
+ * write that trashed it. Left alone, the researcher deletes, sees the project still sitting there, and
+ * presses Delete again — on a folder that is already in the bin. */
+async function estateWithoutFolder(folderId) {
+  for (let i = 0; i < 6; i++) {
+    let est = null;
+    try { est = await Researcher.driveEstate(); } catch { est = null; }
+    if (est && !((est.projects || []).some((p) => p.folderId === folderId))) { estateCache = est; return true; }
+    await sleep(1500);
+  }
+  return false;   // gave it 9s; render anyway rather than hang on an index that may lag longer
+}
+
 /* Run migrate/unmigrate to completion. The worker caps each call at 20 containers and reports
  * `remaining`, so one press finishes an estate of any size instead of silently doing the first 20
  * — the cap exists so a huge estate cannot die halfway, not so the researcher has to press twice. */
@@ -5194,7 +5212,11 @@ async function projectDeleteModal(folderId, name) {
       await Researcher.projectDelete(folderId);
       m.close();
       deps.toast(t('panel.proj.deleted'), 5000);
-      renderDashboard();
+      /* ⚠ RELEASE THE TAB FIRST if it was the one on screen — projectScope falls back on its own,
+       * but only after painting a dashboard for a project that no longer exists. */
+      if (currentProject === folderId) currentProject = null;
+      await estateWithoutFolder(folderId);
+      renderFromSettledEstate();
     } catch (err) {
       const el = m.el.querySelector('#rp-proj-say');
       el.hidden = false; el.className = 'rp-adm-say rp-adm-err';

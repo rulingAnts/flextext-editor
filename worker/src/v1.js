@@ -3063,7 +3063,22 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     const projectId = String(seg[2] || '');
     const ctx = await authMember(request, env, { project: projectId }, null);
     if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
-    if (!ctx.ok || !ctx.isOwner) return j({ error: 'not_found' }, 404, origin, env);
+    if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+    /* ⚠ LEAVING IS ALWAYS YOURS TO DO — the one act on this owner-only route that a member may
+     * perform (Seth, 2026-08-28: "we need members to be able to revoke themselves — leave a
+     * project"). It is deliberately NOT a capability: a grant you cannot get out of is not a grant,
+     * and an owner who stops responding must never be able to strand someone in their project.
+     *
+     * ⚠ SCOPED TO THEMSELVES BY CONSTRUCTION, not by checking the body — the DELETE branch below
+     * OVERWRITES `who` with the caller's own id for a non-owner, so a member cannot remove a
+     * colleague by sending someone else's researcher_id. Validating the body instead would make this
+     * one forgotten `if` away from member-removes-member.
+     *
+     * ⚠ And it runs the SAME batch the owner's removal does, so leaving withdraws the member_key
+     * grants in the same act. A "leave" that dropped only the membership row would look complete
+     * while the departed member still held every wrapped Ki the ledger had handed them. */
+    const selfLeave = m === 'DELETE' && !ctx.isOwner;
+    if (!ctx.isOwner && !selfLeave) return j({ error: 'not_found' }, 404, origin, env);
 
     if (m === 'GET') {
       /* JOINED to the researcher row for IDENTITY (Seth, 2026-08-27: "I have no info about the
@@ -3150,7 +3165,13 @@ export async function handleV1(request, env, ctx, url, path, origin) {
 
     if (m === 'DELETE') {
       const body = await readJson(request) || {};
-      const who = String(body.researcher_id || '').replace(/[^\w-]/g, '').slice(0, 64);
+      /* ⚠ A NON-OWNER CAN ONLY EVER REMOVE THEMSELVES, and it is FORCED here rather than validated:
+       * `who` is overwritten with the caller's own id, so whatever researcher_id a member sends is
+       * irrelevant. A body check would behave identically today and would be one refactor away from
+       * member-removes-member; this shape cannot express that operation at all. */
+      const who = selfLeave
+        ? ctx.caller.researcher_id
+        : String(body.researcher_id || '').replace(/[^\w-]/g, '').slice(0, 64);
       if (!who) return j({ error: 'bad_body' }, 400, origin, env);
       /* ⚠⚠ THE OWNER IS NOT REMOVABLE, and this guard is about the member_key DELETE below, not about
        * the project_member row (the owner never has one, so that half is a harmless no-op).
@@ -4132,6 +4153,101 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       } catch (e2) { try { console.warn('project name not updated for', folderId, safeErr(e2)); } catch { /* noop */ } }
       return j({ ok: true, folderId, name }, 200, origin, env);
     } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
+  }
+
+  /* POST /v1/researcher/projects/delete {folderId} — REMOVE AN EMPTY PROJECT (2026-08-28).
+   *
+   * Seth: "owners can't remove their own projects. We should fix that. There's no UI way to remove a
+   * project. It's OK if we require them to empty it of devices first." — and later, "I think only
+   * owner can do that right now", which is what this is: authResearcher, acting in the caller's own
+   * Drive, exactly like the rename route above. No capability delegates it.
+   *
+   * ⚠ EMPTY MEANS NO DEVICES, AND IT IS CHECKED BOTH WAYS. A device belongs to a project by
+   * `instance.project_id` (the D1 uuid) OR, for rows predating the split, by `instance.oauth_folder_id`
+   * (the Drive folder). Matching only one would let a legacy device sit in a project this route then
+   * cheerfully deleted, orphaning a live field device from the container its texts live in. Crowd
+   * recorders count as devices for the same reason.
+   *
+   * ⚠ THE FOLDER IS TRASHED, NEVER PURGED — the house rule for every destructive Drive act here (see
+   * drive-purge, which exists precisely because trashing does NOT reclaim quota). Trash is
+   * recoverable for 30 days; a project deleted by mistake is then a restore rather than a loss. The
+   * TEXTS inside it are trashed with it by Drive's own semantics, which is why "empty of devices" is
+   * the precondition: no device is left pointing at bytes that just moved to the bin.
+   *
+   * ⚠ D1 ROWS GO IN ONE BATCH, and member_key with them: a project row deleted while its grants
+   * survived would leave members holding wrapped keys for a container that no longer exists — the
+   * same listed-but-keyless asymmetry the member-removal route warns about at length. */
+  if (m === 'POST' && seg.length === 4 && seg[1] === 'researcher' && seg[2] === 'projects' && seg[3] === 'delete') {
+    const r = await authResearcher(request, env);
+    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    const body = await readJson(request) || {};
+    const folderId = String(body.folderId || '').replace(/[^\w-]/g, '').slice(0, 128);
+    if (!folderId) return j({ error: 'bad_body' }, 400, origin, env);
+
+    /* ⚠ SOMEONE ELSE'S PROJECT IS not_found, AND IT IS CHECKED HERE — before Drive, before anything.
+     * Without this the route still refused a member, but only because `drive.file` bounds them to
+     * files they created, so the folder read failed and the answer came back 502 drive_error. That is
+     * accidental safety wearing the wrong shape twice over: it leaks that the id is real (a 502 is
+     * not a 404), and it makes Google's scope — not this worker — the thing standing between a member
+     * and an owner's project. Denial answers 404 like every other in this file.
+     *
+     * ⚠ Looked up WITHOUT the owner filter on purpose. Filtering by owner would make "someone else's
+     * project" and "no D1 row at all" indistinguishable, and the second is a legitimate state: an
+     * unmigrated project is a Drive folder with no `project` row, and its owner must still be able to
+     * delete it. So: a row belonging to someone else refuses; no row at all falls through to the
+     * Drive role check, which is the right authority for a container D1 has never heard of. */
+    const anyRow = await env.DB.prepare('SELECT project_id, name, owner_id FROM project WHERE drive_folder_id=?')
+      .bind(folderId).first().catch(() => null);
+    if (anyRow && anyRow.owner_id && anyRow.owner_id !== r.researcher_id) {
+      return j({ error: 'not_found' }, 404, origin, env);
+    }
+    const prow = anyRow && anyRow.owner_id === r.researcher_id ? anyRow : null;
+    const projectId = (prow && prow.project_id) || '';
+
+    /* ⚠ REFUSE WHILE ANYTHING LIVES THERE, and say WHICH so the panel can be specific rather than
+     * telling someone their project is "not empty" and leaving them to hunt. revoked devices do not
+     * count — they are already withdrawn and cannot be moved out. */
+    const liveInst = await env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM instance WHERE revoked=0 AND (oauth_folder_id=?' + (projectId ? ' OR project_id=?' : '') + ')'
+    ).bind(...(projectId ? [folderId, projectId] : [folderId])).first().catch(() => ({ n: 0 }));
+    const liveCrowd = await env.DB.prepare(
+      'SELECT COUNT(*) AS n FROM crowd_recorder WHERE oauth_folder_id=?' + (projectId ? ' OR project_id=?' : '')
+    ).bind(...(projectId ? [folderId, projectId] : [folderId])).first().catch(() => ({ n: 0 }));
+    const devices = ((liveInst && liveInst.n) || 0) + ((liveCrowd && liveCrowd.n) || 0);
+    if (devices > 0) {
+      return j({ error: 'project_not_empty', devices,
+                 instances: (liveInst && liveInst.n) || 0,
+                 recorders: (liveCrowd && liveCrowd.n) || 0 }, 409, origin, env);
+    }
+
+    try {
+      const access = await driveAccessToken(env, r);
+      /* Verify it IS one of ours before trashing — drive.file already bounds us to app-created files,
+       * but the role check keeps a mistyped id from binning a text folder (same guard as rename). */
+      const f = await driveJson(access, 'GET', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(folderId) + '?fields=id,appProperties');
+      if (((f.appProperties || {}).flextextRole || '') !== 'project') return j({ error: 'not_a_project' }, 400, origin, env);
+      await driveJson(access, 'PATCH', 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(folderId) + '?fields=id', { trashed: true });
+    } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
+
+    /* Drive is the slow, failure-prone half and it has succeeded by here, so the D1 tidy-up follows
+     * it — never the reverse, which would forget the project while its folder was still live. */
+    if (projectId) {
+      try {
+        await env.DB.batch([
+          env.DB.prepare('DELETE FROM member_key WHERE project_id=?').bind(projectId),
+          env.DB.prepare('DELETE FROM project_member WHERE project_id=?').bind(projectId),
+          env.DB.prepare('DELETE FROM drive_object WHERE project_id=?').bind(projectId),
+          env.DB.prepare('DELETE FROM project WHERE project_id=? AND owner_id=?').bind(projectId, r.researcher_id),
+        ]);
+      } catch (e) {
+        /* The folder is already in the trash, so reporting failure would be worse than useless — the
+         * caller would retry a delete that has effectively happened. Logged instead; the estate
+         * reconcile drops a project row whose folder is gone on the next panel load. */
+        try { await secLog(env, request, 'project_delete_d1_partial', { projectId, error: String((e && e.message) || e).slice(0, 120) }); } catch { /* noop */ }
+      }
+    }
+    try { await secLog(env, request, 'project_deleted', { folderId, projectId, name: (prow && prow.name) || '' }); } catch { /* noop */ }
+    return j({ ok: true, folderId, projectId, trashed: true }, 200, origin, env);
   }
 
   /* Permanently delete the FlexText files that are ALREADY IN TRASH — the only way trashing ever

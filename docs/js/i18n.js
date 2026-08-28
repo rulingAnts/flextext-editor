@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v490';
+export const ENGINE_VERSION = 'v491';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1347,6 +1347,21 @@ internet after the first time.</p>
   'panel.proj.moveGo': 'Move it',
   'panel.proj.moved': 'Moved.',
   'panel.proj.noOtherProject': 'There is no other project to move it to yet.',
+  /* Project delete + member self-leave (v491). ⚠ The delete strings say TRASH, not "deleted",
+   * because that is what the worker does — the folder is recoverable for 30 days. Promising deletion
+   * would be a lie in the safe direction, which is still a lie: someone who needed it back would not
+   * know to look in the bin. */
+  'panel.proj.delete': 'Delete',
+  'panel.proj.deleteTitle': 'Delete “{name}”?',
+  'panel.proj.deleteNote': 'The project folder goes to your Google Drive trash, where you can restore it for 30 days. Only an empty project can be deleted — move or remove its devices first.',
+  'panel.proj.deleteGo': 'Move project to trash',
+  'panel.proj.deleted': 'Project moved to your Drive trash.',
+  'panel.proj.deleteNotEmpty': 'This project still has {n} device(s) or recorder(s). Move or remove them first, then try again.',
+  'panel.proj.leave': 'Leave project',
+  'panel.proj.leaveTitle': 'Leave “{name}”?',
+  'panel.proj.leaveNote': 'You will lose access to this project’s devices and their texts, and the keys you hold for them are withdrawn. Nothing is deleted — the owner keeps everything. Only the owner can add you back.',
+  'panel.proj.leaveGo': 'Leave project',
+  'panel.proj.left': 'You have left the project.',
   'panel.proj.rename': 'Rename',
   'panel.proj.renameTitle': 'Rename project',
   'panel.proj.renameNote': 'Display only. The folder is found by its tag, never by its name, so this cannot orphan a device, a text or an upload in progress.',
@@ -3155,6 +3170,17 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.proj.moveGo': 'Pindahkan',
   'panel.proj.moved': 'Dipindahkan.',
   'panel.proj.noOtherProject': 'Belum ada proyek lain sebagai tujuan.',
+  'panel.proj.delete': 'Hapus',
+  'panel.proj.deleteTitle': 'Hapus “{name}”?',
+  'panel.proj.deleteNote': 'Folder proyek dipindahkan ke tempat sampah Google Drive Anda, dan dapat dipulihkan selama 30 hari. Hanya proyek kosong yang dapat dihapus — pindahkan atau hapus perangkatnya terlebih dahulu.',
+  'panel.proj.deleteGo': 'Pindahkan proyek ke tempat sampah',
+  'panel.proj.deleted': 'Proyek dipindahkan ke tempat sampah Drive Anda.',
+  'panel.proj.deleteNotEmpty': 'Proyek ini masih memiliki {n} perangkat atau perekam. Pindahkan atau hapus dulu, lalu coba lagi.',
+  'panel.proj.leave': 'Keluar dari proyek',
+  'panel.proj.leaveTitle': 'Keluar dari “{name}”?',
+  'panel.proj.leaveNote': 'Anda akan kehilangan akses ke perangkat proyek ini beserta teksnya, dan kunci yang Anda pegang untuknya ditarik. Tidak ada yang dihapus — pemilik tetap menyimpan semuanya. Hanya pemilik yang dapat menambahkan Anda kembali.',
+  'panel.proj.leaveGo': 'Keluar dari proyek',
+  'panel.proj.left': 'Anda telah keluar dari proyek.',
   'panel.proj.rename': 'Ganti nama',
   'panel.proj.renameTitle': 'Ganti nama proyek',
   'panel.proj.renameNote': 'Hanya tampilan. Folder ditemukan lewat tandanya, bukan namanya, jadi ini tidak dapat memutus kaitan perangkat, teks, atau unggahan yang sedang berjalan.',

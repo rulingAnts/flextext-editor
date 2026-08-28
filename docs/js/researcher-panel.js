@@ -1726,7 +1726,9 @@ async function renderDashboard(prefetched) {
     }
     if (act === 'new') { projectNewModal(); return; }
     if (act === 'moveto') { projectAssignModal(el.dataset.folder, el.dataset.name || ''); return; }
-    if (act === 'rename') { projectRenameModal(el.dataset.folder, el.dataset.name || ''); }
+    if (act === 'rename') { projectRenameModal(el.dataset.folder, el.dataset.name || ''); return; }
+    if (act === 'delete') { projectDeleteModal(el.dataset.folder, el.dataset.name || ''); return; }
+    if (act === 'leave') { leaveProjectModal(el.dataset.project, el.dataset.name || ''); }
   }));
   lastSig = viewSig(data);
   // Fire-and-forget, after the paint it must never delay. Full renders force a pass — a device
@@ -4920,6 +4922,13 @@ function renderProjectsCard(estate) {
       </div>
       <div class="rp-text-actions">
         <button class="link-btn" data-pact="rename" data-folder="${esc(p.folderId)}" data-name="${esc(p.name || '')}">${esc(t('panel.proj.rename'))}</button>
+        ${/* ⚠ SHOWN ONLY WHILE THE PROJECT IS EMPTY, because the worker refuses a non-empty one
+             (409 project_not_empty) and offering a button that can only fail is the thing this panel
+             has a standing rule against. `mine.length` is the same count the row already prints, so
+             the control and the sentence above it can never disagree.
+             ⚠ OWNER-ONLY BY CONSTRUCTION: this card renders the caller's OWN estate — a shared
+             project appears as a TAB, never as a row here — so there is no member case to gate. */''}
+        ${mine.length === 0 ? `<button class="link-btn rp-revoke" data-pact="delete" data-folder="${esc(p.folderId)}" data-name="${esc(p.name || '')}">${esc(t('panel.proj.delete'))}</button>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -5154,6 +5163,73 @@ async function projectAssignModal(folderId, label) {
       renderFromSettledEstate();
     } catch (err) {
       const el = m.el.querySelector('#rp-proj-say');
+      el.hidden = false; el.className = 'rp-adm-say rp-adm-err'; el.textContent = String(err.message || err);
+    }
+  }));
+}
+
+/* DELETE AN EMPTY PROJECT (owner only). Modelled on projectRenameModal, with one difference that is
+ * the point: deleting is not undoable from here, so the modal SAYS what happens to the folder rather
+ * than asking for a bare yes.
+ *
+ * ⚠ IT PROMISES THE TRASH, NOT DELETION, because that is what the worker does — the folder is
+ * trashed and recoverable for 30 days. Saying "deleted" would be a lie in the safe direction, which
+ * is still a lie: someone who needs it back would not know to look.
+ *
+ * ⚠ 409 project_not_empty IS SHOWN, NOT SWALLOWED. The button only renders on a project the panel
+ * believes is empty, but the panel reads Drive's eventually-consistent estate — a device created
+ * seconds ago can be missing from it. The worker is the authority and its refusal carries the counts,
+ * so the modal can say what is actually still in there instead of "not empty". */
+async function projectDeleteModal(folderId, name) {
+  const m = modal(`<h3>${esc(t('panel.proj.deleteTitle', { name: name || t('panel.proj.defaultName') }))}</h3>
+    <p class="note">${esc(t('panel.proj.deleteNote'))}</p>
+    <div class="rp-adm-say" id="rp-proj-say" hidden></div>
+    <div class="modal-actions">
+      <button class="secondary-btn" data-m="cancel">${esc(t('panel.assign.cancel'))}</button>
+      <button class="primary-btn rp-danger" data-m="go">${esc(t('panel.proj.deleteGo'))}</button>
+    </div>`);
+  m.el.querySelector('[data-m="cancel"]').onclick = m.close;
+  m.el.querySelector('[data-m="go"]').addEventListener('click', (e) => busy(e.target, async () => {
+    try {
+      await Researcher.projectDelete(folderId);
+      m.close();
+      deps.toast(t('panel.proj.deleted'), 5000);
+      renderDashboard();
+    } catch (err) {
+      const el = m.el.querySelector('#rp-proj-say');
+      el.hidden = false; el.className = 'rp-adm-say rp-adm-err';
+      const d = err && err.body;
+      el.textContent = (d && d.error === 'project_not_empty')
+        ? t('panel.proj.deleteNotEmpty', { n: d.devices || 0 })
+        : String(err.message || err);
+    }
+  }));
+}
+
+/* LEAVE A SHARED PROJECT — the member's own withdrawal (Seth, 2026-08-28: "we need members to be
+ * able to revoke themselves — leave a project"). Confirms first, because it is not undoable by the
+ * member: getting back in needs the OWNER to add them again. */
+async function leaveProjectModal(projectId, name) {
+  const m = modal(`<h3>${esc(t('panel.proj.leaveTitle', { name: name || '' }))}</h3>
+    <p class="note">${esc(t('panel.proj.leaveNote'))}</p>
+    <div class="rp-adm-say" id="rp-leave-say" hidden></div>
+    <div class="modal-actions">
+      <button class="secondary-btn" data-m="cancel">${esc(t('panel.assign.cancel'))}</button>
+      <button class="primary-btn rp-danger" data-m="go">${esc(t('panel.proj.leaveGo'))}</button>
+    </div>`);
+  m.el.querySelector('[data-m="cancel"]').onclick = m.close;
+  m.el.querySelector('[data-m="go"]').addEventListener('click', (e) => busy(e.target, async () => {
+    try {
+      await Researcher.leaveProject(projectId);
+      m.close();
+      /* ⚠ The tab that was on screen no longer exists, so the selection must be released before the
+       * next render — projectScope's stale-selection branch would fall back on its own, but only
+       * after painting an empty dashboard once. */
+      currentProject = null;
+      deps.toast(t('panel.proj.left'), 5000);
+      renderDashboard();
+    } catch (err) {
+      const el = m.el.querySelector('#rp-leave-say');
       el.hidden = false; el.className = 'rp-adm-say rp-adm-err'; el.textContent = String(err.message || err);
     }
   }));
@@ -5693,8 +5769,13 @@ async function renderMemberProjectContent(mp) {
   if (caps.createInvites) capBits.push(t('panel.share.capInvite'));
   if (caps.assignTexts) capBits.push(t('panel.share.capAssign'));
   if (caps.drive) capBits.push(t('panel.share.capDrive'));
+  /* ⚠ LEAVING IS ALWAYS AVAILABLE, and ungated on purpose — it is the one action here that is not
+   * the owner's to permit. A share you cannot get out of is not a share, and an owner who stops
+   * responding must never be able to strand a coworker in their project. It sits beside the
+   * capability line because that line is where "what this share is" is already being stated. */
   return `<p class="note rp-joined-note"><span class="rp-badge rp-badge-type">${esc(t('panel.joined.tag'))}</span>
-      ${esc(capBits.length ? t('panel.joined.note', { caps: capBits.join(', ') }) : t('panel.joined.noteNone'))}</p>
+      ${esc(capBits.length ? t('panel.joined.note', { caps: capBits.join(', ') }) : t('panel.joined.noteNone'))}
+      <button class="link-btn rp-revoke rp-leave" data-pact="leave" data-project="${esc(mp.project_id || '')}" data-name="${esc(mp.name || '')}">${esc(t('panel.proj.leave'))}</button></p>
     ${cards.join('') || `<p class="note">${esc(t('panel.joined.empty'))}</p>`}`;
 }
 

@@ -947,5 +947,69 @@ console.log('\n⚠⚠ MEMBER FILE DOWNLOADS — drive:read is grantable, and the
   await call('DELETE', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: FIXTURE.outsiderId });
 }
 
+console.log('\n⚠ LEAVING IS THE MEMBER\'S OWN ACT — and it can only ever remove THEMSELVES');
+{
+  /* Seth, 2026-08-28: "we need members to be able to revoke themselves — leave a project." It is
+   * deliberately NOT a capability: a grant you cannot get out of is not a grant, and an owner who
+   * stops responding must never be able to strand a coworker.
+   *
+   * ⚠ THE SECURITY PROPERTY IS "SCOPED BY CONSTRUCTION", so the arm that matters is the one where a
+   * member names SOMEONE ELSE. The worker overwrites the target with the caller's own id rather than
+   * validating the body, so the request cannot express member-removes-member at all — the colleague
+   * must still be there afterwards. */
+  await call('POST', `/v1/projects/${projectId}/members`, OWNER,
+    { researcher_id: FIXTURE.outsiderId, caps: { manageDevices: true } });
+
+  /* ⚠ NAMING SOMEONE ELSE IN THE BODY — the rig has only two identities (owner + outsider), so the
+   * "someone else" here is the OWNER. That is the sharper test anyway: the owner is the one party
+   * the removal route refuses by name (`owner_is_not_a_member`), and that guard is never even
+   * reached, because `who` was already overwritten with the caller's id. The body is inert. */
+  const cross = await call('DELETE', `/v1/projects/${projectId}/members`, GUEST,
+    { researcher_id: FIXTURE.researcherId });
+  ok(cross.status === 200, `a member's DELETE is accepted (got ${cross.status})`);
+  const after = await call('GET', `/v1/projects/${projectId}/members`, OWNER);
+  const ids = (((after.json && after.json.members) || []).map((x) => x.researcher_id));
+  ok(!ids.includes(FIXTURE.outsiderId),
+     '⚠⚠ ...and it removed THE CALLER, even though the body named someone else');
+  ok(after.status === 200,
+     '⚠⚠ ...while the party they NAMED — the owner — still owns the project and can still read it');
+
+  const gone = await call('POST', `/v1/instances/${idA}`, GUEST, { nickname: 'after-leaving' });
+  ok(gone.status === 404, `and the seat that left is a stranger again (got ${gone.status})`);
+}
+
+console.log('\n⚠ A PROJECT WITH DEVICES IN IT REFUSES TO BE DELETED');
+{
+  /* Seth: "It's OK if we require them to empty it of devices first." That precondition is the whole
+   * safety of the route — the Drive folder is TRASHED, and trashing a container while a live field
+   * device still points into it would strand that device's texts in the bin.
+   *
+   * ⚠ Checked BEFORE Drive is touched, which is also why this arm can run on the local rig at all:
+   * there is no Google here, so a route that reached driveAccessToken would 502. A 409 proves the
+   * guard fires first — and that ordering is the property, not an artifact of the test. */
+  /* ⚠ THE FOLDER OF A DEVICE THAT EXISTS. The guard counts instances by oauth_folder_id, so it only
+   * fires for a folder something actually lives in — an arbitrary id would sail past it into Drive
+   * and 502 on the rig, which is what the first version of this arm did and why it is spelled out. */
+  /* ⚠ THE SEEDED "Moved-Into" PROJECT, which is the only container on this rig that genuinely holds
+   * a device: worker-seed gives it drive_folder_id 'rig-drive-folder-moved' and puts movedDeviceId in
+   * it by project_id. An instance's oauth_folder_id is NOT usable here — folders are created by Drive
+   * calls, and there is no Drive on the rig, so every instance's is NULL. (That is what the first two
+   * versions of this arm tripped over; recorded so the next person does not repeat it.) */
+  const liveFolder = 'rig-drive-folder-moved';
+  const notEmpty = await call('POST', '/v1/researcher/projects/delete', OWNER, { folderId: liveFolder });
+  ok(notEmpty.status === 409,
+     `⚠⚠ a project holding devices is refused BEFORE Drive is touched (got ${notEmpty.status}) — a 502 here would mean the guard runs too late`);
+  ok((notEmpty.json && notEmpty.json.devices) > 0,
+     `⚠ ...and the refusal COUNTS what is still there (${notEmpty.json && notEmpty.json.devices}), so the panel can say what to move`);
+
+  /* ⚠ 404, NOT MERELY "not 200". Before the ownership check landed this answered 502, because the
+   * request reached Drive and failed there — safety borrowed from Google's drive.file scope rather
+   * than enforced here, in a shape that also leaked that the id was real. Asserting the STATUS is
+   * what makes that a regression rather than a shrug. */
+  const asMember = await call('POST', '/v1/researcher/projects/delete', GUEST, { folderId: liveFolder });
+  ok(asMember.status === 404,
+     `⚠⚠ a non-owner gets the uniform not_found, refused before Drive is touched (got ${asMember.status})`);
+}
+
 console.log(fail ? `\n${fail} FAILED\n` : '\nPASS\n');
 process.exit(fail ? 1 : 0);

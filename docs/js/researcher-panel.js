@@ -1341,7 +1341,7 @@ function deviceInfo(ua, cachedApps, engineVersion, platform, installId, reported
     if (cachedApps.recorder) segs.push('recorder ' + cachedApps.recorder);
     if (cachedApps.researcher) segs.push('researcher ' + cachedApps.researcher);
   }
-  const live = liveVersions && liveVersions.editor;
+  const live = liveVersions && liveVersions.engine;
   let stale = false;
   if (!engineVersion && !(cachedApps && cachedApps.editor)) stale = true;        // pre-feature client → definitely old
   else if (live && eng && eng !== live) stale = true;                            // running engine behind the live site
@@ -1382,24 +1382,33 @@ async function fetchLiveVersion(path) {
     return m ? m[1] : null;
   } catch { return null; }
 }
+/* THE ENGINE NUMBER, AND ONLY IT (Seth, 2026-08-28: "we are actually OK with just the engine
+ * number... on productionWeb at least they will all consistently deploy together").
+ *
+ * The three per-app numbers were an artifact of the SATELLITE-REPOS era, when each app shipped from
+ * its own repo and could genuinely lag the others. A productionWeb push now deploys all five apps
+ * together, so on the estate this banner exists for they cannot disagree.
+ *
+ * ⚠ AND THE THREE NUMBERS ASKED THE WRONG QUESTION. A device reports `engine vNNN` — that is the
+ * vocabulary of every device card below this banner, and it is what staleness is judged on
+ * (deviceInfo compares the device's `eng` against this value). Printing app versions invited the
+ * researcher to compare two things that were never the same quantity. The editor's sw.js VERSION IS
+ * the engine version — bump-version.sh keeps them equal and test/version-sync.test.mjs fails the
+ * release if they drift — so ONE fetch answers the only question this banner is for: is a production
+ * app failing to auto-update?
+ *
+ * ⚠ ON STAGING THIS READS AHEAD OF PRODUCTION, and the badge carries a BUILD_TAG feature name. That
+ * is expected and is not a fault to report; the tag is cleared when the release goes to production. */
 async function refreshLiveVersions() {
   // The panel reports on ITS OWN estate — mixing the two would show a version nobody is running.
-  const [editor, recorder, researcher] = await Promise.all([
-    fetchLiveVersion(HOME.editor + 'sw.js'),
-    fetchLiveVersion(HOME.recorder + 'sw.js'),
-    fetchLiveVersion(HOME.researcher + 'sw.js'),
-  ]);
-  liveVersions = (editor == null && recorder == null && researcher == null) ? null : { editor, recorder, researcher };
+  const engine = await fetchLiveVersion(HOME.editor + 'sw.js');
+  liveVersions = engine == null ? null : { engine };
   paintLiveVersions();
 }
 function liveVerText() {
   if (liveVersions === undefined) return t('panel.live.checking');
   if (liveVersions === null) return t('panel.live.offline');
-  const p = [];
-  if (liveVersions.editor) p.push('editor ' + liveVersions.editor);
-  if (liveVersions.recorder) p.push('recorder ' + liveVersions.recorder);
-  if (liveVersions.researcher) p.push('researcher ' + liveVersions.researcher);
-  return t('panel.live.latest', { v: p.join(' · ') });
+  return t('panel.live.latest', { v: liveVersions.engine });
 }
 function paintLiveVersions() {
   const el = root && root.querySelector('#rp-live-ver');

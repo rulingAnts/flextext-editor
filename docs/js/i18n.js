@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v477';
+export const ENGINE_VERSION = 'v478';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1112,7 +1112,7 @@ internet after the first time.</p>
   'panel.acctswitch.cancel': 'Cancel (stay signed out)',
   'panel.wscodes.html': '<h3>Writing system codes</h3><p class="banner warn-banner"><strong>Codes are CASE-SENSITIVE.</strong> <code>fau</code>, <code>Fau</code> and <code>FAU</code> are three different codes to FLEx — copy the Code exactly, letter for letter.</p><p>These must match your FLEx project <strong>exactly</strong>. If a code here does not match the code already in your FLEx project, FLEx creates a <strong>new</strong> writing system on import — leaving duplicates to clean up.</p><h4>Which code to use</h4><p>Use the value labelled <strong>Code</strong> on the <em>General</em> tab of the Writing System properties — <strong>not</strong> the Abbreviation or the language name.</p><h4>Where to find it in FLEx</h4><ol><li>FLEx → <strong>Tools → Configure → Writing Systems…</strong></li><li>Pick the writing system — <strong>Vernacular</strong> for the baseline text, <strong>Analysis</strong> for glosses and free translation.</li><li>On the <strong>General</strong> tab, copy the <strong>Code</strong> (e.g. <code>grc</code>) — not the Language Code, Abbreviation, Language Name, or Ethnologue code.</li></ol><figure class="wsc-shot"><img src="/flextext-editor/help/ws-flex-codes.png" alt="FLEx Writing System properties — use the Code value" loading="lazy"><figcaption class="note">Use the <strong>Code</strong> value. Not <em>Abbreviation</em> or <em>Language Name</em>.</figcaption></figure><p>Codes are BCP-47 tags (<code>en</code>, <code>grc</code>, <code>es-419</code>, or custom). Enter them exactly as shown in FLEx, including case.</p><h4>Checklist</h4><ul><li>Vernacular code matches exactly</li><li>Gloss / analysis code matches exactly</li><li>Free-translation code matches exactly</li><li>No stray spaces; case matches</li></ul>',
   'panel.live.checking': 'Checking the latest version on the site…',
-  'panel.live.latest': 'Latest on the site (live): {v} — compare with each device below.',
+  'panel.live.latest': 'Latest engine on the site (live): {v} — compare with each device below.',
   'panel.live.offline': '⚠ Can’t reach the site — you appear to be offline (live version check unavailable).',
   'panel.dash.account': 'Account',
   'panel.dash.thisDevice': 'This device',
@@ -2939,7 +2939,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.acctswitch.cancel': 'Batal (tetap keluar)',
   'panel.wscodes.html': '<h3>Kode sistem penulisan</h3><p class="banner warn-banner"><strong>Kode PEKA HURUF BESAR/KECIL.</strong> <code>fau</code>, <code>Fau</code>, dan <code>FAU</code> adalah tiga kode yang berbeda bagi FLEx — salin Code persis huruf demi huruf.</p><p>Kode ini harus <strong>sama persis</strong> dengan proyek FLEx Anda. Jika kode di sini tidak cocok dengan kode yang sudah ada di proyek FLEx, FLEx akan membuat sistem penulisan <strong>baru</strong> saat impor — menyisakan duplikat yang harus dibersihkan.</p><h4>Kode mana yang dipakai</h4><p>Gunakan nilai berlabel <strong>Code</strong> pada tab <em>General</em> di properti Writing System — <strong>bukan</strong> Abbreviation atau nama bahasa.</p><h4>Di mana menemukannya di FLEx</h4><ol><li>FLEx → <strong>Tools → Configure → Writing Systems…</strong></li><li>Pilih sistem penulisannya — <strong>Vernacular</strong> untuk teks dasar, <strong>Analysis</strong> untuk glos dan terjemahan bebas.</li><li>Pada tab <strong>General</strong>, salin <strong>Code</strong> (mis. <code>grc</code>) — bukan Language Code, Abbreviation, Language Name, atau kode Ethnologue.</li></ol><figure class="wsc-shot"><img src="/flextext-editor/help/ws-flex-codes.png" alt="Properti Writing System FLEx — gunakan nilai Code" loading="lazy"><figcaption class="note">Gunakan nilai <strong>Code</strong>. Bukan <em>Abbreviation</em> atau <em>Language Name</em>.</figcaption></figure><p>Kode berupa tag BCP-47 (<code>en</code>, <code>grc</code>, <code>es-419</code>, atau khusus). Masukkan persis seperti di FLEx, termasuk huruf besar/kecil.</p><h4>Daftar periksa</h4><ul><li>Kode Vernacular sama persis</li><li>Kode glos/analysis sama persis</li><li>Kode terjemahan bebas sama persis</li><li>Tidak ada spasi berlebih; huruf besar/kecil cocok</li></ul>',
   'panel.live.checking': 'Memeriksa versi terbaru di situs…',
-  'panel.live.latest': 'Terbaru di situs (langsung): {v} — bandingkan dengan tiap perangkat di bawah.',
+  'panel.live.latest': 'Mesin terbaru di situs (langsung): {v} — bandingkan dengan tiap perangkat di bawah.',
   'panel.live.offline': '⚠ Tidak dapat menjangkau situs — Anda tampaknya offline (pemeriksaan versi langsung tidak tersedia).',
   'panel.dash.account': 'Akun',
   'panel.dash.thisDevice': 'Perangkat ini',

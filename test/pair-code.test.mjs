@@ -67,8 +67,20 @@ ok((worker.match(/mintPairCode\(\)/g) || []).length === 2,
 console.log('\nnothing existing changed shape — old clients must keep working');
 ok(/status: 'pending', pair_code:/.test(worker),
    'pair_code is ADDED to the claim response beside the existing fields, not instead of any');
-ok(/researcher: who\.researcher/.test(worker) && /name: row\.display_name/.test(worker),
-   '⚠ the researcher profile is still RETURNED (now via pairingIdentity) — dropping it from the device UI is a client change, and removing it here would break the recorder too');
+/* ⚠ THIS ASSERTION ONCE REQUIRED THE OPPOSITE, and it was right to, until the decision changed.
+ * It was written to stop the researcher profile being dropped from the claim response, on the
+ * reasoning that removing a field old clients might read would break them. Seth then decided the
+ * field should not exist (2026-08-27): "I don't think we need either researcher named to the field
+ * user. In fact we don't. Because we don't want that evidence available on a siezed device. The
+ * pairing code should be good enough either way."
+ *
+ * ⚠ AND THE COMPATIBILITY WORRY WAS UNFOUNDED, which is worth recording rather than asserting away:
+ * no shipped client ever RENDERED it. At the merge-base the only occurrence of `r.researcher` in
+ * docs/js is a prose comment in sync.js; app.js's single `.researcher` match is an unrelated
+ * cache-name regex. So the removal costs an old device nothing — it drops a field none of them read.
+ * `pair_code` is unaffected and still rides the same response, which the assertion above pins. */
+ok(/return \{ type: row && row\.type \};/.test(worker) && !/name: row\.display_name/.test(worker),
+   '⚠ pairingIdentity carries the device TYPE and no researcher identity at all — nothing names a person to a device');
 
 /* ---------------- the client and panel halves ---------------- */
 const app = read('../docs/js/app.js');
@@ -127,8 +139,12 @@ ok(!/researcher: s\.researcher/.test(sync),
    '...and does not hand it back out to callers either');
 ok(/if \(s0 && s0\.researcher\) \{ delete s0\.researcher; saveSession\(s0\); \}/.test(sync),
    '⚠ and a device paired BEFORE this build is scrubbed at startup — not storing it from now on does nothing for those');
-ok(/The worker still SENDS r\.researcher/.test(sync),
-   'the PROTOCOL is unchanged, so already-deployed editors and recorders keep working');
+/* The sentinel moved with the decision: the device half is no longer "the worker still sends it, we
+ * ignore it" but "the worker stopped sending it, and we ignore it regardless". Both halves matter —
+ * the scrub is what covers a worker that predates the change or is mid-deploy, which is the only
+ * window in which the field can still arrive. */
+ok(/the worker no longer sends r\.researcher at all/.test(sync) && /delete s0\.researcher/.test(sync),
+   'the client drops it on the floor ANYWAY — an older worker, or one mid-deploy, still sends it');
 ok(/invite\.codeMissing/.test(app),
    '...and it SAYS SO when there is no code, rather than rendering an empty box');
 

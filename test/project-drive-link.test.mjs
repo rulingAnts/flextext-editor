@@ -42,7 +42,10 @@ ok(/drive_folder_id TEXT/.test(schema), 'schema-current records it');
 console.log('\nthe backfill resolves the folder, and survives not being able to');
 {
   const fn = worker.match(/async function backfillProjectsFor[\s\S]*?\n\}/)[0];
-  ok(/driveEnsureDefaultProject\(access, defaultProjectName\(row\)\)/.test(fn),
+  // defaultProjectName() lost its `row` argument when the default project stopped being named after
+  // the owner ("<display_name>'s project" → "Default Project") — a name carrying the owner's identity
+  // is PII on a seized device. The assertion is about WHICH function resolves the folder, not its args.
+  ok(/driveEnsureDefaultProject\(access, defaultProjectName\(\)\)/.test(fn),
      'it resolves the researcher\'s existing default project folder rather than minting a new one');
   ok(/if \(!driveFolder && row\.drive_refresh_enc\)/.test(fn),
      '⚠ it does not even try when the researcher has no Drive connection');

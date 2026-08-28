@@ -87,7 +87,9 @@ console.log('\na move is two pending actions, and both are visible (v392)');
   ok(/: mvSource \? cancelRemovalBtn/.test(panel),
      'and the removal carries its own Cancel, with the ordinary label');
   // Order: once stage 2 issues the real uploadDelete, THAT is the thing to withdraw.
-  const iCmd = panel.indexOf("(p && p.kind === 'delete') ? (queued ? cancelBtn('Delete')");
+  // cancelBtn takes a capability argument since v480; this assertion is about ORDER, so it matches
+  // only up to the call and deliberately not past it.
+  const iCmd = panel.indexOf("(p && p.kind === 'delete') ? (queued ? cancelBtn('Delete',");
   const iMv  = panel.indexOf(': mvSource ? cancelRemovalBtn');
   ok(iCmd > 0 && iMv > 0 && iCmd < iMv, 'a real queued delete is tested before the not-yet-issued one');
 }
@@ -198,6 +200,43 @@ console.log('\nnothing a MEMBER cannot use is rendered for them (Seth, 2026-08-2
      'the Approve button is no longer offered on a member capability');
   ok(/panel\.store\.ownOnly/.test(panel),
      'the Drive-storage modal says it shows only the caller\'s OWN Drive when they are in shared projects');
+
+  /* ⚠ THE THREE THE FIRST PASS MISSED (v480). The audit that produced the block above checked the
+   * controls it had thought of; these three were rendered to members anyway, and each failed a
+   * DIFFERENT way, which is why all three are pinned rather than a representative one:
+   *   - force-remove: ungated at BOTH render sites while the worker route is owner-only by design,
+   *     under a comment two hundred lines up that already CLAIMED it was absent for members;
+   *   - the Remove grey-out: on the ELSE of an engine-version check, so it escaped the mAssign gate
+   *     directly above it and blamed the device's engine for what was really a missing capability;
+   *   - cancelBtn: ungated entirely, so a seat without the command's capability was offered a
+   *     withdrawal the worker answers 404 to.
+   * COUNTED, not matched — the v469/v475 lesson: this file has twice shipped a fix to the first
+   * render site of a control while a second went on rendering. */
+  const forceRemoveSites = (panel.match(/data-iact="force-remove"/g) || []).length;
+  const forceRemoveGated = (panel.match(/\$\{memberCtx \? '' : `<button[^`]*data-iact="force-remove"/g) || []).length;
+  ok(forceRemoveSites > 0 && forceRemoveGated === forceRemoveSites,
+     `⚠ EVERY force-remove render is owner-gated (${forceRemoveGated}/${forceRemoveSites})`);
+
+  ok(!/: ` <button class="link-btn rp-revoke" disabled title="\$\{esc\(t\('panel\.inst\.delNeedsUpdate'\)\)\}"/.test(panel),
+     '⚠ the "update the device first" grey-out is not shown to a seat that may not delete at all');
+  ok(/mAssign \? ` <button class="link-btn rp-revoke" disabled title/.test(panel),
+     '...but it IS still shown to one that may — the message is kept for who it is about');
+
+  ok(/const cancelBtn = \(kind, may\) => \(may/.test(panel),
+     '⚠ a Cancel is gated on the capability of the command it withdraws, not rendered unconditionally');
+  ok(/cancelBtn\('Assign', mAssign\)/.test(panel) && /cancelBtn\('Delete', mAssign\)/.test(panel),
+     '...text commands take assignTexts (assign, delete)');
+  ok(/cancelBtn\('Upload', mManage\)/.test(panel),
+     '...and an upload takes manageDevices — the same split the worker\'s capForCommand draws');
+
+  /* ⚠ UN-MARKING DONE MUST NOT BE A ONE-WAY DOOR (Seth, 2026-08-28: a known issue he had hit before).
+   * `doneOn` is the DEVICE's doneEnabled setting — what the FIELD USER sees — and it used to gate the
+   * RESEARCHER's control too. The done chip's toggle never consulted it, so on a device with Done
+   * switched off a researcher could un-mark a text and then find the control gone: d.done false,
+   * doneOn false, nothing rendered, the state unreachable from the panel. The fix is that the not-done
+   * chip renders when the researcher CAN act, not only when the device happens to display Done. */
+  ok(/\(doneOn \|\| canSetDone\) \? \(canSetDone \?/.test(panel),
+     '⚠ the not-done chip renders when the researcher may set it, so un-marking can be undone');
 }
 
 console.log(fail ? `\nFAILED (${fail}) — account state has drifted back into browser storage.\n`

@@ -70,6 +70,14 @@ const FILES = [
   'migrate-project-drive-link.sql',
   'migrate-invite-inviter.sql',
   'migrate-drive-object.sql',
+  /* ⚠ REGISTERING A MIGRATION HERE IS WHAT TELLS AN OPERATOR TO RUN IT. This one shipped without
+   * being added, and the omission was quiet in both directions: the replayed schema simply lacked
+   * `instance.tokens_valid_from`, and the worker DELIBERATELY tolerates the column being absent
+   * (v1.js swallows the missing-column error so a pre-migration deploy keeps working). So a database
+   * that never received it would look healthy while the lost-device token withdrawal it exists for
+   * silently did nothing — a remote wipe that leaves every outstanding streaming URL serving.
+   * The tolerance is correct; being absent from this list is what made it dangerous. */
+  'migrate-token-epoch.sql',
 ];
 
 /* Split on `;` at end of line — the house SQL style, one statement per line-group, no triggers or
@@ -180,7 +188,9 @@ const rebuilt = statements(readFileSync(join(WORKER, 'migrate-instance-type-unif
   .find((s) => /CREATE TABLE instance_new/i.test(s)) || '';
 const rebuiltCols = [...rebuilt.matchAll(/^\s{2}(\w+)\s/gm)].map((m) => m[1]);
 const wouldLose = (got.tables.instance || []).filter((c) => !rebuiltCols.includes(c));
-ok(wouldLose.join(' ') === 'estate oauth_folder_id project_id',
+// tokens_valid_from joined the list when migrate-token-epoch.sql was registered (v480) — the
+// landmine grew by one column, which is the growth this assertion exists to make visible.
+ok(wouldLose.join(' ') === 'estate oauth_folder_id project_id tokens_valid_from',
   `re-running the instance rebuild would destroy exactly [${wouldLose.join(', ')}] and their DATA. ` +
   'The list grows every time the schema does, which is the point of asserting it: a rebuild-style ' +
   'migration is a landmine that gets bigger with age. Fresh databases must use schema-current.sql, ' +

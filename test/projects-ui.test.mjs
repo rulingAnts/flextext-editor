@@ -289,7 +289,9 @@ test('projects UI', async () => {
     ok(!!scope, 'the scope resolver exists');
     ok(/if \(!projects\.length\) return null;/.test(scope),
        'a flat estate returns null — the classic layout renders byte for byte');
-    ok(/const scope = projectScope\(insts, estateCache, crowdCache\);/.test(panel) && /if \(!scope\) \{/.test(panel),
+    // 4th argument since the shared-project tabs landed — and it is `data.memberProjects`, i.e. the
+    // WORKER's answer, which is the point pinned behaviourally further down.
+    ok(/const scope = projectScope\(insts, estateCache, crowdCache, data\.memberProjects\);/.test(panel) && /if \(!scope\) \{/.test(panel),
        '...and the dashboard branches on exactly that');
 
     /* ⚠ BY FOLDER ID, NEVER BY NAME. The instance now carries oauth_folder_id precisely so this join
@@ -308,10 +310,16 @@ test('projects UI', async () => {
     /* A stored tab can point at a project that was renamed away, undone, or belonged to another
      * account. Falling back to "whatever was stored" renders an empty dashboard that reads as though
      * the devices are gone. */
-    ok(/if \(sel !== STRAY_TAB && !ids\.has\(sel\)\) sel = null;/.test(scope),
+    /* The single `if` became a three-way branch when shared tabs arrived (stray / shared / owned).
+     * The invariant is unchanged and is what these pin: any selection that no longer resolves falls
+     * back to the first owned project, because rendering an empty dashboard reads as "my devices are
+     * gone". Each of the three cases is asserted, so a future fourth cannot quietly skip the rule. */
+    ok(/else if \(!ids\.has\(sel\)\) sel = null;/.test(scope) && /if \(sel === null\) sel = projects\[0\]\.folderId;/.test(scope),
        'a stale selection falls back to the first project rather than showing nothing');
-    ok(/if \(sel === STRAY_TAB && !hasStrays\) sel = null;/.test(scope),
+    ok(/if \(sel === STRAY_TAB\) \{ if \(!hasStrays\) sel = null; \}/.test(scope),
        '...and the strays tab disappears once there are none');
+    ok(/if \(!mps\.some\(\(m\) => memberTabId\(m\.project_id\) === sel\)\) sel = null;/.test(scope),
+       '...and so does a SHARED tab whose share was revoked between renders — same rule, third case');
 
     /* Containers an interrupted migration never reached still work, so they must be REACHABLE —
      * their own tab, never hidden and never folded into the first project as if they belonged. */
@@ -341,8 +349,20 @@ test('projects UI', async () => {
     const sw = fn('function renderProjectSwitcher');
     ok(/const projects = \(estate && estate\.projects\) \|\| \[\];/.test(scope),
        'the tab list is exactly what the estate returned');
-    ok(!/canOpen|hasGrant|allowed|member/i.test(scope + sw),
+    /* ⚠ THE WORD 'member' WAS REMOVED FROM THIS BAN, AND THAT IS A DELIBERATE NARROWING, not a
+     * loosening. The invariant is "scoping is the worker's job, not a hidden tab" — the client must
+     * never DECIDE which projects a user may see. `memberProjects` is a DATA SHAPE handed down by the
+     * worker (data.memberProjects), so banning the substring started matching the correct
+     * implementation of the very rule it guards. The permission-DECISION vocabulary is still banned,
+     * and two positive assertions now pin the actual invariant: the list comes from the server, and
+     * the switcher renders all of it. A ban that fires on the right answer teaches people to delete
+     * the test. */
+    ok(!/canOpen|hasGrant|allowed/i.test(scope + sw),
        'no client-side notion of which projects may be shown');
+    ok(/const scope = projectScope\(insts, estateCache, crowdCache, data\.memberProjects\);/.test(panel),
+       '...the shared projects are the ones the WORKER returned, not ones the client decided it may show');
+    ok(/for \(const mp of scope\.memberProjects \|\| \[\]\) \{/.test(sw),
+       '...and EVERY one of them gets a tab — the switcher filters none of them');
     ok(/scope\.projects\.map/.test(sw), '...and every project in the estate gets a tab');
   }
 
@@ -394,7 +414,9 @@ test('projects UI', async () => {
        'instance creation accepts a target project');
     ok(/driveEnsureDeviceFolder\(env, access, instance_id, nickname, '', wantProject\)/.test(worker),
        '...and creates the folder EAGERLY under it, rather than lazily in the default project');
-    ok(/const intoProject = \(currentProject && currentProject !== STRAY_TAB\) \? currentProject : '';/.test(panel),
+    // A SHARED tab is excluded too: its id is a D1 project uuid, not a Drive folder id, and the new
+    // device would be the caller's own — so it falls back to the lazy default, as the modal's note says.
+    ok(/const intoProject = \(currentProject && currentProject !== STRAY_TAB && !isMemberTab\(currentProject\)\) \? currentProject : '';/.test(panel),
        'the panel passes the tab on screen');
 
     /* A control that always errs into "there is no other project" teaches that the button is

@@ -80,6 +80,7 @@
       "project_id",
       "researcher_id",
       "revoked",
+      "tokens_valid_from",
       "type"
     ],
     "invite": [

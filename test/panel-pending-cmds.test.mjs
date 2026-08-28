@@ -97,7 +97,12 @@ console.log('\nqueued vs taken is a comparison against ack_seq, and only queued 
 {
   ok(/const queued = !!p && p\.seq > maxAck;/.test(panel), 'queued  = seq >  maxAck (device has not seen it)');
   ok(/const taken\s+= !!p && p\.seq <= maxAck;/.test(panel), 'taken   = seq <= maxAck (device has it)');
-  ok(/\(queued \? cancelBtn\('Delete'\) : takenTag\)/.test(panel),
+  /* cancelBtn gained a CAPABILITY argument in v480 (a cancel follows the capability of the command it
+   * withdraws, matching the worker's capForCommand). The invariant THIS line guards is unchanged and
+   * is the ternary itself: queued → a cancel, taken → an inert tag. The argument is matched loosely
+   * on purpose — pinning which capability belongs to a delete is panel-shared-state's job, and two
+   * tests asserting the same fact is how they come to disagree. */
+  ok(/\(queued \? cancelBtn\('Delete',\s*\w+\) : takenTag\)/.test(panel),
      'a taken delete shows an inert tag, never a cancel the Worker would refuse');
   // The strikethrough itself must NOT depend on queued/taken — a delete in progress is still a
   // delete, and un-striking it the moment the device picks it up is the reported symptom.

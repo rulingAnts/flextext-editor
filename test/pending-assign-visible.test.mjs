@@ -99,7 +99,8 @@ console.log('\nthe state is distinguishable, and never reads as "being deleted"'
 
 console.log('\nit offers only actions that can actually be honoured');
 {
-  ok(/const up = d\.__assigning\s*\n?\s*\? \(queued \? cancelBtn\('Assign'\) : takenTag\)/.test(panel),
+  // cancelBtn takes a capability argument since v480 — see the note in panel-pending-cmds.test.mjs.
+  ok(/const up = d\.__assigning\s*\n?\s*\? \(queued \? cancelBtn\('Assign',\s*\w+\) : takenTag\)/.test(panel),
      'cancel while queued; once taken it says so instead of offering a cancel that would be refused');
   ok(/const moveBtn = \(memberCtx \|\| !d\.id \|\| mv \|\| d\.__assigning/.test(panel),
      'no Move — the device does not have the text yet');

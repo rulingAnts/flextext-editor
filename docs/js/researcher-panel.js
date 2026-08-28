@@ -1341,7 +1341,7 @@ function deviceInfo(ua, cachedApps, engineVersion, platform, installId, reported
     if (cachedApps.recorder) segs.push('recorder ' + cachedApps.recorder);
     if (cachedApps.researcher) segs.push('researcher ' + cachedApps.researcher);
   }
-  const live = liveVersions && liveVersions.editor;
+  const live = liveVersions && liveVersions.engine;
   let stale = false;
   if (!engineVersion && !(cachedApps && cachedApps.editor)) stale = true;        // pre-feature client → definitely old
   else if (live && eng && eng !== live) stale = true;                            // running engine behind the live site
@@ -1382,24 +1382,33 @@ async function fetchLiveVersion(path) {
     return m ? m[1] : null;
   } catch { return null; }
 }
+/* THE ENGINE NUMBER, AND ONLY IT (Seth, 2026-08-28: "we are actually OK with just the engine
+ * number... on productionWeb at least they will all consistently deploy together").
+ *
+ * The three per-app numbers were an artifact of the SATELLITE-REPOS era, when each app shipped from
+ * its own repo and could genuinely lag the others. A productionWeb push now deploys all five apps
+ * together, so on the estate this banner exists for they cannot disagree.
+ *
+ * ⚠ AND THE THREE NUMBERS ASKED THE WRONG QUESTION. A device reports `engine vNNN` — that is the
+ * vocabulary of every device card below this banner, and it is what staleness is judged on
+ * (deviceInfo compares the device's `eng` against this value). Printing app versions invited the
+ * researcher to compare two things that were never the same quantity. The editor's sw.js VERSION IS
+ * the engine version — bump-version.sh keeps them equal and test/version-sync.test.mjs fails the
+ * release if they drift — so ONE fetch answers the only question this banner is for: is a production
+ * app failing to auto-update?
+ *
+ * ⚠ ON STAGING THIS READS AHEAD OF PRODUCTION, and the badge carries a BUILD_TAG feature name. That
+ * is expected and is not a fault to report; the tag is cleared when the release goes to production. */
 async function refreshLiveVersions() {
   // The panel reports on ITS OWN estate — mixing the two would show a version nobody is running.
-  const [editor, recorder, researcher] = await Promise.all([
-    fetchLiveVersion(HOME.editor + 'sw.js'),
-    fetchLiveVersion(HOME.recorder + 'sw.js'),
-    fetchLiveVersion(HOME.researcher + 'sw.js'),
-  ]);
-  liveVersions = (editor == null && recorder == null && researcher == null) ? null : { editor, recorder, researcher };
+  const engine = await fetchLiveVersion(HOME.editor + 'sw.js');
+  liveVersions = engine == null ? null : { engine };
   paintLiveVersions();
 }
 function liveVerText() {
   if (liveVersions === undefined) return t('panel.live.checking');
   if (liveVersions === null) return t('panel.live.offline');
-  const p = [];
-  if (liveVersions.editor) p.push('editor ' + liveVersions.editor);
-  if (liveVersions.recorder) p.push('recorder ' + liveVersions.recorder);
-  if (liveVersions.researcher) p.push('researcher ' + liveVersions.researcher);
-  return t('panel.live.latest', { v: p.join(' · ') });
+  return t('panel.live.latest', { v: liveVersions.engine });
 }
 function paintLiveVersions() {
   const el = root && root.querySelector('#rp-live-ver');
@@ -2952,14 +2961,24 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
         const mvSource = !!mv && mv.from === it.instance_id;      // this device is LOSING the text
         const deleting = !!d.pendingDelete || !!(p && p.kind === 'delete') || mvSource;
         const uploading = !!(p && p.kind === 'upload');
-        const cancelBtn = (kind) => ` <button class="link-btn rp-cancel" data-iact="cancel-cmd" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}">${esc(t('panel.inst.cancel' + kind))}</button>`;
+        /* ⚠ A CANCEL FOLLOWS THE CAPABILITY OF THE COMMAND IT WITHDRAWS, which is why `may` is a
+         * parameter rather than a single gate on this helper: withdrawing an ASSIGN is text work
+         * (assignTexts) while withdrawing an UPLOAD is device management (manageDevices), and the
+         * worker's capForCommand() draws exactly that line. Ungated, these three buttons were the
+         * client promising an action the worker answers 404 to.
+         * Falling back to the `taken` tag rather than to nothing is deliberate: a queued command a
+         * seat may not cancel is still a command the row must SHOW, or the pending state disappears
+         * and the text looks idle while something is on its way to the device. */
+        const cancelBtn = (kind, may) => (may
+          ? ` <button class="link-btn rp-cancel" data-iact="cancel-cmd" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}">${esc(t('panel.inst.cancel' + kind))}</button>`
+          : ` <span class="rp-tag rp-tag-taken">${esc(t('panel.inst.pendingTag'))}</span>`);
         const takenTag = ` <span class="rp-tag rp-tag-taken" title="${esc(t('panel.inst.takenWhy'))}">${esc(t('panel.inst.taken'))}</span>`;
 
         const up = d.__assigning
-          ? (queued ? cancelBtn('Assign') : takenTag)
+          ? (queued ? cancelBtn('Assign', mAssign) : takenTag)
           : (deleting || wiped) ? ''                        // being removed, or the device is gone
           : uploading
-            ? (queued ? cancelBtn('Upload') : takenTag)
+            ? (queued ? cancelBtn('Upload', mManage) : takenTag)
             : (mManage ? ` <button class="link-btn rp-up" data-iact="upload" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-fileid="${esc(d.uploadedFileId || '')}">${esc(t(label))}</button>` : '');
         // Upload-first remote delete (v94+): the device uploads a fresh timestamped copy, THEN deletes.
         // The chip belongs to the device LOSING the text. The destination's half of the move is its
@@ -2977,12 +2996,20 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
          * cancel, so it is tested first and the row falls through to the ordinary withdrawal. */
         const cancelRemovalBtn = ` <button class="link-btn rp-cancel" data-iact="cancel-removal" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.inst.cancelDelete'))}</button>`;
         const del = (!d.id || d.__assigning || wiped) ? ''
-          : (p && p.kind === 'delete') ? (queued ? cancelBtn('Delete') : takenTag)
+          : (p && p.kind === 'delete') ? (queued ? cancelBtn('Delete', mAssign) : takenTag)
           : mvSource ? cancelRemovalBtn                     // committed, not yet issued as a command
           : uploading ? ''                                  // cancel the upload first, or wait it out
           : canDelText
             ? (mAssign ? ` <button class="link-btn rp-revoke" data-iact="del-text" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.inst.delText'))}</button>` : '')
-            : ` <button class="link-btn rp-revoke" disabled title="${esc(t('panel.inst.delNeedsUpdate'))}">${esc(t('panel.inst.delText'))}</button>`;
+            /* ⚠ THE "UPDATE THE DEVICE FIRST" GREY-OUT IS FOR SOMEONE WHO COULD OTHERWISE DELETE.
+             * It sits on the ELSE of canDelText and so used to escape the mAssign gate above it: a
+             * member WITHOUT assignTexts, looking at an old device, was shown a dead greyed Remove
+             * whose tooltip blamed the device's engine — when the real reason was that this seat may
+             * not delete at all. Two different "no", and the wrong one was displayed.
+             * A disabled control reads as a broken app (Seth's standing rule, and it has cost a bug
+             * report before), so for a seat without the capability it is ABSENT; the grey-out is kept
+             * only for those the message is actually about. */
+            : (mAssign ? ` <button class="link-btn rp-revoke" disabled title="${esc(t('panel.inst.delNeedsUpdate'))}">${esc(t('panel.inst.delText'))}</button>` : '');
         // The done tag is a TOGGLE when the engine understands the setDone COMMAND — the dispatch
         // case shipped in v138. Gating on setDocDone's age (v100) was wrong: an older device ACKS
         // the unknown command and silently does nothing, which reads as "the toggle is broken".
@@ -2990,7 +3017,26 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
         const doneTag = d.done
           ? (canSetDone ? `<button class="rp-tag rp-tag-done rp-tag-btn" data-iact="toggle-done" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-done="1" title="${esc(t('panel.inst.toggleDoneTip'))}">${esc(t('panel.inst.doneTag'))}</button>`
                         : `<span class="rp-tag rp-tag-done">${esc(t('panel.inst.doneTag'))}</span>`)
-          : (doneOn ? (canSetDone ? `<button class="rp-tag rp-tag-notdone rp-tag-btn" data-iact="toggle-done" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-done="" title="${esc(t('panel.inst.toggleDoneTip'))}">${esc(t('panel.inst.notDoneTag'))}</button>`
+          /* ⚠ `|| canSetDone` — UN-MARKING DONE USED TO BE A ONE-WAY DOOR (Seth, 2026-08-28: "the
+           * inability to un-mark done as a researcher is a known issue, I've run into that before").
+           *
+           * `doneOn` is the DEVICE's own `doneEnabled` setting — whether the FIELD USER sees the Done
+           * feature on their phone. It was also gating the RESEARCHER's control, and those are two
+           * different audiences asking two different questions. The consequence was a trap with no
+           * way back: on a device with Done switched off, a text that IS done renders its chip as a
+           * toggle (that branch never consulted doneOn), so the researcher can un-mark it — and the
+           * moment they do, `d.done` goes false, this branch returns '', and the control they just
+           * used disappears behind them. The state is now unreachable from the panel entirely.
+           *
+           * Rendering when `canSetDone` closes it: the control exists exactly when the researcher may
+           * actually act, in BOTH directions. `canSetDone` already carries engine >= 138, not-wiped
+           * and the assignTexts capability, so this adds a chip only where a click would work — never
+           * to a read-only seat, and never to a device too old to honour the command.
+           *
+           * ⚠ THE COST, STATED: on a device with done-tracking off, texts now carry a quiet "not
+           * finished" chip they did not before. That is the trade for the door not being one-way, and
+           * it is reversible by returning this to `doneOn` alone if the chips prove noisy. */
+          : ((doneOn || canSetDone) ? (canSetDone ? `<button class="rp-tag rp-tag-notdone rp-tag-btn" data-iact="toggle-done" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-done="" title="${esc(t('panel.inst.toggleDoneTip'))}">${esc(t('panel.inst.notDoneTag'))}</button>`
                                   : `<span class="rp-tag rp-tag-notdone">${esc(t('panel.inst.notDoneTag'))}</span>`) : '');
         // Delete triggered (by device flag OR this researcher's just-clicked request) but not yet
         // confirmed → strike through + fade the whole row, and add a small "deleting…" tag.
@@ -3054,10 +3100,21 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
         <ul class="rp-inv">${rows}</ul>
         ${(() => {
           const I = esc(it.instance_id), D = esc(ins.install_id);
+          /* ⚠ FORCE-REMOVE IS OWNER-ONLY, AND THE *BUTTON* IS WHAT IS WITHHELD — not the note.
+           * The wipe STATE is information a member with manageDevices needs (a device that has erased
+           * itself is why their controls vanished); the button acts on it, and worker/src/v1.js's
+           * force-remove route is owner-only BY DESIGN — no capability will ever delegate it, so this
+           * control could only ever 404 for a member (Seth: "don't add enabled buttons or links that
+           * won't work").
+           * ⚠ BOTH BRANCHES, not one. The comment above this card already claimed "the owner-only
+           * wipe/force-remove are ABSENT (not greyed out)" while these two render sites were ungated —
+           * an invariant asserted in prose and not held in code. This file has shipped a half-fix of
+           * exactly that shape twice before (see the v469/v475 note on 'Open the Drive folder'), which
+           * is why panel-shared-state now COUNTS the render sites rather than matching one. */
           if (ins.wipe_state === 'confirmed') return `<div class="note rp-wipe-done">${esc(t('panel.wipe.confirmed'))}</div>
-            <button class="link-btn rp-revoke" data-iact="force-remove" data-i="${I}" data-id="${D}">${esc(t('panel.wipe.removeBtn'))}</button>`;
+            ${memberCtx ? '' : `<button class="link-btn rp-revoke" data-iact="force-remove" data-i="${I}" data-id="${D}">${esc(t('panel.wipe.removeBtn'))}</button>`}`;
           if (ins.wipe_state === 'requested') return `<div class="note rp-wipe-pending">${esc(t('panel.wipe.pending', { when: lastSeen(ins.wipe_at) }))}</div>
-            <button class="link-btn rp-revoke" data-iact="force-remove" data-i="${I}" data-id="${D}">${esc(t('panel.wipe.forceRemoveBtn'))}</button>`;
+            ${memberCtx ? '' : `<button class="link-btn rp-revoke" data-iact="force-remove" data-i="${I}" data-id="${D}">${esc(t('panel.wipe.forceRemoveBtn'))}</button>`}`;
           return `${mManage ? `<button class="link-btn rp-revoke" data-iact="revoke-install" data-i="${I}" data-id="${D}">${esc(t('panel.inst.revokeInstall'))}</button>` : ''}
             ${memberCtx ? '' : `<button class="link-btn rp-danger" data-iact="wipe-install" data-i="${I}" data-id="${D}" data-name="${esc(it.nickname || '')}">${esc(t('panel.wipe.btn'))}</button>`}`;
         })()}

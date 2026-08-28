@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v477';
+export const ENGINE_VERSION = 'v482';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -397,6 +397,10 @@ en: {
   'panel.inst.cancelAssign': 'Cancel assignment',
   'panel.inst.taken': 'in progress',
   'panel.inst.takenWhy': 'The device has already picked this up, so it can no longer be cancelled.',
+  /* Shown where a Cancel would be, to a coworker whose capabilities do not cover the queued command.
+   * The row must still say something is on its way — dropping the chip entirely would make the text
+   * read as idle while a command sits waiting for the device. */
+  'panel.inst.pendingTag': 'waiting to be sent',
   'panel.inst.cancelled': 'Request cancelled — the device will not act on it.',
   'panel.inst.cancelTooLate': 'Too late to cancel: the device has already picked this up and is acting on it.',
   'panel.inst.cancelFailed': 'Could not cancel — the request is still queued. Try again.',
@@ -1112,7 +1116,7 @@ internet after the first time.</p>
   'panel.acctswitch.cancel': 'Cancel (stay signed out)',
   'panel.wscodes.html': '<h3>Writing system codes</h3><p class="banner warn-banner"><strong>Codes are CASE-SENSITIVE.</strong> <code>fau</code>, <code>Fau</code> and <code>FAU</code> are three different codes to FLEx — copy the Code exactly, letter for letter.</p><p>These must match your FLEx project <strong>exactly</strong>. If a code here does not match the code already in your FLEx project, FLEx creates a <strong>new</strong> writing system on import — leaving duplicates to clean up.</p><h4>Which code to use</h4><p>Use the value labelled <strong>Code</strong> on the <em>General</em> tab of the Writing System properties — <strong>not</strong> the Abbreviation or the language name.</p><h4>Where to find it in FLEx</h4><ol><li>FLEx → <strong>Tools → Configure → Writing Systems…</strong></li><li>Pick the writing system — <strong>Vernacular</strong> for the baseline text, <strong>Analysis</strong> for glosses and free translation.</li><li>On the <strong>General</strong> tab, copy the <strong>Code</strong> (e.g. <code>grc</code>) — not the Language Code, Abbreviation, Language Name, or Ethnologue code.</li></ol><figure class="wsc-shot"><img src="/flextext-editor/help/ws-flex-codes.png" alt="FLEx Writing System properties — use the Code value" loading="lazy"><figcaption class="note">Use the <strong>Code</strong> value. Not <em>Abbreviation</em> or <em>Language Name</em>.</figcaption></figure><p>Codes are BCP-47 tags (<code>en</code>, <code>grc</code>, <code>es-419</code>, or custom). Enter them exactly as shown in FLEx, including case.</p><h4>Checklist</h4><ul><li>Vernacular code matches exactly</li><li>Gloss / analysis code matches exactly</li><li>Free-translation code matches exactly</li><li>No stray spaces; case matches</li></ul>',
   'panel.live.checking': 'Checking the latest version on the site…',
-  'panel.live.latest': 'Latest on the site (live): {v} — compare with each device below.',
+  'panel.live.latest': 'Latest engine on the site (live): {v} — compare with each device below.',
   'panel.live.offline': '⚠ Can’t reach the site — you appear to be offline (live version check unavailable).',
   'panel.dash.account': 'Account',
   'panel.dash.thisDevice': 'This device',
@@ -1386,7 +1390,14 @@ internet after the first time.</p>
   'panel.share.capDriveLabel': 'Download files — open the Files… menu and download a text’s recordings and documents. Read-only: they cannot delete or move anything in Drive, and only you can browse Drive itself.',
   /* ⚠ THE DRIVE CAPABILITY IS ABSENT ON PURPOSE, not disabled: a checkbox that says a coworker can
    * be given file access would be a promise this version cannot keep. Files stay with the owner. */
-  'panel.share.driveNote': 'Coworkers cannot be given access to your Google Drive files in this version. Assigning texts and downloading files stay with you, the owner.',
+  /* ⚠ THIS PARAGRAPH SITS DIRECTLY UNDER THE FOUR CAPABILITY CHECKBOXES, so it must never describe a
+   * capability as impossible while the box that grants it is on screen. It used to read "Coworkers
+   * cannot be given access to your Google Drive files in this version. Assigning texts and
+   * downloading files stay with you, the owner." — which went stale when assignTexts was un-deferred
+   * (v456) and drive:'read' became grantable (v468), leaving the modal contradicting its own controls.
+   * It is now the GROUP-LEVEL fact that stays true whatever is ticked; the per-capability wording
+   * lives on each label, where it cannot drift out of sight of what it describes. */
+  'panel.share.driveNote': 'Whatever you grant, your recordings and documents stay in your own Google Drive — coworkers act on them only through this app, never in Drive itself.',
   'panel.share.warnTitle': 'How much do you need to trust this person?',
   'panel.share.warnSee': 'They will be able to read everything this project’s devices have recorded and reported. Removing them later stops what they can do NEXT — it cannot take back what they have already read or saved.',
   'panel.share.warnDo': 'Anything they do while trusted is real: settings they change, devices they revoke or pair. Removing them ends it from their next request; it does not undo what was already done.',
@@ -2288,6 +2299,7 @@ id: {
   'panel.inst.cancelAssign': 'Batalkan penugasan',
   'panel.inst.taken': 'sedang berjalan',
   'panel.inst.takenWhy': 'Perangkat sudah mengambil perintah ini, jadi tidak bisa dibatalkan lagi.',
+  'panel.inst.pendingTag': 'menunggu dikirim',
   'panel.inst.cancelled': 'Permintaan dibatalkan — perangkat tidak akan menjalankannya.',
   'panel.inst.cancelTooLate': 'Terlambat membatalkan: perangkat sudah mengambil dan sedang menjalankannya.',
   'panel.inst.cancelFailed': 'Tidak dapat membatalkan — permintaan masih dalam antrean. Coba lagi.',
@@ -2939,7 +2951,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.acctswitch.cancel': 'Batal (tetap keluar)',
   'panel.wscodes.html': '<h3>Kode sistem penulisan</h3><p class="banner warn-banner"><strong>Kode PEKA HURUF BESAR/KECIL.</strong> <code>fau</code>, <code>Fau</code>, dan <code>FAU</code> adalah tiga kode yang berbeda bagi FLEx — salin Code persis huruf demi huruf.</p><p>Kode ini harus <strong>sama persis</strong> dengan proyek FLEx Anda. Jika kode di sini tidak cocok dengan kode yang sudah ada di proyek FLEx, FLEx akan membuat sistem penulisan <strong>baru</strong> saat impor — menyisakan duplikat yang harus dibersihkan.</p><h4>Kode mana yang dipakai</h4><p>Gunakan nilai berlabel <strong>Code</strong> pada tab <em>General</em> di properti Writing System — <strong>bukan</strong> Abbreviation atau nama bahasa.</p><h4>Di mana menemukannya di FLEx</h4><ol><li>FLEx → <strong>Tools → Configure → Writing Systems…</strong></li><li>Pilih sistem penulisannya — <strong>Vernacular</strong> untuk teks dasar, <strong>Analysis</strong> untuk glos dan terjemahan bebas.</li><li>Pada tab <strong>General</strong>, salin <strong>Code</strong> (mis. <code>grc</code>) — bukan Language Code, Abbreviation, Language Name, atau kode Ethnologue.</li></ol><figure class="wsc-shot"><img src="/flextext-editor/help/ws-flex-codes.png" alt="Properti Writing System FLEx — gunakan nilai Code" loading="lazy"><figcaption class="note">Gunakan nilai <strong>Code</strong>. Bukan <em>Abbreviation</em> atau <em>Language Name</em>.</figcaption></figure><p>Kode berupa tag BCP-47 (<code>en</code>, <code>grc</code>, <code>es-419</code>, atau khusus). Masukkan persis seperti di FLEx, termasuk huruf besar/kecil.</p><h4>Daftar periksa</h4><ul><li>Kode Vernacular sama persis</li><li>Kode glos/analysis sama persis</li><li>Kode terjemahan bebas sama persis</li><li>Tidak ada spasi berlebih; huruf besar/kecil cocok</li></ul>',
   'panel.live.checking': 'Memeriksa versi terbaru di situs…',
-  'panel.live.latest': 'Terbaru di situs (langsung): {v} — bandingkan dengan tiap perangkat di bawah.',
+  'panel.live.latest': 'Mesin terbaru di situs (langsung): {v} — bandingkan dengan tiap perangkat di bawah.',
   'panel.live.offline': '⚠ Tidak dapat menjangkau situs — Anda tampaknya offline (pemeriksaan versi langsung tidak tersedia).',
   'panel.dash.account': 'Akun',
   'panel.dash.thisDevice': 'Perangkat ini',
@@ -3179,7 +3191,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.share.capAssignLabel': 'Mengerjakan teks — menugaskan teks, menandai selesai, menghapus dari perangkat',
   'panel.share.capDrive': 'mengunduh berkas',
   'panel.share.capDriveLabel': 'Mengunduh berkas — membuka menu Berkas… dan mengunduh rekaman serta dokumen sebuah teks. Hanya baca: mereka tidak dapat menghapus atau memindahkan apa pun di Drive, dan hanya Anda yang dapat menjelajahi Drive.',
-  'panel.share.driveNote': 'Rekan kerja tidak dapat diberi akses ke berkas Google Drive Anda pada versi ini. Menugaskan teks dan mengunduh berkas tetap menjadi hak Anda sebagai pemilik.',
+  'panel.share.driveNote': 'Apa pun yang Anda berikan, rekaman dan dokumen Anda tetap berada di Google Drive Anda sendiri — rekan kerja hanya menanganinya melalui aplikasi ini, tidak pernah langsung di Drive.',
   'panel.share.warnTitle': 'Seberapa besar Anda perlu memercayai orang ini?',
   'panel.share.warnSee': 'Mereka akan dapat membaca semua yang telah direkam dan dilaporkan oleh perangkat proyek ini. Menghapus mereka nanti menghentikan apa yang dapat mereka lakukan SELANJUTNYA — itu tidak dapat menarik kembali apa yang sudah mereka baca atau simpan.',
   'panel.share.warnDo': 'Apa pun yang mereka lakukan selagi dipercaya bersifat nyata: pengaturan yang mereka ubah, perangkat yang mereka cabut atau sandingkan. Menghapus mereka menghentikannya mulai permintaan berikutnya; itu tidak membatalkan apa yang sudah terjadi.',

@@ -58,6 +58,13 @@ const run = async (files, wrap = null, convo = {}) => {
     ]),
     fmtSize: (b) => `${b}B`,
     bridgedIds: () => ({ ids: ['doc1'] }),
+    /* v468: downloadAllZip passes memberDlVia(wrap) to fetchDriveFile, which selects the member
+     * download LANE — the project-scoped route running under the OWNER's Drive token — instead of the
+     * caller's own account route. Without this stub the lifted function throws a TypeError and the
+     * whole file CRASHES rather than failing, which reads as "8 assertions broken" when it is really
+     * one missing stub. Returning null models the OWNER (no member lane), which is what every case
+     * below is exercising; the member lane has its own coverage in panel-shared-state. */
+    memberDlVia: () => null,
     Researcher: {
       listTextFiles: async () => ({ files }),
       fetchDriveFile: async (id) => fakeBlob(id),

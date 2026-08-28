@@ -3949,3 +3949,23 @@ order, which is the same rule two browsers of ONE researcher already live under.
 
 **Non-goal:** locking or reservation. Two researchers on one device is cooperative, low-frequency,
 and the queue is already ordered; a lock would add a stuck-lock failure mode for no real conflict.
+
+## Google's "You need access" page leaks nothing about the owner — VERIFIED 2026-08-28, re-test periodically
+
+Seth asked whether a bad actor who recovered a Drive folder/file id and pasted it into a browser
+would learn the owner's identity from Google's request-access page. **Tested empirically** with two
+real accounts (an account with no access opening a real folder id owned by another account): the
+page shows "You need access", the Viewer/Commenter/Editor request form, and *"You're signed in as
+&lt;the viewer's own address&gt;"*. The full DOM contained **no owner email, no owner name, and not
+even the folder's name**; the page title is a generic "Access Denied". The only address anywhere in
+the markup was the viewer's own.
+
+Residual signal, stated for completeness: an **existence oracle** — a real id renders the
+request-access page while a bogus one does not, so an actor learns a folder exists, but not whose,
+what it is called, or what it holds. Clicking "Request access" would reveal the *actor* to the
+owner, not the reverse.
+
+⚠ **This is Google's behaviour, not ours, so it can change without notice.** Seth: *"maybe to
+periodically check on that and make sure it's still true."* Re-run the check when convenient (it
+takes one page load from an account without access) rather than inheriting this note as permanent
+truth — the same discipline this repo already applies to believed-once limitations.

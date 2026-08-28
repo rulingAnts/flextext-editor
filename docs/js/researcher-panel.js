@@ -977,6 +977,28 @@ function renderAccountSwitch() {
 
 /* ---------------- small DOM helpers ---------------- */
 
+/* WHICH ACCOUNT AM I LOOKING AT — under the panel title (Seth, 2026-08-28: "so that both you and I,
+ * and anyone else testing or using multiple accounts, can see which one is active/logged in").
+ * Two panels open on two accounts are otherwise identical at a glance, and acting on the wrong one
+ * is silent and expensive.
+ *
+ * ⚠ ONLY EVER THIS BROWSER'S OWN ACCOUNT. Researcher identity is not advertised anywhere a device
+ * or another researcher can see it (the pairing screen deliberately shows none) — this is the one
+ * place it belongs, because the person reading it is the person it names.
+ *
+ * The avatar is remote (Google's CDN) and may fail to load; `onerror` removes it rather than
+ * leaving a broken-image glyph. Email always renders — it is available from stored auth with no
+ * round trip, so the header names the account on the very first paint. */
+function whoHtml() {
+  let id = { email: '', name: '', avatar: '' };
+  try { id = Researcher.accountIdentity ? Researcher.accountIdentity() : id; } catch { /* locked / old build */ }
+  if (!id.email && !id.name) return '';
+  const label = id.name && id.email ? `${id.name} · ${id.email}` : (id.name || id.email);
+  return `<span class="rp-who" title="${esc(t('panel.who.title', { who: label }))}">
+    ${id.avatar ? `<img class="rp-who-av" src="${esc(id.avatar)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}
+    <span class="rp-who-txt">${esc(label)}</span></span>`;
+}
+
 function header(titleKey, withLock) {
   // Standalone Researcher app: no editor to go "back" to, so drop the exit arrow
   // (the dashboard Lock button is the way out — it signs out → sign-in screen).
@@ -984,7 +1006,7 @@ function header(titleKey, withLock) {
     : `<button class="icon-btn rp-exit" data-act="exit" title="${esc(t('panel.exit'))}">&#8592;</button>`;
   return deprecationBanner() + `<div class="rp-head">
     ${exitBtn}
-    <span class="rp-title">${esc(t(titleKey))}</span>
+    <span class="rp-titlewrap"><span class="rp-title">${esc(t(titleKey))}</span>${whoHtml()}</span>
     <span class="rp-spacer"></span>
     ${deps && deps.canInstall && deps.canInstall() ? `<button class="secondary-btn rp-install" id="rp-install">${esc(t('install.btn'))}</button>` : ''}
     ${advancedPicker()}

@@ -3312,7 +3312,15 @@ export async function handleV1(request, env, ctx, url, path, origin) {
                maintenance: maintenance || undefined, freeze: freeze || undefined,
                kr: r.kr_server_enc ? await decAtRest(env, r.kr_server_enc) : undefined,
                pubkey: r.pubkey || undefined, wrapped_privkey: r.wrapped_privkey || undefined,
-               email: r.drive_email || undefined }, 200, origin, env);
+               /* ⚠ THE CALLER'S OWN IDENTITY, and only ever their own — `r` is the row that just
+                * authenticated. It exists so the panel can SAY which account is signed in (Seth,
+                * 2026-08-28: with several accounts open, "which one am I looking at" was guesswork
+                * and cost real confusion during testing). No new exposure: a researcher already
+                * knows who they are, and this is the same email the poll has always returned.
+                * Additive — an older panel ignores the two new fields. */
+               email: r.drive_email || undefined,
+               name: r.display_name || undefined,
+               avatar: r.avatar_url || undefined }, 200, origin, env);
   }
 
   // POST /v1/researcher/approve {researcher_id} — an OWNER approves a pending researcher.

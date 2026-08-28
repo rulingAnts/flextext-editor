@@ -277,6 +277,18 @@ export async function deleteAccount() { return api('POST', '/v1/researcher/delet
 
 export function accountEmail() { const a = loadAuth(); return a && a.email; }
 
+/* WHO IS SIGNED IN, for the panel header (Seth, 2026-08-28). The EMAIL is known from the stored
+ * auth the moment the panel paints — no round trip, so the header can name the account before any
+ * data arrives. Name and avatar ride the poll and fill in a moment later; an older worker sends
+ * neither and the header simply shows the email, which is already enough to tell two accounts
+ * apart. Never throws and never requires an unlock: "which account is this?" must be answerable
+ * even on a locked or half-loaded panel, since that is exactly when it is asked. */
+let identityCache = { name: '', avatar: '' };
+export function accountIdentity() {
+  const a = loadAuth();
+  return { email: (a && a.email) || '', name: identityCache.name || '', avatar: identityCache.avatar || '' };
+}
+
 /* ---------------- settings_blob (the researcher's encrypted key store) ---------------- */
 
 function safeParse(s) { try { return typeof s === 'string' ? JSON.parse(s) : (s || null); } catch { return null; } }
@@ -1173,6 +1185,8 @@ export async function listView() {
    * panel unless it is named here. `estate` was lost exactly this way twice. */
   maintenanceNotice = typeof v.maintenance === 'string' ? v.maintenance : '';
   freezeNotice = typeof v.freeze === 'string' ? v.freeze : '';
+  // Who is signed in — named here or it does not exist (the enumerated-rebuild trap above).
+  if (v.name || v.avatar) identityCache = { name: v.name || '', avatar: v.avatar || '' };
   if (v.settings) { settingsCache = safeParse(v.settings) || settingsCache; if (settingsCache && !settingsCache.wrappedKis) settingsCache.wrappedKis = {}; if (settingsCache && !settingsCache.instanceSettings) settingsCache.instanceSettings = {}; }
   if (typeof v.settings_rev === 'number') settingsRev = v.settings_rev;
   const instances = [];

@@ -54,12 +54,38 @@ const SATELLITE_SW = [
   ['paragraph-analysis', '../paragraph-analysis/sw.js'],
 ];
 
-console.log('\nsatellites are versioned independently, and must stay parseable');
+/* ⚠ ONE NUMBER ACROSS ALL FIVE SITES (Seth, 2026-08-28) — this assertion was DELIBERATELY WEAKENED
+ * before, and strengthening it is the point of the change.
+ *
+ * It used to say only "parseable", because each satellite's VERSION rode its own cadence: bump-version.sh
+ * incremented it by one per bump, so the recorder sat at v419 while the engine was v477. Two number
+ * lines. That cost a real false alarm — the researcher panel's live banner printed
+ * "editor v477 · recorder v386 · researcher v410" beside device cards reporting `engine v477`,
+ * inviting a comparison between quantities that were never the same thing (fixed in v478).
+ *
+ * The weak form also could not catch the failure the script's own header describes: on 2026-08-04 a
+ * sed keyed on the previous version silently no-opped and two releases shipped labelled v167/v168
+ * while every file still said v166 — "version-sync could not catch it (it checks that the sites
+ * AGREE, not what they say)". Equality across all five is the check that WOULD have caught it.
+ *
+ * The satellites' own counters were free to diverge because nothing compares them: VERSION is used
+ * only to name the cache (`'text-recorder-' + VERSION`) and to bust it, both of which need the value
+ * to CHANGE, never to be comparable. So collapsing them onto the engine number costs nothing and
+ * makes "is this app current?" one expected value for every app in the estate.
+ *
+ * ⚠ SAFE ONLY BECAUSE IT RAISES EVERY COUNTER. At unification the satellites stood at v420/v411/v306,
+ * all below the engine — no service worker saw its version go backwards. If a satellite's counter
+ * were ever ABOVE the engine, unifying would lower it, and a browser holding the higher-numbered
+ * cache would be reasoning about a version that had already existed with different contents. Check
+ * that before ever re-basing these numbers again. */
+console.log('\nall five version sites carry the SAME number');
 for (const [name, path] of SATELLITE_SW) {
   const src = read(path);
   const v = (src.match(/const VERSION = '([^']+)'/) || [])[1];
-  // A satellite's own VERSION rides its own cadence — it is NOT expected to equal the editor's.
   ok(/^v\d+$/.test(v || ''), `${name} declares a parseable VERSION (${v})`);
+  ok(v === engineVer,
+     `${name} VERSION (${v}) === editor ENGINE_VERSION (${engineVer})`
+     + (v === engineVer ? '' : ' — run ./bump-version.sh, which sets every site explicitly'));
 }
 
 /* ⚠ THE GUARD FOR THE FAILURE THE ORDERING GATE CANNOT SEE.

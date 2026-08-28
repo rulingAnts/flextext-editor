@@ -42,6 +42,63 @@ safe and useless. The local nickname is what carries that, which is why it is pa
 rather than a nicety.
 
 
+## DECIDED DIRECTION: instances belong to PROJECTS, and the project holds the key (Seth, 2026-08-28)
+
+> *"I think having instances mapped to projects rather than researchers is what we want."*
+> *"Can we store device keys in a project table? And have the worker able to access that, but not the
+> researcher, directly? Then the researcher account never sees the server-side key."*
+
+**⚠ THE FINDING THAT MAKES THIS CHEAP, and it should be checked before anyone re-argues the security
+trade — the worker CAN ALREADY DERIVE EVERY DEVICE KEY.** Verified in the code, not inferred:
+
+  worker secret -> `Kr` -> `settings_blob` -> `wrappedKis` -> every `Ki`
+
+ · `decAtRest()` (v1.js) decrypts with `serverAesKey(env)`, a worker-held secret.
+ · `GET /v1/researcher` — the ordinary poll — returns `kr: await decAtRest(env, r.kr_server_enc)`.
+   The worker decrypts the researcher's account key on every poll.
+ · `settings_blob` in D1 IS `settingsCache`, which holds `wrappedKis[instanceId]` — each device's Ki
+   wrapped under Kr.
+ · Separately, `drive_refresh_enc` lets the worker mint a Drive token and read the recordings.
+
+So the property actually held today is NOT "the operator cannot read community data". It is the
+narrower **"a D1 dump alone, without the worker secret, yields nothing"**. That is real and worth
+keeping — but several comments in this codebase claim the stronger version, and they are wrong.
+Fix them when touching this.
+
+**Therefore Seth's proposal surrenders nothing that is currently held.** It makes an existing trust
+boundary explicit instead of leaving it implicit and misdescribed, and buys the entire delegation
+problem in exchange.
+
+### The design
+ · `project_key`: `Kp` per project, stored **encAtRest** exactly as `drive_refresh_enc` and
+   `kr_server_enc` already are — so the narrow D1-dump property SURVIVES unchanged.
+ · Device `Ki` wrapped to `Kp` once, at creation, instead of to each researcher separately.
+ · The worker serves what an authorized caller needs, deciding from `project_member` capabilities.
+ · Revocation returns to a row delete: drop the membership, the worker stops serving. No re-wrap
+   storm, which is what made the plain `Kp`-wrapped-to-each-researcher variant unattractive.
+
+### Why it is smaller than it looks
+⚠ **The authorization layer is ALREADY project-primary.** `authMember` resolves `project_id` from the
+instance and checks `project_member`; the ~90 `researcher_id=?` scopings bind `ctx.owner.researcher_id`,
+which authMember derived FROM the project. Only the KEY layer is person-primary (`member_key` is
+instance x researcher). So this is not a 90-site rewrite — it is a key-model change plus a reframing
+of `instance.researcher_id` from "the owner" to "the Google account whose Drive holds the files".
+
+### Why the carve-out list is principled, not arbitrary
+Seth's exceptions — deleting projects, permanently deleting texts, Google storage management and
+direct Drive access — are exactly the boundary where the **Google account is unavoidably personal**.
+Drive belongs to one human's account and cannot be project-owned; destruction is a deliberate
+irreversibility choice. Everything else is operational and becomes delegable the moment the key stops
+being personal. The list is a description of the seam, not a set of exceptions to it.
+
+### What must not be lost
+ · The FIELD DEVICE end does not change: `Ki` stays per-device, the device stays E2EE toward the
+   worker, offline for months still works.
+ · `Kp` at rest, never in plaintext in D1.
+ · A worker compromise (code or secret) exposes everything — TRUE TODAY ALREADY, and the reason this
+   is a formalisation rather than a downgrade. It should be written down plainly where the old
+   comments overclaimed.
+
 ## The E2EE model assumes device-to-device; the system stopped being that (Seth, 2026-08-28)
 
 ⚠ **READ THIS BEFORE THE Kp ENTRY BELOW.** Seth, after tracing the partial-key-grant message to its

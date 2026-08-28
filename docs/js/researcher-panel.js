@@ -1095,6 +1095,43 @@ const KNOWN_ISSUES = [
 function onStagingEstate() {
   try { return /\.(pages|workers)\.dev$/.test(location.hostname); } catch { return false; }
 }
+/* PROJECT DEFAULT SETTINGS — the settings a NEW device in this project is born with.
+ *
+ * ⚠ A TEMPLATE, NOT AN INHERITANCE. Nothing reads these at runtime and no device consults them: they
+ * are COPIED onto a device once, when it is created, and pushed like any other settings change.
+ * Editing them later changes what the NEXT device gets and touches no existing one — applying to
+ * devices already out there is a separate, explicit act (Seth: "the user can also specifically choose
+ * to apply defaults to all or one or more specifically selected existing devices").
+ * That is what keeps this out of the worker entirely. Live inheritance would need a second settings
+ * layer the device merges at read time, and settings are E2EE — the worker cannot merge what it
+ * cannot read, so the merge would have to ship to every field device and be versioned forever.
+ *
+ * ⚠ KEYED BY DRIVE FOLDER ID, which is what both ends already hold: the Projects card renders
+ * folderIds, and newDeviceModal resolves `intoProject` to one. The D1 project uuid is a DIFFERENT
+ * namespace used by the shared-project tabs — keying by that would silently store defaults nothing
+ * could look up. Folder ids survive renames, which a name-based key would not.
+ *
+ * ⚠ OWNER-ONLY, and by construction rather than by a check: these live in the owner's account prefs,
+ * encrypted under their Kr. A member holds no Kr of the owner's, so a device a MEMBER creates in a
+ * shared project gets no defaults. That is the honest limit of this storage choice and it matches
+ * what was agreed — making it grantable needs a project-scoped key, which does not exist yet
+ * (plans/BACKLOG.md). */
+let projDefCache = null;
+async function loadProjectDefaults() {
+  try { projDefCache = ((await Researcher.getPrefs()) || {}).projectDefaults || {}; }
+  catch { projDefCache = {}; }
+  return projDefCache;
+}
+function projectDefaults(folderId) {
+  return (projDefCache && folderId && projDefCache[folderId]) || null;
+}
+async function saveProjectDefaults(folderId, settings) {
+  const next = { ...(projDefCache || {}) };
+  if (settings && Object.keys(settings).length) next[folderId] = settings; else delete next[folderId];
+  await Researcher.setPref('projectDefaults', next);
+  projDefCache = next;
+}
+
 /* COWORKER NICKNAMES — the owner's own label for a person the server deliberately no longer names.
  *
  * ⚠ LOCAL BY DESIGN, not by omission. Held in the account prefs blob, which is encrypted under Kr
@@ -1882,6 +1919,16 @@ async function renderDashboard(prefetched) {
     if (act === 'moveto') { projectAssignModal(el.dataset.folder, el.dataset.name || ''); return; }
     if (act === 'rename') { projectRenameModal(el.dataset.folder, el.dataset.name || ''); return; }
     if (act === 'delete') { projectDeleteModal(el.dataset.folder, el.dataset.name || ''); return; }
+    /* ⚠ loadProjectDefaults() FIRST — openSettingsModal prefills SYNCHRONOUSLY from projectDefaults(),
+     * so opening before the prefs have decrypted shows an empty form and a save would then wipe the
+     * template the owner came to edit. */
+    if (act === 'defaults') {
+      busy(el, async () => {
+        await loadProjectDefaults();
+        openSettingsModal({ kind: 'project', project: { folderId: el.dataset.folder, name: el.dataset.name || '' } });
+      });
+      return;
+    }
     if (act === 'leave') { leaveProjectModal(el.dataset.project, el.dataset.name || ''); }
   }));
   lastSig = viewSig(data);
@@ -5075,6 +5122,7 @@ function renderProjectsCard(estate) {
         <div class="note rp-text-meta">${esc(t('panel.proj.nContainers', { n: mine.length }))}</div>
       </div>
       <div class="rp-text-actions">
+        <button class="link-btn" data-pact="defaults" data-folder="${esc(p.folderId)}" data-name="${esc(p.name || '')}">${esc(t('panel.proj.defaults'))}</button>
         <button class="link-btn" data-pact="rename" data-folder="${esc(p.folderId)}" data-name="${esc(p.name || '')}">${esc(t('panel.proj.rename'))}</button>
         ${/* ⚠ SHOWN ONLY WHILE THE PROJECT IS EMPTY, because the worker refuses a non-empty one
              (409 project_not_empty) and offering a button that can only fail is the thing this panel
@@ -7129,17 +7177,21 @@ async function coworkersModal() {
            * The estate cache distinguishes them: no devices listed anywhere ⇒ we cannot know. */
           keyed = { granted: 0, failed: 0, noEstate: !((estateCache && estateCache.devices) || []).length };
         }
+        /* ⚠ NAME THEM, NOT THEIR UUID. The owner just typed a nickname; showing the raw id back at
+         * them is the panel forgetting what it was told one field earlier — and since v503 the id is
+         * all the SERVER knows, so the nickname is the only human-readable thing in reach. */
+        const whoLabel = nick || who;
         if (keyed.err && String(keyed.err.message) === 'member_no_pubkey') {
           /* Not an error to bury: the fix is on THEIR side (open the panel once), and until then
            * the membership is real but blind. Say exactly that — via `notice`, which survives the
            * repaint below. */
-          notice = { msg: t('panel.share.addedNoKeys', { who }), bad: true };
+          notice = { msg: t('panel.share.addedNoKeys', { who: whoLabel }), bad: true };
         } else if (keyed.noEstate) {
-          notice = { msg: t('panel.share.addedNoEstate', { who }), bad: true };
+          notice = { msg: t('panel.share.addedNoEstate', { who: whoLabel }), bad: true };
         } else if (keyed.err || keyed.failed) {
-          notice = { msg: t('panel.share.addedSomeKeys', { who, n: keyed.granted, m: iids.length }), bad: true };
+          notice = { msg: t('panel.share.addedSomeKeys', { who: whoLabel, n: keyed.granted, m: iids.length }), bad: true };
         } else {
-          deps.toast(t('panel.share.addedKeyed', { who, n: keyed.granted }), 6000);
+          deps.toast(t('panel.share.addedKeyed', { who: whoLabel, n: keyed.granted }), 6000);
         }
         await paint();
       } catch (err) { say(sayErr(err), true); }
@@ -7594,11 +7646,14 @@ function flagProblems(box, problems, showGroup) {
 
 async function openSettingsModal(target, opts = {}) {
   const m = modal(`
-    <div class="rp-set-head"><h3>${esc(t('panel.set.title', { name: (target.instance && target.instance.nickname) || '' }))}</h3></div>
+    <div class="rp-set-head"><h3>${esc(target.project
+      ? t('panel.set.projTitle', { name: target.project.name || '' })
+      : t('panel.set.title', { name: (target.instance && target.instance.nickname) || '' }))}</h3></div>
+    ${target.project ? `<p class="note">${esc(t('panel.set.projIntro'))}</p>` : ''}
     <div class="rp-tabs" role="tablist">${GROUPS.map((g, i) => `<button class="rp-tab${i === 0 ? ' on' : ''}" role="tab" id="rp-tab-${g.id}" aria-controls="rp-grp-${g.id}" aria-selected="${i === 0}" data-tab="${g.id}">${esc(t('panel.grp.' + g.id))}</button>`).join('')}</div>
     <div class="rp-groups">${GROUPS.map((g) => groupHtml(g)).join('')}</div>
     <p class="note rp-enc">${esc(t('panel.set.encNote'))}</p>
-    <button class="primary-btn" data-m="save">${esc(t('panel.set.push'))}</button>
+    <button class="primary-btn" data-m="save">${esc(target.project ? t('panel.set.projSave') : t('panel.set.push'))}</button>
     <button class="link-btn" data-m="cancel">${esc(t('panel.set.cancel'))}</button>`, true);
 
   const box = m.el;
@@ -7617,13 +7672,14 @@ async function openSettingsModal(target, opts = {}) {
   // prefill — for a device, prefer the researcher's own last-pushed snapshot (available even before
   // the device has reported back); fall back to whatever the device last reported.
   let source = {};
-  source = (target.instance && await Researcher.getInstanceSettings(target.instance.instance_id).catch(() => null))
+  source = (target.project && projectDefaults(target.project.folderId))
+    || (target.instance && await Researcher.getInstanceSettings(target.instance.instance_id).catch(() => null))
     || (target.instance && firstInventorySettings(target.instance)) || {};
   /* An all-blank form on a device someone ELSE created reads as "sharing is broken" (Seth,
    * 2026-08-27, three screenshots in a row) — when the truth is simply that nobody has configured
    * the device yet. Say so. Keyless seats never reach this modal (the act gate toasts first), so
    * blank HERE always means unconfigured, and the note is always true when shown. */
-  if (target.instance && !Object.keys(source).length) {
+  if (target.instance && !target.project && !Object.keys(source).length) {
     const h = box.querySelector('h3');
     if (h) h.insertAdjacentHTML('afterend', `<p class="note">${esc(t('panel.set.unconfigured'))}</p>`);
   }
@@ -7734,8 +7790,18 @@ async function openSettingsModal(target, opts = {}) {
     if (problems.length) { flagProblems(box, problems, showGroup); return; }
     const patch = readForm(box);
     try {
-      await Researcher.changeSettings(target.instance.instance_id, patch);
-      m.close(); deps.toast(t('panel.set.pushed'), 4000);
+      if (target.project) {
+        /* ⚠ STORED, NOT PUSHED. Saving a template must not touch a single existing device — the
+         * whole point of the split is that changing defaults is safe, and changing devices is a
+         * deliberate second act. The same validation runs first, though, because a template that
+         * cannot pass validateDeviceSettings would mint devices that fail the invite gate later,
+         * and the owner would meet that error at a moment with no obvious connection to here. */
+        await saveProjectDefaults(target.project.folderId, patch);
+        m.close(); deps.toast(t('panel.set.projSaved'), 4000);
+      } else {
+        await Researcher.changeSettings(target.instance.instance_id, patch);
+        m.close(); deps.toast(t('panel.set.pushed'), 4000);
+      }
     } catch (err) { errToast(err); }
   });
 

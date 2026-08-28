@@ -42,6 +42,78 @@ safe and useless. The local nickname is what carries that, which is why it is pa
 rather than a nicety.
 
 
+## The E2EE model assumes device-to-device; the system stopped being that (Seth, 2026-08-28)
+
+⚠ **READ THIS BEFORE THE Kp ENTRY BELOW.** Seth, after tracing the partial-key-grant message to its
+root: *"We may want to rethink our whole E2EE system… That only works with individual devices at both
+ends. But that's not what we have anymore. We have an E2EE-ish device at one end provisioned by an
+online, web-based (and shared) account/project on the other."* And immediately: *"that would be a
+complete and total redesign… we probably don't have time and energy to do that right now."*
+
+Both halves are recorded because both are true, and the second is what makes the first safe to write
+down. **This is not scheduled. It is the frame for judging the smaller items.**
+
+**The mismatch, stated plainly.** The crypto was designed when the endpoints were symmetric: a
+researcher's browser and a field device, each holding keys, each a single party. What the suite grew
+into is asymmetric — one end is still a device holding its own `Ki`, but the OTHER end is now a
+web-based account that is SHARED between several researchers, with capabilities, membership changes
+and revocation. Per-device keys wrapped to individual humans model the first world well and the
+second badly. Every awkwardness in the sharing feature traces to that: the N-wrap grant that can
+half-fail, the sweep that exists to re-grant when a device appears, the owner who must keep the panel
+open, defaults that cannot be delegated.
+
+⚠ **This does NOT mean the current design was wrong.** It was right for what existed, and the property
+it buys — D1 holds ciphertext, the operator cannot read a community's recordings or metadata — is the
+one thing that must survive any redesign. A rethink that traded it away would not be an improvement;
+it would be a different product.
+
+**So the honest position:** `Kp` below is an incremental step INSIDE the present model that removes
+the three worst symptoms. It is not the redesign, and adopting it should not be mistaken for having
+answered this. If the redesign ever happens, `Kp` is a stepping stone toward it rather than a detour —
+a project-scoped key is what the shared end of the system is missing either way.
+
+## A PROJECT KEY (Kp) — the one missing primitive behind three separate problems
+
+**Seth, 2026-08-28**, on seeing "only 1 of 2 device(s) could be unlocked": *"This shouldn't be
+happening. I don't like what this implies about how our model works and how fragile it is… why is it
+granting individual devices instead of the whole project?"* Then, a moment later: *"Oh, because of
+E2EE."* Exactly right, and worth writing down because the same gap explains three things that look
+unrelated.
+
+**What exists.** `Ki` is per DEVICE. `member_key` wraps that `Ki` to a member's public key, one row
+per (instance, researcher). There is NO project-scoped key anywhere in the schema — grep for
+`project_key`, `Kp`: nothing. So "grant this project to this coworker" is not expressible; the only
+thing there is to wrap is a device.
+
+**Three consequences, all of them the same gap:**
+
+1. **Adding a coworker is N operations and can half-fail.** grantKeysToMember loops the project's
+   devices, and each one can fail on its own — which is what produced the message above. It is
+   transient (memberGrantSweep re-grants what is missing on the next dashboard render), but the
+   partial state is real and it looks alarming.
+2. **Every NEW device needs a fresh grant to every EXISTING member**, which is the entire reason
+   memberGrantSweep exists — and why the owner must leave their panel open after adding someone
+   (documented as step 5 of the how-to). A project key would make a new device readable by every
+   member the moment it is created, with no sweep at all.
+3. **Project default settings cannot be delegated to a member** (the deferred item below). Defaults
+   live in the owner's Kr-encrypted prefs because there is no key a member could share. With `Kp`
+   they become project data like anything else.
+
+**The shape.** A `project_key` table mirroring `member_key` but keyed by project: `Kp` wrapped to the
+owner and to each member's pubkey. Devices in the project encrypt to `Kp` (or have their `Ki` wrapped
+to it once). Adding a member becomes ONE wrap. Removing one drops ONE row — though it also needs a
+rotation story, which per-device grants get for free today by simply deleting rows.
+
+⚠ **This is a migration with real teeth** and must not be undertaken casually: every existing device
+already holds a `Ki` that members hold grants for, so `Kp` has to arrive ADDITIVELY, with both paths
+readable during the overlap, and rotation designed in from the start (`member_key.key_version` exists
+precisely because that lesson was already learned once).
+
+⚠ **It does not fix a lost/compromised member key any faster than today** — that is rotation, and
+rotation of a shared project key is HARDER than revoking per-device grants, because one member
+leaving means re-wrapping for everyone else. That trade is the reason not to rush it.
+
+
 ## Coworker pairing: a ONE-TIME-USE LINK, shared by the researchers themselves (Seth, 2026-08-28)
 
 **DECIDED, for a future release — not this one.** Seth: *"for security's sake, I think what we'll want

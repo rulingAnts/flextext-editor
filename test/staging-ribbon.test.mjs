@@ -44,8 +44,10 @@ for (const [name, s] of src) {
 console.log('\n...the same snippet in all five — drift is the failure mode');
 {
   const grab = (s) => {
+    // The whole snippet is ONE line again (the multi-line variants were reverted), so the line IS
+    // the unit of comparison — which is also what makes drift between shells a one-glance diff.
     const a = s.indexOf("document.write('<div id=\"fx-staging\"");
-    const b = s.indexOf("addEventListener('resize', fxSync);");
+    const b = s.indexOf('\n', a);
     return a >= 0 && b > a ? s.slice(a, b) : null;
   };
   const bodies = src.map(([name, s]) => [name, grab(s)]);
@@ -56,25 +58,41 @@ console.log('\n...the same snippet in all five — drift is the failure mode');
 
 console.log('\nthe sticky researcher header works WITH and WITHOUT the ribbon');
 {
-  /* ⚠ THE WHOLE POINT OF THE VARIABLE. The ribbon is above .rp-head and carries z-index 9999, so a
-   * header stuck at a plain top:0 slides underneath it and vanishes on scroll — on the test site
-   * only, which is where nobody would think to look for it. Production never runs the ribbon script,
-   * so the CSS fallback is what makes the same rule correct on both estates. */
+  /* ⚠ NO OFFSET, AND THAT IS THE WHOLE POINT. The scroll container is <main> (flex:1; overflow-y:auto),
+   * not the viewport, and the ribbon is a child of <body> OUTSIDE main — so "the top of my scrollport"
+   * already means "below the ribbon" on staging and "the top of the window" on production. One rule,
+   * both estates, and the shells need to know nothing about the header.
+   *
+   * ⚠⚠ AN OFFSET WAS TRIED (--fx-ribbon-h) AND IT PUT A 40px GAP ABOVE THE HEADER. Sticky clamps in
+   * BOTH directions: a non-zero `top` pushes the element DOWN to satisfy the constraint even when
+   * nothing has scrolled. Measured at the time: .rp-head sat at y=68 inside a container whose top was
+   * y=28. That is what these assertions exist to stop coming back. */
   const css = read('../docs/css/app.css');
-  ok(/position: sticky; top: var\(--fx-ribbon-h, 0px\); z-index: 40;/.test(css),
-     '⚠ .rp-head sticks at the ribbon height, defaulting to 0 — one rule, both estates, no branch');
+  ok(/position: sticky; top: 0; z-index: 40;/.test(css),
+     '⚠ .rp-head sticks to its CONTAINER at top:0 — correct with the ribbon and without it');
+  ok(!/--fx-ribbon-h/.test(css.replace(/\/\*[\s\S]*?\*\//g, '')),
+     '⚠⚠ no ribbon-height offset in any live rule — an offset is what created the gap');
   const head = (css.match(/\.rp-head \{[\s\S]*?\n\}/) || [''])[0];
-  ok(/z-index: 40;/.test(head) && !/z-index: (9999|1000\d)/.test(head),
+  ok(/z-index: 40;/.test(head) && !/z-index: 9999/.test(head),
      '...and stays BELOW the ribbon, so the staging warning is never covered by the header');
 
-  for (const [name, s] of src) {
-    ok(/document\.documentElement\.style\.setProperty\('--fx-ribbon-h', el\.offsetHeight \+ 'px'\)/.test(s),
-       `${name}: sets --fx-ribbon-h from the ribbon's real height, not a guessed constant`);
-    ok(/addEventListener\('load', fxSync\)/.test(s) && /addEventListener\('resize', fxSync\)/.test(s),
-       `${name}: ...and re-measures on load and resize, so wrapping at a narrow width does not misalign it`);
+  for (const [name, s2] of src) {
+    ok(!/--fx-ribbon-h/.test(s2),
+       `${name}: the shell publishes no header offset — it does not need to know the header exists`);
   }
-  ok(!/--fx-ribbon-h/.test(read('../docs/js/researcher-panel.js')),
-     '⚠ the variable is set ONLY by the shells\' staging script — the panel must never set it, or production would inherit an offset');
+
+  /* ⚠ AND NO BARE STRIP ABOVE THE HEADER, with the ribbon or without it (Seth). main pads its
+   * content by 12px, which showed as page background above the panel's full-bleed bar. Removed at the
+   * SOURCE — main's padding, scoped to the standalone panel — rather than clawed back with a negative
+   * margin, which is what was there before and did not work: the margin collapsed through
+   * #view-researcher and moved the CONTAINER instead of the header. The editor never had this because
+   * its #topbar is a body-level flex item OUTSIDE main. */
+  ok(/body\.rp-standalone main \{ padding-top: 0; \}/.test(css),
+     '⚠ main does not pad above the panel header — scoped to the standalone app, so the editor keeps its 12px');
+  ok(/document\.body\.classList\.add\('rp-standalone'\)/.test(read('../docs/js/app.js')),
+     '...and the class that scopes it is actually set when researcher mode starts');
+  ok(/margin: 0 calc\(-1 \* clamp\(10px, 3vw, 28px\)\) 16px;/.test(head),
+     '⚠ the header keeps its horizontal full-bleed negatives but NO negative top margin');
 }
 
 console.log(fail ? `\nFAILED (${fail}) — the staging ribbon or its header handshake has drifted.\n`

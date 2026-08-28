@@ -7724,6 +7724,13 @@ async function devReset() { return eraseAllData(); }
 // (no editor/field UI). The shell (flextext-researcher/index.html) provides #view-researcher +
 // #toast + an optional language selector. Exit/lock is handled inside the panel (deps.standalone).
 function setupResearcherMode() {
+  /* ⚠ The panel supplies its OWN full-bleed header, unlike every other view in main. main's
+   * padding-top would therefore show as a bare strip ABOVE that header — which is what it did, and
+   * what the editor does not suffer because its #topbar is a body-level flex item OUTSIDE main
+   * (Seth: "our editor app already has the correct styling here"). Marking the mode on <body> is the
+   * house pattern for exactly this — see `crowd-embed` — and it keeps the fix in CSS, scoped, instead
+   * of a :has() selector or a second rule the editor could ever match. */
+  document.body.classList.add('rp-standalone');
   setupBanners();   // install button + (no-op) WebKit warning; shell carries #install-banner
   const langSel = $('#lang-select');
   if (langSel) {

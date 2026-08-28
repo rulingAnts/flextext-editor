@@ -95,30 +95,39 @@ console.log('\nthe sticky researcher header works WITH and WITHOUT the ribbon');
      '⚠ the header keeps its horizontal full-bleed negatives but NO negative top margin');
 }
 
-console.log('\nKnown issues is STAGING-ONLY, and vanishes when the list is empty');
+console.log('\nRelease notes: available everywhere, gone when there is nothing to say');
 {
-  /* Seth, 2026-08-28: "Known Issues link should only show on staging, not on production." A list of
-   * things that do not work is written FOR a tester who agreed to try a pre-release; a production
-   * field user meeting it has no way to act on it and no reason to expect it.
+  /* ⚠ THIS ASSERTION WAS INVERTED ON PURPOSE (Seth, 2026-08-28: "I'd like to have that link available
+   * on stable, as well as release"). It shipped staging-only one version earlier, on the reasoning
+   * that a production user meeting a list of broken things cannot act on it. That was half right: what
+   * they cannot act on is a list of ONLY broken things. Paired with what changed, it becomes the thing
+   * people look for after an app updates itself under them — which this one does silently on every
+   * service-worker activation. Recorded because the old rule reads perfectly sensibly and someone will
+   * otherwise "restore" it.
    *
-   * ⚠ Gated on the same hostname rule as the ribbon, DUPLICATED rather than shared — the ribbon lives
-   * inline in five shells precisely so it depends on no engine module, so there is nothing to import.
-   * Two statements of one rule, which is exactly the kind of pair that drifts, so both are pinned.
-   *
-   * ⚠ AND IT DISAPPEARS WHEN EMPTY. A permanent link onto nothing teaches people it is decoration,
-   * and the next time it has content they will not open it. */
+   * ⚠ WHAT SURVIVED THE INVERSION: both lists empty ⇒ NO link. A permanent entry opening onto nothing
+   * teaches people it is decoration. */
   const panel = read('../docs/js/researcher-panel.js');
-  ok(/function onStagingEstate\(\) \{[\s\S]*?\/\\\.\(pages\|workers\)\\\.dev\$\//.test(panel),
-     '⚠ the link is gated on the *.pages.dev / *.workers.dev hostname — production never renders it');
-  ok(/if \(!onStagingEstate\(\) \|\| !KNOWN_ISSUES\.length\) return '';/.test(panel),
-     '⚠ ...and an empty list emits NO link, rather than a link onto nothing');
-  const list = (panel.match(/const KNOWN_ISSUES = \[([\s\S]*?)\];/) || [])[1] || '';
-  const keys = [...list.matchAll(/'([^']+)'/g)].map((m) => m[1]);
-  ok(keys.length > 0, `the list has entries (${keys.length})`);
+  ok(/if \(!WHATS_NEW\.length && !KNOWN_ISSUES\.length\) return '';/.test(panel),
+     '⚠ nothing to say ⇒ no link at all');
+  const link = (panel.match(/function releaseNotesLink\(\) \{[\s\S]*?\n\}/) || [''])[0];
+  ok(!/onStagingEstate\(\)/.test(link),
+     '⚠⚠ the LINK is not gated on the estate — it belongs on production too, which is the point');
+  ok(/onStagingEstate\(\) \? ' ' \+ esc\(t\('panel\.rel\.isTestBuild'\)\)/.test(panel),
+     '...though the notes still SAY when you are on a test site, which production must never claim');
+
+  const grabList = (name) => {
+    const m = panel.match(new RegExp('const ' + name + ' = \\[([\\s\\S]*?)\\];'));
+    return m ? [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]) : [];
+  };
   const i18n = read('../docs/js/i18n.js');
-  for (const k of keys) {
-    ok(i18n.split(`'${k}':`).length - 1 >= 2,
-       `${k} is a real string in BOTH languages — a missing one would render the key to a tester`);
+  for (const name of ['WHATS_NEW', 'KNOWN_ISSUES']) {
+    const keys = grabList(name);
+    ok(keys.length > 0, `${name} has entries (${keys.length})`);
+    for (const k of keys) {
+      ok(i18n.split(`'${k}':`).length - 1 >= 2,
+         `${k} is a real string in BOTH languages — a missing one renders a raw key to a user`);
+    }
   }
 }
 

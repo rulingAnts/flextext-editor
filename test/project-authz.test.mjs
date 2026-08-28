@@ -132,52 +132,71 @@ console.log('\ncapabilities are required, not assumed');
   ok((await call(db, MEMBER, { instance: INST }, null)).ok, 'and membership alone suffices for a read');
 }
 
-console.log('\ndrive\'s LEVEL semantics survive in code, but are unreachable while it is deferred');
+console.log('\ndrive is grantable as READ ONLY — and a stored value that is not is refused');
 {
-  /* ⚠ THIS BLOCK USED TO ASSERT THE LEVELS BEHAVIOURALLY — "read grants drive:read", "manage implies
-   * read" — by seeding rows straight into D1, on the reasoning that keeping the semantics tested made
-   * re-enabling a one-line change. The read-time deferral makes that unreachable: a stored `drive`
-   * row is now refused before any level is consulted, so those assertions could only pass if the
-   * deferral were broken. Asserting them would have been asserting the hole.
+  /* ⚠ THIS BLOCK ONCE ASSERTED THE OPPOSITE OF THE SHIPPED DESIGN, and that is the lesson worth
+   * recording. It was written while `assignTexts` and `drive` were BOTH deferred, and it pinned that
+   * deferral behaviourally. Both were deliberately un-deferred (assignTexts v456, drive v468) and
+   * this file was not revisited, so the branch's HEADLINE capability feature had its dedicated
+   * authorization test asserting that the feature does not work — six red assertions that a reader
+   * would reasonably have read as "sharing is broken" rather than "this test is stale".
    *
-   * The knowledge is worth keeping for the day drive returns, so it is pinned where it still lives —
-   * in the source — alongside a behavioural check that it is currently unreachable. That pairing is
-   * the honest statement: the logic exists, and nothing can reach it. */
+   * A capability test that disagrees with the code is worse than no test: it is a standing claim, in
+   * the suite, that the shipped behaviour is a bug. */
   const src = readFileSync(new URL('../worker/src/v1.js', import.meta.url), 'utf8');
-  ok(/want === 'drive:read'[\s\S]{0,140}caps\.drive !== 'read' && caps\.drive !== 'manage'/.test(src),
-     'the level logic is still there: drive:read is satisfied by read OR manage');
-  ok(/want === 'drive:manage'[\s\S]{0,80}caps\.drive !== 'manage'/.test(src),
-     '⚠ and drive:manage by manage alone — trash and purge are the destructive half');
+  ok(/if \(raw\.drive !== 'read'\) return null;/.test(src),
+     'validateCaps WRITES drive:read and nothing else — manage is refused, not downgraded');
+  ok(/caps\.drive !== undefined && caps\.drive !== 'read'/.test(src),
+     '⚠ and authMember REFUSES TO HONOUR a stored value it would not have written (v480)');
 
-  const db = freshDb(); await seed(db, '{"drive":"manage"}');
-  ok((await call(db, MEMBER, { project: PROJ }, 'drive:read')).ok === false,
-     '⚠⚠ and it is UNREACHABLE — the stored capability is refused before any level is consulted');
+  /* The behavioural half, seeded straight into D1 — the only way to ask "what if the row is already
+   * there?", which is the question a write-time filter cannot answer about itself. */
+  {
+    const db = freshDb(); await seed(db, '{"drive":"read"}');
+    ok((await call(db, MEMBER, { project: PROJ }, 'drive:read')).ok === true,
+       'a stored drive:read GRANTS drive:read — the un-deferred capability actually works');
+  }
+  {
+    const db = freshDb(); await seed(db, '{"drive":"manage"}');
+    ok((await call(db, MEMBER, { project: PROJ }, 'drive:read')).ok === false,
+       '⚠ but a stored drive:manage grants NOTHING — refused at read time, not silently downgraded');
+  }
+  {
+    const db = freshDb(); await seed(db, '{"manageDevices":true,"drive":"manage"}');
+    ok((await call(db, MEMBER, { project: PROJ }, 'manageDevices')).ok === false,
+       '⚠⚠ and the legitimate manageDevices in that row is refused too — poisoned, not filtered');
+  }
+  {
+    const db = freshDb(); await seed(db, '{"drive":"read"}');
+    ok((await call(db, MEMBER, { project: PROJ }, 'drive:manage')).ok === false,
+       'drive:manage is never delegable to a member, whatever the row says');
+  }
 }
 
-console.log('\n⚠⚠ a STORED deferred capability is refused at READ time, not just at write time');
+console.log('\nthe UN-deferred capabilities are honoured; only a DEFERRED one poisons the record');
 {
-  /* THE COMPLETENESS CRITIC'S TOP FINDING, and it was a hole in the remediation itself. Deferring
-   * assignTexts and drive was implemented ONLY in validateCaps — a WRITE-time filter that authMember
-   * never calls. So a project_member row already containing {"drive":"manage"} would still have been
-   * honoured, reopening all nine same-root findings. Such a row could come from a future migration,
-   * an operator's D1 console, or a build predating the deferral.
-   *
-   * ⚠ The rows here are seeded STRAIGHT INTO D1 on purpose — that is the whole point. Going through
-   * the API would prove only what validateCaps already refuses, which is the test that existed and
-   * the reason the gap survived. This asks the different question: what happens when the row is
-   * already there? */
-  for (const caps of ['{"drive":"manage"}', '{"drive":"read"}', '{"assignTexts":true}',
-                      '{"manageDevices":true,"assignTexts":true}']) {
+  /* The read-time refusal is still the point of this section — the hole it closed was real: deferral
+   * was implemented ONLY in validateCaps, a WRITE-time filter authMember never calls, so a row that
+   * already contained the key would have been honoured. What changed is WHICH key is deferred:
+   * DEFERRED_CAPS is now ['cancelOthers'] alone. */
+  for (const caps of ['{"assignTexts":true}', '{"manageDevices":true}',
+                      '{"manageDevices":true,"assignTexts":true}', '{"createInvites":true}']) {
     const db = freshDb(); await seed(db, caps);
     const r = await call(db, MEMBER, { instance: INST }, null);
-    ok(r.ok === false, `⚠ a stored ${caps} grants NOTHING (ok=${r.ok})`);
+    ok(r.ok === true, `a stored ${caps} is HONOURED (ok=${r.ok})`);
   }
-
-  /* And the denial is the WHOLE record, not just the offending key: a row that should have been
-   * impossible is evidence something else is wrong, and serving the rest of it would hide that. */
-  const db = freshDb(); await seed(db, '{"manageDevices":true,"drive":"read"}');
-  ok((await call(db, MEMBER, { instance: INST }, 'manageDevices')).ok === false,
-     '⚠⚠ and the legitimate manageDevices in the same row is refused too — the record is poisoned, not filtered');
+  {
+    const db = freshDb(); await seed(db, '{"assignTexts":true}');
+    ok((await call(db, MEMBER, { instance: INST }, 'assignTexts')).ok === true,
+       '⚠ assignTexts satisfies an assignTexts requirement — the v456 un-deferral, tested behaviourally');
+    ok((await call(db, MEMBER, { instance: INST }, 'manageDevices')).ok === false,
+       '...and does NOT satisfy manageDevices — the two grants stay distinct');
+  }
+  {
+    const db = freshDb(); await seed(db, '{"manageDevices":true,"cancelOthers":true}');
+    ok((await call(db, MEMBER, { instance: INST }, 'manageDevices')).ok === false,
+       '⚠⚠ a stored DEFERRED cancelOthers still poisons the whole record, at READ time');
+  }
 
   // The clean row still works, so this did not simply deny every member.
   const good = freshDb(); await seed(good, '{"manageDevices":true}');

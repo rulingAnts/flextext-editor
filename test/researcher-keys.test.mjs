@@ -121,7 +121,12 @@ console.log('\nthe self-grant writes only what is MISSING, and satisfies the wra
 console.log('\nthe grant write can survive an instance with no project id');
 {
   const at = worker.indexOf("seg[2] === 'keys'");
-  const route = worker.slice(at, at + 3000);
+  /* ⚠ WINDOW, NOT BEHAVIOUR. The coercion is still there (v1.js, `String(proj.project_id || '')`)
+   * — the route simply grew past 3000 chars as the member-key grant work landed, so the slice stopped
+   * reaching it and the test failed while the code was correct. A fixed-size window around a growing
+   * route is a slow-motion false alarm; widened rather than re-pointed so it keeps failing if the
+   * coercion is genuinely removed. */
+  const route = worker.slice(at, at + 6000);
   ok(/String\(proj\.project_id \|\| ''\)/.test(route),
      '⚠ project_id is coerced — NULL into a NOT NULL column threw the whole batch');
   ok(/TEXT NOT NULL/.test(read('../worker/migrate-projects.sql').split('member_key')[1] || ''),

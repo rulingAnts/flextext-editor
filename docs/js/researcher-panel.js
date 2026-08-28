@@ -2961,14 +2961,24 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
         const mvSource = !!mv && mv.from === it.instance_id;      // this device is LOSING the text
         const deleting = !!d.pendingDelete || !!(p && p.kind === 'delete') || mvSource;
         const uploading = !!(p && p.kind === 'upload');
-        const cancelBtn = (kind) => ` <button class="link-btn rp-cancel" data-iact="cancel-cmd" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}">${esc(t('panel.inst.cancel' + kind))}</button>`;
+        /* ⚠ A CANCEL FOLLOWS THE CAPABILITY OF THE COMMAND IT WITHDRAWS, which is why `may` is a
+         * parameter rather than a single gate on this helper: withdrawing an ASSIGN is text work
+         * (assignTexts) while withdrawing an UPLOAD is device management (manageDevices), and the
+         * worker's capForCommand() draws exactly that line. Ungated, these three buttons were the
+         * client promising an action the worker answers 404 to.
+         * Falling back to the `taken` tag rather than to nothing is deliberate: a queued command a
+         * seat may not cancel is still a command the row must SHOW, or the pending state disappears
+         * and the text looks idle while something is on its way to the device. */
+        const cancelBtn = (kind, may) => (may
+          ? ` <button class="link-btn rp-cancel" data-iact="cancel-cmd" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}">${esc(t('panel.inst.cancel' + kind))}</button>`
+          : ` <span class="rp-tag rp-tag-taken">${esc(t('panel.inst.pendingTag'))}</span>`);
         const takenTag = ` <span class="rp-tag rp-tag-taken" title="${esc(t('panel.inst.takenWhy'))}">${esc(t('panel.inst.taken'))}</span>`;
 
         const up = d.__assigning
-          ? (queued ? cancelBtn('Assign') : takenTag)
+          ? (queued ? cancelBtn('Assign', mAssign) : takenTag)
           : (deleting || wiped) ? ''                        // being removed, or the device is gone
           : uploading
-            ? (queued ? cancelBtn('Upload') : takenTag)
+            ? (queued ? cancelBtn('Upload', mManage) : takenTag)
             : (mManage ? ` <button class="link-btn rp-up" data-iact="upload" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-fileid="${esc(d.uploadedFileId || '')}">${esc(t(label))}</button>` : '');
         // Upload-first remote delete (v94+): the device uploads a fresh timestamped copy, THEN deletes.
         // The chip belongs to the device LOSING the text. The destination's half of the move is its
@@ -2986,12 +2996,20 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
          * cancel, so it is tested first and the row falls through to the ordinary withdrawal. */
         const cancelRemovalBtn = ` <button class="link-btn rp-cancel" data-iact="cancel-removal" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.inst.cancelDelete'))}</button>`;
         const del = (!d.id || d.__assigning || wiped) ? ''
-          : (p && p.kind === 'delete') ? (queued ? cancelBtn('Delete') : takenTag)
+          : (p && p.kind === 'delete') ? (queued ? cancelBtn('Delete', mAssign) : takenTag)
           : mvSource ? cancelRemovalBtn                     // committed, not yet issued as a command
           : uploading ? ''                                  // cancel the upload first, or wait it out
           : canDelText
             ? (mAssign ? ` <button class="link-btn rp-revoke" data-iact="del-text" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-title="${esc(d.title || '')}">${esc(t('panel.inst.delText'))}</button>` : '')
-            : ` <button class="link-btn rp-revoke" disabled title="${esc(t('panel.inst.delNeedsUpdate'))}">${esc(t('panel.inst.delText'))}</button>`;
+            /* ⚠ THE "UPDATE THE DEVICE FIRST" GREY-OUT IS FOR SOMEONE WHO COULD OTHERWISE DELETE.
+             * It sits on the ELSE of canDelText and so used to escape the mAssign gate above it: a
+             * member WITHOUT assignTexts, looking at an old device, was shown a dead greyed Remove
+             * whose tooltip blamed the device's engine — when the real reason was that this seat may
+             * not delete at all. Two different "no", and the wrong one was displayed.
+             * A disabled control reads as a broken app (Seth's standing rule, and it has cost a bug
+             * report before), so for a seat without the capability it is ABSENT; the grey-out is kept
+             * only for those the message is actually about. */
+            : (mAssign ? ` <button class="link-btn rp-revoke" disabled title="${esc(t('panel.inst.delNeedsUpdate'))}">${esc(t('panel.inst.delText'))}</button>` : '');
         // The done tag is a TOGGLE when the engine understands the setDone COMMAND — the dispatch
         // case shipped in v138. Gating on setDocDone's age (v100) was wrong: an older device ACKS
         // the unknown command and silently does nothing, which reads as "the toggle is broken".
@@ -3063,10 +3081,21 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
         <ul class="rp-inv">${rows}</ul>
         ${(() => {
           const I = esc(it.instance_id), D = esc(ins.install_id);
+          /* ⚠ FORCE-REMOVE IS OWNER-ONLY, AND THE *BUTTON* IS WHAT IS WITHHELD — not the note.
+           * The wipe STATE is information a member with manageDevices needs (a device that has erased
+           * itself is why their controls vanished); the button acts on it, and worker/src/v1.js's
+           * force-remove route is owner-only BY DESIGN — no capability will ever delegate it, so this
+           * control could only ever 404 for a member (Seth: "don't add enabled buttons or links that
+           * won't work").
+           * ⚠ BOTH BRANCHES, not one. The comment above this card already claimed "the owner-only
+           * wipe/force-remove are ABSENT (not greyed out)" while these two render sites were ungated —
+           * an invariant asserted in prose and not held in code. This file has shipped a half-fix of
+           * exactly that shape twice before (see the v469/v475 note on 'Open the Drive folder'), which
+           * is why panel-shared-state now COUNTS the render sites rather than matching one. */
           if (ins.wipe_state === 'confirmed') return `<div class="note rp-wipe-done">${esc(t('panel.wipe.confirmed'))}</div>
-            <button class="link-btn rp-revoke" data-iact="force-remove" data-i="${I}" data-id="${D}">${esc(t('panel.wipe.removeBtn'))}</button>`;
+            ${memberCtx ? '' : `<button class="link-btn rp-revoke" data-iact="force-remove" data-i="${I}" data-id="${D}">${esc(t('panel.wipe.removeBtn'))}</button>`}`;
           if (ins.wipe_state === 'requested') return `<div class="note rp-wipe-pending">${esc(t('panel.wipe.pending', { when: lastSeen(ins.wipe_at) }))}</div>
-            <button class="link-btn rp-revoke" data-iact="force-remove" data-i="${I}" data-id="${D}">${esc(t('panel.wipe.forceRemoveBtn'))}</button>`;
+            ${memberCtx ? '' : `<button class="link-btn rp-revoke" data-iact="force-remove" data-i="${I}" data-id="${D}">${esc(t('panel.wipe.forceRemoveBtn'))}</button>`}`;
           return `${mManage ? `<button class="link-btn rp-revoke" data-iact="revoke-install" data-i="${I}" data-id="${D}">${esc(t('panel.inst.revokeInstall'))}</button>` : ''}
             ${memberCtx ? '' : `<button class="link-btn rp-danger" data-iact="wipe-install" data-i="${I}" data-id="${D}" data-name="${esc(it.nickname || '')}">${esc(t('panel.wipe.btn'))}</button>`}`;
         })()}

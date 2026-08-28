@@ -548,6 +548,28 @@ export const DEFERRED_CAPS = ['cancelOthers'];
  * doc id to the member's own project — the cross-project /move question the old deferral parked is
  * answered by construction now, and the members probe exercises the cap live. */
 
+/* WHICH CAPABILITY A QUEUED COMMAND NEEDS — the ONE mapping, used by both the append route and the
+ * cancel route so they can never disagree about who may act on a command.
+ *
+ * ⚠ THIS REPLACED AN `AND`, AND THE `AND` WAS THE BUG. The append route was gated on manageDevices
+ * for EVERY command ("queueing a command IS device management"), with assignTexts checked as an
+ * ADDITIONAL requirement for the four text types. That reasoning held while assignTexts was deferred
+ * — it closed the text lane entirely — but once assignTexts became grantable (v456) it meant text
+ * work required manageDevices TOO. So an owner who ticked only "Work with texts — assign texts, mark
+ * done, delete from devices" granted a member three buttons that all answer 404, and an assign whose
+ * FILES still reached the owner's Drive with no command ever delivered: work performed, nothing
+ * delivered, no error the member could act on. The checkbox promised what the gate refused.
+ *
+ * ⚠ UNKNOWN TYPES GET THE STRICTER CAP. A command this map does not name falls to manageDevices, so
+ * a type added later cannot quietly enter on the weaker capability by being forgotten here.
+ *
+ * ⚠ THE OWNER IS UNAFFECTED — authMember returns isOwner before any capability test, so this changes
+ * behaviour for members only, which is the whole of its purpose. */
+export const TEXT_COMMANDS = ['assign', 'delete', 'uploadDelete', 'setDone'];
+export function capForCommand(type) {
+  return TEXT_COMMANDS.includes(String(type || '')) ? 'assignTexts' : 'manageDevices';
+}
+
 export function validateCaps(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const out = {};
@@ -799,12 +821,32 @@ export async function authMember(req, env, target, needCap) {
     }
   }
 
+  /* ⚠ A STORED `drive` VALUE THAT validateCaps WOULD REFUSE TO WRITE IS REFUSED TO HONOUR — the same
+   * read-time/write-time symmetry as DEFERRED_CAPS above, and it was MISSING for `drive` (v480).
+   *
+   * validateCaps takes 'read' and nothing else: `if (raw.drive !== 'read') return null` refuses the
+   * whole record rather than downgrading 'manage'. But this function then accepted `caps.drive ===
+   * 'manage'` as satisfying drive:read — so a row carrying 'manage' from a migration, an operator's
+   * D1 console, or a build predating v468 was honoured at read time by the very code the write-time
+   * refusal exists to protect. That is the identical shape as the hole the DEFERRED_CAPS loop was
+   * added to close: a write-time filter authMember never calls.
+   *
+   * Denying the WHOLE record, not masking the key, for the reason given above it — a row that should
+   * have been impossible is evidence something else is wrong. */
+  if (caps.drive !== undefined && caps.drive !== 'read') {
+    try { await secLog(env, req, 'invalid_drive_cap_in_stored_row', { project_id, value: String(caps.drive).slice(0, 32) }); } catch { /* noop */ }
+    return deny;
+  }
+
   if (needCap) {
     const want = String(needCap);
-    if (want === 'drive:read') {
-      if (caps.drive !== 'read' && caps.drive !== 'manage') return deny;
-    } else if (want === 'drive:manage') {
-      if (caps.drive !== 'manage') return deny;
+    /* 'manage' is deliberately NOT accepted here any more: the guard above has already denied any
+     * record carrying it, so a `caps.drive === 'manage'` branch could only ever be dead code that
+     * READS as though members can hold it. No route requests 'drive:manage'; if one ever does, only
+     * the owner (who returns before this point) can satisfy it, which is the intended answer. */
+    if (want === 'drive:read' || want === 'drive:manage') {
+      if (caps.drive !== 'read') return deny;
+      if (want === 'drive:manage') return deny;    // never delegable to a member
     } else if (!caps[want]) {
       return deny;
     }
@@ -4402,36 +4444,32 @@ export async function handleV1(request, env, ctx, url, path, origin) {
 
     // POST .../command — append a command to `desired` (CAS, §E.2). Enforce id+type (§F.5).
     if (m === 'POST' && sub === 'command' && seg.length === 4) {
-      const ctx = await authMember(request, env, { instance: instanceId }, 'manageDevices');
+      /* ⚠ THE BODY IS READ BEFORE THE AUTH CALL, because WHICH capability this route requires depends
+       * on the command type (capForCommand). Reading the caller's own body first leaks nothing about
+       * the instance — every refusal below still answers 401 for no identity and 404 for everything
+       * else, and the shape-validation 400s all fire AFTER authorization, so a malformed body can
+       * never become an oracle for whether a device exists. */
+      const body = await readJson(request);
+      const cmd = body && body.command;
+      const ctx = await authMember(request, env, { instance: instanceId }, capForCommand(cmd && cmd.type));
       if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
       if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
       const r = ctx.owner;   // the PROJECT OWNER's row: Drive acts in their account (R2-5)
-      const body = await readJson(request);
-      const cmd = body && body.command;
       if (!cmd || typeof cmd.type !== 'string') return j({ error: 'bad_command' }, 400, origin, env);
       if (cmd.type === 'assign' && !cmd.id) return j({ error: 'assign_needs_id' }, 400, origin, env);     // §F.5
       // uploadDelete = upload-then-delete (per-text remote removal; engine ≥ v94 — older
       // clients warn-and-ack it harmlessly, so the panel gates the button on engineVersion).
       if (!['assign', 'delete', 'changeSettings', 'triggerUpload', 'uploadDelete', 'setDone'].includes(cmd.type)) return j({ error: 'unknown_command' }, 400, origin, env);
-      /* ⚠ TEXT-SCOPED COMMANDS NEED assignTexts, NOT manageDevices. The route is gated on
-       * manageDevices because queueing a command IS device management — but four of the six command
-       * types operate on a TEXT, and one of them (`delete`) destroys a field worker's transcription.
-       * Gating the whole route on manageDevices therefore hands the entire text lane to anyone who
-       * can rename a device. The audit caught `assign` and `uploadDelete`; `delete` and `setDone`
-       * are the same shape and are included because leaving them would keep the hole open under a
-       * different name.
+      /* ⚠ THE TEXT-COMMAND CAPABILITY CHECK MOVED UP, into the authMember call above, via
+       * capForCommand(). It used to sit HERE as an extra `&& !ctx.caps.assignTexts` on top of a
+       * route-wide manageDevices gate — an AND that made "Work with texts" unusable on its own.
+       * There is deliberately no second check at this point: two places deciding the same question
+       * is how they come to disagree, and the reason this one was wrong is that it was the SECOND
+       * half of a rule whose first half nobody revisited when assignTexts was un-deferred.
        *
-       * ⚠ This costs the OWNER nothing — isOwner passes every capability — so it changes behaviour
-       * only for members, which is the point. With assignTexts refused in v1 it closes the lane
-       * entirely; when assignTexts returns it becomes the correct gate rather than needing to be
-       * remembered then.
-       *
-       * not_found rather than a distinct error, for the same reason every other capability denial
-       * answers not_found: one refusal shape, so no route becomes an oracle by being the odd one. */
-      const TEXT_COMMANDS = ['assign', 'delete', 'uploadDelete', 'setDone'];
-      if (TEXT_COMMANDS.includes(cmd.type) && !ctx.isOwner && !ctx.caps.assignTexts) {
-        return j({ error: 'not_found' }, 404, origin, env);
-      }
+       * The refusal shape is unchanged — capForCommand feeds authMember, whose capability denial is
+       * `{ ok: false }` and answers 404 not_found like every other, so no route becomes an oracle by
+       * being the odd one out. */
       /* ⚠⚠ changeSettings MUST RIDE `enc`, AND A PLAINTEXT `settings` IS REFUSED OUTRIGHT.
        *
        * The 2026-08-21 sweep found the hole this closes, and it defeated the capability deferral
@@ -4549,7 +4587,16 @@ export async function handleV1(request, env, ctx, url, path, origin) {
        * ⚠ CONSEQUENCE, STATED so it is a decision and not a discovery: a member with `manageDevices`
        * can cancel a command the OWNER queued. That was already true and is unchanged; what changed
        * is that nobody is now told otherwise by a checkbox. */
-      const ctx = await authMember(request, env, { instance: instanceId }, 'manageDevices');
+      /* ⚠ MEMBERSHIP FIRST, THEN THE COMMAND'S OWN CAPABILITY — because which capability applies is a
+       * property of the QUEUED COMMAND, which is not known until it has been located in the blob
+       * below. Passing no capability here authorizes membership of the project only; the real test is
+       * the capForCommand() check at the point of removal, and it uses the same map as the append
+       * route so "may queue it" and "may withdraw it" can never drift apart.
+       *
+       * ⚠ WITHOUT THIS, CANCEL WAS THE ASYMMETRY: an assignTexts member could queue an assign (once
+       * the append route was fixed) and then not withdraw it, because cancel wanted manageDevices.
+       * Being able to start something you cannot stop is worse than not starting it. */
+      const ctx = await authMember(request, env, { instance: instanceId }, null);
       if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
       if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
       const r = ctx.owner;
@@ -4575,6 +4622,16 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         if (seq <= maxAck) return j({ error: 'already_delivered', ack_seq: maxAck }, 409, origin, env);
         const blob = inst.desired_blob ? JSON.parse(inst.desired_blob) : { settings: {}, commands: [] };
         const before = (blob.commands || []).length;
+        /* The command is located BEFORE it is removed, so its type can decide the capability — see the
+         * authMember note above. An unrecognised or type-less command falls to manageDevices via
+         * capForCommand, which is the stricter answer and the right default for a backlog entry
+         * queued by an older worker. */
+        const doomed = (blob.commands || []).find((c) => c && c.seq === seq);
+        if (!doomed) return j({ error: 'not_queued', ack_seq: maxAck }, 404, origin, env);
+        const needCap = capForCommand(doomed.type);
+        const mayCancel = ctx.isOwner
+          || (needCap === 'assignTexts' ? !!(ctx.caps && ctx.caps.assignTexts) : !!(ctx.caps && ctx.caps.manageDevices));
+        if (!mayCancel) return j({ error: 'not_found' }, 404, origin, env);
         blob.commands = (blob.commands || []).filter((c) => c.seq !== seq);
         if (blob.commands.length === before) return j({ error: 'not_queued', ack_seq: maxAck }, 404, origin, env);
         const newRev = inst.desired_rev + 1;

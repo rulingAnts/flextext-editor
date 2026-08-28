@@ -114,7 +114,10 @@ console.log('\nthe activity tray reports work the browser cannot show');
 console.log('\n...and the progress is real bytes, with the denominator we already hold');
 {
   const rp = read('../docs/js/researcher.js');
-  ok(/export async function fetchDriveFile\(fileId, onProgress\)/.test(rp), 'the fetch can report progress');
+  // `via` added in v468: it selects the member download LANE (project-scoped, under the owner's
+  // Drive token) instead of the caller's own account route. Pinned so the parameter cannot be
+  // dropped back to the two-arg form, which is what a member's 404s would look like.
+  ok(/export async function fetchDriveFile\(fileId, onProgress, via\)/.test(rp), 'the fetch can report progress');
   ok(/r\.body\.getReader\(\)/.test(rp), 'by streaming the body rather than awaiting .blob()');
   ok(/if \(typeof onProgress !== 'function' \|\| !r\.body/.test(rp),
      'and callers that do not want progress keep the old fast path untouched');

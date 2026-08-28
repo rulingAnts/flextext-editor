@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v479';
+export const ENGINE_VERSION = 'v480';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -397,6 +397,10 @@ en: {
   'panel.inst.cancelAssign': 'Cancel assignment',
   'panel.inst.taken': 'in progress',
   'panel.inst.takenWhy': 'The device has already picked this up, so it can no longer be cancelled.',
+  /* Shown where a Cancel would be, to a coworker whose capabilities do not cover the queued command.
+   * The row must still say something is on its way — dropping the chip entirely would make the text
+   * read as idle while a command sits waiting for the device. */
+  'panel.inst.pendingTag': 'waiting to be sent',
   'panel.inst.cancelled': 'Request cancelled — the device will not act on it.',
   'panel.inst.cancelTooLate': 'Too late to cancel: the device has already picked this up and is acting on it.',
   'panel.inst.cancelFailed': 'Could not cancel — the request is still queued. Try again.',
@@ -1386,7 +1390,14 @@ internet after the first time.</p>
   'panel.share.capDriveLabel': 'Download files — open the Files… menu and download a text’s recordings and documents. Read-only: they cannot delete or move anything in Drive, and only you can browse Drive itself.',
   /* ⚠ THE DRIVE CAPABILITY IS ABSENT ON PURPOSE, not disabled: a checkbox that says a coworker can
    * be given file access would be a promise this version cannot keep. Files stay with the owner. */
-  'panel.share.driveNote': 'Coworkers cannot be given access to your Google Drive files in this version. Assigning texts and downloading files stay with you, the owner.',
+  /* ⚠ THIS PARAGRAPH SITS DIRECTLY UNDER THE FOUR CAPABILITY CHECKBOXES, so it must never describe a
+   * capability as impossible while the box that grants it is on screen. It used to read "Coworkers
+   * cannot be given access to your Google Drive files in this version. Assigning texts and
+   * downloading files stay with you, the owner." — which went stale when assignTexts was un-deferred
+   * (v456) and drive:'read' became grantable (v468), leaving the modal contradicting its own controls.
+   * It is now the GROUP-LEVEL fact that stays true whatever is ticked; the per-capability wording
+   * lives on each label, where it cannot drift out of sight of what it describes. */
+  'panel.share.driveNote': 'Whatever you grant, your recordings and documents stay in your own Google Drive — coworkers act on them only through this app, never in Drive itself.',
   'panel.share.warnTitle': 'How much do you need to trust this person?',
   'panel.share.warnSee': 'They will be able to read everything this project’s devices have recorded and reported. Removing them later stops what they can do NEXT — it cannot take back what they have already read or saved.',
   'panel.share.warnDo': 'Anything they do while trusted is real: settings they change, devices they revoke or pair. Removing them ends it from their next request; it does not undo what was already done.',
@@ -2288,6 +2299,7 @@ id: {
   'panel.inst.cancelAssign': 'Batalkan penugasan',
   'panel.inst.taken': 'sedang berjalan',
   'panel.inst.takenWhy': 'Perangkat sudah mengambil perintah ini, jadi tidak bisa dibatalkan lagi.',
+  'panel.inst.pendingTag': 'menunggu dikirim',
   'panel.inst.cancelled': 'Permintaan dibatalkan — perangkat tidak akan menjalankannya.',
   'panel.inst.cancelTooLate': 'Terlambat membatalkan: perangkat sudah mengambil dan sedang menjalankannya.',
   'panel.inst.cancelFailed': 'Tidak dapat membatalkan — permintaan masih dalam antrean. Coba lagi.',
@@ -3179,7 +3191,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.share.capAssignLabel': 'Mengerjakan teks — menugaskan teks, menandai selesai, menghapus dari perangkat',
   'panel.share.capDrive': 'mengunduh berkas',
   'panel.share.capDriveLabel': 'Mengunduh berkas — membuka menu Berkas… dan mengunduh rekaman serta dokumen sebuah teks. Hanya baca: mereka tidak dapat menghapus atau memindahkan apa pun di Drive, dan hanya Anda yang dapat menjelajahi Drive.',
-  'panel.share.driveNote': 'Rekan kerja tidak dapat diberi akses ke berkas Google Drive Anda pada versi ini. Menugaskan teks dan mengunduh berkas tetap menjadi hak Anda sebagai pemilik.',
+  'panel.share.driveNote': 'Apa pun yang Anda berikan, rekaman dan dokumen Anda tetap berada di Google Drive Anda sendiri — rekan kerja hanya menanganinya melalui aplikasi ini, tidak pernah langsung di Drive.',
   'panel.share.warnTitle': 'Seberapa besar Anda perlu memercayai orang ini?',
   'panel.share.warnSee': 'Mereka akan dapat membaca semua yang telah direkam dan dilaporkan oleh perangkat proyek ini. Menghapus mereka nanti menghentikan apa yang dapat mereka lakukan SELANJUTNYA — itu tidak dapat menarik kembali apa yang sudah mereka baca atau simpan.',
   'panel.share.warnDo': 'Apa pun yang mereka lakukan selagi dipercaya bersifat nyata: pengaturan yang mereka ubah, perangkat yang mereka cabut atau sandingkan. Menghapus mereka menghentikannya mulai permintaan berikutnya; itu tidak membatalkan apa yang sudah terjadi.',

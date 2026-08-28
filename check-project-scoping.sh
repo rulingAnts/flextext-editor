@@ -128,15 +128,34 @@ fi
 #   mutation — the `if` was still there and gated nothing. A guard that checks a mechanism exists,
 #   without checking it has anything to act on, is the same species of false pass as the grep that
 #   missed `asResearcher`.
-tc_gate=$(grep -c "TEXT_COMMANDS.includes(cmd.type) && !ctx.isOwner && !ctx.caps.assignTexts" "$W" || true)
+# ⚠ RE-AIMED IN v480, AND THE OLD SHAPE IS WHY. The gate used to be an inline
+#   `TEXT_COMMANDS.includes(cmd.type) && !ctx.caps.assignTexts` sitting on TOP of a route-wide
+#   manageDevices gate — an AND, so text work required BOTH capabilities and "Work with texts" alone
+#   granted three dead buttons. It is now ONE decision: capForCommand() picks the capability and
+#   authMember enforces it, for the append route and the cancel route alike. This guard tracks that
+#   move rather than the old string — but it still checks BOTH halves, mechanism and list.
+tc_map=$(grep -c "TEXT_COMMANDS.includes(String(type || '')) ? 'assignTexts' : 'manageDevices'" "$W" || true)
+tc_append=$(grep -c "authMember(request, env, { instance: instanceId }, capForCommand(cmd && cmd.type))" "$W" || true)
+tc_cancel=$(grep -c "capForCommand(doomed.type)" "$W" || true)
 tc_all=0
 for c in assign delete uploadDelete setDone; do
   grep "const TEXT_COMMANDS = \[" "$W" | grep -q "'$c'" || tc_all=1
 done
-if [ "$tc_gate" -ge 1 ] && [ "$tc_all" = 0 ]; then
-  good ok "text-scoped commands still require assignTexts, and all four are still listed"
+if [ "$tc_map" -ge 1 ] && [ "$tc_append" -ge 1 ] && [ "$tc_cancel" -ge 1 ] && [ "$tc_all" = 0 ]; then
+  good ok "text commands require assignTexts via capForCommand — append AND cancel — and all four are listed"
 else
-  bad x "⚠ the TEXT_COMMANDS gate is gone or its list was emptied — manageDevices would reach assign/delete/uploadDelete/setDone"
+  bad x "⚠ the capForCommand gate is gone, unwired from append/cancel, or its list was emptied — manageDevices would reach assign/delete/uploadDelete/setDone"
+fi
+
+# ⚠ AND THE INVERSE: a stored `drive` value the write path would refuse must not be honoured at read
+#   time. validateCaps takes 'read' only; without this, a row carrying 'manage' (migration, D1
+#   console, pre-v468 build) satisfied drive:read — the same write-time/read-time asymmetry the
+#   DEFERRED_CAPS loop exists to close, left open for the one capability that names Drive.
+dr_read=$(grep -c "caps.drive !== undefined && caps.drive !== 'read'" "$W" || true)
+if [ "$dr_read" -ge 1 ]; then
+  good ok "a stored drive value that is not 'read' is refused at READ time, not just at write time"
+else
+  bad x "⚠ authMember will honour a stored drive:'manage' that validateCaps would never have written"
 fi
 
 # ⚠ A PAYLOAD-BEARING changeSettings MUST BE ENCRYPTED. Settings are E2EE so the worker cannot

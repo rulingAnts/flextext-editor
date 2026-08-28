@@ -4431,6 +4431,29 @@ so "is this the right key" is not a question it can ask.
 - Key ROTATION (Phase E) must update the fingerprint in the same act, or every device refuses the
   new key. Worth designing the two together.
 
-**Until it is built**, v470 is the mitigation: the owner's panel sweeps for approved-but-keyless
-installs on every full render and delivers, and the member is told at approval time that the owner's
-panel will finish the job automatically and there is nothing more for them to do.
+**✅ SETH APPROVED THE DIRECTION (2026-08-28):** *"A member substituting a key gets caught by the
+device itself. That turns the risk … into 'impossible to land', and members could then key devices
+safely. — This would be fine, I think."* So the end state is: members CAN fully enrol a device once
+the device verifies the fingerprint.
+
+**⚠ THE ONE COMPLICATION THAT DECIDES THE ROLLOUT: old devices cannot verify.** The check lives on
+the DEVICE, so an already-deployed editor/recorder would adopt whatever key it is handed, exactly as
+today. Allowing member key delivery therefore cannot be a simple route change — it must be gated on
+the device having an engine new enough to perform the check. The instance's reported
+`inventory.engineVersion` already carries that (`engNum`, the same signal the panel uses for
+capability gates), so the rule is: a member may deliver a key ONLY to an install whose reported
+engine is at or above the version that verifies. Everything older stays owner-only, forever if need
+be — which is safe, and degrades to today's behaviour rather than to a hole.
+
+⚠ That also means the device-side check must ship and REACH THE FIELD before the route opens. In
+deploy terms: engine first, let the estate update, then the worker change — the reverse of the usual
+backend-first order, and worth stating loudly because getting it backwards opens the sabotage window
+this design exists to close.
+
+**Until it is built**, v471 is the interim (v470's sweep alone was not enough): the member is not offered Approve at all — the card
+says the owner must approve and key it — so no half-genuine install can be minted (Seth: "better not
+to give the member a way to mint an install that isn't actually genuine until the owner gets around
+to it"). v470's owner-side key sweep stays, because it also repairs installs whose delivery failed or
+was interrupted. And the constraint is deliberately VISIBLE: a team whose owner will not be bothered
+with approvals should reverse who owns the project, and they can only decide that if they can see
+the limit.

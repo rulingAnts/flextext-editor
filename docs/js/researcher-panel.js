@@ -6950,6 +6950,17 @@ async function coworkersModal() {
         <div class="rp-adm-h">${esc(t('panel.share.addTitle'))}</div>
         <label class="rp-field"><span>${esc(t('panel.share.idLabel'))}</span>
           <input id="rp-share-id" spellcheck="false" autocapitalize="off" placeholder="${esc(t('panel.share.idPh'))}"></label>
+        ${/* ⚠ NAMED AT THE MOMENT OF ADDING, not in a later visit (Seth, 2026-08-28): "I'd like them
+             to be able (and even required) to fill in the name when they paste the ID."
+             Since v503 the server sends no name, email or avatar, so this nickname is the ONLY thing
+             telling two coworkers apart. A field you must remember to go back for is one that stays
+             empty — and an owner deciding which of two uuids to revoke months later is exactly the
+             moment it matters. Required, therefore, and required HERE.
+             ⚠ Local: it is written with setPref into the Kr-encrypted account prefs, never sent with
+             the membership. The add call still carries only the ID and the capabilities. */''}
+        <label class="rp-field"><span>${esc(t('panel.share.nickLabel'))}</span>
+          <input id="rp-share-nick" maxlength="60" placeholder="${esc(t('panel.share.nickPh'))}"></label>
+        <p class="note">${esc(t('panel.share.nickNote'))}</p>
         ${/* ⚠ NUMBERED STEPS, BOTH SIDES, because this is the least intuitive thing in the panel
              (Seth, 2026-08-28: "make sure to give instructions for how to add a colleague to a
              project as another researcher, because right now it's not very intuitive"). It is a
@@ -7083,6 +7094,11 @@ async function coworkersModal() {
     body.querySelector('#rp-share-add').addEventListener('click', (e) => busy(e.target, async () => {
       const who = body.querySelector('#rp-share-id').value.trim();
       if (!who) return;
+      /* ⚠ REQUIRED, and refused here rather than silently defaulted. Without a nickname the list is
+       * two indistinguishable uuids, and the owner has no way to tell which coworker they are about
+       * to revoke. Saying so is cheap; discovering it later is not. */
+      const nick = body.querySelector('#rp-share-nick').value.trim().slice(0, 60);
+      if (!nick) { say(t('panel.share.nickRequired'), true); return; }
       /* Send ONLY what is ticked. validateCaps stores "granted" and treats absent as false, so
        * sending `false` values would be noise — and any key it does not know refuses the whole grant. */
       const caps = {};
@@ -7093,6 +7109,10 @@ async function coworkersModal() {
       if (body.querySelector('#rp-share-drive').checked) caps.drive = 'read';
       try {
         await Researcher.addMember(selected, who, caps);
+        /* Saved AFTER the membership lands, so a failed add leaves no orphan nickname for a coworker
+         * who was never added. Best-effort on purpose: the membership is the real act, and losing the
+         * label must not surface as "adding failed" when it did not — the list offers a rename. */
+        try { await setMemberNick(who, nick); } catch { /* label only; the row can be renamed */ }
         /* ⚠ THE MEMBERSHIP ROW ALONE READS NOTHING — metadata is E2EE, so the member needs each
          * device's Ki wrapped to THEIR key, and the owner is the only party who can mint that.
          * Minted here, at the one moment the owner is present. Instances are resolved through the

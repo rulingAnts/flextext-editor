@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v484';
+export const ENGINE_VERSION = 'v485';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -826,7 +826,16 @@ internet after the first time.</p>
   'panel.pending.approved': 'Researcher approved.',
   'panel.pending.confirmDecline': 'Decline this request? Their pending account is removed (they can request again by signing in).',
   'panel.exit': 'Back to editor',
-  'panel.lock': 'Lock',
+  /* ⚠ "Lock" NAMED THE WRONG ACTION (Seth, 2026-08-28: "that's effectively its real function").
+   * This button calls Researcher.signOut(), which POSTs /v1/researcher/signout — REVOKING THE SERVER
+   * SESSION — then clears the in-memory keys and drops the token from local AND session storage.
+   * "Lock" promises the opposite of that: a session that survives, waiting behind a re-entry step.
+   * Someone locking a shared laptop expecting to come back finds themselves signed out entirely.
+   * Worded "Sign out" rather than "Log out" because that is the term the rest of this app already
+   * uses — panel.account.signout, panel.sessions.revoke — and a second word for one action is its
+   * own small confusion. The KEY stays `panel.lock` (as do the .rp-lock class and data-act="lock");
+   * renaming those is churn across files for no user-visible gain. */
+  'panel.lock': 'Sign out',
   'panel.who.title': 'Signed in as {who}',
   'panel.help.btn': 'Help',
   'panel.help.close': 'Close',
@@ -869,7 +878,7 @@ internet after the first time.</p>
 <ul>
 <li>Protect your <b>Google account</b> well — ideally with Google's own two-step verification. Whoever can sign into your Google can reach this panel.</li>
 <li>Leave <b>"Stay signed in" off</b> on any shared or at-risk device, so closing the app locks it.</li>
-<li>Use <b>Sign out</b> (or Lock) when you finish on a device that isn't only yours.</li>
+<li>Use <b>Sign out</b> when you finish on a device that isn't only yours — it ends the session on this browser, so you sign in again next time.</li>
 </ul>
 <details>
 <summary>More info — how the encryption works</summary>
@@ -2695,7 +2704,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.pending.approved': 'Peneliti disetujui.',
   'panel.pending.confirmDecline': 'Tolak permintaan ini? Akun mereka yang menunggu akan dihapus (mereka bisa meminta lagi dengan masuk).',
   'panel.exit': 'Kembali ke editor',
-  'panel.lock': 'Kunci',
+  'panel.lock': 'Keluar',
   'panel.who.title': 'Masuk sebagai {who}',
   'panel.help.btn': 'Bantuan',
   'panel.help.close': 'Tutup',
@@ -2738,7 +2747,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
 <ul>
 <li>Lindungi <b>akun Google Anda</b> dengan baik — idealnya dengan verifikasi dua langkah milik Google. Siapa pun yang bisa masuk ke Google Anda bisa menjangkau panel ini.</li>
 <li>Biarkan <b>"Tetap masuk" mati</b> pada perangkat bersama atau berisiko, agar menutup aplikasi menguncinya.</li>
-<li>Gunakan <b>Keluar</b> (atau Kunci) saat selesai pada perangkat yang bukan hanya milik Anda.</li>
+<li>Gunakan <b>Keluar</b> saat selesai pada perangkat yang bukan hanya milik Anda — sesi di peramban ini berakhir, jadi Anda perlu masuk lagi nanti.</li>
 </ul>
 <details>
 <summary>Info lebih lanjut — cara kerja enkripsinya</summary>

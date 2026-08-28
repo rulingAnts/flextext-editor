@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS "instance" (
   desired_rev   INTEGER NOT NULL DEFAULT 0,
   revoked       INTEGER NOT NULL DEFAULT 0,
   created_at    INTEGER NOT NULL
-, oauth_folder_id TEXT, estate TEXT NOT NULL DEFAULT 'pages', project_id TEXT);
+, oauth_folder_id TEXT, estate TEXT NOT NULL DEFAULT 'pages', project_id TEXT, tokens_valid_from INTEGER);
 
 CREATE TABLE IF NOT EXISTS invite (
   invite_id       TEXT PRIMARY KEY,           -- GUID in the link

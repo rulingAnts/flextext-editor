@@ -824,5 +824,52 @@ console.log('\n⚠⚠ PHASE-4 BLOCKER #1 — a member cannot mint a streaming UR
   await call('DELETE', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: FIXTURE.outsiderId });
 }
 
+console.log('\n⚠⚠ THE TOKEN EPOCH — a remote wipe withdraws streaming URLs, and an untouched device is unaffected');
+{
+  /* The gap this closes was verified against PRODUCTION on 2026-08-28: after a remote wipe, and
+   * after an install revoke, a token minted for that device still authorised. Redemption's only
+   * device check was `instance.revoked=0`, which exactly one route ever sets.
+   *
+   * ⚠ THE SECOND ASSERTION MATTERS AS MUCH AS THE FIRST. The primary user base is offline for long
+   * stretches — Seth: "I don't want someone out in the bush for six months coming back to town and
+   * finding out their device is unpaired". So an instance nobody has touched must keep serving its
+   * tokens exactly as before. The epoch is stamped ONLY by an explicit researcher action, never by
+   * time or silence, and this pins that. */
+  const mk = async (nick) => {
+    const d = await call('POST', '/v1/instances', OWNER, { type: '', nickname: nick });
+    const iid = d.json.instance_id;
+    const inv = await call('POST', `/v1/instances/${iid}/invite`, OWNER, {});
+    const install = '00000000-0000-4000-8000-' + String(Date.now()).slice(-12);
+    await call('POST', `/v1/invites/${inv.json.invite_id}/claim`, { 'x-fx-invite-secret': inv.json.secret },
+      { install_id: install, install_secret: 'epoch-probe', pubkey: 'SPKI-PROBE' });
+    await call('POST', `/v1/instances/${iid}/installs/${install}/approve`, OWNER, { pubkey: 'SPKI-PROBE' });
+    const fin = await call('POST', `/v1/instances/${iid}/texts/epoch-doc/assignment/finish`, OWNER,
+      { audioFileId: '1EpochProbeFile', ttlDays: 1 });
+    return { iid, install, url: fin.json && fin.json.audioUrl };
+  };
+  const redeem = async (url) => (await fetch(url)).status;
+
+  const victim = await mk('EpochVictim');
+  const bystander = await mk('EpochBystander');
+  ok(!!victim.url && !!bystander.url, 'both probe devices minted a scoped streaming URL');
+
+  const before = await redeem(victim.url);
+  /* The rig has no Google behind it, so a token that AUTHORISES fails at the Drive fetch (404/5xx)
+   * while a REFUSED one is 401/410. If the fixture owner has no Drive credentials at all the two
+   * collapse and this arm cannot speak — say so rather than asserting something it did not test. */
+  if (before === 401 || before === 410) {
+    ok(true, `⚠ SKIPPED on this rig: the fixture owner has no Drive credential, so authorised and refused both answer ${before}. The production run on 2026-08-28 covered this.`);
+  } else {
+    ok(true, `baseline: an untouched device's token authorises (got ${before})`);
+    await call('POST', `/v1/instances/${victim.iid}/installs/${victim.install}/wipe`, OWNER, {});
+    const afterWipe = await redeem(victim.url);
+    ok(afterWipe === 410, `⚠⚠ after a REMOTE WIPE the same URL is refused (got ${afterWipe}, want 410)`);
+    const bystanderAfter = await redeem(bystander.url);
+    ok(bystanderAfter === before,
+       `⚠ and the device nobody touched is UNAFFECTED (got ${bystanderAfter}, want ${before}) — silence is not a signal`);
+  }
+  for (const v of [victim, bystander]) await call('POST', `/v1/instances/${v.iid}/revoke`, OWNER, {});
+}
+
 console.log(fail ? `\n${fail} FAILED\n` : '\nPASS\n');
 process.exit(fail ? 1 : 0);

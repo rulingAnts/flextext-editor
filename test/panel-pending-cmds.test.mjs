@@ -205,8 +205,14 @@ console.log('\none pending command per text — never remove AND upload at once 
 
 console.log('\nthe derived state actually reaches the screen');
 {
-  ok(/await refreshServerPending\(insts\);/.test(panel),
-     'renderDashboard re-derives the shared state, so an action-driven redraw is not a tick behind');
+  /* The ARGUMENT changed in v467 (own devices + shared-project devices, so a member sees pending
+   * commands on devices they co-manage), but the guarantee this pins did not: renderDashboard must
+   * re-derive the shared state itself rather than waiting for the next poll tick. */
+  const derives = (panel.match(/await refreshServerPending\(allActionableInstances\(data\)\)/g) || []).length;
+  ok(derives >= 2,
+     `both the poll AND renderDashboard re-derive the shared state, so an action-driven redraw is not a tick behind (found ${derives})`);
+  ok(/function allActionableInstances\(data\)[\s\S]{0,400}memberProjects/.test(panel),
+     'and that set includes shared-project devices — pending commands are visible to every researcher who can act on the device');
   ok(/\[\.\.\.serverPending\]\.sort\(/.test(panel),
      'viewSig includes serverPending, so a command issued in another browser triggers a redraw');
 }

@@ -207,6 +207,19 @@ let serverSeqs = new Map();
  *
  * `seq > maxAck` is the same test the renderer already uses for `queued`, and it makes this map
  * self-retiring: no sweep, no timer, no second notion of "done". */
+/* Every device this panel can act on — the caller's OWN instances PLUS the devices of every project
+ * shared with them. Pending-command markers are read from the SERVER's command queue, so they are
+ * inherently cross-researcher: whoever queued it, everyone holding the key sees it. But this was fed
+ * only `data.instances`, so the sharing was one-way — an OWNER saw a member's pending delete while
+ * the MEMBER saw nothing at all on the devices they co-manage, which is exactly backwards from what
+ * multi-researcher work needs (Seth, 2026-08-28: "is it possible for researchers to see pending
+ * commands triggered by the other researcher?"). */
+function allActionableInstances(data) {
+  const out = [...((data && data.instances) || [])];
+  for (const mp of ((data && data.memberProjects) || [])) out.push(...(mp.instances || []));
+  return out;
+}
+
 async function refreshServerPending(instances) {
   const account = Researcher.currentAccountId();
   if (account !== blobCacheAccount) { blobCache = new Map(); blobCacheAccount = account; }
@@ -1213,7 +1226,7 @@ async function pollDashboard() {
     return;                                                                        // else transient; next tick retries
   }
   if (root.hidden || document.querySelector('.modal')) return;                       // re-check after the await
-  await refreshServerPending(data && data.instances);   // shared pending state, before anything renders
+  await refreshServerPending(allActionableInstances(data));   // shared pending state (own + shared devices), before anything renders
   if (root.hidden || document.querySelector('.modal')) return;                       // and again after ITS awaits
   if (viewSig(data) !== lastSig) renderDashboard(data);
 }
@@ -1444,7 +1457,7 @@ async function renderDashboard(prefetched) {
    * meant the row it just changed redrew from the PREVIOUS tick's state — the cancelled delete kept
    * its strikethrough and its Cancel button until something else forced a refresh. Cheap: the blob
    * is cached by desired_rev, so this is a no-network re-filter unless the server actually moved. */
-  await refreshServerPending(insts);
+  await refreshServerPending(allActionableInstances(data));   // own + shared devices (see the helper)
   // Advance in-flight moves on every poll (a stage transition is visible in exactly one report —
   // same reasoning as the History observer): destination reports the doc → fire the upload-first
   // remove at the source (AUTOMATIC, Seth's decision); source no longer reports it → move done.

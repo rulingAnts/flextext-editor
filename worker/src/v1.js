@@ -1450,6 +1450,46 @@ async function memberFileIdsOk(ctx, access, docId, fileIds) {
   return true;
 }
 
+/* ⚠⚠ WITHDRAW EVERY STREAMING URL ALREADY MINTED FOR THIS DEVICE (2026-08-28).
+ *
+ * `/v1/textfile` tokens are self-standing bearer credentials, and redemption's only device-level
+ * check was `instance.revoked=0` — which exactly ONE route in this worker ever sets. So the whole
+ * lost-device workflow (remote wipe, wipe-ack, install revoke, force-remove) left outstanding URLs
+ * serving: the researcher wiped a seized phone, believed access was gone, and every link already on
+ * that device kept streaming community recordings. Verified live before the fix.
+ *
+ * Every one of those paths now calls this. Redemption refuses tokens whose `iat` predates the stamp.
+ *
+ * ⚠ BEST-EFFORT BY CONTRACT, and the ORDER of the call sites is what makes that safe: each caller
+ * has already performed its own withdrawal (revoked=1 / wipe_state) before calling, so a failure
+ * here degrades to exactly the old behaviour rather than to a wipe that did not happen. It is
+ * therefore never allowed to throw into the response — including when the column is absent because
+ * `migrate-token-epoch.sql` has not run yet, which is the deploy order this repo mandates
+ * (D1 migrate → worker). The failure is LOGGED, never silent: a wipe that did not withdraw the URLs
+ * is precisely the thing nobody should discover later.
+ *
+ * ⚠⚠ NEVER MAKE THIS TIME-BASED. The epoch is stamped ONLY by an explicit researcher action, and it
+ * must stay that way. The temptation — "also expire tokens for a device we have not heard from in N
+ * days" — would break the primary use case this whole suite exists for: a field worker is offline in
+ * the bush for six months and comes back to town expecting their device to still work (Seth,
+ * 2026-08-28: "I don't want someone out in the bush for six months coming back to town and finding
+ * out their device is unpaired, or even worse, wiped automatically"). Silence is the NORMAL state
+ * here, not a signal. Any stricter behaviour belongs behind a per-account setting that a researcher
+ * in a sensitive, well-connected context opts INTO — never the default, and never inferred. */
+async function stampTokenEpoch(env, request, instanceId, now) {
+  if (!instanceId) return;
+  try {
+    await env.DB.prepare('UPDATE instance SET tokens_valid_from=? WHERE instance_id=?')
+      .bind(now, String(instanceId)).run();
+  } catch (e) {
+    /* ⚠ THE REAL `request` IS PASSED, not null. secLog derives method/path/IP from it and does so
+     * BEFORE it writes the line, inside its own catch-all — so a null request makes the whole log
+     * entry vanish silently. A swallowed failure here is the one outcome this handler exists to
+     * prevent, and it would have been invisible. */
+    try { await secLog(env, request, 'token_epoch_stamp_failed', { instance: String(instanceId).slice(0, 12), message: String((e && e.message) || e).slice(0, 160) }); } catch { /* noop */ }
+  }
+}
+
 async function mintTextfileUrl(env, urlOrigin, researcherId, fileId, extract, ttlMs, scope, minterId) {
   if (!fileId) return null;
   /* ⚠ `n` AND `iat` ARE FREE NOW AND CANNOT BE ADDED LATER — not to tokens already in the field,
@@ -2204,9 +2244,41 @@ export async function handleV1(request, env, ctx, url, path, origin) {
      * ⚠ v1 tokens (no `i`) are served exactly as before. They are already in the field, held by
      * deployed devices, and breaking them would strand assignments mid-flight. They age out. */
     if (tk.i) {
-      const live = await env.DB.prepare('SELECT instance_id FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
-        .bind(tk.i, tk.r).first();
+      /* ⚠ THE COLUMN MAY NOT EXIST YET, AND A FIELD DEVICE MUST NOT PAY FOR THAT. The runbook order
+       * is D1 migrate → worker deploy, but it says in as many words that a human under pressure can
+       * get an order wrong. Selecting a missing column throws, and an uncaught throw here would 500
+       * EVERY scoped download — including the one a worker coming back online after months is
+       * finally making. So the pre-migration shape is a fallback, not an error: without the column
+       * there is simply no epoch, which is exactly the behaviour that shipped before this fix. */
+      let live = null, epochKnown = true;
+      try {
+        live = await env.DB.prepare('SELECT instance_id, tokens_valid_from FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
+          .bind(tk.i, tk.r).first();
+      } catch {
+        epochKnown = false;
+        live = await env.DB.prepare('SELECT instance_id FROM instance WHERE instance_id=? AND researcher_id=? AND revoked=0')
+          .bind(tk.i, tk.r).first();
+      }
       if (!live) return j({ error: 'gone' }, 410, origin, env);
+      /* ⚠⚠ THE TOKEN EPOCH — what makes REMOTE WIPE actually withdraw a URL (2026-08-28).
+       *
+       * `revoked=0` above only ever covered the WHOLE-instance revoke, because that is the single
+       * place in this worker that sets it. Remote wipe, the device's wipe-ack, install revoke and
+       * force-remove all left outstanding URLs serving — so the researcher who wipes a seized phone
+       * and believes access is withdrawn was wrong, for up to the token's whole life. Verified live
+       * before this fix: after a wipe the token still authorised.
+       *
+       * Those four paths now stamp `tokens_valid_from`, and anything minted before it is refused.
+       *
+       * ⚠ A TOKEN WITHOUT `iat` IS REFUSED ONCE AN EPOCH EXISTS, and that asymmetry is deliberate.
+       * Tokens minted before `iat` was carried cannot prove they postdate the wipe, and the whole
+       * point of the epoch is that this device is no longer trusted — so the unprovable case must
+       * fail closed. It costs nothing anywhere else: with no epoch set (every healthy device, which
+       * is every device today) this branch does not run at all, so v1 tokens keep being served
+       * exactly as before. */
+      if (epochKnown && live.tokens_valid_from && !(tk.iat && tk.iat >= live.tokens_valid_from)) {
+        return j({ error: 'gone' }, 410, origin, env);
+      }
     }
     /* ⚠ A MEMBER-MINTED TOKEN IS A POINTER, GOOD ONLY WHILE THE GRANT IS (invariant I2).
      *
@@ -5004,6 +5076,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         ).bind(installId, instanceId, r.researcher_id).first();
         if (!owned) return j({ error: 'not_found' }, 404, origin, env);
         await env.DB.prepare('UPDATE install SET revoked=1 WHERE install_id=?').bind(installId).run();
+        await stampTokenEpoch(env, request, instanceId, now);   // outstanding streaming URLs die with the link
         return j({ ok: true }, 200, origin, env);
       }
 
@@ -5033,6 +5106,11 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           if (sf.backupCodes) await env.DB.prepare('UPDATE researcher SET backup_codes=? WHERE researcher_id=?').bind(JSON.stringify(sf.backupCodes), r.researcher_id).run();
         }
         await env.DB.prepare("UPDATE install SET wipe_state='requested', wipe_at=? WHERE install_id=?").bind(now, installId).run();
+        /* ⚠ THE MOMENT THAT MATTERS. A wipe is requested because the device is out of trusted hands,
+         * so the URLs already on it must stop working NOW — not when the device next polls, which a
+         * seized device will never be allowed to do. Stamped here rather than on wipe-ack for
+         * exactly that reason: the ack may never come. */
+        await stampTokenEpoch(env, request, instanceId, now);
         return j({ ok: true }, 200, origin, env);
       }
 
@@ -5043,6 +5121,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         const install = await authInstall(request, env, instanceId, installId);
         if (!install) return j({ error: 'unauthorized' }, 401, origin, env);
         await env.DB.prepare("UPDATE install SET wipe_state='confirmed', revoked=1, last_seen_at=? WHERE install_id=?").bind(now, installId).run();
+        await stampTokenEpoch(env, request, install.instance_id || instanceId, now);   // belt-and-braces: the request already stamped it
         return j({ ok: true }, 200, origin, env);
       }
 
@@ -5062,6 +5141,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         ).bind(installId, instanceId, r.researcher_id).first();
         if (!owned) return j({ error: 'not_found' }, 404, origin, env);
         await env.DB.prepare('UPDATE install SET wipe_hidden=1 WHERE install_id=?').bind(installId).run();
+        await stampTokenEpoch(env, request, instanceId, now);   // force-remove is a lost-device path too
         return j({ ok: true }, 200, origin, env);
       }
 

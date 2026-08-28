@@ -4255,3 +4255,145 @@ route. Handles prevent; the drift check notices.
 **Shipped in the meantime (v465):** the Coworkers modal now warns, at the moment a member is added,
 never to accept Google Drive access requests for these folders — because the correct answer is always
 no: sharing works through the panel and a coworker never needs Drive permissions.
+
+## FUTURE DESIGN — seal Drive ids with the worker's own key instead of indexing them (Seth, 2026-08-28)
+
+> *"Is there maybe a way for us to have our worker auto encrypt/decrypt drive and OAuth IDs …?
+> That wouldn't require indexing, but it also would mean someone couldn't just get a Google Drive
+> folder id from the browser console and place a view/edit request."*
+
+**This is the better version of the opaque-handle idea, and it survives every objection that killed
+that one.** Instead of mapping id→GUID in D1, the worker SEALS the Drive id and hands out the
+ciphertext; the client stores and echoes the blob; the worker unseals it on receipt. The ciphertext
+IS the identifier, so there is:
+
+- **no table, no backfill, no index to keep in sync** — the objection that sank handles;
+- **no unreachable-file failure mode** — nothing can be "missing a row";
+- **no extra Google round trips** — unsealing is local, so the v167 echo contract keeps its single
+  Drive call and never degrades to the rate-limited tag search.
+
+**The machinery is already in production.** `encAtRest` / `decAtRest` (AES-GCM under a server key,
+`iv.ct` base64url) already seal the `/v1/textfile` tokens, the OAuth `state`, session IPs, Drive
+refresh tokens and TOTP secrets. This would be the same primitive applied to one more value type.
+
+**Refinement worth building in from the start — bind the blob to its holder.** Seal
+`{f: <drive id>, i: <instance or researcher id>}` and check `i` matches the caller on receipt. Then a
+blob lifted from a seized device is inert when replayed from anywhere else, which is exactly what v2
+textfile tokens already do with `tk.i`.
+
+⚠ **Not literally encrypted with the device's pairing key / Ki.** The worker deliberately does not
+hold Ki — that is the whole point of the E2EE model — and per-recipient re-encryption would mean
+holding per-device keys. Server-key sealing plus the binding claim delivers the same property without
+touching that boundary.
+
+**⚠ SEALING CHANGES THE IDENTIFIER, NOT THE TRANSFER — and that must be verified, not assumed
+(Seth, 2026-08-28):** *"if our worker converts a drive id into a blob, we may want to make sure that
+also includes all of our poor-connection/slow-connection/pause/resume/auto-chunk-adjust/retry/
+redundancy functions … We don't want that to mean they only get the blob as one big one-time
+non-resumable download."*
+
+The sealed value replaces an id in a request, so streaming, `Range` requests, chunked upload
+tickets, retry/backoff and resume should be untouched by construction. But "should be" is how
+regressions ship. Before this lands, confirm end to end that: `/v1/textfile` still honours `Range`
+and partial content; a resumed download re-presents the same sealed value and continues rather than
+restarting; the chunked upload tickets (which are themselves `encAtRest` blobs already) keep their
+resume semantics; and a sealed value stays valid across a multi-hour interrupted transfer — its
+lifetime must not be shorter than a realistic bush-connection download. A privacy change that turns
+a resumable 200 MB WAV into a one-shot download would be a far worse regression than the leak it
+closes.
+
+**Honest limits:**
+- The OWNER's panel still needs real ids for "Open in Drive"; that stays an owner-only exception
+  (better: the worker returns the finished URL so the id never lands in client state).
+- It does not help if an id leaks by some other route — a link in the owner's own history, an old
+  share. The ACL-drift check above is the detective control for that; sealing is the preventive one.
+- Still a wire-format change to the device protocol, so it needs a dual-read window (accept a raw id
+  OR a sealed blob) until the fleet turns over.
+
+**⚠ THE MIGRATION WORRY IS THE GOOD NEWS HERE — there is nothing to migrate.** Seth: *"it probably
+would require some careful implementation so as not to brick existing devices and projects and
+accounts. Maybe another migration path. :("* Checked against the code (2026-08-28), and sealing is
+the one version of this idea that needs **no data migration and no forced client update**:
+
+1. **Nothing stored needs converting.** The ciphertext is computed on the fly from the id the worker
+   already holds. Unlike handles, there is no row to backfill, so there is no half-migrated state and
+   no object that can end up unreachable.
+2. **Devices never parse these ids — they store and echo them.** `docs/js/upload.js` assigns
+   `uploadedFolderId = out.folderId` and sends it straight back as `folderId` (lines 166-167, 317-318,
+   391-400). To a device the value is already an opaque token, so an UNCHANGED deployed device works
+   with sealed blobs. That is what removes the flag day.
+3. **Exactly two places build a Drive URL from an id**, and neither is on a device:
+   `app.js:4301` (legacy pasted-link resolution, not an id we issue) and `history.js:175`
+   `driveFolderLink()` — the owner-only "Open in Drive". That one guards with `/^[\w-]{10,}$/`, which
+   a sealed `iv.ct` blob fails because of the dot, so it would render NO link rather than a broken
+   one. It fails closed by accident; give it the real id (or a worker-built URL) deliberately.
+
+**So the whole change is worker-side:** seal on output, and one `resolveDriveId(x)` on input that
+unseals a blob or accepts a legacy raw id. Both forms stay valid indefinitely — no cutoff, no
+bricking, and old and new clients interoperate in either direction.
+
+**Sequencing (Seth: "future design, rather than current plan"):** after the sharing feature ships.
+The cheap mitigations are already in place — the v465 warning tells owners never to accept Drive
+access requests, and an ACL-drift check would likely give more safety per unit of effort than either
+this or handles.
+
+## Offline / poor-connection tolerance is the DEFAULT — a standing constraint (Seth, 2026-08-28)
+
+> *"Our primary user base — especially mine — offline/poor-connection tolerance is more important and
+> should be the default … I don't want someone out in the bush for six months coming back to town and
+> finding out their device is unpaired (or even worse, wiped automatically). But I do want people in
+> sensitive contexts with better internet to have that option in their settings."*
+
+**Rules this imposes on anything touching device state:**
+1. **Silence is the normal state, never a signal.** No feature may expire, unpair, wipe or degrade a
+   device because it has not been heard from. Six months offline is a working device, not a stale one.
+2. **Strictness is opt-in, per account.** A researcher in a sensitive, well-connected context may
+   choose shorter token TTLs, inactivity limits, or auto-revocation — but it is never the default and
+   never inferred from behaviour.
+3. **Every withdrawal must be an explicit human act.** The v466 token epoch follows this: it is
+   stamped only by wipe / wipe-ack / install revoke / force-remove, never by a clock. The code says so
+   at the function, because "also expire after N days" is the obvious-looking change that would break
+   the primary use case.
+
+**Related, still open — partial/interrupted transfers.** Seth: *"[don't allow] them to partially
+download updates, settings, files and then break things because their app tried to load something
+partially downloaded or interrupted."* Worth an audit of its own: settings pushes, engine/service-worker
+updates, and assignment downloads should each be all-or-nothing at the point they become visible to
+the app — write to a staging key and flip a pointer, verify length/hash before adopting, and never let
+a half-written record become the one the editor opens. The service worker's `precacheAll()` already
+fails the whole install rather than adopting a partial shell (the v108 lesson); the same discipline
+should be confirmed for settings and for downloaded media.
+
+## Old worker versions as an attack surface — worth checking properly (Seth, 2026-08-28)
+
+> *"If old worker versions present an attack surface we don't want, we may at some point want to
+> consider cleaning them up."*
+
+**Why this deserves a real answer rather than a shrug:** every worker-side fix we ship is only as
+good as the impossibility of reaching the OLD code. If a previous version is addressable — e.g. via
+a Cloudflare version-preview URL — then an attacker with valid credentials could route around any
+fix by talking to a pre-fix build against the SAME live D1. CORS would not stop them (it is not a
+data-protection boundary), and auth would succeed, because the credentials are real.
+
+Not yet established, and needs checking before it is dismissed: whether version preview URLs are
+enabled for `flextext-r2-worker` (`workers_dev = true` is set, which is a different thing), and what
+`wrangler versions list` reports for alias/preview availability. If previews ARE reachable, the
+mitigations are to disable preview URLs on the production worker and/or prune old versions after a
+release is confirmed healthy.
+
+⚠ Note the tension with rollback: pruning versions removes rollback targets. Keep at least the last
+known-good, and prune on a schedule rather than immediately after a deploy.
+
+## R2 caching of files is permitted, with conditions (Seth, 2026-08-28)
+
+> *"It's OK for our worker to cache files on my R2 storage as long as they're removed after a
+> successful download has been verified and as long as that doesn't make them publicly viewable."*
+
+Recorded as a standing permission for future work (likely relevant to resumable/poor-connection
+downloads). The three conditions are the whole of it:
+1. **Deleted after a download is VERIFIED complete** — not after it is merely started or assumed.
+   A partial or interrupted transfer must leave the cached object in place so it can be resumed.
+2. **Never publicly viewable** — no public bucket, no unauthenticated URL. Access goes through the
+   worker with the same authorization every other file read gets.
+3. Implied by (1): a sweeper for objects whose download never completed, so the bucket cannot grow
+   without bound when a device goes offline mid-transfer.

@@ -1095,6 +1095,26 @@ const KNOWN_ISSUES = [
 function onStagingEstate() {
   try { return /\.(pages|workers)\.dev$/.test(location.hostname); } catch { return false; }
 }
+/* COWORKER NICKNAMES — the owner's own label for a person the server deliberately no longer names.
+ *
+ * ⚠ LOCAL BY DESIGN, not by omission. Held in the account prefs blob, which is encrypted under Kr
+ * before it leaves the browser, so D1 stores ciphertext and the nickname names the coworker to THIS
+ * researcher and to nobody else. Storing it server-side would rebuild in one hop exactly the
+ * collaborator directory that dropping display_name/drive_email/avatar_url just removed. */
+let nickCache = {};
+async function loadNicks() {
+  try { nickCache = ((await Researcher.getPrefs()) || {}).coworkerNames || {}; }
+  catch { nickCache = {}; }
+  return nickCache;
+}
+function memberNick(rid) { return (nickCache && nickCache[rid]) || ''; }
+async function setMemberNick(rid, name) {
+  const next = { ...(nickCache || {}) };
+  if (name) next[rid] = name; else delete next[rid];
+  await Researcher.setPref('coworkerNames', next);
+  nickCache = next;
+}
+
 function releaseNotesLink() {
   if (!WHATS_NEW.length && !KNOWN_ISSUES.length) return '';
   return `<button class="link-btn rp-known" data-act="known">${esc(t('panel.rel.btn'))}</button>`;
@@ -6893,20 +6913,24 @@ async function coworkersModal() {
     let members = null, listErr = null;
     try { members = (await Researcher.listMembers(selected)).members || []; }
     catch (e) { listErr = e; }
+    // Nicknames are the ONLY thing naming a coworker now, so they must be in hand before the first
+    // paint — otherwise every row renders "Unnamed" and then flickers once the prefs decrypt.
+    await loadNicks();
 
     body.innerHTML = `${picker}
       ${listErr ? `<p class="note rp-adm-err">${esc(sayErr(listErr))}</p>` : `
       <div class="rp-share-list">${members.length ? members.map((x, i) => `
         <div class="rp-install rp-share-row" data-mrow="${i}">
-          ${/* Identity, not just the UUID (Seth, 2026-08-27): the worker joins the researcher row.
-              An older worker sends no identity fields — the ID renders alone, nothing breaks. */''}
-          <div class="invite-who">${x.avatar_url ? `<img class="invite-avatar" src="${esc(x.avatar_url)}" alt="" referrerpolicy="no-referrer" width="40" height="40">` : ''}
-            <div><div class="invite-name">${esc(x.display_name || x.email || x.researcher_id)}</div>
-            ${x.email && x.display_name ? `<div class="note">${esc(x.email)}</div>` : ''}
-            ${/* Only when a real name renders above — otherwise the name line IS the id, and this
-                line printed the same UUID twice (Seth's first look at v447, against a worker that
-                does not send identity yet). */''}
-            ${(x.display_name || x.email) ? `<div class="note rp-rid-sm">${esc(x.researcher_id)}</div>` : ''}
+          ${/* ⚠⚠ NO NAME, NO EMAIL, NO AVATAR (Seth, 2026-08-28). The worker no longer sends them and
+              this no longer asks for them: what the panel HOLDS on a lost device is the question, and
+              a collaborator directory is the wrong answer. A coworker is identified here by the ID
+              they gave you plus a NICKNAME YOU TYPE — kept in your own Kr-encrypted prefs, never sent
+              to the server, so it names them to you and to nobody else.
+              ⚠ An older worker still returns the identity fields; they are simply never read. */''}
+          <div class="invite-who">
+            <div><div class="invite-name">${esc(memberNick(x.researcher_id) || t('panel.share.unnamed'))}
+              <button class="link-btn rp-nick-edit" data-sact="nick" data-rid="${esc(x.researcher_id)}">${esc(t(memberNick(x.researcher_id) ? 'panel.share.nickEdit' : 'panel.share.nickAdd'))}</button></div>
+            <div class="note rp-rid-sm">${esc(x.researcher_id)}</div>
             <div class="note" data-mcaps="${i}">${x.invalid ? esc(t('panel.share.invalidCaps'))
                                           : esc(t('panel.share.memberCaps', { caps: capWords(x.caps) }))}${x.pubkey_set === false ? ' · ' + esc(t('panel.share.awaitingKey')) : ''}</div>
             <div class="rp-share-edit" data-medit="${i}" hidden>
@@ -7005,6 +7029,20 @@ async function coworkersModal() {
 
     const sel = body.querySelector('#rp-share-proj');
     if (sel) sel.onchange = () => { selected = sel.value; paint(); };
+
+    /* ⚠ NICKNAME EDITING IS PURELY LOCAL — setPref writes the account prefs blob, encrypted under Kr
+     * before it leaves the browser. Nothing about it reaches the members route, which is the point:
+     * the server stopped naming coworkers, and this must not quietly put the names back. */
+    body.querySelectorAll('[data-sact="nick"]').forEach((el) => el.addEventListener('click', async () => {
+      const rid = el.dataset.rid;
+      const cur = memberNick(rid);
+      const next = prompt(t('panel.share.nickPrompt'), cur || '');
+      if (next === null) return;                       // cancelled — not the same as cleared
+      try {
+        await setMemberNick(rid, next.trim().slice(0, 60));
+        paint();
+      } catch (e) { say(sayErr(e), true); }
+    }));
 
     body.querySelectorAll('[data-sact="edit"]').forEach((el) => el.addEventListener('click', () => {
       const box = body.querySelector(`[data-medit="${el.dataset.i}"]`);

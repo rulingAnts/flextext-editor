@@ -3087,8 +3087,32 @@ export async function handleV1(request, env, ctx, url, path, origin) {
        * (name/email/avatar, the same fields the operator's pending-approval list shows) reveals
        * nothing the exchange did not already establish. LEFT JOIN: a member row whose researcher
        * was deleted still lists (and still must be removable) rather than vanishing. */
+      /* ⚠⚠ NO IDENTITY IS RETURNED — no display_name, no drive_email, no avatar_url (Seth,
+       * 2026-08-28: "we want member researcher e-mail address and avatar and name not to be
+       * accessible from their ID like this").
+       *
+       * ⚠ THIS REVERSES A DECISION THAT WAS ARGUED FOR HERE, and the old reasoning was sound about
+       * the wrong question. It said: the route is owner-only and the relationship is mutual — the
+       * member handed over their ID to be added at all — so showing the owner who they are reveals
+       * nothing the exchange did not establish. True, and about CONSENT. The question that decides
+       * it is different: what does the PANEL HOLD on a device that is lost or no longer in trusted
+       * hands? A list of collaborators' real names and addresses, fetched fresh on every open. v449
+       * removed exactly that from device pairing for exactly this reason; the researcher panel kept
+       * it, and this closes the gap.
+       *
+       * ⚠ NOTHING IS DELETED TO ACHIEVE THIS. The identity was never stored per membership —
+       * project_member is (project_id, researcher_id, caps, added_at, added_by) — it was JOINED at
+       * read time from the researcher row, where it legitimately lives for that account's OWN
+       * sign-in. Removing the join removes the disclosure; the account keeps its own name.
+       *
+       * ⚠ THE PUBKEY PROBE STAYS, and is why the join is not simply gone: `pubkey_set` tells the
+       * owner a coworker has not finished enrolling, which is the difference between "waiting for
+       * them" and "broken". It is a BOOLEAN — it identifies nobody.
+       *
+       * The owner still needs to tell two coworkers apart. That is now a LOCAL nickname the owner
+       * types, held in their own Kr-encrypted prefs and never sent here. */
       const rows = await env.DB.prepare(
-        'SELECT m.researcher_id, m.caps, m.added_at, m.added_by, r.display_name, r.drive_email, r.avatar_url, '
+        'SELECT m.researcher_id, m.caps, m.added_at, m.added_by, '
         + '(r.pubkey IS NOT NULL) AS pubkey_set '
         + 'FROM project_member m LEFT JOIN researcher r ON r.researcher_id=m.researcher_id '
         + 'WHERE m.project_id=? ORDER BY m.added_at'
@@ -3111,7 +3135,7 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       const members = ((rows && rows.results) || []).map((x) => {
         let caps = null; try { caps = JSON.parse(x.caps || '{}'); } catch { caps = null; }
         return { researcher_id: x.researcher_id, caps, added_at: x.added_at, added_by: x.added_by,
-                 display_name: x.display_name || '', email: x.drive_email || '', avatar_url: x.avatar_url || '',
+
                  pubkey_set: !!x.pubkey_set,
                  granted: [...(grantedBy.get(x.researcher_id) || [])],
                  invalid: caps === null };

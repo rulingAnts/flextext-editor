@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v502';
+export const ENGINE_VERSION = 'v503';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1442,6 +1442,13 @@ internet after the first time.</p>
   'panel.known.inviteOnce': 'A device invite link is shown once and cannot be displayed again. If it is lost, make a new one; the old link stays valid.',
   'panel.known.projectDefaults': 'There is no way yet to set default settings for new devices in a project — each device is configured on its own.',
   'panel.known.ownerApproves': 'Only the project owner can approve and key a new device. A coworker with “manage devices” cannot finish pairing one.',
+  /* ⚠ The coworker list no longer shows a name, email or avatar — the worker stopped sending them
+   * (v503). A nickname the OWNER types is what names a coworker now, and it never leaves this
+   * browser unencrypted. */
+  'panel.share.unnamed': 'Unnamed coworker',
+  'panel.share.nickAdd': 'name them',
+  'panel.share.nickEdit': 'rename',
+  'panel.share.nickPrompt': 'A name for this coworker — only you see it. It is stored encrypted with your account and never sent to anyone else. Leave blank to clear it.',
   'panel.share.idLabel': 'Their researcher ID',
   'panel.share.idPh': 'Paste the ID they sent you',
   /* ⚠ BY ID, NOT BY EMAIL, and that is the same rule the pairing flow follows: an id-to-identity
@@ -3284,6 +3291,10 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.known.inviteOnce': 'Tautan undangan perangkat hanya ditampilkan sekali dan tidak dapat ditampilkan ulang. Jika hilang, buat yang baru; tautan lama tetap berlaku.',
   'panel.known.projectDefaults': 'Belum ada cara menetapkan pengaturan bawaan untuk perangkat baru dalam sebuah proyek — setiap perangkat diatur sendiri.',
   'panel.known.ownerApproves': 'Hanya pemilik proyek yang dapat menyetujui dan memberi kunci perangkat baru. Rekan kerja dengan “mengelola perangkat” tidak dapat menyelesaikan penyandingan.',
+  'panel.share.unnamed': 'Rekan kerja tanpa nama',
+  'panel.share.nickAdd': 'beri nama',
+  'panel.share.nickEdit': 'ganti nama',
+  'panel.share.nickPrompt': 'Nama untuk rekan kerja ini — hanya Anda yang melihatnya. Disimpan terenkripsi bersama akun Anda dan tidak pernah dikirim ke siapa pun. Kosongkan untuk menghapusnya.',
   'panel.share.idLabel': 'ID peneliti mereka',
   'panel.share.idPh': 'Tempelkan ID yang mereka kirimkan',
   'panel.share.idNote': 'Minta rekan kerja Anda membuka panel mereka sendiri → Akun, lalu mengirimkan ID peneliti yang tertera di sana. Mereka harus sudah masuk dan disetujui terlebih dahulu.',

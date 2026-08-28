@@ -4477,3 +4477,30 @@ the project has no recorders rather than that they cannot see them.
 Cheapest honest option for v1: render the section for members read-only, or a single line saying the
 project has N crowd recorders that only the owner can manage. Either beats silence. Full member
 management of crowd recorders needs its own capability and is a separate piece of work.
+
+## A service-worker update discards unsaved editor input — and says it didn't (observed 2026-08-28)
+
+**What was seen, first-hand.** While typing into a brand-new text in the editor (title field, then
+the baseline box), the update banner appeared — *"New version ready — your work is saved. Switching
+to the main screen to update in 26s… tap to update now."* — and the page reloaded. Both the typed
+title and the typed baseline line were gone. The text survived as "Untitled text" with 0 sentences.
+
+**The part that makes it worth fixing rather than shrugging at:** the banner asserts *"your work is
+saved"*. For a text already persisted that is true; for input still sitting in an unsaved field of a
+NEW text it is not. A message that promises safety and then loses work is worse than no message,
+because it is precisely what stops someone hitting Save before the reload.
+
+**Why it matters more in the field than it did here.** The reload is time-boxed and automatic, so it
+can land mid-sentence on a device whose user is transcribing, has poor connectivity, and may not
+read English fluently. Losing a line of Fayu transcription that was spoken once is not the same
+class of loss as losing a test string.
+
+**Directions worth considering (not yet a decision):**
+- Flush in-progress fields to the doc before the update reloads (the editor already autosaves on
+  blur/interval — the gap is the un-blurred field at reload time).
+- Or hold the update while a field is dirty, and take the reload at the next idle moment; the
+  service worker is already installed, so waiting costs nothing but a later activation.
+- Or, at minimum, make the banner honest: say what is and is not preserved, and offer "save and
+  update" rather than a countdown that proceeds regardless.
+⚠ Whatever is chosen must not make updates *skippable indefinitely* — a device that never activates
+a new engine is the stale-device problem the version banner exists to solve.

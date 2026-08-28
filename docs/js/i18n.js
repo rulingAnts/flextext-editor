@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v471';
+export const ENGINE_VERSION = 'v472';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v471';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'phase-cd v26';
+export const BUILD_TAG = 'phase-cd v27';
 
 const S = {
 en: {
@@ -1390,6 +1390,7 @@ internet after the first time.</p>
   'panel.share.warnDo': 'Anything they do while trusted is real: settings they change, devices they revoke or pair. Removing them ends it from their next request; it does not undo what was already done.',
   'panel.share.warnWhy': 'This project holds the language, voices and consent records of the community it serves. Adding someone here extends that trust to them.',
   'panel.share.warnDriveReq': 'Never accept a Google Drive request to view or edit these project folders. Coworkers you add here never need direct Drive access — everything they are allowed to do happens in this panel. A request claiming to be from a coworker is far more likely to be someone who obtained a folder link, and approving it grants access this app cannot see, limit or take back.',
+  'panel.share.warnApproval': 'You will still have to approve every new device yourself. A coworker can send device invitations, but only you can approve a device and give it its key — so a device they set up stays unusable until you open this panel. If you would rather not be the one doing that, it is better for whoever actually sets up the devices to own the project: ask to join their project instead of creating your own and sharing it with them.',
   'panel.share.addGo': 'Add coworker',
   'panel.share.added': '“{who}” can now help with this project.',
   'panel.share.addedKeyed': '“{who}” can now help with this project — {n} device(s) unlocked for them.',
@@ -3180,6 +3181,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.share.warnDo': 'Apa pun yang mereka lakukan selagi dipercaya bersifat nyata: pengaturan yang mereka ubah, perangkat yang mereka cabut atau sandingkan. Menghapus mereka menghentikannya mulai permintaan berikutnya; itu tidak membatalkan apa yang sudah terjadi.',
   'panel.share.warnWhy': 'Proyek ini menyimpan bahasa, suara, dan catatan persetujuan komunitas yang dilayaninya. Menambahkan seseorang di sini memperluas kepercayaan itu kepada mereka.',
   'panel.share.warnDriveReq': 'Jangan pernah menerima permintaan Google Drive untuk melihat atau mengedit folder proyek ini. Rekan kerja yang Anda tambahkan di sini tidak pernah membutuhkan akses Drive langsung — semua yang boleh mereka lakukan terjadi di panel ini. Permintaan yang mengaku dari rekan kerja jauh lebih mungkin berasal dari orang yang memperoleh tautan folder, dan menyetujuinya memberi akses yang tidak dapat dilihat, dibatasi, atau ditarik kembali oleh aplikasi ini.',
+  'panel.share.warnApproval': 'Anda tetap harus menyetujui sendiri setiap perangkat baru. Rekan kerja dapat mengirim undangan perangkat, tetapi hanya Anda yang dapat menyetujui perangkat dan memberikan kuncinya — jadi perangkat yang mereka siapkan tidak dapat dipakai sampai Anda membuka panel ini. Jika Anda lebih suka tidak melakukannya, sebaiknya orang yang benar-benar menyiapkan perangkat yang memiliki proyeknya: mintalah bergabung ke proyek mereka daripada membuat proyek sendiri lalu membagikannya.',
   'panel.share.addGo': 'Tambah rekan kerja',
   'panel.share.added': '“{who}” kini dapat membantu proyek ini.',
   'panel.share.addedKeyed': '“{who}” kini dapat membantu proyek ini — {n} perangkat dibuka untuk mereka.',

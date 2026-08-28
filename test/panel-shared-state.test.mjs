@@ -179,6 +179,12 @@ console.log('\nnothing a MEMBER cannot use is rendered for them (Seth, 2026-08-2
      '⚠ "Move to project…" (re-parenting) is absent for a member');
   ok(/mAssign \? ` <button class="link-btn rp-revoke" data-iact="del-text"/.test(panel),
      'deleting a text from a device requires assignTexts');
+  ok(/panel\.share\.warnApproval/.test(panel),
+     '⚠ the owner is warned BEFORE inviting that only they can approve and key a new device');
+  ok(/panel\.inst\.waitingOwnerApprove/.test(panel),
+     '⚠ and a member sees a waiting note where the Approve button would be, never the button');
+  ok(!/mManage \? `<button class="primary-btn" data-iact="approve"/.test(panel),
+     'the Approve button is no longer offered on a member capability');
   ok(/panel\.store\.ownOnly/.test(panel),
      'the Drive-storage modal says it shows only the caller\'s OWN Drive when they are in shared projects');
 }

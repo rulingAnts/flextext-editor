@@ -4629,6 +4629,14 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         const g = await fetch('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?alt=media', {
           headers: Object.assign({ Authorization: 'Bearer ' + access }, range ? { Range: range } : {}),
         });
+        /* ⚠ FORWARD RANGE OUTCOMES VERBATIM — collapsing them into 502 breaks resume (found by
+         * testing a real interrupted download, 2026-08-28). A client that already holds the whole
+         * file asks for `bytes=<len>-`; Google answers 416 Range Not Satisfiable, which MEANS
+         * "you have it all". Reporting that as 502 tells the client the server is broken, and a
+         * poor-connection client's retry/backoff then hammers a request that can never succeed —
+         * the exact opposite of what the resume path is for. 404 stays 404; anything genuinely
+         * unexpected is still 502. */
+        if (g.status === 416) return j({ error: 'range_not_satisfiable', status: 416 }, 416, origin, env);
         if (!g.ok && g.status !== 206) return j({ error: g.status === 404 ? 'not_found' : 'drive_error', status: g.status }, g.status === 404 ? 404 : 502, origin, env);
         const h = new Headers(v1Cors(origin, env));
         h.set('content-type', g.headers.get('content-type') || 'application/octet-stream');

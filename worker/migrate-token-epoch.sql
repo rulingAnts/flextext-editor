@@ -1,0 +1,26 @@
+-- A per-instance TOKEN EPOCH, so the lost-device workflow actually withdraws streaming URLs (2026-08-28).
+--
+-- WHAT WAS WRONG. `/v1/textfile/<token>` URLs are self-standing bearer credentials: everything needed
+-- to serve one travels inside it, so it outlives whatever authorised it. Redemption's only
+-- device-level check was `instance.revoked=0`, and `UPDATE instance SET revoked=1` happens in exactly
+-- ONE place in the worker — the whole-instance revoke. Every OTHER lost-device action (remote wipe,
+-- the device's wipe-ack, install revoke, force-remove) left the outstanding URLs serving.
+--
+-- So the scenario the feature exists for was the one it did not cover: a phone is seized, the
+-- researcher remote-wipes it, believes access is withdrawn — and every URL already on that device
+-- keeps streaming community recordings for the rest of its life (up to the 400-day ceiling).
+-- Verified live against production before this migration was written: a token minted for a
+-- nonexistent file id answered `404 not_found` (i.e. AUTHORISED, and only the file was missing)
+-- after a remote wipe AND after an install revoke; only the whole-instance revoke produced `410 gone`.
+--
+-- THE FIX. `tokens_valid_from` is a millisecond timestamp meaning "refuse any token minted for this
+-- instance before this moment". The four lost-device paths set it to now(); redemption compares it
+-- against the token's own `iat` claim — which mintTextfileUrl has always written and nothing has ever
+-- read, exactly as its comment predicted: "`n` AND `iat` ARE FREE NOW AND CANNOT BE ADDED LATER".
+--
+-- ⚠ ADDITIVE AND NULLABLE, so the currently deployed worker keeps working against a migrated
+-- database — it simply never reads the column. That is the backend-first order this repo requires.
+--
+-- ⚠ NULL MEANS "NO EPOCH SET", NOT ZERO. A device that has never been wiped must serve its tokens
+-- exactly as before; only an explicit timestamp refuses anything.
+ALTER TABLE instance ADD COLUMN tokens_valid_from INTEGER;

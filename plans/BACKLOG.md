@@ -4320,3 +4320,30 @@ bricking, and old and new clients interoperate in either direction.
 The cheap mitigations are already in place — the v465 warning tells owners never to accept Drive
 access requests, and an ACL-drift check would likely give more safety per unit of effort than either
 this or handles.
+
+## Offline / poor-connection tolerance is the DEFAULT — a standing constraint (Seth, 2026-08-28)
+
+> *"Our primary user base — especially mine — offline/poor-connection tolerance is more important and
+> should be the default … I don't want someone out in the bush for six months coming back to town and
+> finding out their device is unpaired (or even worse, wiped automatically). But I do want people in
+> sensitive contexts with better internet to have that option in their settings."*
+
+**Rules this imposes on anything touching device state:**
+1. **Silence is the normal state, never a signal.** No feature may expire, unpair, wipe or degrade a
+   device because it has not been heard from. Six months offline is a working device, not a stale one.
+2. **Strictness is opt-in, per account.** A researcher in a sensitive, well-connected context may
+   choose shorter token TTLs, inactivity limits, or auto-revocation — but it is never the default and
+   never inferred from behaviour.
+3. **Every withdrawal must be an explicit human act.** The v466 token epoch follows this: it is
+   stamped only by wipe / wipe-ack / install revoke / force-remove, never by a clock. The code says so
+   at the function, because "also expire after N days" is the obvious-looking change that would break
+   the primary use case.
+
+**Related, still open — partial/interrupted transfers.** Seth: *"[don't allow] them to partially
+download updates, settings, files and then break things because their app tried to load something
+partially downloaded or interrupted."* Worth an audit of its own: settings pushes, engine/service-worker
+updates, and assignment downloads should each be all-or-nothing at the point they become visible to
+the app — write to a staging key and flip a pointer, verify length/hash before adopting, and never let
+a half-written record become the one the editor opens. The service worker's `precacheAll()` already
+fails the whole install rather than adopting a partial shell (the v108 lesson); the same discipline
+should be confirmed for settings and for downloaded media.

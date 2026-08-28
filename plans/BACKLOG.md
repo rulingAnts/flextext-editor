@@ -91,6 +91,45 @@ Drive belongs to one human's account and cannot be project-owned; destruction is
 irreversibility choice. Everything else is operational and becomes delegable the moment the key stops
 being personal. The list is a description of the seam, not a set of exceptions to it.
 
+### Backward compatibility — the phased path (Seth: "But we need backward compatibility too...")
+
+**The property that makes this survivable: `Kp` WRAPS `Ki`, it does not replace it.** No device key
+changes, no device protocol changes, no engine change is forced. A phone offline for six months comes
+back and syncs exactly as before, because nothing it holds or speaks has moved.
+
+Three populations must keep working throughout: field devices on old engines; the PRODUCTION researcher
+panel, which knows only `member_key` + `wrappedKis`; and the new panel.
+
+**Phase 1 — additive, invisible, reversible.** Create `project_key` (Kp per project, encAtRest).
+Backfill: for each project the worker derives each device's `Ki` by the path it already has, and wraps
+it to that project's `Kp`. NOTHING else changes — the worker keeps serving `member_key` exactly as it
+does now, every client behaves identically, and the table can be dropped with no consequence. This
+phase is worth landing on its own precisely because it is inert.
+
+**Phase 2 — the worker takes over grant maintenance.** When a device is created or a coworker added,
+the WORKER writes the `member_key` rows (it can: it holds `Kp`, so it can derive `Ki` and wrap to each
+member's pubkey). Old panels see exactly what they expect — rows in `member_key` — and keep working
+untouched. New panels stop wrapping client-side.
+⚠ This phase ALONE fixes the reported symptoms: no client-side N-wrap, so no partial failure and no
+"1 of 2 devices" banner; and any researcher can approve a device, because approval no longer needs a
+key only the owner holds. **Delegation is solved here, before any client is required to change.**
+
+**Phase 3 — retire the client-side sweep.** `memberGrantSweep` becomes a no-op once the worker
+maintains grants. Leave the code in place for a release; deleting it is cleanup, not migration.
+
+**Phase 4 — much later, optional.** Serve `Ki` directly from `Kp` and stop materialising `member_key`
+rows at all. ⚠ ONLY when no panel that reads `member_key` remains in use, which for a PWA means the
+service worker has updated everywhere — a thing to verify, not assume.
+
+⚠ **ROLLBACK:** through Phases 1-2 the old path is still fully populated, so reverting the worker is
+enough — no data has been removed. Phase 4 is the first irreversible step, which is exactly why it is
+last and separate.
+
+⚠ **THE TRAP TO AVOID:** do NOT let a device created in Phase 2+ exist with its Ki wrapped ONLY to
+`Kp`. An old panel would find no `member_key` row and report the device unreadable — the v108-shaped
+failure, in a different layer. Materialising the grants is what buys the overlap; stop doing it only
+at Phase 4.
+
 ### What must not be lost
  · The FIELD DEVICE end does not change: `Ki` stays per-device, the device stays E2EE toward the
    worker, offline for months still works.

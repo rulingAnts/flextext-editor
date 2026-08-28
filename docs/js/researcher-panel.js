@@ -1028,7 +1028,7 @@ function whoHtml() {
   return `<span class="rp-who" title="${esc(t('panel.who.title', { who: label }))}">
     ${id.avatar ? `<img class="rp-who-av" src="${esc(id.avatar)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}
     <span class="rp-who-txt">${esc(label)}</span>${
-    rid ? `<span class="rp-who-dash" aria-hidden="true">\u2014</span><span class="rp-who-id" title="${esc(t('panel.who.idTip'))}">${esc(rid)}</span>` : ''}</span>`;
+    rid ? `<span class="rp-who-idwrap">(${esc(t('panel.who.idLabel'))} <button type="button" class="rp-who-id" data-act="copyid" title="${esc(t('panel.who.idTip'))}">${esc(rid)}</button>)</span>` : ''}</span>`;
 }
 
 function header(titleKey, withLock) {
@@ -1121,6 +1121,19 @@ function wireActs(handlers) {
     // …and so is Release notes: the header renders in several views, and a link that works in one of
     // them is worse than no link. Not estate-gated — the notes belong on production too (v494).
     if (!fn && el.dataset.act === 'known') fn = releaseNotesModal;
+    /* …and so is copy-my-id. A <button> rather than a span with a click handler, so Enter and Space
+     * work without inventing key handling, and screen readers announce it as an action.
+     * ⚠ The clipboard can refuse (insecure context, permissions) — the same shape as the Account
+     * modal's Copy ID, and the same fallback: the id is on screen with user-select:all, so a refusal
+     * silently leaves manual selection working rather than claiming a copy that did not happen. */
+    if (!fn && el.dataset.act === 'copyid') {
+      fn = async () => {
+        try {
+          await navigator.clipboard.writeText(Researcher.currentAccountId() || '');
+          deps.toast(t('panel.account.ridCopied'), 3000);
+        } catch { /* refused — the text is selectable on screen */ }
+      };
+    }
     /* ⚠ EXACTLY ONE LISTENER PER ELEMENT, and the LAST wireActs call wins.
      *
      * renderDashboard calls wireActs TWICE — once on the loading shell it paints immediately, then

@@ -1099,11 +1099,25 @@ function wireActs(handlers) {
   root.querySelectorAll('[data-act]').forEach((el) => {
     let fn = handlers[el.dataset.act];
     if (!fn && el.dataset.act === 'help') fn = showPanelHelp;   // the header help button is universal
-    // …and so is Known issues: the header renders in several views, and a link that works in one of
-    // them is worse than no link. Staging-only by construction — knownIssuesLink() emits nothing on
-    // production, so this handler is unreachable there rather than merely unused.
+    // …and so is Release notes: the header renders in several views, and a link that works in one of
+    // them is worse than no link. Not estate-gated — the notes belong on production too (v494).
     if (!fn && el.dataset.act === 'known') fn = releaseNotesModal;
-    if (fn) el.addEventListener('click', () => fn(el));
+    /* ⚠ EXACTLY ONE LISTENER PER ELEMENT, and the LAST wireActs call wins.
+     *
+     * renderDashboard calls wireActs TWICE — once on the loading shell it paints immediately, then
+     * again on the real dashboard — and when the second pass meets a header button the re-render did
+     * not replace, a bare addEventListener left TWO listeners on it. One click then ran the handler
+     * twice: two stacked identical modals, of which closing one revealed the other. That is what
+     * "the close button doesn't seem to work" actually was (Seth, v494) — the button worked; there
+     * was a second dialog behind it.
+     *
+     * Replacing rather than skipping is deliberate: the loading shell binds a SMALLER handler map
+     * than the finished dashboard, so the later, richer binding must be the one that survives. */
+    if (fn) {
+      if (el.__fxAct) el.removeEventListener('click', el.__fxAct);
+      el.__fxAct = () => fn(el);
+      el.addEventListener('click', el.__fxAct);
+    }
   });
 }
 

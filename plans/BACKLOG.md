@@ -3969,3 +3969,289 @@ owner, not the reverse.
 periodically check on that and make sure it's still true."* Re-run the check when convenient (it
 takes one page load from an account without access) rather than inheriting this note as permanent
 truth — the same discipline this repo already applies to believed-once limitations.
+
+## Owner-visible history of MEMBER actions, + optional email notification (Seth, 2026-08-28)
+
+> *"We want our 'history' modal for the researcher account to also log actions taken by member
+> researchers on projects they share so that they can see who's doing what. And maybe the option to
+> e-mail notify them of specific (or all) actions taken by member researchers — a researcher-account-
+> wide setting that applies to all of their projects."*
+
+**The logging half is already built.** `logApproval` records an `actor` and every member-reachable
+mutation already passes `ctx.caller.drive_email` — 11 call sites: `member_added`, `member_removed`,
+`grant_revoked`, `device_renamed`, `device_invited`, `device_revoked`, `install_approved`,
+`device_key_delivered`, `assigned_upload`, `text_adopted`, `text_moved`. So "who did what" is in D1
+today, for members as well as owners.
+
+**The read half is the wrong shape.** `GET /v1/researcher/approvals` is **operator-only**
+(`isOperator` → 403 for everyone else — verified live: an ordinary approved researcher gets
+`403 not_owner`) and returns the **entire global log with no scoping at all**: every researcher,
+every project, every actor email, `SELECT … FROM approval_log ORDER BY at DESC LIMIT ?`. So a
+project owner cannot see their own project's history, and the operator sees everyone's.
+
+**What the feature needs:**
+1. An **owner-scoped** read: rows whose subject is an instance/doc/project belonging to the caller,
+   or whose project the caller owns. ⚠ Today `subject`/`detail` are free text (truncated ids +
+   nicknames), so filtering on them is fragile — the log should carry explicit `project_id` /
+   `instance_id` columns (additive migration) rather than being parsed.
+2. Keep the operator's global view as a separate, explicitly-operator route.
+
+**⚠ PII tension to resolve in the same change, not after.** `actor` stores a **cleartext email** in
+D1, which is precisely what
+[the D1 email-minimisation item](#minimise-cleartext-email-addresses-in-d1) wants to remove — and
+this feature would put those emails in front of more people. Store `actor_researcher_id` and resolve
+to a display name **at read time, for the entitled owner only**. That serves both goals at once and
+is cheaper to do now than to unpick later.
+
+**Email notification** — the account-wide toggle Seth describes — has a hard dependency worth
+stating before it is scoped: the worker has **no outbound mail path today**. It needs a provider
+(and a from-domain, and a bounce/abuse story), which is a bigger decision than the toggle. A
+cheaper first step that meets most of the need: a per-owner **unread-activity badge** on the History
+button, driven by the same scoped query and a last-seen timestamp — no email infrastructure, no new
+PII leaving the system.
+
+## Progress + time tracking derived from the editor's undo/redo history (Seth, 2026-08-28) — FUTURE
+
+> *"Editor devices already log undo/redo history. There's probably a way for us to share that with
+> the researchers … more granular tracking … which texts have used which tabs and what all has been
+> done on each tab — how many lines created on the cut tab, if and how many lines typed into on the
+> baseline tab, and then what percentage of glossing, free translation, etc. of non-blank lines
+> filled in … stats, changes to those stats, and time-stamps for each update … eventually some kind
+> of semi-automatic time/progress tracking."*
+
+**The channel already exists — do not build a second one.** Devices already report an ENCRYPTED
+inventory (`reported_blob`, decrypted panel-side with Ki) carrying per-text items (`uploadState`,
+`hasAudio`, `done`, `uploadedFileId`…). Progress counters are a natural extension of that same
+blob: no new endpoint, no new key, no new plumbing, and the panel's existing 12s poll already
+carries it. `viewSig` would need the new fields or the tiles will not redraw (the trap this repo has
+sprung five times).
+
+**⚠ SEND DERIVED COUNTERS, NEVER THE UNDO STACK.** The undo/redo history contains the actual
+language content, keystroke by keystroke. Shipping it — even encrypted — would multiply what a
+seized device and a compromised account expose, for no gain the counters do not already give.
+Compute locally, transmit aggregates only: lines cut, lines with baseline text, glossed / total
+non-blank, free-translated / total, per tab, plus a small ring of (timestamp, delta) points.
+
+**Counting is harder than it looks — decide before building:** undo/redo means an action can be
+applied, reverted and reapplied; counters derived naively double-count. Count the RESULTING STATE at
+checkpoints (how many lines currently have gloss text) rather than summing events, and treat the
+event stream only as the trigger for recomputation.
+
+**Device clocks are untrusted.** A field phone's clock can be wrong, reset, or timezone-shifted, so
+device timestamps are approximate by nature. Record the SERVER receipt time alongside the device
+time and present them as such — an hours-worked figure built on an unverified clock will eventually
+be wrong in a way that matters to a person's reputation.
+
+**⚠ THE ETHICS POINT, because this is the one feature in the suite that measures PEOPLE rather than
+data.** "Which coworker did how much, when" is workplace monitoring, and this project's whole
+posture is the informed participation of the communities it serves. Whatever is built should be
+visible to the person being measured — they should be able to see their own numbers on their own
+device — and its existence should be something a researcher tells their team about, not something
+they discover. That is a design requirement, not a footnote: a monitoring feature that surprises the
+person monitored damages exactly the trust the rest of this suite is built to protect.
+
+## Orphaned Drive folders when a device is revoked (Seth, 2026-08-28)
+
+> *"We also need to clean up Google Drive folders whose devices were deleted from our early
+> experimentation (and failed attempts) at the sharing setup. Ideally that doesn't happen."*
+
+**Confirmed first-hand:** revoking an instance removes it from D1's live set and kills its keys and
+tokens, but its Drive folder stays parented under the project. Three orphans were created in minutes
+during the 2026-08-28 capability/revocation testing (`CapMatrix probe` ×2, `DeviceRevokeTest (fw)`),
+and Seth's own `23Aug_New_Device` project carries several from earlier sharing experiments.
+
+**Why "ideally that doesn't happen" is the harder half.** Deleting the folder on revoke is exactly
+what must NOT be automatic: revoke is also what you do to a device that is lost or out of the team's
+control, and that device's folder may hold the only copy of recordings the community consented to
+make. Silent deletion there would be data loss dressed as tidiness.
+
+**Suggested shape (needs Seth's call):**
+- Revoke keeps the folder but MARKS it — rename to a `(retired) ` prefix, or stamp
+  `appProperties.flextextRetired=<timestamp>` — so orphans are identifiable rather than
+  indistinguishable from live devices.
+- The panel's Drive-storage view grows a **"Retired devices"** section listing them with their size
+  and last activity, and an explicit per-folder delete. Deliberate, reviewable, never automatic.
+- A one-off sweep for the EXISTING orphans: `drive_object` rows whose `instance_id` is revoked or
+  absent, cross-checked against the live estate, presented as a list to confirm before anything is
+  trashed.
+- ⚠ Anything that deletes Drive content must be owner-only regardless of member capabilities, and
+  should route through the trash (recoverable for 30 days) rather than a permanent delete.
+
+## Researcher↔researcher pairing by CODE + local nickname, not real identity (Seth, 2026-08-28)
+
+> *"For researchers, it's a better idea for us not to have their actual name/e-mail/avatar delivered
+> to the owner researcher, but rather use a simple pairing code similar to what's done with devices.
+> Just give the researchers on both ends the ability to give that pairing a nickname … nothing in
+> our app automatically gives bad actors free information about other researchers if they seize a
+> device or compromise an account."*
+
+**⚠ This deliberately REVERSES part of v449, and the reversal is an improvement rather than a
+correction of a mistake.** v449 added the coworker identity row (avatar + display name + email) to
+the Coworkers modal because the owner had *"no info about the coworker except the ID"* — a real
+usability problem: a raw UUID is unusable for deciding who you are granting access to. The nickname
+solves that same problem **without** making every account compromise a disclosure of a colleague's
+name and address. Same need, better mechanism.
+
+**Shape, mirroring the device pairing that already works:**
+- The join is established by a short **pairing code** the two researchers verify out of band (the
+  same recognition mechanism devices use since the identity-free claim change of v452), not by one
+  party typing the other's UUID or email.
+- Each side stores its **own local nickname** for the pairing. Whether that nickname is the person's
+  real name is the researcher's choice, made offline — the app never decides it for them.
+- The members listing stops joining the `researcher` identity table. `GET /v1/projects/<id>/members`
+  returns `{researcher_id, caps, granted, pubkey_set, nickname}` and no PII at all.
+
+**What this is worth beyond privacy:** it removes the last join between `project_member` and
+personal data, which is a concrete step toward
+[the D1 cleartext-email minimisation goal](#minimise-cleartext-email-addresses-in-d1) rather than a
+competing one.
+
+**Stays as-is:** the v463 panel header showing the signed-in account's OWN name/email/avatar. That
+is the account holder reading their own identity on their own screen — the thing that tells two open
+panels apart — and it discloses nothing about anybody else.
+
+## Members can leave a project themselves — "Leave project" (Seth, 2026-08-28)
+
+Today `DELETE /v1/projects/<id>/members` is owner-only, so a member cannot end their own
+participation; only the owner can remove them. A member must be able to withdraw — it is their
+access to end, and requiring the owner's cooperation is wrong in exactly the situations where it
+matters most.
+
+- Route: allow the DELETE when `researcher_id` in the body **is the caller** and the caller is a
+  member of that project (`authMember`, no capability needed — leaving is not a privilege).
+- Must do everything owner-initiated removal does, in the same batch: drop the `project_member` row
+  AND delete the member's key grants, so leaving is a real withdrawal rather than a UI state.
+- Panel: a "Leave project" control on the shared-project tab, confirmed, warning that they will lose
+  access to the project's devices and texts until re-invited.
+- ⚠ The owner must still see it happened — log it via `logApproval` like any other membership change,
+  or an owner discovers a coworker is gone with no record of why.
+
+## Existing project names that embed an owner's identity (follow-on to the v464 fix)
+
+The v464 fix stops NEW default projects being named `"<owner display name>'s project"`, but it
+deliberately does not rename existing ones — renaming someone's project out from under them is
+worse than the leak, and the name may already be meaningful to their team.
+
+What is still needed:
+- The panel should notice when the signed-in owner's default project name still contains their own
+  display name or email local-part, and offer a one-click rename (suggesting "Default Project"),
+  explaining in one line that project names are visible to everyone they share the project with.
+- ⚠ Only ever offered to the OWNER about their OWN project, and never automatic.
+
+## ⚠⚠ SEIZED-DEVICE GAP: remote wipe does NOT revoke streaming tokens (verified live 2026-08-28)
+
+**The scenario this breaks is the one it exists for.** A device is lost or seized, the researcher
+remote-wipes it and believes access is withdrawn. It is not: every `/v1/textfile/<token>` URL already
+minted for that device keeps working — and those URLs are unauthenticated bearer credentials that
+stream community voice recordings. An attacker who dumped the device's IndexedDB (assignment payloads
+persist there indefinitely) keeps reading for the life of the token.
+
+**Empirically confirmed against the production worker**, using a purpose-made device and install on a
+test account. A token minted for a nonexistent file id isolates AUTHORIZATION from the Drive fetch:
+`404 not_found` means the token was honoured and only the file was missing; `410 gone` means the token
+itself was refused.
+
+| owner action | redemption result | token alive? |
+|---|---|---|
+| baseline | `404 not_found` | yes |
+| **remote wipe the install** | `404 not_found` | **YES — wipe does not revoke it** |
+| **revoke the install** | `404 not_found` | **YES** |
+| revoke the whole instance | `410 gone` | no |
+
+**Root cause:** redemption's only device-level check is
+`SELECT … FROM instance WHERE instance_id=? AND revoked=0`, and `UPDATE instance SET revoked=1` occurs
+at exactly ONE place in the worker — the whole-instance revoke. The install-level paths (wipe,
+wipe-ack, install revoke, force-remove) never touch it. Scoped v2 tokens therefore outlive every
+lost-device action except the one that removes the device entirely.
+
+**Compounding facts from the same audit:**
+- The TTL ceiling is **400 days**, not the 90 the comments claim.
+- **Consent-prompt tokens are deliberately unscoped** (no `tk.i`), so they have *no* device kill switch
+  at all, live in plaintext `localStorage`, and are designed to be copy-pasted between devices.
+- Redemption is **unlogged and unrate-limited**, so replay from a seized device is invisible and
+  unlimited.
+
+**Suggested fix — a per-instance token epoch.** Add `instance.tokens_valid_from` (additive, nullable).
+Wipe, wipe-ack, install revoke and force-remove all set it to `now`; redemption rejects any token whose
+`iat` predates it. This kills previously-minted URLs without revoking the instance itself, needs no
+change to token format (`iat` is already carried and currently unused — the comment on `mintTextfileUrl`
+says exactly this: *"`n` AND `iat` ARE FREE NOW AND CANNOT BE ADDED LATER"*), and old tokens without
+`iat` can be treated as pre-epoch, i.e. refused, which is the safe direction.
+Consent tokens need a separate answer since they are unscoped by design — most likely an owner-level
+epoch as well.
+
+## Opaque handles for every Drive id — apps never see a real Google file/folder id (Seth, 2026-08-28)
+
+> *"All our apps never actually know Google Drive file/folder IDs directly, they just see the GUUID
+> that corresponds to that ID, and then our worker matches that to the corresponding Google
+> file/folder ID … Google folder/file/account IDs should never be transparent to any of our browsers
+> beyond the current user's own OAuth ID."*
+
+**Verdict after Seth's own objection: DO NOT do this for files. Folders only, if at all.**
+
+⚠ Seth reconsidered within the hour and was right: *"it would require us to track every single
+folder and file anywhere — which we don't currently need to do."* That is the real cost, and it is
+architectural rather than mechanical. `drive_object` stamps FOLDERS reliably (five inline creation
+sites, guarded), but the 2026-08-28 audit found only **one of seven file-creation paths** stamps a
+file at creation — every chunked upload, i.e. every large field recording, creates a Drive file with
+no row. Issuing handles for files would mean a D1 write on every upload, a backfill of the whole
+existing estate, and a second index that must never drift from Drive — in which an unstamped file
+becomes UNREACHABLE rather than merely opaque. That trades a phishing-surface reduction for a data-
+availability risk, which is the wrong trade for a corpus of irreplaceable recordings.
+
+**Third cost, and the one most likely to bite (Seth):** *"more indexing that needs to be in sync and
+more round trip Google Drive requests, which are currently severely limited and slow."* This is
+sharper than it first sounds. Today several flows pass a Drive id STRAIGHT THROUGH to Drive with no
+lookup at all — the device echoes back the `folderId` it was handed, which is the entire v167 dedupe
+contract, built because the `appProperties` tag search is slow, rate-limited and
+eventually-consistent, and minted a fresh "Title (n)" folder on every upload until the echo replaced
+it. Handle indirection puts a D1 read in front of that path, and any handle that is unknown or stale
+degrades to precisely the Drive search v167 removed. A privacy change that reintroduces a
+duplicate-folder bug in the field would be a bad trade.
+
+**The scoped version that keeps most of the value:** handles for FOLDERS ONLY. Folder ids are
+already tracked, so it is a wire change rather than a new tracking obligation — and folders are what
+the request-access phish actually targets (you request access to a folder, and a folder id is what
+yields a whole project). File ids would keep flowing as today.
+
+**Original assessment, kept for the reasoning:** right idea, moderate — not easy. It converts "Drive ids are secrets
+scattered across every field device" into "Drive ids never leave the worker", which closes the
+realistic path to the request-access phish: an attacker who dumps a seized phone finds handles that
+mean nothing to Google. It also removes the existence oracle and the id-derived phishing channel for
+everything the device population holds.
+
+**Why it is cheaper than it looks:** the mapping table already exists. `drive_object` has
+`object_id` (the Drive id) as PRIMARY KEY, with `kind`/`doc_id`/`instance_id`/`project_id` already
+maintained at all seven re-parent sites. Add `handle TEXT UNIQUE` (a UUID) plus an index, backfill
+one per existing row, and the model is done.
+
+**And there is a real elegance:** the place a handle must be resolved is exactly the place
+authorization already happens (`authorizeDocForProject`, `authorizeObjectForProject`,
+`memberFileIdsOk`). Translation and authorization collapse into one step — a handle that does not
+resolve *for this caller* is simply not found, which is the same 404 everything else answers.
+
+**Measured blast radius (2026-08-28):** 17 worker responses hand a Drive id to a client. Client-side
+references: `researcher-panel.js` 102, `app.js` 38, `upload.js` 19, `researcher.js` 17, `sync.js` 0
+— but most of those are one of a few variables threaded through UI, not 102 decisions.
+
+**The genuinely hard part is the fleet, not the mapping.** This is a wire-format change to the
+DEVICE protocol, and deployed devices cannot be forced to update. It needs a dual-read window:
+accept a handle OR a legacy raw id on input, and keep emitting what the caller understands, until
+the estate has turned over. The v167 dedupe contract (device echoes back the `folderId` it was
+given) works unchanged once the device echoes a handle instead.
+
+**Deliberate exceptions:**
+- The OWNER's "Open in Drive" needs a real id. Best shape: the worker returns the finished
+  `drive.google.com/…` URL on an owner-only request, so even then the id never sits in client state.
+- The user's own OAuth identity stays visible to their own panel (Seth's carve-out; this is the v463
+  header).
+
+**Complements, does not replace, an ACL-drift check:** the invariant is that every project/device
+folder carries exactly ONE permission — the owner's (verified empirically 2026-08-28). A periodic
+worker check that lists permissions on its own folders and raises a panel warning when anything else
+appears would DETECT an accepted phish, which handles the case where an id leaked by some other
+route. Handles prevent; the drift check notices.
+
+**Shipped in the meantime (v465):** the Coworkers modal now warns, at the moment a member is added,
+never to accept Google Drive access requests for these folders — because the correct answer is always
+no: sharing works through the panel and a coworker never needs Drive permissions.

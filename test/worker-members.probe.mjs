@@ -303,6 +303,46 @@ console.log('\nwhat that member CAN do, and what they still cannot');
   const strippedCmd = await call('POST', `/v1/instances/${idA}/command`, GUEST,
     { command: { type: 'setDone', id: 'probedoc' } });
   ok(strippedCmd.status === 404, `and stripping the cap closes it again (got ${strippedCmd.status})`);
+
+  /* ⚠⚠ assignTexts ALONE — THE COMBINATION THAT WAS BROKEN, and the one an owner is most likely to
+   * grant. Until v480 the append route was gated on manageDevices for EVERY command, with assignTexts
+   * checked as an ADDITIONAL requirement for the four text types. That AND was correct while
+   * assignTexts was deferred and wrong the moment it became grantable: ticking only "Work with texts
+   * — assign texts, mark done, delete from devices" produced three buttons that all answered 404 —
+   * and an assign whose FILES still reached the owner's Drive with no command delivered. Work
+   * performed, nothing delivered, no error the member could act on.
+   *
+   * ⚠ EVERY TEST ABOVE MISSED IT because they all grant manageDevices too, which is exactly how the
+   * bug survived: the capability matrix was tested along its diagonal and never at this corner. That
+   * is the reason this arm exists rather than a broader assertion.
+   *
+   * The second half is as load-bearing as the first: assignTexts must NOT have bought device
+   * management on the way past. capForCommand() splits them, so a text command passes and a rename
+   * still refuses, on the same credentials in the same breath. */
+  await call('POST', `/v1/projects/${projectId}/members`, OWNER, {
+    researcher_id: FIXTURE.outsiderId, caps: { assignTexts: true },
+  });
+  for (const type of ['assign', 'delete', 'uploadDelete', 'setDone']) {
+    const res = await call('POST', `/v1/instances/${idA}/command`, GUEST,
+      { command: { type, id: 'probedoc' } });
+    ok(res.status === 200,
+       `⚠⚠ assignTexts WITHOUT manageDevices: ${type} is ACCEPTED (got ${res.status})`);
+  }
+  const noManage = await call('POST', `/v1/instances/${idA}`, GUEST, { nickname: 'should-refuse' });
+  ok(noManage.status === 404,
+     `⚠ ...and it did NOT buy device management — rename still 404s (got ${noManage.status})`);
+
+  /* Cancel follows the SAME split, or a member could start something they cannot stop. */
+  const q = await call('POST', `/v1/instances/${idA}/command`, GUEST,
+    { command: { type: 'setDone', id: 'probedoc' } });
+  const seq = q.json && q.json.seq;
+  if (seq) {
+    const canc = await call('POST', `/v1/instances/${idA}/command/cancel`, GUEST, { seq });
+    ok(canc.status === 200,
+       `⚠ assignTexts can WITHDRAW its own queued text command (got ${canc.status})`);
+  } else {
+    ok(false, 'could not read a seq back from the queued command — cancel arm did not run');
+  }
 }
 
 console.log('\n⚠⚠ a member device action is ATTRIBUTED to the MEMBER, not the owner');

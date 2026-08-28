@@ -3440,9 +3440,15 @@ async function inviteModal(instanceId) {
  * queues a resilient background upload; the assign command goes out only after the upload
  * finishes, so a dropped connection can never produce a half-assignment. */
 function assignModal(instanceId) {
+  /* ⚠ WHOSE DRIVE THE FILES LAND IN DEPENDS ON WHO IS SENDING. An assign-by-upload always writes
+   * into the DEVICE OWNER's Drive — that is the point of the route — so telling a coworker their
+   * files are "stored privately in your Drive" is simply false, and it is false about the one thing
+   * a researcher most needs to be right about (Seth's standing line on Drive scope). Found by
+   * opening the real modal on the member seat rather than by reading the string. */
+  const assignAsMember = !((lastData && lastData.instances) || []).some((x) => x.instance_id === instanceId);
   const m = modal(`
     <h3>${esc(t('panel.assign.title'))}</h3>
-    <p class="note">${esc(t('panel.assign.intro'))}</p>
+    <p class="note">${esc(t(assignAsMember ? 'panel.assign.introMember' : 'panel.assign.intro'))}</p>
     <label class="rp-field"><span>${esc(t('panel.assign.titleField'))}</span><input id="rp-as-title" spellcheck="false"></label>
     <label class="rp-field"><span>${esc(t('panel.assign.audioFile'))}</span><input type="file" id="rp-as-audio" accept="audio/*,.wav,.mp3,.m4a,.aac,.ogg,.oga,.opus,.webm,.flac,.3gp,.amr"></label>
     <label class="rp-field"><span>${esc(t('panel.assign.flextextFile'))}</span><input type="file" id="rp-as-ft" accept=".flextext,.xml"></label>
@@ -5626,7 +5632,6 @@ async function renderMemberProjectContent(mp) {
   if (caps.createInvites) capBits.push(t('panel.share.capInvite'));
   if (caps.assignTexts) capBits.push(t('panel.share.capAssign'));
   if (caps.drive) capBits.push(t('panel.share.capDrive'));
-  if (caps.assignTexts) capBits.push(t('panel.share.capAssign'));
   return `<p class="note rp-joined-note"><span class="rp-badge rp-badge-type">${esc(t('panel.joined.tag'))}</span>
       ${esc(capBits.length ? t('panel.joined.note', { caps: capBits.join(', ') }) : t('panel.joined.noteNone'))}</p>
     ${cards.join('') || `<p class="note">${esc(t('panel.joined.empty'))}</p>`}`;

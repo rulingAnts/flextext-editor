@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v476';
+export const ENGINE_VERSION = 'v477';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v476';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'phase-cd v31';
+export const BUILD_TAG = 'phase-cd v32';
 
 const S = {
 en: {
@@ -1216,6 +1216,7 @@ internet after the first time.</p>
   'panel.invite.fixSettings': 'This device is missing required settings. Fix them, then create the invite link.',
   'panel.assign.title': 'Assign a text',
   'panel.assign.intro': 'Pick the actual files to send: the recording and/or the flextext. They are stored privately in your Drive and delivered straight to the device — no links, no sharing settings.',
+  'panel.assign.introMember': 'Pick the actual files to send: the recording and/or the flextext. They are stored privately in the project owner’s Drive and delivered straight to the device — no links, no sharing settings.',
   'panel.assign.titleField': 'Title',
   'panel.assign.audioFile': 'Audio recording (optional)',
   'panel.assign.flextextFile': 'Flextext file (optional)',
@@ -3035,6 +3036,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.invite.fixSettings': 'Perangkat ini belum memiliki pengaturan wajib. Perbaiki dulu, lalu buat tautan undangan.',
   'panel.assign.title': 'Tugaskan teks',
   'panel.assign.intro': 'Pilih berkas yang akan dikirim: rekaman dan/atau flextext. Berkas disimpan secara pribadi di Drive Anda dan diantar langsung ke perangkat — tanpa tautan, tanpa pengaturan berbagi.',
+  'panel.assign.introMember': 'Pilih berkas yang akan dikirim: rekaman dan/atau flextext. Berkas disimpan secara pribadi di Drive pemilik proyek dan diantar langsung ke perangkat — tanpa tautan, tanpa pengaturan berbagi.',
   'panel.assign.titleField': 'Judul',
   'panel.assign.audioFile': 'Rekaman audio (opsional)',
   'panel.assign.flextextFile': 'Berkas flextext (opsional)',

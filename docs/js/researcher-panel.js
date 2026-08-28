@@ -2120,7 +2120,11 @@ async function populateFilesMenu(wrap) {
       pre.push(`<button class="rp-dl-item rp-dl-all" data-zipall data-i="${esc(iid)}" data-id="${esc(docId)}" data-title="${esc(title)}">
         <span class="rp-dl-name">${esc(t('panel.dl.all'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.allSubRaw', { n: allFiles.length }))}</span></button>`);
     }
-    if (folderId) {
+    /* ⚠ OWNER ONLY — and this is the SECOND of the two places that render it. v469 gated the other
+     * one and shipped believing the job was done; a member's menu still carried this link, complete
+     * with a live Drive folder id, until it was opened and looked at. Grep for every render site,
+     * not the first. */
+    if (folderId && !viaMember) {
       pre.push(`<a class="rp-dl-item" role="menuitem" href="${esc(driveFolderLink(folderId))}" target="_blank" rel="noopener noreferrer">
         <span class="rp-dl-name">${esc(t('panel.dl.openFolder'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.openFolderSub'))}</span></a>`);
     }

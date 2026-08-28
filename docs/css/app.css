@@ -2504,3 +2504,11 @@ body.rp-standalone main { padding-top: 0; }
 /* Release-notes sections — a heading between the two lists, tighter than a document h4 because it
    sits inside a modal already carrying an h3. */
 .rp-rel-h { margin: 14px 0 4px; font-size: 14px; }
+
+/* ⚠ TEMPORARY, with the header researcher-ID line — delete this rule in the same commit that lands
+   the one-time-use invite link and removes the ID from the header. Monospace because it is a uuid
+   people transcribe; user-select:all so one click takes the whole string, since a partially selected
+   id is a support conversation. */
+.rp-who-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.7rem;
+  opacity: 0.72; user-select: all; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 46vw; }

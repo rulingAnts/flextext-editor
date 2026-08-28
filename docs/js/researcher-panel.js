@@ -1007,9 +1007,28 @@ function whoHtml() {
   try { id = Researcher.accountIdentity ? Researcher.accountIdentity() : id; } catch { /* locked / old build */ }
   if (!id.email && !id.name) return '';
   const label = id.name && id.email ? `${id.name} · ${id.email}` : (id.name || id.email);
+  /* ⚠⚠ TEMPORARY — REMOVE WITH THE INVITE-LINK WORK (Seth, 2026-08-28: "as long as our panel depends
+   * on the researcher ID, can you print it underneath the e-mail address in the header? We'll remove
+   * that when we're done").
+   *
+   * It is here because joining a project currently REQUIRES a person to find this string and send it
+   * to someone — and it lives in Account, which a first-time coworker has no reason to open. Putting
+   * it on screen is a crutch for a flow that should not need one.
+   *
+   * ⚠ THE CONDITION FOR DELETING IT IS WRITTEN DOWN, so this does not quietly become permanent: when
+   * a one-time-use invite link replaces the ID exchange (plans/BACKLOG.md, "Coworker pairing"), the
+   * owner never learns the ID and nobody needs to read it off a screen. Delete this block, its two
+   * strings and the .rp-who-id rule in the SAME commit that lands the link.
+   *
+   * ⚠ It is YOUR OWN id, which is why showing it is acceptable at all — it is already on the Account
+   * screen. It is NOT a step toward showing anyone else's; that is the opposite direction, and the
+   * backlog entry above it says so. `user-select: all` so one click selects the whole thing: the
+   * point is to get it into a message, and a hand-selected uuid is a transcription error waiting. */
+  const rid = (() => { try { return Researcher.currentAccountId() || ''; } catch { return ''; } })();
   return `<span class="rp-who" title="${esc(t('panel.who.title', { who: label }))}">
     ${id.avatar ? `<img class="rp-who-av" src="${esc(id.avatar)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}
-    <span class="rp-who-txt">${esc(label)}</span></span>`;
+    <span class="rp-who-txt">${esc(label)}</span></span>${
+    rid ? `<span class="rp-who-id" title="${esc(t('panel.who.idTip'))}">${esc(rid)}</span>` : ''}`;
 }
 
 function header(titleKey, withLock) {

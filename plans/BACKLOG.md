@@ -5,6 +5,43 @@
 > one is the way in.
 
 
+## A coworker's NAME, EMAIL and AVATAR must not be reachable from their ID (Seth, 2026-08-28)
+
+**NEXT RELEASE.** The Coworkers list currently shows, for every member of a project: display name,
+Gmail address, avatar, and the raw researcher_id. Seth: *"we want member researcher e-mail address and
+avatar and name not to be accessible from their ID like this."*
+
+⚠ **THIS OVERRIDES A DECISION THE CODE ARGUES FOR**, which is why it is written down rather than just
+done. worker/src/v1.js (the GET members route) carries a comment justifying the disclosure: the
+relationship is mutual, the member handed over their ID to be added at all, so showing the owner who
+they are "reveals nothing the exchange did not already establish." That reasoning is about CONSENT and
+it is sound. It is answered by a different question: what the panel HOLDS on a device that is lost or
+no longer in trusted hands. A collaborator directory — real names, real addresses — is exactly what
+v449 removed from DEVICE pairing, on the same reasoning, and the researcher panel kept it.
+
+**It is cheaper than it looks: the identity is NOT STORED per membership.** `project_member` is
+`(project_id, researcher_id, caps, added_at, added_by)` — nothing else. The name/email/avatar are
+JOINED at read time from the `researcher` row, where they legitimately live because that account needs
+them for its own sign-in. So this is a ROUTE change, not a data migration, and nothing has to be
+deleted or re-encrypted.
+
+**The shape, and it composes with the invite-link work above:**
+- Drop the JOIN. The route returns membership + caps, and no identity.
+- The owner needs *some* handle. A short PAIRING CODE derived from the researcher_id (the vocabulary
+  devices already use) plus a LOCAL NICKNAME the owner types, stored in their own Kr-encrypted
+  settings blob — never server-side, so it cannot leak from D1 either.
+- ⚠ With one-time-use invite LINKS, the owner never learns the coworker's ID in the first place, so
+  the two changes want doing together: the link removes the exchange, this removes the residue.
+
+⚠ **Keep the property that already holds:** the worker offers no id-to-identity lookup, so there is no
+directory to query. This closes the one route that effectively was one, for the people in it.
+
+⚠ **What must still work afterwards:** the owner has to be able to tell two coworkers apart to grant
+capabilities correctly, and to recognise which one to remove. A code nobody can map to a person is
+safe and useless. The local nickname is what carries that, which is why it is part of the design
+rather than a nicety.
+
+
 ## Coworker pairing: a ONE-TIME-USE LINK, shared by the researchers themselves (Seth, 2026-08-28)
 
 **DECIDED, for a future release — not this one.** Seth: *"for security's sake, I think what we'll want

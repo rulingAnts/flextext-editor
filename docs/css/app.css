@@ -993,7 +993,6 @@ main {
 .rp-cv-src { font-weight: 600; }
 /* "Open FlexText Editor" on the This-device card. An <a>, not a button — it is a real link, so
    middle-click and copy-link work — styled to sit exactly where that card's action button sat. */
-.rp-open-editor { text-decoration: none; display: inline-flex; align-items: center; white-space: nowrap; }
 
 /* Converter before/after players: a play button + a (per-channel, when split) waveform. */
 .cv-player { display: flex; align-items: center; gap: 10px; margin: 4px 0 2px; }

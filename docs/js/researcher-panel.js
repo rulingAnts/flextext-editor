@@ -1618,22 +1618,14 @@ async function renderDashboard(prefetched) {
         </div>
       </div>`).join('')}
     </div>` : ''}
-    <div class="rp-card rp-self">
-      <div class="rp-inst-top">
-        <span class="rp-inst-name">${esc(t('panel.dash.thisDevice'))}</span>
-        <!-- HOME.editor, NEVER a hard-coded app.flextext.app. Both estates are live and a PWA's
-             identity IS its origin: sending a researcher whose editor is installed from the Pages
-             origin to the Cloudflare one hands them a DIFFERENT app with an empty IndexedDB, looking
-             entirely fine. On the Cloudflare panel this resolves to exactly app.flextext.app; on the
-             legacy panel to the Pages editor; on localhost to the dev rig. -->
-        <a class="secondary-btn rp-open-editor" href="${esc(HOME.editor)}" target="_blank" rel="noopener noreferrer">${esc(t('panel.dash.openEditor'))}</a>
-      </div>
-      ${/* ⚠ Opening the editor does NOT pair it (issue #3): a new researcher clicked this, met an
-          unlinked editor, and reasonably read the link as broken. Say what the button does and
-          what pairing actually takes — one line, only while they have no devices yet (the moment
-          the confusion exists; a researcher with devices knows). */''}
-      ${!insts.length ? `<p class="note">${esc(t('panel.dash.openEditorNote'))}</p>` : ''}
-    </div>
+    ${/* ⚠ THE "This device" CARD IS GONE (Seth, 2026-08-28: "It is confusing and unhelpful").
+         It held one link — Open FlexText Editor — plus a note explaining that the link does NOT pair
+         the editor, which existed because a new researcher clicked it, met an unlinked editor and
+         reasonably read the link as broken (issue #3). A control that needs a paragraph disclaiming
+         what it does not do is the wrong control: the card invited a pairing action it could not
+         perform, at the top of the dashboard, where a first-time user reads first.
+         Nothing is stranded by removing it — the editor is reachable by its own short URL, from
+         flextext.app, and through any invite link the researcher makes (Seth). */''}
     ${renderProjectsCard(estateCache)}
     ${(() => {
       /* ONE PROJECT AT A TIME once projects exist; the classic flat layout otherwise, byte for byte.

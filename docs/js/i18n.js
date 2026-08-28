@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v494';
+export const ENGINE_VERSION = 'v495';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1422,7 +1422,11 @@ internet after the first time.</p>
   'panel.rel.isTestBuild': 'This is a test site, not production.',
   'panel.rel.newTitle': 'What’s new',
   'panel.rel.knownTitle': 'Known issues',
-  'panel.rel.reportRest': 'The issues above are already known — no need to report them. Anything else, please do.',
+  /* ⚠ NOT "these are known, no need to report them" (Seth: "that last sentence is unnecessary. My
+   * coworker isn't stupid"). Telling a tester what not to bother saying spends the sentence on the
+   * least useful thing it could do. The list already establishes what is known; what is NOT known is
+   * which of them is costing them the most, and only they can say. */
+  'panel.rel.prioritise': 'Which of these gets in your way most? That is what decides the order they are fixed in — say so, and it moves up.',
   'panel.rel.new.share': 'You can share a project with a colleague and choose what they may do — manage devices, invite devices, work with texts, download files. They never get access to your Google Drive.',
   'panel.rel.new.memberFiles': 'A colleague with “download files” can open a text’s Files menu and build the ELAN, SayMore, listening-page and paragraph-analysis outputs, the same as you.',
   'panel.rel.new.projectLifecycle': 'You can delete a project once it has no devices left in it, and a colleague can leave a project they were added to.',
@@ -3262,7 +3266,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.rel.isTestBuild': 'Ini situs uji, bukan produksi.',
   'panel.rel.newTitle': 'Yang baru',
   'panel.rel.knownTitle': 'Masalah yang diketahui',
-  'panel.rel.reportRest': 'Masalah di atas sudah diketahui — tidak perlu dilaporkan. Selain itu, mohon laporkan.',
+  'panel.rel.prioritise': 'Mana di antara ini yang paling menghambat pekerjaan Anda? Itulah yang menentukan urutan perbaikannya — sampaikan saja, dan prioritasnya naik.',
   'panel.rel.new.share': 'Anda dapat berbagi proyek dengan rekan kerja dan memilih apa yang boleh mereka lakukan — mengelola perangkat, mengundang perangkat, mengerjakan teks, mengunduh berkas. Mereka tidak pernah mendapat akses ke Google Drive Anda.',
   'panel.rel.new.memberFiles': 'Rekan kerja dengan “mengunduh berkas” dapat membuka menu Berkas sebuah teks dan membuat keluaran ELAN, SayMore, halaman simak, dan analisis paragraf, sama seperti Anda.',
   'panel.rel.new.projectLifecycle': 'Anda dapat menghapus proyek setelah tidak ada perangkat di dalamnya, dan rekan kerja dapat keluar dari proyek yang membagikannya kepada mereka.',

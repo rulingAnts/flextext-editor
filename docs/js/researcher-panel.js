@@ -1090,7 +1090,7 @@ function releaseNotesModal() {
       onStagingEstate() ? ' ' + esc(t('panel.rel.isTestBuild')) : ''}</p>
     ${section('panel.rel.newTitle', WHATS_NEW)}
     ${section('panel.rel.knownTitle', KNOWN_ISSUES)}
-    ${KNOWN_ISSUES.length ? `<p class="note">${esc(t('panel.rel.reportRest'))}</p>` : ''}
+    ${KNOWN_ISSUES.length ? `<p class="note">${esc(t('panel.rel.prioritise'))}</p>` : ''}
     <div class="modal-actions"><button class="primary-btn" data-m="cancel">${esc(t('panel.help.close'))}</button></div>`);
 }
 
@@ -1146,7 +1146,17 @@ function modal(innerHtml, wide, onClose) {
   const focusables = () => Array.from(wrap.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])'));
   // onClose fires on EVERY close path (button, backdrop, Escape) — callers use it to release resources
   // (e.g. destroy WaveSurfer players + revoke object URLs in the converter).
-  const close = () => { document.removeEventListener('keydown', onKey, true); wrap.remove(); try { onClose && onClose(); } catch { /* noop */ } try { prevFocus && prevFocus.focus(); } catch { /* noop */ } };
+  /* ⚠ IDEMPOTENT, and that is load-bearing now that data-m="cancel" is wired BELOW as well as by most
+   * callers by hand. Without the guard those two paths would both fire, and `onClose` runs twice —
+   * which for the converter modal means destroying WaveSurfer players and revoking object URLs a
+   * second time. Closing an already-closed modal is a no-op, not a second teardown. */
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    document.removeEventListener('keydown', onKey, true); wrap.remove();
+    try { onClose && onClose(); } catch { /* noop */ } try { prevFocus && prevFocus.focus(); } catch { /* noop */ }
+  };
   function onKey(e) {
     if (e.key === 'Escape') { e.preventDefault(); close(); return; }
     if (e.key === 'Tab') {                       // simple focus trap
@@ -1159,6 +1169,16 @@ function modal(innerHtml, wide, onClose) {
   }
   document.addEventListener('keydown', onKey, true);
   wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
+  /* ⚠ data-m="cancel" IS WIRED HERE, not left to each caller. Escape and the backdrop were handled;
+   * the CANCEL BUTTON was not, so a modal whose author forgot the one-line
+   * `m.el.querySelector('[data-m="cancel"]').onclick = m.close` shipped with a dead Close button —
+   * which is exactly what the release-notes modal did, and it took a user to notice. Most callers
+   * still wire it themselves and that is now harmless redundancy, because close() is idempotent. */
+  /* BOTH dismissal conventions. The panel grew two names for one act — data-m="cancel" and
+   * data-m="close" — and wiring only the first would have left the same dead-button hole open under
+   * the other name. Action buttons (save, clear, ok) are deliberately NOT bound: those DO something
+   * and their callers decide whether the modal survives it. */
+  wrap.querySelectorAll('[data-m="cancel"], [data-m="close"]').forEach((b) => b.addEventListener('click', close));
   setTimeout(() => { const f = focusables()[0]; if (f) { try { f.focus(); } catch { /* noop */ } } }, 0);
   return { el: wrap, close };
 }

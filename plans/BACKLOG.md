@@ -4076,3 +4076,52 @@ make. Silent deletion there would be data loss dressed as tidiness.
   trashed.
 - ⚠ Anything that deletes Drive content must be owner-only regardless of member capabilities, and
   should route through the trash (recoverable for 30 days) rather than a permanent delete.
+
+## Researcher↔researcher pairing by CODE + local nickname, not real identity (Seth, 2026-08-28)
+
+> *"For researchers, it's a better idea for us not to have their actual name/e-mail/avatar delivered
+> to the owner researcher, but rather use a simple pairing code similar to what's done with devices.
+> Just give the researchers on both ends the ability to give that pairing a nickname … nothing in
+> our app automatically gives bad actors free information about other researchers if they seize a
+> device or compromise an account."*
+
+**⚠ This deliberately REVERSES part of v449, and the reversal is an improvement rather than a
+correction of a mistake.** v449 added the coworker identity row (avatar + display name + email) to
+the Coworkers modal because the owner had *"no info about the coworker except the ID"* — a real
+usability problem: a raw UUID is unusable for deciding who you are granting access to. The nickname
+solves that same problem **without** making every account compromise a disclosure of a colleague's
+name and address. Same need, better mechanism.
+
+**Shape, mirroring the device pairing that already works:**
+- The join is established by a short **pairing code** the two researchers verify out of band (the
+  same recognition mechanism devices use since the identity-free claim change of v452), not by one
+  party typing the other's UUID or email.
+- Each side stores its **own local nickname** for the pairing. Whether that nickname is the person's
+  real name is the researcher's choice, made offline — the app never decides it for them.
+- The members listing stops joining the `researcher` identity table. `GET /v1/projects/<id>/members`
+  returns `{researcher_id, caps, granted, pubkey_set, nickname}` and no PII at all.
+
+**What this is worth beyond privacy:** it removes the last join between `project_member` and
+personal data, which is a concrete step toward
+[the D1 cleartext-email minimisation goal](#minimise-cleartext-email-addresses-in-d1) rather than a
+competing one.
+
+**Stays as-is:** the v463 panel header showing the signed-in account's OWN name/email/avatar. That
+is the account holder reading their own identity on their own screen — the thing that tells two open
+panels apart — and it discloses nothing about anybody else.
+
+## Members can leave a project themselves — "Leave project" (Seth, 2026-08-28)
+
+Today `DELETE /v1/projects/<id>/members` is owner-only, so a member cannot end their own
+participation; only the owner can remove them. A member must be able to withdraw — it is their
+access to end, and requiring the owner's cooperation is wrong in exactly the situations where it
+matters most.
+
+- Route: allow the DELETE when `researcher_id` in the body **is the caller** and the caller is a
+  member of that project (`authMember`, no capability needed — leaving is not a privilege).
+- Must do everything owner-initiated removal does, in the same batch: drop the `project_member` row
+  AND delete the member's key grants, so leaving is a real withdrawal rather than a UI state.
+- Panel: a "Leave project" control on the shared-project tab, confirmed, warning that they will lose
+  access to the project's devices and texts until re-invited.
+- ⚠ The owner must still see it happened — log it via `logApproval` like any other membership change,
+  or an owner discovers a coworker is gone with no record of why.

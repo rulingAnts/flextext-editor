@@ -237,8 +237,8 @@ This is the part that has caused real outages when done wrong — read
 - **A project is the access boundary.** `authMember(req, env, target, needCap)` in
   `worker/src/v1.js` is the single authority: the owner (`project.owner_id`) holds everything;
   a coworker (`project_member` row) gets exactly the capabilities granted — v1 grants only
-  `manageDevices` and `createInvites` (`validateCaps` is a strict allowlist; the Drive
-  capabilities are deferred until per-project Drive access is complete). Denial is always **404,
+  `manageDevices`, `createInvites`, `assignTexts` and `drive: 'read'` (`validateCaps` is a strict
+  allowlist; `drive: 'manage'` and `cancelOthers` are still refused). Denial is always **404,
   indistinguishable from absence** — never 403, which would enumerate ids.
 - **Membership alone reads nothing.** Metadata is E2EE, so adding a coworker also mints them
   **wrapped device keys**: the panel wraps each project device's Ki to the member's published
@@ -280,6 +280,37 @@ This is the part that has caused real outages when done wrong — read
   cannot find come back in `skipped`, never swallowed. The `flextextUnassigned:'1'` tag means
   "the sweep filed this" and is **cleared** on researcher-directed filings, so the housekeeping
   return-trip cannot undo an explicit cross-project move.
+
+#### Known limitations of coworker sharing (v1, as shipped)
+
+These are deliberate or unfinished, not defects to be rediscovered. Each says what a coworker sees,
+because the failure mode that matters is a limit that is *silent*.
+
+- **Only the project OWNER can approve a device pairing.** A coworker with `manageDevices` can mint
+  an invite and walk a field user through pairing, but the panel does not offer them Approve, and
+  the worker's key route refuses them. The reason is E2EE: `wrapped_key` is opaque ciphertext the
+  worker cannot inspect, so a coworker could otherwise install a key the OWNER cannot read and lock
+  them out of their own device. The coworker's card says the owner must finish, and the owner is
+  warned of this **before** they invite anyone.
+  ⚠ *Fixable later, and the design is agreed:* store an owner-written SHA-256 of Ki on the instance,
+  serve it with the wrapped key, and have the DEVICE verify after unwrapping — a substituted key then
+  cannot land at all. The check lives on the device, so the engine must reach the field **before**
+  the route opens, gated on reported engine version. See `plans/BACKLOG.md`.
+  ⚠ *Practical consequence worth telling teams:* whoever actually sets up devices should OWN the
+  project; a hands-off researcher should join theirs rather than creating one and sharing it.
+- **Crowd recorders are invisible to a coworker.** The shared-project tab renders device cards only,
+  so a project's crowd recorders show no trace at all — not an empty section, not a note. A coworker
+  will reasonably conclude the project has none. Undecided rather than designed; see the backlog.
+- **A coworker cannot browse Drive, delete, or re-parent.** `drive: 'read'` covers listing and
+  downloading a text's files through project-scoped routes. Deleting to trash, moving between
+  projects, and "Open in Drive" stay owner-only, and those controls are **absent** for a coworker
+  rather than disabled. Drive-storage views always show the caller's OWN Drive, and say so when the
+  caller is in a shared project.
+- **An unclaimed invite LINK cannot be retrieved by the other researcher.** Only its hash is stored,
+  so nobody can re-display a link — including whoever minted it. Either researcher can mint a fresh
+  one; earlier links stay valid until claimed or expired.
+- **Unassigned texts and the Drive estate are owner-only.** A coworker acts on texts that live on a
+  device; the project's unassigned pile is not part of the shared view.
 
 ## 7. Native shells & the bridge contract
 

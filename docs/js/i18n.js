@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v472';
+export const ENGINE_VERSION = 'v474';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v472';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'phase-cd v27';
+export const BUILD_TAG = 'phase-cd v29';
 
 const S = {
 en: {
@@ -390,6 +390,7 @@ en: {
   'panel.opt.abm.30': '30 minutes',
   'panel.opt.abm.60': '1 hour',
   'panel.inst.delText': 'Remove from device',
+  'panel.inst.untitledText': 'Untitled text',
   'panel.inst.confirmDelText': 'The device will first upload “{title}” to Drive (a fresh time-stamped copy), then delete it from the device. The text is only deleted after the upload is confirmed safe. Continue?',
   'panel.inst.cancelUpload': 'Cancel upload',
   'panel.inst.cancelDelete': 'Cancel removal',
@@ -2279,6 +2280,7 @@ id: {
   'panel.opt.abm.30': '30 menit',
   'panel.opt.abm.60': '1 jam',
   'panel.inst.delText': 'Hapus dari perangkat',
+  'panel.inst.untitledText': 'Teks tanpa judul',
   'panel.inst.confirmDelText': 'Perangkat akan terlebih dahulu mengunggah “{title}” ke Drive (salinan baru berstempel waktu), lalu menghapusnya dari perangkat. Teks hanya dihapus setelah unggahan dipastikan aman. Lanjutkan?',
   'panel.inst.cancelUpload': 'Batalkan unggahan',
   'panel.inst.cancelDelete': 'Batalkan penghapusan',

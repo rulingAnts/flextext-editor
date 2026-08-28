@@ -4457,3 +4457,23 @@ to it"). v470's owner-side key sweep stays, because it also repairs installs who
 was interrupted. And the constraint is deliberately VISIBLE: a team whose owner will not be bothered
 with approvals should reverse who owns the project, and they can only decide that if they can see
 the limit.
+
+## Crowd recorders are invisible to members in a shared project (found 2026-08-28)
+
+`renderCrowdCard` is called from the FLAT branch and the owned-project tab only; the shared-project
+tab (`renderMemberProjectContent`) renders device cards and nothing else. So a project containing
+crowd recorders shows a coworker no trace of them — not an empty section, not a note, nothing.
+
+⚠ It is silent, which is the part that matters. A member helping run a project with crowd collection
+sees a dashboard that looks complete and simply lacks a feature, so the natural conclusion is that
+the project has no recorders rather than that they cannot see them.
+
+**The decision to make (not obviously either way):**
+- Crowd recorders are a PUBLIC intake surface — a link anyone can submit through — so the privacy
+  argument that keeps Drive owner-only does not apply in the same form.
+- But their config includes the prompt and the consent wording, and editing those is closer to
+  changing what participants are told than to managing a device.
+
+Cheapest honest option for v1: render the section for members read-only, or a single line saying the
+project has N crowd recorders that only the owner can manage. Either beats silence. Full member
+management of crowd recorders needs its own capability and is a separate piece of work.

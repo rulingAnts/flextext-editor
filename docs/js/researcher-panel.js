@@ -1807,6 +1807,25 @@ function histHasMenu(e) { return FILES_MENU_ENABLED && !!(e.instanceId && e.docI
  *
  * The row keeps this span because it carries the identity (dataset) the modal is seeded from; the
  * LIST lives in the modal. */
+/* What to CALL a text on a device card. Titles are E2EE inside the reported inventory and are meant
+ * to be read by whoever holds the key — Seth, 2026-08-28: "Text titles are OK to share. Please
+ * don't just use ids for those." The old expression fell through to `titleHash`, so a text with no
+ * name showed a 16-character hex string, which tells a human nothing and looks like an internal id.
+ *
+ * ⚠ THE THREE CASES ARE DIFFERENT AND THE MIDDLE ONE IS THE POINT:
+ *   · a real title            → show it;
+ *   · `title` present but ''  → the text genuinely has no name; say "Untitled text", the same words
+ *                               the editor itself shows, so both screens agree;
+ *   · no `title` field at all → a LEGACY device that only ever reported a hash. Saying "Untitled"
+ *                               there would be a lie — the text has a name, we just cannot see it —
+ *                               so the hash remains, as the honest "unknown" it always was. */
+function textLabel(d) {
+  const title = typeof d.title === 'string' ? d.title.trim() : null;
+  if (title) return title;
+  if (typeof d.title === 'string') return t('panel.inst.untitledText');
+  return d.titleHash || t('panel.inst.untitledText');
+}
+
 function filesMenuHtml(instanceId, docId, title, audioUrl, fileId, viaMember) {
   if (!FILES_MENU_ENABLED) return '';
   if (!docId) return '';
@@ -2987,7 +3006,7 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
           : `${d.hasAudio ? esc(t('panel.inst.audio')) : ''}${doneTag ? (d.hasAudio ? ' · ' : '') + doneTag : ''}`;
         return `<li class="rp-text-row ${deleting ? 'rp-pending-del' : ''}${d.__assigning ? ' rp-pending-assign' : ''}">
           <div class="rp-text-main">
-            <div class="rp-text-title">${esc(d.title || d.titleHash || '?')} <span class="rp-tag rp-tag-${DISP}">${esc(t('panel.up.' + DISP))}</span>${delTag}</div>
+            <div class="rp-text-title">${esc(textLabel(d))} <span class="rp-tag rp-tag-${DISP}">${esc(t('panel.up.' + DISP))}</span>${delTag}</div>
             <div class="note rp-text-meta">${meta}</div>
           </div>
           <div class="rp-text-actions">${dl}${up}${moveBtn}${del}</div>

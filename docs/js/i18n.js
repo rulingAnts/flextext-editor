@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v504';
+export const ENGINE_VERSION = 'v505';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1486,7 +1486,12 @@ internet after the first time.</p>
   'panel.share.added': '“{who}” can now help with this project.',
   'panel.share.addedKeyed': '“{who}” can now help with this project — {n} device(s) unlocked for them.',
   'panel.share.addedNoKeys': '“{who}” was added, but no devices could be unlocked for them yet: they have not opened their researcher panel, so there is no key to send theirs to. Ask them to sign in once, then remove and re-add them here.',
-  'panel.share.addedSomeKeys': '“{who}” was added, but only {n} of {m} device(s) could be unlocked for them. Remove and re-add them to retry, or check that Drive is reachable.',
+  /* ⚠ SAYS IT RETRIES, because it does. memberGrantSweep diffs each member's granted list against
+   * the project's devices on every full dashboard render and grants what is missing — so a partial
+   * failure here is transient by construction. The old wording told the owner to "remove and re-add
+   * them to retry", which prescribed a DESTRUCTIVE action for something that heals itself, and read
+   * as though the model were fragile when what had happened was one failed request. */
+  'panel.share.addedSomeKeys': '“{who}” was added, and {n} of {m} device(s) were unlocked for them. The rest will be unlocked automatically next time this panel refreshes — leave it open for a moment. Each device is unlocked separately because its recordings are encrypted to that device.',
   'panel.share.addedNoEstate': '“{who}” was added, but Google Drive could not be reached, so no devices were unlocked for them yet. When Drive is back, remove and re-add them here to finish.',
   'panel.share.errNoSuch': 'No approved researcher has that ID. Check the ID, and that they have signed in and been approved.',
   'panel.share.errNotMigrated': 'This project has no Drive project folder yet. Set up project folders before sharing it.',

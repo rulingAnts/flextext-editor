@@ -5,45 +5,58 @@
 > one is the way in.
 
 
-## Member-researcher pairing is functional, not intuitive (Seth, 2026-08-28) — NEXT RELEASE
+## Coworker pairing: a ONE-TIME-USE LINK, shared by the researchers themselves (Seth, 2026-08-28)
 
-> *"In a future release we'll want to improve the pairing/invite process for member researchers to be
-> more intuitive/user-friendly. But this will work for now."*
+**DECIDED, for a future release — not this one.** Seth: *"for security's sake, I think what we'll want
+to do is mint a one-time-use invite link that researchers can share among themselves through WhatsApp,
+Signal, or whatever, not leaving an e-mail address trace behind within our app/browser storage for the
+other researcher."*
 
-**What v482 did**, and it is deliberately the small version: the empty dashboard now also speaks to
-the person it was never written for. `panel.dash.empty` says "No devices yet. Add one to send an
-invite link to a field worker" — owner framing — which tells a coworker joining someone else's
-project to do the one thing they did not come here to do. Beneath it now sits
-`panel.dash.emptyJoin` plus a button straight into Account, where the researcher ID, its copy button
-and a good explanation already lived. Shown ONLY while there are no devices AND no shared projects,
-so it disappears the moment the person is oriented.
+**Why a link and not the email flow that was considered first.** An email invite (owner types an
+address → worker sends via Resend → recipient clicks) is buildable today: `sendEmail()` already exists
+as a single chokepoint in `worker/src/seclog.js`, RESEND_API_KEY is set, and `from` is per-message
+overridable. Storing no address in D1 would have been possible too — mint, send, forget.
 
-**Why that is a patch and not the fix.** The flow still asks two people to coordinate out-of-band
-over an opaque uuid, in this order:
+But "not in D1" is not "not anywhere". The address still passes through the panel's DOM, the worker's
+request, and Resend's own logs and retention. The link removes the category rather than minimising it:
+**the app never learns who the coworker is at all.** The researchers already have a channel they trust
+each other on; the app does not need to become a second one, and on a seized device there is nothing
+to find because nothing was ever written.
 
-1. the coworker signs in, and can do nothing until an OPERATOR approves their account;
-2. they find Account (no reason to look there) and copy a uuid;
-3. they send it to the owner through some channel this app knows nothing about;
-4. the owner pastes it into Add-a-coworker and picks capabilities;
-5. only then does anything appear on the coworker's screen.
+⚠ It also keeps the property the ID-paste flow has and that any replacement must not break: the worker
+deliberately offers NO id-to-identity lookup, because that would be a directory of everyone on the
+deployment. A link names a PROJECT and a set of capabilities — never a person.
 
-Steps 1 and 3 are where it strands people. Nothing tells the coworker they are waiting on approval,
-and nothing tells either side whether the paste worked until the dashboard changes.
+**The pattern is already in this repo** — device pairing. Copy it rather than inventing:
+- `invite` table: `invite_id` (in the link), `secret_hash` (SHA-256 of the secret), `expires_at`,
+  `claimed_at` as an ATOMIC single-use marker, `claimed_install`, `invited_by`.
+- ⚠ **The secret rides the URL FRAGMENT (`#k=…`), never the query.** A fragment is not sent to the
+  server, so it stays out of worker logs, out of `Referer`, and out of any proxy in between. This is
+  how the device links already work and it is the whole reason they are safe to paste into a chat.
+- The panel's invite modal already says the right things — shown once, never re-displayable, a
+  coworker's separate link stays valid, opening it takes over setup.
 
-**Shapes worth considering** (all of them narrow the out-of-band step, which is the actual problem):
-- An **owner-initiated invite link**, like the device pairing links this app already does well — the
-  owner creates it, sends it, the coworker opens it and lands already attached. Reverses who does the
-  copying, and the link can carry the intended capabilities.
-- A **short pairing code** rather than a uuid, matching the device pair-code vocabulary already on
-  screen (v449 removed researcher identity from device pairing in favour of exactly this).
-- **Say the wait out loud**: an unapproved account should say it is waiting for approval, not present
-  an empty owner dashboard.
-- **Confirm the join on both sides** once it lands.
+**Sketch of the work** (roughly a day, once the open question below is answered):
+1. Additive migration: `coworker_invite(invite_id, project_id, secret_hash, caps, expires_at,
+   claimed_at, claimed_by, created_at, created_by)`. No address column, because there is no address.
+2. `POST /v1/projects/<id>/coworker-invites` — owner mints; returns the link ONCE; stores only the hash.
+3. `POST /v1/coworker-invites/<id>/claim` — an authenticated researcher redeems it; CAS on `claimed_at`
+   so a shared link cannot be used twice; inserts the `project_member` row with the stored caps.
+4. Panel: a "Create invite link" button beside the existing paste-an-ID field (KEEP that path — it
+   works with no channel at all), and accept-on-open handling like the device links have.
 
-⚠ Whatever replaces it must keep the property the current design has, which is not an accident: the
-worker deliberately offers NO id-to-identity lookup, because that would be a directory of everyone on
-the deployment. An invite link or code must not become one — it should name a project, not a person,
-and expire.
+**⚠ THE OPEN QUESTION, unchanged by the link design and the real gate on this work:** a brand-new
+researcher still needs OPERATOR APPROVAL before they have a usable account, so a link cannot fully
+self-serve someone who has never signed in. Either they must still be approved — in which case the
+link improves the handover but not the onboarding — or redeeming an owner's invite implies approval,
+which delegates account admission to every existing researcher. That is a security decision, and it
+should be made deliberately rather than discovered during implementation.
+
+**What v483 shipped in the meantime**, deliberately the small version: the empty dashboard said "No
+devices yet. Add one to send an invite link to a field worker" — owner framing, telling a coworker who
+came to help with someone else's project to do the thing they did not come for. It now also carries
+`panel.dash.emptyJoin` and a button into Account, where the researcher ID, its copy button and a good
+explanation already lived. Shown only while there are no devices AND no shared projects.
 
 
 ## NEXT, IN ORDER (Seth, 2026-08-20) — the queue after v433

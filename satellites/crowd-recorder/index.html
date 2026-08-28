@@ -28,30 +28,54 @@
        detection, so this same file ships to production unchanged. -->
   <script>
     if (/\.(pages|workers)\.dev$/.test(location.hostname)) {
-      /* ⚠ MOUNTED BELOW THE APP'S HEADER, not written above it (Seth, 2026-08-28) — but still shown
-         IMMEDIATELY, because the reason this script is inline has not changed: it must appear even
-         when the engine fails to load, which is exactly when knowing which site you are on matters
-         most. So it goes to the top of <body> first and DROPS BELOW the header the moment one
-         exists. That two-step is why this is not simply a moved <script> tag: only three of the five
-         shells have a static <header id="topbar"> — the researcher panel (.rp-head) and the
-         paragraph tool (.pa-bar) render theirs from JS, long after this runs.
-         Self-limiting: the observer disconnects on the first successful placement, and unconditionally
-         after 20s, so a shell with no header at all keeps today's behaviour and stops watching. */
+      /* ⚠ MOUNTED BELOW THE APP'S HEADER, and RE-MOUNTED FOR AS LONG AS THE PAGE LIVES.
+         Shown immediately at the top of <body> first, because the reason this script is inline has
+         not changed: it must appear even when the engine fails to load, which is exactly when knowing
+         which site you are on matters most. Only then does it drop below the header.
+
+         ⚠⚠ THE OBSERVER MUST NEVER DISCONNECT, and that is not caution — the first version of this
+         disconnected after placing the ribbon once, and the ribbon DISAPPEARED. The header is not a
+         child of <body>: in the researcher panel .rp-head lives inside #view-researcher, whose
+         innerHTML the panel rewrites on every 12s poll, taking the ribbon with it. A staging site
+         then silently looked like production, which is the one failure this element exists to
+         prevent. So it re-places itself whenever it has been detached or the header has moved.
+         The guard below is what keeps that from looping: when it is already the header's nextSibling
+         there is nothing to do, so re-placing produces no further mutations.
+         Cost is bounded by construction — this whole block only ever runs on *.pages.dev /
+         *.workers.dev, never in production. */
       var fxRibbon = document.createElement('div');
       fxRibbon.setAttribute('style', 'position:sticky;top:0;z-index:9999;background:repeating-linear-gradient(45deg,#b45309,#b45309 12px,#92400e 12px,#92400e 24px);color:#fff;text-align:center;font:600 13px/1.5 system-ui;padding:4px 8px;');
       fxRibbon.textContent = 'STAGING \u2014 test site \u00b7 situs uji \u2014 not production / bukan produksi';
-      var fxMount = function () {
-        var b = document.body; if (!b) return false;
-        var h = b.querySelector('#topbar, .rp-head, .pa-bar, header');
-        if (h && h.parentNode) { h.parentNode.insertBefore(fxRibbon, h.nextSibling); return true; }
-        if (fxRibbon.parentNode !== b) b.insertBefore(fxRibbon, b.firstChild);
-        return false;
+      var fxHead = function () { return document.body && document.body.querySelector('#topbar, .rp-head, .pa-bar, header'); };
+      /* ⚠ STACK UNDER A STICKY HEADER, sit at the top under a static one — MEASURED, not assumed.
+         The researcher panel's .rp-head is sticky; the editor's #topbar is not. A fixed offset would
+         be wrong in one app or the other: 0 hides the ribbon behind a sticky header (it has the lower
+         z-index of the two by design), and a hard-coded height leaves a gap under a static one. So
+         ask the header what it actually is. */
+      var fxTop = function (h) {
+        if (!h) return '0px';
+        var pos = '';
+        try { pos = getComputedStyle(h).position; } catch (e) { /* detached — treat as static */ }
+        return (pos === 'sticky' || pos === 'fixed') ? Math.round(h.getBoundingClientRect().height) + 'px' : '0px';
       };
-      if (!fxMount()) {
-        var fxObs = new MutationObserver(function () { if (fxMount()) fxObs.disconnect(); });
-        fxObs.observe(document.documentElement, { childList: true, subtree: true });
-        setTimeout(function () { fxObs.disconnect(); }, 20000);
-      }
+      var fxPlace = function () {
+        var b = document.body; if (!b) return;
+        var h = fxHead();
+        if (h && h.parentNode) {
+          if (h.nextSibling !== fxRibbon) h.parentNode.insertBefore(fxRibbon, h.nextSibling);
+          var top = fxTop(h);
+          if (fxRibbon.style.top !== top) fxRibbon.style.top = top;
+          return;
+        }
+        if (fxRibbon.parentNode !== b) b.insertBefore(fxRibbon, b.firstChild);
+      };
+      addEventListener('resize', function () { fxPlace(); });
+      fxPlace();
+      new MutationObserver(function () {
+        if (!fxRibbon.isConnected) { fxPlace(); return; }
+        var h = fxHead();
+        if (h && h.nextSibling !== fxRibbon) fxPlace();
+      }).observe(document.documentElement, { childList: true, subtree: true });
     }
   </script>
 

@@ -43,7 +43,7 @@ console.log('\n...and it is the SAME snippet in all five — drift is the failur
 {
   const grab = (s) => {
     const a = s.indexOf('var fxRibbon');
-    const b = s.indexOf('setTimeout(function () { fxObs.disconnect(); }, 20000);');
+    const b = s.indexOf('}).observe(document.documentElement, { childList: true, subtree: true });');
     return a >= 0 && b > a ? s.slice(a, b) : null;
   };
   const bodies = src.map(([name, s]) => [name, grab(s)]);
@@ -60,8 +60,19 @@ for (const [name, s] of src) {
      `${name}: ⚠ falls back to the TOP of body, so a failed engine still announces the site`);
   ok(/querySelector\('#topbar, \.rp-head, \.pa-bar, header'\)/.test(s),
      `${name}: ⚠ knows all four header shapes — two of the shells render theirs from JS`);
-  ok(/fxObs\.disconnect\(\); \}, 20000\)/.test(s),
-     `${name}: the observer stops on its own, so a headerless shell does not watch forever`);
+  /* ⚠⚠ THE OBSERVER MUST NOT DISCONNECT. The first version placed the ribbon once and disconnected,
+   * and the ribbon then VANISHED: .rp-head is not a child of <body> — it lives inside
+   * #view-researcher, whose innerHTML the panel rewrites on every 12s poll, taking the ribbon with
+   * it. A staging site silently looked like production, which is the single failure this element
+   * exists to prevent. Caught in the browser, not by this suite, which is why it is pinned now. */
+  ok(!/disconnect\(\)/.test(s),
+     `${name}: ⚠⚠ the observer NEVER disconnects — a re-render must not be able to erase the ribbon`);
+  ok(/if \(!fxRibbon\.isConnected\) \{ fxPlace\(\); return; \}/.test(s),
+     `${name}: ...and a detached ribbon is put back`);
+  ok(/if \(h && h\.nextSibling !== fxRibbon\) fxPlace\(\);/.test(s),
+     `${name}: ...while an already-placed one does nothing, so re-placing cannot loop`);
+  ok(/\(pos === 'sticky' \|\| pos === 'fixed'\) \? Math\.round\(h\.getBoundingClientRect\(\)\.height\)/.test(s),
+     `${name}: ⚠ the sticky offset is MEASURED from the header, so it stacks under a sticky one (researcher) and sits at top under a static one (editor)`);
 }
 
 console.log(fail ? `\nFAILED (${fail}) — the staging ribbon has drifted between shells.\n`

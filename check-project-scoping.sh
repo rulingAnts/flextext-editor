@@ -71,13 +71,32 @@ fi
 #   the tree while THIS loop was the thing failing loudly about it. It did its job: the failure is
 #   what sent someone to look. Do not re-point this at a version number or delete it — the
 #   assertion below is what now stands between a member and every file in the owner's Drive.
-for cap in drive; do
+for cap in cancelOthers; do
   if grep -qE "DEFERRED_CAPS = \\[[^]]*'$cap'" "$W"; then
-    good ok "'$cap' is still ungrantable — in DEFERRED_CAPS, so the nine Drive routes stay unreachable"
+    good ok "'$cap' is still ungrantable (its RULE is not expressible yet — unlike the Drive caps, whose ROUTES are now scoped)"
   else
-    bad x "⚠⚠ '$cap' has LEFT DEFERRED_CAPS — this re-arms nine audit findings at once. Project-scope the Drive routes (drive_object) BEFORE shipping this."
+    bad x "⚠ '$cap' has LEFT DEFERRED_CAPS — it was deferred because commands recorded no author; confirm that rule is enforceable first"
   fi
 done
+
+# ⚠⚠ `drive` IS 'read' ONLY. 'manage' reaches deletion and re-parenting of what may be a community's
+#   only copy of a recording; that stays owner-only. validateCaps must REFUSE any other value rather
+#   than downgrade it, or an owner is told they delegated something they did not.
+if grep -q "if (raw.drive !== 'read') return null;" "$W"; then
+  good ok "the drive capability is grantable as 'read' only — 'manage' is refused, not downgraded"
+else
+  bad x "⚠⚠ drive:'manage' may now be grantable — a member could delete or re-parent the owner's Drive objects"
+fi
+
+# ⚠⚠ THE MEMBER DOWNLOAD ROUTE KEEPS BOTH GATES. The doc gate says the caller may touch this TEXT;
+#   driveFileBelongsToDoc says the FILE is actually part of it. Without the second, a drive:read
+#   holder could name any app-created file id in the owner's Drive — the DRIVE-ID class again.
+dl=$(grep -n "sub === .texts. && seg.length === 7 && seg\\[5\\] === .files." "$W" | cut -d: -f1)
+if [ -n "$dl" ] && sed -n "${dl},$((dl + 25))p" "$W" | grep -q "authorizeDocForProject" && sed -n "${dl},$((dl + 25))p" "$W" | grep -q "driveFileBelongsToDoc"; then
+  good ok "the member file-download route gates the doc AND proves the file belongs to it"
+else
+  bad x "⚠⚠ the member file-download route lost a gate — a drive:read holder could reach any app-created file in the owner's Drive"
+fi
 
 # ⚠⚠ PHASE-4 BLOCKER #1 — the FILE-id half of assignTexts. Every route that mints a streaming URL
 #   from ids the CALLER supplied must first prove those files live under the doc it just authorized;

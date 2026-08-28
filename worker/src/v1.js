@@ -541,7 +541,7 @@ async function authInstall(req, env, instanceId, installId) {
  * list below, and split the cancel route on `cmd.by === ctx.caller.researcher_id` — with a decided
  * answer for authorless commands. By then the backlog predating `by` will have aged out, which is
  * what makes the question answerable rather than merely older. */
-export const DEFERRED_CAPS = ['drive', 'cancelOthers'];
+export const DEFERRED_CAPS = ['cancelOthers'];
 /* `assignTexts` UN-DEFERRED (Seth, 2026-08-27: device texts and their status must be "visible and
  * modifiable by both researchers"). The nine routes it reaches were already authMember-gated when
  * this flipped, and the drive_object containment gates (checks 6/7/8) scope every caller-supplied
@@ -620,8 +620,19 @@ export function validateCaps(raw) {
   /* ⚠ NO WIPE OR FORCE-REMOVE CAPABILITY EXISTS, and an attempt to grant one is an ERROR rather than
    * a silent drop. Those stay owner-only in v1 (round-1 finding 6); accepting the key and ignoring it
    * would tell an owner they had delegated something they had not. */
+  /* ⚠ `drive` IS 'read' ONLY, and 'manage' is REFUSED rather than downgraded (v468). Read is what
+   * sharing actually needs — a coworker listing and downloading the files of a text in a project
+   * shared with them, through routes that gate the doc AND verify the file belongs to it. 'manage'
+   * would reach deletion and re-parenting, which stay owner-only: destroying a community's only
+   * copy of a recording is not a delegable act, and accepting the word while ignoring it would tell
+   * an owner they had delegated something they had not (the same rule as wipe, below). */
+  if (raw.drive !== undefined) {
+    if (raw.drive !== 'read') return null;
+    out.drive = 'read';
+  }
+
   for (const k of Object.keys(raw)) {
-    if (!['manageDevices', 'createInvites', 'assignTexts'].includes(k)) return null;
+    if (!['manageDevices', 'createInvites', 'assignTexts', 'drive'].includes(k)) return null;
   }
   return out;
 }
@@ -4579,6 +4590,59 @@ export async function handleV1(request, env, ctx, url, path, origin) {
      * truth for "what artifacts exist", so the panel never has to reconstruct it from reports.
      * Returns [] (not an error) when the folder does not exist yet — a text with no uploads is a
      * normal state, not a failure. */
+    /* GET .../texts/<docId>/files/<fileId> — DOWNLOAD one of a text's Drive files (v468).
+     *
+     * ⚠ WHY A NEW ROUTE INSTEAD OF OPENING `/v1/researcher/drive-file`. That one is
+     * `authResearcher` and streams under the CALLER'S OWN Drive token, which is why a member calling
+     * it silently gets their own empty Drive rather than a refusal. Pointing it at the owner's token
+     * would have created a second unconstrained account-wide reader — precisely the DRIVE-ID class
+     * the 2026-08-21 audit named. So the member path is a route that can only ever address a file
+     * THROUGH the text that contains it, and it carries three gates rather than one:
+     *   1. `authMember(..., 'drive:read')` — the caller may read this project's Drive at all;
+     *   2. `authorizeDocForProject` — the docId is in THEIR project, on a live device (Phase 3);
+     *   3. `driveFileBelongsToDoc` — the fileId actually lives under that doc's folder.
+     *
+     * ⚠ THE THIRD GATE IS WHY THIS NEEDS NO drive_object ROW FOR THE FILE, and that matters: only
+     * one of seven file-creation paths stamps a row today, so a gate built on `authorizeObjectForProject`
+     * would deny legitimate files — every chunked upload, i.e. every large field recording. Walking
+     * the file's parents BY ID asks Drive itself, which is the one index that is never stale.
+     *
+     * Streams the body straight through, so Range/resume behave exactly as they do for the owner. */
+    if (m === 'GET' && sub === 'texts' && seg.length === 7 && seg[5] === 'files') {
+      const ctx = await authMember(request, env, { instance: instanceId }, 'drive:read');
+      if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+      if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+      const r = ctx.owner;   // the PROJECT OWNER's row: Drive acts in their account (R2-5)
+      const docId = String(seg[4] || '').replace(/[^\w-]/g, '').slice(0, 64);
+      const fileId = String(seg[6] || '').replace(/[^\w-]/g, '').slice(0, 90);
+      if (!docId || !fileId) return j({ error: 'bad_file' }, 400, origin, env);
+      const gate = await authorizeDocForProject(env.DB, { docId, projectId: ctx.project_id || '', isOwner: ctx.isOwner });
+      if (!gate.allowed) return j({ error: 'not_found' }, 404, origin, env);
+      try {
+        const access = await driveAccessToken(env, r);
+        /* ⚠ THE OWNER IS CHECKED TOO, unlike the mint paths. There the owner names files in their own
+         * Drive and a check would only cost them a round trip; here the route exists to serve a
+         * containment promise — "a file reached through a text belongs to that text" — and an
+         * exception for one caller is a second code path that can drift from the first. */
+        if (!(await driveFileBelongsToDoc(access, fileId, docId))) return j({ error: 'not_found' }, 404, origin, env);
+        const range = request.headers.get('range');
+        const g = await fetch('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?alt=media', {
+          headers: Object.assign({ Authorization: 'Bearer ' + access }, range ? { Range: range } : {}),
+        });
+        if (!g.ok && g.status !== 206) return j({ error: g.status === 404 ? 'not_found' : 'drive_error', status: g.status }, g.status === 404 ? 404 : 502, origin, env);
+        const h = new Headers(v1Cors(origin, env));
+        h.set('content-type', g.headers.get('content-type') || 'application/octet-stream');
+        /* ⚠ RANGE HEADERS RIDE THROUGH — a poor-connection resume is the normal case for this user
+         * base, not an edge one. Dropping these would turn a resumable field download into a
+         * one-shot transfer that restarts from zero on every drop. */
+        for (const k of ['content-length', 'content-range', 'accept-ranges']) {
+          const v = g.headers.get(k); if (v) h.set(k, v);
+        }
+        h.set('Cache-Control', 'no-store');
+        return new Response(g.body, { status: g.status === 206 ? 206 : 200, headers: h });
+      } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
+    }
+
     if (m === 'GET' && sub === 'texts' && seg.length === 6 && seg[5] === 'files') {
       const ctx = await authMember(request, env, { instance: instanceId }, 'drive:read');
       if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);

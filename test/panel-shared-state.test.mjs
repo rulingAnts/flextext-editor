@@ -162,6 +162,27 @@ console.log('\nthe stale-device alarm is actually wired to an install');
      'and full renders force a sweep pass, so a just-created device is granted now, not next sign-in');
 }
 
+console.log('\nnothing a MEMBER cannot use is rendered for them (Seth, 2026-08-28)');
+{
+  /* "Let's try not to have UI elements showing or visible that the current researcher user doesn't
+   * have permission to use … if it's not allowed in this release, don't add enabled buttons or
+   * links that won't work." Members hold drive:'read'; the worker refuses drive:'manage' outright,
+   * so DELETING and RE-PARENTING can only ever fail for them. ABSENT, never disabled — a dead
+   * control reads as broken (the no-silently-disabled-controls rule). */
+  ok(/const viaMember = !!wrap\.dataset\.viamember/.test(panel),
+     'the Files modal knows whether it is rendering for a member');
+  ok(/const dead = viaMember \? \[\] : cleanupCandidates\(allFiles\)/.test(panel),
+     '⚠ the Cleanup (delete-to-trash) control is not offered to a member');
+  ok(/if \(!viaMember\) \{[\s\S]{0,260}panel\.dl\.openFolder/.test(panel),
+     '⚠ "Open folder" — direct Drive browsing — stays owner-only');
+  ok(/\$\{memberCtx \? '' : projectMoveBtn\(it\)\}/.test(panel),
+     '⚠ "Move to project…" (re-parenting) is absent for a member');
+  ok(/mAssign \? ` <button class="link-btn rp-revoke" data-iact="del-text"/.test(panel),
+     'deleting a text from a device requires assignTexts');
+  ok(/panel\.store\.ownOnly/.test(panel),
+     'the Drive-storage modal says it shows only the caller\'s OWN Drive when they are in shared projects');
+}
+
 console.log(fail ? `\nFAILED (${fail}) — account state has drifted back into browser storage.\n`
                  : '\nPASS: account-scoped state is shared, and destructive actions are gated on it.\n');
 process.exit(fail ? 1 : 0);

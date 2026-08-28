@@ -2054,6 +2054,8 @@ async function populateFilesMenu(wrap) {
   wrap.dataset.loaded = '1';
   const menu = wrap.querySelector('.rp-dl-menu');
   const iid = wrap.dataset.i, docId = wrap.dataset.id, title = wrap.dataset.title || 'text';
+  const viaMember = !!wrap.dataset.viamember;   // a shared project's device: downloads only
+
   const bridge = bridgedIds(docId, wrap.dataset.title);
   const head = `<span class="rp-dl-head">${esc(t('panel.dl.title'))}</span>`;
   // Query EVERY bridged identity's folder (legacy texts have two), merge newest-first.
@@ -2205,11 +2207,20 @@ async function populateFilesMenu(wrap) {
     rows.push(`<button class="rp-dl-item rp-dl-all" data-zipall data-i="${esc(iid)}" data-id="${esc(docId)}" data-title="${esc(title)}">
       <span class="rp-dl-name">${esc(t('panel.dl.all'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.allSub', { n: allFiles.length }))}</span></button>`);
     if (folderId) {
-      rows.push(`<a class="rp-dl-item" role="menuitem" href="${esc(driveFolderLink(folderId))}" target="_blank" rel="noopener noreferrer">
-        <span class="rp-dl-name">${esc(t('panel.dl.openFolder'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.openFolderSub'))}</span></a>`);
+      /* ⚠ OWNER ONLY — "Open folder" leaves the app for Drive itself, and browsing Drive directly is
+       * the owner's alone (Seth's v1 line: a member acts THROUGH the app, never in the Drive UI).
+       * A member would meet Google's "You need access" page, which is a dead end wearing a link. */
+      if (!viaMember) {
+        rows.push(`<a class="rp-dl-item" role="menuitem" href="${esc(driveFolderLink(folderId))}" target="_blank" rel="noopener noreferrer">
+          <span class="rp-dl-name">${esc(t('panel.dl.openFolder'))}</span><span class="rp-dl-sub">${esc(t('panel.dl.openFolderSub'))}</span></a>`);
+      }
     }
     // Cleanup: only the older .flextext backup copies, always to TRASH — recoverable for 30 days.
-    const dead = cleanupCandidates(allFiles);
+    /* ⚠ OWNER ONLY, AND ABSENT RATHER THAN DISABLED (Seth, 2026-08-28: "don't add enabled buttons or
+     * links that won't work"). Cleanup deletes, and members hold drive:'read' — the worker refuses
+     * 'manage' outright, so this control could only ever fail for them. Deletion and re-parenting
+     * may be revisited in a later release; until they are, a member must not see the button. */
+    const dead = viaMember ? [] : cleanupCandidates(allFiles);
     if (dead.length) {
       wrap._cleanupIds = dead.map((f) => f.id);
       rows.push(`<button class="rp-dl-item rp-dl-all rp-dl-clean" data-cleanup data-n="${dead.length}">
@@ -5634,8 +5645,15 @@ const gb = (b) => {
 };
 
 function storageModal() {
+  /* ⚠ THIS MODAL IS ALWAYS AND ONLY THE CALLER'S OWN DRIVE (Seth, 2026-08-28). It reads the
+   * caller's own estate, which is right — but a member of a shared project sees THEIR storage,
+   * which for a coworker who owns no devices is empty, and an empty list reads as "the shared
+   * project has no files" rather than "this is not where those live". One line removes the
+   * misreading; it appears only for someone who actually is in a shared project. */
+  const inSharedProjects = !!((lastData && lastData.memberProjects) || []).length;
   const m = modal(`<h3>${esc(t('panel.store.title'))}</h3>
     <p class="note">${esc(t('panel.store.intro'))}</p>
+    ${inSharedProjects ? `<p class="note">${esc(t('panel.store.ownOnly'))}</p>` : ''}
     <div id="rp-store-body"><p class="note">${esc(t('panel.store.loading'))}</p></div>
     <div class="modal-actions"><button class="secondary-btn" data-m="close">${esc(t('panel.help.close'))}</button></div>`, true);
   m.el.querySelector('[data-m="close"]').onclick = m.close;

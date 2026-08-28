@@ -767,5 +767,62 @@ console.log('\n⚠ a changeSettings pushed by ONE researcher rides the desired l
   await call('DELETE', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: FIXTURE.outsiderId });
 }
 
+console.log('\n⚠⚠ PHASE-4 BLOCKER #1 — a member cannot mint a streaming URL for a file it does not own');
+{
+  /* THE HOLE THIS CLOSES: the routes authorize the DOC, then took audioFileId / flextextFileId /
+   * extractFromZipId from the body verbatim. A member with assignTexts could name ANY app-created
+   * file in the owner's Drive — another project, the Unassigned pile, a crowd submission — and get
+   * back a 90-day URL minted under the owner's authority.
+   *
+   * ⚠ THIS IS A SERVER-SIDE PROOF ON PURPOSE. It speaks raw HTTP with the member's own credentials
+   * and no browser, so nothing here can be explained by a client-side gate, a hidden button or a
+   * CORS rule — none of which is a security boundary (any client may send any Origin).
+   *
+   * ⚠ WHAT THE HERMETIC RIG CAN AND CANNOT SHOW: with no Google behind it, the parent-walk cannot
+   * succeed, so this proves the DENIAL half (fail-closed) and that the OWNER path is untouched. The
+   * positive case — a legitimate file under the doc's folder still mints — needs live Drive and is
+   * verified on staging. Stated rather than papered over: a test that cannot see one half should
+   * say which half. */
+  await call('POST', `/v1/projects/${projectId}/members`, OWNER, {
+    researcher_id: FIXTURE.outsiderId, caps: { manageDevices: true, assignTexts: true },
+  });
+  const capsBack = await call('GET', `/v1/projects/${projectId}/members`, OWNER);
+  const mrow = ((capsBack.json && capsBack.json.members) || []).find((x) => x.researcher_id === FIXTURE.outsiderId);
+  ok(mrow && mrow.caps && mrow.caps.assignTexts === true,
+     'assignTexts is grantable since v456 (this whole block is why that is now safe)');
+
+  const FOREIGN = '1ForeignFileIdFromAnotherProject_AAAA';
+  const finishAsMember = await call('POST', `/v1/instances/${idA}/texts/probe-doc-b1/assignment/finish`, GUEST,
+    { audioFileId: FOREIGN, ttlDays: 1 });
+  ok(finishAsMember.status === 404,
+     `⚠⚠ member finish with an unverifiable file id is refused (got ${finishAsMember.status}) — and 404, so it leaks nothing about whether the file exists`);
+  ok(!(finishAsMember.json && finishAsMember.json.audioUrl),
+     'and no URL comes back with the refusal');
+
+  const finishAsOwner = await call('POST', `/v1/instances/${idA}/texts/probe-doc-b1/assignment/finish`, OWNER,
+    { audioFileId: FOREIGN, ttlDays: 1 });
+  ok(finishAsOwner.status === 200 && finishAsOwner.json && finishAsOwner.json.audioUrl,
+     `⚠ the OWNER path is byte-identical — their own files in their own Drive, no new round trip (got ${finishAsOwner.status})`);
+
+  /* ⚠ HONEST ABOUT WHICH GATE FIRES. `finish` uses doc-gate mode 'create', so an unknown docId
+   * passes it and the request really does reach the file-id check above — that arm tests the fix.
+   * `adopt` and `move` use the STRICT doc mode, so a member is refused at the DOC gate first and
+   * never reaches their file-id check on this rig. Asserting "404, therefore the file-id gate
+   * works" would be a test passing for the wrong reason — the exact species of false pass this
+   * repo has been bitten by twice (the nickname source-string pin, the PEM rule). So: assert what
+   * is actually being proven, and let the build guard
+   * (check-project-scoping.sh: "every member-reachable mint verifies its caller-supplied file
+   * ids (3 site(s))") hold the line for those two routes, with staging proving them live. */
+  for (const [route, body] of [
+    [`/v1/instances/${idA}/texts/probe-doc-b1/adopt`, { audioFileId: FOREIGN }],
+    [`/v1/instances/${idA}/texts/probe-doc-b1/move`, { to: idB, flextextFileId: FOREIGN }],
+  ]) {
+    const res = await call('POST', route, GUEST, body);
+    ok(res.status === 404 && !(res.json && (res.json.audioUrl || res.json.flextextUrl)),
+       `${route.split('/').pop()}: a member gets 404 with no URL — at the DOC gate here, not the file-id gate (got ${res.status})`);
+  }
+  await call('DELETE', `/v1/projects/${projectId}/members`, OWNER, { researcher_id: FIXTURE.outsiderId });
+}
+
 console.log(fail ? `\n${fail} FAILED\n` : '\nPASS\n');
 process.exit(fail ? 1 : 0);

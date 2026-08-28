@@ -9,10 +9,15 @@ conversion is behaviour-preserving until caps un-defer). This was the spec fix V
 FIRST": the nine gated Drive findings are now *repaired at the routes*, not merely unreachable.
 
 **⚠ PHASE 4 BLOCKERS — what still stands between here and un-deferring `assignTexts`/`drive`:**
-1. `assignment/finish`'s caller-supplied fileIds mint streaming URLs unverified. A member's own
-   uploads are not yet stamped when finish runs, so the object gate alone would break the flow —
-   finish must verify the ids live under the doc's folder (one files.get parents check) or stamp
-   uploads at the chunk relay's completion. Noted in the route comment.
+1. ~~`assignment/finish`'s caller-supplied fileIds mint streaming URLs unverified.~~ **CLOSED in
+   v462.** `driveFileBelongsToDoc` walks the file's parents BY ID (never the appProperties tag
+   search — that is the mechanism the audit found dangerous) and accepts only when a parent, or its
+   `originals/` grandparent, carries `flextextDoc === docId`. Applied at all three member-reachable
+   mint sites (finish, adopt, move) via `memberFileIdsOk`, which is a no-op for the owner so the
+   owner path is byte-identical. "Cannot verify" resolves to 404, never 502 — a distinguishable
+   error is an oracle. The build guard in `check-project-scoping.sh` counts the three call sites and
+   fails if one is thinned; `test/worker-members.probe.mjs` proves the denial server-side (the
+   hermetic rig cannot prove the positive case — that needs live Drive, and says so).
 2. The account-level routes members would need for Drive access (`drive-file`, `trash`,
    `drive-estate`) are still `authResearcher` + owner's-own-Drive — a member calling drive-estate
    gets THEIR empty Drive (silent wrong data, not a loud 404). Their member versions are a design

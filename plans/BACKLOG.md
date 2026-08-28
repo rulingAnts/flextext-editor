@@ -4009,3 +4009,43 @@ stating before it is scoped: the worker has **no outbound mail path today**. It 
 cheaper first step that meets most of the need: a per-owner **unread-activity badge** on the History
 button, driven by the same scoped query and a last-seen timestamp — no email infrastructure, no new
 PII leaving the system.
+
+## Progress + time tracking derived from the editor's undo/redo history (Seth, 2026-08-28) — FUTURE
+
+> *"Editor devices already log undo/redo history. There's probably a way for us to share that with
+> the researchers … more granular tracking … which texts have used which tabs and what all has been
+> done on each tab — how many lines created on the cut tab, if and how many lines typed into on the
+> baseline tab, and then what percentage of glossing, free translation, etc. of non-blank lines
+> filled in … stats, changes to those stats, and time-stamps for each update … eventually some kind
+> of semi-automatic time/progress tracking."*
+
+**The channel already exists — do not build a second one.** Devices already report an ENCRYPTED
+inventory (`reported_blob`, decrypted panel-side with Ki) carrying per-text items (`uploadState`,
+`hasAudio`, `done`, `uploadedFileId`…). Progress counters are a natural extension of that same
+blob: no new endpoint, no new key, no new plumbing, and the panel's existing 12s poll already
+carries it. `viewSig` would need the new fields or the tiles will not redraw (the trap this repo has
+sprung five times).
+
+**⚠ SEND DERIVED COUNTERS, NEVER THE UNDO STACK.** The undo/redo history contains the actual
+language content, keystroke by keystroke. Shipping it — even encrypted — would multiply what a
+seized device and a compromised account expose, for no gain the counters do not already give.
+Compute locally, transmit aggregates only: lines cut, lines with baseline text, glossed / total
+non-blank, free-translated / total, per tab, plus a small ring of (timestamp, delta) points.
+
+**Counting is harder than it looks — decide before building:** undo/redo means an action can be
+applied, reverted and reapplied; counters derived naively double-count. Count the RESULTING STATE at
+checkpoints (how many lines currently have gloss text) rather than summing events, and treat the
+event stream only as the trigger for recomputation.
+
+**Device clocks are untrusted.** A field phone's clock can be wrong, reset, or timezone-shifted, so
+device timestamps are approximate by nature. Record the SERVER receipt time alongside the device
+time and present them as such — an hours-worked figure built on an unverified clock will eventually
+be wrong in a way that matters to a person's reputation.
+
+**⚠ THE ETHICS POINT, because this is the one feature in the suite that measures PEOPLE rather than
+data.** "Which coworker did how much, when" is workplace monitoring, and this project's whole
+posture is the informed participation of the communities it serves. Whatever is built should be
+visible to the person being measured — they should be able to see their own numbers on their own
+device — and its existence should be something a researcher tells their team about, not something
+they discover. That is a design requirement, not a footnote: a monitoring feature that surprises the
+person monitored damages exactly the trust the rest of this suite is built to protect.

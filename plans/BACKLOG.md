@@ -4286,6 +4286,22 @@ hold Ki — that is the whole point of the E2EE model — and per-recipient re-e
 holding per-device keys. Server-key sealing plus the binding claim delivers the same property without
 touching that boundary.
 
+**⚠ SEALING CHANGES THE IDENTIFIER, NOT THE TRANSFER — and that must be verified, not assumed
+(Seth, 2026-08-28):** *"if our worker converts a drive id into a blob, we may want to make sure that
+also includes all of our poor-connection/slow-connection/pause/resume/auto-chunk-adjust/retry/
+redundancy functions … We don't want that to mean they only get the blob as one big one-time
+non-resumable download."*
+
+The sealed value replaces an id in a request, so streaming, `Range` requests, chunked upload
+tickets, retry/backoff and resume should be untouched by construction. But "should be" is how
+regressions ship. Before this lands, confirm end to end that: `/v1/textfile` still honours `Range`
+and partial content; a resumed download re-presents the same sealed value and continues rather than
+restarting; the chunked upload tickets (which are themselves `encAtRest` blobs already) keep their
+resume semantics; and a sealed value stays valid across a multi-hour interrupted transfer — its
+lifetime must not be shorter than a realistic bush-connection download. A privacy change that turns
+a resumable 200 MB WAV into a one-shot download would be a far worse regression than the leak it
+closes.
+
 **Honest limits:**
 - The OWNER's panel still needs real ids for "Open in Drive"; that stays an owner-only exception
   (better: the worker returns the finished URL so the id never lands in client state).

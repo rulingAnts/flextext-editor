@@ -4137,3 +4137,45 @@ What is still needed:
   display name or email local-part, and offer a one-click rename (suggesting "Default Project"),
   explaining in one line that project names are visible to everyone they share the project with.
 - ⚠ Only ever offered to the OWNER about their OWN project, and never automatic.
+
+## ⚠⚠ SEIZED-DEVICE GAP: remote wipe does NOT revoke streaming tokens (verified live 2026-08-28)
+
+**The scenario this breaks is the one it exists for.** A device is lost or seized, the researcher
+remote-wipes it and believes access is withdrawn. It is not: every `/v1/textfile/<token>` URL already
+minted for that device keeps working — and those URLs are unauthenticated bearer credentials that
+stream community voice recordings. An attacker who dumped the device's IndexedDB (assignment payloads
+persist there indefinitely) keeps reading for the life of the token.
+
+**Empirically confirmed against the production worker**, using a purpose-made device and install on a
+test account. A token minted for a nonexistent file id isolates AUTHORIZATION from the Drive fetch:
+`404 not_found` means the token was honoured and only the file was missing; `410 gone` means the token
+itself was refused.
+
+| owner action | redemption result | token alive? |
+|---|---|---|
+| baseline | `404 not_found` | yes |
+| **remote wipe the install** | `404 not_found` | **YES — wipe does not revoke it** |
+| **revoke the install** | `404 not_found` | **YES** |
+| revoke the whole instance | `410 gone` | no |
+
+**Root cause:** redemption's only device-level check is
+`SELECT … FROM instance WHERE instance_id=? AND revoked=0`, and `UPDATE instance SET revoked=1` occurs
+at exactly ONE place in the worker — the whole-instance revoke. The install-level paths (wipe,
+wipe-ack, install revoke, force-remove) never touch it. Scoped v2 tokens therefore outlive every
+lost-device action except the one that removes the device entirely.
+
+**Compounding facts from the same audit:**
+- The TTL ceiling is **400 days**, not the 90 the comments claim.
+- **Consent-prompt tokens are deliberately unscoped** (no `tk.i`), so they have *no* device kill switch
+  at all, live in plaintext `localStorage`, and are designed to be copy-pasted between devices.
+- Redemption is **unlogged and unrate-limited**, so replay from a seized device is invisible and
+  unlimited.
+
+**Suggested fix — a per-instance token epoch.** Add `instance.tokens_valid_from` (additive, nullable).
+Wipe, wipe-ack, install revoke and force-remove all set it to `now`; redemption rejects any token whose
+`iat` predates it. This kills previously-minted URLs without revoking the instance itself, needs no
+change to token format (`iat` is already carried and currently unused — the comment on `mintTextfileUrl`
+says exactly this: *"`n` AND `iat` ARE FREE NOW AND CANNOT BE ADDED LATER"*), and old tokens without
+`iat` can be treated as pre-epoch, i.e. refused, which is the safe direction.
+Consent tokens need a separate answer since they are unscoped by design — most likely an owner-level
+epoch as well.

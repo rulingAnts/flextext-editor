@@ -1853,7 +1853,14 @@ function openFilesModal(rowWrap) {
       <h3 class="rp-dlm-title">${esc(title)}</h3>
       <button class="btn-plain rp-dlm-close" type="button">${esc(t('panel.help.close'))}</button>
     </div>
-    <span class="rp-dl" data-fmenu
+    ${/* ⚠⚠ EVERY dataset key THE MENU READS MUST BE COPIED HERE — this modal builds a NEW wrapper
+         and populateFilesMenu runs against IT, not the row's span. `data-viamember` was missed, and
+         it decides two things at once: whether owner-only items render, and which download LANE is
+         used. So a member's modal showed "Open the Drive folder" (v469/v475 gated the render sites
+         correctly — they simply never saw a member) AND would have fetched through the owner route,
+         where a member gets 404s from their own empty Drive.
+         An attribute added to filesMenuHtml must be added here in the same commit. */''}
+    <span class="rp-dl" data-fmenu${rowWrap.dataset.viamember ? ' data-viamember="1"' : ''}
           data-i="${esc(rowWrap.dataset.i || '')}" data-id="${esc(rowWrap.dataset.id || '')}"
           data-title="${esc(rowWrap.dataset.title || '')}" data-audio="${esc(rowWrap.dataset.audio || '')}"
           data-fileid="${esc(rowWrap.dataset.fileid || '')}">

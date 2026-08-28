@@ -173,8 +173,14 @@ console.log('\nnothing a MEMBER cannot use is rendered for them (Seth, 2026-08-2
      'the Files modal knows whether it is rendering for a member');
   ok(/const dead = viaMember \? \[\] : cleanupCandidates\(allFiles\)/.test(panel),
      '⚠ the Cleanup (delete-to-trash) control is not offered to a member');
-  ok(/if \(!viaMember\) \{[\s\S]{0,260}panel\.dl\.openFolder/.test(panel),
-     '⚠ "Open folder" — direct Drive browsing — stays owner-only');
+  /* ⚠ COUNT THE RENDER SITES, DO NOT MATCH ONE. v469 gated one of the two places that render this
+   * link and shipped believing it was done; a member's menu still carried it, with a live Drive
+   * folder id, until the menu was actually opened and read. */
+  // ⚠ the trailing quote matters: `panel.dl.openFolder` is also a prefix of `openFolderSub`.
+  const openFolderSites = (panel.match(/panel\.dl\.openFolder'/g) || []).length;
+  const gatedSites = (panel.match(/!viaMember\)\s*\{[\s\S]{0,300}?panel\.dl\.openFolder'/g) || []).length;
+  ok(openFolderSites > 0 && gatedSites === openFolderSites,
+     `⚠ EVERY "Open the Drive folder" render is owner-gated (${gatedSites}/${openFolderSites})`);
   ok(/\$\{memberCtx \? '' : projectMoveBtn\(it\)\}/.test(panel),
      '⚠ "Move to project…" (re-parenting) is absent for a member');
   ok(/mAssign \? ` <button class="link-btn rp-revoke" data-iact="del-text"/.test(panel),

@@ -4397,3 +4397,63 @@ downloads). The three conditions are the whole of it:
    worker with the same authorization every other file read gets.
 3. Implied by (1): a sweeper for objects whose download never completed, so the bucket cannot grow
    without bound when a device goes offline mid-transfer.
+
+## Let a MEMBER finish enrolling a device — key fingerprints (Seth, 2026-08-28)
+
+**The gap, in one line:** a member can approve a device but not key it, so a member-enrolled device
+does not work until the OWNER next opens their panel. Seth: *"so it requires the owner to log in no
+matter what before it works?"* — yes, whenever a member does the enrolling. In a field context that
+can be days, for exactly the delegation the sharing feature exists to enable.
+
+**Why the route is owner-only, and why that reasoning is right:** `wrapped_key` is opaque ciphertext
+the worker cannot inspect, and the route bumps `desired_rev` so the device ADOPTS what it is given.
+A member could therefore install a Ki *they* chose, after which the owner's stored Ki no longer
+decrypts the device's reports and the owner's own commands stop being readable by it — E2EE sabotage
+reached through device management. The worker cannot validate its way out: it cannot read the key,
+so "is this the right key" is not a question it can ask.
+
+**But the worker is not the only possible verifier — the DEVICE is.**
+
+- When the owner creates an instance, store `ki_fp` = SHA-256 of Ki on the instance row (the owner is
+  the only party who has Ki at that moment, so only they can write it).
+- The desired lane serves `ki_fp` alongside `wrapped_key`.
+- The device, after unwrapping, hashes what it got and compares. Mismatch → refuse to adopt, keep
+  the old key, and report the mismatch so it surfaces in the panel.
+- With that check in place, `POST .../installs/<id>/key` can accept `manageDevices`: a substituted
+  key cannot land, so the sabotage the owner-only rule prevents becomes impossible rather than
+  merely detectable-after-the-fact.
+
+**Properties worth keeping in mind:**
+- ⚠ `ki_fp` is a hash of a symmetric key. It is NOT a secret to protect, but it IS a verifier — do
+  not let a member write or change it, or the check verifies nothing. Owner-written, immutable.
+- Existing instances have no `ki_fp`, so they keep the owner-only path. Degrades cleanly, no
+  migration of key material, no flag day.
+- Key ROTATION (Phase E) must update the fingerprint in the same act, or every device refuses the
+  new key. Worth designing the two together.
+
+**✅ SETH APPROVED THE DIRECTION (2026-08-28):** *"A member substituting a key gets caught by the
+device itself. That turns the risk … into 'impossible to land', and members could then key devices
+safely. — This would be fine, I think."* So the end state is: members CAN fully enrol a device once
+the device verifies the fingerprint.
+
+**⚠ THE ONE COMPLICATION THAT DECIDES THE ROLLOUT: old devices cannot verify.** The check lives on
+the DEVICE, so an already-deployed editor/recorder would adopt whatever key it is handed, exactly as
+today. Allowing member key delivery therefore cannot be a simple route change — it must be gated on
+the device having an engine new enough to perform the check. The instance's reported
+`inventory.engineVersion` already carries that (`engNum`, the same signal the panel uses for
+capability gates), so the rule is: a member may deliver a key ONLY to an install whose reported
+engine is at or above the version that verifies. Everything older stays owner-only, forever if need
+be — which is safe, and degrades to today's behaviour rather than to a hole.
+
+⚠ That also means the device-side check must ship and REACH THE FIELD before the route opens. In
+deploy terms: engine first, let the estate update, then the worker change — the reverse of the usual
+backend-first order, and worth stating loudly because getting it backwards opens the sabotage window
+this design exists to close.
+
+**Until it is built**, v471 is the interim (v470's sweep alone was not enough): the member is not offered Approve at all — the card
+says the owner must approve and key it — so no half-genuine install can be minted (Seth: "better not
+to give the member a way to mint an install that isn't actually genuine until the owner gets around
+to it"). v470's owner-side key sweep stays, because it also repairs installs whose delivery failed or
+was interrupted. And the constraint is deliberately VISIBLE: a team whose owner will not be bothered
+with approvals should reverse who owns the project, and they can only decide that if they can see
+the limit.

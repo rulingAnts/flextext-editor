@@ -2533,3 +2533,8 @@ body.rp-standalone main { padding-top: 0; }
    away. */
 .rp-who-id:hover { opacity: 1; }
 .rp-who-id:focus-visible { opacity: 1; outline: 2px solid currentColor; outline-offset: 2px; border-radius: 3px; }
+
+/* The coworker list names people by a LOCAL nickname now (v503) — the server sends no identity. */
+.rp-nick-edit { font-size: 0.72rem; font-weight: 400; margin-left: 8px; opacity: 0.75; }
+.rp-nick-edit:hover { opacity: 1; }
+.rp-rid-sm { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.68rem; opacity: 0.62; }

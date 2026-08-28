@@ -184,9 +184,18 @@ ok(add.json && add.json.caps && add.json.caps.assignTexts === undefined,
 {
   const lst = await call('GET', `/v1/projects/${projectId}/members`, OWNER);
   const me = ((lst.json && lst.json.members) || []).find((x) => x.researcher_id === FIXTURE.outsiderId);
-  ok(!!me && me.email === 'outsider@example.invalid',
-     `the OWNER's members list carries the member's identity (email: ${me && me.email})`);
-  ok(me && 'display_name' in me && 'avatar_url' in me, '...and the display fields ride along (empty-string when unset)');
+  /* ⚠⚠ REVERSED IN v503, AND THESE ARMS ONCE ASSERTED THE OPPOSITE. They required the owner's members
+   * list to carry email/display_name/avatar_url, on the reasoning quoted above: the member handed
+   * over their ID deliberately, so naming them reveals nothing new. Sound about CONSENT, and the
+   * wrong question — what matters is what the panel HOLDS on a device that is lost or no longer in
+   * trusted hands, and that was a collaborator directory refetched on every open (Seth: "we want
+   * member researcher e-mail address and avatar and name not to be accessible from their ID").
+   * A probe that keeps asserting a reversed decision is how the old behaviour gets restored by
+   * someone "fixing the test", so these now assert the absence directly. */
+  ok(!!me, 'the OWNER still sees the membership itself');
+  for (const f of ['email', 'display_name', 'avatar_url']) {
+    ok(me && !(f in me), `⚠⚠ the members list carries NO ${f} — identity is not reachable from the ID`);
+  }
   /* The grant-sweep's diff inputs (2026-08-27): which live devices this member already holds keys
    * for, and whether they even HAVE a published key to wrap to. Without these the owner could not
    * see the created-after-membership gap at all — GET /keys only ever shows the CALLER's grants. */

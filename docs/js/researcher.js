@@ -874,6 +874,14 @@ export function projectRename(folderId, name) {
   return api('POST', '/v1/researcher/projects/rename', { body: { folderId, name } });
 }
 
+/* Delete a project the caller OWNS — refused while any device still lives in it (409
+ * project_not_empty, which carries the counts so the panel can say what is still there).
+ * The Drive folder is TRASHED, not purged: recoverable for 30 days, like every other destructive
+ * Drive act in this app. Owner-only by construction — it runs under the caller's own Drive token. */
+export function projectDelete(folderId) {
+  return api('POST', '/v1/researcher/projects/delete', { body: { folderId }, retry: false });
+}
+
 /* ---------------- project MEMBERSHIP (Phase D — the sharing surface) ----------------
  *
  * These four wrap the D1-`project` authorization routes, NOT the Drive-estate project grouping the
@@ -914,6 +922,17 @@ export function addMember(projectId, researcherId, caps) {
 export function removeMember(projectId, researcherId) {
   return api('DELETE', `/v1/projects/${encodeURIComponent(projectId)}/members`,
              { body: { researcher_id: researcherId }, retry: false });
+}
+
+/* LEAVE a shared project — the one act on the owner-only members route that a MEMBER may perform.
+ * Deliberately not a capability: a grant you cannot get out of is not a grant, and an owner who
+ * stops responding must never be able to strand a coworker in their project.
+ * ⚠ The worker forces the target to the CALLER regardless of what is sent, so this cannot be turned
+ * into member-removes-member by changing the argument here. It withdraws the key grants in the same
+ * act, so leaving is a real withdrawal rather than a UI state. */
+export function leaveProject(projectId) {
+  return api('DELETE', `/v1/projects/${encodeURIComponent(projectId)}/members`,
+             { body: {}, retry: false });
 }
 
 /* Wrap each given device's Ki to a MEMBER's published key and store the grants — the owner-side

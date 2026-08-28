@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v496';
+export const ENGINE_VERSION = 'v497';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1416,6 +1416,8 @@ internet after the first time.</p>
   /* RELEASE NOTES — always available, on staging AND production. What changed since the last
    * production version, then what is still wrong. Named "Release notes" and not "What's new" because
    * release notes conventionally carry BOTH, so the name promises what is inside. */
+  /* ⚠ TEMPORARY, with the header ID line — remove both when the invite link lands. */
+  'panel.who.idTip': 'Your researcher ID — send this to a project owner who wants to add you as a coworker. Click to select it.',
   'panel.rel.btn': 'Release notes',
   'panel.rel.title': 'Release notes',
   'panel.rel.version': 'You are running {v}.',
@@ -3260,6 +3262,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.share.step3': 'Mereka membuka Akun, menekan Salin ID, lalu mengirimkan ID peneliti itu kepada Anda — WhatsApp, Signal, surel, lewat saluran apa pun yang sudah Anda pakai. ID itu hanya menandai identitas, bukan kata sandi.',
   'panel.share.step4': 'Anda menempelkannya di bawah, mencentang apa yang boleh mereka lakukan, lalu menekan Tambah.',
   'panel.share.step5': 'Biarkan panel ini terbuka beberapa detik setelahnya. Kunci perangkat dikirim dari sini, jadi jika langsung ditutup, rekan Anda dapat melihat proyek tetapi belum dapat membaca atau mengubah pengaturan perangkat sampai Anda membuka panel ini lagi.',
+  'panel.who.idTip': 'ID peneliti Anda — kirimkan ini kepada pemilik proyek yang ingin menambahkan Anda sebagai rekan kerja. Klik untuk memilihnya.',
   'panel.rel.btn': 'Catatan rilis',
   'panel.rel.title': 'Catatan rilis',
   'panel.rel.version': 'Anda menjalankan {v}.',

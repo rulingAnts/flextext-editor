@@ -67,6 +67,27 @@ it buys — D1 holds ciphertext, the operator cannot read a community's recordin
 one thing that must survive any redesign. A rethink that traded it away would not be an improvement;
 it would be a different product.
 
+**⚠ THE LONG-TERM REQUIREMENT, which is stronger than "make sharing less annoying" (Seth,
+2026-08-28):** *"Things that CAN'T be delegated across researcher accounts because of E2EE being a
+100% blocker like this is unacceptable long term. We eventually need researchers to be able to
+delegate pretty much everything."*
+
+With a deliberate carve-out — these may stay owner-only:
+ · deleting a project;
+ · permanently deleting texts;
+ · Google storage management and direct Drive access.
+
+That list is worth reading closely, because it is coherent rather than arbitrary: what stays with the
+owner is **destruction** and **the Google account itself**. Everything operational — approving and
+keying devices, settings, assignment, invites, project defaults — must become delegable.
+
+⚠ **THIS IS AN ACCEPTANCE TEST FOR ANY DESIGN, not a wish.** A scheme that leaves even one operational
+capability structurally impossible to delegate (as today's owner-only device approval is) has not
+solved the problem; it has moved it. Today the blocker is not policy but CRYPTO — the owner is the
+only party holding what is needed to wrap a key to a new install — which is exactly why "we could add
+a capability for it later" is not an available answer. The key model has to change for the
+capability model to be free to change.
+
 **So the honest position:** `Kp` below is an incremental step INSIDE the present model that removes
 the three worst symptoms. It is not the redesign, and adopting it should not be mistaken for having
 answered this. If the redesign ever happens, `Kp` is a stepping stone toward it rather than a detour —

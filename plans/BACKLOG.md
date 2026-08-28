@@ -4294,6 +4294,28 @@ touching that boundary.
 - Still a wire-format change to the device protocol, so it needs a dual-read window (accept a raw id
   OR a sealed blob) until the fleet turns over.
 
+**⚠ THE MIGRATION WORRY IS THE GOOD NEWS HERE — there is nothing to migrate.** Seth: *"it probably
+would require some careful implementation so as not to brick existing devices and projects and
+accounts. Maybe another migration path. :("* Checked against the code (2026-08-28), and sealing is
+the one version of this idea that needs **no data migration and no forced client update**:
+
+1. **Nothing stored needs converting.** The ciphertext is computed on the fly from the id the worker
+   already holds. Unlike handles, there is no row to backfill, so there is no half-migrated state and
+   no object that can end up unreachable.
+2. **Devices never parse these ids — they store and echo them.** `docs/js/upload.js` assigns
+   `uploadedFolderId = out.folderId` and sends it straight back as `folderId` (lines 166-167, 317-318,
+   391-400). To a device the value is already an opaque token, so an UNCHANGED deployed device works
+   with sealed blobs. That is what removes the flag day.
+3. **Exactly two places build a Drive URL from an id**, and neither is on a device:
+   `app.js:4301` (legacy pasted-link resolution, not an id we issue) and `history.js:175`
+   `driveFolderLink()` — the owner-only "Open in Drive". That one guards with `/^[\w-]{10,}$/`, which
+   a sealed `iv.ct` blob fails because of the dot, so it would render NO link rather than a broken
+   one. It fails closed by accident; give it the real id (or a worker-built URL) deliberately.
+
+**So the whole change is worker-side:** seal on output, and one `resolveDriveId(x)` on input that
+unseals a blob or accepts a legacy raw id. Both forms stay valid indefinitely — no cutoff, no
+bricking, and old and new clients interoperate in either direction.
+
 **Sequencing (Seth: "future design, rather than current plan"):** after the sharing feature ships.
 The cheap mitigations are already in place — the v465 warning tells owners never to accept Drive
 access requests, and an ACL-drift check would likely give more safety per unit of effort than either

@@ -1028,7 +1028,7 @@ function whoHtml() {
   return `<span class="rp-who" title="${esc(t('panel.who.title', { who: label }))}">
     ${id.avatar ? `<img class="rp-who-av" src="${esc(id.avatar)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}
     <span class="rp-who-txt">${esc(label)}</span>${
-    rid ? `<span class="rp-who-id" title="${esc(t('panel.who.idTip'))}">\u2014 ${esc(rid)}</span>` : ''}</span>`;
+    rid ? `<span class="rp-who-dash" aria-hidden="true">\u2014</span><span class="rp-who-id" title="${esc(t('panel.who.idTip'))}">${esc(rid)}</span>` : ''}</span>`;
 }
 
 function header(titleKey, withLock) {

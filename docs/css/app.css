@@ -2513,5 +2513,9 @@ body.rp-standalone main { padding-top: 0; }
    header something has to give; it must not be the uuid, because the uuid is the thing being copied
    and a half-visible one is a support conversation. .rp-who-txt already ellipsizes, so letting the id
    refuse to shrink puts the squeeze on the right half. */
+/* ⚠ THE DASH IS ITS OWN ELEMENT, OUTSIDE the user-select:all span. Inside it, one click selected
+   "— <uuid>" and pasted a leading dash into the very message this exists to make easy. aria-hidden
+   because it is punctuation between two fields, not content a screen reader should announce. */
+.rp-who-dash { opacity: 0.55; flex: 0 0 auto; }
 .rp-who-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.7rem;
   opacity: 0.72; user-select: all; white-space: nowrap; flex: 0 0 auto; }

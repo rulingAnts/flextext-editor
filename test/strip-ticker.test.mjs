@@ -161,7 +161,7 @@ console.log('\naudio that is still ARRIVING keeps the loading state, not the cla
 {
   /* Sliced from the guard to the line that reveals the textarea, so "what happens before the
    * textarea appears" is exactly what is asserted — no brace-matching regex to go stale. */
-  const at = app.indexOf('const coming = !!(current.pendingAudio || attachingAudioFor === stripsFor);');
+  const at = app.indexOf('const coming = audioStillComing(current, attachingAudioFor === stripsFor);');
   ok(at >= 0, 'the Baseline branch tests whether a recording is on its way');
   const g = at < 0 ? '' : app.slice(at, app.indexOf("$('#baseline-text').value", at));
   ok(/if \(coming\) \{/.test(g) && /return;/.test(g),
@@ -171,8 +171,15 @@ console.log('\naudio that is still ARRIVING keeps the loading state, not the cla
      '⚠ the textarea stays HIDDEN on that path — that is the entire fix');
   ok(/\$\('#seg-loading'\)\.hidden = false/.test(before) && /seg\.loadingAudio/.test(before),
      '...and the loading line says so, the same words the Cut tab uses');
-  ok(/const coming = !!\(current\.pendingAudio \|\| attachingAudioFor === forDoc\)/.test(app),
-     'the Cut tab still has its own copy — the two tabs answer the same question the same way');
+  /* ⚠ THIS ASSERTION USED TO REQUIRE THE DUPLICATION — "the Cut tab still has its own copy — the two
+   * tabs answer the same question the same way" — matching the identical inline expression in both.
+   * They WERE identical, and both were wrong: neither excluded a FAILED download, while landingTab
+   * did. So the test certified that the two copies agreed with each other while both disagreed with
+   * the third, and a test that pins duplication is a test that protects drift from being noticed.
+   * The two tabs now answer the same question the same way by asking the SAME FUNCTION, which is the
+   * property actually worth holding; audio-still-coming.test.mjs owns what that function must decide. */
+  ok(/const coming = audioStillComing\(current, attachingAudioFor === forDoc\)/.test(app),
+     'the Cut tab asks the SAME function — not a copy that can drift away from it');
 }
 
 console.log('\nno audio at all falls back to the classic editor');

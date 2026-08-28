@@ -1247,6 +1247,33 @@ function segPrep(sel) {
   };
 }
 
+/* ⚠ ONE DEFINITION OF "THE RECORDING IS STILL ON ITS WAY" — there were three copies and they had
+ * already drifted, in the direction that hurts the people this app is for.
+ *
+ * landingTab excluded a FAILED download (`pendingAudio && !audioError`); the Cut and Baseline waiting
+ * screens did not, even though the Baseline one carries a comment claiming it uses "same test, same
+ * two states" as Cut. So on a poor connection — the NORMAL field case — an assigned text whose audio
+ * download failed sat on "Loading the recording…" forever. On the Baseline tab that is not merely a
+ * wrong message: the branch that shows it also HIDES THE TEXTAREA, so the transcriber could not type
+ * at all, waiting on bytes that were never coming. A download that failed must read as failed, so the
+ * player can offer its retry and the words can be written meanwhile.
+ *
+ * ⚠ A USER-PAUSED DOWNLOAD IS ALSO NOT "COMING". Pausing keeps pendingAudio set by design, and the
+ * user paused deliberately — usually to work now and fetch the audio later. Treating that as
+ * in-flight would hold the same screen against them for as long as they left it paused.
+ *
+ * Deliberately NOT reused in landingTab: that asks a different question ("does this doc have audio at
+ * all, so should we land on Cut?"), and a paused download should still land there. Same fields,
+ * different question — which is exactly how these three drifted apart in the first place. */
+function audioStillComing(rec, attachingForThisDoc) {
+  if (attachingForThisDoc) return true;                  // a local attach in progress always is
+  if (!rec || !rec.pendingAudio) return false;
+  if (rec.audioError) return false;                      // it failed — say so instead of spinning
+  const dl = getDownload(rec.id);
+  if (dl && dl.status === 'paused') return false;        // stopped by the user; let them work
+  return true;
+}
+
 async function prepareCutAudio() {
   const forDoc = current && current.id;
   const main = $('#cut-main'), loading = $('#cut-loading');
@@ -1272,7 +1299,7 @@ async function prepareCutAudio() {
      * ⚠ …unless one is ON ITS WAY, which is the normal case for a text just made from a file (the
      * editor opens before the attach finishes) and for an assigned text whose audio is still
      * downloading. Telling those users "this text has no recording" is both wrong and alarming. */
-    const coming = !!(current.pendingAudio || attachingAudioFor === forDoc);
+    const coming = audioStillComing(current, attachingAudioFor === forDoc);
     /* ⚠ THE TEXT SPAN, NOT THE CONTAINER. Writing textContent on #cut-loading itself would delete
      * the bar element inside it, and the next text that DOES load would then have no bar to fill. */
     if (loading) {
@@ -1418,7 +1445,7 @@ function switchTab(tab, landing) {
            *
            * prepareCutAudio has drawn this distinction since v433; the Baseline tab simply never
            * did. Same test, same two states, so the two tabs now behave alike. */
-          const coming = !!(current.pendingAudio || attachingAudioFor === stripsFor);
+          const coming = audioStillComing(current, attachingAudioFor === stripsFor);
           if (coming) {
             /* Keep waiting. The tab is re-entered when the attach lands (attachAudioFile re-enters,
              * and the download path re-renders), so the strips appear without anything further here.

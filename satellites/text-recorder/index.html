@@ -28,22 +28,7 @@
        detection, so this same file ships to production unchanged. -->
   <script>
     if (/\.(pages|workers)\.dev$/.test(location.hostname)) {
-      /* ⚠ AT THE TOP, ABOVE THE HEADER — tried below it in v487/v488 and reverted (Seth, 2026-08-28:
-         "Having the staging bar at the top where it was before was better. Let's just revert to
-         that."). Written straight out, so it appears even when the engine fails to load, which is
-         exactly when knowing which site you are on matters most.
-         ⚠ The one thing kept from the experiment: --fx-ribbon-h. The researcher header is sticky, and
-         this ribbon is sticky ABOVE it with a far higher z-index, so without an offset the header
-         would slide underneath and disappear on scroll. The variable tells it how far down to stick.
-         It is set ONLY here, so production — where no ribbon exists — falls back to 0 in the CSS. */
       document.write('<div id="fx-staging" style="position:sticky;top:0;z-index:9999;background:repeating-linear-gradient(45deg,#b45309,#b45309 12px,#92400e 12px,#92400e 24px);color:#fff;text-align:center;font:600 13px/1.5 system-ui;padding:4px 8px;">STAGING \u2014 test site \u00b7 situs uji \u2014 not production / bukan produksi</div>');
-      var fxSync = function () {
-        var el = document.getElementById('fx-staging');
-        if (el) document.documentElement.style.setProperty('--fx-ribbon-h', el.offsetHeight + 'px');
-      };
-      fxSync();
-      addEventListener('load', fxSync);
-      addEventListener('resize', fxSync);
     }
   </script>
 

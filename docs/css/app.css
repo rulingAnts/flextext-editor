@@ -893,19 +893,38 @@ main {
 .rp-head {
   display: flex; align-items: center; gap: 10px;
   /* Sticky (Seth, 2026-08-28) — the panel is a long scrolling dashboard and the header carries the
-   * account identity, the language picker and Sign out, all of which are wanted from anywhere in it.
+   * account identity, the language picker and Sign out, all wanted from anywhere in it.
    *
-   * ⚠ AND IT MUST WORK BOTH WITH AND WITHOUT THE STAGING RIBBON (Seth). The ribbon is ABOVE this bar
-   * in the document, sticky at top:0 with z-index 9999 — so a header stuck at a plain top:0 would
-   * slide UNDERNEATH it and vanish on scroll, on the test site only, which is precisely where nobody
-   * would think to look for it. `--fx-ribbon-h` is set by the inline ribbon script in each shell and
-   * ONLY there, so production — which has no ribbon and never runs that script — falls through to
-   * the 0px default and sticks flush to the top as expected. One rule, both estates, no branch. */
-  position: sticky; top: var(--fx-ribbon-h, 0px); z-index: 40;
+   * ⚠ top:0 IS CORRECT ON BOTH ESTATES, and needs no knowledge of the staging ribbon — because the
+   * scroll container here is <main> (flex:1; overflow-y:auto), NOT the viewport, and the ribbon is a
+   * child of <body> OUTSIDE main. So "the top of my scrollport" already means "just below the
+   * ribbon" on staging and "the top of the window" on production. Seth's framing: sticky relative to
+   * its container, not to the page.
+   *
+   * ⚠⚠ DO NOT REINTRODUCE AN OFFSET. A --fx-ribbon-h variable was tried and it PUT A 40px GAP above
+   * the header: sticky clamps in BOTH directions, so a non-zero `top` pushes the element down to
+   * satisfy the constraint even when nothing has scrolled. Measured — .rp-head sat at y=68 inside a
+   * container whose top was y=28. The negative margin below is likewise absorbed by the clamp, which
+   * is why the header lands flush rather than bleeding upward.
+   *
+   * ⚠ z-index stays BELOW the ribbon's 9999: raising it would park the header on top of the staging
+   * warning, hiding the one element whose entire job is to say which site you are on. */
+  position: sticky; top: 0; z-index: 40;
   background: var(--rp-green); color: #fff;
   padding: 10px clamp(10px, 3vw, 28px);
-  margin: -12px calc(-1 * clamp(10px, 3vw, 28px)) 16px;
+  /* ⚠ NO NEGATIVE TOP MARGIN — the strip above the header is removed at its SOURCE instead (main's
+   * padding-top, zeroed for .rp-standalone below). The -12px here was trying to claw back a padding
+   * it could not see the size of, and it did not survive margin-collapsing through #view-researcher:
+   * the collapsed margin moved the CONTAINER rather than the header, leaving a 12px band of page
+   * background above a full-bleed bar. The horizontal negatives stay — those are the full-bleed. */
+  margin: 0 calc(-1 * clamp(10px, 3vw, 28px)) 16px;
 }
+/* ⚠ THE PANEL BRINGS ITS OWN HEADER, so main must not pad above it. Scoped to the standalone
+ * researcher app via the body class set in setupResearcherMode — NOT applied to main generally,
+ * because every other view (the editor's) genuinely wants that 12px, and the editor's own #topbar
+ * already sits outside main where this problem cannot arise. The bottom padding is preserved. */
+body.rp-standalone main { padding-top: 0; }
+
 .rp-title { font-weight: 600; font-size: 17px; }
 .rp-spacer { margin-left: auto; }
 .rp-exit { color: #fff; font-size: 20px; }

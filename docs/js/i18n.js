@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v503';
+export const ENGINE_VERSION = 'v504';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1409,7 +1409,7 @@ internet after the first time.</p>
   'panel.share.step1': 'Your colleague opens the Researcher panel and signs in with their own Google account.',
   'panel.share.step2': 'They must be approved by the operator before they can be added — if they are not yet, they will see a message saying so, and you cannot add them until that clears.',
   'panel.share.step3': 'They open Account, press Copy ID, and send you that researcher ID — WhatsApp, Signal, email, however you already talk. It identifies them and is not a password.',
-  'panel.share.step4': 'You paste it below, tick what they may do, and press Add.',
+  'panel.share.step4': 'You paste it below, give them a name only you will see, tick what they may do, and press Add.',
   'panel.share.step5': 'Leave this panel open for a few seconds afterwards. The device keys are delivered from here, so closing straight away leaves your colleague able to see the project but unable to read or change device settings until you open the panel again.',
   /* KNOWN ISSUES — staging only. ⚠ Delete an entry in the SAME commit that fixes it: a stale
    * known-issue sends a tester hunting for a bug that is gone, and makes the rest look untrustworthy. */
@@ -1445,6 +1445,10 @@ internet after the first time.</p>
   /* ⚠ The coworker list no longer shows a name, email or avatar — the worker stopped sending them
    * (v503). A nickname the OWNER types is what names a coworker now, and it never leaves this
    * browser unencrypted. */
+  'panel.share.nickLabel': 'A name for them (only you see it)',
+  'panel.share.nickPh': 'e.g. Yani — Kulumi team',
+  'panel.share.nickNote': 'Required. Since nothing else identifies a coworker here, this is how you will tell two of them apart later. It is stored encrypted with your account and never sent to them or to anyone else.',
+  'panel.share.nickRequired': 'Give this coworker a name first — it is the only thing that will identify them in the list.',
   'panel.share.unnamed': 'Unnamed coworker',
   'panel.share.nickAdd': 'name them',
   'panel.share.nickEdit': 'rename',
@@ -3268,7 +3272,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.share.step1': 'Rekan Anda membuka panel Peneliti dan masuk dengan akun Google mereka sendiri.',
   'panel.share.step2': 'Mereka harus disetujui operator sebelum dapat ditambahkan — jika belum, mereka akan melihat pesan tentang itu, dan Anda belum bisa menambahkan mereka.',
   'panel.share.step3': 'Mereka membuka Akun, menekan Salin ID, lalu mengirimkan ID peneliti itu kepada Anda — WhatsApp, Signal, surel, lewat saluran apa pun yang sudah Anda pakai. ID itu hanya menandai identitas, bukan kata sandi.',
-  'panel.share.step4': 'Anda menempelkannya di bawah, mencentang apa yang boleh mereka lakukan, lalu menekan Tambah.',
+  'panel.share.step4': 'Anda menempelkannya di bawah, memberi mereka nama yang hanya Anda lihat, mencentang apa yang boleh mereka lakukan, lalu menekan Tambah.',
   'panel.share.step5': 'Biarkan panel ini terbuka beberapa detik setelahnya. Kunci perangkat dikirim dari sini, jadi jika langsung ditutup, rekan Anda dapat melihat proyek tetapi belum dapat membaca atau mengubah pengaturan perangkat sampai Anda membuka panel ini lagi.',
   'panel.who.idLabel': 'id peneliti:',
   'panel.who.idTip': 'ID peneliti Anda — kirimkan ini kepada pemilik proyek yang ingin menambahkan Anda sebagai rekan kerja. Klik untuk menyalinnya.',
@@ -3291,6 +3295,10 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.known.inviteOnce': 'Tautan undangan perangkat hanya ditampilkan sekali dan tidak dapat ditampilkan ulang. Jika hilang, buat yang baru; tautan lama tetap berlaku.',
   'panel.known.projectDefaults': 'Belum ada cara menetapkan pengaturan bawaan untuk perangkat baru dalam sebuah proyek — setiap perangkat diatur sendiri.',
   'panel.known.ownerApproves': 'Hanya pemilik proyek yang dapat menyetujui dan memberi kunci perangkat baru. Rekan kerja dengan “mengelola perangkat” tidak dapat menyelesaikan penyandingan.',
+  'panel.share.nickLabel': 'Nama untuk mereka (hanya Anda yang melihatnya)',
+  'panel.share.nickPh': 'mis. Yani — tim Kulumi',
+  'panel.share.nickNote': 'Wajib diisi. Karena tidak ada lagi yang menandai rekan kerja di sini, inilah cara Anda membedakan dua orang nanti. Disimpan terenkripsi bersama akun Anda dan tidak pernah dikirim kepada mereka atau siapa pun.',
+  'panel.share.nickRequired': 'Beri nama rekan kerja ini terlebih dahulu — hanya itu yang akan menandai mereka dalam daftar.',
   'panel.share.unnamed': 'Rekan kerja tanpa nama',
   'panel.share.nickAdd': 'beri nama',
   'panel.share.nickEdit': 'ganti nama',

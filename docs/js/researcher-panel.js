@@ -6948,10 +6948,20 @@ async function coworkersModal() {
              its label pushed away. rp-fieldset is the house idiom for a group of checkboxes. */''}
         <fieldset class="rp-fieldset">
           <legend>${esc(t('panel.share.capsLabel'))}</legend>
-          <label class="check-label"><input type="checkbox" id="rp-share-manage"> ${esc(t('panel.share.capManageLabel'))}</label>
-          <label class="check-label"><input type="checkbox" id="rp-share-invite"> ${esc(t('panel.share.capInviteLabel'))}</label>
-          <label class="check-label"><input type="checkbox" id="rp-share-assign"> ${esc(t('panel.share.capAssignLabel'))}</label>
-          <label class="check-label"><input type="checkbox" id="rp-share-drive"> ${esc(t('panel.share.capDriveLabel'))}</label>
+          ${/* ⚠ ALL FOUR CHECKED BY DEFAULT (Seth, 2026-08-28). Deliberately the opposite of the usual
+               "grant nothing until asked": you invite a coworker in order to be HELPED, so the common
+               case is full delegation, and an owner who wants less unticks what they do not want —
+               which is a decision they can see, rather than four empty boxes whose consequences only
+               show up later as a colleague reporting that nothing works.
+               ⚠ WHAT "ALL" STILL DOES NOT INCLUDE, which is what makes this safe to default: no
+               capability approves or keys a device, wipes one, deletes or re-parents anything in
+               Drive, or grants Drive beyond read — the worker refuses drive:'manage' outright and
+               DEFERRED_CAPS withholds cancelOthers. The ceiling is low enough that ticking everything
+               is not the same shape of decision as an admin role. */''}
+          <label class="check-label"><input type="checkbox" id="rp-share-manage" checked> ${esc(t('panel.share.capManageLabel'))}</label>
+          <label class="check-label"><input type="checkbox" id="rp-share-invite" checked> ${esc(t('panel.share.capInviteLabel'))}</label>
+          <label class="check-label"><input type="checkbox" id="rp-share-assign" checked> ${esc(t('panel.share.capAssignLabel'))}</label>
+          <label class="check-label"><input type="checkbox" id="rp-share-drive" checked> ${esc(t('panel.share.capDriveLabel'))}</label>
         </fieldset>
         <p class="note">${esc(t('panel.share.driveNote'))}</p>
         ${/* The revocation-honesty rule moved UPSTREAM (project-split.md): the owner should learn what

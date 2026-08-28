@@ -3969,3 +3969,43 @@ owner, not the reverse.
 periodically check on that and make sure it's still true."* Re-run the check when convenient (it
 takes one page load from an account without access) rather than inheriting this note as permanent
 truth — the same discipline this repo already applies to believed-once limitations.
+
+## Owner-visible history of MEMBER actions, + optional email notification (Seth, 2026-08-28)
+
+> *"We want our 'history' modal for the researcher account to also log actions taken by member
+> researchers on projects they share so that they can see who's doing what. And maybe the option to
+> e-mail notify them of specific (or all) actions taken by member researchers — a researcher-account-
+> wide setting that applies to all of their projects."*
+
+**The logging half is already built.** `logApproval` records an `actor` and every member-reachable
+mutation already passes `ctx.caller.drive_email` — 11 call sites: `member_added`, `member_removed`,
+`grant_revoked`, `device_renamed`, `device_invited`, `device_revoked`, `install_approved`,
+`device_key_delivered`, `assigned_upload`, `text_adopted`, `text_moved`. So "who did what" is in D1
+today, for members as well as owners.
+
+**The read half is the wrong shape.** `GET /v1/researcher/approvals` is **operator-only**
+(`isOperator` → 403 for everyone else — verified live: an ordinary approved researcher gets
+`403 not_owner`) and returns the **entire global log with no scoping at all**: every researcher,
+every project, every actor email, `SELECT … FROM approval_log ORDER BY at DESC LIMIT ?`. So a
+project owner cannot see their own project's history, and the operator sees everyone's.
+
+**What the feature needs:**
+1. An **owner-scoped** read: rows whose subject is an instance/doc/project belonging to the caller,
+   or whose project the caller owns. ⚠ Today `subject`/`detail` are free text (truncated ids +
+   nicknames), so filtering on them is fragile — the log should carry explicit `project_id` /
+   `instance_id` columns (additive migration) rather than being parsed.
+2. Keep the operator's global view as a separate, explicitly-operator route.
+
+**⚠ PII tension to resolve in the same change, not after.** `actor` stores a **cleartext email** in
+D1, which is precisely what
+[the D1 email-minimisation item](#minimise-cleartext-email-addresses-in-d1) wants to remove — and
+this feature would put those emails in front of more people. Store `actor_researcher_id` and resolve
+to a display name **at read time, for the entitled owner only**. That serves both goals at once and
+is cheaper to do now than to unpick later.
+
+**Email notification** — the account-wide toggle Seth describes — has a hard dependency worth
+stating before it is scoped: the worker has **no outbound mail path today**. It needs a provider
+(and a from-domain, and a bounce/abuse story), which is a bigger decision than the toggle. A
+cheaper first step that meets most of the need: a per-owner **unread-activity badge** on the History
+button, driven by the same scoped query and a last-seen timestamp — no email infrastructure, no new
+PII leaving the system.

@@ -6623,7 +6623,15 @@ async function coworkersModal() {
                  and every project folder should carry exactly one permission — the owner's. Said
                  HERE because adding a member is the moment a researcher starts expecting messages
                  about that person. */''}
-            <p class="note">${esc(t('panel.share.warnDriveReq'))}</p></div>
+            <p class="note">${esc(t('panel.share.warnDriveReq'))}</p>
+            ${/* ⚠ THE OWNER IS THE BOTTLENECK FOR DEVICE APPROVAL, and they must learn it HERE
+                 (Seth, 2026-08-28) — before they delegate, not when a coworker reports that a phone
+                 they set up in a village does not work. A coworker can invite a device, but only
+                 the owner can approve it and give it its key, because an opaque wrapped key from
+                 anyone else could lock the owner out of their own device.
+                 Stated plainly so the real decision is available: a team whose owner cannot be
+                 bothered with approvals should make the OTHER person the project owner. */''}
+            <p class="note">${esc(t('panel.share.warnApproval'))}</p></div>
         </div>
         <button class="primary-btn" id="rp-share-add">${esc(t('panel.share.addGo'))}</button>
         <div id="rp-share-say" class="rp-adm-say" hidden></div>

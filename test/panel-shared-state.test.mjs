@@ -228,6 +228,15 @@ console.log('\nnothing a MEMBER cannot use is rendered for them (Seth, 2026-08-2
      '...text commands take assignTexts (assign, delete)');
   ok(/cancelBtn\('Upload', mManage\)/.test(panel),
      '...and an upload takes manageDevices — the same split the worker\'s capForCommand draws');
+
+  /* ⚠ UN-MARKING DONE MUST NOT BE A ONE-WAY DOOR (Seth, 2026-08-28: a known issue he had hit before).
+   * `doneOn` is the DEVICE's doneEnabled setting — what the FIELD USER sees — and it used to gate the
+   * RESEARCHER's control too. The done chip's toggle never consulted it, so on a device with Done
+   * switched off a researcher could un-mark a text and then find the control gone: d.done false,
+   * doneOn false, nothing rendered, the state unreachable from the panel. The fix is that the not-done
+   * chip renders when the researcher CAN act, not only when the device happens to display Done. */
+  ok(/\(doneOn \|\| canSetDone\) \? \(canSetDone \?/.test(panel),
+     '⚠ the not-done chip renders when the researcher may set it, so un-marking can be undone');
 }
 
 console.log(fail ? `\nFAILED (${fail}) — account state has drifted back into browser storage.\n`

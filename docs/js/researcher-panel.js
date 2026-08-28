@@ -3017,7 +3017,26 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
         const doneTag = d.done
           ? (canSetDone ? `<button class="rp-tag rp-tag-done rp-tag-btn" data-iact="toggle-done" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-done="1" title="${esc(t('panel.inst.toggleDoneTip'))}">${esc(t('panel.inst.doneTag'))}</button>`
                         : `<span class="rp-tag rp-tag-done">${esc(t('panel.inst.doneTag'))}</span>`)
-          : (doneOn ? (canSetDone ? `<button class="rp-tag rp-tag-notdone rp-tag-btn" data-iact="toggle-done" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-done="" title="${esc(t('panel.inst.toggleDoneTip'))}">${esc(t('panel.inst.notDoneTag'))}</button>`
+          /* ⚠ `|| canSetDone` — UN-MARKING DONE USED TO BE A ONE-WAY DOOR (Seth, 2026-08-28: "the
+           * inability to un-mark done as a researcher is a known issue, I've run into that before").
+           *
+           * `doneOn` is the DEVICE's own `doneEnabled` setting — whether the FIELD USER sees the Done
+           * feature on their phone. It was also gating the RESEARCHER's control, and those are two
+           * different audiences asking two different questions. The consequence was a trap with no
+           * way back: on a device with Done switched off, a text that IS done renders its chip as a
+           * toggle (that branch never consulted doneOn), so the researcher can un-mark it — and the
+           * moment they do, `d.done` goes false, this branch returns '', and the control they just
+           * used disappears behind them. The state is now unreachable from the panel entirely.
+           *
+           * Rendering when `canSetDone` closes it: the control exists exactly when the researcher may
+           * actually act, in BOTH directions. `canSetDone` already carries engine >= 138, not-wiped
+           * and the assignTexts capability, so this adds a chip only where a click would work — never
+           * to a read-only seat, and never to a device too old to honour the command.
+           *
+           * ⚠ THE COST, STATED: on a device with done-tracking off, texts now carry a quiet "not
+           * finished" chip they did not before. That is the trade for the door not being one-way, and
+           * it is reversible by returning this to `doneOn` alone if the chips prove noisy. */
+          : ((doneOn || canSetDone) ? (canSetDone ? `<button class="rp-tag rp-tag-notdone rp-tag-btn" data-iact="toggle-done" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-done="" title="${esc(t('panel.inst.toggleDoneTip'))}">${esc(t('panel.inst.notDoneTag'))}</button>`
                                   : `<span class="rp-tag rp-tag-notdone">${esc(t('panel.inst.notDoneTag'))}</span>`) : '');
         // Delete triggered (by device flag OR this researcher's just-clicked request) but not yet
         // confirmed → strike through + fade the whole row, and add a small "deleting…" tag.

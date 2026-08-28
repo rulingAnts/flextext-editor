@@ -4363,3 +4363,37 @@ the app — write to a staging key and flip a pointer, verify length/hash before
 a half-written record become the one the editor opens. The service worker's `precacheAll()` already
 fails the whole install rather than adopting a partial shell (the v108 lesson); the same discipline
 should be confirmed for settings and for downloaded media.
+
+## Old worker versions as an attack surface — worth checking properly (Seth, 2026-08-28)
+
+> *"If old worker versions present an attack surface we don't want, we may at some point want to
+> consider cleaning them up."*
+
+**Why this deserves a real answer rather than a shrug:** every worker-side fix we ship is only as
+good as the impossibility of reaching the OLD code. If a previous version is addressable — e.g. via
+a Cloudflare version-preview URL — then an attacker with valid credentials could route around any
+fix by talking to a pre-fix build against the SAME live D1. CORS would not stop them (it is not a
+data-protection boundary), and auth would succeed, because the credentials are real.
+
+Not yet established, and needs checking before it is dismissed: whether version preview URLs are
+enabled for `flextext-r2-worker` (`workers_dev = true` is set, which is a different thing), and what
+`wrangler versions list` reports for alias/preview availability. If previews ARE reachable, the
+mitigations are to disable preview URLs on the production worker and/or prune old versions after a
+release is confirmed healthy.
+
+⚠ Note the tension with rollback: pruning versions removes rollback targets. Keep at least the last
+known-good, and prune on a schedule rather than immediately after a deploy.
+
+## R2 caching of files is permitted, with conditions (Seth, 2026-08-28)
+
+> *"It's OK for our worker to cache files on my R2 storage as long as they're removed after a
+> successful download has been verified and as long as that doesn't make them publicly viewable."*
+
+Recorded as a standing permission for future work (likely relevant to resumable/poor-connection
+downloads). The three conditions are the whole of it:
+1. **Deleted after a download is VERIFIED complete** — not after it is merely started or assumed.
+   A partial or interrupted transfer must leave the cached object in place so it can be resumed.
+2. **Never publicly viewable** — no public bucket, no unauthenticated URL. Access goes through the
+   worker with the same authorization every other file read gets.
+3. Implied by (1): a sweeper for objects whose download never completed, so the bucket cannot grow
+   without bound when a device goes offline mid-transfer.

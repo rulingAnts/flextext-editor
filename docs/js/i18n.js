@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v468';
+export const ENGINE_VERSION = 'v469';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v468';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'phase-cd v23';
+export const BUILD_TAG = 'phase-cd v24';
 
 const S = {
 en: {
@@ -1012,6 +1012,7 @@ internet after the first time.</p>
   'panel.store.btn': 'Drive storage',
   'panel.store.title': 'Google Drive storage',
   'panel.store.intro': 'Every text in your Drive, grouped by the device that holds it. Texts no device holds any more are listed as unassigned, and only those can be removed here.',
+  'panel.store.ownOnly': 'This shows only your own Google Drive. Files in projects shared with you live in that project owner’s Drive — open the text’s Files… menu to download them.',
   'panel.store.loading': 'Reading your Drive\u2026',
   'panel.store.empty': 'Nothing has been uploaded to your Drive yet.',
   'panel.store.quota': '{used} of {total} used ({pct}%)',
@@ -2841,6 +2842,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.store.btn': 'Penyimpanan Drive',
   'panel.store.title': 'Penyimpanan Google Drive',
   'panel.store.intro': 'Semua teks di Drive Anda, dikelompokkan menurut perangkat yang menyimpannya. Teks yang tidak lagi ada di perangkat mana pun tercantum sebagai tidak tertugas, dan hanya teks itu yang dapat dihapus di sini.',
+  'panel.store.ownOnly': 'Ini hanya menampilkan Google Drive Anda sendiri. Berkas dalam proyek yang dibagikan kepada Anda berada di Drive pemilik proyek — buka menu Berkas… pada teks untuk mengunduhnya.',
   'panel.store.loading': 'Membaca Drive Anda\u2026',
   'panel.store.empty': 'Belum ada yang diunggah ke Drive Anda.',
   'panel.store.quota': '{used} dari {total} terpakai ({pct}%)',

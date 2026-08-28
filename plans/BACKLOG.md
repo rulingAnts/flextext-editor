@@ -4125,3 +4125,15 @@ matters most.
   access to the project's devices and texts until re-invited.
 - ⚠ The owner must still see it happened — log it via `logApproval` like any other membership change,
   or an owner discovers a coworker is gone with no record of why.
+
+## Existing project names that embed an owner's identity (follow-on to the v464 fix)
+
+The v464 fix stops NEW default projects being named `"<owner display name>'s project"`, but it
+deliberately does not rename existing ones — renaming someone's project out from under them is
+worse than the leak, and the name may already be meaningful to their team.
+
+What is still needed:
+- The panel should notice when the signed-in owner's default project name still contains their own
+  display name or email local-part, and offer a one-click rename (suggesting "Default Project"),
+  explaining in one line that project names are visible to everyone they share the project with.
+- ⚠ Only ever offered to the OWNER about their OWN project, and never automatic.

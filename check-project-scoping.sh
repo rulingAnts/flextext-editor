@@ -345,6 +345,15 @@ else
   bad x "⚠ $gmiss capability-gated Drive route(s) act on a doc id without the Phase 3 gate (or the count collapsed: $gtotal, expected ≥6)"
 fi
 
+# ⚠⚠ A PROJECT NAME IS SERVED TO EVERY MEMBER (GET /v1/projects, and memberProjects on the poll), so
+#   it must never be derived from the OWNER'S IDENTITY. It was — "<display_name>'s project" — which
+#   handed every coworker the owner's real name automatically (fixed v464, confirmed live first).
+if grep -A4 "^function defaultProjectName" "$W" | grep -qE "display_name|drive_email"; then
+  bad x "⚠⚠ defaultProjectName derives from the owner's identity again — that name reaches every member of the project"
+else
+  good ok "the default project name carries no owner identity"
+fi
+
 echo
 if [ "$fail" = 0 ]; then echo "PASS — project data is reachable only through a resolved grant."; else echo "FAILED"; fi
 exit "$fail"

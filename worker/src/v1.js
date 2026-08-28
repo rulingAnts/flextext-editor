@@ -1927,10 +1927,23 @@ function esc(s) {
 
 /* The default project's name. Deliberately derived, never asked for: on the day this ships nobody
  * has decided what their project is called, and a modal demanding one before the panel will load is
- * the worst possible introduction to a feature that is supposed to change nothing yet. */
-function defaultProjectName(row) {
-  const who = (row.display_name || '').trim() || (row.drive_email || '').split('@')[0] || 'Project';
-  return `${who}'s project`.slice(0, 120);
+ * the worst possible introduction to a feature that is supposed to change nothing yet.
+ *
+ * ⚠⚠ IT MUST NOT BE DERIVED FROM THE OWNER'S IDENTITY, and it was (v464). This built
+ * "<Google display name>'s project" — or failing that, the local-part of their email — and a
+ * project NAME is served to every MEMBER of that project, through GET /v1/projects and through
+ * memberProjects on the researcher poll. So the owner's real name was handed to every coworker
+ * automatically, which is exactly the automatic disclosure Seth ruled out (2026-08-28: "nothing in
+ * our app automatically gives bad actors free information about other researchers if they seize a
+ * device or compromise an account"), and it silently contradicted the invariant asserted over
+ * GET /v1/projects — "never the owner's email or display name". Confirmed live before the fix: a
+ * member's poll returned "Fayu Fieldworker's project".
+ *
+ * ⚠ EXISTING projects keep the name they were given — renaming someone's project out from under
+ * them would be worse than the leak. The panel should prompt owners whose project name still
+ * embeds their identity; see plans/BACKLOG.md. */
+function defaultProjectName() {
+  return 'Default Project';
 }
 
 /* Mint the owner's project and adopt their instances + crowd recorders into it. IDEMPOTENT by
@@ -1977,7 +1990,7 @@ async function backfillProjectsFor(env, row, now) {
   if (!project) {
     const project_id = crypto.randomUUID();
     await env.DB.prepare('INSERT INTO project (project_id, owner_id, name, created_at) VALUES (?,?,?,?)')
-      .bind(project_id, row.researcher_id, defaultProjectName(row), now).run();
+      .bind(project_id, row.researcher_id, defaultProjectName(), now).run();
     project = { project_id, drive_folder_id: null };
     created = true;
   }
@@ -1996,7 +2009,7 @@ async function backfillProjectsFor(env, row, now) {
   if (!driveFolder && row.drive_refresh_enc) {
     try {
       const access = await driveAccessToken(env, row);
-      driveFolder = await driveEnsureDefaultProject(access, defaultProjectName(row));
+      driveFolder = await driveEnsureDefaultProject(access, defaultProjectName());
       if (driveFolder) {
         await env.DB.prepare('UPDATE project SET drive_folder_id=? WHERE project_id=? AND drive_folder_id IS NULL')
           .bind(driveFolder, project.project_id).run();

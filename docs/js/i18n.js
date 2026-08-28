@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v469';
+export const ENGINE_VERSION = 'v470';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v469';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'phase-cd v24';
+export const BUILD_TAG = 'phase-cd v25';
 
 const S = {
 en: {
@@ -1121,6 +1121,8 @@ internet after the first time.</p>
   'panel.inst.pending': 'pending approval',
   'panel.inst.linked': 'linked',
   'panel.inst.noKey': 'no device linked yet',
+  'panel.inst.keysDelivered': '{n} device(s) were waiting for their key — delivered now.',
+  'panel.inst.approvedNeedsOwnerKey': 'Device approved. It still needs its key from the project owner — that happens automatically the next time they open their panel, and the device will start working then. Nothing more for you to do.',
   'panel.inst.newInstall': 'New install waiting for approval',
   'panel.inst.fingerprint': 'Key fingerprint',
   'panel.inst.verifyHint': 'Confirm this fingerprint with the field worker before approving.',
@@ -2942,6 +2944,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.inst.pending': 'menunggu persetujuan',
   'panel.inst.linked': 'terhubung',
   'panel.inst.noKey': 'belum ada perangkat tertaut',
+  'panel.inst.keysDelivered': '{n} perangkat menunggu kuncinya — sudah dikirim sekarang.',
+  'panel.inst.approvedNeedsOwnerKey': 'Perangkat disetujui. Perangkat masih membutuhkan kunci dari pemilik proyek — itu terjadi otomatis saat mereka membuka panel lagi, dan perangkat akan mulai berfungsi. Tidak ada lagi yang perlu Anda lakukan.',
   'panel.inst.newInstall': 'Instalasi baru menunggu persetujuan',
   'panel.inst.fingerprint': 'Sidik kunci',
   'panel.inst.verifyHint': 'Pastikan sidik kunci ini dengan pekerja lapangan sebelum menyetujui.',

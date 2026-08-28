@@ -3,6 +3,10 @@
 :root {
   --blue: #1f4f8f;
   --blue-dark: #163a6b;
+  /* The researcher app's own colour — the icon fill, and already this app's manifest `theme_color`
+   * (satellites/flextext-researcher/researcher.webmanifest). Declared here because app.css is the one
+   * stylesheet every app loads; it is USED in exactly one rule (.rp-head), so no other app changes. */
+  --rp-green: #0f766e;
   --vern: #00379c;        /* FLEx wordform blue */
   --gloss: #2a6e2a;       /* FLEx word-gloss green */
   --bg: #ffffff;
@@ -880,9 +884,15 @@ main {
 }
 
 /* ---------- Researcher panel (separate view) ---------- */
+/* ⚠ RESEARCHER-PANEL ONLY, and that is a property of this selector rather than a convention to
+ * remember: `.rp-head` is emitted from ONE place (researcher-panel.js), and no app's own header uses
+ * it — the editor and recorder have their own. So this rule cannot reach them.
+ * Green because the researcher app already IS green everywhere else: it is the icon fill and the
+ * manifest theme_color, so on Android the PWA's system chrome was green while the bar directly
+ * beneath it was blue (Seth, 2026-08-28). The rest of the panel's styling is deliberately unchanged. */
 .rp-head {
   display: flex; align-items: center; gap: 10px;
-  background: var(--blue); color: #fff;
+  background: var(--rp-green); color: #fff;
   padding: 10px clamp(10px, 3vw, 28px);
   margin: -12px calc(-1 * clamp(10px, 3vw, 28px)) 16px;
 }

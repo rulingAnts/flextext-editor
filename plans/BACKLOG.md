@@ -5,6 +5,47 @@
 > one is the way in.
 
 
+## Member-researcher pairing is functional, not intuitive (Seth, 2026-08-28) — NEXT RELEASE
+
+> *"In a future release we'll want to improve the pairing/invite process for member researchers to be
+> more intuitive/user-friendly. But this will work for now."*
+
+**What v482 did**, and it is deliberately the small version: the empty dashboard now also speaks to
+the person it was never written for. `panel.dash.empty` says "No devices yet. Add one to send an
+invite link to a field worker" — owner framing — which tells a coworker joining someone else's
+project to do the one thing they did not come here to do. Beneath it now sits
+`panel.dash.emptyJoin` plus a button straight into Account, where the researcher ID, its copy button
+and a good explanation already lived. Shown ONLY while there are no devices AND no shared projects,
+so it disappears the moment the person is oriented.
+
+**Why that is a patch and not the fix.** The flow still asks two people to coordinate out-of-band
+over an opaque uuid, in this order:
+
+1. the coworker signs in, and can do nothing until an OPERATOR approves their account;
+2. they find Account (no reason to look there) and copy a uuid;
+3. they send it to the owner through some channel this app knows nothing about;
+4. the owner pastes it into Add-a-coworker and picks capabilities;
+5. only then does anything appear on the coworker's screen.
+
+Steps 1 and 3 are where it strands people. Nothing tells the coworker they are waiting on approval,
+and nothing tells either side whether the paste worked until the dashboard changes.
+
+**Shapes worth considering** (all of them narrow the out-of-band step, which is the actual problem):
+- An **owner-initiated invite link**, like the device pairing links this app already does well — the
+  owner creates it, sends it, the coworker opens it and lands already attached. Reverses who does the
+  copying, and the link can carry the intended capabilities.
+- A **short pairing code** rather than a uuid, matching the device pair-code vocabulary already on
+  screen (v449 removed researcher identity from device pairing in favour of exactly this).
+- **Say the wait out loud**: an unapproved account should say it is waiting for approval, not present
+  an empty owner dashboard.
+- **Confirm the join on both sides** once it lands.
+
+⚠ Whatever replaces it must keep the property the current design has, which is not an accident: the
+worker deliberately offers NO id-to-identity lookup, because that would be a directory of everyone on
+the deployment. An invite link or code must not become one — it should name a project, not a person,
+and expire.
+
+
 ## NEXT, IN ORDER (Seth, 2026-08-20) — the queue after v433
 
 Recorded verbatim because the order is his and it is not the order the work naturally suggests.

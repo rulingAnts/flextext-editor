@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v482';
+export const ENGINE_VERSION = 'v483';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1123,6 +1123,12 @@ internet after the first time.</p>
   'panel.dash.openEditor': 'Open FlexText Editor \u2197',
   'panel.dash.openEditorNote': 'This opens the editor app — it does not pair this browser to your account. To work on a device (this one included), use “+ New device” and open its link there.',
   'panel.dash.empty': 'No devices yet. Add one to send an invite link to a field worker.',
+  /* Shown beneath the line above ONLY while there is nothing here at all — no devices and no shared
+   * project. The line above is written for an owner; this one is for the other person who lands on
+   * this screen, the coworker who came to help with someone else's project and would otherwise be
+   * told to do the one thing they did not come here to do. */
+  'panel.dash.emptyJoin': 'Joining a coworker’s project instead? Send them your researcher ID — once they add you, their devices appear here.',
+  'panel.dash.emptyJoinBtn': 'Show my researcher ID',
   'panel.inst.pending': 'pending approval',
   'panel.inst.linked': 'linked',
   'panel.inst.noKey': 'no device linked yet',
@@ -2958,6 +2964,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.dash.openEditor': 'Buka FlexText Editor \u2197',
   'panel.dash.openEditorNote': 'Ini membuka aplikasi editor — tidak memasangkan peramban ini ke akun Anda. Untuk bekerja di sebuah perangkat (termasuk yang ini), pakai “+ Perangkat baru” lalu buka tautannya di sana.',
   'panel.dash.empty': 'Belum ada perangkat. Tambahkan satu untuk mengirim tautan undangan ke pekerja lapangan.',
+  'panel.dash.emptyJoin': 'Ingin bergabung dengan proyek rekan kerja? Kirimkan ID peneliti Anda kepada mereka — setelah Anda ditambahkan, perangkat mereka akan muncul di sini.',
+  'panel.dash.emptyJoinBtn': 'Tampilkan ID peneliti saya',
   'panel.inst.pending': 'menunggu persetujuan',
   'panel.inst.linked': 'terhubung',
   'panel.inst.noKey': 'belum ada perangkat tertaut',

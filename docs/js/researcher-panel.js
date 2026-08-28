@@ -1640,7 +1640,19 @@ async function renderDashboard(prefetched) {
        * `scope` is null on a flat estate, which is the whole backward-compatibility story. */
       if (!scope) {
         return `${renderUnassignedCard(estateCache)}
-          ${insts.length ? cards.join('') : `<p class="note rp-empty">${esc(t('panel.dash.empty'))}</p>`}
+          ${/* ⚠ THE EMPTY DASHBOARD SPEAKS ONLY TO OWNERS, AND A COWORKER'S FIRST SCREEN IS THIS ONE
+               (Seth, 2026-08-28: "we do need clear documentation for how to send your ID # to a
+               project owner who wants to add you… it's not very intuitive").
+               "No devices yet. Add one to send an invite link to a field worker." tells someone
+               joining a COLLEAGUE's project to do the one thing they did not come here to do, and
+               says nothing about the one step that actually unblocks them. The ID, its copy button
+               and a good explanation already exist — but they are inside Account, which a first-time
+               user has no reason to open, so the instruction never reaches the person who needs it.
+               Shown only when there is genuinely nothing here yet (no devices AND no shared project):
+               once either exists, the person is oriented and this would be noise. */''}
+          ${insts.length ? cards.join('') : `<p class="note rp-empty">${esc(t('panel.dash.empty'))}</p>
+            ${((lastData && lastData.memberProjects) || []).length ? '' : `<p class="note rp-empty rp-empty-join">${esc(t('panel.dash.emptyJoin'))}
+              <button class="link-btn" data-act="account">${esc(t('panel.dash.emptyJoinBtn'))}</button></p>`}`}
           ${Researcher.isApprovedSelf() ? renderCrowdCard(crowdCache, estateCache) : ''}
           ${joinedSections}`;
       }

@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v492';
+export const ENGINE_VERSION = 'v493';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v492';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'phase-cd v32';
+export const BUILD_TAG = 'coworker-sharing rc1';
 
 const S = {
 en: {
@@ -1402,6 +1402,26 @@ internet after the first time.</p>
   'panel.share.removeConfirm': 'Remove this coworker from “{name}”?\n\nThey lose access from their next request, and the device keys they were given are deleted. What they have already seen or downloaded cannot be taken back.',
   'panel.share.removed': 'Coworker removed.',
   'panel.share.addTitle': 'Add a coworker',
+  /* HOW TO ADD A COLLEAGUE — numbered, both sides, because this is a manual exchange between two
+   * people through a channel the app knows nothing about, and the old single sentence covered only
+   * the colleague's half. ⚠ Step 5 is the one nobody would guess: keys are delivered by a sweep that
+   * runs when the OWNER's dashboard renders. */
+  'panel.share.step1': 'Your colleague opens the Researcher panel and signs in with their own Google account.',
+  'panel.share.step2': 'They must be approved by the operator before they can be added — if they are not yet, they will see a message saying so, and you cannot add them until that clears.',
+  'panel.share.step3': 'They open Account, press Copy ID, and send you that researcher ID — WhatsApp, Signal, email, however you already talk. It identifies them and is not a password.',
+  'panel.share.step4': 'You paste it below, tick what they may do, and press Add.',
+  'panel.share.step5': 'Leave this panel open for a few seconds afterwards. The device keys are delivered from here, so closing straight away leaves your colleague able to see the project but unable to read or change device settings until you open the panel again.',
+  /* KNOWN ISSUES — staging only. ⚠ Delete an entry in the SAME commit that fixes it: a stale
+   * known-issue sends a tester hunting for a bug that is gone, and makes the rest look untrustworthy. */
+  'panel.known.btn': 'Known issues',
+  'panel.known.title': 'Known issues in this test build',
+  'panel.known.intro': 'These are already known — no need to report them. Anything else, please do report.',
+  'panel.known.addColleague': 'Adding a colleague is a clumsy manual exchange: they have to find their researcher ID and send it to you. A one-time invite link you can share instead is planned.',
+  'panel.known.coworkerIdentity': 'The Coworkers list shows each colleague’s name, email address and avatar. A future release will replace that with a pairing code and a nickname you choose.',
+  'panel.known.crowdMembers': 'Crowd recorders are invisible to a coworker — only the project owner sees them.',
+  'panel.known.inviteOnce': 'A device invite link is shown once and cannot be displayed again. If it is lost, make a new one; the old link stays valid.',
+  'panel.known.projectDefaults': 'There is no way yet to set default settings for new devices in a project — each device is configured on its own.',
+  'panel.known.ownerApproves': 'Only the project owner can approve and key a new device. A coworker with “manage devices” cannot finish pairing one.',
   'panel.share.idLabel': 'Their researcher ID',
   'panel.share.idPh': 'Paste the ID they sent you',
   /* ⚠ BY ID, NOT BY EMAIL, and that is the same rule the pairing flow follows: an id-to-identity
@@ -3218,6 +3238,20 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.share.removeConfirm': 'Hapus rekan kerja ini dari “{name}”?\n\nAkses mereka berhenti mulai permintaan berikutnya, dan kunci perangkat yang pernah diberikan kepada mereka dihapus. Apa yang sudah mereka lihat atau unduh tidak dapat ditarik kembali.',
   'panel.share.removed': 'Rekan kerja dihapus.',
   'panel.share.addTitle': 'Tambah rekan kerja',
+  'panel.share.step1': 'Rekan Anda membuka panel Peneliti dan masuk dengan akun Google mereka sendiri.',
+  'panel.share.step2': 'Mereka harus disetujui operator sebelum dapat ditambahkan — jika belum, mereka akan melihat pesan tentang itu, dan Anda belum bisa menambahkan mereka.',
+  'panel.share.step3': 'Mereka membuka Akun, menekan Salin ID, lalu mengirimkan ID peneliti itu kepada Anda — WhatsApp, Signal, surel, lewat saluran apa pun yang sudah Anda pakai. ID itu hanya menandai identitas, bukan kata sandi.',
+  'panel.share.step4': 'Anda menempelkannya di bawah, mencentang apa yang boleh mereka lakukan, lalu menekan Tambah.',
+  'panel.share.step5': 'Biarkan panel ini terbuka beberapa detik setelahnya. Kunci perangkat dikirim dari sini, jadi jika langsung ditutup, rekan Anda dapat melihat proyek tetapi belum dapat membaca atau mengubah pengaturan perangkat sampai Anda membuka panel ini lagi.',
+  'panel.known.btn': 'Masalah yang diketahui',
+  'panel.known.title': 'Masalah yang diketahui pada versi uji ini',
+  'panel.known.intro': 'Hal-hal berikut sudah diketahui — tidak perlu dilaporkan. Selain itu, mohon laporkan.',
+  'panel.known.addColleague': 'Menambahkan rekan kerja masih merepotkan: mereka harus mencari ID peneliti mereka dan mengirimkannya kepada Anda. Tautan undangan sekali pakai sedang direncanakan.',
+  'panel.known.coworkerIdentity': 'Daftar Rekan Kerja menampilkan nama, alamat surel, dan avatar setiap rekan. Versi mendatang akan menggantinya dengan kode penyandingan dan nama panggilan pilihan Anda.',
+  'panel.known.crowdMembers': 'Perekam massal tidak terlihat oleh rekan kerja — hanya pemilik proyek yang melihatnya.',
+  'panel.known.inviteOnce': 'Tautan undangan perangkat hanya ditampilkan sekali dan tidak dapat ditampilkan ulang. Jika hilang, buat yang baru; tautan lama tetap berlaku.',
+  'panel.known.projectDefaults': 'Belum ada cara menetapkan pengaturan bawaan untuk perangkat baru dalam sebuah proyek — setiap perangkat diatur sendiri.',
+  'panel.known.ownerApproves': 'Hanya pemilik proyek yang dapat menyetujui dan memberi kunci perangkat baru. Rekan kerja dengan “mengelola perangkat” tidak dapat menyelesaikan penyandingan.',
   'panel.share.idLabel': 'ID peneliti mereka',
   'panel.share.idPh': 'Tempelkan ID yang mereka kirimkan',
   'panel.share.idNote': 'Minta rekan kerja Anda membuka panel mereka sendiri → Akun, lalu mengirimkan ID peneliti yang tertera di sana. Mereka harus sudah masuk dan disetujui terlebih dahulu.',

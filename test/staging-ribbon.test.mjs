@@ -95,6 +95,33 @@ console.log('\nthe sticky researcher header works WITH and WITHOUT the ribbon');
      '⚠ the header keeps its horizontal full-bleed negatives but NO negative top margin');
 }
 
+console.log('\nKnown issues is STAGING-ONLY, and vanishes when the list is empty');
+{
+  /* Seth, 2026-08-28: "Known Issues link should only show on staging, not on production." A list of
+   * things that do not work is written FOR a tester who agreed to try a pre-release; a production
+   * field user meeting it has no way to act on it and no reason to expect it.
+   *
+   * ⚠ Gated on the same hostname rule as the ribbon, DUPLICATED rather than shared — the ribbon lives
+   * inline in five shells precisely so it depends on no engine module, so there is nothing to import.
+   * Two statements of one rule, which is exactly the kind of pair that drifts, so both are pinned.
+   *
+   * ⚠ AND IT DISAPPEARS WHEN EMPTY. A permanent link onto nothing teaches people it is decoration,
+   * and the next time it has content they will not open it. */
+  const panel = read('../docs/js/researcher-panel.js');
+  ok(/function onStagingEstate\(\) \{[\s\S]*?\/\\\.\(pages\|workers\)\\\.dev\$\//.test(panel),
+     '⚠ the link is gated on the *.pages.dev / *.workers.dev hostname — production never renders it');
+  ok(/if \(!onStagingEstate\(\) \|\| !KNOWN_ISSUES\.length\) return '';/.test(panel),
+     '⚠ ...and an empty list emits NO link, rather than a link onto nothing');
+  const list = (panel.match(/const KNOWN_ISSUES = \[([\s\S]*?)\];/) || [])[1] || '';
+  const keys = [...list.matchAll(/'([^']+)'/g)].map((m) => m[1]);
+  ok(keys.length > 0, `the list has entries (${keys.length})`);
+  const i18n = read('../docs/js/i18n.js');
+  for (const k of keys) {
+    ok(i18n.split(`'${k}':`).length - 1 >= 2,
+       `${k} is a real string in BOTH languages — a missing one would render the key to a tester`);
+  }
+}
+
 console.log(fail ? `\nFAILED (${fail}) — the staging ribbon or its header handshake has drifted.\n`
                  : '\nPASS: ribbon on top, five identical copies, header sticks clear of it.\n');
 process.exit(fail ? 1 : 0);

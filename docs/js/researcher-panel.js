@@ -1025,9 +1025,50 @@ function header(titleKey, withLock) {
     ${advancedPicker()}
     <select id="rp-lang" title="${esc(t('research.lang'))}">${LANGS.map((l) =>
       `<option value="${esc(l)}"${getLang() === l ? ' selected' : ''}>${esc(LANG_NAMES[l] || l)}</option>`).join('')}</select>
+    ${knownIssuesLink()}
     <button class="icon-btn rp-helpbtn" data-act="help" title="${esc(t('panel.help.btn'))}" aria-label="${esc(t('panel.help.btn'))}">?</button>
     ${withLock ? `<button class="secondary-btn rp-lock" data-act="lock">${esc(t('panel.lock'))}</button>` : ''}
   </div>`;
+}
+
+/* KNOWN ISSUES — the list, and the two rules that keep it honest.
+ *
+ * ⚠ STAGING ONLY, matching the ribbon's hostname test. A production user meeting a list of things
+ * that do not work has no way to act on it and no reason to expect it; a TESTER has both. Widening it
+ * to production would be a product decision, not a config change — the wording here is written for
+ * someone who agreed to test a pre-release.
+ *
+ * ⚠ AND IT DISAPPEARS WHEN IT IS EMPTY. An always-present "Known issues" that opens onto nothing
+ * teaches people the link is decoration, and the next time it has content they will not look. Empty
+ * list ⇒ no link at all.
+ *
+ * ⚠ KEEP IT CURRENT OR DELETE ENTRIES. A stale known-issue is worse than none: it sends a tester
+ * hunting for a bug that was fixed, and it makes the rest of the list look untrustworthy. When a
+ * release fixes one of these, remove the key here in the SAME commit. */
+const KNOWN_ISSUES = [
+  'panel.known.addColleague',
+  'panel.known.coworkerIdentity',
+  'panel.known.crowdMembers',
+  'panel.known.inviteOnce',
+  'panel.known.projectDefaults',
+  'panel.known.ownerApproves',
+];
+
+/* The same rule the staging ribbon uses, deliberately duplicated rather than imported: the ribbon
+ * lives inline in five shells precisely so it does not depend on the engine, so there is nothing to
+ * import from. One regex, stated twice, in two places that must agree — pinned by a test. */
+function onStagingEstate() {
+  try { return /\.(pages|workers)\.dev$/.test(location.hostname); } catch { return false; }
+}
+function knownIssuesLink() {
+  if (!onStagingEstate() || !KNOWN_ISSUES.length) return '';
+  return `<button class="link-btn rp-known" data-act="known">${esc(t('panel.known.btn'))}</button>`;
+}
+function knownIssuesModal() {
+  modal(`<h3>${esc(t('panel.known.title'))}</h3>
+    <p class="note">${esc(t('panel.known.intro'))}</p>
+    <ul class="rp-known-list">${KNOWN_ISSUES.map((k) => `<li>${esc(t(k))}</li>`).join('')}</ul>
+    <div class="modal-actions"><button class="primary-btn" data-m="cancel">${esc(t('panel.help.close'))}</button></div>`);
 }
 
 function wire(sel, ev, fn) { const el = root.querySelector(sel); if (el) el.addEventListener(ev, fn); }
@@ -1035,6 +1076,10 @@ function wireActs(handlers) {
   root.querySelectorAll('[data-act]').forEach((el) => {
     let fn = handlers[el.dataset.act];
     if (!fn && el.dataset.act === 'help') fn = showPanelHelp;   // the header help button is universal
+    // …and so is Known issues: the header renders in several views, and a link that works in one of
+    // them is worse than no link. Staging-only by construction — knownIssuesLink() emits nothing on
+    // production, so this handler is unreachable there rather than merely unused.
+    if (!fn && el.dataset.act === 'known') fn = knownIssuesModal;
     if (fn) el.addEventListener('click', () => fn(el));
   });
 }
@@ -6792,6 +6837,22 @@ async function coworkersModal() {
         <div class="rp-adm-h">${esc(t('panel.share.addTitle'))}</div>
         <label class="rp-field"><span>${esc(t('panel.share.idLabel'))}</span>
           <input id="rp-share-id" spellcheck="false" autocapitalize="off" placeholder="${esc(t('panel.share.idPh'))}"></label>
+        ${/* ⚠ NUMBERED STEPS, BOTH SIDES, because this is the least intuitive thing in the panel
+             (Seth, 2026-08-28: "make sure to give instructions for how to add a colleague to a
+             project as another researcher, because right now it's not very intuitive"). It is a
+             manual exchange between two people through a channel this app knows nothing about, and
+             the old single sentence described only the colleague's half.
+             ⚠ STEP 5 IS THE ONE NOBODY WOULD GUESS: the key grant is issued by a sweep that runs when
+             the OWNER's dashboard renders, so an owner who adds someone and immediately closes the
+             panel leaves that coworker able to act but unable to read device settings. Discovered by
+             hitting it — a membership added outside the panel came back with zero grants. */''}
+        <ol class="rp-steps note">
+          <li>${esc(t('panel.share.step1'))}</li>
+          <li>${esc(t('panel.share.step2'))}</li>
+          <li>${esc(t('panel.share.step3'))}</li>
+          <li>${esc(t('panel.share.step4'))}</li>
+          <li>${esc(t('panel.share.step5'))}</li>
+        </ol>
         <p class="note">${esc(t('panel.share.idNote'))}</p>
         ${/* ⚠ A FIELDSET, not an rp-field: `.rp-field input` styles a control as a TEXT BOX (border,
              padding, full width), which a checkbox inherits too — it renders as a stretched box with

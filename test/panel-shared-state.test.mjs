@@ -171,6 +171,11 @@ console.log('\nnothing a MEMBER cannot use is rendered for them (Seth, 2026-08-2
    * control reads as broken (the no-silently-disabled-controls rule). */
   ok(/const viaMember = !!wrap\.dataset\.viamember/.test(panel),
      'the Files modal knows whether it is rendering for a member');
+  /* ⚠ AND THE MODAL MUST CARRY IT. openFilesModal builds a NEW wrapper and populateFilesMenu runs
+   * against that one; the flag was missing there, so every render gate silently saw a non-member
+   * and the download lane silently chose the owner route. The gates were right and useless. */
+  ok(/data-fmenu\$\{rowWrap\.dataset\.viamember \? ' data-viamember="1"' : ''\}/.test(panel),
+     '⚠ the modal copies data-viamember from the row — gates and download lane both depend on it');
   ok(/const dead = viaMember \? \[\] : cleanupCandidates\(allFiles\)/.test(panel),
      '⚠ the Cleanup (delete-to-trash) control is not offered to a member');
   /* ⚠ COUNT THE RENDER SITES, DO NOT MATCH ONE. v469 gated one of the two places that render this

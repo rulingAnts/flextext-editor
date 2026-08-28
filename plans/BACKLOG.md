@@ -4049,3 +4049,30 @@ visible to the person being measured — they should be able to see their own nu
 device — and its existence should be something a researcher tells their team about, not something
 they discover. That is a design requirement, not a footnote: a monitoring feature that surprises the
 person monitored damages exactly the trust the rest of this suite is built to protect.
+
+## Orphaned Drive folders when a device is revoked (Seth, 2026-08-28)
+
+> *"We also need to clean up Google Drive folders whose devices were deleted from our early
+> experimentation (and failed attempts) at the sharing setup. Ideally that doesn't happen."*
+
+**Confirmed first-hand:** revoking an instance removes it from D1's live set and kills its keys and
+tokens, but its Drive folder stays parented under the project. Three orphans were created in minutes
+during the 2026-08-28 capability/revocation testing (`CapMatrix probe` ×2, `DeviceRevokeTest (fw)`),
+and Seth's own `23Aug_New_Device` project carries several from earlier sharing experiments.
+
+**Why "ideally that doesn't happen" is the harder half.** Deleting the folder on revoke is exactly
+what must NOT be automatic: revoke is also what you do to a device that is lost or out of the team's
+control, and that device's folder may hold the only copy of recordings the community consented to
+make. Silent deletion there would be data loss dressed as tidiness.
+
+**Suggested shape (needs Seth's call):**
+- Revoke keeps the folder but MARKS it — rename to a `(retired) ` prefix, or stamp
+  `appProperties.flextextRetired=<timestamp>` — so orphans are identifiable rather than
+  indistinguishable from live devices.
+- The panel's Drive-storage view grows a **"Retired devices"** section listing them with their size
+  and last activity, and an explicit per-folder delete. Deliberate, reviewable, never automatic.
+- A one-off sweep for the EXISTING orphans: `drive_object` rows whose `instance_id` is revoked or
+  absent, cross-checked against the live estate, presented as a list to confirm before anything is
+  trashed.
+- ⚠ Anything that deletes Drive content must be owner-only regardless of member capabilities, and
+  should route through the trash (recoverable for 30 days) rather than a permanent delete.

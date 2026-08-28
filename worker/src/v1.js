@@ -567,7 +567,15 @@ export function validateCaps(raw) {
    * below say what may be DONE. Finer separation is a separate project — which is how Seth's own
    * estate is already arranged (Fayu Text Corpus and Dani Dictionary). */
 
-  /* ⚠⚠ `assignTexts` AND `drive` ARE REFUSED IN v1, and this is remediation rather than caution.
+  /* ⚠ STATUS, BEFORE THE HISTORY BELOW: `assignTexts` IS GRANTABLE (v456) and its two id classes are
+   * repaired at the routes — docIds by authorizeDocForProject (Phase 3), fileIds by
+   * memberFileIdsOk/driveFileBelongsToDoc (v462, Phase-4 blocker #1). `drive` IS STILL REFUSED: the
+   * account-level routes it needs (drive-file, trash, drive-estate) still run under the CALLER's own
+   * Drive token, which is a design question and not a gate to bolt on. The paragraphs below are the
+   * ORIGINAL reasoning, kept because the class it names is the one every future capability must be
+   * checked against — read them as "why this list exists", not as current status.
+   *
+   * ⚠⚠ `assignTexts` AND `drive` WERE REFUSED IN v1, and this is remediation rather than caution.
    * The 2026-08-21 audit confirmed 17 findings; NINE of them share one root cause and every one of
    * those nine lives behind these two capabilities. Routes authorize the project correctly and then
    * act on a Drive text or file id supplied by the CALLER, resolved by a tag search across the
@@ -1385,6 +1393,63 @@ export function clampTtlDays(v) {
  * Additive on purpose: scope is optional, and a v1 token minted before this change still serves
  * exactly as it did. TTL semantics are deliberately UNCHANGED here — shortening them is visible to
  * researchers who set a delivery window, so it is a separate decision, not a side effect of this. */
+/* ⚠⚠ PHASE-4 BLOCKER #1, CLOSED (v462). Does this caller-supplied Drive file id actually belong to
+ * the text it is about to mint a streaming URL for?
+ *
+ * The routes below authorize the DOC — `authorizeDocForProject` proves the caller may act on this
+ * text — and then took `audioFileId` / `flextextFileId` / `extractFromZipId` from the body verbatim.
+ * The doc gate says nothing about those ids, so a member with `assignTexts` could name ANY
+ * app-created file in the owner's Drive — another project, the Unassigned pile, a crowd submission —
+ * and receive a 90-day URL for it minted under the owner's authority. That is the DRIVE-ID class the
+ * 2026-08-21 audit named, arriving by a different door: authorize Building A, then open any room.
+ *
+ * ⚠ THE CHECK WALKS PARENTS BY ID, AND THAT IS THE POINT. `files.get` by id is strongly consistent
+ * and cannot be steered; the appProperties TAG SEARCH is the very mechanism the audit found
+ * dangerous, so using it to police the audit's own finding would be circular. The tree is
+ * `<Device>/<Text>/originals/<file>`, so a legitimate file's parent is the text folder or its
+ * `originals/` child — one hop, then one more. Bounded fan-out; no search anywhere.
+ *
+ * Returns false on any doubt (missing file, trashed, unreadable parent, Drive error): a mint that
+ * cannot be proven legitimate must not happen. */
+async function driveFileBelongsToDoc(access, fileId, docId) {
+  const fid = String(fileId || '').replace(/[^\w-]/g, '').slice(0, 128);
+  const want = String(docId || '').replace(/[^\w-]/g, '').slice(0, 64);
+  if (!fid || !want) return false;
+  const tagOf = (o) => String(((o && o.appProperties) || {}).flextextDoc || '');
+  const get = async (id, fields) => {
+    try {
+      return await driveJson(access, 'GET',
+        'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(id) + '?fields=' + fields);
+    } catch { return null; }
+  };
+  const f = await get(fid, 'id,trashed,parents');
+  if (!f || f.trashed || !Array.isArray(f.parents)) return false;
+  for (const p of f.parents.slice(0, 4)) {
+    const pf = await get(p, 'id,appProperties,parents');
+    if (!pf) continue;
+    if (tagOf(pf) === want) return true;                       // file sits directly in the text folder
+    for (const gp of (Array.isArray(pf.parents) ? pf.parents.slice(0, 2) : [])) {
+      const gf = await get(gp, 'id,appProperties');            // …or in its originals/ child
+      if (gf && tagOf(gf) === want) return true;
+    }
+  }
+  return false;
+}
+
+/* Verify EVERY caller-supplied file id a route is about to mint from. Owner-minted ids are their own
+ * files in their own Drive and are left exactly as they were — this closes a MEMBER's reach, and
+ * changing the owner path would risk field flows for no security gain (the owner already has the
+ * Drive token this would be protecting them from). Denial is the uniform 404 every other refusal
+ * answers, so an unauthorized id learns nothing about whether it exists. */
+async function memberFileIdsOk(ctx, access, docId, fileIds) {
+  if (ctx.isOwner) return true;
+  for (const fid of fileIds) {
+    if (!fid) continue;                                        // absent is fine; wrong is not
+    if (!(await driveFileBelongsToDoc(access, fid, docId))) return false;
+  }
+  return true;
+}
+
 async function mintTextfileUrl(env, urlOrigin, researcherId, fileId, extract, ttlMs, scope, minterId) {
   if (!fileId) return null;
   /* ⚠ `n` AND `iat` ARE FREE NOW AND CANNOT BE ADDED LATER — not to tokens already in the field,
@@ -3247,7 +3312,15 @@ export async function handleV1(request, env, ctx, url, path, origin) {
                maintenance: maintenance || undefined, freeze: freeze || undefined,
                kr: r.kr_server_enc ? await decAtRest(env, r.kr_server_enc) : undefined,
                pubkey: r.pubkey || undefined, wrapped_privkey: r.wrapped_privkey || undefined,
-               email: r.drive_email || undefined }, 200, origin, env);
+               /* ⚠ THE CALLER'S OWN IDENTITY, and only ever their own — `r` is the row that just
+                * authenticated. It exists so the panel can SAY which account is signed in (Seth,
+                * 2026-08-28: with several accounts open, "which one am I looking at" was guesswork
+                * and cost real confusion during testing). No new exposure: a researcher already
+                * knows who they are, and this is the same email the poll has always returned.
+                * Additive — an older panel ignores the two new fields. */
+               email: r.drive_email || undefined,
+               name: r.display_name || undefined,
+               avatar: r.avatar_url || undefined }, 200, origin, env);
   }
 
   // POST /v1/researcher/approve {researcher_id} — an OWNER approves a pending researcher.
@@ -4598,10 +4671,9 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       if (!inst) return j({ error: 'not_found' }, 404, origin, env);
       const docId = String(seg[4] || '').replace(/[^\w-]/g, '').slice(0, 64);
       /* Phase 3 gate — 'create' like begin/start (consent-prompt's placeholder docId included).
-       * ⚠ KNOWN PHASE 4 BLOCKER, deliberately not solved here: the fileIds in the body are
-       * caller-supplied and mint streaming URLs. For a MEMBER they must be verified to live under
-       * this doc's folder (their own uploads are not yet stamped when finish runs, so the object
-       * gate alone would break the flow). Recorded in plans/drive-object-plan.md; owner-only today. */
+       * ⚠ The Phase 4 blocker this comment used to describe — caller-supplied fileIds minting
+       * streaming URLs unverified — is CLOSED below for members (v462, driveFileBelongsToDoc).
+       * The doc gate here authorizes the TEXT; that check authorizes the FILES. */
       {
         const gate = await authorizeDocForProject(env.DB, { docId, projectId: ctx.project_id || '', isOwner: ctx.isOwner, mode: 'create' });
         if (!gate.allowed) return j({ error: 'not_found' }, 404, origin, env);
@@ -4618,6 +4690,28 @@ export async function handleV1(request, env, ctx, url, path, origin) {
          * 410 the moment the minting device were revoked, and would never work for a crowd page.
          * Deliberately unscoped; do not "fix" the inconsistency by scoping it. */
         const scope = { instanceId, docId };
+        /* ⚠ BLOCKER #1 — a member's file ids must live under THIS doc before anything is minted.
+         * `promptFileId` is absent from this list on purpose: it is deliberately unscoped (a REUSED
+         * consent recording that lives under no text), and a member cannot mint one at all —
+         * mintTextfileUrl refuses an unscoped member token. So there is nothing here to verify and
+         * nothing a member can obtain through it. */
+        /* ⚠ THE TOKEN IS FETCHED ONLY FOR A MEMBER. Writing this as an argument
+         * (`memberFileIdsOk(ctx, await driveAccessToken(...), …)`) evaluates it BEFORE the
+         * owner short-circuit inside — handing every owner a Drive round trip this route has never
+         * made, which 502s outright on an account with no Drive connected. The owner path must come
+         * out of this change byte-identical, and that is what this shape guarantees. */
+        if (!ctx.isOwner) {
+          /* ⚠ CANNOT VERIFY IS A DENIAL, NOT AN ERROR. Letting driveAccessToken throw here would
+           * reach the route's outer catch and answer 502 — which still fails closed (nothing is
+           * minted) but tells an unauthorized caller that their request was DIFFERENT from an
+           * ordinary refusal, and that is precisely the oracle the uniform 404 exists to remove.
+           * Any doubt — Drive down, token gone, parent unreadable — resolves to not_found. */
+          let access = null;
+          try { access = await driveAccessToken(env, r); } catch { access = null; }
+          if (!access || !(await memberFileIdsOk(ctx, access, docId, [body.audioFileId, body.flextextFileId]))) {
+            return j({ error: 'not_found' }, 404, origin, env);
+          }
+        }
         const audioUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.audioFileId, '', ttlMs, scope, ctx.caller.researcher_id);
         const flextextUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.flextextFileId, '', ttlMs, scope, ctx.caller.researcher_id);
         const promptUrl = await mintTextfileUrl(env, url.origin, r.researcher_id, body.promptFileId, '', ttlMs, null, ctx.caller.researcher_id);
@@ -4683,6 +4777,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         // Same private, time-boxed streaming tokens the move flow mints — the device downloads
         // through /v1/textfile exactly as it would for any assignment.
         // Scoped to the DESTINATION device — it is the one that will fetch these.
+        // ⚠ BLOCKER #1 (v462): a member's ids must live under this doc — see driveFileBelongsToDoc.
+        if (!(await memberFileIdsOk(ctx, access, docId, [body.flextextFileId, body.audioFileId, body.extractFromZipId]))) {
+          return j({ error: 'not_found' }, 404, origin, env);
+        }
         const mint = (fileId, extract) => mintTextfileUrl(env, url.origin, r.researcher_id, fileId, extract, 0, { instanceId: to.instance_id, docId }, ctx.caller.researcher_id);
         const flextextUrl = await mint(body.flextextFileId) || await mint(body.extractFromZipId, 'flextext');
         const audioUrl = await mint(body.audioFileId);
@@ -4734,6 +4832,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         // Streaming tokens (default 90-day TTL) for whatever content the panel identified. Opaque
         // + time-boxed, bound to this researcher; the /v1/textfile endpoint validates and streams.
         // Scoped to the DESTINATION device — it is the one that will fetch these.
+        // ⚠ BLOCKER #1 (v462): a member's ids must live under this doc — see driveFileBelongsToDoc.
+        if (!(await memberFileIdsOk(ctx, access, docId, [body.flextextFileId, body.audioFileId, body.extractFromZipId]))) {
+          return j({ error: 'not_found' }, 404, origin, env);
+        }
         const mint = (fileId, extract) => mintTextfileUrl(env, url.origin, r.researcher_id, fileId, extract, 0, { instanceId: to.instance_id, docId }, ctx.caller.researcher_id);
         const flextextUrl = await mint(body.flextextFileId) || await mint(body.extractFromZipId, 'flextext');
         const audioUrl = await mint(body.audioFileId);

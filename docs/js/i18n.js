@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v461';
+export const ENGINE_VERSION = 'v463';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v461';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'phase-cd v16';
+export const BUILD_TAG = 'phase-cd v18';
 
 const S = {
 en: {
@@ -822,6 +822,7 @@ internet after the first time.</p>
   'panel.pending.confirmDecline': 'Decline this request? Their pending account is removed (they can request again by signing in).',
   'panel.exit': 'Back to editor',
   'panel.lock': 'Lock',
+  'panel.who.title': 'Signed in as {who}',
   'panel.help.btn': 'Help',
   'panel.help.close': 'Close',
   'panel.err': 'Something went wrong: {msg}',
@@ -2666,6 +2667,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.pending.confirmDecline': 'Tolak permintaan ini? Akun mereka yang menunggu akan dihapus (mereka bisa meminta lagi dengan masuk).',
   'panel.exit': 'Kembali ke editor',
   'panel.lock': 'Kunci',
+  'panel.who.title': 'Masuk sebagai {who}',
   'panel.help.btn': 'Bantuan',
   'panel.help.close': 'Tutup',
   'panel.err': 'Terjadi kesalahan: {msg}',

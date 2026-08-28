@@ -59,19 +59,49 @@ else
   bad x "⚠ DEFERRED_CAPS is enforced in only one place — a stored row would reopen what the deferral closed"
 fi
 
-# ⚠⚠ THE NINE DRIVE FINDINGS ARE GATED, NOT REPAIRED. `assignTexts` and `drive` sitting in
-#   DEFERRED_CAPS is the ONLY thing keeping the account-wide docId Drive-search routes unreachable —
-#   validateCaps refuses to write them and authMember refuses to honour a stored row carrying them.
-#   Removing either name re-arms all nine at once, at a line with no other review. This is the loud
-#   stop (completeness critic, 2026-08-24). They come back only AFTER Drive access is resolved per
-#   project (the drive_object table), never by editing this list alone.
-for cap in assignTexts drive; do
+# ⚠⚠ `drive` MUST STAY DEFERRED. It is the ONLY thing keeping the account-wide Drive routes
+#   (drive-file, trash, drive-estate — all still authResearcher against the CALLER's own Drive)
+#   unreachable by a member. Removing the name re-arms them at a line with no other review.
+#
+# ⚠ `assignTexts` LEFT THIS LIST IN v456, AND ITS GUARD MOVED RATHER THAN VANISHING (v462). The two
+#   halves it needed are now REPAIRED at the routes, and each has its own check below:
+#     · the caller-supplied DOC id — `authorizeDocForProject` at every route (checked already);
+#     · the caller-supplied FILE ids — `memberFileIdsOk` before every member-reachable mint.
+#   That second half was Phase-4 blocker #1, and for six days between v456 and v462 it was open in
+#   the tree while THIS loop was the thing failing loudly about it. It did its job: the failure is
+#   what sent someone to look. Do not re-point this at a version number or delete it — the
+#   assertion below is what now stands between a member and every file in the owner's Drive.
+for cap in drive; do
   if grep -qE "DEFERRED_CAPS = \\[[^]]*'$cap'" "$W"; then
     good ok "'$cap' is still ungrantable — in DEFERRED_CAPS, so the nine Drive routes stay unreachable"
   else
     bad x "⚠⚠ '$cap' has LEFT DEFERRED_CAPS — this re-arms nine audit findings at once. Project-scope the Drive routes (drive_object) BEFORE shipping this."
   fi
 done
+
+# ⚠⚠ PHASE-4 BLOCKER #1 — the FILE-id half of assignTexts. Every route that mints a streaming URL
+#   from ids the CALLER supplied must first prove those files live under the doc it just authorized;
+#   otherwise the doc gate says "you may touch this text" and the mint hands over any file in the
+#   owner's Drive. Three routes mint that way: assignment/finish, adopt, move. The helper walks
+#   parents BY ID on purpose — resolving by the appProperties tag search would be the very mechanism
+#   the 2026-08-21 audit found dangerous.
+mfo_calls=$(grep -c "await memberFileIdsOk(ctx," "$W" || true)
+if [ "$mfo_calls" -ge 3 ] && grep -q "async function driveFileBelongsToDoc" "$W" \
+   && grep -q "async function memberFileIdsOk" "$W"; then
+  good ok "every member-reachable mint verifies its caller-supplied file ids ($mfo_calls site(s), parent-walk by id)"
+else
+  bad x "⚠⚠ the file-id verification is missing or thinned (found $mfo_calls of 3 call sites) — a member with assignTexts could mint a URL for ANY app-created file in the owner's Drive"
+fi
+
+# ⚠ AND THE MINT SITES THEMSELVES: if a new route learns to mint from caller-supplied ids, it must
+#   join the list above. Counting the member-reachable mints (those that stamp ctx.caller as minter)
+#   makes a fourth one a build failure rather than a silent hole.
+member_mints=$(grep -c "ctx.caller.researcher_id);" "$W" || true)
+if [ "$member_mints" -le 5 ]; then
+  good ok "no unreviewed member-minting route appeared ($member_mints mint arg site(s))"
+else
+  bad x "⚠ a new member-reachable mint site exists ($member_mints) — verify its caller-supplied file ids with memberFileIdsOk, then raise this bound"
+fi
 
 # ⚠ THE TEXT-COMMAND GATE. Without it manageDevices reaches the text lane through queued commands,
 #   including `delete`, which destroys a field worker's transcription.

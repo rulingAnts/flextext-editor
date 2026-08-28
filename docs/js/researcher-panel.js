@@ -1025,26 +1025,41 @@ function header(titleKey, withLock) {
     ${advancedPicker()}
     <select id="rp-lang" title="${esc(t('research.lang'))}">${LANGS.map((l) =>
       `<option value="${esc(l)}"${getLang() === l ? ' selected' : ''}>${esc(LANG_NAMES[l] || l)}</option>`).join('')}</select>
-    ${knownIssuesLink()}
+    ${releaseNotesLink()}
     <button class="icon-btn rp-helpbtn" data-act="help" title="${esc(t('panel.help.btn'))}" aria-label="${esc(t('panel.help.btn'))}">?</button>
     ${withLock ? `<button class="secondary-btn rp-lock" data-act="lock">${esc(t('panel.lock'))}</button>` : ''}
   </div>`;
 }
 
-/* KNOWN ISSUES — the list, and the two rules that keep it honest.
+/* RELEASE NOTES — what changed, and what is still wrong, in one place.
  *
- * ⚠ STAGING ONLY, matching the ribbon's hostname test. A production user meeting a list of things
- * that do not work has no way to act on it and no reason to expect it; a TESTER has both. Widening it
- * to production would be a product decision, not a config change — the wording here is written for
- * someone who agreed to test a pre-release.
+ * ⚠ NOT STAGING-ONLY ANY MORE (Seth, 2026-08-28: "I'd like to have that link available on stable, as
+ * well as release"). It began as a staging-only "Known issues" list on the reasoning that a
+ * production user meeting a list of broken things has no way to act on it. That was half right: what
+ * a production user cannot act on is a list of ONLY broken things. Paired with what changed, the same
+ * list becomes the thing people actually look for after an app updates itself under them — which this
+ * one does, silently, on every service-worker activation.
  *
- * ⚠ AND IT DISAPPEARS WHEN IT IS EMPTY. An always-present "Known issues" that opens onto nothing
- * teaches people the link is decoration, and the next time it has content they will not look. Empty
- * list ⇒ no link at all.
+ * ⚠ "Release notes" and not "What's new", deliberately: the conventional contents of release notes
+ * are additions, fixes AND known issues, so the name promises exactly what is inside. "What's new"
+ * promises only the first and would make the second half read as a surprise.
  *
- * ⚠ KEEP IT CURRENT OR DELETE ENTRIES. A stale known-issue is worse than none: it sends a tester
- * hunting for a bug that was fixed, and it makes the rest of the list look untrustworthy. When a
- * release fixes one of these, remove the key here in the SAME commit. */
+ * ⚠ BOTH LISTS EMPTY ⇒ NO LINK. A permanent entry opening onto nothing teaches people it is
+ * decoration, and the next time it has content they will not look.
+ *
+ * ⚠ KEEP BOTH CURRENT. A stale known-issue sends someone hunting for a bug that is fixed and makes
+ * the rest look untrustworthy; a stale what's-new claims credit for something that is not there. When
+ * a release fixes one of these, delete the key in the SAME commit that fixes it. WHATS_NEW describes
+ * the delta since the last PRODUCTION version — not since the last build — because that is the change
+ * the reader actually experienced. */
+const WHATS_NEW = [
+  'panel.rel.new.share',
+  'panel.rel.new.memberFiles',
+  'panel.rel.new.projectLifecycle',
+  'panel.rel.new.audioError',
+  'panel.rel.new.doneToggle',
+  'panel.rel.new.oneVersion',
+];
 const KNOWN_ISSUES = [
   'panel.known.addColleague',
   'panel.known.coworkerIdentity',
@@ -1056,18 +1071,26 @@ const KNOWN_ISSUES = [
 
 /* The same rule the staging ribbon uses, deliberately duplicated rather than imported: the ribbon
  * lives inline in five shells precisely so it does not depend on the engine, so there is nothing to
- * import from. One regex, stated twice, in two places that must agree — pinned by a test. */
+ * import from. Still used for the "this is a test build" line inside the notes — the LINK no longer
+ * depends on it. */
 function onStagingEstate() {
   try { return /\.(pages|workers)\.dev$/.test(location.hostname); } catch { return false; }
 }
-function knownIssuesLink() {
-  if (!onStagingEstate() || !KNOWN_ISSUES.length) return '';
-  return `<button class="link-btn rp-known" data-act="known">${esc(t('panel.known.btn'))}</button>`;
+function releaseNotesLink() {
+  if (!WHATS_NEW.length && !KNOWN_ISSUES.length) return '';
+  return `<button class="link-btn rp-known" data-act="known">${esc(t('panel.rel.btn'))}</button>`;
 }
-function knownIssuesModal() {
-  modal(`<h3>${esc(t('panel.known.title'))}</h3>
-    <p class="note">${esc(t('panel.known.intro'))}</p>
-    <ul class="rp-known-list">${KNOWN_ISSUES.map((k) => `<li>${esc(t(k))}</li>`).join('')}</ul>
+function releaseNotesModal() {
+  const section = (titleKey, keys) => (keys.length
+    ? `<h4 class="rp-rel-h">${esc(t(titleKey))}</h4>
+       <ul class="rp-known-list">${keys.map((k) => `<li>${esc(t(k))}</li>`).join('')}</ul>`
+    : '');
+  modal(`<h3>${esc(t('panel.rel.title'))}</h3>
+    <p class="note">${esc(t('panel.rel.version', { v: ENGINE_VERSION }))}${
+      onStagingEstate() ? ' ' + esc(t('panel.rel.isTestBuild')) : ''}</p>
+    ${section('panel.rel.newTitle', WHATS_NEW)}
+    ${section('panel.rel.knownTitle', KNOWN_ISSUES)}
+    ${KNOWN_ISSUES.length ? `<p class="note">${esc(t('panel.rel.reportRest'))}</p>` : ''}
     <div class="modal-actions"><button class="primary-btn" data-m="cancel">${esc(t('panel.help.close'))}</button></div>`);
 }
 
@@ -1079,7 +1102,7 @@ function wireActs(handlers) {
     // …and so is Known issues: the header renders in several views, and a link that works in one of
     // them is worse than no link. Staging-only by construction — knownIssuesLink() emits nothing on
     // production, so this handler is unreachable there rather than merely unused.
-    if (!fn && el.dataset.act === 'known') fn = knownIssuesModal;
+    if (!fn && el.dataset.act === 'known') fn = releaseNotesModal;
     if (fn) el.addEventListener('click', () => fn(el));
   });
 }

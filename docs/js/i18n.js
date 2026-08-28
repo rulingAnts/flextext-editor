@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v493';
+export const ENGINE_VERSION = 'v494';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1413,9 +1413,22 @@ internet after the first time.</p>
   'panel.share.step5': 'Leave this panel open for a few seconds afterwards. The device keys are delivered from here, so closing straight away leaves your colleague able to see the project but unable to read or change device settings until you open the panel again.',
   /* KNOWN ISSUES — staging only. ⚠ Delete an entry in the SAME commit that fixes it: a stale
    * known-issue sends a tester hunting for a bug that is gone, and makes the rest look untrustworthy. */
-  'panel.known.btn': 'Known issues',
-  'panel.known.title': 'Known issues in this test build',
-  'panel.known.intro': 'These are already known — no need to report them. Anything else, please do report.',
+  /* RELEASE NOTES — always available, on staging AND production. What changed since the last
+   * production version, then what is still wrong. Named "Release notes" and not "What's new" because
+   * release notes conventionally carry BOTH, so the name promises what is inside. */
+  'panel.rel.btn': 'Release notes',
+  'panel.rel.title': 'Release notes',
+  'panel.rel.version': 'You are running {v}.',
+  'panel.rel.isTestBuild': 'This is a test site, not production.',
+  'panel.rel.newTitle': 'What’s new',
+  'panel.rel.knownTitle': 'Known issues',
+  'panel.rel.reportRest': 'The issues above are already known — no need to report them. Anything else, please do.',
+  'panel.rel.new.share': 'You can share a project with a colleague and choose what they may do — manage devices, invite devices, work with texts, download files. They never get access to your Google Drive.',
+  'panel.rel.new.memberFiles': 'A colleague with “download files” can open a text’s Files menu and build the ELAN, SayMore, listening-page and paragraph-analysis outputs, the same as you.',
+  'panel.rel.new.projectLifecycle': 'You can delete a project once it has no devices left in it, and a colleague can leave a project they were added to.',
+  'panel.rel.new.audioError': 'Fixed: when a recording failed to download, the text kept saying it was still arriving and hid the typing box. It now says what went wrong and lets you type.',
+  'panel.rel.new.doneToggle': 'Fixed: un-marking a text as finished no longer leaves you unable to mark it finished again.',
+  'panel.rel.new.oneVersion': 'Every part of the app now reports one version number, so a device that is out of date is obvious at a glance.',
   'panel.known.addColleague': 'Adding a colleague is a clumsy manual exchange: they have to find their researcher ID and send it to you. A one-time invite link you can share instead is planned.',
   'panel.known.coworkerIdentity': 'The Coworkers list shows each colleague’s name, email address and avatar. A future release will replace that with a pairing code and a nickname you choose.',
   'panel.known.crowdMembers': 'Crowd recorders are invisible to a coworker — only the project owner sees them.',
@@ -3243,9 +3256,19 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.share.step3': 'Mereka membuka Akun, menekan Salin ID, lalu mengirimkan ID peneliti itu kepada Anda — WhatsApp, Signal, surel, lewat saluran apa pun yang sudah Anda pakai. ID itu hanya menandai identitas, bukan kata sandi.',
   'panel.share.step4': 'Anda menempelkannya di bawah, mencentang apa yang boleh mereka lakukan, lalu menekan Tambah.',
   'panel.share.step5': 'Biarkan panel ini terbuka beberapa detik setelahnya. Kunci perangkat dikirim dari sini, jadi jika langsung ditutup, rekan Anda dapat melihat proyek tetapi belum dapat membaca atau mengubah pengaturan perangkat sampai Anda membuka panel ini lagi.',
-  'panel.known.btn': 'Masalah yang diketahui',
-  'panel.known.title': 'Masalah yang diketahui pada versi uji ini',
-  'panel.known.intro': 'Hal-hal berikut sudah diketahui — tidak perlu dilaporkan. Selain itu, mohon laporkan.',
+  'panel.rel.btn': 'Catatan rilis',
+  'panel.rel.title': 'Catatan rilis',
+  'panel.rel.version': 'Anda menjalankan {v}.',
+  'panel.rel.isTestBuild': 'Ini situs uji, bukan produksi.',
+  'panel.rel.newTitle': 'Yang baru',
+  'panel.rel.knownTitle': 'Masalah yang diketahui',
+  'panel.rel.reportRest': 'Masalah di atas sudah diketahui — tidak perlu dilaporkan. Selain itu, mohon laporkan.',
+  'panel.rel.new.share': 'Anda dapat berbagi proyek dengan rekan kerja dan memilih apa yang boleh mereka lakukan — mengelola perangkat, mengundang perangkat, mengerjakan teks, mengunduh berkas. Mereka tidak pernah mendapat akses ke Google Drive Anda.',
+  'panel.rel.new.memberFiles': 'Rekan kerja dengan “mengunduh berkas” dapat membuka menu Berkas sebuah teks dan membuat keluaran ELAN, SayMore, halaman simak, dan analisis paragraf, sama seperti Anda.',
+  'panel.rel.new.projectLifecycle': 'Anda dapat menghapus proyek setelah tidak ada perangkat di dalamnya, dan rekan kerja dapat keluar dari proyek yang membagikannya kepada mereka.',
+  'panel.rel.new.audioError': 'Diperbaiki: ketika rekaman gagal diunduh, teks tetap menyatakan rekaman sedang datang dan menyembunyikan kotak ketik. Kini kesalahannya disebutkan dan Anda tetap dapat mengetik.',
+  'panel.rel.new.doneToggle': 'Diperbaiki: membatalkan tanda selesai pada teks tidak lagi membuat Anda tak bisa menandainya selesai kembali.',
+  'panel.rel.new.oneVersion': 'Semua bagian aplikasi kini melaporkan satu nomor versi, sehingga perangkat yang ketinggalan versi langsung terlihat.',
   'panel.known.addColleague': 'Menambahkan rekan kerja masih merepotkan: mereka harus mencari ID peneliti mereka dan mengirimkannya kepada Anda. Tautan undangan sekali pakai sedang direncanakan.',
   'panel.known.coworkerIdentity': 'Daftar Rekan Kerja menampilkan nama, alamat surel, dan avatar setiap rekan. Versi mendatang akan menggantinya dengan kode penyandingan dan nama panggilan pilihan Anda.',
   'panel.known.crowdMembers': 'Perekam massal tidak terlihat oleh rekan kerja — hanya pemilik proyek yang melihatnya.',

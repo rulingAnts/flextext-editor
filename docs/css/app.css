@@ -2500,3 +2500,7 @@ body.rp-standalone main { padding-top: 0; }
 .rp-who-av { width: 16px; height: 16px; border-radius: 50%; flex: 0 0 auto; }
 .rp-who-txt { font-size: 0.78rem; opacity: 0.85; white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; }
+
+/* Release-notes sections — a heading between the two lists, tighter than a document h4 because it
+   sits inside a modal already carrying an h3. */
+.rp-rel-h { margin: 14px 0 4px; font-size: 14px; }

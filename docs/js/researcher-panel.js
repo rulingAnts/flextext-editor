@@ -1719,6 +1719,8 @@ async function renderDashboard(prefetched) {
   // Fire-and-forget, after the paint it must never delay. Full renders force a pass — a device
   // created moments ago gets its member grants NOW, not next session (see memberGrantSweep).
   memberGrantSweep(!prefetched);
+  // Same placement and contract: after the paint, never blocking it.
+  deliverPendingDeviceKeys(data);
   // The in-place refresh promised the researcher their place back — keep it (see the top).
   if (keepTop !== null && scroller && scroller.isConnected) scroller.scrollTop = keepTop;
   startDashPoll();
@@ -3113,8 +3115,15 @@ async function instanceAction(el) {
       lastView = await Researcher.listView();
       const inst = viewInst(lastView, id);
       const ins = inst && inst.installs.find((x) => x.install_id === installId);
+      /* ⚠ A MEMBER APPROVES BUT CANNOT KEY (v470). The key route is owner-only on purpose — an
+       * opaque wrapped key the worker cannot inspect could otherwise be one the member chose,
+       * locking the owner out of their own device. approveInstall therefore does half the job for a
+       * member, and the device sits unusable until the owner's panel runs its key sweep. Saying so
+       * is the difference between "waiting for one more step" and "the device I set up is broken":
+       * the member did nothing wrong and there is nothing more they can do. */
+      const asMember = !((lastView && lastView.instances) || []).some((x) => x.instance_id === id);
       await busy(el, () => Researcher.approveInstall(id, installId, ins && ins.pubkey));
-      deps.toast(t('panel.inst.approved'), 4000);
+      deps.toast(t(asMember ? 'panel.inst.approvedNeedsOwnerKey' : 'panel.inst.approved'), asMember ? 9000 : 4000);
       renderDashboard();
     } else if (act === 'revoke') {
       if (!confirm(t('panel.inst.confirmRevoke', { name: el.dataset.name || '' }))) return;
@@ -5484,6 +5493,35 @@ function projectInstanceIds(proj) {
  * failure is a console.warn and a retry next session. Idempotent by construction (INSERT OR
  * REPLACE server-side), so over-running costs nothing but requests. Runs AFTER a render so the
  * estate cache it diffs against is as settled as it gets. */
+/* ⚠ DELIVER KEYS TO INSTALLS THAT WERE APPROVED WITHOUT ONE (v470). Key delivery has only ever
+ * happened INLINE with the panel's Approve button (approveInstall → deliverKey). Every other route
+ * to "approved" leaves the install keyless forever, and one of those routes is a FEATURE: a member
+ * with manageDevices may approve, but the key route is owner-only on purpose — the worker cannot
+ * inspect an opaque wrapped key, so a member could otherwise install one the owner cannot read and
+ * lock them out of their own device. That comment predicts "the device waits for the owner"; before
+ * this sweep, the owner had nothing that would ever deliver it, so the device waited forever.
+ *
+ * Owner-only by construction: it runs over the caller's OWN instances, and the route would refuse a
+ * member anyway. Best-effort and quiet — a failure here must not disturb a dashboard that is
+ * otherwise fine, and the next full render tries again. */
+let keySweepBusy = false;
+async function deliverPendingDeviceKeys(data) {
+  if (keySweepBusy || !Researcher.isUnlocked()) return;
+  keySweepBusy = true;
+  try {
+    let delivered = 0;
+    for (const it of ((data && data.instances) || [])) {
+      for (const ins of (it.installs || [])) {
+        if (ins.status !== 'approved' || ins.has_key || !ins.pubkey) continue;
+        try { await Researcher.deliverKey(it.instance_id, ins.install_id, ins.pubkey); delivered++; }
+        catch (e) { console.warn('key delivery failed for', ins.install_id, (e && e.message) || e); }
+      }
+    }
+    if (delivered) deps.toast(t('panel.inst.keysDelivered', { n: delivered }), 6000);
+  } catch (e) { console.warn('key sweep skipped:', (e && e.message) || e); }
+  finally { keySweepBusy = false; }
+}
+
 let grantSweepRan = false, grantSweepBusy = false;
 async function memberGrantSweep(force) {
   /* ⚠ NOT session-once any more — that was the gap Seth hit live (2026-08-27): a device created

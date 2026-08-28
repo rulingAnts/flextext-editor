@@ -894,12 +894,14 @@ main {
   display: flex; align-items: center; gap: 10px;
   /* Sticky (Seth, 2026-08-28) — the panel is a long scrolling dashboard and the header carries the
    * account identity, the language picker and Sign out, all of which are wanted from anywhere in it.
-   * ⚠ z-index below the staging ribbon's 9999 ON PURPOSE: the ribbon sits directly beneath this bar
-   * and offsets its own sticky `top` by this element's height (see the inline ribbon script in each
-   * shell), so the two STACK rather than overlap. Raising this above 9999 would park the header on
-   * top of the staging warning — hiding, on a test site, the one element whose whole job is to say
-   * so. */
-  position: sticky; top: 0; z-index: 40;
+   *
+   * ⚠ AND IT MUST WORK BOTH WITH AND WITHOUT THE STAGING RIBBON (Seth). The ribbon is ABOVE this bar
+   * in the document, sticky at top:0 with z-index 9999 — so a header stuck at a plain top:0 would
+   * slide UNDERNEATH it and vanish on scroll, on the test site only, which is precisely where nobody
+   * would think to look for it. `--fx-ribbon-h` is set by the inline ribbon script in each shell and
+   * ONLY there, so production — which has no ribbon and never runs that script — falls through to
+   * the 0px default and sticks flush to the top as expected. One rule, both estates, no branch. */
+  position: sticky; top: var(--fx-ribbon-h, 0px); z-index: 40;
   background: var(--rp-green); color: #fff;
   padding: 10px clamp(10px, 3vw, 28px);
   margin: -12px calc(-1 * clamp(10px, 3vw, 28px)) 16px;

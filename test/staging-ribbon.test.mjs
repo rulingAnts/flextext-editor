@@ -1,19 +1,18 @@
-/* THE STAGING RIBBON — one snippet, five shells, and it must stay one snippet.
+/* THE STAGING RIBBON — one snippet, five shells, at the TOP; and its handshake with the sticky header.
  *
  * WHY THIS FILE EXISTS. The ribbon is duplicated by necessity: it is INLINE in each shell's
  * index.html on purpose, so it appears even when the engine fails to load — which is exactly when
  * knowing whether you are on the test site matters most. There is no shared module to put it in
- * without losing that property.
+ * without losing that property, so the copies are pinned here instead. They had already drifted in a
+ * small way before this test existed: three shells wrote a literal `·` and two an escape.
  *
- * Duplication that cannot be removed has to be pinned instead, or the copies drift: before v487 they
- * already had, in a small way — three shells wrote a literal `·` and two wrote `·`, the harmless
- * kind of divergence that shows the copies were being edited independently.
- *
- * ⚠ AND THE PLACEMENT IS THE PART THAT LOOKS OPTIONAL AND IS NOT. The ribbon mounts at the top of
- * <body> IMMEDIATELY and only then drops below the header. Someone simplifying this to "just insert
- * it after the header" would break the property the inline-ness exists for: with a JS-rendered header
- * (the researcher panel and the paragraph tool have no static one), waiting for the header means
- * showing NOTHING on a site whose engine has failed. The two-step is the whole design.
+ * ⚠ IT BELONGS AT THE TOP, ABOVE THE HEADER. v487/v488 moved it below and it was reverted (Seth:
+ * "Having the staging bar at the top where it was before was better"). Worth recording because the
+ * attempt failed twice on the way: placed beside the header it landed inside #view-researcher, whose
+ * innerHTML the panel rewrites every 12s — so the ribbon silently DISAPPEARED, leaving a staging site
+ * looking like production — and once that was fixed it rendered inset to the content column while the
+ * header broke out full width. Both problems come from the same root: the header is not a child of
+ * <body>, so anything positioned relative to it inherits a container nobody chose.
  *
  * Run: node test/staging-ribbon.test.mjs
  */
@@ -32,49 +31,52 @@ const ok = (c, m) => { console.log(`  ${c ? 'ok  ' : 'FAIL'}  ${m}`); if (!c) fa
 const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 const src = SHELLS.map(([name, p]) => [name, read(p)]);
 
-console.log('\nevery shell carries the ribbon, and only on the preview hosts');
+console.log('\nevery shell writes the ribbon, at the top, only on the preview hosts');
 for (const [name, s] of src) {
   ok(/if \(\/\\\.\(pages\|workers\)\\\.dev\$\/\.test\(location\.hostname\)\)/.test(s),
      `${name}: gated on the *.pages.dev / *.workers.dev hostname, so production ships this file unchanged`);
-  ok(/var fxRibbon = document\.createElement\('div'\);/.test(s), `${name}: builds the ribbon`);
+  ok(/document\.write\('<div id="fx-staging"/.test(s),
+     `${name}: ⚠ WRITTEN, not mounted later — it must appear even when the engine fails to load`);
+  ok(/position:sticky;top:0;z-index:9999;/.test(s),
+     `${name}: sticky at the very top, above everything`);
 }
 
-console.log('\n...and it is the SAME snippet in all five — drift is the failure mode');
+console.log('\n...the same snippet in all five — drift is the failure mode');
 {
   const grab = (s) => {
-    const a = s.indexOf('var fxRibbon');
-    const b = s.indexOf('}).observe(document.documentElement, { childList: true, subtree: true });');
+    const a = s.indexOf("document.write('<div id=\"fx-staging\"");
+    const b = s.indexOf("addEventListener('resize', fxSync);");
     return a >= 0 && b > a ? s.slice(a, b) : null;
   };
   const bodies = src.map(([name, s]) => [name, grab(s)]);
   ok(bodies.every(([, b]) => b), 'the snippet is findable in every shell');
   const [, first] = bodies[0];
-  for (const [name, b] of bodies.slice(1)) {
-    ok(b === first, `${name}: byte-identical to the editor's copy`);
+  for (const [name, b] of bodies.slice(1)) ok(b === first, `${name}: byte-identical to the editor's copy`);
+}
+
+console.log('\nthe sticky researcher header works WITH and WITHOUT the ribbon');
+{
+  /* ⚠ THE WHOLE POINT OF THE VARIABLE. The ribbon is above .rp-head and carries z-index 9999, so a
+   * header stuck at a plain top:0 slides underneath it and vanishes on scroll — on the test site
+   * only, which is where nobody would think to look for it. Production never runs the ribbon script,
+   * so the CSS fallback is what makes the same rule correct on both estates. */
+  const css = read('../docs/css/app.css');
+  ok(/position: sticky; top: var\(--fx-ribbon-h, 0px\); z-index: 40;/.test(css),
+     '⚠ .rp-head sticks at the ribbon height, defaulting to 0 — one rule, both estates, no branch');
+  const head = (css.match(/\.rp-head \{[\s\S]*?\n\}/) || [''])[0];
+  ok(/z-index: 40;/.test(head) && !/z-index: (9999|1000\d)/.test(head),
+     '...and stays BELOW the ribbon, so the staging warning is never covered by the header');
+
+  for (const [name, s] of src) {
+    ok(/document\.documentElement\.style\.setProperty\('--fx-ribbon-h', el\.offsetHeight \+ 'px'\)/.test(s),
+       `${name}: sets --fx-ribbon-h from the ribbon's real height, not a guessed constant`);
+    ok(/addEventListener\('load', fxSync\)/.test(s) && /addEventListener\('resize', fxSync\)/.test(s),
+       `${name}: ...and re-measures on load and resize, so wrapping at a narrow width does not misalign it`);
   }
+  ok(!/--fx-ribbon-h/.test(read('../docs/js/researcher-panel.js')),
+     '⚠ the variable is set ONLY by the shells\' staging script — the panel must never set it, or production would inherit an offset');
 }
 
-console.log('\nthe two-step placement survives — shown at once, THEN moved below the header');
-for (const [name, s] of src) {
-  ok(/if \(fxRibbon\.parentNode !== b\) b\.insertBefore\(fxRibbon, b\.firstChild\);/.test(s),
-     `${name}: ⚠ falls back to the TOP of body, so a failed engine still announces the site`);
-  ok(/querySelector\('#topbar, \.rp-head, \.pa-bar, header'\)/.test(s),
-     `${name}: ⚠ knows all four header shapes — two of the shells render theirs from JS`);
-  /* ⚠⚠ THE OBSERVER MUST NOT DISCONNECT. The first version placed the ribbon once and disconnected,
-   * and the ribbon then VANISHED: .rp-head is not a child of <body> — it lives inside
-   * #view-researcher, whose innerHTML the panel rewrites on every 12s poll, taking the ribbon with
-   * it. A staging site silently looked like production, which is the single failure this element
-   * exists to prevent. Caught in the browser, not by this suite, which is why it is pinned now. */
-  ok(!/disconnect\(\)/.test(s),
-     `${name}: ⚠⚠ the observer NEVER disconnects — a re-render must not be able to erase the ribbon`);
-  ok(/if \(!fxRibbon\.isConnected\) \{ fxPlace\(\); return; \}/.test(s),
-     `${name}: ...and a detached ribbon is put back`);
-  ok(/if \(h && h\.nextSibling !== fxRibbon\) fxPlace\(\);/.test(s),
-     `${name}: ...while an already-placed one does nothing, so re-placing cannot loop`);
-  ok(/\(pos === 'sticky' \|\| pos === 'fixed'\) \? Math\.round\(h\.getBoundingClientRect\(\)\.height\)/.test(s),
-     `${name}: ⚠ the sticky offset is MEASURED from the header, so it stacks under a sticky one (researcher) and sits at top under a static one (editor)`);
-}
-
-console.log(fail ? `\nFAILED (${fail}) — the staging ribbon has drifted between shells.\n`
-                 : '\nPASS: one ribbon, five shells, shown before it is positioned.\n');
+console.log(fail ? `\nFAILED (${fail}) — the staging ribbon or its header handshake has drifted.\n`
+                 : '\nPASS: ribbon on top, five identical copies, header sticks clear of it.\n');
 process.exit(fail ? 1 : 0);

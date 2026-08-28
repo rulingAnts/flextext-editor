@@ -6508,7 +6508,17 @@ async function coworkersModal() {
           <div><strong>${esc(t('panel.share.warnTitle'))}</strong>
             <p class="note">${esc(t('panel.share.warnSee'))}</p>
             <p class="note">${esc(t('panel.share.warnDo'))}</p>
-            <p class="note">${esc(t('panel.share.warnWhy'))}</p></div>
+            <p class="note">${esc(t('panel.share.warnWhy'))}</p>
+            ${/* ⚠ THE GOOGLE DRIVE REQUEST-ACCESS PHISH (Seth, 2026-08-28). Anyone holding a folder
+                 id can send the owner a Drive "request access" email — from Google's own domain,
+                 with an attacker-chosen display name and a free-text message. Approving it grants
+                 real Drive access outside this app entirely, where none of our capabilities,
+                 revocation or audit apply. The saving grace is that the correct answer is ALWAYS
+                 no: sharing works through this panel, so a coworker never needs Drive permissions,
+                 and every project folder should carry exactly one permission — the owner's. Said
+                 HERE because adding a member is the moment a researcher starts expecting messages
+                 about that person. */''}
+            <p class="note">${esc(t('panel.share.warnDriveReq'))}</p></div>
         </div>
         <button class="primary-btn" id="rp-share-add">${esc(t('panel.share.addGo'))}</button>
         <div id="rp-share-say" class="rp-adm-say" hidden></div>

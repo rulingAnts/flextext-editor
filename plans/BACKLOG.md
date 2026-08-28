@@ -4179,3 +4179,69 @@ says exactly this: *"`n` AND `iat` ARE FREE NOW AND CANNOT BE ADDED LATER"*), an
 `iat` can be treated as pre-epoch, i.e. refused, which is the safe direction.
 Consent tokens need a separate answer since they are unscoped by design — most likely an owner-level
 epoch as well.
+
+## Opaque handles for every Drive id — apps never see a real Google file/folder id (Seth, 2026-08-28)
+
+> *"All our apps never actually know Google Drive file/folder IDs directly, they just see the GUUID
+> that corresponds to that ID, and then our worker matches that to the corresponding Google
+> file/folder ID … Google folder/file/account IDs should never be transparent to any of our browsers
+> beyond the current user's own OAuth ID."*
+
+**Verdict after Seth's own objection: DO NOT do this for files. Folders only, if at all.**
+
+⚠ Seth reconsidered within the hour and was right: *"it would require us to track every single
+folder and file anywhere — which we don't currently need to do."* That is the real cost, and it is
+architectural rather than mechanical. `drive_object` stamps FOLDERS reliably (five inline creation
+sites, guarded), but the 2026-08-28 audit found only **one of seven file-creation paths** stamps a
+file at creation — every chunked upload, i.e. every large field recording, creates a Drive file with
+no row. Issuing handles for files would mean a D1 write on every upload, a backfill of the whole
+existing estate, and a second index that must never drift from Drive — in which an unstamped file
+becomes UNREACHABLE rather than merely opaque. That trades a phishing-surface reduction for a data-
+availability risk, which is the wrong trade for a corpus of irreplaceable recordings.
+
+**The scoped version that keeps most of the value:** handles for FOLDERS ONLY. Folder ids are
+already tracked, so it is a wire change rather than a new tracking obligation — and folders are what
+the request-access phish actually targets (you request access to a folder, and a folder id is what
+yields a whole project). File ids would keep flowing as today.
+
+**Original assessment, kept for the reasoning:** right idea, moderate — not easy. It converts "Drive ids are secrets
+scattered across every field device" into "Drive ids never leave the worker", which closes the
+realistic path to the request-access phish: an attacker who dumps a seized phone finds handles that
+mean nothing to Google. It also removes the existence oracle and the id-derived phishing channel for
+everything the device population holds.
+
+**Why it is cheaper than it looks:** the mapping table already exists. `drive_object` has
+`object_id` (the Drive id) as PRIMARY KEY, with `kind`/`doc_id`/`instance_id`/`project_id` already
+maintained at all seven re-parent sites. Add `handle TEXT UNIQUE` (a UUID) plus an index, backfill
+one per existing row, and the model is done.
+
+**And there is a real elegance:** the place a handle must be resolved is exactly the place
+authorization already happens (`authorizeDocForProject`, `authorizeObjectForProject`,
+`memberFileIdsOk`). Translation and authorization collapse into one step — a handle that does not
+resolve *for this caller* is simply not found, which is the same 404 everything else answers.
+
+**Measured blast radius (2026-08-28):** 17 worker responses hand a Drive id to a client. Client-side
+references: `researcher-panel.js` 102, `app.js` 38, `upload.js` 19, `researcher.js` 17, `sync.js` 0
+— but most of those are one of a few variables threaded through UI, not 102 decisions.
+
+**The genuinely hard part is the fleet, not the mapping.** This is a wire-format change to the
+DEVICE protocol, and deployed devices cannot be forced to update. It needs a dual-read window:
+accept a handle OR a legacy raw id on input, and keep emitting what the caller understands, until
+the estate has turned over. The v167 dedupe contract (device echoes back the `folderId` it was
+given) works unchanged once the device echoes a handle instead.
+
+**Deliberate exceptions:**
+- The OWNER's "Open in Drive" needs a real id. Best shape: the worker returns the finished
+  `drive.google.com/…` URL on an owner-only request, so even then the id never sits in client state.
+- The user's own OAuth identity stays visible to their own panel (Seth's carve-out; this is the v463
+  header).
+
+**Complements, does not replace, an ACL-drift check:** the invariant is that every project/device
+folder carries exactly ONE permission — the owner's (verified empirically 2026-08-28). A periodic
+worker check that lists permissions on its own folders and raises a panel warning when anything else
+appears would DETECT an accepted phish, which handles the case where an id leaked by some other
+route. Handles prevent; the drift check notices.
+
+**Shipped in the meantime (v465):** the Coworkers modal now warns, at the moment a member is added,
+never to accept Google Drive access requests for these folders — because the correct answer is always
+no: sharing works through the panel and a coworker never needs Drive permissions.

@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v464';
+export const ENGINE_VERSION = 'v465';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v464';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'phase-cd v19';
+export const BUILD_TAG = 'phase-cd v20';
 
 const S = {
 en: {
@@ -1383,6 +1383,7 @@ internet after the first time.</p>
   'panel.share.warnSee': 'They will be able to read everything this project’s devices have recorded and reported. Removing them later stops what they can do NEXT — it cannot take back what they have already read or saved.',
   'panel.share.warnDo': 'Anything they do while trusted is real: settings they change, devices they revoke or pair. Removing them ends it from their next request; it does not undo what was already done.',
   'panel.share.warnWhy': 'This project holds the language, voices and consent records of the community it serves. Adding someone here extends that trust to them.',
+  'panel.share.warnDriveReq': 'Never accept a Google Drive request to view or edit these project folders. Coworkers you add here never need direct Drive access — everything they are allowed to do happens in this panel. A request claiming to be from a coworker is far more likely to be someone who obtained a folder link, and approving it grants access this app cannot see, limit or take back.',
   'panel.share.addGo': 'Add coworker',
   'panel.share.added': '“{who}” can now help with this project.',
   'panel.share.addedKeyed': '“{who}” can now help with this project — {n} device(s) unlocked for them.',
@@ -3166,6 +3167,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.share.warnSee': 'Mereka akan dapat membaca semua yang telah direkam dan dilaporkan oleh perangkat proyek ini. Menghapus mereka nanti menghentikan apa yang dapat mereka lakukan SELANJUTNYA — itu tidak dapat menarik kembali apa yang sudah mereka baca atau simpan.',
   'panel.share.warnDo': 'Apa pun yang mereka lakukan selagi dipercaya bersifat nyata: pengaturan yang mereka ubah, perangkat yang mereka cabut atau sandingkan. Menghapus mereka menghentikannya mulai permintaan berikutnya; itu tidak membatalkan apa yang sudah terjadi.',
   'panel.share.warnWhy': 'Proyek ini menyimpan bahasa, suara, dan catatan persetujuan komunitas yang dilayaninya. Menambahkan seseorang di sini memperluas kepercayaan itu kepada mereka.',
+  'panel.share.warnDriveReq': 'Jangan pernah menerima permintaan Google Drive untuk melihat atau mengedit folder proyek ini. Rekan kerja yang Anda tambahkan di sini tidak pernah membutuhkan akses Drive langsung — semua yang boleh mereka lakukan terjadi di panel ini. Permintaan yang mengaku dari rekan kerja jauh lebih mungkin berasal dari orang yang memperoleh tautan folder, dan menyetujuinya memberi akses yang tidak dapat dilihat, dibatasi, atau ditarik kembali oleh aplikasi ini.',
   'panel.share.addGo': 'Tambah rekan kerja',
   'panel.share.added': '“{who}” kini dapat membantu proyek ini.',
   'panel.share.addedKeyed': '“{who}” kini dapat membantu proyek ini — {n} perangkat dibuka untuk mereka.',

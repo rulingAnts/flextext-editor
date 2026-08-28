@@ -4255,3 +4255,46 @@ route. Handles prevent; the drift check notices.
 **Shipped in the meantime (v465):** the Coworkers modal now warns, at the moment a member is added,
 never to accept Google Drive access requests for these folders — because the correct answer is always
 no: sharing works through the panel and a coworker never needs Drive permissions.
+
+## FUTURE DESIGN — seal Drive ids with the worker's own key instead of indexing them (Seth, 2026-08-28)
+
+> *"Is there maybe a way for us to have our worker auto encrypt/decrypt drive and OAuth IDs …?
+> That wouldn't require indexing, but it also would mean someone couldn't just get a Google Drive
+> folder id from the browser console and place a view/edit request."*
+
+**This is the better version of the opaque-handle idea, and it survives every objection that killed
+that one.** Instead of mapping id→GUID in D1, the worker SEALS the Drive id and hands out the
+ciphertext; the client stores and echoes the blob; the worker unseals it on receipt. The ciphertext
+IS the identifier, so there is:
+
+- **no table, no backfill, no index to keep in sync** — the objection that sank handles;
+- **no unreachable-file failure mode** — nothing can be "missing a row";
+- **no extra Google round trips** — unsealing is local, so the v167 echo contract keeps its single
+  Drive call and never degrades to the rate-limited tag search.
+
+**The machinery is already in production.** `encAtRest` / `decAtRest` (AES-GCM under a server key,
+`iv.ct` base64url) already seal the `/v1/textfile` tokens, the OAuth `state`, session IPs, Drive
+refresh tokens and TOTP secrets. This would be the same primitive applied to one more value type.
+
+**Refinement worth building in from the start — bind the blob to its holder.** Seal
+`{f: <drive id>, i: <instance or researcher id>}` and check `i` matches the caller on receipt. Then a
+blob lifted from a seized device is inert when replayed from anywhere else, which is exactly what v2
+textfile tokens already do with `tk.i`.
+
+⚠ **Not literally encrypted with the device's pairing key / Ki.** The worker deliberately does not
+hold Ki — that is the whole point of the E2EE model — and per-recipient re-encryption would mean
+holding per-device keys. Server-key sealing plus the binding claim delivers the same property without
+touching that boundary.
+
+**Honest limits:**
+- The OWNER's panel still needs real ids for "Open in Drive"; that stays an owner-only exception
+  (better: the worker returns the finished URL so the id never lands in client state).
+- It does not help if an id leaks by some other route — a link in the owner's own history, an old
+  share. The ACL-drift check above is the detective control for that; sealing is the preventive one.
+- Still a wire-format change to the device protocol, so it needs a dual-read window (accept a raw id
+  OR a sealed blob) until the fleet turns over.
+
+**Sequencing (Seth: "future design, rather than current plan"):** after the sharing feature ships.
+The cheap mitigations are already in place — the v465 warning tells owners never to accept Drive
+access requests, and an ACL-drift check would likely give more safety per unit of effort than either
+this or handles.

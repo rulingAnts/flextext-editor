@@ -14,7 +14,7 @@
 
 import { secAlert, secLog, sendEmail } from './seclog.js';
 import { teardownUnmigratedProjectRows } from './project-teardown.js';
-import { backfillProjectKeys, verifyProjectKeys } from './project-key.js';
+import { backfillProjectKeys, verifyProjectKeys, kiForInstall, wrapKiToInstallPubkey } from './project-key.js';
 import { stampDriveObject, deriveDriveObjectRows, moveDriveObjectText, moveDriveObjectContainer,
          authorizeDocForProject, authorizeObjectForProject } from './drive-object.js';
 
@@ -5345,10 +5345,11 @@ export async function handleV1(request, env, ctx, url, path, origin) {
          * owner-only for the same reason, and the wrap-to-owner invariant exists so that "the owner
          * can always read and revoke every key" is true by construction.
          *
-         * ⚠ CONSEQUENCE, STATED: a member with createInvites can enrol a coworker's device but
-         * cannot key it — the device waits for the owner. That is a real gap in member-run
-         * enrolment, and it is the correct side to err on while the alternative is a member being
-         * able to lock the owner out of their own device. Revisit with rotation (Phase E). */
+         * ⚠ SINCE PHASE 2 (2026-08-30) this owner-only submit-a-blob route is the LEGACY lane:
+         * .../server-key below lets any manageDevices holder ask the WORKER to mint the wrap
+         * itself — a lane where the substitution concern above cannot arise, because the worker
+         * cannot be handed a ciphertext it did not mint. This route stays exactly as it was for
+         * old panels and as the owner's fallback. */
         const ctx = await authMember(request, env, { instance: instanceId }, null);
         if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
         if (!ctx.ok || !ctx.isOwner) return j({ error: 'not_found' }, 404, origin, env);
@@ -5376,6 +5377,52 @@ export async function handleV1(request, env, ctx, url, path, origin) {
          * so these agree; recording the caller is what keeps that true if it ever widens. */
         await logApproval(env, request, 'device_key_delivered', installId.slice(0, 12) + '…', instanceId.slice(0, 12) + '…', ctx.caller.drive_email);
         return j({ ok: true }, 200, origin, env);
+      }
+
+      // POST .../server-key — the WORKER mints and delivers the install wrap itself.
+      /* PHASE 2 of the project-key rework (the BACKLOG's "inversion"): the caller ASKS for key
+       * delivery instead of submitting a wrapped blob. The worker resolves the instance's true Ki
+       * (kiForInstall: stored ki_kp checked against the device's own ciphertext, else the same
+       * evidence-based derivation the backfill uses, lazily healing ki_kp) and RSA-wraps it to the
+       * install's pubkey in exactly the client's format. Because the worker mints the ciphertext,
+       * the substitution concern that keeps /key owner-only cannot arise here — so this lane is
+       * open to any project researcher with manageDevices, owner and member alike, regardless of
+       * who minted the invite. That is what completes member-run enrolment: approve (already
+       * member-capable) + server-key = a working device with no owner round-trip.
+       *
+       * Fail-closed rule inherited from the backfill: a key contradicted by the instance's own
+       * ciphertext is never handed to an install ('key_unavailable'); instances that never had a
+       * key (the keyless-by-design class) answer the same way, permanently — the panel treats that
+       * as the signal to fall back to the owner-only legacy lane, not to retry. */
+      if (m === 'POST' && isub === 'server-key' && seg.length === 6) {
+        const ctx = await authMember(request, env, { instance: instanceId }, 'manageDevices');
+        if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+        if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+        const r = ctx.owner;   // the PROJECT OWNER's row: the escrow chain is theirs (R2-5)
+        const owned = await env.DB.prepare(
+          'SELECT i.install_id, i.accepted, i.pubkey FROM install i JOIN instance n ON n.instance_id=i.instance_id WHERE i.install_id=? AND i.instance_id=? AND n.researcher_id=?'
+        ).bind(installId, instanceId, r.researcher_id).first();
+        if (!owned) return j({ error: 'not_found' }, 404, origin, env);
+        // B holds on this lane too: the field user must have accepted before any key is delivered.
+        if (!owned.accepted) return j({ error: 'not_accepted' }, 409, origin, env);
+        if (!owned.pubkey) return j({ error: 'no_pubkey' }, 409, origin, env);
+        const res = await kiForInstall(env, env.DB, encAtRest, decAtRest, r, ctx.project_id, instanceId, now);
+        if (!res || !res.kiRaw) return j({ error: 'key_unavailable', reasons: (res && res.fail) || [] }, 409, origin, env);
+        let wrapped;
+        try { wrapped = await wrapKiToInstallPubkey(owned.pubkey, res.kiRaw); }
+        catch { return j({ error: 'pubkey_unusable' }, 409, origin, env); }
+        /* ⚠ BUMP desired_rev IN THE SAME BATCH — same reason as /key above (R2-2): without it the
+         * poll 204-short-circuits and the freshly minted key never reaches the device. */
+        await env.DB.batch([
+          env.DB.prepare('UPDATE install SET wrapped_key=? WHERE install_id=?').bind(wrapped, installId),
+          env.DB.prepare('UPDATE instance SET desired_rev=desired_rev+1 WHERE instance_id=?').bind(instanceId),
+        ]);
+        /* ⚠ ATTRIBUTION — ctx.caller (WHO ACTED): on this lane owner and caller genuinely diverge,
+         * which is exactly the case the attribution rule was written for. The detail records the
+         * resolution path + proof source (never key material) so an audit can see HOW each key was
+         * established. */
+        await logApproval(env, request, 'device_key_minted', installId.slice(0, 12) + '…', `${res.path}/${res.proven}`, ctx.caller.drive_email);
+        return j({ ok: true, proven: res.proven }, 200, origin, env);
       }
 
       // POST .../revoke — researcher revokes one install (lost device). UNLINK only: the device gets 410

@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v510';
+export const ENGINE_VERSION = 'v511';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1145,7 +1145,7 @@ internet after the first time.</p>
   'panel.inst.verifyHint': 'Confirm this fingerprint with the field worker before approving.',
   'panel.inst.approve': 'Approve & send key',
   'panel.inst.waitingAccept': 'Waiting for the field user to accept on their device…',
-  'panel.inst.waitingOwnerApprove': 'Waiting for the project owner to approve this device. Only they can give it its key, so only they can complete this step.',
+  'panel.inst.waitingOwnerApprove': 'Waiting for approval by someone with device rights — the project owner, or a coworker with device management.',
   'panel.inst.approved': 'Approved — key delivered.',
   'panel.inst.upload': 'Upload now',
   'panel.inst.reupload': 'Re-upload',
@@ -3061,7 +3061,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.inst.verifyHint': 'Pastikan sidik kunci ini dengan pekerja lapangan sebelum menyetujui.',
   'panel.inst.approve': 'Setujui & kirim kunci',
   'panel.inst.waitingAccept': 'Menunggu pengguna lapangan menerima di perangkat mereka…',
-  'panel.inst.waitingOwnerApprove': 'Menunggu pemilik proyek menyetujui perangkat ini. Hanya mereka yang dapat memberikan kuncinya, jadi hanya mereka yang dapat menyelesaikan langkah ini.',
+  'panel.inst.waitingOwnerApprove': 'Menunggu persetujuan oleh seseorang dengan hak perangkat — pemilik proyek, atau rekan kerja dengan pengelolaan perangkat.',
   'panel.inst.approved': 'Disetujui — kunci terkirim.',
   'panel.inst.upload': 'Unggah sekarang',
   'panel.inst.reupload': 'Unggah ulang',

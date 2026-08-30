@@ -1,14 +1,19 @@
-/* PROJECT KEY (Kp) — Phase 1 of the project-key rework.
+/* PROJECT KEY (Kp) — Phases 1 and 2 of the project-key rework.
  *
  * DESIGN: plans/BACKLOG.md, "DECIDED DIRECTION: instances belong to PROJECTS, and the project holds
  * the key" (Seth, 2026-08-28) and "the reconciliation" beneath it. Read those before extending this;
  * in particular, the 5-design review's fatal verdicts on every worker-blind delegation scheme, and
  * the decision that member_key stays materialised FOREVER.
  *
- * WHAT THIS MODULE IS IN PHASE 1: the Kp store and the operator-run backfill, and nothing else.
- * Nothing outside the admin backfill route reads project_key or instance.ki_kp yet. Phase 2 (the
- * worker maintaining member_key rows and minting install wraps itself — which is what actually
- * delivers delegated device approval) builds on this but is a SEPARATE, later deploy.
+ * PHASE 1: the Kp store and the operator-run backfill (backfillProjectKeys / verifyProjectKeys,
+ * admin-only). PHASE 2 (2026-08-30): the server-key lane — kiForInstall() resolves a device's Ki
+ * server-side (stored ki_kp first, checked against reality; else the same evidence-based derivation
+ * the backfill uses, lazily writing ki_kp) and wrapKiToInstallPubkey() mints the install wrap the
+ * panel used to mint client-side. That inversion is what delivers delegated device approval: the
+ * approving researcher ASKS, and the worker performs the wrap — it cannot be handed a ciphertext it
+ * did not mint, so the substitution concern that kept /key owner-only does not arise on this lane.
+ * The owner-only submit-a-blob /key route stays exactly as it was. member_key maintenance (the rest
+ * of the BACKLOG's Phase 2) is still to come; every existing key-writing path is unchanged.
  *
  * ⚠ THE HONEST SECURITY STATEMENT, because older comments in v1.js overclaimed and were corrected in
  * the same commit that added this file: the worker has ALWAYS been able to derive every device Ki —
@@ -364,4 +369,80 @@ export async function verifyProjectKeys(env, db, decAtRest, onlyProjectId) {
     out.push(rep);
   }
   return { projects: out, totals };
+}
+
+/* ── PHASE 2: the server-key lane ─────────────────────────────────────────────────────────────────
+ *
+ * kiForInstall() — resolve ONE instance's true Ki for a worker-minted install wrap.
+ *
+ * Resolution order, each step answerable to reality (the backfill's rules, per instance):
+ *   1. A stored ki_kp that opens the device's real ciphertext — or that has no ciphertext to
+ *      contradict it — is used as-is. A stored ki_kp that reality REFUSES is discarded and healed.
+ *   2. Otherwise derive candidates (member_key grant first, wrappedKis second — getKi's order) and
+ *      prove against real material where any exists. All candidates refused → fail closed: handing
+ *      an install a key its instance's own ciphertext contradicts would strand the device.
+ *   3. A proven (or uncontradicted) resolution is written back to ki_kp so the next approval skips
+ *      the chain — the lazy backfill for instances created after the operator run.
+ *
+ * Instances with no project (the dual-read window) resolve via candidates but skip the ki_kp store —
+ * there is no project to hold a Kp. Returns { kiRaw, path, proven } or { fail: [reasons] }; never
+ * key material in `fail`. */
+export async function kiForInstall(env, db, encAtRest, decAtRest, ownerRow, projectId, instanceId, now) {
+  const inst = await db.prepare('SELECT ki_kp, desired_blob FROM instance WHERE instance_id=? AND revoked=0')
+    .bind(instanceId).first();
+  if (!inst) return { fail: ['instance_missing'] };
+  const material = await realityMaterial(db, instanceId, inst.desired_blob);
+
+  const kp = projectId
+    ? await ensureProjectKp(env, db, encAtRest, decAtRest, projectId, now)
+    : null;
+
+  if (inst.ki_kp && kp) {
+    try {
+      const kiRaw = await unwrapKiUnderKp(kp.raw, inst.ki_kp);
+      if (!material || await kiOpens(kiRaw, material.token)) {
+        return { kiRaw, path: 'ki_kp', proven: material ? material.source : 'none' };
+      }
+      // Stored wrap refused by the device's own ciphertext — fall through and re-derive (the heal).
+    } catch { /* undecryptable ki_kp — fall through and re-derive */ }
+  }
+
+  const d = await deriveKiCandidates(env, db, decAtRest, ownerRow, instanceId);
+  if (!d.candidates.length) return { fail: d.fail.length ? d.fail : ['no_candidates'] };
+  let chosen = null, proven = 'none';
+  if (material) {
+    for (const c of d.candidates) {
+      if (await kiOpens(c.raw, material.token)) { chosen = c; proven = material.source; break; }
+    }
+    if (!chosen) return { fail: ['candidates_fail_reality'] };
+  } else {
+    chosen = d.candidates[0];   // no material to arbitrate — getKi precedence, same as the backfill
+  }
+
+  if (kp) {
+    const token = await wrapKiUnderKp(kp.raw, chosen.raw);
+    // Round-trip self-check before storing, mirroring the backfill: a wrap that will not unwrap
+    // must never become the stored truth.
+    let roundtrip = false;
+    try {
+      const back = await unwrapKiUnderKp(kp.raw, token);
+      roundtrip = back.length === chosen.raw.length && back.every((b, i) => b === chosen.raw[i]);
+    } catch { /* roundtrip stays false */ }
+    if (roundtrip) {
+      await db.prepare('UPDATE instance SET ki_kp=?, ki_kp_version=? WHERE instance_id=?')
+        .bind(token, kp.key_version, instanceId).run();
+    }
+  }
+  return { kiRaw: chosen.raw, path: chosen.path, proven };
+}
+
+/* Mint the install wrap the panel's wrapKeyForInstall() mints: bare RSA-OAEP-SHA256 ciphertext of
+ * the raw Ki bytes, url-safe unpadded base64, to the install's SPKI pubkey. NO envelope — the
+ * device unwraps with a single RSA decrypt (crypto.js unwrapKeyFromResearcher) and any wrapper
+ * would break every installed engine. This is the worker's only RSA-ENCRYPT; the import mirrors
+ * the client's importPublicKeyB64 exactly (RSA-OAEP, SHA-256). */
+export async function wrapKiToInstallPubkey(installPubkeyB64, kiRaw) {
+  const pub = await crypto.subtle.importKey('spki', b64ToBytes(installPubkeyB64),
+    { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
+  return bytesToB64(await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pub, kiRaw));
 }

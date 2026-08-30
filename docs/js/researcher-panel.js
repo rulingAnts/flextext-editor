@@ -1073,19 +1073,23 @@ function header(titleKey, withLock) {
  * the reader actually experienced. */
 const WHATS_NEW = [
   'panel.rel.new.share',
+  'panel.rel.new.memberApprove',
   'panel.rel.new.memberFiles',
   'panel.rel.new.projectLifecycle',
+  'panel.rel.new.rename',
+  'panel.rel.new.freshPanel',
+  'panel.rel.new.dialogs',
+  'panel.rel.new.keylessHonest',
+  'panel.rel.new.uploadChip',
   'panel.rel.new.audioError',
   'panel.rel.new.doneToggle',
   'panel.rel.new.oneVersion',
 ];
 const KNOWN_ISSUES = [
   'panel.known.addColleague',
-  'panel.known.coworkerIdentity',
   'panel.known.crowdMembers',
   'panel.known.inviteOnce',
   'panel.known.projectDefaults',
-  'panel.known.ownerApproves',
 ];
 
 /* The same rule the staging ribbon uses, deliberately duplicated rather than imported: the ribbon
@@ -7055,10 +7059,10 @@ async function coworkersModal() {
              project as another researcher, because right now it's not very intuitive"). It is a
              manual exchange between two people through a channel this app knows nothing about, and
              the old single sentence described only the colleague's half.
-             ⚠ STEP 5 IS THE ONE NOBODY WOULD GUESS: the key grant is issued by a sweep that runs when
-             the OWNER's dashboard renders, so an owner who adds someone and immediately closes the
-             panel leaves that coworker able to act but unable to read device settings. Discovered by
-             hitting it — a membership added outside the panel came back with zero grants. */''}
+             ⚠ STEP 5 changed with Phase 2b (2026-08-31): the WORKER writes the member's key grants
+             inside the add itself, so there is no leave-the-panel-open ritual any more — the step
+             now simply says the setup is immediate. (Historically the grants came from a sweep on
+             the owner's next dashboard render, and closing too fast left the coworker keyless.) */''}
         <ol class="rp-steps note">
           <li>${esc(t('panel.share.step1'))}</li>
           <li>${esc(t('panel.share.step2'))}</li>

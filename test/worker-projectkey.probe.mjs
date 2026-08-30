@@ -520,5 +520,63 @@ console.log('\nproject-key grant maintenance — Phase 2b (worker-written member
     { researcher_id: FIXTURE.outsiderId, caps: { manageDevices: true, createInvites: true } });
 }
 
+/* ════════════════ THE FOUR-WAY MATRIX (Seth, 2026-08-31) ════════════════
+ *
+ * "We want to make sure it works all four ways: minted by owner/member × approved by owner/member."
+ * The lanes never consult who minted the invite — but implied is not verified, so each combination
+ * is walked for real: invite → claim (real keypair) → accept → approve → server-key → the device
+ * poll carries a wrap that RSA-unwraps. Member/Member and Owner/Owner are already covered above;
+ * these two arms pin the cross cases. */
+console.log('\nproject-key 4-way matrix (minted-by × approved-by)');
+
+async function fullEnrol(instanceId, ki, mintCall, approveCall, label) {
+  const kiKey = await crypto.subtle.importKey('raw', ki, { name: 'AES-GCM' }, false, ['encrypt']);
+  await call('POST', `/v1/instances/${instanceId}/command`, { command: { type: 'changeSettings', enc: await encryptJSONStd(kiKey, { m: label }) } });
+  const d = await claimInstall(instanceId, mintCall === 'member');
+  ok(d.inviteOk && d.claimOk, `${label}: invite minted by ${mintCall}, device claimed`);
+  const doCall = approveCall === 'member' ? mcall : call;
+  await fetch(BASE + `/v1/instances/${instanceId}/installs/${d.installId}/accept`, { method: 'POST', headers: d.DEVICE, body: '{}' });
+  const app = await doCall('POST', `/v1/instances/${instanceId}/installs/${d.installId}/approve`, {});
+  const sk = await doCall('POST', `/v1/instances/${instanceId}/installs/${d.installId}/server-key`, {});
+  ok(app.status === 200 && sk.status === 200,
+     `${label}: approved AND keyed by the ${approveCall} (approve ${app.status}, server-key ${sk.status})`);
+  const poll = await fetch(BASE + `/v1/instances/${instanceId}?since=0`, { headers: d.DEVICE });
+  const pj = await poll.json().catch(() => null);
+  let back = null;
+  try {
+    const ct = Buffer.from(String(pj && pj.wrapped_key).replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+    back = new Uint8Array(await crypto.subtle.decrypt({ name: 'RSA-OAEP' }, d.priv, ct));
+  } catch { /* back stays null */ }
+  ok(!!back && back.length === ki.length && back.every((x, i) => x === ki[i]),
+     `${label}: the device unwrapped the TRUE Ki — byte-identical`);
+}
+
+{
+  /* Member-minted, OWNER-approved — the field case where a coworker prepares the enrolment and the
+   * owner happens to be the one at a panel when the device comes online. */
+  const devMO = await mk('pk4-mint-member-approve-owner');
+  const kiMO = crypto.getRandomValues(new Uint8Array(32));
+  {
+    const v2 = await call('GET', '/v1/researcher');
+    const pub = await crypto.subtle.importKey('spki', Buffer.from(String(v2.json.pubkey).replace(/-/g, '+').replace(/_/g, '/'), 'base64'),
+      { name: 'RSA-OAEP', hash: 'SHA-256' }, true, ['encrypt']);
+    await call('POST', '/v1/researcher/keys', { instance_id: devMO,
+      grants: [{ researcher_id: FIXTURE.researcherId, wrapped_ki: b64(new Uint8Array(await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pub, kiMO))) }] });
+  }
+  await fullEnrol(devMO, kiMO, 'member', 'owner', 'mint=member approve=owner');
+
+  /* Owner-minted, MEMBER-approved — the owner prepares the invite, the member finishes enrolment. */
+  const devOM = await mk('pk4-mint-owner-approve-member');
+  const kiOM = crypto.getRandomValues(new Uint8Array(32));
+  {
+    const v2 = await call('GET', '/v1/researcher');
+    const pub = await crypto.subtle.importKey('spki', Buffer.from(String(v2.json.pubkey).replace(/-/g, '+').replace(/_/g, '/'), 'base64'),
+      { name: 'RSA-OAEP', hash: 'SHA-256' }, true, ['encrypt']);
+    await call('POST', '/v1/researcher/keys', { instance_id: devOM,
+      grants: [{ researcher_id: FIXTURE.researcherId, wrapped_ki: b64(new Uint8Array(await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pub, kiOM))) }] });
+  }
+  await fullEnrol(devOM, kiOM, 'owner', 'member', 'mint=owner approve=member');
+}
+
 console.log(fail ? `\n${fail} FAILED` : '\nPASS');
 process.exit(fail ? 1 : 0);

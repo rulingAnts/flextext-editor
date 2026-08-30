@@ -30,8 +30,12 @@ async function call(method, path, body) {
   return { status: r.status, json };
 }
 
-/* ---- client-compatible crypto (STANDARD base64 — docs/js/crypto.js vocabulary) ---- */
-const b64 = (u8) => Buffer.from(u8).toString('base64');
+/* ---- client-compatible crypto — docs/js/crypto.js's EXACT vocabulary: URL-SAFE UNPADDED base64.
+ * ⚠ The first version of this probe used STANDARD base64 here, and that single line is why the rig
+ * was green while the first production backfill derived zero devices: the fixtures replicated the
+ * worker's wrong assumption instead of the client's real encoder. A probe's fixtures must be minted
+ * the way the REAL client mints them, or the probe certifies the mock. */
+const b64 = (u8) => Buffer.from(u8).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const KR_RAW = new Uint8Array(32).fill(7);                      // worker-seed.mjs KR_PLAINTEXT
 const krKey = await crypto.subtle.importKey('raw', KR_RAW, { name: 'AES-GCM' }, false, ['encrypt']);
 async function encryptJSONStd(key, obj) {

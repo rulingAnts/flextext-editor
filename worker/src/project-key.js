@@ -19,20 +19,34 @@
  * result down (instance.ki_kp) so Phase 2 never has to walk the chain again. The property that holds
  * before and after: a D1 dump alone, WITHOUT the worker secret, yields nothing.
  *
- * ⚠ CIPHERTEXT FORMATS — two base64 alphabets meet here, and mixing them is the bug this comment
- * exists to prevent. The worker's own at-rest tokens (encAtRest/decAtRest) are b64url. Everything the
- * CLIENT minted — wrappedKis tokens, wrapped_privkey, member_key.wrapped_ki, pubkey — is STANDARD
- * base64 (docs/js/crypto.js bytesToB64). ki_kp is written in the client "iv.ct" standard-b64 shape
- * with a {k} payload, matching wrapKey()'s vocabulary, so a future phase can hand one to a client
- * without translation.
+ * ⚠ CIPHERTEXT FORMATS: the client alphabet is URL-SAFE UNPADDED base64 — see the block comment on
+ * b64ToBytes below, which records how getting this wrong cost the first production backfill run.
+ * ki_kp is written in the client "iv.ct" url-safe shape with a {k} payload, matching wrapKey()'s
+ * vocabulary, so a future phase can hand one to a client without translation.
  */
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
-/* Standard base64 (the CLIENT alphabet) — not the b64url the worker's at-rest helpers use. */
+/* ⚠⚠ THE CLIENT ALPHABET IS URL-SAFE UNPADDED BASE64, AND ASSUMING OTHERWISE COST A PRODUCTION RUN.
+ * docs/js/crypto.js bytesToB64 is btoa(...).replace(+ -> -, / -> _, strip =) — every client-minted
+ * token (wrappedKis values, wrapped_privkey, member_key.wrapped_ki, pubkey) uses it. The first
+ * version of this module decoded with bare atob(), which throws InvalidCharacterError on '-'/'_' —
+ * so the very first production backfill (2026-08-30) derived ZERO of 16 devices, every one
+ * 'skipped_no_ki', while the rig was green because the PROBE had minted its fixtures in standard
+ * base64, faithfully replicating the assumption instead of the client. Found by replaying the
+ * worker's exact steps in a browser against a live token: sample 'dclPrkDNW_S6825v.…' — the '_' is
+ * the whole story.
+ *
+ * The decoder therefore NORMALIZES — it accepts both alphabets, because not everything here is
+ * client-minted: kr_server_enc plaintext (the Kr string) was minted by the WORKER with bare btoa()
+ * and is standard base64, possibly padded. One decoder for both is the fix that cannot regress into
+ * a second alphabet split. The encoder emits CLIENT-style url-safe unpadded, so anything a later
+ * phase hands to a client is already in its vocabulary. The probe now mints its fixtures with the
+ * client's exact encoder shape, which is what makes this a tested property rather than a comment. */
 export function b64ToBytes(s) {
-  const bin = atob(String(s));
+  const norm = String(s).replace(/-/g, '+').replace(/_/g, '/');
+  const bin = atob(norm);
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
@@ -41,7 +55,7 @@ export function bytesToB64(buf) {
   const b = new Uint8Array(buf);
   let s = '';
   for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
-  return btoa(s);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 async function importAesRaw(rawBytes) {

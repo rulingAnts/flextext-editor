@@ -91,6 +91,52 @@ Drive belongs to one human's account and cannot be project-owned; destruction is
 irreversibility choice. Everything else is operational and becomes delegable the moment the key stops
 being personal. The list is a description of the seam, not a set of exceptions to it.
 
+### ⚠ CORRECTION: a project key does NOT deliver delegated device approval (5-design review, 2026-08-28)
+
+**I told Seth that Phase 2 would let any researcher approve a device. That is wrong, and the review
+found why.** Recorded prominently because the phased plan below still reads as though delegation falls
+out of the key change, and it does not.
+
+**Approval is a CIPHERTEXT-VERIFIABILITY problem, not a key-distribution one.**
+`POST /v1/instances/<id>/installs/<iid>/key` is owner-only because `wrapped_key` is opaque ciphertext
+the worker cannot inspect, and the route bumps `desired_rev` so the device ADOPTS it. A member could
+deliver a Ki THEY chose, after which the owner's Ki no longer decrypts that device. The worker cannot
+validate its way out: it cannot read the key, so "is this the right key?" is not a question it can ask.
+⚠ Possession was never the blocker — a member with a `member_key` grant ALREADY holds Ki today. So NO
+key-scoping change (Kp included) opens this gate.
+
+**Both proposed fixes for it were judged FATAL, and the reasons generalise:**
+ · **Ki commitment** (publish `SHA-256(Ki)` at creation; device verifies before adopting) — the
+   commitment is seeded by the very party it constrains. The column starts NULL and a member with
+   manageDevices already holds Ki and a session, so on migration day they mint `Ki_evil` and win the
+   first write. Set-once + first-write-wins + an opaque hash the worker cannot check = no constraint.
+ · **"Grant at birth" / add-only member writes** — `member_key.key_version` is taken from the CLIENT
+   with no upper bound (`Math.max(1, parseInt(body.key_version || 1, 10) || 1)`) and reads prefer the
+   HIGHEST version. A member can write a higher-version grant and lock the OWNER out.
+
+**What the wrap-to-owner invariant is actually doing** — and why it keeps being the thing these designs
+break: `owner_grant_required` and the member-bootstrap door ("only while the instance has NO key rows")
+are only expressible because a grant is per-(instance, grantee). Collapse to one key per project and
+both checks lose their subject. Any Kp design must say what replaces them.
+
+**Ruled out, with reasons worth not re-deriving:**
+ · **Google Drive as key store** — `drive.file` is a per-(app,user) grant that Drive sharing does NOT
+   extend to a coworker; appDataFolder files cannot be shared at all; the only remaining route reads
+   the key with the owner's refresh token, which the worker already holds — handing the operator the
+   keys outright.
+ · **Cloud KMS / IAM** — moves custody without touching the verifiability problem, and adds a billable
+   Google dependency on the auth path.
+ · **Proxy re-encryption** — the algebra does not close in Workers' WebCrypto, and it would be the
+   worker's FIRST third-party dependency, on the auth-critical path, for one maintainer — spent
+   defending a property the system does not currently hold.
+
+**What survives, and it is still worth doing:** Kp collapses the O(devices x members) fan-out to one
+wrap per member and one per device, kills the sweep, and makes project defaults delegable. That is the
+real prize. ⚠ But a judge found the Kp write-up internally circular: its safety argument ("a bad wrap
+is detectable — compare against the Ki you already hold from member_key") depends on `member_key`
+staying populated, while its benefit is removing exactly that redundancy. **Resolve that before
+building: either member_key stays as the recovery path forever, or Kp needs its own integrity check.**
+
 ### Backward compatibility — the phased path (Seth: "But we need backward compatibility too...")
 
 **The property that makes this survivable: `Kp` WRAPS `Ki`, it does not replace it.** No device key

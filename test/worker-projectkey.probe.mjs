@@ -326,11 +326,12 @@ async function claimInstall(instanceId, viaMember, withPubkey = true) {
   return { inviteOk: inv.status === 200, claimOk: claim.status === 200, installId, DEVICE, priv: pair && pair.privateKey };
 }
 
+let devG = null, kiG = null;   // shared with the Phase-2b grant-maintenance arms below
 {
   /* devG: a device whose Ki lives only in an owner grant (the member-minted shape) with real
    * command material — then the whole enrolment, member seat only. */
-  const devG = await mk('pk2-member-enrols');
-  const kiG = crypto.getRandomValues(new Uint8Array(32));
+  devG = await mk('pk2-member-enrols');
+  kiG = crypto.getRandomValues(new Uint8Array(32));
   {
     const v2 = await call('GET', '/v1/researcher');
     const pub = await crypto.subtle.importKey('spki', Buffer.from(String(v2.json.pubkey).replace(/-/g, '+').replace(/_/g, '/'), 'base64'),
@@ -451,6 +452,72 @@ async function claimInstall(instanceId, viaMember, withPubkey = true) {
   const sk = await call('POST', `/v1/instances/${devI}/installs/${d.installId}/server-key`, {});
   ok(sk.status === 409 && sk.json && sk.json.error === 'no_pubkey',
      `an install without a pubkey is refused plainly, not wrapped to nothing (got ${sk.status}/${sk.json && sk.json.error})`);
+}
+
+/* ════════════════ PHASE 2b — worker-maintained member_key grants ════════════════
+ *
+ * "When a device is created or a coworker added, the WORKER writes the member_key rows." These arms
+ * prove the maintenance end to end from the MEMBER's side: the add response carries the summary,
+ * the member's own key list fills in, the wrapped_ki actually decrypts to the TRUE Ki, the
+ * keyless-by-design class is reported as its own category (never a failure, never a retry), and
+ * re-sweeps are quiet. */
+console.log('\nproject-key grant maintenance — Phase 2b (worker-written member_key rows)');
+
+{
+  /* The member publishes a pubkey (kept private-side here), like a real panel's first sign-in. */
+  const mPair = await crypto.subtle.generateKey(
+    { name: 'RSA-OAEP', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+    true, ['encrypt', 'decrypt']);
+  const mPub = b64(new Uint8Array(await crypto.subtle.exportKey('spki', mPair.publicKey)));
+  const pk = await fetch(BASE + '/v1/researcher/pubkey', {
+    method: 'POST', headers: mhdr, body: JSON.stringify({ pubkey: mPub, wrapped_privkey: 'held-client-side-not-escrowed' }),
+  });
+  ok(pk.status === 200, `the member published a pubkey (got ${pk.status})`);
+
+  /* Re-adding the member (an upsert) runs maintenance inline — the response says what happened. */
+  const add = await call('POST', `/v1/projects/${FIXTURE.migratedProjectId}/members`,
+    { researcher_id: FIXTURE.outsiderId, caps: { manageDevices: true, createInvites: true } });
+  const g = add.json && add.json.grants;
+  ok(add.status === 200 && g && typeof g.granted === 'number',
+     `⚠⚠ the add response carries the WORKER's grant summary (granted=${g && g.granted}, instances=${g && g.instances})`);
+  ok(g && g.granted > 0, `...and the worker actually minted grants for the member (${g && g.granted})`);
+  const keylessIds = ((g && g.keyless) || []).map((k) => k.instance_id);
+  ok(keylessIds.includes(devC), `⚠ the keyless-by-design instance is its own CATEGORY, not a failure (keyless includes devC)`);
+
+  /* The member's own key list — server truth — now covers the derivable devices... */
+  const keys = await mcall('GET', '/v1/researcher/keys');
+  const mine = new Set(((keys.json && keys.json.keys) || []).map((r) => r.instance_id));
+  ok(mine.has(devA) && mine.has(devB), `the member now holds grants for the owner's devices (devA, devB)`);
+  ok(!mine.has(devC), `...and none was invented for the keyless instance`);
+
+  /* ...and the ciphertext is REAL: the devG grant decrypts to the byte-identical true Ki. */
+  const rowG = ((keys.json && keys.json.keys) || []).find((r) => r.instance_id === devG);
+  let kiBack = null;
+  try {
+    const ct = Buffer.from(String(rowG && rowG.wrapped_ki).replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+    kiBack = new Uint8Array(await crypto.subtle.decrypt({ name: 'RSA-OAEP' }, mPair.privateKey, ct));
+  } catch { /* kiBack stays null */ }
+  ok(!!kiBack && kiBack.length === kiG.length && kiBack.every((x, i) => x === kiG[i]),
+     `⚠⚠ the member's worker-minted grant decrypts to the TRUE Ki — byte-identical, end to end`);
+
+  /* The owner's own grant is maintained too: devA was wrappedKis-only (no grant row existed), and
+   * the wrap-to-owner invariant is now held by the worker itself. */
+  const okeys = await call('GET', '/v1/researcher/keys');
+  const oset = new Set(((okeys.json && okeys.json.keys) || []).map((r) => r.instance_id));
+  ok(oset.has(devA), `⚠ the OWNER's own grant for a wrappedKis-only device was materialised (wrap-to-owner, worker-held)`);
+
+  /* Re-sweeps are quiet: nothing granted twice, the keyless class never churns into retries. */
+  const sw = await mcall('POST', `/v1/projects/${FIXTURE.migratedProjectId}/grant-sweep`, {});
+  ok(sw.status === 200 && sw.json && sw.json.granted === 0 && sw.json.already > 0,
+     `⚠ a re-sweep is idempotent — granted=0, already=${sw.json && sw.json.already}, keyless=${(sw.json && sw.json.keyless || []).length} (a sentence, not a retry loop)`);
+
+  /* The sweep needs device rights like every other maintenance act. */
+  await call('POST', `/v1/projects/${FIXTURE.migratedProjectId}/members`,
+    { researcher_id: FIXTURE.outsiderId, caps: { createInvites: true } });
+  const noCap = await mcall('POST', `/v1/projects/${FIXTURE.migratedProjectId}/grant-sweep`, {});
+  ok(noCap.status === 404, `without manageDevices the sweep answers 404 (got ${noCap.status})`);
+  await call('POST', `/v1/projects/${FIXTURE.migratedProjectId}/members`,
+    { researcher_id: FIXTURE.outsiderId, caps: { manageDevices: true, createInvites: true } });
 }
 
 console.log(fail ? `\n${fail} FAILED` : '\nPASS');

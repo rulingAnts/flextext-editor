@@ -440,9 +440,80 @@ export async function kiForInstall(env, db, encAtRest, decAtRest, ownerRow, proj
  * the raw Ki bytes, url-safe unpadded base64, to the install's SPKI pubkey. NO envelope — the
  * device unwraps with a single RSA decrypt (crypto.js unwrapKeyFromResearcher) and any wrapper
  * would break every installed engine. This is the worker's only RSA-ENCRYPT; the import mirrors
- * the client's importPublicKeyB64 exactly (RSA-OAEP, SHA-256). */
+ * the client's importPublicKeyB64 exactly (RSA-OAEP, SHA-256). Researcher pubkeys are the same
+ * SPKI shape (the client wraps member grants with the same helper), so grant maintenance below
+ * reuses this for researcher-targeted wraps too. */
 export async function wrapKiToInstallPubkey(installPubkeyB64, kiRaw) {
   const pub = await crypto.subtle.importKey('spki', b64ToBytes(installPubkeyB64),
     { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
   return bytesToB64(await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pub, kiRaw));
+}
+
+/* ── PHASE 2b: worker-maintained member_key grants ────────────────────────────────────────────────
+ *
+ * The rest of the BACKLOG's Phase-2 spec: "when a device is created or a coworker added, the WORKER
+ * writes the member_key rows." This replaces the panel's client-side N×M wrap loop (memberGrantSweep
+ * / grantKeysToMember) as the thing that closes grant gaps — old panels keep working because the
+ * rows they expect simply appear, minted here instead of in a browser.
+ *
+ * The rules that keep it safe:
+ *   · MISSING rows only — INSERT OR IGNORE, never REPLACE. Maintenance can never clobber a standing
+ *     grant, so the overwrite concern that keeps member writes narrow does not arise on this path.
+ *   · Ki comes from kiForInstall — the evidence-based resolver. An instance whose Ki cannot be
+ *     established (the keyless-by-design class, or ciphertext-contradicted stores) is reported in
+ *     `keyless` and SKIPPED: never an error, never a retry loop, exactly as the BACKLOG requires.
+ *   · The OWNER's own grant is maintained too (the wrap-to-owner invariant, now held by the worker
+ *     itself): every instance that has a resolvable Ki ends up owner-readable by construction.
+ *   · A grantee with no published pubkey is reported and skipped — there is nothing to wrap to yet;
+ *     the next maintenance pass picks them up (same contract the client sweep had).
+ *
+ * Returns { granted, already, keyless: [{instance_id, reasons}], no_pubkey: [researcher ids] } —
+ * counts and ids only, never key material. */
+export async function maintainProjectGrants(env, db, encAtRest, decAtRest, ownerRow, projectId, now, onlyInstanceId, callerId) {
+  const out = { granted: 0, already: 0, keyless: [], no_pubkey: [] };
+  if (!projectId) return out;   // dual-read window: no project, no membership, nothing to maintain
+
+  const memberRows = (await db.prepare(
+    'SELECT m.researcher_id, r.pubkey FROM project_member m JOIN researcher r ON r.researcher_id=m.researcher_id WHERE m.project_id=?'
+  ).bind(projectId).all()).results || [];
+  const grantees = [];
+  for (const mr of memberRows) {
+    if (mr.pubkey) grantees.push({ researcher_id: mr.researcher_id, pubkey: mr.pubkey });
+    else out.no_pubkey.push(mr.researcher_id);
+  }
+  if (ownerRow.pubkey) grantees.push({ researcher_id: ownerRow.researcher_id, pubkey: ownerRow.pubkey });
+  else out.no_pubkey.push(ownerRow.researcher_id);
+  if (!grantees.length) return out;
+
+  const insts = onlyInstanceId
+    ? (await db.prepare('SELECT instance_id FROM instance WHERE instance_id=? AND project_id=? AND revoked=0')
+        .bind(onlyInstanceId, projectId).all()).results || []
+    : (await db.prepare('SELECT instance_id FROM instance WHERE project_id=? AND revoked=0')
+        .bind(projectId).all()).results || [];
+  out.instances = insts.length;   // so callers can say "N devices, M of them keyless" honestly
+
+  for (const it of insts) {
+    const have = new Set(((await db.prepare(
+      'SELECT researcher_id FROM member_key WHERE instance_id=?'
+    ).bind(it.instance_id).all()).results || []).map((r) => r.researcher_id));
+    const missing = grantees.filter((g) => !have.has(g.researcher_id));
+    out.already += grantees.length - missing.length;
+    if (!missing.length) continue;
+
+    const res = await kiForInstall(env, db, encAtRest, decAtRest, ownerRow, projectId, it.instance_id, now);
+    if (!res || !res.kiRaw) {
+      out.keyless.push({ instance_id: it.instance_id, reasons: (res && res.fail) || [] });
+      continue;
+    }
+    for (const g of missing) {
+      let wrapped;
+      try { wrapped = await wrapKiToInstallPubkey(g.pubkey, res.kiRaw); }
+      catch { out.no_pubkey.push(g.researcher_id); continue; }   // unusable pubkey: report, never throw
+      await db.prepare(
+        'INSERT OR IGNORE INTO member_key (project_id, instance_id, researcher_id, key_version, wrapped_ki, wrapped_by, created_at) VALUES (?,?,?,1,?,?,?)'
+      ).bind(projectId, it.instance_id, g.researcher_id, wrapped, callerId || ownerRow.researcher_id, now).run();
+      out.granted++;
+    }
+  }
+  return out;
 }

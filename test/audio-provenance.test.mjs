@@ -132,8 +132,10 @@ ok(/return false;[\s\S]{0,400}for \(let i = 0; i < 16; i\+\+\)/.test(flac),
    '⚠ every precondition bails BEFORE any byte is written — a bad splice would corrupt an archival master');
 
 console.log('\nno new precached file was needed');
+/* ⚠ The RESEARCHER satellite is deliberately absent since 2026-08-31: its worker caches nothing
+ * (the panel is an online console — see satellites/flextext-researcher/sw.js), so it has no SHELL. */
 for (const sw of ['../docs/sw.js', '../satellites/text-recorder/sw.js',
-                  '../satellites/flextext-researcher/sw.js', '../paragraph-analysis/sw.js']) {
+                  '../paragraph-analysis/sw.js']) {
   const src = read(sw);
   ok(/js\/seg-exports\.js/.test(src) && /js\/record-pcm\.js/.test(src),
      `${sw.split('/').slice(-2).join('/')} already precaches both modules`);

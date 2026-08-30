@@ -138,12 +138,15 @@ ok(/const srcChans = chans\.length;[\s\S]{0,200}if \(opts\.mono && opts\.mono !=
    'the source facts are captured BEFORE pickMono rewrites them');
 
 console.log('\nno new precached file was needed for any of this');
-/* wavesurfer.esm.js is already in every sw.js SHELL (audio.js imports it) and convert.js was already
- * imported here — so this feature adds NO SHELL entry. A new precached module would have to be added
- * to the editor AND all three satellite sw.js files in the same commit, or an updated satellite is
- * dead offline (the v108 outage). */
+/* wavesurfer.esm.js is already in every OFFLINE-CAPABLE sw.js SHELL (audio.js imports it) and
+ * convert.js was already imported here — so this feature adds NO SHELL entry. A new precached
+ * module would have to be added to the editor AND the offline satellites' sw.js files in the same
+ * commit, or an updated satellite is dead offline (the v108 outage).
+ * ⚠ The RESEARCHER satellite is deliberately absent since 2026-08-31: its worker caches nothing
+ * (the panel is an online console; see satellites/flextext-researcher/sw.js), so it has no SHELL
+ * to keep in sync — that is the design, not an omission. */
 for (const sw of ['../docs/sw.js', '../satellites/text-recorder/sw.js',
-                  '../satellites/flextext-researcher/sw.js', '../paragraph-analysis/sw.js']) {
+                  '../paragraph-analysis/sw.js']) {
   const src = read(sw);
   ok(/vendor\/wavesurfer\.esm\.js/.test(src), `${sw.split('/').slice(-2).join('/')} already precaches wavesurfer`);
   ok(/js\/convert\.js/.test(src), `  ...and convert.js`);

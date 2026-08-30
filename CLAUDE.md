@@ -267,8 +267,9 @@ never said *verify the file is live first*. Both halves are required.
   declared ENGINE ≠ the editor's ENGINE_VERSION — the "bumped the engine, forgot the satellites"
   silent no-op (the v130 failure) is now a loud failure at release time.
 - **Adding a new top-level `import` to `js/app.js` is the trigger.** It becomes a new SHELL entry
-  in the editor *and every satellite sw.js file* (`satellites/*/sw.js` and
-  `paragraph-analysis/sw.js`), in the same commit. (The paragraph app deploys atomically with its
+  in the editor *and every OFFLINE-CAPABLE satellite sw.js* (`satellites/text-recorder/sw.js` and
+  `paragraph-analysis/sw.js`), in the same commit. ⚠ NOT the researcher: since 2026-08-31 its
+  worker caches nothing (the panel is an online console — see its CLAUDE.md); it has no SHELL. (The paragraph app deploys atomically with its
   engine copy, so it can't 404 — but its SHELL must still list the import or it is dead offline.)
 
 **Correct sequence, every time:**
@@ -377,7 +378,8 @@ the old local clone `/Users/Seth/GIT/text-recorder/` is legacy.
   VERSION == `docs/js/i18n.js` ENGINE_VERSION, plus the VERSION + ENGINE lines of
   `satellites/text-recorder/sw.js`, `satellites/flextext-researcher/sw.js`, AND
   `paragraph-analysis/sw.js` (crowd-recorder has no sw.js). **A new top-level import in
-  `js/app.js` is a new SHELL entry in the editor AND every satellite sw.js file** — a
+  `js/app.js` is a new SHELL entry in the editor AND every offline-capable satellite sw.js (NOT the
+  researcher, whose worker deliberately caches nothing since 2026-08-31)** — a
   missing precached module makes an updated satellite dead offline (the v108 outage).
 - **⚠ DEPLOY ORDER — automated but still the law:** `sync-satellites.yml` waits for the live
   editor to serve the pushed version, verifies every precached engine path returns 200

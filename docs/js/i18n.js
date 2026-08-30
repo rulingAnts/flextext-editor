@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v507';
+export const ENGINE_VERSION = 'v508';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1419,6 +1419,14 @@ internet after the first time.</p>
   /* ⚠ TEMPORARY, with the header ID line — remove both when the invite link lands. */
   'panel.who.idLabel': 'researcher id:',
   'panel.who.idTip': 'Your researcher ID — send this to a project owner who wants to add you as a coworker. Click to copy it.',
+  /* PROJECT DEFAULT SETTINGS — the feature is HALF-BUILT (storage + this modal work; nothing applies
+   * the template to devices yet), and these strings say so rather than promising the missing half.
+   * Seth met the raw keys on staging (panel.proj.defaults etc.) — the strings were simply never
+   * added when the build was paused mid-feature for the key-sharing work. */
+  'panel.proj.defaults': 'Default settings',
+  'panel.set.projTitle': 'Default settings — {name}',
+  'panel.set.projIntro': 'A settings template for this project, saved with your account. ⚠ Still being finished: new devices do not pick these up automatically yet, and nothing applies them to existing devices — for now this only stores your choices.',
+  'panel.set.projSave': 'Save template',
   'panel.rel.btn': 'Release notes',
   'panel.rel.title': 'Release notes',
   'panel.rel.version': 'You are running {v}.',
@@ -1440,7 +1448,7 @@ internet after the first time.</p>
   'panel.known.coworkerIdentity': 'The Coworkers list shows each colleague’s name, email address and avatar. A future release will replace that with a pairing code and a nickname you choose.',
   'panel.known.crowdMembers': 'Crowd recorders are invisible to a coworker — only the project owner sees them.',
   'panel.known.inviteOnce': 'A device invite link is shown once and cannot be displayed again. If it is lost, make a new one; the old link stays valid.',
-  'panel.known.projectDefaults': 'There is no way yet to set default settings for new devices in a project — each device is configured on its own.',
+  'panel.known.projectDefaults': 'Project “Default settings” can be saved but are not applied to anything yet — new devices do not pick them up. Half-built; finishing is queued.',
   'panel.known.ownerApproves': 'Only the project owner can approve and key a new device. A coworker with “manage devices” cannot finish pairing one.',
   /* ⚠ The coworker list no longer shows a name, email or avatar — the worker stopped sending them
    * (v503). A nickname the OWNER types is what names a coworker now, and it never leaves this
@@ -3281,6 +3289,10 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.share.step5': 'Biarkan panel ini terbuka beberapa detik setelahnya. Kunci perangkat dikirim dari sini, jadi jika langsung ditutup, rekan Anda dapat melihat proyek tetapi belum dapat membaca atau mengubah pengaturan perangkat sampai Anda membuka panel ini lagi.',
   'panel.who.idLabel': 'id peneliti:',
   'panel.who.idTip': 'ID peneliti Anda — kirimkan ini kepada pemilik proyek yang ingin menambahkan Anda sebagai rekan kerja. Klik untuk menyalinnya.',
+  'panel.proj.defaults': 'Pengaturan bawaan',
+  'panel.set.projTitle': 'Pengaturan bawaan — {name}',
+  'panel.set.projIntro': 'Templat pengaturan untuk proyek ini, disimpan bersama akun Anda. ⚠ Masih diselesaikan: perangkat baru belum mengambilnya secara otomatis, dan belum ada yang menerapkannya ke perangkat yang sudah ada — untuk saat ini hanya menyimpan pilihan Anda.',
+  'panel.set.projSave': 'Simpan templat',
   'panel.rel.btn': 'Catatan rilis',
   'panel.rel.title': 'Catatan rilis',
   'panel.rel.version': 'Anda menjalankan {v}.',
@@ -3298,7 +3310,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.known.coworkerIdentity': 'Daftar Rekan Kerja menampilkan nama, alamat surel, dan avatar setiap rekan. Versi mendatang akan menggantinya dengan kode penyandingan dan nama panggilan pilihan Anda.',
   'panel.known.crowdMembers': 'Perekam massal tidak terlihat oleh rekan kerja — hanya pemilik proyek yang melihatnya.',
   'panel.known.inviteOnce': 'Tautan undangan perangkat hanya ditampilkan sekali dan tidak dapat ditampilkan ulang. Jika hilang, buat yang baru; tautan lama tetap berlaku.',
-  'panel.known.projectDefaults': 'Belum ada cara menetapkan pengaturan bawaan untuk perangkat baru dalam sebuah proyek — setiap perangkat diatur sendiri.',
+  'panel.known.projectDefaults': '“Pengaturan bawaan” proyek dapat disimpan tetapi belum diterapkan ke apa pun — perangkat baru belum mengambilnya. Setengah jadi; penyelesaiannya sudah diantrekan.',
   'panel.known.ownerApproves': 'Hanya pemilik proyek yang dapat menyetujui dan memberi kunci perangkat baru. Rekan kerja dengan “mengelola perangkat” tidak dapat menyelesaikan penyandingan.',
   'panel.share.nickLabel': 'Nama untuk mereka (hanya Anda yang melihatnya)',
   'panel.share.nickPh': 'mis. Yani — tim Kulumi',

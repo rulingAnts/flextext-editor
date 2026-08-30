@@ -7676,6 +7676,12 @@ async function openSettingsModal(target, opts = {}) {
       ? t('panel.set.projTitle', { name: target.project.name || '' })
       : t('panel.set.title', { name: (target.instance && target.instance.nickname) || '' }))}</h3></div>
     ${target.project ? `<p class="note">${esc(t('panel.set.projIntro'))}</p>` : ''}
+    ${/* DEVICE RENAME (Seth, 2026-08-30: "the ability to rename devices… maybe as a setting in the
+         device settings"). The engine (renameInstance) and the worker route existed all along —
+         authMember + manageDevices, the same gate as this modal — but nothing in the UI ever called
+         them. Device mode only: a project template has no nickname. */''}
+    ${target.instance ? `<label class="rp-field"><span>${esc(t('panel.set.nick'))}</span>
+      <input id="rp-set-nick" maxlength="60" value="${esc(target.instance.nickname || '')}" placeholder="${esc(t('panel.set.nickPh'))}"></label>` : ''}
     <div class="rp-tabs" role="tablist">${GROUPS.map((g, i) => `<button class="rp-tab${i === 0 ? ' on' : ''}" role="tab" id="rp-tab-${g.id}" aria-controls="rp-grp-${g.id}" aria-selected="${i === 0}" data-tab="${g.id}">${esc(t('panel.grp.' + g.id))}</button>`).join('')}</div>
     <div class="rp-groups">${GROUPS.map((g) => groupHtml(g)).join('')}</div>
     <p class="note rp-enc">${esc(t('panel.set.encNote'))}</p>
@@ -7825,8 +7831,19 @@ async function openSettingsModal(target, opts = {}) {
         await saveProjectDefaults(target.project.folderId, patch);
         m.close(); deps.toast(t('panel.set.projSaved'), 4000);
       } else {
+        /* Rename FIRST, and only when actually changed — a rename bumps desired_rev, and doing it
+         * needlessly would wake every install's poll for nothing. A failed rename aborts before the
+         * settings push so the toast can never claim more than happened. Blank = keep the old name
+         * (an accidentally-cleared field must not strip a device of its label). */
+        const nickEl = box.querySelector('#rp-set-nick');
+        const newNick = nickEl ? nickEl.value.trim().slice(0, 60) : '';
+        if (newNick && newNick !== (target.instance.nickname || '')) {
+          await Researcher.renameInstance(target.instance.instance_id, newNick);
+          target.instance.nickname = newNick;
+        }
         await Researcher.changeSettings(target.instance.instance_id, patch);
         m.close(); deps.toast(t('panel.set.pushed'), 4000);
+        renderDashboard(lastData || undefined);   // the card shows the new name now, not at the next poll
       }
     } catch (err) { errToast(err); }
   });

@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v508';
+export const ENGINE_VERSION = 'v509';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1423,6 +1423,8 @@ internet after the first time.</p>
    * the template to devices yet), and these strings say so rather than promising the missing half.
    * Seth met the raw keys on staging (panel.proj.defaults etc.) — the strings were simply never
    * added when the build was paused mid-feature for the key-sharing work. */
+  'panel.set.nick': 'Device name (shown in this panel and on the device)',
+  'panel.set.nickPh': 'e.g. Wemis’ phone',
   'panel.proj.defaults': 'Default settings',
   'panel.set.projTitle': 'Default settings — {name}',
   'panel.set.projIntro': 'A settings template for this project, saved with your account. ⚠ Still being finished: new devices do not pick these up automatically yet, and nothing applies them to existing devices — for now this only stores your choices.',
@@ -3289,6 +3291,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.share.step5': 'Biarkan panel ini terbuka beberapa detik setelahnya. Kunci perangkat dikirim dari sini, jadi jika langsung ditutup, rekan Anda dapat melihat proyek tetapi belum dapat membaca atau mengubah pengaturan perangkat sampai Anda membuka panel ini lagi.',
   'panel.who.idLabel': 'id peneliti:',
   'panel.who.idTip': 'ID peneliti Anda — kirimkan ini kepada pemilik proyek yang ingin menambahkan Anda sebagai rekan kerja. Klik untuk menyalinnya.',
+  'panel.set.nick': 'Nama perangkat (tampil di panel ini dan di perangkat)',
+  'panel.set.nickPh': 'mis. HP Wemis',
   'panel.proj.defaults': 'Pengaturan bawaan',
   'panel.set.projTitle': 'Pengaturan bawaan — {name}',
   'panel.set.projIntro': 'Templat pengaturan untuk proyek ini, disimpan bersama akun Anda. ⚠ Masih diselesaikan: perangkat baru belum mengambilnya secara otomatis, dan belum ada yang menerapkannya ke perangkat yang sudah ada — untuk saat ini hanya menyimpan pilihan Anda.',

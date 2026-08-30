@@ -42,6 +42,171 @@ safe and useless. The local nickname is what carries that, which is why it is pa
 rather than a nicety.
 
 
+## DECIDED DIRECTION: instances belong to PROJECTS, and the project holds the key (Seth, 2026-08-28)
+
+> *"I think having instances mapped to projects rather than researchers is what we want."*
+> *"Can we store device keys in a project table? And have the worker able to access that, but not the
+> researcher, directly? Then the researcher account never sees the server-side key."*
+
+**⚠ THE FINDING THAT MAKES THIS CHEAP, and it should be checked before anyone re-argues the security
+trade — the worker CAN ALREADY DERIVE EVERY DEVICE KEY.** Verified in the code, not inferred:
+
+  worker secret -> `Kr` -> `settings_blob` -> `wrappedKis` -> every `Ki`
+
+ · `decAtRest()` (v1.js) decrypts with `serverAesKey(env)`, a worker-held secret.
+ · `GET /v1/researcher` — the ordinary poll — returns `kr: await decAtRest(env, r.kr_server_enc)`.
+   The worker decrypts the researcher's account key on every poll.
+ · `settings_blob` in D1 IS `settingsCache`, which holds `wrappedKis[instanceId]` — each device's Ki
+   wrapped under Kr.
+ · Separately, `drive_refresh_enc` lets the worker mint a Drive token and read the recordings.
+
+So the property actually held today is NOT "the operator cannot read community data". It is the
+narrower **"a D1 dump alone, without the worker secret, yields nothing"**. That is real and worth
+keeping — but several comments in this codebase claim the stronger version, and they are wrong.
+Fix them when touching this.
+
+**Therefore Seth's proposal surrenders nothing that is currently held.** It makes an existing trust
+boundary explicit instead of leaving it implicit and misdescribed, and buys the entire delegation
+problem in exchange.
+
+### The design
+ · `project_key`: `Kp` per project, stored **encAtRest** exactly as `drive_refresh_enc` and
+   `kr_server_enc` already are — so the narrow D1-dump property SURVIVES unchanged.
+ · Device `Ki` wrapped to `Kp` once, at creation, instead of to each researcher separately.
+ · The worker serves what an authorized caller needs, deciding from `project_member` capabilities.
+ · Revocation returns to a row delete: drop the membership, the worker stops serving. No re-wrap
+   storm, which is what made the plain `Kp`-wrapped-to-each-researcher variant unattractive.
+
+### Why it is smaller than it looks
+⚠ **The authorization layer is ALREADY project-primary.** `authMember` resolves `project_id` from the
+instance and checks `project_member`; the ~90 `researcher_id=?` scopings bind `ctx.owner.researcher_id`,
+which authMember derived FROM the project. Only the KEY layer is person-primary (`member_key` is
+instance x researcher). So this is not a 90-site rewrite — it is a key-model change plus a reframing
+of `instance.researcher_id` from "the owner" to "the Google account whose Drive holds the files".
+
+### Why the carve-out list is principled, not arbitrary
+Seth's exceptions — deleting projects, permanently deleting texts, Google storage management and
+direct Drive access — are exactly the boundary where the **Google account is unavoidably personal**.
+Drive belongs to one human's account and cannot be project-owned; destruction is a deliberate
+irreversibility choice. Everything else is operational and becomes delegable the moment the key stops
+being personal. The list is a description of the seam, not a set of exceptions to it.
+
+### ⚠ CORRECTION: a project key does NOT deliver delegated device approval (5-design review, 2026-08-28)
+
+**I told Seth that Phase 2 would let any researcher approve a device. That is wrong, and the review
+found why.** Recorded prominently because the phased plan below still reads as though delegation falls
+out of the key change, and it does not.
+
+**Approval is a CIPHERTEXT-VERIFIABILITY problem, not a key-distribution one.**
+`POST /v1/instances/<id>/installs/<iid>/key` is owner-only because `wrapped_key` is opaque ciphertext
+the worker cannot inspect, and the route bumps `desired_rev` so the device ADOPTS it. A member could
+deliver a Ki THEY chose, after which the owner's Ki no longer decrypts that device. The worker cannot
+validate its way out: it cannot read the key, so "is this the right key?" is not a question it can ask.
+⚠ Possession was never the blocker — a member with a `member_key` grant ALREADY holds Ki today. So NO
+key-scoping change (Kp included) opens this gate.
+
+**Both proposed fixes for it were judged FATAL, and the reasons generalise:**
+ · **Ki commitment** (publish `SHA-256(Ki)` at creation; device verifies before adopting) — the
+   commitment is seeded by the very party it constrains. The column starts NULL and a member with
+   manageDevices already holds Ki and a session, so on migration day they mint `Ki_evil` and win the
+   first write. Set-once + first-write-wins + an opaque hash the worker cannot check = no constraint.
+ · **"Grant at birth" / add-only member writes** — `member_key.key_version` is taken from the CLIENT
+   with no upper bound (`Math.max(1, parseInt(body.key_version || 1, 10) || 1)`) and reads prefer the
+   HIGHEST version. A member can write a higher-version grant and lock the OWNER out.
+
+**What the wrap-to-owner invariant is actually doing** — and why it keeps being the thing these designs
+break: `owner_grant_required` and the member-bootstrap door ("only while the instance has NO key rows")
+are only expressible because a grant is per-(instance, grantee). Collapse to one key per project and
+both checks lose their subject. Any Kp design must say what replaces them.
+
+**Ruled out, with reasons worth not re-deriving:**
+ · **Google Drive as key store** — `drive.file` is a per-(app,user) grant that Drive sharing does NOT
+   extend to a coworker; appDataFolder files cannot be shared at all; the only remaining route reads
+   the key with the owner's refresh token, which the worker already holds — handing the operator the
+   keys outright.
+ · **Cloud KMS / IAM** — moves custody without touching the verifiability problem, and adds a billable
+   Google dependency on the auth path.
+ · **Proxy re-encryption** — the algebra does not close in Workers' WebCrypto, and it would be the
+   worker's FIRST third-party dependency, on the auth-critical path, for one maintainer — spent
+   defending a property the system does not currently hold.
+
+**What survives, and it is still worth doing:** Kp collapses the O(devices x members) fan-out to one
+wrap per member and one per device, kills the sweep, and makes project defaults delegable. That is the
+real prize. ⚠ But a judge found the Kp write-up internally circular: its safety argument ("a bad wrap
+is detectable — compare against the Ki you already hold from member_key") depends on `member_key`
+staying populated, while its benefit is removing exactly that redundancy. **RESOLVED, both halves,
+in the phased path below: `member_key` stays materialised forever (Phase 4 abandoned), and delegated
+approval is delivered by the WORKER performing the wrap — the inversion only the decided
+worker-key-capable model allows. The fatal verdicts all attacked worker-blind variants; the decided
+model is not one.**
+
+### Backward compatibility — the phased path (Seth: "But we need backward compatibility too...")
+
+**The property that makes this survivable: `Kp` WRAPS `Ki`, it does not replace it.** No device key
+changes, no device protocol changes, no engine change is forced. A phone offline for six months comes
+back and syncs exactly as before, because nothing it holds or speaks has moved.
+
+Three populations must keep working throughout: field devices on old engines; the PRODUCTION researcher
+panel, which knows only `member_key` + `wrappedKis`; and the new panel.
+
+**Phase 1 — additive, invisible, reversible.** Create `project_key` (Kp per project, encAtRest).
+Backfill: for each project the worker derives each device's `Ki` by the path it already has, and wraps
+it to that project's `Kp`. NOTHING else changes — the worker keeps serving `member_key` exactly as it
+does now, every client behaves identically, and the table can be dropped with no consequence. This
+phase is worth landing on its own precisely because it is inert.
+
+**Phase 2 — the worker takes over grant maintenance AND key delivery.** When a device is created or a
+coworker added, the WORKER writes the `member_key` rows (it can: it holds `Kp`, so it can derive `Ki`
+and wrap to each member's pubkey). Old panels see exactly what they expect — rows in `member_key` —
+and keep working untouched. New panels stop wrapping client-side.
+
+⚠ **DELEGATED APPROVAL WORKS HERE, BUT NOT FOR THE REASON FIRST WRITTEN.** The original text said
+approval delegates "because approval no longer needs a key only the owner holds" — key distribution.
+The 5-design review refuted that: possession was never the blocker (members with grants already hold
+`Ki`); the blocker is that the /key route accepts OPAQUE ciphertext and the device ADOPTS it, so a
+member could deliver a `Ki` they chose and lock the owner out. What actually opens the gate is that
+under THIS model the delivery flow inverts: **a member never submits a wrapped key at all — they ask,
+and the WORKER performs the wrap itself**, deriving `Ki` via `Kp` and wrapping to the install's
+pubkey. The worker cannot be lied to about a ciphertext it minted. Sabotage is impossible on the new
+path by construction; the old owner-only submit-a-blob path stays owner-only, unchanged.
+⚠ This inversion is only available BECAUSE the decided model makes the worker key-capable — every
+worker-blind variant of delegated approval was judged fatal (commitment races, version-clobber). The
+device end is untouched: it receives a wrapped_ki to its pubkey exactly as today, just minted
+server-side.
+
+This phase fixes everything reported: no client-side N-wrap, so no partial failure and no "1 of 2
+devices" banner; any researcher with the capability can approve AND key a device; the sweep becomes
+redundant. **Before any client is required to change.**
+
+**Phase 3 — retire the client-side sweep.** `memberGrantSweep` becomes a no-op once the worker
+maintains grants. Leave the code in place for a release; deleting it is cleanup, not migration.
+
+**Phase 4 — ABANDONED, deliberately (2026-08-28).** The idea was to serve `Ki` directly from `Kp` and
+stop materialising `member_key` rows. The 5-design review found this half is what made the Kp write-up
+CIRCULAR: the safety argument ("a bad wrap is detectable — compare against the Ki you already hold
+from member_key") depends on `member_key` staying populated, and this phase removes exactly that.
+Resolution: **`member_key` stays materialised forever.** It is the recovery path, the integrity
+cross-check, and what keeps every old panel working with no sunset to verify. The cost is one small
+table of wrapped blobs the worker now maintains automatically — nothing, next to what dropping it
+risks. Do not resurrect this phase without re-reading the fatal verdict.
+
+⚠ **ROLLBACK:** through Phases 1-2 the old path is still fully populated, so reverting the worker is
+enough — no data has been removed. Phase 4 is the first irreversible step, which is exactly why it is
+last and separate.
+
+⚠ **THE TRAP TO AVOID:** do NOT let a device created in Phase 2+ exist with its Ki wrapped ONLY to
+`Kp`. An old panel would find no `member_key` row and report the device unreadable — the v108-shaped
+failure, in a different layer. Materialising the grants is what buys the overlap; stop doing it only
+at Phase 4.
+
+### What must not be lost
+ · The FIELD DEVICE end does not change: `Ki` stays per-device, the device stays E2EE toward the
+   worker, offline for months still works.
+ · `Kp` at rest, never in plaintext in D1.
+ · A worker compromise (code or secret) exposes everything — TRUE TODAY ALREADY, and the reason this
+   is a formalisation rather than a downgrade. It should be written down plainly where the old
+   comments overclaimed.
+
 ## The E2EE model assumes device-to-device; the system stopped being that (Seth, 2026-08-28)
 
 ⚠ **READ THIS BEFORE THE Kp ENTRY BELOW.** Seth, after tracing the partial-key-grant message to its
@@ -66,6 +231,27 @@ open, defaults that cannot be delegated.
 it buys — D1 holds ciphertext, the operator cannot read a community's recordings or metadata — is the
 one thing that must survive any redesign. A rethink that traded it away would not be an improvement;
 it would be a different product.
+
+**⚠ THE LONG-TERM REQUIREMENT, which is stronger than "make sharing less annoying" (Seth,
+2026-08-28):** *"Things that CAN'T be delegated across researcher accounts because of E2EE being a
+100% blocker like this is unacceptable long term. We eventually need researchers to be able to
+delegate pretty much everything."*
+
+With a deliberate carve-out — these may stay owner-only:
+ · deleting a project;
+ · permanently deleting texts;
+ · Google storage management and direct Drive access.
+
+That list is worth reading closely, because it is coherent rather than arbitrary: what stays with the
+owner is **destruction** and **the Google account itself**. Everything operational — approving and
+keying devices, settings, assignment, invites, project defaults — must become delegable.
+
+⚠ **THIS IS AN ACCEPTANCE TEST FOR ANY DESIGN, not a wish.** A scheme that leaves even one operational
+capability structurally impossible to delegate (as today's owner-only device approval is) has not
+solved the problem; it has moved it. Today the blocker is not policy but CRYPTO — the owner is the
+only party holding what is needed to wrap a key to a new install — which is exactly why "we could add
+a capability for it later" is not an available answer. The key model has to change for the
+capability model to be free to change.
 
 **So the honest position:** `Kp` below is an incremental step INSIDE the present model that removes
 the three worst symptoms. It is not the redesign, and adopting it should not be mistaken for having

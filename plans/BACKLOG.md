@@ -134,8 +134,11 @@ both checks lose their subject. Any Kp design must say what replaces them.
 wrap per member and one per device, kills the sweep, and makes project defaults delegable. That is the
 real prize. ⚠ But a judge found the Kp write-up internally circular: its safety argument ("a bad wrap
 is detectable — compare against the Ki you already hold from member_key") depends on `member_key`
-staying populated, while its benefit is removing exactly that redundancy. **Resolve that before
-building: either member_key stays as the recovery path forever, or Kp needs its own integrity check.**
+staying populated, while its benefit is removing exactly that redundancy. **RESOLVED, both halves,
+in the phased path below: `member_key` stays materialised forever (Phase 4 abandoned), and delegated
+approval is delivered by the WORKER performing the wrap — the inversion only the decided
+worker-key-capable model allows. The fatal verdicts all attacked worker-blind variants; the decided
+model is not one.**
 
 ### Backward compatibility — the phased path (Seth: "But we need backward compatibility too...")
 
@@ -152,20 +155,40 @@ it to that project's `Kp`. NOTHING else changes — the worker keeps serving `me
 does now, every client behaves identically, and the table can be dropped with no consequence. This
 phase is worth landing on its own precisely because it is inert.
 
-**Phase 2 — the worker takes over grant maintenance.** When a device is created or a coworker added,
-the WORKER writes the `member_key` rows (it can: it holds `Kp`, so it can derive `Ki` and wrap to each
-member's pubkey). Old panels see exactly what they expect — rows in `member_key` — and keep working
-untouched. New panels stop wrapping client-side.
-⚠ This phase ALONE fixes the reported symptoms: no client-side N-wrap, so no partial failure and no
-"1 of 2 devices" banner; and any researcher can approve a device, because approval no longer needs a
-key only the owner holds. **Delegation is solved here, before any client is required to change.**
+**Phase 2 — the worker takes over grant maintenance AND key delivery.** When a device is created or a
+coworker added, the WORKER writes the `member_key` rows (it can: it holds `Kp`, so it can derive `Ki`
+and wrap to each member's pubkey). Old panels see exactly what they expect — rows in `member_key` —
+and keep working untouched. New panels stop wrapping client-side.
+
+⚠ **DELEGATED APPROVAL WORKS HERE, BUT NOT FOR THE REASON FIRST WRITTEN.** The original text said
+approval delegates "because approval no longer needs a key only the owner holds" — key distribution.
+The 5-design review refuted that: possession was never the blocker (members with grants already hold
+`Ki`); the blocker is that the /key route accepts OPAQUE ciphertext and the device ADOPTS it, so a
+member could deliver a `Ki` they chose and lock the owner out. What actually opens the gate is that
+under THIS model the delivery flow inverts: **a member never submits a wrapped key at all — they ask,
+and the WORKER performs the wrap itself**, deriving `Ki` via `Kp` and wrapping to the install's
+pubkey. The worker cannot be lied to about a ciphertext it minted. Sabotage is impossible on the new
+path by construction; the old owner-only submit-a-blob path stays owner-only, unchanged.
+⚠ This inversion is only available BECAUSE the decided model makes the worker key-capable — every
+worker-blind variant of delegated approval was judged fatal (commitment races, version-clobber). The
+device end is untouched: it receives a wrapped_ki to its pubkey exactly as today, just minted
+server-side.
+
+This phase fixes everything reported: no client-side N-wrap, so no partial failure and no "1 of 2
+devices" banner; any researcher with the capability can approve AND key a device; the sweep becomes
+redundant. **Before any client is required to change.**
 
 **Phase 3 — retire the client-side sweep.** `memberGrantSweep` becomes a no-op once the worker
 maintains grants. Leave the code in place for a release; deleting it is cleanup, not migration.
 
-**Phase 4 — much later, optional.** Serve `Ki` directly from `Kp` and stop materialising `member_key`
-rows at all. ⚠ ONLY when no panel that reads `member_key` remains in use, which for a PWA means the
-service worker has updated everywhere — a thing to verify, not assume.
+**Phase 4 — ABANDONED, deliberately (2026-08-28).** The idea was to serve `Ki` directly from `Kp` and
+stop materialising `member_key` rows. The 5-design review found this half is what made the Kp write-up
+CIRCULAR: the safety argument ("a bad wrap is detectable — compare against the Ki you already hold
+from member_key") depends on `member_key` staying populated, and this phase removes exactly that.
+Resolution: **`member_key` stays materialised forever.** It is the recovery path, the integrity
+cross-check, and what keeps every old panel working with no sunset to verify. The cost is one small
+table of wrapped blobs the worker now maintains automatically — nothing, next to what dropping it
+risks. Do not resurrect this phase without re-reading the fatal verdict.
 
 ⚠ **ROLLBACK:** through Phases 1-2 the old path is still fully populated, so reverting the worker is
 enough — no data has been removed. Phase 4 is the first irreversible step, which is exactly why it is

@@ -1,34 +1,41 @@
-/* Service worker for the "Flextext Researcher" PWA. Precaches its own thin shell PLUS
- * the shared engine it loads from the Flextext Editor repo (same origin), so the
- * researcher console works fully offline.
+/* Service worker for the "Flextext Researcher" PWA — DELIBERATELY NOT OFFLINE-CACHED (2026-08-31).
  *
- * VERSION COUPLING — IMPORTANT: this SW caches byte copies of the editor engine
- * (/flextext-editor/js/*.js, css/app.css). Those files have their own lifecycle
- * in the editor repo. Bump VERSION here whenever you deploy — AND specifically
- * whenever the editor engine changes in a way this app should pick up — or
- * installed copies keep serving a stale cached engine offline. Keep the SHELL
- * engine list IDENTICAL to the editor's sw.js (app.js resolves its whole static
- * import graph at load, even though the panel uses only part of it).
+ * Seth: "Our researcher panel really kind of doesn't need to be aggressively cached offline the
+ * way the fieldworker apps do. In fact, that's almost counter productive. Pretty much everything
+ * you can do with the researcher panel depends on an internet connection."
  *
- * ⚠ ENGINE below is the editor ENGINE_VERSION this satellite was built against, and
- * test/version-sync.test.mjs FAILS unless it matches the editor exactly. That is the guard
- * for the failure bumping VERSION alone cannot prevent: if this file is not edited at all,
- * the publish workflow finds the mirror unchanged, reports "no change — nothing to
- * publish", exits 0, and installed copies go on serving a STALE engine. The ordering gate
- * cannot see that — it only checks that the editor is live and its paths are 200, which
- * they are. Editing ENGINE is also what makes these bytes change, which is what makes the
- * browser fetch and install this worker at all. */
+ * He is right, and this file used to be the cost with no purchaser: auth is Google OIDC, every
+ * read is a worker poll, every act is a worker call, and the panel deliberately persists no
+ * decrypted state — so offline, a precached shell rendered a sign-in it could not complete.
+ * Meanwhile the precache made this satellite one of the deploy-order outage surfaces (the
+ * editor-engine SHELL), re-downloaded the entire engine on every version bump, and kept stale
+ * panels running against a newer worker — the exact opposite of what an online console wants.
+ * The freshest possible panel is the safest possible panel.
+ *
+ * WHAT THIS WORKER NOW DOES:
+ *   · intercepts NAVIGATIONS ONLY — network first, and if the network is unreachable it serves
+ *     the branded offline page INLINED below (versioned with this file; no cache store at all);
+ *   · does not touch any other request — scripts, styles and API calls go to the network natively,
+ *     with the estate's normal HTTP caching (do not "help" by adding no-store headers);
+ *   · on activate, DELETES every flextext-researcher-* cache and claims clients, so panels
+ *     installed under the old precaching worker actually let go of it (the service-worker-ghost
+ *     lesson: without the takeover, this change would only ever reach new installs).
+ *
+ * ⚠ The FIELDWORKER apps (editor, recorder, crowd, PAT) keep their offline-first workers — offline
+ * is their reason to exist. This file is the researcher console only.
+ *
+ * ⚠ VERSION/ENGINE below are kept as inert constants ON PURPOSE: bump-version.sh syncs them and
+ * test/version-sync.test.mjs asserts the five sites agree, and a bump is still what makes this
+ * file byte-different so installed copies fetch the new worker. Nothing here caches by them. */
 
-const VERSION = 'v513';
-const ENGINE = 'v513';   // editor ENGINE_VERSION this was built against — must match; see version-sync test
-const CACHE = 'flextext-researcher-' + VERSION;
+const VERSION = 'v514';
+const ENGINE = 'v514';   // editor ENGINE_VERSION this was built against — must match; see version-sync test
 
 /* ⚠ LEGACY-ORIGIN KILL SWITCH (2026-08-17) — GitHub Pages only.
  *
  * THIS FILE SHIPS TO BOTH ESTATES: apps/researcher/build.sh copies this folder into the Cloudflare
- * deployment, so an unconditional kill switch here would strip https://research.flextext.app/ of
- * its offline support. The hostname test is what lets one file serve both, like index.html's
- * redirect and the STAGING ribbon.
+ * deployment, so an unconditional kill switch here would break https://research.flextext.app/.
+ * The hostname test is what lets one file serve both, like index.html's redirect.
  *
  * On rulingants.github.io this worker stops being an app worker: it unregisters itself, drops its
  * own caches, and navigates any open window to the Cloudflare researcher — so an installed legacy
@@ -44,102 +51,70 @@ const CACHE = 'flextext-researcher-' + VERSION;
  */
 const LEGACY_ORIGIN = self.location.hostname === 'rulingants.github.io';
 const MOVED_TO = 'https://research.flextext.app/';
-const SHELL = [
-  './',
-  'index.html',
-  'researcher.webmanifest',
-  'icons/researcher.svg',
-  'icons/researcher-192.png',
-  'icons/researcher-512.png',
-  'icons/researcher-apple-touch.png',
-  // Shared engine + styles, served from the editor repo (same origin).
-  '/flextext-editor/css/app.css',
-  '/flextext-editor/js/app.js',
-  '/flextext-editor/js/flextext.js',
-  '/flextext-editor/js/db.js',
-  '/flextext-editor/js/i18n.js',
-  '/flextext-editor/js/audio.js',
-  '/flextext-editor/js/convert.js',
-  '/flextext-editor/js/zip.js',
-  '/flextext-editor/js/upload.js',
-  // native-audio.js is a TOP-LEVEL import of app.js (the Android native bridge; inert in a
-  // browser). It MUST be precached or this app is dead offline — a missing static import
-  // stops the whole module graph from loading.
-  '/flextext-editor/js/native-audio.js',
-  '/flextext-editor/js/record-pcm.js',
-  '/flextext-editor/js/segments.js',
-  '/flextext-editor/js/segment-strips.js',
-  '/flextext-editor/js/seg-exports.js',
-  '/flextext-editor/js/eaf-read.js',
-  '/flextext-editor/js/sfm.js',
-  '/flextext-editor/js/csv.js',
-  '/flextext-editor/js/paragraph-export.js',
-  '/flextext-editor/js/paragraph-model.js',
-  '/flextext-editor/js/paragraph-ui.js',
-  '/flextext-editor/js/history.js',
-  '/flextext-editor/js/artifacts.js',
-  '/flextext-editor/js/audio-capture-worklet.js',
-  '/flextext-editor/js/flac.js',
-  // app.js STATICALLY imports the connectivity engine (top-level imports), so the
-  // browser resolves these at module-load — precache them or an updated app that
-  // goes offline mid-load throws on the missing imports.
-  '/flextext-editor/js/crypto.js',
-  '/flextext-editor/js/sync.js',
-  '/flextext-editor/js/researcher.js',
-  '/flextext-editor/js/researcher-panel.js',
-  '/flextext-editor/js/vendor/wavesurfer.esm.js',
-  '/flextext-editor/js/vendor/lame.min.js',
-  '/flextext-editor/js/vendor/libflac.min.wasm.js',
-  '/flextext-editor/js/vendor/libflac.min.wasm.wasm',
-  '/flextext-editor/help/ws-flex-codes.png',   // FLEx writing-systems help screenshot (panel Utilities) — offline
-];
 
-// Per-file fetch with retries (resilient on flaky networks), then cache.put — STILL atomic: any file
-// ultimately failing throws, so install never completes and the old version keeps serving. Retried on
-// the next update check. (Matches the editor SW.)
-/* v322 CONSISTENCY GUARD — see the editor's sw.js for the full story. sw.js is no-store while
- * engine files ride the CDN edge, so a fresh worker could atomically install a STALE mixed-version
- * shell. ?swv= keys every fetch past the edge to the (atomic) origin; the SENTINEL check on the
- * editor's i18n.js aborts install on any skew, so the OLD version keeps serving and the update
- * retries later. */
-const SENTINEL = 'js/i18n.js';
-const SENTINEL_RE = new RegExp("ENGINE_VERSION = '" + ENGINE + "'");
-async function precacheAll(cache, urls) {
-  for (const url of urls) {
-    let cached = false, lastErr;
-    for (let attempt = 0; attempt < 3 && !cached; attempt++) {
-      try {
-        const bust = url + (url.includes('?') ? '&' : '?') + 'swv=' + VERSION + '-' + ENGINE;
-        const resp = await fetch(bust, { cache: 'reload' });
-        if (!resp.ok) throw new Error('HTTP ' + resp.status + ' ' + url);
-        if (url.endsWith(SENTINEL)) {
-          const body = await resp.clone().text();
-          if (!SENTINEL_RE.test(body)) throw new Error('version skew: ' + url + ' is not ' + ENGINE);
-        }
-        await cache.put(url, resp);
-        cached = true;
-      } catch (err) { lastErr = err; if (attempt < 2) await new Promise(r => setTimeout(r, 500 * (attempt + 1))); }
-    }
-    if (!cached) throw lastErr || new Error('precache failed: ' + url);
-  }
-}
-self.addEventListener('install', (e) => {
-  // Legacy origin: nothing to precache — this worker exists only to hand over and retire.
-  if (LEGACY_ORIGIN) { self.skipWaiting(); return; }
-  e.waitUntil(caches.open(CACHE).then(c => precacheAll(c, SHELL)));
+/* The offline page, INLINED so it ships inside the worker the browser already stores: no cache
+ * store, no install-time fetch, versioned with this file, cannot go stale independently.
+ * Bilingual like the staging ribbon; single-theme on purpose (it commits to the panel's own look),
+ * so background and every color are painted explicitly. */
+const OFFLINE_HTML = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flextext Researcher — offline</title>
+<style>
+  body { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
+         background: #f4f7f6; color: #23312e;
+         font-family: system-ui, "Segoe UI", Roboto, sans-serif; }
+  header { background: #0f766e; color: #fff; padding: .9rem 1.2rem;
+           font-size: 1.05rem; font-weight: 600; letter-spacing: .01em; }
+  main { flex: 1; display: flex; align-items: center; justify-content: center; padding: 1.5rem; }
+  .card { max-width: 26rem; background: #fff; border: 1px solid #d8e2df; border-radius: 8px;
+          padding: 1.6rem 1.8rem; text-align: center; }
+  .mark { font-size: 2.2rem; line-height: 1; margin-bottom: .6rem; }
+  h1 { font-size: 1.15rem; margin: 0 0 .5rem; }
+  p { margin: .35rem 0; line-height: 1.45; }
+  .id { color: #5c6f6a; font-size: .95rem; }
+  button { margin-top: 1.1rem; background: #0f766e; color: #fff; border: 0; border-radius: 6px;
+           padding: .6rem 1.6rem; font-size: 1rem; font-weight: 600; cursor: pointer; }
+  button:hover { background: #0d685f; }
+  button:focus-visible { outline: 3px solid #7cc4bc; outline-offset: 2px; }
+</style>
+</head>
+<body>
+<header>Flextext Researcher</header>
+<main>
+  <div class="card">
+    <div class="mark" aria-hidden="true">&#9729;</div>
+    <h1>You&rsquo;re offline</h1>
+    <p>The researcher panel needs an internet connection. Please check your connection and try again.</p>
+    <p class="id" lang="id">Panel peneliti memerlukan koneksi internet. Silakan periksa koneksi Anda dan coba lagi.</p>
+    <button onclick="location.reload()">Try again &middot; Coba lagi</button>
+  </div>
+</main>
+</body>
+</html>`;
+
+self.addEventListener('install', () => {
+  // Nothing to precache on either estate. skipWaiting is the takeover: panels installed under the
+  // old precaching worker must move to this one on their next update check, not their next-next.
+  self.skipWaiting();
 });
 
-function cleanupOldCaches() {
-  // Scope to THIS app's OWN caches only ('flextext-researcher-*'). Three PWAs share one origin/CacheStorage,
-  // so an unscoped `k !== CACHE` would delete the editor's + recorder's complete caches and brick them offline.
+function dropOwnCaches() {
+  // Scope to THIS app's OWN caches only ('flextext-researcher-*'). Three PWAs share one
+  // origin/CacheStorage on the Pages estate, so an unscoped delete would wipe the editor's and
+  // recorder's complete caches and brick a field device offline. ALL own versions go — this worker
+  // keeps no cache of its own.
   return caches.keys().then(keys => Promise.all(
-    keys.filter(k => k !== CACHE && k.startsWith('flextext-researcher-')).map(k => caches.delete(k))));
+    keys.filter(k => k.startsWith('flextext-researcher-')).map(k => caches.delete(k))));
 }
 
 self.addEventListener('message', (e) => {
+  // Kept for compatibility with the engine's update flow, which may message a waiting worker.
   if (!e.data) return;
   if (e.data.type === 'SKIP_WAITING') self.skipWaiting();
-  if (e.data.type === 'CLEANUP') e.waitUntil(cleanupOldCaches());
+  if (e.data.type === 'CLEANUP') e.waitUntil(dropOwnCaches());
 });
 
 self.addEventListener('activate', (e) => {
@@ -165,34 +140,14 @@ self.addEventListener('activate', (e) => {
     })());
     return;
   }
-  e.waitUntil(cleanupOldCaches().then(() => self.clients.claim()));
+  e.waitUntil(dropOwnCaches().then(() => self.clients.claim()));
 });
 
 self.addEventListener('fetch', (e) => {
-  if (LEGACY_ORIGIN) return;   // retiring: everything goes to the network, nothing is served cached
-  const url = new URL(e.request.url);
-  if (e.request.method !== 'GET' || url.origin !== location.origin) return;
-  // Match ONLY this app's OWN cache (NOT the global caches.match). Three PWAs share one origin and ALL
-  // precache the editor engine by path, so a global match can serve a SIBLING app's STALE copy of the
-  // shared engine — that's the "Utilities link vanished in Firefox until a hard reload" bug (this app was
-  // handed an old editor/recorder cached researcher-panel.js). Own-cache match keeps the researcher app on
-  // its own precached, version-consistent engine.
-  e.respondWith(
-    caches.open(CACHE).then(c => c.match(e.request, { ignoreSearch: e.request.mode === 'navigate' }).then(hit => {
-      if (hit) return hit;
-      /* Help pages are real pages, not app routes — see docs/sw.js for the full note. The shell
-       * fallback below never touches the network, so without this test every navigation to
-       * help/*.html returned the APP SHELL with a 200. */
-      if (e.request.mode === 'navigate' && !/\/help\//.test(url.pathname)) {
-        return c.match('index.html').then(shell => shell || fetch(e.request));
-      }
-      return fetch(e.request).then(resp => {
-        if (resp.ok) { const copy = resp.clone(); c.put(e.request, copy); }
-        return resp;
-      });
-    }))
-      /* ⚠ NEVER let respondWith REJECT — it makes the browser blame sw.js for what is really an
-       * offline/DNS/abort failure. See docs/sw.js. */
-      .catch(() => new Response('', { status: 504, statusText: 'offline or unreachable' }))
-  );
+  if (LEGACY_ORIGIN) return;               // retiring: everything goes to the network untouched
+  if (e.request.mode !== 'navigate') return;   // scripts/styles/API: browser-native, no SW overhead
+  /* Navigations: network first, always — the panel must be the freshest the site serves. Only when
+   * the network itself is unreachable does the inlined page answer, and it says exactly what to do. */
+  e.respondWith(fetch(e.request).catch(() =>
+    new Response(OFFLINE_HTML, { status: 503, headers: { 'content-type': 'text/html; charset=utf-8' } })));
 });

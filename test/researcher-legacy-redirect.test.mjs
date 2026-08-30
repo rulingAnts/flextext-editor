@@ -147,20 +147,42 @@ if (legacySw.handlers.activate) {
      `open windows are navigated on THIS launch, search and hash intact (got ${moved})`);
 }
 
-/* The Cloudflare side must be untouched: still a precaching app worker. */
+/* The Cloudflare side is a NON-CACHING app worker since 2026-08-31 (Seth: the panel is an online
+ * console; a precached shell renders a sign-in it cannot complete). What must hold there now:
+ *   · it does NOT retire (no unregister — that is the kill-switch path, Pages only);
+ *   · install DOES skipWaiting — the takeover that moves panels off the old precaching worker;
+ *   · activate drops EVERY flextext-researcher-* cache (this worker keeps none of its own)
+ *     while the sibling apps' caches survive, because one file serves both estates and the
+ *     scoped filter is what keeps the Pages side safe. */
 const cloudSw = loadSw(TARGET_HOST);
-ok(cloudSw.self._skipWaiting !== true,
-   `on ${TARGET_HOST} install does NOT take the kill-switch path`);
+if (typeof cloudSw.handlers.install === 'function') {
+  await cloudSw.handlers.install({ waitUntil: () => {} });
+}
+ok(cloudSw.self._skipWaiting === true,
+   `on ${TARGET_HOST} install skipWaits — the takeover from the old precaching worker`);
 if (cloudSw.handlers.activate) {
   let waited;
   await cloudSw.handlers.activate({ waitUntil: (p) => { waited = p; } });
   await waited;
   ok(cloudSw.self._unregistered !== true,
-     `on ${TARGET_HOST} the worker does NOT unregister — that site keeps its offline support`);
-  const cur = (swSrc.match(/const VERSION = '([^']+)'/) || [])[1];
-  ok(cloudSw.store.has('flextext-researcher-' + cur),
-     `on ${TARGET_HOST} the CURRENT cache (${cur}) is kept — only older own-versions are pruned`);
+     `on ${TARGET_HOST} the worker does NOT unregister — it stays the app's (non-caching) worker`);
+  ok(cloudSw.self._claimed === true,
+     `on ${TARGET_HOST} it claims open clients, so the takeover reaches already-open panels`);
+  const cloudSurvivors = [...cloudSw.store].sort();
+  ok(!cloudSurvivors.some((k) => k.startsWith('flextext-researcher-')),
+     `on ${TARGET_HOST} every flextext-researcher-* cache is dropped — the panel keeps NO offline cache`);
+  ok(cloudSurvivors.includes('flextext-v384') && cloudSurvivors.includes('text-recorder-v311'),
+     `on ${TARGET_HOST} the scoped filter still spares sibling caches (one file serves both estates)`);
 }
+
+/* The offline page is INLINED in the worker — the one thing the panel serves without a network —
+ * and the fetch handler intercepts navigations only, which is the whole performance point. */
+ok(/OFFLINE_HTML/.test(swSrc) && /internet connection/i.test(swSrc) && /koneksi internet/i.test(swSrc),
+   'the branded offline page is inlined, bilingual, inside the worker itself');
+ok(/mode !== 'navigate'\) return/.test(swSrc),
+   'the fetch handler intercepts NAVIGATIONS ONLY — scripts/styles/API calls stay browser-native');
+ok(!/addAll|precacheAll|cache\.put/.test(swSrc.replace(/\/\*[\s\S]*?\*\//g, '')),
+   'nothing in the worker writes a cache — the aggressive offline treatment is gone for good');
 
 /* Per-ORIGIN storage is shared by all three apps here; the retiring worker must not go near it.
  * Comments are stripped first — the file's own note SAYS "never touches localStorage", and a naive

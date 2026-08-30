@@ -264,6 +264,69 @@ at Phase 4.
    is a formalisation rather than a downgrade. It should be written down plainly where the old
    comments overclaimed.
 
+## The researcher panel should STOP being aggressively offline-cached (Seth, 2026-08-31)
+
+> *"Our researcher panel really kind of doesn't need to be aggressively cached offline the way the
+> fieldworker apps (editor, recorder, etc) do. In fact, that's almost counter productive. Pretty
+> much everything you can do with the researcher panel depends on an internet connection. I'm
+> actually not sure there's anything at all you can do with a researcher panel offline. It already
+> doesn't cache device and project lists, so..."*
+
+He is right, and the cache is not merely useless — it is a cost with no purchaser:
+
+- **Offline the panel can do NOTHING.** Auth is Google OIDC (network), every read is a D1 poll,
+  every act is a worker call, and `lastData` is in-memory only BY DESIGN (E2EE — the panel never
+  persists decrypted device/project state). A precached shell that loads offline renders a sign-in
+  it cannot complete. The fieldworker apps are the opposite case in every respect: offline IS their
+  job, and nothing here touches them.
+- **The precache is one of the v108-outage surfaces.** The researcher satellite SHELL precaches the
+  editor's engine files BY PATH; that whole class of deploy-order hazard exists for it only because
+  it copies the fieldworker caching model.
+- **A STALE panel is a liability where a stale fieldworker app is the design working.** The panel
+  talks to the one live worker; backend-first releases assume clients catch up fast. The freshest
+  possible panel is the SAFEST possible panel — aggressive caching optimises in exactly the wrong
+  direction (seen live 2026-08-31: a panel self-updating v506→v509 mid-sign-in).
+- **The version ceremony shrinks.** Today every engine bump drags the researcher sw.js VERSION +
+  ENGINE along and costs every open panel an "update needed" round-trip that serves no one.
+
+**The shape of the change (a future release, its own branch). ✅ SETH CONFIRMED THE APPROACH
+(2026-08-31): keep the suite's SW architecture; only the researcher SW behaves differently —
+"basically the researcher service worker just tells the browser not to cache and just load the
+site directly all the time. Other service workers unchanged."**
+
+1. The researcher sw.js becomes a small **navigations-only** worker: install = skipWaiting (no
+   precache); activate = DELETE this scope's old caches + clients.claim; fetch listener that
+   returns IMMEDIATELY for anything that is not a navigation (scripts/styles/API calls proceed
+   natively — the per-request cache machinery is what goes away), and for navigations does
+   network-first with ONE fallback: a **branded offline page INLINED IN THE SW as a template
+   string** (Seth, 2026-08-31: "our own custom, branded, app offline, please check connection and
+   try again page… THAT alone could be stashed… if it doesn't reintroduce lag"). Inlining beats
+   Cache Storage: the SW script is already browser-stored, so the page is versioned with the
+   worker, costs no cache store, no install-time fetch, and cannot go stale independently.
+   Bilingual (en/id, like the staging banner), retry button = reload. Same file, same
+   registration, same manifest — installability and, critically, the PWA **identity/scope must
+   not move** (installed panels keep working).
+   ⚠ EXPECTATION, stated so the win is measured honestly: this removes cold-load cache overhead
+   and the every-engine-bump SHELL re-download + update/reload churn (watched live 2026-08-31: a
+   panel self-updated v506→v509 mid-sign-in) — the likely source of the slowness researchers
+   report. It does NOT speed up the D1 polls or Drive estate reads once signed in; if sluggishness
+   persists after this ships, that is a separate investigation, not a failure of this change.
+2. **The takeover is the load-bearing half**: every installed panel today runs the aggressive SW;
+   without skipWaiting + claim + old-cache deletion the change silently reaches only NEW installs
+   (the service-worker-ghost lesson).
+3. **Keep the VERSION/ENGINE constants in the new sw.js as inert lines** — then bump-version.sh,
+   test/version-sync.test.mjs, and the five-site agreement all keep working with ZERO tooling
+   changes, and a bump still makes the SW byte-different (which is exactly what makes old installs
+   fetch the new SW). The one thing to verify: sync-satellites' path-liveness check coping with an
+   empty/absent SHELL list in the researcher mirror.
+4. This removes the APP-MANAGED cache, not HTTP caching — requests fall through to the estate's
+   normal cache headers. Do not add no-store headers to "help"; the HTTP layer is already behaving.
+5. Offline UX: superseded by the branded inline page in (1) — Seth asked for it by name.
+6. The panel keeps its version badge and "update needed" device comparisons — those read
+   ENGINE_VERSION from the live site, not from the cache.
+7. ⚠ Scope: the RESEARCHER PANEL ONLY. Editor, recorder, crowd, PAT keep their offline-first
+   treatment untouched — offline is their reason to exist.
+
 ## The keyless-by-design instance class (Seth, 2026-08-30) — Phase 2 must expect it
 
 The one device the production backfill skipped (`b94f8160…`, in the Fayu project) is, per Seth, a

@@ -265,10 +265,10 @@ console.log('\nthe unassigned gate is computed from DEVICE INVENTORY, and only i
      'the gate never keys on the folder location, only on inventory');
   ok(/\$\{un && !inFlightTx\(tx\)/.test(modal),
      'Remove is rendered ONLY for an unassigned text that is not in flight');
-  ok(/confirm\(t\('panel\.store\.deleteConfirm'/.test(modal), 'and still asks first');
+  ok(/confirmModal\(t\('panel\.store\.deleteConfirm'/.test(modal), 'and still asks first (in-app modal since v513)');
   ok(/Researcher\.trashFiles\(\[b\.dataset\.storedel\]/.test(modal),
      'removal TRASHES (30-day recoverable), it does not delete');
-  ok(/confirm\(t\('panel\.store\.reclaimConfirm'/.test(modal), 'the permanent reclaim asks too');
+  ok(/confirmModal\(t\('panel\.store\.reclaimConfirm'/.test(modal), 'the permanent reclaim asks too (in-app modal since v513)');
   // A missing quota limit must not render as a full bar.
   ok(/q\.limit \? Math\.min\(100, Math\.round\(\(q\.usage \/ q\.limit\) \* 100\)\) : 0/.test(modal),
      'no limit -> 0% bar, never a division by zero or a full bar');

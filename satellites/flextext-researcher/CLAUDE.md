@@ -59,41 +59,33 @@ this console lives at the disjoint sibling path `/flextext-researcher/`. A separ
 repo keeps the editor at `/flextext-editor/` **untouched** — relocating the editor
 would change its PWA `id` and **orphan every installed copy in the field**.
 
-## ⚠ VERSION COUPLING
+## ⚠ THIS APP IS DELIBERATELY NOT OFFLINE-CACHED (Seth, 2026-08-31)
 
-`sw.js` here **precaches the editor's engine files by path** (`/flextext-editor/js/*.js`,
-`css/app.css`). Those files have their own lifecycle in the editor repo.
-**Whenever the editor engine changes in a way this app should pick up, bump
-`VERSION` in `sw.js` here** — otherwise installed copies keep serving a **stale
-cached engine** offline.
+`sw.js` here **caches nothing**. The panel is an online console — auth is Google OIDC, every read
+is a worker poll, every act is a worker call, and the panel persists no decrypted state — so a
+precached shell could only ever render a sign-in it cannot complete, while costing the deploy-order
+outage surface, an entire-engine re-download on every bump, and stale panels running against a
+newer worker. The worker now: intercepts NAVIGATIONS ONLY (network-first, with a branded bilingual
+offline page INLINED in the worker as the only no-network answer), skipWaits + claims + deletes
+every `flextext-researcher-*` cache on activate (the takeover from the old precaching worker), and
+leaves every other request to the browser.
 
-### ⚠ The panel is ONLINE-ONLY — but that does NOT let you trim the SHELL
+- **VERSION/ENGINE stay in `sw.js` as inert constants** so `bump-version.sh` and
+  `test/version-sync.test.mjs` keep working unchanged — and a bump is still what makes the file
+  byte-different so installed copies fetch the new worker. Nothing caches by them.
+- **There is NO SHELL to keep in sync any more.** A new top-level `import` in the editor's
+  `app.js` is a SHELL entry for the editor, recorder and paragraph apps — NOT here.
+- The offline "Utilities toolbox" (audio converter etc.) is consequently unavailable offline in
+  THIS app — by design; the same tools remain offline-capable in the editor.
+- ⚠ The kill-switch rules below still hold exactly (one file serves both estates; scoped cache
+  filter protects the paired editor on Pages). `test/researcher-legacy-redirect.test.mjs` executes
+  both hostnames and now also pins the non-caching behaviour on the Cloudflare side.
 
-Established 2026-08-17. Realistically nothing in the researcher console works without the network:
-`renderDashboard` does `data = await Researcher.listView(); catch { return; }` — a failed fetch
-renders NOTHING and waits for the next poll, there is no cached view, and assignments, commands,
-settings, invites, Drive and crowd management are all worker round-trips. The ONE exception is the
-Utilities modal, whose own intro string says so: *"Offline tools you can use any time — they run in
-your browser; nothing is uploaded"* — the audio format converter, the FLEx writing-systems tool and
-the interlinear-file exporter, plus the local-only assignment TTL and the erase button.
+### Historical note
 
-So this is an **online console with an offline toolbox attached**, not an offline-capable app.
-
-⚠ **The trap that follows, and the reason this note exists:** it is tempting to conclude that the
-SHELL can therefore be trimmed to the handful of modules the toolbox needs. It cannot. `app.js` is
-loaded as a `type="module"`, so the browser resolves EVERY top-level import at load time whether the
-panel calls it or not — a single missing one stops the whole graph and the app is dead offline (the
-v108 outage). The SHELL is sized by app.js's IMPORT GRAPH, not by what the panel uses. Shrinking it
-requires shrinking app.js's imports, which is an engine change, not a satellite one.
-
-### ⚠ Also keep the SHELL precache list in sync with `app.js`'s import graph
-Bumping `VERSION` is **not enough on its own**. The editor's `js/app.js` is loaded
-here as a `type="module"`, so the browser resolves **every static `import` at the
-top of `app.js` at load time** — even though the researcher panel uses only part of
-the graph. So whenever `app.js` gains/loses a top-level `import`, the `SHELL` array
-in `sw.js` must be updated to match, or an updated app that then goes **offline
-mid-load** throws on the missing import and is **dead offline**. Keep the
-`/flextext-editor/...` block here byte-identical to the editor's `sw.js` SHELL.
+Until 2026-08-31 this worker precached the editor's whole engine by path (the fieldworker model),
+with the SHELL sized by app.js's import graph. That model remains correct for the recorder and
+paragraph apps; it was retired here because everything the panel does needs the network anyway.
 
 ## ⚠ DEPLOY ORDER — editor first, always
 

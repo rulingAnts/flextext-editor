@@ -266,6 +266,14 @@ at Phase 4.
 
 ## The researcher panel should STOP being aggressively offline-cached (Seth, 2026-08-31)
 
+**✅ BUILT AND ON STAGING AS v514 (same day).** satellites/flextext-researcher/sw.js is the
+navigations-only worker with the inlined bilingual offline page; the takeover verified LIVE on a
+panel installed under the old worker (new SW activated, zero caches left on the origin, page
+serving fresh). researcher-legacy-redirect pins the non-caching Cloudflare side; the SHELL loops
+in audio-converter/audio-provenance drop the researcher with the reason stated;
+apps/researcher/deploy.sh's SHELL-paths gate is INVERTED (fails if precaching creeps back);
+CLAUDE.md root + satellite re-scoped. The design notes below are the record of why.
+
 > *"Our researcher panel really kind of doesn't need to be aggressively cached offline the way the
 > fieldworker apps (editor, recorder, etc) do. In fact, that's almost counter productive. Pretty
 > much everything you can do with the researcher panel depends on an internet connection. I'm

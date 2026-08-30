@@ -1248,6 +1248,15 @@ function errToast(e) {
  * a row during live testing, it can't be styled or translated consistently, and its buttons say
  * whatever the browser likes. This one rides the existing modal(): Escape/backdrop resolve false
  * (the safe answer), OK resolves true. Await it: `if (!await confirmModal(msg)) return;`. */
+/* Centered spinner + text for anything that is waiting on the network (Seth, 2026-08-31: the wait
+ * left after un-caching the panel is the real one — D1 and Drive — "we can at least make it look
+ * less janky while it waits"). role=status so screen readers announce the wait once, politely. */
+function loadingHtml(key, inModal) {
+  return `<div class="rp-loading${inModal ? ' rp-loading-modal' : ''}" role="status" aria-live="polite">
+    <div class="rp-loading-spin" aria-hidden="true"></div>
+    <div class="note">${esc(t(key))}</div></div>`;
+}
+
 function confirmModal(message) {
   return new Promise((resolve) => {
     const m = modal(`
@@ -1650,7 +1659,7 @@ async function renderDashboard(prefetched) {
   })();
   const keepTop = inPlace && scroller ? scroller.scrollTop : null;
   if (!prefetched && !inPlace) {
-    root.innerHTML = header('panel.title', true) + `<div class="rp-body"><p class="note">${esc(t('panel.dash.loading'))}</p></div>`;
+    root.innerHTML = header('panel.title', true) + `<div class="rp-body">${loadingHtml('panel.dash.loading')}</div>`;
     wireActs({ exit: close, lock: () => { Researcher.signOut(); route(); } });
   }
   let data = prefetched;
@@ -3651,7 +3660,7 @@ function newDeviceModal() {
 }
 
 async function inviteModal(instanceId) {
-  const m = modal(`<h3>${esc(t('panel.invite.title'))}</h3><p class="note">${esc(t('panel.invite.loading'))}</p>`);
+  const m = modal(`<h3>${esc(t('panel.invite.title'))}</h3>${loadingHtml('panel.invite.loading', true)}`);
   try {
     // ONE invite, rendered as BOTH app URLs. The coworker opens whichever app(s) they use; same-origin
     // editor + recorder share one identity, so opening either binds the SAME device — one claim, one
@@ -4459,7 +4468,7 @@ function crowdShareModal(rec) {
 // Last 50 submissions (worker keeps a rolling log; already-uploaded Drive files are the real archive).
 async function crowdSubsModal(rec) {
   const m = modal(`<h3>${esc(t('panel.crowd.subsTitle', { label: rec.label || '' }))}</h3>
-    <p class="note">${esc(t('panel.crowd.subsLoading'))}</p>`, true);
+    ${loadingHtml('panel.crowd.subsLoading', true)}`, true);
   try {
     const r = await Researcher.crowdSubmissions(rec.crowd_id);
     const subs = r.submissions || [];
@@ -6137,7 +6146,7 @@ function storageModal() {
   const m = modal(`<h3>${esc(t('panel.store.title'))}</h3>
     <p class="note">${esc(t('panel.store.intro'))}</p>
     ${inSharedProjects ? `<p class="note">${esc(t('panel.store.ownOnly'))}</p>` : ''}
-    <div id="rp-store-body"><p class="note">${esc(t('panel.store.loading'))}</p></div>
+    <div id="rp-store-body">${loadingHtml('panel.store.loading', true)}</div>
     <div class="modal-actions"><button class="secondary-btn" data-m="close">${esc(t('panel.help.close'))}</button></div>`, true);
   m.el.querySelector('[data-m="close"]').onclick = m.close;
 
@@ -6943,7 +6952,7 @@ function clockMs(ms) {
 async function coworkersModal() {
   const m = modal(`<h3>${esc(t('panel.share.title'))}</h3>
     <p class="note">${esc(t('panel.share.intro'))}</p>
-    <div id="rp-share-body"><p class="note">${esc(t('panel.share.loading'))}</p></div>
+    <div id="rp-share-body">${loadingHtml('panel.share.loading', true)}</div>
     <hr class="rp-sep">
     <button class="link-btn" data-m="close">${esc(t('panel.util.close'))}</button>`, true);
   m.el.querySelector('[data-m="close"]').onclick = m.close;
@@ -7301,7 +7310,7 @@ function accountModal() {
     <button class="link-btn" data-m="signout">${esc(t('panel.account.signout'))}</button>
     <hr class="rp-sep">
     <div class="rp-field"><span>${esc(t('panel.sessions.title'))}</span>
-      <div id="rp-sessions-body"><p class="note">${esc(t('panel.sessions.loading'))}</p></div></div>
+      <div id="rp-sessions-body">${loadingHtml('panel.sessions.loading', true)}</div></div>
     <hr class="rp-sep">
     <div class="rp-field"><span>${esc(t('panel.drive.title'))}</span>
       <div id="rp-drive-body"><p class="note">${esc(t('panel.drive.loading'))}</p></div></div>

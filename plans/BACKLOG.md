@@ -44,6 +44,19 @@ rather than a nicety.
 
 ## DECIDED DIRECTION: instances belong to PROJECTS, and the project holds the key (Seth, 2026-08-28)
 
+**⚠ APPROVED TO BUILD — DEFERRED (Seth, 2026-08-28: "Ok. Build it. …later.").** Not started; nothing
+below is implemented. The first build session should:
+ 1. **Phase 1 only, and it is inert by design** — `project_key` table (Kp encAtRest), backfill wraps,
+    no behaviour change anywhere. The false-stronger E2EE comments ride this commit (Seth: "make sure
+    you DO correct those things when we go"): `worker/src/v1.js:5288` ("it never sees Ki"),
+    `v1.js:3753`, `docs/js/researcher-panel.js:1106` — replace with the true claim, "a D1 dump alone,
+    without the worker secret, yields nothing".
+ 2. Local rig green BEFORE any deploy talk (`bash test/local-rig.sh`, port 8787 free).
+ 3. The worker deploy needs the FULL ritual with Seth present — maintenance flag, rollback version id
+    handed over first, his confirmation after. Do not deploy to an empty chair.
+ 4. Phase 2 (worker-side wrap = delegated approval) is a SEPARATE later deploy, after Phase 1 has
+    soaked.
+
 > *"I think having instances mapped to projects rather than researchers is what we want."*
 > *"Can we store device keys in a project table? And have the worker able to access that, but not the
 > researcher, directly? Then the researcher account never sees the server-side key."*

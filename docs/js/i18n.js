@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v509';
+export const ENGINE_VERSION = 'v510';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1428,6 +1428,7 @@ internet after the first time.</p>
   'panel.proj.defaults': 'Default settings',
   'panel.set.projTitle': 'Default settings — {name}',
   'panel.set.projIntro': 'A settings template for this project, saved with your account. ⚠ Still being finished: new devices do not pick these up automatically yet, and nothing applies them to existing devices — for now this only stores your choices.',
+  'panel.set.projSaved': 'Template saved. Nothing applies it to devices yet — that part is still being built.',
   'panel.set.projSave': 'Save template',
   'panel.rel.btn': 'Release notes',
   'panel.rel.title': 'Release notes',
@@ -3296,6 +3297,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.proj.defaults': 'Pengaturan bawaan',
   'panel.set.projTitle': 'Pengaturan bawaan — {name}',
   'panel.set.projIntro': 'Templat pengaturan untuk proyek ini, disimpan bersama akun Anda. ⚠ Masih diselesaikan: perangkat baru belum mengambilnya secara otomatis, dan belum ada yang menerapkannya ke perangkat yang sudah ada — untuk saat ini hanya menyimpan pilihan Anda.',
+  'panel.set.projSaved': 'Templat disimpan. Belum ada yang menerapkannya ke perangkat — bagian itu masih dibuat.',
   'panel.set.projSave': 'Simpan templat',
   'panel.rel.btn': 'Catatan rilis',
   'panel.rel.title': 'Catatan rilis',

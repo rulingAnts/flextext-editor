@@ -166,6 +166,7 @@ export class DriveUpload {
       fileId: this.uploadedFileId,
       folderId: this.uploadedFolderId,   // per-text Drive folder (remembered for dedupe)
       docModified: this.rec.docModified,
+      docSig: this.rec.docSig,     // content signature of the queued bundle (proof-of-backup)
       docDone: this.rec.docDone,   // was the doc marked FINISHED at queue time (gates auto-delete)
     });
   }

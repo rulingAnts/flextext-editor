@@ -2962,6 +2962,10 @@ async function finalizeAudioDownload(rec) {
   ensureMediaRef(rec, media?.name, media?.sourceUrl);
   rec.modified = Date.now();
   await db.putDoc(rec);
+  // The texts list paints "still arriving…" from pendingAudio; the arrival ticker only
+  // repaints PROGRESS on existing rows. When the download completes, the row must be
+  // rebuilt or the chip stays "arriving" until the next full render (i.e. a reload).
+  if (RECORD_MODE) renderRecordList(); else renderDocList();
   if (current && current.id === rec.id) {
     current = rec;
     if (player) player.loadedFor = null;
@@ -4033,7 +4037,10 @@ async function syncGatherInventory() {
       modified: d.modified,
       done: !!d.done,
       pendingDelete: upDel.has(d.id),   // panel shows it struck-through/faded until it's gone
-      uploadState: backed ? (d.uploadedModified === d.modified ? 'uploaded' : 'changed') : 'local',
+      // 'uploaded' when the exact state is on Drive — by timestamp, or by content signature
+      // (heals docs whose modified drifted past the upload with no content change, e.g. a
+      // persist() tick landing mid-upload; the strict delete-safety checks stay timestamp-only).
+      uploadState: backed ? ((d.uploadedModified === d.modified || (d.uploadedSig && d.uploadedSig === uploadContentSig(d))) ? 'uploaded' : 'changed') : 'local',
       uploadedFileId: d.uploadedFileId || null,
       // Which mic this take came from + whether it is archive grade (native captures only; null
       // everywhere else). E2EE like the rest of the inventory. Lets a researcher audit provenance
@@ -4595,6 +4602,9 @@ async function uploadDocById(docId) {
     // the docId, so old queued records (no docId field) keep uploading unchanged after an update.
     docId,
     docModified: rec.modified,
+    // Signature of the content actually going to Drive, so completion can stamp
+    // uploadedSig from the QUEUED content (not whatever the doc holds by then).
+    docSig: uploadContentSig(rec),
     docDone: !!rec.done,   // auto-delete fires only for FINISHED texts
     // Text identity for the per-text Drive folder ("FlexText Uploads / <device> / <title>").
     // The WORKER resolves the folder from docId (rename-proof appProperties tag); the title is
@@ -4937,9 +4947,17 @@ function uploadState(docId) {
           const stamp = (d) => {
             if (st.fileId) d.uploadedFileId = st.fileId;
             if (st.folderId) d.driveFolderId = st.folderId;   // next upload echoes it (folder dedupe)
-            d.uploadedModified = (st.docModified != null) ? st.docModified : d.modified;
+            // What's on Drive is the QUEUED content — stamp its sig, not the doc's current one
+            // (an edit mid-upload must read as "changed", not get certified by its own upload).
+            d.uploadedSig = st.docSig || uploadContentSig(d);
+            // The queue-time modified snapshot goes stale when persist()'s unconditional
+            // Date.now() bump lands between queue and completion with NO content change —
+            // the doc then reads "edited since backup" forever. When the sig proves the
+            // content on Drive IS this content, stamp the live modified instead.
+            const sameContent = st.docSig && uploadContentSig(d) === st.docSig;
+            d.uploadedModified = sameContent ? d.modified
+              : ((st.docModified != null) ? st.docModified : d.modified);
             d.uploadedAt = Date.now();
-            d.uploadedSig = uploadContentSig(d);   // remember WHAT was uploaded → skip duplicate re-uploads
           };
           if (current && current.id === docId) stamp(current);
           /* "Done and send" → back to the list, now that the bytes are actually on Drive. Guarded on

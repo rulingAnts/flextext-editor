@@ -1243,6 +1243,23 @@ function errToast(e) {
 
 /* a body-level overlay modal: closes on backdrop click or Escape, moves focus in,
  * traps Tab, and restores focus on close. Returns { el, close }. */
+/* In-app replacement for window.confirm() (Seth, 2026-08-31: "Can we use modals instead of
+ * native-state dialogs?"). A native confirm() BLOCKS the renderer — it froze three revoke clicks in
+ * a row during live testing, it can't be styled or translated consistently, and its buttons say
+ * whatever the browser likes. This one rides the existing modal(): Escape/backdrop resolve false
+ * (the safe answer), OK resolves true. Await it: `if (!await confirmModal(msg)) return;`. */
+function confirmModal(message) {
+  return new Promise((resolve) => {
+    const m = modal(`
+      <p style="white-space:pre-wrap">${esc(message)}</p>
+      <button class="primary-btn" data-m="ok">${esc(t('panel.confirm.ok'))}</button>
+      <button class="link-btn" data-m="cancel">${esc(t('panel.confirm.cancel'))}</button>`,
+      false, () => resolve(false));
+    m.el.querySelector('[data-m="ok"]').onclick = () => { resolve(true); m.close(); };
+    m.el.querySelector('[data-m="cancel"]').onclick = () => m.close();
+  });
+}
+
 function modal(innerHtml, wide, onClose) {
   const wrap = document.createElement('div');
   wrap.className = 'modal';
@@ -1896,8 +1913,8 @@ async function renderDashboard(prefetched) {
       return;
     }
     if (el.dataset.uact === 'drop') {
-      if (!confirm(t('panel.store.deleteConfirm', { title: el.dataset.title || '?' }))) return;
       busy(el, async () => {
+        if (!await confirmModal(t('panel.store.deleteConfirm', { title: el.dataset.title || '?' }))) return;
         try {
           await Researcher.trashFiles([el.dataset.folder], 'panel delete');
           deps.toast(t('panel.store.deleted'), 5000);
@@ -1961,7 +1978,7 @@ async function researcherAction(el) {
       deps.toast(t('panel.pending.approved'), 4000);
       renderDashboard();
     } else if (act === 'decline') {
-      if (!confirm(t('panel.pending.confirmDecline'))) return;
+      if (!await confirmModal(t('panel.pending.confirmDecline'))) return;
       await busy(el, () => Researcher.declineResearcher(id));
       renderDashboard();
     }
@@ -2876,7 +2893,7 @@ function wireDownloadMenus(scope) {
   });
   if (!wireDownloadMenus.global) {   // document listeners attach ONCE, not per render
     wireDownloadMenus.global = true;
-    document.addEventListener('click', (e) => {
+    document.addEventListener('click', async (e) => {
       const z = e.target.closest && e.target.closest('[data-zipall]');
       if (z) { e.preventDefault(); e.stopPropagation(); downloadAllZip(z); return; }
       const cl = e.target.closest && e.target.closest('[data-cleanup]');
@@ -2885,7 +2902,7 @@ function wireDownloadMenus(scope) {
         const wrap2 = cl.closest('.rp-dl');
         const ids = (wrap2 && wrap2._cleanupIds) || [];
         if (!ids.length) return;
-        if (!confirm(t('panel.dl.cleanupConfirm', { n: ids.length }))) return;
+        if (!await confirmModal(t('panel.dl.cleanupConfirm', { n: ids.length }))) return;
         Researcher.trashFiles(ids, 'backup cleanup').then((r) => {
           deps.toast(t('panel.dl.cleanupDone', { n: r.trashed }), 6000);
           if (wrap2) { wrap2.dataset.loaded = ''; populateFilesMenu(wrap2); }   // menu refreshes to the post-cleanup truth
@@ -2907,7 +2924,7 @@ function wireDownloadMenus(scope) {
             catch { /* a missing folder is simply not removable */ }
           }
           if (!folderIds.length) { deps.toast(t('panel.hist.noFolder'), 5000); return; }
-          if (!confirm(t('panel.hist.removeFolderConfirm', { title: hc.dataset.title || '?' }))) return;
+          if (!await confirmModal(t('panel.hist.removeFolderConfirm', { title: hc.dataset.title || '?' }))) return;
           try {
             const r = await Researcher.trashFiles(folderIds, 'deleted-text folder removal');
             deps.toast(t('panel.hist.folderRemoved', { n: r.trashed }), 6000);
@@ -3432,17 +3449,17 @@ async function instanceAction(el) {
       deps.toast(t('panel.inst.approved'), 4000);
       renderDashboard();
     } else if (act === 'revoke') {
-      if (!confirm(t('panel.inst.confirmRevoke', { name: el.dataset.name || '' }))) return;
+      if (!await confirmModal(t('panel.inst.confirmRevoke', { name: el.dataset.name || '' }))) return;
       await busy(el, () => Researcher.revokeInstance(id));
       renderDashboard();
     } else if (act === 'revoke-install') {
-      if (!confirm(t('panel.inst.confirmRevokeInstall'))) return;   // UNLINK — warns local data stays on the device
+      if (!await confirmModal(t('panel.inst.confirmRevokeInstall'))) return;   // UNLINK — warns local data stays on the device
       await busy(el, () => Researcher.revokeInstall(id, installId));
       renderDashboard();
     } else if (act === 'wipe-install') {
       wipeConfirmModal(id, installId, el.dataset.name || '');       // REMOTE WIPE — typed confirm (+ TOTP step-up)
     } else if (act === 'force-remove') {
-      if (!confirm(t('panel.wipe.confirmForceRemove'))) return;
+      if (!await confirmModal(t('panel.wipe.confirmForceRemove'))) return;
       await busy(el, () => Researcher.forceRemoveInstall(id, installId));
       renderDashboard();
     } else if (act === 'invite') {
@@ -3481,7 +3498,7 @@ async function instanceAction(el) {
     } else if (act === 'del-text') {
       // Upload-first delete: the confirm spells out the safety order (fresh Drive copy FIRST, delete
       // only after it's confirmed).
-      if (!confirm(t('panel.inst.confirmDelText', { title: el.dataset.title || '?' }))) return;
+      if (!await confirmModal(t('panel.inst.confirmDelText', { title: el.dataset.title || '?' }))) return;
       const r2 = await busy(el, () => Researcher.uploadDelete(id, el.dataset.id));  // data-id is the doc id here
       pendingCmds.set(el.dataset.id, { seq: r2.seq, kind: 'delete', instanceId: id, at: Date.now() });
       savePending(Researcher.currentAccountId());
@@ -3501,7 +3518,7 @@ async function instanceAction(el) {
        * from both, with no way to tell which copy is newest. Cancelling the ASSIGNMENT is the safe
        * way to call a move off; this one is a deliberate choice and says so. */
       const docId = el.dataset.id;
-      if (!confirm(t('panel.move.keepBothWarn', { title: el.dataset.title || '?' }))) return;
+      if (!await confirmModal(t('panel.move.keepBothWarn', { title: el.dataset.title || '?' }))) return;
       await busy(el, () => saveMoves((cur) => { delete cur[docId]; return cur; }));
       deps.toast(t('panel.inst.cancelled'), 4000);
       renderDashboard(lastData || undefined);
@@ -4097,7 +4114,7 @@ async function paintAssignQueue() {
     runAssignUpload(id);
   }));
   host.querySelectorAll('[data-aqcancel]').forEach((b) => b.addEventListener('click', async () => {
-    if (!confirm(t('panel.aq.cancelConfirm'))) return;
+    if (!await confirmModal(t('panel.aq.cancelConfirm'))) return;
     await db.deleteMedia(AQ_PREFIX + b.dataset.aqcancel).catch(() => {});
     paintAssignQueue();
   }));
@@ -4806,15 +4823,15 @@ function groupedDestinations(insts, homeProject, opt, canPick, withUnassigned) {
 /* The second gate on a cross-project move. Returns true to proceed. */
 /* Filing into ANOTHER project's Unassigned is a cross-project act with no device involved, so it
  * gets its own confirmation naming both boxes — the device version's wording would be wrong here. */
-function confirmCrossProjectFile(toProject, homeProject) {
+async function confirmCrossProjectFile(toProject, homeProject) {
   if (!homeProject || !toProject || toProject === homeProject) return true;
-  return confirm(t('panel.move.crossFileConfirm', { from: projectName(homeProject) || '?', to: projectName(toProject) || '?' }));
+  return confirmModal(t('panel.move.crossFileConfirm', { from: projectName(homeProject) || '?', to: projectName(toProject) || '?' }));
 }
 
-function confirmCrossProject(toInstanceId, homeProject) {
+async function confirmCrossProject(toInstanceId, homeProject) {
   const to = projectOfInstance(toInstanceId);
   if (!homeProject || !to || to === homeProject) return true;
-  return confirm(t('panel.move.crossConfirm', { from: projectName(homeProject) || '?', to: projectName(to) || '?' }));
+  return confirmModal(t('panel.move.crossConfirm', { from: projectName(homeProject) || '?', to: projectName(to) || '?' }));
 }
 
 /* MOVE, from a device (Seth, 2026-08-19: "let's let move also work for that").
@@ -4878,9 +4895,9 @@ async function moveTextModal(fromId, docId, title) {
     const to = (m.el.querySelector('input[name="rp-move-to"]:checked') || {}).value;
     if (!to) return;
     // ⚠ The second gate: a cross-project move must be said out loud before it happens.
-    if (!to.startsWith('__unassigned') && !confirmCrossProject(to, homeProject)) return;
+    if (!to.startsWith('__unassigned') && !(await confirmCrossProject(to, homeProject))) return;
     // Filing into ANOTHER project's box is a cross-project act too, and says so by name.
-    if (to.startsWith('__unassigned:') && !confirmCrossProjectFile(to.slice(13), homeProject)) return;
+    if (to.startsWith('__unassigned:') && !(await confirmCrossProjectFile(to.slice(13), homeProject))) return;
     const say = m.el.querySelector('#rp-move-say');
     try {
       e.target.disabled = true;
@@ -5728,8 +5745,8 @@ async function adoptTextModal(docId, title, opts = {}) {
   m.el.querySelector('[data-m="go"]').addEventListener('click', (e) => busy(e.target, async () => {
     const to = (m.el.querySelector('input[name="rp-adopt-to"]:checked') || {}).value;
     if (!to) return;
-    if (!to.startsWith('__unassigned') && !confirmCrossProject(to, homeProject)) return;
-    if (to.startsWith('__unassigned:') && !confirmCrossProjectFile(to.slice(13), homeProject)) return;
+    if (!to.startsWith('__unassigned') && !(await confirmCrossProject(to, homeProject))) return;
+    if (to.startsWith('__unassigned:') && !(await confirmCrossProjectFile(to.slice(13), homeProject))) return;
     try {
       if (to.startsWith('__unassigned')) {
         // A re-parent and nothing else. drive-unassign already takes explicit ids — the sweep is
@@ -6281,7 +6298,7 @@ function storageModal() {
 
     wireDownloadMenus(body);
     body.querySelectorAll('[data-storedel]').forEach((b) => b.addEventListener('click', () => busy(b, async () => {
-      if (!confirm(t('panel.store.deleteConfirm', { title: b.dataset.title || '?' }))) return;
+      if (!await confirmModal(t('panel.store.deleteConfirm', { title: b.dataset.title || '?' }))) return;
       try {
         await Researcher.trashFiles([b.dataset.storedel], 'drive storage manager');
         deps.toast(t('panel.store.deleted'), 5000);
@@ -6290,7 +6307,7 @@ function storageModal() {
     })));
     const purge = body.querySelector('[data-storepurge]');
     if (purge) purge.addEventListener('click', () => busy(purge, async () => {
-      if (!confirm(t('panel.store.reclaimConfirm', { size: gb(trashed.bytes), n: trashed.n }))) return;
+      if (!await confirmModal(t('panel.store.reclaimConfirm', { size: gb(trashed.bytes), n: trashed.n }))) return;
       try {
         /* The worker deletes a BOUNDED batch per request (subrequest cap — see drive-purge), so a
          * large backlog needs several passes. Loop until it reports nothing remaining, with a hard
@@ -6391,11 +6408,11 @@ function historyModal() {
     repaint();
   }));
   m.el.querySelector('[data-m="close"]').onclick = m.close;
-  m.el.querySelector('[data-m="clear"]').onclick = () => {
+  m.el.querySelector('[data-m="clear"]').onclick = async () => {
     // Typed-confirm-free but still explicit: this is the researcher's own local log, not field
     // data, and it is re-derivable for nothing that is still on a device — but the tombstones
     // ARE unrecoverable, so say that in the prompt rather than a generic "are you sure".
-    if (!confirm(t('panel.hist.confirmClear'))) return;
+    if (!await confirmModal(t('panel.hist.confirmClear'))) return;
     clearHistory(Researcher.currentAccountId());
     all.length = 0;
     repaint();
@@ -7136,7 +7153,7 @@ async function coworkersModal() {
        * add-form's warning box covers the invite; this confirm covers the increase. */
       const before = (members.find((m) => m.researcher_id === el.dataset.rid) || {}).caps || {};
       const increased = Object.keys(caps).some((k) => caps[k] && !before[k]);
-      if (increased && !confirm(t('panel.share.increaseConfirm'))) return;
+      if (increased && !await confirmModal(t('panel.share.increaseConfirm'))) return;
       try {
         /* The add route is an upsert (INSERT OR REPLACE), so editing IS re-adding with new caps.
          * Key grants are untouched — capabilities say what a member may DO; the keys they hold
@@ -7147,8 +7164,8 @@ async function coworkersModal() {
       } catch (err) { say(sayErr(err), true); }
     })));
     body.querySelectorAll('[data-sact="remove"]').forEach((el) => el.addEventListener('click', () => {
-      if (!confirm(t('panel.share.removeConfirm', { name: proj.name || proj.project_id }))) return;
       busy(el, async () => {
+        if (!await confirmModal(t('panel.share.removeConfirm', { name: proj.name || proj.project_id }))) return;
         try { await Researcher.removeMember(selected, el.dataset.rid); deps.toast(t('panel.share.removed'), 5000); await paint(); }
         catch (e) { say(sayErr(e), true); }
       });
@@ -7299,8 +7316,8 @@ function accountModal() {
     catch { /* clipboard refused (permissions, insecure context) — the id is on screen to select by hand */ }
   };
   m.el.querySelector('[data-m="stay"]').onchange = (e) => Researcher.setStaySignedIn(e.target.checked);
-  m.el.querySelector('[data-m="signout"]').onclick = () => {
-    if (!confirm(t('panel.account.confirmSignout'))) return;
+  m.el.querySelector('[data-m="signout"]').onclick = async () => {
+    if (!await confirmModal(t('panel.account.confirmSignout'))) return;
     Researcher.signOut(); m.close(); deps.onSignedUp && deps.onSignedUp(); route();
   };
   m.el.querySelector('[data-m="delacct"]').onclick = () => { m.close(); deleteAccountModal(); };   // permanent server-side account delete
@@ -7353,8 +7370,8 @@ async function sessionsSection(host) {
   const all = host.querySelector('[data-m="revoke-others"]');
   if (all) {
     all.onclick = (e) => {
-      if (!confirm(t('panel.sessions.confirmOthers'))) return;
       busy(e.target, async () => {
+        if (!await confirmModal(t('panel.sessions.confirmOthers'))) return;
         await Researcher.revokeOtherSessions();
         await sessionsSection(host);
       });

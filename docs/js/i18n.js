@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v512';
+export const ENGINE_VERSION = 'v513';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1496,6 +1496,8 @@ internet after the first time.</p>
   'panel.share.addGo': 'Add coworker',
   'panel.share.added': '“{who}” can now help with this project.',
   'panel.share.addedKeyed': '“{who}” can now help with this project — {n} device(s) unlocked for them.',
+  'panel.confirm.ok': 'OK',
+  'panel.confirm.cancel': 'Cancel',
   'panel.share.addedKeyedKeyless': '“{who}” can now help with this project — {n} device(s) unlocked for them. {m} device(s) here don’t use keys (open to everyone) and need no unlocking.',
   'panel.share.addedNoKeys': '“{who}” was added, but no devices could be unlocked for them yet: they have not opened their researcher panel, so there is no key to send theirs to. Ask them to sign in once, then remove and re-add them here.',
   /* ⚠ SAYS IT RETRIES, because it does. memberGrantSweep diffs each member's granted list against
@@ -3347,6 +3349,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.share.addGo': 'Tambah rekan kerja',
   'panel.share.added': '“{who}” kini dapat membantu proyek ini.',
   'panel.share.addedKeyed': '“{who}” kini dapat membantu proyek ini — {n} perangkat dibuka untuk mereka.',
+  'panel.confirm.ok': 'OK',
+  'panel.confirm.cancel': 'Batal',
   'panel.share.addedKeyedKeyless': '“{who}” kini dapat membantu proyek ini — {n} perangkat dibuka untuk mereka. {m} perangkat di sini tidak memakai kunci (terbuka untuk semua) dan tidak perlu dibuka.',
   'panel.share.addedNoKeys': '“{who}” sudah ditambahkan, tetapi belum ada perangkat yang bisa dibuka untuk mereka: mereka belum pernah membuka panel peneliti, jadi belum ada kunci tujuan. Minta mereka masuk sekali, lalu hapus dan tambahkan lagi di sini.',
   'panel.share.addedSomeKeys': '“{who}” sudah ditambahkan, tetapi hanya {n} dari {m} perangkat yang bisa dibuka untuk mereka. Hapus dan tambahkan lagi untuk mencoba ulang, atau pastikan Drive terjangkau.',

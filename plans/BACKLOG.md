@@ -294,11 +294,23 @@ He is right, and the cache is not merely useless — it is a cost with no purcha
 "basically the researcher service worker just tells the browser not to cache and just load the
 site directly all the time. Other service workers unchanged."**
 
-1. The researcher sw.js becomes a ~20-line **non-intercepting** worker: install = skipWaiting (no
-   precache); activate = DELETE this scope's old caches + clients.claim; **no fetch listener at
-   all** — nothing intercepts, so the browser loads from the network natively (faster and simpler
-   than a pass-through handler). Same file, same registration, same manifest — installability and,
-   critically, the PWA **identity/scope must not move** (installed panels keep working).
+1. The researcher sw.js becomes a small **navigations-only** worker: install = skipWaiting (no
+   precache); activate = DELETE this scope's old caches + clients.claim; fetch listener that
+   returns IMMEDIATELY for anything that is not a navigation (scripts/styles/API calls proceed
+   natively — the per-request cache machinery is what goes away), and for navigations does
+   network-first with ONE fallback: a **branded offline page INLINED IN THE SW as a template
+   string** (Seth, 2026-08-31: "our own custom, branded, app offline, please check connection and
+   try again page… THAT alone could be stashed… if it doesn't reintroduce lag"). Inlining beats
+   Cache Storage: the SW script is already browser-stored, so the page is versioned with the
+   worker, costs no cache store, no install-time fetch, and cannot go stale independently.
+   Bilingual (en/id, like the staging banner), retry button = reload. Same file, same
+   registration, same manifest — installability and, critically, the PWA **identity/scope must
+   not move** (installed panels keep working).
+   ⚠ EXPECTATION, stated so the win is measured honestly: this removes cold-load cache overhead
+   and the every-engine-bump SHELL re-download + update/reload churn (watched live 2026-08-31: a
+   panel self-updated v506→v509 mid-sign-in) — the likely source of the slowness researchers
+   report. It does NOT speed up the D1 polls or Drive estate reads once signed in; if sluggishness
+   persists after this ships, that is a separate investigation, not a failure of this change.
 2. **The takeover is the load-bearing half**: every installed panel today runs the aggressive SW;
    without skipWaiting + claim + old-cache deletion the change silently reaches only NEW installs
    (the service-worker-ghost lesson).
@@ -309,9 +321,7 @@ site directly all the time. Other service workers unchanged."**
    empty/absent SHELL list in the researcher mirror.
 4. This removes the APP-MANAGED cache, not HTTP caching — requests fall through to the estate's
    normal cache headers. Do not add no-store headers to "help"; the HTTP layer is already behaving.
-5. Offline UX: the browser's own offline page is the honest outcome for a desk tool that can do
-   nothing offline anyway; a single cached "the researcher panel needs an internet connection" page
-   is an optional nicety, not a requirement (and is the only thing that would reintroduce a cache).
+5. Offline UX: superseded by the branded inline page in (1) — Seth asked for it by name.
 6. The panel keeps its version badge and "update needed" device comparisons — those read
    ENGINE_VERSION from the live site, not from the cache.
 7. ⚠ Scope: the RESEARCHER PANEL ONLY. Editor, recorder, crowd, PAT keep their offline-first

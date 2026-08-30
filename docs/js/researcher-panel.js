@@ -7840,6 +7840,13 @@ async function openSettingsModal(target, opts = {}) {
         if (newNick && newNick !== (target.instance.nickname || '')) {
           await Researcher.renameInstance(target.instance.instance_id, newNick);
           target.instance.nickname = newNick;
+          /* target.instance came from a FRESH listView(), not from lastData — patch the cached
+           * row too (own + shared projects), or the repaint below paints the OLD name and the
+           * rename only "lands" at the next poll (Seth saw exactly that lag). */
+          const cachedRow = ((lastData && lastData.instances) || [])
+            .concat(((lastData && lastData.memberProjects) || []).flatMap((mp) => mp.instances || []))
+            .find((x) => x.instance_id === target.instance.instance_id);
+          if (cachedRow) cachedRow.nickname = newNick;
         }
         await Researcher.changeSettings(target.instance.instance_id, patch);
         m.close(); deps.toast(t('panel.set.pushed'), 4000);

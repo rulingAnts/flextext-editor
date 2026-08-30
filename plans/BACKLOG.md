@@ -289,25 +289,32 @@ He is right, and the cache is not merely useless — it is a cost with no purcha
 - **The version ceremony shrinks.** Today every engine bump drags the researcher sw.js VERSION +
   ENGINE along and costs every open panel an "update needed" round-trip that serves no one.
 
-**The shape of the change (a future release, its own branch):**
+**The shape of the change (a future release, its own branch). ✅ SETH CONFIRMED THE APPROACH
+(2026-08-31): keep the suite's SW architecture; only the researcher SW behaves differently —
+"basically the researcher service worker just tells the browser not to cache and just load the
+site directly all the time. Other service workers unchanged."**
 
-1. Replace the researcher satellite's SW with a **network-first, no-precache** worker (or
-   network-only + a small honest offline page: "The researcher panel needs an internet
-   connection."). Keep A SW and the manifest untouched — installability and, critically, the PWA
-   **identity/scope must not move** (installed panels keep working; only the caching strategy
-   changes).
-2. **The new SW must actively replace the old one**: skipWaiting + clients.claim + delete the old
-   caches on activate. Every installed panel today runs the aggressive SW; without the takeover +
-   cache cleanup this change silently applies only to new installs (the service-worker-ghost
-   lesson).
-3. **Untangle the tooling deliberately, not incidentally**: bump-version.sh syncs the researcher
-   sw.js VERSION/ENGINE and test/version-sync.test.mjs asserts the five sites agree; both must be
-   re-scoped in the SAME commit that changes the SW, or the release tooling fails loudly on the
-   next bump. sync-satellites.yml's path-liveness check for the researcher mirror likewise stops
-   being about precache paths.
-4. The panel keeps its version badge and "update needed" device comparisons — those read
+1. The researcher sw.js becomes a ~20-line **non-intercepting** worker: install = skipWaiting (no
+   precache); activate = DELETE this scope's old caches + clients.claim; **no fetch listener at
+   all** — nothing intercepts, so the browser loads from the network natively (faster and simpler
+   than a pass-through handler). Same file, same registration, same manifest — installability and,
+   critically, the PWA **identity/scope must not move** (installed panels keep working).
+2. **The takeover is the load-bearing half**: every installed panel today runs the aggressive SW;
+   without skipWaiting + claim + old-cache deletion the change silently reaches only NEW installs
+   (the service-worker-ghost lesson).
+3. **Keep the VERSION/ENGINE constants in the new sw.js as inert lines** — then bump-version.sh,
+   test/version-sync.test.mjs, and the five-site agreement all keep working with ZERO tooling
+   changes, and a bump still makes the SW byte-different (which is exactly what makes old installs
+   fetch the new SW). The one thing to verify: sync-satellites' path-liveness check coping with an
+   empty/absent SHELL list in the researcher mirror.
+4. This removes the APP-MANAGED cache, not HTTP caching — requests fall through to the estate's
+   normal cache headers. Do not add no-store headers to "help"; the HTTP layer is already behaving.
+5. Offline UX: the browser's own offline page is the honest outcome for a desk tool that can do
+   nothing offline anyway; a single cached "the researcher panel needs an internet connection" page
+   is an optional nicety, not a requirement (and is the only thing that would reintroduce a cache).
+6. The panel keeps its version badge and "update needed" device comparisons — those read
    ENGINE_VERSION from the live site, not from the cache.
-5. ⚠ Scope: the RESEARCHER PANEL ONLY. Editor, recorder, crowd, PAT keep their offline-first
+7. ⚠ Scope: the RESEARCHER PANEL ONLY. Editor, recorder, crowd, PAT keep their offline-first
    treatment untouched — offline is their reason to exist.
 
 ## The keyless-by-design instance class (Seth, 2026-08-30) — Phase 2 must expect it

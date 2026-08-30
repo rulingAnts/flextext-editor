@@ -288,5 +288,170 @@ ok(proj2.minted === false, 'and the second run minted no new Kp — one key per 
      '⚠ Phase 1 is inert — no Kp material or column name appears in the researcher poll');
 }
 
+/* ════════════════ PHASE 2 — the server-key lane (delegated approval) ════════════════
+ *
+ * The inversion the BACKLOG specifies: the approving researcher ASKS, and the WORKER mints the
+ * install wrap itself from the instance's true Ki. These arms walk MEMBER-run enrolment end to
+ * end — the outsider becomes a real project member, mints the invite, approves the claim, and
+ * server-keys the install, with the owner never touching it — and then the refusals that keep the
+ * lane honest: capability required, device acceptance required, a missing pubkey refused, and a
+ * key contradicted by the instance's own ciphertext NEVER handed to an install. */
+console.log('\nproject-key server-key — Phase 2 (worker-minted install wrap; member-run enrolment)');
+
+const mhdr = { 'x-fx-researcher': FIXTURE.outsiderId, 'x-fx-secret': FIXTURE.outsiderSecret, 'content-type': 'application/json' };
+async function mcall(method, path, body) {
+  const r = await fetch(BASE + path, { method, headers: mhdr, body: body ? JSON.stringify(body) : undefined });
+  let json = null; try { json = await r.json(); } catch { /* non-JSON */ }
+  return { status: r.status, json };
+}
+
+/* The device end of the lane, real keypair and all — reused by several arms. */
+async function claimInstall(instanceId, viaMember, withPubkey = true) {
+  const inv = viaMember
+    ? await mcall('POST', `/v1/instances/${instanceId}/invite`, {})
+    : await call('POST', `/v1/instances/${instanceId}/invite`, {});
+  const pair = withPubkey ? await crypto.subtle.generateKey(
+    { name: 'RSA-OAEP', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+    true, ['encrypt', 'decrypt']) : null;
+  const installId = crypto.randomUUID();
+  const installSecret = 'pk2-install-' + crypto.randomUUID();
+  const body = { install_id: installId, install_secret: installSecret };
+  if (pair) body.pubkey = b64(new Uint8Array(await crypto.subtle.exportKey('spki', pair.publicKey)));
+  const claim = await fetch(BASE + `/v1/invites/${inv.json.invite_id}/claim`, {
+    method: 'POST',
+    headers: { 'x-fx-invite-secret': inv.json.secret, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const DEVICE = { 'x-fx-install': installId, 'x-fx-secret': installSecret, 'content-type': 'application/json' };
+  return { inviteOk: inv.status === 200, claimOk: claim.status === 200, installId, DEVICE, priv: pair && pair.privateKey };
+}
+
+{
+  /* devG: a device whose Ki lives only in an owner grant (the member-minted shape) with real
+   * command material — then the whole enrolment, member seat only. */
+  const devG = await mk('pk2-member-enrols');
+  const kiG = crypto.getRandomValues(new Uint8Array(32));
+  {
+    const v2 = await call('GET', '/v1/researcher');
+    const pub = await crypto.subtle.importKey('spki', Buffer.from(String(v2.json.pubkey).replace(/-/g, '+').replace(/_/g, '/'), 'base64'),
+      { name: 'RSA-OAEP', hash: 'SHA-256' }, true, ['encrypt']);
+    const wrappedKi = b64(new Uint8Array(await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pub, kiG)));
+    const g = await call('POST', '/v1/researcher/keys', { instance_id: devG, grants: [{ researcher_id: FIXTURE.researcherId, wrapped_ki: wrappedKi }] });
+    ok(g.status === 200, `devG: Ki exists only as the owner grant, the member-minted shape (got ${g.status})`);
+  }
+  const kiGKey = await crypto.subtle.importKey('raw', kiG, { name: 'AES-GCM' }, false, ['encrypt']);
+  await call('POST', `/v1/instances/${devG}/command`, { command: { type: 'changeSettings', enc: await encryptJSONStd(kiGKey, { vernLang: 'fau' }) } });
+
+  const add = await call('POST', `/v1/projects/${FIXTURE.migratedProjectId}/members`,
+    { researcher_id: FIXTURE.outsiderId, caps: { manageDevices: true, createInvites: true } });
+  ok(add.status === 200, `the outsider becomes a real member with device rights (got ${add.status})`);
+
+  const d = await claimInstall(devG, true);
+  ok(d.inviteOk && d.claimOk, `MEMBER minted the invite; a device with a real keypair claimed it`);
+
+  const early = await mcall('POST', `/v1/instances/${devG}/installs/${d.installId}/server-key`, {});
+  ok(early.status === 409 && early.json && early.json.error === 'not_accepted',
+     `⚠ property B holds on the new lane: no key before the field user accepts (got ${early.status}/${early.json && early.json.error})`);
+
+  const app = await mcall('POST', `/v1/instances/${devG}/installs/${d.installId}/approve`, {});
+  ok(app.status === 200, `MEMBER approved the claim (got ${app.status})`);
+  await fetch(BASE + `/v1/instances/${devG}/installs/${d.installId}/accept`, { method: 'POST', headers: d.DEVICE, body: '{}' });
+
+  const sk = await mcall('POST', `/v1/instances/${devG}/installs/${d.installId}/server-key`, {});
+  ok(sk.status === 200 && sk.json && sk.json.ok === true,
+     `⚠⚠ MEMBER server-keyed the install — the worker minted the wrap; the owner never touched this enrolment (got ${sk.status})`);
+  ok(sk.json && sk.json.proven === 'command',
+     `...and the Ki it handed out was PROVEN against the instance's real ciphertext (proven=${sk.json && sk.json.proven})`);
+
+  /* The device's own poll — the wrap must arrive, RSA-unwrap with the install's private key, and
+   * byte-match the true Ki. This is the exact sequence an installed engine runs. */
+  const poll = await fetch(BASE + `/v1/instances/${devG}?since=0`, { headers: d.DEVICE });
+  const pj = await poll.json();
+  ok(poll.status === 200 && pj && pj.wrapped_key, `the device's poll carries the worker-minted wrap (got ${poll.status})`);
+  let kiBack = null;
+  try {
+    const ct = Buffer.from(String(pj.wrapped_key).replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+    kiBack = new Uint8Array(await crypto.subtle.decrypt({ name: 'RSA-OAEP' }, d.priv, ct));
+  } catch { /* kiBack stays null */ }
+  ok(!!kiBack && kiBack.length === kiG.length && kiBack.every((x, i) => x === kiG[i]),
+     `⚠⚠ the device unwrapped the TRUE Ki with its own private key — end-to-end, worker-minted, byte-identical`);
+
+  const again = await mcall('POST', `/v1/instances/${devG}/installs/${d.installId}/server-key`, {});
+  ok(again.status === 200, `server-key is idempotent — re-asking re-mints harmlessly (got ${again.status})`);
+
+  /* The lazy heal: devG had no ki_kp (created after any backfill run touched it) — resolving it
+   * for the install must have written one, and verify must find it opens reality. */
+  const vz = await call('POST', '/v1/researcher/admin/project-key-verify', { project_id: FIXTURE.migratedProjectId });
+  const vpz = ((vz.json && vz.json.projects) || []).find((p) => p.project_id === FIXTURE.migratedProjectId) || { instances: [] };
+  const vgz = vpz.instances.find((i) => i.instance_id === devG) || {};
+  ok(vgz.ok === true, `⚠ ki_kp was lazily written by the server-key lane, and it opens reality (got ${vgz.ok})`);
+
+  /* Capability is load-bearing: drop manageDevices and the lane closes; restore and it reopens. */
+  await call('POST', `/v1/projects/${FIXTURE.migratedProjectId}/members`,
+    { researcher_id: FIXTURE.outsiderId, caps: { createInvites: true } });
+  const noCap = await mcall('POST', `/v1/instances/${devG}/installs/${d.installId}/server-key`, {});
+  ok(noCap.status === 404, `⚠ without manageDevices the lane answers 404 like everything else (got ${noCap.status})`);
+  await call('POST', `/v1/projects/${FIXTURE.migratedProjectId}/members`,
+    { researcher_id: FIXTURE.outsiderId, caps: { manageDevices: true, createInvites: true } });
+}
+
+{
+  /* The keyless-by-design class (the crowd-recorder-shaped instance): approval works, but the
+   * worker REFUSES to invent a key — 'key_unavailable' is the permanent, correct answer, and the
+   * reasons name why without a byte of key material. */
+  const d = await claimInstall(devC, false);
+  await call('POST', `/v1/instances/${devC}/installs/${d.installId}/approve`, {});
+  await fetch(BASE + `/v1/instances/${devC}/installs/${d.installId}/accept`, { method: 'POST', headers: d.DEVICE, body: '{}' });
+  const sk = await call('POST', `/v1/instances/${devC}/installs/${d.installId}/server-key`, {});
+  ok(sk.status === 409 && sk.json && sk.json.error === 'key_unavailable',
+     `⚠ a keyless-by-design instance fails CLOSED — no key is ever invented for it (got ${sk.status}/${sk.json && sk.json.error})`);
+  ok(Array.isArray(sk.json && sk.json.reasons) && sk.json.reasons.length > 0,
+     `...with reasons, never key material (${JSON.stringify((sk.json && sk.json.reasons) || [])})`);
+}
+
+{
+  /* A key contradicted by the instance's own ciphertext is NEVER handed to an install — the
+   * fail-closed rule, exercised on the lane that matters. devH's only derivable candidate is
+   * kiOld, but its real world speaks kiHidden (a command under a key no store holds). */
+  const devH = await mk('pk2-contradicted');
+  const kiOld = crypto.getRandomValues(new Uint8Array(32));
+  {
+    const v = await call('GET', '/v1/researcher');
+    const settings = (v.json && v.json.settings && JSON.parse(v.json.settings)) || {};
+    settings.wrappedKis = settings.wrappedKis || {};
+    settings.wrappedKis[devH] = await encryptJSONStd(krKey, { k: b64(kiOld) });
+    await call('PUT', '/v1/researcher/settings', { settings, settings_rev: v.json.settings_rev });
+  }
+  const kiHidden = crypto.getRandomValues(new Uint8Array(32));
+  const kiHiddenKey = await crypto.subtle.importKey('raw', kiHidden, { name: 'AES-GCM' }, false, ['encrypt']);
+  await call('POST', `/v1/instances/${devH}/command`, { command: { type: 'changeSettings', enc: await encryptJSONStd(kiHiddenKey, { s: 3 }) } });
+  const d = await claimInstall(devH, false);
+  await call('POST', `/v1/instances/${devH}/installs/${d.installId}/approve`, {});
+  await fetch(BASE + `/v1/instances/${devH}/installs/${d.installId}/accept`, { method: 'POST', headers: d.DEVICE, body: '{}' });
+  const sk = await call('POST', `/v1/instances/${devH}/installs/${d.installId}/server-key`, {});
+  ok(sk.status === 409 && sk.json && sk.json.error === 'key_unavailable'
+     && (sk.json.reasons || []).includes('candidates_fail_reality'),
+     `⚠⚠ a candidate the instance's own ciphertext refuses is NEVER handed to an install (got ${sk.status}/${JSON.stringify((sk.json && sk.json.reasons) || [])})`);
+}
+
+{
+  /* An install claimed by an engine from before pubkeys existed: nothing to wrap to — say so. */
+  const devI = await mk('pk2-no-pubkey');
+  const kiI = crypto.getRandomValues(new Uint8Array(32));
+  {
+    const v = await call('GET', '/v1/researcher');
+    const settings = (v.json && v.json.settings && JSON.parse(v.json.settings)) || {};
+    settings.wrappedKis = settings.wrappedKis || {};
+    settings.wrappedKis[devI] = await encryptJSONStd(krKey, { k: b64(kiI) });
+    await call('PUT', '/v1/researcher/settings', { settings, settings_rev: v.json.settings_rev });
+  }
+  const d = await claimInstall(devI, false, false);   // no pubkey at claim
+  await call('POST', `/v1/instances/${devI}/installs/${d.installId}/approve`, {});
+  await fetch(BASE + `/v1/instances/${devI}/installs/${d.installId}/accept`, { method: 'POST', headers: d.DEVICE, body: '{}' });
+  const sk = await call('POST', `/v1/instances/${devI}/installs/${d.installId}/server-key`, {});
+  ok(sk.status === 409 && sk.json && sk.json.error === 'no_pubkey',
+     `an install without a pubkey is refused plainly, not wrapped to nothing (got ${sk.status}/${sk.json && sk.json.error})`);
+}
+
 console.log(fail ? `\n${fail} FAILED` : '\nPASS');
 process.exit(fail ? 1 : 0);

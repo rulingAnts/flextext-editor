@@ -3035,24 +3035,21 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
       const fp = ins.pubkey ? await fpOf(ins.pubkey) : '—';
       // B: no key can be delivered until the field user accepts on their device — so until then
       // show "waiting for the user" instead of Approve (the worker would 409 the key anyway).
-      /* ⚠⚠ APPROVAL IS THE OWNER'S, EVEN THOUGH A MEMBER WITH manageDevices *COULD* CALL IT
-       * (Seth, 2026-08-28: "better not to give the member a way to mint an install that isn't
-       * actually genuine until the owner gets around to it").
+      /* PHASE 2 (2026-08-30): APPROVAL BELONGS TO ANYONE WITH DEVICE RIGHTS — owner or member —
+       * because the worker now completes it: approveInstall asks the server-key lane to mint the
+       * install wrap itself, so approving no longer strands a device waiting for the owner's key.
+       * (The v471 rule this replaces — members see a waiting note, never the button — existed
+       * precisely because keying was owner-only; that constraint is what Phase 2 removed. Seth,
+       * 2026-08-30: "both member and owner CAN approve an accepted invite regardless of who is
+       * owner and who minted the invite.")
        *
-       * The route accepts a member, but the KEY route does not and cannot — an opaque wrapped key
-       * would let a member install one the owner cannot read. So a member-approved device is
-       * approved, accepted, and unusable until the owner's panel keys it, which in the field can be
-       * days. Offering the button would be offering half an action whose other half belongs to
-       * someone who may not be paying attention.
-       *
-       * ⚠ THE HONEST FAILURE IS THE POINT. A team whose owner will not be bothered with approvals
-       * should REVERSE who owns the project — and they can only decide that if the constraint is
-       * visible. Hiding it behind a button that half-works would let them discover it as a dead
-       * device in a village instead. */
+       * A member WITHOUT manageDevices still gets the honest waiting note: someone with device
+       * rights has to do this, and the card says so rather than hiding the button. */
+      const canApprove = !memberCtx || !!(memberCtx.caps || {}).manageDevices;
       const action = ins.accepted
-        ? (memberCtx
-            ? `<div class="note rp-waiting">${esc(t('panel.inst.waitingOwnerApprove'))}</div>`
-            : `<button class="primary-btn" data-iact="approve" data-i="${esc(it.instance_id)}" data-id="${esc(ins.install_id)}">${esc(t('panel.inst.approve'))}</button>`)
+        ? (canApprove
+            ? `<button class="primary-btn" data-iact="approve" data-i="${esc(it.instance_id)}" data-id="${esc(ins.install_id)}">${esc(t('panel.inst.approve'))}</button>`
+            : `<div class="note rp-waiting">${esc(t('panel.inst.waitingOwnerApprove'))}</div>`)
         : `<div class="note rp-waiting">${esc(t('panel.inst.waitingAccept'))}</div>`;
       /* ⚠ THE CODE IS THE HEADLINE; the fingerprint moved to fine print (Seth, 2026-08-20).
        * This card used to ask the researcher to visually match a long hex fingerprint against one
@@ -3413,12 +3410,13 @@ async function instanceAction(el) {
       saveCollapsed(Researcher.currentAccountId());   // persist BEFORE the next render reads it back
       return;
     }
-    /* A shared device whose key has not reached this seat yet cannot have its settings read or its
-     * installs approved — both need Ki, which only the owner's panel can wrap for us. Say WHY and
-     * when it will fix itself, instead of surfacing a raw no_key_for_instance (the no-silently-
-     * disabled-controls rule). Fresh listView on purpose: the grant may have landed since the
-     * cards painted, and a stale "not yet" here would block a healed member. */
-    if (act === 'settings' || act === 'approve' || act === 'invite') {
+    /* A shared device whose key has not reached this seat yet cannot have its settings read or an
+     * invite minted — those need Ki. Say WHY and when it will fix itself, instead of surfacing a
+     * raw no_key_for_instance (the no-silently-disabled-controls rule). Fresh listView on purpose:
+     * the grant may have landed since the cards painted, and a stale "not yet" here would block a
+     * healed member. ⚠ 'approve' is NOT in this list since Phase 2: the worker mints the install
+     * wrap itself on the server-key lane, so approving needs no key material on this seat. */
+    if (act === 'settings' || act === 'invite') {
       const v = await Researcher.listView();
       const owned = ((v && v.instances) || []).some((x) => x.instance_id === id);
       const mInst = owned ? null : viewInst(v, id);
@@ -3428,9 +3426,8 @@ async function instanceAction(el) {
       lastView = await Researcher.listView();
       const inst = viewInst(lastView, id);
       const ins = inst && inst.installs.find((x) => x.install_id === installId);
-      /* Owner-only by the time it reaches here — the member card renders a waiting note instead of
-       * this button (v471), because approving without being able to key produces a device that is
-       * approved and unusable. */
+      /* Owner or member with manageDevices (Phase 2) — approveInstall asks the worker's server-key
+       * lane to mint the wrap, falling back to the legacy client-side wrap when this seat can. */
       await busy(el, () => Researcher.approveInstall(id, installId, ins && ins.pubkey));
       deps.toast(t('panel.inst.approved'), 4000);
       renderDashboard();

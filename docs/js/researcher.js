@@ -581,12 +581,30 @@ export async function forceRemoveInstall(instanceId, installId) {
 
 /* ---------------- approve + deliver key (model A) ---------------- */
 
-// Approve a pending install AND deliver Ki wrapped to its public key in one step (the
-// common case). Pass the install's pubkey (from listView). Without a pubkey it approves
-// only — deliverKey() can run later once the pubkey is known.
+// Ask the WORKER to mint and deliver the install wrap itself (Phase 2's server-key lane).
+// Open to owner AND members with manageDevices — the worker derives the instance's true Ki
+// and wraps it to the install's pubkey, so no key material is needed on this seat.
+export async function serverKeyInstall(instanceId, installId) {
+  return api('POST', `/v1/instances/${encodeURIComponent(instanceId)}/installs/${encodeURIComponent(installId)}/server-key`, { body: {} });
+}
+
+// Approve a pending install AND deliver its key in one step (the common case).
+// Phase 2 (2026-08-30): key delivery ASKS the worker first (server-key — works for owner and
+// member alike, and heals ki_kp as a side effect). The legacy client-side wrap is the fallback,
+// reached when the worker predates the lane or refuses (key_unavailable on a keyless-by-design
+// instance) — it still needs this seat to hold Ki, so on a member seat without a grant the
+// server refusal is the error surfaced, not a misleading no_key_for_instance.
 export async function approveInstall(instanceId, installId, installPubkeyB64) {
   await api('POST', `/v1/instances/${encodeURIComponent(instanceId)}/installs/${encodeURIComponent(installId)}/approve`, { body: {} });
-  if (installPubkeyB64) await deliverKey(instanceId, installId, installPubkeyB64);
+  try {
+    await serverKeyInstall(instanceId, installId);
+  } catch (e) {
+    // No pubkey = keying is impossible on either lane; approve-only, exactly as before Phase 2
+    // (deliverKey/the owner sweep runs later once the pubkey is known).
+    if (!installPubkeyB64) return { ok: true };
+    try { await deliverKey(instanceId, installId, installPubkeyB64); }
+    catch { throw e; }   // both lanes failed — the server's reason is the diagnostic one
+  }
   return { ok: true };
 }
 

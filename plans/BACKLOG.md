@@ -49,8 +49,22 @@ wrapped, 1 skipped_no_ki (benign — its chain doesn't reach; it stays on member
 forever anyway), verify_failed 0, six Kp minted, empty projects correctly minted none. Worker
 version 40b910b2. ⚠ The FIRST run derived zero devices — the url-safe-base64 postmortem is in
 worker/src/project-key.js's b64ToBytes comment and the fix commit; the probe now mints client-exact
-fixtures so that class stays a red suite. NEXT: Phase 2 (worker maintains member_key + mints install
-wraps = delegated approval), a separate deploy, designed in "the reconciliation" above.**
+fixtures so that class stays a red suite.**
+
+**⚠⚠ PHASE 2's SERVER-KEY LANE IS BUILT (2026-08-30, same night — Seth: "the whole point of
+everything we're doing today is to get to the point where both member and owner CAN approve an
+accepted invite regardless of who is owner and who minted the invite"). `POST
+.../installs/<iid>/server-key` (manageDevices, owner and member alike): the worker resolves the
+instance's true Ki — stored ki_kp checked against the device's own ciphertext, else the backfill's
+evidence-based derivation, lazily healing ki_kp — and mints the install wrap itself
+(project-key.js kiForInstall + wrapKiToInstallPubkey). The owner-only submit-a-blob /key route is
+untouched (the legacy lane + the owner's fallback); property B (device must accept first) holds on
+the new lane; a key contradicted by reality is never handed to an install ('key_unavailable', which
+is also the permanent answer for the keyless-by-design class). Panel: members with manageDevices
+now get Approve & send key; approveInstall asks server-key first, legacy client wrap as fallback.
+STILL TO COME from the Phase-2 spec: the worker taking over member_key GRANT MAINTENANCE (device
+creation / coworker add) — every existing key-writing path is unchanged tonight, so the
+no-Ki-only-under-Kp trap is not in play and rollback stays "revert the worker".**
 
 **The build record (v507):**
 What exists: migrate-project-key.sql, worker/src/project-key.js (both escrow derivation paths,
@@ -4805,10 +4819,19 @@ downloads). The three conditions are the whole of it:
 
 ## Let a MEMBER finish enrolling a device — key fingerprints (Seth, 2026-08-28)
 
-**The gap, in one line:** a member can approve a device but not key it, so a member-enrolled device
-does not work until the OWNER next opens their panel. Seth: *"so it requires the owner to log in no
-matter what before it works?"* — yes, whenever a member does the enrolling. In a field context that
-can be days, for exactly the delegation the sharing feature exists to enable.
+**⚠⚠ SUPERSEDED (2026-08-30) by Phase 2's server-key lane — see the DECIDED DIRECTION status
+banner.** The gap this entry existed to close (member approves but cannot key) is closed by the
+WORKER minting the install wrap itself, which the 5-design review's resolution named as THE
+delegated-approval mechanism; the ki_fp commitment below was the alternative for a worker-blind
+world and is not being built. Kept for the analysis, not as a plan. Do not implement ki_fp on top
+of the server-key lane without a fresh design pass — the review judged commitment schemes fatal in
+their migration-day form, and the lane makes the question moot.
+
+**The gap, in one line (historical):** a member can approve a device but not key it, so a
+member-enrolled device does not work until the OWNER next opens their panel. Seth: *"so it requires
+the owner to log in no matter what before it works?"* — yes, whenever a member does the enrolling.
+In a field context that can be days, for exactly the delegation the sharing feature exists to
+enable.
 
 **Why the route is owner-only, and why that reasoning is right:** `wrapped_key` is opaque ciphertext
 the worker cannot inspect, and the route bumps `desired_rev` so the device ADOPTS what it is given.

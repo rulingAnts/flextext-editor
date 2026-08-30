@@ -44,6 +44,38 @@ rather than a nicety.
 
 ## DECIDED DIRECTION: instances belong to PROJECTS, and the project holds the key (Seth, 2026-08-28)
 
+**⚠⚠ PHASE 1 IS LIVE ON PRODUCTION (2026-08-30). Backfill run by Seth as operator: 15 of 16 devices
+wrapped, 1 skipped_no_ki (benign — its chain doesn't reach; it stays on member_key, which persists
+forever anyway), verify_failed 0, six Kp minted, empty projects correctly minted none. Worker
+version 40b910b2. ⚠ The FIRST run derived zero devices — the url-safe-base64 postmortem is in
+worker/src/project-key.js's b64ToBytes comment and the fix commit; the probe now mints client-exact
+fixtures so that class stays a red suite. NEXT: Phase 2 (worker maintains member_key + mints install
+wraps = delegated approval), a separate deploy, designed in "the reconciliation" above.**
+
+**The build record (v507):**
+What exists: migrate-project-key.sql, worker/src/project-key.js (both escrow derivation paths,
+self-verifying wraps, skip-not-fail), POST /v1/researcher/admin/project-key-backfill (operator-only,
+idempotent, audit-logged), the three comment corrections, worker-schema registration, and
+test/worker-projectkey.probe.mjs in the rig — 280 assertions, 0 failures, everything seeded through
+public APIs. STAGING: D1 migrated (3 queries ok) and worker deployed (e0e75884); serves normally.
+⚠ Staging E2E of the backfill is BLOCKED on secrets only Seth can set: the staging env has no
+GOOGLE_OAUTH_* (sign-in answers `oauth_unconfigured`) and no ALLOWED_RESEARCHERS, so no operator can
+exist there. Optional to fix — the rig covers the behaviour.
+REMAINING (Seth present): production D1 migrate → production worker deploy (flag + rollback id
+first) → Seth runs the backfill as operator → verify counts in the approval log.
+
+The original deferred checklist, kept for the record:
+ 1. **Phase 1 only, and it is inert by design** — `project_key` table (Kp encAtRest), backfill wraps,
+    no behaviour change anywhere. The false-stronger E2EE comments ride this commit (Seth: "make sure
+    you DO correct those things when we go"): `worker/src/v1.js:5288` ("it never sees Ki"),
+    `v1.js:3753`, `docs/js/researcher-panel.js:1106` — replace with the true claim, "a D1 dump alone,
+    without the worker secret, yields nothing".
+ 2. Local rig green BEFORE any deploy talk (`bash test/local-rig.sh`, port 8787 free).
+ 3. The worker deploy needs the FULL ritual with Seth present — maintenance flag, rollback version id
+    handed over first, his confirmation after. Do not deploy to an empty chair.
+ 4. Phase 2 (worker-side wrap = delegated approval) is a SEPARATE later deploy, after Phase 1 has
+    soaked.
+
 > *"I think having instances mapped to projects rather than researchers is what we want."*
 > *"Can we store device keys in a project table? And have the worker able to access that, but not the
 > researcher, directly? Then the researcher account never sees the server-side key."*
@@ -206,6 +238,30 @@ at Phase 4.
  · A worker compromise (code or secret) exposes everything — TRUE TODAY ALREADY, and the reason this
    is a formalisation rather than a downgrade. It should be written down plainly where the old
    comments overclaimed.
+
+## The keyless-by-design instance class (Seth, 2026-08-30) — Phase 2 must expect it
+
+The one device the production backfill skipped (`b94f8160…`, in the Fayu project) is, per Seth, a
+**crowd recorder**: *"It doesn't pair with any single device. It's open to everybody… It is a
+'device', but it's also not a 'device'."* It occupies an instance row, but it never went through the
+pairing ceremony, so **no Ki was ever established for it** — nothing to derive, nothing to wrap, and
+`skipped_no_ki` is CORRECT AND PERMANENT for it, not a gap to heal. (The backfill's new `reason`
+field should confirm: `["no_wrappedKis_entry","no_owner_grant"]`.)
+
+**This one identification closed two mysteries at once:** the same instance is why the add-coworker
+flow perpetually reported "only 1 of 2 device(s) could be unlocked" — grantKeysToMember trying
+forever to grant a key that has never existed.
+
+**⚠ THE DOWNSTREAM DEFECT, to fix panel-side (small, client-only):** anything that diffs "granted"
+against "the project's instances" — memberGrantSweep, and v506's add-coworker end-state re-check —
+counts a keyless-by-design instance as *missing* and retries/warns forever. A keyless instance must
+be EXCLUDED from the grant expectation: it is not missing for the member; it is keyless, period. The
+panel already has the vocabulary (`hasKey === false`, the `panel.inst.noKey` badge) — the sweep and
+the banner just never consulted it.
+
+**⚠ FOR PHASE 2:** the worker-maintained grant machinery must expect instances with no ki_kp and no
+derivable Ki as a NORMAL, permanent class — never an error, never a retry loop, and never something
+that blocks adding a coworker to the project that contains one.
 
 ## The E2EE model assumes device-to-device; the system stopped being that (Seth, 2026-08-28)
 

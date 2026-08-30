@@ -1103,8 +1103,11 @@ function onStagingEstate() {
  * devices already out there is a separate, explicit act (Seth: "the user can also specifically choose
  * to apply defaults to all or one or more specifically selected existing devices").
  * That is what keeps this out of the worker entirely. Live inheritance would need a second settings
- * layer the device merges at read time, and settings are E2EE — the worker cannot merge what it
- * cannot read, so the merge would have to ship to every field device and be versioned forever.
+ * layer the device merges at read time, and settings are ciphertext the worker does not read (⚠
+ * corrected 2026-08-28: "cannot" overclaimed — the escrow chain reaches Ki; see worker
+ * project-key.js — but a merge built on that reach would put plaintext settings handling on the
+ * worker's hot path, which nobody wants), so the merge would ship to every field device and be
+ * versioned forever.
  *
  * ⚠ KEYED BY DRIVE FOLDER ID, which is what both ends already hold: the Projects card renders
  * folderIds, and newDeviceModal resolves `intoProject` to one. The D1 project uuid is a DIFFERENT

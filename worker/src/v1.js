@@ -14,6 +14,7 @@
 
 import { secAlert, secLog, sendEmail } from './seclog.js';
 import { teardownUnmigratedProjectRows } from './project-teardown.js';
+import { backfillProjectKeys, verifyProjectKeys } from './project-key.js';
 import { stampDriveObject, deriveDriveObjectRows, moveDriveObjectText, moveDriveObjectContainer,
          authorizeDocForProject, authorizeObjectForProject } from './drive-object.js';
 
@@ -2704,6 +2705,43 @@ export async function handleV1(request, env, ctx, url, path, origin) {
    *
    * ⚠ A researcher with no Drive token is skipped (nothing to list) rather than failing the whole
    * run — one disconnected account must not stop the backfill for everyone else. */
+  /* POST /v1/researcher/admin/project-key-backfill { project_id? } — OPERATOR-ONLY, IDEMPOTENT.
+   *
+   * Phase 1 of the project-key rework (plans/BACKLOG.md "DECIDED DIRECTION", Seth 2026-08-28):
+   * mint each project's Kp and wrap each live device's Ki under it. INERT until run, and nothing
+   * else reads project_key / instance.ki_kp yet — Phase 2 is a separate, later deploy.
+   * Re-runnable by design: wrapped instances report 'already'; underivable ones are SKIPPED, never
+   * fatal, because one unreachable device must not stop the fleet. Every wrap is self-verified by
+   * round-trip before it is stored (see project-key.js). Logged like every operator act. */
+  if (m === 'POST' && seg.length === 4 && seg[1] === 'researcher' && seg[2] === 'admin' && seg[3] === 'project-key-backfill') {
+    const r = await authResearcher(request, env);
+    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    if (!isOperator(r.drive_email, env)) return j({ error: 'not_owner' }, 403, origin, env);
+    const body = await readJson(request) || {};
+    const only = body.project_id ? String(body.project_id) : null;
+    const res = await backfillProjectKeys(env, env.DB, encAtRest, decAtRest, now, only);
+    await logApproval(env, request, 'project_key_backfill', only || 'all',
+      `wrapped=${res.totals.wrapped} already=${res.totals.already} skipped=${res.totals.skipped} verify_failed=${res.totals.verify_failed}`, r.drive_email);
+    return j({ ok: true, ...res }, 200, origin, env);
+  }
+
+  /* POST /v1/researcher/admin/project-key-verify { project_id? } — OPERATOR-ONLY, READ-ONLY.
+   *
+   * The pre-Phase-2 gate: proves each stored ki_kp unwraps to the TRUE device key by decrypting
+   * ciphertext the device world actually minted (an install's reported_blob, else an encrypted
+   * desired-lane command). Returns booleans only — never plaintext. 'no_ciphertext' is counted
+   * separately from 'verified' so the summary cannot claim more than it measured. Writes nothing. */
+  if (m === 'POST' && seg.length === 4 && seg[1] === 'researcher' && seg[2] === 'admin' && seg[3] === 'project-key-verify') {
+    const r = await authResearcher(request, env);
+    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    if (!isOperator(r.drive_email, env)) return j({ error: 'not_owner' }, 403, origin, env);
+    const body = await readJson(request) || {};
+    const res = await verifyProjectKeys(env, env.DB, decAtRest, body.project_id ? String(body.project_id) : null);
+    await logApproval(env, request, 'project_key_verify', body.project_id || 'all',
+      `verified=${res.totals.verified} failed=${res.totals.failed} no_ciphertext=${res.totals.no_ciphertext}`, r.drive_email);
+    return j({ ok: true, ...res }, 200, origin, env);
+  }
+
   /* POST /v1/researcher/admin/ops-flag { key, value } — the operator raises/clears an ops flag
    * without a deploy and without the dashboard: 'maintenance' (banner only) or 'freeze' (banner +
    * the researcher-lane write lock at the top of handleV1). Empty value = clear. Allow-listed keys,
@@ -3750,8 +3788,10 @@ export async function handleV1(request, env, ctx, url, path, origin) {
 
   /* Move texts no device holds into "FlexText Uploads / Unassigned".
    *
-   * ⚠ THE PANEL DECIDES WHICH, AND IT HAS TO: device inventories are E2EE, so the worker cannot
-   * know what any device holds. It moves exactly the docIds it is given. That places the burden of
+   * ⚠ THE PANEL DECIDES WHICH, AND IT HAS TO: device inventories are ciphertext this code DOES NOT
+   * read. (⚠ corrected 2026-08-28: "cannot know" overclaimed — the escrow chain means the worker
+   * COULD derive Ki and read them; see project-key.js. It deliberately does not, and this route is
+   * built on the panel's signal instead.) It moves exactly the docIds it is given. That places the burden of
    * correctness on the caller's signal — see the panel, which drives this from diffInventory's
    * present->absent transition (the same one History tombstones use, and which yields NO events
    * when an inventory is missing or undecryptable, so a device that fails to report cannot sweep
@@ -5285,7 +5325,12 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       }
 
       // POST .../key — researcher delivers Ki WRAPPED to this install's pubkey (E2EE model A).
-      // The Worker stores opaque ciphertext only; it never sees Ki.
+      /* ⚠ CORRECTED (2026-08-28): this used to say the worker "never sees Ki", and that is not the
+       * system's real property. THIS ROUTE only relays an opaque blob — locally true — but the
+       * worker as a whole can derive any Ki through the escrow chain (kr_server_enc -> Kr ->
+       * settings_blob.wrappedKis / wrapped_privkey -> member_key); see project-key.js, which now
+       * exercises exactly that chain deliberately. The property that actually holds, and the one to
+       * defend: a D1 dump alone, WITHOUT the worker secret, yields nothing. */
       if (m === 'POST' && isub === 'key' && seg.length === 6) {
         /* ⚠⚠ OWNER-ONLY. Gated on manageDevices until the completeness critic pointed out what that
          * meant: `body.wrapped_key` is OPAQUE CIPHERTEXT the worker cannot inspect, and this route

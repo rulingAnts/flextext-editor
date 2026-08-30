@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS "instance" (
   desired_rev   INTEGER NOT NULL DEFAULT 0,
   revoked       INTEGER NOT NULL DEFAULT 0,
   created_at    INTEGER NOT NULL
-, oauth_folder_id TEXT, estate TEXT NOT NULL DEFAULT 'pages', project_id TEXT, tokens_valid_from INTEGER);
+, oauth_folder_id TEXT, estate TEXT NOT NULL DEFAULT 'pages', project_id TEXT, tokens_valid_from INTEGER, ki_kp TEXT, ki_kp_version INTEGER);
 
 CREATE TABLE IF NOT EXISTS invite (
   invite_id       TEXT PRIMARY KEY,           -- GUID in the link
@@ -121,6 +121,13 @@ CREATE TABLE IF NOT EXISTS project (
   name         TEXT NOT NULL,                -- plaintext, like instance.nickname
   created_at   INTEGER NOT NULL
 , drive_folder_id TEXT);                     -- the Drive folder this project's bytes live in; NULL = not resolved
+
+CREATE TABLE IF NOT EXISTS project_key (
+  project_id  TEXT PRIMARY KEY,             -- one Kp per project (Phase 1, migrate-project-key.sql)
+  kp_enc      TEXT NOT NULL,                -- encAtRest(b64(Kp)) — worker-held, never client-held
+  key_version INTEGER NOT NULL DEFAULT 1,   -- rotation-ready from day one (the member_key lesson)
+  created_at  INTEGER NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS project_member (
   project_id    TEXT NOT NULL,

@@ -19,20 +19,21 @@ bash build.sh
 echo "== integrity: version sync =="
 node ../../test/version-sync.test.mjs
 
-echo "== integrity: every sw.js SHELL path exists in public/ =="
+echo "== integrity: the researcher worker caches NOTHING (2026-08-31) =="
+# The researcher panel is an online console: its sw.js deliberately has NO SHELL and writes no
+# cache (see satellites/flextext-researcher/sw.js and its CLAUDE.md). The old SHELL-paths check is
+# replaced by its inverse — the guard now fails if precaching ever creeps back in, because a SHELL
+# here re-creates the deploy-order outage surface and the stale-panel window on purpose removed.
 node - <<'NODE'
-const { readFileSync, existsSync } = require('node:fs');
+const { readFileSync } = require('node:fs');
 const sw = readFileSync('public/sw.js', 'utf8');
-const m = sw.match(/const SHELL = \[([\s\S]*?)\];/);
-if (!m) { console.error('FAIL: no SHELL array in sw.js'); process.exit(1); }
-const entries = [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
+const code = sw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
 let fail = 0;
-for (const e of entries) {
-  const p = e === './' ? 'public/index.html' : e.startsWith('/') ? 'public' + e : 'public/' + e;
-  if (!existsSync(p)) { console.error('FAIL: SHELL entry not in build: ' + e + ' (' + p + ')'); fail++; }
-}
+if (/const SHELL\s*=/.test(code)) { console.error('FAIL: a SHELL array reappeared in the researcher sw.js'); fail++; }
+if (/addAll|cache\.put|precache/i.test(code)) { console.error('FAIL: the researcher sw.js writes a cache again'); fail++; }
+if (!/OFFLINE_HTML/.test(sw)) { console.error('FAIL: the inlined offline page is missing'); fail++; }
 if (fail) process.exit(1);
-console.log('ok: all ' + entries.length + ' SHELL paths present');
+console.log('ok: non-caching worker, offline page inlined');
 NODE
 
 BRANCH="${WORKERS_CI_BRANCH:-productionWeb}"

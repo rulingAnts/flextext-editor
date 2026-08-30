@@ -935,6 +935,14 @@ export function addMember(projectId, researcherId, caps) {
              { body: { researcher_id: researcherId, caps: caps || {} }, retry: false });
 }
 
+/* PHASE 2b: server-side grant maintenance — the WORKER derives each device's Ki and writes the
+ * missing member_key rows itself (missing only; it never overwrites a standing grant). One call
+ * replaces the panel's whole instances×members client-side wrap loop. Returns
+ * { granted, already, instances, keyless: [{instance_id, reasons}], no_pubkey: [ids] }. */
+export function sweepProjectGrants(projectId) {
+  return api('POST', `/v1/projects/${encodeURIComponent(projectId)}/grant-sweep`, { body: {} });
+}
+
 /* Remove a coworker. ⚠ The worker deletes their key grants in the SAME batch, so removal is a real
  * revocation, not a UI state — see the route. retry:false for the same reason as addMember. */
 export function removeMember(projectId, researcherId) {

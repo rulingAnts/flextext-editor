@@ -62,9 +62,20 @@ untouched (the legacy lane + the owner's fallback); property B (device must acce
 the new lane; a key contradicted by reality is never handed to an install ('key_unavailable', which
 is also the permanent answer for the keyless-by-design class). Panel: members with manageDevices
 now get Approve & send key; approveInstall asks server-key first, legacy client wrap as fallback.
-STILL TO COME from the Phase-2 spec: the worker taking over member_key GRANT MAINTENANCE (device
-creation / coworker add) — every existing key-writing path is unchanged tonight, so the
-no-Ki-only-under-Kp trap is not in play and rollback stays "revert the worker".**
+**⚠⚠ PHASE 2b (same session, 2026-08-31): the WORKER now maintains member_key grants too —
+maintainProjectGrants (project-key.js): missing rows ONLY (INSERT OR IGNORE, never REPLACE — the
+overwrite concern cannot arise), Ki via kiForInstall (evidence-based; keyless-by-design instances
+reported as their own class, never failures/retries), and the wrap-to-owner invariant now held by
+the worker itself (the owner's grant is materialised wherever missing). Runs inline at: coworker
+add (POST members — the response carries the summary, which is what finally kills the "only 1 of 2
+device(s) could be unlocked" forever-warning: the panel reports keyless as keyless), key-material
+landing (POST /v1/researcher/keys — a member-created device fans out to the whole team at birth),
+install keying (server-key — the approving member walks away holding their own grant), and on
+demand (POST /v1/projects/<id>/grant-sweep, manageDevices). Panel v512: memberGrantSweep and
+deliverPendingDeviceKeys delegate to the worker (one HTTP call replaces the N×M client-side wrap
+loop), legacy client paths kept as fallbacks for an older worker — Phase 3 (deleting those
+fallbacks) stays a later cleanup. Existing client key-writing paths still function unchanged, so
+the no-Ki-only-under-Kp trap stays out of play and rollback stays "revert the worker".**
 
 **The build record (v507):**
 What exists: migrate-project-key.sql, worker/src/project-key.js (both escrow derivation paths,

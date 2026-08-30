@@ -5922,6 +5922,10 @@ async function deliverPendingDeviceKeys(data) {
     for (const it of ((data && data.instances) || [])) {
       for (const ins of (it.installs || [])) {
         if (ins.status !== 'approved' || ins.has_key || !ins.pubkey) continue;
+        /* PHASE 2b: ask the worker to mint (server-key) first — same lane approval uses now — and
+         * keep the client-side wrap as the fallback for an older worker or a refused mint. */
+        try { await Researcher.serverKeyInstall(it.instance_id, ins.install_id); delivered++; continue; }
+        catch { /* fall through to the legacy client-side wrap */ }
         try { await Researcher.deliverKey(it.instance_id, ins.install_id, ins.pubkey); delivered++; }
         catch (e) { console.warn('key delivery failed for', ins.install_id, (e && e.message) || e); }
       }
@@ -5951,6 +5955,17 @@ async function memberGrantSweep(force) {
       try { members = (await Researcher.listMembers(proj.project_id)).members || []; }
       catch { continue; }
       if (!members.length) continue;
+      /* PHASE 2b: one call — the WORKER derives each Ki and writes the missing rows itself,
+       * keyless-by-design instances excluded by construction (they used to make this loop retry
+       * and warn forever). The client-side wrap loop below survives only for an older worker. */
+      try {
+        const r = await Researcher.sweepProjectGrants(proj.project_id);
+        healed += r.granted || 0;
+        continue;
+      } catch (e) {
+        if (!(e && e.status === 404)) { console.warn('grant sweep:', proj.project_id, (e && e.message) || e); continue; }
+        /* 404 = a worker predating the route — fall through to the legacy client-side loop. */
+      }
       const iids = projectInstanceIds(proj);
       if (!iids.length) continue;
       for (const m of members) {
@@ -7156,11 +7171,34 @@ async function coworkersModal() {
       // 'read' only — the worker refuses any other value outright (never downgrades it).
       if (body.querySelector('#rp-share-drive').checked) caps.drive = 'read';
       try {
-        await Researcher.addMember(selected, who, caps);
+        const addResp = await Researcher.addMember(selected, who, caps);
         /* Saved AFTER the membership lands, so a failed add leaves no orphan nickname for a coworker
          * who was never added. Best-effort on purpose: the membership is the real act, and losing the
          * label must not surface as "adding failed" when it did not — the list offers a rename. */
         try { await setMemberNick(who, nick); } catch { /* label only; the row can be renamed */ }
+        /* ⚠ NAME THEM, NOT THEIR UUID. The owner just typed a nickname; showing the raw id back at
+         * them is the panel forgetting what it was told one field earlier — and since v503 the id is
+         * all the SERVER knows, so the nickname is the only human-readable thing in reach. */
+        const whoLabel = nick || who;
+        /* PHASE 2b: the WORKER wrote the member's grants inside the add itself, and the response
+         * says exactly what happened — including the keyless-by-design class (open-to-everyone
+         * recorders) as its own category rather than as failures. That is the honest end state, no
+         * client-side wrapping and no re-check round trip. The legacy path below survives for an
+         * older worker whose add response has no grants summary. */
+        const sg = addResp && addResp.grants;
+        if (sg) {
+          const keylessN = (sg.keyless || []).length;
+          const usable = Math.max(0, (sg.instances || 0) - keylessN);
+          if ((sg.no_pubkey || []).includes(who)) {
+            notice = { msg: t('panel.share.addedNoKeys', { who: whoLabel }), bad: true };
+          } else if (keylessN) {
+            deps.toast(t('panel.share.addedKeyedKeyless', { who: whoLabel, n: usable, m: keylessN }), 8000);
+          } else {
+            deps.toast(t('panel.share.addedKeyed', { who: whoLabel, n: usable }), 6000);
+          }
+          await paint();
+          return;
+        }
         /* ⚠ THE MEMBERSHIP ROW ALONE READS NOTHING — metadata is E2EE, so the member needs each
          * device's Ki wrapped to THEIR key, and the owner is the only party who can mint that.
          * Minted here, at the one moment the owner is present. Instances are resolved through the
@@ -7177,10 +7215,6 @@ async function coworkersModal() {
            * The estate cache distinguishes them: no devices listed anywhere ⇒ we cannot know. */
           keyed = { granted: 0, failed: 0, noEstate: !((estateCache && estateCache.devices) || []).length };
         }
-        /* ⚠ NAME THEM, NOT THEIR UUID. The owner just typed a nickname; showing the raw id back at
-         * them is the panel forgetting what it was told one field earlier — and since v503 the id is
-         * all the SERVER knows, so the nickname is the only human-readable thing in reach. */
-        const whoLabel = nick || who;
         /* ⚠⚠ REPORT THE END STATE, NOT THE ATTEMPT COUNT (Seth, 2026-08-28: "this error is fairly
          * consistently showing all the time… as far as I can tell, there isn't any glitch in what the
          * researcher can actually access").

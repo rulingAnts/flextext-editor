@@ -14,7 +14,7 @@
 
 import { secAlert, secLog, sendEmail } from './seclog.js';
 import { teardownUnmigratedProjectRows } from './project-teardown.js';
-import { backfillProjectKeys, verifyProjectKeys, kiForInstall, wrapKiToInstallPubkey } from './project-key.js';
+import { backfillProjectKeys, verifyProjectKeys, kiForInstall, wrapKiToInstallPubkey, maintainProjectGrants } from './project-key.js';
 import { stampDriveObject, deriveDriveObjectRows, moveDriveObjectText, moveDriveObjectContainer,
          authorizeDocForProject, authorizeObjectForProject } from './drive-object.js';
 
@@ -2876,6 +2876,14 @@ export async function handleV1(request, env, ctx, url, path, origin) {
        * and for a member bootstrap the ledger must say which member minted it. */
       ).bind(String(proj.project_id || ''), instanceId, String(g.researcher_id), version, String(g.wrapped_ki), ctx.caller.researcher_id, now));
     await env.DB.batch(writes);
+    /* PHASE 2b: key material just landed for this instance — the one moment a freshly created
+     * device becomes derivable. Fan its grants out to every project member NOW (missing rows only),
+     * so a member-created device is readable by the whole team without waiting for anyone's panel
+     * sweep. Best-effort: the stored grants above are already durable. */
+    if (ctx.project_id) {
+      try { await maintainProjectGrants(env, env.DB, encAtRest, decAtRest, ctx.owner, ctx.project_id, now, instanceId, ctx.caller.researcher_id); }
+      catch { /* the sweep lane heals later */ }
+    }
     return j({ ok: true, stored: writes.length, key_version: version }, 200, origin, env);
   }
 
@@ -3097,6 +3105,26 @@ export async function handleV1(request, env, ctx, url, path, origin) {
    * would mean "no longer listed" while they still hold every wrapped Ki the ledger handed them —
    * revocation as a UI state rather than an act (invariant I5). Full rotation is Phase E; this is
    * the part that must not wait for it. */
+  /* POST /v1/projects/<id>/grant-sweep — PHASE 2b: server-side grant maintenance on demand.
+   * The panel's memberGrantSweep calls THIS instead of walking instances × members with client-side
+   * crypto (one HTTP call replaces N pubkey fetches + N×M RSA wraps in a browser). Missing rows
+   * only; keyless-by-design instances are reported as their own class, never as failures — which is
+   * what finally stops the "only 1 of 2 devices could be unlocked" warning from re-firing forever
+   * on a project that contains one. Owner or a member with manageDevices may trigger it: it can
+   * only ever create grants the project's membership already entitles, for people the owner added. */
+  if (m === 'POST' && seg.length === 4 && seg[1] === 'projects' && seg[3] === 'grant-sweep') {
+    const projectId = String(seg[2] || '');
+    const ctx = await authMember(request, env, { project: projectId }, 'manageDevices');
+    if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+    if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+    const g = await maintainProjectGrants(env, env.DB, encAtRest, decAtRest, ctx.owner, projectId, now, null, ctx.caller.researcher_id);
+    if (g.granted) {
+      await logApproval(env, request, 'grant_sweep', projectId.slice(0, 12) + '…',
+        `granted=${g.granted} already=${g.already} keyless=${g.keyless.length}`, ctx.caller.drive_email);
+    }
+    return j({ ok: true, ...g }, 200, origin, env);
+  }
+
   if (seg.length === 4 && seg[1] === 'projects' && seg[3] === 'members') {
     const projectId = String(seg[2] || '');
     const ctx = await authMember(request, env, { project: projectId }, null);
@@ -3222,7 +3250,15 @@ export async function handleV1(request, env, ctx, url, path, origin) {
         'INSERT OR REPLACE INTO project_member (project_id, researcher_id, caps, added_at, added_by) VALUES (?,?,?,?,?)'
       ).bind(projectId, who, JSON.stringify(caps), now, ctx.caller.researcher_id).run();
       await logApproval(env, request, 'member_added', who.slice(0, 12) + '…', Object.keys(caps).join(','), ctx.caller.drive_email);
-      return j({ ok: true, researcher_id: who, caps }, 200, origin, env);
+      /* PHASE 2b: the WORKER writes the new member's grants in the same act (the BACKLOG's "when a
+       * coworker is added, the WORKER writes the member_key rows"). The panel used to do this
+       * client-side (grantKeysToMember) and count keyless-by-design instances as failures forever —
+       * the summary here reports them as the separate class they are, so the panel can finally say
+       * "keyless" instead of warning. Best-effort: a maintenance hiccup must not undo the add. */
+      let grants = null;
+      try { grants = await maintainProjectGrants(env, env.DB, encAtRest, decAtRest, ctx.owner, projectId, now, null, ctx.caller.researcher_id); }
+      catch { /* grants stays null — old-shaped response, the panel falls back to its sweep */ }
+      return j({ ok: true, researcher_id: who, caps, grants }, 200, origin, env);
     }
 
     if (m === 'DELETE') {
@@ -5422,6 +5458,13 @@ export async function handleV1(request, env, ctx, url, path, origin) {
          * resolution path + proof source (never key material) so an audit can see HOW each key was
          * established. */
         await logApproval(env, request, 'device_key_minted', installId.slice(0, 12) + '…', `${res.path}/${res.proven}`, ctx.caller.drive_email);
+        /* PHASE 2b: Ki is in hand — fan the researcher grants out too (missing rows only), so the
+         * approving member walks away holding their own grant for the device they just enrolled
+         * instead of waiting for a sweep. Best-effort: the install wrap above already landed. */
+        if (ctx.project_id) {
+          try { await maintainProjectGrants(env, env.DB, encAtRest, decAtRest, r, ctx.project_id, now, instanceId, ctx.caller.researcher_id); }
+          catch { /* the sweep lane heals later */ }
+        }
         return j({ ok: true, proven: res.proven }, 200, origin, env);
       }
 

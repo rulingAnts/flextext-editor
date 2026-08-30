@@ -115,8 +115,12 @@ fi
 # ⚠ AND THE MINT SITES THEMSELVES: if a new route learns to mint from caller-supplied ids, it must
 #   join the list above. Counting the member-reachable mints (those that stamp ctx.caller as minter)
 #   makes a fourth one a build failure rather than a silent hole.
+# ⚠ Raised 5 → 9 for Phase 2b (2026-08-31): four maintainProjectGrants() call sites (member add,
+#   keys POST, server-key, grant-sweep) stamp ctx.caller as minter. REVIEWED: none of them accepts
+#   a caller-supplied file or doc id — the function derives instances and member pubkeys entirely
+#   from the project row, so memberFileIdsOk has nothing to check there.
 member_mints=$(grep -c "ctx.caller.researcher_id);" "$W" || true)
-if [ "$member_mints" -le 5 ]; then
+if [ "$member_mints" -le 9 ]; then
   good ok "no unreviewed member-minting route appeared ($member_mints mint arg site(s))"
 else
   bad x "⚠ a new member-reachable mint site exists ($member_mints) — verify its caller-supplied file ids with memberFileIdsOk, then raise this bound"

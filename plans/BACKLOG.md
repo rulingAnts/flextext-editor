@@ -44,7 +44,15 @@ rather than a nicety.
 
 ## DECIDED DIRECTION: instances belong to PROJECTS, and the project holds the key (Seth, 2026-08-28)
 
-**⚠ PHASE 1 BUILT AND RIG-PROVEN (2026-08-30, v507) — production deploy awaits Seth's ritual.**
+**⚠⚠ PHASE 1 IS LIVE ON PRODUCTION (2026-08-30). Backfill run by Seth as operator: 15 of 16 devices
+wrapped, 1 skipped_no_ki (benign — its chain doesn't reach; it stays on member_key, which persists
+forever anyway), verify_failed 0, six Kp minted, empty projects correctly minted none. Worker
+version 40b910b2. ⚠ The FIRST run derived zero devices — the url-safe-base64 postmortem is in
+worker/src/project-key.js's b64ToBytes comment and the fix commit; the probe now mints client-exact
+fixtures so that class stays a red suite. NEXT: Phase 2 (worker maintains member_key + mints install
+wraps = delegated approval), a separate deploy, designed in "the reconciliation" above.**
+
+**The build record (v507):**
 What exists: migrate-project-key.sql, worker/src/project-key.js (both escrow derivation paths,
 self-verifying wraps, skip-not-fail), POST /v1/researcher/admin/project-key-backfill (operator-only,
 idempotent, audit-logged), the three comment corrections, worker-schema registration, and

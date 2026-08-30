@@ -78,6 +78,10 @@ const FILES = [
    * silently did nothing — a remote wipe that leaves every outstanding streaming URL serving.
    * The tolerance is correct; being absent from this list is what made it dangerous. */
   'migrate-token-epoch.sql',
+  // Phase 1 of the project-key rework (Seth, 2026-08-28) — project_key table + instance.ki_kp/_version.
+  // Inert until the operator runs admin/project-key-backfill; registered here so the replay schema,
+  // schema-current.sql and the operator's run-list can never disagree about its existence.
+  'migrate-project-key.sql',
 ];
 
 /* Split on `;` at end of line — the house SQL style, one statement per line-group, no triggers or
@@ -190,7 +194,9 @@ const rebuiltCols = [...rebuilt.matchAll(/^\s{2}(\w+)\s/gm)].map((m) => m[1]);
 const wouldLose = (got.tables.instance || []).filter((c) => !rebuiltCols.includes(c));
 // tokens_valid_from joined the list when migrate-token-epoch.sql was registered (v480) — the
 // landmine grew by one column, which is the growth this assertion exists to make visible.
-ok(wouldLose.join(' ') === 'estate oauth_folder_id project_id tokens_valid_from',
+// ki_kp + ki_kp_version joined when migrate-project-key.sql was registered (Phase 1) — the landmine
+// grows again, which is this assertion doing its job.
+ok(wouldLose.join(' ') === 'estate ki_kp ki_kp_version oauth_folder_id project_id tokens_valid_from',
   `re-running the instance rebuild would destroy exactly [${wouldLose.join(', ')}] and their DATA. ` +
   'The list grows every time the schema does, which is the point of asserting it: a rebuild-style ' +
   'migration is a landmine that gets bigger with age. Fresh databases must use schema-current.sql, ' +

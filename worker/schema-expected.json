@@ -75,6 +75,8 @@
       "desired_rev",
       "estate",
       "instance_id",
+      "ki_kp",
+      "ki_kp_version",
       "nickname",
       "oauth_folder_id",
       "project_id",
@@ -112,6 +114,12 @@
       "drive_folder_id",
       "name",
       "owner_id",
+      "project_id"
+    ],
+    "project_key": [
+      "created_at",
+      "key_version",
+      "kp_enc",
       "project_id"
     ],
     "project_member": [

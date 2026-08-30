@@ -147,6 +147,88 @@ ok(proj2.minted === false, 'and the second run minted no new Kp — one key per 
      `⚠ a skip carries its reasons (got ${JSON.stringify(c3.reason)}) — a keyless-by-design device is a sentence, not an investigation`);
 }
 
+/* ---- DIVERGED STORES: the class behind the 2026-08-30 stale-wrap incident ---- */
+{
+  /* devD: wrappedKis holds kiOld, the owner grant holds kiNew, and the device's real world speaks
+   * kiNew (an enc command under it). The backfill must choose by EVIDENCE, not by which store is
+   * cheapest to read — the first production run chose wrappedKis and shipped 10 stale wraps. */
+  const devD = await mk('pk-diverged-with-material');
+  const kiOld = crypto.getRandomValues(new Uint8Array(32));
+  const kiNew = crypto.getRandomValues(new Uint8Array(32));
+  {
+    const v = await call('GET', '/v1/researcher');
+    const settings = (v.json && v.json.settings && JSON.parse(v.json.settings)) || {};
+    settings.wrappedKis = settings.wrappedKis || {};
+    settings.wrappedKis[devD] = await encryptJSONStd(krKey, { k: b64(kiOld) });
+    await call('PUT', '/v1/researcher/settings', { settings, settings_rev: v.json.settings_rev });
+  }
+  {
+    const v2 = await call('GET', '/v1/researcher');   // the pubkey published earlier in this probe
+    const pub = await crypto.subtle.importKey('spki', Buffer.from(String(v2.json.pubkey).replace(/-/g,'+').replace(/_/g,'/'), 'base64'),
+      { name: 'RSA-OAEP', hash: 'SHA-256' }, true, ['encrypt']);
+    const wrappedKi = b64(new Uint8Array(await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pub, kiNew)));
+    const g = await call('POST', '/v1/researcher/keys', { instance_id: devD, grants: [{ researcher_id: FIXTURE.researcherId, wrapped_ki: wrappedKi }] });
+    ok(g.status === 200, `diverged devD: grant with a DIFFERENT (newer) Ki written (got ${g.status})`);
+  }
+  const kiNewKey = await crypto.subtle.importKey('raw', kiNew, { name: 'AES-GCM' }, false, ['encrypt']);
+  await call('POST', `/v1/instances/${devD}/command`, { command: { type: 'changeSettings', enc: await encryptJSONStd(kiNewKey, { s: 1 }) } });
+
+  const rD = await call('POST', '/v1/researcher/admin/project-key-backfill', { project_id: FIXTURE.migratedProjectId });
+  const pD = ((rD.json && rD.json.projects) || []).find((p) => p.project_id === FIXTURE.migratedProjectId) || { instances: [] };
+  const dD = pD.instances.find((i) => i.instance_id === devD) || {};
+  ok(dD.status === 'wrapped' && dD.path === 'member_key' && dD.proven === 'command',
+     `⚠⚠ diverged stores: the key stored is the one REALITY opens, proven against real ciphertext (got ${dD.status}/${dD.path}/${dD.proven})`);
+  const vD = await call('POST', '/v1/researcher/admin/project-key-verify', { project_id: FIXTURE.migratedProjectId });
+  const vpD = ((vD.json && vD.json.projects) || []).find((p) => p.project_id === FIXTURE.migratedProjectId) || { instances: [] };
+  const vdD = vpD.instances.find((i) => i.instance_id === devD) || {};
+  ok(vdD.ok === true, `...and verify agrees (got ${vdD.ok})`);
+}
+
+/* ---- THE HEAL: a stored-stale wrap is REWRAPPED on the next run — the production incident, replayed ---- */
+{
+  /* devF starts wrappedKis-only (kiOld) with NO material: the backfill legitimately stores kiOld.
+   * Then the world moves: a grant with kiNew appears and the device's lane speaks kiNew. The stored
+   * wrap now contradicts reality, and the next backfill must REPLACE it — this is exactly how the
+   * 10 stale production wraps healed. */
+  const devF = await mk('pk-stale-then-heal');
+  const kiOld = crypto.getRandomValues(new Uint8Array(32));
+  const kiNew = crypto.getRandomValues(new Uint8Array(32));
+  {
+    const v = await call('GET', '/v1/researcher');
+    const settings = (v.json && v.json.settings && JSON.parse(v.json.settings)) || {};
+    settings.wrappedKis = settings.wrappedKis || {};
+    settings.wrappedKis[devF] = await encryptJSONStd(krKey, { k: b64(kiOld) });
+    await call('PUT', '/v1/researcher/settings', { settings, settings_rev: v.json.settings_rev });
+  }
+  const r1 = await call('POST', '/v1/researcher/admin/project-key-backfill', { project_id: FIXTURE.migratedProjectId });
+  const p1 = ((r1.json && r1.json.projects) || []).find((p) => p.project_id === FIXTURE.migratedProjectId) || { instances: [] };
+  const f1 = p1.instances.find((i) => i.instance_id === devF) || {};
+  ok(f1.status === 'wrapped' && f1.proven === 'none',
+     `devF: with nothing to test against, the wrap is stored by precedence and SAYS it is unproven (got ${f1.status}/${f1.proven})`);
+
+  {
+    const v2 = await call('GET', '/v1/researcher');
+    const pub = await crypto.subtle.importKey('spki', Buffer.from(String(v2.json.pubkey).replace(/-/g,'+').replace(/_/g,'/'), 'base64'),
+      { name: 'RSA-OAEP', hash: 'SHA-256' }, true, ['encrypt']);
+    const wrappedKi = b64(new Uint8Array(await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pub, kiNew)));
+    await call('POST', '/v1/researcher/keys', { instance_id: devF, grants: [{ researcher_id: FIXTURE.researcherId, wrapped_ki: wrappedKi }] });
+  }
+  const kiNewKey = await crypto.subtle.importKey('raw', kiNew, { name: 'AES-GCM' }, false, ['encrypt']);
+  await call('POST', `/v1/instances/${devF}/command`, { command: { type: 'changeSettings', enc: await encryptJSONStd(kiNewKey, { s: 2 }) } });
+
+  const r2 = await call('POST', '/v1/researcher/admin/project-key-backfill', { project_id: FIXTURE.migratedProjectId });
+  const p2 = ((r2.json && r2.json.projects) || []).find((p) => p.project_id === FIXTURE.migratedProjectId) || { instances: [] };
+  const f2 = p2.instances.find((i) => i.instance_id === devF) || {};
+  ok(f2.status === 'rewrapped' && f2.path === 'member_key' && f2.proven === 'command',
+     `⚠⚠ THE HEAL: a stored wrap contradicted by reality is REPLACED with the proven key (got ${f2.status}/${f2.path}/${f2.proven})`);
+  ok(r2.json.totals && typeof r2.json.totals.rewrapped === 'number' && r2.json.totals.rewrapped >= 1,
+     `...and the run reports it as rewrapped (totals.rewrapped=${r2.json.totals && r2.json.totals.rewrapped})`);
+  const v3 = await call('POST', '/v1/researcher/admin/project-key-verify', { project_id: FIXTURE.migratedProjectId });
+  const vp3 = ((v3.json && v3.json.projects) || []).find((p) => p.project_id === FIXTURE.migratedProjectId) || { instances: [] };
+  const vf3 = vp3.instances.find((i) => i.instance_id === devF) || {};
+  ok(vf3.ok === true, `...and verify confirms the healed wrap opens reality (got ${vf3.ok})`);
+}
+
 /* ---- authorization: the outsider (non-operator) is refused ---- */
 {
   const r = await fetch(BASE + '/v1/researcher/admin/project-key-backfill', {

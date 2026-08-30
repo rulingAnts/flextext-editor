@@ -85,48 +85,96 @@ async function encryptJSONStd(key, obj) {
  *
  * `decAtRest` is passed in rather than imported to keep this module dependency-free of v1.js
  * (which imports US) — the same inversion drive-object.js uses. */
-export async function deriveKiRaw(env, db, decAtRest, ownerRow, instanceId) {
-  /* On failure this returns { fail: [...] } — COARSE reasons, never key material, shown only on the
-   * operator route. Added after the first production run reported 16 bare 'skipped_no_ki' and the
-   * cause (the base64 alphabet) took a live-browser replay to find. A reason turns the next such
-   * skip from an investigation into a sentence. */
-  if (!ownerRow) return { fail: ['owner_row_missing'] };
-  if (!ownerRow.kr_server_enc) return { fail: ['no_kr_escrow'] };
+export async function deriveKiCandidates(env, db, decAtRest, ownerRow, instanceId) {
+  /* Returns { candidates: [{raw, path}...], fail: [...] } — candidates in CLIENT precedence order.
+   *
+   * ⚠⚠ PRECEDENCE IS member_key FIRST, wrappedKis SECOND — the same order as the panel's getKi() —
+   * AND GETTING THIS BACKWARDS SHIPPED 10 STALE WRAPS TO PRODUCTION (2026-08-30). The first version
+   * derived wrappedKis first, on the reasoning that it was "cheapest and every owner-created device
+   * has one". But the two stores DIVERGE on older devices, and when they do, the member_key grant is
+   * what the device was actually keyed from: deliverPendingDeviceKeys wraps getKi()'s result, and
+   * getKi reads the grant first. The stale legacy copy still decrypts CLEANLY under Kr — a perfectly
+   * valid OLD key — so the backfill's round-trip self-check passed while the device's real reports
+   * refused to open. The verify-against-reality route caught it: 10 of 15 production wraps held the
+   * wrong key. The panel decrypting a device's inventory that the derived key could not open was the
+   * proof (RevokeTest, 13dff94c).
+   *
+   * BOTH candidates are returned because precedence alone is a HEURISTIC — the backfill now proves
+   * the choice against device-minted ciphertext wherever any exists, and only falls back to this
+   * ordering when the device has never reported. Coarse failure reasons ride along; never key
+   * material. */
+  if (!ownerRow) return { candidates: [], fail: ['owner_row_missing'] };
+  if (!ownerRow.kr_server_enc) return { candidates: [], fail: ['no_kr_escrow'] };
   const krB64 = await decAtRest(env, ownerRow.kr_server_enc);
-  if (!krB64) return { fail: ['kr_undecryptable'] };
+  if (!krB64) return { candidates: [], fail: ['kr_undecryptable'] };
   let krKey = null;
-  try { krKey = await importAesRaw(b64ToBytes(krB64)); } catch { return { fail: ['kr_import_failed'] }; }
+  try { krKey = await importAesRaw(b64ToBytes(krB64)); } catch { return { candidates: [], fail: ['kr_import_failed'] }; }
 
   const fails = [];
-  /* Path A — the legacy Kr-wrapped store inside settings_blob. Cheapest, and the one every
-   * owner-created device has. */
+  const candidates = [];
+
+  /* member_key grant — the store the device was actually keyed from, per getKi's precedence. */
+  try {
+    if (!ownerRow.wrapped_privkey) fails.push('no_wrapped_privkey');
+    else {
+      const { pkcs8 } = await decryptJSONStd(krKey, ownerRow.wrapped_privkey);
+      if (!pkcs8) fails.push('privkey_no_pkcs8');
+      else {
+        const priv = await crypto.subtle.importKey('pkcs8', b64ToBytes(pkcs8),
+          { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['decrypt']);
+        const g = await db.prepare(
+          'SELECT wrapped_ki FROM member_key WHERE instance_id=? AND researcher_id=? ORDER BY key_version DESC LIMIT 1'
+        ).bind(instanceId, ownerRow.researcher_id).first();
+        if (!g || !g.wrapped_ki) fails.push('no_owner_grant');
+        else {
+          const raw = await crypto.subtle.decrypt({ name: 'RSA-OAEP' }, priv, b64ToBytes(g.wrapped_ki));
+          candidates.push({ raw: new Uint8Array(raw), path: 'member_key' });
+        }
+      }
+    }
+  } catch { fails.push('grant_unwrap_failed'); }
+
+  /* wrappedKis — the legacy Kr-wrapped store. Kept as a candidate, not a truth: on divergence it is
+   * the STALE copy (see the header), but for never-granted legacy devices it is the only copy. */
   try {
     const settings = JSON.parse(ownerRow.settings_blob || '{}');
     const w = settings && settings.wrappedKis && settings.wrappedKis[instanceId];
     if (w) {
       try {
         const { k } = await decryptJSONStd(krKey, w);
-        if (k) return { raw: b64ToBytes(k), path: 'wrappedKis' };
-        fails.push('wrappedKis_no_k');
+        if (k) {
+          const raw = b64ToBytes(k);
+          /* Deduplicate: when both stores agree (the healthy modern case) there is ONE candidate. */
+          if (!candidates.some((c) => c.raw.length === raw.length && c.raw.every((b, i) => b === raw[i]))) {
+            candidates.push({ raw, path: 'wrappedKis' });
+          }
+        } else fails.push('wrappedKis_no_k');
       } catch { fails.push('wrappedKis_undecryptable'); }
     } else fails.push('no_wrappedKis_entry');
   } catch { fails.push('settings_blob_unparseable'); }
 
-  /* Path B — the owner's own member_key grant (RSA-OAEP to their pubkey), unwrapped with the
-   * privkey escrowed under Kr. Newer devices (member-created ones especially) live here. */
+  return { candidates, fail: fails };
+}
+
+/* The newest REAL ciphertext a device's world has produced, for proving a key against reality:
+ * an install's reported_blob (device-minted, strongest), else an encrypted desired-lane command
+ * (panel-minted under the same Ki). null when the device has never produced anything checkable. */
+export async function realityMaterial(db, instanceId, desiredBlob) {
+  const inst = await db.prepare(
+    'SELECT reported_blob FROM install WHERE instance_id=? AND revoked=0 AND reported_blob IS NOT NULL ORDER BY last_seen_at DESC LIMIT 1'
+  ).bind(instanceId).first();
+  if (inst && inst.reported_blob) return { token: inst.reported_blob, source: 'report' };
   try {
-    if (!ownerRow.wrapped_privkey) { fails.push('no_wrapped_privkey'); return { fail: fails }; }
-    const { pkcs8 } = await decryptJSONStd(krKey, ownerRow.wrapped_privkey);
-    if (!pkcs8) { fails.push('privkey_no_pkcs8'); return { fail: fails }; }
-    const priv = await crypto.subtle.importKey('pkcs8', b64ToBytes(pkcs8),
-      { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['decrypt']);
-    const g = await db.prepare(
-      'SELECT wrapped_ki FROM member_key WHERE instance_id=? AND researcher_id=? ORDER BY key_version DESC LIMIT 1'
-    ).bind(instanceId, ownerRow.researcher_id).first();
-    if (!g || !g.wrapped_ki) { fails.push('no_owner_grant'); return { fail: fails }; }
-    const raw = await crypto.subtle.decrypt({ name: 'RSA-OAEP' }, priv, b64ToBytes(g.wrapped_ki));
-    return { raw: new Uint8Array(raw), path: 'member_key' };
-  } catch { fails.push('grant_unwrap_failed'); return { fail: fails }; }
+    const blob = desiredBlob ? JSON.parse(desiredBlob) : null;
+    const cmd = blob && Array.isArray(blob.commands) && blob.commands.find((c) => c && c.enc);
+    if (cmd) return { token: cmd.enc, source: 'command' };
+  } catch { /* no material */ }
+  return null;
+}
+
+export async function kiOpens(kiRaw, token) {
+  try { await decryptJSONStd(await importAesRaw(kiRaw), token); return true; }
+  catch { return false; }
 }
 
 /* Fetch-or-mint the project's Kp; returns { raw, key_version }.
@@ -158,53 +206,91 @@ export async function unwrapKiUnderKp(kpRaw, token) {
   return b64ToBytes(k);
 }
 
-/* The Phase-1 backfill: for every project (or one), mint Kp if absent, then wrap each live
- * device's Ki under it. IDEMPOTENT — a wrapped instance reports 'already' and is not rewritten,
- * so re-running after a partial failure completes the remainder and a full re-run is a no-op.
+/* The Phase-1 backfill, EVIDENCE-BASED since the stale-wrap incident (2026-08-30).
  *
- * ⚠ EVERY WRAP IS SELF-VERIFIED before it is written: unwrap the fresh token and byte-compare
- * against the derived Ki. A wrap that does not round-trip is reported 'verify_failed' and NOT
- * stored — a stored-but-wrong ki_kp would be worse than none, because Phase 2 would trust it. */
+ * For each live device in each project:
+ *   1. Derive every candidate Ki (member_key grant first, wrappedKis second — getKi's precedence).
+ *   2. Fetch the newest REAL ciphertext the device's world produced (its own report, else an
+ *      encrypted command). Where any exists, the key stored is the candidate that OPENS IT — and a
+ *      stored wrap that fails against reality is REPLACED ('rewrapped'), which is how the 10 stale
+ *      production wraps healed on the next run.
+ *   3. Only a device that has never produced anything checkable falls back to precedence alone
+ *      (recorded as proven:'none'), and an existing wrap is then left alone.
+ *
+ * ⚠ A KEY CONTRADICTED BY REALITY IS NEVER STORED. If every candidate fails against real material,
+ * the device is 'skipped_candidates_fail_reality' — storing a key the device's own ciphertext
+ * refuses would be worse than none, because Phase 2 would hand it to new installs.
+ *
+ * IDEMPOTENT BY EVIDENCE: a stored wrap that opens reality reports 'already'; re-runs converge. */
 export async function backfillProjectKeys(env, db, encAtRest, decAtRest, now, onlyProjectId) {
   const projects = onlyProjectId
     ? (await db.prepare('SELECT project_id, owner_id FROM project WHERE project_id=?').bind(onlyProjectId).all()).results || []
     : (await db.prepare('SELECT project_id, owner_id FROM project').all()).results || [];
   const out = [];
-  const totals = { wrapped: 0, already: 0, skipped: 0, verify_failed: 0 };
+  const totals = { wrapped: 0, rewrapped: 0, already: 0, skipped: 0, verify_failed: 0 };
   for (const p of projects) {
     const rep = { project_id: p.project_id, minted: false, instances: [] };
     const owner = p.owner_id ? await db.prepare(
       'SELECT researcher_id, kr_server_enc, settings_blob, wrapped_privkey FROM researcher WHERE researcher_id=?'
     ).bind(p.owner_id).first() : null;
     const insts = (await db.prepare(
-      'SELECT instance_id, ki_kp FROM instance WHERE project_id=? AND revoked=0'
+      'SELECT instance_id, ki_kp, desired_blob FROM instance WHERE project_id=? AND revoked=0'
     ).bind(p.project_id).all()).results || [];
-    /* Kp is minted only when the project has a device to wrap — an empty project gets its key the
-     * day it first needs one, and the table stays a map of projects that actually hold anything. */
     let kp = null;
-    for (const it of insts) {
-      if (it.ki_kp) { rep.instances.push({ instance_id: it.instance_id, status: 'already' }); totals.already++; continue; }
-      const ki = await deriveKiRaw(env, db, decAtRest, owner, it.instance_id);
-      if (!ki || !ki.raw) {
-        rep.instances.push({ instance_id: it.instance_id, status: 'skipped_no_ki', reason: (ki && ki.fail) || ['unknown'] });
-        totals.skipped++; continue;
-      }
+    const ensureKp = async () => {
       if (!kp) {
         kp = await ensureProjectKp(env, db, encAtRest, decAtRest, p.project_id, now);
-        if (!kp) { rep.instances.push({ instance_id: it.instance_id, status: 'skipped_no_kp' }); totals.skipped++; continue; }
-        rep.minted = !!kp.minted;
+        if (kp) rep.minted = rep.minted || !!kp.minted;
       }
-      const token = await wrapKiUnderKp(kp.raw, ki.raw);
+      return kp;
+    };
+    for (const it of insts) {
+      const material = await realityMaterial(db, it.instance_id, it.desired_blob);
+
+      /* An existing wrap that still opens reality is settled — the common case after the first run. */
+      if (it.ki_kp && material) {
+        const k = await ensureKp();
+        if (k) {
+          let storedOk = false;
+          try { storedOk = await kiOpens(await unwrapKiUnderKp(k.raw, it.ki_kp), material.token); } catch { /* treat as stale */ }
+          if (storedOk) { rep.instances.push({ instance_id: it.instance_id, status: 'already', proven: material.source }); totals.already++; continue; }
+        }
+      } else if (it.ki_kp && !material) {
+        /* Nothing to test against — leave the stored wrap alone rather than churning it. */
+        rep.instances.push({ instance_id: it.instance_id, status: 'already', proven: 'none' }); totals.already++; continue;
+      }
+
+      const d = await deriveKiCandidates(env, db, decAtRest, owner, it.instance_id);
+      if (!d.candidates.length) {
+        rep.instances.push({ instance_id: it.instance_id, status: 'skipped_no_ki', reason: d.fail.length ? d.fail : ['unknown'] });
+        totals.skipped++; continue;
+      }
+      let chosen = null, proven = 'none';
+      if (material) {
+        for (const c of d.candidates) { if (await kiOpens(c.raw, material.token)) { chosen = c; proven = material.source; break; } }
+        if (!chosen) {
+          /* Real ciphertext exists and NO derivable key opens it — never store a contradicted key. */
+          rep.instances.push({ instance_id: it.instance_id, status: 'skipped_candidates_fail_reality',
+            reason: d.fail, candidates: d.candidates.map((c) => c.path) });
+          totals.skipped++; continue;
+        }
+      } else {
+        chosen = d.candidates[0];   // getKi precedence — the best available heuristic with nothing to test
+      }
+      const k = await ensureKp();
+      if (!k) { rep.instances.push({ instance_id: it.instance_id, status: 'skipped_no_kp' }); totals.skipped++; continue; }
+      const token = await wrapKiUnderKp(k.raw, chosen.raw);
       let ok = false;
       try {
-        const back = await unwrapKiUnderKp(kp.raw, token);
-        ok = back.length === ki.raw.length && back.every((b, i) => b === ki.raw[i]);
+        const back = await unwrapKiUnderKp(k.raw, token);
+        ok = back.length === chosen.raw.length && back.every((b, i) => b === chosen.raw[i]);
       } catch { ok = false; }
       if (!ok) { rep.instances.push({ instance_id: it.instance_id, status: 'verify_failed' }); totals.verify_failed++; continue; }
       await db.prepare('UPDATE instance SET ki_kp=?, ki_kp_version=? WHERE instance_id=?')
-        .bind(token, kp.key_version, it.instance_id).run();
-      rep.instances.push({ instance_id: it.instance_id, status: 'wrapped', path: ki.path });
-      totals.wrapped++;
+        .bind(token, k.key_version, it.instance_id).run();
+      const wasRewrap = !!it.ki_kp;
+      rep.instances.push({ instance_id: it.instance_id, status: wasRewrap ? 'rewrapped' : 'wrapped', path: chosen.path, proven });
+      if (wasRewrap) totals.rewrapped++; else totals.wrapped++;
     }
     out.push(rep);
   }

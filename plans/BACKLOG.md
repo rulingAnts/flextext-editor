@@ -264,6 +264,52 @@ at Phase 4.
    is a formalisation rather than a downgrade. It should be written down plainly where the old
    comments overclaimed.
 
+## The researcher panel should STOP being aggressively offline-cached (Seth, 2026-08-31)
+
+> *"Our researcher panel really kind of doesn't need to be aggressively cached offline the way the
+> fieldworker apps (editor, recorder, etc) do. In fact, that's almost counter productive. Pretty
+> much everything you can do with the researcher panel depends on an internet connection. I'm
+> actually not sure there's anything at all you can do with a researcher panel offline. It already
+> doesn't cache device and project lists, so..."*
+
+He is right, and the cache is not merely useless — it is a cost with no purchaser:
+
+- **Offline the panel can do NOTHING.** Auth is Google OIDC (network), every read is a D1 poll,
+  every act is a worker call, and `lastData` is in-memory only BY DESIGN (E2EE — the panel never
+  persists decrypted device/project state). A precached shell that loads offline renders a sign-in
+  it cannot complete. The fieldworker apps are the opposite case in every respect: offline IS their
+  job, and nothing here touches them.
+- **The precache is one of the v108-outage surfaces.** The researcher satellite SHELL precaches the
+  editor's engine files BY PATH; that whole class of deploy-order hazard exists for it only because
+  it copies the fieldworker caching model.
+- **A STALE panel is a liability where a stale fieldworker app is the design working.** The panel
+  talks to the one live worker; backend-first releases assume clients catch up fast. The freshest
+  possible panel is the SAFEST possible panel — aggressive caching optimises in exactly the wrong
+  direction (seen live 2026-08-31: a panel self-updating v506→v509 mid-sign-in).
+- **The version ceremony shrinks.** Today every engine bump drags the researcher sw.js VERSION +
+  ENGINE along and costs every open panel an "update needed" round-trip that serves no one.
+
+**The shape of the change (a future release, its own branch):**
+
+1. Replace the researcher satellite's SW with a **network-first, no-precache** worker (or
+   network-only + a small honest offline page: "The researcher panel needs an internet
+   connection."). Keep A SW and the manifest untouched — installability and, critically, the PWA
+   **identity/scope must not move** (installed panels keep working; only the caching strategy
+   changes).
+2. **The new SW must actively replace the old one**: skipWaiting + clients.claim + delete the old
+   caches on activate. Every installed panel today runs the aggressive SW; without the takeover +
+   cache cleanup this change silently applies only to new installs (the service-worker-ghost
+   lesson).
+3. **Untangle the tooling deliberately, not incidentally**: bump-version.sh syncs the researcher
+   sw.js VERSION/ENGINE and test/version-sync.test.mjs asserts the five sites agree; both must be
+   re-scoped in the SAME commit that changes the SW, or the release tooling fails loudly on the
+   next bump. sync-satellites.yml's path-liveness check for the researcher mirror likewise stops
+   being about precache paths.
+4. The panel keeps its version badge and "update needed" device comparisons — those read
+   ENGINE_VERSION from the live site, not from the cache.
+5. ⚠ Scope: the RESEARCHER PANEL ONLY. Editor, recorder, crowd, PAT keep their offline-first
+   treatment untouched — offline is their reason to exist.
+
 ## The keyless-by-design instance class (Seth, 2026-08-30) — Phase 2 must expect it
 
 The one device the production backfill skipped (`b94f8160…`, in the Fayu project) is, per Seth, a

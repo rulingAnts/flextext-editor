@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v516';
+export const ENGINE_VERSION = 'v517';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -871,7 +871,7 @@ internet after the first time.</p>
 <li><b>Recording format</b> — the default <b>WAV 24-bit</b> is a lossless, archival-grade master; FLAC / WebM&nbsp;Opus / MP3 trade quality for size. Auto-gain is <b>off by default</b> so the master stays faithful — train coworkers to watch the on-screen <b>level meter</b> and move back if it warns. The "Which format should I choose?" link gives the full archival guidance.</li>
 </ul>
 <h3>Sharing a project with another researcher</h3>
-<p>The <b>Coworkers</b> menu adds a colleague researcher to a project, and you choose what they may do — manage devices, invite devices, work with texts, download files. A coworker with “manage devices” can approve and key new devices themselves, so pairing never waits for you. They never get access to your Google Drive, and only you can delete the project, wipe a device, or remove things permanently.</p>
+<p><b>Share with other Researchers…</b> adds a colleague researcher to a project, and you choose what they may do — manage devices, invite devices, work with texts, download files. A coworker with “manage devices” can approve and key new devices themselves, so pairing never waits for you. They never get access to your Google Drive, and only you can delete the project, wipe a device, or remove things permanently.</p>
 <h3>Your account</h3>
 <p>You sign in with <b>Google</b> — the same sign-in that lets the app save texts to your Google Drive. There is no separate password to remember or reset. By default the app <b>locks when you close it</b>, so you sign in again next time; turn on "Stay signed in" only on a device that is yours alone.</p>
 <h3>Security</h3>
@@ -1372,7 +1372,7 @@ internet after the first time.</p>
   /* Sharing a project with a coworker (Phase D). ⚠ The wording is bound by the repo's framing rule:
    * say what the protection SAFEGUARDS — the privacy of the communities in the recordings and their
    * intellectual and cultural heritage — never a guess about who it guards against. */
-  'panel.share.btn': 'Coworkers',
+  'panel.share.btn': 'Share with other Researchers…',
   'panel.share.title': 'Coworkers on this project',
   'panel.share.intro': 'A coworker you add here can help you look after this project’s devices. They never get access to your Google Drive — only to the devices in this one project.',
   'panel.share.project': 'Project',
@@ -2828,7 +2828,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
 <li><b>Format rekaman</b> — bawaan <b>WAV 24-bit</b> adalah master lossless berkualitas arsip; FLAC / WebM&nbsp;Opus / MP3 menukar kualitas dengan ukuran. Penguatan otomatis <b>mati secara bawaan</b> agar master tetap setia — latih rekan kerja memperhatikan <b>meter level</b> di layar dan mundur bila ada peringatan. Tautan "Format mana yang harus saya pilih?" memberi panduan arsip lengkap.</li>
 </ul>
 <h3>Berbagi proyek dengan peneliti lain</h3>
-<p>Menu <b>Rekan Kerja</b> menambahkan peneliti lain ke sebuah proyek, dan Anda memilih apa yang boleh mereka lakukan — mengelola perangkat, mengundang perangkat, mengerjakan teks, mengunduh berkas. Rekan kerja dengan “mengelola perangkat” dapat menyetujui dan memberi kunci perangkat baru sendiri, jadi penyandingan tidak pernah menunggu Anda. Mereka tidak pernah mendapat akses ke Google Drive Anda, dan hanya Anda yang dapat menghapus proyek, menghapus isi perangkat dari jauh, atau menghapus sesuatu secara permanen.</p>
+<p><b>Bagikan dengan Peneliti lain…</b> menambahkan peneliti lain ke sebuah proyek, dan Anda memilih apa yang boleh mereka lakukan — mengelola perangkat, mengundang perangkat, mengerjakan teks, mengunduh berkas. Rekan kerja dengan “mengelola perangkat” dapat menyetujui dan memberi kunci perangkat baru sendiri, jadi penyandingan tidak pernah menunggu Anda. Mereka tidak pernah mendapat akses ke Google Drive Anda, dan hanya Anda yang dapat menghapus proyek, menghapus isi perangkat dari jauh, atau menghapus sesuatu secara permanen.</p>
 <h3>Akun Anda</h3>
 <p>Anda masuk dengan <b>Google</b> — sama dengan yang memungkinkan aplikasi menyimpan teks ke Google Drive Anda. Tidak ada kata sandi terpisah untuk diingat atau diatur ulang. Secara bawaan aplikasi <b>terkunci saat ditutup</b>, jadi Anda masuk lagi berikutnya; aktifkan "Tetap masuk" hanya pada perangkat yang hanya milik Anda.</p>
 <h3>Keamanan</h3>
@@ -3264,7 +3264,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.proj.renameNote': 'Hanya tampilan. Folder ditemukan lewat tandanya, bukan namanya, jadi ini tidak dapat memutus kaitan perangkat, teks, atau unggahan yang sedang berjalan.',
   'panel.proj.renameGo': 'Ganti nama',
   'panel.proj.renamed': 'Nama proyek diganti.',
-  'panel.share.btn': 'Rekan kerja',
+  'panel.share.btn': 'Bagikan dengan Peneliti lain…',
   'panel.share.title': 'Rekan kerja di proyek ini',
   'panel.share.intro': 'Rekan kerja yang Anda tambahkan di sini dapat membantu Anda mengurus perangkat proyek ini. Mereka tidak pernah mendapat akses ke Google Drive Anda — hanya ke perangkat dalam proyek ini saja.',
   'panel.share.project': 'Proyek',

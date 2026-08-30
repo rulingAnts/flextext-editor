@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v517';
+export const ENGINE_VERSION = 'v518';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -871,11 +871,11 @@ internet after the first time.</p>
 <li><b>Recording format</b> — the default <b>WAV 24-bit</b> is a lossless, archival-grade master; FLAC / WebM&nbsp;Opus / MP3 trade quality for size. Auto-gain is <b>off by default</b> so the master stays faithful — train coworkers to watch the on-screen <b>level meter</b> and move back if it warns. The "Which format should I choose?" link gives the full archival guidance.</li>
 </ul>
 <h3>Sharing a project with another researcher</h3>
-<p><b>Share with other Researchers…</b> adds a colleague researcher to a project, and you choose what they may do — manage devices, invite devices, work with texts, download files. A coworker with “manage devices” can approve and key new devices themselves, so pairing never waits for you. They never get access to your Google Drive, and only you can delete the project, wipe a device, or remove things permanently.</p>
+<p><b>Share with other Researchers…</b> adds another researcher to a project, and you choose what they may do — manage devices, invite devices, work with texts, download files. A researcher with “manage devices” can approve and key new devices themselves, so pairing never waits for you. They never get access to your Google Drive, and only you can delete the project, wipe a device, or remove things permanently.</p>
 <h3>Your account</h3>
 <p>You sign in with <b>Google</b> — the same sign-in that lets the app save texts to your Google Drive. There is no separate password to remember or reset. By default the app <b>locks when you close it</b>, so you sign in again next time; turn on "Stay signed in" only on a device that is yours alone.</p>
 <h3>Security</h3>
-<p>Your texts and recordings live in your own Google Drive — the service never stores them long-term, though they do pass through our relay (and are briefly cached) on the way to and from a coworker's device. The device lists and settings the service does keep are <b>encrypted</b> with a data key — so normally only you, and coworkers you have added to a project, can open them. Because sign-in is via Google and the data key is held for you (so a new device can recover it after you sign in), the service is technically able to reach that encrypted data. In other words, your information is private and protected, but not in a way where even we could never reach it.</p>
+<p>Your texts and recordings live in your own Google Drive — the service never stores them long-term, though they do pass through our relay (and are briefly cached) on the way to and from a coworker's device. The device lists and settings the service does keep are <b>encrypted</b> with a data key — so normally only you, and researchers you have added to a project, can open them. Because sign-in is via Google and the data key is held for you (so a new device can recover it after you sign in), the service is technically able to reach that encrypted data. In other words, your information is private and protected, but not in a way where even we could never reach it.</p>
 <p><b>To keep your account secure:</b></p>
 <ul>
 <li>Protect your <b>Google account</b> well — ideally with Google's own two-step verification. Whoever can sign into your Google can reach this panel.</li>
@@ -1135,7 +1135,7 @@ internet after the first time.</p>
    * project. The line above is written for an owner; this one is for the other person who lands on
    * this screen, the coworker who came to help with someone else's project and would otherwise be
    * told to do the one thing they did not come here to do. */
-  'panel.dash.emptyJoin': 'Joining a coworker’s project instead? Send them your researcher ID — once they add you, their devices appear here.',
+  'panel.dash.emptyJoin': 'Joining another researcher’s project instead? Send them your researcher ID — once they add you, their devices appear here.',
   'panel.dash.emptyJoinBtn': 'Show my researcher ID',
   'panel.inst.pending': 'pending approval',
   'panel.inst.linked': 'linked',
@@ -1147,7 +1147,7 @@ internet after the first time.</p>
   'panel.inst.verifyHint': 'Confirm this fingerprint with the field worker before approving.',
   'panel.inst.approve': 'Approve & send key',
   'panel.inst.waitingAccept': 'Waiting for the field user to accept on their device…',
-  'panel.inst.waitingOwnerApprove': 'Waiting for approval by someone with device rights — the project owner, or a coworker with device management.',
+  'panel.inst.waitingOwnerApprove': 'Waiting for approval by someone with device rights — the project owner, or a researcher with device management.',
   'panel.inst.approved': 'Approved — key delivered.',
   'panel.inst.upload': 'Upload now',
   'panel.inst.reupload': 'Re-upload',
@@ -1224,7 +1224,7 @@ internet after the first time.</p>
   'panel.invite.recorderLink': 'Recorder link (record audio only)',
   'panel.invite.expires': 'Expires {when}',
   'panel.invite.copy': 'Copy link',
-  'panel.invite.freshNote': 'This is a newly made link — links are shown once and can never be re-displayed, by anyone. If a coworker already sent this device a link, that one stays valid too; this is a new one, not a copy of theirs.',
+  'panel.invite.freshNote': 'This is a newly made link — links are shown once and can never be re-displayed, by anyone. If another researcher already sent this device a link, that one stays valid too; this is a new one, not a copy of theirs.',
   'panel.invite.share': 'Share…',
   'panel.invite.openHere': 'Open on this device',
   'panel.invite.close': 'Close',
@@ -1373,26 +1373,26 @@ internet after the first time.</p>
    * say what the protection SAFEGUARDS — the privacy of the communities in the recordings and their
    * intellectual and cultural heritage — never a guess about who it guards against. */
   'panel.share.btn': 'Share with other Researchers…',
-  'panel.share.title': 'Coworkers on this project',
-  'panel.share.intro': 'A coworker you add here can help you look after this project’s devices. They never get access to your Google Drive — only to the devices in this one project.',
+  'panel.share.title': 'Researchers on this project',
+  'panel.share.intro': 'A researcher you add here can help you look after this project’s devices. They never get access to your Google Drive — only to the devices in this one project.',
   'panel.share.project': 'Project',
   'panel.share.loading': 'Loading…',
   'panel.share.none': 'Nobody else is on this project yet — it is just you.',
   'panel.share.owner': 'You own this project.',
-  'panel.share.notOwner': 'Only the owner of a project can add or remove coworkers.',
+  'panel.share.notOwner': 'Only the owner of a project can add or remove researchers.',
   'panel.share.noProjects': 'You have no projects yet.',
   'panel.share.memberCaps': 'Can: {caps}',
   'panel.share.capNone': 'nothing yet — they can see this project’s devices but change nothing',
   'panel.share.capManage': 'manage devices',
   'panel.share.capInvite': 'invite devices',
-  'panel.share.invalidCaps': '⚠ This coworker’s permissions could not be read. Remove and re-add them.',
+  'panel.share.invalidCaps': '⚠ This researcher’s permissions could not be read. Remove and re-add them.',
   'panel.share.remove': 'Remove',
   'panel.share.edit': 'Change permissions',
   'panel.share.editSave': 'Save permissions',
   'panel.share.updated': 'Permissions updated.',
-  'panel.share.sweepHealed': '{n} device key(s) delivered to your coworkers (new devices are unlocked for them automatically).',
+  'panel.share.sweepHealed': '{n} device key(s) delivered to the other researchers (new devices are unlocked for them automatically).',
   'panel.joined.title': 'Shared with you: {name}',
-  'panel.joined.tag': 'coworker',
+  'panel.joined.tag': 'member',
   'panel.joined.note': 'You help look after this project\u2019s devices. You can: {caps}.',
   'panel.joined.noteNone': 'You can see this project\u2019s devices, but no abilities have been granted to you yet.',
   'panel.joined.keyPending': 'This device\u2019s key has not reached your account yet. Keys are delivered automatically \u2014 press Refresh in a moment; nothing is wrong with the device.',
@@ -1400,15 +1400,15 @@ internet after the first time.</p>
   'panel.joined.needsSetup': 'This device is not set up yet \u2014 open Settings and fill in the required fields first. Then invite links and text assignment will work.',
   'panel.joined.empty': 'No devices in this project yet.',
   'panel.share.awaitingKey': 'has not signed in yet — device keys will be delivered automatically once they do',
-  'panel.share.increaseConfirm': 'You are giving this coworker MORE ability than before. Anything they do with it is real — settings changed, devices paired or revoked — and removing them later stops future actions, not past ones. Continue?',
-  'panel.share.removeConfirm': 'Remove this coworker from “{name}”?\n\nThey lose access from their next request, and the device keys they were given are deleted. What they have already seen or downloaded cannot be taken back.',
-  'panel.share.removed': 'Coworker removed.',
-  'panel.share.addTitle': 'Add a coworker',
+  'panel.share.increaseConfirm': 'You are giving this researcher MORE ability than before. Anything they do with it is real — settings changed, devices paired or revoked — and removing them later stops future actions, not past ones. Continue?',
+  'panel.share.removeConfirm': 'Remove this researcher from “{name}”?\n\nThey lose access from their next request, and the device keys they were given are deleted. What they have already seen or downloaded cannot be taken back.',
+  'panel.share.removed': 'Researcher removed.',
+  'panel.share.addTitle': 'Add a researcher',
   /* HOW TO ADD A COLLEAGUE — numbered, both sides, because this is a manual exchange between two
    * people through a channel the app knows nothing about, and the old single sentence covered only
    * the colleague's half. ⚠ Step 5 is the one nobody would guess: keys are delivered by a sweep that
    * runs when the OWNER's dashboard renders. */
-  'panel.share.step1': 'Your colleague opens the Researcher panel and signs in with their own Google account.',
+  'panel.share.step1': 'The other researcher opens the Researcher panel and signs in with their own Google account.',
   'panel.share.step2': 'They must be approved by the operator before they can be added — if they are not yet, they will see a message saying so, and you cannot add them until that clears.',
   'panel.share.step3': 'They open Account, press Copy ID, and send you that researcher ID — WhatsApp, Signal, email, however you already talk. It identifies them and is not a password.',
   'panel.share.step4': 'You paste it below, give them a name only you will see, tick what they may do, and press Add.',
@@ -1420,7 +1420,7 @@ internet after the first time.</p>
    * release notes conventionally carry BOTH, so the name promises what is inside. */
   /* ⚠ TEMPORARY, with the header ID line — remove both when the invite link lands. */
   'panel.who.idLabel': 'researcher id:',
-  'panel.who.idTip': 'Your researcher ID — send this to a project owner who wants to add you as a coworker. Click to copy it.',
+  'panel.who.idTip': 'Your researcher ID — send this to a project owner who wants to add you to their project. Click to copy it.',
   /* PROJECT DEFAULT SETTINGS — the feature is HALF-BUILT (storage + this modal work; nothing applies
    * the template to devices yet), and these strings say so rather than promising the missing half.
    * Seth met the raw keys on staging (panel.proj.defaults etc.) — the strings were simply never
@@ -1443,20 +1443,20 @@ internet after the first time.</p>
    * least useful thing it could do. The list already establishes what is known; what is NOT known is
    * which of them is costing them the most, and only they can say. */
   'panel.rel.prioritise': 'Which of these gets in your way most? That is what decides the order they are fixed in — say so, and it moves up.',
-  'panel.rel.new.share': 'You can share a project with a colleague and choose what they may do — manage devices, invite devices, work with texts, download files. They never get access to your Google Drive.',
-  'panel.rel.new.memberFiles': 'A colleague with “download files” can open a text’s Files menu and build the ELAN, SayMore, listening-page and paragraph-analysis outputs, the same as you.',
-  'panel.rel.new.projectLifecycle': 'You can delete a project once it has no devices left in it, and a colleague can leave a project they were added to.',
+  'panel.rel.new.share': 'You can share a project with another researcher and choose what they may do — manage devices, invite devices, work with texts, download files. They never get access to your Google Drive.',
+  'panel.rel.new.memberFiles': 'A researcher with “download files” can open a text’s Files menu and build the ELAN, SayMore, listening-page and paragraph-analysis outputs, the same as you.',
+  'panel.rel.new.projectLifecycle': 'You can delete a project once it has no devices left in it, and a researcher can leave a project they were added to.',
   'panel.rel.new.audioError': 'Fixed: when a recording failed to download, the text kept saying it was still arriving and hid the typing box. It now says what went wrong and lets you type.',
   'panel.rel.new.doneToggle': 'Fixed: un-marking a text as finished no longer leaves you unable to mark it finished again.',
   'panel.rel.new.oneVersion': 'Every part of the app now reports one version number, so a device that is out of date is obvious at a glance.',
-  'panel.rel.new.memberApprove': 'A coworker with “manage devices” can now approve and key a new device themselves — pairing no longer waits for the project owner, whoever created the invite.',
+  'panel.rel.new.memberApprove': 'A researcher with “manage devices” can now approve and key a new device themselves — pairing no longer waits for the project owner, whoever created the invite.',
   'panel.rel.new.rename': 'You can rename a device from its Settings.',
-  'panel.rel.new.keylessHonest': 'Fixed: adding a coworker to a project with an open-to-everyone crowd recorder warned forever that one device “could not be unlocked.” Crowd recorders don’t use device keys, and the panel now says so instead of warning.',
+  'panel.rel.new.keylessHonest': 'Fixed: sharing a project that contains an open-to-everyone crowd recorder warned forever that one device “could not be unlocked.” Crowd recorders don’t use device keys, and the panel now says so instead of warning.',
   'panel.rel.new.uploadChip': 'Fixed: a text could keep saying “edited on device — not yet uploaded” after a successful upload, and “still arriving” after a finished download.',
   'panel.rel.new.freshPanel': 'The panel now always loads fresh from the internet — no more surprise “app updated” reloads mid-use — with a proper loading indicator, and a clear offline page when there is no connection.',
   'panel.rel.new.dialogs': 'Confirmation questions are now proper in-app dialogs instead of browser pop-ups.',
-  'panel.known.addColleague': 'Adding a colleague is a clumsy manual exchange: they have to find their researcher ID and send it to you. A one-time invite link you can share instead is planned.',
-  'panel.known.crowdMembers': 'Crowd recorders are invisible to a coworker — only the project owner sees them.',
+  'panel.known.addColleague': 'Adding another researcher is a clumsy manual exchange: they have to find their researcher ID and send it to you. A one-time invite link you can share instead is planned.',
+  'panel.known.crowdMembers': 'Crowd recorders are invisible to added researchers — only the project owner sees them.',
   'panel.known.inviteOnce': 'A device invite link is shown once and cannot be displayed again. If it is lost, make a new one; the old link stays valid.',
   'panel.known.projectDefaults': 'Project “Default settings” can be saved but are not applied to anything yet — new devices do not pick them up. Half-built; finishing is queued.',
   /* ⚠ The coworker list no longer shows a name, email or avatar — the worker stopped sending them
@@ -1464,18 +1464,18 @@ internet after the first time.</p>
    * browser unencrypted. */
   'panel.share.nickLabel': 'A name for them (only you see it)',
   'panel.share.nickPh': 'e.g. Yani — Kulumi team',
-  'panel.share.nickNote': 'Required. Since nothing else identifies a coworker here, this is how you will tell two of them apart later. It is stored encrypted with your account and never sent to them or to anyone else.',
-  'panel.share.nickRequired': 'Give this coworker a name first — it is the only thing that will identify them in the list.',
-  'panel.share.unnamed': 'Unnamed coworker',
+  'panel.share.nickNote': 'Required. Since nothing else identifies a researcher here, this is how you will tell two of them apart later. It is stored encrypted with your account and never sent to them or to anyone else.',
+  'panel.share.nickRequired': 'Give this researcher a name first — it is the only thing that will identify them in the list.',
+  'panel.share.unnamed': 'Unnamed researcher',
   'panel.share.nickAdd': 'name them',
   'panel.share.nickEdit': 'rename',
-  'panel.share.nickPrompt': 'A name for this coworker — only you see it. It is stored encrypted with your account and never sent to anyone else. Leave blank to clear it.',
+  'panel.share.nickPrompt': 'A name for this researcher — only you see it. It is stored encrypted with your account and never sent to anyone else. Leave blank to clear it.',
   'panel.share.idLabel': 'Their researcher ID',
   'panel.share.idPh': 'Paste the ID they sent you',
   /* ⚠ BY ID, NOT BY EMAIL, and that is the same rule the pairing flow follows: an id-to-identity
    * lookup for any signed-in caller would be a directory of every researcher on the deployment.
    * The id is a random GUID, so it has to be handed over deliberately by the person it belongs to. */
-  'panel.share.idNote': 'Ask your coworker to open their own panel → Account, and send you the researcher ID shown there. They must have signed in and been approved first.',
+  'panel.share.idNote': 'Ask them to open their own panel → Account, and send you the researcher ID shown there. They must have signed in and been approved first.',
   'panel.share.capsLabel': 'What they may do',
   'panel.share.capManageLabel': 'Manage devices — change settings, rename, revoke, approve & key new devices',
   'panel.share.capInviteLabel': 'Invite devices — create pairing links for new devices',
@@ -1492,14 +1492,14 @@ internet after the first time.</p>
    * (v456) and drive:'read' became grantable (v468), leaving the modal contradicting its own controls.
    * It is now the GROUP-LEVEL fact that stays true whatever is ticked; the per-capability wording
    * lives on each label, where it cannot drift out of sight of what it describes. */
-  'panel.share.driveNote': 'Whatever you grant, your recordings and documents stay in your own Google Drive — coworkers act on them only through this app, never in Drive itself.',
+  'panel.share.driveNote': 'Whatever you grant, your recordings and documents stay in your own Google Drive — the researchers you add act on them only through this app, never in Drive itself.',
   'panel.share.warnTitle': 'How much do you need to trust this person?',
-  'panel.share.warnSee': 'They will be able to read everything this project’s devices have recorded and reported. Removing them later stops what they can do NEXT — it cannot take back what they have already read or saved.',
-  'panel.share.warnDo': 'Anything they do while trusted is real: settings they change, devices they revoke or pair. Removing them ends it from their next request; it does not undo what was already done.',
+  'panel.share.warnSee': 'They will see this project’s devices and everything those devices report — titles, settings, activity. With “download files” ticked they can also read the recordings and documents themselves. Removing them later stops what they can do NEXT — it cannot take back what they have already read or saved.',
+  'panel.share.warnDo': 'Anything they do while trusted is real: settings they change, devices they revoke, pair or key. Removing them ends it from their next request; it does not undo what was already done.',
   'panel.share.warnWhy': 'This project holds the language, voices and consent records of the community it serves. Adding someone here extends that trust to them.',
-  'panel.share.warnDriveReq': 'Never accept a Google Drive request to view or edit these project folders. Coworkers you add here never need direct Drive access — everything they are allowed to do happens in this panel. A request claiming to be from a coworker is far more likely to be someone who obtained a folder link, and approving it grants access this app cannot see, limit or take back.',
-  'panel.share.warnApproval': 'A coworker with “Manage devices” can approve and key new devices themselves — pairings no longer wait for you. What never transfers: your Google Drive stays yours alone, and only you can delete this project, wipe a device, or remove things permanently.',
-  'panel.share.addGo': 'Add coworker',
+  'panel.share.warnDriveReq': 'Never accept a Google Drive request to view or edit these project folders. Researchers you add here never need direct Drive access — everything they are allowed to do happens in this panel. A request claiming to be from one of them is far more likely to be someone who obtained a folder link, and approving it grants access this app cannot see, limit or take back.',
+  'panel.share.warnApproval': 'A researcher with “Manage devices” can approve and key new devices themselves — pairings no longer wait for you. What never transfers: your Google Drive stays yours alone, and only you can delete this project, wipe a device, or remove things permanently.',
+  'panel.share.addGo': 'Add researcher',
   'panel.share.added': '“{who}” can now help with this project.',
   'panel.share.addedKeyed': '“{who}” can now help with this project — {n} device(s) unlocked for them.',
   'panel.confirm.ok': 'OK',
@@ -1519,7 +1519,7 @@ internet after the first time.</p>
   'panel.share.errCaps': 'Those permissions were refused. Tick only the boxes shown here.',
   /* The other half of the flow: a coworker has to be able to FIND the id an owner asks them for. */
   'panel.account.rid': 'Your researcher ID',
-  'panel.account.ridNote': 'Send this to a project owner who wants to add you as a coworker. It identifies you and nothing else — it is not a password.',
+  'panel.account.ridNote': 'Send this to a project owner who wants to add you to their project. It identifies you and nothing else — it is not a password.',
   'panel.account.ridCopy': 'Copy ID',
   'panel.account.ridCopied': 'Researcher ID copied.',
   'panel.proj.undo': 'Undo \u2014 go back to a flat folder',
@@ -2828,11 +2828,11 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
 <li><b>Format rekaman</b> — bawaan <b>WAV 24-bit</b> adalah master lossless berkualitas arsip; FLAC / WebM&nbsp;Opus / MP3 menukar kualitas dengan ukuran. Penguatan otomatis <b>mati secara bawaan</b> agar master tetap setia — latih rekan kerja memperhatikan <b>meter level</b> di layar dan mundur bila ada peringatan. Tautan "Format mana yang harus saya pilih?" memberi panduan arsip lengkap.</li>
 </ul>
 <h3>Berbagi proyek dengan peneliti lain</h3>
-<p><b>Bagikan dengan Peneliti lain…</b> menambahkan peneliti lain ke sebuah proyek, dan Anda memilih apa yang boleh mereka lakukan — mengelola perangkat, mengundang perangkat, mengerjakan teks, mengunduh berkas. Rekan kerja dengan “mengelola perangkat” dapat menyetujui dan memberi kunci perangkat baru sendiri, jadi penyandingan tidak pernah menunggu Anda. Mereka tidak pernah mendapat akses ke Google Drive Anda, dan hanya Anda yang dapat menghapus proyek, menghapus isi perangkat dari jauh, atau menghapus sesuatu secara permanen.</p>
+<p><b>Bagikan dengan Peneliti lain…</b> menambahkan peneliti lain ke sebuah proyek, dan Anda memilih apa yang boleh mereka lakukan — mengelola perangkat, mengundang perangkat, mengerjakan teks, mengunduh berkas. Peneliti dengan “mengelola perangkat” dapat menyetujui dan memberi kunci perangkat baru sendiri, jadi penyandingan tidak pernah menunggu Anda. Mereka tidak pernah mendapat akses ke Google Drive Anda, dan hanya Anda yang dapat menghapus proyek, menghapus isi perangkat dari jauh, atau menghapus sesuatu secara permanen.</p>
 <h3>Akun Anda</h3>
 <p>Anda masuk dengan <b>Google</b> — sama dengan yang memungkinkan aplikasi menyimpan teks ke Google Drive Anda. Tidak ada kata sandi terpisah untuk diingat atau diatur ulang. Secara bawaan aplikasi <b>terkunci saat ditutup</b>, jadi Anda masuk lagi berikutnya; aktifkan "Tetap masuk" hanya pada perangkat yang hanya milik Anda.</p>
 <h3>Keamanan</h3>
-<p>Teks dan rekaman Anda berada di Google Drive Anda sendiri — layanan tidak pernah menyimpannya untuk jangka panjang, walau file itu tetap melewati relay kami (dan disinggahkan sebentar) saat menuju dan dari perangkat rekan kerja. Daftar perangkat dan pengaturan yang memang disimpan layanan <b>dienkripsi</b> dengan kunci data — jadi biasanya hanya Anda, dan rekan kerja yang Anda tambahkan ke proyek, yang bisa membukanya. Karena masuk lewat Google dan kunci data itu disimpankan untuk Anda (agar perangkat baru bisa memulihkannya setelah Anda masuk), layanan secara teknis mampu menjangkau data terenkripsi itu. Dengan kata lain, informasi Anda bersifat pribadi dan terlindungi, tetapi tidak dengan cara yang membuat kami pun tak pernah bisa menjangkaunya.</p>
+<p>Teks dan rekaman Anda berada di Google Drive Anda sendiri — layanan tidak pernah menyimpannya untuk jangka panjang, walau file itu tetap melewati relay kami (dan disinggahkan sebentar) saat menuju dan dari perangkat rekan kerja. Daftar perangkat dan pengaturan yang memang disimpan layanan <b>dienkripsi</b> dengan kunci data — jadi biasanya hanya Anda, dan peneliti yang Anda tambahkan ke proyek, yang bisa membukanya. Karena masuk lewat Google dan kunci data itu disimpankan untuk Anda (agar perangkat baru bisa memulihkannya setelah Anda masuk), layanan secara teknis mampu menjangkau data terenkripsi itu. Dengan kata lain, informasi Anda bersifat pribadi dan terlindungi, tetapi tidak dengan cara yang membuat kami pun tak pernah bisa menjangkaunya.</p>
 <p><b>Untuk menjaga keamanan akun Anda:</b></p>
 <ul>
 <li>Lindungi <b>akun Google Anda</b> dengan baik — idealnya dengan verifikasi dua langkah milik Google. Siapa pun yang bisa masuk ke Google Anda bisa menjangkau panel ini.</li>
@@ -3060,7 +3060,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.live.offline': '⚠ Tidak dapat menjangkau situs — Anda tampaknya offline (pemeriksaan versi langsung tidak tersedia).',
   'panel.dash.account': 'Akun',
   'panel.dash.empty': 'Belum ada perangkat. Tambahkan satu untuk mengirim tautan undangan ke pekerja lapangan.',
-  'panel.dash.emptyJoin': 'Ingin bergabung dengan proyek rekan kerja? Kirimkan ID peneliti Anda kepada mereka — setelah Anda ditambahkan, perangkat mereka akan muncul di sini.',
+  'panel.dash.emptyJoin': 'Ingin bergabung dengan proyek peneliti lain? Kirimkan ID peneliti Anda kepada mereka — setelah Anda ditambahkan, perangkat mereka akan muncul di sini.',
   'panel.dash.emptyJoinBtn': 'Tampilkan ID peneliti saya',
   'panel.inst.pending': 'menunggu persetujuan',
   'panel.inst.linked': 'terhubung',
@@ -3142,7 +3142,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.invite.recorderLink': 'Tautan Perekam (rekam audio saja)',
   'panel.invite.expires': 'Kedaluwarsa {when}',
   'panel.invite.copy': 'Salin tautan',
-  'panel.invite.freshNote': 'Ini tautan yang baru dibuat — tautan hanya ditampilkan sekali dan tidak bisa ditampilkan ulang oleh siapa pun. Jika rekan kerja sudah mengirim tautan untuk perangkat ini, tautan itu tetap berlaku; yang ini tautan baru, bukan salinannya.',
+  'panel.invite.freshNote': 'Ini tautan yang baru dibuat — tautan hanya ditampilkan sekali dan tidak bisa ditampilkan ulang oleh siapa pun. Jika peneliti lain sudah mengirim tautan untuk perangkat ini, tautan itu tetap berlaku; yang ini tautan baru, bukan salinannya.',
   'panel.invite.share': 'Bagikan…',
   'panel.invite.openHere': 'Buka di perangkat ini',
   'panel.invite.close': 'Tutup',
@@ -3265,26 +3265,26 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.proj.renameGo': 'Ganti nama',
   'panel.proj.renamed': 'Nama proyek diganti.',
   'panel.share.btn': 'Bagikan dengan Peneliti lain…',
-  'panel.share.title': 'Rekan kerja di proyek ini',
-  'panel.share.intro': 'Rekan kerja yang Anda tambahkan di sini dapat membantu Anda mengurus perangkat proyek ini. Mereka tidak pernah mendapat akses ke Google Drive Anda — hanya ke perangkat dalam proyek ini saja.',
+  'panel.share.title': 'Peneliti di proyek ini',
+  'panel.share.intro': 'Peneliti yang Anda tambahkan di sini dapat membantu Anda mengurus perangkat proyek ini. Mereka tidak pernah mendapat akses ke Google Drive Anda — hanya ke perangkat dalam proyek ini saja.',
   'panel.share.project': 'Proyek',
   'panel.share.loading': 'Memuat…',
   'panel.share.none': 'Belum ada orang lain di proyek ini — baru Anda sendiri.',
   'panel.share.owner': 'Anda pemilik proyek ini.',
-  'panel.share.notOwner': 'Hanya pemilik proyek yang dapat menambah atau menghapus rekan kerja.',
+  'panel.share.notOwner': 'Hanya pemilik proyek yang dapat menambah atau menghapus peneliti.',
   'panel.share.noProjects': 'Anda belum memiliki proyek.',
   'panel.share.memberCaps': 'Dapat: {caps}',
   'panel.share.capNone': 'belum ada — mereka dapat melihat perangkat proyek ini tetapi tidak dapat mengubah apa pun',
   'panel.share.capManage': 'mengelola perangkat',
   'panel.share.capInvite': 'mengundang perangkat',
-  'panel.share.invalidCaps': '⚠ Izin rekan kerja ini tidak dapat dibaca. Hapus lalu tambahkan kembali.',
+  'panel.share.invalidCaps': '⚠ Izin peneliti ini tidak dapat dibaca. Hapus lalu tambahkan kembali.',
   'panel.share.remove': 'Hapus',
   'panel.share.edit': 'Ubah izin',
   'panel.share.editSave': 'Simpan izin',
   'panel.share.updated': 'Izin diperbarui.',
-  'panel.share.sweepHealed': '{n} kunci perangkat terkirim ke rekan kerja Anda (perangkat baru terbuka untuk mereka secara otomatis).',
+  'panel.share.sweepHealed': '{n} kunci perangkat terkirim ke peneliti lain (perangkat baru terbuka untuk mereka secara otomatis).',
   'panel.joined.title': 'Dibagikan kepada Anda: {name}',
-  'panel.joined.tag': 'rekan kerja',
+  'panel.joined.tag': 'anggota',
   'panel.joined.note': 'Anda membantu mengurus perangkat proyek ini. Anda dapat: {caps}.',
   'panel.joined.noteNone': 'Anda dapat melihat perangkat proyek ini, tetapi belum ada kemampuan yang diberikan kepada Anda.',
   'panel.joined.keyPending': 'Kunci perangkat ini belum sampai ke akun Anda. Kunci dikirim otomatis — tekan Segarkan sebentar lagi; perangkat ini baik-baik saja.',
@@ -3292,17 +3292,17 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.joined.needsSetup': 'Perangkat ini belum disiapkan — buka Pengaturan dan isi kolom wajib dulu. Setelah itu tautan undangan dan penugasan teks akan berfungsi.',
   'panel.joined.empty': 'Belum ada perangkat di proyek ini.',
   'panel.share.awaitingKey': 'belum pernah masuk — kunci perangkat akan terkirim otomatis setelah mereka masuk',
-  'panel.share.increaseConfirm': 'Anda memberi rekan kerja ini kemampuan LEBIH dari sebelumnya. Apa pun yang mereka lakukan dengannya itu nyata — pengaturan berubah, perangkat dipasangkan atau dicabut — dan menghapus mereka nanti menghentikan tindakan berikutnya, bukan yang sudah terjadi. Lanjutkan?',
-  'panel.share.removeConfirm': 'Hapus rekan kerja ini dari “{name}”?\n\nAkses mereka berhenti mulai permintaan berikutnya, dan kunci perangkat yang pernah diberikan kepada mereka dihapus. Apa yang sudah mereka lihat atau unduh tidak dapat ditarik kembali.',
-  'panel.share.removed': 'Rekan kerja dihapus.',
-  'panel.share.addTitle': 'Tambah rekan kerja',
-  'panel.share.step1': 'Rekan Anda membuka panel Peneliti dan masuk dengan akun Google mereka sendiri.',
+  'panel.share.increaseConfirm': 'Anda memberi peneliti ini kemampuan LEBIH dari sebelumnya. Apa pun yang mereka lakukan dengannya itu nyata — pengaturan berubah, perangkat dipasangkan atau dicabut — dan menghapus mereka nanti menghentikan tindakan berikutnya, bukan yang sudah terjadi. Lanjutkan?',
+  'panel.share.removeConfirm': 'Hapus peneliti ini dari “{name}”?\n\nAkses mereka berhenti mulai permintaan berikutnya, dan kunci perangkat yang pernah diberikan kepada mereka dihapus. Apa yang sudah mereka lihat atau unduh tidak dapat ditarik kembali.',
+  'panel.share.removed': 'Peneliti dihapus.',
+  'panel.share.addTitle': 'Tambah peneliti',
+  'panel.share.step1': 'Peneliti lain itu membuka panel Peneliti dan masuk dengan akun Google mereka sendiri.',
   'panel.share.step2': 'Mereka harus disetujui operator sebelum dapat ditambahkan — jika belum, mereka akan melihat pesan tentang itu, dan Anda belum bisa menambahkan mereka.',
   'panel.share.step3': 'Mereka membuka Akun, menekan Salin ID, lalu mengirimkan ID peneliti itu kepada Anda — WhatsApp, Signal, surel, lewat saluran apa pun yang sudah Anda pakai. ID itu hanya menandai identitas, bukan kata sandi.',
   'panel.share.step4': 'Anda menempelkannya di bawah, memberi mereka nama yang hanya Anda lihat, mencentang apa yang boleh mereka lakukan, lalu menekan Tambah.',
   'panel.share.step5': 'Tekan Tambah — selesai. Akses dan kunci perangkat mereka disiapkan seketika; Anda tidak perlu membiarkan panel ini terbuka.',
   'panel.who.idLabel': 'id peneliti:',
-  'panel.who.idTip': 'ID peneliti Anda — kirimkan ini kepada pemilik proyek yang ingin menambahkan Anda sebagai rekan kerja. Klik untuk menyalinnya.',
+  'panel.who.idTip': 'ID peneliti Anda — kirimkan ini kepada pemilik proyek yang ingin menambahkan Anda ke proyek mereka. Klik untuk menyalinnya.',
   'panel.set.nick': 'Nama perangkat (tampil di panel ini dan di perangkat)',
   'panel.set.nickPh': 'mis. HP Wemis',
   'panel.proj.defaults': 'Pengaturan bawaan',
@@ -3317,33 +3317,33 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.rel.newTitle': 'Yang baru',
   'panel.rel.knownTitle': 'Masalah yang diketahui',
   'panel.rel.prioritise': 'Mana di antara ini yang paling menghambat pekerjaan Anda? Itulah yang menentukan urutan perbaikannya — sampaikan saja, dan prioritasnya naik.',
-  'panel.rel.new.share': 'Anda dapat berbagi proyek dengan rekan kerja dan memilih apa yang boleh mereka lakukan — mengelola perangkat, mengundang perangkat, mengerjakan teks, mengunduh berkas. Mereka tidak pernah mendapat akses ke Google Drive Anda.',
-  'panel.rel.new.memberFiles': 'Rekan kerja dengan “mengunduh berkas” dapat membuka menu Berkas sebuah teks dan membuat keluaran ELAN, SayMore, halaman simak, dan analisis paragraf, sama seperti Anda.',
-  'panel.rel.new.projectLifecycle': 'Anda dapat menghapus proyek setelah tidak ada perangkat di dalamnya, dan rekan kerja dapat keluar dari proyek yang membagikannya kepada mereka.',
+  'panel.rel.new.share': 'Anda dapat berbagi proyek dengan peneliti lain dan memilih apa yang boleh mereka lakukan — mengelola perangkat, mengundang perangkat, mengerjakan teks, mengunduh berkas. Mereka tidak pernah mendapat akses ke Google Drive Anda.',
+  'panel.rel.new.memberFiles': 'Peneliti dengan “mengunduh berkas” dapat membuka menu Berkas sebuah teks dan membuat keluaran ELAN, SayMore, halaman simak, dan analisis paragraf, sama seperti Anda.',
+  'panel.rel.new.projectLifecycle': 'Anda dapat menghapus proyek setelah tidak ada perangkat di dalamnya, dan peneliti lain dapat keluar dari proyek yang dibagikan kepada mereka.',
   'panel.rel.new.audioError': 'Diperbaiki: ketika rekaman gagal diunduh, teks tetap menyatakan rekaman sedang datang dan menyembunyikan kotak ketik. Kini kesalahannya disebutkan dan Anda tetap dapat mengetik.',
   'panel.rel.new.doneToggle': 'Diperbaiki: membatalkan tanda selesai pada teks tidak lagi membuat Anda tak bisa menandainya selesai kembali.',
   'panel.rel.new.oneVersion': 'Semua bagian aplikasi kini melaporkan satu nomor versi, sehingga perangkat yang ketinggalan versi langsung terlihat.',
-  'panel.rel.new.memberApprove': 'Rekan kerja dengan “mengelola perangkat” kini dapat menyetujui dan memberi kunci perangkat baru sendiri — penyandingan tidak lagi menunggu pemilik proyek, siapa pun yang membuat undangannya.',
+  'panel.rel.new.memberApprove': 'Peneliti dengan “mengelola perangkat” kini dapat menyetujui dan memberi kunci perangkat baru sendiri — penyandingan tidak lagi menunggu pemilik proyek, siapa pun yang membuat undangannya.',
   'panel.rel.new.rename': 'Anda dapat mengganti nama perangkat dari Pengaturannya.',
-  'panel.rel.new.keylessHonest': 'Diperbaiki: menambahkan rekan kerja ke proyek berisi perekam-terbuka memunculkan peringatan terus-menerus bahwa satu perangkat “tidak dapat dibuka.” Perekam terbuka tidak memakai kunci perangkat, dan panel kini mengatakannya, bukan memperingatkan.',
+  'panel.rel.new.keylessHonest': 'Diperbaiki: berbagi proyek yang berisi perekam-terbuka memunculkan peringatan terus-menerus bahwa satu perangkat “tidak dapat dibuka.” Perekam terbuka tidak memakai kunci perangkat, dan panel kini mengatakannya, bukan memperingatkan.',
   'panel.rel.new.uploadChip': 'Diperbaiki: sebuah teks bisa terus berkata “diedit di perangkat — belum diunggah” setelah unggahan berhasil, dan “masih dalam perjalanan” setelah unduhan selesai.',
   'panel.rel.new.freshPanel': 'Panel kini selalu dimuat langsung dari internet — tidak ada lagi muat-ulang “aplikasi diperbarui” mendadak di tengah pekerjaan — dengan indikator pemuatan yang jelas, dan halaman luring yang jelas saat tidak ada koneksi.',
   'panel.rel.new.dialogs': 'Pertanyaan konfirmasi kini berupa dialog dalam aplikasi, bukan jendela sembul peramban.',
-  'panel.known.addColleague': 'Menambahkan rekan kerja masih merepotkan: mereka harus mencari ID peneliti mereka dan mengirimkannya kepada Anda. Tautan undangan sekali pakai sedang direncanakan.',
-  'panel.known.crowdMembers': 'Perekam massal tidak terlihat oleh rekan kerja — hanya pemilik proyek yang melihatnya.',
+  'panel.known.addColleague': 'Menambahkan peneliti lain masih merepotkan: mereka harus mencari ID peneliti mereka dan mengirimkannya kepada Anda. Tautan undangan sekali pakai sedang direncanakan.',
+  'panel.known.crowdMembers': 'Perekam massal tidak terlihat oleh peneliti yang ditambahkan — hanya pemilik proyek yang melihatnya.',
   'panel.known.inviteOnce': 'Tautan undangan perangkat hanya ditampilkan sekali dan tidak dapat ditampilkan ulang. Jika hilang, buat yang baru; tautan lama tetap berlaku.',
   'panel.known.projectDefaults': '“Pengaturan bawaan” proyek dapat disimpan tetapi belum diterapkan ke apa pun — perangkat baru belum mengambilnya. Setengah jadi; penyelesaiannya sudah diantrekan.',
   'panel.share.nickLabel': 'Nama untuk mereka (hanya Anda yang melihatnya)',
   'panel.share.nickPh': 'mis. Yani — tim Kulumi',
-  'panel.share.nickNote': 'Wajib diisi. Karena tidak ada lagi yang menandai rekan kerja di sini, inilah cara Anda membedakan dua orang nanti. Disimpan terenkripsi bersama akun Anda dan tidak pernah dikirim kepada mereka atau siapa pun.',
-  'panel.share.nickRequired': 'Beri nama rekan kerja ini terlebih dahulu — hanya itu yang akan menandai mereka dalam daftar.',
-  'panel.share.unnamed': 'Rekan kerja tanpa nama',
+  'panel.share.nickNote': 'Wajib diisi. Karena tidak ada lagi yang menandai peneliti di sini, inilah cara Anda membedakan dua orang nanti. Disimpan terenkripsi bersama akun Anda dan tidak pernah dikirim kepada mereka atau siapa pun.',
+  'panel.share.nickRequired': 'Beri nama peneliti ini terlebih dahulu — hanya itu yang akan menandai mereka dalam daftar.',
+  'panel.share.unnamed': 'Peneliti tanpa nama',
   'panel.share.nickAdd': 'beri nama',
   'panel.share.nickEdit': 'ganti nama',
-  'panel.share.nickPrompt': 'Nama untuk rekan kerja ini — hanya Anda yang melihatnya. Disimpan terenkripsi bersama akun Anda dan tidak pernah dikirim ke siapa pun. Kosongkan untuk menghapusnya.',
+  'panel.share.nickPrompt': 'Nama untuk peneliti ini — hanya Anda yang melihatnya. Disimpan terenkripsi bersama akun Anda dan tidak pernah dikirim ke siapa pun. Kosongkan untuk menghapusnya.',
   'panel.share.idLabel': 'ID peneliti mereka',
   'panel.share.idPh': 'Tempelkan ID yang mereka kirimkan',
-  'panel.share.idNote': 'Minta rekan kerja Anda membuka panel mereka sendiri → Akun, lalu mengirimkan ID peneliti yang tertera di sana. Mereka harus sudah masuk dan disetujui terlebih dahulu.',
+  'panel.share.idNote': 'Minta mereka membuka panel mereka sendiri → Akun, lalu mengirimkan ID peneliti yang tertera di sana. Mereka harus sudah masuk dan disetujui terlebih dahulu.',
   'panel.share.capsLabel': 'Apa yang boleh mereka lakukan',
   'panel.share.capManageLabel': 'Mengelola perangkat — mengubah pengaturan, mengganti nama, mencabut, menyetujui & memberi kunci perangkat baru',
   'panel.share.capInviteLabel': 'Mengundang perangkat — membuat tautan penyandingan untuk perangkat baru',
@@ -3351,14 +3351,14 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.share.capAssignLabel': 'Mengerjakan teks — menugaskan teks, menandai selesai, menghapus dari perangkat',
   'panel.share.capDrive': 'mengunduh berkas',
   'panel.share.capDriveLabel': 'Mengunduh berkas — membuka menu Berkas… dan mengunduh rekaman serta dokumen sebuah teks. Hanya baca: mereka tidak dapat menghapus atau memindahkan apa pun di Drive, dan hanya Anda yang dapat menjelajahi Drive.',
-  'panel.share.driveNote': 'Apa pun yang Anda berikan, rekaman dan dokumen Anda tetap berada di Google Drive Anda sendiri — rekan kerja hanya menanganinya melalui aplikasi ini, tidak pernah langsung di Drive.',
+  'panel.share.driveNote': 'Apa pun yang Anda berikan, rekaman dan dokumen Anda tetap berada di Google Drive Anda sendiri — peneliti yang Anda tambahkan hanya menanganinya melalui aplikasi ini, tidak pernah langsung di Drive.',
   'panel.share.warnTitle': 'Seberapa besar Anda perlu memercayai orang ini?',
-  'panel.share.warnSee': 'Mereka akan dapat membaca semua yang telah direkam dan dilaporkan oleh perangkat proyek ini. Menghapus mereka nanti menghentikan apa yang dapat mereka lakukan SELANJUTNYA — itu tidak dapat menarik kembali apa yang sudah mereka baca atau simpan.',
-  'panel.share.warnDo': 'Apa pun yang mereka lakukan selagi dipercaya bersifat nyata: pengaturan yang mereka ubah, perangkat yang mereka cabut atau sandingkan. Menghapus mereka menghentikannya mulai permintaan berikutnya; itu tidak membatalkan apa yang sudah terjadi.',
+  'panel.share.warnSee': 'Mereka akan melihat perangkat proyek ini dan semua yang dilaporkan perangkat itu — judul, pengaturan, aktivitas. Dengan “mengunduh berkas” dicentang, mereka juga dapat membaca rekaman dan dokumennya sendiri. Menghapus mereka nanti menghentikan apa yang dapat mereka lakukan SELANJUTNYA — itu tidak dapat menarik kembali apa yang sudah mereka baca atau simpan.',
+  'panel.share.warnDo': 'Apa pun yang mereka lakukan selagi dipercaya bersifat nyata: pengaturan yang mereka ubah, perangkat yang mereka cabut, sandingkan, atau beri kunci. Menghapus mereka menghentikannya mulai permintaan berikutnya; itu tidak membatalkan apa yang sudah terjadi.',
   'panel.share.warnWhy': 'Proyek ini menyimpan bahasa, suara, dan catatan persetujuan komunitas yang dilayaninya. Menambahkan seseorang di sini memperluas kepercayaan itu kepada mereka.',
-  'panel.share.warnDriveReq': 'Jangan pernah menerima permintaan Google Drive untuk melihat atau mengedit folder proyek ini. Rekan kerja yang Anda tambahkan di sini tidak pernah membutuhkan akses Drive langsung — semua yang boleh mereka lakukan terjadi di panel ini. Permintaan yang mengaku dari rekan kerja jauh lebih mungkin berasal dari orang yang memperoleh tautan folder, dan menyetujuinya memberi akses yang tidak dapat dilihat, dibatasi, atau ditarik kembali oleh aplikasi ini.',
-  'panel.share.warnApproval': 'Rekan kerja dengan “Mengelola perangkat” dapat menyetujui dan memberi kunci perangkat baru sendiri — penyandingan tidak lagi menunggu Anda. Yang tidak pernah berpindah: Google Drive Anda tetap milik Anda sendiri, dan hanya Anda yang dapat menghapus proyek ini, menghapus isi perangkat dari jauh, atau menghapus sesuatu secara permanen.',
-  'panel.share.addGo': 'Tambah rekan kerja',
+  'panel.share.warnDriveReq': 'Jangan pernah menerima permintaan Google Drive untuk melihat atau mengedit folder proyek ini. Peneliti yang Anda tambahkan di sini tidak pernah membutuhkan akses Drive langsung — semua yang boleh mereka lakukan terjadi di panel ini. Permintaan yang mengaku dari salah satu dari mereka jauh lebih mungkin berasal dari orang yang memperoleh tautan folder, dan menyetujuinya memberi akses yang tidak dapat dilihat, dibatasi, atau ditarik kembali oleh aplikasi ini.',
+  'panel.share.warnApproval': 'Peneliti dengan “Mengelola perangkat” dapat menyetujui dan memberi kunci perangkat baru sendiri — penyandingan tidak lagi menunggu Anda. Yang tidak pernah berpindah: Google Drive Anda tetap milik Anda sendiri, dan hanya Anda yang dapat menghapus proyek ini, menghapus isi perangkat dari jauh, atau menghapus sesuatu secara permanen.',
+  'panel.share.addGo': 'Tambah peneliti',
   'panel.share.added': '“{who}” kini dapat membantu proyek ini.',
   'panel.share.addedKeyed': '“{who}” kini dapat membantu proyek ini — {n} perangkat dibuka untuk mereka.',
   'panel.confirm.ok': 'OK',
@@ -3372,7 +3372,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.share.errSelf': 'Itu ID Anda sendiri — Anda sudah menjadi pemilik proyek ini.',
   'panel.share.errCaps': 'Izin tersebut ditolak. Centang hanya kotak yang ditampilkan di sini.',
   'panel.account.rid': 'ID peneliti Anda',
-  'panel.account.ridNote': 'Kirimkan ini kepada pemilik proyek yang ingin menambahkan Anda sebagai rekan kerja. Ini hanya menandai identitas Anda — bukan kata sandi.',
+  'panel.account.ridNote': 'Kirimkan ini kepada pemilik proyek yang ingin menambahkan Anda ke proyek mereka. Ini hanya menandai identitas Anda — bukan kata sandi.',
   'panel.account.ridCopy': 'Salin ID',
   'panel.account.ridCopied': 'ID peneliti disalin.',
   'panel.proj.undo': 'Batalkan \u2014 kembali ke folder datar',

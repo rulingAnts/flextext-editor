@@ -163,7 +163,19 @@ export async function realityMaterial(db, instanceId, desiredBlob) {
   const inst = await db.prepare(
     'SELECT reported_blob FROM install WHERE instance_id=? AND revoked=0 AND reported_blob IS NOT NULL ORDER BY last_seen_at DESC LIMIT 1'
   ).bind(instanceId).first();
-  if (inst && inst.reported_blob) return { token: inst.reported_blob, source: 'report' };
+  if (inst && inst.reported_blob) {
+    /* ⚠⚠ reported_blob IS JSON-STRINGIFIED, NOT THE BARE TOKEN — the report route stores
+     * `JSON.stringify(body.reported)` (v1.js), so the column holds the "iv.ct" string WRAPPED IN
+     * QUOTES, and the panel unwraps it with safeParse() before decryptJSON (researcher.js:1253).
+     * The first verify run passed the RAW column value: atob hit the leading quote and threw before
+     * GCM ever ran, so ALL TEN report-sourced checks read FAILED while the five command-sourced ones
+     * passed — a perfectly consistent wrong answer that pointed at the keys instead of the format.
+     * Mirror safeParse exactly: parse if it parses to a string, use raw otherwise (belt for any
+     * legacy bare rows). */
+    let token = inst.reported_blob;
+    try { const parsed = JSON.parse(token); if (typeof parsed === 'string') token = parsed; } catch { /* bare */ }
+    return { token, source: 'report' };
+  }
   try {
     const blob = desiredBlob ? JSON.parse(desiredBlob) : null;
     const cmd = blob && Array.isArray(blob.commands) && blob.commands.find((c) => c && c.enc);
@@ -332,21 +344,14 @@ export async function verifyProjectKeys(env, db, decAtRest, onlyProjectId) {
       let kiKey = null;
       try { kiKey = await importAesRaw(kiRaw); }
       catch { rep.instances.push({ instance_id: it.instance_id, ok: false, source: 'ki_import_failed' }); totals.failed++; continue; }
-      /* Newest report from a live install is the strongest material — freshly minted by the device. */
-      const inst = await db.prepare(
-        'SELECT reported_blob FROM install WHERE instance_id=? AND revoked=0 AND reported_blob IS NOT NULL ORDER BY last_seen_at DESC LIMIT 1'
-      ).bind(it.instance_id).first();
-      let token = inst && inst.reported_blob, source = 'report';
-      if (!token) {
-        /* Fall back to an encrypted command the RESEARCHER minted under the same Ki. Weaker (it
-         * proves agreement with the panel, not the device) but real ciphertext nonetheless. */
-        try {
-          const blob = it.desired_blob ? JSON.parse(it.desired_blob) : null;
-          const cmd = blob && Array.isArray(blob.commands) && blob.commands.find((c) => c && c.enc);
-          if (cmd) { token = cmd.enc; source = 'command'; }
-        } catch { /* no material */ }
-      }
-      if (!token) { rep.instances.push({ instance_id: it.instance_id, ok: null, source: 'no_ciphertext' }); totals.no_ciphertext++; continue; }
+      /* ⚠ ONE material lookup — realityMaterial() — shared with the backfill. This function briefly
+       * carried its OWN inline copy of this logic, and when the JSON-stringified-report unwrap was
+       * fixed in realityMaterial, the copy here kept reading the raw column: the backfill healed
+       * while verify went on reporting the very failures it had just healed. The probe's real-report
+       * arm caught it before production did. Two copies of one truth is how that happens. */
+      const m2 = await realityMaterial(db, it.instance_id, it.desired_blob);
+      if (!m2) { rep.instances.push({ instance_id: it.instance_id, ok: null, source: 'no_ciphertext' }); totals.no_ciphertext++; continue; }
+      const token = m2.token, source = m2.source;
       try {
         await decryptJSONStd(kiKey, token);
         rep.instances.push({ instance_id: it.instance_id, ok: true, source });

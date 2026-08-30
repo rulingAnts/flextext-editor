@@ -147,6 +147,41 @@ ok(proj2.minted === false, 'and the second run minted no new Kp — one key per 
      `⚠ a skip carries its reasons (got ${JSON.stringify(c3.reason)}) — a keyless-by-design device is a sentence, not an investigation`);
 }
 
+/* ---- A REAL REPORT: verify against the blob AS THE WORKER STORES IT, quotes and all ----
+ * The first probe never created an install, so no device ever REPORTED, and every verify arm ran on
+ * command-sourced material. That gap is exactly where the second production failure hid: the report
+ * route stores JSON.stringify(body.reported) — the token wrapped in quotes — and verify read the raw
+ * column. This arm walks the REAL pairing lane (invite -> claim -> approve -> accept -> report) and
+ * posts the report the way sync.js does: body.reported = the bare "iv.ct" STRING, which the worker
+ * then stringifies into storage. If verify ever stops unwrapping that, this arm goes red. */
+{
+  const inv = await call('POST', `/v1/instances/${devA}/invite`, {});
+  ok(inv.status === 200 && inv.json && inv.json.invite_id, `invite minted for devA (got ${inv.status})`);
+  const installId = crypto.randomUUID();
+  const installSecret = 'pk-probe-install-' + crypto.randomUUID();
+  const claim = await fetch(BASE + `/v1/invites/${inv.json.invite_id}/claim`, {
+    method: 'POST',
+    headers: { 'x-fx-invite-secret': inv.json.secret, 'content-type': 'application/json' },
+    body: JSON.stringify({ install_id: installId, install_secret: installSecret, pubkey: 'FIXTURE-SPKI-BASE64' }),
+  });
+  ok(claim.status === 200, `claimed (got ${claim.status})`);
+  await call('POST', `/v1/instances/${devA}/installs/${installId}/approve`, {});
+  const DEVICE = { 'x-fx-install': installId, 'x-fx-secret': installSecret, 'content-type': 'application/json' };
+  await fetch(BASE + `/v1/instances/${devA}/installs/${installId}/accept`, { method: 'POST', headers: DEVICE, body: '{}' });
+  const kiKeyA2 = await crypto.subtle.importKey('raw', kiA, { name: 'AES-GCM' }, false, ['encrypt']);
+  const reported = await encryptJSONStd(kiKeyA2, { device: 'pk-probe', texts: [] });   // the bare token, as sync.js sends it
+  const rep = await fetch(BASE + `/v1/instances/${devA}/installs/${installId}/report`, {
+    method: 'POST', headers: DEVICE, body: JSON.stringify({ reported, ack_seq: 0 }),
+  });
+  ok(rep.status === 200, `device reported real Ki-encrypted inventory (got ${rep.status})`);
+
+  const vR = await call('POST', '/v1/researcher/admin/project-key-verify', { project_id: FIXTURE.migratedProjectId });
+  const vpR = ((vR.json && vR.json.projects) || []).find((p) => p.project_id === FIXTURE.migratedProjectId) || { instances: [] };
+  const vaR = vpR.instances.find((i) => i.instance_id === devA) || {};
+  ok(vaR.ok === true && vaR.source === 'report',
+     `⚠⚠ verify opens the report AS STORED — JSON-stringified, quotes unwrapped like the panel's safeParse (got ${vaR.ok}/${vaR.source})`);
+}
+
 /* ---- DIVERGED STORES: the class behind the 2026-08-30 stale-wrap incident ---- */
 {
   /* devD: wrappedKis holds kiOld, the owner grant holds kiNew, and the device's real world speaks

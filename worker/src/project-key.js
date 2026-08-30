@@ -86,38 +86,47 @@ async function encryptJSONStd(key, obj) {
  * `decAtRest` is passed in rather than imported to keep this module dependency-free of v1.js
  * (which imports US) — the same inversion drive-object.js uses. */
 export async function deriveKiRaw(env, db, decAtRest, ownerRow, instanceId) {
-  if (!ownerRow || !ownerRow.kr_server_enc) return null;
+  /* On failure this returns { fail: [...] } — COARSE reasons, never key material, shown only on the
+   * operator route. Added after the first production run reported 16 bare 'skipped_no_ki' and the
+   * cause (the base64 alphabet) took a live-browser replay to find. A reason turns the next such
+   * skip from an investigation into a sentence. */
+  if (!ownerRow) return { fail: ['owner_row_missing'] };
+  if (!ownerRow.kr_server_enc) return { fail: ['no_kr_escrow'] };
   const krB64 = await decAtRest(env, ownerRow.kr_server_enc);
-  if (!krB64) return null;
+  if (!krB64) return { fail: ['kr_undecryptable'] };
   let krKey = null;
-  try { krKey = await importAesRaw(b64ToBytes(krB64)); } catch { return null; }
+  try { krKey = await importAesRaw(b64ToBytes(krB64)); } catch { return { fail: ['kr_import_failed'] }; }
 
+  const fails = [];
   /* Path A — the legacy Kr-wrapped store inside settings_blob. Cheapest, and the one every
    * owner-created device has. */
   try {
     const settings = JSON.parse(ownerRow.settings_blob || '{}');
     const w = settings && settings.wrappedKis && settings.wrappedKis[instanceId];
     if (w) {
-      const { k } = await decryptJSONStd(krKey, w);
-      if (k) return { raw: b64ToBytes(k), path: 'wrappedKis' };
-    }
-  } catch { /* fall through to path B — a malformed blob must not mask a good grant */ }
+      try {
+        const { k } = await decryptJSONStd(krKey, w);
+        if (k) return { raw: b64ToBytes(k), path: 'wrappedKis' };
+        fails.push('wrappedKis_no_k');
+      } catch { fails.push('wrappedKis_undecryptable'); }
+    } else fails.push('no_wrappedKis_entry');
+  } catch { fails.push('settings_blob_unparseable'); }
 
   /* Path B — the owner's own member_key grant (RSA-OAEP to their pubkey), unwrapped with the
    * privkey escrowed under Kr. Newer devices (member-created ones especially) live here. */
   try {
-    if (!ownerRow.wrapped_privkey) return null;
+    if (!ownerRow.wrapped_privkey) { fails.push('no_wrapped_privkey'); return { fail: fails }; }
     const { pkcs8 } = await decryptJSONStd(krKey, ownerRow.wrapped_privkey);
-    if (!pkcs8) return null;
+    if (!pkcs8) { fails.push('privkey_no_pkcs8'); return { fail: fails }; }
     const priv = await crypto.subtle.importKey('pkcs8', b64ToBytes(pkcs8),
       { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['decrypt']);
     const g = await db.prepare(
       'SELECT wrapped_ki FROM member_key WHERE instance_id=? AND researcher_id=? ORDER BY key_version DESC LIMIT 1'
     ).bind(instanceId, ownerRow.researcher_id).first();
-    if (!g || !g.wrapped_ki) return null;
+    if (!g || !g.wrapped_ki) { fails.push('no_owner_grant'); return { fail: fails }; }
     const raw = await crypto.subtle.decrypt({ name: 'RSA-OAEP' }, priv, b64ToBytes(g.wrapped_ki));
     return { raw: new Uint8Array(raw), path: 'member_key' };
-  } catch { return null; }
+  } catch { fails.push('grant_unwrap_failed'); return { fail: fails }; }
 }
 
 /* Fetch-or-mint the project's Kp; returns { raw, key_version }.
@@ -176,7 +185,10 @@ export async function backfillProjectKeys(env, db, encAtRest, decAtRest, now, on
     for (const it of insts) {
       if (it.ki_kp) { rep.instances.push({ instance_id: it.instance_id, status: 'already' }); totals.already++; continue; }
       const ki = await deriveKiRaw(env, db, decAtRest, owner, it.instance_id);
-      if (!ki) { rep.instances.push({ instance_id: it.instance_id, status: 'skipped_no_ki' }); totals.skipped++; continue; }
+      if (!ki || !ki.raw) {
+        rep.instances.push({ instance_id: it.instance_id, status: 'skipped_no_ki', reason: (ki && ki.fail) || ['unknown'] });
+        totals.skipped++; continue;
+      }
       if (!kp) {
         kp = await ensureProjectKp(env, db, encAtRest, decAtRest, p.project_id, now);
         if (!kp) { rep.instances.push({ instance_id: it.instance_id, status: 'skipped_no_kp' }); totals.skipped++; continue; }
@@ -193,6 +205,70 @@ export async function backfillProjectKeys(env, db, encAtRest, decAtRest, now, on
         .bind(token, kp.key_version, it.instance_id).run();
       rep.instances.push({ instance_id: it.instance_id, status: 'wrapped', path: ki.path });
       totals.wrapped++;
+    }
+    out.push(rep);
+  }
+  return { projects: out, totals };
+}
+
+/* VERIFY ki_kp AGAINST REALITY — the pre-Phase-2 gate.
+ *
+ * The backfill's round-trip check proves each stored wrap matches what was DERIVED; this proves the
+ * derivation matched what the DEVICE actually holds, by decrypting ciphertext the device world
+ * minted: an install's reported_blob (encryptJSON(Ki, inventory), written by sync.js on every
+ * report) or, failing that, an encrypted command in the desired lane. If ki_kp's Ki opens those,
+ * it is the true Ki — and Phase 2 may hand it to new installs without qualification.
+ *
+ * ⚠ READ-ONLY, and it returns BOOLEANS ONLY — never a byte of plaintext. A verify that echoed the
+ * decrypted inventory would turn an integrity check into a disclosure route.
+ * ⚠ 'no_ciphertext' is a neutral outcome, not a pass: a device that has never reported and holds no
+ * encrypted commands offers nothing to check against. It is counted separately so the summary cannot
+ * claim more than it measured. */
+export async function verifyProjectKeys(env, db, decAtRest, onlyProjectId) {
+  const projects = onlyProjectId
+    ? (await db.prepare('SELECT project_id FROM project_key WHERE project_id=?').bind(onlyProjectId).all()).results || []
+    : (await db.prepare('SELECT project_id FROM project_key').all()).results || [];
+  const out = [];
+  const totals = { verified: 0, failed: 0, no_ciphertext: 0 };
+  for (const p of projects) {
+    const kpRow = await db.prepare('SELECT kp_enc FROM project_key WHERE project_id=?').bind(p.project_id).first();
+    const kpB64 = kpRow ? await decAtRest(env, kpRow.kp_enc) : null;
+    if (!kpB64) { out.push({ project_id: p.project_id, error: 'kp_undecryptable' }); continue; }
+    const kpRaw = b64ToBytes(kpB64);
+    const rep = { project_id: p.project_id, instances: [] };
+    const insts = (await db.prepare(
+      'SELECT instance_id, ki_kp, desired_blob FROM instance WHERE project_id=? AND revoked=0 AND ki_kp IS NOT NULL'
+    ).bind(p.project_id).all()).results || [];
+    for (const it of insts) {
+      let kiRaw = null;
+      try { kiRaw = await unwrapKiUnderKp(kpRaw, it.ki_kp); }
+      catch { rep.instances.push({ instance_id: it.instance_id, ok: false, source: 'unwrap_failed' }); totals.failed++; continue; }
+      let kiKey = null;
+      try { kiKey = await importAesRaw(kiRaw); }
+      catch { rep.instances.push({ instance_id: it.instance_id, ok: false, source: 'ki_import_failed' }); totals.failed++; continue; }
+      /* Newest report from a live install is the strongest material — freshly minted by the device. */
+      const inst = await db.prepare(
+        'SELECT reported_blob FROM install WHERE instance_id=? AND revoked=0 AND reported_blob IS NOT NULL ORDER BY last_seen_at DESC LIMIT 1'
+      ).bind(it.instance_id).first();
+      let token = inst && inst.reported_blob, source = 'report';
+      if (!token) {
+        /* Fall back to an encrypted command the RESEARCHER minted under the same Ki. Weaker (it
+         * proves agreement with the panel, not the device) but real ciphertext nonetheless. */
+        try {
+          const blob = it.desired_blob ? JSON.parse(it.desired_blob) : null;
+          const cmd = blob && Array.isArray(blob.commands) && blob.commands.find((c) => c && c.enc);
+          if (cmd) { token = cmd.enc; source = 'command'; }
+        } catch { /* no material */ }
+      }
+      if (!token) { rep.instances.push({ instance_id: it.instance_id, ok: null, source: 'no_ciphertext' }); totals.no_ciphertext++; continue; }
+      try {
+        await decryptJSONStd(kiKey, token);
+        rep.instances.push({ instance_id: it.instance_id, ok: true, source });
+        totals.verified++;
+      } catch {
+        rep.instances.push({ instance_id: it.instance_id, ok: false, source });
+        totals.failed++;
+      }
     }
     out.push(rep);
   }

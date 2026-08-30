@@ -107,6 +107,46 @@ ok(st2(devA).status === 'already' && st2(devB).status === 'already',
    `⚠ re-run is a no-op for wrapped devices (got ${st2(devA).status}/${st2(devB).status})`);
 ok(proj2.minted === false, 'and the second run minted no new Kp — one key per project, ever');
 
+/* ---- VERIFY: ki_kp proven against real ciphertext under the SAME Ki ---- */
+{
+  /* Before any device-minted material exists, verify must answer 'no_ciphertext' — counted apart
+   * from 'verified', so the summary never claims more than it measured. */
+  const v1 = await call('POST', '/v1/researcher/admin/project-key-verify', { project_id: FIXTURE.migratedProjectId });
+  ok(v1.status === 200 && v1.json && v1.json.ok, `verify runs (got ${v1.status})`);
+  const vp = ((v1.json && v1.json.projects) || []).find((p) => p.project_id === FIXTURE.migratedProjectId) || { instances: [] };
+  const vst = (id) => (vp.instances.find((i) => i.instance_id === id) || {});
+  ok(vst(devA).ok === null && vst(devA).source === 'no_ciphertext',
+     `⚠ with nothing to check against, verify says so instead of passing (got ${vst(devA).source})`);
+
+  /* Now mint REAL ciphertext under the same Ki — an encrypted changeSettings command, exactly what
+   * the panel sends — and verify must decrypt it with the Kp-unwrapped key. This is the arm that
+   * catches a ki_kp holding a wrong-but-well-formed key, which the backfill's round-trip cannot. */
+  const kiKeyA = await crypto.subtle.importKey('raw', kiA, { name: 'AES-GCM' }, false, ['encrypt']);
+  const kiKeyB = await crypto.subtle.importKey('raw', kiB, { name: 'AES-GCM' }, false, ['encrypt']);
+  for (const [dev, key] of [[devA, kiKeyA], [devB, kiKeyB]]) {
+    const enc2 = await encryptJSONStd(key, { settings: { probe: true } });
+    const c = await call('POST', `/v1/instances/${dev}/command`, { command: { type: 'changeSettings', enc: enc2 } });
+    ok(c.status === 200, `enc command queued on ${dev === devA ? 'devA' : 'devB'} (got ${c.status})`);
+  }
+  const v2 = await call('POST', '/v1/researcher/admin/project-key-verify', { project_id: FIXTURE.migratedProjectId });
+  const vp2 = ((v2.json && v2.json.projects) || []).find((p) => p.project_id === FIXTURE.migratedProjectId) || { instances: [] };
+  const vst2 = (id) => (vp2.instances.find((i) => i.instance_id === id) || {});
+  ok(vst2(devA).ok === true && vst2(devA).source === 'command',
+     `⚠⚠ devA's ki_kp decrypts REAL ciphertext minted under the true Ki (got ${vst2(devA).ok}/${vst2(devA).source})`);
+  ok(vst2(devB).ok === true,
+     `⚠⚠ devB too — the member_key-derived wrap opens the same reality (got ${vst2(devB).ok})`);
+  ok(v2.json.totals && v2.json.totals.failed === 0, `verify totals: failed=${v2.json.totals && v2.json.totals.failed}`);
+}
+
+/* ---- skip REASONS: the bare 'skipped_no_ki' cost a live investigation; the reason is now data ---- */
+{
+  const run3 = await call('POST', '/v1/researcher/admin/project-key-backfill', { project_id: FIXTURE.migratedProjectId });
+  const p3 = ((run3.json && run3.json.projects) || []).find((p) => p.project_id === FIXTURE.migratedProjectId) || { instances: [] };
+  const c3 = p3.instances.find((i) => i.instance_id === devC) || {};
+  ok(Array.isArray(c3.reason) && c3.reason.includes('no_wrappedKis_entry') && c3.reason.includes('no_owner_grant'),
+     `⚠ a skip carries its reasons (got ${JSON.stringify(c3.reason)}) — a keyless-by-design device is a sentence, not an investigation`);
+}
+
 /* ---- authorization: the outsider (non-operator) is refused ---- */
 {
   const r = await fetch(BASE + '/v1/researcher/admin/project-key-backfill', {
@@ -115,6 +155,12 @@ ok(proj2.minted === false, 'and the second run minted no new Kp — one key per 
     body: '{}',
   });
   ok(r.status === 403, `⚠ a non-operator cannot run the backfill (got ${r.status})`);
+  const rv = await fetch(BASE + '/v1/researcher/admin/project-key-verify', {
+    method: 'POST',
+    headers: { 'x-fx-researcher': FIXTURE.outsiderId, 'x-fx-secret': FIXTURE.outsiderSecret, 'content-type': 'application/json' },
+    body: '{}',
+  });
+  ok(rv.status === 403, `⚠ ...nor the verify (got ${rv.status})`);
 }
 
 /* ---- and the route is genuinely INERT for everyone else: nothing new leaked into the poll ---- */

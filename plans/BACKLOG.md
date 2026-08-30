@@ -239,6 +239,30 @@ at Phase 4.
    is a formalisation rather than a downgrade. It should be written down plainly where the old
    comments overclaimed.
 
+## The keyless-by-design instance class (Seth, 2026-08-30) — Phase 2 must expect it
+
+The one device the production backfill skipped (`b94f8160…`, in the Fayu project) is, per Seth, a
+**crowd recorder**: *"It doesn't pair with any single device. It's open to everybody… It is a
+'device', but it's also not a 'device'."* It occupies an instance row, but it never went through the
+pairing ceremony, so **no Ki was ever established for it** — nothing to derive, nothing to wrap, and
+`skipped_no_ki` is CORRECT AND PERMANENT for it, not a gap to heal. (The backfill's new `reason`
+field should confirm: `["no_wrappedKis_entry","no_owner_grant"]`.)
+
+**This one identification closed two mysteries at once:** the same instance is why the add-coworker
+flow perpetually reported "only 1 of 2 device(s) could be unlocked" — grantKeysToMember trying
+forever to grant a key that has never existed.
+
+**⚠ THE DOWNSTREAM DEFECT, to fix panel-side (small, client-only):** anything that diffs "granted"
+against "the project's instances" — memberGrantSweep, and v506's add-coworker end-state re-check —
+counts a keyless-by-design instance as *missing* and retries/warns forever. A keyless instance must
+be EXCLUDED from the grant expectation: it is not missing for the member; it is keyless, period. The
+panel already has the vocabulary (`hasKey === false`, the `panel.inst.noKey` badge) — the sweep and
+the banner just never consulted it.
+
+**⚠ FOR PHASE 2:** the worker-maintained grant machinery must expect instances with no ki_kp and no
+derivable Ki as a NORMAL, permanent class — never an error, never a retry loop, and never something
+that blocks adding a coworker to the project that contains one.
+
 ## The E2EE model assumes device-to-device; the system stopped being that (Seth, 2026-08-28)
 
 ⚠ **READ THIS BEFORE THE Kp ENTRY BELOW.** Seth, after tracing the partial-key-grant message to its

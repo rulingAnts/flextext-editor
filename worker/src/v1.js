@@ -14,7 +14,7 @@
 
 import { secAlert, secLog, sendEmail } from './seclog.js';
 import { teardownUnmigratedProjectRows } from './project-teardown.js';
-import { backfillProjectKeys } from './project-key.js';
+import { backfillProjectKeys, verifyProjectKeys } from './project-key.js';
 import { stampDriveObject, deriveDriveObjectRows, moveDriveObjectText, moveDriveObjectContainer,
          authorizeDocForProject, authorizeObjectForProject } from './drive-object.js';
 
@@ -2722,6 +2722,23 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     const res = await backfillProjectKeys(env, env.DB, encAtRest, decAtRest, now, only);
     await logApproval(env, request, 'project_key_backfill', only || 'all',
       `wrapped=${res.totals.wrapped} already=${res.totals.already} skipped=${res.totals.skipped} verify_failed=${res.totals.verify_failed}`, r.drive_email);
+    return j({ ok: true, ...res }, 200, origin, env);
+  }
+
+  /* POST /v1/researcher/admin/project-key-verify { project_id? } — OPERATOR-ONLY, READ-ONLY.
+   *
+   * The pre-Phase-2 gate: proves each stored ki_kp unwraps to the TRUE device key by decrypting
+   * ciphertext the device world actually minted (an install's reported_blob, else an encrypted
+   * desired-lane command). Returns booleans only — never plaintext. 'no_ciphertext' is counted
+   * separately from 'verified' so the summary cannot claim more than it measured. Writes nothing. */
+  if (m === 'POST' && seg.length === 4 && seg[1] === 'researcher' && seg[2] === 'admin' && seg[3] === 'project-key-verify') {
+    const r = await authResearcher(request, env);
+    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    if (!isOperator(r.drive_email, env)) return j({ error: 'not_owner' }, 403, origin, env);
+    const body = await readJson(request) || {};
+    const res = await verifyProjectKeys(env, env.DB, decAtRest, body.project_id ? String(body.project_id) : null);
+    await logApproval(env, request, 'project_key_verify', body.project_id || 'all',
+      `verified=${res.totals.verified} failed=${res.totals.failed} no_ciphertext=${res.totals.no_ciphertext}`, r.drive_email);
     return j({ ok: true, ...res }, 200, origin, env);
   }
 

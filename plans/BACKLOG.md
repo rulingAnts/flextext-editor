@@ -44,8 +44,19 @@ rather than a nicety.
 
 ## DECIDED DIRECTION: instances belong to PROJECTS, and the project holds the key (Seth, 2026-08-28)
 
-**⚠ APPROVED TO BUILD — DEFERRED (Seth, 2026-08-28: "Ok. Build it. …later.").** Not started; nothing
-below is implemented. The first build session should:
+**⚠ PHASE 1 BUILT AND RIG-PROVEN (2026-08-30, v507) — production deploy awaits Seth's ritual.**
+What exists: migrate-project-key.sql, worker/src/project-key.js (both escrow derivation paths,
+self-verifying wraps, skip-not-fail), POST /v1/researcher/admin/project-key-backfill (operator-only,
+idempotent, audit-logged), the three comment corrections, worker-schema registration, and
+test/worker-projectkey.probe.mjs in the rig — 280 assertions, 0 failures, everything seeded through
+public APIs. STAGING: D1 migrated (3 queries ok) and worker deployed (e0e75884); serves normally.
+⚠ Staging E2E of the backfill is BLOCKED on secrets only Seth can set: the staging env has no
+GOOGLE_OAUTH_* (sign-in answers `oauth_unconfigured`) and no ALLOWED_RESEARCHERS, so no operator can
+exist there. Optional to fix — the rig covers the behaviour.
+REMAINING (Seth present): production D1 migrate → production worker deploy (flag + rollback id
+first) → Seth runs the backfill as operator → verify counts in the approval log.
+
+The original deferred checklist, kept for the record:
  1. **Phase 1 only, and it is inert by design** — `project_key` table (Kp encAtRest), backfill wraps,
     no behaviour change anywhere. The false-stronger E2EE comments ride this commit (Seth: "make sure
     you DO correct those things when we go"): `worker/src/v1.js:5288` ("it never sees Ki"),

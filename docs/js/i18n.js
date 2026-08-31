@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v520';
+export const ENGINE_VERSION = 'v521';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1400,6 +1400,7 @@ internet after the first time.</p>
   'panel.set.fromTemplate': 'Prefilled from this project\u2019s default settings. Nothing is on the device yet \u2014 press \u201cPush to device\u201d to apply them.',
   'panel.set.readFailed': 'This device\u2019s current settings could not be read just now \u2014 probably the connection. The fields are left blank rather than guessing: close this and reopen it when you are back online, so a push cannot overwrite settings you could not see.',
   'panel.set.promptPerDevice': 'The spoken prompt is uploaded per device (it is stored in that device\u2019s own folder), so it is not part of the template. Tick the consent mode here; upload each device\u2019s prompt in its own Settings.',
+  'panel.proj.nowDefaults': 'Now set \u201c{name}\u201d\u2019s default settings \u2014 every new device in it will start from these.',
   'panel.joined.needsSetup': 'This device is not set up yet \u2014 open Settings and fill in the required fields first. Then invite links and text assignment will work.',
   'panel.joined.empty': 'No devices in this project yet.',
   'panel.share.awaitingKey': 'has not signed in yet — device keys will be delivered automatically once they do',
@@ -1437,6 +1438,7 @@ internet after the first time.</p>
   'panel.apply.title': 'Apply to existing devices — {name}',
   'panel.apply.savedNote': 'The template is saved, and new devices will start from it. You can also push it to devices this project already has — nothing is sent until you choose below.',
   'panel.apply.changedList': 'Not yet applied to devices ({n}): {fields}',
+  'panel.apply.andMore': '…and {n} more',
   'panel.apply.modeChanges': 'Only those fields — update just the field(s) listed above on each ticked device, leaving its other settings alone. A device with no settings yet gets the whole template.',
   'panel.apply.modeAll': 'The whole template — replace each ticked device’s ENTIRE settings with this template.',
   'panel.apply.modeAllOnly': 'Pushing replaces each ticked device’s ENTIRE settings with this template.',
@@ -3310,6 +3312,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.set.fromTemplate': 'Terisi otomatis dari pengaturan bawaan proyek ini. Belum ada yang terpasang di perangkat — tekan “Kirim ke perangkat” untuk menerapkannya.',
   'panel.set.readFailed': 'Pengaturan perangkat ini tidak dapat dibaca saat ini — kemungkinan koneksi. Kolom dibiarkan kosong daripada menebak: tutup dan buka lagi setelah Anda kembali daring, agar pengiriman tidak menimpa pengaturan yang tidak dapat Anda lihat.',
   'panel.set.promptPerDevice': 'Pesan lisan diunggah per perangkat (disimpan di folder perangkat itu sendiri), jadi tidak termasuk dalam templat. Centang mode persetujuan di sini; unggah pesan tiap perangkat di Pengaturan perangkat itu.',
+  'panel.proj.nowDefaults': 'Sekarang atur pengaturan bawaan “{name}” — setiap perangkat baru di dalamnya akan mulai dari sini.',
   'panel.joined.needsSetup': 'Perangkat ini belum disiapkan — buka Pengaturan dan isi kolom wajib dulu. Setelah itu tautan undangan dan penugasan teks akan berfungsi.',
   'panel.joined.empty': 'Belum ada perangkat di proyek ini.',
   'panel.share.awaitingKey': 'belum pernah masuk — kunci perangkat akan terkirim otomatis setelah mereka masuk',
@@ -3333,6 +3336,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.apply.title': 'Terapkan ke perangkat yang ada — {name}',
   'panel.apply.savedNote': 'Templat sudah disimpan, dan perangkat baru akan mulai darinya. Anda juga dapat mengirimkannya ke perangkat yang sudah ada di proyek ini — tidak ada yang dikirim sampai Anda memilih di bawah.',
   'panel.apply.changedList': 'Belum diterapkan ke perangkat ({n}): {fields}',
+  'panel.apply.andMore': '…dan {n} lagi',
   'panel.apply.modeChanges': 'Hanya kolom itu — perbarui hanya kolom yang tercantum di atas pada tiap perangkat yang dicentang; pengaturan lainnya tidak disentuh. Perangkat yang belum punya pengaturan menerima seluruh templat.',
   'panel.apply.modeAll': 'Seluruh templat — ganti SELURUH pengaturan tiap perangkat yang dicentang dengan templat ini.',
   'panel.apply.modeAllOnly': 'Pengiriman mengganti SELURUH pengaturan tiap perangkat yang dicentang dengan templat ini.',

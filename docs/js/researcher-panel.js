@@ -5405,6 +5405,16 @@ async function projectNewModal() {
       m.close();
       deps.toast(t('panel.proj.created', { name }), 5000);
       renderFromSettledEstate();
+      /* A new project goes straight into its Default settings (Seth, 2026-08-31: "let's require
+       * the user to fill in project defaults for any new projects they create from now on") — the
+       * same move newDeviceModal makes for a new device, for the same reason: the one moment the
+       * researcher is already thinking about this project is now, and every device it ever gets
+       * is born from what they put here. Save is gated by the usual validation; closing without
+       * saving leaves the project template-less, which the device flow still survives (blank form
+       * + the invite gate), so the requirement guides rather than traps. */
+      deps.toast(t('panel.proj.nowDefaults', { name }), 6000);
+      await loadProjectDefaults();
+      openSettingsModal({ kind: 'project', project: { folderId: r.folderId, name } });
     } catch (err) {
       const el = m.el.querySelector('#rp-proj-say');
       el.hidden = false; el.className = 'rp-adm-say rp-adm-err'; el.textContent = String(err.message || err);
@@ -8084,14 +8094,26 @@ function applyTemplateModal(project, patch, prevTpl, targets) {
    * changed-only mode exists to avoid. Pending keys are unioned into every later save's delta and
    * cleared only when they have actually landed on every ticked device. */
   const pending = projectPending(project.folderId);
+  /* ⚠ THE RULE, AND IT IS DELIBERATELY THIS SIMPLE (Seth, 2026-08-31: "We can judge 'changes'
+   * based on before and after of the template… if it's a first edit, then yes, everything is a
+   * change. After that, only things specifically changed count as a change. We don't need to be
+   * more sophisticated than that."). So a first template offers BOTH modes too — "only these
+   * fields" then means every field the template sets, while leaving anything else on the device
+   * alone, which is a real and safer choice than replacing its entire settings. An earlier build
+   * offered a first save nothing but the overwrite; Seth's objection was exactly that. */
   const changed = [...new Set([...templateChangedKeys(prevTpl, patch), ...pending])];
-  const offerChanges = !!(prevTpl && Object.keys(prevTpl).length) && changed.length > 0;
+  const offerChanges = changed.length > 0;
   const labels = offerChanges ? changedFieldLabels(changed) : [];
+  /* Display-only cap: a first template legitimately changes every field, and a note naming thirty
+   * of them buries the buttons under it. The COUNT is always exact. */
+  const shown = labels.length > 8
+    ? `${labels.slice(0, 8).join(', ')} ${t('panel.apply.andMore', { n: labels.length - 8 })}`
+    : labels.join(', ');
   let pushing = false, cancelled = false;
   const m = modal(`
     <h3>${esc(t('panel.apply.title', { name: project.name || '' }))}</h3>
     <p class="note">${esc(t('panel.apply.savedNote'))}</p>
-    ${offerChanges ? `<p class="note">${esc(t('panel.apply.changedList', { n: labels.length, fields: labels.join(', ') }))}</p>
+    ${offerChanges ? `<p class="note">${esc(t('panel.apply.changedList', { n: labels.length, fields: shown }))}</p>
       <label class="check-label"><input type="radio" name="rp-apply-mode" value="changes" checked> ${esc(t('panel.apply.modeChanges'))}</label>
       <label class="check-label"><input type="radio" name="rp-apply-mode" value="all"> ${esc(t('panel.apply.modeAll'))}</label>`
     : `<p class="note">${esc(t('panel.apply.modeAllOnly'))}</p>`}
@@ -8117,11 +8139,9 @@ function applyTemplateModal(project, patch, prevTpl, targets) {
     // far it got. A second toast here would contradict it.
     if (pushing) { m.close(); return; }
     m.close();
-    /* Only a real FIELD-LEVEL delta is worth carrying: on a first-ever template every key is
-     * "changed", and stockpiling all of them would make the next save's list name the entire form
-     * — a list that says nothing, attached to a mode whose whole value is being specific. A first
-     * template is offered as the whole-template push it is, on this save and on every later one. */
-    if (offerChanges && changed.length) await savePendingApply(project.folderId, changed);
+    // The whole delta survives a decline — on a first template that is every field, per the rule
+    // above; the changed-list note caps its DISPLAY, not what is carried.
+    if (changed.length) await savePendingApply(project.folderId, changed);
     deps.toast(t('panel.set.projSaved'), 4000);
   };
   m.el.querySelector('[data-m="apply"]').onclick = (e) => busy(e.target, async () => {
@@ -8176,7 +8196,7 @@ function applyTemplateModal(project, patch, prevTpl, targets) {
      * it pending so the next save can still offer the safe mode. */
     const clean = !failed.length && !cancelled;
     if (clean) await savePendingApply(project.folderId, []);
-    else if (offerChanges && changed.length) await savePendingApply(project.folderId, changed);
+    else if (changed.length) await savePendingApply(project.folderId, changed);
     m.close();
     /* Per-device failures leave that device exactly as it was — named, with the retry pointed at
      * (its own Settings), never folded into a success count. */

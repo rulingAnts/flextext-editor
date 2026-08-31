@@ -1605,7 +1605,19 @@ async function servePreviewHead(access, fileId, origin, env) {
   const h = new Headers(v1Cors(origin, env));
   h.set('Cache-Control', 'no-store');
   if (!plan) {
-    const g = await driveGet('bytes=0-262143');
+    /* ⚠ NOT EVERY CONTAINER SURVIVES TRUNCATION (Seth, 2026-08-31: "some wav, some mp3, some m4a
+     * … our app should be able to handle all of those"). MP3 is a frame stream and OGG/Opus is a
+     * page stream: the first 256 KB of either plays on its own. MP4/M4A is NOT — its `moov` index
+     * legally sits at the END of the file, so a truncated one can fail to decode entirely, and
+     * FLAC/other containers make no promise either. Those are served WHOLE: they are already
+     * compressed (roughly an order of magnitude under wav24), so the cost is bandwidth, while a
+     * head that will not play is simply a broken preview.
+     *
+     * The client also treats an <audio> error as "fetch the original" — belt and braces, because
+     * this list is a judgement about formats and the fallback is a fact about this file. */
+    const ctype = String(headBytes.length ? (head.headers.get('content-type') || '') : '').toLowerCase();
+    const truncatable = /audio\/(mpeg|mp3|ogg|opus)/.test(ctype);
+    const g = await driveGet(truncatable ? 'bytes=0-262143' : 'bytes=0-');
     if (!g.ok && g.status !== 206) return j({ error: 'drive_error', status: g.status }, 502, origin, env);
     h.set('content-type', g.headers.get('content-type') || 'application/octet-stream');
     const len = g.headers.get('content-length'); if (len) h.set('content-length', len);

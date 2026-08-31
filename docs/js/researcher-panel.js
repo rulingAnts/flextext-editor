@@ -1100,7 +1100,7 @@ function header(titleKey, withLock) {
  * never invent a number for symmetry. */
 const ISSUES_URL = 'https://github.com/rulingAnts/flextext-editor/issues/';
 const RELEASES = [
-  { v: 'v534', date: '2026-08-31', items: [
+  { v: 'v535', date: '2026-08-31', items: [
     { k: 'panel.rel.new.previewPlayer' },
     { k: 'panel.rel.new.crowdSpeakerName' },
   ] },
@@ -2246,16 +2246,35 @@ async function openPreviewModal(ds) {
     if (!f) { say(t('panel.prev.noAudio')); return; }
     if (!prevMintDead) {
       const u = await Researcher.previewUrl(f.id, via);
-      if (u) { play(u, t('panel.prev.quality')); return; }
+      if (u) {
+        /* ⚠ A HEAD THAT WILL NOT DECODE FALLS BACK TO THE ORIGINAL. The worker only truncates
+         * containers that tolerate it, but that is a judgement about FORMATS while this is a fact
+         * about THIS file — an exotic container, a mis-typed upload, a source we have not met.
+         * One listener, fired once, and the researcher hears their recording either way. */
+        audioEl.addEventListener('error', () => { playFull(f); }, { once: true });
+        play(u, t('panel.prev.quality'));
+        return;
+      }
     }
-    say(t('panel.prev.fetching', { pct: 0 }));
-    const size = f.size || 0;
-    const blob = await Researcher.fetchDriveFile(f.id, (n) => {
-      if (size && m.el.isConnected) say(t('panel.prev.fetching', { pct: Math.min(99, Math.round((n / size) * 100)) }));
-    }, via);
-    objUrl = URL.createObjectURL(blob);
-    play(objUrl, t('panel.prev.full'));
+    await playFull(f);
   } catch { say(t('panel.prev.failed')); }
+
+  // The original, with progress — tier 3, and also where a preview head that would not decode
+  // lands. Its own function so both callers share one implementation.
+  async function playFull(f) {
+    try {
+      if (!m.el.isConnected) return;
+      if (objUrl) { URL.revokeObjectURL(objUrl); objUrl = null; }
+      audioEl.hidden = true;
+      say(t('panel.prev.fetching', { pct: 0 }));
+      const size = f.size || 0;
+      const blob = await Researcher.fetchDriveFile(f.id, (n) => {
+        if (size && m.el.isConnected) say(t('panel.prev.fetching', { pct: Math.min(99, Math.round((n / size) * 100)) }));
+      }, via);
+      objUrl = URL.createObjectURL(blob);
+      play(objUrl, t('panel.prev.full'));
+    } catch { say(t('panel.prev.failed')); }
+  }
 }
 
 /* Idle-time pre-cache of crowd preview heads (Seth's suggestion): after a dashboard render, warm

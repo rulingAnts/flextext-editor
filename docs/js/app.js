@@ -6915,8 +6915,24 @@ async function crowdFetchAsset(url) {
 let turnstileLoad = null;
 function crowdTurnstileHost() {
   let el = document.getElementById('crowd-turnstile');
-  if (!el) { el = document.createElement('div'); el.id = 'crowd-turnstile'; document.body.appendChild(el); }
+  if (!el) { el = document.createElement('div'); el.id = 'crowd-turnstile'; el.className = 'tucked'; document.body.appendChild(el); }
   return el;
+}
+/* TUCKED, NOT ABSENT (Seth, 2026-08-31). The widget runs at full function but sits at opacity 0:
+ * its Verifying/Success animation read as "upload finished" to exactly the visitor this page
+ * serves, who then closed the tab mid-upload. The "Protected by Cloudflare" note in the sending
+ * view is the disclosure — hover/tap reveals the live widget. ⚠ A REAL interactive challenge
+ * force-reveals itself ('before-interactive-callback') and can never be re-tucked while it is
+ * waiting — an invisible challenge would strand the visitor with an upload that never starts. */
+function crowdTurnstileReveal(force) {
+  const host = crowdTurnstileHost();
+  host.classList.remove('tucked');
+  if (force) host.dataset.forced = '1';
+}
+function crowdTurnstileTuck() {
+  const host = crowdTurnstileHost();
+  if (host.dataset.forced) return;   // an interactive challenge is showing — never hide it
+  host.classList.add('tucked');
 }
 function crowdLoadTurnstile() {
   if (!turnstileLoad) {
@@ -6935,15 +6951,21 @@ async function crowdTurnstileToken() {
   await crowdLoadTurnstile();
   const host = crowdTurnstileHost();
   host.innerHTML = '';   // fresh widget per token: reset() would reuse a stale callback
+  delete host.dataset.forced;
+  crowdTurnstileTuck();               // each token starts tucked; see the reveal/tuck pair above
+  const settle = () => { delete host.dataset.forced; crowdTurnstileTuck(); };
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('turnstile timeout')), 45000);
+    const timer = setTimeout(() => { settle(); reject(new Error('turnstile timeout')); }, 45000);
     try {
       window.turnstile.render(host, {
         sitekey: turnstileSiteKey(),
-        callback: (tok) => { clearTimeout(timer); resolve(tok); },
-        'error-callback': () => { clearTimeout(timer); reject(new Error('turnstile error')); },
+        // A challenge that needs the visitor's hand must be SEEN — this is the one path that
+        // un-tucks the widget on its own and pins it visible until the token settles.
+        'before-interactive-callback': () => crowdTurnstileReveal(true),
+        callback: (tok) => { clearTimeout(timer); settle(); resolve(tok); },
+        'error-callback': () => { clearTimeout(timer); settle(); reject(new Error('turnstile error')); },
       });
-    } catch (e) { clearTimeout(timer); reject(e); }
+    } catch (e) { clearTimeout(timer); settle(); reject(e); }
   });
 }
 
@@ -6961,11 +6983,15 @@ function crowdSetProgress(sent, total) {
   if (!wrap) return;
   const pct = total > 0 ? Math.max(0, Math.min(100, Math.round((sent / total) * 100))) : 0;
   wrap.hidden = false;
+  // Sweep (indeterminate) until a real byte has moved. A determinate bar pinned at 0% for a whole
+  // first chunk reads as a hang — the exact bug the chunk policy exists to avoid showing.
+  if (sent > 0) wrap.classList.remove('indet');
   wrap.setAttribute('aria-valuenow', String(pct));
   const bar = $('#crowd-prog-bar');
   if (bar) bar.style.width = pct + '%';
-  const st = $('#crowd-status');
-  if (st) st.textContent = t('crowd.sendingPct', { pct });
+  // The text node only — #crowd-status also holds the spinner, which textContent would destroy.
+  const st = $('#crowd-status-txt');
+  if (st && sent > 0) st.textContent = t('crowd.sendingPct', { pct });
 }
 
 function renderCrowdView(state, extra = {}) {
@@ -6985,8 +7011,14 @@ function renderCrowdView(state, extra = {}) {
     <button id="crowd-reload" class="primary-btn">${esc(t('crowd.retry'))}</button>`;
   else if (state === 'busy') body = `<p class="empty-note">${esc(t('crowd.busy'))}</p>
     <button id="crowd-reload" class="primary-btn">${esc(t('crowd.retry'))}</button>`;
-  else if (state === 'sending') body = `<p class="crowd-status" id="crowd-status">${esc(t('crowd.sending'))}</p>
-    <div class="crowd-prog" id="crowd-prog" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden><span id="crowd-prog-bar"></span></div>`;
+  /* The spinner and the bar are visible from the FIRST FRAME of 'sending' — before the Turnstile
+   * token, before the session opens, before any byte moves. The bar sweeps (indeterminate) until
+   * real bytes flow; crowdSetProgress then makes it a percentage. Nothing here waits on the
+   * network, so the visitor is never looking at a screen whose only animation is someone else's
+   * checkmark. */
+  else if (state === 'sending') body = `<p class="crowd-status" id="crowd-status"><span class="crowd-spin" aria-hidden="true"></span><span id="crowd-status-txt">${esc(t('crowd.sending'))}</span></p>
+    <div class="crowd-prog indet" id="crowd-prog" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="crowd-prog-bar"></span></div>
+    <button id="crowd-cf-note" class="crowd-cf-note" type="button">${esc(t('crowd.protectedBy'))}</button>`;
   else if (state === 'thanks') body = `<div class="crowd-thanks">✓</div>
     <p class="crowd-status">${esc(t('crowd.thanks'))}</p>
     <button id="crowd-again" class="primary-btn">${esc(t('crowd.another'))}</button>`;
@@ -7015,6 +7047,17 @@ function renderCrowdView(state, extra = {}) {
     ${verLine}
   </div>`;
   $('#btn-record-big')?.addEventListener('click', startConsentThenRecord);
+  // The disclosure note: hover peeks at the live widget, tap/click toggles it (phones have no
+  // hover). Tucking is refused while a forced interactive challenge is up — see crowdTurnstileTuck.
+  const cf = $('#crowd-cf-note');
+  if (cf) {
+    cf.addEventListener('mouseenter', () => crowdTurnstileReveal(false));
+    cf.addEventListener('mouseleave', () => crowdTurnstileTuck());
+    cf.addEventListener('click', () => {
+      if (crowdTurnstileHost().classList.contains('tucked')) crowdTurnstileReveal(false);
+      else crowdTurnstileTuck();
+    });
+  }
   $('#crowd-again')?.addEventListener('click', () => renderCrowdView('ready'));
   $('#crowd-reload')?.addEventListener('click', () => setupCrowdMode());
   $('#crowd-retry')?.addEventListener('click', () => { crowdFlush(true).catch(() => {}); });
@@ -7143,6 +7186,9 @@ async function crowdQueueAndSubmit(file, extras) {
 const CROWD_PERMANENT = ['too_large', 'too_small', 'paused', 'budget', 'not_found',
                          'turnstile_failed', 'rate_limited', 'unavailable'];
 
+// How long an UNDELIVERED take may wait in this browser for a retry — see crowdFlush.
+const CROWD_PENDING_TTL_MS = 24 * 60 * 60 * 1000;
+
 async function crowdChunkPut(streamId, range, body) {
   let r;
   try {
@@ -7169,6 +7215,15 @@ async function crowdSubmitOne(item) {
   const r = await runChunkedUpload({
     total,
     slice: (a, b) => item.blob.slice(a, b),
+    /* The Firefox failure this heals (2026-08-31): a blob read back from IndexedDB moments after
+     * being written can be silently unreadable at fetch time — every chunk PUT then goes out with
+     * zero body bytes and the edge 400s it, so the FIRST submission always failed and the visitor's
+     * manual retry (a fresh read) always worked. readChunk() in the shared loop detects the empty
+     * read; this hook gives it a fresh blob from the store so the SAME attempt completes. */
+    refresh: async () => {
+      const fresh = (await crowdListPending()).find((x) => x.id === item.id);
+      if (fresh && fresh.blob) item.blob = fresh.blob;
+    },
     streamId: item.streamId || null,
     put: crowdChunkPut,
     /* ⚠ THIS IS WHERE A TURNSTILE TOKEN IS SPENT — one bot-check per submission. The shared loop
@@ -7204,7 +7259,20 @@ async function crowdFlush(interactive) {
   if (crowdFlushing) return;
   crowdFlushing = true;
   try {
-    const items = (await crowdListPending()).sort((a, b) => a.created - b.created);
+    /* ⚠ UNCONFIRMED TAKES EXPIRE AFTER 24 HOURS (Seth, 2026-08-31). A delivered take is deleted
+     * the moment the worker confirms it; an UNDELIVERED one used to sit in this browser's
+     * IndexedDB forever. This page runs on shared and borrowed phones, and a stranger's voice
+     * recording is not something a device should hold indefinitely on the off-chance of a retry —
+     * the resume window is a courtesy, not an archive. Within 24h a reopened page still resumes
+     * mid-file exactly as before; after that the take is dropped, unsent. */
+    const all = await crowdListPending();
+    const now = Date.now();
+    const items = [];
+    for (const item of all) {
+      if (now - (item.created || 0) > CROWD_PENDING_TTL_MS) await crowdDelPending(item.id);
+      else items.push(item);
+    }
+    items.sort((a, b) => a.created - b.created);
     crowdPendingCount = items.length;
     let err = null;
     for (const item of items) {

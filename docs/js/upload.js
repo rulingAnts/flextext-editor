@@ -42,6 +42,24 @@ const CHUNK_MAX = 128 * CHUNK_UNIT;          // 32 MiB
 const CHUNK_START = 16 * CHUNK_UNIT;         // 4 MiB opening guess
 const shrinkChunk = (n) => Math.max(CHUNK_MIN, Math.floor(n / 2 / CHUNK_UNIT) * CHUNK_UNIT);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/* Read a chunk's bytes BEFORE the request starts. fetch() reads a Blob body lazily, DURING
+ * transmission — and a read that fails there is invisible to script. Firefox has been seen doing
+ * exactly that on the crowd submit path (2026-08-31 HAR): a Blob freshly read back from IndexedDB
+ * produced a PUT announcing its full Content-Length and then sending ZERO body bytes, which
+ * Cloudflare's edge rejects as malformed — a raw 400 that DevTools then mislabels "CORS Missing
+ * Allow Origin". Every attempt in that submission failed identically; a later fresh read of the
+ * same stored item worked. An ArrayBuffer body cannot fail that way: either the bytes are in hand
+ * before fetch begins, or this returns null and the caller can re-read its source and retry.
+ * Non-Blob slices (test transports) pass through untouched. */
+export async function readChunk(slice) {
+  if (!slice || typeof slice.arrayBuffer !== 'function') return slice;
+  try {
+    const buf = await slice.arrayBuffer();
+    if (buf.byteLength === slice.size) return buf;
+  } catch { /* unreadable — fall through */ }
+  return null;
+}
 const roundUnit = (n) => Math.max(CHUNK_UNIT, Math.floor(n / CHUNK_UNIT) * CHUNK_UNIT);
 /* Aim for ~8 slices, so even a small file reports movement several times instead of once at the
  * end. AIMD doubles it away within a couple of chunks on a fast link. */
@@ -65,6 +83,8 @@ const openingChunk = (total) => Math.min(CHUNK_MAX, Math.max(CHUNK_MIN, roundUni
  *   onProgress(sent, total)              (optional)
  *   shouldStop() -> bool                 pause/cancel between chunks (optional)
  *   streamId                             resume an existing session (optional)
+ *   refresh()                            re-fetch the source blob after an unreadable slice —
+ *                                        see readChunk() above (optional)
  *
  * ⚠ SESSION RESTARTS ARE CAPPED AT TWO, AND THAT CAP IS LOAD-BEARING FOR THE CROWD PATH. Opening a
  * session there spends a Turnstile token — one bot-check per submission — so a loop that reopened
@@ -104,8 +124,19 @@ export async function runChunkedUpload(io) {
         if (io.shouldStop && io.shouldStop()) return { stopped: true };
         const size = Math.min(chunkBytes, total - offset);
         const t0 = Date.now();
-        const res = await io.put(streamId, `bytes ${offset}-${offset + size - 1}/${total}`,
-                                 io.slice(offset, offset + size));
+        let body = await readChunk(io.slice(offset, offset + size));
+        if (body === null && io.refresh) {
+          await Promise.resolve(io.refresh()).catch(() => {});
+          body = await readChunk(io.slice(offset, offset + size));
+        }
+        if (body === null) {
+          // The blob itself is unreadable right now (the Firefox IndexedDB case above) — never
+          // put an announced-but-empty body on the wire. Strike, back off, re-probe.
+          strikes++; pushed = false;
+          await sleep(waitMs); waitMs = Math.min(waitMs * 2, 60000);
+          break;
+        }
+        const res = await io.put(streamId, `bytes ${offset}-${offset + size - 1}/${total}`, body);
         if (res.done) { say(total); return { done: true, fileId: res.fileId }; }
         if (res.gone) { streamId = null; await remember(null); pushed = false; break; }
         if (res.fail) {
@@ -422,8 +453,11 @@ export class DriveUpload {
         if (this._gen !== run || this.status !== 'uploading') return true;
         const size = Math.min(rec.chunkBytes, rec.total - offset);
         const t0 = Date.now();
-        const res = await this._chunkPut(target, rec,
-          `bytes ${offset}-${offset + size - 1}/${rec.total}`, rec.blob.slice(offset, offset + size));
+        // Materialized before the request — see readChunk(). An unreadable slice takes the
+        // existing transient-failure branch (shrink, strike, back off, re-probe).
+        const body = await readChunk(rec.blob.slice(offset, offset + size));
+        const res = body === null ? { fail: true } : await this._chunkPut(target, rec,
+          `bytes ${offset}-${offset + size - 1}/${rec.total}`, body);
         if (res.done) { await this._streamFinish(rec, res.fileId); return true; }
         if (res.gone) { delete rec.streamId; await db.putMedia(upKey(this.docId), rec).catch(() => {}); return false; }
         if (res.fail) {

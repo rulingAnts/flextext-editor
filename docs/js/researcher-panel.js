@@ -1068,24 +1068,45 @@ function header(titleKey, withLock) {
  *
  * ⚠ KEEP BOTH CURRENT. A stale known-issue sends someone hunting for a bug that is fixed and makes
  * the rest look untrustworthy; a stale what's-new claims credit for something that is not there. When
- * a release fixes one of these, delete the key in the SAME commit that fixes it. WHATS_NEW describes
- * the delta since the last PRODUCTION version — not since the last build — because that is the change
- * the reader actually experienced. */
-const WHATS_NEW = [
-  'panel.rel.new.share',
-  'panel.rel.new.memberApprove',
-  'panel.rel.new.projTemplates',
-  'panel.rel.new.activityTray',
-  'panel.rel.new.memberFiles',
-  'panel.rel.new.projectLifecycle',
-  'panel.rel.new.rename',
-  'panel.rel.new.freshPanel',
-  'panel.rel.new.dialogs',
-  'panel.rel.new.keylessHonest',
-  'panel.rel.new.uploadChip',
-  'panel.rel.new.audioError',
-  'panel.rel.new.doneToggle',
-  'panel.rel.new.oneVersion',
+ * a release fixes one of these, delete the key in the SAME commit that fixes it.
+ *
+ * ⚠ PER-RELEASE SECTIONS, GitHub-style (Seth, 2026-08-31: "specific to each release, and a new
+ * section with each new release"). Each production release is one entry, newest first — a version
+ * heading, its date, its changes. Start a NEW entry when a release wave begins; the top entry's `v`
+ * is finalised by the release commit (mid-wave it names the current staging build, which is honest
+ * on the staging estate and a day early nowhere else).
+ *
+ * ⚠ ISSUE LINKS, FORWARD-ONLY (Seth, same day: link fixes to submitted issues "whenever they DO
+ * relate", "no need to do that retroactively"): an item that resolves a submitted GitHub issue
+ * carries `issue: <n>` and renders a link to it. Items with no submitted issue carry nothing —
+ * never invent a number for symmetry. */
+const ISSUES_URL = 'https://github.com/rulingAnts/flextext-editor/issues/';
+const RELEASES = [
+  { v: 'v531', date: '2026-08-31', items: [
+    { k: 'panel.rel.new.crowdFirstSubmit' },
+    { k: 'panel.rel.new.crowdProgress' },
+    { k: 'panel.rel.new.crowdExpiry' },
+    { k: 'panel.rel.new.crowdLocalTime' },
+    { k: 'panel.rel.new.crowdInFlight', issue: 14 },
+    { k: 'panel.rel.new.crowdEveryProject' },
+    { k: 'panel.rel.new.recordButton' },
+  ] },
+  { v: 'v524', date: '2026-08-31', items: [
+    { k: 'panel.rel.new.share' },
+    { k: 'panel.rel.new.memberApprove' },
+    { k: 'panel.rel.new.projTemplates' },
+    { k: 'panel.rel.new.activityTray' },
+    { k: 'panel.rel.new.memberFiles' },
+    { k: 'panel.rel.new.projectLifecycle' },
+    { k: 'panel.rel.new.rename' },
+    { k: 'panel.rel.new.freshPanel' },
+    { k: 'panel.rel.new.dialogs' },
+    { k: 'panel.rel.new.keylessHonest' },
+    { k: 'panel.rel.new.uploadChip' },
+    { k: 'panel.rel.new.audioError' },
+    { k: 'panel.rel.new.doneToggle' },
+    { k: 'panel.rel.new.oneVersion' },
+  ] },
 ];
 const KNOWN_ISSUES = [
   'panel.known.addColleague',
@@ -1184,20 +1205,30 @@ async function setMemberNick(rid, name) {
 }
 
 function releaseNotesLink() {
-  if (!WHATS_NEW.length && !KNOWN_ISSUES.length) return '';
+  if (!RELEASES.length && !KNOWN_ISSUES.length) return '';
   return `<button class="link-btn rp-known" data-act="known">${esc(t('panel.rel.btn'))}</button>`;
 }
 function releaseNotesModal() {
-  const section = (titleKey, keys) => (keys.length
-    ? `<h4 class="rp-rel-h">${esc(t(titleKey))}</h4>
-       <ul class="rp-known-list">${keys.map((k) => `<li>${esc(t(k))}</li>`).join('')}</ul>`
-    : '');
+  // One section per release, newest first — a version heading with its date, then its changes.
+  // An item resolving a submitted GitHub issue links to it (repo is public); target=_blank so the
+  // panel session survives the visit.
+  const item = (it) => `<li>${esc(t(it.k))}${it.issue
+    ? ` <a class="rp-rel-issue" href="${ISSUES_URL}${it.issue}" target="_blank" rel="noopener">#${it.issue}</a>` : ''}</li>`;
+  const relDate = (iso) => {
+    const d = new Date(iso + 'T00:00:00');
+    return isNaN(d) ? iso : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  };
+  const rel = (r, i) => `<h4 class="rp-rel-h">${esc(r.v)}${i === 0
+      ? ` <span class="rp-badge rp-badge-ok">${esc(t('panel.rel.latest'))}</span>` : ''}
+      <span class="note rp-rel-date">${esc(relDate(r.date))}</span></h4>
+    <ul class="rp-known-list">${r.items.map(item).join('')}</ul>`;
   modal(`<h3>${esc(t('panel.rel.title'))}</h3>
     <p class="note">${esc(t('panel.rel.version', { v: ENGINE_VERSION }))}${
       onStagingEstate() ? ' ' + esc(t('panel.rel.isTestBuild')) : ''}</p>
-    ${section('panel.rel.newTitle', WHATS_NEW)}
-    ${section('panel.rel.knownTitle', KNOWN_ISSUES)}
-    ${KNOWN_ISSUES.length ? `<p class="note">${esc(t('panel.rel.prioritise'))}</p>` : ''}
+    ${KNOWN_ISSUES.length ? `<h4 class="rp-rel-h">${esc(t('panel.rel.knownTitle'))}</h4>
+      <ul class="rp-known-list">${KNOWN_ISSUES.map((k) => `<li>${esc(t(k))}</li>`).join('')}</ul>
+      <p class="note">${esc(t('panel.rel.prioritise'))}</p>` : ''}
+    ${RELEASES.map(rel).join('')}
     <div class="modal-actions"><button class="primary-btn" data-m="cancel">${esc(t('panel.help.close'))}</button></div>`);
 }
 
@@ -4240,36 +4271,58 @@ const CROWD_DEFAULT_CONFIG = { welcome: '', consentAsk: ['text'], consentConfirm
 /* A recorder's recordings, listed under it — so a crowd submission has a HOME in the panel rather
  * than appearing in the researcher's set-aside pile (§16.24).
  *
- * ⚠ THERE IS DELIBERATELY NO "Move…" HERE, AND v408 WAS WRONG TO OFFER ONE. A crowd text cannot yet
- * be assigned onward: /adopt delivers a text by extracting a `.flextext` from the source zip, and a
- * crowd zip contains a recording and a consent receipt and no flextext at all — so the move would
- * fail `no_flextext_in_zip` after appearing to start. An affordance that cannot work is worse than
- * none: it invites the researcher to try, fail, and doubt the tool.
+ * Move… here is the Unassigned card's source-less /adopt flow (see the `cmove` handler) — the
+ * earlier ban on offering it (v408's `no_flextext_in_zip` failure) ended when crowd submissions
+ * started uploading real text folders; the warning that SURVIVES is the assignNote below: never
+ * move these folders by hand in Drive — dragging one onto a device SEEMS to work (the tree looks
+ * right, the panel groups it) but the device is never told, so the text is in its inventory
+ * nowhere.
  *
- * Until crowd submissions upload as individual files the way a device's do (plan §16.10 "B"), the
- * honest workflow is DOWNLOAD then RE-UPLOAD as a normal assignment — which is what the note below
- * says, in the place someone would otherwise go looking for the button.
- *
- * ⚠ It also warns against doing it by hand in Drive, because dragging the folder onto a device
- * SEEMS to work: the tree looks right, the panel groups it under that device, and the device never
- * hears about it — the text is in its inventory nowhere. Silently wrong beats loudly broken only
- * for the person who wrote it. */
+ * ⚠ IN FLIGHT MEANS SHOWN-AND-LOCKED, NEVER HIDDEN — the same rule the Unassigned card states at
+ * length. A crowd row mid-move keeps its Files menu, wears the same in-flight tag every other
+ * source wears, and withholds Move/Delete: offering to trash Drive's only copy while a device is
+ * still fetching it is the one affordance this row must never show. (Issue #14's crowd gap.) */
 function crowdTextRows(rec, estate) {
   const texts = crowdTexts(estate, rec);
   if (!texts.length) return '';
   const iid = firstInstanceId();
-  return `<ul class="rp-crowd-texts">${texts.map((tx) => `<li class="rp-text-row">
+  const inFlight = inFlightAssignIds();
+  return `<ul class="rp-crowd-texts">${texts.map((tx) => {
+    const busy = pendingMoves.has(tx.docId) || inFlight.has(tx.docId);
+    const when = crowdRowWhen(tx.title);
+    return `<li class="rp-text-row">
       <div class="rp-text-main">
-        <div class="rp-text-title">${esc(tx.title || t('panel.hist.untitled'))}</div>
+        <div class="rp-text-title"${when ? ` title="${esc(tx.title || '')}"` : ''}>${esc(when || tx.title || t('panel.hist.untitled'))}</div>
         <div class="note rp-text-meta">${esc(gb(tx.bytes || 0))} · ${esc(t('panel.store.nFiles', { n: tx.files || 0 }))}</div>
       </div>
       <div class="rp-text-actions">
         ${iid ? filesMenuHtml(iid, tx.docId, tx.title || '') : ''}
-        <button class="link-btn" data-uact="cmove" data-id="${esc(tx.docId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.move.btn'))}</button>
-        <button class="link-btn rp-revoke" data-uact="drop" data-folder="${esc(tx.folderId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.store.delete'))}</button>
+        ${busy ? `<span class="rp-tag rp-tag-moving">${esc(t('panel.store.inFlight'))}</span>`
+          : `<button class="link-btn" data-uact="cmove" data-id="${esc(tx.docId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.move.btn'))}</button>
+        <button class="link-btn rp-revoke" data-uact="drop" data-folder="${esc(tx.folderId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.store.delete'))}</button>`}
       </div>
-    </li>`).join('')}</ul>
+    </li>`;
+  }).join('')}</ul>
     <p class="note rp-crowd-assign-note">${esc(t('panel.crowd.assignNote'))}</p>`;
+}
+
+/* A crowd row's visible name is WHEN IT WAS RECORDED, on the researcher's own clock. The Drive
+ * folder keeps its server-generated '<label> — YYYY-MM-DD HH:MM UTC' name (crowdTextTitle in the
+ * worker — interim until the researcher-set timezone, plans/BACKLOG.md), but that name is for
+ * correlation, not reading: at UTC+9 the raw stamp puts the wrong DAY on anything recorded after
+ * 3 pm, and the label half just repeats the card heading (Seth, 2026-08-31: "the filename is kind
+ * of pointless"). The raw title survives as the row's tooltip and rides the action payloads, so
+ * confirmations and the Files modal still say what Drive says. Unparseable titles render as-is. */
+function crowdRowWhen(title) {
+  /* [:_] — crowdTextTitle writes 'HH:MM UTC', but Drive folder names pass through the worker's
+   * character sanitizer (v1.js: [\\/:*?"<>|] → '_'), so the name that actually comes back in the
+   * estate reads 'HH_MM UTC'. Caught live on staging 2026-08-31: the colon-only parse matched
+   * nothing and every row fell back to the raw title. Accept both, so this keeps working if the
+   * sanitizer ever stops eating colons. */
+  const m = /(\d{4})-(\d{2})-(\d{2}) (\d{2})[:_](\d{2}) UTC$/.exec(String(title || ''));
+  if (!m) return null;
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]));
+  return isNaN(d) ? null : histWhen(d.getTime());
 }
 
 function renderCrowdCard(recs, estate) {

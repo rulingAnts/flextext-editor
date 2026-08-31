@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v526';
+export const ENGINE_VERSION = 'v531';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v526';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = '';
+export const BUILD_TAG = 'crowd-upload v5';
 
 const S = {
 en: {
@@ -143,6 +143,7 @@ en: {
   'recfmt.helpProcessing': '<b>What each processing option does — and why it\'s off by default.</b><ul><li><b>Noise reduction:</b> removes steady background hiss/hum — but it also strips real speech detail (fricatives, breath, quiet sounds) and adds artifacts.</li><li><b>Echo cancellation:</b> built for two-way calls — a one-person recording has no echo to cancel, and it can suppress and color the voice.</li><li><b>Auto-normalize after recording:</b> scales a too-quiet take up to a standard level in one pass (no pumping) — but it <b>edits the saved file</b>, so the recording is no longer the unmodified original.</li></ul>All are <b>off by default</b> because archives and acoustic analysis need the <b>unmodified</b> capture; they\'re useful only for casual or low-bandwidth (e.g. MP3) copies where convenience matters more than fidelity. (Automatic gain control is a separate control above — also off by default for faithful capture; turn it on only when archival quality is not needed.)',
   'recfmt.helpTech': '<b>Technical summary (for your archive).</b> The app captures at the device\'s native sample rate (usually 48 kHz) with <b>no resampling and no software gain of its own</b>. <b>Capture depth:</b> the browser\'s audio engine delivers <b>32-bit float</b> samples — the Web Audio specification defines no integer capture path, so no web app can request 16- or 24-bit from the microphone. Your chosen format determines how those samples are <b>written</b>: <b>32-bit float</b> stores them unchanged (no conversion); <b>24-bit</b> is a faithful fixed-point reduction (a 32-bit float carries a 24-bit mantissa); <b>16-bit</b> is a genuine quantization. Describe the result accurately as a <b>32-bit-float capture written to N-bit PCM</b>, not as an "N-bit capture". <b>Resolution:</b> bit depth is a property of the file, not of the microphone — a phone\'s converter typically yields on the order of 16 effective bits, so the extra depth in a 24-bit file is <b>headroom, not additional detail</b>. Noise reduction, echo cancellation, voice isolation, automatic gain control, and normalization are <b>all off by default</b> — a flat, unmodified capture, which is what archival standards (e.g. IASA TC-04) require of a preservation master. The one caveat is capture level: Chrome and Android drive the mic input higher than ideal and a web app cannot lower it, so a loud source can clip there — watch the meter (Firefox sets a faithful, lower level). A single-microphone source is stored as <b>mono</b>; genuine stereo is preserved. AGC and auto-normalize stay available in Settings as opt-in conveniences for non-archival recordings.',
   'consent.legend': 'Speaker permission before recording',
+  'consent.gateFailed': 'Something went wrong opening the consent step, so recording did not start. Please reload the page and try again — and tell your researcher if it keeps happening.',
   'consent.mode': 'When the coworker records a new text, first ask…',
   'consent.modeOff': "Don't ask anything",
   'consent.modeText': 'Show a written reminder',
@@ -172,7 +173,6 @@ en: {
   'consent.next': 'Continue',
   'consent.chooseYesNo': 'Please answer Yes or No first.',
   'consent.loadingAudio': 'Loading the spoken reminder…',
-  'consent.gateFailed': 'Something went wrong opening the consent step, so recording did not start. Please reload the page and try again — and tell your researcher if it keeps happening.',
   'consent.audioFailed': 'Could not load the spoken reminder. You can still continue.',
   'texts.open': 'Open .flextext file…',
   'texts.newPair': 'Open text + recording together…',
@@ -369,6 +369,9 @@ en: {
    * connection gives up on, and the crowd path was the ONLY upload in the suite that could show
    * no movement at all. */
   'crowd.sendingPct': 'Sending your recording… {pct}%',
+  // The bot-check disclosure: the widget itself is invisible on a silent pass, so this small
+  // note is the transparency — hover/tap reveals the live widget.
+  'crowd.protectedBy': 'Protected by Cloudflare',
   'crowd.thanks': 'Thank you! Your recording was sent.',
   'crowd.another': 'Record another',
   'crowd.cooldown': 'You can send this in {s} seconds.',
@@ -1201,6 +1204,7 @@ internet after the first time.</p>
   'panel.up.assigningWhy': 'waiting for the device to come online and pick it up',
   'panel.up.assignTaken': 'device is fetching\u2026',
   'panel.up.assignTakenWhy': 'the device has the assignment and is downloading the files',
+  'panel.up.justUploaded': 'uploaded just now ✓',
   'panel.new.title': 'New device',
   'panel.new.type': 'Type',
   'panel.new.editor': 'Editor (transcribe + gloss)',
@@ -1473,6 +1477,14 @@ internet after the first time.</p>
   'panel.rel.new.audioError': 'Fixed: when a recording failed to download, the text kept saying it was still arriving and hid the typing box. It now says what went wrong and lets you type.',
   'panel.rel.new.doneToggle': 'Fixed: un-marking a text as finished no longer leaves you unable to mark it finished again.',
   'panel.rel.new.oneVersion': 'Every part of the app now reports one version number, so a device that is out of date is obvious at a glance.',
+  'panel.rel.latest': 'latest',
+  'panel.rel.new.crowdFirstSubmit': 'Crowd recorder: submissions now send on the first try — a browser fault made every first attempt fail and show a retry page.',
+  'panel.rel.new.crowdProgress': 'Crowd recorder: sending shows its own spinner and progress bar from the first moment, so the security check can no longer be mistaken for a finished upload.',
+  'panel.rel.new.crowdExpiry': 'Crowd recorder: an unsent recording is kept for 24 hours of retries, then removed — a shared phone no longer holds it indefinitely.',
+  'panel.rel.new.crowdLocalTime': 'Panel: crowd recordings are listed by your local recording time instead of the raw UTC file name.',
+  'panel.rel.new.crowdInFlight': 'Panel: a crowd recording being moved now shows the same in-flight marker as other texts, and Move/Delete wait for the move to finish.',
+  'panel.rel.new.crowdEveryProject': 'Panel: every project now shows its Crowd recorders area, so a new project can add one right away.',
+  'panel.rel.new.recordButton': 'Recorder: if recording cannot start, the Record button now says so instead of doing nothing.',
   'panel.rel.new.memberApprove': 'A researcher with “manage devices” can now approve and key a new device themselves — pairing no longer waits for the project owner, whoever created the invite.',
   'panel.rel.new.activityTray': 'Uploads to a device now appear in the same “In progress” box as downloads, with an arrow showing which way the files are going — and the box can be collapsed out of the way and reopened.',
   'panel.rel.new.projTemplates': 'Project “Default settings” now work end to end: a new device opens its settings prefilled from the project’s template, and after saving a template you can push it — whole, or only what changed — to any or all of the project’s existing devices.',
@@ -2198,6 +2210,7 @@ id: {
   'recfmt.helpProcessing': '<b>Apa yang dilakukan setiap opsi pemrosesan — dan mengapa mati secara default.</b><ul><li><b>Pengurangan noise:</b> menghilangkan desis/dengung latar yang stabil — tetapi juga menghilangkan detail ujaran asli (frikatif, napas, suara pelan) dan menambah artefak.</li><li><b>Penghapusan gema:</b> dibuat untuk panggilan dua arah — rekaman satu orang tidak punya gema untuk dihapus, dan ini bisa menekan serta mewarnai suara.</li><li><b>Normalisasi otomatis setelah merekam:</b> menaikkan rekaman yang terlalu pelan ke level standar dalam satu langkah (tanpa pumping) — tetapi ini <b>mengubah berkas tersimpan</b>, jadi rekaman bukan lagi yang asli tanpa modifikasi.</li></ul>Semuanya <b>mati secara default</b> karena arsip dan analisis akustik memerlukan rekaman <b>tanpa modifikasi</b>; ini hanya berguna untuk salinan santai atau berbandwidth rendah (mis. MP3) di mana kemudahan lebih penting daripada kesetiaan. (Kontrol penguatan otomatis adalah kontrol terpisah di atas — juga mati secara default untuk perekaman setia; aktifkan hanya jika kualitas arsip tidak diperlukan.)',
   'recfmt.helpTech': '<b>Ringkasan teknis (untuk arsip Anda).</b> Aplikasi menangkap pada laju sampel asli perangkat (biasanya 48 kHz) <b>tanpa resampling dan tanpa penguatan perangkat lunak sendiri</b>. <b>Kedalaman perekaman:</b> mesin audio peramban memberikan sampel <b>32-bit float</b> — spesifikasi Web Audio tidak mendefinisikan jalur perekaman integer, sehingga tidak ada aplikasi web yang bisa meminta 16- atau 24-bit dari mikrofon. Format pilihan Anda menentukan bagaimana sampel itu <b>ditulis</b>: <b>32-bit float</b> menyimpannya tanpa perubahan (tanpa konversi); <b>24-bit</b> adalah reduksi ke titik-tetap yang setia (float 32-bit membawa mantissa 24-bit); <b>16-bit</b> adalah kuantisasi yang sesungguhnya. Deskripsikan hasilnya secara akurat sebagai <b>perekaman 32-bit float yang ditulis ke PCM N-bit</b>, bukan sebagai "perekaman N-bit". <b>Resolusi:</b> kedalaman bit adalah properti berkas, bukan properti mikrofon — pengubah pada HP biasanya menghasilkan sekitar 16 bit efektif, sehingga kedalaman tambahan pada berkas 24-bit adalah <b>headroom, bukan detail tambahan</b>. Pengurangan noise, penghapusan gema, isolasi suara, kontrol penguatan otomatis, dan normalisasi <b>semuanya mati secara default</b> — perekaman datar tanpa modifikasi, yang merupakan syarat standar arsip (mis. IASA TC-04) untuk master preservasi. Satu-satunya catatan adalah level perekaman: Chrome dan Android mendorong masukan mikrofon lebih tinggi dari ideal dan aplikasi web tidak bisa menurunkannya, jadi sumber yang keras bisa clipping di sana — perhatikan meter (Firefox mengatur level lebih rendah yang setia). Sumber satu mikrofon disimpan sebagai <b>mono</b>; stereo asli dipertahankan. AGC dan normalisasi-otomatis tetap tersedia di Pengaturan sebagai kemudahan opsional untuk rekaman non-arsip.',
   'consent.legend': 'Izin penutur sebelum merekam',
+  'consent.gateFailed': 'Terjadi masalah saat membuka langkah persetujuan, jadi perekaman tidak dimulai. Silakan muat ulang halaman dan coba lagi — dan beri tahu peneliti Anda jika terus terjadi.',
   'consent.mode': 'Saat rekan kerja merekam teks baru, tanyakan dulu…',
   'consent.modeOff': 'Jangan tanya apa pun',
   'consent.modeText': 'Tampilkan pengingat tertulis',
@@ -2227,7 +2240,6 @@ id: {
   'consent.next': 'Lanjutkan',
   'consent.chooseYesNo': 'Silakan jawab Ya atau Tidak dulu.',
   'consent.loadingAudio': 'Memuat pengingat lisan…',
-  'consent.gateFailed': 'Terjadi masalah saat membuka langkah persetujuan, jadi perekaman tidak dimulai. Silakan muat ulang halaman dan coba lagi — dan beri tahu peneliti Anda jika terus terjadi.',
   'consent.audioFailed': 'Tidak bisa memuat pengingat lisan. Anda tetap bisa melanjutkan.',
   'texts.open': 'Buka file .flextext…',
   'texts.newPair': 'Buka teks + rekaman sekaligus…',
@@ -2400,6 +2412,7 @@ id: {
   'crowd.send': 'Kirim',
   'crowd.sending': 'Mengirim rekaman Anda…',
   'crowd.sendingPct': 'Mengirim rekaman Anda… {pct}%',
+  'crowd.protectedBy': 'Dilindungi oleh Cloudflare',
   'crowd.thanks': 'Terima kasih! Rekaman Anda sudah terkirim.',
   'crowd.another': 'Rekam lagi',
   'crowd.cooldown': 'Anda bisa mengirim ini dalam {s} detik.',
@@ -3145,6 +3158,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.up.assigningWhy': 'menunggu perangkat terhubung dan mengambilnya',
   'panel.up.assignTaken': 'perangkat sedang mengambil\u2026',
   'panel.up.assignTakenWhy': 'perangkat sudah menerima penugasan dan sedang mengunduh berkasnya',
+  'panel.up.justUploaded': 'baru terunggah ✓',
   'panel.new.title': 'Perangkat baru',
   'panel.new.type': 'Jenis',
   'panel.new.editor': 'Editor (transkripsi + terjemahan)',
@@ -3373,6 +3387,14 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.rel.new.audioError': 'Diperbaiki: ketika rekaman gagal diunduh, teks tetap menyatakan rekaman sedang datang dan menyembunyikan kotak ketik. Kini kesalahannya disebutkan dan Anda tetap dapat mengetik.',
   'panel.rel.new.doneToggle': 'Diperbaiki: membatalkan tanda selesai pada teks tidak lagi membuat Anda tak bisa menandainya selesai kembali.',
   'panel.rel.new.oneVersion': 'Semua bagian aplikasi kini melaporkan satu nomor versi, sehingga perangkat yang ketinggalan versi langsung terlihat.',
+  'panel.rel.latest': 'terbaru',
+  'panel.rel.new.crowdFirstSubmit': 'Perekam publik: kiriman kini terkirim pada percobaan pertama — kesalahan peramban membuat setiap percobaan pertama gagal dan menampilkan halaman coba lagi.',
+  'panel.rel.new.crowdProgress': 'Perekam publik: pengiriman menampilkan spinner dan bilah kemajuan sendiri sejak awal, sehingga pemeriksaan keamanan tidak lagi terlihat seperti unggahan yang selesai.',
+  'panel.rel.new.crowdExpiry': 'Perekam publik: rekaman yang belum terkirim disimpan 24 jam untuk dicoba ulang, lalu dihapus — ponsel bersama tidak lagi menyimpannya tanpa batas.',
+  'panel.rel.new.crowdLocalTime': 'Panel: rekaman publik kini ditampilkan menurut waktu lokal Anda, bukan nama berkas UTC mentah.',
+  'panel.rel.new.crowdInFlight': 'Panel: rekaman publik yang sedang dipindahkan kini menampilkan penanda proses yang sama seperti teks lain, dan Pindahkan/Hapus menunggu sampai selesai.',
+  'panel.rel.new.crowdEveryProject': 'Panel: setiap proyek kini menampilkan area Perekam publiknya, sehingga proyek baru bisa langsung menambahkannya.',
+  'panel.rel.new.recordButton': 'Perekam: jika perekaman tidak bisa dimulai, tombol Rekam kini memberi tahu, bukan diam saja.',
   'panel.rel.new.memberApprove': 'Peneliti dengan “mengelola perangkat” kini dapat menyetujui dan memberi kunci perangkat baru sendiri — penyandingan tidak lagi menunggu pemilik proyek, siapa pun yang membuat undangannya.',
   'panel.rel.new.activityTray': 'Unggahan ke perangkat kini muncul di kotak “Sedang berjalan” yang sama dengan unduhan, dengan panah yang menunjukkan arah berkasnya — dan kotak itu dapat dilipat lalu dibuka kembali.',
   'panel.rel.new.projTemplates': '“Pengaturan bawaan” proyek kini berfungsi penuh: perangkat baru membuka pengaturannya sudah terisi dari templat proyek, dan setelah menyimpan templat Anda dapat mengirimkannya — seluruhnya, atau hanya yang berubah — ke sebagian atau semua perangkat proyek yang sudah ada.',

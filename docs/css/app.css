@@ -1476,15 +1476,32 @@ body.rp-standalone main { padding-top: 0; }
   background: var(--border); border-radius: 999px; overflow: hidden; }
 .crowd-prog > span { display: block; height: 100%; width: 0;
   background: var(--blue); border-radius: 999px; transition: width .25s linear; }
+/* Indeterminate sweep: shown from the first frame of 'sending', through the bot check and session
+ * open, until the first real byte lands — so the visitor's only in-progress signal is OURS, never
+ * just Turnstile's own check/success flash (which read as "done" and got the tab closed mid-send). */
+.crowd-prog.indet > span { width: 40%; margin-left: -40%; transition: none;
+  animation: crowd-sweep 1.2s ease-in-out infinite; }
+@keyframes crowd-sweep { to { margin-left: 100%; } }
+.crowd-spin { display: inline-block; width: 1em; height: 1em; margin-right: 8px;
+  vertical-align: -0.15em; border: 2px solid var(--border); border-top-color: var(--blue);
+  border-radius: 50%; animation: crowd-spinner 0.9s linear infinite; }
+@keyframes crowd-spinner { to { transform: rotate(360deg); } }
 .crowd-thanks {
   width: 72px; height: 72px; line-height: 72px; margin: 24px auto 8px;
   border-radius: 50%; background: var(--ok, #2e7d32); color: #fff;
   font-size: 2rem; text-align: center;
 }
 .crowd-note { margin-top: 10px; }
-/* Turnstile host: invisible in managed mode; if a challenge ever shows it floats
-   bottom-center where an embedded iframe can still display it. */
-#crowd-turnstile { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 60; }
+/* Turnstile host: TUCKED by default (opacity 0, still running) — its check/success animation read
+   as "upload finished" and got tabs closed mid-send. The "Protected by Cloudflare" note in the
+   sending view reveals it on hover/tap, and a real interactive challenge force-reveals itself
+   (see crowdTurnstileReveal in app.js). Never display:none — the widget must keep executing. */
+#crowd-turnstile { position: fixed; bottom: 46px; left: 50%; transform: translateX(-50%);
+  z-index: 60; transition: opacity .2s; }
+#crowd-turnstile.tucked { opacity: 0; pointer-events: none; }
+/* The disclosure note itself: quiet, but present from the first frame of 'sending'. */
+.crowd-cf-note { display: block; margin: 2px auto 0; border: 0; background: none; cursor: pointer;
+  font-size: .78rem; color: var(--fg-soft, #8a8a8a); text-decoration: underline dotted; }
 /* Embedded (?embed=1): tighter chrome inside a ~480px iframe. */
 .crowd-embed #topbar { display: none; }
 .crowd-embed .record-screen { padding-top: 8px; }

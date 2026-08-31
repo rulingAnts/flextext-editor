@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v535';
+export const ENGINE_VERSION = 'v536';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v535';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'preview-player v3';
+export const BUILD_TAG = 'preview-player v4';
 
 const S = {
 en: {
@@ -1488,12 +1488,11 @@ internet after the first time.</p>
   'panel.rel.new.doneTogglePending': 'Panel: toggling a text’s Finished state now shows a pending marker until the device confirms — in every open panel, not just the one that clicked.',
   'panel.rel.new.textSort': 'Panel: texts on each device (and in Unassigned) are sorted — active texts first, finished after, each alphabetically.',
   // ── preview player ──
-  'panel.prev.btn': '▶ Play',
-  'panel.prev.loading': 'Finding the recording…',
+  'panel.prev.btn': 'Preview',
+  // The tooltip carries the honesty the old modal's status line used to: this is a small, low
+  // quality taste of the recording, not the archival file, which is always under Files…
+  'panel.prev.tip': 'Play the first ~30 seconds — a low-bandwidth preview, not the original file. The full recording is under Files…',
   'panel.prev.noAudio': 'This text has no audio file yet.',
-  'panel.prev.quality': 'Preview quality — the full recording is under Files…',
-  'panel.prev.fetching': 'Loading the full recording… {pct}%',
-  'panel.prev.full': 'Full recording.',
   'panel.prev.failed': 'Could not load the audio — try Files… for a direct download.',
   'panel.rel.new.previewPlayer': 'Panel: every text row has a ▶ Play button — a small preview player that starts almost instantly and stops the moment you close it.',
   'panel.rel.new.crowdSpeakerName': 'Crowd recorder: when consent asks for a typed name, that name now leads the recording’s title alongside the local time.',
@@ -3410,12 +3409,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.rel.new.doneTogglePending': 'Panel: mengubah status Selesai sebuah teks kini menampilkan penanda tertunda sampai perangkat mengonfirmasi — di semua panel yang terbuka, bukan hanya yang mengeklik.',
   'panel.rel.new.textSort': 'Panel: teks pada setiap perangkat (dan di Tidak Tertugas) kini diurutkan — teks aktif dulu, yang selesai kemudian, masing-masing menurut abjad.',
   // ── pemutar pratinjau ──
-  'panel.prev.btn': '▶ Putar',
-  'panel.prev.loading': 'Mencari rekaman…',
+  'panel.prev.btn': 'Pratinjau',
+  'panel.prev.tip': 'Putar ~30 detik pertama — pratinjau hemat data, bukan berkas asli. Rekaman lengkap ada di Berkas…',
   'panel.prev.noAudio': 'Teks ini belum punya berkas audio.',
-  'panel.prev.quality': 'Kualitas pratinjau — rekaman lengkap ada di Berkas…',
-  'panel.prev.fetching': 'Memuat rekaman lengkap… {pct}%',
-  'panel.prev.full': 'Rekaman lengkap.',
   'panel.prev.failed': 'Audio tidak bisa dimuat — coba Berkas… untuk mengunduh langsung.',
   'panel.rel.new.previewPlayer': 'Panel: setiap baris teks punya tombol ▶ Putar — pemutar pratinjau kecil yang mulai hampir seketika dan berhenti begitu ditutup.',
   'panel.rel.new.crowdSpeakerName': 'Perekam publik: jika persetujuan meminta nama yang diketik, nama itu kini memimpin judul rekaman bersama waktu lokal.',

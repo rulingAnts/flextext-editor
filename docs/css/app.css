@@ -1203,6 +1203,14 @@ body.rp-standalone main { padding-top: 0; }
    vanish mid-read and not come back. Eight rows of options do not fit that pattern. */
 .rp-dl { display: inline-block; }
 .rp-dl-btn { white-space: nowrap; }
+/* Preview transport: the row's own button IS the player (Apple-Music style), so its icon carries
+   all three states — ▶ idle, ◌ spinning while it resolves, ⏸ playing. No dialog, nothing to close. */
+.rp-prev { white-space: nowrap; }
+.rp-prev-icon { display: inline-block; font-size: .95em; }
+.rp-prev-loading .rp-prev-icon { animation: rp-prev-spin 0.9s linear infinite; }
+@keyframes rp-prev-spin { to { transform: rotate(360deg); } }
+/* Playing reads as ACTIVE, not as a link waiting to be clicked. */
+.rp-prev-playing { font-weight: 600; }
 .rp-dl-caret { font-size: 9px; opacity: .7; }
 .rp-dl-menu {
   display: flex; flex-direction: column;

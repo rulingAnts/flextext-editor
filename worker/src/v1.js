@@ -1593,7 +1593,9 @@ async function servePreviewHead(access, fileId, origin, env) {
   const driveGet = (range) => fetch('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?alt=media', {
     headers: { Authorization: 'Bearer ' + access, Range: range },
   });
-  const head = await driveGet('bytes=0-511');
+  // 4 KB, not 512 bytes: our own crowd WAVs are BWF and their `data` chunk sits after an ~900-byte
+  // `bext` provenance chunk — see parseWavHeader's note. One ranged read either way.
+  const head = await driveGet('bytes=0-4095');
   if (!head.ok && head.status !== 206) {
     return j({ error: head.status === 404 ? 'not_found' : 'drive_error', status: head.status }, head.status === 404 ? 404 : 502, origin, env);
   }

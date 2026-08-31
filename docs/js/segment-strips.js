@@ -1297,7 +1297,11 @@ function guessCuts(dur) {
  *      away.
  *   3. ONE undo step covers the lot, so a bad guess is one Ctrl+Z rather than fifty joins.
  */
-export function cutGuessSplits() {
+/* ⚠ ASYNC SINCE THE CONFIRM BECAME AN IN-APP DIALOG. Its one caller is a click handler that
+ * ignores the return value, so the promise costs nothing — but the await introduces a gap between
+ * asking and acting that a blocking native confirm() did not have, which is why the doc identity is
+ * re-checked below before anything is replaced. */
+export async function cutGuessSplits() {
   const doc = cutDeps && cutDeps.getDoc();
   if (!doc) return;
   const paras = cutDeps.getParagraphs(doc);
@@ -1317,7 +1321,16 @@ export function cutGuessSplits() {
   }
   // Already cut by hand? Ask before replacing it. `> 1` rather than a segmentation-state test: one
   // whole-file span is the seed, i.e. nobody has cut anything yet.
-  if (cutSegs().length > 1 && cutDeps.confirmReplace && !cutDeps.confirmReplace()) return;
+  if (cutSegs().length > 1 && cutDeps.confirmReplace) {
+    if (!await cutDeps.confirmReplace()) return;
+    /* ⚠ THE DOC MAY HAVE MOVED WHILE THE DIALOG WAS OPEN. A native confirm() froze the whole thread,
+     * so "asked" and "acted" were one instant; an in-app dialog does not. The dialog owns the
+     * keyboard and covers the screen, so a human cannot switch texts underneath it — but a remote
+     * command (a researcher's delete or reassign, arriving on a sync tick) can, and replacing the
+     * paragraphs of a document that is no longer the open one would destroy work in a text the
+     * transcriber is not even looking at. Cheap to check, catastrophic to skip. */
+    if (cutDeps.getDoc() !== doc) return;
+  }
   // Same reason as cutHere: a span watcher armed before this describes spans that are about to stop
   // existing, and would pause playback at a boundary that is no longer there.
   cutDeps.getPlayer()?.clearSpan?.();

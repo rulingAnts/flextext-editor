@@ -1075,6 +1075,7 @@ const WHATS_NEW = [
   'panel.rel.new.share',
   'panel.rel.new.memberApprove',
   'panel.rel.new.projTemplates',
+  'panel.rel.new.activityTray',
   'panel.rel.new.memberFiles',
   'panel.rel.new.projectLifecycle',
   'panel.rel.new.rename',
@@ -1089,6 +1090,7 @@ const WHATS_NEW = [
 const KNOWN_ISSUES = [
   'panel.known.addColleague',
   'panel.known.crowdMembers',
+  'panel.known.crowdNewProject',
   'panel.known.inviteOnce',
 ];
 
@@ -2207,23 +2209,47 @@ function jobsEl() {
   return el;
 }
 
+/* Collapsed state is MODULE-LEVEL, not read back from the DOM: the tray repaints on every progress
+ * tick (each jobSet), so DOM-held state would pop the tray back open once a second. The whole
+ * header is the toggle, both directions (Seth, 2026-08-31: "Collapsible and expandable again") —
+ * collapsed it is one line: the title, how many jobs, and a spinner while anything still runs, so
+ * "is it still working" stays answerable without expanding. */
+let jobsCollapsed = false;
 function paintJobs() {
   const el = jobsEl();
   if (!jobs.size) { el.hidden = true; el.replaceChildren(); return; }
   el.hidden = false;
-  const rows = [...jobs.values()].map((j) => {
+  el.classList.toggle('rp-jobs-min', jobsCollapsed);
+  const running = [...jobs.values()].filter((j) => !j.done).length;
+  const rows = jobsCollapsed ? [] : [...jobs.values()].map((j) => {
     const cls = 'rp-job' + (j.done ? ' is-done' : '');
-    const mark = j.done ? '✓' : '<span class="rp-job-spin" aria-hidden="true"></span>';
-    return `<div class="${cls}"><span class="rp-job-mark">${mark}</span>
+    /* Which WAY the bytes are going, now that both directions share this box (Seth, 2026-08-31).
+     * The arrow is the identity and stays put when the job finishes — a row that swapped its
+     * arrow for a tick at the end would lose the one thing distinguishing it from its neighbour,
+     * so "done" is the tick BESIDE the arrow, not instead of it. The spinner keeps its slot while
+     * the job runs, so the tray still shows motion. Title text, not just a glyph. */
+    const dir = j.dir === 'up' ? '↑' : '↓';
+    const dirTip = esc(t(j.dir === 'up' ? 'panel.jobs.upload' : 'panel.jobs.download'));
+    const state = j.done ? '<span class="rp-job-tick">✓</span>' : '<span class="rp-job-spin" aria-hidden="true"></span>';
+    return `<div class="${cls}"><span class="rp-job-mark">
+        <span class="rp-job-dir" title="${dirTip}" aria-label="${dirTip}" role="img">${dir}</span>${state}</span>
       <span class="rp-job-body"><span class="rp-job-label">${esc(j.label)}</span>
       ${j.msg ? `<span class="rp-job-msg">${esc(j.msg)}</span>` : ''}</span></div>`;
   });
-  el.innerHTML = `<div class="rp-jobs-head">${esc(t('panel.jobs.title'))}</div>${rows.join('')}`;
+  el.innerHTML = `<button type="button" class="rp-jobs-head" data-jobs-toggle aria-expanded="${!jobsCollapsed}"
+      title="${esc(t(jobsCollapsed ? 'panel.jobs.expand' : 'panel.jobs.collapse'))}">
+      <span class="rp-jobs-head-t">${esc(t('panel.jobs.title'))}${jobsCollapsed ? ` (${jobs.size})` : ''}</span>
+      ${jobsCollapsed && running ? '<span class="rp-job-spin" aria-hidden="true"></span>' : ''}
+      <span class="rp-jobs-chev" aria-hidden="true">${jobsCollapsed ? '▴' : '▾'}</span>
+    </button>${rows.join('')}`;
+  el.querySelector('[data-jobs-toggle]').onclick = () => { jobsCollapsed = !jobsCollapsed; paintJobs(); };
 }
 
-function jobStart(label, msg) {
+/* dir: 'down' (fetching FROM Drive — the original job kind) or 'up' (an assignment streaming TO
+ * it). Defaults to 'down' so every existing caller keeps its meaning without being touched. */
+function jobStart(label, msg, dir) {
   const id = ++jobSeq;
-  jobs.set(id, { label, msg: msg || '', done: false });
+  jobs.set(id, { label, msg: msg || '', done: false, dir: dir === 'up' ? 'up' : 'down' });
   paintJobs();
   return id;
 }
@@ -4002,6 +4028,16 @@ async function runAssignUpload(docId) {
   aqActive.set(docId, view);
   rec.state = 'uploading'; rec.error = '';
   await save();
+  /* The RUNNING upload lives in the activity tray — the same "In progress" box the Files…
+   * downloads use (Seth, 2026-08-31), with the same {pct}% of {size} voice, for the same reason:
+   * it survives dashboard re-renders and closed modals, and it is the one place a researcher has
+   * learned to look for work in flight. The queue card below keeps only the rows that need a
+   * HAND — queued (cancellable) and failed (retryable) — so one upload is never narrated twice. */
+  const nick = (((lastData && lastData.instances) || []).find((x) => x.instance_id === rec.instanceId) || {}).nickname;
+  const job = jobStart(`${rec.title || t('panel.hist.untitled')} → ${nick || '?'}`, t('panel.dl.starting'), 'up');
+  const jobPct = () => jobSet(job, total
+    ? t('panel.dl.pct', { pct: Math.min(99, Math.round((view.sent / total) * 100)), size: fmtSize(total) })
+    : fmtSize(view.sent));
   paintAssignQueue();
   try {
     if (!rec.originalsFolderId) {
@@ -4049,7 +4085,7 @@ async function runAssignUpload(docId) {
           blob: p.blob, name: p.name, mime: p.mime, kind: part === 'audio' ? 'audio' : 'flextext',
           originalsFolderId: rec.originalsFolderId, streamId: rec[part + 'StreamId'] || null,
         }, {
-          onProgress: (sent) => { view.sent = done + sent; paintAssignQueue(); },
+          onProgress: (sent) => { view.sent = done + sent; jobPct(); },
           // The session token persists in the queue record, so a panel restart resumes MID-FILE.
           onSession: (id) => { rec[part + 'StreamId'] = id || ''; return save(); },
         });
@@ -4057,10 +4093,10 @@ async function runAssignUpload(docId) {
         await save();
       }
       done += p.size; view.sent = done;
-      paintAssignQueue();
+      jobPct();
     }
     view.state = 'sending';
-    paintAssignQueue();
+    jobSet(job, t('panel.aq.sending'));
     const fin = await Researcher.assignFinish(rec.instanceId, docId, {
       ...(rec.audioFileId ? { audioFileId: rec.audioFileId } : {}),
       ...(rec.flextextFileId ? { flextextFileId: rec.flextextFileId } : {}),
@@ -4094,6 +4130,7 @@ async function runAssignUpload(docId) {
     })]);
     await db.deleteMedia(key).catch(() => { /* the record is spent either way */ });
     aqActive.delete(docId);
+    jobEnd(job, t('panel.aq.sentShort'));
     paintAssignQueue();
     deps.toast(t('panel.assign.sent'), 4000);
   } catch (e) {
@@ -4105,6 +4142,9 @@ async function runAssignUpload(docId) {
     rec.error = String((e && e.message) || e);
     await save();
     aqActive.delete(docId);
+    // The tray tells the truth about how it ended: re-queued (the sweeps will resume it) or
+    // failed (the queue card holds the Retry).
+    jobEnd(job, definitive ? t('panel.dl.failedShort') : t('panel.aq.queued'));
     paintAssignQueue();
     if (definitive) deps.toast(t('panel.aq.failed', { title: rec.title || '?', msg: rec.error }), 8000);
   }
@@ -4124,22 +4164,23 @@ async function sweepAssignUploads() {
 }
 
 function assignQueueHtml(queue) {
-  if (!queue.length) return '';
+  /* ⚠ RUNNING uploads are NOT rows here any more — they live in the activity tray with the
+   * downloads (runAssignUpload's jobStart), where progress survives re-renders. This card is the
+   * management surface: only rows a researcher can ACT on — queued (cancellable) and failed
+   * (retryable) — so one upload is never narrated in two places at once. When everything in the
+   * queue is in flight, there is rightly no card at all. */
+  const rows = queue.filter(({ docId }) => !aqActive.has(docId));
+  if (!rows.length) return '';
   const nick = (iid) => (((lastData && lastData.instances) || []).find((x) => x.instance_id === iid) || {}).nickname || '?';
-  const pct = (v) => (v.total ? Math.min(100, Math.round((v.sent / v.total) * 100)) : 0);
   return `<div class="rp-card rp-aq-card"><div class="rp-inst-name">${esc(t('panel.aq.title'))}</div>
-    ${queue.map(({ docId, rec }) => {
-      const live = aqActive.get(docId);
-      const status = live
-        ? (live.state === 'sending' ? t('panel.aq.sending') : t('panel.aq.uploading', { pct: pct(live) }))
-        : rec.state === 'error' ? t('panel.aq.failedRow', { msg: rec.error || '?' })
-        : t('panel.aq.queued');
+    ${rows.map(({ docId, rec }) => {
+      const status = rec.state === 'error' ? t('panel.aq.failedRow', { msg: rec.error || '?' }) : t('panel.aq.queued');
       return `<div class="rp-install rp-aq-row">
         <div><div class="invite-name">${esc(rec.title || t('panel.hist.untitled'))}</div>
         <div class="note">${esc(nick(rec.instanceId))} · ${esc(status)}</div></div>
         <div class="rp-inst-actions">
-          ${!live && rec.state === 'error' ? `<button class="secondary-btn" data-aqretry="${esc(docId)}">${esc(t('panel.aq.retry'))}</button>` : ''}
-          ${!live ? `<button class="link-btn rp-revoke" data-aqcancel="${esc(docId)}">${esc(t('panel.assign.cancel'))}</button>` : ''}
+          ${rec.state === 'error' ? `<button class="secondary-btn" data-aqretry="${esc(docId)}">${esc(t('panel.aq.retry'))}</button>` : ''}
+          <button class="link-btn rp-revoke" data-aqcancel="${esc(docId)}">${esc(t('panel.assign.cancel'))}</button>
         </div>
       </div>`;
     }).join('')}</div>`;

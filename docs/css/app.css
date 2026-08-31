@@ -1236,12 +1236,26 @@ body.rp-standalone main { padding-top: 0; }
   max-height: 40vh; overflow-y: auto;
 }
 .rp-jobs[hidden] { display: none; }
-.rp-jobs-head { font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
-                color: var(--muted); margin-bottom: 4px; }
+/* Collapsed: the header alone, so a long transfer can be tucked away without losing the fact that
+   it is running (the header keeps a count and a spinner). No max-height fight — there are no rows. */
+.rp-jobs-min { max-height: none; overflow: visible; }
+/* The header IS the toggle, both ways — a full-width button that still reads as a caption. */
+.rp-jobs-head { display: flex; align-items: center; gap: 6px; width: 100%;
+                background: none; border: 0; padding: 2px 0; margin-bottom: 4px; cursor: pointer;
+                font: inherit; font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+                color: var(--muted); text-align: left; }
+.rp-jobs-head:hover { color: var(--text); }
+.rp-jobs-head:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; border-radius: 4px; }
+.rp-jobs-head-t { flex: 1 1 auto; min-width: 0; }
+.rp-jobs-chev { flex: none; font-size: 10px; }
 .rp-job { display: flex; gap: 8px; align-items: flex-start; padding: 4px 0; font-size: 13px; }
 .rp-job + .rp-job { border-top: 1px solid var(--line); }
-.rp-job-mark { flex: none; width: 14px; text-align: center; color: var(--muted); }
-.rp-job.is-done .rp-job-mark { color: var(--ok, #0a7d33); }
+/* The mark column carries BOTH the direction arrow (which way the bytes go — uploads and downloads
+   share this tray) and the running/done state beside it. Sized for two glyphs, not one. */
+.rp-job-mark { flex: none; display: flex; align-items: center; gap: 3px; color: var(--muted); }
+.rp-job-dir { font-size: 13px; line-height: 1; font-weight: 700; color: var(--blue-dark); }
+.rp-job-tick { color: var(--ok, #0a7d33); font-size: 11px; }
+.rp-job.is-done .rp-job-dir { color: var(--ok, #0a7d33); }
 /* min-width:0 is load-bearing here for the same reason as the Files list: a long filename in a flex
    row refuses to shrink below its intrinsic width and pushes the box wider than its own max. */
 .rp-job-body { min-width: 0; }

@@ -91,8 +91,25 @@ console.log('\nthe activity tray reports work the browser cannot show');
    * That is exactly right and it is the whole design constraint: fetchDriveFile streams into a Blob
    * and only the COMPLETED Blob is handed to the browser, so for the entire slow part the browser's
    * download list is empty and the app is the only thing that can say the work exists. */
-  ok(/function jobStart\(label, msg\)/.test(panel) && /function jobEnd\(id, finalMsg\)/.test(panel),
+  ok(/function jobStart\(label, msg, dir\)/.test(panel) && /function jobEnd\(id, finalMsg\)/.test(panel),
      'there is a job registry');
+  /* UPLOADS SHARE THE TRAY (Seth, 2026-08-31: "let's have currently uploading assignments use the
+   * same 'in progress' modal that is used by downloads"). Two directions in one box need to be
+   * told apart, hence the arrow — and the queue card must stop narrating a RUNNING upload, or the
+   * same transfer is reported in two places with two different vocabularies. */
+  ok(/const job = jobStart\([\s\S]{0,160}?, 'up'\);/.test(panel), 'a running assignment upload opens a tray job');
+  ok(/const rows = queue\.filter\(\(\{ docId \}\) => !aqActive\.has\(docId\)\);/.test(panel),
+     '...and the queue card drops rows that are in flight, so nothing is narrated twice');
+  ok(/j\.dir === 'up' \? '↑' : '↓'/.test(panel), 'each row shows which way the bytes are going');
+  ok(/'panel\.jobs\.upload'/.test(panel) && /'panel\.jobs\.download'/.test(panel),
+     '...with a text label on it, not a bare glyph');
+  /* Collapsible BOTH ways, with the state held in the module: the tray repaints on every progress
+   * tick, so DOM-held state would pop it back open about once a second. */
+  ok(/let jobsCollapsed = false;/.test(panel), 'the collapsed state is module-level, not read from the DOM');
+  ok(/jobsCollapsed = !jobsCollapsed; paintJobs\(\);/.test(panel), 'and the header toggles it both ways');
+  ok(/jobsCollapsed \? \[\] : \[\.\.\.jobs\.values\(\)\]/.test(panel), 'collapsed renders no rows');
+  ok(/\$\{jobsCollapsed \? ` \(\$\{jobs\.size\}\)` : ''\}/.test(panel),
+     '...but still says how many jobs are running, so collapsing never hides that work exists');
   ok(/document\.body\.appendChild\(el\)/.test((panel.match(/function jobsEl\(\)[\s\S]*?\n\}/) || [''])[0]),
      'the tray is BODY-level — it must survive closing the modal AND a dashboard re-render');
   ok(/\.rp-jobs \{[\s\S]{0,200}?position: fixed/.test(css), 'and is pinned to the viewport');

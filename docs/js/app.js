@@ -7735,7 +7735,26 @@ async function eraseAllData() {
     location.replace(location.pathname);
   }
 }
-// Dev-only hard reset hook: ?devreset on localhost runs the same wipe (no-op off localhost; see setup()).
+/* WHERE ?devreset IS HONOURED — deliberately NOT isDevHost, and deliberately not everywhere.
+ *
+ * isDevHost covers loopback and private-LAN addresses, and it also gates the service worker, so
+ * widening IT to reach staging would change caching behaviour on the preview estate as a side
+ * effect. This predicate is devreset's alone.
+ *
+ * The `.workers.dev` estate is staging and the per-branch previews — test surfaces, never a field
+ * device: production is flextext.app (+ its subdomains) and the legacy rulingants.github.io, and
+ * those must keep REFUSING. A ?devreset link is a working link: forwarded into a WhatsApp group
+ * and tapped by a field worker, an honoured one would destroy a corpus that has not been uploaded
+ * yet, silently, with no confirmation step. That is why the gate exists and why production is not
+ * on this list. In the app, "Erase all data" is the supported path and it asks first. */
+function devResetAllowed(h) {
+  // Coerce ONCE, before either check — isDevHost calls h.endsWith and would throw on a missing
+  // hostname, and a throw here happens during setup(), i.e. it would take the whole boot with it.
+  const host = String(h || '');
+  return isDevHost(host) || /\.workers\.dev$/.test(host);
+}
+// Dev-only hard reset hook: ?devreset runs the same wipe on the hosts above (a no-op elsewhere,
+// with a console line saying so — see setup()).
 async function devReset() { return eraseAllData(); }
 
 // Standalone "Flextext Researcher" app: wire only what the panel needs and boot straight into it
@@ -7895,7 +7914,15 @@ function setup() {
   // touch the shared-origin storage a field worker's apps may be using on this
   // same browser profile. Everything crowd needs is fetched or in-memory.
   if (CROWD_MODE) { setupCrowdMode(); return; }
-  if (isDevHost(location.hostname) && new URLSearchParams(location.search).has('devreset')) { devReset(); return; }
+  if (new URLSearchParams(location.search).has('devreset')) {
+    if (devResetAllowed(location.hostname)) { devReset(); return; }
+    /* NOT allowed here, and SAYING SO is the fix (Seth, 2026-08-31, asking why ?devreset "kept the
+     * pairing session and docs"): it had not kept anything — it had never run. The param was
+     * silently dropped on any host outside the dev list, which reads exactly like a wipe that
+     * failed. The refusal stays (a ?devreset link forwarded to a field worker must never be able
+     * to destroy an un-uploaded corpus); only the silence goes. */
+    console.warn('[flextext] ?devreset ignored on this host — dev, staging and preview origins only. Use "Erase all data" in the app.');
+  }
   // ----- Paragraph Analysis satellite: boot the grouping app only; skip ALL field/editor wiring.
   // Registers its OWN service worker (sw.js resolves relative to /paragraph-analysis/).
   if (PARAGRAPH_MODE) {

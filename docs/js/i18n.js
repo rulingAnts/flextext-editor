@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v522';
+export const ENGINE_VERSION = 'v523';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1281,6 +1281,10 @@ internet after the first time.</p>
    * stream through the Worker into a Blob first), so nothing appears in the browser's download list
    * while they run — this box is the only place the work is visible. */
   'panel.jobs.title': 'In progress',
+  'panel.jobs.upload': 'Uploading to a device',
+  'panel.jobs.download': 'Downloading from Drive',
+  'panel.jobs.collapse': 'Hide the details',
+  'panel.jobs.expand': 'Show the details',
   'panel.dl.oneAtATime': 'One conversion at a time — the current one is still working.',
   /* v3: the Files menu reads flextext-manifest.json. No manifest -> ONE item, a folder link. */
   'panel.dl.openFolder': 'Open the Drive folder \u2197',
@@ -1470,6 +1474,7 @@ internet after the first time.</p>
   'panel.rel.new.doneToggle': 'Fixed: un-marking a text as finished no longer leaves you unable to mark it finished again.',
   'panel.rel.new.oneVersion': 'Every part of the app now reports one version number, so a device that is out of date is obvious at a glance.',
   'panel.rel.new.memberApprove': 'A researcher with “manage devices” can now approve and key a new device themselves — pairing no longer waits for the project owner, whoever created the invite.',
+  'panel.rel.new.activityTray': 'Uploads to a device now appear in the same “In progress” box as downloads, with an arrow showing which way the files are going — and the box can be collapsed out of the way and reopened.',
   'panel.rel.new.projTemplates': 'Project “Default settings” now work end to end: a new device opens its settings prefilled from the project’s template, and after saving a template you can push it — whole, or only what changed — to any or all of the project’s existing devices.',
   'panel.rel.new.rename': 'You can rename a device from its Settings.',
   'panel.rel.new.keylessHonest': 'Fixed: sharing a project that contains an open-to-everyone crowd recorder warned forever that one device “could not be unlocked.” Crowd recorders don’t use device keys, and the panel now says so instead of warning.',
@@ -1478,6 +1483,7 @@ internet after the first time.</p>
   'panel.rel.new.dialogs': 'Confirmation questions are now proper in-app dialogs instead of browser pop-ups.',
   'panel.known.addColleague': 'Adding another researcher is a clumsy manual exchange: they have to find their researcher ID and send it to you. A one-time invite link you can share instead is planned.',
   'panel.known.crowdMembers': 'Crowd recorders are invisible to added researchers — only the project owner sees them.',
+  'panel.known.crowdNewProject': 'A newly created project has no “Crowd recorders” area, so a crowd recorder cannot be added to one yet. Only projects that already have a crowd recorder show it. Being fixed next.',
   'panel.known.inviteOnce': 'A device invite link is shown once and cannot be displayed again. If it is lost, make a new one; the old link stays valid.',
   /* ⚠ The coworker list no longer shows a name, email or avatar — the worker stopped sending them
    * (v503). A nickname the OWNER types is what names a coworker now, and it never leaves this
@@ -1561,6 +1567,7 @@ internet after the first time.</p>
   'panel.dl.origin.crowd': 'crowd recorder',
   'panel.aq.title': 'Assignment uploads',
   'panel.aq.queued': 'waiting to upload',
+  'panel.aq.sentShort': 'sent',
   'panel.aq.uploading': 'uploading {pct}%',
   'panel.aq.sending': 'sending the task…',
   'panel.aq.failedRow': 'failed — {msg}',
@@ -3216,6 +3223,10 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.dl.failedShort': 'gagal',
   /* Lihat catatan pada blok en. */
   'panel.jobs.title': 'Sedang berjalan',
+  'panel.jobs.upload': 'Mengunggah ke perangkat',
+  'panel.jobs.download': 'Mengunduh dari Drive',
+  'panel.jobs.collapse': 'Sembunyikan detail',
+  'panel.jobs.expand': 'Tampilkan detail',
   'panel.dl.oneAtATime': 'Satu konversi pada satu waktu — yang sekarang masih berjalan.',
   'panel.dl.openFolder': 'Buka folder Drive \u2197',
   'panel.dl.openFolderSub': 'lihat semua berkas teks ini di Google Drive',
@@ -3364,6 +3375,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.rel.new.doneToggle': 'Diperbaiki: membatalkan tanda selesai pada teks tidak lagi membuat Anda tak bisa menandainya selesai kembali.',
   'panel.rel.new.oneVersion': 'Semua bagian aplikasi kini melaporkan satu nomor versi, sehingga perangkat yang ketinggalan versi langsung terlihat.',
   'panel.rel.new.memberApprove': 'Peneliti dengan “mengelola perangkat” kini dapat menyetujui dan memberi kunci perangkat baru sendiri — penyandingan tidak lagi menunggu pemilik proyek, siapa pun yang membuat undangannya.',
+  'panel.rel.new.activityTray': 'Unggahan ke perangkat kini muncul di kotak “Sedang berjalan” yang sama dengan unduhan, dengan panah yang menunjukkan arah berkasnya — dan kotak itu dapat dilipat lalu dibuka kembali.',
   'panel.rel.new.projTemplates': '“Pengaturan bawaan” proyek kini berfungsi penuh: perangkat baru membuka pengaturannya sudah terisi dari templat proyek, dan setelah menyimpan templat Anda dapat mengirimkannya — seluruhnya, atau hanya yang berubah — ke sebagian atau semua perangkat proyek yang sudah ada.',
   'panel.rel.new.rename': 'Anda dapat mengganti nama perangkat dari Pengaturannya.',
   'panel.rel.new.keylessHonest': 'Diperbaiki: berbagi proyek yang berisi perekam-terbuka memunculkan peringatan terus-menerus bahwa satu perangkat “tidak dapat dibuka.” Perekam terbuka tidak memakai kunci perangkat, dan panel kini mengatakannya, bukan memperingatkan.',
@@ -3372,6 +3384,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.rel.new.dialogs': 'Pertanyaan konfirmasi kini berupa dialog dalam aplikasi, bukan jendela sembul peramban.',
   'panel.known.addColleague': 'Menambahkan peneliti lain masih merepotkan: mereka harus mencari ID peneliti mereka dan mengirimkannya kepada Anda. Tautan undangan sekali pakai sedang direncanakan.',
   'panel.known.crowdMembers': 'Perekam massal tidak terlihat oleh peneliti yang ditambahkan — hanya pemilik proyek yang melihatnya.',
+  'panel.known.crowdNewProject': 'Proyek yang baru dibuat tidak memiliki area “Perekam massal”, sehingga perekam massal belum dapat ditambahkan ke sana. Hanya proyek yang sudah punya perekam massal yang menampilkannya. Sedang diperbaiki berikutnya.',
   'panel.known.inviteOnce': 'Tautan undangan perangkat hanya ditampilkan sekali dan tidak dapat ditampilkan ulang. Jika hilang, buat yang baru; tautan lama tetap berlaku.',
   'panel.share.nickLabel': 'Nama untuk mereka (hanya Anda yang melihatnya)',
   'panel.share.nickPh': 'mis. Yani — tim Kulumi',
@@ -3434,6 +3447,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.dl.origin.crowd': 'perekam massal',
   'panel.aq.title': 'Unggahan penugasan',
   'panel.aq.queued': 'menunggu diunggah',
+  'panel.aq.sentShort': 'terkirim',
   'panel.aq.uploading': 'mengunggah {pct}%',
   'panel.aq.sending': 'mengirim tugas…',
   'panel.aq.failedRow': 'gagal — {msg}',

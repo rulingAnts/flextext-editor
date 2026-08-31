@@ -43,9 +43,17 @@ test('preview player contract', () => {
   console.log('\nworker: the head degrades to heavier, never to wrong bytes');
   {
     const serve = (worker.match(/async function servePreviewHead[\s\S]*?\n\}/) || [''])[0];
-    ok(/bytes=0-262143/.test(serve), 'non-PCM sources fall back to the raw first 256 KB');
+    ok(/bytes=0-4095/.test(serve),
+       'the header probe reads 4 KB — our own crowd WAVs are BWF, data past a ~900-byte bext');
     ok(/content-length', String\(44 \+ plan\.outBytes\)/.test(serve),
        'the decimated shape promises an exact content-length before the first body byte');
+    /* ⚠ TRUNCATION IS NOT UNIVERSAL (Seth: "some wav, some mp3, some m4a"). MP3 frames and OGG
+     * pages play from a head; MP4/M4A can carry its `moov` index at the END, so a truncated one
+     * may not decode at all. Those must be served whole. */
+    ok(/audio\\\/\(mpeg\|mp3\|ogg\|opus\)/.test(serve) || /mpeg\|mp3\|ogg\|opus/.test(serve),
+       'only frame/page containers are truncated to a head');
+    ok(/truncatable \? 'bytes=0-262143' : 'bytes=0-'/.test(serve),
+       '...everything else (m4a, flac, unknown) is served WHOLE rather than broken');
   }
 
   console.log('\npanel: the player dies with its modal');
@@ -56,6 +64,10 @@ test('preview player contract', () => {
     ok(/if \(!m\.el\.isConnected\) return/.test(open),
        'a modal closed mid-resolve never starts playing');
     ok(/fetchDriveFile\(f\.id/.test(open), 'the original-download fallback exists (old worker ⇒ heavier, still works)');
+    // The universal net: the worker's truncation list is a judgement about formats; an <audio>
+    // error is a fact about THIS file. Either way the researcher hears the recording.
+    ok(/addEventListener\('error', \(\) => \{ playFull\(f\); \}, \{ once: true \}\)/.test(open),
+       'a preview head that will not decode falls back to the full original, once');
   }
 
   console.log('\npanel: the pre-cache can never cost the page');

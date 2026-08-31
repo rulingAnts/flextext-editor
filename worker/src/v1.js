@@ -1142,6 +1142,28 @@ async function driveUnassignedFolder(env, access, projectFolderId, createdBy) {
   return f.id;
 }
 
+/* The project lane's text folder + its originals/, resolved-or-created and STAMPED in one act
+ * (issue #4). Extracted the moment there was a SECOND caller, and for a reason a guard proved:
+ * check-project-scoping.sh caught `begin` stamping both folders while `upload/start` — which must
+ * re-derive the same parent rather than trust the request body — stamped neither. "Creation ⟹
+ * stamped" is not a convention here; an unstamped Drive object is invisible to per-project
+ * authorization, so a member would be denied a text that plainly exists.
+ *
+ * ⚠ `knownId` COMES FROM D1, NEVER FROM THE REQUEST. authorizeDocForProject already resolved this
+ * doc's folder, and files.get by id is strongly consistent while the appProperties tag search is
+ * not — the same v167 reasoning that stopped a new "Title (n)" folder being minted per upload.
+ * Taking a parent from the caller here would be a write-anywhere-in-the-owner's-Drive primitive
+ * wearing an upload's clothes: with no device folder to verify against, there is nothing to check
+ * it against. */
+async function projectTextFolders(env, access, projectFolderId, docId, title, knownId, projectId, createdBy) {
+  const unassigned = await driveUnassignedFolder(env, access, projectFolderId, createdBy);
+  const folder = await driveEnsureTextFolder(access, unassigned, docId, title || '', knownId || '');
+  await stampFolder(env, { objectId: folder, kind: 'text', docId, instanceId: null, projectId, createdBy });
+  const originals = await driveEnsureChildFolder(access, folder, 'originals', 'originals');
+  await stampFolder(env, { objectId: originals, kind: 'originals', docId, instanceId: null, projectId, createdBy });
+  return { folder, originals };
+}
+
 /* Re-parent one file/folder. Extracted from the move endpoint so the move, the unassign sweep and
  * the return-to-device path cannot drift apart. Idempotent: moving something to where it already is
  * is a no-op the caller checks for. */
@@ -1544,6 +1566,43 @@ async function stampTokenEpoch(env, request, instanceId, now) {
     try { await secLog(env, request, 'token_epoch_stamp_failed', { instance: String(instanceId).slice(0, 12), message: String((e && e.message) || e).slice(0, 160) }); } catch { /* noop */ }
   }
 }
+
+/* IDEMPOTENT DEVICE CREATION — shared by the two routes that create an instance (issue #6).
+ *
+ * Both of them insert a row and then create the device's Drive folder eagerly, which is what makes
+ * them slow enough to lose ("It processed for a minute, and then showed a message that it had failed
+ * to create the new device"). A lost response over a completed insert is a GHOST: the panel reports
+ * a failure that did not happen, the researcher tries again, and one device exists twice — once with
+ * a folder (in the project) and once without (in "Not in a project yet"), which is exactly the
+ * duplicate the issue describes. So the two reported symptoms are one cause.
+ *
+ * A client-minted `create_key`, replayed, turns that lost response into an ordinary retry.
+ *
+ * ⚠ FAILS SOFT, NEVER CLOSED. `usable:false` means this database has no create_key column yet — the
+ * runbook orders D1-migrate before worker-deploy, but it says in as many words that a human under
+ * pressure can get an order wrong. Refusing to create a device over a missing bookkeeping column
+ * would be a far worse outage than the bug being fixed, so the caller simply creates as it does
+ * today. The one thing a caller must NOT do on a constraint failure is fall through to a keyless
+ * insert: that writes the second device this exists to prevent.
+ *
+ * ⚠ SCOPED BY THE OWNING researcher_id — the same id the INSERT writes — because that is what the
+ * unique index is keyed on. For the member route that is the OWNER, not the caller. */
+async function instanceByCreateKey(env, ownerId, createKey) {
+  if (!createKey) return { usable: false, row: null };
+  try {
+    const row = await env.DB.prepare(
+      'SELECT instance_id, type, nickname, estate, oauth_folder_id FROM instance WHERE researcher_id=? AND create_key=?'
+    ).bind(ownerId, createKey).first();
+    return { usable: true, row: row || null };
+  } catch { return { usable: false, row: null }; }
+}
+// The replay's body: identical in shape to a fresh create, so no client needs a branch for it.
+// `replayed` is for logs and tests, never for behaviour.
+const createdInstanceReply = (row, extra) => ({
+  instance_id: row.instance_id, type: row.type || '', nickname: row.nickname,
+  estate: row.estate || 'cloud', folderId: row.oauth_folder_id || '', replayed: true, ...(extra || {}),
+});
+const cleanCreateKey = (body) => String((body && body.createKey) || '').replace(/[^\w-]/g, '').slice(0, 64);
 
 async function mintTextfileUrl(env, urlOrigin, researcherId, fileId, extract, ttlMs, scope, minterId) {
   if (!fileId) return null;
@@ -3156,11 +3215,34 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     const project = await env.DB.prepare('SELECT project_id, owner_id, drive_folder_id FROM project WHERE project_id=?')
       .bind(projectId).first().catch(() => null);
     if (!project) return j({ error: 'not_found' }, 404, origin, env);
+    /* Idempotent for the same reason as the owner route — this one creates a device folder eagerly
+     * too, so it can be lost the same way. Keyed on the OWNER's researcher_id, which is what the
+     * INSERT below writes and what the unique index is on. See instanceByCreateKey. */
+    const createKey = cleanCreateKey(body);
+    const seen = await instanceByCreateKey(env, ctx.owner.researcher_id, createKey);
+    if (seen.row) {
+      return j(createdInstanceReply(seen.row, { project_id: projectId, owner_id: project.owner_id }), 200, origin, env);
+    }
     const instance_id = crypto.randomUUID();
+    const memberBlob = JSON.stringify({ settings: {}, commands: [] });
     // estate 'cloud' unconditionally — same policy decision as the owner-route INSERT above.
-    await env.DB.prepare(
-      'INSERT INTO instance (instance_id, researcher_id, type, nickname, desired_blob, desired_rev, revoked, created_at, estate, project_id) VALUES (?,?,?,?,?,0,0,?,?,?)'
-    ).bind(instance_id, ctx.owner.researcher_id, '', nickname, JSON.stringify({ settings: {}, commands: [] }), now, 'cloud', projectId).run();
+    if (seen.usable) {
+      try {
+        await env.DB.prepare(
+          'INSERT INTO instance (instance_id, researcher_id, type, nickname, desired_blob, desired_rev, revoked, created_at, estate, project_id, create_key) VALUES (?,?,?,?,?,0,0,?,?,?,?)'
+        ).bind(instance_id, ctx.owner.researcher_id, '', nickname, memberBlob, now, 'cloud', projectId, createKey).run();
+      } catch (e) {
+        // A race on the same key: the other submit won, so replay it rather than making a second
+        // device. Never fall through to a keyless insert — see instanceByCreateKey.
+        const won = (await instanceByCreateKey(env, ctx.owner.researcher_id, createKey)).row;
+        if (won) return j(createdInstanceReply(won, { project_id: projectId, owner_id: project.owner_id }), 200, origin, env);
+        throw e;
+      }
+    } else {
+      await env.DB.prepare(
+        'INSERT INTO instance (instance_id, researcher_id, type, nickname, desired_blob, desired_rev, revoked, created_at, estate, project_id) VALUES (?,?,?,?,?,0,0,?,?,?)'
+      ).bind(instance_id, ctx.owner.researcher_id, '', nickname, memberBlob, now, 'cloud', projectId).run();
+    }
     /* Eager device folder in the OWNER's Drive, best-effort exactly like the owner route: a Drive
      * failure must not lose the instance, the folder falls back to the lazy path. */
     let folderId = '';
@@ -3191,6 +3273,126 @@ export async function handleV1(request, env, ctx, url, path, origin) {
    * what finally stops the "only 1 of 2 devices could be unlocked" warning from re-firing forever
    * on a project that contains one. Owner or a member with manageDevices may trigger it: it can
    * only ever create grants the project's membership already entitles, for people the owner added. */
+  /* ── UPLOAD A TEXT TO A PROJECT, NOT TO A DEVICE (issue #4) ──────────────────────────────────────
+   *
+   * The researcher's ask: "I see that you can un-assign a text from a device so that it is associated
+   * with the project but no device. I would like to be able to upload a text to that place… At a
+   * later time, I can move/assign it to the device of my choice." Today the only way to make one is
+   * to assign it to a device and then move it to Unassigned — an extra step, on a device that may be
+   * the wrong one, for a text nobody is ready to hand out yet.
+   *
+   * ⚠ THREE ROUTES, MIRRORING THE DEVICE LANE EXACTLY — begin, upload/start, upload/chunk — because
+   * the client's chunked-upload trio is already addressed by a BASE PATH (`uploadBase(iid, docId,
+   * base)`, researcher.js) and the crowd consent prompt already reuses it that way. So the whole
+   * resilient upload machinery (probe-first resume, AIMD sizing, session persistence) comes for free
+   * and there is no second copy of it to drift.
+   *
+   * ⚠ NO `finish`, deliberately, and this is the real difference between the lanes. The device lane
+   * finishes by minting /v1/textfile URLs and sending an assign COMMAND — the delivery half. There is
+   * no device here to deliver to, and inventing a half-assignment would be exactly the "affordance
+   * that cannot work" this repo refuses. The text simply exists in the project's Unassigned, which is
+   * where the estate already lists it and where Move… already picks it up.
+   *
+   * ⚠ THE PARENT IS RESOLVED SERVER-SIDE AND NEVER ACCEPTED FROM THE CALLER. The device lane takes a
+   * `folderId` echo for its dedupe, and that is safe there only because the folder is re-verified
+   * against the doc. Here there is no doc to verify against yet, so a caller-supplied parent would be
+   * a "write a file anywhere in the owner's Drive" primitive wearing an upload's clothes.
+   *
+   * ⚠ ADDITIVE: new paths only. Nothing an old client calls changes shape, and a client that ships
+   * before this worker gets a 404 it already knows how to degrade from. */
+  if (seg.length >= 5 && seg[1] === 'projects' && seg[3] === 'texts') {
+    const projectFolderId = String(seg[2] || '').replace(/[^\w-]/g, '').slice(0, 128);
+    const docId = String(seg[4] || '').replace(/[^\w-]/g, '').slice(0, 64);
+    if (!projectFolderId || !docId) return j({ error: 'bad_doc' }, 400, origin, env);
+    /* ⚠ IDENTITY FIRST, THEN THE LOOKUP — caught by this feature's own probe. Resolving the project
+     * before authenticating made the pair of answers an ENUMERATION ORACLE: a stranger got 404 for a
+     * folder id that does not exist and 401 for one that does, which is a free "is this a real
+     * project?" test against someone else's Drive, from outside the account entirely. Checking who
+     * is asking first makes both answers identical to anyone not signed in. */
+    if (!await authResearcher(request, env)) return j({ error: 'unauthorized' }, 401, origin, env);
+    /* Routed by the project's DRIVE FOLDER id — what the panel actually holds (its tabs are folder
+     * ids) — and resolved here to the D1 project row that authorization is keyed on. Resolving
+     * rather than trusting is the point: an unknown folder is simply not a project. */
+    const prow = await env.DB.prepare('SELECT project_id, owner_id, drive_folder_id FROM project WHERE drive_folder_id=?')
+      .bind(projectFolderId).first().catch(() => null);
+    if (!prow) return j({ error: 'not_found' }, 404, origin, env);
+    const ctx = await authMember(request, env, { project: prow.project_id }, 'assignTexts');
+    if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+    if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+    const r = ctx.owner;   // the PROJECT OWNER's row: Drive acts in their account (R2-5)
+    /* Same 'create' contract the device lane's begin uses: a doc known NOWHERE is new and may be
+     * created here; a doc that already lives in ANOTHER project denies, so a member with assignTexts
+     * cannot squat on an id. The owner passes regardless. */
+    const gate = await authorizeDocForProject(env.DB, { docId, projectId: ctx.project_id || prow.project_id || '', isOwner: ctx.isOwner, mode: 'create' });
+    if (!gate.allowed) return j({ error: 'not_found' }, 404, origin, env);
+    // Bound once: the trailing-argument form is what the mint-site guard counts, and this lane
+    // mints nothing from caller-supplied ids.
+    const by = ctx.caller.researcher_id;
+
+    // POST /v1/projects/<projectFolderId>/texts/<docId>/begin {title}
+    if (m === 'POST' && seg.length === 6 && seg[5] === 'begin') {
+      const body = await readJson(request) || {};
+      try {
+        const access = await driveAccessToken(env, r);
+        /* instanceId NULL throughout — the whole point is a text that belongs to no device. */
+        const made = await projectTextFolders(env, access, projectFolderId, docId, body.title, gate.folderId, prow.project_id || null, by);
+        return j({ ok: true, folderId: made.folder, originalsFolderId: made.originals }, 200, origin, env);
+      } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
+    }
+
+    // POST /v1/projects/<projectFolderId>/texts/<docId>/upload/start {name, mime, size, originalsFolderId, kind}
+    if (m === 'POST' && seg.length === 7 && seg[5] === 'upload' && seg[6] === 'start') {
+      const body = await readJson(request) || {};
+      const size = parseInt(body.size, 10) || 0;
+      if (size < 1 || size > 2 * 1024 * 1024 * 1024) return j({ error: 'bad_size' }, 400, origin, env);
+      const name = String(body.name || '').replace(/[\\/:*?"<>|]+/g, '_').trim().slice(0, 180) || ('text-' + now + '.bin');
+      const mime = String(body.mime || 'application/octet-stream').slice(0, 100);
+      // No 'consent-prompt' here: a prompt is per-DEVICE, and this lane has no device.
+      const role = { audio: 'source-audio', flextext: 'source-flextext', manifest: 'manifest' }[body.kind];
+      if (!role) return j({ error: 'bad_kind' }, 400, origin, env);
+      try {
+        const access = await driveAccessToken(env, r);
+        /* ⚠ THE PARENT IS RE-DERIVED, NOT TAKEN FROM THE BODY — see the note above this block. The
+         * client's `originalsFolderId` is ignored on purpose; the resolve is idempotent, so this
+         * costs a folder lookup and closes the write-anywhere hole. */
+        const parent = (await projectTextFolders(env, access, projectFolderId, docId, body.title || '', gate.folderId, prow.project_id || null, by)).originals;
+        if (!parent) return j({ error: 'bad_folder' }, 400, origin, env);
+        const init = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id', {
+          method: 'POST',
+          headers: {
+            Authorization: 'Bearer ' + access, 'content-type': 'application/json',
+            'X-Upload-Content-Type': mime, 'X-Upload-Content-Length': String(size),
+          },
+          body: JSON.stringify({ name, mimeType: mime, parents: [parent], appProperties: { flextextRole: role } }),
+        });
+        const session = init.ok ? init.headers.get('Location') : null;
+        if (!session) { const e = new Error('no upload session (HTTP ' + init.status + ')'); e.code = 'drive_error'; throw e; }
+        /* ⚠ `pj` MAKES THE TICKET ROUTE-DISTINCT. Without it a project ticket and an instance ticket
+         * are the identical `{u, rr, s}` shape, so either replays on the other's chunk relay — a
+         * lane-crossing an adversarial review caught before this shipped. Same precedent as the
+         * crowd relay's `pr`. The ticket is opaque to every client, so this is additive. */
+        const uploadId = await encAtRest(env, JSON.stringify({ u: session, rr: r.researcher_id, pj: projectFolderId, s: size }));
+        return j({ ok: true, uploadId }, 200, origin, env);
+      } catch (e) {
+        await noteDriveError(env, r.researcher_id, 'project upload start failed: ' + safeErr(e));
+        return j({ error: e.code || 'drive_error' }, 502, origin, env);
+      }
+    }
+
+    // PUT /v1/projects/<projectFolderId>/texts/<docId>/upload/chunk — same wire contract as both
+    // other chunk relays; ownership key is `rr` (researcher), never `i` (install).
+    if (m === 'PUT' && seg.length === 7 && seg[5] === 'upload' && seg[6] === 'chunk') {
+      let sess = null;
+      try { sess = JSON.parse(await decAtRest(env, request.headers.get('x-fx-upload') || '')); } catch { sess = null; }
+      // Own researcher AND own project: a ticket minted for another project must not relay here.
+      if (!sess || !sess.u || sess.rr !== r.researcher_id || sess.pj !== projectFolderId) {
+        return j({ error: 'bad_upload' }, 403, origin, env);
+      }
+      const out = await relayDriveChunk(request, sess);
+      return j(out.body, out.status, origin, env);
+    }
+  }
+
   if (m === 'POST' && seg.length === 4 && seg[1] === 'projects' && seg[3] === 'grant-sweep') {
     const projectId = String(seg[2] || '');
     const ctx = await authMember(request, env, { project: projectId }, 'manageDevices');
@@ -4631,16 +4833,66 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     const nickname = body && (body.nickname || '').trim();
     if (type !== '' && type !== 'editor' && type !== 'recorder') return j({ error: 'bad_type' }, 400, origin, env);
     if (!nickname) return j({ error: 'nickname_required' }, 400, origin, env);
-    const instance_id = crypto.randomUUID();
+    /* ⚠ IDEMPOTENT WHEN THE CLIENT SUPPLIES A KEY (issue #6). This route inserts a row and THEN, when
+     * a project is named, creates the device's Drive folder eagerly — a token fetch, a files.get and
+     * a folder create. That is what makes it slow enough to lose ("It processed for a minute, and
+     * then showed a message that it had failed"), and a lost response over a completed insert is
+     * exactly a ghost: the panel reports a failure that did not happen, the researcher tries again,
+     * and there are two devices with one name. Replaying the same key returns the FIRST instance, so
+     * the client can retry a lost response the way it retries everything else.
+     *
+     * ⚠ THE COLUMN MAY NOT EXIST YET, and a researcher must not pay for that. The runbook orders
+     * D1-migrate before worker-deploy, but it says in as many words that a human under pressure can
+     * get an order wrong — so the probe below decides, ONCE, whether this database has the column,
+     * and a database without it simply creates devices exactly as it does today. Fail soft here,
+     * never closed: refusing to create a device because a bookkeeping column is missing would be a
+     * far worse outage than the bug this fixes. */
+    const createKey = cleanCreateKey(body);
+    const seen = await instanceByCreateKey(env, r.researcher_id, createKey);
+    const keyUsable = seen.usable;
+    let replayed = seen.row || null;
+    let instance_id = replayed ? replayed.instance_id : crypto.randomUUID();
     /* ⚠ ESTATE IS STAMPED 'cloud' UNCONDITIONALLY (Seth, 2026-08-05). Every NEW instance belongs to
      * the Cloudflare apps — that is a policy decision, not an observation, so it is deliberately
      * NOT inferred from the request Origin. An origin header describes which panel happened to
      * make the call (a researcher may still be using the old one, and it is client-controlled
      * anyway); it is the wrong source of truth for what a new coworker should install.
      * Existing rows keep 'pages' via the column default — see migrate-estate.sql. */
-    await env.DB.prepare(
-      'INSERT INTO instance (instance_id, researcher_id, type, nickname, desired_blob, desired_rev, revoked, created_at, estate) VALUES (?,?,?,?,?,0,0,?,?)'
-    ).bind(instance_id, r.researcher_id, type, nickname, JSON.stringify({ settings: {}, commands: [] }), now, 'cloud').run();
+    const blob = JSON.stringify({ settings: {}, commands: [] });
+    /* ⚠ A REPLAY CONVERGES, IT DOES NOT FREEZE. The obvious version of this returns the stored row
+     * immediately — and that would make the reported symptom PERMANENT instead of transient. The
+     * request is lost precisely BECAUSE the placement leg is slow (token → files.get → folder
+     * create), so the row a replay finds is very often the one whose folder never got made: no
+     * oauth_folder_id, no project_id. Returning it as-is freezes a device into "Not in a project
+     * yet" for good, and the retry that should have healed it is what sealed it.
+     *
+     * So a replay skips only the INSERT and then runs the SAME placement below, which is idempotent
+     * by construction (driveEnsureDeviceFolder resolves an existing folder by id/tag; the project
+     * stamp is `WHERE project_id IS NULL`). Convergent retry, not an early return. */
+    if (seen.row) { /* the row exists — fall through to the placement leg */ }
+    else if (keyUsable) {
+      try {
+        await env.DB.prepare(
+          'INSERT INTO instance (instance_id, researcher_id, type, nickname, desired_blob, desired_rev, revoked, created_at, estate, create_key) VALUES (?,?,?,?,?,0,0,?,?,?)'
+        ).bind(instance_id, r.researcher_id, type, nickname, blob, now, 'cloud', createKey).run();
+      } catch (e) {
+        /* ⚠ A UNIQUE FAILURE HERE IS A RACE, NOT AN ERROR — two submits carrying the same key at the
+         * same moment (a double-tap, or a retry that overtook the original). The other one won and
+         * its row is the answer.
+         * ⚠ AND IT MUST NOT FALL THROUGH TO A KEYLESS INSERT: that would create the second device
+         * this whole change exists to prevent. If the row cannot be found, the failure is real and
+         * is surfaced. Like the replay above it then CONVERGES rather than returning early — the
+         * winner may itself have died before placing the device. */
+        const won = (await instanceByCreateKey(env, r.researcher_id, createKey)).row;
+        if (!won) throw e;
+        replayed = won;
+        instance_id = won.instance_id;
+      }
+    } else {
+      await env.DB.prepare(
+        'INSERT INTO instance (instance_id, researcher_id, type, nickname, desired_blob, desired_rev, revoked, created_at, estate) VALUES (?,?,?,?,?,0,0,?,?)'
+      ).bind(instance_id, r.researcher_id, type, nickname, blob, now, 'cloud').run();
+    }
     /* ⚠ CREATE THE DEVICE FOLDER EAGERLY WHEN A PROJECT IS NAMED — the only way a new device can land
      * in the project the researcher is actually looking at.
      *
@@ -4653,6 +4905,9 @@ export async function handleV1(request, env, ctx, url, path, origin) {
      * authority everything else here uses — no `project_id` written anywhere, nothing to drift.
      * Best-effort: a Drive failure must not lose the instance that was just created, so the device
      * simply falls back to the lazy path and the default project. */
+    /* On a replay the STORED nickname wins: the folder was named from it, and letting a retry's body
+     * rename an existing device's Drive folder would be a side effect nobody asked for. */
+    const placeName = replayed ? replayed.nickname : nickname;
     const wantProject = String((body && body.projectFolderId) || '').replace(/[^\w-]/g, '').slice(0, 128);
     let folderId = '';
     if (wantProject) {
@@ -4681,11 +4936,17 @@ export async function handleV1(request, env, ctx, url, path, origin) {
                 .bind(prow.project_id, instance_id).run();
             }
           } catch (e2) { try { console.warn('project_id not stamped for', instance_id, safeErr(e2)); } catch { /* noop */ } }
-          folderId = await driveEnsureDeviceFolder(env, access, instance_id, nickname, '', wantProject);
+          folderId = await driveEnsureDeviceFolder(env, access, instance_id, placeName, replayed ? (replayed.oauth_folder_id || '') : '', wantProject);
         }
       } catch { /* the instance exists; the folder can still be made lazily */ }
     }
-    return j({ instance_id, type, nickname, estate: 'cloud', folderId }, 200, origin, env);
+    /* A replay reports the stored identity plus whatever the placement leg just achieved — so a
+     * retry that finally created the folder returns it, and the panel can put the device in the
+     * right project immediately instead of waiting for the estate search to catch up. */
+    return j({ instance_id, type: replayed ? (replayed.type || '') : type, nickname: placeName,
+               estate: replayed ? (replayed.estate || 'cloud') : 'cloud',
+               folderId: folderId || (replayed ? (replayed.oauth_folder_id || '') : ''),
+               ...(replayed ? { replayed: true } : {}) }, 200, origin, env);
   }
 
   // Routes under /v1/instances/<id>/...
@@ -5203,7 +5464,11 @@ export async function handleV1(request, env, ctx, url, path, origin) {
       const r = ctx.owner;   // the PROJECT OWNER's row: Drive acts in their account (R2-5)
       let sess = null;
       try { sess = JSON.parse(await decAtRest(env, request.headers.get('x-fx-upload') || '')); } catch { sess = null; }
-      if (!sess || !sess.u || sess.rr !== r.researcher_id) return j({ error: 'bad_upload' }, 403, origin, env);
+      /* ⚠ `|| sess.pj` REFUSES A PROJECT TICKET ON THE DEVICE LANE. The two were minted in the
+       * identical `{u, rr, s}` shape, so before the project lane carried `pj` each could replay on
+       * the other's relay. Tickets are opaque to clients, so rejecting the foreign shape breaks
+       * nothing that exists. */
+      if (!sess || !sess.u || sess.rr !== r.researcher_id || sess.pj) return j({ error: 'bad_upload' }, 403, origin, env);
       const out = await relayDriveChunk(request, sess);
       return j(out.body, out.status, origin, env);
     }

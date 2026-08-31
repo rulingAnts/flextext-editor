@@ -107,7 +107,9 @@ console.log('\nwhat the researcher typed is the final authority');
 
 console.log('\nthe rules are in the panel, not only in this model');
 {
-  const fn = (panel.match(/function assignModal\(instanceId\) \{[\s\S]*?\n\}/) || [''])[0];
+  // v544 gave assignModal a `target` (an instanceId, or a project — issue #4). The slice follows
+  // the signature; every claim below is about title autofill and is unaffected by the destination.
+  const fn = (panel.match(/function assignModal\(target\) \{[\s\S]*?\n\}/) || [''])[0];
   ok(/let touched = false;/.test(fn) && /titleInput\.addEventListener\('input'/.test(fn),
      'typing latches the manual-authority flag');
   ok(/if \(touched && titleInput\.value\.trim\(\)\) return;/.test(fn),

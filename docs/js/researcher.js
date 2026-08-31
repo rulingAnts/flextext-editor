@@ -520,7 +520,27 @@ export async function createInstance(nickname, projectFolderId) {
   /* `projectFolderId` makes the worker create this device's Drive folder EAGERLY, under that project
    * — otherwise the folder is minted lazily on first upload and lands in the DEFAULT project, so a
    * device created while looking at a second project would silently appear in the first. */
-  const r = await api('POST', '/v1/instances', { body: { nickname, ...(projectFolderId ? { projectFolderId } : {}) }, retry: false }); // unified (no type); non-idempotent → don't risk a duplicate instance on a lost response
+  /* ⚠ RETRY IS SAFE NOW, AND THAT IS THE WHOLE FIX (issue #6). This call used to carry
+   * `retry: false` with the note "non-idempotent → don't risk a duplicate instance on a lost
+   * response" — correct at the time, and precisely why the reported failure happened: the route
+   * creates the device's Drive folder eagerly, which makes it slow enough to lose, and a lost
+   * response over a completed insert reads to the researcher as "failed to create" while a real
+   * device exists. Trying again then makes a SECOND one, which is the same device appearing twice.
+   *
+   * `createKey` is minted ONCE per attempt and travels with every retry of that attempt, so the
+   * worker returns the FIRST instance instead of making another. With that, a lost response is an
+   * ordinary transient failure and api()'s existing backoff handles it — the researcher sees the
+   * device that was created, not an error about it.
+   *
+   * ⚠ An OLD WORKER ignores the field entirely. It is additive on the wire, so a client that ships
+   * before the worker does simply behaves as it does today (and `retry` costs nothing there beyond
+   * the duplicate risk that already existed — see the note in the modal). */
+  const createKey = (crypto.randomUUID ? crypto.randomUUID()
+    : String(Date.now()) + '-' + Math.random().toString(36).slice(2));
+  const r = await api('POST', '/v1/instances', {
+    body: { nickname, createKey, ...(projectFolderId ? { projectFolderId } : {}) },
+    retry: true,   // idempotent by createKey — a lost response replays instead of duplicating
+  });
   const Ki = await generateKey();
   const wrapped = await wrapKey(Kr, Ki);
   try {
@@ -537,7 +557,15 @@ export async function createInstance(nickname, projectFolderId) {
     throw e;
   }
   kiCache.set(r.instance_id, Ki);
-  return { instance_id: r.instance_id, type: r.type, nickname: r.nickname, estate: r.estate };   // estate: same enumerated-rebuild trap as listView()
+  /* ⚠ `folderId` RIDES THROUGH TOO — the same enumerated-rebuild trap `estate` is annotated for, and
+   * it was dropping the one fact that says where a brand-new device actually lives. The worker
+   * returns it (it created the folder eagerly), and the panel places devices by Drive parentage; the
+   * ESTATE is a Drive SEARCH, which is eventually consistent, so for the first seconds of a device's
+   * life the estate has never heard of it and the panel files it under "Not in a project yet". That
+   * is a second, independent reason a just-created device looks misplaced — separate from the
+   * duplicate this change's create key prevents. Carrying the id costs nothing and gives the panel
+   * something authoritative to prefer while the search catches up. */
+  return { instance_id: r.instance_id, type: r.type, nickname: r.nickname, estate: r.estate, folderId: r.folderId || '' };   // estate: same enumerated-rebuild trap as listView()
 }
 
 export async function renameInstance(instanceId, nickname) {
@@ -743,6 +771,35 @@ const uploadBase = (iid, docId, base) => base || (textsPath(iid, docId) + '/assi
 export const crowdPromptBase = (crowdId) => `/v1/crowd/${encodeURIComponent(crowdId)}/prompt`;
 export function crowdPromptFinish(crowdId, fields) {
   return api('POST', crowdPromptBase(crowdId) + '/finish', { body: fields });
+}
+
+/* ── UPLOAD A TEXT TO A PROJECT, NOT TO A DEVICE (issue #4) ──────────────────────────────────────
+ *
+ * "I would like to be able to upload a text to that place… At a later time, I can move/assign it to
+ * the device of my choice." The text lands in the project's Unassigned, where the estate already
+ * lists it and Move… already picks it up.
+ *
+ * ⚠ THE BASE PATH IS THE WHOLE TRICK. `uploadBase(iid, docId, base)` above already lets the chunked
+ * trio be addressed by a base, and the crowd consent prompt already uses it that way — so this lane
+ * reuses assignUploadFile unchanged: probe-first resume, AIMD chunk sizing, session persistence, all
+ * of it. There is no second copy of that loop to drift.
+ *
+ * ⚠ AND THERE IS NO `finish`. The device lane finishes by minting /v1/textfile URLs and sending an
+ * assign COMMAND — the delivery half. There is no device here to deliver to, so a finish step would
+ * be an affordance that cannot work. The upload IS the whole act.
+ *
+ * ⚠ Returns null when the worker predates these routes (404), so the caller can say so plainly
+ * instead of failing in the middle of a queued upload. */
+export const projectTextBase = (projectFolderId, docId) =>
+  `/v1/projects/${encodeURIComponent(projectFolderId)}/texts/${encodeURIComponent(docId)}`;
+
+export async function projectTextBegin(projectFolderId, docId, title) {
+  try {
+    return await api('POST', projectTextBase(projectFolderId, docId) + '/begin', { body: { title }, retry: false });
+  } catch (e) {
+    if (e && e.status === 404) return null;   // worker not deployed yet — the caller degrades
+    throw e;
+  }
 }
 
 export function assignBegin(instanceId, docId, title, folderId) {
@@ -1004,8 +1061,12 @@ export async function createMemberInstance(projectId, nickname) {
   const me = currentAccountId();
   if (!me || !myPub) throw new Error('not_signed_up');
   let ownerPub = null, ownerId = null;
+  // Idempotent by createKey, exactly as the owner path is — this route creates a device folder
+  // eagerly too, so it can be lost the same way and leave the same ghost. See createInstance.
+  const createKey = (crypto.randomUUID ? crypto.randomUUID()
+    : String(Date.now()) + '-' + Math.random().toString(36).slice(2));
   const r = await api('POST', `/v1/projects/${encodeURIComponent(projectId)}/instances`,
-    { body: { nickname }, retry: false });   // non-idempotent → don't risk a duplicate on a lost response
+    { body: { nickname, createKey }, retry: true });
   try {
     ownerId = r.owner_id;
     const p = await api('GET', `/v1/researcher/pubkey/${encodeURIComponent(ownerId)}`)

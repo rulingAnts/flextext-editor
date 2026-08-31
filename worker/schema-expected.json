@@ -70,6 +70,7 @@
       "wrapped_key"
     ],
     "instance": [
+      "create_key",
       "created_at",
       "desired_blob",
       "desired_rev",
@@ -186,6 +187,7 @@
     "idx_crowd_researcher",
     "idx_crowd_sub",
     "idx_install_instance",
+    "idx_instance_create_key",
     "idx_instance_project",
     "idx_instance_researcher",
     "idx_member_key_project",

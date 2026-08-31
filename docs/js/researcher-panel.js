@@ -1100,6 +1100,10 @@ function header(titleKey, withLock) {
  * never invent a number for symmetry. */
 const ISSUES_URL = 'https://github.com/rulingAnts/flextext-editor/issues/';
 const RELEASES = [
+  { v: 'v544', date: '2026-09-01', items: [
+    { k: 'panel.rel.new.projectText', issue: 4 },
+    { k: 'panel.rel.new.deviceOnce', issue: 6 },
+  ] },
   { v: 'v543', date: '2026-09-01', items: [
     { k: 'panel.rel.new.editorDialogs' },
     { k: 'panel.rel.new.unassignedInFlight', issue: 14 },
@@ -2055,6 +2059,9 @@ async function renderDashboard(prefetched) {
     if (act === 'new') { projectNewModal(); return; }
     if (act === 'moveto') { projectAssignModal(el.dataset.folder, el.dataset.name || ''); return; }
     if (act === 'rename') { projectRenameModal(el.dataset.folder, el.dataset.name || ''); return; }
+    // Upload a text into this project's Unassigned — no device (issue #4). Same modal as the
+    // device's own upload, given a project instead of an instance.
+    if (act === 'newtext') { assignModal({ projectFolderId: el.dataset.folder }); return; }
     if (act === 'delete') { projectDeleteModal(el.dataset.folder, el.dataset.name || ''); return; }
     /* ⚠ loadProjectDefaults() FIRST — openSettingsModal prefills SYNCHRONOUSLY from projectDefaults(),
      * so opening before the prefs have decrypted shows an empty form and a save would then wipe the
@@ -4171,16 +4178,25 @@ async function inviteModal(instanceId) {
  * Send-anyway/Cancel dialog. Send absorbs the files into IndexedDB FIRST (locked decision 8) and
  * queues a resilient background upload; the assign command goes out only after the upload
  * finishes, so a dropped connection can never produce a half-assignment. */
-function assignModal(instanceId) {
+/* ⚠ ONE MODAL, TWO DESTINATIONS (issue #4). `target` is either an instanceId — the device lane,
+ * unchanged — or `{ projectFolderId }`, which uploads the text into that project's Unassigned and
+ * assigns it to nobody: "at a later time, I can move/assign it to the device of my choice". The
+ * picking, validating and queueing are identical, which is exactly why this is one modal and not a
+ * second copy that drifts. */
+function assignModal(target) {
+  const projectFolderId = (target && typeof target === 'object') ? (target.projectFolderId || '') : '';
+  const instanceId = projectFolderId ? '' : target;
   /* ⚠ WHOSE DRIVE THE FILES LAND IN DEPENDS ON WHO IS SENDING. An assign-by-upload always writes
    * into the DEVICE OWNER's Drive — that is the point of the route — so telling a coworker their
    * files are "stored privately in your Drive" is simply false, and it is false about the one thing
    * a researcher most needs to be right about (Seth's standing line on Drive scope). Found by
    * opening the real modal on the member seat rather than by reading the string. */
-  const assignAsMember = !((lastData && lastData.instances) || []).some((x) => x.instance_id === instanceId);
+  const assignAsMember = !projectFolderId
+    && !((lastData && lastData.instances) || []).some((x) => x.instance_id === instanceId);
   const m = modal(`
-    <h3>${esc(t('panel.assign.title'))}</h3>
-    <p class="note">${esc(t(assignAsMember ? 'panel.assign.introMember' : 'panel.assign.intro'))}</p>
+    <h3>${esc(t(projectFolderId ? 'panel.assign.projTitle' : 'panel.assign.title'))}</h3>
+    <p class="note">${esc(t(projectFolderId ? 'panel.assign.projIntro'
+                                            : (assignAsMember ? 'panel.assign.introMember' : 'panel.assign.intro')))}</p>
     <label class="rp-field"><span>${esc(t('panel.assign.titleField'))}</span><input id="rp-as-title" spellcheck="false"></label>
     <label class="rp-field"><span>${esc(t('panel.assign.audioFile'))}</span><input type="file" id="rp-as-audio" accept="audio/*,.wav,.mp3,.m4a,.aac,.ogg,.oga,.opus,.webm,.flac,.3gp,.amr"></label>
     <label class="rp-field"><span>${esc(t('panel.assign.flextextFile'))}</span><input type="file" id="rp-as-ft" accept=".flextext,.xml"></label>
@@ -4272,8 +4288,11 @@ function assignModal(instanceId) {
       const parsed = parseFlextext(ftText);
       if (parsed.error || !parsed.texts.length) { say('⚠ ' + t('task.ftParseFailed', { msg: parsed.error || t('task.ftNone') }), 'err'); return; }
       if (parsed.texts.length > 1) { say('⚠ ' + t('task.ftMultiText', { n: parsed.texts.length }), 'err'); return; }
-      const codes = await Researcher.getInstanceSettings(instanceId).catch(() => null);
-      const mm = wsAssignMismatch(analyzeFlextextWs(ftText), codes);
+      /* The writing-system cross-check compares the file against the DEVICE's configured codes.
+       * A project upload has no device yet, so there is nothing to disagree with — the check is
+       * skipped rather than faked, and it happens for real when the text is later assigned. */
+      const codes = instanceId ? await Researcher.getInstanceSettings(instanceId).catch(() => null) : null;
+      const mm = codes ? wsAssignMismatch(analyzeFlextextWs(ftText), codes) : null;
       if (mm && !(await wsMismatchConfirm(mm))) {
         say('⚠ ' + t('panel.assign.blockedNoSend'), 'err');   // Cancel visibly aborts — nothing was sent
         return;
@@ -4289,11 +4308,11 @@ function assignModal(instanceId) {
      * equal to whenever the UPLOAD happened to run. Manifests are written once and immutable by
      * contract, so those wrong values were permanent. The settings snapshot is decrypted locally
      * (Kr) and may legitimately be absent for an unconfigured device — '' stays honest there. */
-    const wsCodes = await Researcher.getInstanceSettings(instanceId).catch(() => null);
+    const wsCodes = instanceId ? await Researcher.getInstanceSettings(instanceId).catch(() => null) : null;
     // ABSORB INTO INDEXEDDB BEFORE ANYTHING ELSE (locked decision 8): once this write lands, the
     // assignment survives connection drops, panel reloads and retries — the queue owns it now.
     await db.putMedia(AQ_PREFIX + docId, {
-      instanceId, title, ttlDays: assignTtlDays(), state: 'queued', at: Date.now(),
+      instanceId, projectFolderId, title, ttlDays: assignTtlDays(), state: 'queued', at: Date.now(),
       queuedAt: Date.now(),
       vernLang: (wsCodes && wsCodes.vernLang) || '', analLang: (wsCodes && wsCodes.analLang) || '',
       audio: audioFile ? { blob: audioFile, name: audioFile.name, mime: audioFile.type || 'application/octet-stream', size: audioFile.size } : null,
@@ -4417,14 +4436,32 @@ async function runAssignUpload(docId) {
    * learned to look for work in flight. The queue card below keeps only the rows that need a
    * HAND — queued (cancellable) and failed (retryable) — so one upload is never narrated twice. */
   const nick = (((lastData && lastData.instances) || []).find((x) => x.instance_id === rec.instanceId) || {}).nickname;
-  const job = jobStart(`${rec.title || t('panel.hist.untitled')} → ${nick || '?'}`, t('panel.dl.starting'), 'up');
+  /* A PROJECT upload names the project, not a device — "→ ?" would be the tray asking a question
+   * nobody can answer, for a text that is deliberately going to no device (issue #4). */
+  const projName = rec.projectFolderId
+    ? ((((estateCache && estateCache.projects) || []).find((p) => p.folderId === rec.projectFolderId) || {}).name || t('panel.proj.defaultName'))
+    : '';
+  const dest = rec.projectFolderId ? `${projName} · ${t('panel.store.unassignedGroup')}` : (nick || '?');
+  const job = jobStart(`${rec.title || t('panel.hist.untitled')} → ${dest}`, t('panel.dl.starting'), 'up');
+  /* The chunked trio is addressed by a BASE PATH, so the project lane needs no second copy of the
+   * upload loop — `base` is the same opt-in the crowd consent prompt already uses. Absent for a
+   * device, where the default instance path is right. */
+  const uploadOpts = () => (rec.projectFolderId
+    ? { base: Researcher.projectTextBase(rec.projectFolderId, docId) } : {});
   const jobPct = () => jobSet(job, total
     ? t('panel.dl.pct', { pct: Math.min(99, Math.round((view.sent / total) * 100)), size: fmtSize(total) })
     : fmtSize(view.sent));
   paintAssignQueue();
   try {
     if (!rec.originalsFolderId) {
-      const b = await Researcher.assignBegin(rec.instanceId, docId, rec.title, rec.folderId || '');
+      /* ⚠ A WORKER THAT PREDATES THE PROJECT LANE ANSWERS 404, and projectTextBegin turns that into
+       * null rather than an exception — so the failure is one honest sentence at the top of the
+       * queue instead of a half-uploaded text. This is what lets the client ship before the worker
+       * is deployed. */
+      const b = rec.projectFolderId
+        ? await Researcher.projectTextBegin(rec.projectFolderId, docId, rec.title)
+        : await Researcher.assignBegin(rec.instanceId, docId, rec.title, rec.folderId || '');
+      if (!b) throw new Error(t('panel.assign.projNoWorker'));
       rec.folderId = b.folderId; rec.originalsFolderId = b.originalsFolderId;
       await save();
     }
@@ -4456,7 +4493,7 @@ async function runAssignUpload(docId) {
       rec.manifestFileId = await Researcher.assignUploadFile(rec.instanceId, docId, {
         blob, name: MANIFEST_NAME, mime: 'application/json', kind: 'manifest',
         originalsFolderId: rec.originalsFolderId,
-      }, {});
+      }, uploadOpts());
       await save();
     }
     let done = 0;
@@ -4468,6 +4505,7 @@ async function runAssignUpload(docId) {
           blob: p.blob, name: p.name, mime: p.mime, kind: part === 'audio' ? 'audio' : 'flextext',
           originalsFolderId: rec.originalsFolderId, streamId: rec[part + 'StreamId'] || null,
         }, {
+          ...uploadOpts(),
           onProgress: (sent) => { view.sent = done + sent; jobPct(); },
           // The session token persists in the queue record, so a panel restart resumes MID-FILE.
           onSession: (id) => { rec[part + 'StreamId'] = id || ''; return save(); },
@@ -4477,6 +4515,23 @@ async function runAssignUpload(docId) {
       }
       done += p.size; view.sent = done;
       jobPct();
+    }
+    /* ⚠ A PROJECT UPLOAD ENDS HERE — there is no delivery half (issue #4). Everything below mints
+     * streaming URLs and sends an ASSIGN COMMAND to a device, and this text is deliberately going to
+     * no device: "at a later time, I can move/assign it to the device of my choice". The bytes are
+     * in the project's Unassigned, which is where the estate lists it and where Move… picks it up,
+     * so the work is complete. Faking a finish would be an affordance that cannot work.
+     *
+     * The estate is a Drive SEARCH and lags by seconds, so the dashboard is refreshed rather than
+     * merely repainted — otherwise the text the researcher just uploaded is briefly nowhere. */
+    if (rec.projectFolderId) {
+      jobEnd(job, t('panel.aq.doneProject'));
+      await db.deleteMedia(key).catch(() => { /* the record is spent either way */ });
+      aqActive.delete(docId);
+      deps.toast(t('panel.assign.projQueuedDone', { title: rec.title || '' }), 6000);
+      renderDashboard();
+      paintAssignQueue();
+      return;
     }
     view.state = 'sending';
     jobSet(job, t('panel.aq.sending'));
@@ -6154,6 +6209,13 @@ function renderProjectSwitcher(scope) {
       <span class="rp-ptab-right">
         ${scope.selProject ? `<button class="link-btn rp-ptab-rename" data-pact="rename"
           data-folder="${esc(scope.selProject.folderId)}" data-name="${esc(scope.selProject.name || '')}">${esc(t('panel.proj.rename'))}</button>` : ''}
+        ${/* ⚠ "New text…" belongs to the PROJECT, beside the project's own device button (issue #4):
+             "a 'Upload text' button associated with the project… At a later time, I can move/assign
+             it to the device of my choice." Rendered only on a real owned project — the strays tab
+             and a member tab have no project folder to upload into, and a button that cannot act is
+             worse than an absent one. */''}
+        ${scope.selProject ? `<button class="secondary-btn" data-pact="newtext"
+          data-folder="${esc(scope.selProject.folderId)}">${esc(t('panel.proj.newText'))}</button>` : ''}
         <button class="primary-btn rp-newdev-btn" data-act="new">${esc(t('panel.dash.newDevice'))}</button>
       </span>
     </div>

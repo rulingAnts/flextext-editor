@@ -80,6 +80,30 @@ test('preview decimator', () => {
     ok(tail[tail.length - 1] === 128, 'the padding is midpoint (silence)');
   }
 
+  /* ⚠ THE REGRESSION THIS FILE EXISTS FOR (staging, 2026-08-31). Our own crowd recordings are BWF:
+   * a `bext` provenance chunk sits between `fmt ` and `data`, and in the first real file tested it
+   * was 874 bytes, putting `data` at offset 918. The worker read a 512-byte head, found no data
+   * chunk, and fell back to the heavy raw-head path for exactly the files the preview is FOR —
+   * silently, because falling back is a legitimate outcome. The head is 4 KB now; this pins that a
+   * bext-bearing WAV parses and plans. */
+  console.log('\na BWF (bext chunk before data) — our own crowd format — parses within a 4 KB head');
+  {
+    const bextSize = 874;
+    const plain = wav24(48000, 1, 48000, 0x100000);
+    const withBext = new Uint8Array(plain.length + 8 + bextSize);
+    withBext.set(plain.slice(0, 36), 0);                                 // RIFF + fmt
+    'bext'.split('').forEach((c, i) => { withBext[36 + i] = c.charCodeAt(0); });
+    new DataView(withBext.buffer).setUint32(40, bextSize, true);
+    withBext.set(plain.slice(36), 36 + 8 + bextSize);                    // data chunk + samples
+    const h = parseWavHeader(withBext.slice(0, 4096));
+    ok(!!h, 'a 4 KB head finds data past an 874-byte bext');
+    ok(!!h && h.dataOffset === 36 + 8 + bextSize + 8,
+       `data offset is past the bext (${h && h.dataOffset}, expected ${36 + 8 + bextSize + 8})`);
+    ok(!!previewPlan(h, 30, 8000), '...and it plans');
+    ok(parseWavHeader(withBext.slice(0, 512)) === null,
+       '...while the OLD 512-byte head could not — the bug, pinned');
+  }
+
   console.log('\nrefusals fail closed');
   {
     ok(parseWavHeader(new Uint8Array(10)) === null, 'a too-short head is null');

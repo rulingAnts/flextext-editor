@@ -19,9 +19,17 @@
 const le16 = (b, o) => b[o] | (b[o + 1] << 8);
 const le32 = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
 
-/* Scan the RIFF chunks in `head` (the file's first bytes; 512 is plenty for real recorders, which
- * put fmt+data straight after the RIFF header — but a LIST/bext chunk larger than the head makes
- * the data chunk unfindable, and that is a null, not a guess). */
+/* Scan the RIFF chunks in `head` (the file's first bytes) for fmt + data.
+ *
+ * ⚠ THE HEAD MUST BE KILOBYTES, NOT BYTES — caught live on staging, 2026-08-31. This shipped
+ * reading 512 bytes on the reasoning that recorders put fmt+data straight after the RIFF header.
+ * OUR OWN crowd files do not: they are BWF, carrying the `bext` provenance chunk this suite
+ * stamps (audio-provenance), and in the very first file tested `data` began at offset 918. A
+ * 512-byte head therefore found no data chunk, returned null, and the primary use case — crowd
+ * recordings — silently fell back to the heavy raw-head path forever. The caller now reads 4 KB;
+ * a `bext` with a long coding-history string is the reason for the margin.
+ *
+ * A data chunk still beyond the head is a null, not a guess: the caller's fallback is correct. */
 export function parseWavHeader(head) {
   const b = head instanceof Uint8Array ? head : new Uint8Array(head || 0);
   if (b.length < 44) return null;

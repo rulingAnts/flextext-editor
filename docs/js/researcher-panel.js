@@ -1100,8 +1100,9 @@ function header(titleKey, withLock) {
  * never invent a number for symmetry. */
 const ISSUES_URL = 'https://github.com/rulingAnts/flextext-editor/issues/';
 const RELEASES = [
-  { v: 'v540', date: '2026-09-01', items: [
+  { v: 'v541', date: '2026-09-01', items: [
     { k: 'panel.rel.new.editorDialogs' },
+    { k: 'panel.rel.new.unassignedInFlight', issue: 14 },
   ] },
   { v: 'v539', date: '2026-08-31', items: [
     { k: 'panel.rel.new.previewPlayer' },
@@ -6138,6 +6139,33 @@ function renderProjectSwitcher(scope) {
     ${scope.sel === STRAY_TAB ? `<p class="note">${esc(t('panel.proj.outsideNote'))}</p>` : ''}`;
 }
 
+/* WHICH PROJECT'S "Unassigned" SHOULD LIST THIS TEXT WHILE IT IS IN FLIGHT (issue #14, case 2).
+ *
+ * Normally the answer is Drive's: the text's own projectId. But adopting re-parents the folder to
+ * the destination FIRST and the device fetches it later, so between those two moments a text moved
+ * to another project's device belongs, by that field, to a project it has not reached — and it
+ * silently left the list the researcher was looking at. Brian: it "does not show up in Unassigned
+ * (Project1). It disappears from there." The same-project case looks right only because the field
+ * happens not to change.
+ *
+ * ⚠ THE FALLBACK IS THE DANGEROUS PART, so it is explicit: a remembered origin is honoured ONLY
+ * while that project still exists in the estate. Trusting a stale id — a project deleted or renamed
+ * away since the move began — would filter the text out of the origin's card AND the destination's,
+ * and a text that is in flight must be SHOWN AND LOCKED, never hidden (the rule renderUnassignedCard
+ * already states at length). Anything doubtful falls back to Drive's own answer.
+ *
+ * ⚠ Per-browser, because pendingCmds is: another researcher's panel still lists it under the
+ * destination project, exactly as today. Strictly better where it applies, and nothing regresses
+ * where it does not. */
+function unassignedHomeProject(tx) {
+  const here = (tx && tx.projectId) || '';
+  const pc = tx && pendingCmds.get(tx.docId);
+  const from = pc && pc.kind === 'assign' ? (pc.fromProject || '') : '';
+  if (!from || from === here) return here;
+  const known = ((estateCache && estateCache.projects) || []).some((p) => p && p.folderId === from);
+  return known ? from : here;
+}
+
 function renderUnassignedCard(estate, projectFolderId) {
   /* Scoped to ONE project when the dashboard is grouped: each project has its own Unassigned folder
    * (§16.22 #1), so a single shared pile would put one project's set-aside texts under another's
@@ -6148,7 +6176,7 @@ function renderUnassignedCard(estate, projectFolderId) {
      * `estate.devices` on `deviceFolderId` — and an unassigned text has NO device folder by
      * construction (the estate reports '' when the parent is not a device), so the filter matched
      * nothing in EVERY tab and the Unassigned card was silently empty everywhere. */
-    texts = texts.filter((tx) => (tx.projectId || '') === projectFolderId);
+    texts = texts.filter((tx) => unassignedHomeProject(tx) === projectFolderId);
   }
   if (!texts.length) return '';
   texts = texts.slice().sort(textOrder);                    // #15 — same order as the device rows
@@ -6206,6 +6234,16 @@ function renderUnassignedCard(estate, projectFolderId) {
  * That is the action §16.25 requires to EXIST: a text may enter the set-aside queue only when the
  * researcher puts it there, and until it existed the queue could only be entered by the sweep. */
 async function adoptTextModal(docId, title, opts = {}) {
+  /* ⚠ CAPTURED BEFORE ANYTHING MOVES (issue #14, Brian's case 2). Adopting re-parents the text's
+   * Drive folder to the destination, so `tx.projectId` becomes the DESTINATION's project the moment
+   * the adopt succeeds — and the source project's Unassigned card, which filters on exactly that
+   * field, stops listing a text that has not arrived anywhere yet. Brian's report: moving an
+   * unassigned text to a device in ANOTHER project made it "disappear from there", while the
+   * same-project case correctly kept showing it with "on its way…".
+   *
+   * So the origin is remembered here, at the top, while it is still true. */
+  const originProject = (((estateCache && estateCache.texts) || [])
+    .find((tx) => tx && tx.docId === docId) || {}).projectId || '';
   const insts = ((lastData && lastData.instances) || []);
   if (!insts.length && !opts.unassign) { deps.toast(t('panel.move.noOther'), 5000); return; }
   /* SAME GATE AS A DEVICE-TO-DEVICE MOVE (Seth: "either from unassigned or from another device").
@@ -6291,8 +6329,12 @@ async function adoptTextModal(docId, title, opts = {}) {
       recordEvents(Researcher.currentAccountId(), [assignedEvent({ instanceId: to, device: nick, docId, title,
         audioUrl: fields.audioUrl || '', flextextUrl: fields.flextextUrl || '' })]);
       // Same pending marker any assignment gets, so the text is visible while the device fetches it.
+      // `fromProject` keeps the source project's Unassigned card listing it until it truly arrives —
+      // see the capture at the top of this function and unassignedHomeProject below.
       if (sent && sent.seq) {
-        pendingCmds.set(docId, { seq: sent.seq, kind: 'assign', instanceId: to, title, hasAudio: !!fields.audioUrl, at: Date.now() });
+        pendingCmds.set(docId, { seq: sent.seq, kind: 'assign', instanceId: to, title,
+                                 hasAudio: !!fields.audioUrl, at: Date.now(),
+                                 ...(originProject ? { fromProject: originProject } : {}) });
         savePending(Researcher.currentAccountId());
       }
       m.close();

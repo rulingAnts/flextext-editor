@@ -481,8 +481,17 @@ test('projects UI', async () => {
      * everywhere, not just in the new project where it was noticed. */
     ok(/projectId: projectIds\.has\(parentOf\(byId\.get\(dev\) \|\| \{\}\)\)/.test(worker),
        'the worker stamps each text with its project');
-    ok(/texts = texts\.filter\(\(tx\) => \(tx\.projectId \|\| ''\) === projectFolderId\);/.test(panel),
-       '...and the Unassigned card filters on THAT, not on a device join that cannot match');
+    /* v541 routed this through unassignedHomeProject(tx) so an in-flight text stays under the
+     * project it left (issue #14 case 2). The CLAIM is unchanged and still what matters: the answer
+     * comes from the text's OWN projectId, never from a device join — so both halves are asserted,
+     * and a reintroduced deviceFolderId join still fails here. */
+    ok(/texts = texts\.filter\(\(tx\) => unassignedHomeProject\(tx\) === projectFolderId\);/.test(panel),
+       '...and the Unassigned card filters on THAT (via unassignedHomeProject)');
+    const home = (panel.match(/function unassignedHomeProject\(tx\) \{[\s\S]*?\n\}/) || [''])[0];
+    ok(/const here = \(tx && tx\.projectId\) \|\| '';/.test(home) && /return here;/.test(home),
+       '...whose answer is the text\'s own projectId, defaulted to and fallen back to');
+    ok(!/deviceFolderId/.test(home),
+       '⚠ and NOT a device join — an unassigned text has no device folder, which emptied every card');
 
     /* ⚠ Same gap as v426's device path, one function over, missed then: a crowd recorder created
      * while a second project is open would silently appear in the first. */

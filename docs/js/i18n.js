@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v532';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'panel-quick-wins v1';
+export const BUILD_TAG = '';
 
 const S = {
 en: {

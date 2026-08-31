@@ -2,7 +2,11 @@
 
 // Bump VERSION on every deploy: clients check for a changed sw.js whenever
 // they load / regain focus / come online, and offer the user an update.
+<<<<<<< HEAD
 const VERSION = 'v531';
+=======
+const VERSION = 'v532';
+>>>>>>> panel-quick-wins
 // On localhost the SW serves NETWORK-FIRST so code edits show up immediately during dev
 // (cache-first would keep serving a stale build until every file's VERSION is bumped). The
 // SW stays registered (PWA + localStorage behave normally); production stays offline-first.

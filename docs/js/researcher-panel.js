@@ -166,7 +166,22 @@ let serverPending = new Map();
 
 /* Command types, translated to the vocabulary the renderer already speaks. Anything not doc-scoped
  * (changeSettings) has no per-text row to decorate and is deliberately dropped. */
-const CMD_KIND = { triggerUpload: 'upload', uploadDelete: 'delete', delete: 'delete', assign: 'assign' };
+/* setDone: 'done' (2026-08-31) — un-checking Done used to show a four-second toast and record
+ * NOTHING, so a researcher who blinked read a durable, delivered command as a broken button
+ * (plans/BACKLOG.md). It rides the same rails as delete/upload: local marker for the issuing
+ * browser, serverPending for every other panel, retired by ack like the rest. */
+const CMD_KIND = { triggerUpload: 'upload', uploadDelete: 'delete', delete: 'delete', assign: 'assign', setDone: 'done' };
+
+/* #15 — texts in the Researcher view sort by STATUS, THEN NAME (they listed in arrival order,
+ * which helped nobody — Brian's screenshot made the case). Active texts first, finished ones
+ * after: the list is a worklist, and a done text is the one thing nobody is about to open. Each
+ * half uses the same numeric-aware compare as the device's own sortAlpha option (#11), so
+ * "Text 2" precedes "Text 10" on both screens. Applied to device rows and the Unassigned card;
+ * crowd rows keep their own order — their names ARE timestamps, so arrival is chronology. */
+function textOrder(a, b) {
+  return (Number(!!(a && a.done)) - Number(!!(b && b.done)))
+    || String((a && a.title) || '').localeCompare(String((b && b.title) || ''), undefined, { numeric: true, sensitivity: 'base' });
+}
 
 /* Keyed per INSTANCE, because seq counters are per-instance and two devices can legitimately hold
  * the same docId — one device's command history must never decorate another device's row. */
@@ -251,7 +266,10 @@ async function refreshServerPending(instances) {
       /* Keep the HIGHEST seq for a doc: an assign followed by an upload should read as the upload. */
       if (prev && prev.seq >= c.seq) continue;
       next.set(key, { seq: c.seq, kind, instanceId: it.instance_id, docId,
-                      title: c.title || '', hasAudio: !!c.hasAudio });
+                      title: c.title || '', hasAudio: !!c.hasAudio,
+                      // The TARGET state, so a done-toggle pending in another browser still knows
+                      // which way it is going (readDesiredCommands spreads the decrypted payload).
+                      ...(kind === 'done' ? { done: !!c.done } : {}) });
     }
   }
   for (const id of [...blobCache.keys()]) if (!seen.has(id)) blobCache.delete(id);   // instance revoked/removed
@@ -1082,6 +1100,10 @@ function header(titleKey, withLock) {
  * never invent a number for symmetry. */
 const ISSUES_URL = 'https://github.com/rulingAnts/flextext-editor/issues/';
 const RELEASES = [
+  { v: 'v532', date: '2026-08-31', items: [
+    { k: 'panel.rel.new.doneTogglePending' },
+    { k: 'panel.rel.new.textSort', issue: 15 },
+  ] },
   { v: 'v531', date: '2026-08-31', items: [
     { k: 'panel.rel.new.crowdFirstSubmit' },
     { k: 'panel.rel.new.crowdProgress' },
@@ -3246,7 +3268,8 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
       const ghosts = [...allPending].filter(([docId, pc]) =>
         pc.kind === 'assign' && !invIds.has(docId))
         .map(([docId, pc]) => ({ id: docId, title: pc.title || '', uploadState: '', hasAudio: !!pc.hasAudio, __assigning: true }));
-      const listed = [...ghosts, ...(inv || [])];
+      // Ghosts (incoming assigns) stay on top — they are news; the settled rows sort by #15's rule.
+      const listed = [...ghosts, ...(inv || []).slice().sort(textOrder)];
       const rows = listed.length ? listed.map((d) => {
         const us = (d.uploadState === 'uploaded' || d.uploadState === 'changed') ? d.uploadState : 'local';
         // ⚠ STATE FROM ack_seq, NOT FROM A CLOCK. `queued` = the device has not polled for it yet,
@@ -3353,7 +3376,13 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
         // case shipped in v138. Gating on setDocDone's age (v100) was wrong: an older device ACKS
         // the unknown command and silently does nothing, which reads as "the toggle is broken".
         const canSetDone = engNum >= 138 && !wiped && mAssign;   // the toggle follows the assignTexts capability
-        const doneTag = d.done
+        /* A pending done-toggle renders the TARGET state plus the same waiting tag every other
+         * queued command wears — and not as a button, so a second click cannot queue a second
+         * toggle while the first is still travelling. Retires on ack like every marker. */
+        const donePend = p && p.kind === 'done' ? p : null;
+        const doneTag = donePend
+          ? `<span class="rp-tag ${donePend.done ? 'rp-tag-done' : 'rp-tag-notdone'}">${esc(t(donePend.done ? 'panel.inst.doneTag' : 'panel.inst.notDoneTag'))}</span><span class="rp-tag rp-tag-taken" title="${esc(t('panel.inst.toggleDoneTip'))}">${esc(t('panel.inst.pendingTag'))}</span>`
+          : d.done
           ? (canSetDone ? `<button class="rp-tag rp-tag-done rp-tag-btn" data-iact="toggle-done" data-i="${esc(it.instance_id)}" data-id="${esc(d.id)}" data-done="1" title="${esc(t('panel.inst.toggleDoneTip'))}">${esc(t('panel.inst.doneTag'))}</button>`
                         : `<span class="rp-tag rp-tag-done">${esc(t('panel.inst.doneTag'))}</span>`)
           /* ⚠ `|| canSetDone` — UN-MARKING DONE USED TO BE A ONE-WAY DOOR (Seth, 2026-08-28: "the
@@ -3699,8 +3728,16 @@ async function instanceAction(el) {
       await busy(el, () => moveTextModal(id, el.dataset.id, el.dataset.title || ''));
     } else if (act === 'toggle-done') {
       const want = !el.dataset.done;
-      await busy(el, () => Researcher.setDone(id, el.dataset.id, want));
+      const r = await busy(el, () => Researcher.setDone(id, el.dataset.id, want));
+      /* The marker is the point (BACKLOG: the toast alone read as "that did nothing"). Recorded
+       * exactly as a delete is, so the chip renders pending until the device acks — in THIS
+       * browser instantly via pendingCmds, in every other via serverPending's next poll. */
+      if (r && r.seq) {
+        pendingCmds.set(el.dataset.id, { seq: r.seq, kind: 'done', instanceId: id, at: Date.now(), done: want });
+        savePending(Researcher.currentAccountId());
+      }
       deps.toast(t(want ? 'panel.move.doneSent' : 'panel.move.notDoneSent'), 4000);
+      renderDashboard(lastData || undefined);
     } else if (act === 'settings') {
       lastView = await Researcher.listView();
       const inst = viewInst(lastView, id);
@@ -5814,6 +5851,7 @@ function renderUnassignedCard(estate, projectFolderId) {
     texts = texts.filter((tx) => (tx.projectId || '') === projectFolderId);
   }
   if (!texts.length) return '';
+  texts = texts.slice().sort(textOrder);                    // #15 — same order as the device rows
   const bytes = texts.reduce((a, t) => a + (t.bytes || 0), 0);
   const iid = firstInstanceId();
   const rows = texts.map((tx) => `<li class="rp-text-row">

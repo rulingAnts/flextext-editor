@@ -1100,7 +1100,7 @@ function header(titleKey, withLock) {
  * never invent a number for symmetry. */
 const ISSUES_URL = 'https://github.com/rulingAnts/flextext-editor/issues/';
 const RELEASES = [
-  { v: 'v542', date: '2026-09-01', items: [
+  { v: 'v543', date: '2026-09-01', items: [
     { k: 'panel.rel.new.editorDialogs' },
     { k: 'panel.rel.new.unassignedInFlight', issue: 14 },
     { k: 'panel.rel.new.deviceCountRevoked', issue: 10 },
@@ -2230,8 +2230,13 @@ function previewBtnHtml(instanceId, docId, title, viaMember) {
   if (!instanceId || !docId) return '';
   const seen = prevCache.get(docId);
   if (seen && !seen.blob) return '';
+  /* ⚠ ICON ONLY, BUT NEVER NAMELESS (Seth, 2026-09-01: "we don't actually need a text label next to
+   * the play/pause toggle icon"). The word is redundant beside a ▶ and it crowded a row that already
+   * carries Files…, Move… and Delete — but dropping it would leave a button whose only content is a
+   * glyph marked aria-hidden, i.e. nothing at all to a screen reader. So the NAME moves to
+   * aria-label while the tooltip keeps the fuller explanation, and the icon stays decorative. */
   return `<button class="link-btn rp-prev" data-prev data-i="${esc(instanceId)}" data-id="${esc(docId)}" data-title="${esc(title || '')}"${viaMember ? ' data-viamember="1"' : ''}
-    title="${esc(t('panel.prev.tip'))}"><span class="rp-prev-icon" aria-hidden="true">▶</span> ${esc(t('panel.prev.btn'))}</button>`;
+    aria-label="${esc(t('panel.prev.btn'))}" title="${esc(t('panel.prev.tip'))}"><span class="rp-prev-icon" aria-hidden="true">▶</span></button>`;
 }
 
 /* ONE PLAYER FOR THE WHOLE PANEL — Apple Music, not a dialog (Seth, 2026-08-31: "instant, rapid,

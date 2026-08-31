@@ -1205,8 +1205,10 @@ body.rp-standalone main { padding-top: 0; }
 .rp-dl-btn { white-space: nowrap; }
 /* Preview transport: the row's own button IS the player (Apple-Music style), so its icon carries
    all three states — ▶ idle, ◌ spinning while it resolves, ⏸ playing. No dialog, nothing to close. */
-.rp-prev { white-space: nowrap; }
-.rp-prev-icon { display: inline-block; font-size: .95em; }
+/* Icon-only, so it needs a touch target of its own — a bare glyph in a row of word-links is a
+   small thing to hit on a phone, and this row already carries Files…, Move… and Delete. */
+.rp-prev { white-space: nowrap; padding-inline: .35em; }
+.rp-prev-icon { display: inline-block; font-size: 1.05em; line-height: 1; }
 .rp-prev-loading .rp-prev-icon { animation: rp-prev-spin 0.9s linear infinite; }
 @keyframes rp-prev-spin { to { transform: rotate(360deg); } }
 /* Playing reads as ACTIVE, not as a link waiting to be clicked. */

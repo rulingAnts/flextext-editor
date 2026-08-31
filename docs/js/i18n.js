@@ -5,11 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-<<<<<<< HEAD
-export const ENGINE_VERSION = 'v531';
-=======
 export const ENGINE_VERSION = 'v532';
->>>>>>> panel-quick-wins
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version

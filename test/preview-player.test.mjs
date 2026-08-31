@@ -56,18 +56,42 @@ test('preview player contract', () => {
        '...everything else (m4a, flac, unknown) is served WHOLE rather than broken');
   }
 
-  console.log('\npanel: the player dies with its modal');
+  /* ⚠ NOT A MODAL (Seth, 2026-08-31, after using the first build): "instant, rapid, preview play,
+   * like Apple Music/iTunes … if another one is clicked the first one stops, toggle play/pause
+   * once loading has finished". The row's button IS the transport; there is nothing to close. */
+  console.log('\npanel: one player for the whole panel, driven from the row button');
   {
-    const open = (panel.match(/async function openPreviewModal[\s\S]*?\n\}/) || [''])[0];
-    ok(/audioEl\.pause\(\)/.test(open) && /URL\.revokeObjectURL/.test(open) && /removeAttribute\('src'\)/.test(open),
-       'onClose pauses, detaches, and revokes — every close path (modal() contract)');
-    ok(/if \(!m\.el\.isConnected\) return/.test(open),
-       'a modal closed mid-resolve never starts playing');
-    ok(/fetchDriveFile\(f\.id/.test(open), 'the original-download fallback exists (old worker ⇒ heavier, still works)');
-    // The universal net: the worker's truncation list is a judgement about formats; an <audio>
-    // error is a fact about THIS file. Either way the researcher hears the recording.
-    ok(/addEventListener\('error', \(\) => \{ playFull\(f\); \}, \{ once: true \}\)/.test(open),
+    ok(!/openPreviewModal/.test(panel), 'the modal player is gone entirely');
+    ok(/let prevAudio = null;/.test(panel) && /prevAudio = new Audio\(\)/.test(panel),
+       'a SINGLE detached <audio> serves every row — so a second click stops the first by construction');
+    const start = (panel.match(/async function startPreview[\s\S]*?\n\}\n/) || [''])[0];
+    ok(/stopPreview\(\);\s+\/\/ whatever was playing stops/.test(start),
+       'starting a preview stops whatever was playing');
+    const toggle = (panel.match(/function togglePreview[\s\S]*?\n\}/) || [''])[0];
+    ok(/prevAudio\.paused/.test(toggle) && /prevAudio\.pause\(\)/.test(toggle),
+       'clicking the SAME row toggles play/pause rather than restarting');
+    ok(/const mine = \+\+prevToken/.test(start) && /const live = \(\) => mine === prevToken/.test(start),
+       'a slow resolve landing after a newer click is discarded (no ghost audio)');
+    ok(/function stopPreviewIfDetached[\s\S]*?prevBtn\.isConnected/.test(panel)
+       && /stopPreviewIfDetached\(\);/.test(panel),
+       'a repaint that removes the playing button stops the sound — the 12s poll rebuilds rows');
+    ok(/icon\.textContent = state === 'playing' \? '⏸'/.test(panel),
+       'the button icon carries all three states (idle / loading / playing)');
+    ok(/fetchDriveFile\(f\.id/.test(start), 'the original-download fallback exists (old worker ⇒ heavier, still works)');
+    ok(/addEventListener\('error', \(\) => \{ if \(live\(\)\) playFull\(f\); \}, \{ once: true \}\)/.test(start),
        'a preview head that will not decode falls back to the full original, once');
+  }
+
+  console.log('\npanel: a preview is a TASTE, and says so');
+  {
+    ok(/const PREVIEW_MAX_SECONDS = 35;/.test(panel),
+       'the fallback paths stop at ~35s too, so every source behaves like the worker’s 30s head');
+    ok(/currentTime >= PREVIEW_MAX_SECONDS\) stopPreview\(\)/.test(panel), '...enforced on timeupdate');
+    const i18n = readFileSync(new URL('../docs/js/i18n.js', import.meta.url), 'utf8');
+    const tip = (i18n.match(/'panel\.prev\.tip': '([^']*)'/) || [])[1] || '';
+    ok(/low-bandwidth preview, not the original/.test(tip),
+       'the button says plainly that this is a preview, not the archival file');
+    ok((i18n.match(/'panel\.prev\.tip':/g) || []).length === 2, '...in both languages');
   }
 
   console.log('\npanel: the pre-cache can never cost the page');

@@ -133,6 +133,10 @@ test('preview player contract', () => {
        '...and the device hasAudio flag is NOT used to hide (autoDelUploaded makes it lie)');
     ok(/prevCache\.set\(docId, \{\}\)/.test(panel),
        'the sweep records audio-less texts, so their buttons vanish without anyone clicking');
+    /* Buttons are rendered, not live, and the poll repaints only on CHANGE — so learning that a
+     * text has no audio has to ask for the repaint itself, or the toast keeps happening. */
+    ok(/if \(learned\) \{ try \{ renderDashboard/.test(panel),
+       '...and the sweep repaints when it learns one, instead of waiting for an unrelated change');
   }
 
   console.log('\npanel: hover is what makes the REST of the list instant');

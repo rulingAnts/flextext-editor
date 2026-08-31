@@ -1100,7 +1100,7 @@ function header(titleKey, withLock) {
  * never invent a number for symmetry. */
 const ISSUES_URL = 'https://github.com/rulingAnts/flextext-editor/issues/';
 const RELEASES = [
-  { v: 'v537', date: '2026-08-31', items: [
+  { v: 'v538', date: '2026-08-31', items: [
     { k: 'panel.rel.new.previewPlayer' },
     { k: 'panel.rel.new.crowdSpeakerName' },
   ] },
@@ -2425,13 +2425,24 @@ function sweepCrowdPreviews(recs, estate) {
   const idle = (fn) => (window.requestIdleCallback ? requestIdleCallback(fn, { timeout: 4000 }) : setTimeout(fn, 1500));
   idle(async () => {
     const budget = { bytes: 0 };
+    let learned = false;
     try {
       for (const docId of todo) {
         if (prevMintDead || budget.bytes >= PREV_WARM_BYTES) break;
-        try { await warmPreview(iid, docId, budget); }
-        catch { /* one text failing must not stop the sweep */ }
+        try {
+          await warmPreview(iid, docId, budget);
+          const e = prevCache.get(docId);
+          if (e && !e.blob) learned = true;              // this text has no audio — its button must go
+        } catch { /* one text failing must not stop the sweep */ }
       }
     } finally { prevSweepBusy = false; }
+    /* ⚠ REPAINT WHEN WE LEARNED A BUTTON SHOULD NOT BE THERE. Buttons are rendered, not live, and
+     * the 12s poll only repaints when something CHANGED — so without this the Preview button on a
+     * text with no audio survives until an unrelated change happens to repaint the dashboard, and
+     * the researcher keeps meeting the "no audio" toast in the meantime (Seth: "we are frequently
+     * seeing" them). Cannot loop: the next render's sweep finds everything cached and returns
+     * before reaching this line. */
+    if (learned) { try { renderDashboard(lastData || undefined); } catch { /* a repaint is a courtesy */ } }
   });
 }
 

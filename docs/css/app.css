@@ -1476,6 +1476,16 @@ body.rp-standalone main { padding-top: 0; }
   background: var(--border); border-radius: 999px; overflow: hidden; }
 .crowd-prog > span { display: block; height: 100%; width: 0;
   background: var(--blue); border-radius: 999px; transition: width .25s linear; }
+/* Indeterminate sweep: shown from the first frame of 'sending', through the bot check and session
+ * open, until the first real byte lands — so the visitor's only in-progress signal is OURS, never
+ * just Turnstile's own check/success flash (which read as "done" and got the tab closed mid-send). */
+.crowd-prog.indet > span { width: 40%; margin-left: -40%; transition: none;
+  animation: crowd-sweep 1.2s ease-in-out infinite; }
+@keyframes crowd-sweep { to { margin-left: 100%; } }
+.crowd-spin { display: inline-block; width: 1em; height: 1em; margin-right: 8px;
+  vertical-align: -0.15em; border: 2px solid var(--border); border-top-color: var(--blue);
+  border-radius: 50%; animation: crowd-spinner 0.9s linear infinite; }
+@keyframes crowd-spinner { to { transform: rotate(360deg); } }
 .crowd-thanks {
   width: 72px; height: 72px; line-height: 72px; margin: 24px auto 8px;
   border-radius: 50%; background: var(--ok, #2e7d32); color: #fff;

@@ -515,6 +515,17 @@ async function getKi(instanceId) {
 // Create a typed instance and mint its Ki, wrapped under Kr into the key store. The read-modify-write
 // of the key store is optimistic-locked: on a 409 (a concurrent tab wrote first) we refetch the
 // freshest blob and re-apply, so an instance's wrapped Ki can never be silently lost.
+/* ⚠ RETRY STAYS OFF UNTIL THE WORKER CARRIES THE KEY — backend-first, and this repo's rule that
+ * "the deployed client must never be ahead of the backend" has teeth here. `createKey` is safe to
+ * send to any worker (an old one ignores an unknown field), but RETRYING is only safe once the
+ * worker replays it: against today's deployed worker a retry over a lost response would create the
+ * second device this whole change exists to prevent. Shipping the client first with retry ON would
+ * therefore make issue #6 WORSE for exactly as long as the deploy took.
+ *
+ * ⚠ FLIP THIS TO `true` IN THE SAME CHANGE THAT CONFIRMS THE WORKER IS LIVE — it is the last step of
+ * issue #6, and the fix is inert until it happens. test/create-idempotency-order.test.mjs pins the
+ * pair so the flag and the deploy cannot drift apart. */
+const CREATE_RETRY_SAFE = false;   // ← true once the create_key worker is deployed
 export async function createInstance(nickname, projectFolderId) {
   requireUnlocked();
   /* `projectFolderId` makes the worker create this device's Drive folder EAGERLY, under that project
@@ -539,7 +550,7 @@ export async function createInstance(nickname, projectFolderId) {
     : String(Date.now()) + '-' + Math.random().toString(36).slice(2));
   const r = await api('POST', '/v1/instances', {
     body: { nickname, createKey, ...(projectFolderId ? { projectFolderId } : {}) },
-    retry: true,   // idempotent by createKey — a lost response replays instead of duplicating
+    retry: CREATE_RETRY_SAFE,   // see CREATE_RETRY_SAFE — safe only once the worker replays the key
   });
   const Ki = await generateKey();
   const wrapped = await wrapKey(Kr, Ki);
@@ -1066,7 +1077,7 @@ export async function createMemberInstance(projectId, nickname) {
   const createKey = (crypto.randomUUID ? crypto.randomUUID()
     : String(Date.now()) + '-' + Math.random().toString(36).slice(2));
   const r = await api('POST', `/v1/projects/${encodeURIComponent(projectId)}/instances`,
-    { body: { nickname, createKey }, retry: true });
+    { body: { nickname, createKey }, retry: CREATE_RETRY_SAFE });
   try {
     ownerId = r.owner_id;
     const p = await api('GET', `/v1/researcher/pubkey/${encodeURIComponent(ownerId)}`)

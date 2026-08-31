@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v542';
+export const ENGINE_VERSION = 'v543';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v542';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'night-fixes v1';
+export const BUILD_TAG = 'night-fixes v2';
 
 const S = {
 en: {
@@ -1494,7 +1494,7 @@ internet after the first time.</p>
   'panel.prev.tip': 'Play the first ~30 seconds — a low-bandwidth preview, not the original file. The full recording is under Files…',
   'panel.prev.noAudio': 'This text has no audio file yet.',
   'panel.prev.failed': 'Could not load the audio — try Files… for a direct download.',
-  'panel.rel.new.previewPlayer': 'Panel: every text with audio has a Preview button that plays the first ~30 seconds straight from the row — click again to pause, click another text and the first one stops. It is a small, low-bandwidth preview; the original recording is always under Files….',
+  'panel.rel.new.previewPlayer': 'Panel: every text with audio has a ▶ button that plays the first ~30 seconds straight from the row — click again to pause, click another text and the first one stops. It is a small, low-bandwidth preview; the original recording is always under Files….',
   'panel.rel.new.previewNoAudio': 'Panel: texts with no recording no longer show a Preview button, instead of telling you so after you click it.',
   'panel.rel.new.editorDialogs': 'Editor: the last of the browser’s own pop-up boxes are gone — every “are you sure?” is now asked inside the app, in your language, with buttons big enough for a phone.',
   'panel.rel.new.unassignedInFlight': 'Panel: an unassigned text sent to a device in another project now stays listed under the project it came from, marked “on its way…”, instead of disappearing from that list until the device picks it up.',
@@ -3417,7 +3417,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.prev.tip': 'Putar ~30 detik pertama — pratinjau hemat data, bukan berkas asli. Rekaman lengkap ada di Berkas…',
   'panel.prev.noAudio': 'Teks ini belum punya berkas audio.',
   'panel.prev.failed': 'Audio tidak bisa dimuat — coba Berkas… untuk mengunduh langsung.',
-  'panel.rel.new.previewPlayer': 'Panel: setiap teks yang punya audio kini punya tombol Pratinjau yang memutar ~30 detik pertama langsung dari barisnya — klik lagi untuk jeda, klik teks lain maka yang pertama berhenti. Ini pratinjau kecil dan hemat data; rekaman aslinya selalu ada di Berkas….',
+  'panel.rel.new.previewPlayer': 'Panel: setiap teks yang punya audio kini punya tombol ▶ yang memutar ~30 detik pertama langsung dari barisnya — klik lagi untuk jeda, klik teks lain maka yang pertama berhenti. Ini pratinjau kecil dan hemat data; rekaman aslinya selalu ada di Berkas….',
   'panel.rel.new.previewNoAudio': 'Panel: teks tanpa rekaman tidak lagi menampilkan tombol Pratinjau, alih-alih memberi tahu Anda setelah diklik.',
   'panel.rel.new.editorDialogs': 'Editor: kotak pop-up bawaan peramban yang terakhir sudah hilang — setiap pertanyaan “yakin?” kini ditanyakan di dalam aplikasi, dalam bahasa Anda, dengan tombol yang cukup besar untuk ponsel.',
   'panel.rel.new.unassignedInFlight': 'Panel: teks tak tertugas yang dikirim ke perangkat di proyek lain kini tetap tercantum di proyek asalnya dengan tanda “sedang menuju…”, bukan menghilang dari daftar itu sampai perangkat mengambilnya.',

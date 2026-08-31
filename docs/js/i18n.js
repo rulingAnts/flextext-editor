@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v519';
+export const ENGINE_VERSION = 'v520';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1436,8 +1436,8 @@ internet after the first time.</p>
   'panel.set.projSaved': 'Template saved. New devices in this project will start from it.',
   'panel.apply.title': 'Apply to existing devices — {name}',
   'panel.apply.savedNote': 'The template is saved, and new devices will start from it. You can also push it to devices this project already has — nothing is sent until you choose below.',
-  'panel.apply.changedList': 'Changed in this save ({n}): {fields}',
-  'panel.apply.modeChanges': 'Only what changed — update just the field(s) listed above on each ticked device, leaving its other settings alone. A device with no settings yet gets the whole template.',
+  'panel.apply.changedList': 'Not yet applied to devices ({n}): {fields}',
+  'panel.apply.modeChanges': 'Only those fields — update just the field(s) listed above on each ticked device, leaving its other settings alone. A device with no settings yet gets the whole template.',
   'panel.apply.modeAll': 'The whole template — replace each ticked device’s ENTIRE settings with this template.',
   'panel.apply.modeAllOnly': 'Pushing replaces each ticked device’s ENTIRE settings with this template.',
   'panel.apply.devices': 'Devices in this project',
@@ -3332,8 +3332,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.set.projSaved': 'Templat disimpan. Perangkat baru dalam proyek ini akan mulai dari templat itu.',
   'panel.apply.title': 'Terapkan ke perangkat yang ada — {name}',
   'panel.apply.savedNote': 'Templat sudah disimpan, dan perangkat baru akan mulai darinya. Anda juga dapat mengirimkannya ke perangkat yang sudah ada di proyek ini — tidak ada yang dikirim sampai Anda memilih di bawah.',
-  'panel.apply.changedList': 'Berubah pada penyimpanan ini ({n}): {fields}',
-  'panel.apply.modeChanges': 'Hanya yang berubah — perbarui hanya kolom yang tercantum di atas pada tiap perangkat yang dicentang; pengaturan lainnya tidak disentuh. Perangkat yang belum punya pengaturan menerima seluruh templat.',
+  'panel.apply.changedList': 'Belum diterapkan ke perangkat ({n}): {fields}',
+  'panel.apply.modeChanges': 'Hanya kolom itu — perbarui hanya kolom yang tercantum di atas pada tiap perangkat yang dicentang; pengaturan lainnya tidak disentuh. Perangkat yang belum punya pengaturan menerima seluruh templat.',
   'panel.apply.modeAll': 'Seluruh templat — ganti SELURUH pengaturan tiap perangkat yang dicentang dengan templat ini.',
   'panel.apply.modeAllOnly': 'Pengiriman mengganti SELURUH pengaturan tiap perangkat yang dicentang dengan templat ini.',
   'panel.apply.devices': 'Perangkat dalam proyek ini',

@@ -8117,7 +8117,11 @@ function applyTemplateModal(project, patch, prevTpl, targets) {
     // far it got. A second toast here would contradict it.
     if (pushing) { m.close(); return; }
     m.close();
-    if (changed.length) await savePendingApply(project.folderId, changed);
+    /* Only a real FIELD-LEVEL delta is worth carrying: on a first-ever template every key is
+     * "changed", and stockpiling all of them would make the next save's list name the entire form
+     * — a list that says nothing, attached to a mode whose whole value is being specific. A first
+     * template is offered as the whole-template push it is, on this save and on every later one. */
+    if (offerChanges && changed.length) await savePendingApply(project.folderId, changed);
     deps.toast(t('panel.set.projSaved'), 4000);
   };
   m.el.querySelector('[data-m="apply"]').onclick = (e) => busy(e.target, async () => {
@@ -8172,7 +8176,7 @@ function applyTemplateModal(project, patch, prevTpl, targets) {
      * it pending so the next save can still offer the safe mode. */
     const clean = !failed.length && !cancelled;
     if (clean) await savePendingApply(project.folderId, []);
-    else if (changed.length) await savePendingApply(project.folderId, changed);
+    else if (offerChanges && changed.length) await savePendingApply(project.folderId, changed);
     m.close();
     /* Per-device failures leave that device exactly as it was — named, with the retry pointed at
      * (its own Settings), never folded into a success count. */

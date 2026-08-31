@@ -3932,6 +3932,19 @@ which is a different question with a confusingly similar name.
 > actually obeys, lane-first, so per-device tuning survives). The preview discipline below is
 > honoured at FIELD-NAME level (the changed-fields outline); per-device old→new value diffs were
 > not built. Owner-only limit stands (a member holds no owner Kr).
+>
+> **v520–v521 refinements, live-tested on staging:** "+ New device" moved under the project tabs,
+> right-aligned (Seth's sketch). The changes rule is Seth's, verbatim: *"if it's a first edit, then
+> yes, everything is a change. After that, only things specifically changed count… We don't need
+> to be more sophisticated than that"* — so a FIRST template offers both modes too (v520 briefly
+> offered it only the overwrite; overruled). A declined offer carries its delta (keys only, in the
+> owner's encrypted prefs) until it lands everywhere; long lists are capped in display only. New
+> projects flow straight into their Default settings after creation (Seth: required from now on).
+> Review before shipping found and fixed: appLang riding the merge (one-shot command re-applied),
+> the merge shipping unvalidated (consent pairs split across template/device), seeding over an
+> unreadable-but-configured device, mid-push close not stopping the loop, and the dead per-device
+> consent-upload button in the template form. All pinned in test/project-template-apply.test.mjs
+> (mutation-tested) + consent-upload-progress.test.mjs.
 
 > *"We will want to have project-level default settings for new devices with the ability to apply
 > those settings to daughter devices. But that's for later, after we get the multiple researchers

@@ -7169,6 +7169,15 @@ async function crowdSubmitOne(item) {
   const r = await runChunkedUpload({
     total,
     slice: (a, b) => item.blob.slice(a, b),
+    /* The Firefox failure this heals (2026-08-31): a blob read back from IndexedDB moments after
+     * being written can be silently unreadable at fetch time — every chunk PUT then goes out with
+     * zero body bytes and the edge 400s it, so the FIRST submission always failed and the visitor's
+     * manual retry (a fresh read) always worked. readChunk() in the shared loop detects the empty
+     * read; this hook gives it a fresh blob from the store so the SAME attempt completes. */
+    refresh: async () => {
+      const fresh = (await crowdListPending()).find((x) => x.id === item.id);
+      if (fresh && fresh.blob) item.blob = fresh.blob;
+    },
     streamId: item.streamId || null,
     put: crowdChunkPut,
     /* ⚠ THIS IS WHERE A TURNSTILE TOKEN IS SPENT — one bot-check per submission. The shared loop

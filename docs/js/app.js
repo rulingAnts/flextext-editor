@@ -7152,7 +7152,11 @@ async function crowdQueueAndSubmit(file, extras) {
     renderCrowdView('failed', { detail: t('crowd.tooLarge') });
     return;
   }
-  await crowdPutPending({ id: mkGuid(), created: Date.now(), blob: zip });
+  // The typed signature (when that consent mode captured one) rides the pending item so the
+  // worker can lead the text title with it — "name + date/time" (Seth, 2026-08-31). Old workers
+  // ignore the extra start-body field; nothing else reads this.
+  const speaker = String((extras && extras.receipt && extras.receipt.signatureName) || '');
+  await crowdPutPending({ id: mkGuid(), created: Date.now(), blob: zip, ...(speaker ? { speaker } : {}) });
   renderCrowdView('sending');
   await crowdFlush(true);
 }
@@ -7233,7 +7237,7 @@ async function crowdSubmitOne(item) {
       const headers = { 'content-type': 'application/json' };
       if (CROWD_CFG && CROWD_CFG.turnstile) headers['x-fx-turnstile'] = await crowdTurnstileToken();
       const res = await fetch(workerBase() + '/v1/crowd/' + encodeURIComponent(CROWD_ID) + '/submit/start',
-        { method: 'POST', headers, body: JSON.stringify({ size: total }) });
+        { method: 'POST', headers, body: JSON.stringify({ size: total, ...(item.speaker ? { name: item.speaker } : {}) }) });
       const out = await res.json().catch(() => ({}));
       if (res.ok && out.ok && out.uploadId) return out.uploadId;
       const e = new Error(out.error || ('HTTP ' + res.status));

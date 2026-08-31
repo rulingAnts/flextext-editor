@@ -17,6 +17,7 @@ import { teardownUnmigratedProjectRows } from './project-teardown.js';
 import { backfillProjectKeys, verifyProjectKeys, kiForInstall, wrapKiToInstallPubkey, maintainProjectGrants } from './project-key.js';
 import { stampDriveObject, deriveDriveObjectRows, moveDriveObjectText, moveDriveObjectContainer,
          authorizeDocForProject, authorizeObjectForProject } from './drive-object.js';
+import { parseWavHeader, previewPlan, wavPreviewHeader, makeDecimator } from './preview.js';
 
 /* ---------------- crypto + helpers ---------------- */
 
@@ -1577,6 +1578,59 @@ async function mintTextfileUrl(env, urlOrigin, researcherId, fileId, extract, tt
   return urlOrigin + '/v1/textfile/' + encodeURIComponent(await encAtRest(env, JSON.stringify(tk)));
 }
 
+/* Serve a token whose x === 'preview': a LOW-BANDWIDTH HEAD of the file, for the panel's preview
+ * player (Seth, 2026-08-31: playback "almost instant"; the archival original is never touched).
+ *
+ * PCM WAV — the crowd default is wav24, ~8 MB/minute — is decimated on the way through: 8-bit
+ * mono at ~8 kHz, first 30 seconds, ≈240 KB with an exact content-length. A real OPUS/MP3 encode
+ * cannot live in a Worker (no codecs; the CPU budget dies on minutes of audio), but this box
+ * average costs near-nothing per byte and keeps speech perfectly intelligible.
+ *
+ * Anything that is not parseable PCM (mp3/opus/flac — already compact — or float/odd WAVs) falls
+ * back to the file's RAW first 256 KB, upstream content-type intact: a preview must degrade to
+ * "heavier", never to wrong bytes. No Range support on either shape — the head IS the payload. */
+async function servePreviewHead(access, fileId, origin, env) {
+  const driveGet = (range) => fetch('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?alt=media', {
+    headers: { Authorization: 'Bearer ' + access, Range: range },
+  });
+  const head = await driveGet('bytes=0-511');
+  if (!head.ok && head.status !== 206) {
+    return j({ error: head.status === 404 ? 'not_found' : 'drive_error', status: head.status }, head.status === 404 ? 404 : 502, origin, env);
+  }
+  const headBytes = new Uint8Array(await head.arrayBuffer());
+  const hdr = parseWavHeader(headBytes);
+  const plan = hdr ? previewPlan(hdr, 30, 8000) : null;
+  const h = new Headers(v1Cors(origin, env));
+  h.set('Cache-Control', 'no-store');
+  if (!plan) {
+    const g = await driveGet('bytes=0-262143');
+    if (!g.ok && g.status !== 206) return j({ error: 'drive_error', status: g.status }, 502, origin, env);
+    h.set('content-type', g.headers.get('content-type') || 'application/octet-stream');
+    const len = g.headers.get('content-length'); if (len) h.set('content-length', len);
+    return new Response(g.body, { status: 200, headers: h });
+  }
+  const g = await driveGet('bytes=' + plan.srcStart + '-' + (plan.srcStart + plan.srcBytes - 1));
+  if (!g.ok && g.status !== 206) return j({ error: 'drive_error', status: g.status }, 502, origin, env);
+  const dec = makeDecimator(hdr, plan);
+  const reader = g.body.getReader();
+  // Pull-based, so the response streams as Drive streams and nothing outlives the request. The
+  // decimator itself guarantees exactly plan.outBytes (flush pads a short source with silence),
+  // which is what lets content-length go on the wire before the first body byte.
+  const stream = new ReadableStream({
+    start(c) { c.enqueue(wavPreviewHeader(plan)); },
+    async pull(c) {
+      const { done, value } = await reader.read();
+      if (done) { const t = dec.flush(); if (t.length) c.enqueue(t); c.close(); return; }
+      const out = dec.push(value);
+      if (out.length) c.enqueue(out);
+    },
+    cancel() { try { reader.cancel(); } catch { /* noop */ } },
+  });
+  h.set('content-type', 'audio/wav');
+  h.set('content-length', String(44 + plan.outBytes));
+  return new Response(stream, { status: 200, headers: h });
+}
+
 // The recorder's folder in the RESEARCHER'S Drive: "FlexText Uploads / Crowd — <label>".
 // drive.file can only write to app-created files, so the worker creates (and
 // remembers) the folder itself; a trashed/vanished folder is transparently
@@ -1658,7 +1712,15 @@ async function driveEnsureCrowdFolder(env, access, rec) {
  * ⚠ THE SUBMISSION ID IS THE DOC ID. One submission is one text, and sub_id is already the
  * submission's identity in D1 and in the upload ticket — so the correlation costs no column, and
  * there is no second identifier that could disagree with the first. */
-function crowdTextTitle(rec, at) {
+/* `speakerName` (2026-08-31, Seth): when the recorder's consent asks for a TYPED SIGNATURE, the
+ * name the speaker typed leads the text title — "name + date/time" — because that is how the
+ * researcher will look for the recording. Sent by new clients as an optional field on the chunked
+ * /submit/start body; absent (old clients, other consent modes) the label leads exactly as before.
+ * Sanitised to one printable line: it becomes a Drive folder name in the owner's Drive. */
+function crowdSpeakerName(raw) {
+  return String(raw || '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60);
+}
+function crowdTextTitle(rec, at, speakerName) {
   /* ⚠ LABELLED UTC, because this name is generated SERVER-SIDE and the device-side names are NOT.
    * A `.flextext` filename is built from the transcriber's LOCAL clock (app.js), which is right for
    * them — they find their work by when they did it. This one is UTC, and at UTC+9 that is enough to
@@ -1669,11 +1731,12 @@ function crowdTextTitle(rec, at) {
    * everything the worker names. See plans/BACKLOG.md. The precedent for the suffix is secLog, which
    * already writes `… + ' UTC'`. */
   const stamp = new Date(at).toISOString().slice(0, 16).replace('T', ' ');
-  return (String(rec.label || 'Crowd').trim().slice(0, 80)) + ' — ' + stamp + ' UTC';
+  const who = crowdSpeakerName(speakerName);
+  return (who || String(rec.label || 'Crowd').trim().slice(0, 80)) + ' — ' + stamp + ' UTC';
 }
-async function driveEnsureCrowdTextFolder(env, access, rec, subId, at) {
+async function driveEnsureCrowdTextFolder(env, access, rec, subId, at, speakerName) {
   const crowdFolder = await driveEnsureCrowdFolder(env, access, rec);
-  const textFolder = await driveEnsureTextFolder(access, crowdFolder, subId, crowdTextTitle(rec, at), '');
+  const textFolder = await driveEnsureTextFolder(access, crowdFolder, subId, crowdTextTitle(rec, at, speakerName), '');
   await stampChild(env, { objectId: textFolder, kind: 'text', docId: subId, parentId: crowdFolder });
   // …/originals/, the same child a device's source package lands in. The submission zip and its
   // manifest go in there, not in the text folder root, so the two origins produce one shape.
@@ -2369,6 +2432,8 @@ export async function handleV1(request, env, ctx, url, path, origin) {
     }
     try {
       const access = await driveAccessToken(env, owner);
+      // A preview token never wants the whole file — servePreviewHead does its own ranged reads.
+      if (tk.x === 'preview') return await servePreviewHead(access, tk.f, origin, env);
       const range = request.headers.get('Range');
       const g = await fetch('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(tk.f) + '?alt=media', {
         headers: { Authorization: 'Bearer ' + access, ...(range && !tk.x ? { Range: range } : {}) },
@@ -4459,6 +4524,23 @@ export async function handleV1(request, env, ctx, url, path, origin) {
    * fetch drive.usercontent.google.com cross-origin (CORS), so the bytes route through here with
    * the researcher's own token instead. drive.file scope is the guard — a file the app did not
    * create simply 404s at Google, so this cannot become a general Drive reader. Free egress. */
+  /* GET /v1/researcher/drive-file/<fileId>/preview-url — mint a short-lived header-less URL for
+   * the PREVIEW HEAD of one of the researcher's own app-created files (servePreviewHead). Exists
+   * because an <audio> element cannot send auth headers: the panel asks here with its session,
+   * gets back a /v1/textfile URL it can hand straight to the element. One hour, not ninety days —
+   * a preview is a click, not an assignment — and the same drive.file-scope guard as the download
+   * route below: a file the app did not create 404s at Google when served. Additive: an older
+   * worker 404s this path and the panel falls back to downloading the original. */
+  if (m === 'GET' && seg.length === 5 && seg[1] === 'researcher' && seg[2] === 'drive-file' && seg[4] === 'preview-url') {
+    const r = await authResearcher(request, env);
+    if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
+    const fileId = String(seg[3] || '').replace(/[^\w-]/g, '').slice(0, 90);
+    if (!fileId) return j({ error: 'bad_file' }, 400, origin, env);
+    const u = await mintTextfileUrl(env, url.origin, r.researcher_id, fileId, 'preview', 3600000);
+    if (!u) return j({ error: 'bad_file' }, 400, origin, env);
+    return j({ ok: true, url: u }, 200, origin, env);
+  }
+
   if (m === 'GET' && seg.length === 4 && seg[1] === 'researcher' && seg[2] === 'drive-file') {
     const r = await authResearcher(request, env);
     if (!r) return j({ error: 'unauthorized' }, 401, origin, env);
@@ -4881,6 +4963,30 @@ export async function handleV1(request, env, ctx, url, path, origin) {
      * the file's parents BY ID asks Drive itself, which is the one index that is never stale.
      *
      * Streams the body straight through, so Range/resume behave exactly as they do for the owner. */
+    /* GET .../texts/<docId>/files/<fileId>/preview-url — the member-safe twin of the researcher
+     * mint above: same auth, same doc gate, same belongs-to-doc walk as the streaming route below,
+     * then a SCOPED one-hour token (scope carries the instance, so revoking the device kills the
+     * URL, and a member-minted token dies with their grant — invariant I2). */
+    if (m === 'GET' && sub === 'texts' && seg.length === 8 && seg[5] === 'files' && seg[7] === 'preview-url') {
+      const ctx = await authMember(request, env, { instance: instanceId }, 'drive:read');
+      if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
+      if (!ctx.ok) return j({ error: 'not_found' }, 404, origin, env);
+      const r = ctx.owner;
+      const docId = String(seg[4] || '').replace(/[^\w-]/g, '').slice(0, 64);
+      const fileId = String(seg[6] || '').replace(/[^\w-]/g, '').slice(0, 90);
+      if (!docId || !fileId) return j({ error: 'bad_file' }, 400, origin, env);
+      const gate = await authorizeDocForProject(env.DB, { docId, projectId: ctx.project_id || '', isOwner: ctx.isOwner });
+      if (!gate.allowed) return j({ error: 'not_found' }, 404, origin, env);
+      try {
+        const access = await driveAccessToken(env, r);
+        if (!(await driveFileBelongsToDoc(access, fileId, docId))) return j({ error: 'not_found' }, 404, origin, env);
+        const u = await mintTextfileUrl(env, url.origin, r.researcher_id, fileId, 'preview', 3600000,
+                                        { instanceId, docId }, ctx.caller.researcher_id);
+        if (!u) return j({ error: 'bad_file' }, 400, origin, env);
+        return j({ ok: true, url: u }, 200, origin, env);
+      } catch (e) { return j({ error: e.code || 'drive_error', message: safeErr(e) }, 502, origin, env); }
+    }
+
     if (m === 'GET' && sub === 'texts' && seg.length === 7 && seg[5] === 'files') {
       const ctx = await authMember(request, env, { instance: instanceId }, 'drive:read');
       if (!ctx) return j({ error: 'unauthorized' }, 401, origin, env);
@@ -6081,7 +6187,9 @@ export async function handleV1(request, env, ctx, url, path, origin) {
           const rrow = await env.DB.prepare('SELECT * FROM researcher WHERE researcher_id=?').bind(rec.researcher_id).first();
           const access = await driveAccessToken(env, rrow);
           // Its own text folder + originals/, through the same helpers the device upload path uses.
-          const { originals } = await driveEnsureCrowdTextFolder(env, access, rec, subId, now);
+          // body.name: the speaker's TYPED SIGNATURE (when that consent mode is on) leads the text
+          // title — additive; old clients send nothing and the label leads as before.
+          const { originals } = await driveEnsureCrowdTextFolder(env, access, rec, subId, now, body.name);
           const folder = originals;
           const init = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id', {
             method: 'POST',

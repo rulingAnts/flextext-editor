@@ -1100,6 +1100,10 @@ function header(titleKey, withLock) {
  * never invent a number for symmetry. */
 const ISSUES_URL = 'https://github.com/rulingAnts/flextext-editor/issues/';
 const RELEASES = [
+  { v: 'v533', date: '2026-08-31', items: [
+    { k: 'panel.rel.new.previewPlayer' },
+    { k: 'panel.rel.new.crowdSpeakerName' },
+  ] },
   { v: 'v532', date: '2026-08-31', items: [
     { k: 'panel.rel.new.doneTogglePending' },
     { k: 'panel.rel.new.textSort', issue: 15 },
@@ -1870,6 +1874,8 @@ async function renderDashboard(prefetched) {
     /* The Drive estate rides FULL renders only, never the 12s poll — it is a Drive round trip, and
      * the unassigned card changes on the timescale of a researcher removing a text, not seconds. */
     try { estateCache = await Researcher.driveEstate(); } catch { estateCache = null; }
+    // Warm the crowd preview heads once this render is out of the way — see sweepCrowdPreviews.
+    try { sweepCrowdPreviews(crowdCache, estateCache); } catch { /* never costs the render */ }
     sweepUnassigned(estateCache);
   }
 
@@ -2177,6 +2183,112 @@ function filesMenuHtml(instanceId, docId, title, audioUrl, fileId, viaMember) {
    * that does not live under this doc's folder. */
   return `<span class="rp-dl" data-fmenu${viaMember ? ' data-viamember="1"' : ''} data-i="${esc(instanceId)}" data-id="${esc(docId)}" data-title="${esc(title || '')}" data-audio="${esc(au)}" data-fileid="${esc(fileId || '')}">
     <button class="link-btn rp-dl-btn" aria-haspopup="dialog">${esc(t('panel.dl.btn'))} <span class="rp-dl-caret" aria-hidden="true">▾</span></button></span>`;
+}
+
+/* ── PREVIEW PLAYER (Seth, 2026-08-31: "a mini preview player modal … for all our texts in all our
+ * devices (and Google Drive Unassigned)") ────────────────────────────────────────────────────────
+ *
+ * A ▶ button beside Files… on every text row. The modal resolves the text's audio (the same
+ * listTextFiles + pickSourceFiles the Files modal trusts), then plays the LIGHTEST thing it can:
+ *
+ *   1. a pre-cached preview head (crowd texts, fetched idle-time below) — instant;
+ *   2. a minted /v1/textfile preview URL — the worker's ~240 KB telephone-quality head of a PCM
+ *      WAV, or the raw first 256 KB of an already-compressed file;
+ *   3. the ORIGINAL, downloaded and played as a blob — the fallback when the worker predates the
+ *      preview routes. Heavier, never wrong, and what makes this shippable before that deploy.
+ *
+ * ⚠ THE PLAYER DIES WITH THE MODAL — pause, detach, revoke — on EVERY close path (modal()'s
+ * onClose contract). A preview that keeps sounding after its dialog is gone reads as a haunting.
+ *
+ * ⚠ THE PRE-CACHE MUST NEVER COST THE PAGE (Seth: "the rest of the app working smoothly matters
+ * more"): it runs idle-time only, one fetch at a time, capped, skips data-saver/2G connections,
+ * only ever fetches the small preview heads (an old worker disables it entirely rather than pull
+ * full originals), and evicts the moment a text leaves the estate. */
+function previewBtnHtml(instanceId, docId, title, viaMember) {
+  if (!instanceId || !docId) return '';
+  return `<button class="link-btn rp-prev" data-prev data-i="${esc(instanceId)}" data-id="${esc(docId)}" data-title="${esc(title || '')}"${viaMember ? ' data-viamember="1"' : ''}>${esc(t('panel.prev.btn'))}</button>`;
+}
+
+async function resolveTextAudio(instanceId, docId) {
+  const r = await Researcher.listTextFiles(instanceId, docId);
+  return pickSourceFiles((r && r.files) || []).audio || null;
+}
+
+const prevCache = new Map();   // docId -> { blob?, fileId? } ({} = known audio-less; no refetch loop)
+let prevMintDead = false;      // this worker has no preview routes — fall back, and never pre-cache
+let prevSweepBusy = false;
+
+async function openPreviewModal(ds) {
+  const via = ds.viamember ? { instanceId: ds.i, docId: ds.id } : null;
+  let audioEl = null; let objUrl = null;
+  const m = modal(`
+    <h3 class="rp-dlm-title">${esc(ds.title || t('panel.prev.btn'))}</h3>
+    <p class="note" data-prev-status>${esc(t('panel.prev.loading'))}</p>
+    <audio data-prev-audio controls preload="auto" style="width:100%" hidden></audio>
+    <div class="modal-actions"><button class="primary-btn" data-m="cancel">${esc(t('panel.help.close'))}</button></div>`,
+  false, () => {
+    try { audioEl && audioEl.pause(); } catch { /* noop */ }
+    if (audioEl) { audioEl.removeAttribute('src'); try { audioEl.load(); } catch { /* noop */ } }
+    if (objUrl) { URL.revokeObjectURL(objUrl); objUrl = null; }
+  });
+  audioEl = m.el.querySelector('[data-prev-audio]');
+  const status = m.el.querySelector('[data-prev-status]');
+  const say = (msg) => { if (status) status.textContent = msg; };
+  const play = (src, note) => {
+    if (!m.el.isConnected) return;               // closed while we were still resolving — stay silent
+    audioEl.src = src; audioEl.hidden = false; say(note);
+    audioEl.play().catch(() => { /* autoplay refusal — the controls are right there */ });
+  };
+  try {
+    const cached = prevCache.get(ds.id);
+    if (cached && cached.blob) { objUrl = URL.createObjectURL(cached.blob); play(objUrl, t('panel.prev.quality')); return; }
+    const f = await resolveTextAudio(ds.i, ds.id);
+    if (!f) { say(t('panel.prev.noAudio')); return; }
+    if (!prevMintDead) {
+      const u = await Researcher.previewUrl(f.id, via);
+      if (u) { play(u, t('panel.prev.quality')); return; }
+    }
+    say(t('panel.prev.fetching', { pct: 0 }));
+    const size = f.size || 0;
+    const blob = await Researcher.fetchDriveFile(f.id, (n) => {
+      if (size && m.el.isConnected) say(t('panel.prev.fetching', { pct: Math.min(99, Math.round((n / size) * 100)) }));
+    }, via);
+    objUrl = URL.createObjectURL(blob);
+    play(objUrl, t('panel.prev.full'));
+  } catch { say(t('panel.prev.failed')); }
+}
+
+/* Idle-time pre-cache of crowd preview heads (Seth's suggestion): after a dashboard render, warm
+ * the first N crowd texts so ▶ is instant. Strictly sequential; ~240 KB each. */
+function sweepCrowdPreviews(recs, estate) {
+  if (prevSweepBusy || prevMintDead || !Array.isArray(recs) || !recs.length) return;
+  const conn = navigator.connection || {};
+  if (conn.saveData || /(^|-)2g$/.test(String(conn.effectiveType || ''))) return;
+  const iid = firstInstanceId();
+  if (!iid) return;
+  const want = [];
+  for (const rec of recs) for (const tx of crowdTexts(estate, rec)) if (tx.docId) want.push(tx.docId);
+  const wantSet = new Set(want);
+  for (const k of [...prevCache.keys()]) if (!wantSet.has(k)) prevCache.delete(k);   // deleted text ⇒ cache gone too
+  const todo = want.filter((d) => !prevCache.has(d)).slice(0, 12);
+  if (!todo.length) return;
+  prevSweepBusy = true;
+  const idle = (fn) => (window.requestIdleCallback ? requestIdleCallback(fn, { timeout: 4000 }) : setTimeout(fn, 1500));
+  idle(async () => {
+    try {
+      for (const docId of todo) {
+        if (prevMintDead) break;
+        try {
+          const f = await resolveTextAudio(iid, docId);
+          if (!f) { prevCache.set(docId, {}); continue; }
+          const u = await Researcher.previewUrl(f.id, null);
+          if (!u) { prevMintDead = true; break; }             // old worker — never pre-cache originals
+          const r = await fetch(u);
+          if (r.ok) prevCache.set(docId, { blob: await r.blob(), fileId: f.id });
+        } catch { /* one text failing must not stop the sweep */ }
+      }
+    } finally { prevSweepBusy = false; }
+  });
 }
 
 /* Open the Files modal for a row. The modal gets its OWN `[data-fmenu]` wrapper carrying the same
@@ -3020,6 +3132,11 @@ function wireDownloadMenus(scope) {
       openFilesModal(wrap);
     });
   });
+  // The ▶ preview buttons ride the same wiring point, so every surface that renders Files… (and
+  // calls this) gets the player without a second hookup site to forget.
+  (scope || root).querySelectorAll('[data-prev]').forEach((b) => {
+    b.addEventListener('click', (e) => { e.stopPropagation(); openPreviewModal(b.dataset); });
+  });
   if (!wireDownloadMenus.global) {   // document listeners attach ONCE, not per render
     wireDownloadMenus.global = true;
     document.addEventListener('click', async (e) => {
@@ -3422,7 +3539,8 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
          * until that works"). A member holding drive:read gets the same Files… menu the owner has,
          * downloading through the project-scoped route. Without the capability it is ABSENT rather
          * than disabled — a dead control reads as broken. */
-        const dl = (memberCtx && !mDrive) ? '' : filesMenuHtml(it.instance_id, d.id, d.title || '', '', '', !!memberCtx);
+        const dl = (memberCtx && !mDrive) ? ''
+          : previewBtnHtml(it.instance_id, d.id, d.title || '', !!memberCtx) + filesMenuHtml(it.instance_id, d.id, d.title || '', '', '', !!memberCtx);
         // (5) The row reads in two lines: title + state chip, then muted metadata; actions sit on
         // the right. The tags stopped fighting the title for attention — that was Seth's "plain
         // line of text with plain hyperlinks is getting busy and ugly".
@@ -4326,14 +4444,14 @@ function crowdTextRows(rec, estate) {
   const inFlight = inFlightAssignIds();
   return `<ul class="rp-crowd-texts">${texts.map((tx) => {
     const busy = pendingMoves.has(tx.docId) || inFlight.has(tx.docId);
-    const when = crowdRowWhen(tx.title);
+    const when = crowdRowLabel(rec, tx.title);
     return `<li class="rp-text-row">
       <div class="rp-text-main">
         <div class="rp-text-title"${when ? ` title="${esc(tx.title || '')}"` : ''}>${esc(when || tx.title || t('panel.hist.untitled'))}</div>
         <div class="note rp-text-meta">${esc(gb(tx.bytes || 0))} · ${esc(t('panel.store.nFiles', { n: tx.files || 0 }))}</div>
       </div>
       <div class="rp-text-actions">
-        ${iid ? filesMenuHtml(iid, tx.docId, tx.title || '') : ''}
+        ${iid ? previewBtnHtml(iid, tx.docId, tx.title || '') + filesMenuHtml(iid, tx.docId, tx.title || '') : ''}
         ${busy ? `<span class="rp-tag rp-tag-moving">${esc(t('panel.store.inFlight'))}</span>`
           : `<button class="link-btn" data-uact="cmove" data-id="${esc(tx.docId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.move.btn'))}</button>
         <button class="link-btn rp-revoke" data-uact="drop" data-folder="${esc(tx.folderId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.store.delete'))}</button>`}
@@ -4360,6 +4478,16 @@ function crowdRowWhen(title) {
   if (!m) return null;
   const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]));
   return isNaN(d) ? null : histWhen(d.getTime());
+}
+/* The row's whole visible name. When the title's prefix is the SPEAKER'S TYPED NAME (v533's
+ * crowdTextTitle leads with it when the typed-signature consent mode captured one), show
+ * "name — local time"; when the prefix merely repeats the recorder's label — every pre-v533
+ * submission — the local time alone says everything the row needs to. */
+function crowdRowLabel(rec, title) {
+  const when = crowdRowWhen(title);
+  if (!when) return null;
+  const prefix = String(title || '').replace(/\s*—\s*\d{4}-\d{2}-\d{2} \d{2}[:_]\d{2} UTC$/, '').trim();
+  return (prefix && prefix !== String((rec && rec.label) || '').trim()) ? prefix + ' — ' + when : when;
 }
 
 function renderCrowdCard(recs, estate) {
@@ -5861,7 +5989,7 @@ function renderUnassignedCard(estate, projectFolderId) {
         <div class="note rp-text-meta">${esc(gb(tx.bytes || 0))} · ${esc(t('panel.store.nFiles', { n: tx.files || 0 }))}</div>
       </div>
       <div class="rp-text-actions">
-        ${iid ? filesMenuHtml(iid, tx.docId, tx.title || '') : ''}
+        ${iid ? previewBtnHtml(iid, tx.docId, tx.title || '') + filesMenuHtml(iid, tx.docId, tx.title || '') : ''}
         ${tx.pending
           ? `<span class="rp-tag rp-tag-moving">${esc(t('panel.store.inFlight'))}</span>`
           : `<button class="link-btn" data-uact="adopt" data-id="${esc(tx.docId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.move.btn'))}</button>
@@ -6402,7 +6530,7 @@ function storageModal() {
           <div class="note rp-store-meta">${esc(gb(tx.bytes))} · ${esc(t('panel.store.nFiles', { n: tx.files }))}</div>
         </div>
         <div class="rp-store-actions">
-          ${firstInstanceId() ? filesMenuHtml(firstInstanceId(), tx.docId, tx.title || '') : ''}
+          ${firstInstanceId() ? previewBtnHtml(firstInstanceId(), tx.docId, tx.title || '') + filesMenuHtml(firstInstanceId(), tx.docId, tx.title || '') : ''}
           ${un && !inFlightTx(tx)
             ? `<button class="link-btn rp-revoke" data-storedel="${esc(tx.folderId)}" data-title="${esc(tx.title || '')}">${esc(t('panel.store.delete'))}</button>`
             : (inFlightTx(tx) ? `<span class="rp-tag rp-tag-moving">${esc(t('panel.store.inFlight'))}</span>` : '')}

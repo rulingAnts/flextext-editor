@@ -26,7 +26,9 @@ test('crowd panel rows: local time + in-flight lock', () => {
   console.log('\nthe visible name is the local recording time, the raw title the tooltip');
   {
     ok(/function crowdRowWhen\(/.test(panel), 'crowdRowWhen exists');
-    ok(/crowdRowWhen\(tx\.title\)/.test(panel), '...and crowdTextRows uses it');
+    // v533 interposed crowdRowLabel (typed speaker name + time); it still derives from crowdRowWhen.
+    ok(/crowdRowLabel\(rec, tx\.title\)/.test(panel) && /crowdRowWhen\(title\)/.test(panel),
+       '...and crowdTextRows uses it (through crowdRowLabel)');
     ok(/histWhen\(d\.getTime\(\)\)/.test(panel),
        'local rendering goes through histWhen — one date format across the panel');
     ok(/title="\$\{esc\(tx\.title \|\| ''\)\}"/.test(panel),

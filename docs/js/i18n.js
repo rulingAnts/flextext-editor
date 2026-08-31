@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v532';
+export const ENGINE_VERSION = 'v533';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v532';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = '';
+export const BUILD_TAG = 'preview-player v1';
 
 const S = {
 en: {
@@ -1487,6 +1487,16 @@ internet after the first time.</p>
   'panel.rel.new.recordButton': 'Recorder: if recording cannot start, the Record button now says so instead of doing nothing.',
   'panel.rel.new.doneTogglePending': 'Panel: toggling a text’s Finished state now shows a pending marker until the device confirms — in every open panel, not just the one that clicked.',
   'panel.rel.new.textSort': 'Panel: texts on each device (and in Unassigned) are sorted — active texts first, finished after, each alphabetically.',
+  // ── preview player ──
+  'panel.prev.btn': '▶ Play',
+  'panel.prev.loading': 'Finding the recording…',
+  'panel.prev.noAudio': 'This text has no audio file yet.',
+  'panel.prev.quality': 'Preview quality — the full recording is under Files…',
+  'panel.prev.fetching': 'Loading the full recording… {pct}%',
+  'panel.prev.full': 'Full recording.',
+  'panel.prev.failed': 'Could not load the audio — try Files… for a direct download.',
+  'panel.rel.new.previewPlayer': 'Panel: every text row has a ▶ Play button — a small preview player that starts almost instantly and stops the moment you close it.',
+  'panel.rel.new.crowdSpeakerName': 'Crowd recorder: when consent asks for a typed name, that name now leads the recording’s title alongside the local time.',
   'panel.rel.new.memberApprove': 'A researcher with “manage devices” can now approve and key a new device themselves — pairing no longer waits for the project owner, whoever created the invite.',
   'panel.rel.new.activityTray': 'Uploads to a device now appear in the same “In progress” box as downloads, with an arrow showing which way the files are going — and the box can be collapsed out of the way and reopened.',
   'panel.rel.new.projTemplates': 'Project “Default settings” now work end to end: a new device opens its settings prefilled from the project’s template, and after saving a template you can push it — whole, or only what changed — to any or all of the project’s existing devices.',
@@ -3399,6 +3409,16 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.rel.new.recordButton': 'Perekam: jika perekaman tidak bisa dimulai, tombol Rekam kini memberi tahu, bukan diam saja.',
   'panel.rel.new.doneTogglePending': 'Panel: mengubah status Selesai sebuah teks kini menampilkan penanda tertunda sampai perangkat mengonfirmasi — di semua panel yang terbuka, bukan hanya yang mengeklik.',
   'panel.rel.new.textSort': 'Panel: teks pada setiap perangkat (dan di Tidak Tertugas) kini diurutkan — teks aktif dulu, yang selesai kemudian, masing-masing menurut abjad.',
+  // ── pemutar pratinjau ──
+  'panel.prev.btn': '▶ Putar',
+  'panel.prev.loading': 'Mencari rekaman…',
+  'panel.prev.noAudio': 'Teks ini belum punya berkas audio.',
+  'panel.prev.quality': 'Kualitas pratinjau — rekaman lengkap ada di Berkas…',
+  'panel.prev.fetching': 'Memuat rekaman lengkap… {pct}%',
+  'panel.prev.full': 'Rekaman lengkap.',
+  'panel.prev.failed': 'Audio tidak bisa dimuat — coba Berkas… untuk mengunduh langsung.',
+  'panel.rel.new.previewPlayer': 'Panel: setiap baris teks punya tombol ▶ Putar — pemutar pratinjau kecil yang mulai hampir seketika dan berhenti begitu ditutup.',
+  'panel.rel.new.crowdSpeakerName': 'Perekam publik: jika persetujuan meminta nama yang diketik, nama itu kini memimpin judul rekaman bersama waktu lokal.',
   'panel.rel.new.memberApprove': 'Peneliti dengan “mengelola perangkat” kini dapat menyetujui dan memberi kunci perangkat baru sendiri — penyandingan tidak lagi menunggu pemilik proyek, siapa pun yang membuat undangannya.',
   'panel.rel.new.activityTray': 'Unggahan ke perangkat kini muncul di kotak “Sedang berjalan” yang sama dengan unduhan, dengan panah yang menunjukkan arah berkasnya — dan kotak itu dapat dilipat lalu dibuka kembali.',
   'panel.rel.new.projTemplates': '“Pengaturan bawaan” proyek kini berfungsi penuh: perangkat baru membuka pengaturannya sudah terisi dari templat proyek, dan setelah menyimpan templat Anda dapat mengirimkannya — seluruhnya, atau hanya yang berubah — ke sebagian atau semua perangkat proyek yang sudah ada.',

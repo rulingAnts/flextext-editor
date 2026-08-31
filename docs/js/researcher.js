@@ -679,6 +679,28 @@ export function listTextFiles(instanceId, docId) {
  * token — correct for an owner reading their own estate, and silently useless for a member, who
  * gets 404s from their own empty Drive rather than a refusal that explains itself. The panel passes
  * `via` whenever it is rendering a shared project's device, so the same button works for both. */
+/* Mint a short-lived header-less URL for a file's PREVIEW HEAD (the worker decimates PCM WAVs to
+ * ~240 KB of telephone-quality audio; compressed formats get their raw first 256 KB). An <audio>
+ * element cannot send auth headers, which is why this trades the session for a URL. `via` picks
+ * the member-safe lane exactly as fetchDriveFile does.
+ * ⚠ Returns null on ANY refusal — including a worker that predates the route — because the
+ * caller's fallback (download the original, play the blob) is correct in every one of those
+ * cases: heavier, never wrong. */
+export async function previewUrl(fileId, via) {
+  const a = (() => { try { return JSON.parse(sessionStorage.getItem(AUTH_KEY) || localStorage.getItem(AUTH_KEY)) || null; } catch { return null; } })();
+  if (!a) return null;
+  const base = (workerBaseFn() || '').replace(/\/+$/, '');
+  const path = (via && via.instanceId && via.docId)
+    ? `${base}/v1/instances/${encodeURIComponent(via.instanceId)}/texts/${encodeURIComponent(via.docId)}/files/${encodeURIComponent(fileId)}/preview-url`
+    : `${base}/v1/researcher/drive-file/${encodeURIComponent(fileId)}/preview-url`;
+  try {
+    const r = await fetch(path, { headers: { 'x-fx-researcher': a.researcher_id, 'x-fx-secret': a.secret } });
+    if (!r.ok) return null;
+    const out = await r.json().catch(() => null);
+    return (out && out.url) || null;
+  } catch { return null; }
+}
+
 export async function fetchDriveFile(fileId, onProgress, via) {
   const a = (() => { try { return JSON.parse(sessionStorage.getItem(AUTH_KEY) || localStorage.getItem(AUTH_KEY)) || null; } catch { return null; } })();
   if (!a) throw new Error('not_signed_up');

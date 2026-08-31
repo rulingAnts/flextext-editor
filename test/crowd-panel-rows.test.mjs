@@ -44,10 +44,19 @@ test('crowd panel rows: local time + in-flight lock', () => {
     ok(!!m, 'the panel parse regex is findable');
     if (m) {
       const re = new RegExp(m[1]);
-      const sample = 'Village stories — ' + new Date(Date.UTC(2026, 7, 31, 6, 50)).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
-      const hit = re.exec(sample);
-      ok(!!hit && hit[1] === '2026' && hit[5] === '50',
-         `it parses a title built the worker's way (${sample})`);
+      const stamp = new Date(Date.UTC(2026, 7, 31, 6, 50)).toISOString().slice(0, 16).replace('T', ' ');
+      const asWritten = 'Village stories — ' + stamp + ' UTC';
+      /* ⚠ THE NAME THAT COMES BACK IS NOT THE NAME THAT WAS WRITTEN. Drive folder names pass the
+       * worker's character sanitizer ([\\/:*?"<>|] → '_'), so the estate returns 'HH_MM UTC'.
+       * The colon-only parse shipped, matched nothing on the live estate, and every row fell back
+       * to the raw title (staging, 2026-08-31). Both shapes must parse. */
+      const asStored = asWritten.replace(/:/g, '_');
+      for (const sample of [asWritten, asStored]) {
+        const hit = re.exec(sample);
+        ok(!!hit && hit[1] === '2026' && hit[5] === '50', `it parses: ${sample}`);
+      }
+      ok(/\[\\\\\/:*?"<>|\]/.test(worker) || /\[\\\\\/:\*\?"<>\|\]\+/.test(worker),
+         "the worker's sanitizer (the reason for [:_]) is still there — if this fails, re-check both shapes");
       ok(!re.exec('My own renamed folder'), 'a hand-renamed title falls through to render as-is');
     }
   }

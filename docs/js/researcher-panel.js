@@ -1082,7 +1082,7 @@ function header(titleKey, withLock) {
  * never invent a number for symmetry. */
 const ISSUES_URL = 'https://github.com/rulingAnts/flextext-editor/issues/';
 const RELEASES = [
-  { v: 'v530', date: '2026-08-31', items: [
+  { v: 'v531', date: '2026-08-31', items: [
     { k: 'panel.rel.new.crowdFirstSubmit' },
     { k: 'panel.rel.new.crowdProgress' },
     { k: 'panel.rel.new.crowdExpiry' },
@@ -4314,7 +4314,12 @@ function crowdTextRows(rec, estate) {
  * of pointless"). The raw title survives as the row's tooltip and rides the action payloads, so
  * confirmations and the Files modal still say what Drive says. Unparseable titles render as-is. */
 function crowdRowWhen(title) {
-  const m = /(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}) UTC$/.exec(String(title || ''));
+  /* [:_] — crowdTextTitle writes 'HH:MM UTC', but Drive folder names pass through the worker's
+   * character sanitizer (v1.js: [\\/:*?"<>|] → '_'), so the name that actually comes back in the
+   * estate reads 'HH_MM UTC'. Caught live on staging 2026-08-31: the colon-only parse matched
+   * nothing and every row fell back to the raw title. Accept both, so this keeps working if the
+   * sanitizer ever stops eating colons. */
+  const m = /(\d{4})-(\d{2})-(\d{2}) (\d{2})[:_](\d{2}) UTC$/.exec(String(title || ''));
   if (!m) return null;
   const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]));
   return isNaN(d) ? null : histWhen(d.getTime());

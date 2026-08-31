@@ -1494,7 +1494,6 @@ internet after the first time.</p>
   'panel.rel.new.dialogs': 'Confirmation questions are now proper in-app dialogs instead of browser pop-ups.',
   'panel.known.addColleague': 'Adding another researcher is a clumsy manual exchange: they have to find their researcher ID and send it to you. A one-time invite link you can share instead is planned.',
   'panel.known.crowdMembers': 'Crowd recorders are invisible to added researchers — only the project owner sees them.',
-  'panel.known.crowdNewProject': 'A newly created project has no “Crowd recorders” area, so a crowd recorder cannot be added to one yet. Only projects that already have a crowd recorder show it. Being fixed next.',
   'panel.known.inviteOnce': 'A device invite link is shown once and cannot be displayed again. If it is lost, make a new one; the old link stays valid.',
   /* ⚠ The coworker list no longer shows a name, email or avatar — the worker stopped sending them
    * (v503). A nickname the OWNER types is what names a coworker now, and it never leaves this
@@ -3404,7 +3403,6 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.rel.new.dialogs': 'Pertanyaan konfirmasi kini berupa dialog dalam aplikasi, bukan jendela sembul peramban.',
   'panel.known.addColleague': 'Menambahkan peneliti lain masih merepotkan: mereka harus mencari ID peneliti mereka dan mengirimkannya kepada Anda. Tautan undangan sekali pakai sedang direncanakan.',
   'panel.known.crowdMembers': 'Perekam massal tidak terlihat oleh peneliti yang ditambahkan — hanya pemilik proyek yang melihatnya.',
-  'panel.known.crowdNewProject': 'Proyek yang baru dibuat tidak memiliki area “Perekam massal”, sehingga perekam massal belum dapat ditambahkan ke sana. Hanya proyek yang sudah punya perekam massal yang menampilkannya. Sedang diperbaiki berikutnya.',
   'panel.known.inviteOnce': 'Tautan undangan perangkat hanya ditampilkan sekali dan tidak dapat ditampilkan ulang. Jika hilang, buat yang baru; tautan lama tetap berlaku.',
   'panel.share.nickLabel': 'Nama untuk mereka (hanya Anda yang melihatnya)',
   'panel.share.nickPh': 'mis. Yani — tim Kulumi',

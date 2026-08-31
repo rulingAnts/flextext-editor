@@ -223,6 +223,35 @@ When reporting what is on staging, say which versions carry code and which carry
 versions ahead" and "four versions of code ahead" are very different facts to a person deciding
 whether to test.
 
+### 🚩 THE RELEASE NOTES ARE PART OF THE PUSH (Seth, 2026-08-31)
+
+> *"Did you update the release notes modal for this release? You should make that a part of the
+> production push ritual."*
+
+**Every production release updates `RELEASES` in `researcher-panel.js` before `BUILD_TAG` is
+cleared.** The modal is the only thing that tells a researcher what changed in an app that updated
+itself under them, so a release that ships without touching it ships silently.
+
+⚠ **AND THE WORDS HAVE TO STILL BE TRUE, which is the half that actually failed.** v538's section
+existed — written for v533's design, never revised when that design was replaced three versions
+later. Production told researchers about a "▶ Play" button that "stops the moment you close it"
+while the shipped feature was an inline Preview transport with nothing to close. A feature that
+changes during a release wave changes its release note too, in the same commit.
+
+`test/release-notes-current.test.mjs` enforces the mechanical half: on a PRODUCTION build
+(`BUILD_TAG === ''`) the newest `RELEASES` entry must name `ENGINE_VERSION`, list at least one
+item, and every item must exist in both languages — so a release whose notes were forgotten or
+left at an older number fails the build instead of reaching the field. It deliberately does NOT
+fire on feature builds, where the version churns several times a day and the noise would get muted.
+
+It cannot check that the sentences are accurate. That stays a human duty, and it is the reason this
+section exists as prose as well as a test:
+
+1. Write (or renumber) the `RELEASES` section for the version you are about to ship.
+2. **Re-read the items against what actually shipped** — especially anything redesigned mid-wave.
+3. Link any item that resolves a submitted GitHub issue (`issue: <n>`), forward-only.
+4. Then clear `BUILD_TAG`, run the suite, and push.
+
 ### Deploy a stable version to production
 Once the change is committed and tested on `main`:
 

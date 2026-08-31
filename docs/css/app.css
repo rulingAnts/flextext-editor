@@ -1493,9 +1493,16 @@ body.rp-standalone main { padding-top: 0; }
   font-size: 2rem; text-align: center;
 }
 .crowd-note { margin-top: 10px; }
-/* Turnstile host: invisible in managed mode; if a challenge ever shows it floats
-   bottom-center where an embedded iframe can still display it. */
-#crowd-turnstile { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 60; }
+/* Turnstile host: TUCKED by default (opacity 0, still running) — its check/success animation read
+   as "upload finished" and got tabs closed mid-send. The "Protected by Cloudflare" note in the
+   sending view reveals it on hover/tap, and a real interactive challenge force-reveals itself
+   (see crowdTurnstileReveal in app.js). Never display:none — the widget must keep executing. */
+#crowd-turnstile { position: fixed; bottom: 46px; left: 50%; transform: translateX(-50%);
+  z-index: 60; transition: opacity .2s; }
+#crowd-turnstile.tucked { opacity: 0; pointer-events: none; }
+/* The disclosure note itself: quiet, but present from the first frame of 'sending'. */
+.crowd-cf-note { display: block; margin: 2px auto 0; border: 0; background: none; cursor: pointer;
+  font-size: .78rem; color: var(--fg-soft, #8a8a8a); text-decoration: underline dotted; }
 /* Embedded (?embed=1): tighter chrome inside a ~480px iframe. */
 .crowd-embed #topbar { display: none; }
 .crowd-embed .record-screen { padding-top: 8px; }

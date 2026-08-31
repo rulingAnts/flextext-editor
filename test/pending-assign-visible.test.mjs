@@ -71,7 +71,9 @@ console.log('\nit renders as a real row, through the same renderer as every othe
      'both pending maps are filtered to THIS device before a ghost can be built from them');
   ok(/pc\.kind === 'assign' && !invIds\.has\(docId\)/.test(panel),
      'a ghost row is synthesized only while the text is absent from the inventory');
-  ok(/const listed = \[\.\.\.ghosts, \.\.\.\(inv \|\| \[\]\)\]/.test(panel),
+  // (?:.slice().sort(textOrder))? — v532's #15 sort orders the SETTLED rows; ghosts stay
+  // prepended, which is this pin's actual claim.
+  ok(/const listed = \[\.\.\.ghosts, \.\.\.\(inv \|\| \[\]\)(?:\.slice\(\)\.sort\(textOrder\))?\]/.test(panel),
      'ghosts are prepended to the real inventory and share its renderer');
   ok(/const rows = listed\.length \? listed\.map/.test(panel),
      'the renderer iterates the merged list, not the raw inventory');

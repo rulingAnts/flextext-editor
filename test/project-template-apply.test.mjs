@@ -74,6 +74,11 @@ console.log('\na declined offer keeps the delta, so the safe mode stays reachabl
   const skip = apply.slice(skipAt, apply.indexOf('\n  };', skipAt));
   ok(skipAt > 0 && /savePendingApply\(project\.folderId, changed\)/.test(skip),
      'declining stores the pending keys');
+  /* …but only a real field-level delta. On a FIRST template every key is "changed", and carrying
+   * all of them would make the next save's list name the whole form — a specific mode advertised
+   * with an unspecific list. */
+  ok(/if \(offerChanges && changed\.length\) await savePendingApply/.test(skip),
+     '...and only when there is a real field-level delta to carry, not a whole first template');
   ok(/const changed = \[\.\.\.new Set\(\[\.\.\.templateChangedKeys\(prevTpl, patch\), \.\.\.pending\]\)\]/.test(apply),
      'and every later save unions them into its own delta');
   ok(/const clean = !failed\.length && !cancelled;/.test(apply) && /if \(clean\) await savePendingApply\(project\.folderId, \[\]\)/.test(apply),

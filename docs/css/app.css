@@ -1378,8 +1378,9 @@ body.rp-standalone main { padding-top: 0; }
 .rp-multi { display: flex; flex-wrap: wrap; gap: 6px 16px; }
 .check-label.rp-inline { display: inline-flex; margin: 0; max-width: none; }
 .rp-enc { color: var(--muted); margin: 6px 0; }
-/* "+ New device", relocated under the project tabs (above the device cards). */
-.rp-newdev { margin: 2px 0 10px; }
+/* "+ New device", relocated under the project tabs (above the device cards) and right-aligned to
+ * the content column, under the tab strip's own "Rename" (Seth, 2026-08-31, with a screenshot). */
+.rp-newdev { display: flex; justify-content: flex-end; margin: 2px 0 10px; }
 /* Apply-template device checklist: capped + scrollable so a big project cannot push the modal's
  * buttons off screen. */
 .rp-apply-list { display: flex; flex-direction: column; gap: 4px; max-height: 38vh; overflow-y: auto;

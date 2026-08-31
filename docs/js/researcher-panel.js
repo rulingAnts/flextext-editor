@@ -1074,6 +1074,7 @@ function header(titleKey, withLock) {
 const WHATS_NEW = [
   'panel.rel.new.share',
   'panel.rel.new.memberApprove',
+  'panel.rel.new.projTemplates',
   'panel.rel.new.memberFiles',
   'panel.rel.new.projectLifecycle',
   'panel.rel.new.rename',
@@ -1089,7 +1090,6 @@ const KNOWN_ISSUES = [
   'panel.known.addColleague',
   'panel.known.crowdMembers',
   'panel.known.inviteOnce',
-  'panel.known.projectDefaults',
 ];
 
 /* The same rule the staging ribbon uses, deliberately duplicated rather than imported: the ribbon
@@ -1103,9 +1103,16 @@ function onStagingEstate() {
  *
  * ⚠ A TEMPLATE, NOT AN INHERITANCE. Nothing reads these at runtime and no device consults them: they
  * are COPIED onto a device once, when it is created, and pushed like any other settings change.
- * Editing them later changes what the NEXT device gets and touches no existing one — applying to
- * devices already out there is a separate, explicit act (Seth: "the user can also specifically choose
- * to apply defaults to all or one or more specifically selected existing devices").
+ * The copy site is openSettingsModal's prefill (v519): a device with NO settings yet seeds its form
+ * from the template of the project it lives in (the create flow passes the folder id straight in;
+ * the retry path — a card's Settings button after a failed first delivery — resolves it from the
+ * estate), and the PUSH stays the researcher's explicit act, so validation and the invite gate run
+ * exactly as for hand-typed values and nothing lands on a device behind anyone's back.
+ * Editing them later changes what the NEXT device gets and touches no existing one BY ITSELF —
+ * applying to devices already out there is a separate, explicit act (Seth: "the user can also
+ * specifically choose to apply defaults to all or one or more specifically selected existing
+ * devices"): applyTemplateModal, offered after every template save, whole-template or
+ * changed-fields-only, and declinable.
  * That is what keeps this out of the worker entirely. Live inheritance would need a second settings
  * layer the device merges at read time, and settings are ciphertext the worker does not read (⚠
  * corrected 2026-08-28: "cannot" overclaimed — the escrow chain reaches Ki; see worker
@@ -1124,10 +1131,26 @@ function onStagingEstate() {
  * what was agreed — making it grantable needs a project-scoped key, which does not exist yet
  * (plans/BACKLOG.md). */
 let projDefCache = null;
+/* Keys saved into the template but not yet pushed to every device — see applyTemplateModal. Same
+ * prefs blob, same round trip; a list of field keys per project, never any values. */
+let projPendCache = null;
 async function loadProjectDefaults() {
-  try { projDefCache = ((await Researcher.getPrefs()) || {}).projectDefaults || {}; }
-  catch { projDefCache = {}; }
+  try {
+    const p = (await Researcher.getPrefs()) || {};
+    projDefCache = p.projectDefaults || {};
+    projPendCache = p.projectDefaultsPending || {};
+  } catch { projDefCache = {}; projPendCache = {}; }
   return projDefCache;
+}
+function projectPending(folderId) {
+  const v = projPendCache && folderId && projPendCache[folderId];
+  return Array.isArray(v) ? v : [];
+}
+async function savePendingApply(folderId, keys) {
+  const next = { ...(projPendCache || {}) };
+  if (keys && keys.length) next[folderId] = keys; else delete next[folderId];
+  try { await Researcher.setPref('projectDefaultsPending', next); projPendCache = next; }
+  catch { /* best-effort bookkeeping: never turn a successful push into an error */ }
 }
 function projectDefaults(folderId) {
   return (projDefCache && folderId && projDefCache[folderId]) || null;
@@ -1815,7 +1838,6 @@ async function renderDashboard(prefetched) {
       <div class="rp-metric"><div class="rp-metric-l">${esc(t('panel.dash.texts'))}</div><div class="rp-metric-n">${texts}</div></div>
     </div>
     <div class="rp-actions">
-      <button class="primary-btn" data-act="new">${esc(t('panel.dash.newDevice'))}</button>
       <button class="secondary-btn" data-act="refresh">${esc(t('panel.dash.refresh'))}</button>
       <span class="rp-spacer"></span>
       ${data.isOwner ? `<button class="link-btn rp-admin-btn" data-act="admin">${esc(t('panel.admin.btn'))}</button>` : ''}
@@ -1852,10 +1874,16 @@ async function renderDashboard(prefetched) {
          flextext.app, and through any invite link the researcher makes (Seth). */''}
     ${renderProjectsCard(estateCache)}
     ${(() => {
+      /* "+ New device" lives HERE — right under the project tabs, above the device cards (Seth,
+       * 2026-08-31: "It makes more sense there") — not in the top actions bar. One definition for
+       * all three layouts: flat (no tabs — top of the device column), an owned tab, and a shared
+       * tab (where creating into the project is real; newDeviceModal handles both the
+       * manageDevices path and the no-cap fallback). wireActs binds [data-act] anywhere. */
+      const newDevBtn = `<div class="rp-newdev"><button class="primary-btn" data-act="new">${esc(t('panel.dash.newDevice'))}</button></div>`;
       /* ONE PROJECT AT A TIME once projects exist; the classic flat layout otherwise, byte for byte.
        * `scope` is null on a flat estate, which is the whole backward-compatibility story. */
       if (!scope) {
-        return `${renderUnassignedCard(estateCache)}
+        return `${newDevBtn}${renderUnassignedCard(estateCache)}
           ${/* ⚠ THE EMPTY DASHBOARD SPEAKS ONLY TO OWNERS, AND A COWORKER'S FIRST SCREEN IS THIS ONE
                (Seth, 2026-08-28: "we do need clear documentation for how to send your ID # to a
                project owner who wants to add you… it's not very intuitive").
@@ -1878,11 +1906,13 @@ async function renderDashboard(prefetched) {
        * what the owner shared, rendered from data.memberProjects and nothing else. */
       if (selMp) {
         return `${renderProjectSwitcher(scope)}
+          ${newDevBtn}
           ${memberTabContent}`;
       }
       const idx = new Map(insts.map((it, i) => [it.instance_id, i]));
       const mine = scope.insts.map((it) => cards[idx.get(it.instance_id)]).join('');
       return `${renderProjectSwitcher(scope)}
+        ${newDevBtn}
         ${scope.sel === STRAY_TAB ? '' : renderUnassignedCard(estateCache, scope.sel)}
         ${scope.insts.length ? mine : `<p class="note rp-empty">${esc(t('panel.proj.emptyProject'))}</p>`}
         ${scope.recs.length && Researcher.isApprovedSelf() ? renderCrowdCard(scope.recs, estateCache) : ''}`;
@@ -3654,9 +3684,11 @@ function newDeviceModal() {
     m.close(); renderDashboard();
     // A new device has no settings yet — open them straight away so it gets configured. Invite-link
     // creation stays blocked until the required fields are filled in, so this isn't skippable.
+    // projectFolderId seeds the form from the project's default settings (v519): the estate cache
+    // cannot know a device created seconds ago, so the folder rides along explicitly.
     deps.toast(t('panel.new.configure'), 5000);
     try {
-      await openSettingsModal({ kind: 'instance', instance: { instance_id: inst.instance_id, nickname: inst.nickname, installs: [] } });
+      await openSettingsModal({ kind: 'instance', instance: { instance_id: inst.instance_id, nickname: inst.nickname, installs: [] } }, { projectFolderId: intoProject });
     } catch (err) {
       deps.toast(t('panel.new.createdNotConfigured'), 9000);
     }
@@ -7641,7 +7673,11 @@ function readForm(box) {
  *   • the consent MESSAGE IF consent mode is Text (else the text consent screen is blank).
  * Everything else has a safe default/fallback. Returns [{ group, field, msg }] (empty = OK). */
 function validateDeviceSettings(raw, opts = {}) {
-  const { parseFolder, uploadIsUrl } = opts;
+  /* opts.templateMode drops ONLY the consent-audio URL rule, for the project template form: that
+   * URL is minted per device by the prompt upload, so a template can never hold one and the rule
+   * would make audio consent unreachable there. Everything a template CAN satisfy it still must —
+   * and the dropped rule is re-applied to each merged object before it is pushed to a device. */
+  const { parseFolder, uploadIsUrl, templateMode } = opts;
   const blank = (v) => !v || !String(v).trim();
   const out = [];
   if (blank(raw.vernLang)) out.push({ group: 'languages', field: 'vernLang', msg: t('panel.val.vernLang') });
@@ -7660,7 +7696,7 @@ function validateDeviceSettings(raw, opts = {}) {
     out.push({ group: 'sending', field: 'sendOptions', msg: t('panel.val.sendNone') });
   }
   const ask = Array.isArray(raw.consentAsk) ? raw.consentAsk : [];
-  if (ask.includes('audio') && blank(raw.consentAudioUrl)) out.push({ group: 'consent', field: 'consentAudioUrl', msg: t('panel.val.consentAudio') });
+  if (!templateMode && ask.includes('audio') && blank(raw.consentAudioUrl)) out.push({ group: 'consent', field: 'consentAudioUrl', msg: t('panel.val.consentAudio') });
   if (ask.includes('text') && blank(raw.consentMsg)) out.push({ group: 'consent', field: 'consentMsg', msg: t('panel.val.consentMsg') });
   return out;
 }
@@ -7768,15 +7804,83 @@ async function openSettingsModal(target, opts = {}) {
   source = (target.project && projectDefaults(target.project.folderId))
     || (target.instance && await Researcher.getInstanceSettings(target.instance.instance_id).catch(() => null))
     || (target.instance && firstInventorySettings(target.instance)) || {};
+  /* THE TEMPLATE'S COPY SITE (v519): a device with no settings at all seeds its form from the
+   * project's default settings — this is the "new devices are born with the template" half of the
+   * v505 feature, which until now only STORED templates. Never over real settings: the pushed
+   * snapshot and the device's own report both outrank it, so an already-configured device can
+   * never have its truth papered over by a template. The create flow hands the folder id straight
+   * in (opts.projectFolderId — the estate cannot know a device created seconds ago); the retry
+   * path (a card's Settings button after a failed first delivery) resolves it from the estate the
+   * same way projectScope does. Prefill only — the PUSH stays the researcher's explicit act. */
+  let seededFromTemplate = false;
+  let unreadable = false;
+  if (target.instance && !target.project && !Object.keys(source || {}).length) {
+    let folder = opts.projectFolderId || '';
+    if (!folder) {
+      const dev = ((estateCache && estateCache.devices) || []).find((d) =>
+        (d.instanceId && d.instanceId === target.instance.instance_id)
+        || (d.folderId && d.folderId === target.instance.oauth_folder_id));
+      folder = dev ? (dev.projectId || '') : '';
+    }
+    if (folder) {
+      /* ⚠ "HAS NO SETTINGS" AND "ITS SETTINGS COULD NOT BE READ" ARE DIFFERENT FACTS, and
+       * getInstanceSettings answers null to BOTH: its lane read swallows its own failures, and the
+       * snapshot fallback is empty for a device somebody ELSE configured. Seeding on the second
+       * one would hand the researcher a full, plausible, already-valid form over a member's real
+       * configuration — with a note telling them to push it, one click from replacing it. So the
+       * lane is re-read DIRECTLY here, where a failure throws instead of vanishing, and the
+       * template is seeded only on a positive "there is nothing there". A device created moments
+       * ago by the create flow (projectFolderId passed) skips the check: it has no lane to
+       * misread, and no round trip is worth spending to learn that. */
+      let empty = !!opts.projectFolderId;
+      if (!empty) {
+        try {
+          const lane = await Researcher.readSettingsLane(target.instance.instance_id);
+          if (lane && Object.keys(lane).length) source = lane;   // a blip hid it — show the truth
+          else empty = true;
+        } catch { unreadable = true; }
+      }
+      if (empty) {
+        await loadProjectDefaults();
+        const tpl = projectDefaults(folder);
+        if (tpl && Object.keys(tpl).length) { source = tpl; seededFromTemplate = true; }
+      }
+    }
+  }
   /* An all-blank form on a device someone ELSE created reads as "sharing is broken" (Seth,
    * 2026-08-27, three screenshots in a row) — when the truth is simply that nobody has configured
    * the device yet. Say so. Keyless seats never reach this modal (the act gate toasts first), so
-   * blank HERE always means unconfigured, and the note is always true when shown. */
-  if (target.instance && !target.project && !Object.keys(source).length) {
+   * blank HERE always means unconfigured, and the note is always true when shown.
+   * A template-seeded form gets the OTHER note: the fields are full but NOTHING IS ON THE DEVICE
+   * YET, and a full form that quietly needed pushing would read as configured when it is not.
+   * And when the read simply FAILED, say that instead of either — neither claim is knowable. */
+  const noteKey = unreadable ? 'panel.set.readFailed'
+    : (target.instance && !target.project && !Object.keys(source || {}).length) ? 'panel.set.unconfigured'
+    : seededFromTemplate ? 'panel.set.fromTemplate' : '';
+  if (noteKey) {
     const h = box.querySelector('h3');
-    if (h) h.insertAdjacentHTML('afterend', `<p class="note">${esc(t('panel.set.unconfigured'))}</p>`);
+    if (h) h.insertAdjacentHTML('afterend', `<p class="note">${esc(t(noteKey))}</p>`);
   }
   fillForm(box, toFormValues(source));
+  /* ⚠ THE CONSENT PROMPT IS PER-DEVICE, so in TEMPLATE mode its upload button had nothing to
+   * target and sat there dead — the upload streams the audio into one device's own Drive folder
+   * and mints a URL for that device, which is why its wiring below requires target.instance. A
+   * control that cannot act must say what to do instead of sitting there (the repo's rule), so in
+   * template mode it is replaced by the reason. The template still carries the consent MODE; the
+   * prompt itself is uploaded on each device, where the button works. */
+  if (target.project) {
+    const cu = box.querySelector('[data-gact="consentUpload"]');
+    if (cu) { cu.insertAdjacentHTML('afterend', `<p class="note">${esc(t('panel.set.promptPerDevice'))}</p>`); cu.remove(); }
+    const cf = box.querySelector('#rp-consent-file');
+    if (cf) cf.remove();
+  }
+  /* Template mode drops ONE validation rule — the audio-prompt URL — because that URL is minted
+   * per device (above) and can never exist in a template. Without this, ticking audio consent in a
+   * template failed validation naming a field the modal cannot fill: a loop with no exit. The rule
+   * still applies where it can be satisfied: on each device's own form, and on every merged object
+   * applyTemplateModal actually pushes, so a device whose prompt is missing is refused BY NAME
+   * rather than silently given a consent step with nothing to play. */
+  const vopts = { parseFolder: deps.parseDriveFolder, uploadIsUrl: true, templateMode: !!target.project };
   // Group help buttons → the matching in-panel help modal (stacks over settings,
   // same pattern as the WS utility's "?" button).
   box.querySelectorAll('[data-ghelp]').forEach((b) => b.addEventListener('click', () => {
@@ -7864,7 +7968,7 @@ async function openSettingsModal(target, opts = {}) {
   // If opened because validation already blocked the researcher (e.g. the invite gate), show
   // exactly what's missing right away rather than waiting for them to hit Save.
   if (opts.flagOnOpen) {
-    const probs = validateDeviceSettings(collectRaw(box), { parseFolder: deps.parseDriveFolder, uploadIsUrl: true });
+    const probs = validateDeviceSettings(collectRaw(box), vopts);
     if (probs.length) flagProblems(box, probs, showGroup);
   }
 
@@ -7879,18 +7983,26 @@ async function openSettingsModal(target, opts = {}) {
       return;
     }
     // Block save/push until minimal usable settings are present (offending fields flagged inline).
-    const problems = validateDeviceSettings(collectRaw(box), { parseFolder: deps.parseDriveFolder, uploadIsUrl: true });
+    const problems = validateDeviceSettings(collectRaw(box), vopts);
     if (problems.length) { flagProblems(box, problems, showGroup); return; }
     const patch = readForm(box);
     try {
       if (target.project) {
-        /* ⚠ STORED, NOT PUSHED. Saving a template must not touch a single existing device — the
-         * whole point of the split is that changing defaults is safe, and changing devices is a
-         * deliberate second act. The same validation runs first, though, because a template that
-         * cannot pass validateDeviceSettings would mint devices that fail the invite gate later,
-         * and the owner would meet that error at a moment with no obvious connection to here. */
+        /* ⚠ STORED FIRST, PUSHED ONLY BY CHOICE. Saving a template must not touch a single
+         * existing device by itself — changing defaults is safe, and changing devices is a
+         * deliberate second act. That second act is the chooser that opens NEXT (v519,
+         * applyTemplateModal): tick one, several or all of the project's devices and push either
+         * the whole template or only the fields this save changed — or decline, and the save
+         * stays exactly the save it always was. The same validation runs first, though, because a
+         * template that cannot pass validateDeviceSettings would mint devices that fail the
+         * invite gate later, and the owner would meet that error at a moment with no obvious
+         * connection to here. */
+        const prevTpl = projectDefaults(target.project.folderId);
         await saveProjectDefaults(target.project.folderId, patch);
-        m.close(); deps.toast(t('panel.set.projSaved'), 4000);
+        m.close();
+        const targets = projectInstanceList(target.project.folderId);
+        if (!targets.length) { deps.toast(t('panel.set.projSaved'), 4000); return; }
+        applyTemplateModal(target.project, patch, prevTpl, targets);
       } else {
         /* Rename FIRST, and only when actually changed — a rename bumps desired_rev, and doing it
          * needlessly would wake every install's poll for nothing. A failed rename aborts before the
@@ -7916,6 +8028,158 @@ async function openSettingsModal(target, opts = {}) {
     } catch (err) { errToast(err); }
   });
 
+}
+
+/* ---------------- apply the template to existing devices (v519) ----------------
+ * The "deliberate second act" the template comment promises, offered right after every template
+ * save — the one moment the researcher is already thinking about these exact values — and never
+ * fired by the save itself. Three outcomes, all explicit: push to the ticked devices (one,
+ * several, or all of them), or decline and the save stays a save. Escape/backdrop = decline; the
+ * template is already stored, so closing this loses nothing.
+ *
+ * Two modes when this save CHANGED an existing template. "Only what changed" updates just those
+ * fields on each ticked device and leaves the rest of its settings alone — the bulk-change tool
+ * (Seth: "for example a new consent prompt. There's really not a very good reason that should
+ * apply to only one device") that cannot clobber per-device differences. "The whole template" is
+ * the full overwrite, described in exactly those words. A first-ever save has no "changed" subset,
+ * so only the overwrite is offered, with its warning standing alone. */
+
+function projectInstanceList(folderId) {
+  /* Same instance→project resolution as projectScope (the worker's own instanceId stamp first,
+   * the folder lookup as the fallback) — one derivation of the relationship, not a third. */
+  const devs = ((estateCache && estateCache.devices) || []);
+  const byInstance = new Map(devs.filter((d) => d.instanceId).map((d) => [d.instanceId, d.projectId || '']));
+  const byFolder = new Map(devs.map((d) => [d.folderId, d.projectId || '']));
+  return ((lastData && lastData.instances) || []).filter((it) =>
+    (byInstance.has(it.instance_id) ? byInstance.get(it.instance_id) : (byFolder.get(it.oauth_folder_id) || '')) === folderId);
+}
+
+function templateChangedKeys(prevTpl, patch) {
+  // Raw PATCH keys (including derived ones like autoDelUploaded/consentAudio) — this list drives
+  // the merge, so it must match what changeSettings actually ships, not what the form displays.
+  const a = prevTpl || {}, b = patch || {};
+  return [...new Set([...Object.keys(a), ...Object.keys(b)])]
+    .filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
+}
+
+/* Display names for the changed-fields outline. Derived patch keys map back to the form field
+ * whose label the researcher actually saw; keys with no form field (e.g. consentAudio, the
+ * resolved twin of consentAudioUrl) fold into it rather than surfacing internals. */
+const APPLY_DISPLAY_KEY = { autoDelUploaded: 'autoDel', toolbarButtons: 'buttons', consentAudio: 'consentAudioUrl' };
+function changedFieldLabels(rawKeys) {
+  const known = new Set();
+  for (const g of GROUPS) for (const f of groupFields(g)) if (f.type !== 'action') known.add(f.k);
+  const ks = [];
+  for (const k of rawKeys) {
+    const d = APPLY_DISPLAY_KEY[k] || k;
+    if (known.has(d) && !ks.includes(d)) ks.push(d);
+  }
+  return ks.map((k) => t('panel.f.' + k));
+}
+
+function applyTemplateModal(project, patch, prevTpl, targets) {
+  /* ⚠ THE DELTA SURVIVES A DECLINE. "Not now" promises the researcher they lose nothing, and
+   * without this it quietly cost them the SAFE push: re-saving an unchanged template yields no
+   * changed keys, so the only remaining offer is the full overwrite — the one thing the
+   * changed-only mode exists to avoid. Pending keys are unioned into every later save's delta and
+   * cleared only when they have actually landed on every ticked device. */
+  const pending = projectPending(project.folderId);
+  const changed = [...new Set([...templateChangedKeys(prevTpl, patch), ...pending])];
+  const offerChanges = !!(prevTpl && Object.keys(prevTpl).length) && changed.length > 0;
+  const labels = offerChanges ? changedFieldLabels(changed) : [];
+  let pushing = false, cancelled = false;
+  const m = modal(`
+    <h3>${esc(t('panel.apply.title', { name: project.name || '' }))}</h3>
+    <p class="note">${esc(t('panel.apply.savedNote'))}</p>
+    ${offerChanges ? `<p class="note">${esc(t('panel.apply.changedList', { n: labels.length, fields: labels.join(', ') }))}</p>
+      <label class="check-label"><input type="radio" name="rp-apply-mode" value="changes" checked> ${esc(t('panel.apply.modeChanges'))}</label>
+      <label class="check-label"><input type="radio" name="rp-apply-mode" value="all"> ${esc(t('panel.apply.modeAll'))}</label>`
+    : `<p class="note">${esc(t('panel.apply.modeAllOnly'))}</p>`}
+    <div class="rp-field"><span>${esc(t('panel.apply.devices'))}</span>
+      <label class="check-label"><input type="checkbox" id="rp-apply-all"> ${esc(t('panel.apply.selectAll', { n: targets.length }))}</label>
+      <div class="rp-apply-list">${targets.map((it) => `<label class="check-label"><input type="checkbox" class="rp-apply-dev" value="${esc(it.instance_id)}"> ${esc(it.nickname || it.instance_id.slice(0, 8))}</label>`).join('')}</div></div>
+    <button class="primary-btn" data-m="apply">${esc(t('panel.apply.push'))}</button>
+    <button class="link-btn" data-m="skip">${esc(t('panel.apply.skip'))}</button>`,
+    false,
+    /* ⚠ CLOSING MID-PUSH MUST ACTUALLY STOP IT. Escape and the backdrop stay live while the loop
+     * runs (busy() disables only the button it was given), so without this the modal vanished —
+     * reading as "cancelled" — while every remaining device kept being written, and mode "all"
+     * replaces a device's ENTIRE settings. The flag is checked before each device, so a close
+     * aborts before the next one and the toast says how far it actually got. */
+    () => { if (pushing) cancelled = true; });
+  const master = m.el.querySelector('#rp-apply-all');
+  master.addEventListener('change', () => m.el.querySelectorAll('.rp-apply-dev').forEach((c) => { c.checked = master.checked; }));
+  m.el.querySelector('.rp-apply-list').addEventListener('change', () => {
+    master.checked = [...m.el.querySelectorAll('.rp-apply-dev')].every((c) => c.checked);
+  });
+  m.el.querySelector('[data-m="skip"]').onclick = async () => {
+    // Mid-push this is a STOP, not a decline: onClose flags the loop, whose own toast reports how
+    // far it got. A second toast here would contradict it.
+    if (pushing) { m.close(); return; }
+    m.close();
+    if (changed.length) await savePendingApply(project.folderId, changed);
+    deps.toast(t('panel.set.projSaved'), 4000);
+  };
+  m.el.querySelector('[data-m="apply"]').onclick = (e) => busy(e.target, async () => {
+    const sel = [...m.el.querySelectorAll('.rp-apply-dev:checked')].map((c) => c.value);
+    /* Never a silently disabled button: with nothing ticked the button SAYS what to tick. */
+    if (!sel.length) { deps.toast(t('panel.apply.pickOne'), 5000); return; }
+    const mode = offerChanges
+      ? ((m.el.querySelector('input[name="rp-apply-mode"]:checked') || {}).value || 'changes') : 'all';
+    const byId = new Map(targets.map((it) => [it.instance_id, it]));
+    let ok = 0; const failed = [];
+    pushing = true;
+    for (let i = 0; i < sel.length; i++) {
+      if (cancelled) break;                       // the modal was closed — stop before the next device
+      const iid = sel[i]; const inst = byId.get(iid);
+      e.target.textContent = t('panel.apply.pushing', { i: i + 1, n: sel.length });   // busy() restores the label
+      try {
+        let toPush = patch;
+        if (mode === 'changes') {
+          /* Merge base = what the device actually obeys (getInstanceSettings is lane-first), so
+           * "only what changed" can never resurrect a stale snapshot underneath the new fields.
+           * A key ABSENT from the new patch is deleted, so clearing a template field clears it on
+           * the device too. A device with NO settings at all gets the whole template — it would
+           * have been born with it (the prefill above). */
+          const base = (await Researcher.getInstanceSettings(iid).catch(() => null)) || firstInventorySettings(inst);
+          if (base && Object.keys(base).length) {
+            toPush = { ...base };
+            for (const k of changed) { if (k in patch) toPush[k] = patch[k]; else delete toPush[k]; }
+            /* ⚠ appLang IS A ONE-SHOT COMMAND, NOT A SETTING — and the base is the last thing
+             * PUSHED, which still carries it. Re-sending it re-runs applyDeviceLang on the device
+             * whenever the key is merely PRESENT, so a field worker who set their own language
+             * back would have it flipped again by an unrelated consent edit. readForm deletes it
+             * at 'follow' for exactly this reason; the merge has to honour the same rule. Only a
+             * deliberate language change in THIS save (in `changed` AND in the template) survives. */
+            if (!(changed.includes('appLang') && ('appLang' in patch))) delete toPush.appLang;
+          }
+        }
+        /* ⚠ VALIDATE WHAT IS ACTUALLY BEING SENT, per device. Every other push path validates; this
+         * one must too, and the merged object is a combination neither form ever showed: the
+         * template can tick text consent while THIS device holds a blank message, and the pair
+         * rule that exists to stop a blank consent screen would be split across the two. A device
+         * that fails is left exactly as it was and named with the reason. */
+        const probs = validateDeviceSettings(settingsToRaw(toPush), { parseFolder: deps.parseDriveFolder, uploadIsUrl: true });
+        if (probs.length) throw new Error(probs[0].msg);
+        await Researcher.changeSettings(iid, toPush);
+        ok++;
+      } catch (err) {
+        failed.push(`${(inst && inst.nickname) || iid.slice(0, 8)} (${(err && err.message) || '?'})`);
+      }
+    }
+    pushing = false;
+    /* The delta is only spent when it reached EVERY ticked device: a partial or stopped run keeps
+     * it pending so the next save can still offer the safe mode. */
+    const clean = !failed.length && !cancelled;
+    if (clean) await savePendingApply(project.folderId, []);
+    else if (changed.length) await savePendingApply(project.folderId, changed);
+    m.close();
+    /* Per-device failures leave that device exactly as it was — named, with the retry pointed at
+     * (its own Settings), never folded into a success count. */
+    if (failed.length) deps.toast(t('panel.apply.partial', { n: ok, names: failed.join('; ') }), 12000);
+    else if (cancelled) deps.toast(t('panel.apply.stopped', { n: ok }), 8000);
+    else deps.toast(t('panel.apply.done', { n: ok }), 6000);
+  });
 }
 
 // Pull a device's last-reported settings snapshot (if any) to prefill its editor.

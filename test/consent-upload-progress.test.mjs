@@ -72,10 +72,29 @@ console.log('\nSave refuses clearly instead of reporting a failure');
 console.log('\n...and the requirement itself is untouched — relaxing it would be the worse bug');
 {
   /* If consent asks for audio and no audio is configured, the device shows a consent prompt with
-   * nothing to play. That has to keep failing validation. */
-  ok(/if \(ask\.includes\('audio'\) && blank\(raw\.consentAudioUrl\)\) out\.push\(\{ group: 'consent', field: 'consentAudioUrl'/.test(panel),
-     'consent-audio is still a required field when consent asks for audio');
+   * nothing to play. That has to keep failing validation.
+   *
+   * ⚠ ONE carve-out exists and it is checked here rather than trusted: the PROJECT TEMPLATE form
+   * (templateMode) drops this rule, because the prompt URL is minted per device by the upload and
+   * a template can never hold one — with the rule in place, ticking audio consent in a template
+   * was a dead end naming a field that form cannot fill. What makes that safe is that no DEVICE
+   * ever escapes the rule: the template form cannot push, and every object applyTemplateModal
+   * sends is validated WITHOUT templateMode first. Both halves are asserted below, so relaxing it
+   * any further — or dropping the per-push check — fails here. */
+  ok(/if \(!templateMode && ask\.includes\('audio'\) && blank\(raw\.consentAudioUrl\)\) out\.push\(\{ group: 'consent', field: 'consentAudioUrl'/.test(panel),
+     'consent-audio is still required when consent asks for audio (except the template form)');
   ok(/'panel\.val\.consentAudio'/.test(panel), 'and still has its own validation message');
+  ok(/templateMode: !!target\.project/.test(panel),
+     'templateMode is true ONLY for the project template form, never for a device');
+  const applyAt = panel.indexOf('function applyTemplateModal');
+  ok(applyAt > 0, 'the apply-to-devices flow is findable');
+  const applyBody = panel.slice(applyAt);
+  const validateAt = applyBody.indexOf('validateDeviceSettings(settingsToRaw(toPush)');
+  const pushAt = applyBody.indexOf('Researcher.changeSettings(iid, toPush)');
+  ok(validateAt > 0 && pushAt > validateAt,
+     'every merged object is validated BEFORE it is pushed to a device');
+  ok(!/validateDeviceSettings\(settingsToRaw\(toPush\)[^)]*templateMode/.test(applyBody),
+     '...and that per-device validation does NOT pass templateMode, so the audio rule applies there');
 }
 
 console.log('\nthe wording says "not finished", not "failed"');

@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v524';
+export const ENGINE_VERSION = 'v526';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -172,6 +172,7 @@ en: {
   'consent.next': 'Continue',
   'consent.chooseYesNo': 'Please answer Yes or No first.',
   'consent.loadingAudio': 'Loading the spoken reminder…',
+  'consent.gateFailed': 'Something went wrong opening the consent step, so recording did not start. Please reload the page and try again — and tell your researcher if it keeps happening.',
   'consent.audioFailed': 'Could not load the spoken reminder. You can still continue.',
   'texts.open': 'Open .flextext file…',
   'texts.newPair': 'Open text + recording together…',
@@ -1200,7 +1201,6 @@ internet after the first time.</p>
   'panel.up.assigningWhy': 'waiting for the device to come online and pick it up',
   'panel.up.assignTaken': 'device is fetching\u2026',
   'panel.up.assignTakenWhy': 'the device has the assignment and is downloading the files',
-  'panel.up.justUploaded': 'uploaded just now ✓',
   'panel.new.title': 'New device',
   'panel.new.type': 'Type',
   'panel.new.editor': 'Editor (transcribe + gloss)',
@@ -1483,7 +1483,6 @@ internet after the first time.</p>
   'panel.rel.new.dialogs': 'Confirmation questions are now proper in-app dialogs instead of browser pop-ups.',
   'panel.known.addColleague': 'Adding another researcher is a clumsy manual exchange: they have to find their researcher ID and send it to you. A one-time invite link you can share instead is planned.',
   'panel.known.crowdMembers': 'Crowd recorders are invisible to added researchers — only the project owner sees them.',
-  'panel.known.crowdNewProject': 'A newly created project has no “Crowd recorders” area, so a crowd recorder cannot be added to one yet. Only projects that already have a crowd recorder show it. Being fixed next.',
   'panel.known.inviteOnce': 'A device invite link is shown once and cannot be displayed again. If it is lost, make a new one; the old link stays valid.',
   /* ⚠ The coworker list no longer shows a name, email or avatar — the worker stopped sending them
    * (v503). A nickname the OWNER types is what names a coworker now, and it never leaves this
@@ -2228,6 +2227,7 @@ id: {
   'consent.next': 'Lanjutkan',
   'consent.chooseYesNo': 'Silakan jawab Ya atau Tidak dulu.',
   'consent.loadingAudio': 'Memuat pengingat lisan…',
+  'consent.gateFailed': 'Terjadi masalah saat membuka langkah persetujuan, jadi perekaman tidak dimulai. Silakan muat ulang halaman dan coba lagi — dan beri tahu peneliti Anda jika terus terjadi.',
   'consent.audioFailed': 'Tidak bisa memuat pengingat lisan. Anda tetap bisa melanjutkan.',
   'texts.open': 'Buka file .flextext…',
   'texts.newPair': 'Buka teks + rekaman sekaligus…',
@@ -3145,7 +3145,6 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.up.assigningWhy': 'menunggu perangkat terhubung dan mengambilnya',
   'panel.up.assignTaken': 'perangkat sedang mengambil\u2026',
   'panel.up.assignTakenWhy': 'perangkat sudah menerima penugasan dan sedang mengunduh berkasnya',
-  'panel.up.justUploaded': 'baru terunggah ✓',
   'panel.new.title': 'Perangkat baru',
   'panel.new.type': 'Jenis',
   'panel.new.editor': 'Editor (transkripsi + terjemahan)',
@@ -3384,7 +3383,6 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.rel.new.dialogs': 'Pertanyaan konfirmasi kini berupa dialog dalam aplikasi, bukan jendela sembul peramban.',
   'panel.known.addColleague': 'Menambahkan peneliti lain masih merepotkan: mereka harus mencari ID peneliti mereka dan mengirimkannya kepada Anda. Tautan undangan sekali pakai sedang direncanakan.',
   'panel.known.crowdMembers': 'Perekam massal tidak terlihat oleh peneliti yang ditambahkan — hanya pemilik proyek yang melihatnya.',
-  'panel.known.crowdNewProject': 'Proyek yang baru dibuat tidak memiliki area “Perekam massal”, sehingga perekam massal belum dapat ditambahkan ke sana. Hanya proyek yang sudah punya perekam massal yang menampilkannya. Sedang diperbaiki berikutnya.',
   'panel.known.inviteOnce': 'Tautan undangan perangkat hanya ditampilkan sekali dan tidak dapat ditampilkan ulang. Jika hilang, buat yang baru; tautan lama tetap berlaku.',
   'panel.share.nickLabel': 'Nama untuk mereka (hanya Anda yang melihatnya)',
   'panel.share.nickPh': 'mis. Yani — tim Kulumi',

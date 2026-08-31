@@ -94,17 +94,65 @@ test('preview player contract', () => {
     ok((i18n.match(/'panel\.prev\.tip':/g) || []).length === 2, '...in both languages');
   }
 
-  console.log('\npanel: the pre-cache can never cost the page');
+  /* ⚠ WARMING IS BOUNDED ON PURPOSE. Seth asked whether the panel should pre-cache every text's
+   * preview after load; the answer built here is "a bounded head of the list, plus hover" — three
+   * requests per text and whole-file serves for m4a/flac make "all" a bandwidth bill paid by a
+   * researcher who may be on the same field connection as the device, for audio nobody asked to
+   * hear. These pins are what stop that decision drifting back. */
+  console.log('\npanel: warming is bounded, idle, and cheap-formats-only');
   {
     const sweep = (panel.match(/function sweepCrowdPreviews[\s\S]*?\n\}/) || [''])[0];
     ok(/saveData/.test(sweep) && /2g/.test(sweep), 'data-saver and 2G connections are skipped');
     ok(/requestIdleCallback/.test(sweep), 'it waits for idle time');
-    ok(/prevMintDead = true; break/.test(sweep),
-       'an old worker DISABLES the sweep — full originals are never pre-fetched');
     ok(/prevCache\.delete\(k\)/.test(sweep), 'a deleted text drops its cached audio (Seth’s rule)');
-    ok(/\.slice\(0, 12\)/.test(sweep), 'bounded per sweep');
+    ok(/PREV_WARM_FILES = 24;/.test(panel) && /PREV_WARM_BYTES = 12 \* 1024 \* 1024;/.test(panel),
+       'TWO budgets — a file count and a byte ceiling');
+    ok(/budget\.bytes >= PREV_WARM_BYTES\) break/.test(sweep),
+       '...and the byte ceiling actually stops the sweep (one big file cannot blow a count-only budget)');
+    ok(/function prevWorthWarming/.test(panel) && /3 \* 1024 \* 1024/.test(panel),
+       'whole-file formats (m4a/flac) are warmed only when genuinely small');
+    const warm = (panel.match(/async function warmPreview[\s\S]*?\n\}/) || [''])[0];
+    ok(/prevMintDead = true; return;/.test(warm),
+       'an old worker DISABLES warming — full originals are never pre-fetched');
+    ok(/previewableDocIds/.test(sweep) && /estate\.texts/.test(panel),
+       'it covers every previewable text — devices, Unassigned and crowd alike');
     ok((panel.match(/sweepCrowdPreviews\(crowdCache, estateCache\)/g) || []).length >= 1,
        'and it actually runs after dashboard renders');
+  }
+
+  /* ⚠ THE BUTTON DISAPPEARS WHERE THERE IS NOTHING TO PLAY (Seth: "we are frequently seeing 'no
+   * audio' toasts"). And specifically NOT via the device's `hasAudio` flag — that is LOCAL audio,
+   * which autoDelUploaded removes once the file is safely in Drive, so gating on it would hide
+   * previews for exactly the uploaded recordings a researcher most wants to hear. */
+  console.log('\npanel: no Preview button where a Drive listing found no audio');
+  {
+    const btn = (panel.match(/function previewBtnHtml[\s\S]*?\n\}/) || [''])[0];
+    ok(/const seen = prevCache\.get\(docId\);\s*\n\s*if \(seen && !seen\.blob\) return '';/.test(btn),
+       'a cache entry with no blob (listing found no audio) renders no button');
+    ok(!/hasAudio/.test(btn.replace(/⚠ AND NOT[\s\S]*?cache holds\. \*\//, '')),
+       '...and the device hasAudio flag is NOT used to hide (autoDelUploaded makes it lie)');
+    ok(/prevCache\.set\(docId, \{\}\)/.test(panel),
+       'the sweep records audio-less texts, so their buttons vanish without anyone clicking');
+  }
+
+  console.log('\npanel: hover is what makes the REST of the list instant');
+  {
+    ok(/addEventListener\('pointerenter', warm, \{ once: true \}\)/.test(panel),
+       'hovering a Preview button warms that one file, once');
+    ok(/addEventListener\('focus', warm, \{ once: true \}\)/.test(panel),
+       '...and keyboard focus does the same, so it is not a pointer-only courtesy');
+    ok(/warmPreview\(b\.dataset\.i, b\.dataset\.id, null\)/.test(panel),
+       'a deliberate hover ignores the sweep budget — one file is worth it where a hundred is not');
+  }
+
+  console.log('\npanel: a repaint mid-preview re-adopts rather than cutting the sound');
+  {
+    const det = (panel.match(/function stopPreviewIfDetached[\s\S]*?\n\}/) || [''])[0];
+    ok(/querySelector\(`\[data-prev\]\[data-id="\$\{CSS\.escape\(want\)\}"\]`\)/.test(det),
+       'the replacement button for the same text is adopted');
+    ok(/previewSetState\(heir, 'playing'\)/.test(det), '...keeping the ⏸ where the researcher left it');
+    ok(/stopPreview\(\);\n\}/.test(det),
+       '...and playback still stops when the row is genuinely gone (no sound without a control)');
   }
 
   console.log('\nclient plumbing: refusals fall back, they do not error');

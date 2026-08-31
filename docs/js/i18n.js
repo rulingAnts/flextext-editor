@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v541';
+export const ENGINE_VERSION = 'v542';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v541';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'dialogs+inflight v1';
+export const BUILD_TAG = 'night-fixes v1';
 
 const S = {
 en: {
@@ -1498,6 +1498,7 @@ internet after the first time.</p>
   'panel.rel.new.previewNoAudio': 'Panel: texts with no recording no longer show a Preview button, instead of telling you so after you click it.',
   'panel.rel.new.editorDialogs': 'Editor: the last of the browser’s own pop-up boxes are gone — every “are you sure?” is now asked inside the app, in your language, with buttons big enough for a phone.',
   'panel.rel.new.unassignedInFlight': 'Panel: an unassigned text sent to a device in another project now stays listed under the project it came from, marked “on its way…”, instead of disappearing from that list until the device picks it up.',
+  'panel.rel.new.deviceCountRevoked': 'Panel: a project whose devices have all been revoked now shows zero devices instead of still counting their leftover Drive folders.',
   'panel.rel.new.crowdSpeakerName': 'Crowd recorder: when consent asks for a typed name, that name now leads the recording’s title alongside the local time.',
   'panel.rel.new.memberApprove': 'A researcher with “manage devices” can now approve and key a new device themselves — pairing no longer waits for the project owner, whoever created the invite.',
   'panel.rel.new.activityTray': 'Uploads to a device now appear in the same “In progress” box as downloads, with an arrow showing which way the files are going — and the box can be collapsed out of the way and reopened.',
@@ -3420,6 +3421,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.rel.new.previewNoAudio': 'Panel: teks tanpa rekaman tidak lagi menampilkan tombol Pratinjau, alih-alih memberi tahu Anda setelah diklik.',
   'panel.rel.new.editorDialogs': 'Editor: kotak pop-up bawaan peramban yang terakhir sudah hilang — setiap pertanyaan “yakin?” kini ditanyakan di dalam aplikasi, dalam bahasa Anda, dengan tombol yang cukup besar untuk ponsel.',
   'panel.rel.new.unassignedInFlight': 'Panel: teks tak tertugas yang dikirim ke perangkat di proyek lain kini tetap tercantum di proyek asalnya dengan tanda “sedang menuju…”, bukan menghilang dari daftar itu sampai perangkat mengambilnya.',
+  'panel.rel.new.deviceCountRevoked': 'Panel: proyek yang semua perangkatnya sudah dicabut kini menampilkan nol perangkat, bukan tetap menghitung folder Drive yang tertinggal.',
   'panel.rel.new.crowdSpeakerName': 'Perekam publik: jika persetujuan meminta nama yang diketik, nama itu kini memimpin judul rekaman bersama waktu lokal.',
   'panel.rel.new.memberApprove': 'Peneliti dengan “mengelola perangkat” kini dapat menyetujui dan memberi kunci perangkat baru sendiri — penyandingan tidak lagi menunggu pemilik proyek, siapa pun yang membuat undangannya.',
   'panel.rel.new.activityTray': 'Unggahan ke perangkat kini muncul di kotak “Sedang berjalan” yang sama dengan unduhan, dengan panah yang menunjukkan arah berkasnya — dan kotak itu dapat dilipat lalu dibuka kembali.',

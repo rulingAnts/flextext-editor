@@ -567,6 +567,24 @@ test('projects UI', async () => {
        'the move modal no longer uses the stacked field layout for destinations');
   }
 
+  /* ⚠ THE CROWD CARD MUST NOT BE GATED ON ALREADY HAVING ONE (Seth, 2026-08-31: "new projects I
+   * create do not have a crowd-recorder area… Looks like I can't add a crowd recorder to a new
+   * project I create"). It was rendered only when scope.recs.length was truthy, so the ONLY way to
+   * get the area — and the "+ New crowd recorder" button inside it — was to already have a
+   * recorder in that project. The feature was therefore unreachable on every project created after
+   * the first, and on a new researcher's default project. */
+  console.log('\nan owned project always offers the crowd-recorder area, empty or not');
+  {
+    ok(/\$\{\(scope\.selProject \|\| scope\.recs\.length\) && Researcher\.isApprovedSelf\(\)/.test(panel),
+       'the card renders for any owned project, not only one that already has a recorder');
+    ok(!/\$\{scope\.recs\.length && Researcher\.isApprovedSelf\(\)/.test(panel),
+       '...and the old already-have-one gate is gone');
+    const card = fn('function renderCrowdCard');
+    ok(/else if \(!recs\.length\)/.test(card) && /panel\.crowd\.empty/.test(card),
+       'the card carries its own empty state, so an empty project renders sensibly');
+    ok(/data-cact="new"/.test(card), '...and the add button, which is the whole point of showing it');
+  }
+
   console.log(fail ? `\nFAILED (${fail})\n` : '\nall passed\n');
   if (fail) process.exit(1);
 });

@@ -1090,7 +1090,6 @@ const WHATS_NEW = [
 const KNOWN_ISSUES = [
   'panel.known.addColleague',
   'panel.known.crowdMembers',
-  'panel.known.crowdNewProject',
   'panel.known.inviteOnce',
 ];
 
@@ -1914,7 +1913,18 @@ async function renderDashboard(prefetched) {
       return `${renderProjectSwitcher(scope)}
         ${scope.sel === STRAY_TAB ? '' : renderUnassignedCard(estateCache, scope.sel)}
         ${scope.insts.length ? mine : `<p class="note rp-empty">${esc(t('panel.proj.emptyProject'))}</p>`}
-        ${scope.recs.length && Researcher.isApprovedSelf() ? renderCrowdCard(scope.recs, estateCache) : ''}`;
+        ${/* ⚠ AN OWNED PROJECT ALWAYS GETS THE CROWD CARD, EMPTY OR NOT (Seth, 2026-08-31: "new
+             projects I create do not have a crowd-recorder area… Looks like I can't add a crowd
+             recorder to a new project I create"). The card was gated on scope.recs.length, i.e.
+             on the project ALREADY having a recorder — so the only way to get the area was to
+             already have one, which made the feature unreachable on every project made after the
+             first, and on a new researcher's default project. renderCrowdCard has carried an
+             empty state and its own "+ New crowd recorder" button all along; nothing but this
+             condition was missing.
+             The STRAY tab stays conditional: it is "not in a project yet", and an empty card
+             there would invite creating a recorder that belongs to nothing. selProject is
+             non-null only for a real owned project (projectScope), which is exactly the line. */''}
+        ${(scope.selProject || scope.recs.length) && Researcher.isApprovedSelf() ? renderCrowdCard(scope.recs, estateCache) : ''}`;
     })()}`;
 
   wireActs({
@@ -3221,10 +3231,18 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
         if (d.__assigning) disp = queued ? 'assigning' : 'assignTaken';
         // SECURITY: disp must stay within this fixed literal set — it lands in a class attribute in this
         // privileged panel; never let an attacker-controlled report value reach it (see note above).
-        const DISP = ['local', 'uploaded', 'changed', 'requested', 'slow', 'justUploaded', 'assigning', 'assignTaken'].includes(disp) ? disp : 'local';
+        /* ⚠ 'justUploaded' IS GONE FROM THIS LIST (2026-08-31 audit) — it was UNREACHABLE, not
+         * merely unused: `us` above collapses every reported value to local/uploaded/changed, and
+         * the only overrides are requested/slow/assigning/assignTaken, so `disp` could never hold
+         * it. Its chip, its label and its two translations were all dead weight inviting someone
+         * to "fix" a state that never occurs. Narrowing an allowlist is also strictly safer, which
+         * is the note below. If a just-uploaded confirmation is ever wanted, it needs a real
+         * writer first — the string is not the missing half. */
+        // SECURITY: disp must stay within this fixed literal set — see the note above.
+        const DISP = ['local', 'uploaded', 'changed', 'requested', 'slow', 'assigning', 'assignTaken'].includes(disp) ? disp : 'local';
         // Action label by state — Upload (never sent) / Upload changes (edited since) / Re-upload (re-send).
         const label = { changed: 'panel.inst.uploadChanges', uploaded: 'panel.inst.reupload',
-                        justUploaded: 'panel.inst.reupload', slow: 'panel.inst.resend' }[DISP] || 'panel.inst.upload';
+                        slow: 'panel.inst.resend' }[DISP] || 'panel.inst.upload';
         // A queued request TOGGLES: click again to withdraw it. Once taken, the button goes inert
         // and says so, rather than pretending an option exists that cannot be honoured.
         /* ⚠ ONE PENDING COMMAND PER TEXT (Seth, 2026-08-18: "I had both remove AND upload

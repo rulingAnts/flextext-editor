@@ -6915,8 +6915,24 @@ async function crowdFetchAsset(url) {
 let turnstileLoad = null;
 function crowdTurnstileHost() {
   let el = document.getElementById('crowd-turnstile');
-  if (!el) { el = document.createElement('div'); el.id = 'crowd-turnstile'; document.body.appendChild(el); }
+  if (!el) { el = document.createElement('div'); el.id = 'crowd-turnstile'; el.className = 'tucked'; document.body.appendChild(el); }
   return el;
+}
+/* TUCKED, NOT ABSENT (Seth, 2026-08-31). The widget runs at full function but sits at opacity 0:
+ * its Verifying/Success animation read as "upload finished" to exactly the visitor this page
+ * serves, who then closed the tab mid-upload. The "Protected by Cloudflare" note in the sending
+ * view is the disclosure — hover/tap reveals the live widget. ⚠ A REAL interactive challenge
+ * force-reveals itself ('before-interactive-callback') and can never be re-tucked while it is
+ * waiting — an invisible challenge would strand the visitor with an upload that never starts. */
+function crowdTurnstileReveal(force) {
+  const host = crowdTurnstileHost();
+  host.classList.remove('tucked');
+  if (force) host.dataset.forced = '1';
+}
+function crowdTurnstileTuck() {
+  const host = crowdTurnstileHost();
+  if (host.dataset.forced) return;   // an interactive challenge is showing — never hide it
+  host.classList.add('tucked');
 }
 function crowdLoadTurnstile() {
   if (!turnstileLoad) {
@@ -6935,21 +6951,21 @@ async function crowdTurnstileToken() {
   await crowdLoadTurnstile();
   const host = crowdTurnstileHost();
   host.innerHTML = '';   // fresh widget per token: reset() would reuse a stale callback
+  delete host.dataset.forced;
+  crowdTurnstileTuck();               // each token starts tucked; see the reveal/tuck pair above
+  const settle = () => { delete host.dataset.forced; crowdTurnstileTuck(); };
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('turnstile timeout')), 45000);
+    const timer = setTimeout(() => { settle(); reject(new Error('turnstile timeout')); }, 45000);
     try {
       window.turnstile.render(host, {
         sitekey: turnstileSiteKey(),
-        /* 'interaction-only': a silent pass renders NOTHING — no "Verifying…", no green Success
-         * flash. Turnstile's own success animation read as "upload finished" to exactly the
-         * visitor this page serves, who then closed the browser mid-upload (Seth, 2026-08-31).
-         * The sending view's spinner + bar are the only in-progress signal, and the thanks
-         * screen the only completion signal. A REAL challenge still appears in this host. */
-        appearance: 'interaction-only',
-        callback: (tok) => { clearTimeout(timer); resolve(tok); },
-        'error-callback': () => { clearTimeout(timer); reject(new Error('turnstile error')); },
+        // A challenge that needs the visitor's hand must be SEEN — this is the one path that
+        // un-tucks the widget on its own and pins it visible until the token settles.
+        'before-interactive-callback': () => crowdTurnstileReveal(true),
+        callback: (tok) => { clearTimeout(timer); settle(); resolve(tok); },
+        'error-callback': () => { clearTimeout(timer); settle(); reject(new Error('turnstile error')); },
       });
-    } catch (e) { clearTimeout(timer); reject(e); }
+    } catch (e) { clearTimeout(timer); settle(); reject(e); }
   });
 }
 
@@ -7001,7 +7017,8 @@ function renderCrowdView(state, extra = {}) {
    * network, so the visitor is never looking at a screen whose only animation is someone else's
    * checkmark. */
   else if (state === 'sending') body = `<p class="crowd-status" id="crowd-status"><span class="crowd-spin" aria-hidden="true"></span><span id="crowd-status-txt">${esc(t('crowd.sending'))}</span></p>
-    <div class="crowd-prog indet" id="crowd-prog" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="crowd-prog-bar"></span></div>`;
+    <div class="crowd-prog indet" id="crowd-prog" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="crowd-prog-bar"></span></div>
+    <button id="crowd-cf-note" class="crowd-cf-note" type="button">${esc(t('crowd.protectedBy'))}</button>`;
   else if (state === 'thanks') body = `<div class="crowd-thanks">✓</div>
     <p class="crowd-status">${esc(t('crowd.thanks'))}</p>
     <button id="crowd-again" class="primary-btn">${esc(t('crowd.another'))}</button>`;
@@ -7030,6 +7047,17 @@ function renderCrowdView(state, extra = {}) {
     ${verLine}
   </div>`;
   $('#btn-record-big')?.addEventListener('click', startConsentThenRecord);
+  // The disclosure note: hover peeks at the live widget, tap/click toggles it (phones have no
+  // hover). Tucking is refused while a forced interactive challenge is up — see crowdTurnstileTuck.
+  const cf = $('#crowd-cf-note');
+  if (cf) {
+    cf.addEventListener('mouseenter', () => crowdTurnstileReveal(false));
+    cf.addEventListener('mouseleave', () => crowdTurnstileTuck());
+    cf.addEventListener('click', () => {
+      if (crowdTurnstileHost().classList.contains('tucked')) crowdTurnstileReveal(false);
+      else crowdTurnstileTuck();
+    });
+  }
   $('#crowd-again')?.addEventListener('click', () => renderCrowdView('ready'));
   $('#crowd-reload')?.addEventListener('click', () => setupCrowdMode());
   $('#crowd-retry')?.addEventListener('click', () => { crowdFlush(true).catch(() => {}); });

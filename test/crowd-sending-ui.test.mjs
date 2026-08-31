@@ -50,10 +50,20 @@ test('crowd sending UI owns the progress signals', () => {
        'the indeterminate sweep animation exists in CSS');
   }
 
-  console.log('\nTurnstile is quiet unless it truly needs the visitor');
+  console.log('\nTurnstile is tucked, disclosed, and can NEVER strand an invisible challenge');
   {
-    ok(/appearance: 'interaction-only'/.test(app),
-       "the widget renders with appearance: 'interaction-only' — no Verifying/Success flash on a silent pass");
+    // Final design (Seth, 2026-08-31): widget invisible by default (its Success flash is not our
+    // completion signal), a "Protected by Cloudflare" note disclosing it on hover/tap, and a real
+    // interactive challenge force-revealing itself.
+    ok(/#crowd-turnstile\.tucked \{ opacity: 0; pointer-events: none; \}/.test(css),
+       'the tucked host is opacity 0 — never display:none, the widget must keep executing');
+    ok(/'before-interactive-callback': \(\) => crowdTurnstileReveal\(true\)/.test(app),
+       'an interactive challenge force-reveals itself — the visitor can never be stuck on an invisible one');
+    ok(/if \(host\.dataset\.forced\) return/.test(app),
+       'a forced (interactive) reveal refuses to tuck until the token settles');
+    const m = app.match(/state === 'sending'[^`]*`([\s\S]*?)`;/);
+    ok(!!m && /crowd-cf-note/.test(m[1]) && /crowd\.protectedBy/.test(m[1]),
+       'the sending view carries the "Protected by Cloudflare" disclosure note');
   }
 
   console.log('\nan unconfirmed take expires after 24 hours');

@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v528';
+export const ENGINE_VERSION = 'v529';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v528';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'crowd-upload v2';
+export const BUILD_TAG = 'crowd-upload v3';
 
 const S = {
 en: {
@@ -368,6 +368,9 @@ en: {
    * connection gives up on, and the crowd path was the ONLY upload in the suite that could show
    * no movement at all. */
   'crowd.sendingPct': 'Sending your recording… {pct}%',
+  // The bot-check disclosure: the widget itself is invisible on a silent pass, so this small
+  // note is the transparency — hover/tap reveals the live widget.
+  'crowd.protectedBy': 'Protected by Cloudflare',
   'crowd.thanks': 'Thank you! Your recording was sent.',
   'crowd.another': 'Record another',
   'crowd.cooldown': 'You can send this in {s} seconds.',
@@ -2400,6 +2403,7 @@ id: {
   'crowd.send': 'Kirim',
   'crowd.sending': 'Mengirim rekaman Anda…',
   'crowd.sendingPct': 'Mengirim rekaman Anda… {pct}%',
+  'crowd.protectedBy': 'Dilindungi oleh Cloudflare',
   'crowd.thanks': 'Terima kasih! Rekaman Anda sudah terkirim.',
   'crowd.another': 'Rekam lagi',
   'crowd.cooldown': 'Anda bisa mengirim ini dalam {s} detik.',

@@ -1100,9 +1100,10 @@ function header(titleKey, withLock) {
  * never invent a number for symmetry. */
 const ISSUES_URL = 'https://github.com/rulingAnts/flextext-editor/issues/';
 const RELEASES = [
-  { v: 'v541', date: '2026-09-01', items: [
+  { v: 'v542', date: '2026-09-01', items: [
     { k: 'panel.rel.new.editorDialogs' },
     { k: 'panel.rel.new.unassignedInFlight', issue: 14 },
+    { k: 'panel.rel.new.deviceCountRevoked', issue: 10 },
   ] },
   { v: 'v539', date: '2026-08-31', items: [
     { k: 'panel.rel.new.previewPlayer' },
@@ -5620,9 +5621,24 @@ function renderProjectsCard(estate) {
    * instance's oauth_folder_id (a live device the estate has not stamped yet). Crowd folders count
    * as themselves. Fallback: if NOTHING anywhere carries either signal (an older worker's estate),
    * count raw rather than showing zero everywhere — a wrong count beats a lying one. */
-  const liveFolders = new Set((((lastData || {}).instances) || []).map((i) => i.oauth_folder_id).filter(Boolean));
-  const anyLiveSignal = devices.some((d) => d.instanceId) || liveFolders.size > 0;
-  const liveDevice = (d) => d.kind === 'crowd' || !anyLiveSignal || !!d.instanceId || liveFolders.has(d.folderId);
+  const liveInstances = ((lastData || {}).instances) || [];
+  const liveFolders = new Set(liveInstances.map((i) => i.oauth_folder_id).filter(Boolean));
+  /* ⚠ AN EMPTY INSTANCE LIST IS AN ANSWER, NOT A MISSING SIGNAL — and getting that backwards left
+   * the ORIGINAL bug alive in the fallback (Brian, issue #10: "Now I have no devices paired, but
+   * ... it says 4 devices for this project instead of 0"). Revoke every device and there is nothing
+   * left to stamp and no folder to match, so `anyLiveSignal` went false, the fallback counted raw,
+   * and the count read 4 — exactly the case reported, reached by the path meant to protect it.
+   *
+   * The two states are distinguishable because they come from DIFFERENT endpoints. `lastData` is
+   * listView, which excludes revoked instances: an empty list there means genuinely none are live,
+   * whatever the estate does or does not stamp. The estate's stamping is the only thing an older
+   * worker can be missing, so ambiguity survives in exactly one shape — instances exist, yet none
+   * carries a folder id and none is stamped — and only that shape still counts raw.
+   *
+   * Order matters: `lastData` absent (nothing loaded yet) is unknown, not zero. */
+  const cannotTell = !lastData
+    || (liveInstances.length > 0 && liveFolders.size === 0 && !devices.some((d) => d.instanceId));
+  const liveDevice = (d) => d.kind === 'crowd' || cannotTell || !!d.instanceId || liveFolders.has(d.folderId);
   const rows = projects.map((p) => {
     const mine = devices.filter((d) => d.projectId === p.folderId && liveDevice(d));
     return `<div class="rp-proj-row">

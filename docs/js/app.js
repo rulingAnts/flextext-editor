@@ -642,7 +642,7 @@ function applyDoneButton() { /* no in-editor done button; the Texts-list row tog
 // Drive); with auto-delete on it confirms first (that combo removes the text after upload).
 async function setDocDone(docId, wantDone) {
   const isOpen = current && current.id === docId;
-  if (wantDone && deleteAfterUpload() && !confirm(t('done.confirmDelete'))) return;
+  if (wantDone && deleteAfterUpload() && !await confirmDialog(t('done.confirmDelete'))) return;
   let rec;
   if (isOpen) { await persist().catch(() => {}); rec = current; }   // flush pending edits first
   else rec = await db.getDoc(docId);
@@ -1369,7 +1369,7 @@ function switchTab(tab, landing) {
       // Read through a FUNCTION so a researcher push lands mid-session, same rule as joinKeys.
       allowJoinTexted: () => cutJoinTextedAllowed(),
       // Guessing replaces every cut in the text, so hand-made work is confirmed before it goes.
-      confirmReplace: () => confirm(t('cut.guessConfirm')),
+      confirmReplace: () => confirmDialog(t('cut.guessConfirm')),   // async now; cutGuessSplits awaits it
       t,
     });
     prepareCutAudio();
@@ -1590,7 +1590,7 @@ function getPlayer() {
       onPeaks: (media) => { db.putMedia(media.mediaKey || playerDocId, media).catch(() => {}); },
       onRemove: async () => {
         if (!current || isAudioLocked(current)) return;
-        if (!confirm(t('player.confirmRemove'))) return;
+        if (!await confirmDialog(t('player.confirmRemove'))) return;
         await db.deleteMedia(current.id);
         playerReadyFor = null;   // the decoded buffer no longer corresponds to ANY stored audio
         delete current.pendingAudio;
@@ -3140,7 +3140,7 @@ async function runTaskCleanup(spec) {
     targets = docs.filter(d => titles.includes((d.title || '').toLowerCase()));
   }
   if (!targets.length) return;
-  if (!confirm(t('task.cleanupConfirm', { n: targets.length }))) return;
+  if (!await confirmDialog(t('task.cleanupConfirm', { n: targets.length }))) return;
   for (const d of targets) {
     const up = getUpload(d.id);
     if (up) up.cancel(); else uploadView.delete(d.id);
@@ -3473,9 +3473,9 @@ function renderSegment(seg, segnum, vernFont, analFont) {
       link.className = 'chain-btn';
       link.title = t('gloss.chainTitle');
       link.textContent = '🔗';
-      link.addEventListener('click', () => {
+      link.addEventListener('click', async () => {
         const a = seg.words[i], b = seg.words[i + 1];
-        if (!confirm(t('gloss.confirmMerge', { a: a.txt, b: b.txt }))) return;
+        if (!await confirmDialog(t('gloss.confirmMerge', { a: a.txt, b: b.txt }))) return;
         captureUndo();          // v332: chaining words is undoable like every other structural edit
         mergeWords(seg, i);
         schedulePersist();
@@ -3737,7 +3737,7 @@ async function userDeleteDoc(docId, title) {
   const msg = willUpload
     ? t('texts.confirmDeleteUpload', { title: title || t('untitled') })
     : t('texts.confirmDelete', { title: title || t('untitled') });
-  if (!confirm(msg)) return;
+  if (!await confirmDialog(msg)) return;
   if (!d || !uploads || backedUp) {
     // Nothing to preserve (gone / no upload target / already safely on Drive) → remove now,
     // cancelling any stray queued upload so it can't resurrect.
@@ -3839,7 +3839,7 @@ function deleteAllAllowed() {
   return !Sync.hasSession() || loadSettings().deleteAllEnabled === true || adminUnlocked();
 }
 async function runDeleteAll() {
-  if (!confirm(t('delall.confirm'))) return;
+  if (!await confirmDialog(t('delall.confirm'))) return;
   await eraseAllData();
 }
 // Editor: the Delete-All button lives at the bottom of the Help view (reachable in both standalone +
@@ -4145,6 +4145,60 @@ function parseInviteInput(text) {
   const id = (s.match(/[?&]invite=([0-9a-fA-F-]{8,})/) || [])[1] || null;
   const secret = (s.match(/[#?&]k=([A-Za-z0-9_~.-]{8,})/) || [])[1] || null;
   return { id, secret };
+}
+
+/* ── THE EDITOR'S OWN CONFIRM ─────────────────────────────────────────────────────────────────────
+ *
+ * The panel replaced its sixteen native dialogs long ago; the editor's nine outlived them, which is
+ * backwards — the editor is the app a field transcriber uses all day, often on an Android phone
+ * where a system dialog is the most jarring thing on screen and its buttons are the smallest.
+ * (In-app Known issue, cleared here.)
+ *
+ * ⚠ `class="modal"` IS LOAD-BEARING, not styling. The editor's global key handler treats
+ * `.modal:not([hidden])` as "a dialog owns the keyboard" — that is what stops Space from playing the
+ * recording behind an open dialog and Enter from cutting audio (see the transport-keys comment).
+ * A confirm built without that class would be a dialog the spacebar plays straight through.
+ *
+ * ⚠ AND IT NEVER STACKS. A second confirm while one is open resolves FALSE rather than opening a
+ * dialog over a dialog: the caller asked "may I do this destructive thing", and the honest answer
+ * when we cannot ask cleanly is no. (Same never-stack guard as showInvitePasteModal below.)
+ *
+ * Escape and the backdrop mean CANCEL — the safe answer for every one of the nine callers, all of
+ * which guard a destructive or irreversible act. */
+function confirmDialog(message) {
+  return new Promise((resolve) => {
+    if (document.querySelector('[data-confirm-dialog]')) { resolve(false); return; }
+    const wrap = document.createElement('div');
+    wrap.className = 'modal';
+    wrap.dataset.confirmDialog = '1';
+    wrap.innerHTML = `<div class="modal-card" role="dialog" aria-modal="true">
+      <p style="white-space:pre-wrap">${esc(message)}</p>
+      <button class="primary-btn" data-cf="ok">${esc(t('panel.confirm.ok'))}</button>
+      <button class="link-btn" data-cf="cancel">${esc(t('share.cancel'))}</button>
+    </div>`;
+    document.body.appendChild(wrap);
+    const prevFocus = document.activeElement;
+    let done = false;
+    const finish = (answer) => {
+      if (done) return;                       // Escape + click can both fire; the first one wins
+      done = true;
+      document.removeEventListener('keydown', onKey, true);
+      wrap.remove();
+      try { if (prevFocus && prevFocus.focus) prevFocus.focus(); } catch { /* noop */ }
+      resolve(answer);
+    };
+    function onKey(e) {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false); }
+      else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); finish(true); }
+    }
+    document.addEventListener('keydown', onKey, true);
+    wrap.querySelector('[data-cf="ok"]').addEventListener('click', () => finish(true));
+    wrap.querySelector('[data-cf="cancel"]').addEventListener('click', () => finish(false));
+    wrap.addEventListener('click', (e) => { if (e.target === wrap) finish(false); });
+    // Focus the dialog's own button, so the keyboard is inside the dialog immediately and Tab
+    // cannot wander back into the editor underneath it on the first press.
+    try { wrap.querySelector('[data-cf="ok"]').focus(); } catch { /* noop */ }
+  });
 }
 
 // Locked kiosks can't receive/open a URL, so an unenrolled device offers a
@@ -6415,8 +6469,8 @@ function wireAudioConverter() {
 function setupResearch() {
   // Lock down the coworker's interface in person: hide the Settings tab on THIS device. The confirm
   // spells out the touch-friendly recovery so nobody gets stranded on a phone with no keyboard.
-  $('#btn-hide-research').addEventListener('click', () => {
-    if (!confirm(t('research.hideHereConfirm'))) return;
+  $('#btn-hide-research').addEventListener('click', async () => {
+    if (!await confirmDialog(t('research.hideHereConfirm'))) return;
     localStorage.setItem(RESEARCH_HIDDEN_KEY, '1');
     applyResearchVisibility();
     toast(t('research.disabled'));
@@ -6607,7 +6661,7 @@ function toggleAdminUnlock() {
  * lie about what the button did. */
 async function runAdminUnpair() {
   if (!Sync.hasSession()) { toast(t('admin.unpairNone'), 6000); return; }
-  if (!confirm(t('admin.unpairConfirm'))) return;
+  if (!await confirmDialog(t('admin.unpairConfirm'))) return;
   Sync.clearSession();
   /* The same scrub a researcher-initiated revoke does — a Drive folder this device may no longer
    * reach must not be left behind claiming to be live. See onSyncRevoked for why consentAudioFile

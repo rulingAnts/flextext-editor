@@ -66,7 +66,9 @@ ok(!/eraseAllData|db\.delete|indexedDB|caches\.delete|localStorage\.clear/.test(
    '⚠ and DELETES NOTHING — no wipe, no IndexedDB, no storage clear. This is the assertion that matters most.');
 ok(/uploadFolder[\s\S]{0,120}?delete st\[k\]/.test(unpair),
    'it scrubs the researcher\'s Drive links, which this device can no longer reach');
-ok(/confirm\(t\('admin\.unpairConfirm'\)\)/.test(unpair), 'and asks first');
+// v540 replaced the engine's native confirm() with the in-app confirmDialog (see
+// test/no-native-dialogs.test.mjs). The claim here is unchanged — it still asks first.
+ok(/await confirmDialog\(t\('admin\.unpairConfirm'\)\)/.test(unpair), 'and asks first');
 ok(/admin\.unpairNone/.test(unpair), '...and says so rather than pretending, when there is no pairing to end');
 
 console.log('\nthe override really overrides the researcher\'s setting');

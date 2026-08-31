@@ -1874,11 +1874,10 @@ async function renderDashboard(prefetched) {
          flextext.app, and through any invite link the researcher makes (Seth). */''}
     ${renderProjectsCard(estateCache)}
     ${(() => {
-      /* "+ New device" lives HERE — right under the project tabs, above the device cards (Seth,
-       * 2026-08-31: "It makes more sense there") — not in the top actions bar. One definition for
-       * all three layouts: flat (no tabs — top of the device column), an owned tab, and a shared
-       * tab (where creating into the project is real; newDeviceModal handles both the
-       * manageDevices path and the no-cap fallback). wireActs binds [data-act] anywhere. */
+      /* "+ New device" left the top actions bar (Seth, 2026-08-31: "It makes more sense there
+       * [by the tabs]"). On tabbed layouts it rides the strip row itself — renderProjectSwitcher
+       * owns it there. The FLAT layout has no strip, so it keeps this row at the top of the
+       * device column. */
       const newDevBtn = `<div class="rp-newdev"><button class="primary-btn" data-act="new">${esc(t('panel.dash.newDevice'))}</button></div>`;
       /* ONE PROJECT AT A TIME once projects exist; the classic flat layout otherwise, byte for byte.
        * `scope` is null on a flat estate, which is the whole backward-compatibility story. */
@@ -1906,13 +1905,11 @@ async function renderDashboard(prefetched) {
        * what the owner shared, rendered from data.memberProjects and nothing else. */
       if (selMp) {
         return `${renderProjectSwitcher(scope)}
-          ${newDevBtn}
           ${memberTabContent}`;
       }
       const idx = new Map(insts.map((it, i) => [it.instance_id, i]));
       const mine = scope.insts.map((it) => cards[idx.get(it.instance_id)]).join('');
       return `${renderProjectSwitcher(scope)}
-        ${newDevBtn}
         ${scope.sel === STRAY_TAB ? '' : renderUnassignedCard(estateCache, scope.sel)}
         ${scope.insts.length ? mine : `<p class="note rp-empty">${esc(t('panel.proj.emptyProject'))}</p>`}
         ${scope.recs.length && Researcher.isApprovedSelf() ? renderCrowdCard(scope.recs, estateCache) : ''}`;
@@ -5674,10 +5671,20 @@ function renderProjectSwitcher(scope) {
     tabs.push(`<button class="rp-ptab rp-ptab-shared${on ? ' rp-ptab-on' : ''}" data-pact="pick" data-p="${esc(id)}"
       aria-current="${on ? 'true' : 'false'}">${esc(mp.name || '?')} <span class="rp-ptab-sharedtag">${esc(t('panel.proj.sharedTag'))}</span></button>`);
   }
+  /* "+ New device" rides ON the strip row, right-aligned with Rename (Seth, 2026-08-31, two
+   * screenshots: first to the right edge, then up onto this row — the in-between left a wasted
+   * blank band under the tabs). One right-side GROUP carries the auto margin, so the button stays
+   * flush right whether or not Rename renders (two competing auto margins would split the gap).
+   * It lives in the switcher, so it exists on every tabbed layout — owned, strays, shared (where
+   * newDeviceModal handles both the manageDevices path and the no-cap fallback); the flat layout
+   * has no strip and keeps its own row (renderDashboard). wireActs binds [data-act] anywhere. */
   return `<div class="rp-ptabs" role="tablist" aria-label="${esc(t('panel.proj.title'))}">
       ${tabs.join('')}
-      ${scope.selProject ? `<button class="link-btn rp-ptab-rename" data-pact="rename"
-        data-folder="${esc(scope.selProject.folderId)}" data-name="${esc(scope.selProject.name || '')}">${esc(t('panel.proj.rename'))}</button>` : ''}
+      <span class="rp-ptab-right">
+        ${scope.selProject ? `<button class="link-btn rp-ptab-rename" data-pact="rename"
+          data-folder="${esc(scope.selProject.folderId)}" data-name="${esc(scope.selProject.name || '')}">${esc(t('panel.proj.rename'))}</button>` : ''}
+        <button class="primary-btn rp-newdev-btn" data-act="new">${esc(t('panel.dash.newDevice'))}</button>
+      </span>
     </div>
     ${scope.sel === STRAY_TAB ? `<p class="note">${esc(t('panel.proj.outsideNote'))}</p>` : ''}`;
 }

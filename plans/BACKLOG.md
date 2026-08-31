@@ -3921,6 +3921,18 @@ which is a different question with a confusingly similar name.
 
 ## Project-level default settings — after the multi-researcher release (Seth, 2026-08-20)
 
+> **STATUS 2026-08-31: BUILT, v519 (staging).** v505 shipped the storage half (Projects card →
+> Default settings, kept in the owner's Kr-encrypted prefs keyed by folder id). v519 shipped the
+> rest, prompted by Seth's screenshot of a blank new-device form: (1) a device with NO settings
+> seeds its form from its project's template — the create flow passes the folder id, the retry path
+> resolves it from the estate — prefill only, push stays the researcher's act, with an honest
+> "prefilled, not yet pushed" note; (2) after every template save, `applyTemplateModal` offers
+> pushing to ticked devices (one/several/all), whole-template OR only-what-changed (Seth: a new
+> consent prompt has no reason to reach only one device; changes-only merges onto what the device
+> actually obeys, lane-first, so per-device tuning survives). The preview discipline below is
+> honoured at FIELD-NAME level (the changed-fields outline); per-device old→new value diffs were
+> not built. Owner-only limit stands (a member holds no owner Kr).
+
 > *"We will want to have project-level default settings for new devices with the ability to apply
 > those settings to daughter devices. But that's for later, after we get the multiple researchers
 > release working later today."*

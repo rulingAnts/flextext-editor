@@ -1378,6 +1378,12 @@ body.rp-standalone main { padding-top: 0; }
 .rp-multi { display: flex; flex-wrap: wrap; gap: 6px 16px; }
 .check-label.rp-inline { display: inline-flex; margin: 0; max-width: none; }
 .rp-enc { color: var(--muted); margin: 6px 0; }
+/* "+ New device", relocated under the project tabs (above the device cards). */
+.rp-newdev { margin: 2px 0 10px; }
+/* Apply-template device checklist: capped + scrollable so a big project cannot push the modal's
+ * buttons off screen. */
+.rp-apply-list { display: flex; flex-direction: column; gap: 4px; max-height: 38vh; overflow-y: auto;
+  border: 1px solid var(--border); border-radius: 9px; padding: 8px 12px; margin-top: 4px; }
 
 @media (max-width: 560px) {
   .rp-metrics { grid-template-columns: repeat(2, 1fr); }

@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v525';
+export const ENGINE_VERSION = 'v526';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -172,6 +172,7 @@ en: {
   'consent.next': 'Continue',
   'consent.chooseYesNo': 'Please answer Yes or No first.',
   'consent.loadingAudio': 'Loading the spoken reminder…',
+  'consent.gateFailed': 'Something went wrong opening the consent step, so recording did not start. Please reload the page and try again — and tell your researcher if it keeps happening.',
   'consent.audioFailed': 'Could not load the spoken reminder. You can still continue.',
   'texts.open': 'Open .flextext file…',
   'texts.newPair': 'Open text + recording together…',
@@ -2226,6 +2227,7 @@ id: {
   'consent.next': 'Lanjutkan',
   'consent.chooseYesNo': 'Silakan jawab Ya atau Tidak dulu.',
   'consent.loadingAudio': 'Memuat pengingat lisan…',
+  'consent.gateFailed': 'Terjadi masalah saat membuka langkah persetujuan, jadi perekaman tidak dimulai. Silakan muat ulang halaman dan coba lagi — dan beri tahu peneliti Anda jika terus terjadi.',
   'consent.audioFailed': 'Tidak bisa memuat pengingat lisan. Anda tetap bisa melanjutkan.',
   'texts.open': 'Buka file .flextext…',
   'texts.newPair': 'Buka teks + rekaman sekaligus…',

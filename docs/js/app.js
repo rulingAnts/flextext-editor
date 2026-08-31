@@ -2001,6 +2001,30 @@ function closeConsentModal() {
   // saveRecording finally, closeRecordModal (cancel), closeShareMenu, or visibilitychange instead.
 }
 
+/* ⚠ THE RECORD BUTTON MUST NEVER FAIL IN SILENCE (2026-08-31).
+ *
+ * requestConsentThen is async, and all three record buttons called it as a bare fire-and-forget
+ * listener — no await, no catch. So ANY throw inside the consent gate (a missing element, a stored
+ * config in a shape this engine did not expect, an asset call that rejects before the try block)
+ * produced an unhandled rejection and a button that did *nothing at all*: no modal, no toast, no
+ * visible error. There is no way for a field user — or a researcher — to report that usefully, and
+ * no way to tell it apart from a dead click.
+ *
+ * That is exactly how one crowd recorder came to be "broken" with the Record button inert while a
+ * newly created one on the SAME build worked (Seth, 2026-08-31). The cause went with the deleted
+ * recorder, which is the second half of the lesson: the silence is what made it undiagnosable.
+ *
+ * `startConsentThenRecord()` is now the ONE way the buttons enter this, and a failure says so and
+ * is logged. It does not pretend to fix whatever threw — it makes the next one reportable. */
+function startConsentThenRecord() {
+  Promise.resolve()
+    .then(() => requestConsentThen(() => openRecordModal()))
+    .catch((err) => {
+      console.error('[flextext] consent gate failed before recording', err);
+      toast(t('consent.gateFailed'), 9000);
+    });
+}
+
 // Run `onApproved(assent)` once permission is satisfied. assent is a
 // { blob, name } when recorded, else null.
 async function requestConsentThen(onApproved) {
@@ -6707,7 +6731,7 @@ function renderRecordView() {
   v.querySelector('.record-big-label').textContent = t('record.btn');
   v.querySelector('.record-list-h').textContent = t('record.savedH');
   v.querySelector('#record-empty').textContent = t('record.empty');
-  $('#btn-record-big').addEventListener('click', () => requestConsentThen(() => openRecordModal()));
+  $('#btn-record-big').addEventListener('click', startConsentThenRecord);
   const da = v.querySelector('#btn-delete-all'); if (da) { da.textContent = t('delall.btn'); da.addEventListener('click', runDeleteAll); }
   const pi = v.querySelector('#btn-paste-invite'); if (pi) { pi.textContent = t('invite.pasteBtn'); pi.addEventListener('click', showInvitePasteModal); }
 }
@@ -6990,7 +7014,7 @@ function renderCrowdView(state, extra = {}) {
     ${body}
     ${verLine}
   </div>`;
-  $('#btn-record-big')?.addEventListener('click', () => requestConsentThen(() => openRecordModal()));
+  $('#btn-record-big')?.addEventListener('click', startConsentThenRecord);
   $('#crowd-again')?.addEventListener('click', () => renderCrowdView('ready'));
   $('#crowd-reload')?.addEventListener('click', () => setupCrowdMode());
   $('#crowd-retry')?.addEventListener('click', () => { crowdFlush(true).catch(() => {}); });
@@ -8147,7 +8171,7 @@ function setup() {
     e.target.value = '';
     if (fs.length) newDocFromPair(fs).catch((err) => toast(t('toast.importFailed', { msg: err.message }), 6000));
   });
-  $('#btn-record').addEventListener('click', () => requestConsentThen(() => openRecordModal()));
+  $('#btn-record').addEventListener('click', startConsentThenRecord);
   // The researcher can show/hide each Texts-screen button via a link (btns=…).
   applyAllowedButtons();
   $('#new-audio-file').addEventListener('change', (e) => {

@@ -1100,7 +1100,7 @@ function header(titleKey, withLock) {
  * never invent a number for symmetry. */
 const ISSUES_URL = 'https://github.com/rulingAnts/flextext-editor/issues/';
 const RELEASES = [
-  { v: 'v536', date: '2026-08-31', items: [
+  { v: 'v537', date: '2026-08-31', items: [
     { k: 'panel.rel.new.previewPlayer' },
     { k: 'panel.rel.new.crowdSpeakerName' },
   ] },
@@ -2204,8 +2204,26 @@ function filesMenuHtml(instanceId, docId, title, audioUrl, fileId, viaMember) {
  * more"): it runs idle-time only, one fetch at a time, capped, skips data-saver/2G connections,
  * only ever fetches the small preview heads (an old worker disables it entirely rather than pull
  * full originals), and evicts the moment a text leaves the estate. */
+/* ⚠ NO BUTTON WHERE THERE IS NOTHING TO PLAY (Seth, 2026-08-31: "we are frequently seeing 'no
+ * audio' toasts"). A text with no recording — a typed .flextext, an assignment not yet returned —
+ * was still offered Preview, and the only way to find out was to click and be told. That is the
+ * disabled-control failure in another costume: an affordance that cannot act.
+ *
+ * The signal is the warm cache: an entry with no blob means a Drive folder listing found no audio,
+ * which the background sweep discovers without anyone clicking — so the button disappears on the
+ * next repaint after the sweep reaches that text, and a click that discovers it records the same
+ * fact. Unknown still renders: silence about a text nobody has looked at yet would hide a real
+ * recording, and the click path handles the miss honestly.
+ *
+ * ⚠ AND NOT `hasAudio`, THOUGH EVERY DEVICE ROW CARRIES ONE. That flag is the device's LOCAL audio
+ * (`audioSource || pendingAudio || audioId`, app.js), and `autoDelUploaded` deletes local audio
+ * once it is safely in Drive — so a perfectly previewable text reports false. Hiding on it would
+ * hide exactly the recordings a researcher most wants to hear: the ones already uploaded. Drive's
+ * own listing is the only honest answer to "is there audio", which is what the cache holds. */
 function previewBtnHtml(instanceId, docId, title, viaMember) {
   if (!instanceId || !docId) return '';
+  const seen = prevCache.get(docId);
+  if (seen && !seen.blob) return '';
   return `<button class="link-btn rp-prev" data-prev data-i="${esc(instanceId)}" data-id="${esc(docId)}" data-title="${esc(title || '')}"${viaMember ? ' data-viamember="1"' : ''}
     title="${esc(t('panel.prev.tip'))}"><span class="rp-prev-icon" aria-hidden="true">▶</span> ${esc(t('panel.prev.btn'))}</button>`;
 }
@@ -2240,10 +2258,21 @@ function stopPreview() {
   prevBtn = null;
 }
 
-// Called after every repaint: if the button that was driving playback is gone from the document,
-// the sound has no visible control any more, so it stops.
+/* Called after every repaint. The 12s poll rebuilds rows, and a 30-second preview outlives it, so
+ * the button driving playback can be replaced mid-play. RE-ADOPT the replacement — same text, same
+ * sound, the ⏸ simply reappears where it was — and stop only when the row is genuinely gone (the
+ * text was deleted, moved, or filtered away), because sound with no visible control is the one
+ * outcome an inline player must never produce. */
 function stopPreviewIfDetached() {
-  if (prevBtn && !prevBtn.isConnected) stopPreview();
+  if (!prevBtn || prevBtn.isConnected) return;
+  const want = prevBtn.dataset.id;
+  const heir = want && root && root.querySelector(`[data-prev][data-id="${CSS.escape(want)}"]`);
+  if (heir && prevAudio && !prevAudio.paused) {
+    prevBtn = heir;
+    previewSetState(heir, 'playing');
+    return;
+  }
+  stopPreview();
 }
 
 /* THE PREVIEW IS A TASTE, NOT THE RECORDING (Seth: "not even necessarily the whole recording,
@@ -2326,32 +2355,81 @@ let prevSweepBusy = false;
 
 /* Idle-time pre-cache of crowd preview heads (Seth's suggestion): after a dashboard render, warm
  * the first N crowd texts so ▶ is instant. Strictly sequential; ~240 KB each. */
+/* WARMING THE PREVIEWS — bounded, idle, and cheap-formats-only.
+ *
+ * Seth asked whether the panel should pre-cache EVERY text's preview once it finishes loading, and
+ * answered his own question with the right instinct ("or is that a bad idea?"). Warming everything
+ * is the wrong shape for this audience, and the honest reasons are:
+ *   - it is THREE requests per text (list the folder, mint a URL, fetch the bytes), so a
+ *     hundred-text estate is three hundred requests for audio nobody asked to hear;
+ *   - the formats that cannot be truncated (m4a, flac) are served WHOLE, so "all" can mean tens of
+ *     megabytes — paid for by a researcher who may be on the same field connection as the device;
+ *   - most previews are never played, and speculative bytes on a metered link are real money.
+ * So: warm a BOUNDED head of the list, cheap formats only, and make the rest instant by warming on
+ * HOVER — the pointer arriving over a button is the best possible signal that it is about to be
+ * clicked, and it costs one file instead of a hundred. That is how this ends up feeling instant
+ * without the bill (Seth's own standing rule: "the rest of the app working smoothly matters more").
+ *
+ * ⚠ THE BUDGET IS TWO NUMBERS, not one: a file count AND a byte ceiling, because one big whole-file
+ * source would otherwise eat a count-only budget on its own. */
+const PREV_WARM_FILES = 24;
+const PREV_WARM_BYTES = 12 * 1024 * 1024;
+/* Cheap = we know the response is a small head. WAV decimates to ~240 KB whatever its length, and
+ * mp3/ogg get a 256 KB head. Everything else is served whole, so it is warmed only when the file
+ * is genuinely small; otherwise it stays a click away (and hover still warms it). */
+function prevWorthWarming(f) {
+  const n = String((f && f.name) || '').toLowerCase();
+  const m = String((f && f.mimeType) || '').toLowerCase();
+  if (/\.wav$/.test(n) || /wav/.test(m)) return true;
+  if (/\.(mp3|ogg|opus)$/.test(n) || /(mpeg|mp3|ogg|opus)/.test(m)) return true;
+  return (f && f.size ? Number(f.size) : Infinity) <= 3 * 1024 * 1024;
+}
+
+async function warmPreview(iid, docId, budget) {
+  if (prevMintDead || prevCache.has(docId)) return;
+  const f = await resolveTextAudio(iid, docId);
+  if (!f) { prevCache.set(docId, {}); return; }            // no audio: remember, so we never re-ask
+  if (budget && !prevWorthWarming(f)) return;               // hover ignores the budget; the sweep does not
+  const u = await Researcher.previewUrl(f.id, null);
+  if (!u) { prevMintDead = true; return; }                  // old worker — never pre-fetch originals
+  const r = await fetch(u);
+  if (!r.ok) return;
+  const blob = await r.blob();
+  if (budget) budget.bytes += blob.size;
+  prevCache.set(docId, { blob, fileId: f.id });
+}
+
+/* Every text the panel can show a Preview button for — devices, Unassigned and crowd alike (they
+ * are all rows in the Drive estate), newest first so the head of the budget goes to what a
+ * researcher is most likely to be looking at. */
+function previewableDocIds(estate) {
+  const rows = (estate && Array.isArray(estate.texts)) ? estate.texts : [];
+  return rows.filter((tx) => tx && tx.docId)
+    .slice()
+    .sort((a, b) => String(b.modified || '').localeCompare(String(a.modified || '')))
+    .map((tx) => tx.docId);
+}
+
 function sweepCrowdPreviews(recs, estate) {
-  if (prevSweepBusy || prevMintDead || !Array.isArray(recs) || !recs.length) return;
+  if (prevSweepBusy || prevMintDead) return;
   const conn = navigator.connection || {};
   if (conn.saveData || /(^|-)2g$/.test(String(conn.effectiveType || ''))) return;
   const iid = firstInstanceId();
   if (!iid) return;
-  const want = [];
-  for (const rec of recs) for (const tx of crowdTexts(estate, rec)) if (tx.docId) want.push(tx.docId);
+  const want = previewableDocIds(estate);
   const wantSet = new Set(want);
   for (const k of [...prevCache.keys()]) if (!wantSet.has(k)) prevCache.delete(k);   // deleted text ⇒ cache gone too
-  const todo = want.filter((d) => !prevCache.has(d)).slice(0, 12);
+  const todo = want.filter((d) => !prevCache.has(d)).slice(0, PREV_WARM_FILES);
   if (!todo.length) return;
   prevSweepBusy = true;
   const idle = (fn) => (window.requestIdleCallback ? requestIdleCallback(fn, { timeout: 4000 }) : setTimeout(fn, 1500));
   idle(async () => {
+    const budget = { bytes: 0 };
     try {
       for (const docId of todo) {
-        if (prevMintDead) break;
-        try {
-          const f = await resolveTextAudio(iid, docId);
-          if (!f) { prevCache.set(docId, {}); continue; }
-          const u = await Researcher.previewUrl(f.id, null);
-          if (!u) { prevMintDead = true; break; }             // old worker — never pre-cache originals
-          const r = await fetch(u);
-          if (r.ok) prevCache.set(docId, { blob: await r.blob(), fileId: f.id });
-        } catch { /* one text failing must not stop the sweep */ }
+        if (prevMintDead || budget.bytes >= PREV_WARM_BYTES) break;
+        try { await warmPreview(iid, docId, budget); }
+        catch { /* one text failing must not stop the sweep */ }
       }
     } finally { prevSweepBusy = false; }
   });
@@ -3202,6 +3280,15 @@ function wireDownloadMenus(scope) {
   // calls this) gets the player without a second hookup site to forget.
   (scope || root).querySelectorAll('[data-prev]').forEach((b) => {
     b.addEventListener('click', (e) => { e.stopPropagation(); togglePreview(b); });
+    /* HOVER WARMS THIS ONE. The pointer arriving over a Preview button is the best available
+     * signal that it is about to be clicked, and warming one file beats warming a hundred — this
+     * is what makes the rest of the list feel instant without pre-fetching the whole estate.
+     * `once` so a researcher sweeping the pointer down a long list warms each row at most once;
+     * budget-free because a deliberate hover is worth the bytes a blind sweep is not.
+     * ⚠ Keyboard users get the same courtesy through focus — the button is a real <button>. */
+    const warm = () => { warmPreview(b.dataset.i, b.dataset.id, null).catch(() => {}); };
+    b.addEventListener('pointerenter', warm, { once: true });
+    b.addEventListener('focus', warm, { once: true });
   });
   /* The repaint just replaced these rows. If the button driving playback went with them, the sound
    * would have no visible control — so it stops. (The 12s poll rebuilds rows constantly.) */
@@ -3609,7 +3696,8 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
          * downloading through the project-scoped route. Without the capability it is ABSENT rather
          * than disabled — a dead control reads as broken. */
         const dl = (memberCtx && !mDrive) ? ''
-          : previewBtnHtml(it.instance_id, d.id, d.title || '', !!memberCtx) + filesMenuHtml(it.instance_id, d.id, d.title || '', '', '', !!memberCtx);
+          : previewBtnHtml(it.instance_id, d.id, d.title || '', !!memberCtx)
+            + filesMenuHtml(it.instance_id, d.id, d.title || '', '', '', !!memberCtx);
         // (5) The row reads in two lines: title + state chip, then muted metadata; actions sit on
         // the right. The tags stopped fighting the title for attention — that was Seth's "plain
         // line of text with plain hyperlinks is getting busy and ugly".

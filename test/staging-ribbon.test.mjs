@@ -108,7 +108,7 @@ console.log('\nRelease notes: available everywhere, gone when there is nothing t
    * ⚠ WHAT SURVIVED THE INVERSION: both lists empty ⇒ NO link. A permanent entry opening onto nothing
    * teaches people it is decoration. */
   const panel = read('../docs/js/researcher-panel.js');
-  ok(/if \(!WHATS_NEW\.length && !KNOWN_ISSUES\.length\) return '';/.test(panel),
+  ok(/if \(!RELEASES\.length && !KNOWN_ISSUES\.length\) return '';/.test(panel),
      '⚠ nothing to say ⇒ no link at all');
   const link = (panel.match(/function releaseNotesLink\(\) \{[\s\S]*?\n\}/) || [''])[0];
   ok(!/onStagingEstate\(\)/.test(link),
@@ -121,13 +121,29 @@ console.log('\nRelease notes: available everywhere, gone when there is nothing t
     return m ? [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]) : [];
   };
   const i18n = read('../docs/js/i18n.js');
-  for (const name of ['WHATS_NEW', 'KNOWN_ISSUES']) {
-    const keys = grabList(name);
-    ok(keys.length > 0, `${name} has entries (${keys.length})`);
+  {
+    const keys = grabList('KNOWN_ISSUES');
+    ok(keys.length > 0, `KNOWN_ISSUES has entries (${keys.length})`);
     for (const k of keys) {
       ok(i18n.split(`'${k}':`).length - 1 >= 2,
          `${k} is a real string in BOTH languages — a missing one renders a raw key to a user`);
     }
+  }
+  /* RELEASES replaced the flat WHATS_NEW (2026-08-31): one entry per production release, newest
+   * first — a version, a date, its items; an item that resolves a submitted GitHub issue carries
+   * `issue: n` and links to it (forward-only, per Seth). Same both-languages guarantee per item. */
+  {
+    const block = (panel.match(/const RELEASES = \[([\s\S]*?)\n\];/) || [])[1] || '';
+    const entries = [...block.matchAll(/\{ v: '(v\d+)', date: '(\d{4}-\d{2}-\d{2})'/g)];
+    ok(entries.length > 0, `RELEASES has per-release entries (${entries.length})`);
+    const keys = [...block.matchAll(/k: '([^']+)'/g)].map((m) => m[1]);
+    ok(keys.length > 0, `...with items (${keys.length})`);
+    for (const k of keys) {
+      ok(i18n.split(`'${k}':`).length - 1 >= 2,
+         `${k} is a real string in BOTH languages — a missing one renders a raw key to a user`);
+    }
+    ok(/rp-rel-issue/.test(panel) && /ISSUES_URL/.test(panel),
+       'items that resolve a submitted issue can render a link to it');
   }
 }
 

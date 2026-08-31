@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v529';
+export const ENGINE_VERSION = 'v530';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v529';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'crowd-upload v3';
+export const BUILD_TAG = 'crowd-upload v4';
 
 const S = {
 en: {
@@ -1477,6 +1477,14 @@ internet after the first time.</p>
   'panel.rel.new.audioError': 'Fixed: when a recording failed to download, the text kept saying it was still arriving and hid the typing box. It now says what went wrong and lets you type.',
   'panel.rel.new.doneToggle': 'Fixed: un-marking a text as finished no longer leaves you unable to mark it finished again.',
   'panel.rel.new.oneVersion': 'Every part of the app now reports one version number, so a device that is out of date is obvious at a glance.',
+  'panel.rel.latest': 'latest',
+  'panel.rel.new.crowdFirstSubmit': 'Crowd recorder: submissions now send on the first try — a browser fault made every first attempt fail and show a retry page.',
+  'panel.rel.new.crowdProgress': 'Crowd recorder: sending shows its own spinner and progress bar from the first moment, so the security check can no longer be mistaken for a finished upload.',
+  'panel.rel.new.crowdExpiry': 'Crowd recorder: an unsent recording is kept for 24 hours of retries, then removed — a shared phone no longer holds it indefinitely.',
+  'panel.rel.new.crowdLocalTime': 'Panel: crowd recordings are listed by your local recording time instead of the raw UTC file name.',
+  'panel.rel.new.crowdInFlight': 'Panel: a crowd recording being moved now shows the same in-flight marker as other texts, and Move/Delete wait for the move to finish.',
+  'panel.rel.new.crowdEveryProject': 'Panel: every project now shows its Crowd recorders area, so a new project can add one right away.',
+  'panel.rel.new.recordButton': 'Recorder: if recording cannot start, the Record button now says so instead of doing nothing.',
   'panel.rel.new.memberApprove': 'A researcher with “manage devices” can now approve and key a new device themselves — pairing no longer waits for the project owner, whoever created the invite.',
   'panel.rel.new.activityTray': 'Uploads to a device now appear in the same “In progress” box as downloads, with an arrow showing which way the files are going — and the box can be collapsed out of the way and reopened.',
   'panel.rel.new.projTemplates': 'Project “Default settings” now work end to end: a new device opens its settings prefilled from the project’s template, and after saving a template you can push it — whole, or only what changed — to any or all of the project’s existing devices.',
@@ -3380,6 +3388,14 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.rel.new.audioError': 'Diperbaiki: ketika rekaman gagal diunduh, teks tetap menyatakan rekaman sedang datang dan menyembunyikan kotak ketik. Kini kesalahannya disebutkan dan Anda tetap dapat mengetik.',
   'panel.rel.new.doneToggle': 'Diperbaiki: membatalkan tanda selesai pada teks tidak lagi membuat Anda tak bisa menandainya selesai kembali.',
   'panel.rel.new.oneVersion': 'Semua bagian aplikasi kini melaporkan satu nomor versi, sehingga perangkat yang ketinggalan versi langsung terlihat.',
+  'panel.rel.latest': 'terbaru',
+  'panel.rel.new.crowdFirstSubmit': 'Perekam publik: kiriman kini terkirim pada percobaan pertama — kesalahan peramban membuat setiap percobaan pertama gagal dan menampilkan halaman coba lagi.',
+  'panel.rel.new.crowdProgress': 'Perekam publik: pengiriman menampilkan spinner dan bilah kemajuan sendiri sejak awal, sehingga pemeriksaan keamanan tidak lagi terlihat seperti unggahan yang selesai.',
+  'panel.rel.new.crowdExpiry': 'Perekam publik: rekaman yang belum terkirim disimpan 24 jam untuk dicoba ulang, lalu dihapus — ponsel bersama tidak lagi menyimpannya tanpa batas.',
+  'panel.rel.new.crowdLocalTime': 'Panel: rekaman publik kini ditampilkan menurut waktu lokal Anda, bukan nama berkas UTC mentah.',
+  'panel.rel.new.crowdInFlight': 'Panel: rekaman publik yang sedang dipindahkan kini menampilkan penanda proses yang sama seperti teks lain, dan Pindahkan/Hapus menunggu sampai selesai.',
+  'panel.rel.new.crowdEveryProject': 'Panel: setiap proyek kini menampilkan area Perekam publiknya, sehingga proyek baru bisa langsung menambahkannya.',
+  'panel.rel.new.recordButton': 'Perekam: jika perekaman tidak bisa dimulai, tombol Rekam kini memberi tahu, bukan diam saja.',
   'panel.rel.new.memberApprove': 'Peneliti dengan “mengelola perangkat” kini dapat menyetujui dan memberi kunci perangkat baru sendiri — penyandingan tidak lagi menunggu pemilik proyek, siapa pun yang membuat undangannya.',
   'panel.rel.new.activityTray': 'Unggahan ke perangkat kini muncul di kotak “Sedang berjalan” yang sama dengan unduhan, dengan panah yang menunjukkan arah berkasnya — dan kotak itu dapat dilipat lalu dibuka kembali.',
   'panel.rel.new.projTemplates': '“Pengaturan bawaan” proyek kini berfungsi penuh: perangkat baru membuka pengaturannya sudah terisi dari templat proyek, dan setelah menyimpan templat Anda dapat mengirimkannya — seluruhnya, atau hanya yang berubah — ke sebagian atau semua perangkat proyek yang sudah ada.',

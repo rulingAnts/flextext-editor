@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v538';
+export const ENGINE_VERSION = 'v539';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1494,7 +1494,8 @@ internet after the first time.</p>
   'panel.prev.tip': 'Play the first ~30 seconds — a low-bandwidth preview, not the original file. The full recording is under Files…',
   'panel.prev.noAudio': 'This text has no audio file yet.',
   'panel.prev.failed': 'Could not load the audio — try Files… for a direct download.',
-  'panel.rel.new.previewPlayer': 'Panel: every text row has a ▶ Play button — a small preview player that starts almost instantly and stops the moment you close it.',
+  'panel.rel.new.previewPlayer': 'Panel: every text with audio has a Preview button that plays the first ~30 seconds straight from the row — click again to pause, click another text and the first one stops. It is a small, low-bandwidth preview; the original recording is always under Files….',
+  'panel.rel.new.previewNoAudio': 'Panel: texts with no recording no longer show a Preview button, instead of telling you so after you click it.',
   'panel.rel.new.crowdSpeakerName': 'Crowd recorder: when consent asks for a typed name, that name now leads the recording’s title alongside the local time.',
   'panel.rel.new.memberApprove': 'A researcher with “manage devices” can now approve and key a new device themselves — pairing no longer waits for the project owner, whoever created the invite.',
   'panel.rel.new.activityTray': 'Uploads to a device now appear in the same “In progress” box as downloads, with an arrow showing which way the files are going — and the box can be collapsed out of the way and reopened.',
@@ -3413,7 +3414,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.prev.tip': 'Putar ~30 detik pertama — pratinjau hemat data, bukan berkas asli. Rekaman lengkap ada di Berkas…',
   'panel.prev.noAudio': 'Teks ini belum punya berkas audio.',
   'panel.prev.failed': 'Audio tidak bisa dimuat — coba Berkas… untuk mengunduh langsung.',
-  'panel.rel.new.previewPlayer': 'Panel: setiap baris teks punya tombol ▶ Putar — pemutar pratinjau kecil yang mulai hampir seketika dan berhenti begitu ditutup.',
+  'panel.rel.new.previewPlayer': 'Panel: setiap teks yang punya audio kini punya tombol Pratinjau yang memutar ~30 detik pertama langsung dari barisnya — klik lagi untuk jeda, klik teks lain maka yang pertama berhenti. Ini pratinjau kecil dan hemat data; rekaman aslinya selalu ada di Berkas….',
+  'panel.rel.new.previewNoAudio': 'Panel: teks tanpa rekaman tidak lagi menampilkan tombol Pratinjau, alih-alih memberi tahu Anda setelah diklik.',
   'panel.rel.new.crowdSpeakerName': 'Perekam publik: jika persetujuan meminta nama yang diketik, nama itu kini memimpin judul rekaman bersama waktu lokal.',
   'panel.rel.new.memberApprove': 'Peneliti dengan “mengelola perangkat” kini dapat menyetujui dan memberi kunci perangkat baru sendiri — penyandingan tidak lagi menunggu pemilik proyek, siapa pun yang membuat undangannya.',
   'panel.rel.new.activityTray': 'Unggahan ke perangkat kini muncul di kotak “Sedang berjalan” yang sama dengan unduhan, dengan panah yang menunjukkan arah berkasnya — dan kotak itu dapat dilipat lalu dibuka kembali.',

@@ -195,6 +195,14 @@ This is the part that has caused real outages when done wrong — read
 - **Bump versions ONLY via `./bump-version.sh vNNN`** — it sets all four sites explicitly and
   fails loudly if any didn't land (a sed-from-previous chain once no-opped silently and two
   releases shipped mislabelled; the script is the guard).
+- **A production release updates the release-notes modal** — the `RELEASES` array in
+  `researcher-panel.js`, one section per shipped version, newest first, items linking any GitHub
+  issue they resolve. It is the only thing that tells a researcher what changed in an app that
+  updates itself under them. `test/release-notes-current.test.mjs` fails a PRODUCTION build
+  (`BUILD_TAG === ''`) whose newest section does not name `ENGINE_VERSION` or whose items are
+  missing from either language. ⚠ The test cannot check that the words are still TRUE: a feature
+  redesigned mid-wave must have its note rewritten in the same commit — v538 shipped a note written
+  for a design three versions dead. See CLAUDE.md §"THE RELEASE NOTES ARE PART OF THE PUSH".
 - **Four version sites move together** (enforced by `test/version-sync.test.mjs`):
   `docs/sw.js` `VERSION` == `docs/js/i18n.js` `ENGINE_VERSION`, plus each satellite `sw.js`'s own
   `VERSION` and its declared `ENGINE`.

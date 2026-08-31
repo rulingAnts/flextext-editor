@@ -72,13 +72,18 @@ console.log('\na declined offer keeps the delta, so the safe mode stays reachabl
    * this very line — the repo's rule that a guard is only proven by making it fail). */
   const skipAt = apply.indexOf('[data-m="skip"]');
   const skip = apply.slice(skipAt, apply.indexOf('\n  };', skipAt));
-  ok(skipAt > 0 && /savePendingApply\(project\.folderId, changed\)/.test(skip),
-     'declining stores the pending keys');
-  /* …but only a real field-level delta. On a FIRST template every key is "changed", and carrying
-   * all of them would make the next save's list name the whole form — a specific mode advertised
-   * with an unspecific list. */
-  ok(/if \(offerChanges && changed\.length\) await savePendingApply/.test(skip),
-     '...and only when there is a real field-level delta to carry, not a whole first template');
+  ok(skipAt > 0 && /if \(changed\.length\) await savePendingApply\(project\.folderId, changed\)/.test(skip),
+     'declining stores the pending keys — the whole delta, first template included');
+  /* THE RULE IS DELIBERATELY SIMPLE (Seth: "if it's a first edit, then yes, everything is a
+   * change. After that, only things specifically changed count… We don't need to be more
+   * sophisticated than that."). So a first save offers BOTH modes — an earlier build offered it
+   * only the overwrite, and Seth's objection was exactly that ("it might be the researcher just
+   * wants to set new defaults for future devices"). The long first-save list is capped in
+   * DISPLAY only; the count stays exact and the carried delta is never trimmed. */
+  ok(/const offerChanges = changed\.length > 0;/.test(apply),
+     'both modes are offered whenever there is a delta — a first template included');
+  ok(/labels\.length > 8/.test(apply) && /'panel\.apply\.andMore'/.test(apply),
+     'a long changed-fields list is capped in display only, with the exact count kept');
   ok(/const changed = \[\.\.\.new Set\(\[\.\.\.templateChangedKeys\(prevTpl, patch\), \.\.\.pending\]\)\]/.test(apply),
      'and every later save unions them into its own delta');
   ok(/const clean = !failed\.length && !cancelled;/.test(apply) && /if \(clean\) await savePendingApply\(project\.folderId, \[\]\)/.test(apply),
@@ -110,6 +115,17 @@ console.log('\nthe template is seeded onto a device only when the device is prov
      '...and the wording claims neither "configured" nor "unconfigured" — it says the read failed');
   ok(/'panel\.set\.fromTemplate'/.test(panel) && /Nothing is on the device yet/.test(i18n),
      'a template-seeded form says the values are NOT on the device yet');
+}
+
+console.log('\na new project goes straight into its Default settings');
+{
+  /* Seth: "require the user to fill in project defaults for any new projects they create from now
+   * on." Same move newDeviceModal makes for a new device: the modal opens as part of creation. */
+  const newAt = panel.indexOf('async function projectNewModal');
+  const body = panel.slice(newAt, panel.indexOf('\nasync function ', newAt + 10));
+  ok(/await loadProjectDefaults\(\);\s*\n\s*openSettingsModal\(\{ kind: 'project'/.test(body),
+     'project creation opens the template form (defaults loaded first, the projDefCache rule)');
+  ok(/'panel\.proj\.nowDefaults'/.test(body), 'and says why it opened');
 }
 
 console.log('\nthe template form never pretends to do a per-device act');

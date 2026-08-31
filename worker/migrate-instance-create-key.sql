@@ -1,0 +1,36 @@
+-- IDEMPOTENT DEVICE CREATION — the ghost device, and the duplicate it leaves behind (issue #6).
+--
+-- WHAT WENT WRONG, in the reporter's words: "It processed for a minute, and then showed a message
+-- that it had failed to create the new device… But the 2nd new device now shows up twice — under the
+-- new project tab, and also under 'Not in a project yet'. I'm surprised to see it at all, since the
+-- panel said that creating the 2nd new device had failed."
+--
+-- Both halves are ONE cause. POST /v1/instances inserts the row and then, when a project was named,
+-- creates the device's Drive folder eagerly — a token fetch, a files.get and a folder create. That is
+-- what makes the route slow enough to lose ("processed for a minute"). When the response is lost the
+-- row already exists, so:
+--   * the panel reports a failure that did not happen (the ghost), and
+--   * the researcher tries again, producing a SECOND instance with the same nickname. The first
+--     attempt's folder creation had not finished, so that row has no folder and lands in "Not in a
+--     project yet", while the retry's row has one and lands in the project. Two rows, one name — read
+--     by a human, correctly, as "the same device shown twice".
+-- So this is not a display bug on top of a creation bug. It is the creation bug, seen twice.
+--
+-- THE FIX. The client mints a `create_key` per creation ATTEMPT (not per click) and sends it. The
+-- worker returns the SAME instance for a repeated key instead of making another, which makes the
+-- request safely retryable — so the client can simply retry a lost response, exactly as it already
+-- does for every other transient failure, and the ghost never reaches a human.
+--
+-- ⚠ ADDITIVE AND NULLABLE, so the currently deployed worker keeps working against a migrated
+-- database — it never reads the column — and an OLD client that sends no key inserts NULL and behaves
+-- exactly as it does today. That is the backend-first order this repo requires.
+--
+-- ⚠ THE UNIQUE INDEX IS THE RACE GUARD, and it works BECAUSE the column is nullable: in SQLite NULLs
+-- are distinct for uniqueness, so every keyless row (every row that exists today, and every row an old
+-- client will ever write) coexists freely, while two simultaneous submits carrying the SAME key can
+-- never both insert. The worker turns that constraint failure into a replay rather than an error.
+--
+-- ⚠ SCOPED BY researcher_id, not global: a key is only ever meaningful to the account that minted it,
+-- and a global unique index would let one account's key collide with another's.
+ALTER TABLE instance ADD COLUMN create_key TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_instance_create_key ON instance(researcher_id, create_key);

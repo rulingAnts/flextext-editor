@@ -412,8 +412,14 @@ test('projects UI', async () => {
     // A device created while a project is open must be BORN in it, not in the default.
     ok(/const wantProject = String\(\(body && body\.projectFolderId\)/.test(worker),
        'instance creation accepts a target project');
-    ok(/driveEnsureDeviceFolder\(env, access, instance_id, nickname, '', wantProject\)/.test(worker),
+    /* v544 made creation idempotent (issue #6), so this call gained two replay-aware arguments: the
+     * STORED nickname (a retry must not rename an existing device's folder) and the known folder id
+     * (the v167 strongly-consistent echo instead of a lagging tag search). The CLAIM is unchanged
+     * and still the point — eager, and under the REQUESTED project, never lazily in the default. */
+    ok(/driveEnsureDeviceFolder\(env, access, instance_id, placeName, .*?, wantProject\)/.test(worker),
        '...and creates the folder EAGERLY under it, rather than lazily in the default project');
+    ok(/const placeName = replayed \? replayed\.nickname : nickname;/.test(worker),
+       '...naming it from the stored row on a replay, so a retry cannot rename a device');
     // A SHARED tab is excluded too: its id is a D1 project uuid, not a Drive folder id, and the new
     // device would be the caller's own — so it falls back to the lazy default, as the modal's note says.
     ok(/const intoProject = \(currentProject && currentProject !== STRAY_TAB && !isMemberTab\(currentProject\)\) \? currentProject : '';/.test(panel),

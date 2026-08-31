@@ -119,8 +119,17 @@ fi
 #   keys POST, server-key, grant-sweep) stamp ctx.caller as minter. REVIEWED: none of them accepts
 #   a caller-supplied file or doc id — the function derives instances and member pubkeys entirely
 #   from the project row, so memberFileIdsOk has nothing to check there.
+# ⚠ Raised 9 → 10 (2026-09-01): the member lane's PREVIEW mint at v1.js (the `preview-url` route
+#   shipped in v538) stamps ctx.caller as minter. REVIEWED: it is the one member-reachable mint that
+#   DOES take a caller-supplied file id, and it verifies it the same way the streaming route does —
+#   `driveFileBelongsToDoc(access, fileId, docId)` immediately before minting — after the doc gate,
+#   so a member cannot name a file outside the text they were authorized for. The token is also
+#   scoped + one hour rather than ninety days.
+#   ⚠ AND THE HONEST PART: this guard went RED the moment v538 shipped and stayed red on main,
+#   because the bound was not raised with it. That is the check working — and a reminder that a
+#   release which adds a mint site has to come back here in the SAME commit.
 member_mints=$(grep -c "ctx.caller.researcher_id);" "$W" || true)
-if [ "$member_mints" -le 9 ]; then
+if [ "$member_mints" -le 10 ]; then
   good ok "no unreviewed member-minting route appeared ($member_mints mint arg site(s))"
 else
   bad x "⚠ a new member-reachable mint site exists ($member_mints) — verify its caller-supplied file ids with memberFileIdsOk, then raise this bound"
@@ -380,11 +389,16 @@ while IFS= read -r ln; do
   if ! sed -n "${ln},$((ln + 30))p" "$W" | grep -q "authorizeDocForProject"; then
     gmiss=$((gmiss + 1)); say FAIL "  capability-gated Drive route at line $ln never gates the doc id"
   fi
-done < <(grep -n "authMember(request, env, { instance: instanceId }, 'assignTexts')\|authMember(request, env, { instance: instanceId }, 'drive:read')" "$W" | cut -d: -f1)
-if [ "$gtotal" -ge 6 ] && [ "$gmiss" = 0 ]; then
+#    ⚠ MATCHED BY CAPABILITY, NOT BY SCOPE SHAPE (2026-09-01). This enumerated the two literal
+#    `{ instance: instanceId }` forms, so the PROJECT-scoped upload lane added for issue #4 —
+#    `authMember(request, env, { project: prow.project_id }, 'assignTexts')` — was invisible to the
+#    very check that exists to catch "route number seventeen". A guard that only sees the shapes
+#    that existed when it was written stops being a guard the first time a new one appears.
+done < <(grep -nE "authMember\(request, env, \{ [^}]*\}, '(assignTexts|drive:read)'\)" "$W" | cut -d: -f1)
+if [ "$gtotal" -ge 7 ] && [ "$gmiss" = 0 ]; then
   good ok "every assignTexts/drive:read route gates the caller-supplied doc id ($gtotal site(s))"
 else
-  bad x "⚠ $gmiss capability-gated Drive route(s) act on a doc id without the Phase 3 gate (or the count collapsed: $gtotal, expected ≥6)"
+  bad x "⚠ $gmiss capability-gated Drive route(s) act on a doc id without the Phase 3 gate (or the count collapsed: $gtotal, expected ≥7)"
 fi
 
 # ⚠⚠ A PROJECT NAME IS SERVED TO EVERY MEMBER (GET /v1/projects, and memberProjects on the poll), so

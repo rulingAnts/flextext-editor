@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS "instance" (
   desired_rev   INTEGER NOT NULL DEFAULT 0,
   revoked       INTEGER NOT NULL DEFAULT 0,
   created_at    INTEGER NOT NULL
-, oauth_folder_id TEXT, estate TEXT NOT NULL DEFAULT 'pages', project_id TEXT, tokens_valid_from INTEGER, ki_kp TEXT, ki_kp_version INTEGER);
+, oauth_folder_id TEXT, estate TEXT NOT NULL DEFAULT 'pages', project_id TEXT, tokens_valid_from INTEGER, ki_kp TEXT, ki_kp_version INTEGER, create_key TEXT);
 
 CREATE TABLE IF NOT EXISTS invite (
   invite_id       TEXT PRIMARY KEY,           -- GUID in the link
@@ -188,6 +188,9 @@ CREATE INDEX IF NOT EXISTS idx_install_instance ON install(instance_id);
 CREATE INDEX IF NOT EXISTS idx_instance_project ON instance(project_id);
 
 CREATE INDEX IF NOT EXISTS idx_instance_researcher ON instance(researcher_id);
+-- Idempotent device creation (issue #6): a client-minted key, unique per owner. NULLs are distinct
+-- in SQLite, so every keyless row (all existing rows, and anything an old client writes) coexists.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_instance_create_key ON instance(researcher_id, create_key);
 
 CREATE INDEX IF NOT EXISTS idx_member_key_project ON member_key(project_id);
 

@@ -47,8 +47,13 @@ console.log('\nthe marker is created from the Worker seq, at send time');
   /* ORDERING IS THE WHOLE POINT: the queue record is what is on screen until the marker exists.
    * Set the marker after deleting it and there is a window — however brief — showing nothing, which
    * on a slow render is the very gap being fixed. */
+  /* ⚠ SCOPED TO THE DEVICE LANE. v544 added the project lane (issue #4), which ends BEFORE any of
+   * this — no device, so no assign command and no marker — and deletes its own queue record on the
+   * way out. That delete sits between the two anchors below and made the naive search find the
+   * wrong one. The claim is unchanged: in the lane that DOES assign, the marker precedes the
+   * delete, so the wait never disappears from the screen. */
   const setAt = panel.indexOf("kind: 'assign'");
-  const delAt = panel.indexOf('await db.deleteMedia(key).catch', setAt - 4000);
+  const delAt = panel.indexOf('await db.deleteMedia(key).catch', setAt);
   ok(setAt > 0 && delAt > setAt, 'the marker is set BEFORE the queue record is deleted');
 }
 

@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v543';
+export const ENGINE_VERSION = 'v544';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v543';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = '';
+export const BUILD_TAG = 'issue-4-6 v1';
 
 const S = {
 en: {
@@ -1180,7 +1180,9 @@ internet after the first time.</p>
   'panel.inst.verUnknown': 'version not reported (older build — not yet updated)',
   'panel.inst.settings': 'Settings',
   'panel.inst.invite': 'Invite link',
-  'panel.inst.assign': 'Assign text',
+  // Relabelled per issue #4: the device button UPLOADS as well as assigns, and now sits beside a
+  // project button that only uploads — so each has to say which it is.
+  'panel.inst.assign': 'Assign new text…',
   'panel.inst.revoke': 'Revoke device',
   'panel.inst.revokeInstall': 'Revoke this install',
   'panel.inst.confirmRevoke': 'Revoke “{name}” and all its installs? The device loses access.',
@@ -1237,6 +1239,15 @@ internet after the first time.</p>
   'panel.invite.needSettings': 'Set this device’s settings before creating an invite link.',
   'panel.invite.fixSettings': 'This device is missing required settings. Fix them, then create the invite link.',
   'panel.assign.title': 'Assign a text',
+  // ── upload a text to a PROJECT, no device (issue #4) ──
+  'panel.proj.newText': 'New text…',
+  'panel.rel.new.projectText': 'Panel: a project has its own “New text…” button — upload a text straight into the project and decide later which device works on it. The device button is now “Assign new text…”, since it uploads and assigns in one go.'
+    ,'panel.rel.new.deviceOnce': 'Panel: creating a device can no longer produce a duplicate. If the network drops while the device is being made, the retry finds the one that exists instead of making a second.',
+  'panel.assign.projTitle': 'New text in this project',
+  'panel.assign.projIntro': 'The files are uploaded to this project and left unassigned — no device gets them yet. Move… puts one on a device whenever you are ready.',
+  'panel.assign.projQueuedDone': 'Uploaded “{title}” to this project’s Unassigned.',
+  'panel.assign.projNoWorker': 'This panel is newer than the server — uploading a text to a project is not available yet. Assign it to a device instead, or try again after the next update.',
+  'panel.aq.doneProject': 'Uploaded to the project',
   'panel.assign.intro': 'Pick the actual files to send: the recording and/or the flextext. They are stored privately in your Drive and delivered straight to the device — no links, no sharing settings.',
   'panel.assign.introMember': 'Pick the actual files to send: the recording and/or the flextext. They are stored privately in the project owner’s Drive and delivered straight to the device — no links, no sharing settings.',
   'panel.assign.titleField': 'Title',
@@ -3154,7 +3165,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.inst.verUnknown': 'versi tidak dilaporkan (versi lama — belum diperbarui)',
   'panel.inst.settings': 'Pengaturan',
   'panel.inst.invite': 'Tautan undangan',
-  'panel.inst.assign': 'Tugaskan teks',
+  'panel.inst.assign': 'Tugaskan teks baru…',
   'panel.inst.revoke': 'Cabut perangkat',
   'panel.inst.revokeInstall': 'Cabut instalasi ini',
   'panel.inst.confirmRevoke': 'Cabut “{name}” dan semua instalasinya? Perangkat kehilangan akses.',
@@ -3206,6 +3217,14 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.invite.needSettings': 'Atur pengaturan perangkat ini sebelum membuat tautan undangan.',
   'panel.invite.fixSettings': 'Perangkat ini belum memiliki pengaturan wajib. Perbaiki dulu, lalu buat tautan undangan.',
   'panel.assign.title': 'Tugaskan teks',
+  'panel.proj.newText': 'Teks baru…',
+  'panel.rel.new.projectText': 'Panel: setiap proyek punya tombol “Teks baru…” sendiri — unggah teks langsung ke proyek dan putuskan nanti perangkat mana yang mengerjakannya. Tombol pada perangkat kini “Tugaskan teks baru…”, karena ia mengunggah sekaligus menugaskan.'
+    ,'panel.rel.new.deviceOnce': 'Panel: membuat perangkat tidak lagi bisa menghasilkan duplikat. Jika jaringan terputus saat perangkat dibuat, percobaan ulang menemukan yang sudah ada, bukan membuat yang kedua.',
+  'panel.assign.projTitle': 'Teks baru di proyek ini',
+  'panel.assign.projIntro': 'Berkas diunggah ke proyek ini dan dibiarkan tanpa perangkat — belum ada perangkat yang menerimanya. Gunakan Pindahkan… untuk menaruhnya di perangkat kapan pun Anda siap.',
+  'panel.assign.projQueuedDone': 'Mengunggah “{title}” ke Tidak Tertugas proyek ini.',
+  'panel.assign.projNoWorker': 'Panel ini lebih baru daripada server — mengunggah teks ke proyek belum tersedia. Tugaskan ke perangkat saja, atau coba lagi setelah pembaruan berikutnya.',
+  'panel.aq.doneProject': 'Terunggah ke proyek',
   'panel.assign.intro': 'Pilih berkas yang akan dikirim: rekaman dan/atau flextext. Berkas disimpan secara pribadi di Drive Anda dan diantar langsung ke perangkat — tanpa tautan, tanpa pengaturan berbagi.',
   'panel.assign.introMember': 'Pilih berkas yang akan dikirim: rekaman dan/atau flextext. Berkas disimpan secara pribadi di Drive pemilik proyek dan diantar langsung ke perangkat — tanpa tautan, tanpa pengaturan berbagi.',
   'panel.assign.titleField': 'Judul',

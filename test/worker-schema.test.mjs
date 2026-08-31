@@ -82,6 +82,7 @@ const FILES = [
   // Inert until the operator runs admin/project-key-backfill; registered here so the replay schema,
   // schema-current.sql and the operator's run-list can never disagree about its existence.
   'migrate-project-key.sql',
+  'migrate-instance-create-key.sql',
 ];
 
 /* Split on `;` at end of line — the house SQL style, one statement per line-group, no triggers or
@@ -196,7 +197,11 @@ const wouldLose = (got.tables.instance || []).filter((c) => !rebuiltCols.include
 // landmine grew by one column, which is the growth this assertion exists to make visible.
 // ki_kp + ki_kp_version joined when migrate-project-key.sql was registered (Phase 1) — the landmine
 // grows again, which is this assertion doing its job.
-ok(wouldLose.join(' ') === 'estate ki_kp ki_kp_version oauth_folder_id project_id tokens_valid_from',
+// create_key joined when migrate-instance-create-key.sql was registered (issue #6, idempotent device
+// creation). Losing it would be quieter than losing the others and worse than it sounds: the column
+// is what makes a repeated create replay instead of duplicating, so a database that lost it would
+// silently go back to minting a second device per lost response — the exact bug, re-armed.
+ok(wouldLose.join(' ') === 'create_key estate ki_kp ki_kp_version oauth_folder_id project_id tokens_valid_from',
   `re-running the instance rebuild would destroy exactly [${wouldLose.join(', ')}] and their DATA. ` +
   'The list grows every time the schema does, which is the point of asserting it: a rebuild-style ' +
   'migration is a landmine that gets bigger with age. Fresh databases must use schema-current.sql, ' +

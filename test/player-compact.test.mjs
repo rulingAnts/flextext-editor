@@ -45,8 +45,11 @@ const block = (cond) => {
 };
 
 test('the player and the cut hint compact by tier, without shrinking the transport', () => {
-  const tabletCond = '(max-width: 1024px), (max-height: 620px)';
-  const phoneCond  = '(max-width: 560px)';
+  const tabletCond = '(max-width: 1024px), (max-height: 800px)';
+  /* ⚠ HEIGHT, not width. Keying this on width put a Galaxy Tab A9 in portrait (533 x 893) into the
+   * tightest tier beside a phone — narrow, but with 893px of height and nothing to save — while a
+   * phone in landscape (640 x 360) escaped it by being "wide". The dock is sticky; it costs height. */
+  const phoneCond  = '(max-width: 560px), (max-height: 560px)';
   const tablet = block(tabletCond);
   const phone  = block(phoneCond);
 
@@ -56,6 +59,13 @@ test('the player and the cut hint compact by tier, without shrinking the transpo
   /* Height is in tier A on purpose: a phone in landscape is wide and desperately short, and the
    * player is sticky, so width alone would call that viewport roomy. */
   ok(/max-height/.test(tabletCond), 'tier A also keys on HEIGHT — the dock is sticky, height is what it costs');
+  ok(/max-width/.test(phoneCond) && /max-height/.test(phoneCond),
+     'tier B keys on EITHER dimension — width alone missed phone landscape, height alone missed a tall phone');
+  /* ⚠ Seth, 2026-09-01: "It's screen size that matters to me, not device type." An earlier version
+   * sniffed pointer:coarse to tell an 11" tablet from a same-sized laptop window; that is the exact
+   * distinction he does not want drawn. If it reappears, this is where it should be caught. */
+  ok(!/pointer/.test(tabletCond) && !/pointer/.test(phoneCond),
+     'neither tier sniffs the input device — size decides, not device type');
 
   console.log('\nthe waveform is where the height comes from, and it is a gradient');
   const waveOf = (b) => { const m = b && b.match(/\.player-wave\s*\{[^}]*min-height:\s*(\d+)px/); return m ? Number(m[1]) : null; };

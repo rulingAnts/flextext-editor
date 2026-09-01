@@ -1522,7 +1522,18 @@ body.rp-standalone main { padding-top: 0; }
 .rp-danger-group {
   display: flex; gap: 7px; flex-wrap: wrap; align-items: center;
   flex-basis: 100%;      /* its own line, always — the whole point */
-  margin-top: 4px;       /* reads as a second group rather than a wrapped continuation */
+  /* ⚠ THE GAP IS A SAFETY MARGIN, NOT STYLING (Seth, 2026-09-01): "especially for low tech-savvy
+     users on small screens, we don't want the nuclear option buttons and normal function buttons
+     TOO close together vertically." It was 4px, which on a touch screen is inside the slop of a
+     single tap — a thumb aiming at Settings could land on Unlink. 14px plus a rule puts real
+     distance and a visible boundary between "change something" and "destroy something". */
+  margin-top: 18px; padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+/* More again where the risk is highest: a small screen is where the rows are closest to a thumb,
+   and where the person is least likely to be reading carefully. */
+@media (max-width: 560px) {
+  .rp-danger-group { margin-top: 22px; padding-top: 16px; }
 }
 
 /* ── UNLINK | DELETE: ONE control with two halves (Seth's shape). They are the pair a researcher

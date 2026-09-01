@@ -867,7 +867,7 @@ main {
 /* ── TIER A — tablets, small laptop windows, and any SHORT viewport.
    Height is in the query because the player is sticky: a phone in landscape is
    wide and desperately short, and width alone would call it roomy. */
-@media (max-width: 1024px), (max-height: 620px) {
+@media (max-width: 1024px), (max-height: 800px) {
   .player { padding: 7px 9px 5px; }
   /* Still a comfortable overview waveform — this tier has height to spare, it just
      has less of it than a desktop. */
@@ -897,12 +897,38 @@ main {
    ~30px tall, under the 44px touch target a field phone deserves; taking pixels from
    the controls would be taking them from the wrong place. The height comes back from
    the waveform, the wrapping, and one redundant label. */
+/* Narrow-screen chrome. Unchanged, and deliberately still keyed on WIDTH — a cramped
+   topbar is a horizontal problem, unlike the player below. */
 @media (max-width: 560px) {
   .topbar-row { gap: 6px; }
   .top-tab { padding: 7px 11px 13px; font-size: 14px; }
   #btn-share { font-size: 13px; padding: 7px 9px; }
   .baseline-area { font-size: 17px; }
+}
 
+/* ── TIER B — genuinely SMALL viewports, on top of tier A.
+   ⚠ EITHER DIMENSION, because a screen can be small in one and not the other, and both
+   hurt: the dock is position:sticky so a SHORT screen loses usable height to it, and the
+   controls wrap so a NARROW screen turns it into three rows. Keying on one alone got this
+   wrong twice — width alone let a phone in landscape (640 x 360) pass as roomy, and height
+   alone let a modern tall phone (390 x 844) pass as roomy.
+     phone portrait      360 x 640    -> tier B (narrow)
+     tall phone portrait 390 x 844    -> tier B (narrow)
+     phone landscape     640 x 360    -> tier B (short)
+     Tab A9 portrait     533 x 893    -> tier B (narrow)
+     Tab A9 landscape    893 x 533    -> tier B (short)
+     Tab A9+ portrait    800 x 1280   -> tier A only, 56px
+     Tab A9+ landscape  1280 x 800    -> tier A only, 56px
+   ⚠ SIZE, NOT DEVICE (Seth, 2026-09-01: "for an 11\" tablet, I don't mind it handling our
+   app the same way an 11\" laptop does. It's screen size that matters to me, not device
+   type"). An earlier version sniffed `pointer: coarse` to tell a tablet from a laptop
+   window of the same size; that is exactly the distinction Seth does not want drawn, and
+   dropping it made these rules shorter as well as more correct.
+   ⚠ THE TRANSPORT BUTTONS ARE NOT TOUCHED IN EITHER TIER. .icon-btn2 is already only
+   ~30px tall, under the 44px a field phone deserves; a later pass hunting for pixels must
+   take them from the waveform, the wrapping, and redundant labels, never from the
+   controls. test/player-compact.test.mjs fails if it does. */
+@media (max-width: 560px), (max-height: 560px) {
   .player { padding: 6px 8px 4px; margin: 6px 0 4px; }
   /* A LOCATOR, not an editing surface — the per-line strips below are where the work
      happens, and on the Cut tab this exists to show where the cuts already are. */

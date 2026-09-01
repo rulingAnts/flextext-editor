@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v552';
+export const ENGINE_VERSION = 'v553';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v552';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'revoke-wording v2';
+export const BUILD_TAG = 'revoke-wording v3';
 
 const S = {
 en: {
@@ -1110,7 +1110,8 @@ internet after the first time.</p>
   'panel.delacct.btn': 'Delete my account permanently',
   'panel.delacct.working': 'Deleting account…',
   'panel.delacct.done': 'Account deleted.',
-  'panel.wipe.btn': 'Wipe device',
+  'panel.wipe.btn': 'Erase Data and Reset Device',
+  'panel.wipe.tip': 'Erase everything on the device — texts, audio, settings, the app itself — back to nothing. Irreversible.',
   'panel.wipe.title': 'Remotely wipe this device',
   'panel.wipe.what': 'On its next connection this device will COMPLETELY erase itself — all texts, audio, settings, cached app code, and the service worker — back to nothing, then drop off your panel. For a device that is lost, or no longer in trusted hands.',
   'panel.wipe.warn': 'Irreversible once the device receives it. A device that is offline or never reconnects can’t be wiped now — the wipe stays armed and runs whenever it next connects. This is not a substitute for device encryption.',
@@ -1207,11 +1208,23 @@ internet after the first time.</p>
    * not be a phone"). An install is a browser profile, an Android APK, a tablet or the Electron
    * desktop build — naming any one of them makes the sentence wrong for the others, and "device" is
    * already taken by the identity these controls act on. "where it is installed" covers all of them
-   * and stays true if a sixth shell appears. */
-  'panel.inst.revoke': 'Delete this device',
-  'panel.inst.revokeInstall': 'Unlink — set up elsewhere',
-  'panel.inst.confirmRevoke': 'Delete “{name}”? The device and its settings and assignments go from your list, and wherever it is installed loses access. Its local texts and audio STAY there and you will NOT be able to retrieve or remove them afterward. To keep the device and just move it somewhere else, use Unlink instead.',
-  'panel.inst.confirmRevokeInstall': 'Unlink “{name}” from where it is installed now? That copy loses access and stops syncing, and its local texts and audio STAY there — you will NOT be able to retrieve or remove them afterward. The device itself stays in your list with its name, settings and assigned texts, so you can send a new invite link to set it up somewhere else. To erase what is on it instead, use Wipe.',
+   * and stays true if a sixth shell appears.
+   *
+   * ⚠ AND THE THIRD CONTROL IS PART OF THIS SET (Seth, 2026-09-01): "'Wipe Device' vs 'Delete this
+   * device' can also be confusing. 'Wipe Device' means erase all its data… 'Delete this device'
+   * deletes the server side of it." In English those two labels were near-synonyms, and in
+   * Indonesian 'Hapus' against 'Hapus Total' was the same collision — which is why the delete verb
+   * there is now 'Cabut', a different root, leaving 'Hapus Total' unambiguous.
+   * ⚠ THIS PAIR IS THE SAFETY-CRITICAL ONE, not the unlink/delete pair the issue was opened about:
+   * picking Delete when you meant Wipe leaves a device that is lost or out of trusted hands still
+   * holding the whole corpus. So all three labels now state WHAT HAPPENS TO THE DATA rather than
+   * naming the act, and each dialog points at the siblings a researcher might have meant. */
+  'panel.inst.revoke': 'Delete',
+  'panel.inst.revokeTip': 'Remove this device from your list. Whatever is on it STAYS on it.',
+  'panel.inst.revokeInstall': 'Unlink',
+  'panel.inst.revokeInstallTip': 'Disconnect it from where it is installed, and keep the device so you can set it up somewhere else.',
+  'panel.inst.confirmRevoke': 'Delete “{name}”? The device and its settings and assignments go from your list, and wherever it is installed loses access. Its local texts and audio STAY there and you will NOT be able to retrieve or remove them afterward. To keep the device and move it somewhere else, use Unlink. To destroy what is on it — a device that is lost or out of trusted hands — use Erase Data and Reset Device.',
+  'panel.inst.confirmRevokeInstall': 'Unlink “{name}” from where it is installed now? That copy loses access and stops syncing, and its local texts and audio STAY there — you will NOT be able to retrieve or remove them afterward. The device itself stays in your list with its name, settings and assigned texts, so you can send a new invite link to set it up somewhere else. To erase what is on it instead, use Erase Data and Reset Device.',
   'panel.inst.never': 'never',
   'panel.inst.now': 'just now',
   'panel.inst.minsAgo': '{n} min ago',
@@ -3130,7 +3143,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.delacct.btn': 'Hapus akun saya permanen',
   'panel.delacct.working': 'Menghapus akun…',
   'panel.delacct.done': 'Akun dihapus.',
-  'panel.wipe.btn': 'Hapus total perangkat',
+  'panel.wipe.btn': 'Hapus Data dan Setel Ulang Perangkat',
+  'panel.wipe.tip': 'Hapus semua yang ada di perangkat — teks, audio, pengaturan, aplikasinya sendiri — hingga kosong. Tidak dapat dibatalkan.',
   'panel.wipe.title': 'Hapus total perangkat ini dari jarak jauh',
   'panel.wipe.what': 'Pada koneksi berikutnya, perangkat ini akan MENGHAPUS TOTAL dirinya sendiri — semua teks, audio, pengaturan, kode aplikasi tersimpan, dan service worker — hingga kosong, lalu hilang dari panel Anda. Untuk perangkat yang hilang, atau tidak lagi berada di tangan yang tepercaya.',
   'panel.wipe.warn': 'Tidak dapat dibatalkan setelah perangkat menerimanya. Perangkat yang luring atau tidak pernah terhubung lagi tidak bisa dihapus sekarang — perintah hapus tetap aktif dan berjalan kapan pun perangkat berikutnya terhubung. Ini bukan pengganti enkripsi perangkat.',
@@ -3195,10 +3209,12 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.inst.settings': 'Pengaturan',
   'panel.inst.invite': 'Tautan undangan',
   'panel.inst.assign': 'Tugaskan teks baru…',
-  'panel.inst.revoke': 'Hapus perangkat ini',
-  'panel.inst.revokeInstall': 'Putuskan — pasang di tempat lain',
-  'panel.inst.confirmRevoke': 'Hapus “{name}”? Perangkat beserta pengaturan dan penugasannya hilang dari daftar Anda, dan tempat ia terpasang kehilangan akses. Teks dan audio lokalnya TETAP ada di sana dan Anda TIDAK akan dapat mengambil atau menghapusnya setelahnya. Untuk mempertahankan perangkat dan hanya memindahkannya, gunakan Putuskan.',
-  'panel.inst.confirmRevokeInstall': 'Putuskan “{name}” dari tempat ia terpasang sekarang? Salinan itu kehilangan akses dan berhenti menyinkronkan, dan teks serta audio lokalnya TETAP ada di sana — Anda TIDAK akan dapat mengambil atau menghapusnya setelahnya. Perangkatnya sendiri tetap ada di daftar Anda beserta nama, pengaturan, dan teks yang ditugaskan, jadi Anda bisa mengirim tautan undangan baru untuk memasangnya di tempat lain. Untuk menghapus isinya, gunakan Hapus Total.',
+  'panel.inst.revoke': 'Cabut',
+  'panel.inst.revokeTip': 'Hapus perangkat ini dari daftar Anda. Apa pun yang ada di dalamnya TETAP ada di sana.',
+  'panel.inst.revokeInstall': 'Putuskan',
+  'panel.inst.revokeInstallTip': 'Putuskan sambungannya dari tempat ia terpasang, dan pertahankan perangkatnya agar bisa Anda pasang di tempat lain.',
+  'panel.inst.confirmRevoke': 'Cabut “{name}”? Perangkat beserta pengaturan dan penugasannya hilang dari daftar Anda, dan tempat ia terpasang kehilangan akses. Teks dan audio lokalnya TETAP ada di sana dan Anda TIDAK akan dapat mengambil atau menghapusnya setelahnya. Untuk mempertahankan perangkat dan memindahkannya, gunakan Putuskan. Untuk memusnahkan isinya — perangkat yang hilang atau tidak lagi tepercaya — gunakan Hapus Data dan Setel Ulang Perangkat.',
+  'panel.inst.confirmRevokeInstall': 'Putuskan “{name}” dari tempat ia terpasang sekarang? Salinan itu kehilangan akses dan berhenti menyinkronkan, dan teks serta audio lokalnya TETAP ada di sana — Anda TIDAK akan dapat mengambil atau menghapusnya setelahnya. Perangkatnya sendiri tetap ada di daftar Anda beserta nama, pengaturan, dan teks yang ditugaskan, jadi Anda bisa mengirim tautan undangan baru untuk memasangnya di tempat lain. Untuk menghapus isinya, gunakan Hapus Data dan Setel Ulang Perangkat.',
   'panel.inst.never': 'belum pernah',
   'panel.inst.now': 'baru saja',
   'panel.inst.minsAgo': '{n} mnt lalu',

@@ -55,18 +55,27 @@ test('revoke labels distinguish one install from the whole device', () => {
      * device label mentions "all installs" — encoding a model that cannot occur, since claiming an
      * invite revokes every prior install (worker "single-live-device, §D.4"). The difference that
      * is real, and that a researcher has to see on the button, is whether the DEVICE SURVIVES. */
-    const reHome = /elsewhere|tempat lain/i.test(ins);
+    /* ⚠ THE LABELS ARE SHORT ON PURPOSE NOW — they sit in a segmented control with icons, on the
+     * device's one action row (Seth, 2026-09-01). So the meaning lives in the TOOLTIP and the
+     * dialog, and that is where it is asserted. A label test would have passed while the tooltips
+     * said nothing. */
+    const insTip = valuesOf('panel.inst.revokeInstallTip')[i];
+    const devTip = valuesOf('panel.inst.revokeTip')[i];
+    ok(insTip && devTip, 'both halves carry a tooltip');
+    const reHome = /somewhere else|tempat lain/i.test(insTip);
     ok(reHome, reHome
-      ? `the install label says the device is re-homed: “${ins}”`
-      : `⚠ “${ins}” does not say the device survives and moves — the pair is ambiguous again`);
-    const retire = /delete|hapus/i.test(dev);
-    ok(retire, retire
-      ? `the device label says it is retired: “${dev}”`
-      : `⚠ “${dev}” does not read as removal — indistinguishable from unlinking again`);
+      ? `the Unlink tooltip says the device survives and moves`
+      : `⚠ the Unlink tooltip does not say the device survives — “${insTip}”`);
+    ok(/STAYS|TETAP/.test(devTip),
+       `the Delete tooltip says the data survives: “${devTip}”`);
     /* Each dialog must point at the other control, so whichever one a researcher opens by mistake
      * tells them where the thing they actually wanted lives. */
     ok(/Unlink|Putuskan/.test(devC), 'the delete dialog points at Unlink as the alternative');
-    ok(/Wipe|Hapus Total/.test(insC), 'the unlink dialog points at Wipe for erasing what is on it');
+    /* ⚠ Matched against the LIVE button text, not a literal — the hazard button has been renamed
+     * once already ("Wipe device" → "Erase Data and Reset Device"), and a dialog that points at a
+     * button by a name it no longer has is worse than one that points nowhere. */
+    ok(insC.includes(valuesOf('panel.wipe.btn')[i]),
+       'the unlink dialog points at the hazard button BY ITS CURRENT NAME');
 
     console.log(`[${L}] each control agrees with the dialog it opens`);
     /* The button's leading verb must reappear in its own confirm. This is the exact mismatch that
@@ -86,11 +95,30 @@ test('revoke labels distinguish one install from the whole device', () => {
      * browser profile, an Android APK, a tablet or the Electron desktop build; naming one makes the
      * sentence wrong for the rest, and "device" is already taken by the identity these act on. */
     for (const [what, str] of [['device label', dev], ['install label', ins],
-                               ['delete dialog', devC], ['unlink dialog', insC]]) {
+                               ['delete dialog', devC], ['unlink dialog', insC],
+                               ['delete tooltip', valuesOf('panel.inst.revokeTip')[i]],
+                               ['unlink tooltip', valuesOf('panel.inst.revokeInstallTip')[i]],
+                               ['erase tooltip', valuesOf('panel.wipe.tip')[i]]]) {
       const bad = /\b(phone|handset|ponsel)\b/i.test(str);
       ok(!bad, bad ? `⚠ ${what} names hardware: “${str.slice(0, 60)}…”`
                    : `${what} names no hardware`);
     }
+
+    console.log(`[${L}] Delete and Wipe are told apart by what happens to the DATA`);
+    /* ⚠ THIS IS THE SAFETY-CRITICAL PAIR, not the one the issue was opened about (Seth, 2026-09-01:
+     * "'Wipe Device' vs 'Delete this device' can also be confusing"). Picking Delete when you meant
+     * Wipe leaves a device that is lost or out of trusted hands still holding the whole corpus, so
+     * both labels must state the data's fate rather than name the act. In Indonesian the collision
+     * was 'Hapus' vs 'Hapus Total', which is why the delete verb there is a different root. */
+    const wipeBtn = valuesOf('panel.wipe.btn')[i];
+    ok(wipeBtn && wipeBtn !== dev, `Wipe (“${wipeBtn}”) and Delete (“${dev}”) are not near-synonyms`);
+    const wipeTip = valuesOf('panel.wipe.tip')[i];
+    ok(/erase|reset|hapus|setel ulang/i.test(wipeBtn),
+       `the hazard button names destruction on its face: “${wipeBtn}”`);
+    ok(wipeTip && /irreversible|tidak dapat dibatalkan/i.test(wipeTip),
+       `and its tooltip says it cannot be undone`);
+    ok(devC.includes(valuesOf('panel.wipe.btn')[i]),
+       'the Delete dialog points at the hazard button BY ITS CURRENT NAME');
 
     console.log(`[${L}] the install dialog still warns that local data stays`);
     /* Non-negotiable regardless of wording: unlinking strands texts and audio on the device. */

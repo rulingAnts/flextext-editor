@@ -1272,6 +1272,13 @@ body.rp-standalone main { padding-top: 0; }
 .rp-tag-uploaded { background: #e3f3e4; color: #1f5d22; }
 .rp-tag-changed { background: #fdf3d7; color: #6b5310; }
 .rp-tag-local { background: #e8f0fc; color: var(--blue-dark); }
+/* ⚠ IN PROGRESS, AND IT HAS TO LOOK LIKE IT. This is the state that used to be mislabelled
+   "uploaded ✓" while audio was still going, so it must not read as a settled outcome the way the
+   green and amber chips do — it pulses, which is the one thing on the row that says "still
+   happening". Same pulse as .rp-busy, and stilled under prefers-reduced-motion rather than removed,
+   since a frozen chip is exactly the wrong message. */
+.rp-tag-uploading { background: #e4edf7; color: #24506e; animation: rp-busy-pulse 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .rp-tag-uploading { animation: none; } }
 .rp-tag-requested { background: #ece3f7; color: #5b3d8a; }       /* request sent — in flight */
 .rp-tag-slow { background: #fbe6cf; color: #8a4b10; }            /* sent, device hasn't synced yet */
 .rp-tag-done { background: #e3f3e4; color: #1f5d22; font-weight: 600; }  /* coworker marked the text finished */

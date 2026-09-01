@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v562';
+export const ENGINE_VERSION = 'v563';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -954,8 +954,13 @@ internet after the first time.</p>
   'panel.move.title': 'Move \u201c{title}\u201d',
   'panel.move.intro': 'The text, its audio and its Drive folder move to the device you pick. The copy here is removed only after the other device has received it \u2014 a final upload happens first, so nothing is lost even if the move stalls.',
   'panel.move.go': 'Move text',
+  /* ⚠ These state the READING and its AGE, not a verdict (issue #16). The panel only knows what
+   * the device last reported, and cannot refresh that itself — so it must not tell a researcher
+   * to update an app that may already be current. */
   'panel.move.tooOld': 'needs its app updated first',
-  'panel.move.allTooOld': 'No destination device is updated enough to receive a move yet \u2014 devices update themselves within a day or so of coming online.',
+  'panel.move.tooOldAt': 'reported {ver} as of {when} — too old to receive a move',
+  'panel.move.tooOldUnknown': 'has not reported its version yet — open the app on that device',
+  'panel.move.allTooOld': 'No destination device has reported a new enough app yet. The panel shows the last version each device reported, so a device that has just updated will still look old until it next connects.',
   'panel.move.noOther': 'There is no other device to move to.',
   /* Unassigned as a MOVE TARGET (Seth, 2026-08-19). Not tidiness: §16.25 requires that a text enter
    * the set-aside queue only when the researcher puts it there, and until this existed the queue could
@@ -1238,6 +1243,7 @@ internet after the first time.</p>
    * true even for a freshly assigned text whose files are already in Drive from the assignment. */
   'panel.up.local': 'no upload from this device yet',
   'panel.up.changed': 'edited on device — not yet uploaded',
+  'panel.up.uploading': 'uploading…',
   'panel.up.uploaded': 'uploaded ✓',
   'panel.up.requested': 'request sent…',
   'panel.up.slow': 'awaiting device\u2026',
@@ -3016,7 +3022,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.move.intro': 'Teks, audionya, dan folder Drive-nya pindah ke perangkat yang Anda pilih. Salinan di sini dihapus hanya setelah perangkat lain menerimanya \u2014 unggahan terakhir terjadi lebih dulu, jadi tidak ada yang hilang meski pemindahan tertunda.',
   'panel.move.go': 'Pindahkan teks',
   'panel.move.tooOld': 'aplikasinya perlu diperbarui dulu',
-  'panel.move.allTooOld': 'Belum ada perangkat tujuan yang cukup baru untuk menerima pemindahan \u2014 perangkat memperbarui dirinya dalam sehari setelah online.',
+  'panel.move.tooOldAt': 'melaporkan {ver} pada {when} — terlalu lama untuk menerima pemindahan',
+  'panel.move.tooOldUnknown': 'belum melaporkan versinya — buka aplikasi di perangkat itu',
+  'panel.move.allTooOld': 'Belum ada perangkat tujuan yang melaporkan aplikasi yang cukup baru. Panel menampilkan versi terakhir yang dilaporkan setiap perangkat, jadi perangkat yang baru saja diperbarui akan tetap terlihat lama sampai ia terhubung lagi.',
   'panel.move.noOther': 'Tidak ada perangkat lain untuk tujuan pemindahan.',
   'panel.move.unassignedOpt': 'Google Drive (tidak tertugas)',
   'panel.move.unassignedOf': 'Tidak Tertugas \u2014 {project}',
@@ -3229,6 +3237,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.inst.daysAgo': '{n} hr lalu',
   'panel.up.local': 'belum ada unggahan dari perangkat ini',
   'panel.up.changed': 'diedit di perangkat — belum diunggah',
+  'panel.up.uploading': 'mengunggah…',
   'panel.up.uploaded': 'terunggah ✓',
   'panel.up.requested': 'permintaan terkirim…',
   'panel.up.slow': 'menunggu perangkat\u2026',

@@ -1066,7 +1066,10 @@ function header(titleKey, withLock) {
          map, so rendering the button only where that map is in scope needs no universal special
          case like `help` and `known` required. On any other view the button would be handled by
          nobody, which is the failure those two comments describe. */''}
-    ${withLock ? `<button class="secondary-btn rp-headbtn" data-act="refresh">${esc(t('panel.dash.refresh'))}</button>` : ''}
+    ${/* An icon, matching the header's own idiom — the exit arrow and the help "?" are glyphs too,
+         so an SVG here would be the odd one out. ↻ is Unicode 1.1, so it renders everywhere the
+         field runs. The word survives in title + aria-label. */''}
+    ${withLock ? `<button class="icon-btn rp-headbtn" data-act="refresh" title="${esc(t('panel.dash.refresh'))}" aria-label="${esc(t('panel.dash.refresh'))}">↻</button>` : ''}
     <select id="rp-lang" title="${esc(t('research.lang'))}">${LANGS.map((l) =>
       `<option value="${esc(l)}"${getLang() === l ? ' selected' : ''}>${esc(LANG_NAMES[l] || l)}</option>`).join('')}</select>
     ${releaseNotesLink()}
@@ -3622,7 +3625,11 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
       // Ghosts (incoming assigns) stay on top — they are news; the settled rows sort by #15's rule.
       const listed = [...ghosts, ...(inv || []).slice().sort(textOrder)];
       const rows = listed.length ? listed.map((d) => {
-        const us = (d.uploadState === 'uploaded' || d.uploadState === 'changed') ? d.uploadState : 'local';
+        /* ⚠ 'uploading' HAS A REAL WRITER — see the allow-list note below, which rightly warns
+         * against carrying a state nothing can produce. The device now reports it whenever any file
+         * for the doc is still queued, so "uploaded ✓" can no longer appear while audio is in
+         * flight. */
+        const us = (d.uploadState === 'uploaded' || d.uploadState === 'changed' || d.uploadState === 'uploading') ? d.uploadState : 'local';
         // ⚠ STATE FROM ack_seq, NOT FROM A CLOCK. `queued` = the device has not polled for it yet,
         // so it can still be withdrawn. `taken` = the device has it and is acting; offering a
         // cancel there would let the panel claim a text the device has already deleted, or claim an
@@ -3644,7 +3651,7 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
          * is the note below. If a just-uploaded confirmation is ever wanted, it needs a real
          * writer first — the string is not the missing half. */
         // SECURITY: disp must stay within this fixed literal set — see the note above.
-        const DISP = ['local', 'uploaded', 'changed', 'requested', 'slow', 'assigning', 'assignTaken'].includes(disp) ? disp : 'local';
+        const DISP = ['local', 'uploaded', 'changed', 'uploading', 'requested', 'slow', 'assigning', 'assignTaken'].includes(disp) ? disp : 'local';
         // Action label by state — Upload (never sent) / Upload changes (edited since) / Re-upload (re-send).
         const label = { changed: 'panel.inst.uploadChanges', uploaded: 'panel.inst.reupload',
                         slow: 'panel.inst.resend' }[DISP] || 'panel.inst.upload';
@@ -5503,6 +5510,28 @@ const ICON_GEAR = '<svg class="rp-ico" viewBox="0 0 24 24" aria-hidden="true" fi
 const ICON_MOVE = '<svg class="rp-ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v3"/><path d="M3 7v10a2 2 0 0 0 2 2h7"/><path d="M16 17h6M19 14l3 3-3 3"/></svg>';
 const ICON_LINK = '<svg class="rp-ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9.5 7H7a5 5 0 0 0 0 10h2.5"/><path d="M14.5 7H17a5 5 0 0 1 0 10h-2.5"/><path d="M8 12h8"/></svg>';
 
+/* ⚠ MODULE SCOPE, NOT INSIDE moveTextModal. groupedDestinations() is a separate function defined
+ * ABOVE it and calls tooOldLabel twice; declared as a const inside the modal these were a
+ * ReferenceError the moment a move dialog rendered a device that could not receive. The static
+ * tests pass either way, which is exactly why this is worth a comment rather than a quiet fix. */
+const engOf = (x) => Math.max(0, ...((x.installs || []).map((i) => parseInt(String((i.inventory && i.inventory.engineVersion) || '').replace(/[^0-9]/g, ''), 10) || 0)));
+/* ⚠ SAY WHAT WE KNOW AND WHEN WE LEARNED IT (issue #16). The gate reads the version the DEVICE
+ * LAST REPORTED, which the panel cannot refresh on its own — the device has to check in. So
+ * "needs its app updated first" was a claim the panel had no standing to make: Brian's device was
+ * already on v543, he reloaded the panel twice, and of course nothing changed, because reloading
+ * the panel re-reads the same stored report.
+ * ⚠ NO STALENESS THRESHOLD. Guessing "older than N minutes is stale" invents a fact; showing the
+ * reading and its age states one, and lets the researcher draw the obvious conclusion — "v139, as
+ * of 3 h ago" reads as out of date without anyone having to define out of date. When nothing has
+ * ever been reported, say THAT, and name the action that fixes it: open the app on the device. */
+const seenOf = (x) => Math.max(0, ...((x.installs || []).map((i) => i.last_seen_at || 0)));
+const tooOldLabel = (x) => {
+  const v = engOf(x);
+  return v > 0
+    ? t('panel.move.tooOldAt', { ver: 'v' + v, when: lastSeen(seenOf(x) || 0) })
+    : t('panel.move.tooOldUnknown');
+};
+
 function groupedDestinations(insts, homeProject, opt, canPick, withUnassigned) {
   const projects = ((estateCache && estateCache.projects) || []);
   if (!projects.length) return '';
@@ -5521,7 +5550,7 @@ function groupedDestinations(insts, homeProject, opt, canPick, withUnassigned) {
     out.push(`<div class="rp-move-group${away ? ' rp-move-away' : ''}">
       <div class="rp-move-group-h">${esc(p.name || t('panel.proj.defaultName'))}${away ? ` <span class="rp-badge rp-badge-warn">${esc(t('panel.move.otherProject'))}</span>` : ''}</div>
       ${mine.map((x) => { const ok = canPick(x); const checked = ok && first && !away; if (checked) first = false;
-                          return opt(x.instance_id, x.nickname || '?', ok ? '' : t('panel.move.tooOld'), !ok, checked); }).join('')}
+                          return opt(x.instance_id, x.nickname || '?', ok ? '' : tooOldLabel(x), !ok, checked); }).join('')}
       ${withUnassigned ? opt('__unassigned:' + p.folderId,
           t('panel.move.unassignedOf', { project: p.name || t('panel.proj.defaultName') }),
           away ? t('panel.move.unassignedAway') : t('panel.move.unassignedHere'), false, false) : ''}
@@ -5531,7 +5560,7 @@ function groupedDestinations(insts, homeProject, opt, canPick, withUnassigned) {
   const loose = insts.filter((x) => !projects.some((p) => projectOfInstance(x.instance_id) === p.folderId));
   if (loose.length) {
     out.push(`<div class="rp-move-group"><div class="rp-move-group-h">${esc(t('panel.proj.outside'))}</div>
-      ${loose.map((x) => { const ok = canPick(x); return opt(x.instance_id, x.nickname || '?', ok ? '' : t('panel.move.tooOld'), !ok, false); }).join('')}</div>`);
+      ${loose.map((x) => { const ok = canPick(x); return opt(x.instance_id, x.nickname || '?', ok ? '' : tooOldLabel(x), !ok, false); }).join('')}</div>`);
   }
   return out.join('');
 }
@@ -5572,7 +5601,6 @@ async function moveTextModal(fromId, docId, title) {
   // ⚠ Only devices on v138+ can RECEIVE a move: older engines ignore the assign's docId and mint
   // their own, so the arrival is invisible to the sweep and the move waits forever (fail-safe —
   // the source is never removed — but wedged). Devices auto-update, so this resolves itself.
-  const engOf = (x) => Math.max(0, ...((x.installs || []).map((i) => parseInt(String((i.inventory && i.inventory.engineVersion) || '').replace(/[^0-9]/g, ''), 10) || 0)));
   const insts = ((lastData && lastData.instances) || []).filter((x) => x.instance_id !== fromId);
   for (const x of insts) x._canReceive = engOf(x) >= 138;
 
@@ -5599,7 +5627,7 @@ async function moveTextModal(fromId, docId, title) {
   const m = modal(`
     <h3>${esc(t('panel.move.title', { title }))}</h3>
     <p class="note">${esc(t(deviceOk ? 'panel.move.intro' : why))}</p>
-    ${grouped || insts.map((x) => opt(x.instance_id, x.nickname || '?', x._canReceive ? '' : t('panel.move.tooOld'),
+    ${grouped || insts.map((x) => opt(x.instance_id, x.nickname || '?', x._canReceive ? '' : tooOldLabel(x),
                            !deviceOk || !x._canReceive, deviceOk && x === firstOk)).join('')}
     ${grouped ? '' : opt('__unassigned', t('panel.move.unassignedOpt'), t('panel.move.unassignedWhyDevice'), false, !deviceOk)}
     ${grouped ? `<p class="note">${esc(t('panel.move.unassignedPerProject'))}</p>` : ''}

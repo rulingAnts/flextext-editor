@@ -825,11 +825,92 @@ main {
 }
 .modal-card .primary-btn, .modal-card .secondary-btn { width: 100%; padding: 11px; }
 
+/* Screen-reader-only. Keeps a control's accessible NAME while its visible label is dropped for
+   room — clip rather than display:none, which would remove the name along with the pixels. */
+.vis-hidden {
+  position: absolute !important; width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+}
+
+/* The ℹ that folds the Cut tab's instructions away — see the comment on the button in index.html.
+   Hidden by default: on a wide screen the hint is simply visible, so a control to reveal it would
+   be a control that does nothing. */
+#btn-cut-hint { display: none; }
+.cut-hint-btn { font-size: 15px; line-height: 1; color: var(--muted); }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   SMALL SCREENS: TWO TIERS, because "small" is not one thing (Seth, 2026-09-01:
+   "for larger screens, a larger player is good … but for smaller ones, we need a
+   smaller player", and "a small screen would also include … a Galaxy Tab A9").
+
+   The sticky player costs its height on EVERY screen of a transcription session,
+   so what matters is how much of the viewport it eats — which is a different
+   question on a phone, a tablet, and a laptop. Hence a gradient, not a cliff.
+
+   Reference CSS viewports (Android, DPR 1.5):
+     phone portrait      360 x 640      tier B
+     phone landscape     640 x 360      tier B (caught by max-height)
+     Tab A9   8.7"       533 x 893      tier A portrait
+     Tab A9   8.7"  land 893 x 533      tier A (both conditions)
+     Tab A9+ 11"         800 x 1280     tier A portrait
+     Tab A9+ 11"    land 1280 x 800     FULL SIZE — see the note below
+     laptop             1440 x 900      full size
+
+   ⚠ An 11" tablet in LANDSCAPE (1280x800) deliberately keeps the full-size player.
+   Catching it would need max-width past 1280, which is every laptop too, and at
+   that size the dock is ~20% of the height rather than half of it. If that turns
+   out to be the wrong call in the field, widen tier A — the rules are already
+   written to scale.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* ── TIER A — tablets, small laptop windows, and any SHORT viewport.
+   Height is in the query because the player is sticky: a phone in landscape is
+   wide and desperately short, and width alone would call it roomy. */
+@media (max-width: 1024px), (max-height: 620px) {
+  .player { padding: 7px 9px 5px; }
+  /* Still a comfortable overview waveform — this tier has height to spare, it just
+     has less of it than a desktop. */
+  .player-wave { min-height: 56px; }
+  /* 7.5em reserved room for the longest timecode on every screen; that reservation
+     is what pushes the zoom slider onto a row of its own. */
+  .player-time { min-width: 0; }
+  .player-zoom-wrap { min-width: 0; }
+  /* The word "Zoom" beside a slider that is visibly a zoom slider. Clipped rather
+     than removed: the input carries data-i18n-aria, so the accessible name lives on. */
+  .player-zoom-label {
+    position: absolute; width: 1px; height: 1px;
+    margin: -1px; padding: 0; border: 0; overflow: hidden;
+    clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+  }
+
+  /* The Cut tab's instructions fold behind the ℹ beside ✨ — Seth's own suggestion,
+     and the same idiom the tab already uses for ✂ and ✨: a glyph, words one tap away.
+     Measured at 375px the paragraph was 162px tall, as tall as the whole player. */
+  #btn-cut-hint { display: inline-flex; align-items: center; justify-content: center; }
+  #cut-hint { display: none; }
+  #cut-hint.is-open { display: block; }
+}
+
+/* ── TIER B — phones. Tighter still, on top of tier A.
+   ⚠ THE TRANSPORT BUTTONS ARE NOT TOUCHED IN EITHER TIER. .icon-btn2 is already only
+   ~30px tall, under the 44px touch target a field phone deserves; taking pixels from
+   the controls would be taking them from the wrong place. The height comes back from
+   the waveform, the wrapping, and one redundant label. */
 @media (max-width: 560px) {
   .topbar-row { gap: 6px; }
   .top-tab { padding: 7px 11px 13px; font-size: 14px; }
   #btn-share { font-size: 13px; padding: 7px 9px; }
   .baseline-area { font-size: 17px; }
+
+  .player { padding: 6px 8px 4px; margin: 6px 0 4px; }
+  /* A LOCATOR, not an editing surface — the per-line strips below are where the work
+     happens, and on the Cut tab this exists to show where the cuts already are. */
+  .player-wave { min-height: 44px; }
+  .player-controls { gap: 6px; margin-top: 2px; }
+  .player-time { font-size: 13px; }
+  .player-zoom-wrap { gap: 4px; font-size: 12px; }
+  .player-zoom { max-width: none; }
 }
 
 /* Subtle credit/source line on the home screen — muted so it doesn't distract

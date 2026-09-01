@@ -525,7 +525,7 @@ async function getKi(instanceId) {
  * ⚠ FLIP THIS TO `true` IN THE SAME CHANGE THAT CONFIRMS THE WORKER IS LIVE — it is the last step of
  * issue #6, and the fix is inert until it happens. test/create-idempotency-order.test.mjs pins the
  * pair so the flag and the deploy cannot drift apart. */
-const CREATE_RETRY_SAFE = false;   // ← true once the create_key worker is deployed
+const CREATE_RETRY_SAFE = true;    // worker 21374218 (2026-09-01) replays create_key on BOTH routes
 export async function createInstance(nickname, projectFolderId) {
   requireUnlocked();
   /* `projectFolderId` makes the worker create this device's Drive folder EAGERLY, under that project

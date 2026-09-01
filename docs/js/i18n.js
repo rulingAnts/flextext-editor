@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v551';
+export const ENGINE_VERSION = 'v552';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v551';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'revoke-wording v1';
+export const BUILD_TAG = 'revoke-wording v2';
 
 const S = {
 en: {
@@ -1198,14 +1198,20 @@ internet after the first time.</p>
    *
    * What actually differs is whether the DEVICE IDENTITY survives:
    *   unlink install  → install revoked; the instance lives on with its name, settings and assigned
-   *                     texts, so a NEW invite can put that same device on another phone.
+   *                     texts, so a NEW invite can set that same device up elsewhere.
    *   revoke device   → instance revoked too; the identity is retired.
    * The old invite is never reused — it is spent (`claimed_at`), and a fresh one is minted. What is
-   * reused is the device, which is the thing worth saying on the button. */
+   * reused is the device, which is the thing worth saying on the button.
+   *
+   * ⚠ NO HARDWARE NOUN ANYWHERE IN THIS GROUP (Seth, 2026-09-01: "don't say phone, because it might
+   * not be a phone"). An install is a browser profile, an Android APK, a tablet or the Electron
+   * desktop build — naming any one of them makes the sentence wrong for the others, and "device" is
+   * already taken by the identity these controls act on. "where it is installed" covers all of them
+   * and stays true if a sixth shell appears. */
   'panel.inst.revoke': 'Delete this device',
-  'panel.inst.revokeInstall': 'Unlink — move to another phone',
-  'panel.inst.confirmRevoke': 'Delete “{name}”? The device and its settings and assignments go from your list, and the phone it is on loses access. Its local texts and audio STAY on that phone and you will NOT be able to retrieve or remove them afterward. To keep the device and just move it to a different phone, use Unlink instead.',
-  'panel.inst.confirmRevokeInstall': 'Unlink “{name}” from the phone it is on now? That phone loses access and stops syncing, and its local texts and audio STAY on it — you will NOT be able to retrieve or remove them afterward. The device itself stays in your list with its name, settings and assigned texts, so you can send a new invite link to set it up on another phone. To erase the phone instead, use Wipe.',
+  'panel.inst.revokeInstall': 'Unlink — set up elsewhere',
+  'panel.inst.confirmRevoke': 'Delete “{name}”? The device and its settings and assignments go from your list, and wherever it is installed loses access. Its local texts and audio STAY there and you will NOT be able to retrieve or remove them afterward. To keep the device and just move it somewhere else, use Unlink instead.',
+  'panel.inst.confirmRevokeInstall': 'Unlink “{name}” from where it is installed now? That copy loses access and stops syncing, and its local texts and audio STAY there — you will NOT be able to retrieve or remove them afterward. The device itself stays in your list with its name, settings and assigned texts, so you can send a new invite link to set it up somewhere else. To erase what is on it instead, use Wipe.',
   'panel.inst.never': 'never',
   'panel.inst.now': 'just now',
   'panel.inst.minsAgo': '{n} min ago',
@@ -3190,9 +3196,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.inst.invite': 'Tautan undangan',
   'panel.inst.assign': 'Tugaskan teks baru…',
   'panel.inst.revoke': 'Hapus perangkat ini',
-  'panel.inst.revokeInstall': 'Putuskan — pindahkan ke ponsel lain',
-  'panel.inst.confirmRevoke': 'Hapus “{name}”? Perangkat beserta pengaturan dan penugasannya hilang dari daftar Anda, dan ponsel yang memakainya kehilangan akses. Teks dan audio lokalnya TETAP ada di ponsel itu dan Anda TIDAK akan dapat mengambil atau menghapusnya setelahnya. Untuk mempertahankan perangkat dan hanya memindahkannya ke ponsel lain, gunakan Putuskan.',
-  'panel.inst.confirmRevokeInstall': 'Putuskan “{name}” dari ponsel yang memakainya sekarang? Ponsel itu kehilangan akses dan berhenti menyinkronkan, dan teks serta audio lokalnya TETAP ada di sana — Anda TIDAK akan dapat mengambil atau menghapusnya setelahnya. Perangkatnya sendiri tetap ada di daftar Anda beserta nama, pengaturan, dan teks yang ditugaskan, jadi Anda bisa mengirim tautan undangan baru untuk memasangnya di ponsel lain. Untuk menghapus isi ponselnya, gunakan Hapus Total.',
+  'panel.inst.revokeInstall': 'Putuskan — pasang di tempat lain',
+  'panel.inst.confirmRevoke': 'Hapus “{name}”? Perangkat beserta pengaturan dan penugasannya hilang dari daftar Anda, dan tempat ia terpasang kehilangan akses. Teks dan audio lokalnya TETAP ada di sana dan Anda TIDAK akan dapat mengambil atau menghapusnya setelahnya. Untuk mempertahankan perangkat dan hanya memindahkannya, gunakan Putuskan.',
+  'panel.inst.confirmRevokeInstall': 'Putuskan “{name}” dari tempat ia terpasang sekarang? Salinan itu kehilangan akses dan berhenti menyinkronkan, dan teks serta audio lokalnya TETAP ada di sana — Anda TIDAK akan dapat mengambil atau menghapusnya setelahnya. Perangkatnya sendiri tetap ada di daftar Anda beserta nama, pengaturan, dan teks yang ditugaskan, jadi Anda bisa mengirim tautan undangan baru untuk memasangnya di tempat lain. Untuk menghapus isinya, gunakan Hapus Total.',
   'panel.inst.never': 'belum pernah',
   'panel.inst.now': 'baru saja',
   'panel.inst.minsAgo': '{n} mnt lalu',

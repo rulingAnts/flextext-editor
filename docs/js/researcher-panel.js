@@ -1100,7 +1100,8 @@ function header(titleKey, withLock) {
  * never invent a number for symmetry. */
 const ISSUES_URL = 'https://github.com/rulingAnts/flextext-editor/issues/';
 const RELEASES = [
-  { v: 'v545', date: '2026-09-01', items: [
+  { v: 'v547', date: '2026-09-01', items: [
+    { k: 'panel.rel.new.pairConnect' },
     { k: 'panel.rel.new.projectText', issue: 4 },
     { k: 'panel.rel.new.deviceOnce', issue: 6 },
   ] },

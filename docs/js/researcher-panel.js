@@ -1061,6 +1061,12 @@ function header(titleKey, withLock) {
     <span class="rp-spacer"></span>
     ${deps && deps.canInstall && deps.canInstall() ? `<button class="secondary-btn rp-install" id="rp-install">${esc(t('install.btn'))}</button>` : ''}
     ${advancedPicker()}
+    ${/* ⚠ GATED ON withLock, which is the DASHBOARD flag — and that is what wires it for free.
+         `refresh: () => renderDashboard()` already lives in the dashboard's own wireActs handler
+         map, so rendering the button only where that map is in scope needs no universal special
+         case like `help` and `known` required. On any other view the button would be handled by
+         nobody, which is the failure those two comments describe. */''}
+    ${withLock ? `<button class="secondary-btn rp-headbtn" data-act="refresh">${esc(t('panel.dash.refresh'))}</button>` : ''}
     <select id="rp-lang" title="${esc(t('research.lang'))}">${LANGS.map((l) =>
       `<option value="${esc(l)}"${getLang() === l ? ' selected' : ''}>${esc(LANG_NAMES[l] || l)}</option>`).join('')}</select>
     ${releaseNotesLink()}
@@ -1950,7 +1956,8 @@ async function renderDashboard(prefetched) {
       <div class="rp-metric"><div class="rp-metric-l">${esc(t('panel.dash.texts'))}</div><div class="rp-metric-n">${texts}</div></div>
     </div>
     <div class="rp-actions">
-      <button class="secondary-btn" data-act="refresh">${esc(t('panel.dash.refresh'))}</button>
+      ${/* Refresh moved to the sticky header (Seth, 2026-09-01) — it is wanted from anywhere in a
+           long dashboard, which is the same reason the header is sticky at all. */''}
       <span class="rp-spacer"></span>
       ${data.isOwner ? `<button class="link-btn rp-admin-btn" data-act="admin">${esc(t('panel.admin.btn'))}</button>` : ''}
       <button class="link-btn" data-act="storage">${esc(t('panel.store.btn'))}</button>

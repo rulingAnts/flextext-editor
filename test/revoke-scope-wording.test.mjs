@@ -125,6 +125,25 @@ test('revoke labels distinguish one install from the whole device', () => {
     ok(/STAY|TETAP/.test(insC), 'the "data stays on the device" warning survives the rewording');
   }
 
+  console.log('\nevery {placeholder} in these strings is actually substituted at its call site');
+  /* ⚠ THIS SHIPPED TO STAGING: confirmRevokeInstall gained a “{name}” and its t() call was not
+   * updated, so the dialog literally read: Unlink "{name}" from where it is installed now?
+   * i18n-parity cannot catch it — both languages had the placeholder, consistently — and no test
+   * looked at whether the CALLER passes it. This does. */
+  const panelSrc = readFileSync(new URL('../docs/js/researcher-panel.js', import.meta.url), 'utf8');
+  for (const key of ['panel.inst.confirmRevoke', 'panel.inst.confirmRevokeInstall']) {
+    const val = valuesOf(key)[0] || '';
+    const ph = [...val.matchAll(/\{(\w+)\}/g)].map((m) => m[1]);
+    if (!ph.length) { ok(true, `${key} has no placeholders`); continue; }
+    const call = panelSrc.match(new RegExp(`t\\('${key.replace(/\./g, '\\.')}'([^)]*)\\)`));
+    ok(!!call, `${key} is called somewhere`);
+    for (const name of ph) {
+      const passed = !!call && new RegExp(`\\b${name}\\s*:`).test(call[1] || '');
+      ok(passed, passed ? `${key} passes {${name}}`
+                        : `⚠ ${key} contains {${name}} but its t() call does not pass it — the dialog will print the braces`);
+    }
+  }
+
   console.log(fail ? `\nFAILED (${fail})\n` : '\nall passed\n');
   if (fail) throw new Error(`${fail} check(s) failed`);
 });

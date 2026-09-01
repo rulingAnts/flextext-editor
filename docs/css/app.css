@@ -1122,14 +1122,22 @@ body.rp-standalone main { padding-top: 0; }
 
 .rp-actions { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
 
-.rp-inst-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+/* ⚠ NOWRAP: the icon buttons must never drop to a line of their own (Seth, 2026-09-01: "I don't
+   want those icon buttons wrapping to a new line"). The header therefore absorbs pressure by
+   TRUNCATING the device name instead — a long name is the thing that can afford to lose characters;
+   three controls silently relocating is not. */
+.rp-inst-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: nowrap; }
 .rp-inst-name { font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 /* Collapse toggle. A REAL <button> (keyboard + screen reader get it for free) styled to read as the
    card header it replaced — the whole header row is the hit target, which is what makes tapping it
    on a phone practical. No transition on .rp-inst-body on purpose: the dashboard re-renders every
    12s and the state is re-derived, so an animation would replay on every poll. */
-.rp-inst-toggle { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; width: 100%;
+/* ⚠ nowrap + width:auto. It was `flex-wrap: wrap; width: 100%`, from when this button WAS the
+   whole header row. Left as-is it took the full width (pushing the icons off the row) and wrapped
+   its own children (dropping the text count to a second line behind a long name). Now it sizes to
+   its content, shrinks by truncating the nickname, and never breaks internally. */
+.rp-inst-toggle { display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; width: auto;
   background: none; border: 0; padding: 0; margin: 0; font: inherit; color: inherit;
   text-align: left; cursor: pointer; }
 .rp-inst-toggle:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; border-radius: 6px; }
@@ -1148,8 +1156,20 @@ body.rp-standalone main { padding-top: 0; }
 .rp-iconbtn:hover { background: #e8ecf2; }
 .rp-iconbtn:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
 .rp-iconbtn .rp-ico { width: 17px; height: 17px; opacity: .8; }
-.rp-inst-toggle { flex: 1 1 auto; min-width: 0; }
-.rp-inst-count { margin-left: 0; font-size: 12px; color: var(--muted); font-weight: 400; }
+/* ⚠ THE TOGGLE MUST NOT GROW. At `flex: 1 1 auto` it expanded to fill the row and pushed the icon
+   buttons onto a second line — which is exactly what the header change was meant to avoid. It may
+   SHRINK (long device names truncate) but never grow, so the icons sit immediately after the badges
+   and the count keeps the right edge via its own auto margin. */
+.rp-inst-toggle { flex: 0 1 auto; min-width: 0; overflow: hidden; }
+/* The name yields first, and only the name: badges and the count stay whole and legible.
+   ⚠ TRUNCATE, DO NOT WRAP. A wrapping name pushed the count onto a third line and made the header
+   three rows tall for one long device name — the icons stayed put, but the row stopped reading as a
+   row. An ellipsis keeps the header exactly one line at every name length, and the full name is
+   still in the title attribute and the card below. */
+.rp-inst-toggle .rp-inst-name { min-width: 0; flex-wrap: nowrap; overflow: hidden; }
+.rp-inst-nick { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 3em; }
+.rp-inst-quick { margin-left: auto; }
+.rp-inst-count { margin-left: 0; white-space: nowrap; flex: none; font-size: 12px; color: var(--muted); font-weight: 400; }
 
 .rp-badge { font-size: 12px; padding: 2px 9px; border-radius: 6px; background: var(--panel); color: var(--muted); font-weight: 400; }
 .rp-badge-type, .rp-badge-you { background: #e8f0fc; color: var(--blue-dark); }

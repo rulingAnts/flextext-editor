@@ -3836,13 +3836,25 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
     ? ` <span class="rp-badge rp-badge-legacy">${esc(t('panel.inst.legacyBadge'))}</span>` : '';
   return `<div class="rp-card rp-inst${collapsed ? ' rp-inst-collapsed' : ''}">
     <div class="rp-inst-top">
+      ${/* ⚠ THE QUICK ACTIONS ARE SIBLINGS OF THE COLLAPSE BUTTON, NOT CHILDREN OF IT.
+           The whole header used to be one <button> so the entire row was a collapse target — good
+           on a phone. A <button> cannot contain a <button>, so putting icons "in the header row"
+           (Seth, 2026-09-01) meant splitting it: the toggle keeps the caret, the name and the
+           badges and still takes all the leftover width, and the icons and the count sit beside it.
+           The hit target shrinks by the width of three icons; nesting would have been invalid HTML
+           that browsers silently reparent, which is worse than a smaller target. */''}
       <button class="rp-inst-toggle" data-iact="collapse" data-i="${esc(it.instance_id)}"
               aria-expanded="${collapsed ? 'false' : 'true'}" aria-controls="${esc(bodyId)}"
               title="${esc(t(collapsed ? 'panel.inst.expand' : 'panel.inst.collapse'))}">
         <span class="rp-caret" aria-hidden="true">▾</span>
         <span class="rp-inst-name">${esc(it.nickname || '?')} ${runs ? `<span class="rp-badge rp-badge-type">${esc(runs)}</span>` : ''} ${status}${warnBadges}${legacyBadge}</span>
-        <span class="rp-inst-count">${esc(t('panel.inst.texts', { n: textCount }))}</span>
       </button>
+      ${collapsed ? '' : `<div class="rp-inst-quick">
+        ${mAssign ? `<button class="rp-iconbtn" data-iact="assign" data-i="${esc(it.instance_id)}" title="${esc(t('panel.inst.assign'))}" aria-label="${esc(t('panel.inst.assign'))}">${ICON_NEWTEXT}</button>` : ''}
+        ${mManage ? `<button class="rp-iconbtn" data-iact="settings" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}" title="${esc(t('panel.inst.settings'))}" aria-label="${esc(t('panel.inst.settings'))}">${ICON_GEAR}</button>` : ''}
+        ${memberCtx ? '' : projectMoveIconBtn(it)}
+      </div>`}
+      <span class="rp-inst-count">${esc(t('panel.inst.texts', { n: textCount }))}</span>
     </div>
     <div class="rp-inst-body" id="${esc(bodyId)}"${collapsed ? ' hidden' : ''}>
       ${isLegacyDevice ? `<p class="banner warn-banner rp-legacy-tip">${esc(t('panel.inst.legacyTip'))}
@@ -3850,18 +3862,8 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
       ${installsHtml || `<p class="note">${esc(t('panel.inst.noInstall'))}</p>`}
       ${mKeyless ? `<p class="note">${esc(t('panel.joined.keyPending'))}</p>` : ''}
       <div class="rp-inst-actions">
-        ${/* ⚠ ORDER IS FREQUENCY DESCENDING, THEN SEVERITY ASCENDING, ACROSS ONE ROW (Seth insists on
-             one row, and is right — these all act on the same device).
-             Assign is the everyday job so it leads, where the eye lands and the pointer already is.
-             Invite is once per device; Move is rarer still. Then the spacer, then the two mild acts,
-             then the irreversible one.
-             ⚠ THE POINT OF THE ARRANGEMENT is that the most-used control and the unrecoverable one
-             end up at OPPOSITE ENDS of the row. Any order that puts Erase next to Assign is a
-             mis-click waiting to happen, whatever it is coloured. */''}
-        ${mAssign ? `<button class="secondary-btn" data-iact="assign" data-i="${esc(it.instance_id)}">${esc(t('panel.inst.assign'))}</button>` : ''}
-        ${mManage ? `<button class="secondary-btn" data-iact="settings" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}">${esc(t('panel.inst.settings'))}</button>` : ''}
-        ${mInvite ? `<button class="secondary-btn" data-iact="invite" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}">${esc(t('panel.inst.invite'))}</button>` : ''}
-        ${memberCtx ? '' : projectMoveBtn(it)}
+        ${/* The everyday actions moved to the header as icons; what is left on this row is the
+             device's LIFECYCLE, in order: connect it, disconnect it, remove it, destroy it. */''}
         ${(() => {
           /* ⚠ THE THREE DESTRUCTIVE CONTROLS, TOGETHER AND GRADED (Seth, 2026-09-01).
            * Unlink and Delete are one segmented control with two halves: they are the pair a
@@ -3877,7 +3879,21 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
           if (!mManage) return '';
           const live = (it.installs || []).find((x) => !x.wipe_state);
           const I = esc(it.instance_id), NM = esc(it.nickname || '');
-          const unlink = live ? `<button class="rp-split-half" data-iact="revoke-install" data-i="${I}" data-id="${esc(live.install_id)}" data-i18n-title="panel.inst.revokeInstallTip" title="${esc(t('panel.inst.revokeInstallTip'))}">${ICON_UNLINK}<span>${esc(t('panel.inst.revokeInstall'))}</span></button>` : '';
+          /* ⚠ LINK AND UNLINK ARE ONE CONTROL, BECAUSE THEY ARE ONE AXIS (Seth, 2026-09-01: "even
+           * better if we can make link/unlink a toggle. So until an invitation has been accepted,
+           * the 'link' button shows (with a chain) and when it is accepted, it changes to
+           * 'unlink'"). Two separate buttons could contradict each other — Invite offering to
+           * connect a device that is already connected, Unlink offering to cut a link that was
+           * never made.
+           * ⚠ DRIVEN BY THE SAME `linked` THE BADGE USES (status === 'approved' && has_key), not by
+           * "is there an install row": an install that has claimed the invite but is still awaiting
+           * approval is NOT linked, and offering Unlink there would be offering to undo something
+           * that has not happened. Sharing the expression is what stops the toggle and the badge
+           * ever telling different stories about the same device. */
+          const connect = linked
+            ? (live ? `<button class="rp-split-half" data-iact="revoke-install" data-i="${I}" data-id="${esc(live.install_id)}" title="${esc(t('panel.inst.revokeInstallTip'))}" aria-label="${esc(t('panel.inst.revokeInstall'))}">${ICON_UNLINK}<span>${esc(t('panel.inst.revokeInstall'))}</span></button>` : '')
+            : (mInvite ? `<button class="rp-split-half" data-iact="invite" data-i="${I}" data-type="${esc(it.type)}" title="${esc(t('panel.inst.inviteTip'))}" aria-label="${esc(t('panel.inst.link'))}">${ICON_LINK}<span>${esc(t('panel.inst.link'))}</span></button>` : '');
+          const unlink = connect;
           const del = `<button class="rp-split-half" data-iact="revoke" data-i="${I}" data-name="${NM}" data-i18n-title="panel.inst.revokeTip" title="${esc(t('panel.inst.revokeTip'))}">${ICON_X}<span>${esc(t('panel.inst.revoke'))}</span></button>`;
           const wipe = (!memberCtx && live)
             ? `<button class="rp-wipe-btn" data-iact="wipe-install" data-i="${I}" data-id="${esc(live.install_id)}" data-name="${NM}" data-i18n-title="panel.wipe.tip" title="${esc(t('panel.wipe.tip'))}"><span class="rp-skull" aria-hidden="true">☠</span><span>${esc(t('panel.wipe.btn'))}</span></button>`
@@ -5392,6 +5408,14 @@ function projectName(folderId) {
 const ICON_UNLINK = '<svg class="rp-ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9.5 7H7a5 5 0 0 0 0 10h2.5"/><path d="M14.5 7H17a5 5 0 0 1 0 10h-2.5"/><path d="M12 3.5v2M12 18.5v2"/></svg>';
 const ICON_X = '<svg class="rp-ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 
+/* Quick-action icons for the device header. Drawn, for the same reason the Unlink icon is: a
+ * "new document" or "gear" emoji is either absent or wildly different per platform, and these sit at
+ * 16px where emoji detail turns to mush. currentColor so they inherit the button's state. */
+const ICON_NEWTEXT = '<svg class="rp-ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h6"/><path d="M14 3l4 4"/><path d="M14 3v4h4"/><path d="M18 14v6M15 17h6"/></svg>';
+const ICON_GEAR = '<svg class="rp-ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg>';
+const ICON_MOVE = '<svg class="rp-ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v3"/><path d="M3 7v10a2 2 0 0 0 2 2h7"/><path d="M16 17h6M19 14l3 3-3 3"/></svg>';
+const ICON_LINK = '<svg class="rp-ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9.5 7H7a5 5 0 0 0 0 10h2.5"/><path d="M14.5 7H17a5 5 0 0 1 0 10h-2.5"/><path d="M8 12h8"/></svg>';
+
 function groupedDestinations(insts, homeProject, opt, canPick, withUnassigned) {
   const projects = ((estateCache && estateCache.projects) || []);
   if (!projects.length) return '';
@@ -6223,6 +6247,16 @@ function projectScope(insts, estate, crowdRecs, memberProjects) {
  * parentage is the only record of which project a container is in. A device whose folder has never
  * been created (no upload yet, made before eager creation) has nothing to move, and correctly
  * renders no button. */
+/* Icon form of projectMoveBtn for the header row. Delegates so the two can never disagree about
+ * WHEN a move is offered — it reuses the same function and just swaps the presentation. */
+function projectMoveIconBtn(it) {
+  const full = projectMoveBtn(it);
+  if (!full) return '';
+  const m = full.match(/data-iact="([^"]+)"/), i = full.match(/data-i="([^"]+)"/);
+  if (!m) return '';
+  return `<button class="rp-iconbtn" data-iact="${m[1]}"${i ? ` data-i="${i[1]}"` : ''} title="${esc(t('panel.proj.moveBtn'))}" aria-label="${esc(t('panel.proj.moveBtn'))}">${ICON_MOVE}</button>`;
+}
+
 function projectMoveBtn(it) {
   const projects = ((estateCache && estateCache.projects) || []);
   if (projects.length < 2) return '';

@@ -1135,7 +1135,21 @@ body.rp-standalone main { padding-top: 0; }
 .rp-inst-toggle:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; border-radius: 6px; }
 .rp-caret { color: var(--muted); font-size: 12px; line-height: 1; transform: rotate(0deg); }
 .rp-inst-collapsed .rp-caret { transform: rotate(-90deg); }
-.rp-inst-count { margin-left: auto; font-size: 12px; color: var(--muted); font-weight: 400; }
+/* Header quick actions: icon-only, so they fit between the badges and the text count. Labels live
+   in title + aria-label — acceptable HERE (unlike the destructive row) because these are safe,
+   recoverable actions, and because a wrong guess costs a dialog you close. */
+.rp-inst-quick { display: flex; gap: 4px; flex: none; }
+.rp-iconbtn {
+  appearance: none; border: 1px solid var(--border); background: var(--panel);
+  border-radius: 7px; cursor: pointer; padding: 5px; line-height: 0; color: var(--text);
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 30px; min-height: 30px;
+}
+.rp-iconbtn:hover { background: #e8ecf2; }
+.rp-iconbtn:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+.rp-iconbtn .rp-ico { width: 17px; height: 17px; opacity: .8; }
+.rp-inst-toggle { flex: 1 1 auto; min-width: 0; }
+.rp-inst-count { margin-left: 0; font-size: 12px; color: var(--muted); font-weight: 400; }
 
 .rp-badge { font-size: 12px; padding: 2px 9px; border-radius: 6px; background: var(--panel); color: var(--muted); font-weight: 400; }
 .rp-badge-type, .rp-badge-you { background: #e8f0fc; color: var(--blue-dark); }

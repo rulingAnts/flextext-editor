@@ -5161,3 +5161,43 @@ either in isolation tends to produce the wrong shape for the other.
 ⚠ **This intersects the UI revamp session above.** If that session changes how the panel is built,
 it changes where a language picker and a feedback affordance live. Sequence them deliberately rather
 than letting the second redo the first.
+
+---
+
+## A pairing code someone can TYPE — for device pairing, not researcher pairing (Seth, 2026-09-01)
+
+> *"A tinyURL (or at least tiny query string) or some kind of 'memorable-password' (along the
+> 'correct-HORSE-battery-STAPLE', and appropriate to the researcher panel's interface language)
+> option that makes it easy to manually type in to the pairing modal if copy/paste isn't possible,
+> which it might not be. This is especially an issue with managed (MDM) devices."*
+
+**Scope, in his words:** *"specifically for editor/researcher I'm talking about. Not pairing
+researchers. They can generally count on laptops and copy/paste for now… We'll want to smooth that
+too, but that's not at all urgent."* So: the **device** end of pairing is the target; researcher-to-
+researcher pairing is a later, separate nicety.
+
+**Why it bites:** an invite link is a long URL with a fragment (the secret is after `#`). On an
+MDM-managed device the researcher may not be able to get that string onto the device at all — no
+shared clipboard, no email client, possibly no way to open a link from another app. Today the
+fallback is reading a long URL aloud, which is exactly the situation this suite is bad at.
+
+**What already exists, so this is not from zero:**
+- A 6-digit `pair_code` is already minted per install (`mintPairCode`, worker) and already shown on
+  both screens — but it VERIFIES a pairing in progress; it does not START one. The typed thing has to
+  carry (or look up) the invite.
+- The invite's secret currently lives in the URL fragment, deliberately — it never reaches the
+  server. Any short code that stands in for it changes that property, which is the crux of the
+  design rather than a detail.
+
+**The real design question:** a short typeable code cannot BE the secret (too little entropy), so it
+has to be a lookup key for a short-lived, single-use, rate-limited record — closer to how the
+existing `pair_code` works than to the invite link. That means server state, an expiry, and a
+throttle, and it should be reasoned about alongside the enrollment-exfil work already recorded in
+memory rather than bolted beside it.
+
+**On the word-list form** (`correct-HORSE-battery-STAPLE`): Seth asked for it to suit *the interface
+language*, which means a word list per language, not an English list transliterated — and that lands
+squarely in the community-translation work filed above. Worth deciding whether the code is words or
+digit-groups BEFORE that, since words multiply the translation surface.
+
+⚠ Not urgent, and explicitly not the researcher-pairing case.

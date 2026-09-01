@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v556';
+export const ENGINE_VERSION = 'v557';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v556';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = '';
+export const BUILD_TAG = 'device-header v1';
 
 const S = {
 en: {
@@ -1221,6 +1221,8 @@ internet after the first time.</p>
    * naming the act, and each dialog points at the siblings a researcher might have meant. */
   'panel.inst.revoke': 'Delete',
   'panel.inst.revokeTip': 'Remove this device from your list. Whatever is on it STAYS on it.',
+  'panel.inst.link': 'Link',
+  'panel.inst.inviteTip': 'Show the invite link that connects a device to this one.',
   'panel.inst.revokeInstall': 'Unlink',
   'panel.inst.revokeInstallTip': 'Disconnect it from where it is installed, and keep the device so you can set it up somewhere else.',
   'panel.inst.confirmRevoke': 'Delete “{name}”? The device and its settings and assignments go from your list, and wherever it is installed loses access. Its local texts and audio STAY there and you will NOT be able to retrieve or remove them afterward. To keep the device and move it somewhere else, use Unlink. To destroy what is on it — a device that is lost or out of trusted hands — use Erase and Reset Device.',
@@ -3212,6 +3214,8 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.inst.assign': 'Tugaskan teks baru…',
   'panel.inst.revoke': 'Cabut',
   'panel.inst.revokeTip': 'Hapus perangkat ini dari daftar Anda. Apa pun yang ada di dalamnya TETAP ada di sana.',
+  'panel.inst.link': 'Tautkan',
+  'panel.inst.inviteTip': 'Tampilkan tautan undangan yang menghubungkan sebuah perangkat ke perangkat ini.',
   'panel.inst.revokeInstall': 'Putuskan',
   'panel.inst.revokeInstallTip': 'Putuskan sambungannya dari tempat ia terpasang, dan pertahankan perangkatnya agar bisa Anda pasang di tempat lain.',
   'panel.inst.confirmRevoke': 'Cabut “{name}”? Perangkat beserta pengaturan dan penugasannya hilang dari daftar Anda, dan tempat ia terpasang kehilangan akses. Teks dan audio lokalnya TETAP ada di sana dan Anda TIDAK akan dapat mengambil atau menghapusnya setelahnya. Untuk mempertahankan perangkat dan memindahkannya, gunakan Putuskan. Untuk memusnahkan isinya — perangkat yang hilang atau tidak lagi tepercaya — gunakan Hapus dan Setel Ulang Perangkat.',

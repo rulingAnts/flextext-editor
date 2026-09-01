@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v559';
+export const ENGINE_VERSION = 'v560';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -1221,6 +1221,7 @@ internet after the first time.</p>
    * naming the act, and each dialog points at the siblings a researcher might have meant. */
   'panel.inst.revoke': 'Delete',
   'panel.inst.revokeTip': 'Remove this device from your list. Whatever is on it STAYS on it.',
+  'panel.loading': 'Loading…',
   'panel.inst.link': 'Link',
   'panel.inst.inviteTip': 'Show the invite link that connects a device to this one.',
   'panel.inst.revokeInstall': 'Unlink',
@@ -3214,6 +3215,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.inst.assign': 'Tugaskan teks baru…',
   'panel.inst.revoke': 'Cabut',
   'panel.inst.revokeTip': 'Hapus perangkat ini dari daftar Anda. Apa pun yang ada di dalamnya TETAP ada di sana.',
+  'panel.loading': 'Memuat…',
   'panel.inst.link': 'Tautkan',
   'panel.inst.inviteTip': 'Tampilkan tautan undangan yang menghubungkan sebuah perangkat ke perangkat ini.',
   'panel.inst.revokeInstall': 'Putuskan',

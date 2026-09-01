@@ -5115,3 +5115,49 @@ above: not only responsive behaviour but the LOOK — cleaner, more modern, frie
 ⚠ **The blast-radius rule still governs:** `docs/css/app.css` and `docs/js/` are loaded by all five
 apps, so a restyle is a five-app change whether or not it is meant to be. Prefer a pass per app with
 measurements over one sweeping restyle.
+
+---
+
+## Community-editable translations: adding languages, and feedback on the ones we have (Seth, 2026-09-01)
+
+> *"We need a way for researchers to add other languages if they're working in other parts of the
+> world."* … *"We also need a way for researchers to give feedback on translations (including
+> English)."*
+
+Both ~two weeks out (so ≈ week of 2026-09-14), and they are filed together because they are one
+design area seen from two ends: **who may change a string, and how a change gets proposed.** Solving
+either in isolation tends to produce the wrong shape for the other.
+
+**Where the suite is today, so the design starts from facts:**
+
+- Two languages, `en` and `id`, as two literal object blocks in `docs/js/i18n.js` — 1768 keys each.
+- `LANGS` is **computed at load** from which languages are complete; there is no second editable
+  list. `test/i18n-parity.test.mjs` enforces exact key parity both ways, no duplicate keys, and that
+  no multi-word English string sits untranslated in the `id` block (7 identical-on-purpose
+  exceptions, each with a stated reason).
+- Language codes are not assumed to be 2 letters — the tests check that too, so a `tpi` or `iau_tmu`
+  would not break the pickers.
+- The picker markup is empty and filled from `LANGS`; the same list gates the `appLang` setting a
+  researcher can push, so **no researcher can push a language a device cannot render**. That
+  invariant is the load-bearing one for the "add a language" feature.
+
+**The hard parts, named rather than discovered later:**
+
+- **A partial translation must not be pushable.** Today completeness is binary and computed. A
+  community-added language will be incomplete for a long time, so the design has to choose: block it
+  until complete, allow it with English fallback per key, or a per-language "ready" flag. That choice
+  drives everything else.
+- **The strings ship in the SHELL.** `i18n.js` is precached by every app's service worker, so a
+  language added at runtime is not simply a file edit — it is either a new engine version for
+  everyone, or strings fetched and cached separately, which is a genuine architecture decision (and
+  an offline-first one: a field device must render *something* with no network).
+- **Feedback needs to reach a person, and the repo is public.** A researcher reporting "this
+  Indonesian sentence is wrong" is proposing a change to shared code. The path from their report to a
+  merged string is the actual feature; a form that emails someone is not it.
+- **English is explicitly in scope** — Seth said "including English". Several strings in this file
+  exist *because* wording confused a researcher (issues #5, #17), so treating English as finished
+  would miss the most valuable feedback.
+
+⚠ **This intersects the UI revamp session above.** If that session changes how the panel is built,
+it changes where a language picker and a feedback affordance live. Sequence them deliberately rather
+than letting the second redo the first.

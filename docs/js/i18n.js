@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v563';
+export const ENGINE_VERSION = 'v565';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v563';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'device-header v1';
+export const BUILD_TAG = 'refresh-hard v1';
 
 const S = {
 en: {
@@ -1226,7 +1226,11 @@ internet after the first time.</p>
    * naming the act, and each dialog points at the siblings a researcher might have meant. */
   'panel.inst.revoke': 'Delete',
   'panel.inst.revokeTip': 'Remove this device from your list. Whatever is on it STAYS on it.',
+  'btn.refresh': 'Refresh the app',
   'panel.loading': 'Loading…',
+  /* ⚠ A refresh reloads the app, and a reload kills a transfer mid-stream with no resume. On village
+   * bandwidth that can be an hour's work, so this asks rather than assuming. */
+  'panel.dash.refreshBusy': 'Refresh now? {n} transfer(s) are still running, and reloading will stop them — they do not resume.',
   'panel.inst.link': 'Link',
   'panel.inst.inviteTip': 'Show the invite link that connects a device to this one.',
   'panel.inst.revokeInstall': 'Unlink',
@@ -1289,6 +1293,10 @@ internet after the first time.</p>
   // ── upload a text to a PROJECT, no device (issue #4) ──
   'panel.proj.newText': 'New text…',
   'panel.rel.new.projectText': 'Panel: a project has its own “New text…” button — upload a text straight into the project and decide later which device works on it. The device button is now “Assign new text…”, since it uploads and assigns in one go.'
+    ,'panel.rel.new.moveVersionAge': 'Panel: when a device is too old to receive a moved text, the panel now says which version it reported and when — instead of “needs its app updated first”, which could not be cleared by reloading the panel because it is the DEVICE that has to check in.'
+    ,'panel.rel.new.deviceHeader': 'Panel: each device row is tidier. New text, Settings and Move are icons on the device’s own line; Refresh has moved up into the header beside Sign out; and Unlink, Delete and Erase are grouped together, clear of the everyday buttons, with the erase button marked as the dangerous one. Unlink doubles as Link before a device is connected.'
+    ,'panel.rel.new.uploadChipAll': 'Panel: a text is only marked “uploaded ✓” once ALL of its files have arrived. It used to say so as soon as the text itself landed, while the recording was still going up.'
+    ,'panel.rel.new.slowModal': 'Panel: opening Settings is much faster, and anything that is not instant now shows a spinner so you know it heard you — and cannot be clicked twice by accident.'
     ,'panel.rel.new.deviceButtons': 'Panel: the three device buttons now say which is which. Unlink keeps the device and lets you set it up somewhere else; Delete removes it from your list; Erase and Reset Device wipes what is on the device itself and is marked as the dangerous one. They sit together on their own line under the everyday buttons.'
     ,'panel.rel.new.smallScreen': 'Editor: on a phone or a tablet the audio player is smaller, and the Cut tab’s instructions fold behind an ℹ button beside ✨ — together they were taking about 320 pixels above the work. Bigger screens are unchanged.'
     ,'panel.rel.new.pairConnect': 'Devices: the \u201cConnect\u201d button on a device being paired could sit behind the \u201cwaiting for your researcher\u201d box on a short or sideways screen, so tapping it did nothing. It is now always on top.'
@@ -3223,7 +3231,9 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.inst.assign': 'Tugaskan teks baru…',
   'panel.inst.revoke': 'Cabut',
   'panel.inst.revokeTip': 'Hapus perangkat ini dari daftar Anda. Apa pun yang ada di dalamnya TETAP ada di sana.',
+  'btn.refresh': 'Segarkan aplikasi',
   'panel.loading': 'Memuat…',
+  'panel.dash.refreshBusy': 'Segarkan sekarang? {n} transfer masih berjalan, dan memuat ulang akan menghentikannya — transfer itu tidak dilanjutkan otomatis.',
   'panel.inst.link': 'Tautkan',
   'panel.inst.inviteTip': 'Tampilkan tautan undangan yang menghubungkan sebuah perangkat ke perangkat ini.',
   'panel.inst.revokeInstall': 'Putuskan',
@@ -3280,6 +3290,10 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.assign.title': 'Tugaskan teks',
   'panel.proj.newText': 'Teks baru…',
   'panel.rel.new.projectText': 'Panel: setiap proyek punya tombol “Teks baru…” sendiri — unggah teks langsung ke proyek dan putuskan nanti perangkat mana yang mengerjakannya. Tombol pada perangkat kini “Tugaskan teks baru…”, karena ia mengunggah sekaligus menugaskan.'
+    ,'panel.rel.new.moveVersionAge': 'Panel: bila sebuah perangkat terlalu lama untuk menerima teks yang dipindahkan, panel kini menyebutkan versi apa yang dilaporkannya dan kapan — bukan “aplikasinya perlu diperbarui dulu”, yang tidak bisa hilang dengan memuat ulang panel karena PERANGKAT-lah yang harus terhubung.'
+    ,'panel.rel.new.deviceHeader': 'Panel: setiap baris perangkat lebih rapi. Teks baru, Pengaturan, dan Pindahkan kini berupa ikon pada baris perangkat itu sendiri; Segarkan pindah ke header di samping Keluar; dan Putuskan, Cabut, serta Hapus dikelompokkan bersama, terpisah dari tombol sehari-hari, dengan tombol hapus ditandai sebagai yang berbahaya. Putuskan berganti menjadi Tautkan sebelum perangkat terhubung.'
+    ,'panel.rel.new.uploadChipAll': 'Panel: sebuah teks baru ditandai “terunggah ✓” setelah SEMUA berkasnya sampai. Sebelumnya ia menandainya begitu teksnya sendiri sampai, padahal rekamannya masih diunggah.'
+    ,'panel.rel.new.slowModal': 'Panel: membuka Pengaturan jauh lebih cepat, dan apa pun yang tidak seketika kini menampilkan pemutar berputar agar Anda tahu klik Anda diterima — dan tidak bisa terklik dua kali.'
     ,'panel.rel.new.deviceButtons': 'Panel: ketiga tombol perangkat kini menjelaskan bedanya. Putuskan mempertahankan perangkat dan memungkinkan Anda memasangnya di tempat lain; Cabut menghapusnya dari daftar Anda; Hapus dan Setel Ulang Perangkat memusnahkan isi perangkatnya sendiri dan ditandai sebagai yang berbahaya. Ketiganya berada bersama pada barisnya sendiri di bawah tombol sehari-hari.'
     ,'panel.rel.new.smallScreen': 'Editor: di ponsel atau tablet, pemutar audio lebih kecil, dan petunjuk pada tab Potong dilipat di balik tombol ℹ di samping ✨ — bersama-sama keduanya memakan sekitar 320 piksel di atas area kerja. Layar besar tidak berubah.'
     ,'panel.rel.new.pairConnect': 'Perangkat: tombol \u201cHubungkan\u201d pada perangkat yang sedang dipasangkan bisa tertutup kotak \u201cmenunggu peneliti Anda\u201d di layar pendek atau melebar, sehingga menekannya tidak melakukan apa-apa. Kini tombol itu selalu di atas.'

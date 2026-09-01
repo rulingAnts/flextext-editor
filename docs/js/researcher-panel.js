@@ -1110,12 +1110,19 @@ function header(titleKey, withLock) {
  * never invent a number for symmetry. */
 const ISSUES_URL = 'https://github.com/rulingAnts/flextext-editor/issues/';
 const RELEASES = [
-  /* ⚠ ISSUE #6 IS DELIBERATELY NOT LISTED. Its worker half is live and its client half is
-   * written, but CREATE_RETRY_SAFE is still false, so nothing about duplicate device creation
-   * behaves differently for a researcher on this build. Announcing it would be the v538 mistake
-   * again — a note describing something the shipped code does not do — and worse than silence,
-   * because a researcher told a data-integrity bug is fixed stops working around it. It goes in
-   * the release that actually turns it on. */
+  /* ⚠ #6 IS LISTED NOW, AND THIS IS THE RELEASE THAT EARNED IT. The note that stood here said it
+   * was deliberately absent because CREATE_RETRY_SAFE was false — the worker replayed, the client
+   * never retried, so nothing about duplicate device creation actually behaved differently. That
+   * flag went true in v561 against the deployed worker, so the sentence is true for the first time.
+   * Left as a comment rather than deleted: the rule it records (a note describing something the
+   * shipped code does not do is worse than silence) is the one this file exists to enforce. */
+  { v: 'v564', date: '2026-09-01', items: [
+    { k: 'panel.rel.new.deviceOnce', issue: 6 },
+    { k: 'panel.rel.new.moveVersionAge', issue: 16 },
+    { k: 'panel.rel.new.deviceHeader' },
+    { k: 'panel.rel.new.uploadChipAll' },
+    { k: 'panel.rel.new.slowModal' },
+  ] },
   { v: 'v555', date: '2026-09-01', items: [
     { k: 'panel.rel.new.deviceButtons', issue: 17 },
   ] },
@@ -2052,7 +2059,32 @@ async function renderDashboard(prefetched) {
     exit: close,
     lock: () => { Researcher.signOut(); route(); },
     new: () => newDeviceModal(),
-    refresh: () => renderDashboard(),
+    /* ⚠ A HARD REFRESH, AND VISIBLY SO (Seth, 2026-09-01: "doesn't seem like the refresh button is
+     * doing anything at all… I think a hard refresh is what we want, the equivalent of
+     * ctrl+shift+r, not just a soft refresh").
+     *
+     * It WAS working. renderDashboard() re-fetches, but the render is skipped when the view
+     * signature is unchanged (lastSig) — so a refresh that found nothing new was pixel-identical to
+     * a dead button. That is the worse failure: the researcher cannot tell "nothing changed" from
+     * "nothing happened", so they press it again, and again.
+     *
+     * ⚠ IT ASKS THE SERVICE WORKER TO UPDATE FIRST, which is the half a plain reload misses. The
+     * panel's own worker caches nothing, but the registration is what learns a new engine exists —
+     * without update() a reload can serve the same version forever, which is exactly the "there's a
+     * cache and that's easier" case.
+     *
+     * ⚠ GUARDED ON IN-FLIGHT TRANSFERS. `jobs` holds researcher-side downloads and uploads, and a
+     * reload kills them mid-stream with no resume — on village bandwidth that can be an hour's work.
+     * So a refresh during a transfer asks first, and the default is not to lose it. */
+    refresh: async (el) => {
+      const busyJobs = [...jobs.values()].filter((j) => j && !j.done).length;
+      if (busyJobs && !await confirmModal(t('panel.dash.refreshBusy', { n: busyJobs }))) return;
+      if (el) el.classList.add('rp-spin');
+      const done = loadingScrim(0);   // no delay: a reload is coming, so the wait is the whole point
+      try { const reg = await navigator.serviceWorker?.getRegistration(); await reg?.update(); }
+      catch { /* no worker, or update refused — reload anyway */ }
+      finally { done(); location.reload(); }
+    },
     admin: () => adminModal(),
     storage: () => storageModal(),
     coworkers: () => coworkersModal(),

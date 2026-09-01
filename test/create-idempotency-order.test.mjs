@@ -27,10 +27,18 @@ test('device-creation retry is gated on the worker', () => {
   console.log('\nthe key travels; the retry waits for the worker');
   {
     ok(/const CREATE_RETRY_SAFE = (true|false);/.test(res), 'the flag exists and is a single literal');
+    /* ⚠ FLIPPED 2026-09-01, in the same commit as the flag, which is what this file asked for.
+     * The worker that replays create_key on BOTH create routes — including the member route's
+     * converging replay — is live as version 21374218-3910-4fa2-b30b-f4d78c5aac83. Retrying is
+     * therefore safe: a lost response now finds the row that exists instead of minting a second
+     * device, which is the whole of issue #6.
+     * ⚠ IF THE WORKER IS EVER ROLLED BACK BEHIND THAT VERSION, this flag goes back to false FIRST.
+     * A client that retries against a worker which does not replay is worse than one that never
+     * retried — it manufactures exactly the duplicate the feature exists to prevent. */
     const on = /const CREATE_RETRY_SAFE = true;/.test(res);
-    ok(!on, on
-      ? '⚠ retry is ON — only correct if the create_key worker is DEPLOYED. If it is, update this test in the same commit.'
-      : 'retry is OFF while the create_key worker is undeployed — a lost response cannot duplicate');
+    ok(on, on
+      ? 'retry is ON — the create_key worker is deployed, so a lost response replays instead of duplicating'
+      : '⚠ retry is OFF while the worker DOES replay — issue #6 is silently unfixed for every researcher');
     // Both create paths must use the flag; one of them retrying is the same bug on a different route.
     const uses = (res.match(/retry: CREATE_RETRY_SAFE/g) || []).length;
     ok(uses === 2, `both create paths (owner + member) are gated by it (${uses}/2)`);

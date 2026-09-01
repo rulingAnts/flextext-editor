@@ -1356,7 +1356,7 @@ function loadingScrim(delayMs = 200) {
     el.className = 'rp-loading';
     el.setAttribute('role', 'status');
     el.setAttribute('aria-live', 'polite');
-    el.innerHTML = `<div class="rp-spinner" aria-hidden="true"></div><p>${esc(t('panel.loading'))}</p>`;
+    el.innerHTML = `<div class="rp-loading-card"><div class="rp-spinner" aria-hidden="true"></div><p>${esc(t('panel.loading'))}</p></div>`;
     document.body.appendChild(el);
   }, delayMs);
   return () => { clearTimeout(timer); if (el) el.remove(); };

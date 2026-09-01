@@ -1277,9 +1277,23 @@ body.rp-standalone main { padding-top: 0; }
    opens and there is never a bare-page flash between scrim and dialog. */
 .rp-loading {
   position: fixed; inset: 0; z-index: 39;
-  background: rgba(20, 24, 30, .45);
+  /* ⚠ LIGHTER THAN THE MODAL SCRIM (Seth, 2026-09-01: "about half as dark"). A modal's .45 says
+     "answer this before anything else"; a loading veil only says "working" — dimming the panel as
+     hard as a dialog does overstates a wait the researcher did not choose. */
+  background: rgba(20, 24, 30, .22);
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
   color: #fff; font-size: 15px;
+}
+/* ⚠ THE VEIL IS LIGHT, SO THE CONTENT CARRIES ITS OWN GROUND (Seth: "it blends with the Loading…
+   text a bit"). Once the scrim dropped to .22 the panel showed through, and white text on a pale
+   card is the wrong contrast pair. Darkening the veil again would undo what he asked for, and
+   darkening the TEXT would fail over the dark areas of the panel — so the spinner and its label sit
+   on a solid chip, which is legible over anything underneath. */
+.rp-loading-card {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  background: rgba(22, 27, 34, .92); color: #fff;
+  padding: 20px 26px; border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .28);
 }
 .rp-loading p { margin: 0; }
 .rp-spinner {

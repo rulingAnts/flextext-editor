@@ -55,7 +55,7 @@ test('revoke labels distinguish one install from the whole device', () => {
      * device label mentions "all installs" — encoding a model that cannot occur, since claiming an
      * invite revokes every prior install (worker "single-live-device, §D.4"). The difference that
      * is real, and that a researcher has to see on the button, is whether the DEVICE SURVIVES. */
-    const reHome = /another phone|ponsel lain/i.test(ins);
+    const reHome = /elsewhere|tempat lain/i.test(ins);
     ok(reHome, reHome
       ? `the install label says the device is re-homed: “${ins}”`
       : `⚠ “${ins}” does not say the device survives and moves — the pair is ambiguous again`);
@@ -66,7 +66,7 @@ test('revoke labels distinguish one install from the whole device', () => {
     /* Each dialog must point at the other control, so whichever one a researcher opens by mistake
      * tells them where the thing they actually wanted lives. */
     ok(/Unlink|Putuskan/.test(devC), 'the delete dialog points at Unlink as the alternative');
-    ok(/Wipe|Hapus Total/.test(insC), 'the unlink dialog points at Wipe for erasing the phone');
+    ok(/Wipe|Hapus Total/.test(insC), 'the unlink dialog points at Wipe for erasing what is on it');
 
     console.log(`[${L}] each control agrees with the dialog it opens`);
     /* The button's leading verb must reappear in its own confirm. This is the exact mismatch that
@@ -80,6 +80,17 @@ test('revoke labels distinguish one install from the whole device', () => {
     const dv = verb(dev);
     ok(dv.length > 2 && devC.toLowerCase().includes(dv),
        `device button “${dv}…” and its dialog use the same verb`);
+
+    console.log(`[${L}] no hardware noun — an install is not necessarily a phone`);
+    /* ⚠ Seth, 2026-09-01: "don't say phone, because it might not be a phone." An install is a
+     * browser profile, an Android APK, a tablet or the Electron desktop build; naming one makes the
+     * sentence wrong for the rest, and "device" is already taken by the identity these act on. */
+    for (const [what, str] of [['device label', dev], ['install label', ins],
+                               ['delete dialog', devC], ['unlink dialog', insC]]) {
+      const bad = /\b(phone|handset|ponsel)\b/i.test(str);
+      ok(!bad, bad ? `⚠ ${what} names hardware: “${str.slice(0, 60)}…”`
+                   : `${what} names no hardware`);
+    }
 
     console.log(`[${L}] the install dialog still warns that local data stays`);
     /* Non-negotiable regardless of wording: unlinking strands texts and audio on the device. */

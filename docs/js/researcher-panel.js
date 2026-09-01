@@ -3794,8 +3794,12 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
             ${memberCtx ? '' : `<button class="link-btn rp-revoke" data-iact="force-remove" data-i="${I}" data-id="${D}">${esc(t('panel.wipe.removeBtn'))}</button>`}`;
           if (ins.wipe_state === 'requested') return `<div class="note rp-wipe-pending">${esc(t('panel.wipe.pending', { when: lastSeen(ins.wipe_at) }))}</div>
             ${memberCtx ? '' : `<button class="link-btn rp-revoke" data-iact="force-remove" data-i="${I}" data-id="${D}">${esc(t('panel.wipe.forceRemoveBtn'))}</button>`}`;
-          return `${mManage ? `<button class="link-btn rp-revoke" data-iact="revoke-install" data-i="${I}" data-id="${D}">${esc(t('panel.inst.revokeInstall'))}</button>` : ''}
-            ${memberCtx ? '' : `<button class="link-btn rp-danger" data-iact="wipe-install" data-i="${I}" data-id="${D}" data-name="${esc(it.nickname || '')}">${esc(t('panel.wipe.btn'))}</button>`}`;
+          /* ⚠ NOTHING HERE ANY MORE. Unlink and Erase used to hang off each install row as loose text
+           * links; they now live in the device's own action row beside Delete, because all three act
+           * on one device and reading them apart was the confusion (Seth, 2026-09-01: "kind of ugly
+           * and awkwardly placed… we can put them all on the device buttons row"). Only the
+           * wipe-STATE branches above still render here, since those describe this install. */
+          return '';
         })()}
       </div>`;
     }
@@ -3843,11 +3847,40 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
       ${installsHtml || `<p class="note">${esc(t('panel.inst.noInstall'))}</p>`}
       ${mKeyless ? `<p class="note">${esc(t('panel.joined.keyPending'))}</p>` : ''}
       <div class="rp-inst-actions">
+        ${/* ⚠ ORDER IS FREQUENCY DESCENDING, THEN SEVERITY ASCENDING, ACROSS ONE ROW (Seth insists on
+             one row, and is right — these all act on the same device).
+             Assign is the everyday job so it leads, where the eye lands and the pointer already is.
+             Invite is once per device; Move is rarer still. Then the spacer, then the two mild acts,
+             then the irreversible one.
+             ⚠ THE POINT OF THE ARRANGEMENT is that the most-used control and the unrecoverable one
+             end up at OPPOSITE ENDS of the row. Any order that puts Erase next to Assign is a
+             mis-click waiting to happen, whatever it is coloured. */''}
+        ${mAssign ? `<button class="secondary-btn" data-iact="assign" data-i="${esc(it.instance_id)}">${esc(t('panel.inst.assign'))}</button>` : ''}
         ${mManage ? `<button class="secondary-btn" data-iact="settings" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}">${esc(t('panel.inst.settings'))}</button>` : ''}
         ${mInvite ? `<button class="secondary-btn" data-iact="invite" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}">${esc(t('panel.inst.invite'))}</button>` : ''}
-        ${mAssign ? `<button class="secondary-btn" data-iact="assign" data-i="${esc(it.instance_id)}">${esc(t('panel.inst.assign'))}</button>` : ''}
         ${memberCtx ? '' : projectMoveBtn(it)}
-        ${mManage ? `<button class="link-btn rp-revoke" data-iact="revoke" data-i="${esc(it.instance_id)}" data-name="${esc(it.nickname || '')}">${esc(t('panel.inst.revoke'))}</button>` : ''}
+        ${(() => {
+          /* ⚠ THE THREE DESTRUCTIVE CONTROLS, TOGETHER AND GRADED (Seth, 2026-09-01).
+           * Unlink and Delete are one segmented control with two halves: they are the pair a
+           * researcher chooses BETWEEN (keep the device and move it, or remove it), they leave the
+           * data alone, and pairing them visually says that. Erase is a separate hazard button —
+           * different shape, different colour, skull — because it is the only one that destroys a
+           * corpus, and the only one that cannot be undone.
+           * ⚠ UNLINK AND ERASE NEED A LIVE INSTALL; DELETE DOES NOT. A device that was created but
+           * never set up has nothing to unlink or erase, so those two are ABSENT rather than
+           * disabled — Seth's standing rule: "don't add enabled buttons or links that won't work",
+           * and a disabled control reads as broken. Delete still renders, which is what lets you
+           * clear away a device that never got used. */
+          if (!mManage) return '';
+          const live = (it.installs || []).find((x) => !x.wipe_state);
+          const I = esc(it.instance_id), NM = esc(it.nickname || '');
+          const unlink = live ? `<button class="rp-split-half" data-iact="revoke-install" data-i="${I}" data-id="${esc(live.install_id)}" data-i18n-title="panel.inst.revokeInstallTip" title="${esc(t('panel.inst.revokeInstallTip'))}">${ICON_UNLINK}<span>${esc(t('panel.inst.revokeInstall'))}</span></button>` : '';
+          const del = `<button class="rp-split-half" data-iact="revoke" data-i="${I}" data-name="${NM}" data-i18n-title="panel.inst.revokeTip" title="${esc(t('panel.inst.revokeTip'))}">${ICON_X}<span>${esc(t('panel.inst.revoke'))}</span></button>`;
+          const wipe = (!memberCtx && live)
+            ? `<button class="rp-wipe-btn" data-iact="wipe-install" data-i="${I}" data-id="${esc(live.install_id)}" data-name="${NM}" data-i18n-title="panel.wipe.tip" title="${esc(t('panel.wipe.tip'))}"><span class="rp-skull" aria-hidden="true">☠</span><span>${esc(t('panel.wipe.btn'))}</span></button>`
+            : '';
+          return `<div class="rp-danger-group"><div class="rp-split-btn">${unlink}${del}</div>${wipe}</div>`;
+        })()}
       </div>
     </div>
   </div>`;
@@ -5347,6 +5380,13 @@ function projectName(folderId) {
 /* Build the grouped destination list. `opt(value, label, sub, disabled, checked)` is supplied by the
  * caller so each modal keeps its own radio name and markup. Returns '' when there are no projects at
  * all, so a flat estate renders exactly the ungrouped list it always did. */
+/* ⚠ DRAWN, NOT EMOJI. Unicode has chains (⛓) but no BROKEN link, and the nearest real emoji
+ * (⛓️‍💥, Emoji 15.1) would be tofu on the older Androids this suite still runs on — the same trap
+ * the Cut tab's ✨ comment describes. ☠ stays a character because it IS Emoji 1.0 and Seth asked
+ * for the skull by name. `currentColor` so each icon takes its button's colour. */
+const ICON_UNLINK = '<svg class="rp-ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9.5 7H7a5 5 0 0 0 0 10h2.5"/><path d="M14.5 7H17a5 5 0 0 1 0 10h-2.5"/><path d="M12 3.5v2M12 18.5v2"/></svg>';
+const ICON_X = '<svg class="rp-ico" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+
 function groupedDestinations(insts, homeProject, opt, canPick, withUnassigned) {
   const projects = ((estateCache && estateCache.projects) || []);
   if (!projects.length) return '';

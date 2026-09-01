@@ -5201,3 +5201,45 @@ squarely in the community-translation work filed above. Worth deciding whether t
 digit-groups BEFORE that, since words multiply the translation surface.
 
 ⚠ Not urgent, and explicitly not the researcher-pairing case.
+
+---
+
+## Pasting an invite into an already-linked device: refuses, then appears to unlink (Seth, 2026-09-01)
+
+> *"If I try to link a device that is already linked elsewhere, it looks like it UNLINKs it (so like
+> if I paste an invite link in a browser that is already linked), but then doesn't link it to the new
+> invite. That could be confusing. I think it should do both."*
+
+**What actually happens** — the guard is CLIENT-side, `docs/js/sync.js` `claim()`:
+
+```js
+if (s && s.instanceId) {
+  if (s.inviteId === inviteId) return { ok: true, …, reused: true };   // the other app's link
+  return { ok: false, error: 'already_linked' };                        // a DIFFERENT invite
+}
+```
+
+It refuses; it never unlinks. The unlink Seth sees is a **race**: the claim is rejected because the
+session still exists, and moments later `poll()` takes its 410 and auto-releases — so the device ends
+up unlinked AND unclaimed. The comment already anticipates the happy path ("if the old binding was
+revoked, poll() auto-releases first, so a legitimate re-link still works after a revoke") — it just
+does not hold when the paste lands *before* that poll.
+
+**Why this is not a one-line fix.** Making claim() release-then-claim silently would move a device —
+with one researcher's texts and audio already in its local storage — onto another researcher's
+instance, with no moment where anyone said that was intended. That is a data-boundary change on the
+enrollment path, the same area as the invite-exfil work already recorded in memory.
+
+**Suggested shape (not yet decided):**
+- On `already_linked`, do not toast-and-stop. Stash the pending invite and ASK: this device is
+  currently linked; unlink it and link to the new invite? Naming what stays (local texts) and what
+  goes (sync, assignments).
+- On confirm: release locally, then claim, as one flow the user initiated — so "both" happens, but
+  deliberately.
+- Keep the same-invite REUSE branch untouched; that is the editor/recorder sharing one session and
+  has nothing to do with this.
+- The race is worth closing regardless: a refusal that a background poll immediately contradicts is
+  confusing even when the answer is no.
+
+⚠ Do this deliberately, not at the end of a session. It touches enrollment, and the failure mode is
+one researcher's corpus appearing under another's account.

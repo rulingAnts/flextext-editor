@@ -4044,6 +4044,16 @@ function showAppVersion() {
 // the Ki holder (the researcher) can read them — the Worker/D1 see ciphertext. titleHash is
 // kept too (legacy / change-gate). No audio bytes; stable fields so an unchanged list never writes.
 async function syncGatherInventory() {
+  /* Which docs still have bytes in the queue. Read from the PERSISTED queue rather than the
+   * in-memory view: the persisted record is the durable one (it survives a reload and is deleted
+   * only on completion), and it carries the real docId — the view is keyed by upload key, which for
+   * an original is "<key>:<slot>" and would not match a doc id. */
+  const stillUploading = new Set();
+  for (const it of await listPendingUploads().catch(() => [])) {
+    const id = (it && it.rec && it.rec.docId) || (it && it.docId) || '';
+    if (id) stillUploading.add(id);
+  }
+
   const metas = await db.listDocs();
   const enr = Sync.enrollment();
   const upDel = new Set(pendingUpDel());   // a delete is in flight (upload-first) but not yet confirmed
@@ -4064,7 +4074,17 @@ async function syncGatherInventory() {
       // 'uploaded' when the exact state is on Drive — by timestamp, or by content signature
       // (heals docs whose modified drifted past the upload with no content change, e.g. a
       // persist() tick landing mid-upload; the strict delete-safety checks stay timestamp-only).
-      uploadState: backed ? ((d.uploadedModified === d.modified || (d.uploadedSig && d.uploadedSig === uploadContentSig(d))) ? 'uploaded' : 'changed') : 'local',
+      /* ⚠ "uploaded" MEANS ALL OF IT, NOT THE FIRST FILE (Seth, 2026-09-01: the chip "changes to
+       * uploaded before all the files have finished uploading… audio is still uploading, but the
+       * text registers uploaded"). He guessed the cause exactly: a doc is NOT one upload. Since the
+       * v2 source package it is the main file PLUS one queue entry per original — see the
+       * "individual role-tagged files in <Storyname>/originals/" note — and uploadedFileId /
+       * uploadedSig are stamped when the MAIN one lands. With audio still in the queue the chip
+       * already read "uploaded ✓", which tells a researcher the recording is safe when it is not.
+       * That is the one direction this chip must never be wrong in. */
+      uploadState: stillUploading.has(d.id)
+        ? 'uploading'
+        : (backed ? ((d.uploadedModified === d.modified || (d.uploadedSig && d.uploadedSig === uploadContentSig(d))) ? 'uploaded' : 'changed') : 'local'),
       uploadedFileId: d.uploadedFileId || null,
       // Which mic this take came from + whether it is archive grade (native captures only; null
       // everywhere else). E2EE like the rest of the inventory. Lets a researcher audit provenance

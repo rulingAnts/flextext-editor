@@ -14,39 +14,23 @@ below touch the worker, where deploy ORDER is the difference between a release a
 
 ---
 
-## 🚨 0 — SECRETS EXPOSED (Seth, 2026-08-15) — ahead of everything below
+## 0 — a credential-rotation item lived here
 
-> *"Don't let me forget to secure the accounts/secrets found in my OneStory Editor project file that
-> was online for a while, because those could actually damage a lot of things I'm working on (it also
-> covers my flextext database send/receive server account)."*
+⚠ **Deliberately not described in this repository, which is PUBLIC** (Seth, 2026-09-01: "let's not
+post issues that expose security vulnerabilities").
 
-**This outranks every feature item in this file.** Credentials that were publicly reachable must be
-treated as compromised from the moment they were exposed — not from the moment someone is seen using
-them. By Seth's own account the blast radius includes the **flextext database send/receive server
-account**, which is the backend this whole suite's field devices talk to.
+The section that was here named specific accounts and the systems they reach. That is a map for
+anyone who finds it, and it bought nothing a private note could not — the people who need it already
+know. The same reasoning the section itself applied to the leaked file applies to the section:
+publishing the shape of an exposure is its own small exposure.
 
-**The order that matters — rotate first, investigate second.** Deleting the file or making the repo
-private does NOT un-expose anything: it is already cloned, cached and indexed.
+⚠ **Removing it from the working tree does NOT remove it from history.** It is still reachable in
+earlier commits of this public repo, and the text was cloneable for as long as it was pushed. If
+purging history is wanted, that is a deliberate, coordinated operation — see
+`plans/history-rewrite-runbook.md`; it rewrites every SHA, breaks every existing clone and worktree,
+and needs Seth's terminal. It is cleanup, not a fix.
 
-1. **ROTATE / REVOKE every credential in that file**, whatever it protects. Not "check whether it was
-   used" first — rotation is the only action that ends the exposure.
-2. **Then** purge the file from git history (`git filter-repo` or BFG) and force-push, so a fresh
-   clone does not hand them out again. History rewrite is cleanup, never the fix.
-3. **Then** read the access/audit logs for the window it was public, for anything that already used
-   them.
-4. Turn on **GitHub secret scanning + push protection** on every repo of Seth's, so the next one is
-   blocked at push rather than found later.
-5. ⚠ **Anything derived from those secrets rotates too** — session tokens, signed URLs, and any
-   worker secret that was pasted from the same file (`RELAY_SECRET` and the D1/Drive credentials are
-   the ones to check for this repo; see `notes/RELEASE-RUNBOOK.md` for how they are deployed).
-
-⚠ **A worker-secret rotation is a DEPLOY, and deploy order applies** — the client and the worker must
-not disagree about a shared secret, or field devices get 401s on `/drive`. Read the runbook before
-rotating anything the client also holds.
-
-**Claude: this session cannot do any of it** — the credentials are not in this repo and GitHub access
-here is scoped to `rulingants/flextext-editor`. Raise it at the START of the next session until Seth
-says it is done.
+The item itself is tracked privately.
 
 ---
 

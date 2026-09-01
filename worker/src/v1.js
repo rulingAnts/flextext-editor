@@ -1596,12 +1596,12 @@ async function instanceByCreateKey(env, ownerId, createKey) {
     return { usable: true, row: row || null };
   } catch { return { usable: false, row: null }; }
 }
-// The replay's body: identical in shape to a fresh create, so no client needs a branch for it.
-// `replayed` is for logs and tests, never for behaviour.
-const createdInstanceReply = (row, extra) => ({
-  instance_id: row.instance_id, type: row.type || '', nickname: row.nickname,
-  estate: row.estate || 'cloud', folderId: row.oauth_folder_id || '', replayed: true, ...(extra || {}),
-});
+/* ⚠ THERE IS NO `createdInstanceReply` HELPER ANY MORE, AND THAT IS THE POINT. It existed to make a
+ * replay's body match a fresh create's, because the two were built at different `return`s. Both
+ * create routes now CONVERGE — a replay skips the INSERT and falls through to the same placement and
+ * the same single `return` — so the shapes cannot drift, structurally, rather than by a convention
+ * someone has to remember. Re-introducing a second return for the replay case is the regression to
+ * watch for; it is what froze half-placed devices (issue #6). */
 const cleanCreateKey = (body) => String((body && body.createKey) || '').replace(/[^\w-]/g, '').slice(0, 64);
 
 async function mintTextfileUrl(env, urlOrigin, researcherId, fileId, extract, ttlMs, scope, minterId) {
@@ -3220,40 +3220,63 @@ export async function handleV1(request, env, ctx, url, path, origin) {
      * INSERT below writes and what the unique index is on. See instanceByCreateKey. */
     const createKey = cleanCreateKey(body);
     const seen = await instanceByCreateKey(env, ctx.owner.researcher_id, createKey);
-    if (seen.row) {
-      return j(createdInstanceReply(seen.row, { project_id: projectId, owner_id: project.owner_id }), 200, origin, env);
-    }
-    const instance_id = crypto.randomUUID();
+    /* ⚠ A REPLAY CONVERGES HERE TOO — and this route is the one where freezing would hurt MOST.
+     *
+     * The owner route above explains the reasoning at length; the same argument applies verbatim,
+     * because this route also creates its device folder EAGERLY and can therefore lose the response
+     * at exactly the same moment. Returning the stored row early — which is what this did — is the
+     * failure that comment warns about: the row a replay finds is most often the one whose Drive
+     * folder was never made, so an early return freezes that device showing under the project (D1
+     * says so) AND under "not in a project yet" (Drive does not), permanently. The retry that should
+     * have healed it is what sealed it. That is issue #6's reported symptom, arrived at by the very
+     * code meant to fix it.
+     *
+     * So: skip only the INSERT, then run the SAME placement below, which is idempotent by
+     * construction — driveEnsureDeviceFolder resolves an existing folder by id before creating one,
+     * and writes oauth_folder_id back. Convergent retry, not an early return. */
+    let replayed = seen.row || null;
+    let instance_id = replayed ? replayed.instance_id : crypto.randomUUID();
     const memberBlob = JSON.stringify({ settings: {}, commands: [] });
     // estate 'cloud' unconditionally — same policy decision as the owner-route INSERT above.
-    if (seen.usable) {
+    if (seen.row) { /* the row exists — fall through to the placement leg */ }
+    else if (seen.usable) {
       try {
         await env.DB.prepare(
           'INSERT INTO instance (instance_id, researcher_id, type, nickname, desired_blob, desired_rev, revoked, created_at, estate, project_id, create_key) VALUES (?,?,?,?,?,0,0,?,?,?,?)'
         ).bind(instance_id, ctx.owner.researcher_id, '', nickname, memberBlob, now, 'cloud', projectId, createKey).run();
       } catch (e) {
-        // A race on the same key: the other submit won, so replay it rather than making a second
-        // device. Never fall through to a keyless insert — see instanceByCreateKey.
+        /* A race on the same key: the other submit won, so converge on ITS row rather than making a
+         * second device. Never fall through to a keyless insert — see instanceByCreateKey. And like
+         * the replay above this converges rather than returning: the winner may itself have died
+         * before placing the device. */
         const won = (await instanceByCreateKey(env, ctx.owner.researcher_id, createKey)).row;
-        if (won) return j(createdInstanceReply(won, { project_id: projectId, owner_id: project.owner_id }), 200, origin, env);
-        throw e;
+        if (!won) throw e;
+        replayed = won;
+        instance_id = won.instance_id;
       }
     } else {
       await env.DB.prepare(
         'INSERT INTO instance (instance_id, researcher_id, type, nickname, desired_blob, desired_rev, revoked, created_at, estate, project_id) VALUES (?,?,?,?,?,0,0,?,?,?)'
       ).bind(instance_id, ctx.owner.researcher_id, '', nickname, memberBlob, now, 'cloud', projectId).run();
     }
+    /* On a replay the STORED nickname wins: the folder was named from it, and letting a retry's body
+     * rename an existing device's Drive folder would be a side effect nobody asked for. */
+    const placeName = replayed ? replayed.nickname : nickname;
     /* Eager device folder in the OWNER's Drive, best-effort exactly like the owner route: a Drive
-     * failure must not lose the instance, the folder falls back to the lazy path. */
-    let folderId = '';
+     * failure must not lose the instance, the folder falls back to the lazy path. Seeding
+     * `existingId` from the stored row is what makes a replay heal instead of duplicate — an
+     * already-good folder is resolved and returned, a missing one is finally created. */
+    let folderId = replayed ? (replayed.oauth_folder_id || '') : '';
     if (project.drive_folder_id) {
       try {
         const access = await driveAccessToken(env, ctx.owner);
-        folderId = await driveEnsureDeviceFolder(env, access, instance_id, nickname, '', project.drive_folder_id);
+        folderId = await driveEnsureDeviceFolder(env, access, instance_id, placeName, folderId, project.drive_folder_id);
       } catch { /* lazy path serves it */ }
     }
-    try { await secLog(env, request, 'member_instance_created', { project: projectId, instance: instance_id, by: ctx.caller.researcher_id, owner: ctx.isOwner }); } catch { /* noop */ }
-    return j({ instance_id, type: '', nickname, estate: 'cloud', folderId, project_id: projectId, owner_id: project.owner_id }, 200, origin, env);
+    try { await secLog(env, request, 'member_instance_created', { project: projectId, instance: instance_id, by: ctx.caller.researcher_id, owner: ctx.isOwner, replayed: !!replayed }); } catch { /* noop */ }
+    /* ONE return for both the fresh and the replayed case, so their shapes cannot drift. `replayed`
+     * is for logs and tests, never for behaviour — no client branches on it. */
+    return j({ instance_id, type: '', nickname: placeName, estate: 'cloud', folderId, project_id: projectId, owner_id: project.owner_id, ...(replayed ? { replayed: true } : {}) }, 200, origin, env);
   }
 
   /* /v1/projects/<project_id>/members — OWNER-ONLY membership management (II.4).

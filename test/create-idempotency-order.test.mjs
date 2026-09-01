@@ -54,6 +54,38 @@ test('device-creation retry is gated on the worker', () => {
        'the migration adds the column');
   }
 
+  /* ⚠ THE HALF THAT ACTUALLY FIXES ISSUE #6, and the half that was wrong for a while.
+   *
+   * A replay must CONVERGE — skip the INSERT, then run the same placement leg — not return the
+   * stored row early. The row a replay finds is most often the one whose Drive folder was never
+   * made (the response is lost precisely BECAUSE placement is slow), so an early return freezes
+   * that device showing under its project AND under "not in a project yet", permanently. That is
+   * Brian's reported symptom reached by the code meant to prevent it.
+   *
+   * The owner route had this right; the member route did not, and shipped an early return. Both are
+   * asserted here because "one of the two converges" is exactly the state that looked correct. */
+  console.log('\nboth create routes CONVERGE on a replay — no early return, no frozen device');
+  {
+    const fallThrough = (worker.match(/if \(seen\.row\) \{ \/\* the row exists — fall through to the placement leg \*\/ \}/g) || []).length;
+    ok(fallThrough === 2, `both routes fall through on a found row (${fallThrough}/2)`);
+
+    /* The mechanism of the bug was a SECOND return built for the replay case. Its helper is gone;
+     * if it comes back, so has the divergence. */
+    ok(!/createdInstanceReply\s*\(/.test(worker),
+       'no separate replay-reply builder — one return per route, so shapes cannot drift');
+
+    /* Convergence is only healing if the placement is seeded with what is already there; passing an
+     * empty existingId would make a replay CREATE A SECOND FOLDER instead of resolving the first. */
+    const seeded = (worker.match(/replayed \? \(replayed\.oauth_folder_id \|\| ''\) : ''/g) || []).length;
+    ok(seeded >= 1, `a replay seeds the folder lookup from the stored row (${seeded})`);
+    ok(/driveEnsureDeviceFolder\(env, access, instance_id, placeName, folderId, project\.drive_folder_id\)/.test(worker),
+       '...and passes it as existingId, so an existing folder is resolved rather than duplicated');
+
+    /* A retry's body must not rename an existing device as a side effect. */
+    const stored = (worker.match(/const placeName = replayed \? replayed\.nickname : nickname;/g) || []).length;
+    ok(stored === 2, `both routes keep the STORED nickname on a replay (${stored}/2)`);
+  }
+
   console.log(fail ? `\nFAILED (${fail})\n` : '\nall passed\n');
   if (fail) throw new Error(`${fail} check(s) failed`);
 });

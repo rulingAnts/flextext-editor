@@ -1272,6 +1272,26 @@ body.rp-standalone main { padding-top: 0; }
    BROKEN rather than working (Seth, 2026-08-18) — every action here is a network round trip on a
    field connection. Keeping the LABEL and animating it says "working" without reflowing the row,
    which swapping the text for a spinner glyph would. */
+/* The loading scrim: a grayed screen with a spinner, shown only when an action is slow enough to
+   need acknowledging. z-index 39 keeps it UNDER the modal layer (40), so the modal covers it as it
+   opens and there is never a bare-page flash between scrim and dialog. */
+.rp-loading {
+  position: fixed; inset: 0; z-index: 39;
+  background: rgba(20, 24, 30, .45);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  color: #fff; font-size: 15px;
+}
+.rp-loading p { margin: 0; }
+.rp-spinner {
+  width: 38px; height: 38px; border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, .3); border-top-color: #fff;
+  animation: rp-spin .8s linear infinite;
+}
+@keyframes rp-spin { to { transform: rotate(360deg); } }
+/* Slowed rather than stopped: a still ring reads as a frozen app, which is the opposite of the
+   message. */
+@media (prefers-reduced-motion: reduce) { .rp-spinner { animation-duration: 2.4s; } }
+
 .rp-busy { animation: rp-busy-pulse 1s ease-in-out infinite; cursor: progress; }
 @keyframes rp-busy-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .rp-busy { animation: none; opacity: .55; } }

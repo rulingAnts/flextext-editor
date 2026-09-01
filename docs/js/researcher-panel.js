@@ -69,6 +69,7 @@ let liveTick = 0;      // counts dashboard polls, to re-fetch the LIVE-version b
 let lastSig = null;    // signature of the last-rendered view, to skip no-op re-renders
 let reconnectTimer = null; // auto-retry timer for the "reconnecting" screen (network blip during bootstrap)
 let lastData = null;   // last dashboard view, kept so an action (e.g. upload) can re-render instantly w/o a refetch
+let lastDataAt = 0;    // when it was fetched — see FRESH_VIEW_MS
 // Researcher-side upload-request tracking: docId -> { prevFileId, requestedAt, doneAt }. Lets the panel show
 // "request sent → uploaded just now" with NO server state: a (re)upload writes a new timestamped Drive file,
 // so when the device later reports a DIFFERENT uploadedFileId we know THIS request completed — even a re-send
@@ -1330,6 +1331,37 @@ function showPanelHelp() {
  * trip on a field connection, and greying the label out is indistinguishable from a dead control.
  * The class keeps the label — so the row neither reflows nor loses its meaning — and animates, which
  * is the part that says "working" rather than "refused". */
+/* ⚠ A GRAYED SCREEN WITH A SPINNER, for anything that opens a modal after a round-trip (Seth,
+ * 2026-09-01: "the UI exhibits some kind of response … for any modal that doesn't instantly pop up.
+ * The user needs to know not to click it again", then "I want the loading spinner with the grayed
+ * screen before the modal loads").
+ *
+ * ⚠ IT BLOCKS THE SECOND CLICK, which a toast does not. On a slow link the instinct is to press
+ * again, and a second Settings press means a second full listView — the scrim makes that physically
+ * impossible rather than merely discouraged.
+ *
+ * ⚠ DELAYED BY DESIGN. Shown immediately it would strobe on every fast action; most complete well
+ * inside the delay and should look instant. Nothing appears unless the wait is long enough to notice.
+ *
+ * ⚠ WHY THIS IS NOT OPTIONAL POLISH (Seth): "we're dealing with Google Drive and … Indonesian
+ * internet, things won't always be instant." Speed is worth chasing, but it can never be promised;
+ * an acknowledgement can.
+ *
+ * ⚠ z-index sits BELOW the modal layer (40) on purpose: the modal covers the scrim when it opens, so
+ * removing the scrim afterwards cannot flash a bare page between the two. */
+function loadingScrim(delayMs = 200) {
+  let el = null;
+  const timer = setTimeout(() => {
+    el = document.createElement('div');
+    el.className = 'rp-loading';
+    el.setAttribute('role', 'status');
+    el.setAttribute('aria-live', 'polite');
+    el.innerHTML = `<div class="rp-spinner" aria-hidden="true"></div><p>${esc(t('panel.loading'))}</p>`;
+    document.body.appendChild(el);
+  }, delayMs);
+  return () => { clearTimeout(timer); if (el) el.remove(); };
+}
+
 async function busy(btn, fn) {
   if (!btn) return fn();
   const old = btn.textContent; btn.disabled = true; btn.classList.add('rp-busy');
@@ -1781,7 +1813,7 @@ async function renderDashboard(prefetched) {
     }
   }
 
-  lastData = data;   // cache for an instant local re-render after an action (no refetch)
+  lastData = data; lastDataAt = Date.now();   // cache for an instant local re-render after an action (no refetch)
   const insts = data.instances || [];
   loadPending(Researcher.currentAccountId());
   await loadMoves(Researcher.currentAccountId());
@@ -3925,6 +3957,9 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
   </div>`;
 }
 
+/* One dashboard poll. Inside this, the cached view is what the panel is already showing, so opening
+ * a modal from it shows the researcher exactly what is on their screen. */
+const FRESH_VIEW_MS = 15000;
 let lastView = null;
 /* An instance by id from EITHER side of the view — owned, or a joined project's (2026-08-27).
  * Every action handler that resolves an instance goes through this, or member cards' buttons
@@ -3935,6 +3970,20 @@ function viewInst(v, id) {
 }
 
 async function instanceAction(el) {
+  /* Wrapped rather than sprinkled over "the slow ones": every branch below either opens a modal or
+   * touches the network, and a hand-picked list would be wrong the first time a fast one grew a
+   * fetch. */
+  const done = loadingScrim();
+  if (el) el.classList.add('rp-busy');
+  try {
+    return await instanceActionInner(el);
+  } finally {
+    done();
+    if (el) el.classList.remove('rp-busy');
+  }
+}
+
+async function instanceActionInner(el) {
   const id = el.dataset.i, installId = el.dataset.id, type = el.dataset.type;
   const act = el.dataset.iact;
   try {
@@ -3960,8 +4009,21 @@ async function instanceAction(el) {
      * the grant may have landed since the cards painted, and a stale "not yet" here would block a
      * healed member. ⚠ 'approve' is NOT in this list since Phase 2: the worker mints the install
      * wrap itself on the server-key lane, so approving needs no key material on this seat. */
+    /* ⚠ ONE listView, NOT TWO. This gate fetched the view and the settings branch below fetched it
+     * AGAIN — two full round-trips before the modal could open, which is most of why Settings felt
+     * "very slow" on a poor link. preView carries the first one forward. */
+    /* ⚠ AND WHERE POSSIBLE, ZERO ROUND-TRIPS (Seth: "what can we do to reduce the network load time
+     * there without breaking any functionality?"). The dashboard poll already fetched exactly this —
+     * lastData IS a Researcher.listView() result (see the note at the pendingCmds sweep) — so on a
+     * panel that has polled recently the modal can open with no request at all.
+     * ⚠ BOUNDED BY AGE, NOT USED BLINDLY. Past FRESH_VIEW_MS we fetch, so what the researcher edits
+     * is never more than one poll stale. That is the whole safety argument: the save path is
+     * separately protected by settings_rev, but showing someone stale values to edit is its own bug.
+     * Net effect on a slow link: Settings went from TWO full round-trips to one, and now usually to
+     * none. */
+    let preView = (lastData && (Date.now() - lastDataAt) < FRESH_VIEW_MS) ? lastData : null;
     if (act === 'settings' || act === 'invite') {
-      const v = await Researcher.listView();
+      const v = preView || (preView = await Researcher.listView());
       const owned = ((v && v.instances) || []).some((x) => x.instance_id === id);
       const mInst = owned ? null : viewInst(v, id);
       if (mInst && mInst.hasKey === false) { deps.toast(t('panel.joined.keyPending'), 8000); return; }
@@ -4122,7 +4184,7 @@ async function instanceAction(el) {
       deps.toast(t(want ? 'panel.move.doneSent' : 'panel.move.notDoneSent'), 4000);
       renderDashboard(lastData || undefined);
     } else if (act === 'settings') {
-      lastView = await Researcher.listView();
+      lastView = preView || await Researcher.listView();   // already fetched by the gate above
       const inst = viewInst(lastView, id);
       openSettingsModal({ kind: 'instance', instance: inst });
     }

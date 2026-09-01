@@ -5039,3 +5039,46 @@ class of loss as losing a test string.
   update" rather than a countdown that proceeds regardless.
 ⚠ Whatever is chosen must not make updates *skippable indefinitely* — a device that never activates
 a new engine is the stale-device problem the version banner exists to solve.
+
+---
+
+## Responsive across the whole suite — and whether a framework earns its place (Seth, 2026-09-01)
+
+> *"All of our apps need to be tested and made more friendly for a variety of screen sizes. And I
+> think there's CSS/JavaScript frameworks out there that can help with that… But that's NEXT release
+> we can look into those I think. Maybe."*
+
+**What v548/v549 actually did, so the next pass starts from the real state:** only the editor's
+sticky player dock and the Cut tab's hint, and only in `docs/css/app.css`. Two tiers keyed on size in
+either dimension (`<=1024px or <=800px tall` → 56px wave + hint folds; `<=560px or <=560px tall` →
+44px wave). Nothing else in the suite was touched. The researcher panel, the recorder, the crowd
+embed and PAT have had no equivalent audit.
+
+**The governing rule Seth set, which should survive into whatever comes next:** *"It's screen size
+that matters to me, not device type."* An 11" tablet gets what an 11" laptop window gets. A first
+version of v549 sniffed `pointer: coarse` to separate them and was removed for exactly this reason —
+don't reintroduce device sniffing under a framework's name for it.
+
+**The measurement that motivated it**, worth repeating on the other apps before designing anything:
+at 375px the dock was 162px and the hint another 162px — 324px above the work on a ~640px viewport,
+and the dock is `position: sticky`, so it is spent on every screen of a session rather than once.
+The method is cheap: clone the element into a fixed-width host and read `getBoundingClientRect()`,
+or drive the real page with viewport emulation and read `matchMedia` + computed styles.
+
+**On a framework — the honest trade, not a recommendation.** Against: this is a static, no-build PWA
+served from `docs/`, its offline story is a hand-listed sw.js SHELL, and every byte is precached onto
+field phones on poor connections; a utility framework (Tailwind et al.) normally wants a build step,
+and a component framework (Bootstrap) brings a whole visual language this app already has its own
+opinions about. Adding either is a change to the suite's architecture, not a stylesheet tidy-up. For:
+what actually hurt here was ad-hoc breakpoints with no shared scale, and that IS worth fixing —
+possibly with nothing more than a documented set of tokens (a couple of breakpoints, a spacing scale,
+a container query or two) rather than a dependency. Modern CSS has since absorbed most of what these
+frameworks were for: container queries, `clamp()`, `min()`/`max()`, logical properties.
+
+⚠ **Whatever is chosen, the constraint from the top of CLAUDE.md applies: a change to shared
+`docs/css/` changes every app at once.** Know the blast radius before starting, and prefer a pass per
+app with measurements over one sweeping restyle.
+
+**Suggested order when it is picked up:** measure each app's worst offender first (they will not be
+the same element), agree the breakpoint tokens, then apply — rather than choosing a tool and looking
+for somewhere to use it.

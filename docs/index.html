@@ -32,6 +32,12 @@
     <!-- ⚠ OPTIONS ARE BUILT AT RUNTIME from i18n's LANGS (see fillLangPickers). Hard-coding them
          here is how a language gets offered before it is translated — the list must come from the
          one place that knows whether a dictionary is complete. -->
+    <!-- ⚠ HOME BAR ONLY, NOT THE EDITOR BAR. Same control and same behaviour as the researcher
+         panel's (Seth, 2026-09-01), but a hard refresh RELOADS, and reloading while a text is open
+         is the very hazard already filed against the auto-update banner: an unsaved field of a new
+         text is not covered by "your work is saved". The home screen has nothing in flight to lose,
+         so the button lives where it is safe rather than being guarded everywhere it is not. -->
+    <button id="btn-refresh" class="icon-btn" data-i18n-title="btn.refresh" data-i18n-aria="btn.refresh">&#8635;</button>
     <select id="lang-select" data-i18n-title="research.lang"></select>
     <button id="btn-help-home" class="icon-btn help-btn" data-i18n-title="btn.help">?</button>
     <button id="btn-researcher" class="secondary-btn" data-i18n="panel.entry" hidden>Researcher</button>

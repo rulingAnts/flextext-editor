@@ -8320,6 +8320,18 @@ function setup() {
     e.currentTarget.setAttribute('aria-label', t(e.currentTarget.dataset.i18nAria));
     e.currentTarget.title = t(e.currentTarget.dataset.i18nTitle);
   });
+  /* ⚠ A HARD REFRESH: ask the service worker to look for a new engine, THEN reload. A plain reload
+   * can serve the same cached version indefinitely — update() is the half that makes it a
+   * ctrl+shift+r rather than a soft one. The editor's upload queue is persisted in IndexedDB and
+   * resumes after a restart, so unlike the panel there is no transfer to lose here; the button is
+   * on the HOME bar only, so there is never an open text either. */
+  $('#btn-refresh')?.addEventListener('click', async (e) => {
+    const b = e.currentTarget;
+    if (b) { b.classList.add('rp-spin'); b.disabled = true; }
+    try { const reg = await navigator.serviceWorker?.getRegistration(); await reg?.update(); }
+    catch { /* no worker, or update refused — reload anyway */ }
+    finally { location.reload(); }
+  });
   $('#btn-help-home').addEventListener('click', openHelp);
   $('#btn-help-editor').addEventListener('click', openHelp);
   $('#btn-help-close').addEventListener('click', closeHelp);

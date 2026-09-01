@@ -1076,6 +1076,9 @@ body.rp-standalone main { padding-top: 0; }
    2026-09-01: Refresh should be "green-ish (same as the sign out button)"). Translucent white over
    the header's sea green rather than a literal green, so it works whatever the header colour is —
    which matters because the suite is due to be colour-coded per app. */
+/* The refresh glyph turns while the reload is being arranged, so the press is acknowledged even
+   though the page is about to go away. Same duration as the spinner it accompanies. */
+.rp-spin { animation: rp-spin .8s linear infinite; }
 .rp-lock, .rp-headbtn { background: rgba(255,255,255,.15); border-color: rgba(255,255,255,.35); color: #fff; }
 .rp-lock:hover, .rp-headbtn:hover { background: rgba(255,255,255,.25); }
 

@@ -188,8 +188,15 @@ console.log('\nnothing a MEMBER cannot use is rendered for them (Seth, 2026-08-2
   const gatedSites = (panel.match(/!viaMember\)\s*\{[\s\S]{0,300}?panel\.dl\.openFolder'/g) || []).length;
   ok(openFolderSites > 0 && gatedSites === openFolderSites,
      `⚠ EVERY "Open the Drive folder" render is owner-gated (${gatedSites}/${openFolderSites})`);
-  ok(/\$\{memberCtx \? '' : projectMoveBtn\(it\)\}/.test(panel),
-     '⚠ "Move to project…" (re-parenting) is absent for a member');
+  /* ⚠ Matches the GATE, not one function name. The control became an icon in the header
+   * (projectMoveIconBtn, which delegates to projectMoveBtn so the two cannot disagree about WHEN a
+   * move is offered) and this assertion failed on the rename while the property it guards — absent
+   * for a member — was untouched. Pinning the name would have to be re-pointed on every
+   * presentation change; pinning the gate is what actually matters. */
+  const moveSites = (panel.match(/projectMove(?:Icon)?Btn\(it\)\}/g) || []).length;   // `}` ⇒ a template render site, not a definition
+  const moveGated = (panel.match(/\$\{memberCtx \? '' : projectMove(?:Icon)?Btn\(it\)\}/g) || []).length;
+  ok(moveSites > 0 && moveGated === moveSites,
+     `⚠ "Move to project…" (re-parenting) is absent for a member (${moveGated}/${moveSites} render sites gated)`);
   ok(/mAssign \? ` <button class="link-btn rp-revoke" data-iact="del-text"/.test(panel),
      'deleting a text from a device requires assignTexts');
   ok(/panel\.share\.warnApproval/.test(panel),

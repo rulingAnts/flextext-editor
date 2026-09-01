@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v546';
+export const ENGINE_VERSION = 'v547';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v546';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'pair-stacking v1';
+export const BUILD_TAG = 'pair-stacking v2';
 
 const S = {
 en: {
@@ -1242,6 +1242,7 @@ internet after the first time.</p>
   // ── upload a text to a PROJECT, no device (issue #4) ──
   'panel.proj.newText': 'New text…',
   'panel.rel.new.projectText': 'Panel: a project has its own “New text…” button — upload a text straight into the project and decide later which device works on it. The device button is now “Assign new text…”, since it uploads and assigns in one go.'
+    ,'panel.rel.new.pairConnect': 'Devices: the \u201cConnect\u201d button on a device being paired could sit behind the \u201cwaiting for your researcher\u201d box on a short or sideways screen, so tapping it did nothing. It is now always on top.'
     ,'panel.rel.new.deviceOnce': 'Panel: creating a device can no longer produce a duplicate. If the network drops while the device is being made, the retry finds the one that exists instead of making a second.',
   'panel.assign.projTitle': 'New text in this project',
   'panel.assign.projIntro': 'The files are uploaded to this project and left unassigned — no device gets them yet. Move… puts one on a device whenever you are ready.',
@@ -3219,6 +3220,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.assign.title': 'Tugaskan teks',
   'panel.proj.newText': 'Teks baru…',
   'panel.rel.new.projectText': 'Panel: setiap proyek punya tombol “Teks baru…” sendiri — unggah teks langsung ke proyek dan putuskan nanti perangkat mana yang mengerjakannya. Tombol pada perangkat kini “Tugaskan teks baru…”, karena ia mengunggah sekaligus menugaskan.'
+    ,'panel.rel.new.pairConnect': 'Perangkat: tombol \u201cHubungkan\u201d pada perangkat yang sedang dipasangkan bisa tertutup kotak \u201cmenunggu peneliti Anda\u201d di layar pendek atau melebar, sehingga menekannya tidak melakukan apa-apa. Kini tombol itu selalu di atas.'
     ,'panel.rel.new.deviceOnce': 'Panel: membuat perangkat tidak lagi bisa menghasilkan duplikat. Jika jaringan terputus saat perangkat dibuat, percobaan ulang menemukan yang sudah ada, bukan membuat yang kedua.',
   'panel.assign.projTitle': 'Teks baru di proyek ini',
   'panel.assign.projIntro': 'Berkas diunggah ke proyek ini dan dibiarkan tanpa perangkat — belum ada perangkat yang menerimanya. Gunakan Pindahkan… untuk menaruhnya di perangkat kapan pun Anda siap.',

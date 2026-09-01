@@ -784,7 +784,13 @@ main {
   color: #fff;
   padding: 8px clamp(10px, 3vw, 28px);
   padding-bottom: calc(8px + env(safe-area-inset-bottom));
-  z-index: 45;
+  /* ⚠ BELOW THE PAIRING BANNER (39) AND THE MODAL LAYER (40), not above them. At 45 this
+     tray outranked both: it covered the six-digit pairing code on a device that was
+     enrolling while an upload ran, and it could cover a dialog's buttons on a short
+     window — the same defect the pairing banner itself was just fixed for. The whole
+     bottom stack now reads upward: upload tray 37 < update banner 38 < pairing 39 <
+     modal 40 < toast 50, with only toasts deliberately above modals. */
+  z-index: 37;
   font-size: 14px;
   box-shadow: 0 -2px 12px rgba(0,0,0,.25);
 }
@@ -844,30 +850,44 @@ main {
    "for larger screens, a larger player is good … but for smaller ones, we need a
    smaller player", and "a small screen would also include … a Galaxy Tab A9").
 
-   The sticky player costs its height on EVERY screen of a transcription session,
-   so what matters is how much of the viewport it eats — which is a different
-   question on a phone, a tablet, and a laptop. Hence a gradient, not a cliff.
+   The dock is position:sticky, so its height is spent on EVERY screen of a
+   transcription session rather than once. How much that costs depends on the
+   viewport, so this is a gradient rather than a cliff.
 
-   Reference CSS viewports (Android, DPR 1.5):
-     phone portrait      360 x 640      tier B
-     phone landscape     640 x 360      tier B (caught by max-height)
-     Tab A9   8.7"       533 x 893      tier A portrait
-     Tab A9   8.7"  land 893 x 533      tier A (both conditions)
-     Tab A9+ 11"         800 x 1280     tier A portrait
-     Tab A9+ 11"    land 1280 x 800     FULL SIZE — see the note below
-     laptop             1440 x 900      full size
+   ⚠ SIZE, NOT DEVICE (Seth: "for an 11" tablet, I don't mind it handling our app
+   the same way an 11" laptop does. It's screen size that matters to me, not
+   device type"). An earlier version sniffed `pointer: coarse` to tell a tablet
+   from a same-sized laptop window; that is the exact distinction Seth does not
+   want drawn, and removing it made these rules shorter as well as more correct.
 
-   ⚠ An 11" tablet in LANDSCAPE (1280x800) deliberately keeps the full-size player.
-   Catching it would need max-width past 1280, which is every laptop too, and at
-   that size the dock is ~20% of the height rather than half of it. If that turns
-   out to be the wrong call in the field, widen tier A — the rules are already
-   written to scale.
+   ⚠ AND EACH TIER TAKES EITHER DIMENSION, because a screen can be small in one
+   and not the other and both hurt: a SHORT screen loses usable height to the
+   sticky dock, a NARROW one makes the controls wrap into three rows. Keying on
+   one alone got this wrong twice during the same afternoon — width alone let a
+   phone in landscape (640x360) pass as roomy, height alone let a modern tall
+   phone (390x844) pass as roomy.
+
+   Reference CSS viewports (Android tablets at DPR 1.5), and what each resolves to:
+     phone portrait      360 x 640    A+B   44px wave
+     tall phone          390 x 844    A+B   44px wave
+     phone landscape     640 x 360    A+B   44px wave
+     Tab A9   8.7"       533 x 893    A+B   44px wave
+     Tab A9   8.7"  land 893 x 533    A+B   44px wave
+     Tab A9+ 11"         800 x 1280   A     56px wave
+     Tab A9+ 11"    land 1280 x 800   —     full size, exactly like an 11" laptop
+     laptop             1366 x 768    —     full size
+     laptop             1440 x 900    —     full size
+
+   ⚠ TIER A's HEIGHT ARM IS 700px, NOT 800px, and the 100px matters: at 800 this
+   tier swallowed ordinary laptops — 1366x768 is one of the commonest screens
+   there is — which contradicted both Seth's "for larger screens, a larger player
+   is good" and the release note telling researchers bigger screens were
+   unchanged. 700 still catches every short viewport that actually hurts (a phone
+   in landscape at 360, a small tablet in landscape at 533).
    ───────────────────────────────────────────────────────────────────────────── */
 
-/* ── TIER A — tablets, small laptop windows, and any SHORT viewport.
-   Height is in the query because the player is sticky: a phone in landscape is
-   wide and desperately short, and width alone would call it roomy. */
-@media (max-width: 1024px), (max-height: 800px) {
+/* ── TIER A — tablets, and any genuinely SHORT viewport. */
+@media (max-width: 1024px), (max-height: 700px) {
   .player { padding: 7px 9px 5px; }
   /* Still a comfortable overview waveform — this tier has height to spare, it just
      has less of it than a desktop. */
@@ -890,6 +910,12 @@ main {
   #btn-cut-hint { display: inline-flex; align-items: center; justify-content: center; }
   #cut-hint { display: none; }
   #cut-hint.is-open { display: block; }
+  /* ⚠ AND NOT WHEN THE ℹ ITSELF IS OFF SCREEN. #btn-cut-hint lives inside #cut-main,
+     which is [hidden] until the recording decodes — and stays hidden for a text with
+     NO recording at all. Folding the hint in that state hid the instructions AND the
+     only control that brings them back, on the one tab whose gestures are not
+     guessable. So while the work area is down, the hint simply stays. */
+  #view-cut:has(#cut-main[hidden]) #cut-hint { display: block; }
 }
 
 /* ── TIER B — phones. Tighter still, on top of tier A.
@@ -897,8 +923,8 @@ main {
    ~30px tall, under the 44px touch target a field phone deserves; taking pixels from
    the controls would be taking them from the wrong place. The height comes back from
    the waveform, the wrapping, and one redundant label. */
-/* Narrow-screen chrome. Unchanged, and deliberately still keyed on WIDTH — a cramped
-   topbar is a horizontal problem, unlike the player below. */
+/* Narrow-screen chrome — pre-existing, unchanged, and deliberately still keyed on
+   WIDTH ALONE: a cramped topbar is a horizontal problem, unlike the dock below. */
 @media (max-width: 560px) {
   .topbar-row { gap: 6px; }
   .top-tab { padding: 7px 11px 13px; font-size: 14px; }

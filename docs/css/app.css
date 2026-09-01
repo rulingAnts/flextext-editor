@@ -2521,7 +2521,18 @@ body.rp-standalone main { padding-top: 0; }
   position: fixed;
   left: 50%; transform: translateX(-50%);
   bottom: 12px;
-  z-index: 60;
+  /* ⚠ BELOW THE MODAL LAYER (40), not above it. This banner is standing state — it sits there for
+     the whole pairing — while the invite-consent dialog is a question that must be answered, and a
+     bottom-anchored box that outranks a centred dialog COVERS ITS BUTTONS on any window short
+     enough that the card reaches down to it. That is not hypothetical: at z-index 60 this banner
+     hid the "Connect"/"Hubungkan" button on the device end of pairing, which is the one control the
+     whole flow depends on, and it did it only at certain window sizes — so it looked like an
+     intermittent fault rather than a layout rule.
+     The convention is already stated on .update-ready-banner ("below modals, above page content");
+     this is the same kind of thing and takes the same tier, one step above it so that if both are
+     up at once the pairing box — the active task — stays readable. Toasts (50) deliberately STAY
+     above modals: they are ephemeral and may report the result of a modal action. */
+  z-index: 39;
   width: min(92vw, 420px);
   padding: 12px 16px 14px;
   border: 1px solid var(--border);

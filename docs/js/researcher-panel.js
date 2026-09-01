@@ -3879,6 +3879,8 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
           const wipe = (!memberCtx && live)
             ? `<button class="rp-wipe-btn" data-iact="wipe-install" data-i="${I}" data-id="${esc(live.install_id)}" data-name="${NM}" data-i18n-title="panel.wipe.tip" title="${esc(t('panel.wipe.tip'))}"><span class="rp-skull" aria-hidden="true">☠</span><span>${esc(t('panel.wipe.btn'))}</span></button>`
             : '';
+          /* No separator element: the group takes its own line (flex-basis:100%), so there is
+           * nothing to divide horizontally. */
           return `<div class="rp-danger-group"><div class="rp-split-btn">${unlink}${del}</div>${wipe}</div>`;
         })()}
       </div>

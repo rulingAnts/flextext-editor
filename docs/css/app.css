@@ -1498,16 +1498,31 @@ body.rp-standalone main { padding-top: 0; }
 .rp-probe-result.rp-as-ok { color: #1f5d22; }
 .rp-probe-result.rp-as-err { color: #a3261f; }
 .rp-doclink { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; background: var(--panel); color: var(--muted); font-weight: 700; font-size: 12px; text-decoration: none; border: 1px solid var(--border, #ccc); }
-/* ⚠ SAFE ACTIONS LEFT, DESTRUCTIVE ONES PUSHED RIGHT (Seth, 2026-09-01: these were "kind of ugly
-   and awkwardly placed… each of them should be buttons"). They were bare text links sitting in the
-   flow of ordinary actions, so Settings / Invite / Assign and "erase this device forever" read as
-   the same kind of thing at a glance — and they were split across two different rows.
-   `margin-left: auto` opens a real gap on a wide panel; when the row wraps on a narrow one the
-   group keeps its own line, so a destructive button never lands where a safe one just was. */
-.rp-inst-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; align-items: center; }
-.rp-danger-group { display: flex; gap: 10px; flex-wrap: wrap; margin-left: auto; align-items: center; }
-@media (max-width: 560px) {
-  .rp-danger-group { margin-left: 0; width: 100%; padding-top: 10px; border-top: 1px solid var(--border); }
+/* ⚠ TWO ROWS, ON PURPOSE — safe actions above, destructive ones below, BOTH LEFT-ALIGNED.
+   (Seth, 2026-09-01: "splitting the row after move to project… is actually a sensible decision. As
+   long as both rows are left aligned.")
+
+   Three earlier attempts are worth recording, because each failed for a reason the next one had to
+   respect:
+     1. `margin-left: auto` pushed the group right. Fine while it fitted; the moment it wrapped you
+        got a left-aligned top line and a right-aligned bottom line — "slightly overlapping, yuck".
+     2. A vertical rule with natural wrapping. Better, but the break point then depended on the
+        window, so the same panel looked composed at one size and accidental at another.
+     3. Trying to fit one row at all. Measured at the panel's FULL width (.rp-body caps at 820px, so
+        782px usable): English needs 773px — nine pixels of slack — and Indonesian 827px, which
+        simply does not fit. A layout with 9px of margin is not a layout; the next label edit breaks
+        it, and this file has already renamed that button twice today.
+   `flex-basis: 100%` makes the break DELIBERATE instead of incidental: it lands in the same place at
+   every width, in every language, so the card reads the same everywhere. No vertical rule — there is
+   nothing to separate horizontally once they are stacked.
+   ⚠ ICON-ONLY WOULD FIT ON ONE ROW AND IS THE WRONG TRADE for these three: tooltips do not exist on
+   touch, tablets are in scope, and these are the controls where an unlabelled guess is expensive. */
+.rp-inst-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; align-items: center; }
+.rp-inst-actions .secondary-btn { padding: 6px 10px; font-size: 13.5px; }
+.rp-danger-group {
+  display: flex; gap: 7px; flex-wrap: wrap; align-items: center;
+  flex-basis: 100%;      /* its own line, always — the whole point */
+  margin-top: 4px;       /* reads as a second group rather than a wrapped continuation */
 }
 
 /* ── UNLINK | DELETE: ONE control with two halves (Seth's shape). They are the pair a researcher
@@ -1516,33 +1531,32 @@ body.rp-standalone main { padding-top: 0; }
 .rp-split-btn { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--panel); }
 .rp-split-half {
   appearance: none; border: 0; background: none; cursor: pointer;
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 8px 12px; font-size: 14px; color: var(--text);
+  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+  padding: 6px 9px; font-size: 13.5px; color: var(--text);
   /* Deliberately NOT red. These are recoverable in practice (re-invite, re-create) and colouring
      them like the hazard button would spend the alarm that belongs to the one below. */
 }
 .rp-split-half + .rp-split-half { border-left: 1px solid var(--border); }
 .rp-split-half:hover { background: #e8ecf2; }
 .rp-split-half:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
-.rp-ico { width: 16px; height: 16px; flex: none; opacity: .75; }
+.rp-ico { width: 15px; height: 15px; flex: none; opacity: .7; }
 
 /* ── ERASE: the hazard button. Black-and-amber, which is what a hazard label looks like everywhere
    else in the world, rather than another red button competing with ordinary danger text. It is the
    ONLY control here that destroys a corpus and the only one that cannot be undone, so it is the
-   only one shaped and coloured differently. */
+   only one shaped and coloured differently. Kept to the same height as its neighbours — the alarm
+   comes from the colour and the skull, not from being physically bigger than everything else. */
 .rp-wipe-btn {
   appearance: none; cursor: pointer;
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 8px 14px; font-size: 14px; font-weight: 600;
+  display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
+  padding: 6px 11px; font-size: 13.5px; font-weight: 600;
   border-radius: 8px;
   background: #241a12; border: 2px solid #d98b1f; color: #f2c368;
 }
 .rp-wipe-btn:hover { background: #3a2a18; border-color: #f0a638; color: #ffd88a; }
 .rp-wipe-btn:focus-visible { outline: 2px solid #f0a638; outline-offset: 2px; }
-.rp-skull { font-size: 19px; line-height: 1; }
-@media (prefers-color-scheme: dark) {
-  .rp-wipe-btn { background: #1c1410; }
-}
+.rp-skull { font-size: 16px; line-height: 1; }
+@media (prefers-color-scheme: dark) { .rp-wipe-btn { background: #1c1410; } }
 .rp-revoke { color: #a3261f; }
 /* Coworkers list (Phase D sharing). Row layout — the id/permissions on the left, Remove on the
    right — wrapping on a narrow panel rather than squeezing a researcher GUID off the edge. */

@@ -3847,14 +3847,18 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
               aria-expanded="${collapsed ? 'false' : 'true'}" aria-controls="${esc(bodyId)}"
               title="${esc(t(collapsed ? 'panel.inst.expand' : 'panel.inst.collapse'))}">
         <span class="rp-caret" aria-hidden="true">▾</span>
-        <span class="rp-inst-name">${esc(it.nickname || '?')} ${runs ? `<span class="rp-badge rp-badge-type">${esc(runs)}</span>` : ''} ${status}${warnBadges}${legacyBadge}</span>
+        <span class="rp-inst-name"><span class="rp-inst-nick">${esc(it.nickname || '?')}</span> ${runs ? `<span class="rp-badge rp-badge-type">${esc(runs)}</span>` : ''} ${status}${warnBadges}${legacyBadge}</span>
+        <span class="rp-inst-count">${esc(t('panel.inst.texts', { n: textCount }))}</span>
       </button>
+      ${/* Far right, after a flexible gap — Seth, 2026-09-01: "put them on the far right and then
+           move the number of texts to immediately following the status tiles (with no line break)".
+           The count going back INSIDE the toggle also restores the collapse hit target it had
+           before, so the phone-tap behaviour comes back with the layout fix. */''}
       ${collapsed ? '' : `<div class="rp-inst-quick">
         ${mAssign ? `<button class="rp-iconbtn" data-iact="assign" data-i="${esc(it.instance_id)}" title="${esc(t('panel.inst.assign'))}" aria-label="${esc(t('panel.inst.assign'))}">${ICON_NEWTEXT}</button>` : ''}
         ${mManage ? `<button class="rp-iconbtn" data-iact="settings" data-i="${esc(it.instance_id)}" data-type="${esc(it.type)}" title="${esc(t('panel.inst.settings'))}" aria-label="${esc(t('panel.inst.settings'))}">${ICON_GEAR}</button>` : ''}
         ${memberCtx ? '' : projectMoveIconBtn(it)}
       </div>`}
-      <span class="rp-inst-count">${esc(t('panel.inst.texts', { n: textCount }))}</span>
     </div>
     <div class="rp-inst-body" id="${esc(bodyId)}"${collapsed ? ' hidden' : ''}>
       ${isLegacyDevice ? `<p class="banner warn-banner rp-legacy-tip">${esc(t('panel.inst.legacyTip'))}
@@ -3891,7 +3895,7 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
            * that has not happened. Sharing the expression is what stops the toggle and the badge
            * ever telling different stories about the same device. */
           const connect = linked
-            ? (live ? `<button class="rp-split-half" data-iact="revoke-install" data-i="${I}" data-id="${esc(live.install_id)}" title="${esc(t('panel.inst.revokeInstallTip'))}" aria-label="${esc(t('panel.inst.revokeInstall'))}">${ICON_UNLINK}<span>${esc(t('panel.inst.revokeInstall'))}</span></button>` : '')
+            ? (live ? `<button class="rp-split-half" data-iact="revoke-install" data-i="${I}" data-id="${esc(live.install_id)}" data-name="${NM}" title="${esc(t('panel.inst.revokeInstallTip'))}" aria-label="${esc(t('panel.inst.revokeInstall'))}">${ICON_UNLINK}<span>${esc(t('panel.inst.revokeInstall'))}</span></button>` : '')
             : (mInvite ? `<button class="rp-split-half" data-iact="invite" data-i="${I}" data-type="${esc(it.type)}" title="${esc(t('panel.inst.inviteTip'))}" aria-label="${esc(t('panel.inst.link'))}">${ICON_LINK}<span>${esc(t('panel.inst.link'))}</span></button>` : '');
           const unlink = connect;
           const del = `<button class="rp-split-half" data-iact="revoke" data-i="${I}" data-name="${NM}" data-i18n-title="panel.inst.revokeTip" title="${esc(t('panel.inst.revokeTip'))}">${ICON_X}<span>${esc(t('panel.inst.revoke'))}</span></button>`;
@@ -3962,7 +3966,7 @@ async function instanceAction(el) {
       await busy(el, () => Researcher.revokeInstance(id));
       renderDashboard();
     } else if (act === 'revoke-install') {
-      if (!await confirmModal(t('panel.inst.confirmRevokeInstall'))) return;   // UNLINK — warns local data stays on the device
+      if (!await confirmModal(t('panel.inst.confirmRevokeInstall', { name: el.dataset.name || '' }))) return;   // UNLINK — warns local data stays on the device
       await busy(el, () => Researcher.revokeInstall(id, installId));
       renderDashboard();
     } else if (act === 'wipe-install') {

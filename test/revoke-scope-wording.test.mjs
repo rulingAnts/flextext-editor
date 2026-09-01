@@ -1,0 +1,91 @@
+/* THE TWO REVOKE CONTROLS MUST NAME THEIR SCOPE, AND AGREE WITH THEIR OWN DIALOGS (issue #17).
+ *
+ * WHY: a researcher could not tell "Revoke this install" from "Revoke device", and said so —
+ * "both sound like they would unlink the device". He was right that the labels did not distinguish
+ * them, and his own guess at the difference (one lets you reuse the invite link, the other deletes
+ * from the account) was wrong, which is the clearest possible evidence the wording was not carrying
+ * the model. The real difference is SCOPE: one app copy, versus the device and every copy of it.
+ *
+ * ⚠ THE SHARPER BUG UNDERNEATH: the button said "Revoke this install" while the confirm dialog it
+ * opened began "Unlink this device?" — two verbs and two nouns for one act, inside one interaction.
+ * Someone who understood the model perfectly would still have been confused by that. This test
+ * exists mainly to keep those two strings speaking the same language, because they live ~2 lines
+ * apart in i18n.js and are the easiest pair in the file to edit singly.
+ *
+ * Deliberately NOT asserting exact marketing copy — only the properties that carry the meaning:
+ * the pair is distinguishable, each names its scope, and a control agrees with its own dialog.
+ *
+ * Run: node test/revoke-scope-wording.test.mjs
+ */
+import { test } from 'node:test';
+import { readFileSync } from 'node:fs';
+
+let fail = 0;
+const ok = (c, m) => { console.log(`  ${c ? 'ok  ' : 'FAIL'}  ${m}`); if (!c) fail++; };
+
+const src = readFileSync(new URL('../docs/js/i18n.js', import.meta.url), 'utf8');
+
+/* Every value for a key, in document order: [en, id]. */
+const valuesOf = (key) => [...src.matchAll(new RegExp(`'${key.replace('.', '\\.')}':\\s*'((?:[^'\\\\]|\\\\.)*)'`, 'g'))]
+  .map((m) => m[1]);
+
+test('revoke labels distinguish one install from the whole device', () => {
+  const langs = ['en', 'id'];
+  const keys = ['panel.inst.revoke', 'panel.inst.revokeInstall',
+                'panel.inst.confirmRevoke', 'panel.inst.confirmRevokeInstall'];
+
+  console.log('\nall four strings exist in both languages');
+  const V = {};
+  for (const k of keys) {
+    V[k] = valuesOf(k);
+    ok(V[k].length === 2, `${k} present twice (en + id) — got ${V[k].length}`);
+  }
+  if (fail) { console.log(`\nFAILED (${fail})\n`); throw new Error(`${fail} check(s) failed`); }
+
+  for (let i = 0; i < 2; i++) {
+    const L = langs[i];
+    const dev = V['panel.inst.revoke'][i];
+    const ins = V['panel.inst.revokeInstall'][i];
+    const devC = V['panel.inst.confirmRevoke'][i];
+    const insC = V['panel.inst.confirmRevokeInstall'][i];
+
+    console.log(`\n[${L}] the two labels are not interchangeable`);
+    ok(dev !== ins, `they differ: “${dev}” vs “${ins}”`);
+    /* ⚠ THE LABELS MUST NAME RE-HOME vs RETIRE, not scope. An earlier fix of #17 asserted the
+     * device label mentions "all installs" — encoding a model that cannot occur, since claiming an
+     * invite revokes every prior install (worker "single-live-device, §D.4"). The difference that
+     * is real, and that a researcher has to see on the button, is whether the DEVICE SURVIVES. */
+    const reHome = /another phone|ponsel lain/i.test(ins);
+    ok(reHome, reHome
+      ? `the install label says the device is re-homed: “${ins}”`
+      : `⚠ “${ins}” does not say the device survives and moves — the pair is ambiguous again`);
+    const retire = /delete|hapus/i.test(dev);
+    ok(retire, retire
+      ? `the device label says it is retired: “${dev}”`
+      : `⚠ “${dev}” does not read as removal — indistinguishable from unlinking again`);
+    /* Each dialog must point at the other control, so whichever one a researcher opens by mistake
+     * tells them where the thing they actually wanted lives. */
+    ok(/Unlink|Putuskan/.test(devC), 'the delete dialog points at Unlink as the alternative');
+    ok(/Wipe|Hapus Total/.test(insC), 'the unlink dialog points at Wipe for erasing the phone');
+
+    console.log(`[${L}] each control agrees with the dialog it opens`);
+    /* The button's leading verb must reappear in its own confirm. This is the exact mismatch that
+     * shipped: button "Revoke this install", dialog "Unlink this device?". */
+    const verb = (s) => (s.trim().split(/\s+/)[0] || '').toLowerCase().replace(/[^a-z]/g, '');
+    const iv = verb(ins);
+    ok(iv.length > 2 && insC.toLowerCase().includes(iv),
+       iv.length > 2 && insC.toLowerCase().includes(iv)
+         ? `install button “${iv}…” and its dialog use the same verb`
+         : `⚠ button starts “${iv}” but its dialog does not use that word — the v550 mismatch is back`);
+    const dv = verb(dev);
+    ok(dv.length > 2 && devC.toLowerCase().includes(dv),
+       `device button “${dv}…” and its dialog use the same verb`);
+
+    console.log(`[${L}] the install dialog still warns that local data stays`);
+    /* Non-negotiable regardless of wording: unlinking strands texts and audio on the device. */
+    ok(/STAY|TETAP/.test(insC), 'the "data stays on the device" warning survives the rewording');
+  }
+
+  console.log(fail ? `\nFAILED (${fail})\n` : '\nall passed\n');
+  if (fail) throw new Error(`${fail} check(s) failed`);
+});

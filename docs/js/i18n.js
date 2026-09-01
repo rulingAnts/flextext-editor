@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v550';
+export const ENGINE_VERSION = 'v551';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v550';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = '';
+export const BUILD_TAG = 'revoke-wording v1';
 
 const S = {
 en: {
@@ -1183,10 +1183,29 @@ internet after the first time.</p>
   // Relabelled per issue #4: the device button UPLOADS as well as assigns, and now sits beside a
   // project button that only uploads — so each has to say which it is.
   'panel.inst.assign': 'Assign new text…',
-  'panel.inst.revoke': 'Revoke device',
-  'panel.inst.revokeInstall': 'Revoke this install',
-  'panel.inst.confirmRevoke': 'Revoke “{name}” and all its installs? The device loses access.',
-  'panel.inst.confirmRevokeInstall': 'Unlink this device? It loses access and stops syncing — but its local texts and audio STAY on the device, and you will NOT be able to retrieve or remove them afterward. To erase the device instead, use Wipe.',
+  /* ⚠ THESE TWO ARE RE-HOME versus RETIRE, and the pair must be read together (issue #17). A
+   * researcher could not tell "Revoke this install" from "Revoke device", and said both sounded like
+   * unlinking. He was right that the labels did not distinguish them — they used the same verb and
+   * left the difference to be inferred from which row the button sat in.
+   *
+   * ⚠ AND AN EARLIER FIX OF THIS GOT THE MODEL WRONG, which is why the reasoning is written down.
+   * It read the plural in "and all its installs" as "several concurrent copies" and worded the pair
+   * as one-copy-versus-all-copies. That situation cannot arise: claiming an invite revokes every
+   * prior install of the instance in the same batch (worker/src/v1.js, "single-live-device, §D.4"),
+   * so an instance has at most ONE live install and the extra rows are history. Seth, 2026-09-01:
+   * "each device should have only one install… having one device installed to multiple browser
+   * profiles or physical devices is not something we want to be possible" — it already is not.
+   *
+   * What actually differs is whether the DEVICE IDENTITY survives:
+   *   unlink install  → install revoked; the instance lives on with its name, settings and assigned
+   *                     texts, so a NEW invite can put that same device on another phone.
+   *   revoke device   → instance revoked too; the identity is retired.
+   * The old invite is never reused — it is spent (`claimed_at`), and a fresh one is minted. What is
+   * reused is the device, which is the thing worth saying on the button. */
+  'panel.inst.revoke': 'Delete this device',
+  'panel.inst.revokeInstall': 'Unlink — move to another phone',
+  'panel.inst.confirmRevoke': 'Delete “{name}”? The device and its settings and assignments go from your list, and the phone it is on loses access. Its local texts and audio STAY on that phone and you will NOT be able to retrieve or remove them afterward. To keep the device and just move it to a different phone, use Unlink instead.',
+  'panel.inst.confirmRevokeInstall': 'Unlink “{name}” from the phone it is on now? That phone loses access and stops syncing, and its local texts and audio STAY on it — you will NOT be able to retrieve or remove them afterward. The device itself stays in your list with its name, settings and assigned texts, so you can send a new invite link to set it up on another phone. To erase the phone instead, use Wipe.',
   'panel.inst.never': 'never',
   'panel.inst.now': 'just now',
   'panel.inst.minsAgo': '{n} min ago',
@@ -3170,10 +3189,10 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.inst.settings': 'Pengaturan',
   'panel.inst.invite': 'Tautan undangan',
   'panel.inst.assign': 'Tugaskan teks baru…',
-  'panel.inst.revoke': 'Cabut perangkat',
-  'panel.inst.revokeInstall': 'Cabut instalasi ini',
-  'panel.inst.confirmRevoke': 'Cabut “{name}” dan semua instalasinya? Perangkat kehilangan akses.',
-  'panel.inst.confirmRevokeInstall': 'Cabut tautan perangkat ini? Perangkat kehilangan akses dan berhenti menyinkronkan — tetapi teks dan audio lokalnya TETAP ada di perangkat, dan Anda TIDAK akan dapat mengambil atau menghapusnya setelahnya. Untuk menghapus perangkatnya, gunakan Hapus Total.',
+  'panel.inst.revoke': 'Hapus perangkat ini',
+  'panel.inst.revokeInstall': 'Putuskan — pindahkan ke ponsel lain',
+  'panel.inst.confirmRevoke': 'Hapus “{name}”? Perangkat beserta pengaturan dan penugasannya hilang dari daftar Anda, dan ponsel yang memakainya kehilangan akses. Teks dan audio lokalnya TETAP ada di ponsel itu dan Anda TIDAK akan dapat mengambil atau menghapusnya setelahnya. Untuk mempertahankan perangkat dan hanya memindahkannya ke ponsel lain, gunakan Putuskan.',
+  'panel.inst.confirmRevokeInstall': 'Putuskan “{name}” dari ponsel yang memakainya sekarang? Ponsel itu kehilangan akses dan berhenti menyinkronkan, dan teks serta audio lokalnya TETAP ada di sana — Anda TIDAK akan dapat mengambil atau menghapusnya setelahnya. Perangkatnya sendiri tetap ada di daftar Anda beserta nama, pengaturan, dan teks yang ditugaskan, jadi Anda bisa mengirim tautan undangan baru untuk memasangnya di ponsel lain. Untuk menghapus isi ponselnya, gunakan Hapus Total.',
   'panel.inst.never': 'belum pernah',
   'panel.inst.now': 'baru saja',
   'panel.inst.minsAgo': '{n} mnt lalu',

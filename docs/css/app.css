@@ -831,14 +831,6 @@ main {
 }
 .modal-card .primary-btn, .modal-card .secondary-btn { width: 100%; padding: 11px; }
 
-/* Screen-reader-only. Keeps a control's accessible NAME while its visible label is dropped for
-   room — clip rather than display:none, which would remove the name along with the pixels. */
-.vis-hidden {
-  position: absolute !important; width: 1px; height: 1px;
-  margin: -1px; padding: 0; border: 0; overflow: hidden;
-  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
-}
-
 /* The ℹ that folds the Cut tab's instructions away — see the comment on the button in index.html.
    Hidden by default: on a wide screen the hint is simply visible, so a control to reveal it would
    be a control that does nothing. */

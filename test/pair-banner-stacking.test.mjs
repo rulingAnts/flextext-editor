@@ -73,6 +73,20 @@ test('a standing bottom banner never outranks the dialog it sits behind', () => 
   ok(banner >= update,
     `.pair-banner (${banner}) >= .update-ready-banner (${update}) — the active task stays readable`);
 
+  console.log('\nthe WHOLE bottom-anchored stack is ordered, not just this one pair');
+  /* ⚠ The first version of this test pinned only .pair-banner vs .modal, and a pre-release audit
+   * then found #upload-bar sitting at 45 — above BOTH. The upload tray could cover the six-digit
+   * pairing code on a device enrolling while an upload ran, which is the same defect this file was
+   * opened for, one layer along. Pin the order, not the pair. */
+  const upload = zOf('#upload-bar');
+  ok(upload !== null, `#upload-bar declares a z-index (${upload})`);
+  ok(upload < banner,
+     upload < banner
+       ? `#upload-bar (${upload}) < .pair-banner (${banner}) — the tray cannot cover the pairing code`
+       : `⚠ #upload-bar (${upload}) >= .pair-banner (${banner}) — the tray can hide the code the user must read`);
+  ok(upload < modal,
+     `#upload-bar (${upload}) < .modal (${modal}) — the tray cannot cover a dialog's buttons`);
+
   console.log('\ntoasts deliberately stay ABOVE modals — do not "fix" this one');
   ok(toast !== null, `the toast layer was found (${toast})`);
   ok(toast > modal,

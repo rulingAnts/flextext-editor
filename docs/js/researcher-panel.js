@@ -1100,11 +1100,16 @@ function header(titleKey, withLock) {
  * never invent a number for symmetry. */
 const ISSUES_URL = 'https://github.com/rulingAnts/flextext-editor/issues/';
 const RELEASES = [
-  { v: 'v549', date: '2026-09-01', items: [
+  /* ⚠ ISSUE #6 IS DELIBERATELY NOT LISTED. Its worker half is live and its client half is
+   * written, but CREATE_RETRY_SAFE is still false, so nothing about duplicate device creation
+   * behaves differently for a researcher on this build. Announcing it would be the v538 mistake
+   * again — a note describing something the shipped code does not do — and worse than silence,
+   * because a researcher told a data-integrity bug is fixed stops working around it. It goes in
+   * the release that actually turns it on. */
+  { v: 'v550', date: '2026-09-01', items: [
     { k: 'panel.rel.new.smallScreen' },
     { k: 'panel.rel.new.pairConnect' },
     { k: 'panel.rel.new.projectText', issue: 4 },
-    { k: 'panel.rel.new.deviceOnce', issue: 6 },
   ] },
   { v: 'v543', date: '2026-09-01', items: [
     { k: 'panel.rel.new.editorDialogs' },

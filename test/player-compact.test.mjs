@@ -45,7 +45,7 @@ const block = (cond) => {
 };
 
 test('the player and the cut hint compact by tier, without shrinking the transport', () => {
-  const tabletCond = '(max-width: 1024px), (max-height: 800px)';
+  const tabletCond = '(max-width: 1024px), (max-height: 700px)';
   /* ⚠ HEIGHT, not width. Keying this on width put a Galaxy Tab A9 in portrait (533 x 893) into the
    * tightest tier beside a phone — narrow, but with 893px of height and nothing to save — while a
    * phone in landscape (640 x 360) escaped it by being "wide". The dock is sticky; it costs height. */
@@ -91,6 +91,21 @@ test('the player and the cut hint compact by tier, without shrinking the transpo
      'the range input carries its own translated aria-label');
   ok(/data-i18n-aria/.test(i18n) && /setAttribute\('aria-label', t\(el\.dataset\.i18nAria\)\)/.test(i18n),
      'applyI18n actually applies data-i18n-aria — an unread hook would be decoration');
+
+  console.log('\n⚠ a laptop is NOT a small screen — 1366x768 is one of the commonest displays there is');
+  {
+    const h = Number((tabletCond.match(/max-height:\s*(\d+)px/) || [])[1]);
+    ok(h > 0 && h < 768,
+       h < 768 ? `tier A's height arm is ${h}px — below 768, so an ordinary laptop keeps the full player`
+               : `⚠ tier A fires at ${h}px tall, which swallows 1366x768 laptops and makes the release note false`);
+  }
+
+  console.log('\n⚠ the instructions are never hidden while the ℹ that reveals them is off screen');
+  /* #btn-cut-hint lives inside #cut-main, which is [hidden] until the recording decodes and stays
+   * hidden for a text with no recording at all. Without this rule the hint and its only control
+   * disappear together, on the one tab whose gestures are not guessable. */
+  ok(/#view-cut:has\(#cut-main\[hidden\]\) #cut-hint \{ display: block; \}/.test(css),
+     'the hint stays put while #cut-main is hidden (loading, or no recording at all)');
 
   console.log('\nthe Cut hint folds behind ℹ on small screens, and ONLY on small screens');
   ok(/#btn-cut-hint \{ display: none; \}/.test(css),

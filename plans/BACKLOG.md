@@ -5082,3 +5082,36 @@ app with measurements over one sweeping restyle.
 **Suggested order when it is picked up:** measure each app's worst offender first (they will not be
 the same element), agree the breakpoint tokens, then apply — rather than choosing a tool and looking
 for somewhere to use it.
+
+### ⇒ SCHEDULED: a UI revamp audit, early week of 2026-09-07 (Seth, 2026-09-01)
+
+> *"Early next week, when Fable resets, I'd like to do an audit/survey/planning for how to revamp the
+> UI (probably using some kind of CSS/JavaScript framework) to be multi-device (especially mobile and
+> laptop) friendly. And also to make the UI cleaner, more modern/nicer/more user friendly."*
+
+So this stops being a "maybe" and becomes a planned piece of work with a wider brief than the section
+above: not only responsive behaviour but the LOOK — cleaner, more modern, friendlier.
+
+**What that session should start from, so it does not re-derive today's ground:**
+
+- **The rule Seth already set:** *"It's screen size that matters to me, not device type."* v549 removed
+  a `pointer: coarse` clause for exactly this reason. A framework that reintroduces device sniffing
+  under its own name for it is not following the brief.
+- **What v550 actually covers:** the editor's sticky player dock and the Cut tab hint, and nothing
+  else in the suite. The researcher panel, recorder, crowd embed and PAT are unaudited.
+- **The measurement method**, which turned this from taste into a number: clone the element into a
+  fixed-width host and read `getBoundingClientRect()`, or drive the real page with viewport emulation
+  and read `matchMedia` + computed styles. 324px of chrome above the work at 375px was the finding
+  that justified the change; do the same for each app before designing anything.
+- **The constraint that decides the framework question:** static site, no build step, offline via a
+  hand-listed `sw.js` SHELL, every byte precached onto field phones on poor connections. That is not
+  a reason to refuse a framework — it is the specific trade any proposal has to answer.
+- **Two live examples of why the "cleaner UI" half is not cosmetic:** issue #17 (a researcher cannot
+  tell "Revoke this install" from "Revoke device" — Brian had to reason out the difference and then
+  proposed better wording himself) and issue #16 (a stale "needs its app updated first" message that
+  will not clear). Both are UI-clarity bugs, and both are the kind of thing a revamp should be
+  measured against rather than a repaint that leaves them in place.
+
+⚠ **The blast-radius rule still governs:** `docs/css/app.css` and `docs/js/` are loaded by all five
+apps, so a restyle is a five-app change whether or not it is meant to be. Prefer a pass per app with
+measurements over one sweeping restyle.

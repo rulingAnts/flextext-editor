@@ -8328,6 +8328,15 @@ function setup() {
   $('#btn-refresh')?.addEventListener('click', async (e) => {
     const b = e.currentTarget;
     if (b) { b.classList.add('rp-spin'); b.disabled = true; }
+    /* ⚠ COMMIT WHAT IS ON SCREEN BEFORE RELOADING (Seth, 2026-09-01: "make sure unfocus and save
+     * changes fires before reload… if there's a risk of the current edit not getting saved").
+     * The home bar is shared by the Settings and Utilities tabs, which have real input fields, so
+     * "no text is open" does NOT mean "nothing is unsaved". Blur first — that is what fires the
+     * change handlers a field's value depends on — then flush the DEBOUNCED save rather than
+     * waiting for its timer, which the reload would otherwise cut off. This is the same loss the
+     * auto-update banner is already filed for; there is no reason to reproduce it in a button. */
+    try { document.activeElement && document.activeElement.blur && document.activeElement.blur(); } catch { /* noop */ }
+    try { clearTimeout(saveTimer); await persist(); } catch { /* nothing open, or save failed — reload anyway */ }
     try { const reg = await navigator.serviceWorker?.getRegistration(); await reg?.update(); }
     catch { /* no worker, or update refused — reload anyway */ }
     finally { location.reload(); }

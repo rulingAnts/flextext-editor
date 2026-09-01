@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v565';
+export const ENGINE_VERSION = 'v566';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v565';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'refresh-hard v1';
+export const BUILD_TAG = '';
 
 const S = {
 en: {
@@ -1293,6 +1293,7 @@ internet after the first time.</p>
   // ── upload a text to a PROJECT, no device (issue #4) ──
   'panel.proj.newText': 'New text…',
   'panel.rel.new.projectText': 'Panel: a project has its own “New text…” button — upload a text straight into the project and decide later which device works on it. The device button is now “Assign new text…”, since it uploads and assigns in one go.'
+    ,'panel.rel.new.hardRefresh': 'Refresh now genuinely reloads the app and checks for a new version, rather than quietly re-reading what it already had. It is in the header beside Sign out, and the editor has the same button on its home screen. If a transfer is running, it asks first.'
     ,'panel.rel.new.moveVersionAge': 'Panel: when a device is too old to receive a moved text, the panel now says which version it reported and when — instead of “needs its app updated first”, which could not be cleared by reloading the panel because it is the DEVICE that has to check in.'
     ,'panel.rel.new.deviceHeader': 'Panel: each device row is tidier. New text, Settings and Move are icons on the device’s own line; Refresh has moved up into the header beside Sign out; and Unlink, Delete and Erase are grouped together, clear of the everyday buttons, with the erase button marked as the dangerous one. Unlink doubles as Link before a device is connected.'
     ,'panel.rel.new.uploadChipAll': 'Panel: a text is only marked “uploaded ✓” once ALL of its files have arrived. It used to say so as soon as the text itself landed, while the recording was still going up.'
@@ -3290,6 +3291,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.assign.title': 'Tugaskan teks',
   'panel.proj.newText': 'Teks baru…',
   'panel.rel.new.projectText': 'Panel: setiap proyek punya tombol “Teks baru…” sendiri — unggah teks langsung ke proyek dan putuskan nanti perangkat mana yang mengerjakannya. Tombol pada perangkat kini “Tugaskan teks baru…”, karena ia mengunggah sekaligus menugaskan.'
+    ,'panel.rel.new.hardRefresh': 'Segarkan kini benar-benar memuat ulang aplikasi dan memeriksa versi baru, bukan diam-diam membaca ulang yang sudah ada. Tombolnya di header di samping Keluar, dan editor punya tombol yang sama di layar utamanya. Jika ada transfer berjalan, ia bertanya dulu.'
     ,'panel.rel.new.moveVersionAge': 'Panel: bila sebuah perangkat terlalu lama untuk menerima teks yang dipindahkan, panel kini menyebutkan versi apa yang dilaporkannya dan kapan — bukan “aplikasinya perlu diperbarui dulu”, yang tidak bisa hilang dengan memuat ulang panel karena PERANGKAT-lah yang harus terhubung.'
     ,'panel.rel.new.deviceHeader': 'Panel: setiap baris perangkat lebih rapi. Teks baru, Pengaturan, dan Pindahkan kini berupa ikon pada baris perangkat itu sendiri; Segarkan pindah ke header di samping Keluar; dan Putuskan, Cabut, serta Hapus dikelompokkan bersama, terpisah dari tombol sehari-hari, dengan tombol hapus ditandai sebagai yang berbahaya. Putuskan berganti menjadi Tautkan sebelum perangkat terhubung.'
     ,'panel.rel.new.uploadChipAll': 'Panel: sebuah teks baru ditandai “terunggah ✓” setelah SEMUA berkasnya sampai. Sebelumnya ia menandainya begitu teksnya sendiri sampai, padahal rekamannya masih diunggah.'

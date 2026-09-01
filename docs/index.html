@@ -128,8 +128,12 @@
         <option value="1" selected data-i18n="player.speedNormal">Normal</option>
       </select>
       <span class="player-time"></span>
-      <label class="player-zoom-wrap"><span data-i18n="player.zoom">Zoom</span>
-        <input type="range" class="player-zoom" min="1" max="300" value="1" step="1">
+      <!-- ⚠ THE INPUT CARRIES ITS OWN aria-label because the visible word is DROPPED on a small
+           screen (see the max-width:560px block). Without it, hiding the span would leave the
+           slider with no accessible name at exactly the size where it matters most. -->
+      <label class="player-zoom-wrap"><span class="player-zoom-label" data-i18n="player.zoom">Zoom</span>
+        <input type="range" class="player-zoom" min="1" max="300" value="1" step="1"
+               data-i18n-aria="player.zoom">
       </label>
       <button class="player-remove icon-btn2" data-i18n-title="player.remove">✕</button>
     </div>
@@ -140,7 +144,7 @@
      ⚠ It still EDITS text: a cut inserts an empty paragraph and a join merges two, because
      segments[i] IS baseline paragraph i. See segments.js cutAtPlayhead / joinWithPrevious. -->
 <section id="view-cut" class="view" hidden>
-  <p class="tab-hint" data-i18n-html="cut.hint"></p>
+  <p id="cut-hint" class="tab-hint" data-i18n-html="cut.hint"></p>
   <p id="cut-loading" class="note seg-loading" hidden role="status" aria-live="polite">
     <span class="seg-loading-text" data-i18n="seg.loadingAudio">Loading the recording…</span>
     <span class="seg-loading-bar is-indeterminate" aria-hidden="true"><i></i></span>
@@ -159,8 +163,18 @@
            aria-label, and the tab's hint text is where it is explained. ✨ is Emoji 1.0 (2015), so it
            renders on every Android in the field; 🪄 is Emoji 13 and would be tofu on older ones. -->
       <button id="btn-guess-splits" class="secondary-btn icon-btn2" data-i18n-title="cut.guess"
-              aria-label="Guess the lines">✨</button>
+              data-i18n-aria="cut.guess" aria-label="Guess the lines">✨</button>
       <span id="cut-tools-label" class="cut-tools-label" data-i18n="cut.guessShort">Guess</span>
+      <!-- ⚠ THE INSTRUCTIONS FOLD AWAY ON A PHONE, AND ONLY THERE (Seth, 2026-09-01). Measured at
+           375px the hint paragraph is 162px tall — as tall as the whole sticky player above it — so
+           between them they filled the screen before one waveform strip was visible. On a wide
+           screen the hint stays where it was and this button is display:none, because that hint is
+           where the tab is LEARNT and hiding it from everyone would trade a real cost for a
+           space saving nobody needed. -->
+      <button id="btn-cut-hint" class="icon-btn2 cut-hint-btn" type="button"
+              aria-controls="cut-hint" aria-expanded="false"
+              data-i18n-title="cut.hintToggle" data-i18n-aria="cut.hintToggle"
+              aria-label="How this tab works">ℹ</button>
     </div>
     <p id="cut-say" class="note cut-say" role="status" aria-live="polite"></p>
     <div id="cut-strips"></div>

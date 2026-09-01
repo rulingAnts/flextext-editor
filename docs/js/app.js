@@ -8284,6 +8284,22 @@ function setup() {
     stripSplitAtPlayhead();
   });
   $('#btn-guess-splits')?.addEventListener('click', () => cutGuessSplits());
+  /* ℹ folds the Cut tab's instructions away on a phone. The button is display:none above 560px, so
+   * this listener is inert there and the hint is simply visible — the CSS decides who needs it, not
+   * a width read in JS that would then be wrong after a rotation. `is-open` is likewise harmless on
+   * a wide screen, where the hint shows regardless. */
+  $('#btn-cut-hint')?.addEventListener('click', (e) => {
+    const hint = $('#cut-hint');
+    if (!hint) return;
+    const open = hint.classList.toggle('is-open');
+    e.currentTarget.setAttribute('aria-expanded', open ? 'true' : 'false');
+    /* The label follows the state, so a screen reader is not told "how this tab works" by a button
+     * whose only remaining job is to put it away again. */
+    e.currentTarget.dataset.i18nAria = open ? 'cut.hintHide' : 'cut.hintToggle';
+    e.currentTarget.dataset.i18nTitle = open ? 'cut.hintHide' : 'cut.hintToggle';
+    e.currentTarget.setAttribute('aria-label', t(e.currentTarget.dataset.i18nAria));
+    e.currentTarget.title = t(e.currentTarget.dataset.i18nTitle);
+  });
   $('#btn-help-home').addEventListener('click', openHelp);
   $('#btn-help-editor').addEventListener('click', openHelp);
   $('#btn-help-close').addEventListener('click', closeHelp);

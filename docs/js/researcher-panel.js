@@ -1106,6 +1106,9 @@ const RELEASES = [
    * again — a note describing something the shipped code does not do — and worse than silence,
    * because a researcher told a data-integrity bug is fixed stops working around it. It goes in
    * the release that actually turns it on. */
+  { v: 'v555', date: '2026-09-01', items: [
+    { k: 'panel.rel.new.deviceButtons', issue: 17 },
+  ] },
   { v: 'v550', date: '2026-09-01', items: [
     { k: 'panel.rel.new.smallScreen' },
     { k: 'panel.rel.new.pairConnect' },

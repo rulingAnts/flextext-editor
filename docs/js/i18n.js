@@ -5,7 +5,7 @@
 
 const LANG_KEY = 'flextext-lang';
 
-export const ENGINE_VERSION = 'v554';
+export const ENGINE_VERSION = 'v556';
 
 /* BUILD_TAG — what a HUMAN calls this build. Empty on production; a feature name + revision on a
  * feature/staging build ('assign-by-upload v1', bumped v2, v3… per fix you re-test). The version
@@ -23,7 +23,7 @@ export const ENGINE_VERSION = 'v554';
  *
  * ⚠ CLEAR THIS TO '' BEFORE A PRODUCTION RELEASE (bump-version.sh warns while it is set). It is
  * shown on screen, so a tagged build reaching production announces itself immediately. */
-export const BUILD_TAG = 'revoke-wording v4';
+export const BUILD_TAG = '';
 
 const S = {
 en: {
@@ -1280,6 +1280,7 @@ internet after the first time.</p>
   // ── upload a text to a PROJECT, no device (issue #4) ──
   'panel.proj.newText': 'New text…',
   'panel.rel.new.projectText': 'Panel: a project has its own “New text…” button — upload a text straight into the project and decide later which device works on it. The device button is now “Assign new text…”, since it uploads and assigns in one go.'
+    ,'panel.rel.new.deviceButtons': 'Panel: the three device buttons now say which is which. Unlink keeps the device and lets you set it up somewhere else; Delete removes it from your list; Erase and Reset Device wipes what is on the device itself and is marked as the dangerous one. They sit together on their own line under the everyday buttons.'
     ,'panel.rel.new.smallScreen': 'Editor: on a phone or a tablet the audio player is smaller, and the Cut tab’s instructions fold behind an ℹ button beside ✨ — together they were taking about 320 pixels above the work. Bigger screens are unchanged.'
     ,'panel.rel.new.pairConnect': 'Devices: the \u201cConnect\u201d button on a device being paired could sit behind the \u201cwaiting for your researcher\u201d box on a short or sideways screen, so tapping it did nothing. It is now always on top.'
     ,'panel.rel.new.deviceOnce': 'Panel: creating a device can no longer produce a duplicate. If the network drops while the device is being made, the retry finds the one that exists instead of making a second.',
@@ -3264,6 +3265,7 @@ tetap bisa dipakai tanpa internet setelah pertama kali.</p>
   'panel.assign.title': 'Tugaskan teks',
   'panel.proj.newText': 'Teks baru…',
   'panel.rel.new.projectText': 'Panel: setiap proyek punya tombol “Teks baru…” sendiri — unggah teks langsung ke proyek dan putuskan nanti perangkat mana yang mengerjakannya. Tombol pada perangkat kini “Tugaskan teks baru…”, karena ia mengunggah sekaligus menugaskan.'
+    ,'panel.rel.new.deviceButtons': 'Panel: ketiga tombol perangkat kini menjelaskan bedanya. Putuskan mempertahankan perangkat dan memungkinkan Anda memasangnya di tempat lain; Cabut menghapusnya dari daftar Anda; Hapus dan Setel Ulang Perangkat memusnahkan isi perangkatnya sendiri dan ditandai sebagai yang berbahaya. Ketiganya berada bersama pada barisnya sendiri di bawah tombol sehari-hari.'
     ,'panel.rel.new.smallScreen': 'Editor: di ponsel atau tablet, pemutar audio lebih kecil, dan petunjuk pada tab Potong dilipat di balik tombol ℹ di samping ✨ — bersama-sama keduanya memakan sekitar 320 piksel di atas area kerja. Layar besar tidak berubah.'
     ,'panel.rel.new.pairConnect': 'Perangkat: tombol \u201cHubungkan\u201d pada perangkat yang sedang dipasangkan bisa tertutup kotak \u201cmenunggu peneliti Anda\u201d di layar pendek atau melebar, sehingga menekannya tidak melakukan apa-apa. Kini tombol itu selalu di atas.'
     ,'panel.rel.new.deviceOnce': 'Panel: membuat perangkat tidak lagi bisa menghasilkan duplikat. Jika jaringan terputus saat perangkat dibuat, percobaan ulang menemukan yang sudah ada, bukan membuat yang kedua.',

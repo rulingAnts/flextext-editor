@@ -3894,8 +3894,22 @@ async function renderInstanceCard(it, deviceCount, memberCtx = null) {
            * approval is NOT linked, and offering Unlink there would be offering to undo something
            * that has not happened. Sharing the expression is what stops the toggle and the badge
            * ever telling different stories about the same device. */
-          const connect = linked
-            ? (live ? `<button class="rp-split-half" data-iact="revoke-install" data-i="${I}" data-id="${esc(live.install_id)}" data-name="${NM}" title="${esc(t('panel.inst.revokeInstallTip'))}" aria-label="${esc(t('panel.inst.revokeInstall'))}">${ICON_UNLINK}<span>${esc(t('panel.inst.revokeInstall'))}</span></button>` : '')
+          /* ⚠ THE HINGE IS "IS THERE A LIVE INSTALL", NOT "IS IT APPROVED" — and the middle state is
+           * why (Seth asked what happens there). Between the field user accepting on their device
+           * and the researcher approving, the install exists with status 'pending'. Keying this on
+           * the badge's `linked` (approved && has_key) showed LINK in that window, which is not
+           * merely unhelpful but harmful: the invite is already claimed and spent, and minting a
+           * fresh one REVOKES the pending install (worker, "single-live-device, §D.4"). The button
+           * would have offered to destroy the enrollment the researcher was about to approve, while
+           * looking like a setup step.
+           * Unlink is right there — revoking a pending install is a real action ("that is not the
+           * device I meant") and the worker's route takes it with no status check.
+           * ⚠ SO THE BUTTON AND THE BADGE DELIBERATELY DIVERGE in that window, and that is correct:
+           * the badge answers "what state is this device in" (pending), the button answers "what can
+           * I do about it" (cancel it). An earlier comment here claimed sharing one expression kept
+           * them honest; it did not — it made the button wrong. */
+          const connect = live
+            ? (`<button class="rp-split-half" data-iact="revoke-install" data-i="${I}" data-id="${esc(live.install_id)}" data-name="${NM}" title="${esc(t('panel.inst.revokeInstallTip'))}" aria-label="${esc(t('panel.inst.revokeInstall'))}">${ICON_UNLINK}<span>${esc(t('panel.inst.revokeInstall'))}</span></button>`)
             : (mInvite ? `<button class="rp-split-half" data-iact="invite" data-i="${I}" data-type="${esc(it.type)}" title="${esc(t('panel.inst.inviteTip'))}" aria-label="${esc(t('panel.inst.link'))}">${ICON_LINK}<span>${esc(t('panel.inst.link'))}</span></button>` : '');
           const unlink = connect;
           const del = `<button class="rp-split-half" data-iact="revoke" data-i="${I}" data-name="${NM}" data-i18n-title="panel.inst.revokeTip" title="${esc(t('panel.inst.revokeTip'))}">${ICON_X}<span>${esc(t('panel.inst.revoke'))}</span></button>`;

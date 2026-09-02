@@ -7121,11 +7121,21 @@ function setupConsentMode() {
 
 // Segmentation only means something once the recording is attached and the text has lines to
 // match. Reporting that plainly is more useful than a disabled row with no reason on it.
-function sgStateOf(d) {
-  // segCount rides in the listDocs projection; d.doc does not (the list never loads whole records).
-  const spans = Number(d.segCount) || 0;
-  if (!d.mediaName) return 'noaudio';
-  return spans > 0 ? 'some' : 'none';
+/* ⚠ BOTH SIGNALS USED TO BE WRONG, AND EITHER ONE ALONE MADE THIS APP UNUSABLE ON REAL DATA.
+ *
+ *  - "has audio" read `d.mediaName`, a field NOTHING IN THE SUITE WRITES (see db.mediaKeys). Every
+ *    text on a real device therefore reported "no recording attached" and had its Open button
+ *    disabled — the segmenter could not be entered at all except on a hand-made fixture that
+ *    happened to carry the field. The media store is the fact, and `have` is its key set.
+ *  - "how many spans" read `d.segCount`, which is docStats' count of PHRASES — how much TEXT the
+ *    doc holds. A 30-line transcript with no cuts made reported itself as fully segmented.
+ *    spanCount is the real one, counted from doc.segments in the projection.
+ *
+ * A text whose recording is still downloading is not "no audio": saying so would send a user to
+ * attach a file that is already on its way. */
+function sgStateOf(d, have) {
+  if (!have.has(d.id)) return d.pendingAudio ? 'coming' : 'noaudio';
+  return (Number(d.spanCount) || 0) > 0 ? 'some' : 'none';
 }
 
 function renderSegmenterView() {
@@ -7142,12 +7152,13 @@ function renderSegmenterView() {
 async function sgRenderList() {
   const ul = $('#sg-list');
   if (!ul) return;
-  const docs = await db.listDocs();
+  // One list read and one media-key read for the whole library, not a getMedia per row.
+  const [docs, have] = await Promise.all([db.listDocs(), db.mediaKeys().catch(() => new Set())]);
   const empty = $('#sg-empty');
   if (empty) empty.hidden = docs.length > 0;
   ul.innerHTML = '';
   for (const d of docs) {
-    const st = sgStateOf(d);
+    const st = sgStateOf(d, have);
     const li = document.createElement('li');
     li.className = 'rec-item sg-' + st;
     li.innerHTML = `
@@ -7160,12 +7171,16 @@ async function sgRenderList() {
       </div>`;
     li.querySelector('.doc-name').textContent = d.title || t('untitled');
     li.querySelector('.doc-meta').textContent =
-      st === 'noaudio' ? t('sg.noAudio') : st === 'some' ? t('sg.someSpans') : t('sg.noSpans');
+      st === 'noaudio' ? t('sg.noAudio')
+      : st === 'coming' ? t('seg.loadingAudio')
+      : st === 'some' ? t('sg.someSpans').replace('{n}', d.spanCount)
+      : t('sg.noSpans');
     const open = li.querySelector('.sg-open');
     open.textContent = t('sg.open');
-    // No audio means nothing to cut. Leaving the button live would open a Cut tab that can only
-    // say "attach a recording", which is a worse way to learn the same fact.
-    if (st === 'noaudio') open.disabled = true;
+    // No audio means nothing to match. Leaving the button live would open a matcher that can only
+    // say "attach a recording", which is a worse way to learn the same fact. A recording still on
+    // its way is the same for now, and the list re-renders when it lands (onLive → sgRenderList).
+    if (st === 'noaudio' || st === 'coming') open.disabled = true;
     else open.addEventListener('click', () => mgOpen(d.id));
     ul.appendChild(li);
   }
@@ -7230,7 +7245,13 @@ function mgLoad(rec) {
      * pending state hid under a different name would be silently treated as aligned and offered a
      * ▶ that plays from 0 to 0. `timeEstimated` rides along untouched: an estimate IS a timeline,
      * so it stays playable, and mgCommit must give it back rather than promote it to a measurement. */
-    spans: (rec.segments || []).map((s, i) => ({
+    /* ⚠ doc.segments, NOT rec.segments. `doc.segments` is where the spans live and the ONLY place
+     * the rest of the suite looks: segment-strips writes it on every cut, join and guess; the
+     * flextext exporter and the EAF/bundle builders read it. Reading a top-level `rec.segments`
+     * found nothing on any text the Cut tab had actually produced — the left pane came up empty on
+     * every real document, and only a hand-made fixture that happened to store them at the top
+     * level made this look like it worked. */
+    spans: docSegments(rec.doc).map((s, i) => ({
       id: 'sp' + i, start: Number(s.start) || 0, end: Number(s.end) || 0,
       timePending: !!s.timePending, timeEstimated: !!s.timeEstimated,
     })),
@@ -7361,7 +7382,12 @@ async function mgCommit() {
           timeEstimated: !!(cur.timeEstimated || sp.timeEstimated) }
       : { start: sp.start, end: sp.end, timeEstimated: !!sp.timeEstimated });
   }
-  rec.segments = MG.lines.map((l) => {
+  rec.doc = rec.doc || {};
+  /* ⚠ WRITE doc.segments, NOT rec.segments — the same field mgLoad reads and the only one anything
+   * else does. A top-level rec.segments is read by nothing in this suite, so a whole matching
+   * session written there would have been silently discarded: the toast said "saved", the record
+   * grew a field, and the document's alignment was exactly as it had been. */
+  rec.doc.segments = MG.lines.map((l) => {
     const ext = byLine.get(l.id);
     if (!ext) return { start: 0, end: 0, timePending: true };
     // An estimated time stays labelled as one all the way through: exports and the archive care
@@ -7369,13 +7395,15 @@ async function mgCommit() {
     return ext.timeEstimated ? { start: ext.start, end: ext.end, timeEstimated: true }
                              : { start: ext.start, end: ext.end };
   });
-  rec.doc = rec.doc || {};
   rec.doc.paragraphs = MG.lines.map((l) => ({ guid: l.guid || newGuid(), segments: l.phrases }));
-  rec.segCount = rec.segments.length;
+  // docStats, like every other writer — segCount means PHRASES here, and hand-setting it to the
+  // span count would have made this app's texts report a different kind of number from everyone
+  // else's in the shared library list.
+  Object.assign(rec, docStats(rec.doc));
   rec.modified = Date.now();
   await db.putDoc(rec);
   db.broadcastLive('docs');
-  toast(t('mg.committed').replace('{n}', rec.segments.length));
+  toast(t('mg.committed').replace('{n}', rec.doc.segments.length));
   mgClose();
   sgRenderList();
 }

@@ -32,6 +32,13 @@ const asyncFn = (src, name) => {
   const m = src.match(new RegExp(`\\nasync function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n\\}`));
   return m ? m[0] : '';
 };
+/* ⚠ COMMENTS STRIPPED BEFORE ANY "this name appears nowhere" ASSERTION. Three of the checks below
+ * failed on their first run against correct code, because the fix's own comments NAME the wrong
+ * field they warn you off — "doc.segments, NOT rec.segments". A test that reads prose is asserting
+ * about the explanation rather than the behaviour, and would have to be weakened every time the
+ * explanation got better. Crude but sufficient: this source has no regex literals or strings
+ * containing `//`, and the assertions using it only ask whether an identifier is absent. */
+const code = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/[^\n]*/g, '$1');
 
 console.log('\nthe audio row is built from the SHARED helpers, not a fourth copy of them');
 const draw = fn(app, 'mgDraw');
@@ -42,8 +49,42 @@ ok(/attachSpanWave\(wave, sp\)/.test(draw), 'the peaks are painted by the shared
 ok(/attachSpanWave|healSpanWave/.test(strips) && /export function attachSpanWave/.test(strips),
    'attachSpanWave is exported from segment-strips, so there is one implementation of it');
 // A private drawing path here is the regression this whole file guards against.
-ok(!/function mgDrawWave|new OfflineAudioContext|decodeAudioData/.test(app.slice(app.indexOf('THE MATCHER'))),
+ok(!/function mgDrawWave|new OfflineAudioContext|decodeAudioData/.test(code(app.slice(app.indexOf('THE MATCHER')))),
    'the matcher decodes and draws nothing of its own');
+
+/* ⚠ THE TWO DEFECTS BELOW MADE THIS APP UNUSABLE ON REAL DATA, and both survived a full manual
+ * test drive because the fixture had been hand-written to match the CODE's assumption rather than
+ * the suite's. They are pinned first because they are the ones that cost a field day. */
+console.log('\nspans live in doc.segments — the field the rest of the suite reads and writes');
+const stripsW = read('docs/js/segment-strips.js');
+ok(/doc\.segments = /.test(stripsW), 'segment-strips writes doc.segments on every cut, join and guess');
+ok(/Array\.isArray\(doc\.segments\)/.test(read('docs/js/flextext.js')), 'the flextext exporter reads doc.segments');
+ok(/Array\.isArray\(doc\.segments\)/.test(read('docs/js/seg-exports.js')), 'and so do the EAF/bundle builders');
+const load0 = fn(app, 'mgLoad');
+ok(/docSegments\(rec\.doc\)/.test(load0),
+   'mgLoad reads doc.segments (a top-level rec.segments found NOTHING on any text the Cut tab made — an empty left pane on every real document)');
+const commit0 = asyncFn(app, 'mgCommit');
+ok(/rec\.doc\.segments = MG\.lines\.map/.test(commit0),
+   'mgCommit writes doc.segments (writing rec.segments meant the toast said "saved" and the alignment did not change)');
+ok(!/\brec\.segments\b/.test(code(commit0)) && !/\brec\.segments\b/.test(code(load0)),
+   'and neither touches a top-level rec.segments at all');
+ok(/Object\.assign\(rec, docStats\(rec\.doc\)\)/.test(commit0),
+   'segCount comes from docStats like every other writer — it counts PHRASES, not spans');
+
+console.log('\n"has a recording" is the media store, not a field nobody writes');
+const dbjs = read('docs/js/db.js');
+ok(/export async function mediaKeys/.test(dbjs), 'db.mediaKeys() asks the media store directly, in one transaction');
+ok(!/mediaName/.test(code(dbjs)), 'listDocs no longer projects mediaName — NOTHING in the suite ever writes it');
+ok(!/\.mediaName\b/.test(code(app.slice(app.indexOf('AUDIO SEGMENTER')))), 'and the segmenter no longer reads it');
+const state = fn(app, 'sgStateOf');
+ok(/have\.has\(d\.id\)/.test(state),
+   'sgStateOf asks the media keys (gating Open on mediaName disabled every text on a real device)');
+ok(/spanCount/.test(code(state)) && !/segCount/.test(code(state)),
+   'and counts spanCount, not segCount (a 30-line transcript with no cuts reported itself fully segmented)');
+ok(/const spanCount = segs\.filter/.test(dbjs) && /!s\.timePending/.test(dbjs),
+   'spanCount is computed in the projection from doc.segments, aligned spans only');
+ok(/d\.pendingAudio \? 'coming'/.test(state),
+   'a recording still downloading reads as arriving, not as "no recording" — that would send a user to attach a file already on its way');
 
 console.log('\nthe pending flag is named what isAligned reads, or every span is silently "aligned"');
 ok(/export function isAligned[\s\S]*?seg\.timePending/.test(strips.length ? read('docs/js/segments.js') : ''),
@@ -69,7 +110,7 @@ ok(/last && now <= sp\.end/.test(ticker), 'the LAST span includes its own end, s
 
 console.log('\nthe pairing colour is SPACED, not hashed — adjacent lines must not share a shade');
 ok(/137\.508/.test(draw), 'hues step by the golden angle');
-ok(!/charCodeAt/.test(draw), 'no string hash over the ids (which gave 326°, 327°, 328° on a three-line text)');
+ok(!/charCodeAt/.test(code(draw)), 'no string hash over the ids (which gave 326°, 327°, 328° on a three-line text)');
 ok(/lineOrder|hueForLine/.test(draw), 'the hue comes from the LINE, so a span and its line are the same colour in both panes');
 // Colour is never the only channel: the pick button carries the number.
 ok(/pick\.textContent = String\(i \+ 1\)/.test(draw), 'and every row still carries its number, so colour is redundant encoding');
@@ -88,7 +129,7 @@ ok(/Math\.min\(cur\.start, sp\.start\)[\s\S]*?Math\.max\(cur\.end, sp\.end\)/.te
    'several spans on one line become the UNION of their extent — a line said in three bursts keeps all three');
 ok(/if \(sp\.timePending\) continue/.test(commit), 'an unaligned span contributes no timeline to that union');
 ok(/timeEstimated: true/.test(commit), 'an estimated boundary is written back as estimated, not promoted to a measurement');
-ok(/rec\.doc\.paragraphs = MG\.lines\.map/.test(commit) && /rec\.segments = MG\.lines\.map/.test(commit),
+ok(/rec\.doc\.paragraphs = MG\.lines\.map/.test(commit) && /rec\.doc\.segments = MG\.lines\.map/.test(commit),
    'segments and paragraphs come out the same length and in the same order — segments[i] IS paragraph i');
 
 console.log('\nleaving releases everything at once');
